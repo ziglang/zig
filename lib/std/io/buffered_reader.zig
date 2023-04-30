@@ -20,8 +20,8 @@ pub fn BufferedReader(comptime buffer_size: usize, comptime ReaderType: type) ty
             var dest_index: usize = 0;
 
             while (dest_index < dest.len) {
-                const written = std.math.min(dest.len - dest_index, self.end - self.start);
-                std.mem.copy(u8, dest[dest_index..], self.buf[self.start .. self.start + written]);
+                const written = @min(dest.len - dest_index, self.end - self.start);
+                @memcpy(dest[dest_index..][0..written], self.buf[self.start..][0..written]);
                 if (written == 0) {
                     // buf empty, fill it
                     const n = try self.unbuffered_reader.read(self.buf[0..]);
@@ -115,11 +115,8 @@ test "io.BufferedReader Block" {
         }
 
         fn read(self: *Self, dest: []u8) Error!usize {
-            if (self.curr_read >= self.reads_allowed) {
-                return 0;
-            }
-            std.debug.assert(dest.len >= self.block.len);
-            std.mem.copy(u8, dest, self.block);
+            if (self.curr_read >= self.reads_allowed) return 0;
+            @memcpy(dest[0..self.block.len], self.block);
 
             self.curr_read += 1;
             return self.block.len;

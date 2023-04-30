@@ -79,7 +79,7 @@ fn joinSepMaybeZ(allocator: Allocator, separator: u8, comptime sepPredicate: fn 
     const buf = try allocator.alloc(u8, total_len);
     errdefer allocator.free(buf);
 
-    mem.copy(u8, buf, paths[first_path_index]);
+    @memcpy(buf[0..paths[first_path_index].len], paths[first_path_index]);
     var buf_index: usize = paths[first_path_index].len;
     var prev_path = paths[first_path_index];
     assert(prev_path.len > 0);
@@ -94,7 +94,7 @@ fn joinSepMaybeZ(allocator: Allocator, separator: u8, comptime sepPredicate: fn 
             buf_index += 1;
         }
         const adjusted_path = if (prev_sep and this_sep) this_path[1..] else this_path;
-        mem.copy(u8, buf[buf_index..], adjusted_path);
+        @memcpy(buf[buf_index..][0..adjusted_path.len], adjusted_path);
         buf_index += adjusted_path.len;
         prev_path = this_path;
     }
@@ -631,7 +631,7 @@ pub fn resolveWindows(allocator: Allocator, paths: []const []const u8) ![]u8 {
             real_result[i..][0..3].* = "..\\".*;
             i += 3;
         }
-        mem.copy(u8, real_result[i..], result.items);
+        @memcpy(real_result[i..][0..result.items.len], result.items);
         return real_result;
     }
 }
@@ -710,7 +710,7 @@ pub fn resolvePosix(allocator: Allocator, paths: []const []const u8) Allocator.E
             real_result[i..][0..3].* = "../".*;
             i += 3;
         }
-        mem.copy(u8, real_result[i..], result.items);
+        @memcpy(real_result[i..][0..result.items.len], result.items);
         return real_result;
     }
 }
@@ -1106,7 +1106,7 @@ pub fn relativeWindows(allocator: Allocator, from: []const u8, to: []const u8) !
         while (rest_it.next()) |to_component| {
             result[result_index] = '\\';
             result_index += 1;
-            mem.copy(u8, result[result_index..], to_component);
+            @memcpy(result[result_index..][0..to_component.len], to_component);
             result_index += to_component.len;
         }
 
@@ -1151,7 +1151,7 @@ pub fn relativePosix(allocator: Allocator, from: []const u8, to: []const u8) ![]
             return allocator.realloc(result, result_index - 1);
         }
 
-        mem.copy(u8, result[result_index..], to_rest);
+        @memcpy(result[result_index..][0..to_rest.len], to_rest);
         return result;
     }
 

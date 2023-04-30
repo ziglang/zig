@@ -822,9 +822,19 @@ fn runCommand(
             },
         },
         .zig_test => {
+            const prefix: []const u8 = p: {
+                if (result.stdio.test_metadata) |tm| {
+                    if (tm.next_index <= tm.names.len) {
+                        const name = tm.testName(tm.next_index - 1);
+                        break :p b.fmt("while executing test '{s}', ", .{name});
+                    }
+                }
+                break :p "";
+            };
             const expected_term: std.process.Child.Term = .{ .Exited = 0 };
             if (!termMatches(expected_term, result.term)) {
-                return step.fail("the following command {} (expected {}):\n{s}", .{
+                return step.fail("{s}the following command {} (expected {}):\n{s}", .{
+                    prefix,
                     fmtTerm(result.term),
                     fmtTerm(expected_term),
                     try Step.allocPrintCmd(arena, self.cwd, final_argv),
@@ -832,8 +842,8 @@ fn runCommand(
             }
             if (!result.stdio.test_results.isSuccess()) {
                 return step.fail(
-                    "the following test command failed:\n{s}",
-                    .{try Step.allocPrintCmd(arena, self.cwd, final_argv)},
+                    "{s}the following test command failed:\n{s}",
+                    .{ prefix, try Step.allocPrintCmd(arena, self.cwd, final_argv) },
                 );
             }
         },
@@ -922,6 +932,7 @@ const StdIoResult = struct {
     stdout_null: bool,
     stderr_null: bool,
     test_results: Step.TestResults,
+    test_metadata: ?TestMetadata,
 };
 
 fn evalZigTest(
@@ -1070,6 +1081,7 @@ fn evalZigTest(
             .skip_count = skip_count,
             .leak_count = leak_count,
         },
+        .test_metadata = metadata,
     };
 }
 
@@ -1185,6 +1197,7 @@ fn evalGeneric(self: *RunStep, child: *std.process.Child) !StdIoResult {
         .stdout_null = stdout_null,
         .stderr_null = stderr_null,
         .test_results = .{},
+        .test_metadata = null,
     };
 }
 

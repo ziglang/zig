@@ -243,14 +243,30 @@ pub fn log(
 /// Simpler main(), exercising fewer language features, so that
 /// work-in-progress backends can handle it.
 pub fn mainSimple() anyerror!void {
-    //const stderr = std.io.getStdErr();
+    const enable_print = false;
+
+    var passed: u64 = 0;
+    var skipped: u64 = 0;
+    var failed: u64 = 0;
+    const stderr = if (enable_print) std.io.getStdErr() else {};
     for (builtin.test_functions) |test_fn| {
         test_fn.func() catch |err| {
+            if (enable_print) stderr.writeAll(test_fn.name) catch {};
             if (err != error.SkipZigTest) {
-                //stderr.writeAll(test_fn.name) catch {};
-                //stderr.writeAll("\n") catch {};
-                return err;
+                if (enable_print) stderr.writeAll("... FAIL\n") catch {};
+                failed += 1;
+                if (!enable_print) return err;
+                continue;
             }
+            if (enable_print) stderr.writeAll("... SKIP\n") catch {};
+            skipped += 1;
+            continue;
         };
+        //if (enable_print) stderr.writeAll("... PASS\n") catch {};
+        passed += 1;
+    }
+    if (enable_print) {
+        stderr.writer().print("{} passed, {} skipped, {} failed\n", .{ passed, skipped, failed }) catch {};
+        if (failed != 0) std.process.exit(1);
     }
 }

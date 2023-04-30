@@ -312,11 +312,11 @@ pub fn hkdfExpandLabel(
     buf[2] = @intCast(u8, tls13.len + label.len);
     buf[3..][0..tls13.len].* = tls13.*;
     var i: usize = 3 + tls13.len;
-    mem.copy(u8, buf[i..], label);
+    @memcpy(buf[i..][0..label.len], label);
     i += label.len;
     buf[i] = @intCast(u8, context.len);
     i += 1;
-    mem.copy(u8, buf[i..], context);
+    @memcpy(buf[i..][0..context.len], context);
     i += context.len;
 
     var result: [len]u8 = undefined;

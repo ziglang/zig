@@ -177,6 +177,8 @@ test {
     _ = @import("behavior/math.zig");
     _ = @import("behavior/maximum_minimum.zig");
     _ = @import("behavior/member_func.zig");
+    _ = @import("behavior/memcpy.zig");
+    _ = @import("behavior/memset.zig");
     _ = @import("behavior/merge_error_sets.zig");
     _ = @import("behavior/muladd.zig");
     _ = @import("behavior/namespace_depends_on_compile_var.zig");

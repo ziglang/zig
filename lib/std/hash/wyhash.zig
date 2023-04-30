@@ -147,7 +147,7 @@ pub const Wyhash = struct {
 
         if (self.buf_len != 0 and self.buf_len + b.len >= 32) {
             off += 32 - self.buf_len;
-            mem.copy(u8, self.buf[self.buf_len..], b[0..off]);
+            @memcpy(self.buf[self.buf_len..][0..off], b[0..off]);
             self.state.update(self.buf[0..]);
             self.buf_len = 0;
         }
@@ -156,7 +156,8 @@ pub const Wyhash = struct {
         const aligned_len = remain_len - (remain_len % 32);
         self.state.update(b[off .. off + aligned_len]);
 
-        mem.copy(u8, self.buf[self.buf_len..], b[off + aligned_len ..]);
+        const src = b[off + aligned_len ..];
+        @memcpy(self.buf[self.buf_len..][0..src.len], src);
         self.buf_len += @intCast(u8, b[off + aligned_len ..].len);
     }
 

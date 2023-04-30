@@ -13,7 +13,7 @@ pub fn Vec2D(comptime T: type) type {
         pub fn init(allocator: Allocator, value: T, size: struct { usize, usize }) !Self {
             const len = try math.mul(usize, size[0], size[1]);
             const data = try allocator.alloc(T, len);
-            mem.set(T, data, value);
+            @memset(data, value);
             return Self{
                 .data = data,
                 .cols = size[1],
@@ -26,7 +26,7 @@ pub fn Vec2D(comptime T: type) type {
         }
 
         pub fn fill(self: *Self, value: T) void {
-            mem.set(T, self.data, value);
+            @memset(self.data, value);
         }
 
         inline fn _get(self: Self, row: usize) ![]T {

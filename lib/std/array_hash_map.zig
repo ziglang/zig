@@ -578,9 +578,9 @@ pub fn ArrayHashMapUnmanaged(
             self.entries.len = 0;
             if (self.index_header) |header| {
                 switch (header.capacityIndexType()) {
-                    .u8 => mem.set(Index(u8), header.indexes(u8), Index(u8).empty),
-                    .u16 => mem.set(Index(u16), header.indexes(u16), Index(u16).empty),
-                    .u32 => mem.set(Index(u32), header.indexes(u32), Index(u32).empty),
+                    .u8 => @memset(header.indexes(u8), Index(u8).empty),
+                    .u16 => @memset(header.indexes(u16), Index(u16).empty),
+                    .u32 => @memset(header.indexes(u32), Index(u32).empty),
                 }
             }
         }

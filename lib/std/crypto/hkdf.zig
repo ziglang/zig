@@ -63,7 +63,7 @@ pub fn Hkdf(comptime Hmac: type) type {
                 st.update(&counter);
                 var tmp: [prk_length]u8 = undefined;
                 st.final(tmp[0..prk_length]);
-                mem.copy(u8, out[i..][0..left], tmp[0..left]);
+                @memcpy(out[i..][0..left], tmp[0..left]);
             }
         }
     };

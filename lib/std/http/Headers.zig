@@ -38,7 +38,8 @@ pub const Field = struct {
 
     pub fn modify(entry: *Field, allocator: Allocator, new_value: []const u8) !void {
         if (entry.value.len <= new_value.len) {
-            std.mem.copy(u8, @constCast(entry.value), new_value);
+            // TODO: eliminate this use of `@constCast`.
+            @memcpy(@constCast(entry.value)[0..new_value.len], new_value);
         } else {
             allocator.free(entry.value);
 

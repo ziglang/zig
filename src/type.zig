@@ -666,6 +666,9 @@ pub const Type = extern union {
                 if (a_info.is_generic != b_info.is_generic)
                     return false;
 
+                if (a_info.is_noinline != b_info.is_noinline)
+                    return false;
+
                 if (a_info.noalias_bits != b_info.noalias_bits)
                     return false;
 
@@ -1074,6 +1077,7 @@ pub const Type = extern union {
                 }
                 std.hash.autoHash(hasher, fn_info.is_var_args);
                 std.hash.autoHash(hasher, fn_info.is_generic);
+                std.hash.autoHash(hasher, fn_info.is_noinline);
                 std.hash.autoHash(hasher, fn_info.noalias_bits);
 
                 std.hash.autoHash(hasher, fn_info.param_types.len);
@@ -1454,6 +1458,7 @@ pub const Type = extern union {
                     .alignment = payload.alignment,
                     .is_var_args = payload.is_var_args,
                     .is_generic = payload.is_generic,
+                    .is_noinline = payload.is_noinline,
                     .comptime_params = comptime_params.ptr,
                     .align_is_generic = payload.align_is_generic,
                     .cc_is_generic = payload.cc_is_generic,
@@ -2069,6 +2074,9 @@ pub const Type = extern union {
 
             .function => {
                 const fn_info = ty.fnInfo();
+                if (fn_info.is_noinline) {
+                    try writer.writeAll("noinline ");
+                }
                 try writer.writeAll("fn(");
                 for (fn_info.param_types, 0..) |param_ty, i| {
                     if (i != 0) try writer.writeAll(", ");
@@ -4767,7 +4775,7 @@ pub const Type = extern union {
             .fn_ccc_void_no_args => return,
             .function => {
                 const payload = self.castTag(.function).?.data;
-                std.mem.copy(Type, types, payload.param_types);
+                @memcpy(types[0..payload.param_types.len], payload.param_types);
             },
 
             else => unreachable,
@@ -4863,6 +4871,7 @@ pub const Type = extern union {
                 .alignment = 0,
                 .is_var_args = false,
                 .is_generic = false,
+                .is_noinline = false,
                 .align_is_generic = false,
                 .cc_is_generic = false,
                 .section_is_generic = false,
@@ -4877,6 +4886,7 @@ pub const Type = extern union {
                 .alignment = 0,
                 .is_var_args = false,
                 .is_generic = false,
+                .is_noinline = false,
                 .align_is_generic = false,
                 .cc_is_generic = false,
                 .section_is_generic = false,
@@ -4891,6 +4901,7 @@ pub const Type = extern union {
                 .alignment = 0,
                 .is_var_args = false,
                 .is_generic = false,
+                .is_noinline = false,
                 .align_is_generic = false,
                 .cc_is_generic = false,
                 .section_is_generic = false,
@@ -4905,6 +4916,7 @@ pub const Type = extern union {
                 .alignment = 0,
                 .is_var_args = false,
                 .is_generic = false,
+                .is_noinline = false,
                 .align_is_generic = false,
                 .cc_is_generic = false,
                 .section_is_generic = false,
@@ -6367,6 +6379,7 @@ pub const Type = extern union {
                 cc: std.builtin.CallingConvention,
                 is_var_args: bool,
                 is_generic: bool,
+                is_noinline: bool,
                 align_is_generic: bool,
                 cc_is_generic: bool,
                 section_is_generic: bool,

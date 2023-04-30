@@ -37,7 +37,7 @@ pub const X25519 = struct {
                 break :sk random_seed;
             };
             var kp: KeyPair = undefined;
-            mem.copy(u8, &kp.secret_key, sk[0..]);
+            kp.secret_key = sk;
             kp.public_key = try X25519.recoverPublicKey(sk);
             return kp;
         }
@@ -120,8 +120,8 @@ test "x25519 rfc7748 one iteration" {
     var i: usize = 0;
     while (i < 1) : (i += 1) {
         const output = try X25519.scalarmult(k, u);
-        mem.copy(u8, u[0..], k[0..]);
-        mem.copy(u8, k[0..], output[0..]);
+        u = k;
+        k = output;
     }
 
     try std.testing.expectEqual(k, expected_output);
@@ -142,8 +142,8 @@ test "x25519 rfc7748 1,000 iterations" {
     var i: usize = 0;
     while (i < 1000) : (i += 1) {
         const output = try X25519.scalarmult(&k, &u);
-        mem.copy(u8, u[0..], k[0..]);
-        mem.copy(u8, k[0..], output[0..]);
+        u = k;
+        k = output;
     }
 
     try std.testing.expectEqual(k, expected_output);
@@ -163,8 +163,8 @@ test "x25519 rfc7748 1,000,000 iterations" {
     var i: usize = 0;
     while (i < 1000000) : (i += 1) {
         const output = try X25519.scalarmult(&k, &u);
-        mem.copy(u8, u[0..], k[0..]);
-        mem.copy(u8, k[0..], output[0..]);
+        u = k;
+        k = output;
     }
 
     try std.testing.expectEqual(k[0..], expected_output);

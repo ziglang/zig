@@ -4004,7 +4004,7 @@ pub const io_uring_probe = extern struct {
     ops_len: u8,
 
     resv: u16,
-    resv2: u32[3],
+    resv2: [3]u32,
 
     // Followed by up to `ops_len` io_uring_probe_op structures
 };
@@ -4022,7 +4022,7 @@ pub const io_uring_restriction = extern struct {
         sqe_flags: u8,
     },
     resv: u8,
-    resv2: u32[3],
+    resv2: [3]u32,
 };
 
 /// io_uring_restriction->opcode values

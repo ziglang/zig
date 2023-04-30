@@ -405,14 +405,69 @@ test "Register classes" {
     try expect(Register.fs.class() == .segment);
 }
 
+pub const FrameIndex = enum(u32) {
+    // This index refers to the start of the arguments passed to this function
+    args_frame,
+    // This index refers to the return address pushed by a `call` and popped by a `ret`.
+    ret_addr,
+    // This index refers to the base pointer pushed in the prologue and popped in the epilogue.
+    base_ptr,
+    // This index refers to the entire stack frame.
+    stack_frame,
+    // This index refers to the start of the call frame for arguments passed to called functions
+    call_frame,
+    // Other indices are used for local variable stack slots
+    _,
+
+    pub const named_count = @typeInfo(FrameIndex).Enum.fields.len;
+
+    pub fn isNamed(fi: FrameIndex) bool {
+        return @enumToInt(fi) < named_count;
+    }
+
+    pub fn format(
+        fi: FrameIndex,
+        comptime fmt: []const u8,
+        options: std.fmt.FormatOptions,
+        writer: anytype,
+    ) @TypeOf(writer).Error!void {
+        try writer.writeAll("FrameIndex");
+        if (fi.isNamed()) {
+            try writer.writeByte('.');
+            try writer.writeAll(@tagName(fi));
+        } else {
+            try writer.writeByte('(');
+            try std.fmt.formatType(@enumToInt(fi), fmt, options, writer, 0);
+            try writer.writeByte(')');
+        }
+    }
+};
+
 pub const Memory = union(enum) {
     sib: Sib,
     rip: Rip,
     moffs: Moffs,
 
-    pub const ScaleIndex = packed struct {
+    pub const Base = union(enum) {
+        none,
+        reg: Register,
+        frame: FrameIndex,
+
+        pub const Tag = @typeInfo(Base).Union.tag_type.?;
+
+        pub fn isExtended(self: Base) bool {
+            return switch (self) {
+                .none, .frame => false, // neither rsp nor rbp are extended
+                .reg => |reg| reg.isExtended(),
+            };
+        }
+    };
+
+    pub const ScaleIndex = struct {
         scale: u4,
         index: Register,
+
+        const none = ScaleIndex{ .scale = 0, .index = undefined };
     };
 
     pub const PtrSize = enum {
@@ -460,8 +515,8 @@ pub const Memory = union(enum) {
 
     pub const Sib = struct {
         ptr_size: PtrSize,
-        base: ?Register,
-        scale_index: ?ScaleIndex,
+        base: Base,
+        scale_index: ScaleIndex,
         disp: i32,
     };
 
@@ -482,7 +537,7 @@ pub const Memory = union(enum) {
 
     pub fn sib(ptr_size: PtrSize, args: struct {
         disp: i32 = 0,
-        base: ?Register = null,
+        base: Base = .none,
         scale_index: ?ScaleIndex = null,
     }) Memory {
         if (args.scale_index) |si| assert(std.math.isPowerOfTwo(si.scale));
@@ -490,7 +545,7 @@ pub const Memory = union(enum) {
             .base = args.base,
             .disp = args.disp,
             .ptr_size = ptr_size,
-            .scale_index = args.scale_index,
+            .scale_index = if (args.scale_index) |si| si else ScaleIndex.none,
         } };
     }
 
@@ -502,22 +557,25 @@ pub const Memory = union(enum) {
         return switch (mem) {
             .moffs => true,
             .rip => false,
-            .sib => |s| if (s.base) |r| r.class() == .segment else false,
+            .sib => |s| switch (s.base) {
+                .none, .frame => false,
+                .reg => |reg| reg.class() == .segment,
+            },
         };
     }
 
-    pub fn base(mem: Memory) ?Register {
+    pub fn base(mem: Memory) Base {
         return switch (mem) {
-            .moffs => |m| m.seg,
+            .moffs => |m| .{ .reg = m.seg },
             .sib => |s| s.base,
-            .rip => null,
+            .rip => .none,
         };
     }
 
     pub fn scaleIndex(mem: Memory) ?ScaleIndex {
         return switch (mem) {
             .moffs, .rip => null,
-            .sib => |s| s.scale_index,
+            .sib => |s| if (s.scale_index.scale > 0) s.scale_index else null,
         };
     }
 

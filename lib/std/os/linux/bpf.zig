@@ -1631,7 +1631,7 @@ test "map lookup, update, and delete" {
     const status = try map_get_next_key(map, &lookup_key, &next_key);
     try expectEqual(status, true);
     try expectEqual(next_key, key);
-    std.mem.copy(u8, &lookup_key, &next_key);
+    lookup_key = next_key;
     const status2 = try map_get_next_key(map, &lookup_key, &next_key);
     try expectEqual(status2, false);
 

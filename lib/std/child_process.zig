@@ -259,7 +259,7 @@ pub const ChildProcess = struct {
 
     fn fifoToOwnedArrayList(fifo: *std.io.PollFifo) std.ArrayList(u8) {
         if (fifo.head > 0) {
-            std.mem.copy(u8, fifo.buf[0..fifo.count], fifo.buf[fifo.head .. fifo.head + fifo.count]);
+            @memcpy(fifo.buf[0..fifo.count], fifo.buf[fifo.head..][0..fifo.count]);
         }
         const result = std.ArrayList(u8){
             .items = fifo.buf[0..fifo.count],
@@ -1436,9 +1436,9 @@ pub fn createNullDelimitedEnvMap(arena: mem.Allocator, env_map: *const EnvMap) !
         var i: usize = 0;
         while (it.next()) |pair| : (i += 1) {
             const env_buf = try arena.allocSentinel(u8, pair.key_ptr.len + pair.value_ptr.len + 1, 0);
-            mem.copy(u8, env_buf, pair.key_ptr.*);
+            @memcpy(env_buf[0..pair.key_ptr.len], pair.key_ptr.*);
             env_buf[pair.key_ptr.len] = '=';
-            mem.copy(u8, env_buf[pair.key_ptr.len + 1 ..], pair.value_ptr.*);
+            @memcpy(env_buf[pair.key_ptr.len + 1 ..][0..pair.value_ptr.len], pair.value_ptr.*);
             envp_buf[i] = env_buf.ptr;
         }
         assert(i == envp_count);

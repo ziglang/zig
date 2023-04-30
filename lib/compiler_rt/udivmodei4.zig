@@ -29,8 +29,8 @@ inline fn limb_set(x: []u32, i: usize, v: u32) void {
 
 // Uses Knuth's Algorithm D, 4.3.1, p. 272.
 fn divmod(q: ?[]u32, r: ?[]u32, u: []const u32, v: []const u32) !void {
-    if (q) |q_| std.mem.set(u32, q_[0..], 0);
-    if (r) |r_| std.mem.set(u32, r_[0..], 0);
+    if (q) |q_| @memset(q_[0..], 0);
+    if (r) |r_| @memset(r_[0..], 0);
 
     if (u.len == 0 or v.len == 0) return error.DivisionByZero;
 
@@ -44,7 +44,7 @@ fn divmod(q: ?[]u32, r: ?[]u32, u: []const u32, v: []const u32) !void {
     }
 
     if (n > m) {
-        if (r) |r_| std.mem.copy(u32, r_[0..], u[0..]);
+        if (r) |r_| @memcpy(r_[0..u.len], u);
         return;
     }
 

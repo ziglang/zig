@@ -27,7 +27,7 @@ const max_salt_len = 64;
 const max_hash_len = 64;
 
 fn blockCopy(dst: []align(16) u32, src: []align(16) const u32, n: usize) void {
-    mem.copy(u32, dst, src[0 .. n * 16]);
+    @memcpy(dst[0 .. n * 16], src[0 .. n * 16]);
 }
 
 fn blockXor(dst: []align(16) u32, src: []align(16) const u32, n: usize) void {
@@ -242,7 +242,7 @@ const crypt_format = struct {
             pub fn fromSlice(slice: []const u8) EncodingError!Self {
                 if (slice.len > capacity) return EncodingError.NoSpaceLeft;
                 var bin_value: Self = undefined;
-                mem.copy(u8, &bin_value.buf, slice);
+                @memcpy(bin_value.buf[0..slice.len], slice);
                 bin_value.len = slice.len;
                 return bin_value;
             }
@@ -314,7 +314,7 @@ const crypt_format = struct {
 
     fn serializeTo(params: anytype, out: anytype) !void {
         var header: [14]u8 = undefined;
-        mem.copy(u8, header[0..3], prefix);
+        header[0..3].* = prefix.*;
         Codec.intEncode(header[3..4], params.ln);
         Codec.intEncode(header[4..9], params.r);
         Codec.intEncode(header[9..14], params.p);

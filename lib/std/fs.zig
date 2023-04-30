@@ -106,7 +106,7 @@ pub fn atomicSymLink(allocator: Allocator, existing_path: []const u8, new_path: 
     var rand_buf: [AtomicFile.RANDOM_BYTES]u8 = undefined;
     const tmp_path = try allocator.alloc(u8, dirname.len + 1 + base64_encoder.calcSize(rand_buf.len));
     defer allocator.free(tmp_path);
-    mem.copy(u8, tmp_path[0..], dirname);
+    @memcpy(tmp_path[0..dirname.len], dirname);
     tmp_path[dirname.len] = path.sep;
     while (true) {
         crypto.random.bytes(rand_buf[0..]);
@@ -1541,9 +1541,9 @@ pub const Dir = struct {
             return error.NameTooLong;
         }
 
-        mem.copy(u8, out_buffer, out_path);
-
-        return out_buffer[0..out_path.len];
+        const result = out_buffer[0..out_path.len];
+        @memcpy(result, out_path);
+        return result;
     }
 
     /// Windows-only. Same as `Dir.realpath` except `pathname` is WTF16 encoded.
@@ -1593,9 +1593,9 @@ pub const Dir = struct {
             return error.NameTooLong;
         }
 
-        mem.copy(u8, out_buffer, out_path);
-
-        return out_buffer[0..out_path.len];
+        const result = out_buffer[0..out_path.len];
+        @memcpy(result, out_path);
+        return result;
     }
 
     /// Same as `Dir.realpath` except caller must free the returned memory.
@@ -2346,8 +2346,9 @@ pub const Dir = struct {
                             if (cleanup_dir_parent) |*d| d.close();
                             cleanup_dir_parent = iterable_dir;
                             iterable_dir = new_dir;
-                            mem.copy(u8, &dir_name_buf, entry.name);
-                            dir_name = dir_name_buf[0..entry.name.len];
+                            const result = dir_name_buf[0..entry.name.len];
+                            @memcpy(result, entry.name);
+                            dir_name = result;
                             continue :scan_dir;
                         } else {
                             if (iterable_dir.dir.deleteFile(entry.name)) {
@@ -2974,8 +2975,9 @@ pub fn selfExePath(out_buffer: []u8) SelfExePathError![]u8 {
         var real_path_buf: [MAX_PATH_BYTES]u8 = undefined;
         const real_path = try std.os.realpathZ(&symlink_path_buf, &real_path_buf);
         if (real_path.len > out_buffer.len) return error.NameTooLong;
-        std.mem.copy(u8, out_buffer, real_path);
-        return out_buffer[0..real_path.len];
+        const result = out_buffer[0..real_path.len];
+        @memcpy(result, real_path);
+        return result;
     }
     switch (builtin.os.tag) {
         .linux => return os.readlinkZ("/proc/self/exe", out_buffer),
@@ -3014,8 +3016,9 @@ pub fn selfExePath(out_buffer: []u8) SelfExePathError![]u8 {
                 const real_path = try os.realpathZ(os.argv[0], &real_path_buf);
                 if (real_path.len > out_buffer.len)
                     return error.NameTooLong;
-                mem.copy(u8, out_buffer, real_path);
-                return out_buffer[0..real_path.len];
+                const result = out_buffer[0..real_path.len];
+                @memcpy(result, real_path);
+                return result;
             } else if (argv0.len != 0) {
                 // argv[0] is not empty (and not a path): search it inside PATH
                 const PATH = std.os.getenvZ("PATH") orelse return error.FileNotFound;
@@ -3032,8 +3035,9 @@ pub fn selfExePath(out_buffer: []u8) SelfExePathError![]u8 {
                         // found a file, and hope it is the right file
                         if (real_path.len > out_buffer.len)
                             return error.NameTooLong;
-                        mem.copy(u8, out_buffer, real_path);
-                        return out_buffer[0..real_path.len];
+                        const result = out_buffer[0..real_path.len];
+                        @memcpy(result, real_path);
+                        return result;
                     } else |_| continue;
                 }
             }

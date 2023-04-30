@@ -7939,11 +7939,15 @@ pub const FuncGen = struct {
         return self.builder.buildPtrToInt(operand_ptr, dest_llvm_ty, "");
     }
 
-    fn airBitCast(self: *FuncGen, inst: Air.Inst.Index) !?*llvm.Value {
+    fn airBitCast(self: *FuncGen, inst: Air.Inst.Index) !*llvm.Value {
         const ty_op = self.air.instructions.items(.data)[inst].ty_op;
         const operand_ty = self.air.typeOf(ty_op.operand);
         const inst_ty = self.air.typeOfIndex(inst);
         const operand = try self.resolveInst(ty_op.operand);
+        return self.bitCast(operand, operand_ty, inst_ty);
+    }
+
+    fn bitCast(self: *FuncGen, operand: *llvm.Value, operand_ty: Type, inst_ty: Type) !*llvm.Value {
         const operand_is_ref = isByRef(operand_ty);
         const result_is_ref = isByRef(inst_ty);
         const llvm_dest_ty = try self.dg.lowerType(inst_ty);
@@ -7952,6 +7956,12 @@ pub const FuncGen = struct {
         if (operand_is_ref and result_is_ref) {
             // They are both pointers, so just return the same opaque pointer :)
             return operand;
+        }
+
+        if (llvm_dest_ty.getTypeKind() == .Integer and
+            operand.typeOf().getTypeKind() == .Integer)
+        {
+            return self.builder.buildZExtOrBitCast(operand, llvm_dest_ty, "");
         }
 
         if (operand_ty.zigTypeTag() == .Int and inst_ty.isPtrAtRuntime()) {
@@ -8414,27 +8424,45 @@ pub const FuncGen = struct {
         const dest_slice = try self.resolveInst(bin_op.lhs);
         const ptr_ty = self.air.typeOf(bin_op.lhs);
         const elem_ty = self.air.typeOf(bin_op.rhs);
-        const target = self.dg.module.getTarget();
-        const val_is_undef = if (self.air.value(bin_op.rhs)) |val| val.isUndefDeep() else false;
+        const module = self.dg.module;
+        const target = module.getTarget();
         const dest_ptr_align = ptr_ty.ptrAlignment(target);
         const u8_llvm_ty = self.context.intType(8);
         const dest_ptr = self.sliceOrArrayPtr(dest_slice, ptr_ty);
+        const is_volatile = ptr_ty.isVolatilePtr();
 
-        if (val_is_undef) {
-            // Even if safety is disabled, we still emit a memset to undefined since it conveys
-            // extra information to LLVM. However, safety makes the difference between using
-            // 0xaa or actual undefined for the fill byte.
-            const fill_byte = if (safety)
-                u8_llvm_ty.constInt(0xaa, .False)
-            else
-                u8_llvm_ty.getUndef();
-            const len = self.sliceOrArrayLenInBytes(dest_slice, ptr_ty);
-            _ = self.builder.buildMemSet(dest_ptr, fill_byte, len, dest_ptr_align, ptr_ty.isVolatilePtr());
+        if (self.air.value(bin_op.rhs)) |elem_val| {
+            if (elem_val.isUndefDeep()) {
+                // Even if safety is disabled, we still emit a memset to undefined since it conveys
+                // extra information to LLVM. However, safety makes the difference between using
+                // 0xaa or actual undefined for the fill byte.
+                const fill_byte = if (safety)
+                    u8_llvm_ty.constInt(0xaa, .False)
+                else
+                    u8_llvm_ty.getUndef();
+                const len = self.sliceOrArrayLenInBytes(dest_slice, ptr_ty);
+                _ = self.builder.buildMemSet(dest_ptr, fill_byte, len, dest_ptr_align, is_volatile);
 
-            if (safety and self.dg.module.comp.bin_file.options.valgrind) {
-                self.valgrindMarkUndef(dest_ptr, len);
+                if (safety and module.comp.bin_file.options.valgrind) {
+                    self.valgrindMarkUndef(dest_ptr, len);
+                }
+                return null;
             }
-            return null;
+
+            // Test if the element value is compile-time known to be a
+            // repeating byte pattern, for example, `@as(u64, 0)` has a
+            // repeating byte pattern of 0 bytes. In such case, the memset
+            // intrinsic can be used.
+            var value_buffer: Value.Payload.U64 = undefined;
+            if (try elem_val.hasRepeatedByteRepr(elem_ty, module, &value_buffer)) |byte_val| {
+                const fill_byte = try self.resolveValue(.{
+                    .ty = Type.u8,
+                    .val = byte_val,
+                });
+                const len = self.sliceOrArrayLenInBytes(dest_slice, ptr_ty);
+                _ = self.builder.buildMemSet(dest_ptr, fill_byte, len, dest_ptr_align, is_volatile);
+                return null;
+            }
         }
 
         const value = try self.resolveInst(bin_op.rhs);
@@ -8442,9 +8470,9 @@ pub const FuncGen = struct {
 
         if (elem_abi_size == 1) {
             // In this case we can take advantage of LLVM's intrinsic.
-            const fill_byte = self.builder.buildBitCast(value, u8_llvm_ty, "");
+            const fill_byte = try self.bitCast(value, elem_ty, Type.u8);
             const len = self.sliceOrArrayLenInBytes(dest_slice, ptr_ty);
-            _ = self.builder.buildMemSet(dest_ptr, fill_byte, len, dest_ptr_align, ptr_ty.isVolatilePtr());
+            _ = self.builder.buildMemSet(dest_ptr, fill_byte, len, dest_ptr_align, is_volatile);
             return null;
         }
 
@@ -8486,8 +8514,22 @@ pub const FuncGen = struct {
         _ = self.builder.buildCondBr(end, body_block, end_block);
 
         self.builder.positionBuilderAtEnd(body_block);
-        const store_inst = self.builder.buildStore(value, it_ptr);
-        store_inst.setAlignment(@min(elem_ty.abiAlignment(target), dest_ptr_align));
+        const elem_abi_alignment = elem_ty.abiAlignment(target);
+        const it_ptr_alignment = @min(elem_abi_alignment, dest_ptr_align);
+        if (isByRef(elem_ty)) {
+            _ = self.builder.buildMemCpy(
+                it_ptr,
+                it_ptr_alignment,
+                value,
+                elem_abi_alignment,
+                llvm_usize_ty.constInt(elem_abi_size, .False),
+                is_volatile,
+            );
+        } else {
+            const store_inst = self.builder.buildStore(value, it_ptr);
+            store_inst.setAlignment(it_ptr_alignment);
+            store_inst.setVolatile(llvm.Bool.fromBool(is_volatile));
+        }
         const one_gep = [_]*llvm.Value{llvm_usize_ty.constInt(1, .False)};
         const next_ptr = self.builder.buildInBoundsGEP(elem_llvm_ty, it_ptr, &one_gep, one_gep.len, "");
         _ = self.builder.buildBr(loop_block);

@@ -35,7 +35,7 @@ pub fn BinValue(comptime max_len: usize) type {
         pub fn fromSlice(slice: []const u8) Error!Self {
             if (slice.len > capacity) return Error.NoSpaceLeft;
             var bin_value: Self = undefined;
-            mem.copy(u8, &bin_value.buf, slice);
+            @memcpy(bin_value.buf[0..slice.len], slice);
             bin_value.len = slice.len;
             return bin_value;
         }

@@ -1976,7 +1976,7 @@ fn parseAtom(wasm: *Wasm, atom_index: Atom.Index, kind: Kind) !void {
             // We do not have to do this when exporting the memory (the default) because the runtime
             // will do it for us, and we do not emit the bss segment at all.
             if ((wasm.base.options.output_mode == .Obj or wasm.base.options.import_memory) and kind.data == .uninitialized) {
-                std.mem.set(u8, atom.code.items, 0);
+                @memset(atom.code.items, 0);
             }
 
             const should_merge = wasm.base.options.output_mode != .Obj;
@@ -3852,7 +3852,10 @@ fn writeToFile(
     // Only when writing all sections executed properly we write the magic
     // bytes. This allows us to easily detect what went wrong while generating
     // the final binary.
-    mem.copy(u8, binary_bytes.items, &(std.wasm.magic ++ std.wasm.version));
+    {
+        const src = std.wasm.magic ++ std.wasm.version;
+        binary_bytes.items[0..src.len].* = src;
+    }
 
     // finally, write the entire binary into the file.
     var iovec = [_]std.os.iovec_const{.{
@@ -4559,14 +4562,14 @@ fn writeVecSectionHeader(buffer: []u8, offset: u32, section: std.wasm.Section, s
     buf[0] = @enumToInt(section);
     leb.writeUnsignedFixed(5, buf[1..6], size);
     leb.writeUnsignedFixed(5, buf[6..], items);
-    mem.copy(u8, buffer[offset..], &buf);
+    buffer[offset..][0..buf.len].* = buf;
 }
 
 fn writeCustomSectionHeader(buffer: []u8, offset: u32, size: u32) !void {
     var buf: [1 + 5]u8 = undefined;
     buf[0] = 0; // 0 = 'custom' section
     leb.writeUnsignedFixed(5, buf[1..6], size);
-    mem.copy(u8, buffer[offset..], &buf);
+    buffer[offset..][0..buf.len].* = buf;
 }
 
 fn emitLinkSection(wasm: *Wasm, binary_bytes: *std.ArrayList(u8), symbol_table: *std.AutoArrayHashMap(SymbolLoc, u32)) !void {

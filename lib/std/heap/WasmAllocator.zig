@@ -230,7 +230,7 @@ test "shrink" {
     var slice = try test_ally.alloc(u8, 20);
     defer test_ally.free(slice);
 
-    mem.set(u8, slice, 0x11);
+    @memset(slice, 0x11);
 
     try std.testing.expect(test_ally.resize(slice, 17));
     slice = slice[0..17];

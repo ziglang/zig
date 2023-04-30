@@ -499,7 +499,7 @@ fn expectEqualHexStrings(expected: []const u8, given: []const u8) !void {
     const idx = mem.indexOfDiff(u8, expected_fmt, given_fmt).?;
     var padding = try testing.allocator.alloc(u8, idx + 5);
     defer testing.allocator.free(padding);
-    mem.set(u8, padding, ' ');
+    @memset(padding, ' ');
     std.debug.print("\nEXP: {s}\nGIV: {s}\n{s}^ -- first differing byte\n", .{ expected_fmt, given_fmt, padding });
     return error.TestFailed;
 }

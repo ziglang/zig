@@ -68,7 +68,7 @@ pub fn KeccakF(comptime f: u11) type {
             }
             if (i < bytes.len) {
                 var padded = [_]u8{0} ** @sizeOf(T);
-                mem.copy(u8, padded[0 .. bytes.len - i], bytes[i..]);
+                @memcpy(padded[0 .. bytes.len - i], bytes[i..]);
                 self.st[i / @sizeOf(T)] = mem.readIntLittle(T, padded[0..]);
             }
         }
@@ -87,7 +87,7 @@ pub fn KeccakF(comptime f: u11) type {
             }
             if (i < bytes.len) {
                 var padded = [_]u8{0} ** @sizeOf(T);
-                mem.copy(u8, padded[0 .. bytes.len - i], bytes[i..]);
+                @memcpy(padded[0 .. bytes.len - i], bytes[i..]);
                 self.st[i / @sizeOf(T)] ^= mem.readIntLittle(T, padded[0..]);
             }
         }
@@ -101,7 +101,7 @@ pub fn KeccakF(comptime f: u11) type {
             if (i < out.len) {
                 var padded = [_]u8{0} ** @sizeOf(T);
                 mem.writeIntLittle(T, padded[0..], self.st[i / @sizeOf(T)]);
-                mem.copy(u8, out[i..], padded[0 .. out.len - i]);
+                @memcpy(out[i..], padded[0 .. out.len - i]);
             }
         }
 
@@ -116,16 +116,16 @@ pub fn KeccakF(comptime f: u11) type {
             }
             if (i < in.len) {
                 var padded = [_]u8{0} ** @sizeOf(T);
-                mem.copy(u8, padded[0 .. in.len - i], in[i..]);
+                @memcpy(padded[0 .. in.len - i], in[i..]);
                 const x = mem.readIntNative(T, &padded) ^ mem.nativeToLittle(T, self.st[i / @sizeOf(T)]);
                 mem.writeIntNative(T, &padded, x);
-                mem.copy(u8, out[i..], padded[0 .. in.len - i]);
+                @memcpy(out[i..], padded[0 .. in.len - i]);
             }
         }
 
         /// Set the words storing the bytes of a given range to zero.
         pub fn clear(self: *Self, from: usize, to: usize) void {
-            mem.set(T, self.st[from / @sizeOf(T) .. (to + @sizeOf(T) - 1) / @sizeOf(T)], 0);
+            @memset(self.st[from / @sizeOf(T) .. (to + @sizeOf(T) - 1) / @sizeOf(T)], 0);
         }
 
         /// Clear the entire state, disabling compiler optimizations.
@@ -215,7 +215,7 @@ pub fn State(comptime f: u11, comptime capacity: u11, comptime delim: u8, compti
             var bytes = bytes_;
             if (self.offset > 0) {
                 const left = math.min(rate - self.offset, bytes.len);
-                mem.copy(u8, self.buf[self.offset..], bytes[0..left]);
+                @memcpy(self.buf[self.offset..][0..left], bytes[0..left]);
                 self.offset += left;
                 if (self.offset == rate) {
                     self.offset = 0;
@@ -231,7 +231,7 @@ pub fn State(comptime f: u11, comptime capacity: u11, comptime delim: u8, compti
                 bytes = bytes[rate..];
             }
             if (bytes.len > 0) {
-                mem.copy(u8, &self.buf, bytes);
+                @memcpy(self.buf[0..bytes.len], bytes);
                 self.offset = bytes.len;
             }
         }

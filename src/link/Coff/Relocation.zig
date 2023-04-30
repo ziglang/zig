@@ -45,6 +45,19 @@ pcrel: bool,
 length: u2,
 dirty: bool = true,
 
+/// Returns true if and only if the reloc can be resolved.
+pub fn isResolvable(self: Relocation, coff_file: *Coff) bool {
+    _ = self.getTargetAddress(coff_file) orelse return false;
+    return true;
+}
+
+pub fn isGotIndirection(self: Relocation) bool {
+    return switch (self.type) {
+        .got, .got_page, .got_pageoff => true,
+        else => false,
+    };
+}
+
 /// Returns address of the target if any.
 pub fn getTargetAddress(self: Relocation, coff_file: *const Coff) ?u32 {
     switch (self.type) {
@@ -52,11 +65,6 @@ pub fn getTargetAddress(self: Relocation, coff_file: *const Coff) ?u32 {
             const got_index = coff_file.got_table.lookup.get(self.target) orelse return null;
             const header = coff_file.sections.items(.header)[coff_file.got_section_index.?];
             return header.virtual_address + got_index * coff_file.ptr_width.size();
-        },
-        .direct, .page, .pageoff => {
-            const target_atom_index = coff_file.getAtomIndexForSymbol(self.target) orelse return null;
-            const target_atom = coff_file.getAtom(target_atom_index);
-            return target_atom.getSymbol(coff_file).value;
         },
         .import, .import_page, .import_pageoff => {
             const sym = coff_file.getSymbol(self.target);
@@ -68,14 +76,12 @@ pub fn getTargetAddress(self: Relocation, coff_file: *const Coff) ?u32 {
                 .name_off = sym.value,
             });
         },
+        else => {
+            const target_atom_index = coff_file.getAtomIndexForSymbol(self.target) orelse return null;
+            const target_atom = coff_file.getAtom(target_atom_index);
+            return target_atom.getSymbol(coff_file).value;
+        },
     }
-}
-
-/// Returns true if and only if the reloc is dirty AND the target address is available.
-pub fn isResolvable(self: Relocation, coff_file: *Coff) bool {
-    const addr = self.getTargetAddress(coff_file) orelse return false;
-    if (addr == 0) return false;
-    return self.dirty;
 }
 
 pub fn resolve(self: Relocation, atom_index: Atom.Index, code: []u8, image_base: u64, coff_file: *Coff) void {

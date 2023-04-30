@@ -306,7 +306,7 @@ pub const Edwards25519 = struct {
         var pcs: [count][9]Edwards25519 = undefined;
 
         var bpc: [9]Edwards25519 = undefined;
-        mem.copy(Edwards25519, bpc[0..], basePointPc[0..bpc.len]);
+        @memcpy(&bpc, basePointPc[0..bpc.len]);
 
         for (ps, 0..) |p, i| {
             if (p.is_base) {
@@ -439,7 +439,7 @@ pub const Edwards25519 = struct {
         var u: [n * H.digest_length]u8 = undefined;
         var i: usize = 0;
         while (i < n * H.digest_length) : (i += H.digest_length) {
-            mem.copy(u8, u[i..][0..H.digest_length], u_0[0..]);
+            u[i..][0..H.digest_length].* = u_0;
             var j: usize = 0;
             while (i > 0 and j < H.digest_length) : (j += 1) {
                 u[i + j] ^= u[i + j - H.digest_length];
@@ -455,8 +455,8 @@ pub const Edwards25519 = struct {
         var px: [n]Edwards25519 = undefined;
         i = 0;
         while (i < n) : (i += 1) {
-            mem.set(u8, u_0[0 .. H.digest_length - h_l], 0);
-            mem.copy(u8, u_0[H.digest_length - h_l ..][0..h_l], u[i * h_l ..][0..h_l]);
+            @memset(u_0[0 .. H.digest_length - h_l], 0);
+            u_0[H.digest_length - h_l ..][0..h_l].* = u[i * h_l ..][0..h_l].*;
             px[i] = fromHash(u_0);
         }
         return px;

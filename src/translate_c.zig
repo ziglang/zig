@@ -113,7 +113,7 @@ const Scope = struct {
                 const alloc_len = self.statements.items.len + @boolToInt(self.base.parent.?.id == .do_loop);
                 var stmts = try c.arena.alloc(Node, alloc_len);
                 stmts.len = self.statements.items.len;
-                mem.copy(Node, stmts, self.statements.items);
+                @memcpy(stmts[0..self.statements.items.len], self.statements.items);
                 return Tag.block.create(c.arena, .{
                     .label = self.label,
                     .stmts = stmts,
@@ -4195,8 +4195,11 @@ fn maybeSuppressResult(c: *Context, used: ResultUsed, result: Node) TransError!N
 }
 
 fn addTopLevelDecl(c: *Context, name: []const u8, decl_node: Node) !void {
-    try c.global_scope.sym_table.put(name, decl_node);
-    try c.global_scope.nodes.append(decl_node);
+    const gop = try c.global_scope.sym_table.getOrPut(name);
+    if (!gop.found_existing) {
+        gop.value_ptr.* = decl_node;
+        try c.global_scope.nodes.append(decl_node);
+    }
 }
 
 fn transQualTypeInitializedStringLiteral(c: *Context, elem_ty: Node, string_lit: *const clang.StringLiteral) TypeError!Node {

@@ -293,10 +293,10 @@ pub const DecodeState = struct {
 
         try self.decodeLiteralsSlice(dest[write_pos..], sequence.literal_length);
         const copy_start = write_pos + sequence.literal_length - sequence.offset;
-        const copy_end = copy_start + sequence.match_length;
-        // NOTE: we ignore the usage message for std.mem.copy and copy with dest.ptr >= src.ptr
-        //       to allow repeats
-        std.mem.copy(u8, dest[write_pos + sequence.literal_length ..], dest[copy_start..copy_end]);
+        for (
+            dest[write_pos + sequence.literal_length ..][0..sequence.match_length],
+            dest[copy_start..][0..sequence.match_length],
+        ) |*d, s| d.* = s;
         self.written_count += sequence.match_length;
     }
 
@@ -311,7 +311,6 @@ pub const DecodeState = struct {
         try self.decodeLiteralsRingBuffer(dest, sequence.literal_length);
         const copy_start = dest.write_index + dest.data.len - sequence.offset;
         const copy_slice = dest.sliceAt(copy_start, sequence.match_length);
-        // TODO: would std.mem.copy and figuring out dest slice be better/faster?
         for (copy_slice.first) |b| dest.writeAssumeCapacity(b);
         for (copy_slice.second) |b| dest.writeAssumeCapacity(b);
         self.written_count += sequence.match_length;
@@ -444,9 +443,8 @@ pub const DecodeState = struct {
 
         switch (self.literal_header.block_type) {
             .raw => {
-                const literals_end = self.literal_written_count + len;
-                const literal_data = self.literal_streams.one[self.literal_written_count..literals_end];
-                std.mem.copy(u8, dest, literal_data);
+                const literal_data = self.literal_streams.one[self.literal_written_count..][0..len];
+                @memcpy(dest[0..len], literal_data);
                 self.literal_written_count += len;
                 self.written_count += len;
             },
@@ -615,8 +613,7 @@ pub fn decodeBlock(
         .raw => {
             if (src.len < block_size) return error.MalformedBlockSize;
             if (dest[written_count..].len < block_size) return error.DestTooSmall;
-            const data = src[0..block_size];
-            std.mem.copy(u8, dest[written_count..], data);
+            @memcpy(dest[written_count..][0..block_size], src[0..block_size]);
             consumed_count.* += block_size;
             decode_state.written_count += block_size;
             return block_size;

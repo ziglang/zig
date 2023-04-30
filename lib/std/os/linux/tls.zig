@@ -275,7 +275,7 @@ inline fn alignPtrCast(comptime T: type, ptr: [*]u8) *T {
 /// architecture-specific value of the thread-pointer register
 pub fn prepareTLS(area: []u8) usize {
     // Clear the area we're going to use, just to be safe
-    mem.set(u8, area, 0);
+    @memset(area, 0);
     // Prepare the DTV
     const dtv = alignPtrCast(DTV, area.ptr + tls_image.dtv_offset);
     dtv.entries = 1;
@@ -287,7 +287,7 @@ pub fn prepareTLS(area: []u8) usize {
         .VariantII => area.ptr + tls_image.tcb_offset,
     };
     // Copy the data
-    mem.copy(u8, area[tls_image.data_offset..], tls_image.init_data);
+    @memcpy(area[tls_image.data_offset..][0..tls_image.init_data.len], tls_image.init_data);
 
     // Return the corrected value (if needed) for the tp register.
     // Overflow here is not a problem, the pointer arithmetic involving the tp
