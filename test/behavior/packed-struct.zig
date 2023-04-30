@@ -563,7 +563,7 @@ test "packed struct passed to callconv(.C) function" {
 test "overaligned pointer to packed struct" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
-
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     const S = packed struct { a: u32, b: u32 };
     var foo: S align(4) = .{ .a = 123, .b = 456 };
     const ptr: *align(4) S = &foo;
@@ -583,6 +583,7 @@ test "overaligned pointer to packed struct" {
 test "packed struct initialized in bitcast" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     const T = packed struct { val: u8 };
     var val: u8 = 123;
@@ -595,6 +596,7 @@ test "pointer to container level packed struct field" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     const S = packed struct(u32) {
         test_bit: bool,

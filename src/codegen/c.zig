@@ -2411,9 +2411,9 @@ pub fn genErrDecls(o: *Object) !void {
     const name_buf = try o.dg.gpa.alloc(u8, name_prefix.len + max_name_len);
     defer o.dg.gpa.free(name_buf);
 
-    mem.copy(u8, name_buf, name_prefix);
+    @memcpy(name_buf[0..name_prefix.len], name_prefix);
     for (o.dg.module.error_name_list.items) |name| {
-        mem.copy(u8, name_buf[name_prefix.len..], name);
+        @memcpy(name_buf[name_prefix.len..][0..name.len], name);
         const identifier = name_buf[0 .. name_prefix.len + name.len];
 
         var name_ty_pl = Type.Payload.Len{ .base = .{ .tag = .array_u8_sentinel_0 }, .data = name.len };
@@ -3858,7 +3858,7 @@ fn airCmpOp(
     try reap(f, inst, &.{ data.lhs, data.rhs });
 
     const rhs_ty = f.air.typeOf(data.rhs);
-    const need_cast = lhs_ty.isSinglePointer() != rhs_ty.isSinglePointer();
+    const need_cast = lhs_ty.isSinglePointer() or rhs_ty.isSinglePointer();
     const writer = f.object.writer();
     const local = try f.allocLocal(inst, inst_ty);
     const v = try Vectorize.start(f, inst, writer, lhs_ty);
@@ -4419,51 +4419,94 @@ fn airBitcast(f: *Function, inst: Air.Inst.Index) !CValue {
     const dest_ty = f.air.typeOfIndex(inst);
 
     const operand = try f.resolveInst(ty_op.operand);
-    try reap(f, inst, &.{ty_op.operand});
     const operand_ty = f.air.typeOf(ty_op.operand);
+
+    const bitcasted = try bitcast(f, dest_ty, operand, operand_ty);
+    try reap(f, inst, &.{ty_op.operand});
+    return bitcasted.move(f, inst, dest_ty);
+}
+
+const LocalResult = struct {
+    c_value: CValue,
+    need_free: bool,
+
+    fn move(lr: LocalResult, f: *Function, inst: Air.Inst.Index, dest_ty: Type) !CValue {
+        if (lr.need_free) {
+            // Move the freshly allocated local to be owned by this instruction,
+            // by returning it here instead of freeing it.
+            return lr.c_value;
+        }
+
+        const local = try f.allocLocal(inst, dest_ty);
+        try lr.free(f);
+        const writer = f.object.writer();
+        try f.writeCValue(writer, local, .Other);
+        if (dest_ty.isAbiInt()) {
+            try writer.writeAll(" = ");
+        } else {
+            try writer.writeAll(" = (");
+            try f.renderType(writer, dest_ty);
+            try writer.writeByte(')');
+        }
+        try f.writeCValue(writer, lr.c_value, .Initializer);
+        try writer.writeAll(";\n");
+        return local;
+    }
+
+    fn free(lr: LocalResult, f: *Function) !void {
+        if (lr.need_free) {
+            try freeLocal(f, 0, lr.c_value.new_local, 0);
+        }
+    }
+};
+
+fn bitcast(f: *Function, dest_ty: Type, operand: CValue, operand_ty: Type) !LocalResult {
     const target = f.object.dg.module.getTarget();
     const writer = f.object.writer();
 
-    const local = try f.allocLocal(inst, dest_ty);
-
-    // If the assignment looks like 'x = x', we don't need it
-    const can_elide = operand == .local and operand.local == local.new_local;
-
     if (operand_ty.isAbiInt() and dest_ty.isAbiInt()) {
-        if (can_elide) return local;
         const src_info = dest_ty.intInfo(target);
         const dest_info = operand_ty.intInfo(target);
         if (src_info.signedness == dest_info.signedness and
             src_info.bits == dest_info.bits)
         {
-            try f.writeCValue(writer, local, .Other);
-            try writer.writeAll(" = ");
-            try f.writeCValue(writer, operand, .Initializer);
-            try writer.writeAll(";\n");
-            return local;
+            return .{
+                .c_value = operand,
+                .need_free = false,
+            };
         }
     }
 
     if (dest_ty.isPtrAtRuntime() and operand_ty.isPtrAtRuntime()) {
-        if (can_elide) return local;
+        const local = try f.allocLocal(0, dest_ty);
         try f.writeCValue(writer, local, .Other);
         try writer.writeAll(" = (");
         try f.renderType(writer, dest_ty);
         try writer.writeByte(')');
         try f.writeCValue(writer, operand, .Other);
         try writer.writeAll(";\n");
-        return local;
+        return .{
+            .c_value = local,
+            .need_free = true,
+        };
     }
 
     const operand_lval = if (operand == .constant) blk: {
-        const operand_local = try f.allocLocal(inst, operand_ty);
+        const operand_local = try f.allocLocal(0, operand_ty);
         try f.writeCValue(writer, operand_local, .Other);
-        try writer.writeAll(" = ");
+        if (operand_ty.isAbiInt()) {
+            try writer.writeAll(" = ");
+        } else {
+            try writer.writeAll(" = (");
+            try f.renderType(writer, operand_ty);
+            try writer.writeByte(')');
+        }
         try f.writeCValue(writer, operand, .Initializer);
         try writer.writeAll(";\n");
         break :blk operand_local;
     } else operand;
 
+    const local = try f.allocLocal(0, dest_ty);
     try writer.writeAll("memcpy(&");
     try f.writeCValue(writer, local, .Other);
     try writer.writeAll(", &");
@@ -4528,10 +4571,13 @@ fn airBitcast(f: *Function, inst: Air.Inst.Index) !CValue {
     }
 
     if (operand == .constant) {
-        try freeLocal(f, inst, operand_lval.new_local, 0);
+        try freeLocal(f, 0, operand_lval.new_local, 0);
     }
 
-    return local;
+    return .{
+        .c_value = local,
+        .need_free = true,
+    };
 }
 
 fn airTrap(writer: anytype) !CValue {
@@ -4831,7 +4877,7 @@ fn airAsm(f: *Function, inst: Air.Inst.Index) !CValue {
                 const literal = mem.sliceTo(asm_source[src_i..], '%');
                 src_i += literal.len;
 
-                mem.copy(u8, fixed_asm_source[dst_i..], literal);
+                @memcpy(fixed_asm_source[dst_i..][0..literal.len], literal);
                 dst_i += literal.len;
 
                 if (src_i >= asm_source.len) break;
@@ -4856,9 +4902,9 @@ fn airAsm(f: *Function, inst: Air.Inst.Index) !CValue {
                     const name = desc[0..colon];
                     const modifier = desc[colon + 1 ..];
 
-                    mem.copy(u8, fixed_asm_source[dst_i..], modifier);
+                    @memcpy(fixed_asm_source[dst_i..][0..modifier.len], modifier);
                     dst_i += modifier.len;
-                    mem.copy(u8, fixed_asm_source[dst_i..], name);
+                    @memcpy(fixed_asm_source[dst_i..][0..name.len], name);
                     dst_i += name.len;
 
                     src_i += desc.len;
@@ -6288,15 +6334,19 @@ fn airMemset(f: *Function, inst: Air.Inst.Index, safety: bool) !CValue {
         }
         try writer.writeAll("; ++");
         try f.writeCValue(writer, index, .Other);
-        try writer.writeAll(") ((");
+        try writer.writeAll(") ");
+
+        const a = try Assignment.start(f, writer, elem_ty);
+        try writer.writeAll("((");
         try f.renderType(writer, elem_ptr_ty);
         try writer.writeByte(')');
         try writeSliceOrPtr(f, writer, dest_slice, dest_ty);
         try writer.writeAll(")[");
         try f.writeCValue(writer, index, .Other);
-        try writer.writeAll("] = ");
-        try f.writeCValue(writer, value, .FunctionArgument);
-        try writer.writeAll(";\n");
+        try writer.writeByte(']');
+        try a.assign(f, writer);
+        try f.writeCValue(writer, value, .Other);
+        try a.end(f, writer);
 
         try reap(f, inst, &.{ bin_op.lhs, bin_op.rhs });
         try freeLocal(f, inst, index.new_local, 0);
@@ -6304,12 +6354,14 @@ fn airMemset(f: *Function, inst: Air.Inst.Index, safety: bool) !CValue {
         return .none;
     }
 
+    const bitcasted = try bitcast(f, Type.u8, value, elem_ty);
+
     try writer.writeAll("memset(");
     switch (dest_ty.ptrSize()) {
         .Slice => {
             try f.writeCValueMember(writer, dest_slice, .{ .identifier = "ptr" });
             try writer.writeAll(", ");
-            try f.writeCValue(writer, value, .FunctionArgument);
+            try f.writeCValue(writer, bitcasted.c_value, .FunctionArgument);
             try writer.writeAll(", ");
             try f.writeCValueMember(writer, dest_slice, .{ .identifier = "len" });
             try writer.writeAll(");\n");
@@ -6320,11 +6372,12 @@ fn airMemset(f: *Function, inst: Air.Inst.Index, safety: bool) !CValue {
 
             try f.writeCValue(writer, dest_slice, .FunctionArgument);
             try writer.writeAll(", ");
-            try f.writeCValue(writer, value, .FunctionArgument);
+            try f.writeCValue(writer, bitcasted.c_value, .FunctionArgument);
             try writer.print(", {d});\n", .{len});
         },
         .Many, .C => unreachable,
     }
+    try bitcasted.free(f);
     try reap(f, inst, &.{ bin_op.lhs, bin_op.rhs });
     return .none;
 }
@@ -7394,7 +7447,7 @@ fn formatIntLiteral(
     var int_buf: Value.BigIntSpace = undefined;
     const int = if (data.val.isUndefDeep()) blk: {
         undef_limbs = try allocator.alloc(BigIntLimb, BigInt.calcTwosCompLimbCount(data.int_info.bits));
-        mem.set(BigIntLimb, undef_limbs, undefPattern(BigIntLimb));
+        @memset(undef_limbs, undefPattern(BigIntLimb));
 
         var undef_int = BigInt.Mutable{
             .limbs = undef_limbs,
@@ -7489,7 +7542,7 @@ fn formatIntLiteral(
     } else {
         try data.cty.renderLiteralPrefix(writer, data.kind);
         wrap.convertToTwosComplement(int, data.int_info.signedness, c_bits);
-        mem.set(BigIntLimb, wrap.limbs[wrap.len..], 0);
+        @memset(wrap.limbs[wrap.len..], 0);
         wrap.len = wrap.limbs.len;
         const limbs_per_c_limb = @divExact(wrap.len, c_limb_info.count);
 

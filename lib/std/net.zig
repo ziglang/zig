@@ -106,8 +106,8 @@ pub const Address = extern union {
         // Add 1 to ensure a terminating 0 is present in the path array for maximum portability.
         if (path.len + 1 > sock_addr.path.len) return error.NameTooLong;
 
-        mem.set(u8, &sock_addr.path, 0);
-        mem.copy(u8, &sock_addr.path, path);
+        @memset(&sock_addr.path, 0);
+        @memcpy(sock_addr.path[0..path.len], path);
 
         return Address{ .un = sock_addr };
     }
@@ -346,7 +346,7 @@ pub const Ip6Address = extern struct {
                 if (!saw_any_digits) {
                     if (abbrv) return error.InvalidCharacter; // ':::'
                     if (i != 0) abbrv = true;
-                    mem.set(u8, ip_slice[index..], 0);
+                    @memset(ip_slice[index..], 0);
                     ip_slice = tail[0..];
                     index = 0;
                     continue;
@@ -416,7 +416,7 @@ pub const Ip6Address = extern struct {
             index += 1;
             ip_slice[index] = @truncate(u8, x);
             index += 1;
-            mem.copy(u8, result.sa.addr[16 - index ..], ip_slice[0..index]);
+            @memcpy(result.sa.addr[16 - index ..][0..index], ip_slice[0..index]);
             return result;
         }
     }
@@ -465,7 +465,7 @@ pub const Ip6Address = extern struct {
                 if (!saw_any_digits) {
                     if (abbrv) return error.InvalidCharacter; // ':::'
                     if (i != 0) abbrv = true;
-                    mem.set(u8, ip_slice[index..], 0);
+                    @memset(ip_slice[index..], 0);
                     ip_slice = tail[0..];
                     index = 0;
                     continue;
@@ -550,7 +550,7 @@ pub const Ip6Address = extern struct {
             index += 1;
             ip_slice[index] = @truncate(u8, x);
             index += 1;
-            mem.copy(u8, result.sa.addr[16 - index ..], ip_slice[0..index]);
+            @memcpy(result.sa.addr[16 - index ..][0..index], ip_slice[0..index]);
             return result;
         }
     }
@@ -662,7 +662,7 @@ fn if_nametoindex(name: []const u8) !u32 {
         var sockfd = try os.socket(os.AF.UNIX, os.SOCK.DGRAM | os.SOCK.CLOEXEC, 0);
         defer os.closeSocket(sockfd);
 
-        std.mem.copy(u8, &ifr.ifrn.name, name);
+        @memcpy(ifr.ifrn.name[0..name.len], name);
         ifr.ifrn.name[name.len] = 0;
 
         // TODO investigate if this needs to be integrated with evented I/O.
@@ -676,7 +676,7 @@ fn if_nametoindex(name: []const u8) !u32 {
             return error.NameTooLong;
 
         var if_name: [os.IFNAMESIZE:0]u8 = undefined;
-        std.mem.copy(u8, &if_name, name);
+        @memcpy(if_name[0..name.len], name);
         if_name[name.len] = 0;
         const if_slice = if_name[0..name.len :0];
         const index = os.system.if_nametoindex(if_slice);
@@ -1041,14 +1041,14 @@ fn linuxLookupName(
         var salen: os.socklen_t = undefined;
         var dalen: os.socklen_t = undefined;
         if (addr.addr.any.family == os.AF.INET6) {
-            mem.copy(u8, &da6.addr, &addr.addr.in6.sa.addr);
+            da6.addr = addr.addr.in6.sa.addr;
             da = @ptrCast(*os.sockaddr, &da6);
             dalen = @sizeOf(os.sockaddr.in6);
             sa = @ptrCast(*os.sockaddr, &sa6);
             salen = @sizeOf(os.sockaddr.in6);
         } else {
-            mem.copy(u8, &sa6.addr, "\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\xff\xff");
-            mem.copy(u8, &da6.addr, "\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\xff\xff");
+            sa6.addr[0..12].* = "\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\xff\xff".*;
+            da6.addr[0..12].* = "\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\xff\xff".*;
             mem.writeIntNative(u32, da6.addr[12..], addr.addr.in.sa.addr);
             da4.addr = addr.addr.in.sa.addr;
             da = @ptrCast(*os.sockaddr, &da4);
@@ -1343,7 +1343,7 @@ fn linuxLookupNameFromDnsSearch(
     // name is not a CNAME record) and serves as a buffer for passing
     // the full requested name to name_from_dns.
     try canon.resize(canon_name.len);
-    mem.copy(u8, canon.items, canon_name);
+    @memcpy(canon.items, canon_name);
     try canon.append('.');
 
     var tok_it = mem.tokenize(u8, search, " \t");
@@ -1567,7 +1567,7 @@ fn resMSendRc(
         for (0..ns.len) |i| {
             if (ns[i].any.family != os.AF.INET) continue;
             mem.writeIntNative(u32, ns[i].in6.sa.addr[12..], ns[i].in.sa.addr);
-            mem.copy(u8, ns[i].in6.sa.addr[0..12], "\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\xff\xff");
+            ns[i].in6.sa.addr[0..12].* = "\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\xff\xff".*;
             ns[i].any.family = os.AF.INET6;
             ns[i].in6.sa.flowinfo = 0;
             ns[i].in6.sa.scope_id = 0;
@@ -1665,7 +1665,7 @@ fn resMSendRc(
             if (i == next) {
                 while (next < queries.len and answers[next].len != 0) : (next += 1) {}
             } else {
-                mem.copy(u8, answer_bufs[i], answer_bufs[next][0..rlen]);
+                @memcpy(answer_bufs[i][0..rlen], answer_bufs[next][0..rlen]);
             }
 
             if (next == queries.len) break :outer;

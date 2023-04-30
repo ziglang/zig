@@ -1139,7 +1139,7 @@ fn appendModuleArgs(
         // We'll use this buffer to store the name we decide on
         var buf = try b.allocator.alloc(u8, dep.name.len + 32);
         // First, try just the exposed dependency name
-        std.mem.copy(u8, buf, dep.name);
+        @memcpy(buf[0..dep.name.len], dep.name);
         var name = buf[0..dep.name.len];
         var n: usize = 0;
         while (names.contains(name)) {

@@ -149,7 +149,7 @@ fn blake2bLong(out: []u8, in: []const u8) void {
         h.update(&outlen_bytes);
         h.update(in);
         h.final(&out_buf);
-        mem.copy(u8, out, out_buf[0..out.len]);
+        @memcpy(out, out_buf[0..out.len]);
         return;
     }
 
@@ -158,19 +158,19 @@ fn blake2bLong(out: []u8, in: []const u8) void {
     h.update(in);
     h.final(&out_buf);
     var out_slice = out;
-    mem.copy(u8, out_slice, out_buf[0 .. H.digest_length / 2]);
+    out_slice[0 .. H.digest_length / 2].* = out_buf[0 .. H.digest_length / 2].*;
     out_slice = out_slice[H.digest_length / 2 ..];
 
     var in_buf: [H.digest_length]u8 = undefined;
     while (out_slice.len > H.digest_length) {
-        mem.copy(u8, &in_buf, &out_buf);
+        in_buf = out_buf;
         H.hash(&in_buf, &out_buf, .{});
-        mem.copy(u8, out_slice, out_buf[0 .. H.digest_length / 2]);
+        out_slice[0 .. H.digest_length / 2].* = out_buf[0 .. H.digest_length / 2].*;
         out_slice = out_slice[H.digest_length / 2 ..];
     }
-    mem.copy(u8, &in_buf, &out_buf);
+    in_buf = out_buf;
     H.hash(&in_buf, &out_buf, .{ .expected_out_bits = out_slice.len * 8 });
-    mem.copy(u8, out_slice, out_buf[0..out_slice.len]);
+    @memcpy(out_slice, out_buf[0..out_slice.len]);
 }
 
 fn initBlocks(
@@ -494,7 +494,7 @@ pub fn kdf(
     if (params.t < 1 or params.p < 1) return KdfError.WeakParameters;
 
     var h0 = initHash(password, salt, params, derived_key.len, mode);
-    const memory = math.max(
+    const memory = @max(
         params.m / (sync_points * params.p) * (sync_points * params.p),
         2 * sync_points * params.p,
     );
@@ -877,7 +877,7 @@ test "kdf" {
             .hash = "1640b932f4b60e272f5d2207b9a9c626ffa1bd88d2349016",
         },
     };
-    inline for (test_vectors) |v| {
+    for (test_vectors) |v| {
         var want: [24]u8 = undefined;
         _ = try std.fmt.hexToBytes(&want, v.hash);
 

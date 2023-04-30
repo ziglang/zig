@@ -206,9 +206,9 @@ pub const InstMap = struct {
 
         const start_diff = old_start - better_start;
         const new_items = try allocator.alloc(Air.Inst.Ref, better_capacity);
-        mem.set(Air.Inst.Ref, new_items[0..start_diff], .none);
-        mem.copy(Air.Inst.Ref, new_items[start_diff..], map.items);
-        mem.set(Air.Inst.Ref, new_items[start_diff + map.items.len ..], .none);
+        @memset(new_items[0..start_diff], .none);
+        @memcpy(new_items[start_diff..][0..map.items.len], map.items);
+        @memset(new_items[start_diff + map.items.len ..], .none);
 
         allocator.free(map.items);
         map.items = new_items;
@@ -2856,9 +2856,9 @@ fn zirEnumDecl(
     const decl_val = try sema.analyzeDeclVal(block, src, new_decl_index);
     done = true;
 
-    var decl_arena = new_decl.value_arena.?.promote(gpa);
-    defer new_decl.value_arena.?.* = decl_arena.state;
-    const decl_arena_allocator = decl_arena.allocator();
+    var decl_arena: std.heap.ArenaAllocator = undefined;
+    const decl_arena_allocator = new_decl.value_arena.?.acquire(gpa, &decl_arena);
+    defer new_decl.value_arena.?.release(&decl_arena);
 
     extra_index = try mod.scanNamespace(&enum_obj.namespace, extra_index, decls_len, new_decl);
 
@@ -4307,7 +4307,7 @@ fn validateStructInit(
     // Maps field index to field_ptr index of where it was already initialized.
     const found_fields = try gpa.alloc(Zir.Inst.Index, struct_ty.structFieldCount());
     defer gpa.free(found_fields);
-    mem.set(Zir.Inst.Index, found_fields, 0);
+    @memset(found_fields, 0);
 
     var struct_ptr_zir_ref: Zir.Inst.Ref = undefined;
 
@@ -5113,7 +5113,7 @@ fn zirIntBig(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.
     const byte_count = int.len * @sizeOf(std.math.big.Limb);
     const limb_bytes = sema.code.string_bytes[int.start..][0..byte_count];
     const limbs = try arena.alloc(std.math.big.Limb, int.len);
-    mem.copy(u8, mem.sliceAsBytes(limbs), limb_bytes);
+    @memcpy(mem.sliceAsBytes(limbs), limb_bytes);
 
     return sema.addConstant(
         Type.initTag(.comptime_int),
@@ -5967,7 +5967,7 @@ fn addDbgVar(
     const elements_used = name.len / 4 + 1;
     try sema.air_extra.ensureUnusedCapacity(sema.gpa, elements_used);
     const buffer = mem.sliceAsBytes(sema.air_extra.unusedCapacitySlice());
-    mem.copy(u8, buffer, name);
+    @memcpy(buffer[0..name.len], name);
     buffer[name.len] = 0;
     sema.air_extra.items.len += elements_used;
 
@@ -6565,7 +6565,10 @@ fn analyzeCall(
     };
 
     if (modifier == .never_inline and func_ty_info.cc == .Inline) {
-        return sema.fail(block, call_src, "no-inline call of inline function", .{});
+        return sema.fail(block, call_src, "'never_inline' call of inline function", .{});
+    }
+    if (modifier == .always_inline and func_ty_info.is_noinline) {
+        return sema.fail(block, call_src, "'always_inline' call of noinline function", .{});
     }
 
     const gpa = sema.gpa;
@@ -8784,7 +8787,8 @@ fn funcCommon(
         if (!is_generic and block.params.items.len == 0 and !var_args and !inferred_error_set and
             alignment.? == 0 and
             address_space.? == target_util.defaultAddressSpace(target, .function) and
-            section == .default)
+            section == .default and
+            !is_noinline)
         {
             if (bare_return_type.zigTypeTag() == .NoReturn and cc.? == .Unspecified) {
                 break :fn_ty Type.initTag(.fn_noreturn_no_args);
@@ -9002,6 +9006,7 @@ fn funcCommon(
             .addrspace_is_generic = address_space == null,
             .is_var_args = var_args,
             .is_generic = is_generic,
+            .is_noinline = is_noinline,
             .noalias_bits = noalias_bits,
         });
     };
@@ -10354,7 +10359,7 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
         .Enum => {
             seen_enum_fields = try gpa.alloc(?Module.SwitchProngSrc, operand_ty.enumFieldCount());
             empty_enum = seen_enum_fields.len == 0 and !operand_ty.isNonexhaustiveEnum();
-            mem.set(?Module.SwitchProngSrc, seen_enum_fields, null);
+            @memset(seen_enum_fields, null);
             // `range_set` is used for non-exhaustive enum values that do not correspond to any tags.
 
             var extra_index: usize = special.end;
@@ -12809,8 +12814,8 @@ fn analyzeTupleMul(
         }
         i = 0;
         while (i < factor) : (i += 1) {
-            mem.copy(Type, types[tuple_len * i ..], types[0..tuple_len]);
-            mem.copy(Value, values[tuple_len * i ..], values[0..tuple_len]);
+            mem.copyForwards(Type, types[tuple_len * i ..], types[0..tuple_len]);
+            mem.copyForwards(Value, values[tuple_len * i ..], values[0..tuple_len]);
         }
         break :rs runtime_src;
     };
@@ -12835,7 +12840,7 @@ fn analyzeTupleMul(
     }
     i = 1;
     while (i < factor) : (i += 1) {
-        mem.copy(Air.Inst.Ref, element_refs[tuple_len * i ..], element_refs[0..tuple_len]);
+        @memcpy(element_refs[tuple_len * i ..][0..tuple_len], element_refs[0..tuple_len]);
     }
 
     return block.addAggregateInit(tuple_ty, element_refs);
@@ -15057,29 +15062,29 @@ fn zirAsm(
     sema.appendRefsAssumeCapacity(args);
     for (outputs) |o| {
         const buffer = mem.sliceAsBytes(sema.air_extra.unusedCapacitySlice());
-        mem.copy(u8, buffer, o.c);
+        @memcpy(buffer[0..o.c.len], o.c);
         buffer[o.c.len] = 0;
-        mem.copy(u8, buffer[o.c.len + 1 ..], o.n);
+        @memcpy(buffer[o.c.len + 1 ..][0..o.n.len], o.n);
         buffer[o.c.len + 1 + o.n.len] = 0;
         sema.air_extra.items.len += (o.c.len + o.n.len + (2 + 3)) / 4;
     }
     for (inputs) |input| {
         const buffer = mem.sliceAsBytes(sema.air_extra.unusedCapacitySlice());
-        mem.copy(u8, buffer, input.c);
+        @memcpy(buffer[0..input.c.len], input.c);
         buffer[input.c.len] = 0;
-        mem.copy(u8, buffer[input.c.len + 1 ..], input.n);
+        @memcpy(buffer[input.c.len + 1 ..][0..input.n.len], input.n);
         buffer[input.c.len + 1 + input.n.len] = 0;
         sema.air_extra.items.len += (input.c.len + input.n.len + (2 + 3)) / 4;
     }
     for (clobbers) |clobber| {
         const buffer = mem.sliceAsBytes(sema.air_extra.unusedCapacitySlice());
-        mem.copy(u8, buffer, clobber);
+        @memcpy(buffer[0..clobber.len], clobber);
         buffer[clobber.len] = 0;
         sema.air_extra.items.len += clobber.len / 4 + 1;
     }
     {
         const buffer = mem.sliceAsBytes(sema.air_extra.unusedCapacitySlice());
-        mem.copy(u8, buffer, asm_source);
+        @memcpy(buffer[0..asm_source.len], asm_source);
         sema.air_extra.items.len += (asm_source.len + 3) / 4;
     }
     return asm_air;
@@ -17582,7 +17587,7 @@ fn structInitEmpty(
     // The init values to use for the struct instance.
     const field_inits = try gpa.alloc(Air.Inst.Ref, struct_ty.structFieldCount());
     defer gpa.free(field_inits);
-    mem.set(Air.Inst.Ref, field_inits, .none);
+    @memset(field_inits, .none);
 
     return sema.finishStructInit(block, init_src, dest_src, field_inits, struct_ty, false);
 }
@@ -17675,7 +17680,7 @@ fn zirStructInit(
         // The init values to use for the struct instance.
         const field_inits = try gpa.alloc(Air.Inst.Ref, resolved_ty.structFieldCount());
         defer gpa.free(field_inits);
-        mem.set(Air.Inst.Ref, field_inits, .none);
+        @memset(field_inits, .none);
 
         var field_i: u32 = 0;
         var extra_index = extra.end;
@@ -19217,6 +19222,7 @@ fn zirReify(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstData, in
                 .cc = cc,
                 .is_var_args = is_var_args,
                 .is_generic = false,
+                .is_noinline = false,
                 .align_is_generic = false,
                 .cc_is_generic = false,
                 .section_is_generic = false,
@@ -22039,7 +22045,7 @@ fn zirMemset(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!void
         if (try sema.resolveMaybeUndefVal(uncoerced_elem)) |_| {
             for (0..len) |i| {
                 const elem_index = try sema.addIntUnsigned(Type.usize, i);
-                const elem_ptr = try sema.elemPtr(
+                const elem_ptr = try sema.elemPtrOneLayerOnly(
                     block,
                     src,
                     dest_ptr,
@@ -24597,10 +24603,15 @@ fn elemPtr(
     const indexable_ptr_src = src; // TODO better source location
     const indexable_ptr_ty = sema.typeOf(indexable_ptr);
     const target = sema.mod.getTarget();
+
     const indexable_ty = switch (indexable_ptr_ty.zigTypeTag()) {
         .Pointer => indexable_ptr_ty.elemType(),
         else => return sema.fail(block, indexable_ptr_src, "expected pointer, found '{}'", .{indexable_ptr_ty.fmt(sema.mod)}),
     };
+    if (!indexable_ty.isIndexable()) {
+        return sema.fail(block, src, "element access of non-indexable type '{}'", .{indexable_ty.fmt(sema.mod)});
+    }
+
     switch (indexable_ty.zigTypeTag()) {
         .Array, .Vector => return sema.elemPtrArray(block, src, indexable_ptr_src, indexable_ptr, elem_index_src, elem_index, init, oob_safety),
         .Struct => {
@@ -24629,10 +24640,11 @@ fn elemPtrOneLayerOnly(
 ) CompileError!Air.Inst.Ref {
     const indexable_src = src; // TODO better source location
     const indexable_ty = sema.typeOf(indexable);
+    const target = sema.mod.getTarget();
+
     if (!indexable_ty.isIndexable()) {
         return sema.fail(block, src, "element access of non-indexable type '{}'", .{indexable_ty.fmt(sema.mod)});
     }
-    const target = sema.mod.getTarget();
 
     switch (indexable_ty.ptrSize()) {
         .Slice => return sema.elemPtrSlice(block, src, indexable_src, indexable, elem_index_src, elem_index, oob_safety),
@@ -26953,9 +26965,13 @@ fn storePtrVal(
             defer sema.gpa.free(buffer);
             reinterpret.val_ptr.*.writeToMemory(mut_kit.ty, sema.mod, buffer) catch |err| switch (err) {
                 error.ReinterpretDeclRef => unreachable,
+                error.IllDefinedMemoryLayout => unreachable, // Sema was supposed to emit a compile error already
+                error.Unimplemented => return sema.fail(block, src, "TODO: implement writeToMemory for type '{}'", .{mut_kit.ty.fmt(sema.mod)}),
             };
             operand_val.writeToMemory(operand_ty, sema.mod, buffer[reinterpret.byte_offset..]) catch |err| switch (err) {
                 error.ReinterpretDeclRef => unreachable,
+                error.IllDefinedMemoryLayout => unreachable, // Sema was supposed to emit a compile error already
+                error.Unimplemented => return sema.fail(block, src, "TODO: implement writeToMemory for type '{}'", .{mut_kit.ty.fmt(sema.mod)}),
             };
 
             const arena = mut_kit.beginArena(sema.mod);
@@ -26999,13 +27015,12 @@ const ComptimePtrMutationKit = struct {
 
     fn beginArena(self: *ComptimePtrMutationKit, mod: *Module) Allocator {
         const decl = mod.declPtr(self.decl_ref_mut.decl_index);
-        self.decl_arena = decl.value_arena.?.promote(mod.gpa);
-        return self.decl_arena.allocator();
+        return decl.value_arena.?.acquire(mod.gpa, &self.decl_arena);
     }
 
     fn finishArena(self: *ComptimePtrMutationKit, mod: *Module) void {
         const decl = mod.declPtr(self.decl_ref_mut.decl_index);
-        decl.value_arena.?.* = self.decl_arena.state;
+        decl.value_arena.?.release(&self.decl_arena);
         self.decl_arena = undefined;
     }
 };
@@ -27036,6 +27051,7 @@ fn beginComptimePtrMutation(
         .elem_ptr => {
             const elem_ptr = ptr_val.castTag(.elem_ptr).?.data;
             var parent = try sema.beginComptimePtrMutation(block, src, elem_ptr.array_ptr, elem_ptr.elem_ty);
+
             switch (parent.pointee) {
                 .direct => |val_ptr| switch (parent.ty.zigTypeTag()) {
                     .Array, .Vector => {
@@ -27075,7 +27091,7 @@ fn beginComptimePtrMutation(
                                 const array_len_including_sentinel =
                                     try sema.usizeCast(block, src, parent.ty.arrayLenIncludingSentinel());
                                 const elems = try arena.alloc(Value, array_len_including_sentinel);
-                                mem.set(Value, elems, Value.undef);
+                                @memset(elems, Value.undef);
 
                                 val_ptr.* = try Value.Tag.aggregate.create(arena, elems);
 
@@ -27273,7 +27289,7 @@ fn beginComptimePtrMutation(
                         switch (parent.ty.zigTypeTag()) {
                             .Struct => {
                                 const fields = try arena.alloc(Value, parent.ty.structFieldCount());
-                                mem.set(Value, fields, Value.undef);
+                                @memset(fields, Value.undef);
 
                                 val_ptr.* = try Value.Tag.aggregate.create(arena, fields);
 
@@ -27905,6 +27921,8 @@ fn bitCastVal(
     defer sema.gpa.free(buffer);
     val.writeToMemory(old_ty, sema.mod, buffer) catch |err| switch (err) {
         error.ReinterpretDeclRef => return null,
+        error.IllDefinedMemoryLayout => unreachable, // Sema was supposed to emit a compile error already
+        error.Unimplemented => return sema.fail(block, src, "TODO: implement writeToMemory for type '{}'", .{old_ty.fmt(sema.mod)}),
     };
     return try Value.readFromMemory(new_ty, sema.mod, buffer[buffer_offset..], sema.arena);
 }
@@ -28419,7 +28437,7 @@ fn coerceTupleToStruct(
     const fields = struct_ty.structFields();
     const field_vals = try sema.arena.alloc(Value, fields.count());
     const field_refs = try sema.arena.alloc(Air.Inst.Ref, field_vals.len);
-    mem.set(Air.Inst.Ref, field_refs, .none);
+    @memset(field_refs, .none);
 
     const inst_ty = sema.typeOf(inst);
     var runtime_src: ?LazySrcLoc = null;
@@ -28508,7 +28526,7 @@ fn coerceTupleToTuple(
     const dest_field_count = tuple_ty.structFieldCount();
     const field_vals = try sema.arena.alloc(Value, dest_field_count);
     const field_refs = try sema.arena.alloc(Air.Inst.Ref, field_vals.len);
-    mem.set(Air.Inst.Ref, field_refs, .none);
+    @memset(field_refs, .none);
 
     const inst_ty = sema.typeOf(inst);
     const inst_field_count = inst_ty.structFieldCount();
@@ -30653,10 +30671,9 @@ fn resolveStructLayout(sema: *Sema, ty: Type) CompileError!void {
                 try sema.perm_arena.alloc(u32, struct_obj.fields.count())
             else blk: {
                 const decl = sema.mod.declPtr(struct_obj.owner_decl);
-                var decl_arena = decl.value_arena.?.promote(sema.mod.gpa);
-                defer decl.value_arena.?.* = decl_arena.state;
-                const decl_arena_allocator = decl_arena.allocator();
-
+                var decl_arena: std.heap.ArenaAllocator = undefined;
+                const decl_arena_allocator = decl.value_arena.?.acquire(sema.mod.gpa, &decl_arena);
+                defer decl.value_arena.?.release(&decl_arena);
                 break :blk try decl_arena_allocator.alloc(u32, struct_obj.fields.count());
             };
 
@@ -30700,9 +30717,9 @@ fn semaBackingIntType(mod: *Module, struct_obj: *Module.Struct) CompileError!voi
 
     const decl_index = struct_obj.owner_decl;
     const decl = mod.declPtr(decl_index);
-    var decl_arena = decl.value_arena.?.promote(gpa);
-    defer decl.value_arena.?.* = decl_arena.state;
-    const decl_arena_allocator = decl_arena.allocator();
+    var decl_arena: std.heap.ArenaAllocator = undefined;
+    const decl_arena_allocator = decl.value_arena.?.acquire(gpa, &decl_arena);
+    defer decl.value_arena.?.release(&decl_arena);
 
     const zir = struct_obj.namespace.file_scope.zir;
     const extended = zir.instructions.items(.data)[struct_obj.zir_index].extended;
@@ -31394,9 +31411,9 @@ fn semaStructFields(mod: *Module, struct_obj: *Module.Struct) CompileError!void 
     }
 
     const decl = mod.declPtr(decl_index);
-    var decl_arena = decl.value_arena.?.promote(gpa);
-    defer decl.value_arena.?.* = decl_arena.state;
-    const decl_arena_allocator = decl_arena.allocator();
+    var decl_arena: std.heap.ArenaAllocator = undefined;
+    const decl_arena_allocator = decl.value_arena.?.acquire(gpa, &decl_arena);
+    defer decl.value_arena.?.release(&decl_arena);
 
     var analysis_arena = std.heap.ArenaAllocator.init(gpa);
     defer analysis_arena.deinit();
@@ -31734,10 +31751,9 @@ fn semaUnionFields(mod: *Module, union_obj: *Module.Union) CompileError!void {
     extra_index += body.len;
 
     const decl = mod.declPtr(decl_index);
-
-    var decl_arena = decl.value_arena.?.promote(gpa);
-    defer decl.value_arena.?.* = decl_arena.state;
-    const decl_arena_allocator = decl_arena.allocator();
+    var decl_arena: std.heap.ArenaAllocator = undefined;
+    const decl_arena_allocator = decl.value_arena.?.acquire(gpa, &decl_arena);
+    defer decl.value_arena.?.release(&decl_arena);
 
     var analysis_arena = std.heap.ArenaAllocator.init(gpa);
     defer analysis_arena.deinit();

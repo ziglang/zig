@@ -1889,11 +1889,11 @@ fn renderArrayInit(
         // A place to store the width of each expression and its column's maximum
         const widths = try gpa.alloc(usize, row_exprs.len + row_size);
         defer gpa.free(widths);
-        mem.set(usize, widths, 0);
+        @memset(widths, 0);
 
         const expr_newlines = try gpa.alloc(bool, row_exprs.len);
         defer gpa.free(expr_newlines);
-        mem.set(bool, expr_newlines, false);
+        @memset(expr_newlines, false);
 
         const expr_widths = widths[0..row_exprs.len];
         const column_widths = widths[row_exprs.len..];

@@ -210,7 +210,7 @@ pub const ElfDynLib = struct {
                                 -1,
                                 0,
                             );
-                            mem.copy(u8, sect_mem, file_bytes[0..ph.p_filesz]);
+                            @memcpy(sect_mem[0..ph.p_filesz], file_bytes[0..ph.p_filesz]);
                         }
                     },
                     else => {},

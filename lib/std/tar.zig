@@ -55,9 +55,9 @@ pub const Header = struct {
         const p = prefix(header);
         if (p.len == 0)
             return n;
-        std.mem.copy(u8, buffer[0..p.len], p);
+        @memcpy(buffer[0..p.len], p);
         buffer[p.len] = '/';
-        std.mem.copy(u8, buffer[p.len + 1 ..], n);
+        @memcpy(buffer[p.len + 1 ..][0..n.len], n);
         return buffer[0 .. p.len + 1 + n.len];
     }
 
@@ -101,8 +101,9 @@ pub fn pipeToFileSystem(dir: std.fs.Dir, reader: anytype, options: Options) !voi
     var end: usize = 0;
     header: while (true) {
         if (buffer.len - start < 1024) {
-            std.mem.copy(u8, &buffer, buffer[start..end]);
-            end -= start;
+            const dest_end = end - start;
+            @memcpy(buffer[0..dest_end], buffer[start..end]);
+            end = dest_end;
             start = 0;
         }
         const ask_header = @min(buffer.len - end, 1024 -| (end - start));
@@ -138,8 +139,9 @@ pub fn pipeToFileSystem(dir: std.fs.Dir, reader: anytype, options: Options) !voi
                 var file_off: usize = 0;
                 while (true) {
                     if (buffer.len - start < 1024) {
-                        std.mem.copy(u8, &buffer, buffer[start..end]);
-                        end -= start;
+                        const dest_end = end - start;
+                        @memcpy(buffer[0..dest_end], buffer[start..end]);
+                        end = dest_end;
                         start = 0;
                     }
                     // Ask for the rounded up file size + 512 for the next header.

@@ -380,7 +380,7 @@ pub fn MultiArrayList(comptime T: type) type {
             inline for (fields, 0..) |field_info, i| {
                 if (@sizeOf(field_info.type) != 0) {
                     const field = @intToEnum(Field, i);
-                    mem.copy(field_info.type, other_slice.items(field), self_slice.items(field));
+                    @memcpy(other_slice.items(field), self_slice.items(field));
                 }
             }
             gpa.free(self.allocatedBytes());
@@ -441,7 +441,7 @@ pub fn MultiArrayList(comptime T: type) type {
             inline for (fields, 0..) |field_info, i| {
                 if (@sizeOf(field_info.type) != 0) {
                     const field = @intToEnum(Field, i);
-                    mem.copy(field_info.type, other_slice.items(field), self_slice.items(field));
+                    @memcpy(other_slice.items(field), self_slice.items(field));
                 }
             }
             gpa.free(self.allocatedBytes());
@@ -460,7 +460,7 @@ pub fn MultiArrayList(comptime T: type) type {
             inline for (fields, 0..) |field_info, i| {
                 if (@sizeOf(field_info.type) != 0) {
                     const field = @intToEnum(Field, i);
-                    mem.copy(field_info.type, result_slice.items(field), self_slice.items(field));
+                    @memcpy(result_slice.items(field), self_slice.items(field));
                 }
             }
             return result;

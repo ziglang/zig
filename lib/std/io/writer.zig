@@ -35,7 +35,7 @@ pub fn Writer(
 
         pub fn writeByteNTimes(self: Self, byte: u8, n: usize) Error!void {
             var bytes: [256]u8 = undefined;
-            mem.set(u8, bytes[0..], byte);
+            @memset(bytes[0..], byte);
 
             var remaining: usize = n;
             while (remaining > 0) {

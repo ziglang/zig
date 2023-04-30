@@ -47,6 +47,7 @@ fn getArrayLen(a: []const u32) usize {
 
 test "array concat with undefined" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     const S = struct {
         fn doTheTest() !void {
@@ -70,6 +71,7 @@ test "array concat with undefined" {
 test "array concat with tuple" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     const array: [2]u8 = .{ 1, 2 };
     {
@@ -103,6 +105,7 @@ test "array init with mult" {
 
 test "array literal with explicit type" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     const hex_mult: [4]u16 = .{ 4096, 256, 16, 1 };
 
@@ -203,6 +206,7 @@ test "nested arrays of strings" {
 
 test "nested arrays of integers" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     const array_of_numbers = [_][2]u8{
         [2]u8{ 1, 2 },

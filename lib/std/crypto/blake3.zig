@@ -253,7 +253,7 @@ const Output = struct {
             while (out_word_it.next()) |out_word| {
                 var word_bytes: [4]u8 = undefined;
                 mem.writeIntLittle(u32, &word_bytes, words[word_counter]);
-                mem.copy(u8, out_word, word_bytes[0..out_word.len]);
+                @memcpy(out_word, word_bytes[0..out_word.len]);
                 word_counter += 1;
             }
             output_block_counter += 1;
@@ -284,7 +284,7 @@ const ChunkState = struct {
     fn fillBlockBuf(self: *ChunkState, input: []const u8) []const u8 {
         const want = BLOCK_LEN - self.block_len;
         const take = math.min(want, input.len);
-        mem.copy(u8, self.block[self.block_len..][0..take], input[0..take]);
+        @memcpy(self.block[self.block_len..][0..take], input[0..take]);
         self.block_len += @truncate(u8, take);
         return input[take..];
     }
@@ -336,8 +336,8 @@ fn parentOutput(
     flags: u8,
 ) Output {
     var block_words: [16]u32 align(16) = undefined;
-    mem.copy(u32, block_words[0..8], left_child_cv[0..]);
-    mem.copy(u32, block_words[8..], right_child_cv[0..]);
+    block_words[0..8].* = left_child_cv;
+    block_words[8..].* = right_child_cv;
     return Output{
         .input_chaining_value = key,
         .block_words = block_words,

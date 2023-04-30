@@ -202,7 +202,7 @@ pub const HuffmanEncoder = struct {
                     // more values in the level below
                     l.last_freq = l.next_pair_freq;
                     // Take leaf counts from the lower level, except counts[level] remains the same.
-                    mem.copy(u32, leaf_counts[level][0..level], leaf_counts[level - 1][0..level]);
+                    @memcpy(leaf_counts[level][0..level], leaf_counts[level - 1][0..level]);
                     levels[l.level - 1].needed = 2;
                 }
 

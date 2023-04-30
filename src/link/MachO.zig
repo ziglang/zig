@@ -1454,7 +1454,7 @@ fn createThreadLocalDescriptorAtom(self: *MachO, sym_name: []const u8, target: S
     });
 
     var code: [size]u8 = undefined;
-    mem.set(u8, &code, 0);
+    @memset(&code, 0);
     try self.writeAtom(atom_index, &code);
 
     return atom_index;
@@ -3234,7 +3234,7 @@ fn writeDyldInfoData(self: *MachO) !void {
 
     var buffer = try gpa.alloc(u8, needed_size);
     defer gpa.free(buffer);
-    mem.set(u8, buffer, 0);
+    @memset(buffer, 0);
 
     var stream = std.io.fixedBufferStream(buffer);
     const writer = stream.writer();
@@ -3389,8 +3389,8 @@ fn writeStrtab(self: *MachO) !void {
 
     const buffer = try gpa.alloc(u8, math.cast(usize, needed_size_aligned) orelse return error.Overflow);
     defer gpa.free(buffer);
-    mem.set(u8, buffer, 0);
-    mem.copy(u8, buffer, self.strtab.buffer.items);
+    @memcpy(buffer[0..self.strtab.buffer.items.len], self.strtab.buffer.items);
+    @memset(buffer[self.strtab.buffer.items.len..], 0);
 
     try self.base.file.?.pwriteAll(buffer, offset);
 
@@ -3668,8 +3668,7 @@ fn addUndefined(self: *MachO, name: []const u8, action: ResolveAction.Kind) !u32
 
 pub fn makeStaticString(bytes: []const u8) [16]u8 {
     var buf = [_]u8{0} ** 16;
-    assert(bytes.len <= buf.len);
-    mem.copy(u8, &buf, bytes);
+    @memcpy(buf[0..bytes.len], bytes);
     return buf;
 }
 
@@ -4096,8 +4095,8 @@ pub fn logSections(self: *MachO) void {
 }
 
 fn logSymAttributes(sym: macho.nlist_64, buf: *[4]u8) []const u8 {
-    mem.set(u8, buf[0..4], '_');
-    mem.set(u8, buf[4..], ' ');
+    @memset(buf[0..4], '_');
+    @memset(buf[4..], ' ');
     if (sym.sect()) {
         buf[0] = 's';
     }

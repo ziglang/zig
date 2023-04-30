@@ -275,7 +275,7 @@ pub fn EnumMap(comptime E: type, comptime V: type) type {
                         .bits = Self.BitSet.initFull(),
                         .values = undefined,
                     };
-                    std.mem.set(V, &result.values, value);
+                    @memset(&result.values, value);
                     return result;
                 }
                 /// Initializes a full mapping with supplied values.
@@ -1175,7 +1175,7 @@ pub fn IndexedArray(comptime I: type, comptime V: type, comptime Ext: fn (type) 
 
         pub fn initFill(v: Value) Self {
             var self: Self = undefined;
-            std.mem.set(Value, &self.values, v);
+            @memset(&self.values, v);
             return self;
         }
 
