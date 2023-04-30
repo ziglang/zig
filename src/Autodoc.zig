@@ -1287,7 +1287,48 @@ fn walkInstruction(
                 .expr = .{ .sliceIndex = slice_index },
             };
         },
-        .slice_length => @panic("TODO: implement walkInstruction for .slice_length"),
+        .slice_length => {
+            const pl_node = data[inst_index].pl_node;
+            const extra = file.zir.extraData(Zir.Inst.SliceLength, pl_node.payload_index);
+
+            const slice_index = self.exprs.items.len;
+            try self.exprs.append(self.arena, .{ .slice = .{ .lhs = 0, .start = 0 } });
+
+            var lhs: DocData.WalkResult = try self.walkRef(
+                file,
+                parent_scope,
+                parent_src,
+                extra.data.lhs,
+                false,
+            );
+            var start: DocData.WalkResult = try self.walkRef(
+                file,
+                parent_scope,
+                parent_src,
+                extra.data.start,
+                false,
+            );
+            var len: DocData.WalkResult = try self.walkRef(
+                file,
+                parent_scope,
+                parent_src,
+                extra.data.len,
+                false,
+            );
+
+            const lhs_index = self.exprs.items.len;
+            try self.exprs.append(self.arena, lhs.expr);
+            const start_index = self.exprs.items.len;
+            try self.exprs.append(self.arena, start.expr);
+            const len_index = self.exprs.items.len;
+            try self.exprs.append(self.arena, len.expr);
+            self.exprs.items[slice_index] = .{ .slice = .{ .lhs = lhs_index, .start = start_index, .end = len_index } };
+
+            return DocData.WalkResult{
+                .typeRef = self.decls.items[lhs.expr.declRef.Analyzed].value.typeRef,
+                .expr = .{ .sliceIndex = slice_index },
+            };
+        },
 
         // @check array_cat and array_mul
         .add,
