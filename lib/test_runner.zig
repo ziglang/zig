@@ -99,24 +99,34 @@ fn mainServer() !void {
                 var fail = false;
                 var skip = false;
                 var leak = false;
-                test_fn.func() catch |err| switch (err) {
+                var err: ?anyerror = null;
+
+                test_fn.func() catch |e| switch (e) {
                     error.SkipZigTest => skip = true,
                     else => {
                         fail = true;
+                        err = e;
                         if (@errorReturnTrace()) |trace| {
                             std.debug.dumpStackTrace(trace.*);
                         }
                     },
                 };
+
                 leak = std.testing.allocator_instance.deinit() == .leak;
-                try server.serveTestResults(.{
-                    .index = index,
-                    .flags = .{
-                        .fail = fail,
-                        .skip = skip,
-                        .leak = leak,
+                const err_name = if (err) |e| @errorName(e) else "";
+
+                try server.serveTestResults(
+                    err_name,
+                    .{
+                        .index = index,
+                        .flags = .{
+                            .fail = fail,
+                            .skip = skip,
+                            .leak = leak,
+                        },
+                        .err_len = err_name.len,
                     },
-                });
+                );
             },
 
             else => {

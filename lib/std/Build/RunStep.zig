@@ -1013,19 +1013,34 @@ fn evalZigTest(
 
                 const TrHdr = std.zig.Server.Message.TestResults;
                 const tr_hdr = @ptrCast(*align(1) const TrHdr, body);
+
                 fail_count += @boolToInt(tr_hdr.flags.fail);
                 skip_count += @boolToInt(tr_hdr.flags.skip);
                 leak_count += @boolToInt(tr_hdr.flags.leak);
 
                 if (tr_hdr.flags.fail or tr_hdr.flags.leak) {
                     const name = std.mem.sliceTo(md.string_bytes[md.names[tr_hdr.index]..], 0);
+                    const err = body[@sizeOf(TrHdr)..][0..tr_hdr.err_len];
+
                     const msg = std.mem.trim(u8, stderr.readableSlice(0), "\n");
-                    const label = if (tr_hdr.flags.fail) "failed" else "leaked";
+                    // const label = if (tr_hdr.flags.fail) "failed" else "leaked";
+                    // failed, leaked, leaked and failed
+                    const label = if (tr_hdr.flags.fail and tr_hdr.flags.leak)
+                        "leaked and failed"
+                    else if (tr_hdr.flags.fail) "failed" else "leaked";
+
                     if (msg.len > 0) {
-                        try self.step.addError("'{s}' {s}: {s}", .{ name, label, msg });
+                        if (err.len > 0)
+                            try self.step.addError("'{s}' {s} with error {s}:\n{s}", .{ name, label, err, msg })
+                        else
+                            try self.step.addError("'{s}' {s}:\n{s}", .{ name, label, msg });
                     } else {
-                        try self.step.addError("'{s}' {s}", .{ name, label });
+                        if (err.len > 0)
+                            try self.step.addError("'{s}' {s} with error {s}", .{ name, label, err })
+                        else
+                            try self.step.addError("'{s}' {s}", .{ name, label });
                     }
+
                     stderr.discard(msg.len);
                 }
 
