@@ -221,6 +221,10 @@ pub const DT_IA_64_NUM = 1;
 
 pub const DT_NIOS2_GP = 0x70000002;
 
+pub const ELFCOMPRESS_ZLIB = 1;
+
+pub const NT_GNU_BUILD_ID = 3;
+
 /// Program header table entry unused
 pub const PT_NULL = 0;
 /// Loadable program segment
@@ -992,6 +996,11 @@ pub const Rela = switch (@sizeOf(usize)) {
 pub const Shdr = switch (@sizeOf(usize)) {
     4 => Elf32_Shdr,
     8 => Elf64_Shdr,
+    else => @compileError("expected pointer size of 32 or 64"),
+};
+pub const Chdr = switch (@sizeOf(usize)) {
+    4 => Elf32_Chdr,
+    8 => Elf64_Chdr,
     else => @compileError("expected pointer size of 32 or 64"),
 };
 pub const Sym = switch (@sizeOf(usize)) {
