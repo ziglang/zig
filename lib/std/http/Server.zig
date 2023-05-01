@@ -352,7 +352,7 @@ pub const Response = struct {
 
     transfer_encoding: ResponseTransfer = .none,
 
-    server: *Server,
+    allocator: Allocator,
     address: net.Address,
     connection: BufferedConnection,
 
@@ -376,7 +376,7 @@ pub const Response = struct {
         res.request.headers.deinit();
 
         if (res.request.parser.header_bytes_owned) {
-            res.request.parser.header_bytes.deinit(res.server.allocator);
+            res.request.parser.header_bytes.deinit(res.allocator);
         }
     }
 
@@ -545,13 +545,13 @@ pub const Response = struct {
         while (true) {
             try res.connection.fill();
 
-            const nchecked = try res.request.parser.checkCompleteHead(res.server.allocator, res.connection.peek());
+            const nchecked = try res.request.parser.checkCompleteHead(res.allocator, res.connection.peek());
             res.connection.clear(@intCast(u16, nchecked));
 
             if (res.request.parser.state.isContent()) break;
         }
 
-        res.request.headers = .{ .allocator = res.server.allocator, .owned = true };
+        res.request.headers = .{ .allocator = res.allocator, .owned = true };
         try res.request.parse(res.request.parser.header_bytes.items);
 
         if (res.request.transfer_encoding) |te| {
@@ -573,13 +573,13 @@ pub const Response = struct {
             if (res.request.transfer_compression) |tc| switch (tc) {
                 .compress => return error.CompressionNotSupported,
                 .deflate => res.request.compression = .{
-                    .deflate = std.compress.zlib.zlibStream(res.server.allocator, res.transferReader()) catch return error.CompressionInitializationFailed,
+                    .deflate = std.compress.zlib.zlibStream(res.allocator, res.transferReader()) catch return error.CompressionInitializationFailed,
                 },
                 .gzip => res.request.compression = .{
-                    .gzip = std.compress.gzip.decompress(res.server.allocator, res.transferReader()) catch return error.CompressionInitializationFailed,
+                    .gzip = std.compress.gzip.decompress(res.allocator, res.transferReader()) catch return error.CompressionInitializationFailed,
                 },
                 .zstd => res.request.compression = .{
-                    .zstd = std.compress.zstd.decompressStream(res.server.allocator, res.transferReader()),
+                    .zstd = std.compress.zstd.decompressStream(res.allocator, res.transferReader()),
                 },
             };
         }
@@ -612,12 +612,12 @@ pub const Response = struct {
             while (!res.request.parser.state.isContent()) { // read trailing headers
                 try res.connection.fill();
 
-                const nchecked = try res.request.parser.checkCompleteHead(res.server.allocator, res.connection.peek());
+                const nchecked = try res.request.parser.checkCompleteHead(res.allocator, res.connection.peek());
                 res.connection.clear(@intCast(u16, nchecked));
             }
 
             if (has_trail) {
-                res.request.headers = http.Headers{ .allocator = res.server.allocator, .owned = false };
+                res.request.headers = http.Headers{ .allocator = res.allocator, .owned = false };
 
                 // The response headers before the trailers are already guaranteed to be valid, so they will always be parsed again and cannot return an error.
                 // This will *only* fail for a malformed trailer.
@@ -731,24 +731,29 @@ pub const HeaderStrategy = union(enum) {
     static: []u8,
 };
 
+pub const AcceptOptions = struct {
+    allocator: Allocator,
+    header_strategy: HeaderStrategy = .{ .dynamic = 8192 },
+};
+
 /// Accept a new connection.
-pub fn accept(server: *Server, options: HeaderStrategy) AcceptError!Response {
+pub fn accept(server: *Server, options: AcceptOptions) AcceptError!Response {
     const in = try server.socket.accept();
 
     return Response{
-        .server = server,
+        .allocator = options.allocator,
         .address = in.address,
         .connection = .{ .conn = .{
             .stream = in.stream,
             .protocol = .plain,
         } },
-        .headers = .{ .allocator = server.allocator },
+        .headers = .{ .allocator = options.allocator },
         .request = .{
             .version = undefined,
             .method = undefined,
             .target = undefined,
-            .headers = .{ .allocator = server.allocator, .owned = false },
-            .parser = switch (options) {
+            .headers = .{ .allocator = options.allocator, .owned = false },
+            .parser = switch (options.header_strategy) {
                 .dynamic => |max| proto.HeadersParser.initDynamic(max),
                 .static => |buf| proto.HeadersParser.initStatic(buf),
             },

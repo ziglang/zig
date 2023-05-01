@@ -15,6 +15,8 @@ var gpa_client = std.heap.GeneralPurposeAllocator(.{}){};
 const salloc = gpa_server.allocator();
 const calloc = gpa_client.allocator();
 
+var server: Server = undefined;
+
 fn handleRequest(res: *Server.Response) !void {
     const log = std.log.scoped(.server);
 
@@ -89,7 +91,7 @@ fn handleRequest(res: *Server.Response) !void {
     } else if (mem.eql(u8, res.request.target, "/redirect/3")) {
         res.transfer_encoding = .chunked;
 
-        const location = try std.fmt.allocPrint(salloc, "http://127.0.0.1:{d}/redirect/2", .{res.server.socket.listen_address.getPort()});
+        const location = try std.fmt.allocPrint(salloc, "http://127.0.0.1:{d}/redirect/2", .{server.socket.listen_address.getPort()});
         defer salloc.free(location);
 
         res.status = .found;
@@ -119,7 +121,10 @@ var handle_new_requests = true;
 
 fn runServer(srv: *Server) !void {
     outer: while (handle_new_requests) {
-        var res = try srv.accept(.{ .dynamic = max_header_size });
+        var res = try srv.accept(.{
+            .allocator = salloc,
+            .header_strategy = .{ .dynamic = max_header_size },
+        });
         defer res.deinit();
 
         while (res.reset() != .closing) {
@@ -162,7 +167,7 @@ pub fn main() !void {
 
     defer _ = gpa_client.deinit();
 
-    var server = Server.init(salloc, .{ .reuse_address = true });
+    server = Server.init(salloc, .{ .reuse_address = true });
 
     const addr = std.net.Address.parseIp("127.0.0.1", 0) catch unreachable;
     try server.listen(addr);
