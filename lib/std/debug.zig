@@ -684,12 +684,16 @@ fn printUnknownSource(debug_info: *DebugInfo, out_stream: anytype, address: usiz
 pub fn printSourceAtAddress(debug_info: *DebugInfo, out_stream: anytype, address: usize, tty_config: io.tty.Config) !void {
     const module = debug_info.getModuleForAddress(address) catch |err| switch (err) {
         error.MissingDebugInfo, error.InvalidDebugInfo => return printUnknownSource(debug_info, out_stream, address, tty_config),
-        else => return err,
+        else => {
+            return err;
+        },
     };
 
     const symbol_info = module.getSymbolAtAddress(debug_info.allocator, address) catch |err| switch (err) {
         error.MissingDebugInfo, error.InvalidDebugInfo => return printUnknownSource(debug_info, out_stream, address, tty_config),
-        else => return err,
+        else => {
+            return err;
+        },
     };
     defer symbol_info.deinit(debug_info.allocator);
 
@@ -877,13 +881,29 @@ fn chopSlice(ptr: []const u8, offset: u64, size: u64) error{Overflow}![]const u8
     return ptr[start..end];
 }
 
-/// This takes ownership of elf_file: users of this function should not close
-/// it themselves, even on error.
-/// TODO it's weird to take ownership even on error, rework this code.
-pub fn readElfDebugInfo(allocator: mem.Allocator, elf_file: File) !ModuleDebugInfo {
+pub fn readElfDebugInfo(
+    allocator: mem.Allocator,
+    elf_filename: ?[]const u8,
+    build_id: ?[]const u8,
+    expected_crc: ?u32,
+) !ModuleDebugInfo {
     nosuspend {
+
+        // TODO https://github.com/ziglang/zig/issues/5525
+        const elf_file = (if (elf_filename) |filename| blk: {
+            break :blk if (fs.path.isAbsolute(filename))
+                fs.openFileAbsolute(filename, .{ .intended_io_mode = .blocking })
+            else
+                fs.cwd().openFile(filename, .{ .intended_io_mode = .blocking });
+        } else fs.openSelfExe(.{ .intended_io_mode = .blocking })) catch |err| switch (err) {
+            error.FileNotFound => return error.MissingDebugInfo,
+            else => return err,
+        };
+
         const mapped_mem = try mapWholeFile(elf_file);
-        const hdr = @as(*const elf.Ehdr, @ptrCast(&mapped_mem[0]));
+        if (expected_crc) |crc| if (crc != std.hash.crc.Crc32SmallWithPoly(.IEEE).hash(mapped_mem)) return error.MissingDebugInfo;
+
+        const hdr: *const elf.Ehdr = @ptrCast(&mapped_mem[0]);
         if (!mem.eql(u8, hdr.e_ident[0..4], elf.MAGIC)) return error.InvalidElfMagic;
         if (hdr.e_ident[elf.EI_VERSION] != 1) return error.InvalidElfVersion;
 
@@ -918,44 +938,147 @@ pub fn readElfDebugInfo(allocator: mem.Allocator, elf_file: File) !ModuleDebugIn
         var opt_debug_names: ?[]const u8 = null;
         var opt_debug_frame: ?[]const u8 = null;
 
+        var owned_sections: [ModuleDebugInfo.num_sections][]const u8 = [_][]const u8{&.{}} ** ModuleDebugInfo.num_sections;
+        errdefer for (owned_sections) |section| allocator.free(section);
+
+        var separate_debug_filename: ?[]const u8 = null;
+        var separate_debug_crc: ?u32 = null;
+
         for (shdrs) |*shdr| {
             if (shdr.sh_type == elf.SHT_NULL) continue;
-
             const name = mem.sliceTo(header_strings[shdr.sh_name..], 0);
-            if (mem.eql(u8, name, ".debug_info")) {
-                opt_debug_info = try chopSlice(mapped_mem, shdr.sh_offset, shdr.sh_size);
-            } else if (mem.eql(u8, name, ".debug_abbrev")) {
-                opt_debug_abbrev = try chopSlice(mapped_mem, shdr.sh_offset, shdr.sh_size);
-            } else if (mem.eql(u8, name, ".debug_str")) {
-                opt_debug_str = try chopSlice(mapped_mem, shdr.sh_offset, shdr.sh_size);
-            } else if (mem.eql(u8, name, ".debug_str_offsets")) {
-                opt_debug_str_offsets = try chopSlice(mapped_mem, shdr.sh_offset, shdr.sh_size);
-            } else if (mem.eql(u8, name, ".debug_line")) {
-                opt_debug_line = try chopSlice(mapped_mem, shdr.sh_offset, shdr.sh_size);
-            } else if (mem.eql(u8, name, ".debug_line_str")) {
-                opt_debug_line_str = try chopSlice(mapped_mem, shdr.sh_offset, shdr.sh_size);
-            } else if (mem.eql(u8, name, ".debug_ranges")) {
-                opt_debug_ranges = try chopSlice(mapped_mem, shdr.sh_offset, shdr.sh_size);
-            } else if (mem.eql(u8, name, ".debug_loclists")) {
-                opt_debug_loclists = try chopSlice(mapped_mem, shdr.sh_offset, shdr.sh_size);
-            } else if (mem.eql(u8, name, ".debug_rnglists")) {
-                opt_debug_rnglists = try chopSlice(mapped_mem, shdr.sh_offset, shdr.sh_size);
-            } else if (mem.eql(u8, name, ".debug_addr")) {
-                opt_debug_addr = try chopSlice(mapped_mem, shdr.sh_offset, shdr.sh_size);
-            } else if (mem.eql(u8, name, ".debug_names")) {
-                opt_debug_names = try chopSlice(mapped_mem, shdr.sh_offset, shdr.sh_size);
-            } else if (mem.eql(u8, name, ".debug_frame")) {
-                opt_debug_frame = try chopSlice(mapped_mem, shdr.sh_offset, shdr.sh_size);
+
+            if (mem.eql(u8, name, ".gnu_debuglink")) {
+                const gnu_debuglink = try chopSlice(mapped_mem, shdr.sh_offset, shdr.sh_size);
+                const debug_filename = mem.sliceTo(@ptrCast([*:0]const u8, gnu_debuglink.ptr), 0);
+                const crc_offset = mem.alignForward(@ptrToInt(&debug_filename[debug_filename.len]) + 1, 4) - @ptrToInt(gnu_debuglink.ptr);
+                const crc_bytes = gnu_debuglink[crc_offset .. crc_offset + 4];
+                separate_debug_crc = mem.readIntSliceNative(u32, crc_bytes);
+                separate_debug_filename = debug_filename;
+                continue;
             }
+
+            const sections = [_]struct { name: []const u8, out: *?[]const u8 }{
+                .{ .name = ".debug_info", .out = &opt_debug_info },
+                .{ .name = ".debug_abbrev", .out = &opt_debug_abbrev },
+                .{ .name = ".debug_str", .out = &opt_debug_str },
+                .{ .name = ".debug_str_offsets", .out = &opt_debug_str_offsets },
+                .{ .name = ".debug_line", .out = &opt_debug_line },
+                .{ .name = ".debug_line_str", .out = &opt_debug_line_str },
+                .{ .name = ".debug_ranges", .out = &opt_debug_ranges },
+                .{ .name = ".debug_loclists", .out = &opt_debug_loclists },
+                .{ .name = ".debug_rnglists", .out = &opt_debug_rnglists },
+                .{ .name = ".debug_addr", .out = &opt_debug_addr },
+                .{ .name = ".debug_names", .out = &opt_debug_names },
+                .{ .name = ".debug_frame", .out = &opt_debug_frame },
+            };
+
+            var section_index = for (sections, 0..) |section, i| {
+                if (mem.eql(u8, section.name, name)) {
+                    break i;
+                }
+            } else continue;
+
+            const section_bytes = try chopSlice(mapped_mem, shdr.sh_offset, shdr.sh_size);
+            if ((shdr.sh_flags & elf.SHF_COMPRESSED) > 0) {
+                var section_stream = io.fixedBufferStream(section_bytes);
+                var section_reader = section_stream.reader();
+                const chdr = section_reader.readStruct(elf.Chdr) catch continue;
+
+                // TODO: Support ZSTD
+                if (chdr.ch_type != .ZLIB) continue;
+
+                var zlib_stream = std.compress.zlib.zlibStream(allocator, section_stream.reader()) catch continue;
+                defer zlib_stream.deinit();
+
+                var decompressed_section = try allocator.alloc(u8, chdr.ch_size);
+                errdefer allocator.free(decompressed_section);
+
+                const read = zlib_stream.reader().readAll(decompressed_section) catch continue;
+                assert(read == decompressed_section.len);
+
+                sections[section_index].out.* = decompressed_section;
+                owned_sections[section_index] = decompressed_section;
+            } else {
+                sections[section_index].out.* = section_bytes;
+            }
+        }
+
+        const missing_debug_info =
+            opt_debug_info == null or
+            opt_debug_abbrev == null or
+            opt_debug_str == null or
+            opt_debug_line == null;
+
+        // Attempt to load debug info from an external file
+        // See: https://sourceware.org/gdb/onlinedocs/gdb/Separate-Debug-Files.html
+        if (missing_debug_info) {
+            const global_debug_directories = [_][]const u8{
+                "/usr/lib/debug",
+                // TODO: Determine the set of directories used by most distros for this path (check GDB sources)
+            };
+
+            // <global debug directory>/.build-id/<2-character id prefix>/<id remainder>.debug
+            if (build_id) |id| blk: {
+                if (id.len < 3) break :blk;
+
+                // Either md5 (16 bytes) or sha1 (20 bytes) are used here in practice
+                const extension = ".debug";
+                var id_prefix_buf: [2]u8 = undefined;
+                var filename_buf: [38 + extension.len]u8 = undefined;
+
+                _ = std.fmt.bufPrint(&id_prefix_buf, "{s}", .{std.fmt.fmtSliceHexLower(id[0..1])}) catch unreachable;
+                const filename = std.fmt.bufPrint(
+                    &filename_buf,
+                    "{s}" ++ extension,
+                    .{std.fmt.fmtSliceHexLower(id[1..])},
+                ) catch break :blk;
+
+                for (global_debug_directories) |global_directory| {
+                    // TODO: joinBuf would be ideal (with a fs.MAX_PATH_BYTES buffer)
+                    const path = try fs.path.join(allocator, &.{ global_directory, ".build-id", &id_prefix_buf, filename });
+                    defer allocator.free(path);
+                    std.debug.print("  Loading external debug info from {s}\n", .{path});
+                    return readElfDebugInfo(allocator, path, null, separate_debug_crc) catch continue;
+                }
+            }
+
+            // use the path from .gnu_debuglink, in the search order as gdb
+            if (separate_debug_filename) |separate_filename| blk: {
+                if (elf_filename != null and mem.eql(u8, elf_filename.?, separate_filename)) return error.MissingDebugInfo;
+
+                // <cwd>/<gnu_debuglink>
+                if (readElfDebugInfo(allocator, separate_filename, null, separate_debug_crc)) |debug_info| return debug_info else |_| {}
+
+                // <cwd>/.debug/<gnu_debuglink>
+                {
+                    const path = try fs.path.join(allocator, &.{ ".debug", separate_filename });
+                    defer allocator.free(path);
+
+                    if (readElfDebugInfo(allocator, path, null, separate_debug_crc)) |debug_info| return debug_info else |_| {}
+                }
+
+                var cwd_buf: [fs.MAX_PATH_BYTES]u8 = undefined;
+                const cwd_path = fs.cwd().realpath("", &cwd_buf) catch break :blk;
+
+                // <global debug directory>/<absolute folder of current binary>/<gnu_debuglink>
+                for (global_debug_directories) |global_directory| {
+                    const path = try fs.path.join(allocator, &.{ global_directory, cwd_path, separate_filename });
+                    defer allocator.free(path);
+                    if (readElfDebugInfo(allocator, path, null, separate_debug_crc)) |debug_info| return debug_info else |_| {}
+                }
+            }
+
+            return error.MissingDebugInfo;
         }
 
         var di = DW.DwarfInfo{
             .endian = endian,
-            .debug_info = opt_debug_info orelse return error.MissingDebugInfo,
-            .debug_abbrev = opt_debug_abbrev orelse return error.MissingDebugInfo,
-            .debug_str = opt_debug_str orelse return error.MissingDebugInfo,
+            .debug_info = opt_debug_info.?,
+            .debug_abbrev = opt_debug_abbrev.?,
+            .debug_str = opt_debug_str.?,
             .debug_str_offsets = opt_debug_str_offsets,
-            .debug_line = opt_debug_line orelse return error.MissingDebugInfo,
+            .debug_line = opt_debug_line.?,
             .debug_line_str = opt_debug_line_str,
             .debug_ranges = opt_debug_ranges,
             .debug_loclists = opt_debug_loclists,
@@ -971,6 +1094,7 @@ pub fn readElfDebugInfo(allocator: mem.Allocator, elf_file: File) !ModuleDebugIn
             .base_address = undefined,
             .dwarf = di,
             .mapped_memory = mapped_mem,
+            .owned_sections = owned_sections,
         };
     }
 }
@@ -1359,6 +1483,7 @@ pub const DebugInfo = struct {
             // Output
             base_address: usize = undefined,
             name: []const u8 = undefined,
+            build_id: ?[]const u8 = undefined,
         } = .{ .address = address };
         const CtxTy = @TypeOf(ctx);
 
@@ -1375,16 +1500,30 @@ pub const DebugInfo = struct {
 
                     const seg_start = info.dlpi_addr + phdr.p_vaddr;
                     const seg_end = seg_start + phdr.p_memsz;
-
                     if (context.address >= seg_start and context.address < seg_end) {
                         // Android libc uses NULL instead of an empty string to mark the
                         // main program
                         context.name = mem.sliceTo(info.dlpi_name, 0) orelse "";
                         context.base_address = info.dlpi_addr;
-                        // Stop the iteration
-                        return error.Found;
+                        break;
                     }
+                } else return;
+
+                for (info.dlpi_phdr[0..info.dlpi_phnum]) |phdr| {
+                    if (phdr.p_type != elf.PT_NOTE) continue;
+
+                    const note_bytes = @intToPtr([*]const u8, info.dlpi_addr + phdr.p_vaddr)[0..phdr.p_memsz];
+                    const name_size = mem.readIntSliceNative(u32, note_bytes[0..4]);
+                    if (name_size != 4) continue;
+                    const desc_size = mem.readIntSliceNative(u32, note_bytes[4..8]);
+                    const note_type = mem.readIntSliceNative(u32, note_bytes[8..12]);
+                    if (note_type != elf.NT_GNU_BUILD_ID) continue;
+                    if (!mem.eql(u8, "GNU\x00", note_bytes[12..16])) continue;
+                    context.build_id = note_bytes[16 .. 16 + desc_size];
                 }
+
+                // Stop the iteration
+                return error.Found;
             }
         }.callback)) {
             return error.MissingDebugInfo;
@@ -1399,18 +1538,7 @@ pub const DebugInfo = struct {
         const obj_di = try self.allocator.create(ModuleDebugInfo);
         errdefer self.allocator.destroy(obj_di);
 
-        // TODO https://github.com/ziglang/zig/issues/5525
-        const copy = if (ctx.name.len > 0)
-            fs.cwd().openFile(ctx.name, .{ .intended_io_mode = .blocking })
-        else
-            fs.openSelfExe(.{ .intended_io_mode = .blocking });
-
-        const elf_file = copy catch |err| switch (err) {
-            error.FileNotFound => return error.MissingDebugInfo,
-            else => return err,
-        };
-
-        obj_di.* = try readElfDebugInfo(self.allocator, elf_file);
+        obj_di.* = try readElfDebugInfo(self.allocator, if (ctx.name.len > 0) ctx.name else null, ctx.build_id, null);
         obj_di.base_address = ctx.base_address;
 
         try self.address_map.putNoClobber(ctx.base_address, obj_di);
@@ -1752,9 +1880,13 @@ pub const ModuleDebugInfo = switch (native_os) {
         base_address: usize,
         dwarf: DW.DwarfInfo,
         mapped_memory: []align(mem.page_size) const u8,
+        owned_sections: [num_sections][]const u8 = [_][]const u8{&.{}} ** num_sections,
+
+        const num_sections = 12;
 
         fn deinit(self: *@This(), allocator: mem.Allocator) void {
             self.dwarf.deinit(allocator);
+            for (self.owned_sections) |section| allocator.free(section);
             os.munmap(self.mapped_memory);
         }
 
