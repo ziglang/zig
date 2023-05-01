@@ -1641,15 +1641,47 @@ fn genLazy(self: *Self, lazy_sym: link.File.LazySymbol) InnerError!void {
             wip_mir_log.debug("{}.@tagName:", .{enum_ty.fmt(self.bin_file.options.module.?)});
 
             const param_regs = abi.getCAbiIntParamRegs(self.target.*);
-            const param_locks = self.register_manager.lockRegsAssumeUnused(3, param_regs[0..3].*);
+            const param_locks = self.register_manager.lockRegsAssumeUnused(2, param_regs[0..2].*);
             defer for (param_locks) |lock| self.register_manager.unlockReg(lock);
 
             const ret_reg = param_regs[0];
             const enum_mcv = MCValue{ .register = param_regs[1] };
-            const data_mcv = MCValue{ .register = param_regs[2] };
 
             var exitlude_jump_relocs = try self.gpa.alloc(u32, enum_ty.enumFieldCount());
             defer self.gpa.free(exitlude_jump_relocs);
+
+            const data_reg = try self.register_manager.allocReg(null, gp);
+            const data_lock = self.register_manager.lockRegAssumeUnused(data_reg);
+            defer self.register_manager.unlockReg(data_lock);
+
+            const data_lazy_sym = link.File.LazySymbol{ .kind = .const_data, .ty = enum_ty };
+            if (self.bin_file.cast(link.File.Elf)) |elf_file| {
+                const atom_index = elf_file.getOrCreateAtomForLazySymbol(data_lazy_sym) catch |err|
+                    return self.fail("{s} creating lazy symbol", .{@errorName(err)});
+                const atom = elf_file.getAtom(atom_index);
+                _ = try atom.getOrCreateOffsetTableEntry(elf_file);
+                const got_addr = atom.getOffsetTableAddress(elf_file);
+                try self.asmRegisterMemory(
+                    .mov,
+                    data_reg.to64(),
+                    Memory.sib(.qword, .{ .base = .{ .reg = .ds }, .disp = @intCast(i32, got_addr) }),
+                );
+            } else if (self.bin_file.cast(link.File.Coff)) |coff_file| {
+                const atom_index = coff_file.getOrCreateAtomForLazySymbol(data_lazy_sym) catch |err|
+                    return self.fail("{s} creating lazy symbol", .{@errorName(err)});
+                const sym_index = coff_file.getAtom(atom_index).getSymbolIndex().?;
+                try self.genSetReg(data_reg, Type.usize, .{ .lea_got = sym_index });
+            } else if (self.bin_file.cast(link.File.MachO)) |macho_file| {
+                const atom_index = macho_file.getOrCreateAtomForLazySymbol(data_lazy_sym) catch |err|
+                    return self.fail("{s} creating lazy symbol", .{@errorName(err)});
+                const sym_index = macho_file.getAtom(atom_index).getSymbolIndex().?;
+                try self.genSetReg(data_reg, Type.usize, .{ .lea_got = sym_index });
+            } else {
+                return self.fail("TODO implement {s} for {}", .{
+                    @tagName(lazy_sym.kind),
+                    lazy_sym.ty.fmt(self.bin_file.options.module.?),
+                });
+            }
 
             var data_off: i32 = 0;
             for (
@@ -1666,7 +1698,12 @@ fn genLazy(self: *Self, lazy_sym: link.File.LazySymbol) InnerError!void {
                 try self.genBinOpMir(.cmp, enum_ty, enum_mcv, tag_mcv);
                 const skip_reloc = try self.asmJccReloc(undefined, .ne);
 
-                try self.genSetMem(.{ .reg = ret_reg }, 0, Type.usize, data_mcv.offset(data_off));
+                try self.genSetMem(
+                    .{ .reg = ret_reg },
+                    0,
+                    Type.usize,
+                    .{ .register_offset = .{ .reg = data_reg, .off = data_off } },
+                );
                 try self.genSetMem(.{ .reg = ret_reg }, 8, Type.usize, .{ .immediate = tag_name.len });
 
                 exitlude_jump_reloc.* = try self.asmJmpReloc(undefined);
@@ -8626,7 +8663,6 @@ fn airMemcpy(self: *Self, inst: Air.Inst.Index) !void {
 }
 
 fn airTagName(self: *Self, inst: Air.Inst.Index) !void {
-    const mod = self.bin_file.options.module.?;
     const un_op = self.air.instructions.items(.data)[inst].un_op;
     const inst_ty = self.air.typeOfIndex(inst);
     const enum_ty = self.air.typeOf(un_op);
@@ -8657,35 +8693,10 @@ fn airTagName(self: *Self, inst: Air.Inst.Index) !void {
     const operand = try self.resolveInst(un_op);
     try self.genSetReg(param_regs[1], enum_ty, operand);
 
-    const data_lazy_sym = link.File.LazySymbol.initDecl(.const_data, enum_ty.getOwnerDecl(), mod);
+    const mod = self.bin_file.options.module.?;
+    const lazy_sym = link.File.LazySymbol.initDecl(.code, enum_ty.getOwnerDecl(), mod);
     if (self.bin_file.cast(link.File.Elf)) |elf_file| {
-        const atom_index = elf_file.getOrCreateAtomForLazySymbol(data_lazy_sym) catch |err|
-            return self.fail("{s} creating lazy symbol", .{@errorName(err)});
-        const atom = elf_file.getAtom(atom_index);
-        _ = try atom.getOrCreateOffsetTableEntry(elf_file);
-        const got_addr = atom.getOffsetTableAddress(elf_file);
-        try self.asmRegisterMemory(
-            .mov,
-            param_regs[2],
-            Memory.sib(.qword, .{ .base = .{ .reg = .ds }, .disp = @intCast(i32, got_addr) }),
-        );
-    } else if (self.bin_file.cast(link.File.Coff)) |coff_file| {
-        const atom_index = coff_file.getOrCreateAtomForLazySymbol(data_lazy_sym) catch |err|
-            return self.fail("{s} creating lazy symbol", .{@errorName(err)});
-        const sym_index = coff_file.getAtom(atom_index).getSymbolIndex().?;
-        try self.genSetReg(param_regs[2], Type.usize, .{ .lea_got = sym_index });
-    } else if (self.bin_file.cast(link.File.MachO)) |macho_file| {
-        const atom_index = macho_file.getOrCreateAtomForLazySymbol(data_lazy_sym) catch |err|
-            return self.fail("{s} creating lazy symbol", .{@errorName(err)});
-        const sym_index = macho_file.getAtom(atom_index).getSymbolIndex().?;
-        try self.genSetReg(param_regs[2], Type.usize, .{ .lea_got = sym_index });
-    } else {
-        return self.fail("TODO implement airTagName for x86_64 {s}", .{@tagName(self.bin_file.tag)});
-    }
-
-    const code_lazy_sym = link.File.LazySymbol.initDecl(.code, enum_ty.getOwnerDecl(), mod);
-    if (self.bin_file.cast(link.File.Elf)) |elf_file| {
-        const atom_index = elf_file.getOrCreateAtomForLazySymbol(code_lazy_sym) catch |err|
+        const atom_index = elf_file.getOrCreateAtomForLazySymbol(lazy_sym) catch |err|
             return self.fail("{s} creating lazy symbol", .{@errorName(err)});
         const atom = elf_file.getAtom(atom_index);
         _ = try atom.getOrCreateOffsetTableEntry(elf_file);
@@ -8695,13 +8706,13 @@ fn airTagName(self: *Self, inst: Air.Inst.Index) !void {
             Memory.sib(.qword, .{ .base = .{ .reg = .ds }, .disp = @intCast(i32, got_addr) }),
         );
     } else if (self.bin_file.cast(link.File.Coff)) |coff_file| {
-        const atom_index = coff_file.getOrCreateAtomForLazySymbol(code_lazy_sym) catch |err|
+        const atom_index = coff_file.getOrCreateAtomForLazySymbol(lazy_sym) catch |err|
             return self.fail("{s} creating lazy symbol", .{@errorName(err)});
         const sym_index = coff_file.getAtom(atom_index).getSymbolIndex().?;
         try self.genSetReg(.rax, Type.usize, .{ .lea_got = sym_index });
         try self.asmRegister(.call, .rax);
     } else if (self.bin_file.cast(link.File.MachO)) |macho_file| {
-        const atom_index = macho_file.getOrCreateAtomForLazySymbol(code_lazy_sym) catch |err|
+        const atom_index = macho_file.getOrCreateAtomForLazySymbol(lazy_sym) catch |err|
             return self.fail("{s} creating lazy symbol", .{@errorName(err)});
         const sym_index = macho_file.getAtom(atom_index).getSymbolIndex().?;
         try self.genSetReg(.rax, Type.usize, .{ .lea_got = sym_index });
