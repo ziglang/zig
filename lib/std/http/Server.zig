@@ -98,44 +98,47 @@ pub const BufferedConnection = struct {
     pub const buffer_size = 0x2000;
 
     conn: Connection,
-    buf: [buffer_size]u8 = undefined,
-    start: u16 = 0,
-    end: u16 = 0,
+    read_buf: [buffer_size]u8 = undefined,
+    read_start: u16 = 0,
+    read_end: u16 = 0,
+
+    write_buf: [buffer_size]u8 = undefined,
+    write_end: u16 = 0,
 
     pub fn fill(bconn: *BufferedConnection) ReadError!void {
-        if (bconn.end != bconn.start) return;
+        if (bconn.read_end != bconn.read_start) return;
 
-        const nread = try bconn.conn.read(bconn.buf[0..]);
+        const nread = try bconn.conn.read(bconn.read_buf[0..]);
         if (nread == 0) return error.EndOfStream;
-        bconn.start = 0;
-        bconn.end = @intCast(u16, nread);
+        bconn.read_start = 0;
+        bconn.read_end = @intCast(u16, nread);
     }
 
     pub fn peek(bconn: *BufferedConnection) []const u8 {
-        return bconn.buf[bconn.start..bconn.end];
+        return bconn.read_buf[bconn.read_start..bconn.read_end];
     }
 
     pub fn clear(bconn: *BufferedConnection, num: u16) void {
-        bconn.start += num;
+        bconn.read_start += num;
     }
 
     pub fn readAtLeast(bconn: *BufferedConnection, buffer: []u8, len: usize) ReadError!usize {
         var out_index: u16 = 0;
         while (out_index < len) {
-            const available = bconn.end - bconn.start;
+            const available = bconn.read_end - bconn.read_start;
             const left = buffer.len - out_index;
 
             if (available > 0) {
                 const can_read = @intCast(u16, @min(available, left));
 
-                @memcpy(buffer[out_index..][0..can_read], bconn.buf[bconn.start..][0..can_read]);
+                @memcpy(buffer[out_index..][0..can_read], bconn.read_buf[bconn.read_start..][0..can_read]);
                 out_index += can_read;
-                bconn.start += can_read;
+                bconn.read_start += can_read;
 
                 continue;
             }
 
-            if (left > bconn.buf.len) {
+            if (left > bconn.read_buf.len) {
                 // skip the buffer if the output is large enough
                 return bconn.conn.read(buffer[out_index..]);
             }
@@ -158,11 +161,33 @@ pub const BufferedConnection = struct {
     }
 
     pub fn writeAll(bconn: *BufferedConnection, buffer: []const u8) WriteError!void {
-        return bconn.conn.writeAll(buffer);
+        if (bconn.write_buf.len - bconn.write_end <= buffer.len) {
+            @memcpy(bconn.write_buf[bconn.write_end..], buffer);
+            bconn.write_end += @intCast(u16, buffer.len);
+        } else {
+            try bconn.conn.writeAll(bconn.write_buf[0..bconn.write_end]);
+            bconn.write_end = 0;
+
+            try bconn.conn.writeAll(buffer);
+        }
     }
 
     pub fn write(bconn: *BufferedConnection, buffer: []const u8) WriteError!usize {
-        return bconn.conn.write(buffer);
+        if (bconn.write_buf.len - bconn.write_end <= buffer.len) {
+            @memcpy(bconn.write_buf[bconn.write_end..], buffer);
+            bconn.write_end += @intCast(u16, buffer.len);
+
+            return buffer.len;
+        } else {
+            try bconn.conn.writeAll(bconn.write_buf[0..bconn.write_end]);
+            bconn.write_end = 0;
+
+            return try bconn.conn.write(buffer);
+        }
+    }
+
+    pub fn flush(bconn: *BufferedConnection) WriteError!void {
+        return bconn.conn.writeAll(bconn.write_buf[0..bconn.write_end]);
     }
 
     pub const WriteError = Connection.WriteError;
@@ -426,8 +451,7 @@ pub const Response = struct {
             .first, .start, .responded, .finished => unreachable,
         }
 
-        var buffered = std.io.bufferedWriter(res.connection.writer());
-        const w = buffered.writer();
+        const w = res.connection.writer();
 
         try w.writeAll(@tagName(res.version));
         try w.writeByte(' ');
@@ -485,7 +509,7 @@ pub const Response = struct {
 
         try w.writeAll("\r\n");
 
-        try buffered.flush();
+        try res.connection.flush();
     }
 
     pub const TransferReadError = BufferedConnection.ReadError || proto.HeadersParser.ReadError;
@@ -669,6 +693,8 @@ pub const Response = struct {
             .content_length => |len| if (len != 0) return error.MessageNotCompleted,
             .none => {},
         }
+
+        try res.connection.flush();
     }
 };
 
