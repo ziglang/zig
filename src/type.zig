@@ -3596,12 +3596,12 @@ pub const Type = extern union {
 
     fn intAbiSize(bits: u16, target: Target) u64 {
         const alignment = intAbiAlignment(bits, target);
-        return std.mem.alignForwardGeneric(u64, (bits + 7) / 8, alignment);
+        return std.mem.alignForwardGeneric(u64, @intCast(u16, (@as(u17, bits) + 7) / 8), alignment);
     }
 
     fn intAbiAlignment(bits: u16, target: Target) u32 {
         return @min(
-            std.math.ceilPowerOfTwoPromote(u16, (bits + 7) / 8),
+            std.math.ceilPowerOfTwoPromote(u16, @intCast(u16, (@as(u17, bits) + 7) / 8)),
             target.maxIntAlignment(),
         );
     }
