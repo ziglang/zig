@@ -7,6 +7,7 @@ const link = @import("link.zig");
 const log = std.log.scoped(.codegen);
 const mem = std.mem;
 const math = std.math;
+const target_util = @import("target.zig");
 const trace = @import("tracy.zig").trace;
 
 const Air = @import("Air.zig");
@@ -89,6 +90,19 @@ pub fn generateFunction(
     }
 }
 
+pub fn generateLazyFunction(
+    bin_file: *link.File,
+    src_loc: Module.SrcLoc,
+    lazy_sym: link.File.LazySymbol,
+    code: *std.ArrayList(u8),
+    debug_output: DebugInfoOutput,
+) CodeGenError!Result {
+    switch (bin_file.options.target.cpu.arch) {
+        .x86_64 => return @import("arch/x86_64/CodeGen.zig").generateLazy(bin_file, src_loc, lazy_sym, code, debug_output),
+        else => unreachable,
+    }
+}
+
 fn writeFloat(comptime F: type, f: F, target: Target, endian: std.builtin.Endian, code: []u8) void {
     _ = target;
     const bits = @typeInfo(F).Float.bits;
@@ -101,11 +115,11 @@ pub fn generateLazySymbol(
     bin_file: *link.File,
     src_loc: Module.SrcLoc,
     lazy_sym: link.File.LazySymbol,
+    alignment: *u32,
     code: *std.ArrayList(u8),
     debug_output: DebugInfoOutput,
     reloc_info: RelocInfo,
-) CodeGenError!struct { res: Result, alignment: u32 } {
-    _ = debug_output;
+) CodeGenError!Result {
     _ = reloc_info;
 
     const tracy = trace(@src());
@@ -120,7 +134,13 @@ pub fn generateLazySymbol(
         lazy_sym.ty.fmt(mod),
     });
 
-    if (lazy_sym.kind == .const_data and lazy_sym.ty.isAnyError()) {
+    if (lazy_sym.kind == .code) {
+        alignment.* = target_util.defaultFunctionAlignment(target);
+        return generateLazyFunction(bin_file, src_loc, lazy_sym, code, debug_output);
+    }
+
+    if (lazy_sym.ty.isAnyError()) {
+        alignment.* = 4;
         const err_names = mod.error_name_list.items;
         mem.writeInt(u32, try code.addManyAsArray(4), @intCast(u32, err_names.len), endian);
         var offset = code.items.len;
@@ -133,13 +153,21 @@ pub fn generateLazySymbol(
             code.appendAssumeCapacity(0);
         }
         mem.writeInt(u32, code.items[offset..][0..4], @intCast(u32, code.items.len), endian);
-        return .{ .res = Result.ok, .alignment = 4 };
-    } else return .{ .res = .{ .fail = try ErrorMsg.create(
+        return Result.ok;
+    } else if (lazy_sym.ty.zigTypeTag() == .Enum) {
+        alignment.* = 1;
+        for (lazy_sym.ty.enumFields().keys()) |tag_name| {
+            try code.ensureUnusedCapacity(tag_name.len + 1);
+            code.appendSliceAssumeCapacity(tag_name);
+            code.appendAssumeCapacity(0);
+        }
+        return Result.ok;
+    } else return .{ .fail = try ErrorMsg.create(
         bin_file.allocator,
         src_loc,
         "TODO implement generateLazySymbol for {s} {}",
         .{ @tagName(lazy_sym.kind), lazy_sym.ty.fmt(mod) },
-    ) }, .alignment = undefined };
+    ) };
 }
 
 pub fn generateSymbol(

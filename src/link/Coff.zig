@@ -1218,6 +1218,7 @@ fn updateLazySymbolAtom(
     const gpa = self.base.allocator;
     const mod = self.base.options.module.?;
 
+    var required_alignment: u32 = undefined;
     var code_buffer = std.ArrayList(u8).init(gpa);
     defer code_buffer.deinit();
 
@@ -1238,10 +1239,16 @@ fn updateLazySymbolAtom(
             .parent_decl_node = undefined,
             .lazy = .unneeded,
         };
-    const res = try codegen.generateLazySymbol(&self.base, src, sym, &code_buffer, .none, .{
-        .parent_atom_index = local_sym_index,
-    });
-    const code = switch (res.res) {
+    const res = try codegen.generateLazySymbol(
+        &self.base,
+        src,
+        sym,
+        &required_alignment,
+        &code_buffer,
+        .none,
+        .{ .parent_atom_index = local_sym_index },
+    );
+    const code = switch (res) {
         .ok => code_buffer.items,
         .fail => |em| {
             log.err("{s}", .{em.msg});
@@ -1255,11 +1262,11 @@ fn updateLazySymbolAtom(
     symbol.section_number = @intToEnum(coff.SectionNumber, section_index + 1);
     symbol.type = .{ .complex_type = .NULL, .base_type = .NULL };
 
-    const vaddr = try self.allocateAtom(atom_index, code_len, res.alignment);
+    const vaddr = try self.allocateAtom(atom_index, code_len, required_alignment);
     errdefer self.freeAtom(atom_index);
 
     log.debug("allocated atom for {s} at 0x{x}", .{ name, vaddr });
-    log.debug("  (required alignment 0x{x})", .{res.alignment});
+    log.debug("  (required alignment 0x{x})", .{required_alignment});
 
     atom.size = code_len;
     symbol.value = vaddr;
@@ -1270,14 +1277,20 @@ fn updateLazySymbolAtom(
 
 pub fn getOrCreateAtomForLazySymbol(self: *Coff, sym: link.File.LazySymbol) !Atom.Index {
     const gop = try self.lazy_syms.getOrPut(self.base.allocator, sym.getDecl());
-    errdefer _ = self.lazy_syms.pop();
+    errdefer _ = if (!gop.found_existing) self.lazy_syms.pop();
     if (!gop.found_existing) gop.value_ptr.* = .{};
-    const atom = switch (sym.kind) {
+    const atom_ptr = switch (sym.kind) {
         .code => &gop.value_ptr.text_atom,
         .const_data => &gop.value_ptr.rdata_atom,
     };
-    if (atom.* == null) atom.* = try self.createAtom();
-    return atom.*.?;
+    if (atom_ptr.*) |atom| return atom;
+    const atom = try self.createAtom();
+    atom_ptr.* = atom;
+    try self.updateLazySymbolAtom(sym, atom, switch (sym.kind) {
+        .code => self.text_section_index.?,
+        .const_data => self.rdata_section_index.?,
+    });
+    return atom;
 }
 
 pub fn getOrCreateAtomForDecl(self: *Coff, decl_index: Module.Decl.Index) !Atom.Index {
