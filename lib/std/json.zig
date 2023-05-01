@@ -1,6 +1,3 @@
-const std = @import("std");
-const Allocator = std.mem.Allocator;
-
 pub const WriteStream = @import("json/write_stream.zig").WriteStream;
 pub const writeStream = @import("json/write_stream.zig").writeStream;
 
