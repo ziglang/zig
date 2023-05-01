@@ -49,7 +49,7 @@ const WeakParametersError = std.crypto.errors.WeakParametersError;
 ///         Larger iteration counts improve security by increasing the time required to compute
 ///         the dk. It is common to tune this parameter to achieve approximately 100ms.
 ///
-/// Prf: Pseudo-random function to use. A common choice is `std.crypto.auth.hmac.HmacSha256`.
+/// Prf: Pseudo-random function to use. A common choice is `std.crypto.auth.hmac.sha2.HmacSha256`.
 pub fn pbkdf2(dk: []u8, password: []const u8, salt: []const u8, rounds: u32, comptime Prf: type) (WeakParametersError || OutputTooLongError)!void {
     if (rounds < 1) return error.WeakParameters;
 
