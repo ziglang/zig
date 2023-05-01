@@ -247,14 +247,12 @@ pub fn parseCert(cb: *Bundle, gpa: Allocator, decoded_start: u32, now_sec: i64) 
     const parsed_cert = Certificate.parse(.{
         .buffer = cb.bytes.items,
         .index = decoded_start,
-    }) catch |e| {
-        switch (e) {
-            .CertificateHasUnrecognizedObjectId => {
-                // ignore certificate containing an unrecognized OId.
-                cb.bytes.items.len = decoded_start;
-            },
-            else => return e,
-        }
+    }) catch |err| switch (err) {
+        error.CertificateHasUnrecognizedObjectId => {
+            cb.bytes.items.len = decoded_start;
+            return;
+        },
+        else => |e| return e,
     };
     if (now_sec > parsed_cert.validity.not_after) {
         // Ignore expired cert.
