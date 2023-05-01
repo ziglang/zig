@@ -2435,6 +2435,7 @@ fn airMulDivBinOp(self: *Self, inst: Air.Inst.Index) !void {
         } };
         const src_ty = Type.initPayload(&src_pl.base);
 
+        try self.spillEflagsIfOccupied();
         try self.spillRegisters(&.{ .rax, .rdx });
         const lhs = try self.resolveInst(bin_op.lhs);
         const rhs = try self.resolveInst(bin_op.rhs);
@@ -7236,15 +7237,16 @@ fn airSwitchBr(self: *Self, inst: Air.Inst.Index) !void {
         var relocs = try self.gpa.alloc(u32, items.len);
         defer self.gpa.free(relocs);
 
-        for (items, relocs) |item, *reloc| {
-            try self.spillEflagsIfOccupied();
+        try self.spillEflagsIfOccupied();
+        for (items, relocs, 0..) |item, *reloc, i| {
             const item_mcv = try self.resolveInst(item);
             try self.genBinOpMir(.cmp, condition_ty, condition, item_mcv);
-            reloc.* = try self.asmJccReloc(undefined, .ne);
+            reloc.* = try self.asmJccReloc(undefined, if (i < relocs.len - 1) .e else .ne);
         }
 
         for (liveness.deaths[case_i]) |operand| self.processDeath(operand);
 
+        for (relocs[0 .. relocs.len - 1]) |reloc| try self.performReloc(reloc);
         try self.genBody(case_body);
         try self.restoreState(state, &.{}, .{
             .emit_instructions = false,
@@ -7253,7 +7255,7 @@ fn airSwitchBr(self: *Self, inst: Air.Inst.Index) !void {
             .close_scope = true,
         });
 
-        for (relocs) |reloc| try self.performReloc(reloc);
+        try self.performReloc(relocs[relocs.len - 1]);
     }
 
     if (switch_br.data.else_body_len > 0) {
