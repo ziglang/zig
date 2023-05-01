@@ -943,7 +943,6 @@ pub fn DeleteFile(sub_path_w: []const u16, options: DeleteFileOptions) DeleteFil
         var info = FILE_DISPOSITION_INFORMATION_EX{
             .Flags = FILE_DISPOSITION_DELETE |
                 FILE_DISPOSITION_POSIX_SEMANTICS |
-                FILE_DISPOSITION_ON_CLOSE |
                 FILE_DISPOSITION_IGNORE_READONLY_ATTRIBUTE,
         };
 
