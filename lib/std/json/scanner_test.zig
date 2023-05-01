@@ -158,8 +158,12 @@ test "strings" {
         var json_reader = jsonReader(std.testing.allocator, stream.reader());
         defer json_reader.deinit();
 
-        const token = try json_reader.nextAlwaysAlloc(arena.allocator(), 0x1000);
-        const value = token.allocated_string; // assert this is a string
+        const token = try json_reader.nextAlloc(arena.allocator(), .alloc_if_needed);
+        const value = switch (token) {
+            .string => |value| value,
+            .allocated_string => |value| value,
+            else => return error.ExpectedString,
+        };
         try std.testing.expectEqualStrings(tuple[1], value);
 
         try std.testing.expectEqual(Token.end_of_document, try json_reader.next());
@@ -240,8 +244,8 @@ fn expectEqualStreamOfTokens(control_json_reader: anytype, test_json_reader: any
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     while (true) {
-        const control_token = try control_json_reader.nextAlwaysAlloc(arena.allocator(), 0x1000);
-        const test_token = try test_json_reader.nextAlwaysAlloc(arena.allocator(), 0x1000);
+        const control_token = try control_json_reader.nextAlloc(arena.allocator(), .alloc_always);
+        const test_token = try test_json_reader.nextAlloc(arena.allocator(), .alloc_always);
         try expectEqualTokens(control_token, test_token);
         if (control_token == .end_of_document) break;
         _ = arena.reset(.retain_capacity);

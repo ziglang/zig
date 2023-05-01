@@ -34,6 +34,26 @@ const Allocator = std.mem.Allocator;
 const ArrayList = std.ArrayList;
 const assert = std.debug.assert;
 
+/// Scan the input and check for malformed JSON.
+/// On SyntaxError or UnexpectedEndOfInput, returns false.
+/// Returns any errors from the allocator as-is, which is unlikely,
+/// but can be caused by extreme nesting depth in the input.
+pub fn validate(allocator: Allocator, s: []const u8) Allocator.Error!bool {
+    var scanner = JsonScanner.initCompleteInput(allocator, s);
+    defer scanner.deinit();
+
+    while (true) {
+        const token = scanner.next() catch |err| switch (err) {
+            error.SyntaxError, error.UnexpectedEndOfInput => return false,
+            error.OutOfMemory => return error.OutOfMemory,
+            error.BufferUnderrun => unreachable,
+        };
+        if (token == .end_of_document) break;
+    }
+
+    return true;
+}
+
 /// The parsing errors are divided into two categories:
 ///  * SyntaxError is for clearly malformed JSON documents,
 ///    such as giving an input document that isn't JSON at all.
@@ -76,15 +96,15 @@ pub const default_buffer_size = 0x1000;
 ///    | .partial_string_escaped_3
 ///    | .partial_string_escaped_4
 ///
-/// nextAlwaysAlloc():
+/// nextAlloc(allocator, .alloc_always):
 ///  <number> = .allocated_number
 ///  <string> = .allocated_string
 ///
-/// nextMaybeAlloc():
+/// nextAlloc(allocator, .alloc_if_needed):
 ///  <number> =
 ///    | .number
 ///    | .allocated_number
-///  <string> = .allocated_string
+///  <string> =
 ///    | .string
 ///    | .allocated_string
 ///
@@ -97,25 +117,26 @@ pub const default_buffer_size = 0x1000;
 ///
 /// The .partial_* tokens indicate that a value spans multiple input buffers or that a string contains escape sequences.
 /// To get a complete value in memory, you need to concatenate the values yourself.
-/// Calling nextAlwaysAlloc() or nextMaybeAlloc() does this for you, and returns an .allocated_* token with the result.
+/// Calling nextAlloc() does this for you, and returns an .allocated_* token with the result.
 ///
 /// For tokens with a []const u8 payload other than .allocated_number and .allocated_string,
 /// the payload is a slice into the current input buffer.
 /// The memory may become undefined during the next call to JsonReader.next*() or JsonScanner.feedInput().
-/// To keep the value persistently, it recommended to make a copy or to use JsonReader.nextAlwaysAlloc(),
+/// To keep the value persistently, it recommended to make a copy or to use .alloc_always,
 /// which makes a copy for you.
 ///
 /// Note that .number and .string tokens that follow .partial_* tokens may have 0 length to indicate that
 /// the previously partial value is completed with no additional bytes.
 /// (This can happen when the break between input buffers happens to land on the exact end of a value. E.g. "[1234", "]".)
+/// .partial_* tokens never have 0 length.
 ///
 /// The recommended strategy for using the different next*() methods is something like this:
-///  * When you're expecting an object key, use nextMaybeAlloc().
+///  * When you're expecting an object key, use .alloc_if_needed.
 ///    You usually don't need a copy of the key string to persist; you just need to check which field it is.
 ///    In the case that the key happens to require an allocation, just free it immediately afterward.
-///  * When you're expecting a meaningful string value (such as on the right of a `:`), use nextAlwaysAlloc().
+///  * When you're expecting a meaningful string value (such as on the right of a `:`), use .alloc_always.
 ///    The reason you're parsing a json document is probably to get this value, so you want it to persist through the parsing process.
-///  * When you're expecting a meaningful number value, use nextMaybeAlloc().
+///  * When you're expecting a meaningful number value, use .alloc_if_needed.
 ///    You're probably going to be parsing the string representation of the number into a numeric representation,
 ///    so you need the complete string representation only temporarily.
 ///  * When you're skipping an unrecognized value, use next().
@@ -144,6 +165,13 @@ pub const Token = union(enum) {
     end_of_document,
 };
 
+/// See the documentation for Token.
+pub const AllocWhen = enum{ alloc_if_needed, alloc_always };
+
+/// For security, the maximum size allocated to store a single string or number value is limited to 4MiB by default.
+/// This limit can be specified by calling nextAllocMax() instead of nextAlloc().
+pub const default_max_value_len = 4 * 1024 * 1024;
+
 /// JsonReader connects a std.io.Reader to a JsonScanner.
 /// All next*() methods here handle BufferUnderrun from JsonScanner, and then read from the reader.
 pub fn JsonReader(comptime buffer_size: usize, comptime ReaderType: type) type {
@@ -165,14 +193,22 @@ pub fn JsonReader(comptime buffer_size: usize, comptime ReaderType: type) type {
             self.* = undefined;
         }
 
-        /// See Token for documentation of this function.
-        pub fn nextAlwaysAlloc(self: *@This(), allocator: Allocator, max_value_len: usize) (ReaderType.Error || JsonError || Allocator.Error || error{ValueTooLong})!Token {
+        pub const Error = ReaderType.Error || JsonError || Allocator.Error;
+        pub const AllocError = Error || error{ValueTooLong};
+
+        /// Equivalent to nextAllocMax(allocator, when, default_max_value_len);
+        /// See Token for documentation of this function's behavior.
+        pub fn nextAlloc(self: *@This(), allocator: Allocator, when: AllocWhen) AllocError!Token {
+            return self.nextAllocMax(allocator, when, default_max_value_len);
+        }
+        /// See Token for documentation of this function's behavior.
+        pub fn nextAllocMax(self: *@This(), allocator: Allocator, when: AllocWhen, max_value_len: usize) AllocError!Token {
             var value_list = ArrayList(u8).init(allocator);
             errdefer {
                 value_list.deinit();
             }
             while (true) {
-                return nextIntoArrayList(&self.scanner, &value_list, max_value_len, .always) catch |err| switch (err) {
+                return nextIntoArrayList(&self.scanner, &value_list, max_value_len, when) catch |err| switch (err) {
                     error.BufferUnderrun => {
                         try self.refillBuffer();
                         continue;
@@ -181,24 +217,9 @@ pub fn JsonReader(comptime buffer_size: usize, comptime ReaderType: type) type {
                 };
             }
         }
+
         /// See Token for documentation of this function.
-        pub fn nextMaybeAlloc(self: *@This(), allocator: Allocator, max_value_len: usize) (ReaderType.Error || JsonError || Allocator.Error || error{ValueTooLong})!Token {
-            var value_list = ArrayList(u8).init(allocator);
-            errdefer {
-                value_list.deinit();
-            }
-            while (true) {
-                return nextIntoArrayList(&self.scanner, &value_list, max_value_len, .maybe) catch |err| switch (err) {
-                    error.BufferUnderrun => {
-                        try self.refillBuffer();
-                        continue;
-                    },
-                    else => |other_err| return other_err,
-                };
-            }
-        }
-        /// See Token for documentation of this function.
-        pub fn next(self: *@This()) (ReaderType.Error || JsonError || Allocator.Error)!Token {
+        pub fn next(self: *@This()) Error!Token {
             while (true) {
                 return self.scanner.next() catch |err| switch (err) {
                     error.BufferUnderrun => {
@@ -279,31 +300,30 @@ pub const JsonScanner = struct {
         self.is_end_of_input = true;
     }
 
-    /// See Token for more documentation of this function.
+    pub const Error = JsonError || Allocator.Error || error{BufferUnderrun};
+    pub const AllocError = JsonError || Allocator.Error || error{ValueTooLong};
+
+    /// Equivalent to nextAllocMax(allocator, when, default_max_value_len);
     /// This function is only available after endInput() (or initCompleteInput()) has been called.
-    pub fn nextAlwaysAlloc(self: *@This(), allocator: Allocator, max_value_len: usize) (JsonError || Allocator.Error || error{ValueTooLong})!Token {
+    /// See Token for documentation of this function's behavior.
+    pub fn nextAlloc(self: *@This(), allocator: Allocator, when: AllocWhen) AllocError!Token {
+        return self.nextAllocMax(allocator, when, default_max_value_len);
+    }
+
+    /// This function is only available after endInput() (or initCompleteInput()) has been called.
+    /// See Token for documentation of this function's behavior.
+    pub fn nextAllocMax(self: *@This(), allocator: Allocator, when: AllocWhen, max_value_len: usize) AllocError!Token {
         assert(self.is_end_of_input); // This function is not available in streaming mode.
 
         var value_list = ArrayList(u8).init(allocator);
         errdefer {
             value_list.deinit();
         }
-        return nextIntoArrayList(self, &value_list, max_value_len, .always);
-    }
-    /// See Token for documentation of this function.
-    /// This function is only available after endInput() (or initCompleteInput()) has been called.
-    pub fn nextMaybeAlloc(self: *@This(), allocator: Allocator, max_value_len: usize) (JsonError || Allocator.Error || error{ValueTooLong})!Token {
-        assert(self.is_end_of_input); // This function is not available in streaming mode.
-
-        var value_list = ArrayList(u8).init(allocator);
-        errdefer {
-            value_list.deinit();
-        }
-        return nextIntoArrayList(self, &value_list, max_value_len, .maybe);
+        return nextIntoArrayList(self, &value_list, max_value_len, when);
     }
 
     /// See Token for documentation of this function.
-    pub fn next(self: *@This()) (Allocator.Error || JsonError || error{BufferUnderrun})!Token {
+    pub fn next(self: *@This()) Error!Token {
         state_loop: while (true) {
             switch (self.state) {
                 .value => {
@@ -1141,7 +1161,7 @@ const BitStack = struct {
     }
 };
 
-fn nextIntoArrayList(scanner: *JsonScanner, value_list: *ArrayList(u8), max_value_len: usize, when_to_alloc: enum { maybe, always }) !Token {
+fn nextIntoArrayList(scanner: *JsonScanner, value_list: *ArrayList(u8), max_value_len: usize, when: AllocWhen) !Token {
     while (true) {
         const token = try scanner.next();
         switch (token) {
@@ -1164,7 +1184,7 @@ fn nextIntoArrayList(scanner: *JsonScanner, value_list: *ArrayList(u8), max_valu
 
             // Return complete values.
             .number => |slice| {
-                if (when_to_alloc == .maybe and value_list.items.len == 0) {
+                if (when == .alloc_if_needed and value_list.items.len == 0) {
                     // No alloc necessary.
                     return token;
                 }
@@ -1172,7 +1192,7 @@ fn nextIntoArrayList(scanner: *JsonScanner, value_list: *ArrayList(u8), max_valu
                 return Token{ .allocated_number = try value_list.toOwnedSlice() };
             },
             .string => |slice| {
-                if (when_to_alloc == .maybe and value_list.items.len == 0) {
+                if (when == .alloc_if_needed and value_list.items.len == 0) {
                     // No alloc necessary.
                     return token;
                 }
@@ -1200,25 +1220,6 @@ fn appendSlice(list: *std.ArrayList(u8), buf: []const u8, max_value_len: usize) 
     const new_len = std.math.add(usize, list.items.len, buf.len) catch return error.ValueTooLong;
     if (new_len > max_value_len) return error.ValueTooLong;
     try list.appendSlice(buf);
-}
-
-/// Scan the input and check for malformed JSON.
-/// On SyntaxError or UnexpectedEndOfInput, returns false.
-/// Returns any errors from the allocator as errors, which can be caused by extreme nesting depth in the input.
-pub fn validate(allocator: Allocator, s: []const u8) Allocator.Error!bool {
-    var scanner = JsonScanner.initCompleteInput(allocator, s);
-    defer scanner.deinit();
-
-    while (true) {
-        const token = scanner.next() catch |err| switch (err) {
-            error.SyntaxError, error.UnexpectedEndOfInput => return false,
-            error.OutOfMemory => return error.OutOfMemory,
-            error.BufferUnderrun => unreachable,
-        };
-        if (token == .end_of_document) break;
-    }
-
-    return true;
 }
 
 test {
