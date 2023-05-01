@@ -32448,9 +32448,8 @@ fn getBuiltinType(sema: *Sema, name: []const u8) CompileError!Type {
 /// in `Sema` is for calling during semantic analysis, and performs field resolution
 /// to get the answer. The one in `Type` is for calling during codegen and asserts
 /// that the types are already resolved.
-/// TODO assert the return value matches `ty.onePossibleValue`
 pub fn typeHasOnePossibleValue(sema: *Sema, ty: Type) CompileError!?Value {
-    switch (ty.tag()) {
+    const maybe_value = switch (ty.tag()) {
         .f16,
         .f32,
         .f64,
@@ -32533,19 +32532,19 @@ pub fn typeHasOnePossibleValue(sema: *Sema, ty: Type) CompileError!?Value {
         .single_mut_pointer,
         .pointer,
         .bound_fn,
-        => return null,
+        => null,
 
-        .optional => {
+        .optional => val: {
             var buf: Type.Payload.ElemType = undefined;
             const child_ty = ty.optionalChild(&buf);
             if (child_ty.isNoReturn()) {
-                return Value.null;
+                break :val Value.null;
             } else {
-                return null;
+                break :val null;
             }
         },
 
-        .@"struct" => {
+        .@"struct" => val: {
             const resolved_ty = try sema.resolveTypeFields(ty);
             const s = resolved_ty.castTag(.@"struct").?.data;
             for (s.fields.values(), 0..) |field, i| {
@@ -32561,80 +32560,80 @@ pub fn typeHasOnePossibleValue(sema: *Sema, ty: Type) CompileError!?Value {
                     return sema.failWithOwnedErrorMsg(msg);
                 }
                 if ((try sema.typeHasOnePossibleValue(field.ty)) == null) {
-                    return null;
+                    break :val null;
                 }
             }
-            return Value.initTag(.empty_struct_value);
+            break :val Value.initTag(.empty_struct_value);
         },
 
-        .tuple, .anon_struct => {
+        .tuple, .anon_struct => val: {
             const tuple = ty.tupleFields();
             for (tuple.values, 0..) |val, i| {
                 const is_comptime = val.tag() != .unreachable_value;
                 if (is_comptime) continue;
                 if ((try sema.typeHasOnePossibleValue(tuple.types[i])) != null) continue;
-                return null;
+                break :val null;
             }
-            return Value.initTag(.empty_struct_value);
+            break :val Value.initTag(.empty_struct_value);
         },
 
-        .enum_numbered => {
+        .enum_numbered => val: {
             const resolved_ty = try sema.resolveTypeFields(ty);
             const enum_obj = resolved_ty.castTag(.enum_numbered).?.data;
             // An explicit tag type is always provided for enum_numbered.
             if (enum_obj.tag_ty.hasRuntimeBits()) {
-                return null;
+                break :val null;
             }
             if (enum_obj.fields.count() == 1) {
                 if (enum_obj.values.count() == 0) {
-                    return Value.zero; // auto-numbered
+                    break :val Value.zero; // auto-numbered
                 } else {
-                    return enum_obj.values.keys()[0];
+                    break :val enum_obj.values.keys()[0];
                 }
             } else {
-                return null;
+                break :val null;
             }
         },
-        .enum_full => {
+        .enum_full => val: {
             const resolved_ty = try sema.resolveTypeFields(ty);
             const enum_obj = resolved_ty.castTag(.enum_full).?.data;
             if (enum_obj.tag_ty.hasRuntimeBits()) {
-                return null;
+                break :val null;
             }
             switch (enum_obj.fields.count()) {
-                0 => return Value.initTag(.unreachable_value),
+                0 => break :val Value.initTag(.unreachable_value),
                 1 => if (enum_obj.values.count() == 0) {
-                    return Value.zero; // auto-numbered
+                    break :val Value.zero; // auto-numbered
                 } else {
-                    return enum_obj.values.keys()[0];
+                    break :val enum_obj.values.keys()[0];
                 },
-                else => return null,
+                else => break :val null,
             }
         },
-        .enum_simple => {
+        .enum_simple => val: {
             const resolved_ty = try sema.resolveTypeFields(ty);
             const enum_simple = resolved_ty.castTag(.enum_simple).?.data;
             switch (enum_simple.fields.count()) {
-                0 => return Value.initTag(.unreachable_value),
-                1 => return Value.zero,
-                else => return null,
+                0 => break :val Value.initTag(.unreachable_value),
+                1 => break :val Value.zero,
+                else => break :val null,
             }
         },
-        .enum_nonexhaustive => {
+        .enum_nonexhaustive => val: {
             const tag_ty = ty.castTag(.enum_nonexhaustive).?.data.tag_ty;
             if (tag_ty.zigTypeTag() != .ComptimeInt and !(try sema.typeHasRuntimeBits(tag_ty))) {
-                return Value.zero;
+                break :val Value.zero;
             } else {
-                return null;
+                break :val null;
             }
         },
-        .@"union", .union_safety_tagged, .union_tagged => {
+        .@"union", .union_safety_tagged, .union_tagged => val: {
             const resolved_ty = try sema.resolveTypeFields(ty);
             const union_obj = resolved_ty.cast(Type.Payload.Union).?.data;
             const tag_val = (try sema.typeHasOnePossibleValue(union_obj.tag_ty)) orelse
-                return null;
+                break :val null;
             const fields = union_obj.fields.values();
-            if (fields.len == 0) return Value.initTag(.unreachable_value);
+            if (fields.len == 0) break :val Value.initTag(.unreachable_value);
             const only_field = fields[0];
             if (only_field.ty.eql(resolved_ty, sema.mod)) {
                 const msg = try Module.ErrorMsg.create(
@@ -32647,41 +32646,45 @@ pub fn typeHasOnePossibleValue(sema: *Sema, ty: Type) CompileError!?Value {
                 return sema.failWithOwnedErrorMsg(msg);
             }
             const val_val = (try sema.typeHasOnePossibleValue(only_field.ty)) orelse
-                return null;
+                break :val null;
             // TODO make this not allocate. The function in `Type.onePossibleValue`
             // currently returns `empty_struct_value` and we should do that here too.
-            return try Value.Tag.@"union".create(sema.arena, .{
+            break :val try Value.Tag.@"union".create(sema.arena, .{
                 .tag = tag_val,
                 .val = val_val,
             });
         },
 
-        .empty_struct, .empty_struct_literal => return Value.initTag(.empty_struct_value),
-        .void => return Value.void,
-        .noreturn => return Value.initTag(.unreachable_value),
-        .null => return Value.null,
-        .undefined => return Value.initTag(.undef),
+        .empty_struct, .empty_struct_literal => Value.initTag(.empty_struct_value),
+        .void => Value.void,
+        .noreturn => Value.initTag(.unreachable_value),
+        .null => Value.null,
+        .undefined => Value.initTag(.undef),
 
-        .int_unsigned, .int_signed => {
+        .int_unsigned, .int_signed => val: {
             if (ty.cast(Type.Payload.Bits).?.data == 0) {
-                return Value.zero;
+                break :val Value.zero;
             } else {
-                return null;
+                break :val null;
             }
         },
-        .vector, .array, .array_u8 => {
+        .vector, .array, .array_u8 => val: {
             if (ty.arrayLen() == 0)
-                return Value.initTag(.empty_array);
+                break :val Value.initTag(.empty_array);
             if ((try sema.typeHasOnePossibleValue(ty.elemType())) != null) {
-                return Value.initTag(.the_only_possible_value);
+                break :val Value.initTag(.the_only_possible_value);
             }
-            return null;
+            break :val null;
         },
 
         .inferred_alloc_const => unreachable,
         .inferred_alloc_mut => unreachable,
         .generic_poison => return error.GenericPoison,
+    };
+    if (maybe_value) |value| {
+        assert(value.eql(ty.onePossibleValue().?, ty, sema.mod));
     }
+    return maybe_value;
 }
 
 /// Returns the type of the AIR instruction.
