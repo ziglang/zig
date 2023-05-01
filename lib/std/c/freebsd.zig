@@ -2348,3 +2348,28 @@ pub extern "c" fn mincore(
     length: usize,
     vec: [*]u8,
 ) c_int;
+
+pub const MAXMEMDOM = 8;
+pub const domainid_t = u8;
+
+pub const LIST_ENTRY = opaque {};
+
+pub const DOMAINSET = struct {
+    pub const POLICY_INVALID = 0;
+    pub const POLICY_ROUNDROBIN = 1;
+    pub const POLICY_FIRSTOUCH = 2;
+    pub const POLICY_PREFER = 3;
+    pub const POLICY_INTERLEAVE = 4;
+    pub const POLICY_MAX = DOMAINSET.POLICY_INTERLEAVE;
+};
+
+pub const domainset_t = extern struct {
+    link: LIST_ENTRY,
+    policy: u16,
+    prefer: domainid_t,
+    cnt: domainid_t,
+    order: [MAXMEMDOM]domainid_t,
+};
+
+pub extern "c" fn cpuset_getdomain(level: cpulevel_t, which: cpuwhich_t, id: id_t, len: usize, domain: *domainset_t, r: *c_int) c_int;
+pub extern "c" fn cpuset_setdomain(level: cpulevel_t, which: cpuwhich_t, id: id_t, len: usize, domain: *const domainset_t, r: c_int) c_int;
