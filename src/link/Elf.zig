@@ -65,8 +65,11 @@ const Section = struct {
 };
 
 const LazySymbolMetadata = struct {
-    text_atom: ?Atom.Index = null,
-    rodata_atom: ?Atom.Index = null,
+    const State = enum { unused, pending_flush, flushed };
+    text_atom: Atom.Index = undefined,
+    rodata_atom: Atom.Index = undefined,
+    text_state: State = .unused,
+    rodata_state: State = .unused,
 };
 
 const DeclMetadata = struct {
@@ -1032,16 +1035,34 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
     sub_prog_node.activate();
     defer sub_prog_node.end();
 
-    // Most lazy symbols can be updated when the corresponding decl is,
-    // so we only have to worry about the one without an associated decl.
-    self.updateLazySymbol(null) catch |err| switch (err) {
-        error.CodegenFail => return error.FlushFailure,
-        else => |e| return e,
-    };
-
     // TODO This linker code currently assumes there is only 1 compilation unit and it
     // corresponds to the Zig source code.
     const module = self.base.options.module orelse return error.LinkingWithoutZigSourceUnimplemented;
+
+    if (self.lazy_syms.getPtr(.none)) |metadata| {
+        // Most lazy symbols can be updated on first use, but
+        // anyerror needs to wait for everything to be flushed.
+        if (metadata.text_state != .unused) self.updateLazySymbolAtom(
+            File.LazySymbol.initDecl(.code, null, module),
+            metadata.text_atom,
+            self.text_section_index.?,
+        ) catch |err| return switch (err) {
+            error.CodegenFail => error.FlushFailure,
+            else => |e| e,
+        };
+        if (metadata.rodata_state != .unused) self.updateLazySymbolAtom(
+            File.LazySymbol.initDecl(.const_data, null, module),
+            metadata.rodata_atom,
+            self.rodata_section_index.?,
+        ) catch |err| return switch (err) {
+            error.CodegenFail => error.FlushFailure,
+            else => |e| e,
+        };
+    }
+    for (self.lazy_syms.values()) |*metadata| {
+        if (metadata.text_state != .unused) metadata.text_state = .flushed;
+        if (metadata.rodata_state != .unused) metadata.rodata_state = .flushed;
+    }
 
     const target_endian = self.base.options.target.cpu.arch.endian();
     const foreign_endian = target_endian != builtin.cpu.arch.endian();
@@ -2378,14 +2399,19 @@ pub fn getOrCreateAtomForLazySymbol(self: *Elf, sym: File.LazySymbol) !Atom.Inde
     const gop = try self.lazy_syms.getOrPut(self.base.allocator, sym.getDecl());
     errdefer _ = if (!gop.found_existing) self.lazy_syms.pop();
     if (!gop.found_existing) gop.value_ptr.* = .{};
-    const atom_ptr = switch (sym.kind) {
-        .code => &gop.value_ptr.text_atom,
-        .const_data => &gop.value_ptr.rodata_atom,
+    const metadata: struct { atom: *Atom.Index, state: *LazySymbolMetadata.State } = switch (sym.kind) {
+        .code => .{ .atom = &gop.value_ptr.text_atom, .state = &gop.value_ptr.text_state },
+        .const_data => .{ .atom = &gop.value_ptr.rodata_atom, .state = &gop.value_ptr.rodata_state },
     };
-    if (atom_ptr.*) |atom| return atom;
-    const atom = try self.createAtom();
-    atom_ptr.* = atom;
-    try self.updateLazySymbolAtom(sym, atom, switch (sym.kind) {
+    switch (metadata.state.*) {
+        .unused => metadata.atom.* = try self.createAtom(),
+        .pending_flush => return metadata.atom.*,
+        .flushed => {},
+    }
+    metadata.state.* = .pending_flush;
+    const atom = metadata.atom.*;
+    // anyerror needs to be deferred until flushModule
+    if (sym.getDecl() != .none) try self.updateLazySymbolAtom(sym, atom, switch (sym.kind) {
         .code => self.text_section_index.?,
         .const_data => self.rodata_section_index.?,
     });
@@ -2598,8 +2624,6 @@ pub fn updateDecl(
     const tracy = trace(@src());
     defer tracy.end();
 
-    try self.updateLazySymbol(decl_index);
-
     const decl = module.declPtr(decl_index);
 
     if (decl.val.tag() == .extern_fn) {
@@ -2664,21 +2688,6 @@ pub fn updateDecl(
     // Since we updated the vaddr and the size, each corresponding export
     // symbol also needs to be updated.
     return self.updateDeclExports(module, decl_index, module.getDeclExports(decl_index));
-}
-
-fn updateLazySymbol(self: *Elf, decl: ?Module.Decl.Index) !void {
-    const metadata = self.lazy_syms.get(Module.Decl.OptionalIndex.init(decl)) orelse return;
-    const mod = self.base.options.module.?;
-    if (metadata.text_atom) |atom| try self.updateLazySymbolAtom(
-        File.LazySymbol.initDecl(.code, decl, mod),
-        atom,
-        self.text_section_index.?,
-    );
-    if (metadata.rodata_atom) |atom| try self.updateLazySymbolAtom(
-        File.LazySymbol.initDecl(.const_data, decl, mod),
-        atom,
-        self.rodata_section_index.?,
-    );
 }
 
 fn updateLazySymbolAtom(
