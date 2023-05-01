@@ -56,10 +56,7 @@ liveness: Liveness,
 bin_file: *link.File,
 debug_output: DebugInfoOutput,
 target: *const std.Target,
-owner: union(enum) {
-    mod_fn: *const Module.Fn,
-    decl: Module.Decl.Index,
-},
+owner: Owner,
 err_msg: ?*ErrorMsg,
 args: []MCValue,
 ret_mcv: InstTracking,
@@ -110,6 +107,44 @@ const mir_to_air_map_init = if (builtin.mode == .Debug) std.AutoHashMapUnmanaged
 
 const FrameAddr = struct { index: FrameIndex, off: i32 = 0 };
 const RegisterOffset = struct { reg: Register, off: i32 = 0 };
+
+const Owner = union(enum) {
+    mod_fn: *const Module.Fn,
+    lazy_sym: link.File.LazySymbol,
+
+    fn getOwnerDecl(owner: Owner) Module.Decl.Index {
+        return switch (owner) {
+            .mod_fn => |mod_fn| mod_fn.owner_decl,
+            .lazy_sym => |lazy_sym| lazy_sym.ty.getOwnerDecl(),
+        };
+    }
+
+    fn getSymbolIndex(owner: Owner, ctx: *Self) !u32 {
+        switch (owner) {
+            .mod_fn => |mod_fn| {
+                const decl_index = mod_fn.owner_decl;
+                if (ctx.bin_file.cast(link.File.MachO)) |macho_file| {
+                    const atom = try macho_file.getOrCreateAtomForDecl(decl_index);
+                    return macho_file.getAtom(atom).getSymbolIndex().?;
+                } else if (ctx.bin_file.cast(link.File.Coff)) |coff_file| {
+                    const atom = try coff_file.getOrCreateAtomForDecl(decl_index);
+                    return coff_file.getAtom(atom).getSymbolIndex().?;
+                } else unreachable;
+            },
+            .lazy_sym => |lazy_sym| {
+                if (ctx.bin_file.cast(link.File.MachO)) |macho_file| {
+                    const atom = macho_file.getOrCreateAtomForLazySymbol(lazy_sym) catch |err|
+                        return ctx.fail("{s} creating lazy symbol", .{@errorName(err)});
+                    return macho_file.getAtom(atom).getSymbolIndex().?;
+                } else if (ctx.bin_file.cast(link.File.Coff)) |coff_file| {
+                    const atom = coff_file.getOrCreateAtomForLazySymbol(lazy_sym) catch |err|
+                        return ctx.fail("{s} creating lazy symbol", .{@errorName(err)});
+                    return coff_file.getAtom(atom).getSymbolIndex().?;
+                } else unreachable;
+            },
+        }
+    }
+};
 
 pub const MCValue = union(enum) {
     /// No runtime bits. `void` types, empty structs, u0, enums with 1 tag, etc.
@@ -763,7 +798,7 @@ pub fn generateLazy(
         .target = &bin_file.options.target,
         .bin_file = bin_file,
         .debug_output = debug_output,
-        .owner = .{ .decl = lazy_sym.ty.getOwnerDecl() },
+        .owner = .{ .lazy_sym = lazy_sym },
         .err_msg = null,
         .args = undefined,
         .ret_mcv = undefined,
@@ -1722,13 +1757,6 @@ fn genLazy(self: *Self, lazy_sym: link.File.LazySymbol) InnerError!void {
             .{ @tagName(lazy_sym.kind), lazy_sym.ty.fmt(self.bin_file.options.module.?) },
         ),
     }
-}
-
-fn getOwnerDecl(self: *const Self) Module.Decl.Index {
-    return switch (self.owner) {
-        .mod_fn => |mod_fn| mod_fn.owner_decl,
-        .decl => |index| index,
-    };
 }
 
 fn getValue(self: *Self, value: MCValue, inst: ?Air.Inst.Index) void {
@@ -6230,7 +6258,10 @@ fn genArgDbgInfo(self: Self, ty: Type, name: [:0]const u8, mcv: MCValue) !void {
                 //},
                 else => unreachable, // not a valid function parameter
             };
-            try dw.genArgDbgInfo(name, ty, self.getOwnerDecl(), loc);
+            // TODO: this might need adjusting like the linkers do.
+            // Instead of flattening the owner and passing Decl.Index here we may
+            // want to special case LazySymbol in DWARF linker too.
+            try dw.genArgDbgInfo(name, ty, self.owner.getOwnerDecl(), loc);
         },
         .plan9 => {},
         .none => {},
@@ -6271,7 +6302,10 @@ fn genVarDbgInfo(
                     break :blk .nop;
                 },
             };
-            try dw.genVarDbgInfo(name, ty, self.getOwnerDecl(), is_ptr, loc);
+            // TODO: this might need adjusting like the linkers do.
+            // Instead of flattening the owner and passing Decl.Index here we may
+            // want to special case LazySymbol in DWARF linker too.
+            try dw.genVarDbgInfo(name, ty, self.owner.getOwnerDecl(), is_ptr, loc);
         },
         .plan9 => {},
         .none => {},
@@ -6403,12 +6437,14 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallModifier
                     .base = .{ .reg = .ds },
                     .disp = @intCast(i32, got_addr),
                 }));
-            } else if (self.bin_file.cast(link.File.Coff)) |_| {
-                const sym_index = try self.getSymbolIndexForDecl(func.owner_decl);
+            } else if (self.bin_file.cast(link.File.Coff)) |coff_file| {
+                const atom = try coff_file.getOrCreateAtomForDecl(func.owner_decl);
+                const sym_index = coff_file.getAtom(atom).getSymbolIndex().?;
                 try self.genSetReg(.rax, Type.usize, .{ .lea_got = sym_index });
                 try self.asmRegister(.call, .rax);
-            } else if (self.bin_file.cast(link.File.MachO)) |_| {
-                const sym_index = try self.getSymbolIndexForDecl(func.owner_decl);
+            } else if (self.bin_file.cast(link.File.MachO)) |macho_file| {
+                const atom = try macho_file.getOrCreateAtomForDecl(func.owner_decl);
+                const sym_index = macho_file.getAtom(atom).getSymbolIndex().?;
                 try self.genSetReg(.rax, Type.usize, .{ .lea_got = sym_index });
                 try self.asmRegister(.call, .rax);
             } else if (self.bin_file.cast(link.File.Plan9)) |p9| {
@@ -6429,7 +6465,7 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallModifier
             const decl_name = mem.sliceTo(mod.declPtr(extern_fn.owner_decl).name, 0);
             const lib_name = mem.sliceTo(extern_fn.lib_name, 0);
             if (self.bin_file.cast(link.File.Coff)) |coff_file| {
-                const atom_index = try self.getSymbolIndexForDecl(self.getOwnerDecl());
+                const atom_index = try self.owner.getSymbolIndex(self);
                 const sym_index = try coff_file.getGlobalSymbol(decl_name, lib_name);
                 _ = try self.addInst(.{
                     .tag = .mov_linker,
@@ -6442,8 +6478,8 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallModifier
                 });
                 try self.asmRegister(.call, .rax);
             } else if (self.bin_file.cast(link.File.MachO)) |macho_file| {
+                const atom_index = try self.owner.getSymbolIndex(self);
                 const sym_index = try macho_file.getGlobalSymbol(decl_name, lib_name);
-                const atom_index = try self.getSymbolIndexForDecl(self.getOwnerDecl());
                 _ = try self.addInst(.{
                     .tag = .call_extern,
                     .ops = undefined,
@@ -7719,7 +7755,7 @@ fn genSetReg(self: *Self, dst_reg: Register, ty: Type, src_mcv: MCValue) InnerEr
                         }),
                     ),
                 .load_direct => |sym_index| if (try self.movMirTag(ty) == .mov) {
-                    const atom_index = try self.getSymbolIndexForDecl(self.getOwnerDecl());
+                    const atom_index = try self.owner.getSymbolIndex(self);
                     _ = try self.addInst(.{
                         .tag = .mov_linker,
                         .ops = .direct_reloc,
@@ -7746,7 +7782,7 @@ fn genSetReg(self: *Self, dst_reg: Register, ty: Type, src_mcv: MCValue) InnerEr
             );
         },
         .lea_direct, .lea_got => |sym_index| {
-            const atom_index = try self.getSymbolIndexForDecl(self.getOwnerDecl());
+            const atom_index = try self.owner.getSymbolIndex(self);
             _ = try self.addInst(.{
                 .tag = switch (src_mcv) {
                     .lea_direct => .lea_linker,
@@ -7766,7 +7802,7 @@ fn genSetReg(self: *Self, dst_reg: Register, ty: Type, src_mcv: MCValue) InnerEr
             });
         },
         .lea_tlv => |sym_index| {
-            const atom_index = try self.getSymbolIndexForDecl(self.getOwnerDecl());
+            const atom_index = try self.owner.getSymbolIndex(self);
             if (self.bin_file.cast(link.File.MachO)) |_| {
                 _ = try self.addInst(.{
                     .tag = .lea_linker,
@@ -9079,7 +9115,7 @@ fn limitImmediateType(self: *Self, operand: Air.Inst.Ref, comptime T: type) !MCV
 }
 
 fn genTypedValue(self: *Self, arg_tv: TypedValue) InnerError!MCValue {
-    return switch (try codegen.genTypedValue(self.bin_file, self.src_loc, arg_tv, self.getOwnerDecl())) {
+    return switch (try codegen.genTypedValue(self.bin_file, self.src_loc, arg_tv, self.owner.getOwnerDecl())) {
         .mcv => |mcv| switch (mcv) {
             .none => .none,
             .undef => .undef,
@@ -9389,14 +9425,4 @@ fn regBitSize(self: *Self, ty: Type) u64 {
 
 fn regExtraBits(self: *Self, ty: Type) u64 {
     return self.regBitSize(ty) - ty.bitSize(self.target.*);
-}
-
-fn getSymbolIndexForDecl(self: *Self, decl_index: Module.Decl.Index) !u32 {
-    if (self.bin_file.cast(link.File.MachO)) |macho_file| {
-        const atom = try macho_file.getOrCreateAtomForDecl(decl_index);
-        return macho_file.getAtom(atom).getSymbolIndex().?;
-    } else if (self.bin_file.cast(link.File.Coff)) |coff_file| {
-        const atom = try coff_file.getOrCreateAtomForDecl(decl_index);
-        return coff_file.getAtom(atom).getSymbolIndex().?;
-    } else unreachable;
 }

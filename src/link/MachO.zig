@@ -2112,7 +2112,7 @@ fn updateLazySymbolAtom(
     errdefer self.freeAtom(atom_index);
 
     log.debug("allocated atom for {s} at 0x{x}", .{ name, vaddr });
-    log.debug("  (required alignment 0x{x}", .{required_alignment});
+    log.debug("  (required alignment 0x{x})", .{required_alignment});
 
     atom.size = code.len;
     symbol.n_value = vaddr;
@@ -4157,9 +4157,6 @@ pub fn logSymtab(self: *MachO) void {
 
     log.debug("stubs entries:", .{});
     log.debug("{}", .{self.stub_table});
-
-    // log.debug("threadlocal entries:", .{});
-    // log.debug("{}", .{self.tlv_table});
 }
 
 pub fn logAtoms(self: *MachO) void {
@@ -4199,6 +4196,6 @@ pub fn logAtom(self: *MachO, atom_index: Atom.Index) void {
         sym.n_value,
         atom.size,
         atom.file,
-        sym.n_sect,
+        sym.n_sect + 1,
     });
 }
