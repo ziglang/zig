@@ -738,7 +738,7 @@ pub const DynamicBitSetUnmanaged = struct {
             // fill in any new masks
             if (new_masks > old_masks) {
                 const fill_value = std.math.boolMask(MaskInt, fill);
-                std.mem.set(MaskInt, self.masks[old_masks..new_masks], fill_value);
+                @memset(self.masks[old_masks..new_masks], fill_value);
             }
         }
 
@@ -765,7 +765,7 @@ pub const DynamicBitSetUnmanaged = struct {
         const num_masks = numMasks(self.bit_length);
         var copy = Self{};
         try copy.resize(new_allocator, self.bit_length, false);
-        std.mem.copy(MaskInt, copy.masks[0..num_masks], self.masks[0..num_masks]);
+        @memcpy(copy.masks[0..num_masks], self.masks[0..num_masks]);
         return copy;
     }
 

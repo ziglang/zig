@@ -487,8 +487,7 @@ fn fetchAndUnpack(
         defer req.deinit();
 
         try req.start();
-
-        try req.do();
+        try req.wait();
 
         const content_type = req.response.headers.getFirstValue("Content-Type") orelse
             return report.fail(dep.url_tok, "missing Content-Type for '{s}'", .{uri.path});

@@ -1434,3 +1434,18 @@ test "delete a read-only file on windows" {
     file.close();
     try tmp.dir.deleteFile("test_file");
 }
+
+test "delete a setAsCwd directory on Windows" {
+    if (builtin.os.tag != .windows) return error.SkipZigTest;
+
+    var tmp = tmpDir(.{});
+    // Set tmp dir as current working directory.
+    try tmp.dir.setAsCwd();
+    tmp.dir.close();
+    try testing.expectError(error.FileBusy, tmp.parent_dir.deleteTree(&tmp.sub_path));
+    // Now set the parent dir as the current working dir for clean up.
+    try tmp.parent_dir.setAsCwd();
+    try tmp.parent_dir.deleteTree(&tmp.sub_path);
+    // Close the parent "tmp" so we don't leak the HANDLE.
+    tmp.parent_dir.close();
+}

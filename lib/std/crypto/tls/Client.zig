@@ -531,7 +531,7 @@ pub fn init(stream: anytype, ca_bundle: Certificate.Bundle, host: []const u8) In
                                     const pub_key = subject.pubKey();
                                     if (pub_key.len > main_cert_pub_key_buf.len)
                                         return error.CertificatePublicKeyInvalid;
-                                    @memcpy(&main_cert_pub_key_buf, pub_key.ptr, pub_key.len);
+                                    @memcpy(main_cert_pub_key_buf[0..pub_key.len], pub_key);
                                     main_cert_pub_key_len = @intCast(@TypeOf(main_cert_pub_key_len), pub_key.len);
                                 } else {
                                     try prev_cert.verify(subject, now_sec);
@@ -685,7 +685,7 @@ pub fn init(stream: anytype, ca_bundle: Certificate.Bundle, host: []const u8) In
                                 .application_cipher = app_cipher,
                                 .partially_read_buffer = undefined,
                             };
-                            mem.copy(u8, &client.partially_read_buffer, leftover);
+                            @memcpy(client.partially_read_buffer[0..leftover.len], leftover);
                             return client;
                         },
                         else => {
@@ -809,7 +809,7 @@ fn prepareCiphertextRecord(
                     .overhead_len = overhead_len,
                 };
 
-                mem.copy(u8, &cleartext_buf, bytes[bytes_i..][0..encrypted_content_len]);
+                @memcpy(cleartext_buf[0..encrypted_content_len], bytes[bytes_i..][0..encrypted_content_len]);
                 cleartext_buf[encrypted_content_len] = @enumToInt(inner_content_type);
                 bytes_i += encrypted_content_len;
                 const ciphertext_len = encrypted_content_len + 1;
@@ -1029,8 +1029,8 @@ pub fn readvAdvanced(c: *Client, stream: anytype, iovecs: []const std.os.iovec) 
             if (frag1.len < second_len)
                 return finishRead2(c, first, frag1, vp.total);
 
-            mem.copy(u8, frag[0..in], first);
-            mem.copy(u8, frag[first.len..], frag1[0..second_len]);
+            @memcpy(frag[0..in], first);
+            @memcpy(frag[first.len..][0..second_len], frag1[0..second_len]);
             frag = frag[0..full_record_len];
             frag1 = frag1[second_len..];
             in = 0;
@@ -1059,8 +1059,8 @@ pub fn readvAdvanced(c: *Client, stream: anytype, iovecs: []const std.os.iovec) 
             if (frag1.len < second_len)
                 return finishRead2(c, first, frag1, vp.total);
 
-            mem.copy(u8, frag[0..in], first);
-            mem.copy(u8, frag[first.len..], frag1[0..second_len]);
+            @memcpy(frag[0..in], first);
+            @memcpy(frag[first.len..][0..second_len], frag1[0..second_len]);
             frag = frag[0..full_record_len];
             frag1 = frag1[second_len..];
             in = 0;
@@ -1177,7 +1177,7 @@ pub fn readvAdvanced(c: *Client, stream: anytype, iovecs: []const std.os.iovec) 
                                 // We have already run out of room in iovecs. Continue
                                 // appending to `partially_read_buffer`.
                                 const dest = c.partially_read_buffer[c.partial_ciphertext_idx..];
-                                mem.copy(u8, dest, msg);
+                                @memcpy(dest[0..msg.len], msg);
                                 c.partial_ciphertext_idx = @intCast(@TypeOf(c.partial_ciphertext_idx), c.partial_ciphertext_idx + msg.len);
                             } else {
                                 const amt = vp.put(msg);
@@ -1185,7 +1185,7 @@ pub fn readvAdvanced(c: *Client, stream: anytype, iovecs: []const std.os.iovec) 
                                     const rest = msg[amt..];
                                     c.partial_cleartext_idx = 0;
                                     c.partial_ciphertext_idx = @intCast(@TypeOf(c.partial_ciphertext_idx), rest.len);
-                                    mem.copy(u8, &c.partially_read_buffer, rest);
+                                    @memcpy(c.partially_read_buffer[0..rest.len], rest);
                                 }
                             }
                         } else {
@@ -1213,12 +1213,12 @@ fn finishRead(c: *Client, frag: []const u8, in: usize, out: usize) usize {
     if (c.partial_ciphertext_idx > c.partial_cleartext_idx) {
         // There is cleartext at the beginning already which we need to preserve.
         c.partial_ciphertext_end = @intCast(@TypeOf(c.partial_ciphertext_end), c.partial_ciphertext_idx + saved_buf.len);
-        mem.copy(u8, c.partially_read_buffer[c.partial_ciphertext_idx..], saved_buf);
+        @memcpy(c.partially_read_buffer[c.partial_ciphertext_idx..][0..saved_buf.len], saved_buf);
     } else {
         c.partial_cleartext_idx = 0;
         c.partial_ciphertext_idx = 0;
         c.partial_ciphertext_end = @intCast(@TypeOf(c.partial_ciphertext_end), saved_buf.len);
-        mem.copy(u8, &c.partially_read_buffer, saved_buf);
+        @memcpy(c.partially_read_buffer[0..saved_buf.len], saved_buf);
     }
     return out;
 }
@@ -1227,14 +1227,14 @@ fn finishRead2(c: *Client, first: []const u8, frag1: []const u8, out: usize) usi
     if (c.partial_ciphertext_idx > c.partial_cleartext_idx) {
         // There is cleartext at the beginning already which we need to preserve.
         c.partial_ciphertext_end = @intCast(@TypeOf(c.partial_ciphertext_end), c.partial_ciphertext_idx + first.len + frag1.len);
-        mem.copy(u8, c.partially_read_buffer[c.partial_ciphertext_idx..], first);
-        mem.copy(u8, c.partially_read_buffer[c.partial_ciphertext_idx + first.len ..], frag1);
+        @memcpy(c.partially_read_buffer[c.partial_ciphertext_idx..][0..first.len], first);
+        @memcpy(c.partially_read_buffer[c.partial_ciphertext_idx + first.len ..][0..frag1.len], frag1);
     } else {
         c.partial_cleartext_idx = 0;
         c.partial_ciphertext_idx = 0;
         c.partial_ciphertext_end = @intCast(@TypeOf(c.partial_ciphertext_end), first.len + frag1.len);
-        mem.copy(u8, &c.partially_read_buffer, first);
-        mem.copy(u8, c.partially_read_buffer[first.len..], frag1);
+        @memcpy(c.partially_read_buffer[0..first.len], first);
+        @memcpy(c.partially_read_buffer[first.len..][0..frag1.len], frag1);
     }
     return out;
 }
@@ -1282,7 +1282,7 @@ const VecPut = struct {
             const v = vp.iovecs[vp.idx];
             const dest = v.iov_base[vp.off..v.iov_len];
             const src = bytes[bytes_i..][0..@min(dest.len, bytes.len - bytes_i)];
-            mem.copy(u8, dest, src);
+            @memcpy(dest[0..src.len], src);
             bytes_i += src.len;
             vp.off += src.len;
             if (vp.off >= v.iov_len) {

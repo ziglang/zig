@@ -1389,6 +1389,11 @@ fn ParseInternalErrorImpl(comptime T: type, comptime inferred_types: []const typ
                 UnescapeValidStringError ||
                 ParseInternalErrorImpl(arrayInfo.child, inferred_types ++ [_]type{T});
         },
+        .Vector => |vecInfo| {
+            return error{ UnexpectedEndOfJson, UnexpectedToken, LengthMismatch } || TokenStream.Error ||
+                UnescapeValidStringError ||
+                ParseInternalErrorImpl(vecInfo.child, inferred_types ++ [_]type{T});
+        },
         .Pointer => |ptrInfo| {
             var errors = error{AllocatorRequired} || std.mem.Allocator.Error;
             switch (ptrInfo.size) {
@@ -1406,6 +1411,35 @@ fn ParseInternalErrorImpl(comptime T: type, comptime inferred_types: []const typ
         else => return error{},
     }
     unreachable;
+}
+
+fn parseInternalArray(
+    comptime T: type,
+    comptime Elt: type,
+    comptime arr_len: usize,
+    tokens: *TokenStream,
+    options: ParseOptions,
+) ParseInternalError(T)!T {
+    var r: T = undefined;
+    var i: usize = 0;
+    var child_options = options;
+    child_options.allow_trailing_data = true;
+    errdefer {
+        // Without the r.len check `r[i]` is not allowed
+        if (arr_len > 0) while (true) : (i -= 1) {
+            parseFree(Elt, r[i], options);
+            if (i == 0) break;
+        };
+    }
+    if (arr_len > 0) while (i < arr_len) : (i += 1) {
+        r[i] = try parse(Elt, tokens, child_options);
+    };
+    const tok = (try tokens.next()) orelse return error.UnexpectedEndOfJson;
+    switch (tok) {
+        .ArrayEnd => {},
+        else => return error.UnexpectedToken,
+    }
+    return r;
 }
 
 fn parseInternal(
@@ -1569,7 +1603,7 @@ fn parseInternal(
                                 if (fields_seen[i]) {
                                     switch (options.duplicate_field_behavior) {
                                         .UseFirst => {
-                                            // unconditonally ignore value. for comptime fields, this skips check against default_value
+                                            // unconditionally ignore value. for comptime fields, this skips check against default_value
                                             parseFree(field.type, try parse(field.type, tokens, child_options), child_options);
                                             found = true;
                                             break;
@@ -1624,26 +1658,8 @@ fn parseInternal(
         .Array => |arrayInfo| {
             switch (token) {
                 .ArrayBegin => {
-                    var r: T = undefined;
-                    var i: usize = 0;
-                    var child_options = options;
-                    child_options.allow_trailing_data = true;
-                    errdefer {
-                        // Without the r.len check `r[i]` is not allowed
-                        if (r.len > 0) while (true) : (i -= 1) {
-                            parseFree(arrayInfo.child, r[i], options);
-                            if (i == 0) break;
-                        };
-                    }
-                    while (i < r.len) : (i += 1) {
-                        r[i] = try parse(arrayInfo.child, tokens, child_options);
-                    }
-                    const tok = (try tokens.next()) orelse return error.UnexpectedEndOfJson;
-                    switch (tok) {
-                        .ArrayEnd => {},
-                        else => return error.UnexpectedToken,
-                    }
-                    return r;
+                    const len = @typeInfo(T).Array.len;
+                    return parseInternalArray(T, arrayInfo.child, len, tokens, options);
                 },
                 .String => |stringToken| {
                     if (arrayInfo.child != u8) return error.UnexpectedToken;
@@ -1651,10 +1667,19 @@ fn parseInternal(
                     const source_slice = stringToken.slice(tokens.slice, tokens.i - 1);
                     if (r.len != stringToken.decodedLength()) return error.LengthMismatch;
                     switch (stringToken.escapes) {
-                        .None => mem.copy(u8, &r, source_slice),
+                        .None => @memcpy(r[0..source_slice.len], source_slice),
                         .Some => try unescapeValidString(&r, source_slice),
                     }
                     return r;
+                },
+                else => return error.UnexpectedToken,
+            }
+        },
+        .Vector => |vecInfo| {
+            switch (token) {
+                .ArrayBegin => {
+                    const len = @typeInfo(T).Vector.len;
+                    return parseInternalArray(T, vecInfo.child, len, tokens, options);
                 },
                 else => return error.UnexpectedToken,
             }
@@ -1708,7 +1733,7 @@ fn parseInternal(
                                 try allocator.alloc(u8, len);
                             errdefer allocator.free(output);
                             switch (stringToken.escapes) {
-                                .None => mem.copy(u8, output, source_slice),
+                                .None => @memcpy(output[0..source_slice.len], source_slice),
                                 .Some => try unescapeValidString(output, source_slice),
                             }
 
@@ -1802,6 +1827,13 @@ pub fn parseFree(comptime T: type, value: T, options: ParseOptions) void {
         .Array => |arrayInfo| {
             for (value) |v| {
                 parseFree(arrayInfo.child, v, options);
+            }
+        },
+        .Vector => |vecInfo| {
+            var i: usize = 0;
+            var v_len: usize = @typeInfo(@TypeOf(value)).Vector.len;
+            while (i < v_len) : (i += 1) {
+                parseFree(vecInfo.child, value[i], options);
             }
         },
         .Pointer => |ptrInfo| {

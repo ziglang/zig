@@ -188,6 +188,14 @@ typedef char bool;
 #define zig_export(sig, symbol, name) __asm(name " = " symbol)
 #endif
 
+#if zig_has_attribute(weak) || defined(zig_gnuc)
+#define zig_weak_linkage __attribute__((weak))
+#elif _MSC_VER
+#define zig_weak_linkage __declspec(selectany)
+#else
+#define zig_weak_linkage zig_weak_linkage_unavailable
+#endif
+
 #if zig_has_builtin(trap)
 #define zig_trap() __builtin_trap()
 #elif _MSC_VER && (_M_IX86 || _M_X64)

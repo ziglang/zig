@@ -56,7 +56,7 @@ pub fn setName(self: Thread, name: []const u8) SetNameError!void {
 
     const name_with_terminator = blk: {
         var name_buf: [max_name_len:0]u8 = undefined;
-        std.mem.copy(u8, &name_buf, name);
+        @memcpy(name_buf[0..name.len], name);
         name_buf[name.len] = 0;
         break :blk name_buf[0..name.len :0];
     };
@@ -469,8 +469,8 @@ const UnsupportedImpl = struct {
         return unsupported(self);
     }
 
-    fn unsupported(unusued: anytype) noreturn {
-        _ = unusued;
+    fn unsupported(unused: anytype) noreturn {
+        _ = unused;
         @compileError("Unsupported operating system " ++ @tagName(target.os.tag));
     }
 };

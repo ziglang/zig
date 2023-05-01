@@ -156,7 +156,7 @@ pub fn analyze(gpa: Allocator, air: Air) Allocator.Error!Liveness {
     errdefer a.special.deinit(gpa);
     defer a.extra.deinit(gpa);
 
-    std.mem.set(usize, a.tomb_bits, 0);
+    @memset(a.tomb_bits, 0);
 
     const main_body = air.getMainBody();
 
@@ -299,11 +299,15 @@ pub fn categorizeOperand(
         },
 
         .store,
+        .store_safe,
         .atomic_store_unordered,
         .atomic_store_monotonic,
         .atomic_store_release,
         .atomic_store_seq_cst,
         .set_union_tag,
+        .memset,
+        .memset_safe,
+        .memcpy,
         => {
             const o = air_datas[inst].bin_op;
             if (o.lhs == operand_ref) return matchOperandSmallIndex(l, inst, 0, .write);
@@ -595,16 +599,6 @@ pub fn categorizeOperand(
             const extra = air.extraData(Air.AtomicRmw, pl_op.payload).data;
             if (pl_op.operand == operand_ref) return matchOperandSmallIndex(l, inst, 0, .write);
             if (extra.operand == operand_ref) return matchOperandSmallIndex(l, inst, 1, .write);
-            return .write;
-        },
-        .memset,
-        .memcpy,
-        => {
-            const pl_op = air_datas[inst].pl_op;
-            const extra = air.extraData(Air.Bin, pl_op.payload).data;
-            if (pl_op.operand == operand_ref) return matchOperandSmallIndex(l, inst, 0, .write);
-            if (extra.lhs == operand_ref) return matchOperandSmallIndex(l, inst, 1, .write);
-            if (extra.rhs == operand_ref) return matchOperandSmallIndex(l, inst, 2, .write);
             return .write;
         },
 
@@ -972,6 +966,7 @@ fn analyzeInst(
         .bool_and,
         .bool_or,
         .store,
+        .store_safe,
         .array_elem_val,
         .slice_elem_val,
         .ptr_elem_val,
@@ -987,6 +982,9 @@ fn analyzeInst(
         .set_union_tag,
         .min,
         .max,
+        .memset,
+        .memset_safe,
+        .memcpy,
         => {
             const o = inst_datas[inst].bin_op;
             return analyzeOperands(a, pass, data, inst, .{ o.lhs, o.rhs, .none });
@@ -1152,7 +1150,7 @@ fn analyzeInst(
             if (args.len + 1 <= bpi - 1) {
                 var buf = [1]Air.Inst.Ref{.none} ** (bpi - 1);
                 buf[0] = callee;
-                std.mem.copy(Air.Inst.Ref, buf[1..], args);
+                @memcpy(buf[1..][0..args.len], args);
                 return analyzeOperands(a, pass, data, inst, buf);
             }
 
@@ -1191,7 +1189,7 @@ fn analyzeInst(
 
             if (elements.len <= bpi - 1) {
                 var buf = [1]Air.Inst.Ref{.none} ** (bpi - 1);
-                std.mem.copy(Air.Inst.Ref, &buf, elements);
+                @memcpy(buf[0..elements.len], elements);
                 return analyzeOperands(a, pass, data, inst, buf);
             }
 
@@ -1234,13 +1232,6 @@ fn analyzeInst(
             const extra = a.air.extraData(Air.AtomicRmw, pl_op.payload).data;
             return analyzeOperands(a, pass, data, inst, .{ pl_op.operand, extra.operand, .none });
         },
-        .memset,
-        .memcpy,
-        => {
-            const pl_op = inst_datas[inst].pl_op;
-            const extra = a.air.extraData(Air.Bin, pl_op.payload).data;
-            return analyzeOperands(a, pass, data, inst, .{ pl_op.operand, extra.lhs, extra.rhs });
-        },
 
         .br => return analyzeInstBr(a, pass, data, inst),
 
@@ -1264,7 +1255,7 @@ fn analyzeInst(
                 if (buf_index + inputs.len > buf.len) {
                     break :simple buf_index + inputs.len;
                 }
-                std.mem.copy(Air.Inst.Ref, buf[buf_index..], inputs);
+                @memcpy(buf[buf_index..][0..inputs.len], inputs);
                 return analyzeOperands(a, pass, data, inst, buf);
             };
 
@@ -1850,7 +1841,7 @@ fn analyzeInstSwitchBr(
             var case_infos = try gpa.alloc(ControlBranchInfo, ncases + 1); // +1 for else
             defer gpa.free(case_infos);
 
-            std.mem.set(ControlBranchInfo, case_infos, .{});
+            @memset(case_infos, .{});
             defer for (case_infos) |*info| {
                 info.branch_deaths.deinit(gpa);
                 info.live_set.deinit(gpa);
@@ -1907,7 +1898,7 @@ fn analyzeInstSwitchBr(
             const mirrored_deaths = try gpa.alloc(DeathList, ncases + 1);
             defer gpa.free(mirrored_deaths);
 
-            std.mem.set(DeathList, mirrored_deaths, .{});
+            @memset(mirrored_deaths, .{});
             defer for (mirrored_deaths) |*md| md.deinit(gpa);
 
             {
@@ -2002,7 +1993,7 @@ fn AnalyzeBigOperands(comptime pass: LivenessPass) type {
             };
             errdefer a.gpa.free(extra_tombs);
 
-            std.mem.set(u32, extra_tombs, 0);
+            @memset(extra_tombs, 0);
 
             const will_die_immediately: bool = switch (pass) {
                 .loop_analysis => false, // track everything, since we don't have full liveness information yet

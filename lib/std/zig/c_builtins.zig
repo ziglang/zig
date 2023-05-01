@@ -152,7 +152,7 @@ pub inline fn __builtin___memset_chk(
 
 pub inline fn __builtin_memset(dst: ?*anyopaque, val: c_int, len: usize) ?*anyopaque {
     const dst_cast = @ptrCast([*c]u8, dst);
-    @memset(dst_cast, @bitCast(u8, @truncate(i8, val)), len);
+    @memset(dst_cast[0..len], @bitCast(u8, @truncate(i8, val)));
     return dst;
 }
 
@@ -171,10 +171,10 @@ pub inline fn __builtin_memcpy(
     noalias src: ?*const anyopaque,
     len: usize,
 ) ?*anyopaque {
-    const dst_cast = @ptrCast([*c]u8, dst);
-    const src_cast = @ptrCast([*c]const u8, src);
-
-    @memcpy(dst_cast, src_cast, len);
+    if (len > 0) @memcpy(
+        @ptrCast([*]u8, dst.?)[0..len],
+        @ptrCast([*]const u8, src.?),
+    );
     return dst;
 }
 

@@ -10,7 +10,7 @@ pub const IdentityElementError = error{IdentityElement};
 /// Encoded input cannot be decoded
 pub const EncodingError = error{InvalidEncoding};
 
-/// The signature does't verify for the given message and public key
+/// The signature doesn't verify for the given message and public key
 pub const SignatureVerificationError = error{SignatureVerificationFailed};
 
 /// Both a public and secret key have been provided, but they are incompatible

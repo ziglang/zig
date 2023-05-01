@@ -14,16 +14,17 @@
         --bg-color: #ffffff;
         --link-color: #2A6286;
         --sidebar-sh-color: rgba(0, 0, 0, 0.09);
-        --sidebar-pkg-bg-color: #f1f1f1;
-        --sidebar-pkglnk-tx-color: #141414;
-        --sidebar-pkglnk-tx-color-hover: #fff;
-        --sidebar-pkglnk-tx-color-active: #000;
-        --sidebar-pkglnk-bg-color: transparent;
-        --sidebar-pkglnk-bg-color-hover: #555;
-        --sidebar-pkglnk-bg-color-active: #FFBB4D;
+        --sidebar-mod-bg-color: #f1f1f1;
+        --sidebar-modlnk-tx-color: #141414;
+        --sidebar-modlnk-tx-color-hover: #fff;
+        --sidebar-modlnk-tx-color-active: #000;
+        --sidebar-modlnk-bg-color: transparent;
+        --sidebar-modlnk-bg-color-hover: #555;
+        --sidebar-modlnk-bg-color-active: #FFBB4D;
         --search-bg-color: #f3f3f3;
         --search-bg-color-focus: #ffffff;
         --search-sh-color: rgba(0, 0, 0, 0.18);
+        --search-other-results-color: rgb(100, 100, 100);
         --help-sh-color: rgba(0, 0, 0, 0.75);
         --help-bg-color: #aaa;
       }
@@ -83,6 +84,7 @@
 
       .flex-right {
         display: flex;
+        flex-direction: column;
         overflow: auto;
         -webkit-overflow-scrolling: touch;
         flex-grow: 1;
@@ -130,8 +132,8 @@
       .sidebar .guides-api-switch a {
         display: block;
         padding: 0.5rem 1rem;      
-        color: var(--sidebar-pkglnk-tx-color);
-        background-color: var(--sidebar-pkglnk-bg-color);
+        color: var(--sidebar-modlnk-tx-color);
+        background-color: var(--sidebar-modlnk-bg-color);
         border: 1px solid var(--tx-color);
       }
 
@@ -150,13 +152,13 @@
       }
 
       #ApiSwitch:hover:not(.active), #guideSwitch:hover:not(.active) {
-        color: var(--sidebar-pkglnk-tx-color-hover);
-        background-color: var(--sidebar-pkglnk-bg-color-hover);
+        color: var(--sidebar-modlnk-tx-color-hover);
+        background-color: var(--sidebar-modlnk-bg-color-hover);
       }
 
       .sidebar .guides-api-switch .active {
-        color: var(--sidebar-pkglnk-tx-color-active);
-        background-color: var(--sidebar-pkglnk-bg-color-active);
+        color: var(--sidebar-modlnk-tx-color-active);
+        background-color: var(--sidebar-modlnk-bg-color-active);
       }
 
       .sidebar h2 {
@@ -169,29 +171,29 @@
         border-bottom: 0.125rem dotted var(--tx-color);
       }
 
-      .sidebar .packages {
+      .sidebar .modules {
         list-style-type: none;
         margin: 0;
         padding: 0;
-        background-color: var(--sidebar-pkg-bg-color);
+        background-color: var(--sidebar-mod-bg-color);
       }
 
-      .sidebar .packages > li > a {
+      .sidebar .modules > li > a {
         display: block;
         padding: 0.5rem 1rem;
-        color: var(--sidebar-pkglnk-tx-color);
-        background-color: var(--sidebar-pkglnk-bg-color);
+        color: var(--sidebar-modlnk-tx-color);
+        background-color: var(--sidebar-modlnk-bg-color);
         text-decoration: none;
       }
 
-      .sidebar .packages > li > a:hover {
-        color: var(--sidebar-pkglnk-tx-color-hover);
-        background-color: var(--sidebar-pkglnk-bg-color-hover);
+      .sidebar .modules > li > a:hover {
+        color: var(--sidebar-modlnk-tx-color-hover);
+        background-color: var(--sidebar-modlnk-bg-color-hover);
       }
 
-      .sidebar .packages > li > a.active {
-        color: var(--sidebar-pkglnk-tx-color-active);
-        background-color: var(--sidebar-pkglnk-bg-color-active);
+      .sidebar .modules > li > a.active {
+        color: var(--sidebar-modlnk-tx-color-active);
+        background-color: var(--sidebar-modlnk-bg-color-active);
       }
 
       .sidebar p.str {
@@ -200,7 +202,7 @@
       }
 
       #guides {
-        padding: 1rem 0.7rem 2.4rem 1.4rem;
+        padding: 0rem 0.7rem 2.4rem 1.4rem;
         box-sizing: border-box;
         font-size: 1rem;
         background-color: var(--bg-color);
@@ -209,7 +211,7 @@
 
       /* docs section */
       .docs {
-        padding: 1rem 0.7rem 2.4rem 1.4rem;
+        padding: 0rem 0.7rem 2.4rem 1.4rem;
         font-size: 1rem;
         background-color: var(--bg-color);
         overflow-wrap: break-word;
@@ -247,7 +249,38 @@
         top: 5px;
         left: 5px;
       }
-
+      
+      .other-results {
+        line-height: 1em;
+        position: relative;
+        outline: 0;
+        border: 0;
+        color: var(--search-other-results-color);
+        text-align: center;
+        height: 1.5em;
+        opacity: .5;
+      }
+      .other-results:before {
+        content: '';
+        background: var(--search-other-results-color);
+        position: absolute;
+        left: 0;
+        top: 50%;
+        width: 100%;
+        height: 1px;
+      }
+        
+      .other-results:after {
+        content: "other results";
+        position: relative;
+        display: inline-block;
+        padding: 0 .5em;
+        line-height: 1.5em;
+        color: var(--search-other-results-color);
+        background-color: var(--bg-color);
+      }
+      
+      
       .docs a {
         color: var(--link-color);
       }
@@ -495,16 +528,17 @@
           --bg-color: #111;
           --link-color: #88f;
           --sidebar-sh-color: rgba(128, 128, 128, 0.09);
-          --sidebar-pkg-bg-color: #333;
-          --sidebar-pkglnk-tx-color: #fff;
-          --sidebar-pkglnk-tx-color-hover: #fff;
-          --sidebar-pkglnk-tx-color-active: #000;
-          --sidebar-pkglnk-bg-color: transparent;
-          --sidebar-pkglnk-bg-color-hover: #555;
-          --sidebar-pkglnk-bg-color-active: #FFBB4D;
+          --sidebar-mod-bg-color: #333;
+          --sidebar-modlnk-tx-color: #fff;
+          --sidebar-modlnk-tx-color-hover: #fff;
+          --sidebar-modlnk-tx-color-active: #000;
+          --sidebar-modlnk-bg-color: transparent;
+          --sidebar-modlnk-bg-color-hover: #555;
+          --sidebar-modlnk-bg-color-active: #FFBB4D;
           --search-bg-color: #3c3c3c;
           --search-bg-color-focus: #000;
           --search-sh-color: rgba(255, 255, 255, 0.28);
+          --search-other-results-color: rgba(255, 255, 255, 0.28);
           --help-sh-color: rgba(142, 142, 142, 0.5);
           --help-bg-color: #333;
         }
@@ -590,7 +624,7 @@
           padding-right: 1.4rem;
           background: transparent;
         }
-        .packages {
+        .modules {
           display: flex;
           flex-wrap: wrap;
         }
@@ -703,36 +737,52 @@
             <div id="guidesList"></div>
           </div>
           <div id="apiMenu" class="hidden">
-            <div id="sectMainPkg" class="hidden">
-              <h2><span>Main Package</span></h2>
-              <ul class="packages">
-                <li><a id="mainPkg" class="" href=""></a></li>
+            <div id="sectMainMod" class="hidden">
+              <h2><span>Main Module</span></h2>
+              <ul class="modules">
+                <li><a id="mainMod" class="" href=""></a></li>
               </ul>
             </div>
-            <div id="sectPkgs" class="hidden">
+            <div id="sectMods" class="hidden">
               <h2><span>Dependencies</span></h2>
-              <ul id="listPkgs" class="packages"></ul>
+              <ul id="listMods" class="modules"></ul>
             </div>
             <div id="sectInfo" class="hidden">
               <h2><span>Zig Version</span></h2>
               <p class="str" id="tdZigVer"></p>
             </div>
-            <div>
-              <input id="privDeclsBox" type="checkbox"/>
-              <label for="privDeclsBox">Internal Doc Mode</label>
-            </div>
           </div>
         </nav>
       </div>
       <div class="flex-right">
+        <div class="wrap">
+          <section class="docs" style="padding-top: 1.5rem; padding-bottom:0;">
+          <div style="position: relative">
+            <span id="searchPlaceholder"><kbd>s</kbd> to search, <kbd>?</kbd> for more options</span>
+            <input type="search" class="search" id="search" autocomplete="off" spellcheck="false" disabled>
+          </div>
+          </section>
+        </div>
+        <div id="sectSearchResults" class="docs hidden">
+          <h2>Search Results</h2>
+          <ul id="listSearchResults"></ul>
+          <p id="sectSearchAllResultsLink" class="hidden"><a href="">show all results</a></p>
+        </div>
+        <div id="sectSearchNoResults" class="docs hidden">
+          <h2>No Results Found</h2>
+          <p>Here are some things you can try:</p>
+          <ul>
+            <li>Check out the <a id="langRefLink">Language Reference</a> for the language itself.</li>
+            <li>Check out the <a href="https://ziglang.org/learn/">Learn page</a> for other helpful resources for learning Zig.</li>
+            <li>Use your search engine.</li>
+          </ul>
+          <p>Press <kbd>?</kbd> to see keyboard shortcuts and <kbd>Esc</kbd> to return.</p>
+        </div>
         <div id="guides" class="wrap hidden">
+          <div id="activeGuide" class="hidden"></div>
         </div> 
         <div id="docs" class="wrap hidden">
           <section class="docs">
-            <div style="position: relative">
-              <span id="searchPlaceholder"><kbd>s</kbd> to search, <kbd>?</kbd> for more options</span>
-              <input type="search" class="search" id="search" autocomplete="off" spellcheck="false" disabled>
-            </div>
             <p id="status">Loading...</p>
             <div id="sectNav" class="hidden"><ul id="listNav"></ul></div>
             <div id="fnProto" class="hidden">
@@ -761,21 +811,6 @@
                 <p><span class="tok-type">anyerror</span> means the error set is known only at runtime.</p>
               </div>
               <div id="tableFnErrors"><dl id="listFnErrors"></dl></div>
-            </div>
-            <div id="sectSearchResults" class="hidden">
-              <h2>Search Results</h2>
-              <ul id="listSearchResults"></ul>
-              <p id="sectSearchAllResultsLink" class="hidden"><a href="">show all results</a></p>
-            </div>
-            <div id="sectSearchNoResults" class="hidden">
-              <h2>No Results Found</h2>
-              <p>Here are some things you can try:</p>
-              <ul>
-                <li>Check out the <a id="langRefLink">Language Reference</a> for the language itself.</li>
-                <li>Check out the <a href="https://ziglang.org/learn/">Learn page</a> for other helpful resources for learning Zig.</li>
-                <li>Use your search engine.</li>
-              </ul>
-              <p>Press <kbd>?</kbd> to see keyboard shortcuts and <kbd>Esc</kbd> to return.</p>
             </div>
             <div id="sectFields" class="hidden">
               <h2>Fields</h2>
@@ -852,6 +887,7 @@
       </div>
     </div>
     <script src="data.js"></script>
+    <script src="commonmark.js"></script>
     <script src="main.js"></script>
   </body>
 </html>

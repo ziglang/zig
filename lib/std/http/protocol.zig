@@ -556,8 +556,12 @@ pub const HeadersParser = struct {
                     switch (r.state) {
                         .invalid => return error.HttpChunkInvalid,
                         .chunk_data => if (r.next_chunk_length == 0) {
-                            // The trailer section is formatted identically to the header section.
-                            r.state = .seen_rn;
+                            if (std.mem.eql(u8, bconn.peek(), "\r\n")) {
+                                r.state = .finished;
+                            } else {
+                                // The trailer section is formatted identically to the header section.
+                                r.state = .seen_rn;
+                            }
                             r.done = true;
 
                             return out_index;
@@ -650,7 +654,7 @@ const MockBufferedConnection = struct {
             if (available > 0) {
                 const can_read = @truncate(u16, @min(available, left));
 
-                std.mem.copy(u8, buffer[out_index..], bconn.buf[bconn.start..][0..can_read]);
+                @memcpy(buffer[out_index..][0..can_read], bconn.buf[bconn.start..][0..can_read]);
                 out_index += can_read;
                 bconn.start += can_read;
 

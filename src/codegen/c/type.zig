@@ -1720,17 +1720,7 @@ pub const CType = extern union {
                     } else self.init(.anon_struct);
                 },
 
-                .Opaque => switch (ty.tag()) {
-                    .anyopaque => self.init(.void),
-                    .@"opaque" => {
-                        self.storage = .{ .fwd = .{
-                            .base = .{ .tag = .fwd_struct },
-                            .data = ty.getOwnerDecl(),
-                        } };
-                        self.value = .{ .cty = initPayload(&self.storage.fwd) };
-                    },
-                    else => unreachable,
-                },
+                .Opaque => self.init(.void),
 
                 .Fn => {
                     const info = ty.fnInfo();

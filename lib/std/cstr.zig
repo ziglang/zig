@@ -34,7 +34,7 @@ fn testCStrFnsImpl() !void {
 /// Caller owns the returned memory.
 pub fn addNullByte(allocator: mem.Allocator, slice: []const u8) ![:0]u8 {
     const result = try allocator.alloc(u8, slice.len + 1);
-    mem.copy(u8, result, slice);
+    @memcpy(result[0..slice.len], slice);
     result[slice.len] = 0;
     return result[0..slice.len :0];
 }
@@ -78,7 +78,7 @@ pub const NullTerminated2DArray = struct {
             for (slice) |inner| {
                 index_buf[i] = buf.ptr + write_index;
                 i += 1;
-                mem.copy(u8, buf[write_index..], inner);
+                @memcpy(buf[write_index..][0..inner.len], inner);
                 write_index += inner.len;
                 buf[write_index] = 0;
                 write_index += 1;

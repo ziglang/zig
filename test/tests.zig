@@ -1040,6 +1040,12 @@ pub fn addModuleTests(b: *std.Build, options: ModuleTestOptions) *Step {
             });
             compile_c.addIncludePath("lib"); // for zig.h
             if (test_target.target.getOsTag() == .windows) {
+                if (true) {
+                    // Unfortunately this requires about 8G of RAM for clang to compile
+                    // and our Windows CI runners do not have this much.
+                    step.dependOn(&these_tests.step);
+                    continue;
+                }
                 if (test_target.link_libc == false) {
                     compile_c.subsystem = .Console;
                     compile_c.linkSystemLibrary("kernel32");

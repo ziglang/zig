@@ -754,10 +754,10 @@ pub fn CreateSymbolicLink(
         .Flags = if (dir) |_| SYMLINK_FLAG_RELATIVE else 0,
     };
 
-    std.mem.copy(u8, buffer[0..], std.mem.asBytes(&symlink_data));
-    @memcpy(buffer[@sizeOf(SYMLINK_DATA)..], @ptrCast([*]const u8, target_path), target_path.len * 2);
+    @memcpy(buffer[0..@sizeOf(SYMLINK_DATA)], std.mem.asBytes(&symlink_data));
+    @memcpy(buffer[@sizeOf(SYMLINK_DATA)..][0 .. target_path.len * 2], @ptrCast([*]const u8, target_path));
     const paths_start = @sizeOf(SYMLINK_DATA) + target_path.len * 2;
-    @memcpy(buffer[paths_start..].ptr, @ptrCast([*]const u8, target_path), target_path.len * 2);
+    @memcpy(buffer[paths_start..][0 .. target_path.len * 2], @ptrCast([*]const u8, target_path));
     _ = try DeviceIoControl(symlink_handle, FSCTL_SET_REPARSE_POINT, buffer[0..buf_len], null);
 }
 
@@ -1179,7 +1179,7 @@ pub fn GetFinalPathNameByHandle(
             var input_struct = @ptrCast(*MOUNTMGR_MOUNT_POINT, &input_buf[0]);
             input_struct.DeviceNameOffset = @sizeOf(MOUNTMGR_MOUNT_POINT);
             input_struct.DeviceNameLength = @intCast(USHORT, volume_name_u16.len * 2);
-            @memcpy(input_buf[@sizeOf(MOUNTMGR_MOUNT_POINT)..], @ptrCast([*]const u8, volume_name_u16.ptr), volume_name_u16.len * 2);
+            @memcpy(input_buf[@sizeOf(MOUNTMGR_MOUNT_POINT)..][0 .. volume_name_u16.len * 2], @ptrCast([*]const u8, volume_name_u16.ptr));
 
             DeviceIoControl(mgmt_handle, IOCTL_MOUNTMGR_QUERY_POINTS, &input_buf, &output_buf) catch |err| switch (err) {
                 error.AccessDenied => unreachable,
@@ -1208,8 +1208,8 @@ pub fn GetFinalPathNameByHandle(
 
                     if (out_buffer.len < drive_letter.len + file_name_u16.len) return error.NameTooLong;
 
-                    mem.copy(u16, out_buffer, drive_letter);
-                    mem.copy(u16, out_buffer[drive_letter.len..], file_name_u16);
+                    @memcpy(out_buffer[0..drive_letter.len], drive_letter);
+                    mem.copyForwards(u16, out_buffer[drive_letter.len..][0..file_name_u16.len], file_name_u16);
                     const total_len = drive_letter.len + file_name_u16.len;
 
                     // Validate that DOS does not contain any spurious nul bytes.
@@ -2012,7 +2012,7 @@ pub fn sliceToPrefixedFileW(s: []const u8) !PathSpace {
     }
     const prefix_u16 = [_]u16{ '\\', '?', '?', '\\' };
     const start_index = if (prefix_index > 0 or !std.fs.path.isAbsolute(s)) 0 else blk: {
-        mem.copy(u16, path_space.data[0..], prefix_u16[0..]);
+        path_space.data[0..prefix_u16.len].* = prefix_u16;
         break :blk prefix_u16.len;
     };
     path_space.len = start_index + try std.unicode.utf8ToUtf16Le(path_space.data[start_index..], s);
@@ -2025,7 +2025,7 @@ pub fn sliceToPrefixedFileW(s: []const u8) !PathSpace {
                 std.debug.assert(temp_path.len == path_space.len);
                 temp_path.data[path_space.len] = 0;
                 path_space.len = prefix_u16.len + try getFullPathNameW(&temp_path.data, path_space.data[prefix_u16.len..]);
-                mem.copy(u16, &path_space.data, &prefix_u16);
+                path_space.data[0..prefix_u16.len].* = prefix_u16;
                 std.debug.assert(path_space.data[path_space.len] == 0);
                 return path_space;
             }
@@ -2053,12 +2053,12 @@ pub fn wToPrefixedFileW(s: []const u16) !PathSpace {
 
     const start_index = if (mem.startsWith(u16, s, &[_]u16{ '\\', '?' })) 0 else blk: {
         const prefix = [_]u16{ '\\', '?', '?', '\\' };
-        mem.copy(u16, path_space.data[0..], &prefix);
+        path_space.data[0..prefix.len].* = prefix;
         break :blk prefix.len;
     };
     path_space.len = start_index + s.len;
     if (path_space.len > path_space.data.len) return error.NameTooLong;
-    mem.copy(u16, path_space.data[start_index..], s);
+    @memcpy(path_space.data[start_index..][0..s.len], s);
     // > File I/O functions in the Windows API convert "/" to "\" as part of
     // > converting the name to an NT-style name, except when using the "\\?\"
     // > prefix as detailed in the following sections.
@@ -2114,7 +2114,7 @@ pub fn loadWinsockExtensionFunction(comptime T: type, sock: ws2_32.SOCKET, guid:
 /// and you get an unexpected error.
 pub fn unexpectedError(err: Win32Error) std.os.UnexpectedError {
     if (std.os.unexpected_error_tracing) {
-        // 614 is the length of the longest windows error desciption
+        // 614 is the length of the longest windows error description
         var buf_wstr: [614]WCHAR = undefined;
         var buf_utf8: [614]u8 = undefined;
         const len = kernel32.FormatMessageW(

@@ -38,7 +38,8 @@ pub const Field = struct {
 
     pub fn modify(entry: *Field, allocator: Allocator, new_value: []const u8) !void {
         if (entry.value.len <= new_value.len) {
-            std.mem.copy(u8, @constCast(entry.value), new_value);
+            // TODO: eliminate this use of `@constCast`.
+            @memcpy(@constCast(entry.value)[0..new_value.len], new_value);
         } else {
             allocator.free(entry.value);
 
@@ -68,17 +69,7 @@ pub const Headers = struct {
     }
 
     pub fn deinit(headers: *Headers) void {
-        var it = headers.index.iterator();
-        while (it.next()) |entry| {
-            entry.value_ptr.deinit(headers.allocator);
-
-            if (headers.owned) headers.allocator.free(entry.key_ptr.*);
-        }
-
-        for (headers.list.items) |entry| {
-            if (headers.owned) headers.allocator.free(entry.value);
-        }
-
+        headers.deallocateIndexListsAndFields();
         headers.index.deinit(headers.allocator);
         headers.list.deinit(headers.allocator);
 
@@ -255,6 +246,39 @@ pub const Headers = struct {
 
         try out_stream.writeAll("\r\n");
     }
+
+    /// Frees all `HeaderIndexList`s within `index`
+    /// Frees names and values of all fields if they are owned.
+    fn deallocateIndexListsAndFields(headers: *Headers) void {
+        var it = headers.index.iterator();
+        while (it.next()) |entry| {
+            entry.value_ptr.deinit(headers.allocator);
+
+            if (headers.owned) headers.allocator.free(entry.key_ptr.*);
+        }
+
+        if (headers.owned) {
+            for (headers.list.items) |entry| {
+                headers.allocator.free(entry.value);
+            }
+        }
+    }
+
+    /// Clears and frees the underlying data structures.
+    /// Frees names and values if they are owned.
+    pub fn clearAndFree(headers: *Headers) void {
+        headers.deallocateIndexListsAndFields();
+        headers.index.clearAndFree(headers.allocator);
+        headers.list.clearAndFree(headers.allocator);
+    }
+
+    /// Clears the underlying data structures while retaining their capacities.
+    /// Frees names and values if they are owned.
+    pub fn clearRetainingCapacity(headers: *Headers) void {
+        headers.deallocateIndexListsAndFields();
+        headers.index.clearRetainingCapacity();
+        headers.list.clearRetainingCapacity();
+    }
 };
 
 test "Headers.append" {
@@ -383,4 +407,43 @@ test "Headers consistency" {
 
     try h.formatCommaSeparated("foo", writer);
     try testing.expectEqualStrings("foo: bar, baz\r\n", fbs.getWritten());
+}
+
+test "Headers.clearRetainingCapacity and clearAndFree" {
+    var h = Headers.init(std.testing.allocator);
+    defer h.deinit();
+
+    h.clearRetainingCapacity();
+
+    try h.append("foo", "bar");
+    try h.append("bar", "world");
+    try h.append("foo", "baz");
+    try h.append("baz", "hello");
+    try testing.expectEqual(@as(usize, 4), h.list.items.len);
+    try testing.expectEqual(@as(usize, 3), h.index.count());
+    const list_capacity = h.list.capacity;
+    const index_capacity = h.index.capacity();
+
+    h.clearRetainingCapacity();
+    try testing.expectEqual(@as(usize, 0), h.list.items.len);
+    try testing.expectEqual(@as(usize, 0), h.index.count());
+    try testing.expectEqual(list_capacity, h.list.capacity);
+    try testing.expectEqual(index_capacity, h.index.capacity());
+
+    try h.append("foo", "bar");
+    try h.append("bar", "world");
+    try h.append("foo", "baz");
+    try h.append("baz", "hello");
+    try testing.expectEqual(@as(usize, 4), h.list.items.len);
+    try testing.expectEqual(@as(usize, 3), h.index.count());
+    // Capacity should still be the same since we shouldn't have needed to grow
+    // when adding back the same fields
+    try testing.expectEqual(list_capacity, h.list.capacity);
+    try testing.expectEqual(index_capacity, h.index.capacity());
+
+    h.clearAndFree();
+    try testing.expectEqual(@as(usize, 0), h.list.items.len);
+    try testing.expectEqual(@as(usize, 0), h.index.count());
+    try testing.expectEqual(@as(usize, 0), h.list.capacity);
+    try testing.expectEqual(@as(usize, 0), h.index.capacity());
 }

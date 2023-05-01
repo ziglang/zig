@@ -150,7 +150,7 @@ test "memory pool: basic" {
     pool.destroy(p2);
     const p4 = try pool.create();
 
-    // Assert memory resuse
+    // Assert memory reuse
     try std.testing.expect(p2 == p4);
 }
 

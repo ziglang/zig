@@ -130,7 +130,7 @@ pub const Config = struct {
     thread_safe: bool = !builtin.single_threaded,
 
     /// What type of mutex you'd like to use, for thread safety.
-    /// when specfied, the mutex type must have the same shape as `std.Thread.Mutex` and
+    /// when specified, the mutex type must have the same shape as `std.Thread.Mutex` and
     /// `DummyMutex`, and have no required fields. Specifying this field causes
     /// the `thread_safe` field to be ignored.
     ///
@@ -448,7 +448,7 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
 
         fn collectStackTrace(first_trace_addr: usize, addresses: *[stack_n]usize) void {
             if (stack_n == 0) return;
-            mem.set(usize, addresses, 0);
+            @memset(addresses, 0);
             var stack_trace = StackTrace{
                 .instruction_addresses = addresses,
                 .index = 0,
@@ -759,7 +759,7 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
             const new_size_class = math.ceilPowerOfTwoAssert(usize, new_aligned_size);
             if (new_size_class <= size_class) {
                 if (old_mem.len > new_size) {
-                    @memset(old_mem.ptr + new_size, undefined, old_mem.len - new_size);
+                    @memset(old_mem[new_size..], undefined);
                 }
                 if (config.verbose_log) {
                     log.info("small resize {d} bytes at {*} to {d}", .{
@@ -911,7 +911,7 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
                     self.empty_buckets = bucket;
                 }
             } else {
-                @memset(old_mem.ptr, undefined, old_mem.len);
+                @memset(old_mem, undefined);
             }
             if (config.safety) {
                 assert(self.small_allocations.remove(@ptrToInt(old_mem.ptr)));
@@ -1011,7 +1011,7 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
             };
             self.buckets[bucket_index] = ptr;
             // Set the used bits to all zeroes
-            @memset(@as(*[1]u8, ptr.usedBits(0)), 0, usedBitsCount(size_class));
+            @memset(@as([*]u8, @as(*[1]u8, ptr.usedBits(0)))[0..usedBitsCount(size_class)], 0);
             return ptr;
         }
     };
@@ -1113,7 +1113,7 @@ test "shrink" {
     var slice = try allocator.alloc(u8, 20);
     defer allocator.free(slice);
 
-    mem.set(u8, slice, 0x11);
+    @memset(slice, 0x11);
 
     try std.testing.expect(allocator.resize(slice, 17));
     slice = slice[0..17];
@@ -1241,7 +1241,7 @@ test "realloc large object to small object" {
     try std.testing.expect(slice[16] == 0x34);
 }
 
-test "overrideable mutexes" {
+test "overridable mutexes" {
     var gpa = GeneralPurposeAllocator(.{ .MutexType = std.Thread.Mutex }){
         .backing_allocator = std.testing.allocator,
         .mutex = std.Thread.Mutex{},

@@ -2550,6 +2550,25 @@ test "parse into double recursive union definition" {
     try testing.expectEqual(@as(i64, 58), r.values.array[0].array[0].integer);
 }
 
+test "parse into vector" {
+    const options = ParseOptions{ .allocator = testing.allocator };
+    const T = struct {
+        vec_i32: @Vector(4, i32),
+        vec_f32: @Vector(2, f32),
+    };
+    var ts = TokenStream.init(
+        \\{
+        \\  "vec_f32": [1.5, 2.5],
+        \\  "vec_i32": [4, 5, 6, 7]
+        \\}
+    );
+    const r = try parse(T, &ts, options);
+    defer parseFree(T, r, options);
+    try testing.expectApproxEqAbs(@as(f32, 1.5), r.vec_f32[0], 0.0000001);
+    try testing.expectApproxEqAbs(@as(f32, 2.5), r.vec_f32[1], 0.0000001);
+    try testing.expectEqual(@Vector(4, i32){ 4, 5, 6, 7 }, r.vec_i32);
+}
+
 test "json.parser.dynamic" {
     var p = Parser.init(testing.allocator, false);
     defer p.deinit();
@@ -2792,7 +2811,7 @@ test "json.serialize issue #5959" {
     // StreamingParser has multiple internal fields set to undefined. This causes issues when using
     // expectEqual so these are zeroed. We are testing for equality here only because this is a
     // known small test reproduction which hits the relevant LLVM issue.
-    std.mem.set(u8, @ptrCast([*]u8, &parser)[0..@sizeOf(StreamingParser)], 0);
+    @memset(@ptrCast([*]u8, &parser)[0..@sizeOf(StreamingParser)], 0);
     try std.testing.expectEqual(parser, parser);
 }
 

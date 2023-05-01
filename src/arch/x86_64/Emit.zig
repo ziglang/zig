@@ -13,7 +13,9 @@ prev_di_pc: usize,
 code_offset_mapping: std.AutoHashMapUnmanaged(Mir.Inst.Index, usize) = .{},
 relocs: std.ArrayListUnmanaged(Reloc) = .{},
 
-pub const Error = Lower.Error || error{EmitFail};
+pub const Error = Lower.Error || error{
+    EmitFail,
+};
 
 pub fn emitMir(emit: *Emit) Error!void {
     for (0..emit.lower.mir.instructions.len) |i| {
@@ -22,7 +24,7 @@ pub fn emitMir(emit: *Emit) Error!void {
 
         const start_offset = @intCast(u32, emit.code.items.len);
         try emit.code_offset_mapping.putNoClobber(emit.lower.allocator, index, start_offset);
-        for (try emit.lower.lowerMir(inst)) |lower_inst| try lower_inst.encode(emit.code.writer());
+        for (try emit.lower.lowerMir(inst)) |lower_inst| try lower_inst.encode(emit.code.writer(), .{});
         const end_offset = @intCast(u32, emit.code.items.len);
 
         switch (inst.tag) {
@@ -120,11 +122,10 @@ pub fn emitMir(emit: *Emit) Error!void {
                 .length = 6,
             }),
 
-            .dbg_line => {
-                const dbg_line_column =
-                    emit.lower.mir.extraData(Mir.DbgLineColumn, inst.data.payload).data;
-                try emit.dbgAdvancePCAndLine(dbg_line_column.line, dbg_line_column.column);
-            },
+            .dbg_line => try emit.dbgAdvancePCAndLine(
+                inst.data.line_column.line,
+                inst.data.line_column.column,
+            ),
 
             .dbg_prologue_end => {
                 switch (emit.debug_output) {

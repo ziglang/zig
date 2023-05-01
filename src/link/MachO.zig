@@ -1146,7 +1146,9 @@ pub fn writeAtom(self: *MachO, atom_index: Atom.Index, code: []u8) !void {
     if (self.relocs.getPtr(atom_index)) |rels| {
         try relocs.ensureTotalCapacityPrecise(rels.items.len);
         for (rels.items) |*reloc| {
-            if (reloc.isResolvable(self)) relocs.appendAssumeCapacity(reloc);
+            if (reloc.isResolvable(self) and reloc.dirty) {
+                relocs.appendAssumeCapacity(reloc);
+            }
         }
     }
 
@@ -1332,18 +1334,33 @@ fn markRelocsDirtyByTarget(self: *MachO, target: SymbolWithLoc) void {
 
 fn markRelocsDirtyByAddress(self: *MachO, addr: u64) void {
     log.debug("marking relocs dirty by address: {x}", .{addr});
+
+    const got_moved = blk: {
+        const sect_id = self.got_section_index orelse break :blk false;
+        break :blk self.sections.items(.header)[sect_id].addr > addr;
+    };
+    const stubs_moved = blk: {
+        const sect_id = self.stubs_section_index orelse break :blk false;
+        break :blk self.sections.items(.header)[sect_id].addr > addr;
+    };
+
     for (self.relocs.values()) |*relocs| {
         for (relocs.items) |*reloc| {
-            const target_addr = reloc.getTargetBaseAddress(self) orelse continue;
-            if (target_addr < addr) continue;
-            reloc.dirty = true;
+            if (reloc.isGotIndirection()) {
+                reloc.dirty = reloc.dirty or got_moved;
+            } else if (reloc.isStubTrampoline(self)) {
+                reloc.dirty = reloc.dirty or stubs_moved;
+            } else {
+                const target_addr = reloc.getTargetBaseAddress(self) orelse continue;
+                if (target_addr > addr) reloc.dirty = true;
+            }
         }
     }
 
     // TODO: dirty only really affected GOT cells
     for (self.got_table.entries.items) |entry| {
         const target_addr = self.getSymbol(entry).n_value;
-        if (target_addr >= addr) {
+        if (target_addr > addr) {
             self.got_table_contents_dirty = true;
             break;
         }
@@ -1353,7 +1370,7 @@ fn markRelocsDirtyByAddress(self: *MachO, addr: u64) void {
         const stubs_addr = self.getSegment(self.stubs_section_index.?).vmaddr;
         const stub_helper_addr = self.getSegment(self.stub_helper_section_index.?).vmaddr;
         const laptr_addr = self.getSegment(self.la_symbol_ptr_section_index.?).vmaddr;
-        if (stubs_addr >= addr or stub_helper_addr >= addr or laptr_addr >= addr)
+        if (stubs_addr > addr or stub_helper_addr > addr or laptr_addr > addr)
             self.stub_table_contents_dirty = true;
     }
 }
@@ -1437,7 +1454,7 @@ fn createThreadLocalDescriptorAtom(self: *MachO, sym_name: []const u8, target: S
     });
 
     var code: [size]u8 = undefined;
-    mem.set(u8, &code, 0);
+    @memset(&code, 0);
     try self.writeAtom(atom_index, &code);
 
     return atom_index;
@@ -2794,7 +2811,7 @@ fn growSection(self: *MachO, sect_id: u8, needed_size: u64) !void {
 
     const sect_vm_capacity = self.allocatedVirtualSize(segment.vmaddr);
     if (needed_size > sect_vm_capacity) {
-        self.markRelocsDirtyByAddress(segment.vmaddr + needed_size);
+        self.markRelocsDirtyByAddress(segment.vmaddr + segment.vmsize);
         try self.growSectionVirtualMemory(sect_id, needed_size);
     }
 
@@ -3217,7 +3234,7 @@ fn writeDyldInfoData(self: *MachO) !void {
 
     var buffer = try gpa.alloc(u8, needed_size);
     defer gpa.free(buffer);
-    mem.set(u8, buffer, 0);
+    @memset(buffer, 0);
 
     var stream = std.io.fixedBufferStream(buffer);
     const writer = stream.writer();
@@ -3372,8 +3389,8 @@ fn writeStrtab(self: *MachO) !void {
 
     const buffer = try gpa.alloc(u8, math.cast(usize, needed_size_aligned) orelse return error.Overflow);
     defer gpa.free(buffer);
-    mem.set(u8, buffer, 0);
-    mem.copy(u8, buffer, self.strtab.buffer.items);
+    @memcpy(buffer[0..self.strtab.buffer.items.len], self.strtab.buffer.items);
+    @memset(buffer[self.strtab.buffer.items.len..], 0);
 
     try self.base.file.?.pwriteAll(buffer, offset);
 
@@ -3651,8 +3668,7 @@ fn addUndefined(self: *MachO, name: []const u8, action: ResolveAction.Kind) !u32
 
 pub fn makeStaticString(bytes: []const u8) [16]u8 {
     var buf = [_]u8{0} ** 16;
-    assert(bytes.len <= buf.len);
-    mem.copy(u8, &buf, bytes);
+    @memcpy(buf[0..bytes.len], bytes);
     return buf;
 }
 
@@ -4067,19 +4083,20 @@ pub fn findFirst(comptime T: type, haystack: []align(1) const T, start: usize, p
 pub fn logSections(self: *MachO) void {
     log.debug("sections:", .{});
     for (self.sections.items(.header), 0..) |header, i| {
-        log.debug("  sect({d}): {s},{s} @{x}, sizeof({x})", .{
+        log.debug("  sect({d}): {s},{s} @{x} ({x}), sizeof({x})", .{
             i + 1,
             header.segName(),
             header.sectName(),
             header.offset,
+            header.addr,
             header.size,
         });
     }
 }
 
 fn logSymAttributes(sym: macho.nlist_64, buf: *[4]u8) []const u8 {
-    mem.set(u8, buf[0..4], '_');
-    mem.set(u8, buf[4..], ' ');
+    @memset(buf[0..4], '_');
+    @memset(buf[4..], ' ');
     if (sym.sect()) {
         buf[0] = 's';
     }

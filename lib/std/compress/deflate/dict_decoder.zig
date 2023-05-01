@@ -47,7 +47,8 @@ pub const DictDecoder = struct {
         self.wr_pos = 0;
 
         if (dict != null) {
-            mem.copy(u8, self.hist, dict.?[dict.?.len -| self.hist.len..]);
+            const src = dict.?[dict.?.len -| self.hist.len..];
+            @memcpy(self.hist[0..src.len], src);
             self.wr_pos = @intCast(u32, dict.?.len);
         }
 
@@ -103,12 +104,15 @@ pub const DictDecoder = struct {
         self.wr_pos += 1;
     }
 
+    /// TODO: eliminate this function because the callsites should care about whether
+    /// or not their arguments alias and then they should directly call `@memcpy` or
+    /// `mem.copyForwards`.
     fn copy(dst: []u8, src: []const u8) u32 {
         if (src.len > dst.len) {
-            mem.copy(u8, dst, src[0..dst.len]);
+            mem.copyForwards(u8, dst, src[0..dst.len]);
             return @intCast(u32, dst.len);
         }
-        mem.copy(u8, dst, src);
+        mem.copyForwards(u8, dst[0..src.len], src);
         return @intCast(u32, src.len);
     }
 

@@ -171,10 +171,10 @@ fn getCpuInfoFromRegistry(core: usize, args: anytype) !void {
                     const entry = @ptrCast([*]align(1) const u8, table[i + 1].EntryContext);
                     switch (@field(args, field.name).value_type) {
                         REG.DWORD, REG.DWORD_BIG_ENDIAN => {
-                            mem.copy(u8, @field(args, field.name).value_buf[0..4], entry[0..4]);
+                            @memcpy(@field(args, field.name).value_buf[0..4], entry[0..4]);
                         },
                         REG.QWORD => {
-                            mem.copy(u8, @field(args, field.name).value_buf[0..8], entry[0..8]);
+                            @memcpy(@field(args, field.name).value_buf[0..8], entry[0..8]);
                         },
                         else => unreachable,
                     }

@@ -659,7 +659,7 @@ pub fn exit(status: u8) noreturn {
         linux.exit_group(status);
     }
     if (builtin.os.tag == .uefi) {
-        // exit() is only avaliable if exitBootServices() has not been called yet.
+        // exit() is only available if exitBootServices() has not been called yet.
         // This call to exit should not fail, so we don't care about its return value.
         if (uefi.system_table.boot_services) |bs| {
             _ = bs.exit(uefi.handle, @intToEnum(uefi.Status, status), 0, null);
@@ -1881,9 +1881,9 @@ pub fn execvpeZ_expandArg0(
     while (it.next()) |search_path| {
         const path_len = search_path.len + file_slice.len + 1;
         if (path_buf.len < path_len + 1) return error.NameTooLong;
-        mem.copy(u8, &path_buf, search_path);
+        @memcpy(path_buf[0..search_path.len], search_path);
         path_buf[search_path.len] = '/';
-        mem.copy(u8, path_buf[search_path.len + 1 ..], file_slice);
+        @memcpy(path_buf[search_path.len + 1 ..][0..file_slice.len], file_slice);
         path_buf[path_len] = 0;
         const full_path = path_buf[0..path_len :0].ptr;
         switch (arg0_expand) {
@@ -1917,7 +1917,7 @@ pub fn getenv(key: []const u8) ?[]const u8 {
     if (builtin.link_libc) {
         var small_key_buf: [64]u8 = undefined;
         if (key.len < small_key_buf.len) {
-            mem.copy(u8, &small_key_buf, key);
+            @memcpy(small_key_buf[0..key.len], key);
             small_key_buf[key.len] = 0;
             const key0 = small_key_buf[0..key.len :0];
             return getenvZ(key0);
@@ -2022,8 +2022,9 @@ pub fn getcwd(out_buffer: []u8) GetCwdError![]u8 {
     } else if (builtin.os.tag == .wasi and !builtin.link_libc) {
         const path = ".";
         if (out_buffer.len < path.len) return error.NameTooLong;
-        std.mem.copy(u8, out_buffer, path);
-        return out_buffer[0..path.len];
+        const result = out_buffer[0..path.len];
+        @memcpy(result, path);
+        return result;
     }
 
     const err = if (builtin.link_libc) blk: {
@@ -2673,7 +2674,7 @@ pub fn renameatW(
         .FileNameLength = @intCast(u32, new_path_w.len * 2), // already checked error.NameTooLong
         .FileName = undefined,
     };
-    std.mem.copy(u16, @as([*]u16, &rename_info.FileName)[0..new_path_w.len], new_path_w);
+    @memcpy(@as([*]u16, &rename_info.FileName)[0..new_path_w.len], new_path_w);
 
     var io_status_block: windows.IO_STATUS_BLOCK = undefined;
 
@@ -2977,7 +2978,7 @@ pub fn chdirZ(dir_path: [*:0]const u8) ChangeCurDirError!void {
     }
 }
 
-/// Windows-only. Same as `chdir` except the paramter is WTF16 encoded.
+/// Windows-only. Same as `chdir` except the parameter is WTF16 encoded.
 pub fn chdirW(dir_path: []const u16) ChangeCurDirError!void {
     windows.SetCurrentDirectory(dir_path) catch |err| switch (err) {
         error.NoDevice => return error.FileSystem,
@@ -4722,11 +4723,8 @@ pub fn sysctl(
     newp: ?*anyopaque,
     newlen: usize,
 ) SysCtlError!void {
-    if (builtin.os.tag == .wasi) {
-        @panic("unsupported"); // TODO should be compile error, not panic
-    }
-    if (builtin.os.tag == .haiku) {
-        @panic("unsupported"); // TODO should be compile error, not panic
+    if (builtin.os.tag == .wasi or builtin.os.tag == .haiku) {
+        @compileError("unsupported OS");
     }
 
     const name_len = math.cast(c_uint, name.len) orelse return error.NameTooLong;
@@ -4747,11 +4745,8 @@ pub fn sysctlbynameZ(
     newp: ?*anyopaque,
     newlen: usize,
 ) SysCtlError!void {
-    if (builtin.os.tag == .wasi) {
-        @panic("unsupported"); // TODO should be compile error, not panic
-    }
-    if (builtin.os.tag == .haiku) {
-        @panic("unsupported"); // TODO should be compile error, not panic
+    if (builtin.os.tag == .wasi or builtin.os.tag == .haiku) {
+        @compileError("unsupported OS");
     }
 
     switch (errno(system.sysctlbyname(name, oldp, oldlenp, newp, newlen))) {
@@ -5223,7 +5218,7 @@ pub fn getFdPath(fd: fd_t, out_buffer: *[MAX_PATH_BYTES]u8) RealPathError![]u8 {
         .macos, .ios, .watchos, .tvos => {
             // On macOS, we can use F.GETPATH fcntl command to query the OS for
             // the path to the file descriptor.
-            @memset(out_buffer, 0, MAX_PATH_BYTES);
+            @memset(out_buffer[0..MAX_PATH_BYTES], 0);
             switch (errno(system.fcntl(fd, F.GETPATH, out_buffer))) {
                 .SUCCESS => {},
                 .BADF => return error.FileNotFound,
@@ -5270,8 +5265,9 @@ pub fn getFdPath(fd: fd_t, out_buffer: *[MAX_PATH_BYTES]u8) RealPathError![]u8 {
                 }
                 const len = mem.indexOfScalar(u8, &kfile.path, 0) orelse MAX_PATH_BYTES;
                 if (len == 0) return error.NameTooLong;
-                mem.copy(u8, out_buffer, kfile.path[0..len]);
-                return out_buffer[0..len];
+                const result = out_buffer[0..len];
+                @memcpy(result, kfile.path[0..len]);
+                return result;
             } else {
                 // This fallback implementation reimplements libutil's `kinfo_getfile()`.
                 // The motivation is to avoid linking -lutil when building zig or general
@@ -5302,8 +5298,9 @@ pub fn getFdPath(fd: fd_t, out_buffer: *[MAX_PATH_BYTES]u8) RealPathError![]u8 {
                     if (kf.fd == fd) {
                         len = mem.indexOfScalar(u8, &kf.path, 0) orelse MAX_PATH_BYTES;
                         if (len == 0) return error.NameTooLong;
-                        mem.copy(u8, out_buffer, kf.path[0..len]);
-                        return out_buffer[0..len];
+                        const result = out_buffer[0..len];
+                        @memcpy(result, kf.path[0..len]);
+                        return result;
                     }
                     i += @intCast(usize, kf.structsize);
                 }
@@ -5314,7 +5311,7 @@ pub fn getFdPath(fd: fd_t, out_buffer: *[MAX_PATH_BYTES]u8) RealPathError![]u8 {
             if (comptime builtin.os.version_range.semver.max.order(.{ .major = 6, .minor = 0 }) == .lt) {
                 @compileError("querying for canonical path of a handle is unsupported on this host");
             }
-            @memset(out_buffer, 0, MAX_PATH_BYTES);
+            @memset(out_buffer[0..MAX_PATH_BYTES], 0);
             switch (errno(system.fcntl(fd, F.GETPATH, out_buffer))) {
                 .SUCCESS => {},
                 .BADF => return error.FileNotFound,
@@ -5328,7 +5325,7 @@ pub fn getFdPath(fd: fd_t, out_buffer: *[MAX_PATH_BYTES]u8) RealPathError![]u8 {
             if (comptime builtin.os.version_range.semver.max.order(.{ .major = 10, .minor = 0 }) == .lt) {
                 @compileError("querying for canonical path of a handle is unsupported on this host");
             }
-            @memset(out_buffer, 0, MAX_PATH_BYTES);
+            @memset(out_buffer[0..MAX_PATH_BYTES], 0);
             switch (errno(system.fcntl(fd, F.GETPATH, out_buffer))) {
                 .SUCCESS => {},
                 .ACCES => return error.AccessDenied,
@@ -5377,8 +5374,10 @@ pub fn dl_iterate_phdr(
 ) Error!void {
     const Context = @TypeOf(context);
 
-    if (builtin.object_format != .elf)
-        @compileError("dl_iterate_phdr is not available for this target");
+    switch (builtin.object_format) {
+        .elf, .c => {},
+        else => @compileError("dl_iterate_phdr is not available for this target"),
+    }
 
     if (builtin.link_libc) {
         switch (system.dl_iterate_phdr(struct {
@@ -5554,7 +5553,7 @@ pub fn toPosixPath(file_path: []const u8) ![MAX_PATH_BYTES - 1:0]u8 {
     var path_with_null: [MAX_PATH_BYTES - 1:0]u8 = undefined;
     // >= rather than > to make room for the null byte
     if (file_path.len >= MAX_PATH_BYTES) return error.NameTooLong;
-    mem.copy(u8, &path_with_null, file_path);
+    @memcpy(path_with_null[0..file_path.len], file_path);
     path_with_null[file_path.len] = 0;
     return path_with_null;
 }
@@ -5690,8 +5689,9 @@ pub fn gethostname(name_buffer: *[HOST_NAME_MAX]u8) GetHostNameError![]u8 {
     if (builtin.os.tag == .linux) {
         const uts = uname();
         const hostname = mem.sliceTo(&uts.nodename, 0);
-        mem.copy(u8, name_buffer, hostname);
-        return name_buffer[0..hostname.len];
+        const result = name_buffer[0..hostname.len];
+        @memcpy(result, hostname);
+        return result;
     }
 
     @compileError("TODO implement gethostname for this OS");
@@ -5726,10 +5726,10 @@ pub fn res_mkquery(
 
     // Construct query template - ID will be filled later
     var q: [280]u8 = undefined;
-    @memset(&q, 0, n);
+    @memset(q[0..n], 0);
     q[2] = @as(u8, op) * 8 + 1;
     q[5] = 1;
-    mem.copy(u8, q[13..], name);
+    @memcpy(q[13..][0..name.len], name);
     var i: usize = 13;
     var j: usize = undefined;
     while (q[i] != 0) : (i = j + 1) {
@@ -5752,7 +5752,7 @@ pub fn res_mkquery(
     q[0] = @truncate(u8, id / 256);
     q[1] = @truncate(u8, id);
 
-    mem.copy(u8, buf, q[0..n]);
+    @memcpy(buf[0..n], q[0..n]);
     return n;
 }
 
@@ -6759,7 +6759,7 @@ fn toMemFdPath(name: []const u8) ![MFD_MAX_NAME_LEN:0]u8 {
     var path_with_null: [MFD_MAX_NAME_LEN:0]u8 = undefined;
     // >= rather than > to make room for the null byte
     if (name.len >= MFD_MAX_NAME_LEN) return error.NameTooLong;
-    mem.copy(u8, &path_with_null, name);
+    @memcpy(path_with_null[0..name.len], name);
     path_with_null[name.len] = 0;
     return path_with_null;
 }
@@ -6925,7 +6925,7 @@ pub const PrctlError = error{
     /// Can only occur with PR_SET_SPECULATION_CTRL, PR_MPX_ENABLE_MANAGEMENT,
     /// or PR_MPX_DISABLE_MANAGEMENT
     UnsupportedFeature,
-    /// Can only occur wih PR_SET_FP_MODE
+    /// Can only occur with PR_SET_FP_MODE
     OperationNotSupported,
     PermissionDenied,
 } || UnexpectedError;

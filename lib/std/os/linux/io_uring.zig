@@ -1855,8 +1855,8 @@ test "write_fixed/read_fixed" {
 
     var raw_buffers: [2][11]u8 = undefined;
     // First buffer will be written to the file.
-    std.mem.set(u8, &raw_buffers[0], 'z');
-    std.mem.copy(u8, &raw_buffers[0], "foobar");
+    @memset(&raw_buffers[0], 'z');
+    raw_buffers[0][0.."foobar".len].* = "foobar".*;
 
     var buffers = [2]os.iovec{
         .{ .iov_base = &raw_buffers[0], .iov_len = raw_buffers[0].len },
@@ -2966,7 +2966,7 @@ test "provide_buffers: read" {
     // Provide 1 buffer again
 
     // Deliberately put something we don't expect in the buffers
-    mem.set(u8, mem.sliceAsBytes(&buffers), 42);
+    @memset(mem.sliceAsBytes(&buffers), 42);
 
     const reprovided_buffer_id = 2;
 
@@ -3155,7 +3155,7 @@ test "provide_buffers: accept/connect/send/recv" {
     // Do 4 recv which should consume all buffers
 
     // Deliberately put something we don't expect in the buffers
-    mem.set(u8, mem.sliceAsBytes(&buffers), 1);
+    @memset(mem.sliceAsBytes(&buffers), 1);
 
     var i: usize = 0;
     while (i < buffers.len) : (i += 1) {
@@ -3235,7 +3235,7 @@ test "provide_buffers: accept/connect/send/recv" {
     // Final recv which should work
 
     // Deliberately put something we don't expect in the buffers
-    mem.set(u8, mem.sliceAsBytes(&buffers), 1);
+    @memset(mem.sliceAsBytes(&buffers), 1);
 
     {
         var sqe = try ring.recv(0xdfdfdfdf, socket_test_harness.client, .{ .buffer_selection = .{ .group_id = group_id, .len = buffer_len } }, 0);

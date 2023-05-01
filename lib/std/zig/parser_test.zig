@@ -239,7 +239,7 @@ test "zig fmt: file ends in comment after var decl" {
     );
 }
 
-test "zig fmt: if statment" {
+test "zig fmt: if statement" {
     try testCanonical(
         \\test "" {
         \\    if (optional()) |some|
@@ -529,7 +529,7 @@ test "zig fmt: remove empty lines at start/end of block" {
     );
 }
 
-test "zig fmt: allow empty line before commment at start of block" {
+test "zig fmt: allow empty line before comment at start of block" {
     try testCanonical(
         \\test {
         \\
@@ -4371,7 +4371,7 @@ test "zig fmt: same line doc comment returns error" {
         \\const Foo = struct{
         \\    bar: u32, /// comment
         \\    foo: u32, /// comment
-        \\    /// commment
+        \\    /// comment
         \\};
         \\
         \\const a = 42; /// comment

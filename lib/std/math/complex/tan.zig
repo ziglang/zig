@@ -4,7 +4,7 @@ const math = std.math;
 const cmath = math.complex;
 const Complex = cmath.Complex;
 
-/// Returns the tanget of z.
+/// Returns the tangent of z.
 pub fn tan(z: anytype) Complex(@TypeOf(z.re)) {
     const T = @TypeOf(z.re);
     const q = Complex(T).init(-z.im, z.re);
