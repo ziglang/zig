@@ -1309,6 +1309,7 @@ pub const Value = extern union {
                         .one => 1,
                         .int_u64 => int_val.castTag(.int_u64).?.data,
                         .int_i64 => @bitCast(u64, int_val.castTag(.int_i64).?.data),
+                        .lazy_size => val.castTag(.lazy_size).?.data.abiSize(target),
                         else => unreachable,
                     };
                     for (buffer[0..byte_count], 0..) |_, i| switch (endian) {
@@ -1436,6 +1437,7 @@ pub const Value = extern union {
                         .one => 1,
                         .int_u64 => int_val.castTag(.int_u64).?.data,
                         .int_i64 => @bitCast(u64, int_val.castTag(.int_i64).?.data),
+                        .lazy_size => val.castTag(.lazy_size).?.data.abiSize(target),
                         else => unreachable,
                     };
                     std.mem.writeVarPackedInt(buffer, bit_offset, bits, int, endian);

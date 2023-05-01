@@ -447,3 +447,47 @@ test "bitcast nan float does modify signaling bit" {
     try expectEqual(math.nan_u128, @bitCast(u128, snan_f128_var));
     try expectEqual(math.nan_u128, bitCastWrapper128(snan_f128_var));
 }
+
+const packed_Request = packed struct {
+    nr: u8,
+    io_type: u8,
+    size: u14,
+    dir: u2,
+};
+fn packed_IOR(comptime T: type) u32 {
+    const request = packed_Request{
+        .dir = 2,
+        .size = @sizeOf(T),
+        .io_type = 100,
+        .nr = 31,
+    };
+    return @bitCast(u32, request);
+}
+test "bitcasting packed struct value involving comptime" {
+    const bitcasted1 = packed_IOR(struct { x: u32 });
+    const bitcasted2 = @bitCast(packed_Request, bitcasted1);
+    const bitcasted3 = @bitCast(u32, bitcasted2);
+    try std.testing.expectEqual(bitcasted1, bitcasted3);
+}
+
+const extern_Request = packed struct {
+    nr: u8,
+    io_type: u8,
+    size: u16,
+    dir: u8,
+};
+fn extern_IOR(comptime T: type) u40 {
+    const request = extern_Request{
+        .dir = 254,
+        .size = @sizeOf(T),
+        .io_type = 3,
+        .nr = 80,
+    };
+    return @bitCast(u40, request);
+}
+test "bitcasting extern struct value involving comptime" {
+    const bitcasted1 = extern_IOR(struct { x: u40 });
+    const bitcasted2 = @bitCast(extern_Request, bitcasted1);
+    const bitcasted3 = @bitCast(u40, bitcasted2);
+    try std.testing.expectEqual(bitcasted1, bitcasted3);
+}
