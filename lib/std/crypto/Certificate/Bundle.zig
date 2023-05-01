@@ -244,10 +244,18 @@ pub fn parseCert(cb: *Bundle, gpa: Allocator, decoded_start: u32, now_sec: i64) 
     // the subject name, we pre-parse all of them to make sure and only
     // include in the bundle ones that we know will parse. This way we can
     // use `catch unreachable` later.
-    const parsed_cert = try Certificate.parse(.{
+    const parsed_cert = Certificate.parse(.{
         .buffer = cb.bytes.items,
         .index = decoded_start,
-    });
+    }) catch |e| {
+        switch (e) {
+            .CertificateHasUnrecognizedObjectId => {
+                // ignore certificate containing an unrecognized OId.
+                cb.bytes.items.len = decoded_start;
+            },
+            else => return e,
+        }
+    };
     if (now_sec > parsed_cert.validity.not_after) {
         // Ignore expired cert.
         cb.bytes.items.len = decoded_start;
