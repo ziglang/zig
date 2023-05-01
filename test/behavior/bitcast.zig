@@ -500,3 +500,12 @@ test "bitcasting extern struct value involving comptime" {
     const bitcasted3 = @bitCast(u40, bitcasted2);
     try std.testing.expectEqual(bitcasted1, bitcasted3);
 }
+
+test "bitcasting extern unions" {
+    var a = @bitCast(u8, extern union { a: u8 }{ .a = 5 });
+    try expectEqual(@as(u8, 5), a);
+    var b = @bitCast(u16, extern union { a: u16, b: u16 }{ .a = 0xf0 });
+    try expectEqual(@as(u16, 0xf0), b);
+    var c = @bitCast(u64, extern union { a: u16, b: u64 }{ .b = 0xf3f3 });
+    try expectEqual(@as(u64, 0xf3f3), c);
+}

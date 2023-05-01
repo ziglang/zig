@@ -1378,7 +1378,12 @@ pub const Value = extern union {
             },
             .Union => switch (ty.containerLayout()) {
                 .Auto => return error.IllDefinedMemoryLayout,
-                .Extern => return error.Unimplemented,
+                .Extern => {
+                    const field_index = ty.unionTagFieldIndex(val.unionTag(), mod);
+                    const field_type = ty.unionFields().values()[field_index.?].ty;
+                    const field_val = val.fieldValue(field_type, field_index.?);
+                    return field_val.writeToMemory(field_type, mod, buffer);
+                },
                 .Packed => {
                     const byte_count = (@intCast(usize, ty.bitSize(target)) + 7) / 8;
                     return writeToPackedMemory(val, ty, mod, buffer[0..byte_count], 0);
@@ -1504,7 +1509,6 @@ pub const Value = extern union {
                     const field_index = ty.unionTagFieldIndex(val.unionTag(), mod);
                     const field_type = ty.unionFields().values()[field_index.?].ty;
                     const field_val = val.fieldValue(field_type, field_index.?);
-
                     return field_val.writeToPackedMemory(field_type, mod, buffer, bit_offset);
                 },
             },
