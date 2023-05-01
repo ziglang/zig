@@ -938,6 +938,7 @@ pub fn DeleteFile(sub_path_w: []const u16, options: DeleteFileOptions) DeleteFil
         else => return unexpectedStatus(rc),
     }
     defer CloseHandle(tmp_handle);
+
     if (comptime builtin.target.os.version_range.windows.min.isAtLeast(.win10_rs1)) {
         // Deletion with posix semantics.
         var info = FILE_DISPOSITION_INFORMATION_EX{
@@ -953,17 +954,13 @@ pub fn DeleteFile(sub_path_w: []const u16, options: DeleteFileOptions) DeleteFil
             @sizeOf(FILE_DISPOSITION_INFORMATION_EX),
             .FileDispositionInformationEx,
         );
-        switch (rc) {
-            .SUCCESS => {},
-            .CANNOT_DELETE => return error.FileBusy, // file is currently mapped
-            else => return unexpectedStatus(rc),
-        }
     } else {
         // Deletion with file pending semantics, which requires waiting or moving
         // files to get them removed (from here).
         var file_dispo = FILE_DISPOSITION_INFORMATION{
             .DeleteFile = TRUE,
         };
+
         rc = ntdll.NtSetInformationFile(
             tmp_handle,
             &io,
@@ -971,15 +968,15 @@ pub fn DeleteFile(sub_path_w: []const u16, options: DeleteFileOptions) DeleteFil
             @sizeOf(FILE_DISPOSITION_INFORMATION),
             .FileDispositionInformation,
         );
-        switch (rc) {
-            .SUCCESS => {},
-            .DIRECTORY_NOT_EMPTY => return error.DirNotEmpty,
-            .INVALID_PARAMETER => unreachable,
-            .CANNOT_DELETE => return error.AccessDenied,
-            .MEDIA_WRITE_PROTECTED => return error.AccessDenied,
-            .ACCESS_DENIED => return error.AccessDenied,
-            else => return unexpectedStatus(rc),
-        }
+    }
+    switch (rc) {
+        .SUCCESS => {},
+        .DIRECTORY_NOT_EMPTY => return error.DirNotEmpty,
+        .INVALID_PARAMETER => unreachable,
+        .CANNOT_DELETE => return error.AccessDenied,
+        .MEDIA_WRITE_PROTECTED => return error.AccessDenied,
+        .ACCESS_DENIED => return error.AccessDenied,
+        else => return unexpectedStatus(rc),
     }
 }
 
