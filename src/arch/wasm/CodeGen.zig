@@ -5553,7 +5553,7 @@ fn airMulWithOverflow(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         return func.fail("TODO: Implement overflow arithmetic for integer bitsize: {d}", .{int_info.bits});
     };
 
-    if (wasm_bits > 32) {
+    if (wasm_bits > 64) {
         return func.fail("TODO: Implement `@mulWithOverflow` for integer bitsize: {d}", .{int_info.bits});
     }
 
@@ -5586,7 +5586,7 @@ fn airMulWithOverflow(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
             try func.addLabel(.local_set, overflow_bit.local.value);
             break :blk down_cast;
         }
-    } else if (int_info.signedness == .signed) blk: {
+    } else if (int_info.signedness == .signed and wasm_bits == 32) blk: {
         const lhs_abs = try func.signAbsValue(lhs, lhs_ty);
         const rhs_abs = try func.signAbsValue(rhs, lhs_ty);
         const bin_op = try (try func.binOp(lhs_abs, rhs_abs, lhs_ty, .mul)).toLocal(func, lhs_ty);
@@ -5594,7 +5594,7 @@ fn airMulWithOverflow(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         _ = try func.cmp(mul_abs, bin_op, lhs_ty, .neq);
         try func.addLabel(.local_set, overflow_bit.local.value);
         break :blk try func.wrapOperand(bin_op, lhs_ty);
-    } else blk: {
+    } else if (wasm_bits == 32) blk: {
         var bin_op = try (try func.binOp(lhs, rhs, lhs_ty, .mul)).toLocal(func, lhs_ty);
         defer bin_op.free(func);
         const shift_imm = if (wasm_bits == 32)
@@ -5605,7 +5605,40 @@ fn airMulWithOverflow(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         _ = try func.cmp(shr, zero, lhs_ty, .neq);
         try func.addLabel(.local_set, overflow_bit.local.value);
         break :blk try func.wrapOperand(bin_op, lhs_ty);
-    };
+    } else if (int_info.bits == 64 and int_info.signedness == .unsigned) blk: {
+        const new_ty = Type.initTag(.u128);
+        var lhs_upcast = try (try func.intcast(lhs, lhs_ty, new_ty)).toLocal(func, lhs_ty);
+        defer lhs_upcast.free(func);
+        var rhs_upcast = try (try func.intcast(rhs, lhs_ty, new_ty)).toLocal(func, lhs_ty);
+        defer rhs_upcast.free(func);
+        const bin_op = try func.binOp(lhs_upcast, rhs_upcast, new_ty, .mul);
+        const lsb = try func.load(bin_op, lhs_ty, 8);
+        _ = try func.cmp(lsb, zero, lhs_ty, .neq);
+        try func.addLabel(.local_set, overflow_bit.local.value);
+
+        break :blk try func.load(bin_op, lhs_ty, 0);
+    } else if (int_info.bits == 64 and int_info.signedness == .signed) blk: {
+        const shift_val: WValue = .{ .imm64 = 63 };
+        var lhs_shifted = try (try func.binOp(lhs, shift_val, lhs_ty, .shr)).toLocal(func, lhs_ty);
+        defer lhs_shifted.free(func);
+        var rhs_shifted = try (try func.binOp(rhs, shift_val, lhs_ty, .shr)).toLocal(func, lhs_ty);
+        defer rhs_shifted.free(func);
+
+        const bin_op = try func.callIntrinsic(
+            "__multi3",
+            &[_]Type{Type.i64} ** 4,
+            Type.initTag(.i128),
+            &.{ lhs, lhs_shifted, rhs, rhs_shifted },
+        );
+        const res = try func.allocLocal(lhs_ty);
+        const msb = try func.load(bin_op, lhs_ty, 0);
+        try func.addLabel(.local_tee, res.local.value);
+        const msb_shifted = try func.binOp(msb, shift_val, lhs_ty, .shr);
+        const lsb = try func.load(bin_op, lhs_ty, 8);
+        _ = try func.cmp(lsb, msb_shifted, lhs_ty, .neq);
+        try func.addLabel(.local_set, overflow_bit.local.value);
+        break :blk res;
+    } else return func.fail("TODO: @mulWithOverflow for integers between 32 and 64 bits", .{});
     var bin_op_local = try bin_op.toLocal(func, lhs_ty);
     defer bin_op_local.free(func);
 
