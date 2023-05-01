@@ -818,7 +818,8 @@ pub const ArgIterator = struct {
     }
 };
 
-/// Use argsWithAllocator() for cross-platform code
+/// Holds the command-line arguments, with the program name as the first entry.
+/// Use argsWithAllocator() for cross-platform code.
 pub fn args() ArgIterator {
     return ArgIterator.init();
 }
@@ -854,7 +855,7 @@ pub fn argsAlloc(allocator: Allocator) ![][:0]u8 {
 
     const result_slice_list = mem.bytesAsSlice([:0]u8, buf[0..slice_list_bytes]);
     const result_contents = buf[slice_list_bytes..];
-    mem.copy(u8, result_contents, contents_slice);
+    @memcpy(result_contents[0..contents_slice.len], contents_slice);
 
     var contents_index: usize = 0;
     for (slice_sizes, 0..) |len, i| {
@@ -1161,6 +1162,20 @@ pub fn totalSystemMemory() TotalSystemMemoryError!usize {
     switch (builtin.os.tag) {
         .linux => {
             return totalSystemMemoryLinux() catch return error.UnknownTotalSystemMemory;
+        },
+        .freebsd, .netbsd, .openbsd, .dragonfly, .macos => {
+            var physmem: c_ulong = undefined;
+            var len: usize = @sizeOf(c_ulong);
+            const name = switch (builtin.os.tag) {
+                .macos => "hw.memsize",
+                .netbsd => "hw.physmem64",
+                else => "hw.physmem",
+            };
+            os.sysctlbynameZ(name, &physmem, &len, null, 0) catch |err| switch (err) {
+                error.NameTooLong, error.UnknownName => unreachable,
+                else => return error.UnknownTotalSystemMemory,
+            };
+            return @intCast(usize, physmem);
         },
         .windows => {
             var sbi: std.os.windows.SYSTEM_BASIC_INFORMATION = undefined;

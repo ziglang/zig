@@ -54,7 +54,7 @@ pub fn hashString(s: []const u8) u32 {
 
 /// Insertion order is preserved.
 /// Deletions perform a "swap removal" on the entries list.
-/// Modifying the hash map while iterating is allowed, however one must understand
+/// Modifying the hash map while iterating is allowed, however, one must understand
 /// the (well defined) behavior when mixing insertions and deletions with iteration.
 /// For a hash map that can be initialized directly that does not store an Allocator
 /// field, see `ArrayHashMapUnmanaged`.
@@ -448,7 +448,7 @@ pub fn ArrayHashMap(
 /// General purpose hash table.
 /// Insertion order is preserved.
 /// Deletions perform a "swap removal" on the entries list.
-/// Modifying the hash map while iterating is allowed, however one must understand
+/// Modifying the hash map while iterating is allowed, however, one must understand
 /// the (well defined) behavior when mixing insertions and deletions with iteration.
 /// This type does not store an Allocator field - the Allocator must be passed in
 /// with each function call that requires it. See `ArrayHashMap` for a type that stores
@@ -578,9 +578,9 @@ pub fn ArrayHashMapUnmanaged(
             self.entries.len = 0;
             if (self.index_header) |header| {
                 switch (header.capacityIndexType()) {
-                    .u8 => mem.set(Index(u8), header.indexes(u8), Index(u8).empty),
-                    .u16 => mem.set(Index(u16), header.indexes(u16), Index(u16).empty),
-                    .u32 => mem.set(Index(u32), header.indexes(u32), Index(u32).empty),
+                    .u8 => @memset(header.indexes(u8), Index(u8).empty),
+                    .u16 => @memset(header.indexes(u16), Index(u16).empty),
+                    .u32 => @memset(header.indexes(u32), Index(u32).empty),
                 }
             }
         }
@@ -1893,7 +1893,7 @@ const IndexHeader = struct {
         const index_size = hash_map.capacityIndexSize(new_bit_index);
         const nbytes = @sizeOf(IndexHeader) + index_size * len;
         const bytes = try allocator.alignedAlloc(u8, @alignOf(IndexHeader), nbytes);
-        @memset(bytes.ptr + @sizeOf(IndexHeader), 0xff, bytes.len - @sizeOf(IndexHeader));
+        @memset(bytes[@sizeOf(IndexHeader)..], 0xff);
         const result = @ptrCast(*IndexHeader, bytes.ptr);
         result.* = .{
             .bit_index = new_bit_index,
@@ -1914,7 +1914,7 @@ const IndexHeader = struct {
         const index_size = hash_map.capacityIndexSize(header.bit_index);
         const ptr = @ptrCast([*]align(@alignOf(IndexHeader)) u8, header);
         const nbytes = @sizeOf(IndexHeader) + header.length() * index_size;
-        @memset(ptr + @sizeOf(IndexHeader), 0xff, nbytes - @sizeOf(IndexHeader));
+        @memset(ptr[@sizeOf(IndexHeader)..nbytes], 0xff);
     }
 
     // Verify that the header has sufficient alignment to produce aligned arrays.

@@ -16,6 +16,7 @@ pub const LogToWriterAllocator = @import("heap/log_to_writer_allocator.zig").Log
 pub const logToWriterAllocator = @import("heap/log_to_writer_allocator.zig").logToWriterAllocator;
 pub const ArenaAllocator = @import("heap/arena_allocator.zig").ArenaAllocator;
 pub const GeneralPurposeAllocator = @import("heap/general_purpose_allocator.zig").GeneralPurposeAllocator;
+pub const Check = @import("heap/general_purpose_allocator.zig").Check;
 pub const WasmAllocator = @import("heap/WasmAllocator.zig");
 pub const WasmPageAllocator = @import("heap/WasmPageAllocator.zig");
 pub const PageAllocator = @import("heap/PageAllocator.zig");
@@ -78,7 +79,7 @@ const CAllocator = struct {
         }
 
         // Thin wrapper around regular malloc, overallocate to account for
-        // alignment padding and store the orignal malloc()'ed pointer before
+        // alignment padding and store the original malloc()'ed pointer before
         // the aligned address.
         var unaligned_ptr = @ptrCast([*]u8, c.malloc(len + alignment - 1 + @sizeOf(usize)) orelse return null);
         const unaligned_addr = @ptrToInt(unaligned_ptr);

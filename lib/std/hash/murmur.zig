@@ -99,9 +99,8 @@ pub const Murmur2_64 = struct {
 
     pub fn hashWithSeed(str: []const u8, seed: u64) u64 {
         const m: u64 = 0xc6a4a7935bd1e995;
-        const len = @as(u64, str.len);
-        var h1: u64 = seed ^ (len *% m);
-        for (@ptrCast([*]align(1) const u64, str.ptr)[0..@intCast(usize, len >> 3)]) |v| {
+        var h1: u64 = seed ^ (@as(u64, str.len) *% m);
+        for (@ptrCast([*]align(1) const u64, str.ptr)[0 .. str.len / 8]) |v| {
             var k1: u64 = v;
             if (native_endian == .Big)
                 k1 = @byteSwap(k1);
@@ -111,11 +110,11 @@ pub const Murmur2_64 = struct {
             h1 ^= k1;
             h1 *%= m;
         }
-        const rest = len & 7;
-        const offset = len - rest;
+        const rest = str.len & 7;
+        const offset = str.len - rest;
         if (rest > 0) {
             var k1: u64 = 0;
-            @memcpy(@ptrCast([*]u8, &k1), @ptrCast([*]const u8, &str[@intCast(usize, offset)]), @intCast(usize, rest));
+            @memcpy(@ptrCast([*]u8, &k1)[0..rest], str[offset..]);
             if (native_endian == .Big)
                 k1 = @byteSwap(k1);
             h1 ^= k1;
@@ -282,13 +281,8 @@ pub const Murmur3_32 = struct {
 
 fn SMHasherTest(comptime hash_fn: anytype, comptime hashbits: u32) u32 {
     const hashbytes = hashbits / 8;
-    var key: [256]u8 = undefined;
-    var hashes: [hashbytes * 256]u8 = undefined;
-    var final: [hashbytes]u8 = undefined;
-
-    @memset(@ptrCast([*]u8, &key[0]), 0, @sizeOf(@TypeOf(key)));
-    @memset(@ptrCast([*]u8, &hashes[0]), 0, @sizeOf(@TypeOf(hashes)));
-    @memset(@ptrCast([*]u8, &final[0]), 0, @sizeOf(@TypeOf(final)));
+    var key: [256]u8 = [1]u8{0} ** 256;
+    var hashes: [hashbytes * 256]u8 = [1]u8{0} ** (hashbytes * 256);
 
     var i: u32 = 0;
     while (i < 256) : (i += 1) {
@@ -297,7 +291,7 @@ fn SMHasherTest(comptime hash_fn: anytype, comptime hashbits: u32) u32 {
         var h = hash_fn(key[0..i], 256 - i);
         if (native_endian == .Big)
             h = @byteSwap(h);
-        @memcpy(@ptrCast([*]u8, &hashes[i * hashbytes]), @ptrCast([*]u8, &h), hashbytes);
+        @memcpy(hashes[i * hashbytes ..][0..hashbytes], @ptrCast([*]u8, &h));
     }
 
     return @truncate(u32, hash_fn(&hashes, 0));

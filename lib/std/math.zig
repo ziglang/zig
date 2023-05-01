@@ -782,7 +782,8 @@ fn testOverflow() !void {
 }
 
 /// Returns the absolute value of x, where x is a value of a signed integer type.
-/// See also: `absCast`
+/// Does not convert and returns a value of a signed integer type.
+/// Use `absCast` if you want to convert the result and get an unsigned type.
 pub fn absInt(x: anytype) !@TypeOf(x) {
     const T = @TypeOf(x);
     return switch (@typeInfo(T)) {
@@ -1015,8 +1016,8 @@ pub inline fn fabs(value: anytype) @TypeOf(value) {
 }
 
 /// Returns the absolute value of the integer parameter.
-/// Result is an unsigned integer.
-/// See also: `absInt`
+/// Converts result type to unsigned if needed and returns a value of an unsigned integer type.
+/// Use `absInt` if you want to keep your integer type signed.
 pub fn absCast(x: anytype) switch (@typeInfo(@TypeOf(x))) {
     .ComptimeInt => comptime_int,
     .Int => |int_info| std.meta.Int(.unsigned, int_info.bits),
@@ -1325,6 +1326,50 @@ test "lossyCast" {
     try testing.expect(lossyCast(u32, @as(i16, -255)) == @as(u32, 0));
     try testing.expect(lossyCast(i9, @as(u32, 200)) == @as(i9, 200));
     try testing.expect(lossyCast(u32, @as(f32, maxInt(u32))) == maxInt(u32));
+}
+
+/// Performs linear interpolation between *a* and *b* based on *t*.
+/// *t* must be in range 0.0 to 1.0. Supports floats and vectors of floats.
+///
+/// This does not guarantee returning *b* if *t* is 1 due to floating-point errors.
+/// This is monotonic.
+pub fn lerp(a: anytype, b: anytype, t: anytype) @TypeOf(a, b, t) {
+    const Type = @TypeOf(a, b, t);
+
+    switch (@typeInfo(Type)) {
+        .Float, .ComptimeFloat => assert(t >= 0 and t <= 1),
+        .Vector => |vector| {
+            const lower_bound = @reduce(.And, t >= @splat(vector.len, @as(vector.child, 0)));
+            const upper_bound = @reduce(.And, t <= @splat(vector.len, @as(vector.child, 1)));
+            assert(lower_bound and upper_bound);
+        },
+        else => comptime unreachable,
+    }
+
+    return @mulAdd(Type, b - a, t, a);
+}
+
+test "lerp" {
+    try testing.expectEqual(@as(f64, 75), lerp(50, 100, 0.5));
+    try testing.expectEqual(@as(f32, 43.75), lerp(50, 25, 0.25));
+    try testing.expectEqual(@as(f64, -31.25), lerp(-50, 25, 0.25));
+
+    try testing.expectApproxEqRel(@as(f32, -7.16067345e+03), lerp(-10000.12345, -5000.12345, 0.56789), 1e-19);
+    try testing.expectApproxEqRel(@as(f64, 7.010987590521e+62), lerp(0.123456789e-64, 0.123456789e64, 0.56789), 1e-33);
+
+    try testing.expectEqual(@as(f32, 0.0), lerp(@as(f32, 1.0e8), 1.0, 1.0));
+    try testing.expectEqual(@as(f64, 0.0), lerp(@as(f64, 1.0e16), 1.0, 1.0));
+    try testing.expectEqual(@as(f32, 1.0), lerp(@as(f32, 1.0e7), 1.0, 1.0));
+    try testing.expectEqual(@as(f64, 1.0), lerp(@as(f64, 1.0e15), 1.0, 1.0));
+
+    try testing.expectEqual(
+        lerp(@splat(3, @as(f32, 0)), @splat(3, @as(f32, 50)), @splat(3, @as(f32, 0.5))),
+        @Vector(3, f32){ 25, 25, 25 },
+    );
+    try testing.expectEqual(
+        lerp(@splat(3, @as(f64, 50)), @splat(3, @as(f64, 100)), @splat(3, @as(f64, 0.5))),
+        @Vector(3, f64){ 75, 75, 75 },
+    );
 }
 
 /// Returns the maximum value of integer type T.

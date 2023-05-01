@@ -20,7 +20,7 @@
 //!
 //! 1. Each CPU architecture supported by Linux has its own unique ABI and
 //!    syscall API. It is not guaranteed that the syscall numbers and arguments
-//!    are the same across architectures, or that they're even implemted. Thus,
+//!    are the same across architectures, or that they're even implemented. Thus,
 //!    filters cannot be assumed to be portable without consulting documentation
 //!    like syscalls(2) and testing on target hardware. This also requires
 //!    checking the value of `data.arch` to make sure that a filter was compiled
@@ -29,8 +29,8 @@
 //!    which is dependant on the ABI. Since BPF programs execute in a 32-bit
 //!    machine, validation of 64-bit arguments necessitates two load-and-compare
 //!    instructions for the upper and lower words.
-//! 3. A further wrinkle to the above is endianess. Unlike network packets,
-//!    syscall data shares the endianess of the target machine. A filter
+//! 3. A further wrinkle to the above is endianness. Unlike network packets,
+//!    syscall data shares the endianness of the target machine. A filter
 //!    compiled on a little-endian machine will not work on a big-endian one,
 //!    and vice-versa. For example: Checking the upper 32-bits of `data.arg1`
 //!    requires a load at `@offsetOf(data, "arg1") + 4` on big-endian systems
@@ -65,7 +65,7 @@
 //!
 //! Unfortunately, there is no easy solution for issue 5. The most reliable
 //! strategy is to keep testing; test newer Zig versions, different libcs,
-//! different distros, and design your filter to accomidate all of them.
+//! different distros, and design your filter to accommodate all of them.
 //! Alternatively, you could inject a filter at runtime. Since filters are
 //! preserved across execve(2), a filter could be setup before executing your
 //! program, without your program having any knowledge of this happening. This

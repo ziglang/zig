@@ -1822,7 +1822,7 @@ pub const file_obj = extern struct {
     name: [*:0]u8,
 };
 
-// struct ifreq is marked obsolete, with struct lifreq prefered for interface requests.
+// struct ifreq is marked obsolete, with struct lifreq preferred for interface requests.
 // Here we alias lifreq to ifreq to avoid chainging existing code in os and x.os.IPv6.
 pub const SIOCGLIFINDEX = IOWR('i', 133, lifreq);
 pub const SIOCGIFINDEX = SIOCGLIFINDEX;
@@ -1927,3 +1927,22 @@ pub fn IOW(io_type: u8, nr: u8, comptime IOT: type) i32 {
 pub fn IOWR(io_type: u8, nr: u8, comptime IOT: type) i32 {
     return ioImpl(.read_write, io_type, nr, IOT);
 }
+
+pub const SIGEV = struct {
+    pub const NONE = 0;
+    pub const SIGNAL = 1;
+    pub const THREAD = 2;
+};
+
+pub const sigval = extern union {
+    int: c_int,
+    ptr: ?*anyopaque,
+};
+
+pub const sigevent = extern struct {
+    sigev_notify: c_int,
+    sigev_signo: c_int,
+    sigev_value: sigval,
+    sigev_notify_function: ?*const fn (sigval) callconv(.C) void,
+    sigev_notify_attributes: ?*pthread_attr_t,
+};

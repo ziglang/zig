@@ -284,7 +284,7 @@ pub const BufferedConnection = struct {
             if (available > 0) {
                 const can_read = @truncate(u16, @min(available, left));
 
-                std.mem.copy(u8, buffer[out_index..], bconn.buf[bconn.start..][0..can_read]);
+                @memcpy(buffer[out_index..][0..can_read], bconn.buf[bconn.start..][0..can_read]);
                 out_index += can_read;
                 bconn.start += can_read;
 
@@ -365,7 +365,7 @@ pub const Response = struct {
         CompressionNotSupported,
     };
 
-    pub fn parse(res: *Response, bytes: []const u8) ParseError!void {
+    pub fn parse(res: *Response, bytes: []const u8, trailing: bool) ParseError!void {
         var it = mem.tokenize(u8, bytes[0 .. bytes.len - 4], "\r\n");
 
         const first_line = it.next() orelse return error.HttpHeadersInvalid;
@@ -397,6 +397,8 @@ pub const Response = struct {
             const header_value = line_it.rest();
 
             try res.headers.append(header_name, header_value);
+
+            if (trailing) continue;
 
             if (std.ascii.eqlIgnoreCase(header_name, "content-length")) {
                 if (res.content_length != null) return error.HttpHeadersInvalid;
@@ -480,7 +482,7 @@ pub const Response = struct {
 
 /// A HTTP request that has been sent.
 ///
-/// Order of operations: request[ -> write -> finish] -> do -> read
+/// Order of operations: request -> start[ -> write -> finish] -> wait -> read
 pub const Request = struct {
     uri: Uri,
     client: *Client,
@@ -508,8 +510,9 @@ pub const Request = struct {
             .zstd => |*zstd| zstd.deinit(),
         }
 
+        req.response.headers.deinit();
+
         if (req.response.parser.header_bytes_owned) {
-            req.response.headers.deinit();
             req.response.parser.header_bytes.deinit(req.client.allocator);
         }
 
@@ -522,6 +525,44 @@ pub const Request = struct {
 
         req.arena.deinit();
         req.* = undefined;
+    }
+
+    // This function must deallocate all resources associated with the request, or keep those which will be used
+    // This needs to be kept in sync with deinit and request
+    fn redirect(req: *Request, uri: Uri) !void {
+        assert(req.response.parser.done);
+
+        switch (req.response.compression) {
+            .none => {},
+            .deflate => |*deflate| deflate.deinit(),
+            .gzip => |*gzip| gzip.deinit(),
+            .zstd => |*zstd| zstd.deinit(),
+        }
+
+        req.client.connection_pool.release(req.client, req.connection);
+
+        const protocol = protocol_map.get(uri.scheme) orelse return error.UnsupportedUrlScheme;
+
+        const port: u16 = uri.port orelse switch (protocol) {
+            .plain => 80,
+            .tls => 443,
+        };
+
+        const host = uri.host orelse return error.UriMissingHost;
+
+        req.uri = uri;
+        req.connection = try req.client.connect(host, port, protocol);
+        req.redirects_left -= 1;
+        req.response.headers.clearRetainingCapacity();
+        req.response.parser.reset();
+
+        req.response = .{
+            .status = undefined,
+            .reason = undefined,
+            .version = undefined,
+            .headers = req.response.headers,
+            .parser = req.response.parser,
+        };
     }
 
     pub const StartError = BufferedConnection.WriteError || error{ InvalidContentLength, UnsupportedTransferEncoding };
@@ -627,14 +668,14 @@ pub const Request = struct {
         return index;
     }
 
-    pub const DoError = RequestError || TransferReadError || proto.HeadersParser.CheckCompleteHeadError || Response.ParseError || Uri.ParseError || error{ TooManyHttpRedirects, HttpRedirectMissingLocation, CompressionInitializationFailed, CompressionNotSupported };
+    pub const WaitError = RequestError || StartError || TransferReadError || proto.HeadersParser.CheckCompleteHeadError || Response.ParseError || Uri.ParseError || error{ TooManyHttpRedirects, CannotRedirect, HttpRedirectMissingLocation, CompressionInitializationFailed, CompressionNotSupported };
 
     /// Waits for a response from the server and parses any headers that are sent.
     /// This function will block until the final response is received.
     ///
-    /// If `handle_redirects` is true, then this function will automatically follow
-    /// redirects.
-    pub fn do(req: *Request) DoError!void {
+    /// If `handle_redirects` is true and the request has no payload, then this function will automatically follow
+    /// redirects. If a request payload is present, then this function will error with error.CannotRedirect.
+    pub fn wait(req: *Request) WaitError!void {
         while (true) { // handle redirects
             while (true) { // read headers
                 try req.connection.data.buffered.fill();
@@ -645,8 +686,7 @@ pub const Request = struct {
                 if (req.response.parser.state.isContent()) break;
             }
 
-            req.response.headers = http.Headers{ .allocator = req.client.allocator, .owned = false };
-            try req.response.parse(req.response.parser.header_bytes.items);
+            try req.response.parse(req.response.parser.header_bytes.items, false);
 
             if (req.response.status == .switching_protocols) {
                 req.connection.data.closing = false;
@@ -685,7 +725,7 @@ pub const Request = struct {
                 req.response.parser.done = true;
             }
 
-            if (req.response.status.class() == .redirect and req.handle_redirects) {
+            if (req.transfer_encoding == .none and req.response.status.class() == .redirect and req.handle_redirects) {
                 req.response.skip = true;
 
                 const empty = @as([*]u8, undefined)[0..0];
@@ -695,26 +735,17 @@ pub const Request = struct {
 
                 const location = req.response.headers.getFirstValue("location") orelse
                     return error.HttpRedirectMissingLocation;
-                const new_url = Uri.parse(location) catch try Uri.parseWithoutScheme(location);
 
-                var new_arena = std.heap.ArenaAllocator.init(req.client.allocator);
-                const resolved_url = try req.uri.resolve(new_url, false, new_arena.allocator());
-                errdefer new_arena.deinit();
+                const arena = req.arena.allocator();
 
-                req.arena.deinit();
-                req.arena = new_arena;
+                const location_duped = try arena.dupe(u8, location);
 
-                const new_req = try req.client.request(req.method, resolved_url, req.headers, .{
-                    .version = req.version,
-                    .max_redirects = req.redirects_left - 1,
-                    .header_strategy = if (req.response.parser.header_bytes_owned) .{
-                        .dynamic = req.response.parser.max_header_bytes,
-                    } else .{
-                        .static = req.response.parser.header_bytes.items.ptr[0..req.response.parser.max_header_bytes],
-                    },
-                });
-                req.deinit();
-                req.* = new_req;
+                const new_url = Uri.parse(location_duped) catch try Uri.parseWithoutScheme(location_duped);
+                const resolved_url = try req.uri.resolve(new_url, false, arena);
+
+                try req.redirect(resolved_url);
+
+                try req.start();
             } else {
                 req.response.skip = false;
                 if (!req.response.parser.done) {
@@ -731,6 +762,9 @@ pub const Request = struct {
                         },
                     };
                 }
+
+                if (req.response.status.class() == .redirect and req.handle_redirects and req.transfer_encoding != .none)
+                    return error.CannotRedirect; // The request body has already been sent. The request is still in a valid state, but the redirect must be handled manually.
 
                 break;
             }
@@ -765,11 +799,11 @@ pub const Request = struct {
             }
 
             if (has_trail) {
-                req.response.headers = http.Headers{ .allocator = req.client.allocator, .owned = false };
+                req.response.headers.clearRetainingCapacity();
 
                 // The response headers before the trailers are already guaranteed to be valid, so they will always be parsed again and cannot return an error.
                 // This will *only* fail for a malformed trailer.
-                req.response.parse(req.response.parser.header_bytes.items) catch return error.InvalidTrailers;
+                req.response.parse(req.response.parser.header_bytes.items, true) catch return error.InvalidTrailers;
             }
         }
 
@@ -797,18 +831,18 @@ pub const Request = struct {
 
     /// Write `bytes` to the server. The `transfer_encoding` request header determines how data will be sent.
     pub fn write(req: *Request, bytes: []const u8) WriteError!usize {
-        switch (req.headers.transfer_encoding) {
+        switch (req.transfer_encoding) {
             .chunked => {
-                try req.connection.data.conn.writer().print("{x}\r\n", .{bytes.len});
-                try req.connection.data.conn.writeAll(bytes);
-                try req.connection.data.conn.writeAll("\r\n");
+                try req.connection.data.buffered.writer().print("{x}\r\n", .{bytes.len});
+                try req.connection.data.buffered.writeAll(bytes);
+                try req.connection.data.buffered.writeAll("\r\n");
 
                 return bytes.len;
             },
             .content_length => |*len| {
                 if (len.* < bytes.len) return error.MessageTooLong;
 
-                const amt = try req.connection.data.conn.write(bytes);
+                const amt = try req.connection.data.buffered.write(bytes);
                 len.* -= amt;
                 return amt;
             },
@@ -828,7 +862,7 @@ pub const Request = struct {
     /// Finish the body of a request. This notifies the server that you have no more data to send.
     pub fn finish(req: *Request) FinishError!void {
         switch (req.transfer_encoding) {
-            .chunked => try req.connection.data.conn.writeAll("0\r\n\r\n"),
+            .chunked => try req.connection.data.buffered.writeAll("0\r\n\r\n"),
             .content_length => |len| if (len != 0) return error.MessageNotCompleted,
             .none => {},
         }
@@ -1019,7 +1053,7 @@ pub fn request(client: *Client, method: http.Method, uri: Uri, headers: http.Hea
             .status = undefined,
             .reason = undefined,
             .version = undefined,
-            .headers = undefined,
+            .headers = http.Headers{ .allocator = client.allocator, .owned = false },
             .parser = switch (options.header_strategy) {
                 .dynamic => |max| proto.HeadersParser.initDynamic(max),
                 .static => |buf| proto.HeadersParser.initStatic(buf),

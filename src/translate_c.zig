@@ -113,7 +113,7 @@ const Scope = struct {
                 const alloc_len = self.statements.items.len + @boolToInt(self.base.parent.?.id == .do_loop);
                 var stmts = try c.arena.alloc(Node, alloc_len);
                 stmts.len = self.statements.items.len;
-                mem.copy(Node, stmts, self.statements.items);
+                @memcpy(stmts[0..self.statements.items.len], self.statements.items);
                 return Tag.block.create(c.arena, .{
                     .label = self.label,
                     .stmts = stmts,
@@ -128,14 +128,29 @@ const Scope = struct {
 
         /// Given the desired name, return a name that does not shadow anything from outer scopes.
         /// Inserts the returned name into the scope.
+        /// The name will not be visible to callers of getAlias.
+        fn reserveMangledName(scope: *Block, c: *Context, name: []const u8) ![]const u8 {
+            return scope.createMangledName(c, name, true);
+        }
+
+        /// Same as reserveMangledName, but enables the alias immediately.
         fn makeMangledName(scope: *Block, c: *Context, name: []const u8) ![]const u8 {
+            return scope.createMangledName(c, name, false);
+        }
+
+        fn createMangledName(scope: *Block, c: *Context, name: []const u8, reservation: bool) ![]const u8 {
             const name_copy = try c.arena.dupe(u8, name);
             var proposed_name = name_copy;
             while (scope.contains(proposed_name)) {
                 scope.mangle_count += 1;
                 proposed_name = try std.fmt.allocPrint(c.arena, "{s}_{d}", .{ name, scope.mangle_count });
             }
-            try scope.variables.append(.{ .name = name_copy, .alias = proposed_name });
+            const new_mangle = try scope.variables.addOne();
+            if (reservation) {
+                new_mangle.* = .{ .name = name_copy, .alias = name_copy };
+            } else {
+                new_mangle.* = .{ .name = name_copy, .alias = proposed_name };
+            }
             return proposed_name;
         }
 
@@ -2697,6 +2712,13 @@ fn transInitListExprArray(
         return Tag.empty_array.create(c.arena, child_type);
     }
 
+    if (expr.isStringLiteralInit()) {
+        assert(init_count == 1);
+        const init_expr = expr.getInit(0);
+        const string_literal = init_expr.castToStringLiteral().?;
+        return try transStringLiteral(c, scope, string_literal, .used);
+    }
+
     const init_node = if (init_count != 0) blk: {
         const init_list = try c.arena.alloc(Node, init_count);
 
@@ -2714,6 +2736,7 @@ fn transInitListExprArray(
         break :blk init_node;
     } else null;
 
+    assert(expr.hasArrayFiller());
     const filler_val_expr = expr.getArrayFiller();
     const filler_node = try Tag.array_filler.create(c.arena, .{
         .type = child_type,
@@ -3798,8 +3821,8 @@ fn transCreatePreCrement(
     // zig: })
     var block_scope = try Scope.Block.init(c, scope, true);
     defer block_scope.deinit();
-    const ref = try block_scope.makeMangledName(c, "ref");
 
+    const ref = try block_scope.reserveMangledName(c, "ref");
     const expr = try transExpr(c, &block_scope.base, op_expr, .used);
     const addr_of = try Tag.address_of.create(c.arena, expr);
     const ref_decl = try Tag.var_simple.create(c.arena, .{ .name = ref, .init = addr_of });
@@ -3845,7 +3868,8 @@ fn transCreatePostCrement(
     // zig: })
     var block_scope = try Scope.Block.init(c, scope, true);
     defer block_scope.deinit();
-    const ref = try block_scope.makeMangledName(c, "ref");
+    const ref = try block_scope.reserveMangledName(c, "ref");
+    const tmp = try block_scope.reserveMangledName(c, "tmp");
 
     const expr = try transExpr(c, &block_scope.base, op_expr, .used);
     const addr_of = try Tag.address_of.create(c.arena, expr);
@@ -3855,7 +3879,6 @@ fn transCreatePostCrement(
     const lhs_node = try Tag.identifier.create(c.arena, ref);
     const ref_node = try Tag.deref.create(c.arena, lhs_node);
 
-    const tmp = try block_scope.makeMangledName(c, "tmp");
     const tmp_decl = try Tag.var_simple.create(c.arena, .{ .name = tmp, .init = ref_node });
     try block_scope.statements.append(tmp_decl);
 
@@ -3960,7 +3983,7 @@ fn transCreateCompoundAssign(
     // zig: })
     var block_scope = try Scope.Block.init(c, scope, true);
     defer block_scope.deinit();
-    const ref = try block_scope.makeMangledName(c, "ref");
+    const ref = try block_scope.reserveMangledName(c, "ref");
 
     const expr = try transExpr(c, &block_scope.base, lhs, .used);
     const addr_of = try Tag.address_of.create(c.arena, expr);
@@ -4090,9 +4113,9 @@ fn transBinaryConditionalOperator(c: *Context, scope: *Scope, stmt: *const clang
     var block_scope = try Scope.Block.init(c, scope, true);
     defer block_scope.deinit();
 
-    const mangled_name = try block_scope.makeMangledName(c, "cond_temp");
+    const cond_temp = try block_scope.reserveMangledName(c, "cond_temp");
     const init_node = try transExpr(c, &block_scope.base, cond_expr, .used);
-    const ref_decl = try Tag.var_simple.create(c.arena, .{ .name = mangled_name, .init = init_node });
+    const ref_decl = try Tag.var_simple.create(c.arena, .{ .name = cond_temp, .init = init_node });
     try block_scope.statements.append(ref_decl);
 
     var cond_scope = Scope.Condition{
@@ -4103,7 +4126,7 @@ fn transBinaryConditionalOperator(c: *Context, scope: *Scope, stmt: *const clang
     };
     defer cond_scope.deinit();
 
-    const cond_ident = try Tag.identifier.create(c.arena, mangled_name);
+    const cond_ident = try Tag.identifier.create(c.arena, cond_temp);
     const ty = getExprQualType(c, cond_expr).getTypePtr();
     const cond_node = try finishBoolExpr(c, &cond_scope.base, cond_expr.getBeginLoc(), ty, cond_ident, .used);
     var then_body = cond_ident;
@@ -4172,8 +4195,22 @@ fn maybeSuppressResult(c: *Context, used: ResultUsed, result: Node) TransError!N
 }
 
 fn addTopLevelDecl(c: *Context, name: []const u8, decl_node: Node) !void {
-    try c.global_scope.sym_table.put(name, decl_node);
-    try c.global_scope.nodes.append(decl_node);
+    const gop = try c.global_scope.sym_table.getOrPut(name);
+    if (!gop.found_existing) {
+        gop.value_ptr.* = decl_node;
+        try c.global_scope.nodes.append(decl_node);
+    }
+}
+
+fn transQualTypeInitializedStringLiteral(c: *Context, elem_ty: Node, string_lit: *const clang.StringLiteral) TypeError!Node {
+    const string_lit_size = string_lit.getLength();
+    const array_size = @intCast(usize, string_lit_size);
+
+    // incomplete array initialized with empty string, will be translated as [1]T{0}
+    // see https://github.com/ziglang/zig/issues/8256
+    if (array_size == 0) return Tag.array_type.create(c.arena, .{ .len = 1, .elem_type = elem_ty });
+
+    return Tag.null_sentinel_array_type.create(c.arena, .{ .len = array_size, .elem_type = elem_ty });
 }
 
 /// Translate a qualtype for a variable with an initializer. This only matters
@@ -4193,18 +4230,18 @@ fn transQualTypeInitialized(
         switch (decl_init.getStmtClass()) {
             .StringLiteralClass => {
                 const string_lit = @ptrCast(*const clang.StringLiteral, decl_init);
-                const string_lit_size = string_lit.getLength();
-                const array_size = @intCast(usize, string_lit_size);
-
-                // incomplete array initialized with empty string, will be translated as [1]T{0}
-                // see https://github.com/ziglang/zig/issues/8256
-                if (array_size == 0) return Tag.array_type.create(c.arena, .{ .len = 1, .elem_type = elem_ty });
-
-                return Tag.null_sentinel_array_type.create(c.arena, .{ .len = array_size, .elem_type = elem_ty });
+                return transQualTypeInitializedStringLiteral(c, elem_ty, string_lit);
             },
             .InitListExprClass => {
                 const init_expr = @ptrCast(*const clang.InitListExpr, decl_init);
                 const size = init_expr.getNumInits();
+
+                if (init_expr.isStringLiteralInit()) {
+                    assert(size == 1);
+                    const string_lit = init_expr.getInit(0).castToStringLiteral().?;
+                    return transQualTypeInitializedStringLiteral(c, elem_ty, string_lit);
+                }
+
                 return Tag.array_type.create(c.arena, .{ .len = size, .elem_type = elem_ty });
             },
             else => {},
@@ -4533,11 +4570,12 @@ fn transCreateNodeAssign(
     var block_scope = try Scope.Block.init(c, scope, true);
     defer block_scope.deinit();
 
-    const tmp = try block_scope.makeMangledName(c, "tmp");
+    const tmp = try block_scope.reserveMangledName(c, "tmp");
     var rhs_node = try transExpr(c, &block_scope.base, rhs, .used);
     if (!exprIsBooleanType(lhs) and isBoolRes(rhs_node)) {
         rhs_node = try Tag.bool_to_int.create(c.arena, rhs_node);
     }
+
     const tmp_decl = try Tag.var_simple.create(c.arena, .{ .name = tmp, .init = rhs_node });
     try block_scope.statements.append(tmp_decl);
 

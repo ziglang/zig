@@ -121,9 +121,21 @@ pub const pthread_attr_t = extern struct {
 };
 
 pub const sem_t = ?*opaque {};
+pub const cpuset_t = opaque {};
+pub const cpuid_t = c_ulong;
 
 pub extern "c" fn pthread_setname_np(thread: std.c.pthread_t, name: [*:0]const u8, arg: ?*anyopaque) E;
 pub extern "c" fn pthread_getname_np(thread: std.c.pthread_t, name: [*:0]u8, len: usize) E;
+pub extern "c" fn pthread_setaffinity_np(thread: std.c.pthread_t, size: usize, set: ?*cpuset_t) c_int;
+pub extern "c" fn pthread_getaffinity_np(thread: std.c.pthread_t, size: usize, set: ?*cpuset_t) c_int;
+
+pub extern "c" fn cpuset_create() ?*cpuset_t;
+pub extern "c" fn cpuset_destroy(set: ?*cpuset_t) void;
+pub extern "c" fn cpuset_zero(set: ?*cpuset_t) void;
+pub extern "c" fn cpuset_set(cpu: cpuid_t, set: ?*cpuset_t) c_int;
+pub extern "c" fn cpuset_clr(cpu: cpuid_t, set: ?*cpuset_t) c_int;
+pub extern "c" fn cpuset_isset(cpu: cpuid_t, set: ?*const cpuset_t) c_int;
+pub extern "c" fn cpuset_size(set: ?*cpuset_t) usize;
 
 pub const blkcnt_t = i64;
 pub const blksize_t = i32;
@@ -591,6 +603,17 @@ pub const MAP = struct {
     pub const ANON = 0x1000;
     pub const ANONYMOUS = ANON;
     pub const STACK = 0x2000;
+
+    pub const ALIGNMENT_SHIFT = 24;
+    pub fn ALIGNED(n: u32) u32 {
+        return n << ALIGNMENT_SHIFT;
+    }
+    pub const ALIGNMENT_64KB = MAP.ALIGNED(0xff);
+    pub const ALIGNMENT_16MB = MAP.ALIGNED(16);
+    pub const ALIGNMENT_4GB = MAP.ALIGNED(32);
+    pub const ALIGNMENT_1TB = MAP.ALIGNED(40);
+    pub const ALIGNMENT_256TB = MAP.ALIGNED(48);
+    pub const ALIGNMENT_64PB = MAP.ALIGNED(56);
 };
 
 pub const MSF = struct {
@@ -1620,4 +1643,23 @@ pub const POLL = struct {
     pub const ERR = 0x0008;
     pub const HUP = 0x0010;
     pub const NVAL = 0x0020;
+};
+
+pub const SIGEV = struct {
+    pub const NONE = 0;
+    pub const SIGNAL = 1;
+    pub const THREAD = 2;
+};
+
+pub const sigval = extern union {
+    int: c_int,
+    ptr: ?*anyopaque,
+};
+
+pub const sigevent = extern struct {
+    sigev_notify: c_int,
+    sigev_signo: c_int,
+    sigev_value: sigval,
+    sigev_notify_function: ?*const fn (sigval) callconv(.C) void,
+    sigev_notify_attributes: ?*pthread_attr_t,
 };

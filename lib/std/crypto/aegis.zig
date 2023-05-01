@@ -152,8 +152,8 @@ fn Aegis128LGeneric(comptime tag_bits: u9) type {
                 state.absorb(ad[i..][0..32]);
             }
             if (ad.len % 32 != 0) {
-                mem.set(u8, src[0..], 0);
-                mem.copy(u8, src[0 .. ad.len % 32], ad[i .. i + ad.len % 32]);
+                @memset(src[0..], 0);
+                @memcpy(src[0 .. ad.len % 32], ad[i..][0 .. ad.len % 32]);
                 state.absorb(&src);
             }
             i = 0;
@@ -161,10 +161,10 @@ fn Aegis128LGeneric(comptime tag_bits: u9) type {
                 state.enc(c[i..][0..32], m[i..][0..32]);
             }
             if (m.len % 32 != 0) {
-                mem.set(u8, src[0..], 0);
-                mem.copy(u8, src[0 .. m.len % 32], m[i .. i + m.len % 32]);
+                @memset(src[0..], 0);
+                @memcpy(src[0 .. m.len % 32], m[i..][0 .. m.len % 32]);
                 state.enc(&dst, &src);
-                mem.copy(u8, c[i .. i + m.len % 32], dst[0 .. m.len % 32]);
+                @memcpy(c[i..][0 .. m.len % 32], dst[0 .. m.len % 32]);
             }
             tag.* = state.mac(tag_bits, ad.len, m.len);
         }
@@ -185,8 +185,8 @@ fn Aegis128LGeneric(comptime tag_bits: u9) type {
                 state.absorb(ad[i..][0..32]);
             }
             if (ad.len % 32 != 0) {
-                mem.set(u8, src[0..], 0);
-                mem.copy(u8, src[0 .. ad.len % 32], ad[i .. i + ad.len % 32]);
+                @memset(src[0..], 0);
+                @memcpy(src[0 .. ad.len % 32], ad[i..][0 .. ad.len % 32]);
                 state.absorb(&src);
             }
             i = 0;
@@ -194,11 +194,11 @@ fn Aegis128LGeneric(comptime tag_bits: u9) type {
                 state.dec(m[i..][0..32], c[i..][0..32]);
             }
             if (m.len % 32 != 0) {
-                mem.set(u8, src[0..], 0);
-                mem.copy(u8, src[0 .. m.len % 32], c[i .. i + m.len % 32]);
+                @memset(src[0..], 0);
+                @memcpy(src[0 .. m.len % 32], c[i..][0 .. m.len % 32]);
                 state.dec(&dst, &src);
-                mem.copy(u8, m[i .. i + m.len % 32], dst[0 .. m.len % 32]);
-                mem.set(u8, dst[0 .. m.len % 32], 0);
+                @memcpy(m[i..][0 .. m.len % 32], dst[0 .. m.len % 32]);
+                @memset(dst[0 .. m.len % 32], 0);
                 const blocks = &state.blocks;
                 blocks[0] = blocks[0].xorBlocks(AesBlock.fromBytes(dst[0..16]));
                 blocks[4] = blocks[4].xorBlocks(AesBlock.fromBytes(dst[16..32]));
@@ -209,7 +209,7 @@ fn Aegis128LGeneric(comptime tag_bits: u9) type {
                 acc |= (computed_tag[j] ^ tag[j]);
             }
             if (acc != 0) {
-                @memset(m.ptr, undefined, m.len);
+                @memset(m, undefined);
                 return error.AuthenticationFailed;
             }
         }
@@ -334,8 +334,8 @@ fn Aegis256Generic(comptime tag_bits: u9) type {
                 state.enc(&dst, ad[i..][0..16]);
             }
             if (ad.len % 16 != 0) {
-                mem.set(u8, src[0..], 0);
-                mem.copy(u8, src[0 .. ad.len % 16], ad[i .. i + ad.len % 16]);
+                @memset(src[0..], 0);
+                @memcpy(src[0 .. ad.len % 16], ad[i..][0 .. ad.len % 16]);
                 state.enc(&dst, &src);
             }
             i = 0;
@@ -343,10 +343,10 @@ fn Aegis256Generic(comptime tag_bits: u9) type {
                 state.enc(c[i..][0..16], m[i..][0..16]);
             }
             if (m.len % 16 != 0) {
-                mem.set(u8, src[0..], 0);
-                mem.copy(u8, src[0 .. m.len % 16], m[i .. i + m.len % 16]);
+                @memset(src[0..], 0);
+                @memcpy(src[0 .. m.len % 16], m[i..][0 .. m.len % 16]);
                 state.enc(&dst, &src);
-                mem.copy(u8, c[i .. i + m.len % 16], dst[0 .. m.len % 16]);
+                @memcpy(c[i..][0 .. m.len % 16], dst[0 .. m.len % 16]);
             }
             tag.* = state.mac(tag_bits, ad.len, m.len);
         }
@@ -367,8 +367,8 @@ fn Aegis256Generic(comptime tag_bits: u9) type {
                 state.enc(&dst, ad[i..][0..16]);
             }
             if (ad.len % 16 != 0) {
-                mem.set(u8, src[0..], 0);
-                mem.copy(u8, src[0 .. ad.len % 16], ad[i .. i + ad.len % 16]);
+                @memset(src[0..], 0);
+                @memcpy(src[0 .. ad.len % 16], ad[i..][0 .. ad.len % 16]);
                 state.enc(&dst, &src);
             }
             i = 0;
@@ -376,11 +376,11 @@ fn Aegis256Generic(comptime tag_bits: u9) type {
                 state.dec(m[i..][0..16], c[i..][0..16]);
             }
             if (m.len % 16 != 0) {
-                mem.set(u8, src[0..], 0);
-                mem.copy(u8, src[0 .. m.len % 16], c[i .. i + m.len % 16]);
+                @memset(src[0..], 0);
+                @memcpy(src[0 .. m.len % 16], c[i..][0 .. m.len % 16]);
                 state.dec(&dst, &src);
-                mem.copy(u8, m[i .. i + m.len % 16], dst[0 .. m.len % 16]);
-                mem.set(u8, dst[0 .. m.len % 16], 0);
+                @memcpy(m[i..][0 .. m.len % 16], dst[0 .. m.len % 16]);
+                @memset(dst[0 .. m.len % 16], 0);
                 const blocks = &state.blocks;
                 blocks[0] = blocks[0].xorBlocks(AesBlock.fromBytes(&dst));
             }
@@ -390,7 +390,7 @@ fn Aegis256Generic(comptime tag_bits: u9) type {
                 acc |= (computed_tag[j] ^ tag[j]);
             }
             if (acc != 0) {
-                @memset(m.ptr, undefined, m.len);
+                @memset(m, undefined);
                 return error.AuthenticationFailed;
             }
         }
@@ -416,6 +416,20 @@ pub const Aegis128LMac = AegisMac(Aegis128L_256);
 ///   which is infeasible for any practical adversary.
 /// - It has a large security margin against internal collisions.
 pub const Aegis256Mac = AegisMac(Aegis256_256);
+
+/// Aegis128L MAC with a 128-bit output.
+/// A MAC with a 128-bit output is not safe unless the number of messages
+/// authenticated with the same key remains small.
+/// After 2^48 messages, the probability of a collision is already ~ 2^-33.
+/// If unsure, use the  Aegis128LMac type, that has a 256 bit output.
+pub const Aegis128LMac_128 = AegisMac(Aegis128L);
+
+/// Aegis256 MAC with a 128-bit output.
+/// A MAC with a 128-bit output is not safe unless the number of messages
+/// authenticated with the same key remains small.
+/// After 2^48 messages, the probability of a collision is already ~ 2^-33.
+/// If unsure, use the  Aegis256Mac type, that has a 256 bit output.
+pub const Aegis256Mac_128 = AegisMac(Aegis256);
 
 fn AegisMac(comptime T: type) type {
     return struct {
@@ -443,7 +457,7 @@ fn AegisMac(comptime T: type) type {
             self.msg_len += b.len;
 
             const len_partial = @min(b.len, block_length - self.off);
-            mem.copy(u8, self.buf[self.off..][0..len_partial], b[0..len_partial]);
+            @memcpy(self.buf[self.off..][0..len_partial], b[0..len_partial]);
             self.off += len_partial;
             if (self.off < block_length) {
                 return;
@@ -456,7 +470,7 @@ fn AegisMac(comptime T: type) type {
                 self.state.absorb(b[i..][0..block_length]);
             }
             if (i != b.len) {
-                mem.copy(u8, self.buf[0..], b[i..]);
+                @memcpy(self.buf[0..], b[i..]);
                 self.off = b.len - i;
             }
         }
@@ -465,7 +479,7 @@ fn AegisMac(comptime T: type) type {
         pub fn final(self: *Self, out: *[mac_length]u8) void {
             if (self.off > 0) {
                 var pad = [_]u8{0} ** block_length;
-                mem.copy(u8, pad[0..], self.buf[0..self.off]);
+                @memcpy(pad[0..self.off], self.buf[0..self.off]);
                 self.state.absorb(&pad);
             }
             out.* = self.state.mac(T.tag_length * 8, self.msg_len, 0);

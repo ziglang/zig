@@ -4,7 +4,7 @@ const utf16Literal = std.unicode.utf8ToUtf16LeStringLiteral;
 
 pub fn main() anyerror!void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    defer if (gpa.deinit()) @panic("found memory leaks");
+    defer if (gpa.deinit() == .leak) @panic("found memory leaks");
     const allocator = gpa.allocator();
 
     var it = try std.process.argsWithAllocator(allocator);
@@ -116,6 +116,7 @@ pub fn main() anyerror!void {
 
     // Now let's set the tmp dir as the cwd and set the path only include the "something" sub dir
     try tmp.dir.setAsCwd();
+    defer tmp.parent_dir.setAsCwd() catch {};
     const something_subdir_abs_path = try std.mem.concatWithSentinel(allocator, u16, &.{ tmp_absolute_path_w, utf16Literal("\\something") }, 0);
     defer allocator.free(something_subdir_abs_path);
 

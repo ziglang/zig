@@ -681,7 +681,7 @@ fn renderExpression(gpa: Allocator, ais: *Ais, tree: Ast, node: Ast.Node.Index, 
 
             try renderToken(ais, tree, switch_token, .space); // switch keyword
             try renderToken(ais, tree, switch_token + 1, .none); // lparen
-            try renderExpression(gpa, ais, tree, condition, .none); // condtion expression
+            try renderExpression(gpa, ais, tree, condition, .none); // condition expression
             try renderToken(ais, tree, rparen, .space); // rparen
 
             ais.pushIndentNextLine();
@@ -1889,11 +1889,11 @@ fn renderArrayInit(
         // A place to store the width of each expression and its column's maximum
         const widths = try gpa.alloc(usize, row_exprs.len + row_size);
         defer gpa.free(widths);
-        mem.set(usize, widths, 0);
+        @memset(widths, 0);
 
         const expr_newlines = try gpa.alloc(bool, row_exprs.len);
         defer gpa.free(expr_newlines);
-        mem.set(bool, expr_newlines, false);
+        @memset(expr_newlines, false);
 
         const expr_widths = widths[0..row_exprs.len];
         const column_widths = widths[row_exprs.len..];

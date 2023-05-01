@@ -31,7 +31,7 @@ pub fn ArrayListAligned(comptime T: type, comptime alignment: ?u29) type {
     return struct {
         const Self = @This();
         /// Contents of the list. Pointers to elements in this slice are
-        /// **invalid after resizing operations** on the ArrayList, unless the
+        /// **invalid after resizing operations** on the ArrayList unless the
         /// operation explicitly either: (1) states otherwise or (2) lists the
         /// invalidated pointers.
         ///
@@ -120,8 +120,8 @@ pub fn ArrayListAligned(comptime T: type, comptime alignment: ?u29) type {
             }
 
             const new_memory = try allocator.alignedAlloc(T, alignment, self.items.len);
-            mem.copy(T, new_memory, self.items);
-            @memset(@ptrCast([*]u8, self.items.ptr), undefined, self.items.len * @sizeOf(T));
+            @memcpy(new_memory, self.items);
+            @memset(self.items, undefined);
             self.clearAndFree();
             return new_memory;
         }
@@ -170,7 +170,7 @@ pub fn ArrayListAligned(comptime T: type, comptime alignment: ?u29) type {
             self.items.len += items.len;
 
             mem.copyBackwards(T, self.items[i + items.len .. self.items.len], self.items[i .. self.items.len - items.len]);
-            mem.copy(T, self.items[i .. i + items.len], items);
+            @memcpy(self.items[i..][0..items.len], items);
         }
 
         /// Replace range of elements `list[start..start+len]` with `new_items`.
@@ -182,15 +182,15 @@ pub fn ArrayListAligned(comptime T: type, comptime alignment: ?u29) type {
             const range = self.items[start..after_range];
 
             if (range.len == new_items.len)
-                mem.copy(T, range, new_items)
+                @memcpy(range[0..new_items.len], new_items)
             else if (range.len < new_items.len) {
                 const first = new_items[0..range.len];
                 const rest = new_items[range.len..];
 
-                mem.copy(T, range, first);
+                @memcpy(range[0..first.len], first);
                 try self.insertSlice(after_range, rest);
             } else {
-                mem.copy(T, range, new_items);
+                @memcpy(range[0..new_items.len], new_items);
                 const after_subrange = start + new_items.len;
 
                 for (self.items[after_range..], 0..) |item, i| {
@@ -221,6 +221,7 @@ pub fn ArrayListAligned(comptime T: type, comptime alignment: ?u29) type {
         /// Asserts the array has at least one item.
         /// Invalidates pointers to end of list.
         /// This operation is O(N).
+        /// This preserves item order. Use `swapRemove` if order preservation is not important.
         pub fn orderedRemove(self: *Self, i: usize) T {
             const newlen = self.items.len - 1;
             if (newlen == i) return self.pop();
@@ -235,6 +236,7 @@ pub fn ArrayListAligned(comptime T: type, comptime alignment: ?u29) type {
         /// Removes the element at the specified index and returns it.
         /// The empty slot is filled from the end of the list.
         /// This operation is O(1).
+        /// This may not preserve item order. Use `orderedRemove` if you need to preserve order.
         pub fn swapRemove(self: *Self, i: usize) T {
             if (self.items.len - 1 == i) return self.pop();
 
@@ -258,7 +260,7 @@ pub fn ArrayListAligned(comptime T: type, comptime alignment: ?u29) type {
             const new_len = old_len + items.len;
             assert(new_len <= self.capacity);
             self.items.len = new_len;
-            mem.copy(T, self.items[old_len..], items);
+            @memcpy(self.items[old_len..][0..items.len], items);
         }
 
         /// Append an unaligned slice of items to the list. Allocates more
@@ -279,11 +281,7 @@ pub fn ArrayListAligned(comptime T: type, comptime alignment: ?u29) type {
             const new_len = old_len + items.len;
             assert(new_len <= self.capacity);
             self.items.len = new_len;
-            @memcpy(
-                @ptrCast([*]align(@alignOf(T)) u8, self.items.ptr + old_len),
-                @ptrCast([*]const u8, items.ptr),
-                items.len * @sizeOf(T),
-            );
+            @memcpy(self.items[old_len..][0..items.len], items);
         }
 
         pub const Writer = if (T != u8)
@@ -308,18 +306,22 @@ pub fn ArrayListAligned(comptime T: type, comptime alignment: ?u29) type {
         /// Append a value to the list `n` times.
         /// Allocates more memory as necessary.
         /// Invalidates pointers if additional memory is needed.
-        pub fn appendNTimes(self: *Self, value: T, n: usize) Allocator.Error!void {
+        /// The function is inline so that a comptime-known `value` parameter will
+        /// have a more optimal memset codegen in case it has a repeated byte pattern.
+        pub inline fn appendNTimes(self: *Self, value: T, n: usize) Allocator.Error!void {
             const old_len = self.items.len;
             try self.resize(self.items.len + n);
-            mem.set(T, self.items[old_len..self.items.len], value);
+            @memset(self.items[old_len..self.items.len], value);
         }
 
         /// Append a value to the list `n` times.
         /// Asserts the capacity is enough. **Does not** invalidate pointers.
-        pub fn appendNTimesAssumeCapacity(self: *Self, value: T, n: usize) void {
+        /// The function is inline so that a comptime-known `value` parameter will
+        /// have a more optimal memset codegen in case it has a repeated byte pattern.
+        pub inline fn appendNTimesAssumeCapacity(self: *Self, value: T, n: usize) void {
             const new_len = self.items.len + n;
             assert(new_len <= self.capacity);
-            mem.set(T, self.items.ptr[self.items.len..new_len], value);
+            @memset(self.items.ptr[self.items.len..new_len], value);
             self.items.len = new_len;
         }
 
@@ -399,7 +401,7 @@ pub fn ArrayListAligned(comptime T: type, comptime alignment: ?u29) type {
                 self.capacity = new_capacity;
             } else {
                 const new_memory = try self.allocator.alignedAlloc(T, alignment, new_capacity);
-                mem.copy(T, new_memory, self.items);
+                @memcpy(new_memory[0..self.items.len], self.items);
                 self.allocator.free(old_memory);
                 self.items.ptr = new_memory.ptr;
                 self.capacity = new_memory.len;
@@ -527,7 +529,7 @@ pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?u29) typ
     return struct {
         const Self = @This();
         /// Contents of the list. Pointers to elements in this slice are
-        /// **invalid after resizing operations** on the ArrayList, unless the
+        /// **invalid after resizing operations** on the ArrayList unless the
         /// operation explicitly either: (1) states otherwise or (2) lists the
         /// invalidated pointers.
         ///
@@ -598,8 +600,8 @@ pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?u29) typ
             }
 
             const new_memory = try allocator.alignedAlloc(T, alignment, self.items.len);
-            mem.copy(T, new_memory, self.items);
-            @memset(@ptrCast([*]u8, self.items.ptr), undefined, self.items.len * @sizeOf(T));
+            @memcpy(new_memory, self.items);
+            @memset(self.items, undefined);
             self.clearAndFree(allocator);
             return new_memory;
         }
@@ -649,7 +651,7 @@ pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?u29) typ
             self.items.len += items.len;
 
             mem.copyBackwards(T, self.items[i + items.len .. self.items.len], self.items[i .. self.items.len - items.len]);
-            mem.copy(T, self.items[i .. i + items.len], items);
+            @memcpy(self.items[i..][0..items.len], items);
         }
 
         /// Replace range of elements `list[start..start+len]` with `new_items`
@@ -718,7 +720,7 @@ pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?u29) typ
             const new_len = old_len + items.len;
             assert(new_len <= self.capacity);
             self.items.len = new_len;
-            mem.copy(T, self.items[old_len..], items);
+            @memcpy(self.items[old_len..][0..items.len], items);
         }
 
         /// Append the slice of items to the list. Allocates more
@@ -738,11 +740,7 @@ pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?u29) typ
             const new_len = old_len + items.len;
             assert(new_len <= self.capacity);
             self.items.len = new_len;
-            @memcpy(
-                @ptrCast([*]align(@alignOf(T)) u8, self.items.ptr + old_len),
-                @ptrCast([*]const u8, items.ptr),
-                items.len * @sizeOf(T),
-            );
+            @memcpy(self.items[old_len..][0..items.len], items);
         }
 
         pub const WriterContext = struct {
@@ -772,19 +770,23 @@ pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?u29) typ
         /// Append a value to the list `n` times.
         /// Allocates more memory as necessary.
         /// Invalidates pointers if additional memory is needed.
-        pub fn appendNTimes(self: *Self, allocator: Allocator, value: T, n: usize) Allocator.Error!void {
+        /// The function is inline so that a comptime-known `value` parameter will
+        /// have a more optimal memset codegen in case it has a repeated byte pattern.
+        pub inline fn appendNTimes(self: *Self, allocator: Allocator, value: T, n: usize) Allocator.Error!void {
             const old_len = self.items.len;
             try self.resize(allocator, self.items.len + n);
-            mem.set(T, self.items[old_len..self.items.len], value);
+            @memset(self.items[old_len..self.items.len], value);
         }
 
         /// Append a value to the list `n` times.
         /// **Does not** invalidate pointers.
         /// Asserts the capacity is enough.
-        pub fn appendNTimesAssumeCapacity(self: *Self, value: T, n: usize) void {
+        /// The function is inline so that a comptime-known `value` parameter will
+        /// have a more optimal memset codegen in case it has a repeated byte pattern.
+        pub inline fn appendNTimesAssumeCapacity(self: *Self, value: T, n: usize) void {
             const new_len = self.items.len + n;
             assert(new_len <= self.capacity);
-            mem.set(T, self.items.ptr[self.items.len..new_len], value);
+            @memset(self.items.ptr[self.items.len..new_len], value);
             self.items.len = new_len;
         }
 
@@ -821,7 +823,7 @@ pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?u29) typ
                 },
             };
 
-            mem.copy(T, new_memory, self.items[0..new_len]);
+            @memcpy(new_memory, self.items[0..new_len]);
             allocator.free(old_memory);
             self.items = new_memory;
             self.capacity = new_memory.len;
@@ -883,7 +885,7 @@ pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?u29) typ
                 self.capacity = new_capacity;
             } else {
                 const new_memory = try allocator.alignedAlloc(T, alignment, new_capacity);
-                mem.copy(T, new_memory, self.items);
+                @memcpy(new_memory[0..self.items.len], self.items);
                 allocator.free(old_memory);
                 self.items.ptr = new_memory.ptr;
                 self.capacity = new_memory.len;

@@ -502,8 +502,7 @@ fn iter_fn(info: *dl_phdr_info, size: usize, counter: *usize) IterFnError!void {
 }
 
 test "dl_iterate_phdr" {
-    if (native_os == .windows or native_os == .wasi or native_os == .macos)
-        return error.SkipZigTest;
+    if (builtin.object_format != .elf) return error.SkipZigTest;
 
     var counter: usize = 0;
     try os.dl_iterate_phdr(&counter, IterFnError, iter_fn);
@@ -588,7 +587,7 @@ test "mmap" {
         try testing.expect(mem.eql(u8, data, &[_]u8{0x00} ** 1234));
 
         // Make sure the memory is writeable as requested
-        std.mem.set(u8, data, 0x55);
+        @memset(data, 0x55);
         try testing.expect(mem.eql(u8, data, &[_]u8{0x55} ** 1234));
     }
 
@@ -796,6 +795,11 @@ test "sigaction" {
     // https://github.com/ziglang/zig/issues/7427
     if (native_os == .linux and builtin.target.cpu.arch == .x86)
         return error.SkipZigTest;
+
+    // https://github.com/ziglang/zig/issues/15381
+    if (native_os == .macos and builtin.target.cpu.arch == .x86_64) {
+        return error.SkipZigTest;
+    }
 
     const S = struct {
         var handler_called_count: u32 = 0;
@@ -1097,6 +1101,8 @@ test "isatty" {
     defer tmp.cleanup();
 
     var file = try tmp.dir.createFile("foo", .{});
+    defer file.close();
+
     try expectEqual(os.isatty(file.handle), false);
 }
 

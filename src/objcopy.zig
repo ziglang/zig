@@ -860,7 +860,7 @@ fn ElfFile(comptime is_64: bool) type {
                     if (section.payload) |data| {
                         switch (section.section.sh_type) {
                             elf.DT_VERSYM => {
-                                std.debug.assert(section.section.sh_entsize == @sizeOf(Elf_Verdef));
+                                assert(section.section.sh_entsize == @sizeOf(Elf_Verdef));
                                 const defs = @ptrCast([*]const Elf_Verdef, data)[0 .. @intCast(usize, section.section.sh_size) / @sizeOf(Elf_Verdef)];
                                 for (defs) |def| {
                                     if (def.vd_ndx != elf.SHN_UNDEF)
@@ -868,7 +868,7 @@ fn ElfFile(comptime is_64: bool) type {
                                 }
                             },
                             elf.SHT_SYMTAB, elf.SHT_DYNSYM => {
-                                std.debug.assert(section.section.sh_entsize == @sizeOf(Elf_Sym));
+                                assert(section.section.sh_entsize == @sizeOf(Elf_Sym));
                                 const syms = @ptrCast([*]const Elf_Sym, data)[0 .. @intCast(usize, section.section.sh_size) / @sizeOf(Elf_Sym)];
 
                                 for (syms) |sym| {
@@ -952,11 +952,11 @@ fn ElfFile(comptime is_64: bool) type {
                 const name: []const u8 = ".gnu_debuglink";
                 const new_offset = @intCast(u32, strtab.payload.?.len);
                 const buf = try allocator.alignedAlloc(u8, section_memory_align, new_offset + name.len + 1);
-                std.mem.copy(u8, buf[0..new_offset], strtab.payload.?);
-                std.mem.copy(u8, buf[new_offset .. new_offset + name.len], name);
+                @memcpy(buf[0..new_offset], strtab.payload.?);
+                @memcpy(buf[new_offset..][0..name.len], name);
                 buf[new_offset + name.len] = 0;
 
-                std.debug.assert(update.action == .keep);
+                assert(update.action == .keep);
                 update.payload = buf;
 
                 break :blk new_offset;
@@ -978,9 +978,9 @@ fn ElfFile(comptime is_64: bool) type {
             // program header as-is.
             // nb: for only-debug files, removing it appears to work, but is invalid by ELF specifcation.
             {
-                std.debug.assert(updated_elf_header.e_phoff == @sizeOf(Elf_Ehdr));
+                assert(updated_elf_header.e_phoff == @sizeOf(Elf_Ehdr));
                 const data = std.mem.sliceAsBytes(self.program_segments);
-                std.debug.assert(data.len == @as(usize, updated_elf_header.e_phentsize) * updated_elf_header.e_phnum);
+                assert(data.len == @as(usize, updated_elf_header.e_phentsize) * updated_elf_header.e_phnum);
                 cmdbuf.appendAssumeCapacity(.{ .write_data = .{ .data = data, .out_offset = updated_elf_header.e_phoff } });
                 eof_offset = updated_elf_header.e_phoff + @intCast(Elf_OffSize, data.len);
             }
@@ -1006,7 +1006,7 @@ fn ElfFile(comptime is_64: bool) type {
                 var dest_section_idx: u32 = 1;
                 for (self.sections[1..], sections_update[1..]) |section, update| {
                     if (update.action == .strip) continue;
-                    std.debug.assert(update.remap_idx == dest_section_idx);
+                    assert(update.remap_idx == dest_section_idx);
 
                     const src = if (update.section) |*s| s else &section.section;
                     const dest = &dest_sections[dest_section_idx];
@@ -1032,7 +1032,7 @@ fn ElfFile(comptime is_64: bool) type {
                             fatal("zig objcopy: cannot adjust program segments", .{});
                         }
                     }
-                    std.debug.assert(dest.sh_addr % addralign == dest.sh_offset % addralign);
+                    assert(dest.sh_addr % addralign == dest.sh_offset % addralign);
 
                     if (update.action == .empty)
                         dest.sh_type = elf.SHT_NOBITS;
@@ -1043,7 +1043,7 @@ fn ElfFile(comptime is_64: bool) type {
                             const dest_data = switch (src.sh_type) {
                                 elf.DT_VERSYM => dst_data: {
                                     const data = try allocator.alignedAlloc(u8, section_memory_align, src_data.len);
-                                    std.mem.copy(u8, data, src_data);
+                                    @memcpy(data, src_data);
 
                                     const defs = @ptrCast([*]Elf_Verdef, data)[0 .. @intCast(usize, src.sh_size) / @sizeOf(Elf_Verdef)];
                                     for (defs) |*def| {
@@ -1055,7 +1055,7 @@ fn ElfFile(comptime is_64: bool) type {
                                 },
                                 elf.SHT_SYMTAB, elf.SHT_DYNSYM => dst_data: {
                                     const data = try allocator.alignedAlloc(u8, section_memory_align, src_data.len);
-                                    std.mem.copy(u8, data, src_data);
+                                    @memcpy(data, src_data);
 
                                     const syms = @ptrCast([*]Elf_Sym, data)[0 .. @intCast(usize, src.sh_size) / @sizeOf(Elf_Sym)];
                                     for (syms) |*sym| {
@@ -1068,7 +1068,7 @@ fn ElfFile(comptime is_64: bool) type {
                                 else => src_data,
                             };
 
-                            std.debug.assert(dest_data.len == dest.sh_size);
+                            assert(dest_data.len == dest.sh_size);
                             cmdbuf.appendAssumeCapacity(.{ .write_data = .{ .data = dest_data, .out_offset = dest.sh_offset } });
                             eof_offset = dest.sh_offset + dest.sh_size;
                         } else {
@@ -1087,9 +1087,9 @@ fn ElfFile(comptime is_64: bool) type {
                     const payload = payload: {
                         const crc_offset = std.mem.alignForward(link.name.len + 1, 4);
                         const buf = try allocator.alignedAlloc(u8, 4, crc_offset + 4);
-                        std.mem.copy(u8, buf[0..link.name.len], link.name);
-                        std.mem.set(u8, buf[link.name.len..crc_offset], 0);
-                        std.mem.copy(u8, buf[crc_offset..], std.mem.asBytes(&link.crc32));
+                        @memcpy(buf[0..link.name.len], link.name);
+                        @memset(buf[link.name.len..crc_offset], 0);
+                        @memcpy(buf[crc_offset..], std.mem.asBytes(&link.crc32));
                         break :payload buf;
                     };
 
@@ -1111,7 +1111,7 @@ fn ElfFile(comptime is_64: bool) type {
                     eof_offset += @intCast(Elf_OffSize, payload.len);
                 }
 
-                std.debug.assert(dest_section_idx == new_shnum);
+                assert(dest_section_idx == new_shnum);
                 break :blk dest_sections;
             };
 
@@ -1120,7 +1120,7 @@ fn ElfFile(comptime is_64: bool) type {
                 const offset = std.mem.alignForwardGeneric(Elf_OffSize, eof_offset, @alignOf(Elf_Shdr));
 
                 const data = std.mem.sliceAsBytes(updated_section_header);
-                std.debug.assert(data.len == @as(usize, updated_elf_header.e_shentsize) * new_shnum);
+                assert(data.len == @as(usize, updated_elf_header.e_shentsize) * new_shnum);
                 updated_elf_header.e_shoff = offset;
                 updated_elf_header.e_shnum = new_shnum;
 
@@ -1215,7 +1215,7 @@ const ElfFileHelper = struct {
         for (cmds) |cmd| {
             switch (cmd) {
                 .write_data => |data| {
-                    std.debug.assert(data.out_offset >= offset);
+                    assert(data.out_offset >= offset);
                     if (fused_cmd) |prev| {
                         consolidated.appendAssumeCapacity(prev);
                         fused_cmd = null;
@@ -1227,7 +1227,7 @@ const ElfFileHelper = struct {
                     offset = data.out_offset + data.data.len;
                 },
                 .copy_range => |range| {
-                    std.debug.assert(range.out_offset >= offset);
+                    assert(range.out_offset >= offset);
                     if (fused_cmd) |prev| {
                         if (range.in_offset >= prev.copy_range.in_offset + prev.copy_range.len and (range.out_offset - prev.copy_range.out_offset == range.in_offset - prev.copy_range.in_offset)) {
                             fused_cmd = .{ .copy_range = .{

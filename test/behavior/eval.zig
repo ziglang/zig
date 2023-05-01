@@ -532,7 +532,6 @@ test "@tagName of @typeInfo" {
 }
 
 test "static eval list init" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
@@ -1648,4 +1647,16 @@ test "early exit in container level const" {
         };
     };
     try expect(S.value == 1);
+}
+
+test "@inComptime" {
+    const S = struct {
+        fn inComptime() bool {
+            return @inComptime();
+        }
+    };
+    try expectEqual(false, @inComptime());
+    try expectEqual(true, comptime @inComptime());
+    try expectEqual(false, S.inComptime());
+    try expectEqual(true, comptime S.inComptime());
 }

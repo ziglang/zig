@@ -411,6 +411,46 @@ pub const WipCaptureScope = struct {
     }
 };
 
+const ValueArena = struct {
+    state: std.heap.ArenaAllocator.State,
+    state_acquired: ?*std.heap.ArenaAllocator.State = null,
+
+    /// If this ValueArena replaced an existing one during re-analysis, this is the previous instance
+    prev: ?*ValueArena = null,
+
+    /// Returns an allocator backed by either promoting `state`, or by the existing ArenaAllocator
+    /// that has already promoted `state`. `out_arena_allocator` provides storage for the initial promotion,
+    /// and must live until the matching call to release().
+    pub fn acquire(self: *ValueArena, child_allocator: Allocator, out_arena_allocator: *std.heap.ArenaAllocator) Allocator {
+        if (self.state_acquired) |state_acquired| {
+            return @fieldParentPtr(std.heap.ArenaAllocator, "state", state_acquired).allocator();
+        }
+
+        out_arena_allocator.* = self.state.promote(child_allocator);
+        self.state_acquired = &out_arena_allocator.state;
+        return out_arena_allocator.allocator();
+    }
+
+    /// Releases the allocator acquired by `acquire. `arena_allocator` must match the one passed to `acquire`.
+    pub fn release(self: *ValueArena, arena_allocator: *std.heap.ArenaAllocator) void {
+        if (@fieldParentPtr(std.heap.ArenaAllocator, "state", self.state_acquired.?) == arena_allocator) {
+            self.state = self.state_acquired.?.*;
+            self.state_acquired = null;
+        }
+    }
+
+    pub fn deinit(self: ValueArena, child_allocator: Allocator) void {
+        assert(self.state_acquired == null);
+
+        const prev = self.prev;
+        self.state.promote(child_allocator).deinit();
+
+        if (prev) |p| {
+            p.deinit(child_allocator);
+        }
+    }
+};
+
 pub const Decl = struct {
     /// Allocated with Module's allocator; outlives the ZIR code.
     name: [*:0]const u8,
@@ -429,7 +469,7 @@ pub const Decl = struct {
     @"addrspace": std.builtin.AddressSpace,
     /// The memory for ty, val, align, linksection, and captures.
     /// If this is `null` then there is no memory management needed.
-    value_arena: ?*std.heap.ArenaAllocator.State = null,
+    value_arena: ?*ValueArena = null,
     /// The direct parent namespace of the Decl.
     /// Reference to externally owned memory.
     /// In the case of the Decl corresponding to a file, this is
@@ -482,6 +522,8 @@ pub const Decl = struct {
         /// This indicates the failure was something like running out of disk space,
         /// and attempting semantic analysis again may succeed.
         sema_failure_retryable,
+        /// There will be a corresponding ErrorMsg in Module.failed_decls.
+        liveness_failure,
         /// There will be a corresponding ErrorMsg in Module.failed_decls.
         codegen_failure,
         /// There will be a corresponding ErrorMsg in Module.failed_decls.
@@ -564,7 +606,23 @@ pub const Decl = struct {
         }
     };
 
-    pub const DepsTable = std.AutoArrayHashMapUnmanaged(Decl.Index, void);
+    pub const DepsTable = std.AutoArrayHashMapUnmanaged(Decl.Index, DepType);
+
+    /// Later types take priority; e.g. if a dependent decl has both `normal`
+    /// and `function_body` dependencies on another decl, it will be marked as
+    /// having a `function_body` dependency.
+    pub const DepType = enum {
+        /// The dependent references or uses the dependency's value, so must be
+        /// updated whenever it is changed. However, if the dependency is a
+        /// function and its type is unchanged, the dependent does not need to
+        /// be updated.
+        normal,
+        /// The dependent performs an inline or comptime call to the dependency,
+        /// or is a generic instantiation of it. It must therefore be updated
+        /// whenever the dependency is updated, even if the function type
+        /// remained the same.
+        function_body,
+    };
 
     pub fn clearName(decl: *Decl, gpa: Allocator) void {
         gpa.free(mem.sliceTo(decl.name, 0));
@@ -589,7 +647,7 @@ pub const Decl = struct {
             variable.deinit(gpa);
             gpa.destroy(variable);
         }
-        if (decl.value_arena) |arena_state| {
+        if (decl.value_arena) |value_arena| {
             if (decl.owns_tv) {
                 if (decl.val.castTag(.str_lit)) |str_lit| {
                     mod.string_literal_table.getPtrContext(str_lit.data, .{
@@ -597,7 +655,7 @@ pub const Decl = struct {
                     }).?.* = .none;
                 }
             }
-            arena_state.promote(gpa).deinit();
+            value_arena.deinit(gpa);
             decl.value_arena = null;
             decl.has_tv = false;
             decl.owns_tv = false;
@@ -606,9 +664,9 @@ pub const Decl = struct {
 
     pub fn finalizeNewArena(decl: *Decl, arena: *std.heap.ArenaAllocator) !void {
         assert(decl.value_arena == null);
-        const arena_state = try arena.allocator().create(std.heap.ArenaAllocator.State);
-        arena_state.* = arena.state;
-        decl.value_arena = arena_state;
+        const value_arena = try arena.allocator().create(ValueArena);
+        value_arena.* = .{ .state = arena.state };
+        decl.value_arena = value_arena;
     }
 
     /// This name is relative to the containing namespace of the decl.
@@ -4113,6 +4171,7 @@ pub fn ensureDeclAnalyzed(mod: *Module, decl_index: Decl.Index) SemaError!void {
         .file_failure,
         .sema_failure,
         .sema_failure_retryable,
+        .liveness_failure,
         .codegen_failure,
         .dependency_failure,
         .codegen_failure_retryable,
@@ -4155,53 +4214,64 @@ pub fn ensureDeclAnalyzed(mod: *Module, decl_index: Decl.Index) SemaError!void {
     decl_prog_node.activate();
     defer decl_prog_node.end();
 
-    const type_changed = mod.semaDecl(decl_index) catch |err| switch (err) {
-        error.AnalysisFail => {
-            if (decl.analysis == .in_progress) {
-                // If this decl caused the compile error, the analysis field would
-                // be changed to indicate it was this Decl's fault. Because this
-                // did not happen, we infer here that it was a dependency failure.
-                decl.analysis = .dependency_failure;
-            }
-            return error.AnalysisFail;
-        },
-        error.NeededSourceLocation => unreachable,
-        error.GenericPoison => unreachable,
-        else => |e| {
-            decl.analysis = .sema_failure_retryable;
-            try mod.failed_decls.ensureUnusedCapacity(mod.gpa, 1);
-            mod.failed_decls.putAssumeCapacityNoClobber(decl_index, try ErrorMsg.create(
-                mod.gpa,
-                decl.srcLoc(),
-                "unable to analyze: {s}",
-                .{@errorName(e)},
-            ));
-            return error.AnalysisFail;
-        },
+    const type_changed = blk: {
+        if (decl.zir_decl_index == 0 and !mod.declIsRoot(decl_index)) {
+            // Anonymous decl. We don't semantically analyze these.
+            break :blk false; // tv unchanged
+        }
+
+        break :blk mod.semaDecl(decl_index) catch |err| switch (err) {
+            error.AnalysisFail => {
+                if (decl.analysis == .in_progress) {
+                    // If this decl caused the compile error, the analysis field would
+                    // be changed to indicate it was this Decl's fault. Because this
+                    // did not happen, we infer here that it was a dependency failure.
+                    decl.analysis = .dependency_failure;
+                }
+                return error.AnalysisFail;
+            },
+            error.NeededSourceLocation => unreachable,
+            error.GenericPoison => unreachable,
+            else => |e| {
+                decl.analysis = .sema_failure_retryable;
+                try mod.failed_decls.ensureUnusedCapacity(mod.gpa, 1);
+                mod.failed_decls.putAssumeCapacityNoClobber(decl_index, try ErrorMsg.create(
+                    mod.gpa,
+                    decl.srcLoc(),
+                    "unable to analyze: {s}",
+                    .{@errorName(e)},
+                ));
+                return error.AnalysisFail;
+            },
+        };
     };
 
     if (subsequent_analysis) {
-        // We may need to chase the dependants and re-analyze them.
-        // However, if the decl is a function, and the type is the same, we do not need to.
-        if (type_changed or decl.ty.zigTypeTag() != .Fn) {
-            for (decl.dependants.keys()) |dep_index| {
-                const dep = mod.declPtr(dep_index);
-                switch (dep.analysis) {
-                    .unreferenced => unreachable,
-                    .in_progress => continue, // already doing analysis, ok
-                    .outdated => continue, // already queued for update
+        // Update all dependents which have at least this level of dependency.
+        // If our type remained the same and we're a function, only update
+        // decls which depend on our body; otherwise, update all dependents.
+        const update_level: Decl.DepType = if (!type_changed and decl.ty.zigTypeTag() == .Fn) .function_body else .normal;
 
-                    .file_failure,
-                    .dependency_failure,
-                    .sema_failure,
-                    .sema_failure_retryable,
-                    .codegen_failure,
-                    .codegen_failure_retryable,
-                    .complete,
-                    => if (dep.generation != mod.generation) {
-                        try mod.markOutdatedDecl(dep_index);
-                    },
-                }
+        for (decl.dependants.keys(), decl.dependants.values()) |dep_index, dep_type| {
+            if (@enumToInt(dep_type) < @enumToInt(update_level)) continue;
+
+            const dep = mod.declPtr(dep_index);
+            switch (dep.analysis) {
+                .unreferenced => unreachable,
+                .in_progress => continue, // already doing analysis, ok
+                .outdated => continue, // already queued for update
+
+                .file_failure,
+                .dependency_failure,
+                .sema_failure,
+                .sema_failure_retryable,
+                .liveness_failure,
+                .codegen_failure,
+                .codegen_failure_retryable,
+                .complete,
+                => if (dep.generation != mod.generation) {
+                    try mod.markOutdatedDecl(dep_index);
+                },
             }
         }
     }
@@ -4221,6 +4291,7 @@ pub fn ensureFuncBodyAnalyzed(mod: *Module, func: *Fn) SemaError!void {
 
         .file_failure,
         .sema_failure,
+        .liveness_failure,
         .codegen_failure,
         .dependency_failure,
         .sema_failure_retryable,
@@ -4280,6 +4351,33 @@ pub fn ensureFuncBodyAnalyzed(mod: *Module, func: *Fn) SemaError!void {
                 std.debug.print("# End Function AIR: {s}\n\n", .{fqn});
             }
 
+            if (std.debug.runtime_safety) {
+                var verify = Liveness.Verify{
+                    .gpa = gpa,
+                    .air = air,
+                    .liveness = liveness,
+                };
+                defer verify.deinit();
+
+                verify.verify() catch |err| switch (err) {
+                    error.OutOfMemory => return error.OutOfMemory,
+                    else => {
+                        try mod.failed_decls.ensureUnusedCapacity(gpa, 1);
+                        mod.failed_decls.putAssumeCapacityNoClobber(
+                            decl_index,
+                            try Module.ErrorMsg.create(
+                                gpa,
+                                decl.srcLoc(),
+                                "invalid liveness: {s}",
+                                .{@errorName(err)},
+                            ),
+                        );
+                        decl.analysis = .liveness_failure;
+                        return error.AnalysisFail;
+                    },
+                };
+            }
+
             if (no_bin_file and !dump_llvm_ir) return;
 
             comp.bin_file.updateFunc(mod, func, air, liveness) catch |err| switch (err) {
@@ -4323,6 +4421,7 @@ pub fn updateEmbedFile(mod: *Module, embed_file: *EmbedFile) SemaError!void {
             .dependency_failure,
             .sema_failure,
             .sema_failure_retryable,
+            .liveness_failure,
             .codegen_failure,
             .codegen_failure_retryable,
             .complete,
@@ -4478,15 +4577,20 @@ fn semaDecl(mod: *Module, decl_index: Decl.Index) !bool {
     // We need the memory for the Type to go into the arena for the Decl
     var decl_arena = std.heap.ArenaAllocator.init(gpa);
     const decl_arena_allocator = decl_arena.allocator();
-
-    const decl_arena_state = blk: {
+    const decl_value_arena = blk: {
         errdefer decl_arena.deinit();
-        const s = try decl_arena_allocator.create(std.heap.ArenaAllocator.State);
+        const s = try decl_arena_allocator.create(ValueArena);
+        s.* = .{ .state = undefined };
         break :blk s;
     };
     defer {
-        decl_arena_state.* = decl_arena.state;
-        decl.value_arena = decl_arena_state;
+        if (decl.value_arena) |value_arena| {
+            assert(value_arena.state_acquired == null);
+            decl_value_arena.prev = value_arena;
+        }
+
+        decl_value_arena.state = decl_arena.state;
+        decl.value_arena = decl_value_arena;
     }
 
     var analysis_arena = std.heap.ArenaAllocator.init(gpa);
@@ -4742,25 +4846,37 @@ fn semaDecl(mod: *Module, decl_index: Decl.Index) !bool {
 
 /// Returns the depender's index of the dependee.
 pub fn declareDeclDependency(mod: *Module, depender_index: Decl.Index, dependee_index: Decl.Index) !void {
+    return mod.declareDeclDependencyType(depender_index, dependee_index, .normal);
+}
+
+/// Returns the depender's index of the dependee.
+pub fn declareDeclDependencyType(mod: *Module, depender_index: Decl.Index, dependee_index: Decl.Index, dep_type: Decl.DepType) !void {
     if (depender_index == dependee_index) return;
 
     const depender = mod.declPtr(depender_index);
     const dependee = mod.declPtr(dependee_index);
 
+    if (depender.dependencies.get(dependee_index)) |cur_type| {
+        if (@enumToInt(cur_type) >= @enumToInt(dep_type)) {
+            // We already have this dependency (or stricter) marked
+            return;
+        }
+    }
+
     log.debug("{*} ({s}) depends on {*} ({s})", .{
         depender, depender.name, dependee, dependee.name,
     });
-
-    try depender.dependencies.ensureUnusedCapacity(mod.gpa, 1);
-    try dependee.dependants.ensureUnusedCapacity(mod.gpa, 1);
 
     if (dependee.deletion_flag) {
         dependee.deletion_flag = false;
         assert(mod.deletion_set.swapRemove(dependee_index));
     }
 
-    dependee.dependants.putAssumeCapacity(depender_index, {});
-    depender.dependencies.putAssumeCapacity(dependee_index, {});
+    try depender.dependencies.ensureUnusedCapacity(mod.gpa, 1);
+    try dependee.dependants.ensureUnusedCapacity(mod.gpa, 1);
+
+    dependee.dependants.putAssumeCapacity(depender_index, dep_type);
+    depender.dependencies.putAssumeCapacity(dependee_index, dep_type);
 }
 
 pub const ImportFileResult = struct {
@@ -5422,9 +5538,9 @@ pub fn analyzeFnBody(mod: *Module, func: *Fn, arena: Allocator) SemaError!Air {
     const decl = mod.declPtr(decl_index);
 
     // Use the Decl's arena for captured values.
-    var decl_arena = decl.value_arena.?.promote(gpa);
-    defer decl.value_arena.?.* = decl_arena.state;
-    const decl_arena_allocator = decl_arena.allocator();
+    var decl_arena: std.heap.ArenaAllocator = undefined;
+    const decl_arena_allocator = decl.value_arena.?.acquire(gpa, &decl_arena);
+    defer decl.value_arena.?.release(&decl_arena);
 
     var sema: Sema = .{
         .mod = mod,
@@ -6342,8 +6458,8 @@ pub fn populateTestFunctions(
                 try mod.declPtr(test_name_decl_index).finalizeNewArena(&name_decl_arena);
                 break :n test_name_decl_index;
             };
-            array_decl.dependencies.putAssumeCapacityNoClobber(test_decl_index, {});
-            array_decl.dependencies.putAssumeCapacityNoClobber(test_name_decl_index, {});
+            array_decl.dependencies.putAssumeCapacityNoClobber(test_decl_index, .normal);
+            array_decl.dependencies.putAssumeCapacityNoClobber(test_name_decl_index, .normal);
             try mod.linkerUpdateDecl(test_name_decl_index);
 
             const field_vals = try arena.create([3]Value);
@@ -6368,19 +6484,25 @@ pub fn populateTestFunctions(
         errdefer new_decl_arena.deinit();
         const arena = new_decl_arena.allocator();
 
-        // This copy accesses the old Decl Type/Value so it must be done before `clearValues`.
-        const new_ty = try Type.Tag.const_slice.create(arena, try tmp_test_fn_ty.copy(arena));
-        const new_val = try Value.Tag.slice.create(arena, .{
-            .ptr = try Value.Tag.decl_ref.create(arena, array_decl_index),
-            .len = try Value.Tag.int_u64.create(arena, mod.test_functions.count()),
-        });
+        {
+            // This copy accesses the old Decl Type/Value so it must be done before `clearValues`.
+            const new_ty = try Type.Tag.const_slice.create(arena, try tmp_test_fn_ty.copy(arena));
+            const new_var = try gpa.create(Var);
+            errdefer gpa.destroy(new_var);
+            new_var.* = decl.val.castTag(.variable).?.data.*;
+            new_var.init = try Value.Tag.slice.create(arena, .{
+                .ptr = try Value.Tag.decl_ref.create(arena, array_decl_index),
+                .len = try Value.Tag.int_u64.create(arena, mod.test_functions.count()),
+            });
+            const new_val = try Value.Tag.variable.create(arena, new_var);
 
-        // Since we are replacing the Decl's value we must perform cleanup on the
-        // previous value.
-        decl.clearValues(mod);
-        decl.ty = new_ty;
-        decl.val = new_val;
-        decl.has_tv = true;
+            // Since we are replacing the Decl's value we must perform cleanup on the
+            // previous value.
+            decl.clearValues(mod);
+            decl.ty = new_ty;
+            decl.val = new_val;
+            decl.has_tv = true;
+        }
 
         try decl.finalizeNewArena(&new_decl_arena);
     }
@@ -6552,10 +6674,11 @@ pub fn backendSupportsFeature(mod: Module, feature: Feature) bool {
             mod.comp.bin_file.options.use_llvm,
         .panic_unwrap_error => mod.comp.bin_file.options.target.ofmt == .c or
             mod.comp.bin_file.options.use_llvm,
-        .safety_check_formatted => mod.comp.bin_file.options.use_llvm,
+        .safety_check_formatted => mod.comp.bin_file.options.target.ofmt == .c or
+            mod.comp.bin_file.options.use_llvm,
         .error_return_trace => mod.comp.bin_file.options.use_llvm,
         .is_named_enum_value => mod.comp.bin_file.options.use_llvm,
-        .error_set_has_value => mod.comp.bin_file.options.use_llvm,
+        .error_set_has_value => mod.comp.bin_file.options.use_llvm or mod.comp.bin_file.options.target.isWasm(),
         .field_reordering => mod.comp.bin_file.options.use_llvm,
     };
 }

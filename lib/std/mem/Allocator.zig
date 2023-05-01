@@ -215,7 +215,7 @@ pub fn allocAdvancedWithRetAddr(
     const byte_count = math.mul(usize, @sizeOf(T), n) catch return Error.OutOfMemory;
     const byte_ptr = self.rawAlloc(byte_count, log2a(a), return_address) orelse return Error.OutOfMemory;
     // TODO: https://github.com/ziglang/zig/issues/4298
-    @memset(byte_ptr, undefined, byte_count);
+    @memset(byte_ptr[0..byte_count], undefined);
     const byte_slice = byte_ptr[0..byte_count];
     return mem.bytesAsSlice(T, @alignCast(a, byte_slice));
 }
@@ -282,9 +282,10 @@ pub fn reallocAdvanced(
 
     const new_mem = self.rawAlloc(byte_count, log2a(Slice.alignment), return_address) orelse
         return error.OutOfMemory;
-    @memcpy(new_mem, old_byte_slice.ptr, @min(byte_count, old_byte_slice.len));
+    const copy_len = @min(byte_count, old_byte_slice.len);
+    @memcpy(new_mem[0..copy_len], old_byte_slice[0..copy_len]);
     // TODO https://github.com/ziglang/zig/issues/4298
-    @memset(old_byte_slice.ptr, undefined, old_byte_slice.len);
+    @memset(old_byte_slice, undefined);
     self.rawFree(old_byte_slice, log2a(Slice.alignment), return_address);
 
     return mem.bytesAsSlice(T, @alignCast(Slice.alignment, new_mem[0..byte_count]));
@@ -299,21 +300,21 @@ pub fn free(self: Allocator, memory: anytype) void {
     if (bytes_len == 0) return;
     const non_const_ptr = @constCast(bytes.ptr);
     // TODO: https://github.com/ziglang/zig/issues/4298
-    @memset(non_const_ptr, undefined, bytes_len);
+    @memset(non_const_ptr[0..bytes_len], undefined);
     self.rawFree(non_const_ptr[0..bytes_len], log2a(Slice.alignment), @returnAddress());
 }
 
 /// Copies `m` to newly allocated memory. Caller owns the memory.
 pub fn dupe(allocator: Allocator, comptime T: type, m: []const T) ![]T {
     const new_buf = try allocator.alloc(T, m.len);
-    mem.copy(T, new_buf, m);
+    @memcpy(new_buf, m);
     return new_buf;
 }
 
 /// Copies `m` to newly allocated memory, with a null-terminated element. Caller owns the memory.
 pub fn dupeZ(allocator: Allocator, comptime T: type, m: []const T) ![:0]T {
     const new_buf = try allocator.alloc(T, m.len + 1);
-    mem.copy(T, new_buf, m);
+    @memcpy(new_buf[0..m.len], m);
     new_buf[m.len] = 0;
     return new_buf[0..m.len :0];
 }

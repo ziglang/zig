@@ -178,13 +178,13 @@ pub extern "c" fn __getdirentries64(fd: c_int, buf_ptr: [*]u8, buf_len: usize, b
 
 const private = struct {
     extern "c" fn fstat(fd: fd_t, buf: *Stat) c_int;
-    /// On x86_64 Darwin, fstat has to be manully linked with $INODE64 suffix to
+    /// On x86_64 Darwin, fstat has to be manually linked with $INODE64 suffix to
     /// force 64bit version.
     /// Note that this is fixed on aarch64 and no longer necessary.
     extern "c" fn @"fstat$INODE64"(fd: fd_t, buf: *Stat) c_int;
 
     extern "c" fn fstatat(dirfd: fd_t, path: [*:0]const u8, stat_buf: *Stat, flags: u32) c_int;
-    /// On x86_64 Darwin, fstatat has to be manully linked with $INODE64 suffix to
+    /// On x86_64 Darwin, fstatat has to be manually linked with $INODE64 suffix to
     /// force 64bit version.
     /// Note that this is fixed on aarch64 and no longer necessary.
     extern "c" fn @"fstatat$INODE64"(dirfd: fd_t, path_name: [*:0]const u8, buf: *Stat, flags: u32) c_int;
@@ -2643,7 +2643,7 @@ pub const F = struct {
     pub const ADDSIGS = 59;
     /// add signature from same file (used by dyld for shared libs)
     pub const ADDFILESIGS = 61;
-    /// used in conjunction with F.NOCACHE to indicate that DIRECT, synchonous writes
+    /// used in conjunction with F.NOCACHE to indicate that DIRECT, synchronous writes
     /// should not be used (i.e. its ok to temporaily create cached pages)
     pub const NODIRECT = 62;
     ///Get the protection class of a file from the EA, returns int
@@ -3670,7 +3670,7 @@ pub const MachTask = extern struct {
                 else => |err| return unexpectedKernError(err),
             }
 
-            @memcpy(out_buf[0..].ptr, @intToPtr([*]const u8, vm_memory), curr_bytes_read);
+            @memcpy(out_buf[0..curr_bytes_read], @intToPtr([*]const u8, vm_memory));
             _ = vm_deallocate(mach_task_self(), vm_memory, curr_bytes_read);
 
             out_buf = out_buf[curr_bytes_read..];
@@ -3846,3 +3846,24 @@ pub extern "c" fn os_signpost_interval_begin(log: os_log_t, signpos: os_signpost
 pub extern "c" fn os_signpost_interval_end(log: os_log_t, signpos: os_signpost_id_t, func: [*]const u8, ...) void;
 pub extern "c" fn os_signpost_id_make_with_pointer(log: os_log_t, ptr: ?*anyopaque) os_signpost_id_t;
 pub extern "c" fn os_signpost_enabled(log: os_log_t) bool;
+
+pub extern "c" fn proc_listpids(tpe: u32, tinfo: u32, buffer: ?*anyopaque, buffersize: c_int) c_int;
+pub extern "c" fn proc_listallpids(buffer: ?*anyopaque, buffersize: c_int) c_int;
+pub extern "c" fn proc_listpgrppids(pgrpid: pid_t, buffer: ?*anyopaque, buffersize: c_int) c_int;
+pub extern "c" fn proc_listchildpids(ppid: pid_t, buffer: ?*anyopaque, buffersize: c_int) c_int;
+pub extern "c" fn proc_pidinfo(pid: c_int, flavor: c_int, arg: u64, buffer: ?*anyopaque, buffersize: c_int) c_int;
+pub extern "c" fn proc_name(pid: c_int, buffer: ?*anyopaque, buffersize: u32) c_int;
+pub extern "c" fn proc_pidpath(pid: c_int, buffer: ?*anyopaque, buffersize: u32) c_int;
+
+pub const MIN = struct {
+    pub const INCORE = 0x1;
+    pub const REFERENCED = 0x2;
+    pub const MODIFIED = 0x4;
+    pub const REFERENCED_OTHER = 0x8;
+    pub const MODIFIED_OTHER = 0x10;
+    pub const PAGED_OUT = 0x20;
+    pub const COPIED = 0x40;
+    pub const ANONYMOUS = 0x80;
+};
+
+pub extern "c" fn mincore(addr: *align(std.mem.page_size) const anyopaque, length: usize, vec: [*]u8) c_int;

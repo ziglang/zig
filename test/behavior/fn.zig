@@ -335,7 +335,6 @@ fn numberLiteralArg(a: anytype) !void {
 }
 
 test "function call with anon list literal" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
@@ -356,7 +355,6 @@ test "function call with anon list literal" {
 }
 
 test "function call with anon list literal - 2D" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
@@ -453,6 +451,23 @@ test "method call with optional and error union first param" {
     var s: S = .{};
     try s.opt();
     try s.errUnion();
+}
+
+test "method call with optional pointer first param" {
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+
+    const S = struct {
+        x: i32 = 1234,
+
+        fn method(s: ?*@This()) !void {
+            try expect(s.?.x == 1234);
+        }
+    };
+    var s: S = .{};
+    try s.method();
+    const s_ptr = &s;
+    try s_ptr.method();
 }
 
 test "using @ptrCast on function pointers" {

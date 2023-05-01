@@ -158,21 +158,6 @@ pub fn addBinding(macho_file: *MachO, atom_index: Index, binding: Binding) !void
     try gop.value_ptr.append(gpa, binding);
 }
 
-pub fn addLazyBinding(macho_file: *MachO, atom_index: Index, binding: Binding) !void {
-    const gpa = macho_file.base.allocator;
-    const atom = macho_file.getAtom(atom_index);
-    log.debug("  (adding lazy binding to symbol {s} at offset 0x{x} in %{?d})", .{
-        macho_file.getSymbolName(binding.target),
-        binding.offset,
-        atom.getSymbolIndex(),
-    });
-    const gop = try macho_file.lazy_bindings.getOrPut(gpa, atom_index);
-    if (!gop.found_existing) {
-        gop.value_ptr.* = .{};
-    }
-    try gop.value_ptr.append(gpa, binding);
-}
-
 pub fn resolveRelocations(
     macho_file: *MachO,
     atom_index: Index,
@@ -193,6 +178,4 @@ pub fn freeRelocations(macho_file: *MachO, atom_index: Index) void {
     if (removed_rebases) |*rebases| rebases.value.deinit(gpa);
     var removed_bindings = macho_file.bindings.fetchOrderedRemove(atom_index);
     if (removed_bindings) |*bindings| bindings.value.deinit(gpa);
-    var removed_lazy_bindings = macho_file.lazy_bindings.fetchOrderedRemove(atom_index);
-    if (removed_lazy_bindings) |*lazy_bindings| lazy_bindings.value.deinit(gpa);
 }

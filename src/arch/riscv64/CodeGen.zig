@@ -473,6 +473,11 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
     const air_tags = self.air.instructions.items(.tag);
 
     for (body) |inst| {
+        // TODO: remove now-redundant isUnused calls from AIR handler functions
+        if (self.liveness.isUnused(inst) and !self.air.mustLower(inst)) {
+            continue;
+        }
+
         const old_air_bookkeeping = self.air_bookkeeping;
         try self.ensureProcessDeathCapacity(Liveness.bpi);
 
@@ -573,7 +578,8 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .ptrtoint        => try self.airPtrToInt(inst),
             .ret             => try self.airRet(inst),
             .ret_load        => try self.airRetLoad(inst),
-            .store           => try self.airStore(inst),
+            .store           => try self.airStore(inst, false),
+            .store_safe      => try self.airStore(inst, true),
             .struct_field_ptr=> try self.airStructFieldPtr(inst),
             .struct_field_val=> try self.airStructFieldVal(inst),
             .array_to_slice  => try self.airArrayToSlice(inst),
@@ -584,7 +590,8 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .atomic_rmw      => try self.airAtomicRmw(inst),
             .atomic_load     => try self.airAtomicLoad(inst),
             .memcpy          => try self.airMemcpy(inst),
-            .memset          => try self.airMemset(inst),
+            .memset          => try self.airMemset(inst, false),
+            .memset_safe     => try self.airMemset(inst, true),
             .set_union_tag   => try self.airSetUnionTag(inst),
             .get_union_tag   => try self.airGetUnionTag(inst),
             .clz             => try self.airClz(inst),
@@ -1567,7 +1574,12 @@ fn store(self: *Self, ptr: MCValue, value: MCValue, ptr_ty: Type, value_ty: Type
     }
 }
 
-fn airStore(self: *Self, inst: Air.Inst.Index) !void {
+fn airStore(self: *Self, inst: Air.Inst.Index, safety: bool) !void {
+    if (safety) {
+        // TODO if the value is undef, write 0xaa bytes to dest
+    } else {
+        // TODO if the value is undef, don't lower this instruction
+    }
     const bin_op = self.air.instructions.items(.data)[inst].bin_op;
     const ptr = try self.resolveInst(bin_op.lhs);
     const value = try self.resolveInst(bin_op.rhs);
@@ -1729,6 +1741,7 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallModifier
                 const func = func_payload.data;
                 const atom_index = try elf_file.getOrCreateAtomForDecl(func.owner_decl);
                 const atom = elf_file.getAtom(atom_index);
+                _ = try atom.getOrCreateOffsetTableEntry(elf_file);
                 const got_addr = @intCast(u32, atom.getOffsetTableAddress(elf_file));
                 try self.genSetReg(Type.initTag(.usize), .ra, .{ .memory = got_addr });
                 _ = try self.addInst(.{
@@ -1771,7 +1784,7 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallModifier
     if (args.len <= Liveness.bpi - 2) {
         var buf = [1]Air.Inst.Ref{.none} ** (Liveness.bpi - 1);
         buf[0] = callee;
-        std.mem.copy(Air.Inst.Ref, buf[1..], args);
+        @memcpy(buf[1..][0..args.len], args);
         return self.finishAir(inst, result, buf);
     }
     var bt = try self.iterateBigTomb(inst, 1 + args.len);
@@ -2212,7 +2225,7 @@ fn airAsm(self: *Self, inst: Air.Inst.Index) !void {
             buf_index += 1;
         }
         if (buf_index + inputs.len > buf.len) break :simple;
-        std.mem.copy(Air.Inst.Ref, buf[buf_index..], inputs);
+        @memcpy(buf[buf_index..][0..inputs.len], inputs);
         return self.finishAir(inst, result, buf);
     }
     var bt = try self.iterateBigTomb(inst, outputs.len + inputs.len);
@@ -2415,8 +2428,13 @@ fn airAtomicStore(self: *Self, inst: Air.Inst.Index, order: std.builtin.AtomicOr
     return self.fail("TODO implement airAtomicStore for {}", .{self.target.cpu.arch});
 }
 
-fn airMemset(self: *Self, inst: Air.Inst.Index) !void {
+fn airMemset(self: *Self, inst: Air.Inst.Index, safety: bool) !void {
     _ = inst;
+    if (safety) {
+        // TODO if the value is undef, write 0xaa bytes to dest
+    } else {
+        // TODO if the value is undef, don't lower this instruction
+    }
     return self.fail("TODO implement airMemset for {}", .{self.target.cpu.arch});
 }
 
@@ -2482,7 +2500,7 @@ fn airAggregateInit(self: *Self, inst: Air.Inst.Index) !void {
 
     if (elements.len <= Liveness.bpi - 1) {
         var buf = [1]Air.Inst.Ref{.none} ** (Liveness.bpi - 1);
-        std.mem.copy(Air.Inst.Ref, &buf, elements);
+        @memcpy(buf[0..elements.len], elements);
         return self.finishAir(inst, result, buf);
     }
     var bt = try self.iterateBigTomb(inst, elements.len);

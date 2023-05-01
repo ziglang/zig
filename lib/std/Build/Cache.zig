@@ -184,7 +184,7 @@ pub const File = struct {
 pub const HashHelper = struct {
     hasher: Hasher = hasher_init,
 
-    /// Record a slice of bytes as an dependency of the process being cached
+    /// Record a slice of bytes as a dependency of the process being cached.
     pub fn addBytes(hh: *HashHelper, bytes: []const u8) void {
         hh.hasher.update(mem.asBytes(&bytes.len));
         hh.hasher.update(bytes);
@@ -388,7 +388,7 @@ pub const Manifest = struct {
         self.hash.hasher = hasher_init;
         self.hash.hasher.update(&bin_digest);
 
-        mem.copy(u8, &manifest_file_path, &self.hex_digest);
+        @memcpy(manifest_file_path[0..self.hex_digest.len], &self.hex_digest);
         manifest_file_path[hex_digest_len..][0..ext.len].* = ext.*;
 
         if (self.files.items.len == 0) {

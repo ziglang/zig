@@ -138,12 +138,14 @@ pub const Inst = struct {
         /// The offset is in element type units, not bytes.
         /// Wrapping is undefined behavior.
         /// The lhs is the pointer, rhs is the offset. Result type is the same as lhs.
+        /// The pointer may be a slice.
         /// Uses the `ty_pl` field. Payload is `Bin`.
         ptr_add,
         /// Subtract an offset from a pointer, returning a new pointer.
         /// The offset is in element type units, not bytes.
         /// Wrapping is undefined behavior.
         /// The lhs is the pointer, rhs is the offset. Result type is the same as lhs.
+        /// The pointer may be a slice.
         /// Uses the `ty_pl` field. Payload is `Bin`.
         ptr_sub,
         /// Given two operands which can be floats, integers, or vectors, returns the
@@ -462,6 +464,7 @@ pub const Inst = struct {
         /// Uses the `ty_op` field.
         load,
         /// Converts a pointer to its address. Result type is always `usize`.
+        /// Pointer type size may be any, including slice.
         /// Uses the `un_op` field.
         ptrtoint,
         /// Given a boolean, returns 0 or 1.
@@ -484,7 +487,16 @@ pub const Inst = struct {
         /// Write a value to a pointer. LHS is pointer, RHS is value.
         /// Result type is always void.
         /// Uses the `bin_op` field.
+        /// The value to store may be undefined, in which case the destination
+        /// memory region has undefined bytes after this instruction is
+        /// evaluated. In such case ignoring this instruction is legal
+        /// lowering.
         store,
+        /// Same as `store`, except if the value to store is undefined, the
+        /// memory region should be filled with 0xaa bytes, and any other
+        /// safety metadata such as Valgrind integrations should be notified of
+        /// this memory region being undefined.
+        store_safe,
         /// Indicates the program counter will never get to this instruction.
         /// Result type is always noreturn; no instructions in a block follow this one.
         unreach,
@@ -632,17 +644,33 @@ pub const Inst = struct {
         /// Uses the `pl_op` field with `pred` as operand, and payload `Bin`.
         select,
 
-        /// Given dest ptr, value, and len, set all elements at dest to value.
+        /// Given dest pointer and value, set all elements at dest to value.
+        /// Dest pointer is either a slice or a pointer to array.
+        /// The element type may be any type, and the slice may have any alignment.
         /// Result type is always void.
-        /// Uses the `pl_op` field. Operand is the dest ptr. Payload is `Bin`. `lhs` is the
-        /// value, `rhs` is the length.
-        /// The element type may be any type, not just u8.
+        /// Uses the `bin_op` field. LHS is the dest slice. RHS is the element value.
+        /// The element value may be undefined, in which case the destination
+        /// memory region has undefined bytes after this instruction is
+        /// evaluated. In such case ignoring this instruction is legal
+        /// lowering.
+        /// If the length is compile-time known (due to the destination being a
+        /// pointer-to-array), then it is guaranteed to be greater than zero.
         memset,
-        /// Given dest ptr, src ptr, and len, copy len elements from src to dest.
+        /// Same as `memset`, except if the element value is undefined, the memory region
+        /// should be filled with 0xaa bytes, and any other safety metadata such as Valgrind
+        /// integrations should be notified of this memory region being undefined.
+        memset_safe,
+        /// Given dest pointer and source pointer, copy elements from source to dest.
+        /// Dest pointer is either a slice or a pointer to array.
+        /// The dest element type may be any type.
+        /// Source pointer must have same element type as dest element type.
+        /// Dest slice may have any alignment; source pointer may have any alignment.
+        /// The two memory regions must not overlap.
         /// Result type is always void.
-        /// Uses the `pl_op` field. Operand is the dest ptr. Payload is `Bin`. `lhs` is the
-        /// src ptr, `rhs` is the length.
-        /// The element type may be any type, not just u8.
+        /// Uses the `bin_op` field. LHS is the dest slice. RHS is the source pointer.
+        /// If the length is compile-time known (due to the destination or
+        /// source being a pointer-to-array), then it is guaranteed to be
+        /// greater than zero.
         memcpy,
 
         /// Uses the `ty_pl` field with payload `Cmpxchg`.
@@ -681,7 +709,7 @@ pub const Inst = struct {
         /// Uses the `un_op` field.
         tag_name,
 
-        /// Given an error value, return the error name. Result type is always `[:0] const u8`.
+        /// Given an error value, return the error name. Result type is always `[:0]const u8`.
         /// Uses the `un_op` field.
         error_name,
 
@@ -1226,12 +1254,14 @@ pub fn typeOfIndex(air: Air, inst: Air.Inst.Index) Type {
         .dbg_var_ptr,
         .dbg_var_val,
         .store,
+        .store_safe,
         .fence,
         .atomic_store_unordered,
         .atomic_store_monotonic,
         .atomic_store_release,
         .atomic_store_seq_cst,
         .memset,
+        .memset_safe,
         .memcpy,
         .set_union_tag,
         .prefetch,
@@ -1374,4 +1404,220 @@ pub fn nullTerminatedString(air: Air, index: usize) [:0]const u8 {
         end += 1;
     }
     return bytes[0..end :0];
+}
+
+/// Returns whether the given instruction must always be lowered, for instance because it can cause
+/// side effects. If an instruction does not need to be lowered, and Liveness determines its result
+/// is unused, backends should avoid lowering it.
+pub fn mustLower(air: Air, inst: Air.Inst.Index) bool {
+    const data = air.instructions.items(.data)[inst];
+    return switch (air.instructions.items(.tag)[inst]) {
+        .arg,
+        .block,
+        .loop,
+        .br,
+        .trap,
+        .breakpoint,
+        .call,
+        .call_always_tail,
+        .call_never_tail,
+        .call_never_inline,
+        .cond_br,
+        .switch_br,
+        .@"try",
+        .try_ptr,
+        .dbg_stmt,
+        .dbg_block_begin,
+        .dbg_block_end,
+        .dbg_inline_begin,
+        .dbg_inline_end,
+        .dbg_var_ptr,
+        .dbg_var_val,
+        .ret,
+        .ret_load,
+        .store,
+        .store_safe,
+        .unreach,
+        .optional_payload_ptr_set,
+        .errunion_payload_ptr_set,
+        .set_union_tag,
+        .memset,
+        .memset_safe,
+        .memcpy,
+        .cmpxchg_weak,
+        .cmpxchg_strong,
+        .fence,
+        .atomic_store_unordered,
+        .atomic_store_monotonic,
+        .atomic_store_release,
+        .atomic_store_seq_cst,
+        .atomic_rmw,
+        .prefetch,
+        .wasm_memory_grow,
+        .set_err_return_trace,
+        .vector_store_elem,
+        .c_va_arg,
+        .c_va_copy,
+        .c_va_end,
+        .c_va_start,
+        => true,
+
+        .add,
+        .add_optimized,
+        .addwrap,
+        .addwrap_optimized,
+        .add_sat,
+        .sub,
+        .sub_optimized,
+        .subwrap,
+        .subwrap_optimized,
+        .sub_sat,
+        .mul,
+        .mul_optimized,
+        .mulwrap,
+        .mulwrap_optimized,
+        .mul_sat,
+        .div_float,
+        .div_float_optimized,
+        .div_trunc,
+        .div_trunc_optimized,
+        .div_floor,
+        .div_floor_optimized,
+        .div_exact,
+        .div_exact_optimized,
+        .rem,
+        .rem_optimized,
+        .mod,
+        .mod_optimized,
+        .ptr_add,
+        .ptr_sub,
+        .max,
+        .min,
+        .add_with_overflow,
+        .sub_with_overflow,
+        .mul_with_overflow,
+        .shl_with_overflow,
+        .alloc,
+        .ret_ptr,
+        .bit_and,
+        .bit_or,
+        .shr,
+        .shr_exact,
+        .shl,
+        .shl_exact,
+        .shl_sat,
+        .xor,
+        .not,
+        .bitcast,
+        .ret_addr,
+        .frame_addr,
+        .clz,
+        .ctz,
+        .popcount,
+        .byte_swap,
+        .bit_reverse,
+        .sqrt,
+        .sin,
+        .cos,
+        .tan,
+        .exp,
+        .exp2,
+        .log,
+        .log2,
+        .log10,
+        .fabs,
+        .floor,
+        .ceil,
+        .round,
+        .trunc_float,
+        .neg,
+        .neg_optimized,
+        .cmp_lt,
+        .cmp_lt_optimized,
+        .cmp_lte,
+        .cmp_lte_optimized,
+        .cmp_eq,
+        .cmp_eq_optimized,
+        .cmp_gte,
+        .cmp_gte_optimized,
+        .cmp_gt,
+        .cmp_gt_optimized,
+        .cmp_neq,
+        .cmp_neq_optimized,
+        .cmp_vector,
+        .cmp_vector_optimized,
+        .constant,
+        .const_ty,
+        .is_null,
+        .is_non_null,
+        .is_null_ptr,
+        .is_non_null_ptr,
+        .is_err,
+        .is_non_err,
+        .is_err_ptr,
+        .is_non_err_ptr,
+        .bool_and,
+        .bool_or,
+        .ptrtoint,
+        .bool_to_int,
+        .fptrunc,
+        .fpext,
+        .intcast,
+        .trunc,
+        .optional_payload,
+        .optional_payload_ptr,
+        .wrap_optional,
+        .unwrap_errunion_payload,
+        .unwrap_errunion_err,
+        .unwrap_errunion_payload_ptr,
+        .unwrap_errunion_err_ptr,
+        .wrap_errunion_payload,
+        .wrap_errunion_err,
+        .struct_field_ptr,
+        .struct_field_ptr_index_0,
+        .struct_field_ptr_index_1,
+        .struct_field_ptr_index_2,
+        .struct_field_ptr_index_3,
+        .struct_field_val,
+        .get_union_tag,
+        .slice,
+        .slice_len,
+        .slice_ptr,
+        .ptr_slice_len_ptr,
+        .ptr_slice_ptr_ptr,
+        .array_elem_val,
+        .slice_elem_ptr,
+        .ptr_elem_ptr,
+        .array_to_slice,
+        .float_to_int,
+        .float_to_int_optimized,
+        .int_to_float,
+        .reduce,
+        .reduce_optimized,
+        .splat,
+        .shuffle,
+        .select,
+        .is_named_enum_value,
+        .tag_name,
+        .error_name,
+        .error_set_has_value,
+        .aggregate_init,
+        .union_init,
+        .mul_add,
+        .field_parent_ptr,
+        .wasm_memory_size,
+        .cmp_lt_errors_len,
+        .err_return_trace,
+        .addrspace_cast,
+        .save_err_return_trace_index,
+        .work_item_id,
+        .work_group_size,
+        .work_group_id,
+        => false,
+
+        .assembly => @truncate(u1, air.extraData(Air.Asm, data.ty_pl.payload).data.flags >> 31) != 0,
+        .load => air.typeOf(data.ty_op.operand).isVolatilePtr(),
+        .slice_elem_val, .ptr_elem_val => air.typeOf(data.bin_op.lhs).isVolatilePtr(),
+        .atomic_load => air.typeOf(data.atomic_load.ptr).isVolatilePtr(),
+    };
 }

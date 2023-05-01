@@ -1209,6 +1209,11 @@ fn resolveLazySymbols(wasm: *Wasm) !void {
             try wasm.discarded.putNoClobber(wasm.base.allocator, kv.value, loc);
         }
     }
+    if (wasm.undefs.fetchSwapRemove("__zig_errors_len")) |kv| {
+        const loc = try wasm.createSyntheticSymbol("__zig_errors_len", .data);
+        try wasm.discarded.putNoClobber(wasm.base.allocator, kv.value, loc);
+        _ = wasm.resolved_symbols.swapRemove(kv.value);
+    }
 }
 
 // Tries to find a global symbol by its name. Returns null when not found,
@@ -1971,7 +1976,7 @@ fn parseAtom(wasm: *Wasm, atom_index: Atom.Index, kind: Kind) !void {
             // We do not have to do this when exporting the memory (the default) because the runtime
             // will do it for us, and we do not emit the bss segment at all.
             if ((wasm.base.options.output_mode == .Obj or wasm.base.options.import_memory) and kind.data == .uninitialized) {
-                std.mem.set(u8, atom.code.items, 0);
+                @memset(atom.code.items, 0);
             }
 
             const should_merge = wasm.base.options.output_mode != .Obj;
@@ -2183,6 +2188,43 @@ fn setupInitFunctions(wasm: *Wasm) !void {
 
     // sort the initfunctions based on their priority
     std.sort.sort(InitFuncLoc, wasm.init_funcs.items, {}, InitFuncLoc.lessThan);
+}
+
+/// Generates an atom containing the global error set' size.
+/// This will only be generated if the symbol exists.
+fn setupErrorsLen(wasm: *Wasm) !void {
+    const loc = wasm.findGlobalSymbol("__zig_errors_len") orelse return;
+
+    const errors_len = wasm.base.options.module.?.global_error_set.count();
+    // overwrite existing atom if it already exists (maybe the error set has increased)
+    // if not, allcoate a new atom.
+    const atom_index = if (wasm.symbol_atom.get(loc)) |index| blk: {
+        const atom = wasm.getAtomPtr(index);
+        if (atom.next) |next_atom_index| {
+            const next_atom = wasm.getAtomPtr(next_atom_index);
+            next_atom.prev = atom.prev;
+            atom.next = null;
+        }
+        if (atom.prev) |prev_index| {
+            const prev_atom = wasm.getAtomPtr(prev_index);
+            prev_atom.next = atom.next;
+            atom.prev = null;
+        }
+        atom.deinit(wasm);
+        break :blk index;
+    } else new_atom: {
+        const atom_index = @intCast(Atom.Index, wasm.managed_atoms.items.len);
+        try wasm.symbol_atom.put(wasm.base.allocator, loc, atom_index);
+        try wasm.managed_atoms.append(wasm.base.allocator, undefined);
+        break :new_atom atom_index;
+    };
+    const atom = wasm.getAtomPtr(atom_index);
+    atom.* = Atom.empty;
+    atom.sym_index = loc.index;
+    atom.size = 2;
+    try atom.code.writer(wasm.base.allocator).writeIntLittle(u16, @intCast(u16, errors_len));
+
+    try wasm.parseAtom(atom_index, .{ .data = .read_only });
 }
 
 /// Creates a function body for the `__wasm_call_ctors` symbol.
@@ -3317,6 +3359,7 @@ pub fn flushModule(wasm: *Wasm, comp: *Compilation, prog_node: *std.Progress.Nod
     // So we can rebuild the binary file on each incremental update
     defer wasm.resetState();
     try wasm.setupInitFunctions();
+    try wasm.setupErrorsLen();
     try wasm.setupStart();
     try wasm.setupImports();
     if (wasm.base.options.module) |mod| {
@@ -3809,7 +3852,10 @@ fn writeToFile(
     // Only when writing all sections executed properly we write the magic
     // bytes. This allows us to easily detect what went wrong while generating
     // the final binary.
-    mem.copy(u8, binary_bytes.items, &(std.wasm.magic ++ std.wasm.version));
+    {
+        const src = std.wasm.magic ++ std.wasm.version;
+        binary_bytes.items[0..src.len].* = src;
+    }
 
     // finally, write the entire binary into the file.
     var iovec = [_]std.os.iovec_const{.{
@@ -4516,14 +4562,14 @@ fn writeVecSectionHeader(buffer: []u8, offset: u32, section: std.wasm.Section, s
     buf[0] = @enumToInt(section);
     leb.writeUnsignedFixed(5, buf[1..6], size);
     leb.writeUnsignedFixed(5, buf[6..], items);
-    mem.copy(u8, buffer[offset..], &buf);
+    buffer[offset..][0..buf.len].* = buf;
 }
 
 fn writeCustomSectionHeader(buffer: []u8, offset: u32, size: u32) !void {
     var buf: [1 + 5]u8 = undefined;
     buf[0] = 0; // 0 = 'custom' section
     leb.writeUnsignedFixed(5, buf[1..6], size);
-    mem.copy(u8, buffer[offset..], &buf);
+    buffer[offset..][0..buf.len].* = buf;
 }
 
 fn emitLinkSection(wasm: *Wasm, binary_bytes: *std.ArrayList(u8), symbol_table: *std.AutoArrayHashMap(SymbolLoc, u32)) !void {

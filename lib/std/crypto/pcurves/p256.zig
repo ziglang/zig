@@ -105,7 +105,7 @@ pub const P256 = struct {
         var out: [33]u8 = undefined;
         const xy = p.affineCoordinates();
         out[0] = if (xy.y.isOdd()) 3 else 2;
-        mem.copy(u8, out[1..], &xy.x.toBytes(.Big));
+        out[1..].* = xy.x.toBytes(.Big);
         return out;
     }
 
@@ -114,8 +114,8 @@ pub const P256 = struct {
         var out: [65]u8 = undefined;
         out[0] = 4;
         const xy = p.affineCoordinates();
-        mem.copy(u8, out[1..33], &xy.x.toBytes(.Big));
-        mem.copy(u8, out[33..65], &xy.y.toBytes(.Big));
+        out[1..33].* = xy.x.toBytes(.Big);
+        out[33..65].* = xy.y.toBytes(.Big);
         return out;
     }
 
@@ -473,6 +473,6 @@ pub const AffineCoordinates = struct {
     }
 };
 
-test "p256" {
+test {
     _ = @import("tests/p256.zig");
 }

@@ -113,8 +113,8 @@ pub fn benchmarkKeyExchange(comptime DhKeyExchange: anytype, comptime exchange_c
         var i: usize = 0;
         while (i < exchange_count) : (i += 1) {
             const out = try DhKeyExchange.scalarmult(secret, public);
-            mem.copy(u8, secret[0..16], out[0..16]);
-            mem.copy(u8, public[0..16], out[16..32]);
+            secret[0..16].* = out[0..16].*;
+            public[0..16].* = out[16..32].*;
             mem.doNotOptimizeAway(&out);
         }
     }

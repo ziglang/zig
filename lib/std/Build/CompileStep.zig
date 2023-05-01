@@ -69,6 +69,7 @@ disable_stack_probing: bool,
 disable_sanitize_c: bool,
 sanitize_thread: bool,
 rdynamic: bool,
+dwarf_format: ?std.dwarf.Format = null,
 import_memory: bool = false,
 /// For WebAssembly targets, this will allow for undefined symbols to
 /// be imported from the host environment.
@@ -1138,7 +1139,7 @@ fn appendModuleArgs(
         // We'll use this buffer to store the name we decide on
         var buf = try b.allocator.alloc(u8, dep.name.len + 32);
         // First, try just the exposed dependency name
-        std.mem.copy(u8, buf, dep.name);
+        @memcpy(buf[0..dep.name.len], dep.name);
         var name = buf[0..dep.name.len];
         var n: usize = 0;
         while (names.contains(name)) {
@@ -1449,6 +1450,13 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
 
     try addFlag(&zig_args, "strip", self.strip);
     try addFlag(&zig_args, "unwind-tables", self.unwind_tables);
+
+    if (self.dwarf_format) |dwarf_format| {
+        try zig_args.append(switch (dwarf_format) {
+            .@"32" => "-gdwarf32",
+            .@"64" => "-gdwarf64",
+        });
+    }
 
     switch (self.compress_debug_sections) {
         .none => {},

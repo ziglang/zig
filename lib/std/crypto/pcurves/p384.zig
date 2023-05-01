@@ -105,7 +105,7 @@ pub const P384 = struct {
         var out: [49]u8 = undefined;
         const xy = p.affineCoordinates();
         out[0] = if (xy.y.isOdd()) 3 else 2;
-        mem.copy(u8, out[1..], &xy.x.toBytes(.Big));
+        out[1..].* = xy.x.toBytes(.Big);
         return out;
     }
 
@@ -114,8 +114,8 @@ pub const P384 = struct {
         var out: [97]u8 = undefined;
         out[0] = 4;
         const xy = p.affineCoordinates();
-        mem.copy(u8, out[1..49], &xy.x.toBytes(.Big));
-        mem.copy(u8, out[49..97], &xy.y.toBytes(.Big));
+        out[1..49].* = xy.x.toBytes(.Big);
+        out[49..97].* = xy.y.toBytes(.Big);
         return out;
     }
 
@@ -473,6 +473,8 @@ pub const AffineCoordinates = struct {
     }
 };
 
-test "p384" {
+test {
+    if (@import("builtin").zig_backend == .stage2_c) return error.SkipZigTest;
+
     _ = @import("tests/p384.zig");
 }

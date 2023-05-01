@@ -360,11 +360,10 @@ pub fn MultiArrayList(comptime T: type) type {
                     if (@sizeOf(field_info.type) != 0) {
                         const field = @intToEnum(Field, i);
                         const dest_slice = self_slice.items(field)[new_len..];
-                        const byte_count = dest_slice.len * @sizeOf(field_info.type);
                         // We use memset here for more efficient codegen in safety-checked,
                         // valgrind-enabled builds. Otherwise the valgrind client request
                         // will be repeated for every element.
-                        @memset(@ptrCast([*]u8, dest_slice.ptr), undefined, byte_count);
+                        @memset(dest_slice, undefined);
                     }
                 }
                 self.len = new_len;
@@ -381,7 +380,7 @@ pub fn MultiArrayList(comptime T: type) type {
             inline for (fields, 0..) |field_info, i| {
                 if (@sizeOf(field_info.type) != 0) {
                     const field = @intToEnum(Field, i);
-                    mem.copy(field_info.type, other_slice.items(field), self_slice.items(field));
+                    @memcpy(other_slice.items(field), self_slice.items(field));
                 }
             }
             gpa.free(self.allocatedBytes());
@@ -442,7 +441,7 @@ pub fn MultiArrayList(comptime T: type) type {
             inline for (fields, 0..) |field_info, i| {
                 if (@sizeOf(field_info.type) != 0) {
                     const field = @intToEnum(Field, i);
-                    mem.copy(field_info.type, other_slice.items(field), self_slice.items(field));
+                    @memcpy(other_slice.items(field), self_slice.items(field));
                 }
             }
             gpa.free(self.allocatedBytes());
@@ -461,7 +460,7 @@ pub fn MultiArrayList(comptime T: type) type {
             inline for (fields, 0..) |field_info, i| {
                 if (@sizeOf(field_info.type) != 0) {
                     const field = @intToEnum(Field, i);
-                    mem.copy(field_info.type, result_slice.items(field), self_slice.items(field));
+                    @memcpy(result_slice.items(field), self_slice.items(field));
                 }
             }
             return result;

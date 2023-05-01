@@ -1422,7 +1422,8 @@ fn foo() i32 {
 
       {#header_open|Thread Local Variables#}
       <p>A variable may be specified to be a thread-local variable using the
-      {#syntax#}threadlocal{#endsyntax#} keyword:</p>
+      {#syntax#}threadlocal{#endsyntax#} keyword,
+      which makes each thread work with a separate instance of the variable:</p>
       {#code_begin|test|test_thread_local_variables#}
 const std = @import("std");
 const assert = std.debug.assert;
@@ -4278,7 +4279,7 @@ const expectError = std.testing.expectError;
 fn isFieldOptional(comptime T: type, field_index: usize) !bool {
     const fields = @typeInfo(T).Struct.fields;
     return switch (field_index) {
-        // This prong is analyzed `fields.len - 1` times with `idx` being an
+        // This prong is analyzed `fields.len - 1` times with `idx` being a
         // unique comptime-known value each time.
         inline 0...fields.len - 1 => |idx| @typeInfo(fields[idx].type) == .Optional,
         else => return error.IndexOutOfBounds,
@@ -4667,6 +4668,29 @@ test "for basics" {
         sum2 += @intCast(i32, i);
     }
     try expect(sum2 == 10);
+
+    // To iterate over consecutive integers, use the range syntax.
+    // Unbounded range is always a compile error.
+    var sum3 : usize = 0;
+    for (0..5) |i| {
+        sum3 += i;
+    }
+    try expect(sum3 == 10);
+}
+
+test "multi object for" {
+    const items = [_]usize{ 1, 2, 3 };
+    const items2 = [_]usize{ 4, 5, 6 };
+    var count: usize = 0;
+
+    // Iterate over multiple objects.
+    // All lengths must be equal at the start of the loop, otherwise detectable
+    // illegal behavior occurs.
+    for (items, items2) |i, j| {
+        count += i + j;
+    }
+
+    try expect(count == 21);
 }
 
 test "for reference" {
@@ -4710,8 +4734,8 @@ const expect = std.testing.expect;
 
 test "nested break" {
     var count: usize = 0;
-    outer: for ([_]i32{ 1, 2, 3, 4, 5 }) |_| {
-        for ([_]i32{ 1, 2, 3, 4, 5 }) |_| {
+    outer: for (1..6) |_| {
+        for (1..6) |_| {
             count += 1;
             break :outer;
         }
@@ -4721,8 +4745,8 @@ test "nested break" {
 
 test "nested continue" {
     var count: usize = 0;
-    outer: for ([_]i32{ 1, 2, 3, 4, 5, 6, 7, 8 }) |_| {
-        for ([_]i32{ 1, 2, 3, 4, 5 }) |_| {
+    outer: for (1..9) |_| {
+        for (1..6) |_| {
             count += 1;
             continue :outer;
         }
@@ -8017,7 +8041,7 @@ pub const CallModifier = enum {
       <p>{#syntax#}@TypeOf(operand){#endsyntax#} must be an integer type or an integer vector type.</p>
       <p>{#syntax#}operand{#endsyntax#} may be an {#link|integer|Integers#} or {#link|vector|Vectors#}.</p>
       <p>
-      This function counts the number of most-significant (leading in a big-Endian sense) zeroes in an integer.
+      Counts the number of most-significant (leading in a big-endian sense) zeroes in an integer - "count leading zeroes".
       </p>
       <p>
       If {#syntax#}operand{#endsyntax#} is a {#link|comptime#}-known integer,
@@ -8167,7 +8191,7 @@ test "main" {
       <p>{#syntax#}@TypeOf(operand){#endsyntax#} must be an integer type or an integer vector type.</p>
       <p>{#syntax#}operand{#endsyntax#} may be an {#link|integer|Integers#} or {#link|vector|Vectors#}.</p>
       <p>
-      This function counts the number of least-significant (trailing in a big-Endian sense) zeroes in an integer.
+      Counts the number of least-significant (trailing in a big-endian sense) zeroes in an integer - "count trailing zeroes".
       </p>
       <p>
       If {#syntax#}operand{#endsyntax#} is a {#link|comptime#}-known integer,
@@ -8553,14 +8577,25 @@ test "@hasDecl" {
       </p>
       <ul>
           <li>{#syntax#}@import("std"){#endsyntax#} - Zig Standard Library</li>
-          <li>{#syntax#}@import("builtin"){#endsyntax#} - Target-specific information.
+          <li>{#syntax#}@import("builtin"){#endsyntax#} - Target-specific information
               The command <code>zig build-exe --show-builtin</code> outputs the source to stdout for reference.
           </li>
-          <li>{#syntax#}@import("root"){#endsyntax#} - Points to the root source file.
-              This is usually <code>src/main.zig</code> but it depends on what file is chosen to be built.
+          <li>{#syntax#}@import("root"){#endsyntax#} - Root source file
+              This is usually <code>src/main.zig</code> but depends on what file is built.
           </li>
       </ul>
       {#see_also|Compile Variables|@embedFile#}
+      {#header_close#}
+
+      {#header_open|@inComptime#}
+      <pre>{#syntax#}@inComptime() bool{#endsyntax#}</pre>
+      <p>
+      Returns whether the builtin was run in a {#syntax#}comptime{#endsyntax#} context. The result is a compile-time constant.
+      </p>
+      <p>
+      This can be used to provide alternative, comptime-friendly implementations of functions. It should not be used, for instance, to exclude certain functions from being evaluated at comptime.
+      </p>
+      {#see_also|comptime#}
       {#header_close#}
 
       {#header_open|@intCast#}
@@ -8646,40 +8681,30 @@ test "integer cast panic" {
       {#header_close#}
 
       {#header_open|@memcpy#}
-      <pre>{#syntax#}@memcpy(noalias dest: [*]u8, noalias source: [*]const u8, byte_count: usize) void{#endsyntax#}</pre>
-      <p>
-      This function copies bytes from one region of memory to another. {#syntax#}dest{#endsyntax#} and
-          {#syntax#}source{#endsyntax#} are both pointers and must not overlap.
-      </p>
-      <p>
-      This function is a low level intrinsic with no safety mechanisms. Most code
-      should not use this function, instead using something like this:
-      </p>
-      <pre>{#syntax#}for (dest, source[0..byte_count]) |*d, s| d.* = s;{#endsyntax#}</pre>
-      <p>
-      The optimizer is intelligent enough to turn the above snippet into a memcpy.
-      </p>
-      <p>There is also a standard library function for this:</p>
-      <pre>{#syntax#}const mem = @import("std").mem;
-mem.copy(u8, dest[0..byte_count], source[0..byte_count]);{#endsyntax#}</pre>
+      <pre>{#syntax#}@memcpy(noalias dest, noalias source) void{#endsyntax#}</pre>
+      <p>This function copies bytes from one region of memory to another.</p>
+      <p>{#syntax#}dest{#endsyntax#} must be a mutable slice, a mutable pointer to an array, or
+        a mutable many-item {#link|pointer|Pointers#}. It may have any
+        alignment, and it may have any element type.</p>
+      <p>Likewise, {#syntax#}source{#endsyntax#} must be a mutable slice, a
+        mutable pointer to an array, or a mutable many-item
+        {#link|pointer|Pointers#}. It may have any alignment, and it may have any
+        element type.</p>
+      <p>The {#syntax#}source{#endsyntax#} element type must support {#link|Type Coercion#}
+        into the {#syntax#}dest{#endsyntax#} element type. The element types may have
+        different ABI size, however, that may incur a performance penalty.</p>
+      <p>Similar to {#link|for#} loops, at least one of {#syntax#}source{#endsyntax#} and
+        {#syntax#}dest{#endsyntax#} must provide a length, and if two lengths are provided,
+        they must be equal.</p>
+      <p>Finally, the two memory regions must not overlap.</p>
       {#header_close#}
 
       {#header_open|@memset#}
-      <pre>{#syntax#}@memset(dest: [*]u8, c: u8, byte_count: usize) void{#endsyntax#}</pre>
-      <p>
-      This function sets a region of memory to {#syntax#}c{#endsyntax#}. {#syntax#}dest{#endsyntax#} is a pointer.
-      </p>
-      <p>
-      This function is a low level intrinsic with no safety mechanisms. Most
-      code should not use this function, instead using something like this:
-      </p>
-      <pre>{#syntax#}for (dest[0..byte_count]) |*b| b.* = c;{#endsyntax#}</pre>
-      <p>
-      The optimizer is intelligent enough to turn the above snippet into a memset.
-      </p>
-      <p>There is also a standard library function for this:</p>
-      <pre>{#syntax#}const mem = @import("std").mem;
-mem.set(u8, dest, c);{#endsyntax#}</pre>
+      <pre>{#syntax#}@memset(dest, elem) void{#endsyntax#}</pre>
+      <p>This function sets all the elements of a memory region to {#syntax#}elem{#endsyntax#}.</p>
+      <p>{#syntax#}dest{#endsyntax#} must be a mutable slice or a mutable pointer to an array.
+      It may have any alignment, and it may have any element type.</p>
+      <p>{#syntax#}elem{#endsyntax#} is coerced to the element type of {#syntax#}dest{#endsyntax#}.</p>
       {#header_close#}
 
       {#header_open|@min#}
@@ -8780,7 +8805,9 @@ test "@wasmMemoryGrow" {
       <pre>{#syntax#}@popCount(operand: anytype) anytype{#endsyntax#}</pre>
       <p>{#syntax#}@TypeOf(operand){#endsyntax#} must be an integer type.</p>
       <p>{#syntax#}operand{#endsyntax#} may be an {#link|integer|Integers#} or {#link|vector|Vectors#}.</p>
-      <p>Counts the number of bits set in an integer.</p>
+      <p>
+      Counts the number of bits set in an integer - "population count".
+      </p>
       <p>
       If {#syntax#}operand{#endsyntax#} is a {#link|comptime#}-known integer,
       the return type is {#syntax#}comptime_int{#endsyntax#}.
@@ -8812,6 +8839,8 @@ test "@wasmMemoryGrow" {
 pub const PrefetchOptions = struct {
     /// Whether the prefetch should prepare for a read or a write.
     rw: Rw = .read,
+    /// The data's locality in an inclusive range from 0 to 3.
+    ///
     /// 0 means no temporal locality. That is, the data can be immediately
     /// dropped from the cache after it is accessed.
     ///
@@ -8821,12 +8850,12 @@ pub const PrefetchOptions = struct {
     /// The cache that the prefetch should be preformed on.
     cache: Cache = .data,
 
-    pub const Rw = enum {
+    pub const Rw = enum(u1) {
         read,
         write,
     };
 
-    pub const Cache = enum {
+    pub const Cache = enum(u1) {
         instruction,
         data,
     };
@@ -10948,7 +10977,7 @@ pub const MAKELOCAL = @compileError("unable to translate C expr: unexpected toke
       </p>
       <p>{#syntax#}[*c]T{#endsyntax#} - C pointer.</p>
       <ul>
-        <li>Supports all the syntax of the other two pointer types.</li>
+        <li>Supports all the syntax of the other two pointer types ({#syntax#}*T{#endsyntax#}) and ({#syntax#}[*]T{#endsyntax#}).</li>
         <li>Coerces to other pointer types, as well as {#link|Optional Pointers#}.
             When a C pointer is coerced to a non-optional pointer, safety-checked
             {#link|Undefined Behavior#} occurs if the address is 0.
@@ -11963,6 +11992,17 @@ fn readU32Be() u32 {}
             The {#syntax#}noalias{#endsyntax#} keyword.
             <ul>
               <li>TODO add documentation for noalias</li>
+            </ul>
+          </td>
+        </tr>
+        <tr>
+          <th scope="row">
+            <pre>{#syntax#}noinline{#endsyntax#}</pre>
+          </th>
+          <td>
+            {#syntax#}noinline{#endsyntax#} disallows function to be inlined in all call sites.
+            <ul>
+              <li>See also {#link|Functions#}</li>
             </ul>
           </td>
         </tr>

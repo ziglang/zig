@@ -91,7 +91,7 @@ test "structs" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     var foo: StructFoo = undefined;
-    @memset(@ptrCast([*]u8, &foo), 0, @sizeOf(StructFoo));
+    @memset(@ptrCast([*]u8, &foo)[0..@sizeOf(StructFoo)], 0);
     foo.a += 1;
     foo.b = foo.a == 1;
     try testFoo(foo);
@@ -498,7 +498,7 @@ test "packed struct fields are ordered from LSB to MSB" {
 
     var all: u64 = 0x7765443322221111;
     var bytes: [8]u8 align(@alignOf(Bitfields)) = undefined;
-    @memcpy(&bytes, @ptrCast([*]u8, &all), 8);
+    @memcpy(bytes[0..8], @ptrCast([*]u8, &all));
     var bitfields = @ptrCast(*Bitfields, &bytes).*;
 
     try expect(bitfields.f1 == 0x1111);

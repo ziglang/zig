@@ -256,6 +256,9 @@ pub const Value = opaque {
 
     pub const addByValAttr = ZigLLVMAddByValAttr;
     extern fn ZigLLVMAddByValAttr(Fn: *Value, ArgNo: c_uint, type: *Type) void;
+
+    pub const attachMetaData = ZigLLVMAttachMetaData;
+    extern fn ZigLLVMAttachMetaData(GlobalVar: *Value, DIG: *DIGlobalVariableExpression) void;
 };
 
 pub const Type = opaque {
@@ -406,7 +409,7 @@ pub const Module = opaque {
     extern fn LLVMSetTarget(M: *Module, Triple: [*:0]const u8) void;
 
     pub const addModuleDebugInfoFlag = ZigLLVMAddModuleDebugInfoFlag;
-    extern fn ZigLLVMAddModuleDebugInfoFlag(module: *Module) void;
+    extern fn ZigLLVMAddModuleDebugInfoFlag(module: *Module, dwarf64: bool) void;
 
     pub const addModuleCodeViewFlag = ZigLLVMAddModuleCodeViewFlag;
     extern fn ZigLLVMAddModuleCodeViewFlag(module: *Module) void;
@@ -1433,6 +1436,8 @@ pub const AtomicRMWBinOp = enum(c_int) {
     UMin,
     FAdd,
     FSub,
+    FMax,
+    FMin,
 };
 
 pub const TypeKind = enum(c_int) {
@@ -1588,6 +1593,7 @@ pub const address_space = struct {
 pub const DIEnumerator = opaque {};
 pub const DILocalVariable = opaque {};
 pub const DILocation = opaque {};
+pub const DIGlobalExpression = opaque {};
 
 pub const DIGlobalVariable = opaque {
     pub const toNode = ZigLLVMGlobalVariableToNode;
@@ -1595,6 +1601,13 @@ pub const DIGlobalVariable = opaque {
 
     pub const replaceLinkageName = ZigLLVMGlobalVariableReplaceLinkageName;
     extern fn ZigLLVMGlobalVariableReplaceLinkageName(global_variable: *DIGlobalVariable, linkage_name: *MDString) void;
+};
+pub const DIGlobalVariableExpression = opaque {
+    pub const getVariable = ZigLLVMGlobalGetVariable;
+    extern fn ZigLLVMGlobalGetVariable(global_variable: *DIGlobalVariableExpression) *DIGlobalVariable;
+
+    pub const getExpression = ZigLLVMGlobalGetExpression;
+    extern fn ZigLLVMGlobalGetExpression(global_variable: *DIGlobalVariableExpression) *DIGlobalExpression;
 };
 pub const DIType = opaque {
     pub const toScope = ZigLLVMTypeToScope;
@@ -1803,8 +1816,8 @@ pub const DIBuilder = opaque {
         flags: c_uint,
     ) *DILocalVariable;
 
-    pub const createGlobalVariable = ZigLLVMCreateGlobalVariable;
-    extern fn ZigLLVMCreateGlobalVariable(
+    pub const createGlobalVariableExpression = ZigLLVMCreateGlobalVariableExpression;
+    extern fn ZigLLVMCreateGlobalVariableExpression(
         dib: *DIBuilder,
         scope: *DIScope,
         name: [*:0]const u8,
@@ -1813,7 +1826,7 @@ pub const DIBuilder = opaque {
         line_no: c_uint,
         di_type: *DIType,
         is_local_to_unit: bool,
-    ) *DIGlobalVariable;
+    ) *DIGlobalVariableExpression;
 
     pub const createParameterVariable = ZigLLVMCreateParameterVariable;
     extern fn ZigLLVMCreateParameterVariable(

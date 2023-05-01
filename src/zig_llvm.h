@@ -34,7 +34,9 @@ struct ZigLLVMDILexicalBlock;
 struct ZigLLVMDISubprogram;
 struct ZigLLVMDISubroutineType;
 struct ZigLLVMDILocalVariable;
+struct ZigLLVMDIGlobalVariableExpression;
 struct ZigLLVMDIGlobalVariable;
+struct ZigLLVMDIGlobalExpression;
 struct ZigLLVMDILocation;
 struct ZigLLVMDIEnumerator;
 struct ZigLLVMInsertionPoint;
@@ -236,7 +238,7 @@ ZIG_EXTERN_C unsigned ZigLLVMTag_DW_union_type(void);
 
 ZIG_EXTERN_C struct ZigLLVMDIBuilder *ZigLLVMCreateDIBuilder(LLVMModuleRef module, bool allow_unresolved);
 ZIG_EXTERN_C void ZigLLVMDisposeDIBuilder(struct ZigLLVMDIBuilder *dbuilder);
-ZIG_EXTERN_C void ZigLLVMAddModuleDebugInfoFlag(LLVMModuleRef module);
+ZIG_EXTERN_C void ZigLLVMAddModuleDebugInfoFlag(LLVMModuleRef module, bool produce_dwarf64);
 ZIG_EXTERN_C void ZigLLVMAddModuleCodeViewFlag(LLVMModuleRef module);
 ZIG_EXTERN_C void ZigLLVMSetModulePICLevel(LLVMModuleRef module);
 ZIG_EXTERN_C void ZigLLVMSetModulePIELevel(LLVMModuleRef module);
@@ -271,7 +273,7 @@ ZIG_EXTERN_C struct ZigLLVMDILocalVariable *ZigLLVMCreateAutoVariable(struct Zig
         struct ZigLLVMDIScope *scope, const char *name, struct ZigLLVMDIFile *file, unsigned line_no,
         struct ZigLLVMDIType *type, bool always_preserve, unsigned flags);
 
-ZIG_EXTERN_C struct ZigLLVMDIGlobalVariable *ZigLLVMCreateGlobalVariable(struct ZigLLVMDIBuilder *dbuilder,
+ZIG_EXTERN_C struct ZigLLVMDIGlobalVariableExpression *ZigLLVMCreateGlobalVariableExpression(struct ZigLLVMDIBuilder *dbuilder,
     struct ZigLLVMDIScope *scope, const char *name, const char *linkage_name, struct ZigLLVMDIFile *file,
     unsigned line_no, struct ZigLLVMDIType *di_type, bool is_local_to_unit);
 
@@ -333,6 +335,10 @@ ZIG_EXTERN_C void ZigLLVMAddFunctionElemTypeAttr(LLVMValueRef fn_ref, size_t arg
 ZIG_EXTERN_C void ZigLLVMAddFunctionAttrCold(LLVMValueRef fn);
 
 ZIG_EXTERN_C void ZigLLVMParseCommandLineOptions(size_t argc, const char *const *argv);
+
+ZIG_EXTERN_C ZigLLVMDIGlobalVariable* ZigLLVMGlobalGetVariable(ZigLLVMDIGlobalVariableExpression *global_variable_expression);
+ZIG_EXTERN_C ZigLLVMDIGlobalExpression* ZigLLVMGlobalGetExpression(ZigLLVMDIGlobalVariableExpression *global_variable_expression);
+ZIG_EXTERN_C void ZigLLVMAttachMetaData(LLVMValueRef Val, ZigLLVMDIGlobalVariableExpression *global_variable_expression);
 
 
 // synchronize with llvm/include/ADT/Triple.h::ArchType

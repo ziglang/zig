@@ -7,7 +7,6 @@ var x: u8 = 1;
 // This excludes builtin functions that return void or noreturn that cannot be tested.
 test {
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
@@ -18,8 +17,8 @@ test {
     try testing.expectEqual(void, @TypeOf(@breakpoint()));
     try testing.expectEqual({}, @export(x, .{ .name = "x" }));
     try testing.expectEqual({}, @fence(.Acquire));
-    try testing.expectEqual({}, @memcpy(@intToPtr([*]u8, 1), @intToPtr([*]u8, 1), 0));
-    try testing.expectEqual({}, @memset(@intToPtr([*]u8, 1), undefined, 0));
+    try testing.expectEqual({}, @memcpy(@intToPtr([*]u8, 1)[0..0], @intToPtr([*]u8, 1)[0..0]));
+    try testing.expectEqual({}, @memset(@intToPtr([*]u8, 1)[0..0], undefined));
     try testing.expectEqual(noreturn, @TypeOf(if (true) @panic("") else {}));
     try testing.expectEqual({}, @prefetch(&val, .{}));
     try testing.expectEqual({}, @setAlignStack(16));

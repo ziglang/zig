@@ -261,7 +261,7 @@ const FutexImpl = struct {
             const signals = (state & signal_mask) / one_signal;
 
             // Reserves which waiters to wake up by incrementing the signals count.
-            // Therefor, the signals count is always less than or equal to the waiters count.
+            // Therefore, the signals count is always less than or equal to the waiters count.
             // We don't need to Futex.wake if there's nothing to wake up or if other wake() threads have reserved to wake up the current waiters.
             const wakeable = waiters - signals;
             if (wakeable == 0) {
@@ -330,10 +330,12 @@ test "Condition - wait and signal" {
         mutex: Mutex = .{},
         cond: Condition = .{},
         threads: [num_threads]std.Thread = undefined,
+        spawn_count: std.math.IntFittingRange(0, num_threads) = 0,
 
         fn run(self: *@This()) void {
             self.mutex.lock();
             defer self.mutex.unlock();
+            self.spawn_count += 1;
 
             self.cond.wait(&self.mutex);
             self.cond.timedWait(&self.mutex, std.time.ns_per_ms) catch {};
@@ -346,7 +348,14 @@ test "Condition - wait and signal" {
         t.* = try std.Thread.spawn(.{}, MultiWait.run, .{&multi_wait});
     }
 
-    std.time.sleep(100 * std.time.ns_per_ms);
+    while (true) {
+        std.time.sleep(100 * std.time.ns_per_ms);
+
+        multi_wait.mutex.lock();
+        defer multi_wait.mutex.unlock();
+        // Make sure all of the threads have finished spawning to avoid a deadlock.
+        if (multi_wait.spawn_count == num_threads) break;
+    }
 
     multi_wait.cond.signal();
     for (multi_wait.threads) |t| {
@@ -367,10 +376,12 @@ test "Condition - signal" {
         cond: Condition = .{},
         notified: bool = false,
         threads: [num_threads]std.Thread = undefined,
+        spawn_count: std.math.IntFittingRange(0, num_threads) = 0,
 
         fn run(self: *@This()) void {
             self.mutex.lock();
             defer self.mutex.unlock();
+            self.spawn_count += 1;
 
             // Use timedWait() a few times before using wait()
             // to test multiple threads timing out frequently.
@@ -394,10 +405,16 @@ test "Condition - signal" {
         t.* = try std.Thread.spawn(.{}, SignalTest.run, .{&signal_test});
     }
 
-    {
-        // Wait for a bit in hopes that the spawned threads start queuing up on the condvar
+    while (true) {
         std.time.sleep(10 * std.time.ns_per_ms);
 
+        signal_test.mutex.lock();
+        defer signal_test.mutex.unlock();
+        // Make sure at least one thread has finished spawning to avoid testing nothing.
+        if (signal_test.spawn_count > 0) break;
+    }
+
+    {
         // Wake up one of them (outside the lock) after setting notified=true.
         defer signal_test.cond.signal();
 

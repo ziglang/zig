@@ -3956,4 +3956,165 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    .name = "foo",
         \\});
     });
+
+    cases.add("string array initializer",
+        \\static const char foo[] = {"bar"};
+    , &[_][]const u8{
+        \\pub const foo: [3:0]u8 = "bar";
+    });
+
+    cases.add("worst-case assign from mangle prefix",
+        \\void foo() {
+        \\    int n, tmp = 1;
+        \\    if (n = tmp) {}
+        \\}
+    , &[_][]const u8{
+        \\pub export fn foo() void {
+        \\    var n: c_int = undefined;
+        \\    var tmp: c_int = 1;
+        \\    if ((blk: {
+        \\        const tmp_1 = tmp;
+        \\        n = tmp_1;
+        \\        break :blk tmp_1;
+        \\    }) != 0) {}
+        \\}
+    });
+
+    cases.add("worst-case assign to mangle prefix",
+        \\void foo() {
+        \\    int tmp, n = 1;
+        \\    if (tmp = n) {}
+        \\}
+    , &[_][]const u8{
+        \\pub export fn foo() void {
+        \\    var tmp: c_int = undefined;
+        \\    var n: c_int = 1;
+        \\    if ((blk: {
+        \\        const tmp_1 = n;
+        \\        tmp = tmp_1;
+        \\        break :blk tmp_1;
+        \\    }) != 0) {}
+        \\}
+    });
+
+    cases.add("worst-case precrement mangle prefix",
+        \\void foo() {
+        \\    int n, ref = 1;
+        \\    if (n = ++ref) {}
+        \\}
+    , &[_][]const u8{
+        \\pub export fn foo() void {
+        \\    var n: c_int = undefined;
+        \\    var ref: c_int = 1;
+        \\    if ((blk: {
+        \\        const tmp = blk_1: {
+        \\            const ref_2 = &ref;
+        \\            ref_2.* += 1;
+        \\            break :blk_1 ref_2.*;
+        \\        };
+        \\        n = tmp;
+        \\        break :blk tmp;
+        \\    }) != 0) {}
+        \\}
+    });
+
+    cases.add("worst-case postcrement mangle prefix",
+        \\void foo() {
+        \\    int n, ref = 1;
+        \\    if (n = ref++) {}
+        \\}
+    , &[_][]const u8{
+        \\pub export fn foo() void {
+        \\    var n: c_int = undefined;
+        \\    var ref: c_int = 1;
+        \\    if ((blk: {
+        \\        const tmp = blk_1: {
+        \\            const ref_2 = &ref;
+        \\            const tmp_3 = ref_2.*;
+        \\            ref_2.* += 1;
+        \\            break :blk_1 tmp_3;
+        \\        };
+        \\        n = tmp;
+        \\        break :blk tmp;
+        \\    }) != 0) {}
+        \\}
+    });
+
+    cases.add("worst-case compound assign from mangle prefix",
+        \\void foo() {
+        \\    int n, ref = 1;
+        \\    if (n += ref) {}
+        \\}
+    , &[_][]const u8{
+        \\pub export fn foo() void {
+        \\    var n: c_int = undefined;
+        \\    var ref: c_int = 1;
+        \\    if ((blk: {
+        \\        const ref_1 = &n;
+        \\        ref_1.* += ref;
+        \\        break :blk ref_1.*;
+        \\    }) != 0) {}
+        \\}
+    });
+
+    cases.add("worst-case compound assign to mangle prefix",
+        \\void foo() {
+        \\    int ref, n = 1;
+        \\    if (ref += n) {}
+        \\}
+    , &[_][]const u8{
+        \\pub export fn foo() void {
+        \\    var ref: c_int = undefined;
+        \\    var n: c_int = 1;
+        \\    if ((blk: {
+        \\        const ref_1 = &ref;
+        \\        ref_1.* += n;
+        \\        break :blk ref_1.*;
+        \\    }) != 0) {}
+        \\}
+    });
+
+    cases.add("binary conditional operator where condition is the mangle prefix",
+        \\void foo() {
+        \\    int f = 1;
+        \\    int n, cond_temp = 1;
+        \\    if (n = (cond_temp)?:(f)) {}
+        \\}
+    , &[_][]const u8{
+        \\pub export fn foo() void {
+        \\    var f: c_int = 1;
+        \\    var n: c_int = undefined;
+        \\    var cond_temp: c_int = 1;
+        \\    if ((blk: {
+        \\        const tmp = blk_1: {
+        \\            const cond_temp_2 = cond_temp;
+        \\            break :blk_1 if (cond_temp_2 != 0) cond_temp_2 else f;
+        \\        };
+        \\        n = tmp;
+        \\        break :blk tmp;
+        \\    }) != 0) {}
+        \\}
+    });
+
+    cases.add("binary conditional operator where false_expr is the mangle prefix",
+        \\void foo() {
+        \\    int cond_temp = 1;
+        \\    int n, f = 1;
+        \\    if (n = (f)?:(cond_temp)) {}
+        \\}
+    , &[_][]const u8{
+        \\pub export fn foo() void {
+        \\    var cond_temp: c_int = 1;
+        \\    var n: c_int = undefined;
+        \\    var f: c_int = 1;
+        \\    if ((blk: {
+        \\        const tmp = blk_1: {
+        \\            const cond_temp_2 = f;
+        \\            break :blk_1 if (cond_temp_2 != 0) cond_temp_2 else cond_temp;
+        \\        };
+        \\        n = tmp;
+        \\        break :blk tmp;
+        \\    }) != 0) {}
+        \\}
+    });
 }

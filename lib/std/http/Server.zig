@@ -128,7 +128,7 @@ pub const BufferedConnection = struct {
             if (available > 0) {
                 const can_read = @truncate(u16, @min(available, left));
 
-                std.mem.copy(u8, buffer[out_index..], bconn.buf[bconn.start..][0..can_read]);
+                @memcpy(buffer[out_index..][0..can_read], bconn.buf[bconn.start..][0..can_read]);
                 out_index += can_read;
                 bconn.start += can_read;
 
@@ -336,8 +336,15 @@ pub const Response = struct {
     headers: http.Headers,
     request: Request,
 
+    pub fn deinit(res: *Response) void {
+        res.server.allocator.destroy(res);
+    }
+
     /// Reset this response to its initial state. This must be called before handling a second request on the same connection.
     pub fn reset(res: *Response) void {
+        res.request.headers.deinit();
+        res.headers.deinit();
+
         switch (res.request.compression) {
             .none => {},
             .deflate => |*deflate| deflate.deinit(),
@@ -356,8 +363,6 @@ pub const Response = struct {
             if (res.request.parser.header_bytes_owned) {
                 res.request.parser.header_bytes.deinit(res.server.allocator);
             }
-
-            res.* = undefined;
         } else {
             res.request.parser.reset();
         }
@@ -501,7 +506,7 @@ pub const Response = struct {
         }
     }
 
-    pub const ReadError = TransferReadError || proto.HeadersParser.CheckCompleteHeadError || error{DecompressionFailure};
+    pub const ReadError = TransferReadError || proto.HeadersParser.CheckCompleteHeadError || error{ DecompressionFailure, InvalidTrailers };
 
     pub const Reader = std.io.Reader(*Response, ReadError, read);
 
@@ -655,4 +660,75 @@ pub fn accept(server: *Server, options: HeaderStrategy) AcceptError!*Response {
     };
 
     return res;
+}
+
+test "HTTP server handles a chunked transfer coding request" {
+    const builtin = @import("builtin");
+
+    // This test requires spawning threads.
+    if (builtin.single_threaded) {
+        return error.SkipZigTest;
+    }
+
+    const native_endian = comptime builtin.cpu.arch.endian();
+    if (builtin.zig_backend == .stage2_llvm and native_endian == .Big) {
+        // https://github.com/ziglang/zig/issues/13782
+        return error.SkipZigTest;
+    }
+
+    if (builtin.os.tag == .wasi) return error.SkipZigTest;
+
+    const allocator = std.testing.allocator;
+    const expect = std.testing.expect;
+
+    const max_header_size = 8192;
+    var server = std.http.Server.init(allocator, .{ .reuse_address = true });
+    defer server.deinit();
+
+    const address = try std.net.Address.parseIp("127.0.0.1", 0);
+    try server.listen(address);
+    const server_port = server.socket.listen_address.in.getPort();
+
+    const server_thread = try std.Thread.spawn(.{}, (struct {
+        fn apply(s: *std.http.Server) !void {
+            const res = try s.accept(.{ .dynamic = max_header_size });
+            defer res.deinit();
+            defer res.reset();
+            try res.wait();
+
+            try expect(res.request.transfer_encoding.? == .chunked);
+
+            const server_body: []const u8 = "message from server!\n";
+            res.transfer_encoding = .{ .content_length = server_body.len };
+            try res.headers.append("content-type", "text/plain");
+            try res.headers.append("connection", "close");
+            try res.do();
+
+            var buf: [128]u8 = undefined;
+            const n = try res.readAll(&buf);
+            try expect(std.mem.eql(u8, buf[0..n], "ABCD"));
+            _ = try res.writer().writeAll(server_body);
+            try res.finish();
+        }
+    }).apply, .{&server});
+
+    const request_bytes =
+        "POST / HTTP/1.1\r\n" ++
+        "Content-Type: text/plain\r\n" ++
+        "Transfer-Encoding: chunked\r\n" ++
+        "\r\n" ++
+        "1\r\n" ++
+        "A\r\n" ++
+        "1\r\n" ++
+        "B\r\n" ++
+        "2\r\n" ++
+        "CD\r\n" ++
+        "0\r\n" ++
+        "\r\n";
+
+    const stream = try std.net.tcpConnectToHost(allocator, "127.0.0.1", server_port);
+    defer stream.close();
+    _ = try stream.writeAll(request_bytes[0..]);
+
+    server_thread.join();
 }

@@ -309,11 +309,11 @@ test "base64 padding dest overflow" {
     const input = "foo";
 
     var expect: [128]u8 = undefined;
-    std.mem.set(u8, &expect, 0);
+    @memset(&expect, 0);
     _ = url_safe.Encoder.encode(expect[0..url_safe.Encoder.calcSize(input.len)], input);
 
     var got: [128]u8 = undefined;
-    std.mem.set(u8, &got, 0);
+    @memset(&got, 0);
     _ = url_safe.Encoder.encode(&got, input);
 
     try std.testing.expectEqualSlices(u8, &expect, &got);

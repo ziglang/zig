@@ -552,7 +552,7 @@ pub fn generateSymbol(
                             .ty = field_ty,
                             .val = field_val,
                         }, &tmp_list, debug_output, reloc_info)) {
-                            .ok => mem.copy(u8, code.items[current_pos..], tmp_list.items),
+                            .ok => @memcpy(code.items[current_pos..][0..tmp_list.items.len], tmp_list.items),
                             .fail => |em| return Result{ .fail = em },
                         }
                     } else {
@@ -1006,6 +1006,7 @@ fn genDeclRef(
     if (bin_file.cast(link.File.Elf)) |elf_file| {
         const atom_index = try elf_file.getOrCreateAtomForDecl(decl_index);
         const atom = elf_file.getAtom(atom_index);
+        _ = try atom.getOrCreateOffsetTableEntry(elf_file);
         return GenResult.mcv(.{ .memory = atom.getOffsetTableAddress(elf_file) });
     } else if (bin_file.cast(link.File.MachO)) |macho_file| {
         const atom_index = try macho_file.getOrCreateAtomForDecl(decl_index);

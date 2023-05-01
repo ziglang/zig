@@ -875,7 +875,7 @@ pub const Value = extern union {
             .repeated => {
                 const byte = @intCast(u8, val.castTag(.repeated).?.data.toUnsignedInt(target));
                 const result = try allocator.alloc(u8, @intCast(usize, ty.arrayLen()));
-                std.mem.set(u8, result, byte);
+                @memset(result, byte);
                 return result;
             },
             .decl_ref => {
@@ -1278,12 +1278,16 @@ pub const Value = extern union {
     ///
     /// Asserts that buffer.len >= ty.abiSize(). The buffer is allowed to extend past
     /// the end of the value in memory.
-    pub fn writeToMemory(val: Value, ty: Type, mod: *Module, buffer: []u8) error{ReinterpretDeclRef}!void {
+    pub fn writeToMemory(val: Value, ty: Type, mod: *Module, buffer: []u8) error{
+        ReinterpretDeclRef,
+        IllDefinedMemoryLayout,
+        Unimplemented,
+    }!void {
         const target = mod.getTarget();
         const endian = target.cpu.arch.endian();
         if (val.isUndef()) {
             const size = @intCast(usize, ty.abiSize(target));
-            std.mem.set(u8, buffer[0..size], 0xaa);
+            @memset(buffer[0..size], 0xaa);
             return;
         }
         switch (ty.zigTypeTag()) {
@@ -1345,7 +1349,7 @@ pub const Value = extern union {
                 return writeToPackedMemory(val, ty, mod, buffer[0..byte_count], 0);
             },
             .Struct => switch (ty.containerLayout()) {
-                .Auto => unreachable, // Sema is supposed to have emitted a compile error already
+                .Auto => return error.IllDefinedMemoryLayout,
                 .Extern => {
                     const fields = ty.structFields().values();
                     const field_vals = val.castTag(.aggregate).?.data;
@@ -1366,20 +1370,20 @@ pub const Value = extern union {
                 std.mem.writeInt(Int, buffer[0..@sizeOf(Int)], @intCast(Int, int), endian);
             },
             .Union => switch (ty.containerLayout()) {
-                .Auto => unreachable,
-                .Extern => @panic("TODO implement writeToMemory for extern unions"),
+                .Auto => return error.IllDefinedMemoryLayout,
+                .Extern => return error.Unimplemented,
                 .Packed => {
                     const byte_count = (@intCast(usize, ty.bitSize(target)) + 7) / 8;
                     return writeToPackedMemory(val, ty, mod, buffer[0..byte_count], 0);
                 },
             },
             .Pointer => {
-                assert(!ty.isSlice()); // No well defined layout.
+                if (ty.isSlice()) return error.IllDefinedMemoryLayout;
                 if (val.isDeclRef()) return error.ReinterpretDeclRef;
                 return val.writeToMemory(Type.usize, mod, buffer);
             },
             .Optional => {
-                assert(ty.isPtrLikeOptional());
+                if (!ty.isPtrLikeOptional()) return error.IllDefinedMemoryLayout;
                 var buf: Type.Payload.ElemType = undefined;
                 const child = ty.optionalChild(&buf);
                 const opt_val = val.optionalValue();
@@ -1389,7 +1393,7 @@ pub const Value = extern union {
                     return writeToMemory(Value.zero, Type.usize, mod, buffer);
                 }
             },
-            else => @panic("TODO implement writeToMemory for more types"),
+            else => return error.Unimplemented,
         }
     }
 
@@ -2785,6 +2789,7 @@ pub const Value = extern union {
             .field_ptr => isComptimeMutablePtr(val.castTag(.field_ptr).?.data.container_ptr),
             .eu_payload_ptr => isComptimeMutablePtr(val.castTag(.eu_payload_ptr).?.data.container_ptr),
             .opt_payload_ptr => isComptimeMutablePtr(val.castTag(.opt_payload_ptr).?.data.container_ptr),
+            .slice => isComptimeMutablePtr(val.castTag(.slice).?.data.ptr),
 
             else => false,
         };
@@ -3001,6 +3006,15 @@ pub const Value = extern union {
             .elem_ptr => {
                 const data = val.castTag(.elem_ptr).?.data;
                 return data.array_ptr.elemValueAdvanced(mod, index + data.index, arena, buffer);
+            },
+            .field_ptr => {
+                const data = val.castTag(.field_ptr).?.data;
+                if (data.container_ptr.pointerDecl()) |decl_index| {
+                    const container_decl = mod.declPtr(decl_index);
+                    const field_type = data.container_ty.structFieldType(data.field_index);
+                    const field_val = container_decl.val.fieldValue(field_type, data.field_index);
+                    return field_val.elemValueAdvanced(mod, index, arena, buffer);
+                } else unreachable;
             },
 
             // The child type of arrays which have only one possible value need
@@ -5370,6 +5384,36 @@ pub const Value = extern union {
             },
             else => unreachable,
         }
+    }
+
+    /// If the value is represented in-memory as a series of bytes that all
+    /// have the same value, return that byte value, otherwise null.
+    pub fn hasRepeatedByteRepr(val: Value, ty: Type, mod: *Module, value_buffer: *Payload.U64) !?Value {
+        const target = mod.getTarget();
+        const abi_size = std.math.cast(usize, ty.abiSize(target)) orelse return null;
+        assert(abi_size >= 1);
+        const byte_buffer = try mod.gpa.alloc(u8, abi_size);
+        defer mod.gpa.free(byte_buffer);
+
+        writeToMemory(val, ty, mod, byte_buffer) catch |err| switch (err) {
+            error.ReinterpretDeclRef => return null,
+            // TODO: The writeToMemory function was originally created for the purpose
+            // of comptime pointer casting. However, it is now additionally being used
+            // for checking the actual memory layout that will be generated by machine
+            // code late in compilation. So, this error handling is too aggressive and
+            // causes some false negatives, causing less-than-ideal code generation.
+            error.IllDefinedMemoryLayout => return null,
+            error.Unimplemented => return null,
+        };
+        const first_byte = byte_buffer[0];
+        for (byte_buffer[1..]) |byte| {
+            if (byte != first_byte) return null;
+        }
+        value_buffer.* = .{
+            .base = .{ .tag = .int_u64 },
+            .data = first_byte,
+        };
+        return initPayload(&value_buffer.base);
     }
 
     /// This type is not copyable since it may contain pointers to its inner data.

@@ -309,8 +309,8 @@ pub fn panicExtra(
     // error being part of the @panic stack trace (but that error should
     // only happen rarely)
     const msg = std.fmt.bufPrint(buf[0..size], format, args) catch |err| switch (err) {
-        std.fmt.BufPrintError.NoSpaceLeft => blk: {
-            std.mem.copy(u8, buf[size..], trunc_msg);
+        error.NoSpaceLeft => blk: {
+            @memcpy(buf[size..], trunc_msg);
             break :blk &buf;
         },
     };
@@ -651,6 +651,8 @@ pub fn writeCurrentStackTraceWindows(
     }
 }
 
+/// Provides simple functionality for manipulating the terminal in some way,
+/// for debugging purposes, such as coloring text, etc.
 pub const TTY = struct {
     pub const Color = enum {
         Red,
@@ -1358,13 +1360,7 @@ pub const DebugInfo = struct {
     }
 
     pub fn getModuleForAddress(self: *DebugInfo, address: usize) !*ModuleDebugInfo {
-        if (builtin.zig_backend == .stage2_c) {
-            return @as(error{
-                InvalidDebugInfo,
-                MissingDebugInfo,
-                UnsupportedBackend,
-            }, error.UnsupportedBackend);
-        } else if (comptime builtin.target.isDarwin()) {
+        if (comptime builtin.target.isDarwin()) {
             return self.lookupModuleDyld(address);
         } else if (native_os == .windows) {
             return self.lookupModuleWin32(address);
@@ -1378,9 +1374,7 @@ pub const DebugInfo = struct {
     }
 
     pub fn getModuleNameForAddress(self: *DebugInfo, address: usize) ?[]const u8 {
-        if (builtin.zig_backend == .stage2_c) {
-            return null;
-        } else if (comptime builtin.target.isDarwin()) {
+        if (comptime builtin.target.isDarwin()) {
             return null;
         } else if (native_os == .windows) {
             return self.lookupModuleNameWin32(address);

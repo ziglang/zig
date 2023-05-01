@@ -922,10 +922,10 @@ pub const Inst = struct {
         /// Uses the `pl_node` union field with payload `FieldParentPtr`.
         field_parent_ptr,
         /// Implements the `@memcpy` builtin.
-        /// Uses the `pl_node` union field with payload `Memcpy`.
+        /// Uses the `pl_node` union field with payload `Bin`.
         memcpy,
         /// Implements the `@memset` builtin.
-        /// Uses the `pl_node` union field with payload `Memset`.
+        /// Uses the `pl_node` union field with payload `Bin`.
         memset,
         /// Implements the `@min` builtin.
         /// Uses the `pl_node` union field with payload `Bin`
@@ -1994,10 +1994,10 @@ pub const Inst = struct {
         /// Implement builtin `@cVaArg`.
         /// `operand` is payload index to `BinNode`.
         c_va_arg,
-        /// Implement builtin `@cVaStart`.
+        /// Implement builtin `@cVaCopy`.
         /// `operand` is payload index to `UnNode`.
         c_va_copy,
-        /// Implement builtin `@cVaStart`.
+        /// Implement builtin `@cVaEnd`.
         /// `operand` is payload index to `UnNode`.
         c_va_end,
         /// Implement builtin `@cVaStart`.
@@ -2018,6 +2018,9 @@ pub const Inst = struct {
         /// Implements the `@workGroupId` builtin.
         /// `operand` is payload index to `UnNode`.
         work_group_id,
+        /// Implements the `@inComptime` builtin.
+        /// `operand` is `src_node: i32`.
+        in_comptime,
 
         pub const InstData = struct {
             opcode: Extended,
@@ -3496,18 +3499,6 @@ pub const Inst = struct {
         parent_type: Ref,
         field_name: Ref,
         field_ptr: Ref,
-    };
-
-    pub const Memcpy = struct {
-        dest: Ref,
-        source: Ref,
-        byte_count: Ref,
-    };
-
-    pub const Memset = struct {
-        dest: Ref,
-        byte: Ref,
-        byte_count: Ref,
     };
 
     pub const Shuffle = struct {

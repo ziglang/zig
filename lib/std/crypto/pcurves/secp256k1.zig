@@ -158,7 +158,7 @@ pub const Secp256k1 = struct {
         var out: [33]u8 = undefined;
         const xy = p.affineCoordinates();
         out[0] = if (xy.y.isOdd()) 3 else 2;
-        mem.copy(u8, out[1..], &xy.x.toBytes(.Big));
+        out[1..].* = xy.x.toBytes(.Big);
         return out;
     }
 
@@ -167,8 +167,8 @@ pub const Secp256k1 = struct {
         var out: [65]u8 = undefined;
         out[0] = 4;
         const xy = p.affineCoordinates();
-        mem.copy(u8, out[1..33], &xy.x.toBytes(.Big));
-        mem.copy(u8, out[33..65], &xy.y.toBytes(.Big));
+        out[1..33].* = xy.x.toBytes(.Big);
+        out[33..65].* = xy.y.toBytes(.Big);
         return out;
     }
 
@@ -551,6 +551,8 @@ pub const AffineCoordinates = struct {
     }
 };
 
-test "secp256k1" {
+test {
+    if (@import("builtin").zig_backend == .stage2_c) return error.SkipZigTest;
+
     _ = @import("tests/secp256k1.zig");
 }

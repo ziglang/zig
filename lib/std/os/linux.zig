@@ -472,7 +472,7 @@ pub fn preadv(fd: i32, iov: [*]const iovec, count: usize, offset: i64) usize {
         @bitCast(usize, @as(isize, fd)),
         @ptrToInt(iov),
         count,
-        // Kernel expects the offset is splitted into largest natural word-size.
+        // Kernel expects the offset is split into largest natural word-size.
         // See following link for detail:
         // https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/commit/?id=601cc11d054ae4b5e9b5babec3d8e4667a2cb9b5
         @truncate(usize, offset_u),
@@ -1184,7 +1184,7 @@ pub fn sigaction(sig: u6, noalias act: ?*const Sigaction, noalias oact: ?*Sigact
             .mask = undefined,
             .restorer = @ptrCast(k_sigaction_funcs.restorer, restorer_fn),
         };
-        @memcpy(@ptrCast([*]u8, &ksa.mask), @ptrCast([*]const u8, &new.mask), mask_size);
+        @memcpy(@ptrCast([*]u8, &ksa.mask)[0..mask_size], @ptrCast([*]const u8, &new.mask));
     }
 
     const ksa_arg = if (act != null) @ptrToInt(&ksa) else 0;
@@ -1200,7 +1200,7 @@ pub fn sigaction(sig: u6, noalias act: ?*const Sigaction, noalias oact: ?*Sigact
     if (oact) |old| {
         old.handler.handler = oldksa.handler;
         old.flags = @truncate(c_uint, oldksa.flags);
-        @memcpy(@ptrCast([*]u8, &old.mask), @ptrCast([*]const u8, &oldksa.mask), mask_size);
+        @memcpy(@ptrCast([*]u8, &old.mask)[0..mask_size], @ptrCast([*]const u8, &oldksa.mask));
     }
 
     return 0;
@@ -1515,7 +1515,7 @@ pub fn sched_yield() usize {
 pub fn sched_getaffinity(pid: pid_t, size: usize, set: *cpu_set_t) usize {
     const rc = syscall3(.sched_getaffinity, @bitCast(usize, @as(isize, pid)), size, @ptrToInt(set));
     if (@bitCast(isize, rc) < 0) return rc;
-    if (rc < size) @memset(@ptrCast([*]u8, set) + rc, 0, size - rc);
+    if (rc < size) @memset(@ptrCast([*]u8, set)[rc..size], 0);
     return 0;
 }
 
@@ -3464,7 +3464,10 @@ pub const CAP = struct {
     pub const WAKE_ALARM = 35;
     pub const BLOCK_SUSPEND = 36;
     pub const AUDIT_READ = 37;
-    pub const LAST_CAP = AUDIT_READ;
+    pub const PERFMON = 38;
+    pub const BPF = 39;
+    pub const CHECKPOINT_RESTORE = 40;
+    pub const LAST_CAP = CHECKPOINT_RESTORE;
 
     pub fn valid(x: u8) bool {
         return x >= 0 and x <= LAST_CAP;
@@ -3909,7 +3912,7 @@ pub const io_uring_cqe = extern struct {
 /// If set, the upper 16 bits are the buffer ID
 pub const IORING_CQE_F_BUFFER = 1 << 0;
 /// If set, parent SQE will generate more CQE entries.
-/// Avaiable since Linux 5.13.
+/// Available since Linux 5.13.
 pub const IORING_CQE_F_MORE = 1 << 1;
 /// If set, more data to read after socket recv
 pub const IORING_CQE_F_SOCK_NONEMPTY = 1 << 2;
@@ -4001,7 +4004,7 @@ pub const io_uring_probe = extern struct {
     ops_len: u8,
 
     resv: u16,
-    resv2: u32[3],
+    resv2: [3]u32,
 
     // Followed by up to `ops_len` io_uring_probe_op structures
 };
@@ -4019,7 +4022,7 @@ pub const io_uring_restriction = extern struct {
         sqe_flags: u8,
     },
     resv: u8,
-    resv2: u32[3],
+    resv2: [3]u32,
 };
 
 /// io_uring_restriction->opcode values
@@ -4231,7 +4234,7 @@ pub const tcp_fastopen_client_fail = enum {
 pub const TCPI_OPT_TIMESTAMPS = 1;
 pub const TCPI_OPT_SACK = 2;
 pub const TCPI_OPT_WSCALE = 4;
-/// ECN was negociated at TCP session init
+/// ECN was negotiated at TCP session init
 pub const TCPI_OPT_ECN = 8;
 /// we received at least one packet with ECT
 pub const TCPI_OPT_ECN_SEEN = 16;

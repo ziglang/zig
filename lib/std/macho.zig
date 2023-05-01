@@ -356,7 +356,7 @@ pub const dysymtab_command = extern struct {
 
     // All the local relocation entries are grouped together (they are not
     // grouped by their module since they are only used if the object is moved
-    // from it staticly link edited address).
+    // from its statically link edited address).
 
     /// offset to local relocation entries
     locreloff: u32 = 0,
@@ -418,7 +418,7 @@ pub const dyld_info_command = extern struct {
     //    <seg-index, seg-offset, type, symbol-library-ordinal, symbol-name, addend>
     // The opcodes are a compressed way to encode the table by only
     // encoding when a column changes.  In addition simple patterns
-    // like for runs of pointers initialzed to the same value can be
+    // like for runs of pointers initialized to the same value can be
     // encoded in a few bytes.
 
     /// file offset to binding info
@@ -540,13 +540,13 @@ pub const dylib_command = extern struct {
     dylib: dylib,
 };
 
-/// Dynamicaly linked shared libraries are identified by two things.  The
+/// Dynamically linked shared libraries are identified by two things.  The
 /// pathname (the name of the library as found for execution), and the
 /// compatibility version number.  The pathname must match and the compatibility
 /// number in the user of the library must be greater than or equal to the
 /// library being used.  The time stamp is used to record the time a library was
 /// built and copied into user so it can be use to determined if the library used
-/// at runtime is exactly the same as used to built the program.
+/// at runtime is exactly the same as used to build the program.
 pub const dylib = extern struct {
     /// library's pathname (offset pointing at the end of dylib_command)
     name: u32,
@@ -1141,7 +1141,7 @@ pub const MH_NOUNDEFS = 0x1;
 /// the object file is the output of an incremental link against a base file and can't be link edited again
 pub const MH_INCRLINK = 0x2;
 
-/// the object file is input for the dynamic linker and can't be staticly link edited again
+/// the object file is input for the dynamic linker and can't be statically link edited again
 pub const MH_DYLDLINK = 0x4;
 
 /// the object file's undefined references are bound by the dynamic linker when loaded.
@@ -1162,7 +1162,7 @@ pub const MH_TWOLEVEL = 0x80;
 /// the executable is forcing all images to use flat name space bindings
 pub const MH_FORCE_FLAT = 0x100;
 
-/// this umbrella guarantees no multiple defintions of symbols in its sub-images so the two-level namespace hints can always be used.
+/// this umbrella guarantees no multiple definitions of symbols in its sub-images so the two-level namespace hints can always be used.
 pub const MH_NOMULTIDEFS = 0x200;
 
 /// do not have dyld notify the prebinding agent about this executable
@@ -1658,7 +1658,7 @@ pub const EXPORT_SYMBOL_FLAGS_REEXPORT: u8 = 0x08;
 pub const EXPORT_SYMBOL_FLAGS_STUB_AND_RESOLVER: u8 = 0x10;
 
 // An indirect symbol table entry is simply a 32bit index into the symbol table
-// to the symbol that the pointer or stub is refering to.  Unless it is for a
+// to the symbol that the pointer or stub is referring to.  Unless it is for a
 // non-lazy symbol pointer section for a defined symbol which strip(1) as
 // removed.  In which case it has the value INDIRECT_SYMBOL_LOCAL.  If the
 // symbol was also absolute INDIRECT_SYMBOL_ABS is or'ed with that.
@@ -1741,7 +1741,7 @@ pub const CS_LINKER_SIGNED: u32 = 0x20000;
 
 pub const CS_EXECSEG_MAIN_BINARY: u32 = 0x1;
 
-/// This CodeDirectory is tailored specfically at version 0x20400.
+/// This CodeDirectory is tailored specifically at version 0x20400.
 pub const CodeDirectory = extern struct {
     /// Magic number (CSMAGIC_CODEDIRECTORY)
     magic: u32,

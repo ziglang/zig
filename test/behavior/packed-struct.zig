@@ -232,7 +232,6 @@ test "nested packed structs" {
 }
 
 test "regular in irregular packed struct" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
@@ -564,7 +563,7 @@ test "packed struct passed to callconv(.C) function" {
 test "overaligned pointer to packed struct" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
-
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     const S = packed struct { a: u32, b: u32 };
     var foo: S align(4) = .{ .a = 123, .b = 456 };
     const ptr: *align(4) S = &foo;
@@ -584,6 +583,7 @@ test "overaligned pointer to packed struct" {
 test "packed struct initialized in bitcast" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     const T = packed struct { val: u8 };
     var val: u8 = 123;
@@ -596,6 +596,7 @@ test "pointer to container level packed struct field" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     const S = packed struct(u32) {
         test_bit: bool,
@@ -614,4 +615,15 @@ test "pointer to container level packed struct field" {
     };
     @ptrCast(*S, &S.arr[0]).other_bits.enable_3 = true;
     try expect(S.arr[0] == 0x10000000);
+}
+
+test "store undefined to packed result location" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_llvm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest;
+
+    var x: u4 = 0;
+    var s = packed struct { x: u4, y: u4 }{ .x = x, .y = if (x > 0) x else undefined };
+    try expectEqual(x, s.x);
 }

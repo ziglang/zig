@@ -211,7 +211,7 @@ fn ChaChaVecImpl(comptime rounds_nb: usize) type {
 
                 var buf: [64]u8 = undefined;
                 hashToBytes(buf[0..], x);
-                mem.copy(u8, out[i..], buf[0 .. out.len - i]);
+                @memcpy(out[i..], buf[0 .. out.len - i]);
             }
         }
 
@@ -372,7 +372,7 @@ fn ChaChaNonVecImpl(comptime rounds_nb: usize) type {
 
                 var buf: [64]u8 = undefined;
                 hashToBytes(buf[0..], x);
-                mem.copy(u8, out[i..], buf[0 .. out.len - i]);
+                @memcpy(out[i..], buf[0 .. out.len - i]);
             }
         }
 
@@ -413,8 +413,8 @@ fn keyToWords(key: [32]u8) [8]u32 {
 
 fn extend(key: [32]u8, nonce: [24]u8, comptime rounds_nb: usize) struct { key: [32]u8, nonce: [12]u8 } {
     var subnonce: [12]u8 = undefined;
-    mem.set(u8, subnonce[0..4], 0);
-    mem.copy(u8, subnonce[4..], nonce[16..24]);
+    @memset(subnonce[0..4], 0);
+    subnonce[4..].* = nonce[16..24].*;
     return .{
         .key = ChaChaImpl(rounds_nb).hchacha20(nonce[0..16].*, key),
         .nonce = subnonce,

@@ -192,20 +192,20 @@ const ScalarDouble = struct {
         var t = ScalarDouble{ .x1 = undefined, .x2 = Fe.zero, .x3 = Fe.zero };
         {
             var b = [_]u8{0} ** encoded_length;
-            const len = math.min(s.len, 24);
-            mem.copy(u8, b[0..len], s[0..len]);
+            const len = @min(s.len, 24);
+            b[0..len].* = s[0..len].*;
             t.x1 = Fe.fromBytes(b, .Little) catch unreachable;
         }
         if (s_.len >= 24) {
             var b = [_]u8{0} ** encoded_length;
-            const len = math.min(s.len - 24, 24);
-            mem.copy(u8, b[0..len], s[24..][0..len]);
+            const len = @min(s.len - 24, 24);
+            b[0..len].* = s[24..][0..len].*;
             t.x2 = Fe.fromBytes(b, .Little) catch unreachable;
         }
         if (s_.len >= 48) {
             var b = [_]u8{0} ** encoded_length;
             const len = s.len - 48;
-            mem.copy(u8, b[0..len], s[48..][0..len]);
+            b[0..len].* = s[48..][0..len].*;
             t.x3 = Fe.fromBytes(b, .Little) catch unreachable;
         }
         return t;
