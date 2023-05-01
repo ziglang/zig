@@ -22920,9 +22920,19 @@ fn validateVarType(
     var_ty: Type,
     is_extern: bool,
 ) CompileError!void {
-    if (try sema.validateRunTimeType(var_ty, is_extern)) return;
-
     const mod = sema.mod;
+    if (is_extern and !try sema.validateExternType(var_ty, .other)) {
+        const msg = msg: {
+            const msg = try sema.errMsg(block, src, "extern variable cannot have type '{}'", .{var_ty.fmt(mod)});
+            errdefer msg.destroy(sema.gpa);
+            const src_decl = mod.declPtr(block.src_decl);
+            try sema.explainWhyTypeIsNotExtern(msg, src.toSrcLoc(src_decl), var_ty, .other);
+            break :msg msg;
+        };
+        return sema.failWithOwnedErrorMsg(msg);
+    }
+
+    if (try sema.validateRunTimeType(var_ty, is_extern)) return;
 
     const msg = msg: {
         const msg = try sema.errMsg(block, src, "variable of type '{}' must be const or comptime", .{var_ty.fmt(mod)});
@@ -23229,10 +23239,10 @@ fn explainWhyTypeIsNotExtern(
         .Pointer => try mod.errNoteNonLazy(src_loc, msg, "slices have no guaranteed in-memory representation", .{}),
         .Void => try mod.errNoteNonLazy(src_loc, msg, "'void' is a zero bit type; for C 'void' use 'anyopaque'", .{}),
         .NoReturn => try mod.errNoteNonLazy(src_loc, msg, "'noreturn' is only allowed as a return type", .{}),
-        .Int => if (ty.intInfo(sema.mod.getTarget()).bits > 128) {
-            try mod.errNoteNonLazy(src_loc, msg, "only integers with less than 128 bits are extern compatible", .{});
-        } else {
+        .Int => if (!std.math.isPowerOfTwo(ty.intInfo(sema.mod.getTarget()).bits)) {
             try mod.errNoteNonLazy(src_loc, msg, "only integers with power of two bits are extern compatible", .{});
+        } else {
+            try mod.errNoteNonLazy(src_loc, msg, "only integers with 8, 16, 32, 64 and 128 bits are extern compatible", .{});
         },
         .Fn => {
             if (position != .other) {
