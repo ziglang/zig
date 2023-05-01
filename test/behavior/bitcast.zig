@@ -448,6 +448,15 @@ test "bitcast nan float does modify signaling bit" {
     try expectEqual(math.nan_u128, bitCastWrapper128(snan_f128_var));
 }
 
+test "bitcasting non-sized structs to u0" {
+    var a = @bitCast(u0, packed struct {}{});
+    try expectEqual(@as(u0, 0), a);
+    var b = @bitCast(u0, packed struct { a: u0 }{ .a = 0 });
+    try expectEqual(@as(u0, 0), b);
+    var c = @bitCast(u0, extern struct {}{});
+    try expectEqual(@as(u0, 0), c);
+}
+
 const packed_Request = packed struct {
     nr: u8,
     io_type: u8,

@@ -1352,11 +1352,17 @@ pub const Value = extern union {
             .Struct => switch (ty.containerLayout()) {
                 .Auto => return error.IllDefinedMemoryLayout,
                 .Extern => {
-                    const fields = ty.structFields().values();
-                    const field_vals = val.castTag(.aggregate).?.data;
-                    for (fields, 0..) |field, i| {
-                        const off = @intCast(usize, ty.structFieldOffset(i, target));
-                        try writeToMemory(field_vals[i], field.ty, mod, buffer[off..]);
+                    switch (val.tag()) {
+                        .empty_struct_value => {},
+                        .aggregate => {
+                            const fields = ty.structFields().values();
+                            const field_vals = val.castTag(.aggregate).?.data;
+                            for (fields, 0..) |field, i| {
+                                const off = @intCast(usize, ty.structFieldOffset(i, target));
+                                try writeToMemory(field_vals[i], field.ty, mod, buffer[off..]);
+                            }
+                        },
+                        else => unreachable,
                     }
                 },
                 .Packed => {
@@ -1475,13 +1481,19 @@ pub const Value = extern union {
                 .Auto => unreachable, // Sema is supposed to have emitted a compile error already
                 .Extern => unreachable, // Handled in non-packed writeToMemory
                 .Packed => {
-                    var bits: u16 = 0;
-                    const fields = ty.structFields().values();
-                    const field_vals = val.castTag(.aggregate).?.data;
-                    for (fields, 0..) |field, i| {
-                        const field_bits = @intCast(u16, field.ty.bitSize(target));
-                        try field_vals[i].writeToPackedMemory(field.ty, mod, buffer, bit_offset + bits);
-                        bits += field_bits;
+                    switch (val.tag()) {
+                        .empty_struct_value => {},
+                        .aggregate => {
+                            var bits: u16 = 0;
+                            const fields = ty.structFields().values();
+                            const field_vals = val.castTag(.aggregate).?.data;
+                            for (fields, 0..) |field, i| {
+                                const field_bits = @intCast(u16, field.ty.bitSize(target));
+                                try field_vals[i].writeToPackedMemory(field.ty, mod, buffer, bit_offset + bits);
+                                bits += field_bits;
+                            }
+                        },
+                        else => unreachable,
                     }
                 },
             },
