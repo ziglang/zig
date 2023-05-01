@@ -690,7 +690,7 @@ pub fn HashMap(
 /// It achieves good performance with quite high load factors (by default,
 /// grow is triggered at 80% full) and only one byte of overhead per element.
 /// The struct itself is only 16 bytes for a small footprint. This comes at
-/// the price of handling size with u32, which should be reasonnable enough
+/// the price of handling size with u32, which should be reasonable enough
 /// for almost all uses.
 /// Deletions are achieved with tombstones.
 pub fn HashMapUnmanaged(
@@ -1449,7 +1449,7 @@ pub fn HashMapUnmanaged(
         }
 
         fn initMetadatas(self: *Self) void {
-            @memset(@ptrCast([*]u8, self.metadata.?), 0, @sizeOf(Metadata) * self.capacity());
+            @memset(@ptrCast([*]u8, self.metadata.?)[0 .. @sizeOf(Metadata) * self.capacity()], 0);
         }
 
         // This counts the number of occupied slots (not counting tombstones), which is

@@ -98,7 +98,7 @@ fn SipHashStateless(comptime T: type, comptime c_rounds: usize, comptime d_round
             self.msg_len +%= @truncate(u8, b.len);
 
             var buf = [_]u8{0} ** 8;
-            mem.copy(u8, buf[0..], b[0..]);
+            @memcpy(buf[0..b.len], b);
             buf[7] = self.msg_len;
             self.round(buf);
 
@@ -203,7 +203,7 @@ fn SipHash(comptime T: type, comptime c_rounds: usize, comptime d_rounds: usize)
 
             if (self.buf_len != 0 and self.buf_len + b.len >= 8) {
                 off += 8 - self.buf_len;
-                mem.copy(u8, self.buf[self.buf_len..], b[0..off]);
+                @memcpy(self.buf[self.buf_len..][0..off], b[0..off]);
                 self.state.update(self.buf[0..]);
                 self.buf_len = 0;
             }
@@ -212,8 +212,9 @@ fn SipHash(comptime T: type, comptime c_rounds: usize, comptime d_rounds: usize)
             const aligned_len = remain_len - (remain_len % 8);
             self.state.update(b[off .. off + aligned_len]);
 
-            mem.copy(u8, self.buf[self.buf_len..], b[off + aligned_len ..]);
-            self.buf_len += @intCast(u8, b[off + aligned_len ..].len);
+            const b_slice = b[off + aligned_len ..];
+            @memcpy(self.buf[self.buf_len..][0..b_slice.len], b_slice);
+            self.buf_len += @intCast(u8, b_slice.len);
         }
 
         pub fn peek(self: Self) [mac_length]u8 {

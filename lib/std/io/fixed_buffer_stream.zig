@@ -45,10 +45,10 @@ pub fn FixedBufferStream(comptime Buffer: type) type {
         }
 
         pub fn read(self: *Self, dest: []u8) ReadError!usize {
-            const size = std.math.min(dest.len, self.buffer.len - self.pos);
+            const size = @min(dest.len, self.buffer.len - self.pos);
             const end = self.pos + size;
 
-            mem.copy(u8, dest[0..size], self.buffer[self.pos..end]);
+            @memcpy(dest[0..size], self.buffer[self.pos..end]);
             self.pos = end;
 
             return size;
@@ -67,7 +67,7 @@ pub fn FixedBufferStream(comptime Buffer: type) type {
             else
                 self.buffer.len - self.pos;
 
-            mem.copy(u8, self.buffer[self.pos .. self.pos + n], bytes[0..n]);
+            @memcpy(self.buffer[self.pos..][0..n], bytes[0..n]);
             self.pos += n;
 
             if (n == 0) return error.NoSpaceLeft;

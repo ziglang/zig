@@ -476,9 +476,42 @@ pub const sockaddr = extern struct {
 
 pub const CAP_RIGHTS_VERSION = 0;
 
-pub const cap_rights = extern struct {
-    rights: [CAP_RIGHTS_VERSION + 2]u64,
+pub const cap_rights_t = extern struct {
+    cr_rights: [CAP_RIGHTS_VERSION + 2]u64,
 };
+
+pub const CAP = struct {
+    pub fn RIGHT(idx: u6, bit: u64) u64 {
+        return (@intCast(u64, 1) << (57 + idx)) | bit;
+    }
+    pub const READ = CAP.RIGHT(0, 0x0000000000000001);
+    pub const WRITE = CAP.RIGHT(0, 0x0000000000000002);
+    pub const SEEK_TELL = CAP.RIGHT(0, 0x0000000000000004);
+    pub const SEEK = CAP.SEEK_TELL | 0x0000000000000008;
+    pub const PREAD = CAP.SEEK | CAP.READ;
+    pub const PWRITE = CAP.SEEK | CAP.WRITE;
+    pub const MMAP = CAP.RIGHT(0, 0x0000000000000010);
+    pub const MMAP_R = CAP.MMAP | CAP.SEEK | CAP.READ;
+    pub const MMAP_W = CAP.MMAP | CAP.SEEK | CAP.WRITE;
+    pub const MMAP_X = CAP.MMAP | CAP.SEEK | 0x0000000000000020;
+    pub const MMAP_RW = CAP.MMAP_R | CAP.MMAP_W;
+    pub const MMAP_RX = CAP.MMAP_R | CAP.MMAP_X;
+    pub const MMAP_WX = CAP.MMAP_W | CAP.MMAP_X;
+    pub const MMAP_RWX = CAP.MMAP_R | CAP.MMAP_W | CAP.MMAP_X;
+    pub const CREATE = CAP.RIGHT(0, 0x0000000000000040);
+    pub const FEXECVE = CAP.RIGHT(0, 0x0000000000000080);
+    pub const FSYNC = CAP.RIGHT(0, 0x0000000000000100);
+    pub const FTRUNCATE = CAP.RIGHT(0, 0x0000000000000200);
+};
+
+pub extern "c" fn __cap_rights_init(version: c_int, rights: ?*cap_rights_t, ...) ?*cap_rights_t;
+pub extern "c" fn __cap_rights_set(rights: ?*cap_rights_t, ...) ?*cap_rights_t;
+pub extern "c" fn __cap_rights_clear(rights: ?*cap_rights_t, ...) ?*cap_rights_t;
+pub extern "c" fn __cap_rights_merge(dst: ?*cap_rights_t, src: ?*const cap_rights_t) ?*cap_rights_t;
+pub extern "c" fn __cap_rights_remove(dst: ?*cap_rights_t, src: ?*const cap_rights_t) ?*cap_rights_t;
+pub extern "c" fn __cap_rights_contains(dst: ?*const cap_rights_t, src: ?*const cap_rights_t) bool;
+pub extern "c" fn __cap_rights_is_set(rights: ?*const cap_rights_t, ...) bool;
+pub extern "c" fn __cap_rights_is_valid(rights: ?*const cap_rights_t) bool;
 
 pub const kinfo_file = extern struct {
     /// Size of this record.
@@ -581,7 +614,7 @@ pub const kinfo_file = extern struct {
     // Reserved for future use.
     _spare: c_int,
     /// Capability rights.
-    cap_rights: cap_rights,
+    cap_rights: cap_rights_t,
     /// Reserved for future cap_rights
     _cap_spare: u64,
     /// Path to file, if any.
@@ -2172,6 +2205,30 @@ pub const PROC = struct {
     pub const WX_MAPPINGS_PERMIT = 0x0001;
     pub const WX_MAPPINGS_DISALLOW_EXEC = 0x0002;
     pub const WX_MAPPINGS_ENFORCE = 0x80000000;
+    pub const PROCCTL_MD_MIN = 0x10000000;
+    // x86_64-only constants
+    pub const KPTI = switch (builtin.cpu.arch) {
+        .x86_64 => struct {
+            pub const CTL = PROC.PROCCTL_MD_MIND;
+            pub const STATUS = PROC.PROCCTL_MD_MIND + 1;
+            pub const CTL_ENABLE_ON_EXEC = 1;
+            pub const CTL_DISABLE_ON_EXEC = 2;
+            pub const STATUS_ACTIVE = 0x80000000;
+        },
+        else => void,
+    };
+    pub const LA = switch (builtin.cpu.arch) {
+        .x86_64 => struct {
+            pub const CTL = PROC.PROCCTL_MD_MIND + 2;
+            pub const STATUS = PROC.PROCCTL_MD_MIND + 3;
+            pub const CTL_LA48_ON_EXEC = 1;
+            pub const CTL_LA57_ON_EXEC = 2;
+            pub const CTL_DEFAULT_ON_EXEC = 3;
+            pub const STATUS_LA48 = 0x01000000;
+            pub const STATUS_LA57 = 0x02000000;
+        },
+        else => void,
+    };
 };
 
 pub const PPROT = struct {

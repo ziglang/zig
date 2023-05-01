@@ -903,7 +903,7 @@ pub const Loop = struct {
             }
         }
 
-        // TODO: use a tickless heirarchical timer wheel:
+        // TODO: use a tickless hierarchical timer wheel:
         // https://github.com/wahern/timeout/
         const Waiters = struct {
             entries: std.atomic.Queue(anyframe),
@@ -947,7 +947,7 @@ pub const Loop = struct {
                 // starting from the head
                 var head = self.entries.head orelse return null;
 
-                // traverse the list of waiting entires to
+                // traverse the list of waiting entries to
                 // find the Node with the smallest `expires` field
                 var min = head;
                 while (head.next) |node| {
@@ -1756,7 +1756,7 @@ test "std.event.Loop - runDetached" {
     try loop.runDetached(std.testing.allocator, testRunDetached, .{});
 
     // Now we can start the event loop. The function will return only
-    // after all tasks have been completed, allowing us to synchonize
+    // after all tasks have been completed, allowing us to synchronize
     // with the previous runDetached.
     loop.run();
 

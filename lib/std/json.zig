@@ -1603,7 +1603,7 @@ fn parseInternal(
                                 if (fields_seen[i]) {
                                     switch (options.duplicate_field_behavior) {
                                         .UseFirst => {
-                                            // unconditonally ignore value. for comptime fields, this skips check against default_value
+                                            // unconditionally ignore value. for comptime fields, this skips check against default_value
                                             parseFree(field.type, try parse(field.type, tokens, child_options), child_options);
                                             found = true;
                                             break;
@@ -1667,7 +1667,7 @@ fn parseInternal(
                     const source_slice = stringToken.slice(tokens.slice, tokens.i - 1);
                     if (r.len != stringToken.decodedLength()) return error.LengthMismatch;
                     switch (stringToken.escapes) {
-                        .None => mem.copy(u8, &r, source_slice),
+                        .None => @memcpy(r[0..source_slice.len], source_slice),
                         .Some => try unescapeValidString(&r, source_slice),
                     }
                     return r;
@@ -1733,7 +1733,7 @@ fn parseInternal(
                                 try allocator.alloc(u8, len);
                             errdefer allocator.free(output);
                             switch (stringToken.escapes) {
-                                .None => mem.copy(u8, output, source_slice),
+                                .None => @memcpy(output[0..source_slice.len], source_slice),
                                 .Some => try unescapeValidString(output, source_slice),
                             }
 

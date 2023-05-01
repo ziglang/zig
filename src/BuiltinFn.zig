@@ -615,14 +615,14 @@ pub const list = list: {
             "@memcpy",
             .{
                 .tag = .memcpy,
-                .param_count = 3,
+                .param_count = 2,
             },
         },
         .{
             "@memset",
             .{
                 .tag = .memset,
-                .param_count = 3,
+                .param_count = 2,
             },
         },
         .{

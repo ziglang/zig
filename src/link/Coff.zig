@@ -492,7 +492,7 @@ fn growSection(self: *Coff, sect_id: u32, needed_size: u32) !void {
 
     const sect_vm_capacity = self.allocatedVirtualSize(header.virtual_address);
     if (needed_size > sect_vm_capacity) {
-        self.markRelocsDirtyByAddress(header.virtual_address + needed_size);
+        self.markRelocsDirtyByAddress(header.virtual_address + header.virtual_size);
         try self.growSectionVirtualMemory(sect_id, needed_size);
     }
 
@@ -759,7 +759,9 @@ fn writeAtom(self: *Coff, atom_index: Atom.Index, code: []u8) !void {
     if (self.relocs.getPtr(atom_index)) |rels| {
         try relocs.ensureTotalCapacityPrecise(rels.items.len);
         for (rels.items) |*reloc| {
-            if (reloc.isResolvable(self)) relocs.appendAssumeCapacity(reloc);
+            if (reloc.isResolvable(self) and reloc.dirty) {
+                relocs.appendAssumeCapacity(reloc);
+            }
         }
     }
 
@@ -904,18 +906,28 @@ fn markRelocsDirtyByTarget(self: *Coff, target: SymbolWithLoc) void {
 }
 
 fn markRelocsDirtyByAddress(self: *Coff, addr: u32) void {
+    const got_moved = blk: {
+        const sect_id = self.got_section_index orelse break :blk false;
+        break :blk self.sections.items(.header)[sect_id].virtual_address > addr;
+    };
+
+    // TODO: dirty relocations targeting import table if that got moved in memory
+
     for (self.relocs.values()) |*relocs| {
         for (relocs.items) |*reloc| {
-            const target_vaddr = reloc.getTargetAddress(self) orelse continue;
-            if (target_vaddr < addr) continue;
-            reloc.dirty = true;
+            if (reloc.isGotIndirection()) {
+                reloc.dirty = reloc.dirty or got_moved;
+            } else {
+                const target_vaddr = reloc.getTargetAddress(self) orelse continue;
+                if (target_vaddr > addr) reloc.dirty = true;
+            }
         }
     }
 
     // TODO: dirty only really affected GOT cells
     for (self.got_table.entries.items) |entry| {
         const target_addr = self.getSymbol(entry).value;
-        if (target_addr >= addr) {
+        if (target_addr > addr) {
             self.got_table_contents_dirty = true;
             break;
         }
@@ -1624,7 +1636,7 @@ pub fn flushModule(self: *Coff, comp: *Compilation, prog_node: *std.Progress.Nod
 
     for (self.relocs.keys(), self.relocs.values()) |atom_index, relocs| {
         const needs_update = for (relocs.items) |reloc| {
-            if (reloc.isResolvable(self)) break true;
+            if (reloc.dirty) break true;
         } else false;
 
         if (!needs_update) continue;
@@ -1904,7 +1916,7 @@ fn writeImportTables(self: *Coff) !void {
             .name_rva = header.virtual_address + dll_names_offset,
             .import_address_table_rva = header.virtual_address + iat_offset,
         };
-        mem.copy(u8, buffer.items[dir_table_offset..], mem.asBytes(&lookup_header));
+        @memcpy(buffer.items[dir_table_offset..][0..@sizeOf(coff.ImportDirectoryEntry)], mem.asBytes(&lookup_header));
         dir_table_offset += dir_header_size;
 
         for (itable.entries.items) |entry| {
@@ -1912,15 +1924,21 @@ fn writeImportTables(self: *Coff) !void {
 
             // IAT and lookup table entry
             const lookup = coff.ImportLookupEntry64.ByName{ .name_table_rva = @intCast(u31, header.virtual_address + names_table_offset) };
-            mem.copy(u8, buffer.items[iat_offset..], mem.asBytes(&lookup));
+            @memcpy(
+                buffer.items[iat_offset..][0..@sizeOf(coff.ImportLookupEntry64.ByName)],
+                mem.asBytes(&lookup),
+            );
             iat_offset += lookup_entry_size;
-            mem.copy(u8, buffer.items[lookup_table_offset..], mem.asBytes(&lookup));
+            @memcpy(
+                buffer.items[lookup_table_offset..][0..@sizeOf(coff.ImportLookupEntry64.ByName)],
+                mem.asBytes(&lookup),
+            );
             lookup_table_offset += lookup_entry_size;
 
             // Names table entry
             mem.writeIntLittle(u16, buffer.items[names_table_offset..][0..2], 0); // Hint set to 0 until we learn how to parse DLLs
             names_table_offset += 2;
-            mem.copy(u8, buffer.items[names_table_offset..], import_name);
+            @memcpy(buffer.items[names_table_offset..][0..import_name.len], import_name);
             names_table_offset += @intCast(u32, import_name.len);
             buffer.items[names_table_offset] = 0;
             names_table_offset += 1;
@@ -1935,13 +1953,16 @@ fn writeImportTables(self: *Coff) !void {
         iat_offset += 8;
 
         // Lookup table sentinel
-        mem.copy(u8, buffer.items[lookup_table_offset..], mem.asBytes(&coff.ImportLookupEntry64.ByName{ .name_table_rva = 0 }));
+        @memcpy(
+            buffer.items[lookup_table_offset..][0..@sizeOf(coff.ImportLookupEntry64.ByName)],
+            mem.asBytes(&coff.ImportLookupEntry64.ByName{ .name_table_rva = 0 }),
+        );
         lookup_table_offset += lookup_entry_size;
 
         // DLL name
-        mem.copy(u8, buffer.items[dll_names_offset..], lib_name);
+        @memcpy(buffer.items[dll_names_offset..][0..lib_name.len], lib_name);
         dll_names_offset += @intCast(u32, lib_name.len);
-        mem.copy(u8, buffer.items[dll_names_offset..], ext);
+        @memcpy(buffer.items[dll_names_offset..][0..ext.len], ext);
         dll_names_offset += @intCast(u32, ext.len);
         buffer.items[dll_names_offset] = 0;
         dll_names_offset += 1;
@@ -1955,7 +1976,10 @@ fn writeImportTables(self: *Coff) !void {
         .name_rva = 0,
         .import_address_table_rva = 0,
     };
-    mem.copy(u8, buffer.items[dir_table_offset..], mem.asBytes(&lookup_header));
+    @memcpy(
+        buffer.items[dir_table_offset..][0..@sizeOf(coff.ImportDirectoryEntry)],
+        mem.asBytes(&lookup_header),
+    );
     dir_table_offset += dir_header_size;
 
     assert(dll_names_offset == needed_size);
@@ -2354,13 +2378,13 @@ pub fn getAtomIndexForSymbol(self: *const Coff, sym_loc: SymbolWithLoc) ?Atom.In
 
 fn setSectionName(self: *Coff, header: *coff.SectionHeader, name: []const u8) !void {
     if (name.len <= 8) {
-        mem.copy(u8, &header.name, name);
-        mem.set(u8, header.name[name.len..], 0);
+        @memcpy(header.name[0..name.len], name);
+        @memset(header.name[name.len..], 0);
         return;
     }
     const offset = try self.strtab.insert(self.base.allocator, name);
     const name_offset = fmt.bufPrint(&header.name, "/{d}", .{offset}) catch unreachable;
-    mem.set(u8, header.name[name_offset.len..], 0);
+    @memset(header.name[name_offset.len..], 0);
 }
 
 fn getSectionName(self: *const Coff, header: *const coff.SectionHeader) []const u8 {
@@ -2373,17 +2397,17 @@ fn getSectionName(self: *const Coff, header: *const coff.SectionHeader) []const 
 
 fn setSymbolName(self: *Coff, symbol: *coff.Symbol, name: []const u8) !void {
     if (name.len <= 8) {
-        mem.copy(u8, &symbol.name, name);
-        mem.set(u8, symbol.name[name.len..], 0);
+        @memcpy(symbol.name[0..name.len], name);
+        @memset(symbol.name[name.len..], 0);
         return;
     }
     const offset = try self.strtab.insert(self.base.allocator, name);
-    mem.set(u8, symbol.name[0..4], 0);
+    @memset(symbol.name[0..4], 0);
     mem.writeIntLittle(u32, symbol.name[4..8], offset);
 }
 
 fn logSymAttributes(sym: *const coff.Symbol, buf: *[4]u8) []const u8 {
-    mem.set(u8, buf[0..4], '_');
+    @memset(buf[0..4], '_');
     switch (sym.section_number) {
         .UNDEFINED => {
             buf[3] = 'u';

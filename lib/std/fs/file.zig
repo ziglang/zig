@@ -92,7 +92,7 @@ pub const File = struct {
         /// processes from acquiring a exclusive lock, but does not prevent
         /// other process from getting their own shared locks.
         ///
-        /// The lock is advisory, except on Linux in very specific cirsumstances[1].
+        /// The lock is advisory, except on Linux in very specific circumstances[1].
         /// This means that a process that does not respect the locking API can still get access
         /// to the file, despite the lock.
         ///
@@ -156,7 +156,7 @@ pub const File = struct {
         /// processes from acquiring a exclusive lock, but does not prevent
         /// other process from getting their own shared locks.
         ///
-        /// The lock is advisory, except on Linux in very specific cirsumstances[1].
+        /// The lock is advisory, except on Linux in very specific circumstances[1].
         /// This means that a process that does not respect the locking API can still get access
         /// to the file, despite the lock.
         ///

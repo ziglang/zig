@@ -79,7 +79,7 @@ const CAllocator = struct {
         }
 
         // Thin wrapper around regular malloc, overallocate to account for
-        // alignment padding and store the orignal malloc()'ed pointer before
+        // alignment padding and store the original malloc()'ed pointer before
         // the aligned address.
         var unaligned_ptr = @ptrCast([*]u8, c.malloc(len + alignment - 1 + @sizeOf(usize)) orelse return null);
         const unaligned_addr = @ptrToInt(unaligned_ptr);

@@ -2811,7 +2811,7 @@ test "json.serialize issue #5959" {
     // StreamingParser has multiple internal fields set to undefined. This causes issues when using
     // expectEqual so these are zeroed. We are testing for equality here only because this is a
     // known small test reproduction which hits the relevant LLVM issue.
-    std.mem.set(u8, @ptrCast([*]u8, &parser)[0..@sizeOf(StreamingParser)], 0);
+    @memset(@ptrCast([*]u8, &parser)[0..@sizeOf(StreamingParser)], 0);
     try std.testing.expectEqual(parser, parser);
 }
 

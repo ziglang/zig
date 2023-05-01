@@ -80,7 +80,7 @@
 //! m = Compress(Decompress(c_2, d_v) - s^T Decompress(c_1, d_u), 1).
 //!
 //! It it not straight-forward to see that this formula is correct.  In
-//! fact, there is negligable but non-zero probability that a ciphertext
+//! fact, there is negligible but non-zero probability that a ciphertext
 //! does not decrypt correctly given by the DFP column in Table 4.  This
 //! failure probability can be computed by a careful automated analysis
 //! of the probabilities involved, see kyber_failure.py of [SecEst].
@@ -323,9 +323,9 @@ fn Kyber(comptime p: Params) type {
                 s += InnerSk.bytes_length;
                 ret.pk = InnerPk.fromBytes(buf[s .. s + InnerPk.bytes_length]);
                 s += InnerPk.bytes_length;
-                mem.copy(u8, &ret.hpk, buf[s .. s + h_length]);
+                ret.hpk = buf[s..][0..h_length].*;
                 s += h_length;
-                mem.copy(u8, &ret.z, buf[s .. s + shared_length]);
+                ret.z = buf[s..][0..shared_length].*;
                 return ret;
             }
         };
@@ -345,7 +345,7 @@ fn Kyber(comptime p: Params) type {
                     break :sk random_seed;
                 };
                 var ret: KeyPair = undefined;
-                mem.copy(u8, &ret.secret_key.z, seed[inner_seed_length..seed_length]);
+                ret.secret_key.z = seed[inner_seed_length..seed_length].*;
 
                 // Generate inner key
                 innerKeyFromSeed(
@@ -356,7 +356,7 @@ fn Kyber(comptime p: Params) type {
                 ret.secret_key.pk = ret.public_key.pk;
 
                 // Copy over z from seed.
-                mem.copy(u8, &ret.secret_key.z, seed[inner_seed_length..seed_length]);
+                ret.secret_key.z = seed[inner_seed_length..seed_length].*;
 
                 // Compute H(pk)
                 var h = sha3.Sha3_256.init(.{});
@@ -418,7 +418,7 @@ fn Kyber(comptime p: Params) type {
             fn fromBytes(buf: *const [bytes_length]u8) InnerPk {
                 var ret: InnerPk = undefined;
                 ret.th = V.fromBytes(buf[0..V.bytes_length]).normalize();
-                mem.copy(u8, &ret.rho, buf[V.bytes_length..bytes_length]);
+                ret.rho = buf[V.bytes_length..bytes_length].*;
                 ret.aT = M.uniform(ret.rho, true);
                 return ret;
             }
@@ -459,7 +459,7 @@ fn Kyber(comptime p: Params) type {
             var h = sha3.Sha3_512.init(.{});
             h.update(&seed);
             h.final(&expanded_seed);
-            mem.copy(u8, &pk.rho, expanded_seed[0..32]);
+            pk.rho = expanded_seed[0..32].*;
             const sigma = expanded_seed[32..64];
             pk.aT = M.uniform(pk.rho, false); // Expand ρ to A; we'll transpose later on
 
@@ -640,7 +640,7 @@ fn montReduce(x: i32) i16 {
     // we have int32(int64(a)*int64(b)) = int32(a*b) and so the result is ok.
     const m = @truncate(i16, @truncate(i32, x *% qInv));
 
-    // Note that x - m q is divisable by R; indeed modulo R we have
+    // Note that x - m q is divisible by R; indeed modulo R we have
     //
     //  x - m q ≡ x - x q' q ≡ x - x q⁻¹ q ≡ x - x = 0.
     //
@@ -1381,7 +1381,7 @@ fn Vec(comptime K: u8) type {
             const cs = comptime Poly.compressedSize(d);
             var ret: [compressedSize(d)]u8 = undefined;
             inline for (0..K) |i| {
-                mem.copy(u8, ret[i * cs .. (i + 1) * cs], &v.ps[i].compress(d));
+                ret[i * cs .. (i + 1) * cs].* = v.ps[i].compress(d);
             }
             return ret;
         }
@@ -1399,11 +1399,7 @@ fn Vec(comptime K: u8) type {
         fn toBytes(v: Self) [bytes_length]u8 {
             var ret: [bytes_length]u8 = undefined;
             inline for (0..K) |i| {
-                mem.copy(
-                    u8,
-                    ret[i * Poly.bytes_length .. (i + 1) * Poly.bytes_length],
-                    &v.ps[i].toBytes(),
-                );
+                ret[i * Poly.bytes_length .. (i + 1) * Poly.bytes_length].* = v.ps[i].toBytes();
             }
             return ret;
         }
@@ -1479,7 +1475,7 @@ test "MulHat" {
         const p2 = a.ntt().mulHat(b.ntt()).barrettReduce().invNTT().normalize();
         var p: Poly = undefined;
 
-        mem.set(i16, &p.cs, 0);
+        @memset(&p.cs, 0);
 
         for (0..N) |i| {
             for (0..N) |j| {
@@ -1742,15 +1738,15 @@ const NistDRBG = struct {
             g.incV();
             var block: [16]u8 = undefined;
             ctx.encrypt(&block, &g.v);
-            mem.copy(u8, buf[i * 16 .. (i + 1) * 16], &block);
+            buf[i * 16 ..][0..16].* = block;
         }
         if (pd) |p| {
             for (&buf, p) |*b, x| {
                 b.* ^= x;
             }
         }
-        mem.copy(u8, &g.key, buf[0..32]);
-        mem.copy(u8, &g.v, buf[32..48]);
+        g.key = buf[0..32].*;
+        g.v = buf[32..48].*;
     }
 
     // randombytes.
@@ -1763,10 +1759,10 @@ const NistDRBG = struct {
             g.incV();
             ctx.encrypt(&block, &g.v);
             if (dst.len < 16) {
-                mem.copy(u8, dst, block[0..dst.len]);
+                @memcpy(dst, block[0..dst.len]);
                 break;
             }
-            mem.copy(u8, dst, &block);
+            dst[0..block.len].* = block;
             dst = dst[16..dst.len];
         }
         g.update(null);

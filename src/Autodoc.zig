@@ -234,12 +234,13 @@ pub fn generateZirData(self: *Autodoc) !void {
     };
 
     const tldoc_comment = try self.getTLDocComment(file);
+    const cleaned_tldoc_comment = try self.findGuidePaths(file, tldoc_comment);
+    defer self.arena.free(cleaned_tldoc_comment);
     try self.ast_nodes.append(self.arena, .{
         .name = "(root)",
-        .docs = tldoc_comment,
+        .docs = cleaned_tldoc_comment,
     });
     try self.files.put(self.arena, file, main_type_index);
-    try self.findGuidePaths(file, tldoc_comment);
 
     _ = try self.walkInstruction(file, &root_scope, .{}, Zir.main_struct_inst, false);
 
@@ -349,6 +350,7 @@ pub fn generateZirData(self: *Autodoc) !void {
     var docs_dir = try self.comp_module.comp.zig_lib_directory.handle.openDir("docs", .{});
     defer docs_dir.close();
     try docs_dir.copyFile("main.js", output_dir, "main.js", .{});
+    try docs_dir.copyFile("commonmark.js", output_dir, "commonmark.js", .{});
     try docs_dir.copyFile("index.html", output_dir, "index.html", .{});
 }
 
@@ -1144,7 +1146,7 @@ fn walkInstruction(
             const limb_bytes = file.zir.string_bytes[str.start..][0..byte_count];
 
             var limbs = try self.arena.alloc(std.math.big.Limb, str.len);
-            std.mem.copy(u8, std.mem.sliceAsBytes(limbs), limb_bytes);
+            @memcpy(std.mem.sliceAsBytes(limbs)[0..limb_bytes.len], limb_bytes);
 
             const big_int = std.math.big.int.Const{
                 .limbs = limbs,
@@ -3102,7 +3104,9 @@ fn analyzeAllDecls(
     while (it.next()) |d| {
         const decl_name_index = file.zir.extra[d.sub_index + 5];
         switch (decl_name_index) {
-            0, 1, 2 => continue, // skip over usingnamespace decls
+            0, 1 => continue, // skip over usingnamespace decls
+            2 => continue, // skip decltests
+
             else => if (file.zir.string_bytes[decl_name_index] == 0) {
                 continue;
             },
@@ -3114,6 +3118,24 @@ fn analyzeAllDecls(
             parent_src,
             decl_indexes,
             priv_decl_indexes,
+            d,
+        );
+    }
+
+    // Fourth loop to analyze decltests
+    it = original_it;
+    while (it.next()) |d| {
+        const decl_name_index = file.zir.extra[d.sub_index + 5];
+        switch (decl_name_index) {
+            0, 1 => continue, // skip over usingnamespace decls
+            2 => {},
+            else => continue, // skip tests and normal decls
+        }
+
+        try self.analyzeDecltest(
+            file,
+            scope,
+            parent_src,
             d,
         );
     }
@@ -3322,6 +3344,56 @@ fn analyzeUsingnamespaceDecl(
         try decl_indexes.append(self.arena, decl_slot_index);
     } else {
         try priv_decl_indexes.append(self.arena, decl_slot_index);
+    }
+}
+
+fn analyzeDecltest(
+    self: *Autodoc,
+    file: *File,
+    scope: *Scope,
+    parent_src: SrcLocInfo,
+    d: Zir.DeclIterator.Item,
+) AutodocErrors!void {
+    const data = file.zir.instructions.items(.data);
+
+    const value_index = file.zir.extra[d.sub_index + 6];
+    const decl_name_index = file.zir.extra[d.sub_index + 7];
+
+    // This is known to work because decl values are always block_inlines
+    const value_pl_node = data[value_index].pl_node;
+    const decl_src = try self.srcLocInfo(file, value_pl_node.src_node, parent_src);
+
+    const func_index = getBlockInlineBreak(file.zir, value_index).?;
+    const pl_node = data[Zir.refToIndex(func_index).?].pl_node;
+    const fn_src = try self.srcLocInfo(file, pl_node.src_node, decl_src);
+    const tree = try file.getTree(self.comp_module.gpa);
+    const test_source_code = tree.getNodeSource(fn_src.src_node);
+
+    const decl_name: ?[]const u8 = if (decl_name_index != 0)
+        file.zir.nullTerminatedString(decl_name_index)
+    else
+        null;
+
+    // astnode
+    const ast_node_index = idx: {
+        const idx = self.ast_nodes.items.len;
+        try self.ast_nodes.append(self.arena, .{
+            .file = self.files.getIndex(file).?,
+            .line = decl_src.line,
+            .col = 0,
+            .name = decl_name,
+            .code = test_source_code,
+        });
+        break :idx idx;
+    };
+
+    const decl_status = scope.resolveDeclName(decl_name_index, file, 0);
+
+    switch (decl_status.*) {
+        .Analyzed => |idx| {
+            self.decls.items[idx].decltest = ast_node_index;
+        },
+        else => unreachable, // we assume analyzeAllDecls analyzed other decls by this point
     }
 }
 
@@ -4754,14 +4826,20 @@ fn getTLDocComment(self: *Autodoc, file: *File) ![]const u8 {
     return comment.items;
 }
 
-fn findGuidePaths(self: *Autodoc, file: *File, str: []const u8) !void {
+/// Returns the doc comment cleared of autodoc directives.
+fn findGuidePaths(self: *Autodoc, file: *File, str: []const u8) ![]const u8 {
     const guide_prefix = "zig-autodoc-guide:";
     const section_prefix = "zig-autodoc-section:";
 
     try self.guide_sections.append(self.arena, .{}); // add a default section
     var current_section = &self.guide_sections.items[self.guide_sections.items.len - 1];
 
-    var it = std.mem.tokenize(u8, str, "\n");
+    var clean_docs: std.ArrayListUnmanaged(u8) = .{};
+    errdefer clean_docs.deinit(self.arena);
+
+    // TODO: this algo is kinda inefficient
+
+    var it = std.mem.split(u8, str, "\n");
     while (it.next()) |line| {
         const trimmed_line = std.mem.trim(u8, line, " ");
         if (std.mem.startsWith(u8, trimmed_line, guide_prefix)) {
@@ -4775,8 +4853,13 @@ fn findGuidePaths(self: *Autodoc, file: *File, str: []const u8) !void {
                 .name = trimmed_section_name,
             });
             current_section = &self.guide_sections.items[self.guide_sections.items.len - 1];
+        } else {
+            try clean_docs.appendSlice(self.arena, line);
+            try clean_docs.append(self.arena, '\n');
         }
     }
+
+    return clean_docs.toOwnedSlice(self.arena);
 }
 
 fn addGuide(self: *Autodoc, file: *File, guide_path: []const u8, section: *Section) !void {

@@ -76,7 +76,7 @@ pub fn Blake2s(comptime out_bits: usize) type {
             comptime debug.assert(8 <= out_bits and out_bits <= 256);
 
             var d: Self = undefined;
-            mem.copy(u32, d.h[0..], iv[0..]);
+            d.h = iv;
 
             const key_len = if (options.key) |key| key.len else 0;
             // default parameters
@@ -93,7 +93,7 @@ pub fn Blake2s(comptime out_bits: usize) type {
                 d.h[7] ^= mem.readIntLittle(u32, context[4..8]);
             }
             if (key_len > 0) {
-                mem.set(u8, d.buf[key_len..], 0);
+                @memset(d.buf[key_len..], 0);
                 d.update(options.key.?);
                 d.buf_len = 64;
             }
@@ -112,7 +112,7 @@ pub fn Blake2s(comptime out_bits: usize) type {
             // Partial buffer exists from previous update. Copy into buffer then hash.
             if (d.buf_len != 0 and d.buf_len + b.len > 64) {
                 off += 64 - d.buf_len;
-                mem.copy(u8, d.buf[d.buf_len..], b[0..off]);
+                @memcpy(d.buf[d.buf_len..][0..off], b[0..off]);
                 d.t += 64;
                 d.round(d.buf[0..], false);
                 d.buf_len = 0;
@@ -125,16 +125,17 @@ pub fn Blake2s(comptime out_bits: usize) type {
             }
 
             // Copy any remainder for next pass.
-            mem.copy(u8, d.buf[d.buf_len..], b[off..]);
-            d.buf_len += @intCast(u8, b[off..].len);
+            const b_slice = b[off..];
+            @memcpy(d.buf[d.buf_len..][0..b_slice.len], b_slice);
+            d.buf_len += @intCast(u8, b_slice.len);
         }
 
         pub fn final(d: *Self, out: *[digest_length]u8) void {
-            mem.set(u8, d.buf[d.buf_len..], 0);
+            @memset(d.buf[d.buf_len..], 0);
             d.t += d.buf_len;
             d.round(d.buf[0..], true);
             for (&d.h) |*x| x.* = mem.nativeToLittle(u32, x.*);
-            mem.copy(u8, out[0..], @ptrCast(*[digest_length]u8, &d.h));
+            out.* = @ptrCast(*[digest_length]u8, &d.h).*;
         }
 
         fn round(d: *Self, b: *const [64]u8, last: bool) void {
@@ -511,7 +512,7 @@ pub fn Blake2b(comptime out_bits: usize) type {
             comptime debug.assert(8 <= out_bits and out_bits <= 512);
 
             var d: Self = undefined;
-            mem.copy(u64, d.h[0..], iv[0..]);
+            d.h = iv;
 
             const key_len = if (options.key) |key| key.len else 0;
             // default parameters
@@ -528,7 +529,7 @@ pub fn Blake2b(comptime out_bits: usize) type {
                 d.h[7] ^= mem.readIntLittle(u64, context[8..16]);
             }
             if (key_len > 0) {
-                mem.set(u8, d.buf[key_len..], 0);
+                @memset(d.buf[key_len..], 0);
                 d.update(options.key.?);
                 d.buf_len = 128;
             }
@@ -547,7 +548,7 @@ pub fn Blake2b(comptime out_bits: usize) type {
             // Partial buffer exists from previous update. Copy into buffer then hash.
             if (d.buf_len != 0 and d.buf_len + b.len > 128) {
                 off += 128 - d.buf_len;
-                mem.copy(u8, d.buf[d.buf_len..], b[0..off]);
+                @memcpy(d.buf[d.buf_len..][0..off], b[0..off]);
                 d.t += 128;
                 d.round(d.buf[0..], false);
                 d.buf_len = 0;
@@ -560,16 +561,17 @@ pub fn Blake2b(comptime out_bits: usize) type {
             }
 
             // Copy any remainder for next pass.
-            mem.copy(u8, d.buf[d.buf_len..], b[off..]);
-            d.buf_len += @intCast(u8, b[off..].len);
+            const b_slice = b[off..];
+            @memcpy(d.buf[d.buf_len..][0..b_slice.len], b_slice);
+            d.buf_len += @intCast(u8, b_slice.len);
         }
 
         pub fn final(d: *Self, out: *[digest_length]u8) void {
-            mem.set(u8, d.buf[d.buf_len..], 0);
+            @memset(d.buf[d.buf_len..], 0);
             d.t += d.buf_len;
             d.round(d.buf[0..], true);
             for (&d.h) |*x| x.* = mem.nativeToLittle(u64, x.*);
-            mem.copy(u8, out[0..], @ptrCast(*[digest_length]u8, &d.h));
+            out.* = @ptrCast(*[digest_length]u8, &d.h).*;
         }
 
         fn round(d: *Self, b: *const [128]u8, last: bool) void {

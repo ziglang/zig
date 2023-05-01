@@ -277,8 +277,6 @@ const Writer = struct {
             .atomic_load => try self.writeAtomicLoad(stream, inst),
             .atomic_store => try self.writeAtomicStore(stream, inst),
             .atomic_rmw => try self.writeAtomicRmw(stream, inst),
-            .memcpy => try self.writeMemcpy(stream, inst),
-            .memset => try self.writeMemset(stream, inst),
             .shuffle => try self.writeShuffle(stream, inst),
             .mul_add => try self.writeMulAdd(stream, inst),
             .field_parent_ptr => try self.writeFieldParentPtr(stream, inst),
@@ -346,6 +344,8 @@ const Writer = struct {
             .vector_type,
             .max,
             .min,
+            .memcpy,
+            .memset,
             .elem_ptr_node,
             .elem_val_node,
             .elem_ptr,
@@ -682,7 +682,7 @@ const Writer = struct {
         const limbs = try self.gpa.alloc(std.math.big.Limb, inst_data.len);
         defer self.gpa.free(limbs);
 
-        mem.copy(u8, mem.sliceAsBytes(limbs), limb_bytes);
+        @memcpy(mem.sliceAsBytes(limbs), limb_bytes);
         const big_int: std.math.big.int.Const = .{
             .limbs = limbs,
             .positive = true,
@@ -996,32 +996,6 @@ const Writer = struct {
         try self.writeInstRef(stream, extra.operand);
         try stream.writeAll(", ");
         try self.writeInstRef(stream, extra.ordering);
-        try stream.writeAll(") ");
-        try self.writeSrc(stream, inst_data.src());
-    }
-
-    fn writeMemcpy(self: *Writer, stream: anytype, inst: Zir.Inst.Index) !void {
-        const inst_data = self.code.instructions.items(.data)[inst].pl_node;
-        const extra = self.code.extraData(Zir.Inst.Memcpy, inst_data.payload_index).data;
-
-        try self.writeInstRef(stream, extra.dest);
-        try stream.writeAll(", ");
-        try self.writeInstRef(stream, extra.source);
-        try stream.writeAll(", ");
-        try self.writeInstRef(stream, extra.byte_count);
-        try stream.writeAll(") ");
-        try self.writeSrc(stream, inst_data.src());
-    }
-
-    fn writeMemset(self: *Writer, stream: anytype, inst: Zir.Inst.Index) !void {
-        const inst_data = self.code.instructions.items(.data)[inst].pl_node;
-        const extra = self.code.extraData(Zir.Inst.Memset, inst_data.payload_index).data;
-
-        try self.writeInstRef(stream, extra.dest);
-        try stream.writeAll(", ");
-        try self.writeInstRef(stream, extra.byte);
-        try stream.writeAll(", ");
-        try self.writeInstRef(stream, extra.byte_count);
         try stream.writeAll(") ");
         try self.writeSrc(stream, inst_data.src());
     }

@@ -321,7 +321,7 @@ pub fn classifySystemV(ty: Type, target: Target, ctx: Context) [8]Class {
                         byte_i = 0;
                         result_i += 1;
                     }
-                    std.mem.copy(Class, result[result_i..], field_class);
+                    @memcpy(result[result_i..][0..field_class.len], field_class);
                     result_i += field_class.len;
                     // If there are any bytes leftover, we have to try to combine
                     // the next field with them.

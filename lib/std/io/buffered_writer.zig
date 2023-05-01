@@ -30,8 +30,9 @@ pub fn BufferedWriter(comptime buffer_size: usize, comptime WriterType: type) ty
                     return self.unbuffered_writer.write(bytes);
             }
 
-            mem.copy(u8, self.buf[self.end..], bytes);
-            self.end += bytes.len;
+            const new_end = self.end + bytes.len;
+            @memcpy(self.buf[self.end..new_end], bytes);
+            self.end = new_end;
             return bytes.len;
         }
     };

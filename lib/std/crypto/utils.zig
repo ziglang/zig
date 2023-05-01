@@ -134,12 +134,8 @@ pub fn timingSafeSub(comptime T: type, a: []const T, b: []const T, result: []T, 
 
 /// Sets a slice to zeroes.
 /// Prevents the store from being optimized out.
-pub fn secureZero(comptime T: type, s: []T) void {
-    // NOTE: We do not use a volatile slice cast here since LLVM cannot
-    // see that it can be replaced by a memset.
-    const ptr = @ptrCast([*]volatile u8, s.ptr);
-    const length = s.len * @sizeOf(T);
-    @memset(ptr, 0, length);
+pub inline fn secureZero(comptime T: type, s: []T) void {
+    @memset(@as([]volatile T, s), 0);
 }
 
 test "crypto.utils.timingSafeEql" {
@@ -148,7 +144,7 @@ test "crypto.utils.timingSafeEql" {
     random.bytes(a[0..]);
     random.bytes(b[0..]);
     try testing.expect(!timingSafeEql([100]u8, a, b));
-    mem.copy(u8, a[0..], b[0..]);
+    a = b;
     try testing.expect(timingSafeEql([100]u8, a, b));
 }
 
@@ -201,7 +197,7 @@ test "crypto.utils.secureZero" {
     var a = [_]u8{0xfe} ** 8;
     var b = [_]u8{0xfe} ** 8;
 
-    mem.set(u8, a[0..], 0);
+    @memset(a[0..], 0);
     secureZero(u8, b[0..]);
 
     try testing.expectEqualSlices(u8, a[0..], b[0..]);

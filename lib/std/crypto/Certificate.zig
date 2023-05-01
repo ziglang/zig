@@ -928,7 +928,7 @@ pub const rsa = struct {
     pub const PSSSignature = struct {
         pub fn fromBytes(comptime modulus_len: usize, msg: []const u8) [modulus_len]u8 {
             var result = [1]u8{0} ** modulus_len;
-            std.mem.copy(u8, &result, msg);
+            std.mem.copyForwards(u8, &result, msg);
             return result;
         }
 
@@ -1025,9 +1025,9 @@ pub const rsa = struct {
             //      initial zero octets.
             var m_p = try allocator.alloc(u8, 8 + Hash.digest_length + sLen);
             defer allocator.free(m_p);
-            std.mem.copy(u8, m_p, &([_]u8{0} ** 8));
-            std.mem.copy(u8, m_p[8..], &mHash);
-            std.mem.copy(u8, m_p[(8 + Hash.digest_length)..], salt);
+            std.mem.copyForwards(u8, m_p, &([_]u8{0} ** 8));
+            std.mem.copyForwards(u8, m_p[8..], &mHash);
+            std.mem.copyForwards(u8, m_p[(8 + Hash.digest_length)..], salt);
 
             // 13.  Let H' = Hash(M'), an octet string of length hLen.
             var h_p: [Hash.digest_length]u8 = undefined;
@@ -1047,7 +1047,7 @@ pub const rsa = struct {
 
             var hash = try allocator.alloc(u8, seed.len + c.len);
             defer allocator.free(hash);
-            std.mem.copy(u8, hash, seed);
+            std.mem.copyForwards(u8, hash, seed);
             var hashed: [Hash.digest_length]u8 = undefined;
 
             while (idx < len) {
@@ -1056,10 +1056,10 @@ pub const rsa = struct {
                 c[2] = @intCast(u8, (counter >> 8) & 0xFF);
                 c[3] = @intCast(u8, counter & 0xFF);
 
-                std.mem.copy(u8, hash[seed.len..], &c);
+                std.mem.copyForwards(u8, hash[seed.len..], &c);
                 Hash.hash(hash, &hashed, .{});
 
-                std.mem.copy(u8, out[idx..], &hashed);
+                std.mem.copyForwards(u8, out[idx..], &hashed);
                 idx += hashed.len;
 
                 counter += 1;
@@ -1134,9 +1134,9 @@ pub const rsa = struct {
         return res;
     }
 
-    fn setBytes(r: *BigInt, bytes: []const u8, allcator: std.mem.Allocator) !void {
+    fn setBytes(r: *BigInt, bytes: []const u8, allocator: std.mem.Allocator) !void {
         try r.set(0);
-        var tmp = try BigInt.init(allcator);
+        var tmp = try BigInt.init(allocator);
         defer tmp.deinit();
         for (bytes) |b| {
             try r.shiftLeft(r, 8);

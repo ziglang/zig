@@ -97,7 +97,7 @@ pub const BufSet = struct {
 
     fn copy(self: *const BufSet, value: []const u8) ![]const u8 {
         const result = try self.hash_map.allocator.alloc(u8, value.len);
-        mem.copy(u8, result, value);
+        @memcpy(result, value);
         return result;
     }
 };

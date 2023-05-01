@@ -646,7 +646,7 @@ pub const CallModifier = enum {
     /// If this is not possible, a compile error is emitted instead.
     always_tail,
 
-    /// Guarantees that the call will inlined at the callsite.
+    /// Guarantees that the call will be inlined at the callsite.
     /// If this is not possible, a compile error is emitted instead.
     always_inline,
 
@@ -749,7 +749,7 @@ pub const PrefetchOptions = struct {
     /// 3 means high temporal locality. That is, the data should be kept in
     /// the cache as it is likely to be accessed again soon.
     locality: u2 = 3,
-    /// The cache that the prefetch should be preformed on.
+    /// The cache that the prefetch should be performed on.
     cache: Cache = .data,
 
     pub const Rw = enum(u1) {
@@ -868,8 +868,7 @@ pub fn default_panic(msg: []const u8, error_return_trace: ?*StackTrace, ret_addr
 
     // For backends that cannot handle the language features depended on by the
     // default panic handler, we have a simpler panic handler:
-    if (builtin.zig_backend == .stage2_c or
-        builtin.zig_backend == .stage2_wasm or
+    if (builtin.zig_backend == .stage2_wasm or
         builtin.zig_backend == .stage2_arm or
         builtin.zig_backend == .stage2_aarch64 or
         builtin.zig_backend == .stage2_x86_64 or
@@ -1002,6 +1001,8 @@ pub const panic_messages = struct {
     pub const index_out_of_bounds = "index out of bounds";
     pub const start_index_greater_than_end = "start index is larger than end index";
     pub const for_len_mismatch = "for loop over objects with non-equal lengths";
+    pub const memcpy_len_mismatch = "@memcpy arguments have non-equal lengths";
+    pub const memcpy_alias = "@memcpy arguments alias";
 };
 
 pub noinline fn returnError(st: *StackTrace) void {

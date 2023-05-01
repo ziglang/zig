@@ -1596,7 +1596,7 @@ pub const Target = struct {
         /// Asserts that the length is less than or equal to 255 bytes.
         pub fn set(self: *DynamicLinker, dl_or_null: ?[]const u8) void {
             if (dl_or_null) |dl| {
-                mem.copy(u8, &self.buffer, dl);
+                @memcpy(self.buffer[0..dl.len], dl);
                 self.max_byte = @intCast(u8, dl.len - 1);
             } else {
                 self.max_byte = null;
@@ -1612,7 +1612,7 @@ pub const Target = struct {
                 return r.*;
             }
             fn copy(r: *DynamicLinker, s: []const u8) DynamicLinker {
-                mem.copy(u8, &r.buffer, s);
+                @memcpy(r.buffer[0..s.len], s);
                 r.max_byte = @intCast(u8, s.len - 1);
                 return r.*;
             }

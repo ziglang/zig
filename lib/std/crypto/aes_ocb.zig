@@ -75,7 +75,7 @@ fn AesOcb(comptime Aes: anytype) type {
             if (leftover > 0) {
                 xorWith(&offset, lx.star);
                 var padded = [_]u8{0} ** 16;
-                mem.copy(u8, padded[0..leftover], a[i * 16 ..][0..leftover]);
+                @memcpy(padded[0..leftover], a[i * 16 ..][0..leftover]);
                 padded[leftover] = 1;
                 var e = xorBlocks(offset, padded);
                 aes_enc_ctx.encrypt(&e, &e);
@@ -88,7 +88,7 @@ fn AesOcb(comptime Aes: anytype) type {
             var nx = [_]u8{0} ** 16;
             nx[0] = @intCast(u8, @truncate(u7, tag_length * 8) << 1);
             nx[16 - nonce_length - 1] = 1;
-            mem.copy(u8, nx[16 - nonce_length ..], &npub);
+            nx[nx.len - nonce_length ..].* = npub;
 
             const bottom = @truncate(u6, nx[15]);
             nx[15] &= 0xc0;
@@ -132,14 +132,14 @@ fn AesOcb(comptime Aes: anytype) type {
                     xorWith(&offset, lt[@ctz(i + 1 + j)]);
                     offsets[j] = offset;
                     const p = m[(i + j) * 16 ..][0..16].*;
-                    mem.copy(u8, es[j * 16 ..][0..16], &xorBlocks(p, offsets[j]));
+                    es[j * 16 ..][0..16].* = xorBlocks(p, offsets[j]);
                     xorWith(&sum, p);
                 }
                 aes_enc_ctx.encryptWide(wb, &es, &es);
                 j = 0;
                 while (j < wb) : (j += 1) {
                     const e = es[j * 16 ..][0..16].*;
-                    mem.copy(u8, c[(i + j) * 16 ..][0..16], &xorBlocks(e, offsets[j]));
+                    c[(i + j) * 16 ..][0..16].* = xorBlocks(e, offsets[j]);
                 }
             }
             while (i < full_blocks) : (i += 1) {
@@ -147,7 +147,7 @@ fn AesOcb(comptime Aes: anytype) type {
                 const p = m[i * 16 ..][0..16].*;
                 var e = xorBlocks(p, offset);
                 aes_enc_ctx.encrypt(&e, &e);
-                mem.copy(u8, c[i * 16 ..][0..16], &xorBlocks(e, offset));
+                c[i * 16 ..][0..16].* = xorBlocks(e, offset);
                 xorWith(&sum, p);
             }
             const leftover = m.len % 16;
@@ -159,7 +159,7 @@ fn AesOcb(comptime Aes: anytype) type {
                     c[i * 16 + j] = pad[j] ^ x;
                 }
                 var e = [_]u8{0} ** 16;
-                mem.copy(u8, e[0..leftover], m[i * 16 ..][0..leftover]);
+                @memcpy(e[0..leftover], m[i * 16 ..][0..leftover]);
                 e[leftover] = 0x80;
                 xorWith(&sum, e);
             }
@@ -196,13 +196,13 @@ fn AesOcb(comptime Aes: anytype) type {
                     xorWith(&offset, lt[@ctz(i + 1 + j)]);
                     offsets[j] = offset;
                     const q = c[(i + j) * 16 ..][0..16].*;
-                    mem.copy(u8, es[j * 16 ..][0..16], &xorBlocks(q, offsets[j]));
+                    es[j * 16 ..][0..16].* = xorBlocks(q, offsets[j]);
                 }
                 aes_dec_ctx.decryptWide(wb, &es, &es);
                 j = 0;
                 while (j < wb) : (j += 1) {
                     const p = xorBlocks(es[j * 16 ..][0..16].*, offsets[j]);
-                    mem.copy(u8, m[(i + j) * 16 ..][0..16], &p);
+                    m[(i + j) * 16 ..][0..16].* = p;
                     xorWith(&sum, p);
                 }
             }
@@ -212,7 +212,7 @@ fn AesOcb(comptime Aes: anytype) type {
                 var e = xorBlocks(q, offset);
                 aes_dec_ctx.decrypt(&e, &e);
                 const p = xorBlocks(e, offset);
-                mem.copy(u8, m[i * 16 ..][0..16], &p);
+                m[i * 16 ..][0..16].* = p;
                 xorWith(&sum, p);
             }
             const leftover = m.len % 16;
@@ -224,7 +224,7 @@ fn AesOcb(comptime Aes: anytype) type {
                     m[i * 16 + j] = pad[j] ^ x;
                 }
                 var e = [_]u8{0} ** 16;
-                mem.copy(u8, e[0..leftover], m[i * 16 ..][0..leftover]);
+                @memcpy(e[0..leftover], m[i * 16 ..][0..leftover]);
                 e[leftover] = 0x80;
                 xorWith(&sum, e);
             }

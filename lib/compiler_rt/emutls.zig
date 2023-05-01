@@ -139,10 +139,10 @@ const ObjectArray = struct {
 
             if (control.default_value) |value| {
                 // default value: copy the content to newly allocated object.
-                @memcpy(data, @ptrCast([*]const u8, value), size);
+                @memcpy(data[0..size], @ptrCast([*]const u8, value));
             } else {
                 // no default: return zeroed memory.
-                @memset(data, 0, size);
+                @memset(data[0..size], 0);
             }
 
             self.slots[index] = @ptrCast(*anyopaque, data);

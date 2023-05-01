@@ -137,7 +137,7 @@ pub const Tz = struct {
             const name = std.mem.sliceTo(designators[tt.name_data[0]..], 0);
             // We are mandating the "SHOULD" 6-character limit so we can pack the struct better, and to conform to POSIX.
             if (name.len > 6) return error.Malformed; // rfc8536: Time zone designations SHOULD consist of at least three (3) and no more than six (6) ASCII characters.
-            std.mem.copy(u8, tt.name_data[0..], name);
+            @memcpy(tt.name_data[0..name.len], name);
             tt.name_data[name.len] = 0;
         }
 
