@@ -166,7 +166,7 @@ pub const Token = union(enum) {
 };
 
 /// See the documentation for Token.
-pub const AllocWhen = enum{ alloc_if_needed, alloc_always };
+pub const AllocWhen = enum { alloc_if_needed, alloc_always };
 
 /// For security, the maximum size allocated to store a single string or number value is limited to 4MiB by default.
 /// This limit can be specified by calling nextAllocMax() instead of nextAlloc().
@@ -319,7 +319,10 @@ pub const JsonScanner = struct {
         errdefer {
             value_list.deinit();
         }
-        return nextIntoArrayList(self, &value_list, max_value_len, when);
+        return nextIntoArrayList(self, &value_list, max_value_len, when) catch |e| switch (e) {
+            error.BufferUnderrun => unreachable,
+            else => |err| return err,
+        };
     }
 
     /// See Token for documentation of this function.

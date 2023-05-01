@@ -1134,3 +1134,14 @@ test "parse into double recursive union definition" {
 
     try testing.expectEqual(@as(i64, 58), r.values.array[0].array[0].integer);
 }
+
+test "parse exponential into int" {
+    const T = struct { int: i64 };
+    var ts = TokenStream.init("{ \"int\": 4.2e2 }");
+    const r = try parse(T, &ts, ParseOptions{});
+    try testing.expectEqual(@as(i64, 420), r.int);
+    ts = TokenStream.init("{ \"int\": 0.042e2 }");
+    try testing.expectError(error.InvalidNumber, parse(T, &ts, ParseOptions{}));
+    ts = TokenStream.init("{ \"int\": 18446744073709551616.0 }");
+    try testing.expectError(error.Overflow, parse(T, &ts, ParseOptions{}));
+}

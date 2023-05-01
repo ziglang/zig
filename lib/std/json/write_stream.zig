@@ -1,7 +1,11 @@
 const std = @import("std");
-const json = @import("../json.zig");
 const assert = std.debug.assert;
 const maxInt = std.math.maxInt;
+
+const StringifyOptions = @import("./stringify.zig").StringifyOptions;
+const jsonStringify = @import("./stringify.zig").stringify;
+
+const Value = @import("./dynamic.zig").Value;
 
 const State = enum {
     Complete,
@@ -22,7 +26,7 @@ pub fn WriteStream(comptime OutStream: type, comptime max_depth: usize) type {
 
         pub const Stream = OutStream;
 
-        whitespace: json.StringifyOptions.Whitespace = json.StringifyOptions.Whitespace{
+        whitespace: StringifyOptions.Whitespace = StringifyOptions.Whitespace{
             .indent_level = 0,
             .indent = .{ .Space = 1 },
         },
@@ -195,7 +199,7 @@ pub fn WriteStream(comptime OutStream: type, comptime max_depth: usize) type {
         }
 
         /// Writes the complete json into the output stream
-        pub fn emitJson(self: *Self, value: json.Value) Stream.Error!void {
+        pub fn emitJson(self: *Self, value: Value) Stream.Error!void {
             assert(self.state[self.state_index] == State.Value);
             try self.stringify(value);
             self.popState();
@@ -216,7 +220,7 @@ pub fn WriteStream(comptime OutStream: type, comptime max_depth: usize) type {
         }
 
         fn stringify(self: *Self, value: anytype) !void {
-            try json.stringify(value, json.StringifyOptions{
+            try jsonStringify(value, StringifyOptions{
                 .whitespace = self.whitespace,
             }, self.stream);
         }
@@ -229,6 +233,8 @@ pub fn writeStream(
 ) WriteStream(@TypeOf(out_stream), max_depth) {
     return WriteStream(@TypeOf(out_stream), max_depth).init(out_stream);
 }
+
+const ObjectMap = @import("./dynamic.zig").ObjectMap;
 
 test "json write stream" {
     var out_buf: [1024]u8 = undefined;
@@ -286,9 +292,9 @@ test "json write stream" {
     try std.testing.expect(std.mem.eql(u8, expected, result));
 }
 
-fn getJsonObject(allocator: std.mem.Allocator) !json.Value {
-    var value = json.Value{ .Object = json.ObjectMap.init(allocator) };
-    try value.Object.put("one", json.Value{ .Integer = @intCast(i64, 1) });
-    try value.Object.put("two", json.Value{ .Float = 2.0 });
+fn getJsonObject(allocator: std.mem.Allocator) !Value {
+    var value = Value{ .object = ObjectMap.init(allocator) };
+    try value.object.put("one", Value{ .integer = @intCast(i64, 1) });
+    try value.object.put("two", Value{ .float = 2.0 });
     return value;
 }

@@ -1,4 +1,6 @@
 const std = @import("std");
+const debug = std.debug;
+const mem = std.mem;
 const ArenaAllocator = std.heap.ArenaAllocator;
 const ArrayList = std.ArrayList;
 const StringArrayHashMap = std.StringArrayHashMap;
@@ -6,6 +8,10 @@ const Allocator = std.mem.Allocator;
 
 const StringifyOptions = @import("./stringify.zig").StringifyOptions;
 const stringify = @import("./stringify.zig").stringify;
+
+const JsonScanner = @import("./scanner.zig").JsonScanner;
+const AllocWhen = @import("./scanner.zig").AllocWhen;
+const Token = @import("./scanner.zig").Token;
 
 pub const ValueTree = struct {
     arena: *ArenaAllocator,
@@ -23,14 +29,14 @@ pub const Array = ArrayList(Value);
 /// Represents a JSON value
 /// Currently only supports numbers that fit into i64 or f64.
 pub const Value = union(enum) {
-    Null,
-    Bool: bool,
-    Integer: i64,
-    Float: f64,
-    NumberString: []const u8,
-    String: []const u8,
-    Array: Array,
-    Object: ObjectMap,
+    null,
+    bool: bool,
+    integer: i64,
+    float: f64,
+    number_string: []const u8,
+    string: []const u8,
+    array: Array,
+    object: ObjectMap,
 
     pub fn jsonStringify(
         value: @This(),
@@ -38,14 +44,14 @@ pub const Value = union(enum) {
         out_stream: anytype,
     ) @TypeOf(out_stream).Error!void {
         switch (value) {
-            .Null => try stringify(null, options, out_stream),
-            .Bool => |inner| try stringify(inner, options, out_stream),
-            .Integer => |inner| try stringify(inner, options, out_stream),
-            .Float => |inner| try stringify(inner, options, out_stream),
-            .NumberString => |inner| try out_stream.writeAll(inner),
-            .String => |inner| try stringify(inner, options, out_stream),
-            .Array => |inner| try stringify(inner.items, options, out_stream),
-            .Object => |inner| {
+            .null => try stringify(null, options, out_stream),
+            .bool => |inner| try stringify(inner, options, out_stream),
+            .integer => |inner| try stringify(inner, options, out_stream),
+            .float => |inner| try stringify(inner, options, out_stream),
+            .number_string => |inner| try out_stream.writeAll(inner),
+            .string => |inner| try stringify(inner, options, out_stream),
+            .array => |inner| try stringify(inner.items, options, out_stream),
+            .object => |inner| {
                 try out_stream.writeByte('{');
                 var field_output = false;
                 var child_options = options;
@@ -95,22 +101,22 @@ pub const Value = union(enum) {
 pub const Parser = struct {
     allocator: Allocator,
     state: State,
-    copy_strings: bool,
+    alloc_when: AllocWhen,
     // Stores parent nodes and un-combined Values.
     stack: Array,
 
     const State = enum {
-        ObjectKey,
-        ObjectValue,
-        ArrayValue,
-        Simple,
+        object_key,
+        object_value,
+        array_value,
+        simple,
     };
 
-    pub fn init(allocator: Allocator, copy_strings: bool) Parser {
+    pub fn init(allocator: Allocator, alloc_when: AllocWhen) Parser {
         return Parser{
             .allocator = allocator,
-            .state = .Simple,
-            .copy_strings = copy_strings,
+            .state = .simple,
+            .alloc_when = alloc_when,
             .stack = Array.init(allocator),
         };
     }
@@ -120,12 +126,13 @@ pub const Parser = struct {
     }
 
     pub fn reset(p: *Parser) void {
-        p.state = .Simple;
+        p.state = .simple;
         p.stack.shrinkRetainingCapacity(0);
     }
 
     pub fn parse(p: *Parser, input: []const u8) !ValueTree {
-        var s = TokenStream.init(input);
+        var scanner = JsonScanner.initCompleteInput(p.allocator, input);
+        defer scanner.deinit();
 
         var arena = try p.allocator.create(ArenaAllocator);
         errdefer p.allocator.destroy(arena);
@@ -135,8 +142,10 @@ pub const Parser = struct {
 
         const allocator = arena.allocator();
 
-        while (try s.next()) |token| {
-            try p.transition(allocator, input, s.i - 1, token);
+        while (true) {
+            const token = try scanner.nextAlloc(allocator, p.alloc_when);
+            if (token == .end_of_document) break;
+            try p.transition(allocator, token);
         }
 
         debug.assert(p.stack.items.len == 1);
@@ -149,10 +158,10 @@ pub const Parser = struct {
 
     // Even though p.allocator exists, we take an explicit allocator so that allocation state
     // can be cleaned up on error correctly during a `parse` on call.
-    fn transition(p: *Parser, allocator: Allocator, input: []const u8, i: usize, token: Token) !void {
+    fn transition(p: *Parser, allocator: Allocator, token: Token) !void {
         switch (p.state) {
-            .ObjectKey => switch (token) {
-                .ObjectEnd => {
+            .object_key => switch (token) {
+                .object_end => {
                     if (p.stack.items.len == 1) {
                         return;
                     }
@@ -160,65 +169,59 @@ pub const Parser = struct {
                     var value = p.stack.pop();
                     try p.pushToParent(&value);
                 },
-                .String => |s| {
-                    try p.stack.append(try p.parseString(allocator, s, input, i));
-                    p.state = .ObjectValue;
+                .string, .allocated_string => |s| {
+                    try p.stack.append(Value{ .string = s });
+                    p.state = .object_value;
                 },
-                else => {
-                    // The streaming parser would return an error eventually.
-                    // To prevent invalid state we return an error now.
-                    // TODO make the streaming parser return an error as soon as it encounters an invalid object key
-                    return error.InvalidLiteral;
-                },
+                else => unreachable,
             },
-            .ObjectValue => {
-                var object = &p.stack.items[p.stack.items.len - 2].Object;
-                var key = p.stack.items[p.stack.items.len - 1].String;
+            .object_value => {
+                var object = &p.stack.items[p.stack.items.len - 2].object;
+                var key = p.stack.items[p.stack.items.len - 1].string;
 
                 switch (token) {
-                    .ObjectBegin => {
-                        try p.stack.append(Value{ .Object = ObjectMap.init(allocator) });
-                        p.state = .ObjectKey;
+                    .object_begin => {
+                        try p.stack.append(Value{ .object = ObjectMap.init(allocator) });
+                        p.state = .object_key;
                     },
-                    .ArrayBegin => {
-                        try p.stack.append(Value{ .Array = Array.init(allocator) });
-                        p.state = .ArrayValue;
+                    .array_begin => {
+                        try p.stack.append(Value{ .array = Array.init(allocator) });
+                        p.state = .array_value;
                     },
-                    .String => |s| {
-                        try object.put(key, try p.parseString(allocator, s, input, i));
+                    .string, .allocated_string => |s| {
+                        try object.put(key, Value{ .string = s });
                         _ = p.stack.pop();
-                        p.state = .ObjectKey;
+                        p.state = .object_key;
                     },
-                    .Number => |n| {
-                        try object.put(key, try p.parseNumber(n, input, i));
+                    .number, .allocated_number => |slice| {
+                        try object.put(key, try p.parseNumber(slice));
                         _ = p.stack.pop();
-                        p.state = .ObjectKey;
+                        p.state = .object_key;
                     },
-                    .True => {
-                        try object.put(key, Value{ .Bool = true });
+                    .true => {
+                        try object.put(key, Value{ .bool = true });
                         _ = p.stack.pop();
-                        p.state = .ObjectKey;
+                        p.state = .object_key;
                     },
-                    .False => {
-                        try object.put(key, Value{ .Bool = false });
+                    .false => {
+                        try object.put(key, Value{ .bool = false });
                         _ = p.stack.pop();
-                        p.state = .ObjectKey;
+                        p.state = .object_key;
                     },
-                    .Null => {
-                        try object.put(key, Value.Null);
+                    .null => {
+                        try object.put(key, .null);
                         _ = p.stack.pop();
-                        p.state = .ObjectKey;
+                        p.state = .object_key;
                     },
-                    .ObjectEnd, .ArrayEnd => {
-                        unreachable;
-                    },
+                    .object_end, .array_end, .end_of_document => unreachable,
+                    .partial_number, .partial_string, .partial_string_escaped_1, .partial_string_escaped_2, .partial_string_escaped_3, .partial_string_escaped_4 => unreachable,
                 }
             },
-            .ArrayValue => {
-                var array = &p.stack.items[p.stack.items.len - 1].Array;
+            .array_value => {
+                var array = &p.stack.items[p.stack.items.len - 1].array;
 
                 switch (token) {
-                    .ArrayEnd => {
+                    .array_end => {
                         if (p.stack.items.len == 1) {
                             return;
                         }
@@ -226,61 +229,59 @@ pub const Parser = struct {
                         var value = p.stack.pop();
                         try p.pushToParent(&value);
                     },
-                    .ObjectBegin => {
-                        try p.stack.append(Value{ .Object = ObjectMap.init(allocator) });
-                        p.state = .ObjectKey;
+                    .object_begin => {
+                        try p.stack.append(Value{ .object = ObjectMap.init(allocator) });
+                        p.state = .object_key;
                     },
-                    .ArrayBegin => {
-                        try p.stack.append(Value{ .Array = Array.init(allocator) });
-                        p.state = .ArrayValue;
+                    .array_begin => {
+                        try p.stack.append(Value{ .array = Array.init(allocator) });
+                        p.state = .array_value;
                     },
-                    .String => |s| {
-                        try array.append(try p.parseString(allocator, s, input, i));
+                    .string, .allocated_string => |s| {
+                        try array.append(Value{ .string = s });
                     },
-                    .Number => |n| {
-                        try array.append(try p.parseNumber(n, input, i));
+                    .number, .allocated_number => |slice| {
+                        try array.append(try p.parseNumber(slice));
                     },
-                    .True => {
-                        try array.append(Value{ .Bool = true });
+                    .true => {
+                        try array.append(Value{ .bool = true });
                     },
-                    .False => {
-                        try array.append(Value{ .Bool = false });
+                    .false => {
+                        try array.append(Value{ .bool = false });
                     },
-                    .Null => {
-                        try array.append(Value.Null);
+                    .null => {
+                        try array.append(.null);
                     },
-                    .ObjectEnd => {
-                        unreachable;
-                    },
+                    .object_end, .end_of_document => unreachable,
+                    .partial_number, .partial_string, .partial_string_escaped_1, .partial_string_escaped_2, .partial_string_escaped_3, .partial_string_escaped_4 => unreachable,
                 }
             },
-            .Simple => switch (token) {
-                .ObjectBegin => {
-                    try p.stack.append(Value{ .Object = ObjectMap.init(allocator) });
-                    p.state = .ObjectKey;
+            .simple => switch (token) {
+                .object_begin => {
+                    try p.stack.append(Value{ .object = ObjectMap.init(allocator) });
+                    p.state = .object_key;
                 },
-                .ArrayBegin => {
-                    try p.stack.append(Value{ .Array = Array.init(allocator) });
-                    p.state = .ArrayValue;
+                .array_begin => {
+                    try p.stack.append(Value{ .array = Array.init(allocator) });
+                    p.state = .array_value;
                 },
-                .String => |s| {
-                    try p.stack.append(try p.parseString(allocator, s, input, i));
+                .string, .allocated_string => |s| {
+                    try p.stack.append(Value{ .string = s });
                 },
-                .Number => |n| {
-                    try p.stack.append(try p.parseNumber(n, input, i));
+                .number, .allocated_number => |slice| {
+                    try p.stack.append(try p.parseNumber(slice));
                 },
-                .True => {
-                    try p.stack.append(Value{ .Bool = true });
+                .true => {
+                    try p.stack.append(Value{ .bool = true });
                 },
-                .False => {
-                    try p.stack.append(Value{ .Bool = false });
+                .false => {
+                    try p.stack.append(Value{ .bool = false });
                 },
-                .Null => {
-                    try p.stack.append(Value.Null);
+                .null => {
+                    try p.stack.append(.null);
                 },
-                .ObjectEnd, .ArrayEnd => {
-                    unreachable;
-                },
+                .object_end, .array_end, .end_of_document => unreachable,
+                .partial_number, .partial_string, .partial_string_escaped_1, .partial_string_escaped_2, .partial_string_escaped_3, .partial_string_escaped_4 => unreachable,
             },
         }
     }
@@ -288,17 +289,17 @@ pub const Parser = struct {
     fn pushToParent(p: *Parser, value: *const Value) !void {
         switch (p.stack.items[p.stack.items.len - 1]) {
             // Object Parent -> [ ..., object, <key>, value ]
-            Value.String => |key| {
+            .string => |key| {
                 _ = p.stack.pop();
 
-                var object = &p.stack.items[p.stack.items.len - 1].Object;
+                var object = &p.stack.items[p.stack.items.len - 1].object;
                 try object.put(key, value.*);
-                p.state = .ObjectKey;
+                p.state = .object_key;
             },
             // Array Parent -> [ ..., <array>, value ]
-            Value.Array => |*array| {
+            .array => |*array| {
                 try array.append(value.*);
-                p.state = .ArrayValue;
+                p.state = .array_value;
             },
             else => {
                 unreachable;
@@ -306,35 +307,25 @@ pub const Parser = struct {
         }
     }
 
-    fn parseString(p: *Parser, allocator: Allocator, s: std.meta.TagPayload(Token, Token.String), input: []const u8, i: usize) !Value {
-        const slice = s.slice(input, i);
-        switch (s.escapes) {
-            .None => return Value{ .String = if (p.copy_strings) try allocator.dupe(u8, slice) else slice },
-            .Some => {
-                const output = try allocator.alloc(u8, s.decodedLength());
-                errdefer allocator.free(output);
-                try unescapeValidString(output, slice);
-                return Value{ .String = output };
-            },
-        }
-    }
-
-    fn parseNumber(p: *Parser, n: std.meta.TagPayload(Token, Token.Number), input: []const u8, i: usize) !Value {
+    fn parseNumber(p: *Parser, slice: []const u8) !Value {
         _ = p;
-        return if (n.is_integer)
+        const is_integer = std.mem.indexOfAny(u8, slice, ".eE") == null;
+        return if (is_integer)
             Value{
-                .Integer = std.fmt.parseInt(i64, n.slice(input, i), 10) catch |e| switch (e) {
-                    error.Overflow => return Value{ .NumberString = n.slice(input, i) },
+                .integer = std.fmt.parseInt(i64, slice, 10) catch |e| switch (e) {
+                    error.Overflow => return Value{ .number_string = slice },
                     error.InvalidCharacter => |err| return err,
                 },
             }
         else
-            Value{ .Float = try std.fmt.parseFloat(f64, n.slice(input, i)) };
+            Value{ .float = try std.fmt.parseFloat(f64, slice) };
     }
 };
 
+const testing = std.testing;
+
 test "json.parser.dynamic" {
-    var p = Parser.init(testing.allocator, false);
+    var p = Parser.init(testing.allocator, .alloc_if_needed);
     defer p.deinit();
 
     const s =
@@ -362,33 +353,34 @@ test "json.parser.dynamic" {
 
     var root = tree.root;
 
-    var image = root.Object.get("Image").?;
+    var image = root.object.get("Image").?;
 
-    const width = image.Object.get("Width").?;
-    try testing.expect(width.Integer == 800);
+    const width = image.object.get("Width").?;
+    try testing.expect(width.integer == 800);
 
-    const height = image.Object.get("Height").?;
-    try testing.expect(height.Integer == 600);
+    const height = image.object.get("Height").?;
+    try testing.expect(height.integer == 600);
 
-    const title = image.Object.get("Title").?;
-    try testing.expect(mem.eql(u8, title.String, "View from 15th Floor"));
+    const title = image.object.get("Title").?;
+    try testing.expect(mem.eql(u8, title.string, "View from 15th Floor"));
 
-    const animated = image.Object.get("Animated").?;
-    try testing.expect(animated.Bool == false);
+    const animated = image.object.get("Animated").?;
+    try testing.expect(animated.bool == false);
 
-    const array_of_object = image.Object.get("ArrayOfObject").?;
-    try testing.expect(array_of_object.Array.items.len == 1);
+    const array_of_object = image.object.get("ArrayOfObject").?;
+    try testing.expect(array_of_object.array.items.len == 1);
 
-    const obj0 = array_of_object.Array.items[0].Object.get("n").?;
-    try testing.expect(mem.eql(u8, obj0.String, "m"));
+    const obj0 = array_of_object.array.items[0].object.get("n").?;
+    try testing.expect(mem.eql(u8, obj0.string, "m"));
 
-    const double = image.Object.get("double").?;
-    try testing.expect(double.Float == 1.3412);
+    const double = image.object.get("double").?;
+    try testing.expect(double.float == 1.3412);
 
-    const large_int = image.Object.get("LargeInt").?;
-    try testing.expect(mem.eql(u8, large_int.NumberString, "18446744073709551615"));
+    const large_int = image.object.get("LargeInt").?;
+    try testing.expect(mem.eql(u8, large_int.number_string, "18446744073709551615"));
 }
 
+const writeStream = @import("./write_stream.zig").writeStream;
 test "write json then parse it" {
     var out_buffer: [1000]u8 = undefined;
 
@@ -423,35 +415,35 @@ test "write json then parse it" {
 
     try jw.endObject();
 
-    var parser = Parser.init(testing.allocator, false);
+    var parser = Parser.init(testing.allocator, .alloc_if_needed);
     defer parser.deinit();
     var tree = try parser.parse(fixed_buffer_stream.getWritten());
     defer tree.deinit();
 
-    try testing.expect(tree.root.Object.get("f").?.Bool == false);
-    try testing.expect(tree.root.Object.get("t").?.Bool == true);
-    try testing.expect(tree.root.Object.get("int").?.Integer == 1234);
-    try testing.expect(tree.root.Object.get("array").?.Array.items[0].Null == {});
-    try testing.expect(tree.root.Object.get("array").?.Array.items[1].Float == 12.34);
-    try testing.expect(mem.eql(u8, tree.root.Object.get("str").?.String, "hello"));
+    try testing.expect(tree.root.object.get("f").?.bool == false);
+    try testing.expect(tree.root.object.get("t").?.bool == true);
+    try testing.expect(tree.root.object.get("int").?.integer == 1234);
+    try testing.expect(tree.root.object.get("array").?.array.items[0].null == {});
+    try testing.expect(tree.root.object.get("array").?.array.items[1].float == 12.34);
+    try testing.expect(mem.eql(u8, tree.root.object.get("str").?.string, "hello"));
 }
 
 fn testParse(arena_allocator: std.mem.Allocator, json_str: []const u8) !Value {
-    var p = Parser.init(arena_allocator, false);
+    var p = Parser.init(arena_allocator, .alloc_if_needed);
     return (try p.parse(json_str)).root;
 }
 
 test "parsing empty string gives appropriate error" {
     var arena_allocator = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena_allocator.deinit();
-    try testing.expectError(error.UnexpectedEndOfJson, testParse(arena_allocator.allocator(), ""));
+    try testing.expectError(error.UnexpectedEndOfInput, testParse(arena_allocator.allocator(), ""));
 }
 
 test "parse tree should not contain dangling pointers" {
     var arena_allocator = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena_allocator.deinit();
 
-    var p = json.Parser.init(arena_allocator.allocator(), false);
+    var p = Parser.init(arena_allocator.allocator(), .alloc_if_needed);
     defer p.deinit();
 
     var tree = try p.parse("[]");
@@ -460,9 +452,9 @@ test "parse tree should not contain dangling pointers" {
     // Allocation should succeed
     var i: usize = 0;
     while (i < 100) : (i += 1) {
-        try tree.root.Array.append(json.Value{ .Integer = 100 });
+        try tree.root.array.append(Value{ .integer = 100 });
     }
-    try testing.expectEqual(tree.root.Array.items.len, 100);
+    try testing.expectEqual(tree.root.array.items.len, 100);
 }
 
 test "integer after float has proper type" {
@@ -474,18 +466,7 @@ test "integer after float has proper type" {
         \\  "ints": [1, 2, 3]
         \\}
     );
-    try std.testing.expect(parsed.Object.get("ints").?.Array.items[0] == .Integer);
-}
-
-test "parse exponential into int" {
-    const T = struct { int: i64 };
-    var ts = TokenStream.init("{ \"int\": 4.2e2 }");
-    const r = try parse(T, &ts, ParseOptions{});
-    try testing.expectEqual(@as(i64, 420), r.int);
-    ts = TokenStream.init("{ \"int\": 0.042e2 }");
-    try testing.expectError(error.InvalidNumber, parse(T, &ts, ParseOptions{}));
-    ts = TokenStream.init("{ \"int\": 18446744073709551616.0 }");
-    try testing.expectError(error.Overflow, parse(T, &ts, ParseOptions{}));
+    try std.testing.expect(parsed.object.get("ints").?.array.items[0] == .integer);
 }
 
 test "escaped characters" {
@@ -506,18 +487,18 @@ test "escaped characters" {
         \\}
     ;
 
-    const obj = (try testParse(arena_allocator.allocator(), input)).Object;
+    const obj = (try testParse(arena_allocator.allocator(), input)).object;
 
-    try testing.expectEqualSlices(u8, obj.get("backslash").?.String, "\\");
-    try testing.expectEqualSlices(u8, obj.get("forwardslash").?.String, "/");
-    try testing.expectEqualSlices(u8, obj.get("newline").?.String, "\n");
-    try testing.expectEqualSlices(u8, obj.get("carriagereturn").?.String, "\r");
-    try testing.expectEqualSlices(u8, obj.get("tab").?.String, "\t");
-    try testing.expectEqualSlices(u8, obj.get("formfeed").?.String, "\x0C");
-    try testing.expectEqualSlices(u8, obj.get("backspace").?.String, "\x08");
-    try testing.expectEqualSlices(u8, obj.get("doublequote").?.String, "\"");
-    try testing.expectEqualSlices(u8, obj.get("unicode").?.String, "ą");
-    try testing.expectEqualSlices(u8, obj.get("surrogatepair").?.String, "😂");
+    try testing.expectEqualSlices(u8, obj.get("backslash").?.string, "\\");
+    try testing.expectEqualSlices(u8, obj.get("forwardslash").?.string, "/");
+    try testing.expectEqualSlices(u8, obj.get("newline").?.string, "\n");
+    try testing.expectEqualSlices(u8, obj.get("carriagereturn").?.string, "\r");
+    try testing.expectEqualSlices(u8, obj.get("tab").?.string, "\t");
+    try testing.expectEqualSlices(u8, obj.get("formfeed").?.string, "\x0C");
+    try testing.expectEqualSlices(u8, obj.get("backspace").?.string, "\x08");
+    try testing.expectEqualSlices(u8, obj.get("doublequote").?.string, "\"");
+    try testing.expectEqualSlices(u8, obj.get("unicode").?.string, "ą");
+    try testing.expectEqualSlices(u8, obj.get("surrogatepair").?.string, "😂");
 }
 
 test "string copy option" {
@@ -534,20 +515,20 @@ test "string copy option" {
     defer arena_allocator.deinit();
     const allocator = arena_allocator.allocator();
 
-    var parser = Parser.init(allocator, false);
+    var parser = Parser.init(allocator, .alloc_if_needed);
     const tree_nocopy = try parser.parse(input);
-    const obj_nocopy = tree_nocopy.root.Object;
+    const obj_nocopy = tree_nocopy.root.object;
 
-    parser = Parser.init(allocator, true);
+    parser = Parser.init(allocator, .alloc_always);
     const tree_copy = try parser.parse(input);
-    const obj_copy = tree_copy.root.Object;
+    const obj_copy = tree_copy.root.object;
 
     for ([_][]const u8{ "noescape", "simple", "unicode", "surrogatepair" }) |field_name| {
-        try testing.expectEqualSlices(u8, obj_nocopy.get(field_name).?.String, obj_copy.get(field_name).?.String);
+        try testing.expectEqualSlices(u8, obj_nocopy.get(field_name).?.string, obj_copy.get(field_name).?.string);
     }
 
-    const nocopy_addr = &obj_nocopy.get("noescape").?.String[0];
-    const copy_addr = &obj_copy.get("noescape").?.String[0];
+    const nocopy_addr = &obj_nocopy.get("noescape").?.string[0];
+    const copy_addr = &obj_copy.get("noescape").?.string[0];
 
     var found_nocopy = false;
     for (input, 0..) |_, index| {
@@ -563,49 +544,49 @@ test "Value.jsonStringify" {
     {
         var buffer: [10]u8 = undefined;
         var fbs = std.io.fixedBufferStream(&buffer);
-        try @as(Value, .Null).jsonStringify(.{}, fbs.writer());
+        try @as(Value, .null).jsonStringify(.{}, fbs.writer());
         try testing.expectEqualSlices(u8, fbs.getWritten(), "null");
     }
     {
         var buffer: [10]u8 = undefined;
         var fbs = std.io.fixedBufferStream(&buffer);
-        try (Value{ .Bool = true }).jsonStringify(.{}, fbs.writer());
+        try (Value{ .bool = true }).jsonStringify(.{}, fbs.writer());
         try testing.expectEqualSlices(u8, fbs.getWritten(), "true");
     }
     {
         var buffer: [10]u8 = undefined;
         var fbs = std.io.fixedBufferStream(&buffer);
-        try (Value{ .Integer = 42 }).jsonStringify(.{}, fbs.writer());
+        try (Value{ .integer = 42 }).jsonStringify(.{}, fbs.writer());
         try testing.expectEqualSlices(u8, fbs.getWritten(), "42");
     }
     {
         var buffer: [10]u8 = undefined;
         var fbs = std.io.fixedBufferStream(&buffer);
-        try (Value{ .NumberString = "43" }).jsonStringify(.{}, fbs.writer());
+        try (Value{ .number_string = "43" }).jsonStringify(.{}, fbs.writer());
         try testing.expectEqualSlices(u8, fbs.getWritten(), "43");
     }
     {
         var buffer: [10]u8 = undefined;
         var fbs = std.io.fixedBufferStream(&buffer);
-        try (Value{ .Float = 42 }).jsonStringify(.{}, fbs.writer());
+        try (Value{ .float = 42 }).jsonStringify(.{}, fbs.writer());
         try testing.expectEqualSlices(u8, fbs.getWritten(), "4.2e+01");
     }
     {
         var buffer: [10]u8 = undefined;
         var fbs = std.io.fixedBufferStream(&buffer);
-        try (Value{ .String = "weeee" }).jsonStringify(.{}, fbs.writer());
+        try (Value{ .string = "weeee" }).jsonStringify(.{}, fbs.writer());
         try testing.expectEqualSlices(u8, fbs.getWritten(), "\"weeee\"");
     }
     {
         var buffer: [10]u8 = undefined;
         var fbs = std.io.fixedBufferStream(&buffer);
         var vals = [_]Value{
-            .{ .Integer = 1 },
-            .{ .Integer = 2 },
-            .{ .NumberString = "3" },
+            .{ .integer = 1 },
+            .{ .integer = 2 },
+            .{ .number_string = "3" },
         };
         try (Value{
-            .Array = Array.fromOwnedSlice(undefined, &vals),
+            .array = Array.fromOwnedSlice(undefined, &vals),
         }).jsonStringify(.{}, fbs.writer());
         try testing.expectEqualSlices(u8, fbs.getWritten(), "[1,2,3]");
     }
@@ -614,8 +595,8 @@ test "Value.jsonStringify" {
         var fbs = std.io.fixedBufferStream(&buffer);
         var obj = ObjectMap.init(testing.allocator);
         defer obj.deinit();
-        try obj.putNoClobber("a", .{ .String = "b" });
-        try (Value{ .Object = obj }).jsonStringify(.{}, fbs.writer());
+        try obj.putNoClobber("a", .{ .string = "b" });
+        try (Value{ .object = obj }).jsonStringify(.{}, fbs.writer());
         try testing.expectEqualSlices(u8, fbs.getWritten(), "{\"a\":\"b\"}");
     }
 }
