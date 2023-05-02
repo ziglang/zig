@@ -36,6 +36,12 @@ pub const FileType = enum(u8) {
             result.set(@enumToInt(ft));
         break :blk result;
     };
+
+    pub fn tagName(ft: FileType) ?[]const u8 {
+        return inline for (std.meta.fields(FileType)) |f| {
+            if (@enumToInt(ft) == f.value) break f.name;
+        } else null;
+    }
 };
 
 fn parseOctal(raw: []const u8) !i64 {
@@ -157,7 +163,7 @@ fn parsePaxTime(s: []const u8) !i128 {
     const secs = try fmt.parseInt(i64, ss, 10);
 
     const sn = parts[1];
-    if (sn.len == 0) return unixTime(secs, 0);
+    if (sn.len == 0) return try unixTime(secs, 0);
 
     const all_digits = for (sn) |c| {
         if (!std.ascii.isDigit(c)) break false;
@@ -173,9 +179,9 @@ fn parsePaxTime(s: []const u8) !i128 {
 
     log.debug("parsePaxTime secs={} nsecs={} sn.len={}", .{ secs, nsecs, sn.len });
     return if (ss.len > 0 and ss[0] == '-')
-        unixTime(secs, -nsecs)
+        try unixTime(secs, -nsecs)
     else
-        unixTime(secs, nsecs);
+        try unixTime(secs, nsecs);
 }
 
 test parsePaxTime {
@@ -185,53 +191,53 @@ test parsePaxTime {
     };
 
     const cases = [_]TestCase{
-        .{ "1350244992.023960108", unixTime(1350244992, 23960108) },
-        .{ "1350244992.02396010", unixTime(1350244992, 23960100) },
-        .{ "1350244992.0239601089", unixTime(1350244992, 23960108) },
-        .{ "1350244992.3", unixTime(1350244992, 300000000) },
-        .{ "1350244992", unixTime(1350244992, 0) },
-        .{ "-1.000000001", unixTime(-1, -1e0 + 0e0) },
-        .{ "-1.000001", unixTime(-1, -1e3 + 0e0) },
-        .{ "-1.001000", unixTime(-1, -1e6 + 0e0) },
-        .{ "-1", unixTime(-1, -0e0 + 0e0) },
-        .{ "-1.999000", unixTime(-1, -1e9 + 1e6) },
-        .{ "-1.999999", unixTime(-1, -1e9 + 1e3) },
-        .{ "-1.999999999", unixTime(-1, -1e9 + 1e0) },
-        .{ "0.000000001", unixTime(0, 1e0 + 0e0) },
-        .{ "0.000001", unixTime(0, 1e3 + 0e0) },
-        .{ "0.001000", unixTime(0, 1e6 + 0e0) },
-        .{ "0", unixTime(0, 0e0) },
-        .{ "0.999000", unixTime(0, 1e9 - 1e6) },
-        .{ "0.999999", unixTime(0, 1e9 - 1e3) },
-        .{ "0.999999999", unixTime(0, 1e9 - 1e0) },
-        .{ "1.000000001", unixTime(1, 1e0 - 0e0) },
-        .{ "1.000001", unixTime(1, 1e3 - 0e0) },
-        .{ "1.001000", unixTime(1, 1e6 - 0e0) },
-        .{ "1", unixTime(1, 0e0 - 0e0) },
-        .{ "1.999000", unixTime(1, 1e9 - 1e6) },
-        .{ "1.999999", unixTime(1, 1e9 - 1e3) },
-        .{ "1.999999999", unixTime(1, 1e9 - 1e0) },
-        .{ "-1350244992.023960108", unixTime(-1350244992, -23960108) },
-        .{ "-1350244992.02396010", unixTime(-1350244992, -23960100) },
-        .{ "-1350244992.0239601089", unixTime(-1350244992, -23960108) },
-        .{ "-1350244992.3", unixTime(-1350244992, -300000000) },
-        .{ "-1350244992", unixTime(-1350244992, 0) },
+        .{ "1350244992.023960108", try unixTime(1350244992, 23960108) },
+        .{ "1350244992.02396010", try unixTime(1350244992, 23960100) },
+        .{ "1350244992.0239601089", try unixTime(1350244992, 23960108) },
+        .{ "1350244992.3", try unixTime(1350244992, 300000000) },
+        .{ "1350244992", try unixTime(1350244992, 0) },
+        .{ "-1.000000001", try unixTime(-1, -1e0 + 0e0) },
+        .{ "-1.000001", try unixTime(-1, -1e3 + 0e0) },
+        .{ "-1.001000", try unixTime(-1, -1e6 + 0e0) },
+        .{ "-1", try unixTime(-1, -0e0 + 0e0) },
+        .{ "-1.999000", try unixTime(-1, -1e9 + 1e6) },
+        .{ "-1.999999", try unixTime(-1, -1e9 + 1e3) },
+        .{ "-1.999999999", try unixTime(-1, -1e9 + 1e0) },
+        .{ "0.000000001", try unixTime(0, 1e0 + 0e0) },
+        .{ "0.000001", try unixTime(0, 1e3 + 0e0) },
+        .{ "0.001000", try unixTime(0, 1e6 + 0e0) },
+        .{ "0", try unixTime(0, 0e0) },
+        .{ "0.999000", try unixTime(0, 1e9 - 1e6) },
+        .{ "0.999999", try unixTime(0, 1e9 - 1e3) },
+        .{ "0.999999999", try unixTime(0, 1e9 - 1e0) },
+        .{ "1.000000001", try unixTime(1, 1e0 - 0e0) },
+        .{ "1.000001", try unixTime(1, 1e3 - 0e0) },
+        .{ "1.001000", try unixTime(1, 1e6 - 0e0) },
+        .{ "1", try unixTime(1, 0e0 - 0e0) },
+        .{ "1.999000", try unixTime(1, 1e9 - 1e6) },
+        .{ "1.999999", try unixTime(1, 1e9 - 1e3) },
+        .{ "1.999999999", try unixTime(1, 1e9 - 1e0) },
+        .{ "-1350244992.023960108", try unixTime(-1350244992, -23960108) },
+        .{ "-1350244992.02396010", try unixTime(-1350244992, -23960100) },
+        .{ "-1350244992.0239601089", try unixTime(-1350244992, -23960108) },
+        .{ "-1350244992.3", try unixTime(-1350244992, -300000000) },
+        .{ "-1350244992", try unixTime(-1350244992, 0) },
         .{ "", error.InvalidCharacter },
-        .{ "0", unixTime(0, 0) },
-        .{ "1.", unixTime(1, 0) },
-        .{ "0.0", unixTime(0, 0) },
+        .{ "0", try unixTime(0, 0) },
+        .{ "1.", try unixTime(1, 0) },
+        .{ "0.0", try unixTime(0, 0) },
         .{ ".5", error.InvalidCharacter },
-        .{ "-1.3", unixTime(-1, -3e8) },
-        .{ "-1.0", unixTime(-1, -0e0) },
-        .{ "-0.0", unixTime(-0, -0e0) },
-        .{ "-0.1", unixTime(-0, -1e8) },
-        .{ "-0.01", unixTime(-0, -1e7) },
-        .{ "-0.99", unixTime(-0, -99e7) },
-        .{ "-0.98", unixTime(-0, -98e7) },
-        .{ "-1.1", unixTime(-1, -1e8) },
-        .{ "-1.01", unixTime(-1, -1e7) },
-        .{ "-2.99", unixTime(-2, -99e7) },
-        .{ "-5.98", unixTime(-5, -98e7) },
+        .{ "-1.3", try unixTime(-1, -3e8) },
+        .{ "-1.0", try unixTime(-1, -0e0) },
+        .{ "-0.0", try unixTime(-0, -0e0) },
+        .{ "-0.1", try unixTime(-0, -1e8) },
+        .{ "-0.01", try unixTime(-0, -1e7) },
+        .{ "-0.99", try unixTime(-0, -99e7) },
+        .{ "-0.98", try unixTime(-0, -98e7) },
+        .{ "-1.1", try unixTime(-1, -1e8) },
+        .{ "-1.01", try unixTime(-1, -1e7) },
+        .{ "-2.99", try unixTime(-2, -99e7) },
+        .{ "-5.98", try unixTime(-5, -98e7) },
         .{ "-", error.InvalidCharacter },
         .{ "+", error.InvalidCharacter },
         .{ "-1.-1", error.InvalidCharacter },
@@ -488,8 +494,11 @@ pub const Header = struct {
     }
 };
 
-pub fn unixTime(tv_sec: i64, tv_nsec: i64) i128 {
-    const result = @bitCast(i128, [_]i64{ tv_sec * time.ns_per_s, tv_nsec });
+pub fn unixTime(tv_sec: i64, tv_nsec: i64) !i128 {
+    const result = @bitCast(i128, [_]i64{
+        try std.math.mul(i64, tv_sec, time.ns_per_s),
+        tv_nsec,
+    });
     return result;
 }
 
@@ -759,6 +768,7 @@ pub fn HeaderIterator(comptime Reader: type) type {
                 }
                 want -= block_len;
             }
+            if (want != 0) return error.UnexpectedEndOfStream;
             return outbuf.items[0..@intCast(usize, size)];
         }
 
@@ -779,7 +789,8 @@ pub fn HeaderIterator(comptime Reader: type) type {
                     const v7 = self.v7Header();
                     switch (v7.type) {
                         .global_extended_header, .extended_header => {
-                            const size = @intCast(u64, try parseOctal(&v7.size));
+                            const size = std.math.cast(u64, try parseOctal(&v7.size)) orelse
+                                return error.Header;
                             self.pax_buf.items = try self.readBlocks(size, &self.pax_buf);
                         },
                         else => {},
@@ -807,10 +818,11 @@ pub fn HeaderIterator(comptime Reader: type) type {
                     return null;
                 const pax_record = self.bytes[0..nl];
                 self.bytes = self.bytes[nl + 1 ..];
-                assert(pax_record.len != 0);
+                if (pax_record.len == 0) return error.Header;
                 const sp = mem.indexOfScalar(u8, pax_record, ' ') orelse
                     return error.Header;
                 const len = try fmt.parseUnsigned(u32, pax_record[0..sp], 10);
+                if (len > pax_record.len + 1 or sp + 2 > len) return error.Header;
                 const rec = pax_record[sp + 1 .. len - 1];
                 const eqidx = mem.indexOfScalar(u8, rec, '=') orelse
                     return error.Header;
@@ -882,9 +894,11 @@ pub fn HeaderIterator(comptime Reader: type) type {
                 .linkname = mem.sliceTo(&v7.linked_file_name, 0),
                 .size = try parseNumeric(&v7.size),
                 .mode = try parseNumeric(&v7.mode),
-                .uid = @intCast(i32, try parseNumeric(&v7.uid)),
-                .gid = @intCast(i32, try parseNumeric(&v7.gid)),
-                .mtime = unixTime(try parseNumeric(&v7.mod_time), 0),
+                .uid = std.math.cast(i32, try parseNumeric(&v7.uid)) orelse
+                    return error.Header,
+                .gid = std.math.cast(i32, try parseNumeric(&v7.gid)) orelse
+                    return error.Header,
+                .mtime = try unixTime(try parseNumeric(&v7.mod_time), 0),
             };
 
             var prefix: []const u8 = "";
@@ -927,17 +941,17 @@ pub fn HeaderIterator(comptime Reader: type) type {
                 } else if (format.contains(.star)) {
                     const star = v7.star();
                     prefix = mem.sliceTo(&star.filename_prefix, 0);
-                    hdr.atime = unixTime(try parseNumeric(&star.access_time), 0);
-                    hdr.ctime = unixTime(try parseNumeric(&star.change_time), 0);
+                    hdr.atime = try unixTime(try parseNumeric(&star.access_time), 0);
+                    hdr.ctime = try unixTime(try parseNumeric(&star.change_time), 0);
                 } else if (format.contains(.gnu)) {
                     hdr.fmt = format;
                     const gnu = v7.gnu();
 
                     if (gnu.access_time[0] != 0)
-                        hdr.atime = unixTime(try parseNumeric(&gnu.access_time), 0);
+                        hdr.atime = try unixTime(try parseNumeric(&gnu.access_time), 0);
 
                     if (gnu.change_time[0] != 0)
-                        hdr.ctime = unixTime(try parseNumeric(&gnu.change_time), 0);
+                        hdr.ctime = try unixTime(try parseNumeric(&gnu.change_time), 0);
                 }
                 if (prefix.len > 0) {
                     self.name_buf.items.len = 0;
@@ -1095,7 +1109,7 @@ pub fn pipeToFileSystem(
 
     while (try iter.next()) |header| {
         const file_name = try stripComponents(header.name, options.strip_components);
-        log.info("pipeToFileSystem() header.type={s} stripped file_name={s}", .{ @tagName(header.type), file_name });
+        log.info("pipeToFileSystem() header.type={?s} stripped file_name={s}", .{ header.type.tagName(), file_name });
         if (file_name.len == 0 and
             FileType.named_types_bitset.isSet(@enumToInt(header.type)))
             continue;
@@ -1162,7 +1176,7 @@ pub fn pipeToFileSystem(
                 format.setIntersection(fmt_pax);
             },
             else => {
-                log.err("unsupported type '{s}'", .{@tagName(header.type)});
+                log.err("unsupported type '{?s}':{}", .{ header.type.tagName(), @enumToInt(header.type) });
                 return error.TarUnexpectedFileType;
             },
         }
