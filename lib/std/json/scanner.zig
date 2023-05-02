@@ -1,5 +1,4 @@
-//! JSON tokenizer conforming to RFC 8259 excluding UTF-8 validation.
-//! https://datatracker.ietf.org/doc/html/rfc8259
+//! JSON tokenizer conforming to RFC 8259. https://datatracker.ietf.org/doc/html/rfc8259
 //! Supports streaming input with a low memory footprint.
 //! The memory requirement is O(d) where d is the nesting depth of [] or {} containers in the input.
 //! Specifically d/8 bytes are required for this purpose,
@@ -12,21 +11,31 @@
 //! * RFC 8259 requires JSON documents be valid UTF-8,
 //!   but makes an allowance for systems that are "part of a closed ecosystem".
 //!   I have no idea what that's supposed to mean in the context of a standard specification.
-//!   This implementation does not do UTF-8 validation for simplicity (performance?) reasons,
-//!   but this can be changed in a future version.
+//!   This implementation requires inputs to be valid UTF-8.
 //! * RFC 8259 contradicts itself regarding whether lowercase is allowed in \u hex digits,
 //!   but this is probably a bug in the spec, and it's clear that lowercase is meant to be allowed.
 //!   (RFC 5234 defines HEXDIG to only allow uppercase.)
-//! * When RFC 8259 refers to a "character", I assume they really mean a "unicode scalar value".
+//! * When RFC 8259 refers to a "character", I assume they really mean a "Unicode scalar value".
 //!   See http://www.unicode.org/glossary/#unicode_scalar_value .
 //! * RFC 8259 doesn't explicitly disallow unpaired surrogate halves in \u escape sequences,
-//!   but vaguely implies that \u escapes are for encoding Unicode "characters" (i.e. unicode scalar values?),
+//!   but vaguely implies that \u escapes are for encoding Unicode "characters" (i.e. Unicode scalar values?),
 //!   which would mean that unpaired surrogate halves are forbidden.
 //!   By contrast ECMA-404 (a competing(/compatible?) JSON standard, which JavaScript's JSON.parse() conforms to)
-//!   excplicitly allows unpaired surrogate halves.
+//!   explicitly allows unpaired surrogate halves.
 //!   This implementation forbids unpaired surrogate halves in \u sequences.
 //!   If a high surrogate half appears in a \u sequence,
-//!   then a low surrogate half must immediately follow in \u notiation.
+//!   then a low surrogate half must immediately follow in \u notation.
+//! * RFC 8259 allows implementations to "accept non-JSON forms or extensions".
+//!   This implementation does not accept any of that.
+//! * RFC 8259 allows implementations to put limits on "the size of texts",
+//!   "the maximum depth of nesting", "the range and precision of numbers",
+//!   and "the length and character contents of strings".
+//!   This low-level implementation does not limit these,
+//!   except where noted above, and except that nesting depth requires memory allocation.
+//!   Note that this low-level API does not interpret numbers numerically,
+//!   but simply emits their source form for some higher level code to make sense of.
+//! * This low-level implementation allows duplicate object keys,
+//!   and key/value pairs are emitted in the order they appear in the input.
 
 const std = @import("std");
 
@@ -653,7 +662,12 @@ pub const JsonScanner = struct {
                     while (self.cursor < self.input.len) : (self.cursor += 1) {
                         const c = self.input[self.cursor];
                         switch (c) {
-                            0...0x1f => return error.SyntaxError,
+                            0...0x1f => return error.SyntaxError, // Bare ASCII control code in string.
+
+                            // ASCII plain text.
+                            0x20...('"' - 1), ('"' + 1)...('\\' - 1), ('\\' + 1)...0x7F => continue,
+
+                            // Special characters.
                             '"' => {
                                 const result = Token{ .string = self.takeValueSlice() };
                                 self.cursor += 1;
@@ -667,8 +681,45 @@ pub const JsonScanner = struct {
                                 if (slice.len > 0) return Token{ .partial_string = slice };
                                 continue :state_loop;
                             },
-                            // Here is where we might put UTF-8 validation if we wanted to.
-                            else => continue,
+
+                            // UTF-8 validation.
+                            // See http://unicode.org/mail-arch/unicode-ml/y2003-m02/att-0467/01-The_Algorithm_to_Valide_an_UTF-8_String
+                            0xC2...0xDF => {
+                                self.cursor += 1;
+                                self.state = .string_utf8_last_byte;
+                                continue :state_loop;
+                            },
+                            0xE0 => {
+                                self.cursor += 1;
+                                self.state = .string_utf8_second_to_last_byte_guard_against_overlong;
+                                continue :state_loop;
+                            },
+                            0xE1...0xEC, 0xEE...0xEF => {
+                                self.cursor += 1;
+                                self.state = .string_utf8_second_to_last_byte;
+                                continue :state_loop;
+                            },
+                            0xED => {
+                                self.cursor += 1;
+                                self.state = .string_utf8_second_to_last_byte_guard_against_surrogate_half;
+                                continue :state_loop;
+                            },
+                            0xF0 => {
+                                self.cursor += 1;
+                                self.state = .string_utf8_third_to_last_byte_guard_against_overlong;
+                                continue :state_loop;
+                            },
+                            0xF1...0xF3 => {
+                                self.cursor += 1;
+                                self.state = .string_utf8_third_to_last_byte;
+                                continue :state_loop;
+                            },
+                            0xF4 => {
+                                self.cursor += 1;
+                                self.state = .string_utf8_third_to_last_byte_guard_against_too_large;
+                                continue :state_loop;
+                            },
+                            0x80...0xC1, 0xF5...0xFF => return error.SyntaxError, // Invalid UTF-8.
                         }
                     }
                     if (self.is_end_of_input) return error.UnexpectedEndOfInput;
@@ -913,6 +964,91 @@ pub const JsonScanner = struct {
                     return self.partialStringCodepoint();
                 },
 
+                .string_utf8_last_byte => {
+                    try self.expectMoreContent();
+                    const c = self.input[self.cursor];
+                    switch (c) {
+                        0x80...0xBF => {
+                            self.cursor += 1;
+                            self.state = .string;
+                            continue :state_loop;
+                        },
+                        else => return error.SyntaxError, // Invalid UTF-8.
+                    }
+                },
+                .string_utf8_second_to_last_byte => {
+                    try self.expectMoreContent();
+                    const c = self.input[self.cursor];
+                    switch (c) {
+                        0x80...0xBF => {
+                            self.cursor += 1;
+                            self.state = .string_utf8_last_byte;
+                            continue :state_loop;
+                        },
+                        else => return error.SyntaxError, // Invalid UTF-8.
+                    }
+                },
+                .string_utf8_second_to_last_byte_guard_against_overlong => {
+                    try self.expectMoreContent();
+                    const c = self.input[self.cursor];
+                    switch (c) {
+                        0xA0...0xBF => {
+                            self.cursor += 1;
+                            self.state = .string_utf8_last_byte;
+                            continue :state_loop;
+                        },
+                        else => return error.SyntaxError, // Invalid UTF-8.
+                    }
+                },
+                .string_utf8_second_to_last_byte_guard_against_surrogate_half => {
+                    try self.expectMoreContent();
+                    const c = self.input[self.cursor];
+                    switch (c) {
+                        0x80...0x9F => {
+                            self.cursor += 1;
+                            self.state = .string_utf8_last_byte;
+                            continue :state_loop;
+                        },
+                        else => return error.SyntaxError, // Invalid UTF-8.
+                    }
+                },
+                .string_utf8_third_to_last_byte => {
+                    try self.expectMoreContent();
+                    const c = self.input[self.cursor];
+                    switch (c) {
+                        0x80...0xBF => {
+                            self.cursor += 1;
+                            self.state = .string_utf8_second_to_last_byte;
+                            continue :state_loop;
+                        },
+                        else => return error.SyntaxError, // Invalid UTF-8.
+                    }
+                },
+                .string_utf8_third_to_last_byte_guard_against_overlong => {
+                    try self.expectMoreContent();
+                    const c = self.input[self.cursor];
+                    switch (c) {
+                        0x90...0xBF => {
+                            self.cursor += 1;
+                            self.state = .string_utf8_second_to_last_byte;
+                            continue :state_loop;
+                        },
+                        else => return error.SyntaxError, // Invalid UTF-8.
+                    }
+                },
+                .string_utf8_third_to_last_byte_guard_against_too_large => {
+                    try self.expectMoreContent();
+                    const c = self.input[self.cursor];
+                    switch (c) {
+                        0x80...0x8F => {
+                            self.cursor += 1;
+                            self.state = .string_utf8_second_to_last_byte;
+                            continue :state_loop;
+                        },
+                        else => return error.SyntaxError, // Invalid UTF-8.
+                    }
+                },
+
                 .literal_t => {
                     try self.expectMoreContent();
                     switch (self.input[self.cursor]) {
@@ -1058,6 +1194,15 @@ pub const JsonScanner = struct {
         string_surrogate_half_backslash_u_1,
         string_surrogate_half_backslash_u_2,
         string_surrogate_half_backslash_u_3,
+
+        // From http://unicode.org/mail-arch/unicode-ml/y2003-m02/att-0467/01-The_Algorithm_to_Valide_an_UTF-8_String
+        string_utf8_last_byte, // State A
+        string_utf8_second_to_last_byte, // State B
+        string_utf8_second_to_last_byte_guard_against_overlong, // State C
+        string_utf8_second_to_last_byte_guard_against_surrogate_half, // State D
+        string_utf8_third_to_last_byte, // State E
+        string_utf8_third_to_last_byte_guard_against_overlong, // State F
+        string_utf8_third_to_last_byte_guard_against_too_large, // State G
 
         literal_t,
         literal_tr,
