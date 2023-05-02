@@ -3,6 +3,9 @@
 map: std.AutoArrayHashMapUnmanaged(void, void) = .{},
 items: std.MultiArrayList(Item) = .{},
 extra: std.ArrayListUnmanaged(u32) = .{},
+/// On 32-bit systems, this array is ignored and extra is used for everything.
+/// On 64-bit systems, this array is used for big integers and associated metadata.
+limbs: std.ArrayListUnmanaged(u64) = .{},
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
@@ -91,19 +94,43 @@ pub const Key = union(enum) {
     }
 
     pub fn hashWithHasher(key: Key, hasher: *std.hash.Wyhash) void {
+        const KeyTag = @typeInfo(Key).Union.tag_type.?;
+        const key_tag: KeyTag = key;
+        std.hash.autoHash(hasher, key_tag);
         switch (key) {
-            .int_type => |int_type| {
-                std.hash.autoHash(hasher, int_type);
+            inline .int_type,
+            .ptr_type,
+            .array_type,
+            .vector_type,
+            .optional_type,
+            .error_union_type,
+            .simple_type,
+            .simple_value,
+            .extern_func,
+            => |info| std.hash.autoHash(hasher, info),
+
+            .int => |int| {
+                std.hash.autoHash(hasher, int.ty);
+                std.hash.autoHash(hasher, int.big_int.positive);
+                for (int.big_int.limbs) |limb| std.hash.autoHash(hasher, limb);
             },
-            .array_type => |array_type| {
-                std.hash.autoHash(hasher, array_type);
+
+            .enum_tag => |enum_tag| {
+                std.hash.autoHash(hasher, enum_tag.ty);
+                std.hash.autoHash(hasher, enum_tag.tag.positive);
+                for (enum_tag.tag.limbs) |limb| std.hash.autoHash(hasher, limb);
             },
-            else => @panic("TODO"),
+
+            .struct_type => |struct_type| {
+                if (struct_type.fields_len != 0) {
+                    @panic("TODO");
+                }
+            },
         }
     }
 
     pub fn eql(a: Key, b: Key) bool {
-        const KeyTag = std.meta.Tag(Key);
+        const KeyTag = @typeInfo(Key).Union.tag_type.?;
         const a_tag: KeyTag = a;
         const b_tag: KeyTag = b;
         if (a_tag != b_tag) return false;
@@ -112,11 +139,62 @@ pub const Key = union(enum) {
                 const b_info = b.int_type;
                 return std.meta.eql(a_info, b_info);
             },
+            .ptr_type => |a_info| {
+                const b_info = b.ptr_type;
+                return std.meta.eql(a_info, b_info);
+            },
             .array_type => |a_info| {
                 const b_info = b.array_type;
                 return std.meta.eql(a_info, b_info);
             },
-            else => @panic("TODO"),
+            .vector_type => |a_info| {
+                const b_info = b.vector_type;
+                return std.meta.eql(a_info, b_info);
+            },
+            .optional_type => |a_info| {
+                const b_info = b.optional_type;
+                return std.meta.eql(a_info, b_info);
+            },
+            .error_union_type => |a_info| {
+                const b_info = b.error_union_type;
+                return std.meta.eql(a_info, b_info);
+            },
+            .simple_type => |a_info| {
+                const b_info = b.simple_type;
+                return a_info == b_info;
+            },
+            .simple_value => |a_info| {
+                const b_info = b.simple_value;
+                return a_info == b_info;
+            },
+            .extern_func => |a_info| {
+                const b_info = b.extern_func;
+                return std.meta.eql(a_info, b_info);
+            },
+
+            .int => |a_info| {
+                const b_info = b.int;
+                _ = a_info;
+                _ = b_info;
+                @panic("TODO");
+            },
+
+            .enum_tag => |a_info| {
+                const b_info = b.enum_tag;
+                _ = a_info;
+                _ = b_info;
+                @panic("TODO");
+            },
+
+            .struct_type => |a_info| {
+                const b_info = b.struct_type;
+
+                // TODO: remove this special case for empty_struct
+                if (a_info.fields_len == 0 and b_info.fields_len == 0)
+                    return true;
+
+                @panic("TODO");
+            },
         }
     }
 
@@ -491,27 +569,65 @@ pub const Tag = enum(u8) {
     /// An integer type.
     /// data is number of bits
     type_int_unsigned,
-    /// An array type.
-    /// data is payload to Array.
+    /// An array type that has no sentinel and whose length fits in 32 bits.
+    /// data is payload to Vector.
     type_array,
+    /// A vector type.
+    /// data is payload to Vector.
+    type_vector,
+    /// A pointer type along with all its bells and whistles.
+    /// data is payload to Pointer.
+    type_pointer,
+    /// An optional type.
+    /// data is the child type.
+    type_optional,
+    /// An error union type.
+    /// data is payload to ErrorUnion.
+    type_error_union,
+    /// Represents the data that an enum declaration provides, when the fields
+    /// are auto-numbered, and there are no declarations.
+    /// data is payload index to `EnumSimple`.
+    type_enum_simple,
+
     /// A type that can be represented with only an enum tag.
     /// data is SimpleType enum value.
     simple_type,
     /// A value that can be represented with only an enum tag.
     /// data is SimpleValue enum value.
     simple_value,
-    /// An unsigned integer value that can be represented by u32.
+    /// The SimpleType and SimpleValue enums are exposed via the InternPool API using
+    /// SimpleType and SimpleValue as the Key data themselves.
+    /// This tag is for miscellaneous types and values that can be represented with
+    /// only an enum tag, but will be presented via the API with a different Key.
+    /// data is SimpleInternal enum value.
+    simple_internal,
+    /// Type: u32
     /// data is integer value
-    int_u32,
-    /// An unsigned integer value that can be represented by i32.
+    int_small_u32,
+    /// Type: i32
     /// data is integer value bitcasted to u32.
-    int_i32,
-    /// A positive integer value that does not fit in 32 bits.
-    /// data is a extra index to BigInt.
-    int_big_positive,
-    /// A negative integer value that does not fit in 32 bits.
-    /// data is a extra index to BigInt.
-    int_big_negative,
+    int_small_i32,
+    /// A usize that fits in 32 bits.
+    /// data is integer value.
+    int_small_usize,
+    /// A comptime_int that fits in a u32.
+    /// data is integer value.
+    int_small_comptime_unsigned,
+    /// A comptime_int that fits in an i32.
+    /// data is integer value bitcasted to u32.
+    int_small_comptime_signed,
+    /// A positive integer value.
+    /// data is a limbs index to Int.
+    int_positive,
+    /// A negative integer value.
+    /// data is a limbs index to Int.
+    int_negative,
+    /// An enum tag identified by a positive integer value.
+    /// data is a limbs index to Int.
+    enum_tag_positive,
+    /// An enum tag identified by a negative integer value.
+    /// data is a limbs index to Int.
+    enum_tag_negative,
     /// A float value that can be represented by f32.
     /// data is float value bitcasted to u32.
     float_f32,
@@ -525,10 +641,6 @@ pub const Tag = enum(u8) {
     extern_func,
     /// A regular function.
     func,
-    /// Represents the data that an enum declaration provides, when the fields
-    /// are auto-numbered, and there are no declarations.
-    /// data is payload index to `EnumSimple`.
-    enum_simple,
 };
 
 /// Having `SimpleType` and `SimpleValue` in separate enums makes it easier to
@@ -593,9 +705,41 @@ pub const SimpleValue = enum(u32) {
     generic_poison,
 };
 
-pub const Array = struct {
+pub const SimpleInternal = enum(u32) {
+    /// This is the empty struct type. Note that empty_struct value is exposed
+    /// via SimpleValue.
+    type_empty_struct,
+};
+
+pub const Pointer = struct {
+    child: Index,
+    sentinel: Index,
+    flags: Flags,
+
+    pub const Flags = packed struct(u32) {
+        alignment: u16,
+        is_const: bool,
+        is_volatile: bool,
+        is_allowzero: bool,
+        size: Size,
+        address_space: AddressSpace,
+        _: u7 = undefined,
+    };
+
+    pub const Size = std.builtin.Type.Pointer.Size;
+    pub const AddressSpace = std.builtin.AddressSpace;
+};
+
+/// Used for non-sentineled arrays that have length fitting in u32, as well as
+/// vectors.
+pub const Vector = struct {
     len: u32,
     child: Index,
+};
+
+pub const ErrorUnion = struct {
+    error_set_type: Index,
+    payload_type: Index,
 };
 
 /// Trailing:
@@ -612,6 +756,12 @@ pub const EnumSimple = struct {
     fields_len: u32,
 };
 
+/// Trailing: Limb for every limbs_len
+pub const Int = struct {
+    ty: Index,
+    limbs_len: u32,
+};
+
 pub fn init(ip: *InternPool, gpa: Allocator) !void {
     assert(ip.items.len == 0);
 
@@ -619,6 +769,7 @@ pub fn init(ip: *InternPool, gpa: Allocator) !void {
     try ip.items.ensureUnusedCapacity(gpa, static_keys.len);
     try ip.map.ensureUnusedCapacity(gpa, static_keys.len);
     try ip.extra.ensureUnusedCapacity(gpa, static_keys.len);
+    try ip.limbs.ensureUnusedCapacity(gpa, 2);
 
     // This inserts all the statically-known values into the intern pool in the
     // order expected.
@@ -635,6 +786,7 @@ pub fn deinit(ip: *InternPool, gpa: Allocator) void {
     ip.map.deinit(gpa);
     ip.items.deinit(gpa);
     ip.extra.deinit(gpa);
+    ip.limbs.deinit(gpa);
     ip.* = undefined;
 }
 
@@ -655,7 +807,7 @@ pub fn indexToKey(ip: InternPool, index: Index) Key {
             },
         },
         .type_array => {
-            const array_info = ip.extraData(Array, data);
+            const array_info = ip.extraData(Vector, data);
             return .{ .array_type = .{
                 .len = array_info.len,
                 .child = array_info.child,
@@ -675,56 +827,224 @@ pub fn get(ip: *InternPool, gpa: Allocator, key: Key) Allocator.Error!Index {
     if (gop.found_existing) {
         return @intToEnum(Index, gop.index);
     }
+    try ip.items.ensureUnusedCapacity(gpa, 1);
     switch (key) {
         .int_type => |int_type| {
             const t: Tag = switch (int_type.signedness) {
                 .signed => .type_int_signed,
                 .unsigned => .type_int_unsigned,
             };
-            try ip.items.append(gpa, .{
+            ip.items.appendAssumeCapacity(.{
                 .tag = t,
                 .data = int_type.bits,
+            });
+        },
+        .ptr_type => |ptr_type| {
+            // TODO introduce more pointer encodings
+            ip.items.appendAssumeCapacity(.{
+                .tag = .type_pointer,
+                .data = try ip.addExtra(gpa, Pointer{
+                    .child = ptr_type.elem_type,
+                    .sentinel = ptr_type.sentinel,
+                    .flags = .{
+                        .alignment = ptr_type.alignment,
+                        .is_const = ptr_type.is_const,
+                        .is_volatile = ptr_type.is_volatile,
+                        .is_allowzero = ptr_type.is_allowzero,
+                        .size = ptr_type.size,
+                        .address_space = ptr_type.address_space,
+                    },
+                }),
             });
         },
         .array_type => |array_type| {
             const len = @intCast(u32, array_type.len); // TODO have a big_array encoding
             assert(array_type.sentinel == .none); // TODO have a sentinel_array encoding
-            try ip.items.append(gpa, .{
+            ip.items.appendAssumeCapacity(.{
                 .tag = .type_array,
-                .data = try ip.addExtra(gpa, Array{
+                .data = try ip.addExtra(gpa, Vector{
                     .len = len,
                     .child = array_type.child,
                 }),
             });
         },
-        else => @panic("TODO"),
+        .vector_type => |vector_type| {
+            ip.items.appendAssumeCapacity(.{
+                .tag = .type_vector,
+                .data = try ip.addExtra(gpa, Vector{
+                    .len = vector_type.len,
+                    .child = vector_type.child,
+                }),
+            });
+        },
+        .optional_type => |optional_type| {
+            ip.items.appendAssumeCapacity(.{
+                .tag = .type_optional,
+                .data = @enumToInt(optional_type.payload_type),
+            });
+        },
+        .error_union_type => |error_union_type| {
+            ip.items.appendAssumeCapacity(.{
+                .tag = .type_error_union,
+                .data = try ip.addExtra(gpa, ErrorUnion{
+                    .error_set_type = error_union_type.error_set_type,
+                    .payload_type = error_union_type.payload_type,
+                }),
+            });
+        },
+        .simple_type => |simple_type| {
+            ip.items.appendAssumeCapacity(.{
+                .tag = .simple_type,
+                .data = @enumToInt(simple_type),
+            });
+        },
+        .simple_value => |simple_value| {
+            ip.items.appendAssumeCapacity(.{
+                .tag = .simple_value,
+                .data = @enumToInt(simple_value),
+            });
+        },
+        .extern_func => @panic("TODO"),
+
+        .int => |int| b: {
+            switch (int.ty) {
+                .u32_type => {
+                    if (int.big_int.fits(u32)) {
+                        ip.items.appendAssumeCapacity(.{
+                            .tag = .int_small_u32,
+                            .data = int.big_int.to(u32) catch unreachable,
+                        });
+                        break :b;
+                    }
+                },
+                .i32_type => {
+                    if (int.big_int.fits(i32)) {
+                        ip.items.appendAssumeCapacity(.{
+                            .tag = .int_small_i32,
+                            .data = @bitCast(u32, int.big_int.to(i32) catch unreachable),
+                        });
+                        break :b;
+                    }
+                },
+                .usize_type => {
+                    if (int.big_int.fits(u32)) {
+                        ip.items.appendAssumeCapacity(.{
+                            .tag = .int_small_usize,
+                            .data = int.big_int.to(u32) catch unreachable,
+                        });
+                        break :b;
+                    }
+                },
+                .comptime_int_type => {
+                    if (int.big_int.fits(u32)) {
+                        ip.items.appendAssumeCapacity(.{
+                            .tag = .int_small_comptime_unsigned,
+                            .data = int.big_int.to(u32) catch unreachable,
+                        });
+                        break :b;
+                    }
+                    if (int.big_int.fits(i32)) {
+                        ip.items.appendAssumeCapacity(.{
+                            .tag = .int_small_comptime_signed,
+                            .data = @bitCast(u32, int.big_int.to(i32) catch unreachable),
+                        });
+                        break :b;
+                    }
+                },
+                else => {},
+            }
+
+            const tag: Tag = if (int.big_int.positive) .int_positive else .int_negative;
+            try addInt(ip, gpa, int.ty, tag, int.big_int.limbs);
+        },
+
+        .enum_tag => |enum_tag| {
+            const tag: Tag = if (enum_tag.tag.positive) .enum_tag_positive else .enum_tag_negative;
+            try addInt(ip, gpa, enum_tag.ty, tag, enum_tag.tag.limbs);
+        },
+
+        .struct_type => |struct_type| {
+            if (struct_type.fields_len != 0) {
+                @panic("TODO"); // handle structs other than empty_struct
+            }
+            ip.items.appendAssumeCapacity(.{
+                .tag = .simple_internal,
+                .data = @enumToInt(SimpleInternal.type_empty_struct),
+            });
+        },
     }
     return @intToEnum(Index, ip.items.len - 1);
 }
 
-pub fn tag(ip: InternPool, index: Index) Tag {
-    const tags = ip.items.items(.tag);
-    return tags[@enumToInt(index)];
+fn addInt(ip: *InternPool, gpa: Allocator, ty: Index, tag: Tag, limbs: []const usize) !void {
+    const limbs_len = @intCast(u32, limbs.len);
+    try ip.reserveLimbs(gpa, @typeInfo(Int).Struct.fields.len + limbs_len);
+    ip.items.appendAssumeCapacity(.{
+        .tag = tag,
+        .data = ip.addLimbsExtraAssumeCapacity(Int{
+            .ty = ty,
+            .limbs_len = limbs_len,
+        }),
+    });
+    ip.addLimbsAssumeCapacity(limbs);
 }
 
 fn addExtra(ip: *InternPool, gpa: Allocator, extra: anytype) Allocator.Error!u32 {
-    const fields = std.meta.fields(@TypeOf(extra));
+    const fields = @typeInfo(@TypeOf(extra)).Struct.fields;
     try ip.extra.ensureUnusedCapacity(gpa, fields.len);
     return ip.addExtraAssumeCapacity(extra);
 }
 
 fn addExtraAssumeCapacity(ip: *InternPool, extra: anytype) u32 {
-    const fields = std.meta.fields(@TypeOf(extra));
     const result = @intCast(u32, ip.extra.items.len);
-    inline for (fields) |field| {
+    inline for (@typeInfo(@TypeOf(extra)).Struct.fields) |field| {
         ip.extra.appendAssumeCapacity(switch (field.type) {
             u32 => @field(extra, field.name),
             Index => @enumToInt(@field(extra, field.name)),
             i32 => @bitCast(u32, @field(extra, field.name)),
-            else => @compileError("bad field type"),
+            Pointer.Flags => @bitCast(u32, @field(extra, field.name)),
+            else => @compileError("bad field type: " ++ @typeName(field.type)),
         });
     }
     return result;
+}
+
+fn reserveLimbs(ip: *InternPool, gpa: Allocator, n: usize) !void {
+    switch (@sizeOf(usize)) {
+        @sizeOf(u32) => try ip.extra.ensureUnusedCapacity(gpa, n),
+        @sizeOf(u64) => try ip.limbs.ensureUnusedCapacity(gpa, n),
+        else => @compileError("unsupported host"),
+    }
+}
+
+fn addLimbsExtraAssumeCapacity(ip: *InternPool, extra: anytype) u32 {
+    switch (@sizeOf(usize)) {
+        @sizeOf(u32) => return addExtraAssumeCapacity(ip, extra),
+        @sizeOf(u64) => {},
+        else => @compileError("unsupported host"),
+    }
+    const result = @intCast(u32, ip.extra.items.len);
+    inline for (@typeInfo(@TypeOf(extra)).Struct.fields, 0..) |field, i| {
+        const new: u32 = switch (field.type) {
+            u32 => @field(extra, field.name),
+            Index => @enumToInt(@field(extra, field.name)),
+            else => @compileError("bad field type: " ++ @typeName(field.type)),
+        };
+        if (i % 2 == 0) {
+            ip.limbs.appendAssumeCapacity(new);
+        } else {
+            ip.limbs.items[ip.limbs.items.len - 1] |= @as(u64, new) << 32;
+        }
+    }
+    return result;
+}
+
+fn addLimbsAssumeCapacity(ip: *InternPool, limbs: []const usize) void {
+    switch (@sizeOf(usize)) {
+        @sizeOf(u32) => ip.extra.appendSliceAssumeCapacity(limbs),
+        @sizeOf(u64) => ip.limbs.appendSliceAssumeCapacity(limbs),
+        else => @compileError("unsupported host"),
+    }
 }
 
 fn extraData(ip: InternPool, comptime T: type, index: usize) T {
@@ -736,7 +1056,8 @@ fn extraData(ip: InternPool, comptime T: type, index: usize) T {
             u32 => ip.extra.items[i],
             Index => @intToEnum(Index, ip.extra.items[i]),
             i32 => @bitCast(i32, ip.extra.items[i]),
-            else => @compileError("bad field type"),
+            Pointer.Flags => @bitCast(Pointer.Flags, ip.extra.items[i]),
+            else => @compileError("bad field type: " ++ @typeName(field.type)),
         };
         i += 1;
     }
