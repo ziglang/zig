@@ -5184,7 +5184,8 @@ export fn sub(a: i8, b: i8) i8 { return a - b; }
 
 // The extern specifier is used to declare a function that will be resolved
 // at link time, when linking statically, or at runtime, when linking
-// dynamically.
+// dynamically. The quoted identifier after the extern keyword specifies
+// the library that has the function. (e.g. "c" -> libc.so)
 // The callconv specifier changes the calling convention of the function.
 const WINAPI: std.builtin.CallingConvention = if (native_arch == .x86) .Stdcall else .C;
 extern "kernel32" fn ExitProcess(exit_code: u32) callconv(WINAPI) noreturn;
