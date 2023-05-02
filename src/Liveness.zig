@@ -5,14 +5,16 @@
 //! Some instructions are special, such as:
 //! * Conditional Branches
 //! * Switch Branches
-const Liveness = @This();
 const std = @import("std");
-const trace = @import("tracy.zig").trace;
 const log = std.log.scoped(.liveness);
 const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
-const Air = @import("Air.zig");
 const Log2Int = std.math.Log2Int;
+
+const Liveness = @This();
+const trace = @import("tracy.zig").trace;
+const Air = @import("Air.zig");
+const InternPool = @import("InternPool.zig");
 
 pub const Verify = @import("Liveness/Verify.zig");
 

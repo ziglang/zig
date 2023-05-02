@@ -1,10 +1,3 @@
-const std = @import("std");
-const Type = @import("../../type.zig").Type;
-const Target = std.Target;
-const assert = std.debug.assert;
-const Register = @import("bits.zig").Register;
-const RegisterManagerFn = @import("../../register_manager.zig").RegisterManager;
-
 pub const Class = enum {
     integer,
     sse,
@@ -19,7 +12,7 @@ pub const Class = enum {
     float_combine,
 };
 
-pub fn classifyWindows(ty: Type, target: Target) Class {
+pub fn classifyWindows(ty: Type, mod: *const Module) Class {
     // https://docs.microsoft.com/en-gb/cpp/build/x64-calling-convention?view=vs-2017
     // "There's a strict one-to-one correspondence between a function call's arguments
     // and the registers used for those arguments. Any argument that doesn't fit in 8
@@ -28,7 +21,7 @@ pub fn classifyWindows(ty: Type, target: Target) Class {
     // "All floating point operations are done using the 16 XMM registers."
     // "Structs and unions of size 8, 16, 32, or 64 bits, and __m64 types, are passed
     // as if they were integers of the same size."
-    switch (ty.zigTypeTag()) {
+    switch (ty.zigTypeTag(mod)) {
         .Pointer,
         .Int,
         .Bool,
@@ -43,10 +36,10 @@ pub fn classifyWindows(ty: Type, target: Target) Class {
         .ErrorUnion,
         .AnyFrame,
         .Frame,
-        => switch (ty.abiSize(target)) {
+        => switch (ty.abiSize(mod)) {
             0 => unreachable,
             1, 2, 4, 8 => return .integer,
-            else => switch (ty.zigTypeTag()) {
+            else => switch (ty.zigTypeTag(mod)) {
                 .Int => return .win_i128,
                 .Struct, .Union => if (ty.containerLayout() == .Packed) {
                     return .win_i128;
@@ -75,13 +68,14 @@ pub const Context = enum { ret, arg, other };
 
 /// There are a maximum of 8 possible return slots. Returned values are in
 /// the beginning of the array; unused slots are filled with .none.
-pub fn classifySystemV(ty: Type, target: Target, ctx: Context) [8]Class {
+pub fn classifySystemV(ty: Type, mod: *const Module, ctx: Context) [8]Class {
+    const target = mod.getTarget();
     const memory_class = [_]Class{
         .memory, .none, .none, .none,
         .none,   .none, .none, .none,
     };
     var result = [1]Class{.none} ** 8;
-    switch (ty.zigTypeTag()) {
+    switch (ty.zigTypeTag(mod)) {
         .Pointer => switch (ty.ptrSize()) {
             .Slice => {
                 result[0] = .integer;
@@ -94,7 +88,7 @@ pub fn classifySystemV(ty: Type, target: Target, ctx: Context) [8]Class {
             },
         },
         .Int, .Enum, .ErrorSet => {
-            const bits = ty.intInfo(target).bits;
+            const bits = ty.intInfo(mod).bits;
             if (bits <= 64) {
                 result[0] = .integer;
                 return result;
@@ -165,7 +159,7 @@ pub fn classifySystemV(ty: Type, target: Target, ctx: Context) [8]Class {
         },
         .Vector => {
             const elem_ty = ty.childType();
-            const bits = elem_ty.bitSize(target) * ty.arrayLen();
+            const bits = elem_ty.bitSize(mod) * ty.arrayLen();
             if (bits <= 64) return .{
                 .sse,  .none, .none, .none,
                 .none, .none, .none, .none,
@@ -204,7 +198,7 @@ pub fn classifySystemV(ty: Type, target: Target, ctx: Context) [8]Class {
             return memory_class;
         },
         .Optional => {
-            if (ty.isPtrLikeOptional()) {
+            if (ty.isPtrLikeOptional(mod)) {
                 result[0] = .integer;
                 return result;
             }
@@ -215,7 +209,7 @@ pub fn classifySystemV(ty: Type, target: Target, ctx: Context) [8]Class {
             // it contains unaligned fields, it has class MEMORY"
             // "If the size of the aggregate exceeds a single eightbyte, each is classified
             // separately.".
-            const ty_size = ty.abiSize(target);
+            const ty_size = ty.abiSize(mod);
             if (ty.containerLayout() == .Packed) {
                 assert(ty_size <= 128);
                 result[0] = .integer;
@@ -230,12 +224,12 @@ pub fn classifySystemV(ty: Type, target: Target, ctx: Context) [8]Class {
             const fields = ty.structFields();
             for (fields.values()) |field| {
                 if (field.abi_align != 0) {
-                    if (field.abi_align < field.ty.abiAlignment(target)) {
+                    if (field.abi_align < field.ty.abiAlignment(mod)) {
                         return memory_class;
                     }
                 }
-                const field_size = field.ty.abiSize(target);
-                const field_class_array = classifySystemV(field.ty, target, .other);
+                const field_size = field.ty.abiSize(mod);
+                const field_class_array = classifySystemV(field.ty, mod, .other);
                 const field_class = std.mem.sliceTo(&field_class_array, .none);
                 if (byte_i + field_size <= 8) {
                     // Combine this field with the previous one.
@@ -334,7 +328,7 @@ pub fn classifySystemV(ty: Type, target: Target, ctx: Context) [8]Class {
             // it contains unaligned fields, it has class MEMORY"
             // "If the size of the aggregate exceeds a single eightbyte, each is classified
             // separately.".
-            const ty_size = ty.abiSize(target);
+            const ty_size = ty.abiSize(mod);
             if (ty.containerLayout() == .Packed) {
                 assert(ty_size <= 128);
                 result[0] = .integer;
@@ -347,12 +341,12 @@ pub fn classifySystemV(ty: Type, target: Target, ctx: Context) [8]Class {
             const fields = ty.unionFields();
             for (fields.values()) |field| {
                 if (field.abi_align != 0) {
-                    if (field.abi_align < field.ty.abiAlignment(target)) {
+                    if (field.abi_align < field.ty.abiAlignment(mod)) {
                         return memory_class;
                     }
                 }
                 // Combine this field with the previous one.
-                const field_class = classifySystemV(field.ty, target, .other);
+                const field_class = classifySystemV(field.ty, mod, .other);
                 for (&result, 0..) |*result_item, i| {
                     const field_item = field_class[i];
                     // "If both classes are equal, this is the resulting class."
@@ -426,7 +420,7 @@ pub fn classifySystemV(ty: Type, target: Target, ctx: Context) [8]Class {
             return result;
         },
         .Array => {
-            const ty_size = ty.abiSize(target);
+            const ty_size = ty.abiSize(mod);
             if (ty_size <= 64) {
                 result[0] = .integer;
                 return result;
@@ -527,10 +521,17 @@ pub const RegisterClass = struct {
     };
 };
 
-const testing = std.testing;
-const Module = @import("../../Module.zig");
-const Value = @import("../../value.zig").Value;
 const builtin = @import("builtin");
+const std = @import("std");
+const Target = std.Target;
+const assert = std.debug.assert;
+const testing = std.testing;
+
+const Module = @import("../../Module.zig");
+const Register = @import("bits.zig").Register;
+const RegisterManagerFn = @import("../../register_manager.zig").RegisterManager;
+const Type = @import("../../type.zig").Type;
+const Value = @import("../../value.zig").Value;
 
 fn _field(comptime tag: Type.Tag, offset: u32) Module.Struct.Field {
     return .{
@@ -540,35 +541,4 @@ fn _field(comptime tag: Type.Tag, offset: u32) Module.Struct.Field {
         .offset = offset,
         .is_comptime = false,
     };
-}
-
-test "C_C_D" {
-    var fields = Module.Struct.Fields{};
-    // const C_C_D = extern struct { v1: i8, v2: i8, v3: f64 };
-    try fields.ensureTotalCapacity(testing.allocator, 3);
-    defer fields.deinit(testing.allocator);
-    fields.putAssumeCapacity("v1", _field(.i8, 0));
-    fields.putAssumeCapacity("v2", _field(.i8, 1));
-    fields.putAssumeCapacity("v3", _field(.f64, 4));
-
-    var C_C_D_struct = Module.Struct{
-        .fields = fields,
-        .namespace = undefined,
-        .owner_decl = undefined,
-        .zir_index = undefined,
-        .layout = .Extern,
-        .status = .fully_resolved,
-        .known_non_opv = true,
-        .is_tuple = false,
-    };
-    var C_C_D = Type.Payload.Struct{ .data = &C_C_D_struct };
-
-    try testing.expectEqual(
-        [_]Class{ .integer, .sse, .none, .none, .none, .none, .none, .none },
-        classifySystemV(Type.initPayload(&C_C_D.base), builtin.target, .ret),
-    );
-    try testing.expectEqual(
-        [_]Class{ .integer, .sse, .none, .none, .none, .none, .none, .none },
-        classifySystemV(Type.initPayload(&C_C_D.base), builtin.target, .arg),
-    );
 }

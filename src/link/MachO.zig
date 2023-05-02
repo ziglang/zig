@@ -1948,7 +1948,8 @@ pub fn lowerUnnamedConst(self: *MachO, typed_value: TypedValue, decl_index: Modu
         },
     };
 
-    const required_alignment = typed_value.ty.abiAlignment(self.base.options.target);
+    const mod = self.base.options.module.?;
+    const required_alignment = typed_value.ty.abiAlignment(mod);
     const atom = self.getAtomPtr(atom_index);
     atom.size = code.len;
     // TODO: work out logic for disambiguating functions from function pointers
@@ -2152,6 +2153,7 @@ pub fn getOrCreateAtomForLazySymbol(self: *MachO, sym: File.LazySymbol) !Atom.In
 }
 
 fn updateThreadlocalVariable(self: *MachO, module: *Module, decl_index: Module.Decl.Index) !void {
+    const mod = self.base.options.module.?;
     // Lowering a TLV on macOS involves two stages:
     // 1. first we lower the initializer into appopriate section (__thread_data or __thread_bss)
     // 2. next, we create a corresponding threadlocal variable descriptor in __thread_vars
@@ -2202,7 +2204,7 @@ fn updateThreadlocalVariable(self: *MachO, module: *Module, decl_index: Module.D
         },
     };
 
-    const required_alignment = decl.getAlignment(self.base.options.target);
+    const required_alignment = decl.getAlignment(mod);
 
     const decl_name = try decl.getFullyQualifiedName(module);
     defer gpa.free(decl_name);
@@ -2262,7 +2264,8 @@ fn getDeclOutputSection(self: *MachO, decl_index: Module.Decl.Index) u8 {
     const decl = self.base.options.module.?.declPtr(decl_index);
     const ty = decl.ty;
     const val = decl.val;
-    const zig_ty = ty.zigTypeTag();
+    const mod = self.base.options.module.?;
+    const zig_ty = ty.zigTypeTag(mod);
     const mode = self.base.options.optimize_mode;
     const single_threaded = self.base.options.single_threaded;
     const sect_id: u8 = blk: {
@@ -2301,7 +2304,7 @@ fn updateDeclCode(self: *MachO, decl_index: Module.Decl.Index, code: []u8) !u64 
     const mod = self.base.options.module.?;
     const decl = mod.declPtr(decl_index);
 
-    const required_alignment = decl.getAlignment(self.base.options.target);
+    const required_alignment = decl.getAlignment(mod);
 
     const decl_name = try decl.getFullyQualifiedName(mod);
     defer gpa.free(decl_name);

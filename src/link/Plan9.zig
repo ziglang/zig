@@ -432,8 +432,9 @@ pub fn updateDecl(self: *Plan9, module: *Module, decl_index: Module.Decl.Index) 
 }
 /// called at the end of update{Decl,Func}
 fn updateFinish(self: *Plan9, decl_index: Module.Decl.Index) !void {
-    const decl = self.base.options.module.?.declPtr(decl_index);
-    const is_fn = (decl.ty.zigTypeTag() == .Fn);
+    const mod = self.base.options.module.?;
+    const decl = mod.declPtr(decl_index);
+    const is_fn = (decl.ty.zigTypeTag(mod) == .Fn);
     log.debug("update the symbol table and got for decl {*} ({s})", .{ decl, decl.name });
     const sym_t: aout.Sym.Type = if (is_fn) .t else .d;
 
@@ -704,7 +705,7 @@ pub fn flushModule(self: *Plan9, comp: *Compilation, prog_node: *std.Progress.No
                 log.debug("relocating the address of '{s}' + {d} into '{s}' + {d}", .{ target_decl.name, addend, source_decl.name, offset });
 
                 const code = blk: {
-                    const is_fn = source_decl.ty.zigTypeTag() == .Fn;
+                    const is_fn = source_decl.ty.zigTypeTag(mod) == .Fn;
                     if (is_fn) {
                         const table = self.fn_decl_table.get(source_decl.getFileScope()).?.functions;
                         const output = table.get(source_decl_index).?;
@@ -1031,7 +1032,7 @@ pub fn getDeclVAddr(
 ) !u64 {
     const mod = self.base.options.module.?;
     const decl = mod.declPtr(decl_index);
-    if (decl.ty.zigTypeTag() == .Fn) {
+    if (decl.ty.zigTypeTag(mod) == .Fn) {
         var start = self.bases.text;
         var it_file = self.fn_decl_table.iterator();
         while (it_file.next()) |fentry| {

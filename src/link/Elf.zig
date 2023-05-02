@@ -2449,9 +2449,10 @@ pub fn getOrCreateAtomForDecl(self: *Elf, decl_index: Module.Decl.Index) !Atom.I
 }
 
 fn getDeclShdrIndex(self: *Elf, decl_index: Module.Decl.Index) u16 {
-    const decl = self.base.options.module.?.declPtr(decl_index);
+    const mod = self.base.options.module.?;
+    const decl = mod.declPtr(decl_index);
     const ty = decl.ty;
-    const zig_ty = ty.zigTypeTag();
+    const zig_ty = ty.zigTypeTag(mod);
     const val = decl.val;
     const shdr_index: u16 = blk: {
         if (val.isUndefDeep()) {
@@ -2482,7 +2483,7 @@ fn updateDeclCode(self: *Elf, decl_index: Module.Decl.Index, code: []const u8, s
     defer self.base.allocator.free(decl_name);
 
     log.debug("updateDeclCode {s}{*}", .{ decl_name, decl });
-    const required_alignment = decl.getAlignment(self.base.options.target);
+    const required_alignment = decl.getAlignment(mod);
 
     const decl_metadata = self.decls.get(decl_index).?;
     const atom_index = decl_metadata.atom;
@@ -2826,7 +2827,7 @@ pub fn lowerUnnamedConst(self: *Elf, typed_value: TypedValue, decl_index: Module
         },
     };
 
-    const required_alignment = typed_value.ty.abiAlignment(self.base.options.target);
+    const required_alignment = typed_value.ty.abiAlignment(mod);
     const shdr_index = self.rodata_section_index.?;
     const phdr_index = self.sections.items(.phdr_index)[shdr_index];
     const local_sym = self.getAtom(atom_index).getSymbolPtr(self);

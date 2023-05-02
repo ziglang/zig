@@ -60,13 +60,14 @@ pub fn spans(self: *RangeSet, first: Value, last: Value, ty: Type) !bool {
     if (self.ranges.items.len == 0)
         return false;
 
+    const mod = self.module;
     std.mem.sort(Range, self.ranges.items, LessThanContext{
         .ty = ty,
-        .module = self.module,
+        .module = mod,
     }, lessThan);
 
-    if (!self.ranges.items[0].first.eql(first, ty, self.module) or
-        !self.ranges.items[self.ranges.items.len - 1].last.eql(last, ty, self.module))
+    if (!self.ranges.items[0].first.eql(first, ty, mod) or
+        !self.ranges.items[self.ranges.items.len - 1].last.eql(last, ty, mod))
     {
         return false;
     }
@@ -76,18 +77,16 @@ pub fn spans(self: *RangeSet, first: Value, last: Value, ty: Type) !bool {
     var counter = try std.math.big.int.Managed.init(self.ranges.allocator);
     defer counter.deinit();
 
-    const target = self.module.getTarget();
-
     // look for gaps
     for (self.ranges.items[1..], 0..) |cur, i| {
         // i starts counting from the second item.
         const prev = self.ranges.items[i];
 
         // prev.last + 1 == cur.first
-        try counter.copy(prev.last.toBigInt(&space, target));
+        try counter.copy(prev.last.toBigInt(&space, mod));
         try counter.addScalar(&counter, 1);
 
-        const cur_start_int = cur.first.toBigInt(&space, target);
+        const cur_start_int = cur.first.toBigInt(&space, mod);
         if (!cur_start_int.eq(counter.toConst())) {
             return false;
         }

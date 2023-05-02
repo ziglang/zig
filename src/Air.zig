@@ -5,10 +5,12 @@
 
 const std = @import("std");
 const builtin = @import("builtin");
+const assert = std.debug.assert;
+
+const Air = @This();
 const Value = @import("value.zig").Value;
 const Type = @import("type.zig").Type;
-const assert = std.debug.assert;
-const Air = @This();
+const InternPool = @import("InternPool.zig");
 
 instructions: std.MultiArrayList(Inst).Slice,
 /// The meaning of this data is determined by `Inst.Tag` value.
@@ -837,7 +839,88 @@ pub const Inst = struct {
     /// The position of an AIR instruction within the `Air` instructions array.
     pub const Index = u32;
 
-    pub const Ref = @import("Zir.zig").Inst.Ref;
+    pub const Ref = enum(u32) {
+        u1_type = @enumToInt(InternPool.Index.u1_type),
+        u8_type = @enumToInt(InternPool.Index.u8_type),
+        i8_type = @enumToInt(InternPool.Index.i8_type),
+        u16_type = @enumToInt(InternPool.Index.u16_type),
+        i16_type = @enumToInt(InternPool.Index.i16_type),
+        u29_type = @enumToInt(InternPool.Index.u29_type),
+        u32_type = @enumToInt(InternPool.Index.u32_type),
+        i32_type = @enumToInt(InternPool.Index.i32_type),
+        u64_type = @enumToInt(InternPool.Index.u64_type),
+        i64_type = @enumToInt(InternPool.Index.i64_type),
+        u80_type = @enumToInt(InternPool.Index.u80_type),
+        u128_type = @enumToInt(InternPool.Index.u128_type),
+        i128_type = @enumToInt(InternPool.Index.i128_type),
+        usize_type = @enumToInt(InternPool.Index.usize_type),
+        isize_type = @enumToInt(InternPool.Index.isize_type),
+        c_char_type = @enumToInt(InternPool.Index.c_char_type),
+        c_short_type = @enumToInt(InternPool.Index.c_short_type),
+        c_ushort_type = @enumToInt(InternPool.Index.c_ushort_type),
+        c_int_type = @enumToInt(InternPool.Index.c_int_type),
+        c_uint_type = @enumToInt(InternPool.Index.c_uint_type),
+        c_long_type = @enumToInt(InternPool.Index.c_long_type),
+        c_ulong_type = @enumToInt(InternPool.Index.c_ulong_type),
+        c_longlong_type = @enumToInt(InternPool.Index.c_longlong_type),
+        c_ulonglong_type = @enumToInt(InternPool.Index.c_ulonglong_type),
+        c_longdouble_type = @enumToInt(InternPool.Index.c_longdouble_type),
+        f16_type = @enumToInt(InternPool.Index.f16_type),
+        f32_type = @enumToInt(InternPool.Index.f32_type),
+        f64_type = @enumToInt(InternPool.Index.f64_type),
+        f80_type = @enumToInt(InternPool.Index.f80_type),
+        f128_type = @enumToInt(InternPool.Index.f128_type),
+        anyopaque_type = @enumToInt(InternPool.Index.anyopaque_type),
+        bool_type = @enumToInt(InternPool.Index.bool_type),
+        void_type = @enumToInt(InternPool.Index.void_type),
+        type_type = @enumToInt(InternPool.Index.type_type),
+        anyerror_type = @enumToInt(InternPool.Index.anyerror_type),
+        comptime_int_type = @enumToInt(InternPool.Index.comptime_int_type),
+        comptime_float_type = @enumToInt(InternPool.Index.comptime_float_type),
+        noreturn_type = @enumToInt(InternPool.Index.noreturn_type),
+        anyframe_type = @enumToInt(InternPool.Index.anyframe_type),
+        null_type = @enumToInt(InternPool.Index.null_type),
+        undefined_type = @enumToInt(InternPool.Index.undefined_type),
+        enum_literal_type = @enumToInt(InternPool.Index.enum_literal_type),
+        atomic_order_type = @enumToInt(InternPool.Index.atomic_order_type),
+        atomic_rmw_op_type = @enumToInt(InternPool.Index.atomic_rmw_op_type),
+        calling_convention_type = @enumToInt(InternPool.Index.calling_convention_type),
+        address_space_type = @enumToInt(InternPool.Index.address_space_type),
+        float_mode_type = @enumToInt(InternPool.Index.float_mode_type),
+        reduce_op_type = @enumToInt(InternPool.Index.reduce_op_type),
+        call_modifier_type = @enumToInt(InternPool.Index.call_modifier_type),
+        prefetch_options_type = @enumToInt(InternPool.Index.prefetch_options_type),
+        export_options_type = @enumToInt(InternPool.Index.export_options_type),
+        extern_options_type = @enumToInt(InternPool.Index.extern_options_type),
+        type_info_type = @enumToInt(InternPool.Index.type_info_type),
+        manyptr_u8_type = @enumToInt(InternPool.Index.manyptr_u8_type),
+        manyptr_const_u8_type = @enumToInt(InternPool.Index.manyptr_const_u8_type),
+        single_const_pointer_to_comptime_int_type = @enumToInt(InternPool.Index.single_const_pointer_to_comptime_int_type),
+        const_slice_u8_type = @enumToInt(InternPool.Index.const_slice_u8_type),
+        anyerror_void_error_union_type = @enumToInt(InternPool.Index.anyerror_void_error_union_type),
+        generic_poison_type = @enumToInt(InternPool.Index.generic_poison_type),
+        var_args_param_type = @enumToInt(InternPool.Index.var_args_param_type),
+        empty_struct_type = @enumToInt(InternPool.Index.empty_struct_type),
+        undef = @enumToInt(InternPool.Index.undef),
+        zero = @enumToInt(InternPool.Index.zero),
+        zero_usize = @enumToInt(InternPool.Index.zero_usize),
+        one = @enumToInt(InternPool.Index.one),
+        one_usize = @enumToInt(InternPool.Index.one_usize),
+        calling_convention_c = @enumToInt(InternPool.Index.calling_convention_c),
+        calling_convention_inline = @enumToInt(InternPool.Index.calling_convention_inline),
+        void_value = @enumToInt(InternPool.Index.void_value),
+        unreachable_value = @enumToInt(InternPool.Index.unreachable_value),
+        null_value = @enumToInt(InternPool.Index.null_value),
+        bool_true = @enumToInt(InternPool.Index.bool_true),
+        bool_false = @enumToInt(InternPool.Index.bool_false),
+        empty_struct = @enumToInt(InternPool.Index.empty_struct),
+        generic_poison = @enumToInt(InternPool.Index.generic_poison),
+
+        /// This Ref does not correspond to any AIR instruction or constant
+        /// value and may instead be used as a sentinel to indicate null.
+        none = std.math.maxInt(u32),
+        _,
+    };
 
     /// All instructions have an 8-byte payload, which is contained within
     /// this union. `Tag` determines which union field is active, as well as
@@ -1066,10 +1149,13 @@ pub fn getMainBody(air: Air) []const Air.Inst.Index {
 
 pub fn typeOf(air: Air, inst: Air.Inst.Ref) Type {
     const ref_int = @enumToInt(inst);
-    if (ref_int < Air.Inst.Ref.typed_value_map.len) {
-        return Air.Inst.Ref.typed_value_map[ref_int].ty;
+    if (ref_int < InternPool.static_keys.len) {
+        return .{
+            .ip_index = InternPool.static_keys[ref_int].typeOf(),
+            .legacy = undefined,
+        };
     }
-    return air.typeOfIndex(@intCast(Air.Inst.Index, ref_int - Air.Inst.Ref.typed_value_map.len));
+    return air.typeOfIndex(ref_int - ref_start_index);
 }
 
 pub fn typeOfIndex(air: Air, inst: Air.Inst.Index) Type {
@@ -1286,11 +1372,7 @@ pub fn typeOfIndex(air: Air, inst: Air.Inst.Index) Type {
 
         .call, .call_always_tail, .call_never_tail, .call_never_inline => {
             const callee_ty = air.typeOf(datas[inst].pl_op.operand);
-            switch (callee_ty.zigTypeTag()) {
-                .Fn => return callee_ty.fnReturnType(),
-                .Pointer => return callee_ty.childType().fnReturnType(),
-                else => unreachable,
-            }
+            return callee_ty.fnReturnType();
         },
 
         .slice_elem_val, .ptr_elem_val, .array_elem_val => {
@@ -1328,11 +1410,11 @@ pub fn typeOfIndex(air: Air, inst: Air.Inst.Index) Type {
 
 pub fn getRefType(air: Air, ref: Air.Inst.Ref) Type {
     const ref_int = @enumToInt(ref);
-    if (ref_int < Air.Inst.Ref.typed_value_map.len) {
-        var buffer: Value.ToTypeBuffer = undefined;
-        return Air.Inst.Ref.typed_value_map[ref_int].val.toType(&buffer);
+    if (ref_int < ref_start_index) {
+        const ip_index = @intToEnum(InternPool.Index, ref_int);
+        return ip_index.toType();
     }
-    const inst_index = ref_int - Air.Inst.Ref.typed_value_map.len;
+    const inst_index = ref_int - ref_start_index;
     const air_tags = air.instructions.items(.tag);
     const air_datas = air.instructions.items(.data);
     assert(air_tags[inst_index] == .const_ty);
@@ -1367,7 +1449,7 @@ pub fn deinit(air: *Air, gpa: std.mem.Allocator) void {
     air.* = undefined;
 }
 
-const ref_start_index: u32 = Air.Inst.Ref.typed_value_map.len;
+pub const ref_start_index: u32 = InternPool.static_len;
 
 pub fn indexToRef(inst: Air.Inst.Index) Air.Inst.Ref {
     return @intToEnum(Air.Inst.Ref, ref_start_index + inst);
@@ -1383,17 +1465,18 @@ pub fn refToIndex(inst: Air.Inst.Ref) ?Air.Inst.Index {
 }
 
 /// Returns `null` if runtime-known.
-pub fn value(air: Air, inst: Air.Inst.Ref) ?Value {
+pub fn value(air: Air, inst: Air.Inst.Ref, mod: *const @import("Module.zig")) ?Value {
     const ref_int = @enumToInt(inst);
-    if (ref_int < Air.Inst.Ref.typed_value_map.len) {
-        return Air.Inst.Ref.typed_value_map[ref_int].val;
+    if (ref_int < ref_start_index) {
+        const ip_index = @intToEnum(InternPool.Index, ref_int);
+        return ip_index.toValue();
     }
-    const inst_index = @intCast(Air.Inst.Index, ref_int - Air.Inst.Ref.typed_value_map.len);
+    const inst_index = @intCast(Air.Inst.Index, ref_int - ref_start_index);
     const air_datas = air.instructions.items(.data);
     switch (air.instructions.items(.tag)[inst_index]) {
         .constant => return air.values[air_datas[inst_index].ty_pl.payload],
         .const_ty => unreachable,
-        else => return air.typeOfIndex(inst_index).onePossibleValue(),
+        else => return air.typeOfIndex(inst_index).onePossibleValue(mod),
     }
 }
 

@@ -71,7 +71,6 @@ pub fn print(
     level: u8,
     mod: *Module,
 ) @TypeOf(writer).Error!void {
-    const target = mod.getTarget();
     var val = tv.val;
     var ty = tv.ty;
     if (val.isVariable(mod))
@@ -117,10 +116,6 @@ pub fn print(
         .noreturn_type => return writer.writeAll("noreturn"),
         .null_type => return writer.writeAll("@Type(.Null)"),
         .undefined_type => return writer.writeAll("@Type(.Undefined)"),
-        .fn_noreturn_no_args_type => return writer.writeAll("fn() noreturn"),
-        .fn_void_no_args_type => return writer.writeAll("fn() void"),
-        .fn_naked_noreturn_no_args_type => return writer.writeAll("fn() callconv(.Naked) noreturn"),
-        .fn_ccc_void_no_args_type => return writer.writeAll("fn() callconv(.C) void"),
         .single_const_pointer_to_comptime_int_type => return writer.writeAll("*const comptime_int"),
         .anyframe_type => return writer.writeAll("anyframe"),
         .const_slice_u8_type => return writer.writeAll("[]const u8"),
@@ -147,7 +142,7 @@ pub fn print(
             if (level == 0) {
                 return writer.writeAll(".{ ... }");
             }
-            if (ty.zigTypeTag() == .Struct) {
+            if (ty.zigTypeTag(mod) == .Struct) {
                 try writer.writeAll(".{");
                 const max_len = std.math.min(ty.structFieldCount(), max_aggregate_items);
 
@@ -160,7 +155,7 @@ pub fn print(
                     }
                     try print(.{
                         .ty = ty.structFieldType(i),
-                        .val = val.fieldValue(ty, i),
+                        .val = val.fieldValue(ty, mod, i),
                     }, writer, level - 1, mod);
                 }
                 if (ty.structFieldCount() > max_aggregate_items) {
@@ -168,7 +163,7 @@ pub fn print(
                 }
                 return writer.writeAll("}");
             } else {
-                const elem_ty = ty.elemType2();
+                const elem_ty = ty.elemType2(mod);
                 const len = ty.arrayLen();
 
                 if (elem_ty.eql(Type.u8, mod)) str: {
@@ -177,9 +172,9 @@ pub fn print(
 
                     var i: u32 = 0;
                     while (i < max_len) : (i += 1) {
-                        const elem = val.fieldValue(ty, i);
+                        const elem = val.fieldValue(ty, mod, i);
                         if (elem.isUndef()) break :str;
-                        buf[i] = std.math.cast(u8, elem.toUnsignedInt(target)) orelse break :str;
+                        buf[i] = std.math.cast(u8, elem.toUnsignedInt(mod)) orelse break :str;
                     }
 
                     const truncated = if (len > max_string_len) " (truncated)" else "";
@@ -194,7 +189,7 @@ pub fn print(
                     if (i != 0) try writer.writeAll(", ");
                     try print(.{
                         .ty = elem_ty,
-                        .val = val.fieldValue(ty, i),
+                        .val = val.fieldValue(ty, mod, i),
                     }, writer, level - 1, mod);
                 }
                 if (len > max_aggregate_items) {
@@ -232,25 +227,18 @@ pub fn print(
         .bool_true => return writer.writeAll("true"),
         .bool_false => return writer.writeAll("false"),
         .ty => return val.castTag(.ty).?.data.print(writer, mod),
-        .int_type => {
-            const int_type = val.castTag(.int_type).?.data;
-            return writer.print("{s}{d}", .{
-                if (int_type.signed) "s" else "u",
-                int_type.bits,
-            });
-        },
         .int_u64 => return std.fmt.formatIntValue(val.castTag(.int_u64).?.data, "", .{}, writer),
         .int_i64 => return std.fmt.formatIntValue(val.castTag(.int_i64).?.data, "", .{}, writer),
         .int_big_positive => return writer.print("{}", .{val.castTag(.int_big_positive).?.asBigInt()}),
         .int_big_negative => return writer.print("{}", .{val.castTag(.int_big_negative).?.asBigInt()}),
         .lazy_align => {
             const sub_ty = val.castTag(.lazy_align).?.data;
-            const x = sub_ty.abiAlignment(target);
+            const x = sub_ty.abiAlignment(mod);
             return writer.print("{d}", .{x});
         },
         .lazy_size => {
             const sub_ty = val.castTag(.lazy_size).?.data;
-            const x = sub_ty.abiSize(target);
+            const x = sub_ty.abiSize(mod);
             return writer.print("{d}", .{x});
         },
         .function => return writer.print("(function '{s}')", .{
@@ -315,7 +303,7 @@ pub fn print(
                 }, writer, level - 1, mod);
             }
 
-            if (field_ptr.container_ty.zigTypeTag() == .Struct) {
+            if (field_ptr.container_ty.zigTypeTag(mod) == .Struct) {
                 switch (field_ptr.container_ty.tag()) {
                     .tuple => return writer.print(".@\"{d}\"", .{field_ptr.field_index}),
                     else => {
@@ -323,7 +311,7 @@ pub fn print(
                         return writer.print(".{s}", .{field_name});
                     },
                 }
-            } else if (field_ptr.container_ty.zigTypeTag() == .Union) {
+            } else if (field_ptr.container_ty.zigTypeTag(mod) == .Union) {
                 const field_name = field_ptr.container_ty.unionFields().keys()[field_ptr.field_index];
                 return writer.print(".{s}", .{field_name});
             } else if (field_ptr.container_ty.isSlice()) {
@@ -352,7 +340,7 @@ pub fn print(
             var i: u32 = 0;
             try writer.writeAll(".{ ");
             const elem_tv = TypedValue{
-                .ty = ty.elemType2(),
+                .ty = ty.elemType2(mod),
                 .val = val.castTag(.repeated).?.data,
             };
             const len = ty.arrayLen();
@@ -372,7 +360,7 @@ pub fn print(
             }
             try writer.writeAll(".{ ");
             try print(.{
-                .ty = ty.elemType2(),
+                .ty = ty.elemType2(mod),
                 .val = ty.sentinel().?,
             }, writer, level - 1, mod);
             return writer.writeAll(" }");
@@ -382,8 +370,8 @@ pub fn print(
                 return writer.writeAll(".{ ... }");
             }
             const payload = val.castTag(.slice).?.data;
-            const elem_ty = ty.elemType2();
-            const len = payload.len.toUnsignedInt(target);
+            const elem_ty = ty.elemType2(mod);
+            const len = payload.len.toUnsignedInt(mod);
 
             if (elem_ty.eql(Type.u8, mod)) str: {
                 const max_len = @intCast(usize, std.math.min(len, max_string_len));
@@ -394,7 +382,7 @@ pub fn print(
                     var elem_buf: Value.ElemValueBuffer = undefined;
                     const elem_val = payload.ptr.elemValueBuffer(mod, i, &elem_buf);
                     if (elem_val.isUndef()) break :str;
-                    buf[i] = std.math.cast(u8, elem_val.toUnsignedInt(target)) orelse break :str;
+                    buf[i] = std.math.cast(u8, elem_val.toUnsignedInt(mod)) orelse break :str;
                 }
 
                 // TODO would be nice if this had a bit of unicode awareness.
