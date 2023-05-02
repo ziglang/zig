@@ -835,14 +835,14 @@ pub fn ReadLink(dir: ?HANDLE, sub_path_w: []const u16, out_buffer: []u8) ReadLin
             const len = buf.SubstituteNameLength >> 1;
             const path_buf = @as([*]const u16, &buf.PathBuffer);
             const is_relative = buf.Flags & SYMLINK_FLAG_RELATIVE != 0;
-            return parseReadlinkPath(path_buf[offset .. offset + len], is_relative, out_buffer);
+            return parseReadlinkPath(path_buf[offset..][0..len], is_relative, out_buffer);
         },
         IO_REPARSE_TAG_MOUNT_POINT => {
             const buf = @ptrCast(*const MOUNT_POINT_REPARSE_BUFFER, @alignCast(@alignOf(MOUNT_POINT_REPARSE_BUFFER), &reparse_struct.DataBuffer[0]));
             const offset = buf.SubstituteNameOffset >> 1;
             const len = buf.SubstituteNameLength >> 1;
             const path_buf = @as([*]const u16, &buf.PathBuffer);
-            return parseReadlinkPath(path_buf[offset .. offset + len], false, out_buffer);
+            return parseReadlinkPath(path_buf[offset..][0..len], false, out_buffer);
         },
         else => |value| {
             std.debug.print("unsupported symlink type: {}", .{value});

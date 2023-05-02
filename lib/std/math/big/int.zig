@@ -4035,7 +4035,7 @@ fn llsquareBasecase(r: []Limb, x: []const Limb) void {
 
     for (x_norm, 0..) |v, i| {
         // Compute and add the squares
-        const overflow = llmulLimb(.add, r[2 * i ..], x[i .. i + 1], v);
+        const overflow = llmulLimb(.add, r[2 * i ..], x[i..][0..1], v);
         assert(!overflow);
     }
 }
