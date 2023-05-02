@@ -9008,7 +9008,7 @@ fn airUnionInit(self: *Self, inst: Air.Inst.Index) !void {
     const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
     const extra = self.air.extraData(Air.UnionInit, ty_pl.payload).data;
     _ = extra;
-    return self.fail("TODO implement airAggregateInit for x86_64", .{});
+    return self.fail("TODO implement airUnionInit for x86_64", .{});
     //return self.finishAir(inst, result, .{ extra.init, .none, .none });
 }
 
