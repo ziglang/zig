@@ -341,14 +341,20 @@ pub fn generateSymbol(
                 }
                 return Result.ok;
             },
-            .variable => {
-                const decl = typed_value.val.castTag(.variable).?.data.owner_decl;
-                return lowerDeclRef(bin_file, src_loc, typed_value, decl, code, debug_output, reloc_info);
-            },
-            .decl_ref => {
-                const decl = typed_value.val.castTag(.decl_ref).?.data;
-                return lowerDeclRef(bin_file, src_loc, typed_value, decl, code, debug_output, reloc_info);
-            },
+            .variable, .decl_ref, .decl_ref_mut => |tag| return lowerDeclRef(
+                bin_file,
+                src_loc,
+                typed_value,
+                switch (tag) {
+                    .variable => typed_value.val.castTag(.variable).?.data.owner_decl,
+                    .decl_ref => typed_value.val.castTag(.decl_ref).?.data,
+                    .decl_ref_mut => typed_value.val.castTag(.decl_ref_mut).?.data.decl_index,
+                    else => unreachable,
+                },
+                code,
+                debug_output,
+                reloc_info,
+            ),
             .slice => {
                 const slice = typed_value.val.castTag(.slice).?.data;
 
@@ -787,11 +793,11 @@ pub fn generateSymbol(
             },
             else => unreachable,
         },
-        else => |t| return Result{ .fail = try ErrorMsg.create(
+        else => |tag| return Result{ .fail = try ErrorMsg.create(
             bin_file.allocator,
             src_loc,
             "TODO implement generateSymbol for type '{s}'",
-            .{@tagName(t)},
+            .{@tagName(tag)},
         ) },
     }
 }
@@ -852,28 +858,26 @@ fn lowerParentPtr(
                 reloc_info.offset(@intCast(u32, elem_ptr.index * elem_ptr.elem_ty.abiSize(target))),
             );
         },
-        .decl_ref => {
-            const decl_index = parent_ptr.castTag(.decl_ref).?.data;
-            return lowerDeclRef(
-                bin_file,
-                src_loc,
-                typed_value,
-                decl_index,
-                code,
-                debug_output,
-                reloc_info,
-            );
-        },
-        else => |t| {
-            return Result{
-                .fail = try ErrorMsg.create(
-                    bin_file.allocator,
-                    src_loc,
-                    "TODO implement lowerParentPtr for type '{s}'",
-                    .{@tagName(t)},
-                ),
-            };
-        },
+        .variable, .decl_ref, .decl_ref_mut => |tag| return lowerDeclRef(
+            bin_file,
+            src_loc,
+            typed_value,
+            switch (tag) {
+                .variable => parent_ptr.castTag(.variable).?.data.owner_decl,
+                .decl_ref => parent_ptr.castTag(.decl_ref).?.data,
+                .decl_ref_mut => parent_ptr.castTag(.decl_ref_mut).?.data.decl_index,
+                else => unreachable,
+            },
+            code,
+            debug_output,
+            reloc_info,
+        ),
+        else => |tag| return Result{ .fail = try ErrorMsg.create(
+            bin_file.allocator,
+            src_loc,
+            "TODO implement lowerParentPtr for type '{s}'",
+            .{@tagName(tag)},
+        ) },
     }
 }
 
@@ -1126,6 +1130,9 @@ pub fn genTypedValue(
     const ptr_bits = target.cpu.arch.ptrBitWidth();
 
     if (!typed_value.ty.isSlice()) {
+        if (typed_value.val.castTag(.variable)) |payload| {
+            return genDeclRef(bin_file, src_loc, typed_value, payload.data.owner_decl);
+        }
         if (typed_value.val.castTag(.decl_ref)) |payload| {
             return genDeclRef(bin_file, src_loc, typed_value, payload.data);
         }
