@@ -540,11 +540,6 @@ pub const JsonScanner = struct {
                     if (self.cursor >= self.input.len) return self.endOfBufferInNumber(true);
                     const c = self.input[self.cursor];
                     switch (c) {
-                        '1'...'9' => {
-                            self.cursor += 1;
-                            self.state = .number_int;
-                            continue :state_loop;
-                        },
                         '.' => {
                             self.cursor += 1;
                             self.state = .number_post_dot;
