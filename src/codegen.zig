@@ -374,66 +374,7 @@ pub fn generateSymbol(
 
                 return Result.ok;
             },
-            .field_ptr => {
-                const field_ptr = typed_value.val.castTag(.field_ptr).?.data;
-                const container_ptr = field_ptr.container_ptr;
-
-                switch (container_ptr.tag()) {
-                    .decl_ref => {
-                        const decl_index = container_ptr.castTag(.decl_ref).?.data;
-                        const decl = mod.declPtr(decl_index);
-                        const addend = blk: {
-                            switch (decl.ty.zigTypeTag()) {
-                                .Struct => {
-                                    const addend = decl.ty.structFieldOffset(field_ptr.field_index, target);
-                                    break :blk @intCast(u32, addend);
-                                },
-                                .Pointer => {
-                                    assert(decl.ty.isSlice());
-                                    var buf: Type.SlicePtrFieldTypeBuffer = undefined;
-                                    const addend = switch (field_ptr.field_index) {
-                                        0 => 0,
-                                        1 => decl.ty.slicePtrFieldType(&buf).abiSize(target),
-                                        else => unreachable,
-                                    };
-                                    break :blk @intCast(u32, addend);
-                                },
-                                else => return Result{
-                                    .fail = try ErrorMsg.create(
-                                        bin_file.allocator,
-                                        src_loc,
-                                        "TODO implement generateSymbol for pointer type value: '{s}'",
-                                        .{@tagName(typed_value.val.tag())},
-                                    ),
-                                },
-                            }
-                        };
-                        return lowerDeclRef(bin_file, src_loc, typed_value, decl_index, code, debug_output, .{
-                            .parent_atom_index = reloc_info.parent_atom_index,
-                            .addend = (reloc_info.addend orelse 0) + addend,
-                        });
-                    },
-                    .field_ptr => {
-                        switch (try generateSymbol(bin_file, src_loc, .{
-                            .ty = typed_value.ty,
-                            .val = container_ptr,
-                        }, code, debug_output, reloc_info)) {
-                            .ok => {},
-                            .fail => |em| return Result{ .fail = em },
-                        }
-                        return Result.ok;
-                    },
-                    else => return Result{
-                        .fail = try ErrorMsg.create(
-                            bin_file.allocator,
-                            src_loc,
-                            "TODO implement generateSymbol for pointer type value: '{s}'",
-                            .{@tagName(typed_value.val.tag())},
-                        ),
-                    },
-                }
-            },
-            .elem_ptr => return lowerParentPtr(
+            .field_ptr, .elem_ptr => return lowerParentPtr(
                 bin_file,
                 src_loc,
                 typed_value,
@@ -846,16 +787,12 @@ pub fn generateSymbol(
             },
             else => unreachable,
         },
-        else => |t| {
-            return Result{
-                .fail = try ErrorMsg.create(
-                    bin_file.allocator,
-                    src_loc,
-                    "TODO implement generateSymbol for type '{s}'",
-                    .{@tagName(t)},
-                ),
-            };
-        },
+        else => |t| return Result{ .fail = try ErrorMsg.create(
+            bin_file.allocator,
+            src_loc,
+            "TODO implement generateSymbol for type '{s}'",
+            .{@tagName(t)},
+        ) },
     }
 }
 
@@ -871,6 +808,38 @@ fn lowerParentPtr(
     const target = bin_file.options.target;
 
     switch (parent_ptr.tag()) {
+        .field_ptr => {
+            const field_ptr = parent_ptr.castTag(.field_ptr).?.data;
+            return lowerParentPtr(
+                bin_file,
+                src_loc,
+                typed_value,
+                field_ptr.container_ptr,
+                code,
+                debug_output,
+                reloc_info.offset(@intCast(u32, switch (field_ptr.container_ty.zigTypeTag()) {
+                    .Pointer => offset: {
+                        assert(field_ptr.container_ty.isSlice());
+                        var buf: Type.SlicePtrFieldTypeBuffer = undefined;
+                        break :offset switch (field_ptr.field_index) {
+                            0 => 0,
+                            1 => field_ptr.container_ty.slicePtrFieldType(&buf).abiSize(target),
+                            else => unreachable,
+                        };
+                    },
+                    .Struct, .Union => field_ptr.container_ty.structFieldOffset(
+                        field_ptr.field_index,
+                        target,
+                    ),
+                    else => return Result{ .fail = try ErrorMsg.create(
+                        bin_file.allocator,
+                        src_loc,
+                        "TODO implement lowerParentPtr for field_ptr with a container of type {}",
+                        .{field_ptr.container_ty.fmt(bin_file.options.module.?)},
+                    ) },
+                })),
+            );
+        },
         .elem_ptr => {
             const elem_ptr = parent_ptr.castTag(.elem_ptr).?.data;
             return lowerParentPtr(
