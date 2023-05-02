@@ -11,6 +11,7 @@ const Air = @This();
 const Value = @import("value.zig").Value;
 const Type = @import("type.zig").Type;
 const InternPool = @import("InternPool.zig");
+const Module = @import("Module.zig");
 
 instructions: std.MultiArrayList(Inst).Slice,
 /// The meaning of this data is determined by `Inst.Tag` value.
@@ -401,6 +402,9 @@ pub const Inst = struct {
         constant,
         /// A comptime-known type. Uses the `ty` field.
         const_ty,
+        /// A comptime-known value via an index into the InternPool.
+        /// Uses the `interned` field.
+        interned,
         /// Notes the beginning of a source code statement and marks the line and column.
         /// Result type is always void.
         /// Uses the `dbg_stmt` field.
@@ -928,6 +932,7 @@ pub const Inst = struct {
     pub const Data = union {
         no_op: void,
         un_op: Ref,
+        interned: InternPool.Index,
 
         bin_op: struct {
             lhs: Ref,
@@ -1147,18 +1152,15 @@ pub fn getMainBody(air: Air) []const Air.Inst.Index {
     return air.extra[extra.end..][0..extra.data.body_len];
 }
 
-pub fn typeOf(air: Air, inst: Air.Inst.Ref) Type {
+pub fn typeOf(air: Air, inst: Air.Inst.Ref, ip: InternPool) Type {
     const ref_int = @enumToInt(inst);
     if (ref_int < InternPool.static_keys.len) {
-        return .{
-            .ip_index = InternPool.static_keys[ref_int].typeOf(),
-            .legacy = undefined,
-        };
+        return InternPool.static_keys[ref_int].typeOf().toType();
     }
-    return air.typeOfIndex(ref_int - ref_start_index);
+    return air.typeOfIndex(ref_int - ref_start_index, ip);
 }
 
-pub fn typeOfIndex(air: Air, inst: Air.Inst.Index) Type {
+pub fn typeOfIndex(air: Air, inst: Air.Inst.Index, ip: InternPool) Type {
     const datas = air.instructions.items(.data);
     switch (air.instructions.items(.tag)[inst]) {
         .add,
@@ -1200,7 +1202,7 @@ pub fn typeOfIndex(air: Air, inst: Air.Inst.Index) Type {
         .div_exact_optimized,
         .rem_optimized,
         .mod_optimized,
-        => return air.typeOf(datas[inst].bin_op.lhs),
+        => return air.typeOf(datas[inst].bin_op.lhs, ip),
 
         .sqrt,
         .sin,
@@ -1218,7 +1220,7 @@ pub fn typeOfIndex(air: Air, inst: Air.Inst.Index) Type {
         .trunc_float,
         .neg,
         .neg_optimized,
-        => return air.typeOf(datas[inst].un_op),
+        => return air.typeOf(datas[inst].un_op, ip),
 
         .cmp_lt,
         .cmp_lte,
@@ -1279,6 +1281,8 @@ pub fn typeOfIndex(air: Air, inst: Air.Inst.Index) Type {
         .ptr_sub,
         .try_ptr,
         => return air.getRefType(datas[inst].ty_pl.ty),
+
+        .interned => return ip.indexToKey(datas[inst].interned).typeOf().toType(),
 
         .not,
         .bitcast,
@@ -1371,33 +1375,33 @@ pub fn typeOfIndex(air: Air, inst: Air.Inst.Index) Type {
         .tag_name, .error_name => return Type.initTag(.const_slice_u8_sentinel_0),
 
         .call, .call_always_tail, .call_never_tail, .call_never_inline => {
-            const callee_ty = air.typeOf(datas[inst].pl_op.operand);
+            const callee_ty = air.typeOf(datas[inst].pl_op.operand, ip);
             return callee_ty.fnReturnType();
         },
 
         .slice_elem_val, .ptr_elem_val, .array_elem_val => {
-            const ptr_ty = air.typeOf(datas[inst].bin_op.lhs);
+            const ptr_ty = air.typeOf(datas[inst].bin_op.lhs, ip);
             return ptr_ty.elemType();
         },
         .atomic_load => {
-            const ptr_ty = air.typeOf(datas[inst].atomic_load.ptr);
+            const ptr_ty = air.typeOf(datas[inst].atomic_load.ptr, ip);
             return ptr_ty.elemType();
         },
         .atomic_rmw => {
-            const ptr_ty = air.typeOf(datas[inst].pl_op.operand);
+            const ptr_ty = air.typeOf(datas[inst].pl_op.operand, ip);
             return ptr_ty.elemType();
         },
 
-        .reduce, .reduce_optimized => return air.typeOf(datas[inst].reduce.operand).childType(),
+        .reduce, .reduce_optimized => return air.typeOf(datas[inst].reduce.operand, ip).childType(),
 
-        .mul_add => return air.typeOf(datas[inst].pl_op.operand),
+        .mul_add => return air.typeOf(datas[inst].pl_op.operand, ip),
         .select => {
             const extra = air.extraData(Air.Bin, datas[inst].pl_op.payload).data;
-            return air.typeOf(extra.lhs);
+            return air.typeOf(extra.lhs, ip);
         },
 
         .@"try" => {
-            const err_union_ty = air.typeOf(datas[inst].pl_op.operand);
+            const err_union_ty = air.typeOf(datas[inst].pl_op.operand, ip);
             return err_union_ty.errorUnionPayload();
         },
 
@@ -1465,7 +1469,7 @@ pub fn refToIndex(inst: Air.Inst.Ref) ?Air.Inst.Index {
 }
 
 /// Returns `null` if runtime-known.
-pub fn value(air: Air, inst: Air.Inst.Ref, mod: *const @import("Module.zig")) ?Value {
+pub fn value(air: Air, inst: Air.Inst.Ref, mod: *const Module) ?Value {
     const ref_int = @enumToInt(inst);
     if (ref_int < ref_start_index) {
         const ip_index = @intToEnum(InternPool.Index, ref_int);
@@ -1476,7 +1480,7 @@ pub fn value(air: Air, inst: Air.Inst.Ref, mod: *const @import("Module.zig")) ?V
     switch (air.instructions.items(.tag)[inst_index]) {
         .constant => return air.values[air_datas[inst_index].ty_pl.payload],
         .const_ty => unreachable,
-        else => return air.typeOfIndex(inst_index).onePossibleValue(mod),
+        else => return air.typeOfIndex(inst_index, mod.intern_pool).onePossibleValue(mod),
     }
 }
 
@@ -1489,10 +1493,11 @@ pub fn nullTerminatedString(air: Air, index: usize) [:0]const u8 {
     return bytes[0..end :0];
 }
 
-/// Returns whether the given instruction must always be lowered, for instance because it can cause
-/// side effects. If an instruction does not need to be lowered, and Liveness determines its result
-/// is unused, backends should avoid lowering it.
-pub fn mustLower(air: Air, inst: Air.Inst.Index) bool {
+/// Returns whether the given instruction must always be lowered, for instance
+/// because it can cause side effects. If an instruction does not need to be
+/// lowered, and Liveness determines its result is unused, backends should
+/// avoid lowering it.
+pub fn mustLower(air: Air, inst: Air.Inst.Index, ip: InternPool) bool {
     const data = air.instructions.items(.data)[inst];
     return switch (air.instructions.items(.tag)[inst]) {
         .arg,
@@ -1631,6 +1636,7 @@ pub fn mustLower(air: Air, inst: Air.Inst.Index) bool {
         .cmp_vector_optimized,
         .constant,
         .const_ty,
+        .interned,
         .is_null,
         .is_non_null,
         .is_null_ptr,
@@ -1699,8 +1705,8 @@ pub fn mustLower(air: Air, inst: Air.Inst.Index) bool {
         => false,
 
         .assembly => @truncate(u1, air.extraData(Air.Asm, data.ty_pl.payload).data.flags >> 31) != 0,
-        .load => air.typeOf(data.ty_op.operand).isVolatilePtr(),
-        .slice_elem_val, .ptr_elem_val => air.typeOf(data.bin_op.lhs).isVolatilePtr(),
-        .atomic_load => air.typeOf(data.atomic_load.ptr).isVolatilePtr(),
+        .load => air.typeOf(data.ty_op.operand, ip).isVolatilePtr(),
+        .slice_elem_val, .ptr_elem_val => air.typeOf(data.bin_op.lhs, ip).isVolatilePtr(),
+        .atomic_load => air.typeOf(data.atomic_load.ptr, ip).isVolatilePtr(),
     };
 }

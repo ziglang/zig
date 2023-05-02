@@ -33007,7 +33007,7 @@ pub fn typeHasOnePossibleValue(sema: *Sema, ty: Type) CompileError!?Value {
 
 /// Returns the type of the AIR instruction.
 fn typeOf(sema: *Sema, inst: Air.Inst.Ref) Type {
-    return sema.getTmpAir().typeOf(inst);
+    return sema.getTmpAir().typeOf(inst, sema.mod.intern_pool);
 }
 
 pub fn getTmpAir(sema: Sema) Air {
@@ -33019,88 +33019,14 @@ pub fn getTmpAir(sema: Sema) Air {
 }
 
 pub fn addType(sema: *Sema, ty: Type) !Air.Inst.Ref {
-    switch (ty.ip_index) {
-        .u1_type => return .u1_type,
-        .u8_type => return .u8_type,
-        .i8_type => return .i8_type,
-        .u16_type => return .u16_type,
-        .i16_type => return .i16_type,
-        .u29_type => return .u29_type,
-        .u32_type => return .u32_type,
-        .i32_type => return .i32_type,
-        .u64_type => return .u64_type,
-        .i64_type => return .i64_type,
-        .u80_type => return .u80_type,
-        .u128_type => return .u128_type,
-        .i128_type => return .i128_type,
-        .usize_type => return .usize_type,
-        .isize_type => return .isize_type,
-        .c_char_type => return .c_char_type,
-        .c_short_type => return .c_short_type,
-        .c_ushort_type => return .c_ushort_type,
-        .c_int_type => return .c_int_type,
-        .c_uint_type => return .c_uint_type,
-        .c_long_type => return .c_long_type,
-        .c_ulong_type => return .c_ulong_type,
-        .c_longlong_type => return .c_longlong_type,
-        .c_ulonglong_type => return .c_ulonglong_type,
-        .c_longdouble_type => return .c_longdouble_type,
-        .f16_type => return .f16_type,
-        .f32_type => return .f32_type,
-        .f64_type => return .f64_type,
-        .f80_type => return .f80_type,
-        .f128_type => return .f128_type,
-        .anyopaque_type => return .anyopaque_type,
-        .bool_type => return .bool_type,
-        .void_type => return .void_type,
-        .type_type => return .type_type,
-        .anyerror_type => return .anyerror_type,
-        .comptime_int_type => return .comptime_int_type,
-        .comptime_float_type => return .comptime_float_type,
-        .noreturn_type => return .noreturn_type,
-        .anyframe_type => return .anyframe_type,
-        .null_type => return .null_type,
-        .undefined_type => return .undefined_type,
-        .enum_literal_type => return .enum_literal_type,
-        .atomic_order_type => return .atomic_order_type,
-        .atomic_rmw_op_type => return .atomic_rmw_op_type,
-        .calling_convention_type => return .calling_convention_type,
-        .address_space_type => return .address_space_type,
-        .float_mode_type => return .float_mode_type,
-        .reduce_op_type => return .reduce_op_type,
-        .call_modifier_type => return .call_modifier_type,
-        .prefetch_options_type => return .prefetch_options_type,
-        .export_options_type => return .export_options_type,
-        .extern_options_type => return .extern_options_type,
-        .type_info_type => return .type_info_type,
-        .manyptr_u8_type => return .manyptr_u8_type,
-        .manyptr_const_u8_type => return .manyptr_const_u8_type,
-        .single_const_pointer_to_comptime_int_type => return .single_const_pointer_to_comptime_int_type,
-        .const_slice_u8_type => return .const_slice_u8_type,
-        .anyerror_void_error_union_type => return .anyerror_void_error_union_type,
-        .generic_poison_type => return .generic_poison_type,
-        .var_args_param_type => return .var_args_param_type,
-        .empty_struct_type => return .empty_struct_type,
-
-        // values
-        .undef => unreachable,
-        .zero => unreachable,
-        .zero_usize => unreachable,
-        .one => unreachable,
-        .one_usize => unreachable,
-        .calling_convention_c => unreachable,
-        .calling_convention_inline => unreachable,
-        .void_value => unreachable,
-        .unreachable_value => unreachable,
-        .null_value => unreachable,
-        .bool_true => unreachable,
-        .bool_false => unreachable,
-        .empty_struct => unreachable,
-        .generic_poison => unreachable,
-
-        _ => {},
-
-        .none => unreachable,
+    if (ty.ip_index != .none) {
+        if (@enumToInt(ty.ip_index) < Air.ref_start_index)
+            return @intToEnum(Air.Inst.Ref, @enumToInt(ty.ip_index));
+        try sema.air_instructions.append(sema.gpa, .{
+            .tag = .interned,
+            .data = .{ .interned = ty.ip_index },
+        });
+        return Air.indexToRef(@intCast(u32, sema.air_instructions.len - 1));
     }
     switch (ty.tag()) {
         .u1 => return .u1_type,

@@ -4397,7 +4397,7 @@ pub fn ensureFuncBodyAnalyzed(mod: *Module, func: *Fn) SemaError!void {
             if (no_bin_file and !dump_air and !dump_llvm_ir) return;
 
             log.debug("analyze liveness of {s}", .{decl.name});
-            var liveness = try Liveness.analyze(gpa, air);
+            var liveness = try Liveness.analyze(gpa, air, &mod.intern_pool);
             defer liveness.deinit(gpa);
 
             if (dump_air) {
@@ -4414,6 +4414,7 @@ pub fn ensureFuncBodyAnalyzed(mod: *Module, func: *Fn) SemaError!void {
                     .gpa = gpa,
                     .air = air,
                     .liveness = liveness,
+                    .intern_pool = &mod.intern_pool,
                 };
                 defer verify.deinit();
 
