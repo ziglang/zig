@@ -4,6 +4,7 @@ const bits = @import("bits.zig");
 const Register = bits.Register;
 const RegisterManagerFn = @import("../../register_manager.zig").RegisterManager;
 const Type = @import("../../type.zig").Type;
+const Module = @import("../../Module.zig");
 
 pub const Class = union(enum) {
     memory,
@@ -14,40 +15,40 @@ pub const Class = union(enum) {
 };
 
 /// For `float_array` the second element will be the amount of floats.
-pub fn classifyType(ty: Type, target: std.Target) Class {
-    std.debug.assert(ty.hasRuntimeBitsIgnoreComptime());
+pub fn classifyType(ty: Type, mod: *const Module) Class {
+    std.debug.assert(ty.hasRuntimeBitsIgnoreComptime(mod));
 
     var maybe_float_bits: ?u16 = null;
-    switch (ty.zigTypeTag()) {
+    switch (ty.zigTypeTag(mod)) {
         .Struct => {
             if (ty.containerLayout() == .Packed) return .byval;
-            const float_count = countFloats(ty, target, &maybe_float_bits);
+            const float_count = countFloats(ty, mod, &maybe_float_bits);
             if (float_count <= sret_float_count) return .{ .float_array = float_count };
 
-            const bit_size = ty.bitSize(target);
+            const bit_size = ty.bitSize(mod);
             if (bit_size > 128) return .memory;
             if (bit_size > 64) return .double_integer;
             return .integer;
         },
         .Union => {
             if (ty.containerLayout() == .Packed) return .byval;
-            const float_count = countFloats(ty, target, &maybe_float_bits);
+            const float_count = countFloats(ty, mod, &maybe_float_bits);
             if (float_count <= sret_float_count) return .{ .float_array = float_count };
 
-            const bit_size = ty.bitSize(target);
+            const bit_size = ty.bitSize(mod);
             if (bit_size > 128) return .memory;
             if (bit_size > 64) return .double_integer;
             return .integer;
         },
         .Int, .Enum, .ErrorSet, .Float, .Bool => return .byval,
         .Vector => {
-            const bit_size = ty.bitSize(target);
+            const bit_size = ty.bitSize(mod);
             // TODO is this controlled by a cpu feature?
             if (bit_size > 128) return .memory;
             return .byval;
         },
         .Optional => {
-            std.debug.assert(ty.isPtrLikeOptional());
+            std.debug.assert(ty.isPtrLikeOptional(mod));
             return .byval;
         },
         .Pointer => {
@@ -73,14 +74,15 @@ pub fn classifyType(ty: Type, target: std.Target) Class {
 }
 
 const sret_float_count = 4;
-fn countFloats(ty: Type, target: std.Target, maybe_float_bits: *?u16) u8 {
+fn countFloats(ty: Type, mod: *const Module, maybe_float_bits: *?u16) u8 {
+    const target = mod.getTarget();
     const invalid = std.math.maxInt(u8);
-    switch (ty.zigTypeTag()) {
+    switch (ty.zigTypeTag(mod)) {
         .Union => {
             const fields = ty.unionFields();
             var max_count: u8 = 0;
             for (fields.values()) |field| {
-                const field_count = countFloats(field.ty, target, maybe_float_bits);
+                const field_count = countFloats(field.ty, mod, maybe_float_bits);
                 if (field_count == invalid) return invalid;
                 if (field_count > max_count) max_count = field_count;
                 if (max_count > sret_float_count) return invalid;
@@ -93,7 +95,7 @@ fn countFloats(ty: Type, target: std.Target, maybe_float_bits: *?u16) u8 {
             var i: u32 = 0;
             while (i < fields_len) : (i += 1) {
                 const field_ty = ty.structFieldType(i);
-                const field_count = countFloats(field_ty, target, maybe_float_bits);
+                const field_count = countFloats(field_ty, mod, maybe_float_bits);
                 if (field_count == invalid) return invalid;
                 count += field_count;
                 if (count > sret_float_count) return invalid;
@@ -113,12 +115,12 @@ fn countFloats(ty: Type, target: std.Target, maybe_float_bits: *?u16) u8 {
     }
 }
 
-pub fn getFloatArrayType(ty: Type) ?Type {
-    switch (ty.zigTypeTag()) {
+pub fn getFloatArrayType(ty: Type, mod: *const Module) ?Type {
+    switch (ty.zigTypeTag(mod)) {
         .Union => {
             const fields = ty.unionFields();
             for (fields.values()) |field| {
-                if (getFloatArrayType(field.ty)) |some| return some;
+                if (getFloatArrayType(field.ty, mod)) |some| return some;
             }
             return null;
         },
@@ -127,7 +129,7 @@ pub fn getFloatArrayType(ty: Type) ?Type {
             var i: u32 = 0;
             while (i < fields_len) : (i += 1) {
                 const field_ty = ty.structFieldType(i);
-                if (getFloatArrayType(field_ty)) |some| return some;
+                if (getFloatArrayType(field_ty, mod)) |some| return some;
             }
             return null;
         },

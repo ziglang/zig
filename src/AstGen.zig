@@ -8530,7 +8530,7 @@ fn builtinCall(
             return rvalue(gz, ri, result, node);
         },
         .call => {
-            const modifier = try comptimeExpr(gz, scope, .{ .rl = .{ .coerced_ty = .modifier_type } }, params[0]);
+            const modifier = try comptimeExpr(gz, scope, .{ .rl = .{ .coerced_ty = .call_modifier_type } }, params[0]);
             const callee = try expr(gz, scope, .{ .rl = .none }, params[1]);
             const args = try expr(gz, scope, .{ .rl = .none }, params[2]);
             const result = try gz.addPlNode(.builtin_call, node, Zir.Inst.BuiltinCall{
@@ -10298,10 +10298,6 @@ fn rvalue(
                 as_ty | @enumToInt(Zir.Inst.Ref.noreturn_type),
                 as_ty | @enumToInt(Zir.Inst.Ref.null_type),
                 as_ty | @enumToInt(Zir.Inst.Ref.undefined_type),
-                as_ty | @enumToInt(Zir.Inst.Ref.fn_noreturn_no_args_type),
-                as_ty | @enumToInt(Zir.Inst.Ref.fn_void_no_args_type),
-                as_ty | @enumToInt(Zir.Inst.Ref.fn_naked_noreturn_no_args_type),
-                as_ty | @enumToInt(Zir.Inst.Ref.fn_ccc_void_no_args_type),
                 as_ty | @enumToInt(Zir.Inst.Ref.single_const_pointer_to_comptime_int_type),
                 as_ty | @enumToInt(Zir.Inst.Ref.const_slice_u8_type),
                 as_ty | @enumToInt(Zir.Inst.Ref.enum_literal_type),

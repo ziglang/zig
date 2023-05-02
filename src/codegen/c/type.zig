@@ -292,19 +292,19 @@ pub const CType = extern union {
                 .abi = std.math.log2_int(u32, abi_alignment),
             };
         }
-        pub fn abiAlign(ty: Type, target: Target) AlignAs {
-            const abi_align = ty.abiAlignment(target);
+        pub fn abiAlign(ty: Type, mod: *const Module) AlignAs {
+            const abi_align = ty.abiAlignment(mod);
             return init(abi_align, abi_align);
         }
-        pub fn fieldAlign(struct_ty: Type, field_i: usize, target: Target) AlignAs {
+        pub fn fieldAlign(struct_ty: Type, field_i: usize, mod: *const Module) AlignAs {
             return init(
-                struct_ty.structFieldAlign(field_i, target),
-                struct_ty.structFieldType(field_i).abiAlignment(target),
+                struct_ty.structFieldAlign(field_i, mod),
+                struct_ty.structFieldType(field_i).abiAlignment(mod),
             );
         }
-        pub fn unionPayloadAlign(union_ty: Type, target: Target) AlignAs {
+        pub fn unionPayloadAlign(union_ty: Type, mod: *const Module) AlignAs {
             const union_obj = union_ty.cast(Type.Payload.Union).?.data;
-            const union_payload_align = union_obj.abiAlignment(target, false);
+            const union_payload_align = union_obj.abiAlignment(mod, false);
             return init(union_payload_align, union_payload_align);
         }
 
@@ -344,8 +344,8 @@ pub const CType = extern union {
                 return self.map.entries.items(.hash)[index - Tag.no_payload_count];
             }
 
-            pub fn typeToIndex(self: Set, ty: Type, target: Target, kind: Kind) ?Index {
-                const lookup = Convert.Lookup{ .imm = .{ .set = &self, .target = target } };
+            pub fn typeToIndex(self: Set, ty: Type, mod: *Module, kind: Kind) ?Index {
+                const lookup = Convert.Lookup{ .imm = .{ .set = &self, .mod = mod } };
 
                 var convert: Convert = undefined;
                 convert.initType(ty, kind, lookup) catch unreachable;
@@ -405,7 +405,7 @@ pub const CType = extern union {
                 );
                 if (!gop.found_existing) {
                     errdefer _ = self.set.map.pop();
-                    gop.key_ptr.* = try createFromConvert(self, ty, lookup.getTarget(), kind, convert);
+                    gop.key_ptr.* = try createFromConvert(self, ty, lookup.getModule(), kind, convert);
                 }
                 if (std.debug.runtime_safety) {
                     const adapter = TypeAdapter64{
@@ -1236,10 +1236,10 @@ pub const CType = extern union {
         }
 
         pub const Lookup = union(enum) {
-            fail: Target,
+            fail: *Module,
             imm: struct {
                 set: *const Store.Set,
-                target: Target,
+                mod: *Module,
             },
             mut: struct {
                 promoted: *Store.Promoted,
@@ -1254,10 +1254,14 @@ pub const CType = extern union {
             }
 
             pub fn getTarget(self: @This()) Target {
+                return self.getModule().getTarget();
+            }
+
+            pub fn getModule(self: @This()) *Module {
                 return switch (self) {
-                    .fail => |target| target,
-                    .imm => |imm| imm.target,
-                    .mut => |mut| mut.mod.getTarget(),
+                    .fail => |mod| mod,
+                    .imm => |imm| imm.mod,
+                    .mut => |mut| mut.mod,
                 };
             }
 
@@ -1272,7 +1276,7 @@ pub const CType = extern union {
             pub fn typeToIndex(self: @This(), ty: Type, kind: Kind) !?Index {
                 return switch (self) {
                     .fail => null,
-                    .imm => |imm| imm.set.typeToIndex(ty, imm.target, kind),
+                    .imm => |imm| imm.set.typeToIndex(ty, imm.mod, kind),
                     .mut => |mut| try mut.promoted.typeToIndex(ty, mut.mod, kind),
                 };
             }
@@ -1284,7 +1288,7 @@ pub const CType = extern union {
             pub fn freeze(self: @This()) @This() {
                 return switch (self) {
                     .fail, .imm => self,
-                    .mut => |mut| .{ .imm = .{ .set = &mut.promoted.set, .target = self.getTarget() } },
+                    .mut => |mut| .{ .imm = .{ .set = &mut.promoted.set, .mod = mut.mod } },
                 };
             }
         };
@@ -1338,7 +1342,7 @@ pub const CType = extern union {
                     self.storage.anon.fields[0] = .{
                         .name = "array",
                         .type = array_idx,
-                        .alignas = AlignAs.abiAlign(ty, lookup.getTarget()),
+                        .alignas = AlignAs.abiAlign(ty, lookup.getModule()),
                     };
                     self.initAnon(kind, fwd_idx, 1);
                 } else self.init(switch (kind) {
@@ -1350,12 +1354,12 @@ pub const CType = extern union {
         }
 
         pub fn initType(self: *@This(), ty: Type, kind: Kind, lookup: Lookup) !void {
-            const target = lookup.getTarget();
+            const mod = lookup.getModule();
 
             self.* = undefined;
-            if (!ty.isFnOrHasRuntimeBitsIgnoreComptime())
+            if (!ty.isFnOrHasRuntimeBitsIgnoreComptime(mod))
                 self.init(.void)
-            else if (ty.isAbiInt()) switch (ty.tag()) {
+            else if (ty.isAbiInt(mod)) switch (ty.tag()) {
                 .usize => self.init(.uintptr_t),
                 .isize => self.init(.intptr_t),
                 .c_char => self.init(.char),
@@ -1367,13 +1371,13 @@ pub const CType = extern union {
                 .c_ulong => self.init(.@"unsigned long"),
                 .c_longlong => self.init(.@"long long"),
                 .c_ulonglong => self.init(.@"unsigned long long"),
-                else => switch (tagFromIntInfo(ty.intInfo(target))) {
+                else => switch (tagFromIntInfo(ty.intInfo(mod))) {
                     .void => unreachable,
                     else => |t| self.init(t),
                     .array => switch (kind) {
                         .forward, .complete, .global => {
-                            const abi_size = ty.abiSize(target);
-                            const abi_align = ty.abiAlignment(target);
+                            const abi_size = ty.abiSize(mod);
+                            const abi_align = ty.abiAlignment(mod);
                             self.storage = .{ .seq = .{ .base = .{ .tag = .array }, .data = .{
                                 .len = @divExact(abi_size, abi_align),
                                 .elem_type = tagFromIntInfo(.{
@@ -1389,7 +1393,7 @@ pub const CType = extern union {
                         .payload => unreachable,
                     },
                 },
-            } else switch (ty.zigTypeTag()) {
+            } else switch (ty.zigTypeTag(mod)) {
                 .Frame => unreachable,
                 .AnyFrame => unreachable,
 
@@ -1434,12 +1438,12 @@ pub const CType = extern union {
                                     self.storage.anon.fields[0] = .{
                                         .name = "ptr",
                                         .type = ptr_idx,
-                                        .alignas = AlignAs.abiAlign(ptr_ty, target),
+                                        .alignas = AlignAs.abiAlign(ptr_ty, mod),
                                     };
                                     self.storage.anon.fields[1] = .{
                                         .name = "len",
                                         .type = Tag.uintptr_t.toIndex(),
-                                        .alignas = AlignAs.abiAlign(Type.usize, target),
+                                        .alignas = AlignAs.abiAlign(Type.usize, mod),
                                     };
                                     self.initAnon(kind, fwd_idx, 2);
                                 } else self.init(switch (kind) {
@@ -1462,12 +1466,8 @@ pub const CType = extern union {
                                 },
                             };
 
-                            var host_int_pl = Type.Payload.Bits{
-                                .base = .{ .tag = .int_unsigned },
-                                .data = info.host_size * 8,
-                            };
                             const pointee_ty = if (info.host_size > 0 and info.vector_index == .none)
-                                Type.initPayload(&host_int_pl.base)
+                                try mod.intType(.unsigned, info.host_size * 8)
                             else
                                 info.pointee_type;
 
@@ -1490,11 +1490,9 @@ pub const CType = extern union {
                     if (ty.castTag(.@"struct")) |struct_obj| {
                         try self.initType(struct_obj.data.backing_int_ty, kind, lookup);
                     } else {
-                        var buf: Type.Payload.Bits = .{
-                            .base = .{ .tag = .int_unsigned },
-                            .data = @intCast(u16, ty.bitSize(target)),
-                        };
-                        try self.initType(Type.initPayload(&buf.base), kind, lookup);
+                        const bits = @intCast(u16, ty.bitSize(mod));
+                        const int_ty = try mod.intType(.unsigned, bits);
+                        try self.initType(int_ty, kind, lookup);
                     }
                 } else if (ty.isTupleOrAnonStruct()) {
                     if (lookup.isMutable()) {
@@ -1505,7 +1503,7 @@ pub const CType = extern union {
                         }) |field_i| {
                             const field_ty = ty.structFieldType(field_i);
                             if ((zig_ty_tag == .Struct and ty.structFieldIsComptime(field_i)) or
-                                !field_ty.hasRuntimeBitsIgnoreComptime()) continue;
+                                !field_ty.hasRuntimeBitsIgnoreComptime(mod)) continue;
                             _ = try lookup.typeToIndex(field_ty, switch (kind) {
                                 .forward, .forward_parameter => .forward,
                                 .complete, .parameter => .complete,
@@ -1555,7 +1553,7 @@ pub const CType = extern union {
                                     self.storage.anon.fields[field_count] = .{
                                         .name = "payload",
                                         .type = payload_idx.?,
-                                        .alignas = AlignAs.unionPayloadAlign(ty, target),
+                                        .alignas = AlignAs.unionPayloadAlign(ty, mod),
                                     };
                                     field_count += 1;
                                 }
@@ -1563,7 +1561,7 @@ pub const CType = extern union {
                                     self.storage.anon.fields[field_count] = .{
                                         .name = "tag",
                                         .type = tag_idx.?,
-                                        .alignas = AlignAs.abiAlign(tag_ty.?, target),
+                                        .alignas = AlignAs.abiAlign(tag_ty.?, mod),
                                     };
                                     field_count += 1;
                                 }
@@ -1576,7 +1574,7 @@ pub const CType = extern union {
                                 } };
                                 self.value = .{ .cty = initPayload(&self.storage.anon.pl.complete) };
                             } else self.init(.@"struct");
-                        } else if (kind == .payload and ty.unionHasAllZeroBitFieldTypes()) {
+                        } else if (kind == .payload and ty.unionHasAllZeroBitFieldTypes(mod)) {
                             self.init(.void);
                         } else {
                             var is_packed = false;
@@ -1586,9 +1584,9 @@ pub const CType = extern union {
                                 else => unreachable,
                             }) |field_i| {
                                 const field_ty = ty.structFieldType(field_i);
-                                if (!field_ty.hasRuntimeBitsIgnoreComptime()) continue;
+                                if (!field_ty.hasRuntimeBitsIgnoreComptime(mod)) continue;
 
-                                const field_align = AlignAs.fieldAlign(ty, field_i, target);
+                                const field_align = AlignAs.fieldAlign(ty, field_i, mod);
                                 if (field_align.@"align" < field_align.abi) {
                                     is_packed = true;
                                     if (!lookup.isMutable()) break;
@@ -1643,8 +1641,8 @@ pub const CType = extern union {
                 .Optional => {
                     var buf: Type.Payload.ElemType = undefined;
                     const payload_ty = ty.optionalChild(&buf);
-                    if (payload_ty.hasRuntimeBitsIgnoreComptime()) {
-                        if (ty.optionalReprIsPayload()) {
+                    if (payload_ty.hasRuntimeBitsIgnoreComptime(mod)) {
+                        if (ty.optionalReprIsPayload(mod)) {
                             try self.initType(payload_ty, kind, lookup);
                         } else if (switch (kind) {
                             .forward, .forward_parameter => @as(Index, undefined),
@@ -1661,12 +1659,12 @@ pub const CType = extern union {
                                 self.storage.anon.fields[0] = .{
                                     .name = "payload",
                                     .type = payload_idx,
-                                    .alignas = AlignAs.abiAlign(payload_ty, target),
+                                    .alignas = AlignAs.abiAlign(payload_ty, mod),
                                 };
                                 self.storage.anon.fields[1] = .{
                                     .name = "is_null",
                                     .type = Tag.bool.toIndex(),
-                                    .alignas = AlignAs.abiAlign(Type.bool, target),
+                                    .alignas = AlignAs.abiAlign(Type.bool, mod),
                                 };
                                 self.initAnon(kind, fwd_idx, 2);
                             } else self.init(switch (kind) {
@@ -1699,12 +1697,12 @@ pub const CType = extern union {
                                 self.storage.anon.fields[0] = .{
                                     .name = "payload",
                                     .type = payload_idx,
-                                    .alignas = AlignAs.abiAlign(payload_ty, target),
+                                    .alignas = AlignAs.abiAlign(payload_ty, mod),
                                 };
                                 self.storage.anon.fields[1] = .{
                                     .name = "error",
                                     .type = error_idx,
-                                    .alignas = AlignAs.abiAlign(error_ty, target),
+                                    .alignas = AlignAs.abiAlign(error_ty, mod),
                                 };
                                 self.initAnon(kind, fwd_idx, 2);
                             } else self.init(switch (kind) {
@@ -1733,7 +1731,7 @@ pub const CType = extern union {
                             };
                             _ = try lookup.typeToIndex(info.return_type, param_kind);
                             for (info.param_types) |param_type| {
-                                if (!param_type.hasRuntimeBitsIgnoreComptime()) continue;
+                                if (!param_type.hasRuntimeBitsIgnoreComptime(mod)) continue;
                                 _ = try lookup.typeToIndex(param_type, param_kind);
                             }
                         }
@@ -1900,16 +1898,16 @@ pub const CType = extern union {
         }
     }
 
-    fn createFromType(store: *Store.Promoted, ty: Type, target: Target, kind: Kind) !CType {
+    fn createFromType(store: *Store.Promoted, ty: Type, mod: *const Module, kind: Kind) !CType {
         var convert: Convert = undefined;
-        try convert.initType(ty, kind, .{ .imm = .{ .set = &store.set, .target = target } });
-        return createFromConvert(store, ty, target, kind, &convert);
+        try convert.initType(ty, kind, .{ .imm = .{ .set = &store.set, .mod = mod } });
+        return createFromConvert(store, ty, mod, kind, &convert);
     }
 
     fn createFromConvert(
         store: *Store.Promoted,
         ty: Type,
-        target: Target,
+        mod: *Module,
         kind: Kind,
         convert: Convert,
     ) !CType {
@@ -1930,7 +1928,7 @@ pub const CType = extern union {
                 .packed_struct,
                 .packed_union,
                 => {
-                    const zig_ty_tag = ty.zigTypeTag();
+                    const zig_ty_tag = ty.zigTypeTag(mod);
                     const fields_len = switch (zig_ty_tag) {
                         .Struct => ty.structFieldCount(),
                         .Union => ty.unionFields().count(),
@@ -1941,7 +1939,7 @@ pub const CType = extern union {
                     for (0..fields_len) |field_i| {
                         const field_ty = ty.structFieldType(field_i);
                         if ((zig_ty_tag == .Struct and ty.structFieldIsComptime(field_i)) or
-                            !field_ty.hasRuntimeBitsIgnoreComptime()) continue;
+                            !field_ty.hasRuntimeBitsIgnoreComptime(mod)) continue;
                         c_fields_len += 1;
                     }
 
@@ -1950,7 +1948,7 @@ pub const CType = extern union {
                     for (0..fields_len) |field_i| {
                         const field_ty = ty.structFieldType(field_i);
                         if ((zig_ty_tag == .Struct and ty.structFieldIsComptime(field_i)) or
-                            !field_ty.hasRuntimeBitsIgnoreComptime()) continue;
+                            !field_ty.hasRuntimeBitsIgnoreComptime(mod)) continue;
 
                         defer c_field_i += 1;
                         fields_pl[c_field_i] = .{
@@ -1962,12 +1960,12 @@ pub const CType = extern union {
                                     .Union => ty.unionFields().keys()[field_i],
                                     else => unreachable,
                                 }),
-                            .type = store.set.typeToIndex(field_ty, target, switch (kind) {
+                            .type = store.set.typeToIndex(field_ty, mod, switch (kind) {
                                 .forward, .forward_parameter => .forward,
                                 .complete, .parameter, .payload => .complete,
                                 .global => .global,
                             }).?,
-                            .alignas = AlignAs.fieldAlign(ty, field_i, target),
+                            .alignas = AlignAs.fieldAlign(ty, field_i, mod),
                         };
                     }
 
@@ -2004,7 +2002,7 @@ pub const CType = extern union {
                             const struct_pl = try arena.create(Payload.Aggregate);
                             struct_pl.* = .{ .base = .{ .tag = t }, .data = .{
                                 .fields = fields_pl,
-                                .fwd_decl = store.set.typeToIndex(ty, target, .forward).?,
+                                .fwd_decl = store.set.typeToIndex(ty, mod, .forward).?,
                             } };
                             return initPayload(struct_pl);
                         },
@@ -2026,21 +2024,21 @@ pub const CType = extern union {
 
                     var c_params_len: usize = 0;
                     for (info.param_types) |param_type| {
-                        if (!param_type.hasRuntimeBitsIgnoreComptime()) continue;
+                        if (!param_type.hasRuntimeBitsIgnoreComptime(mod)) continue;
                         c_params_len += 1;
                     }
 
                     const params_pl = try arena.alloc(Index, c_params_len);
                     var c_param_i: usize = 0;
                     for (info.param_types) |param_type| {
-                        if (!param_type.hasRuntimeBitsIgnoreComptime()) continue;
-                        params_pl[c_param_i] = store.set.typeToIndex(param_type, target, param_kind).?;
+                        if (!param_type.hasRuntimeBitsIgnoreComptime(mod)) continue;
+                        params_pl[c_param_i] = store.set.typeToIndex(param_type, mod, param_kind).?;
                         c_param_i += 1;
                     }
 
                     const fn_pl = try arena.create(Payload.Function);
                     fn_pl.* = .{ .base = .{ .tag = t }, .data = .{
-                        .return_type = store.set.typeToIndex(info.return_type, target, param_kind).?,
+                        .return_type = store.set.typeToIndex(info.return_type, mod, param_kind).?,
                         .param_types = params_pl,
                     } };
                     return initPayload(fn_pl);
@@ -2067,12 +2065,12 @@ pub const CType = extern union {
         }
 
         pub fn eql(self: @This(), ty: Type, cty: CType) bool {
+            const mod = self.lookup.getModule();
             switch (self.convert.value) {
                 .cty => |c| return c.eql(cty),
                 .tag => |t| {
                     if (t != cty.tag()) return false;
 
-                    const target = self.lookup.getTarget();
                     switch (t) {
                         .fwd_anon_struct,
                         .fwd_anon_union,
@@ -2084,7 +2082,7 @@ pub const CType = extern union {
                             ]u8 = undefined;
                             const c_fields = cty.cast(Payload.Fields).?.data;
 
-                            const zig_ty_tag = ty.zigTypeTag();
+                            const zig_ty_tag = ty.zigTypeTag(mod);
                             var c_field_i: usize = 0;
                             for (0..switch (zig_ty_tag) {
                                 .Struct => ty.structFieldCount(),
@@ -2093,7 +2091,7 @@ pub const CType = extern union {
                             }) |field_i| {
                                 const field_ty = ty.structFieldType(field_i);
                                 if ((zig_ty_tag == .Struct and ty.structFieldIsComptime(field_i)) or
-                                    !field_ty.hasRuntimeBitsIgnoreComptime()) continue;
+                                    !field_ty.hasRuntimeBitsIgnoreComptime(mod)) continue;
 
                                 defer c_field_i += 1;
                                 const c_field = &c_fields[c_field_i];
@@ -2113,7 +2111,7 @@ pub const CType = extern union {
                                         else => unreachable,
                                     },
                                     mem.span(c_field.name),
-                                ) or AlignAs.fieldAlign(ty, field_i, target).@"align" !=
+                                ) or AlignAs.fieldAlign(ty, field_i, mod).@"align" !=
                                     c_field.alignas.@"align") return false;
                             }
                             return true;
@@ -2146,7 +2144,7 @@ pub const CType = extern union {
                         .function,
                         .varargs_function,
                         => {
-                            if (ty.zigTypeTag() != .Fn) return false;
+                            if (ty.zigTypeTag(mod) != .Fn) return false;
 
                             const info = ty.fnInfo();
                             assert(!info.is_generic);
@@ -2162,7 +2160,7 @@ pub const CType = extern union {
 
                             var c_param_i: usize = 0;
                             for (info.param_types) |param_type| {
-                                if (!param_type.hasRuntimeBitsIgnoreComptime()) continue;
+                                if (!param_type.hasRuntimeBitsIgnoreComptime(mod)) continue;
 
                                 if (c_param_i >= data.param_types.len) return false;
                                 const param_cty = data.param_types[c_param_i];
@@ -2202,7 +2200,7 @@ pub const CType = extern union {
                 .tag => |t| {
                     autoHash(hasher, t);
 
-                    const target = self.lookup.getTarget();
+                    const mod = self.lookup.getModule();
                     switch (t) {
                         .fwd_anon_struct,
                         .fwd_anon_union,
@@ -2211,15 +2209,15 @@ pub const CType = extern union {
                                 std.fmt.count("f{}", .{std.math.maxInt(usize)})
                             ]u8 = undefined;
 
-                            const zig_ty_tag = ty.zigTypeTag();
-                            for (0..switch (ty.zigTypeTag()) {
+                            const zig_ty_tag = ty.zigTypeTag(mod);
+                            for (0..switch (ty.zigTypeTag(mod)) {
                                 .Struct => ty.structFieldCount(),
                                 .Union => ty.unionFields().count(),
                                 else => unreachable,
                             }) |field_i| {
                                 const field_ty = ty.structFieldType(field_i);
                                 if ((zig_ty_tag == .Struct and ty.structFieldIsComptime(field_i)) or
-                                    !field_ty.hasRuntimeBitsIgnoreComptime()) continue;
+                                    !field_ty.hasRuntimeBitsIgnoreComptime(mod)) continue;
 
                                 self.updateHasherRecurse(hasher, field_ty, switch (self.kind) {
                                     .forward, .forward_parameter => .forward,
@@ -2234,7 +2232,7 @@ pub const CType = extern union {
                                     .Union => ty.unionFields().keys()[field_i],
                                     else => unreachable,
                                 });
-                                autoHash(hasher, AlignAs.fieldAlign(ty, field_i, target).@"align");
+                                autoHash(hasher, AlignAs.fieldAlign(ty, field_i, mod).@"align");
                             }
                         },
 
@@ -2271,7 +2269,7 @@ pub const CType = extern union {
 
                             self.updateHasherRecurse(hasher, info.return_type, param_kind);
                             for (info.param_types) |param_type| {
-                                if (!param_type.hasRuntimeBitsIgnoreComptime()) continue;
+                                if (!param_type.hasRuntimeBitsIgnoreComptime(mod)) continue;
                                 self.updateHasherRecurse(hasher, param_type, param_kind);
                             }
                         },

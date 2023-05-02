@@ -3,6 +3,7 @@ const mem = std.mem;
 const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
 const Ast = std.zig.Ast;
+const InternPool = @import("InternPool.zig");
 
 const Zir = @import("Zir.zig");
 const Module = @import("Module.zig");
@@ -2468,14 +2469,9 @@ const Writer = struct {
     }
 
     fn writeInstRef(self: *Writer, stream: anytype, ref: Zir.Inst.Ref) !void {
-        var i: usize = @enumToInt(ref);
-
-        if (i < Zir.Inst.Ref.typed_value_map.len) {
-            return stream.print("@{}", .{ref});
-        }
-        i -= Zir.Inst.Ref.typed_value_map.len;
-
-        return self.writeInstIndex(stream, @intCast(Zir.Inst.Index, i));
+        const i = @enumToInt(ref);
+        if (i < InternPool.static_len) return stream.print("@{}", .{@intToEnum(InternPool.Index, i)});
+        return self.writeInstIndex(stream, i - InternPool.static_len);
     }
 
     fn writeInstIndex(self: *Writer, stream: anytype, inst: Zir.Inst.Index) !void {

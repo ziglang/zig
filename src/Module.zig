@@ -32,6 +32,19 @@ const build_options = @import("build_options");
 const Liveness = @import("Liveness.zig");
 const isUpDir = @import("introspect.zig").isUpDir;
 const clang = @import("clang.zig");
+const InternPool = @import("InternPool.zig");
+
+comptime {
+    @setEvalBranchQuota(4000);
+    for (
+        @typeInfo(Zir.Inst.Ref).Enum.fields,
+        @typeInfo(Air.Inst.Ref).Enum.fields,
+        @typeInfo(InternPool.Index).Enum.fields,
+    ) |zir_field, air_field, ip_field| {
+        assert(mem.eql(u8, zir_field.name, ip_field.name));
+        assert(mem.eql(u8, air_field.name, ip_field.name));
+    }
+}
 
 /// General-purpose allocator. Used for both temporary and long-term storage.
 gpa: Allocator,
@@ -82,6 +95,9 @@ embed_table: std.StringHashMapUnmanaged(*EmbedFile) = .{},
 /// is still reclaimable by a future Decl.
 string_literal_table: std.HashMapUnmanaged(StringLiteralContext.Key, Decl.OptionalIndex, StringLiteralContext, std.hash_map.default_max_load_percentage) = .{},
 string_literal_bytes: ArrayListUnmanaged(u8) = .{},
+
+/// Stores all Type and Value objects; periodically garbage collected.
+intern_pool: InternPool = .{},
 
 /// The set of all the generic function instantiations. This is used so that when a generic
 /// function is called twice with the same comptime parameter arguments, both calls dispatch
@@ -807,9 +823,9 @@ pub const Decl = struct {
         return (try decl.typedValue()).val;
     }
 
-    pub fn isFunction(decl: Decl) !bool {
+    pub fn isFunction(decl: Decl, mod: *const Module) !bool {
         const tv = try decl.typedValue();
-        return tv.ty.zigTypeTag() == .Fn;
+        return tv.ty.zigTypeTag(mod) == .Fn;
     }
 
     /// If the Decl has a value and it is a struct, return it,
@@ -921,14 +937,14 @@ pub const Decl = struct {
         };
     }
 
-    pub fn getAlignment(decl: Decl, target: Target) u32 {
+    pub fn getAlignment(decl: Decl, mod: *const Module) u32 {
         assert(decl.has_tv);
         if (decl.@"align" != 0) {
             // Explicit alignment.
             return decl.@"align";
         } else {
             // Natural alignment.
-            return decl.ty.abiAlignment(target);
+            return decl.ty.abiAlignment(mod);
         }
     }
 };
@@ -1030,7 +1046,7 @@ pub const Struct = struct {
         /// Returns the field alignment. If the struct is packed, returns 0.
         pub fn alignment(
             field: Field,
-            target: Target,
+            mod: *const Module,
             layout: std.builtin.Type.ContainerLayout,
         ) u32 {
             if (field.abi_align != 0) {
@@ -1038,24 +1054,26 @@ pub const Struct = struct {
                 return field.abi_align;
             }
 
+            const target = mod.getTarget();
+
             switch (layout) {
                 .Packed => return 0,
                 .Auto => {
                     if (target.ofmt == .c) {
-                        return alignmentExtern(field, target);
+                        return alignmentExtern(field, mod);
                     } else {
-                        return field.ty.abiAlignment(target);
+                        return field.ty.abiAlignment(mod);
                     }
                 },
-                .Extern => return alignmentExtern(field, target),
+                .Extern => return alignmentExtern(field, mod),
             }
         }
 
-        pub fn alignmentExtern(field: Field, target: Target) u32 {
+        pub fn alignmentExtern(field: Field, mod: *const Module) u32 {
             // This logic is duplicated in Type.abiAlignmentAdvanced.
-            const ty_abi_align = field.ty.abiAlignment(target);
+            const ty_abi_align = field.ty.abiAlignment(mod);
 
-            if (field.ty.isAbiInt() and field.ty.intInfo(target).bits >= 128) {
+            if (field.ty.isAbiInt(mod) and field.ty.intInfo(mod).bits >= 128) {
                 // The C ABI requires 128 bit integer fields of structs
                 // to be 16-bytes aligned.
                 return @max(ty_abi_align, 16);
@@ -1132,7 +1150,7 @@ pub const Struct = struct {
         };
     }
 
-    pub fn packedFieldBitOffset(s: Struct, target: Target, index: usize) u16 {
+    pub fn packedFieldBitOffset(s: Struct, mod: *const Module, index: usize) u16 {
         assert(s.layout == .Packed);
         assert(s.haveLayout());
         var bit_sum: u64 = 0;
@@ -1140,12 +1158,13 @@ pub const Struct = struct {
             if (i == index) {
                 return @intCast(u16, bit_sum);
             }
-            bit_sum += field.ty.bitSize(target);
+            bit_sum += field.ty.bitSize(mod);
         }
         unreachable; // index out of bounds
     }
 
     pub const RuntimeFieldIterator = struct {
+        module: *const Module,
         struct_obj: *const Struct,
         index: u32 = 0,
 
@@ -1155,6 +1174,7 @@ pub const Struct = struct {
         };
 
         pub fn next(it: *RuntimeFieldIterator) ?FieldAndIndex {
+            const mod = it.module;
             while (true) {
                 var i = it.index;
                 it.index += 1;
@@ -1167,15 +1187,18 @@ pub const Struct = struct {
                 }
                 const field = it.struct_obj.fields.values()[i];
 
-                if (!field.is_comptime and field.ty.hasRuntimeBits()) {
+                if (!field.is_comptime and field.ty.hasRuntimeBits(mod)) {
                     return FieldAndIndex{ .index = i, .field = field };
                 }
             }
         }
     };
 
-    pub fn runtimeFieldIterator(s: *const Struct) RuntimeFieldIterator {
-        return .{ .struct_obj = s };
+    pub fn runtimeFieldIterator(s: *const Struct, module: *const Module) RuntimeFieldIterator {
+        return .{
+            .struct_obj = s,
+            .module = module,
+        };
     }
 };
 
@@ -1323,9 +1346,9 @@ pub const Union = struct {
         /// Returns the field alignment, assuming the union is not packed.
         /// Keep implementation in sync with `Sema.unionFieldAlignment`.
         /// Prefer to call that function instead of this one during Sema.
-        pub fn normalAlignment(field: Field, target: Target) u32 {
+        pub fn normalAlignment(field: Field, mod: *const Module) u32 {
             if (field.abi_align == 0) {
-                return field.ty.abiAlignment(target);
+                return field.ty.abiAlignment(mod);
             } else {
                 return field.abi_align;
             }
@@ -1383,22 +1406,22 @@ pub const Union = struct {
         };
     }
 
-    pub fn hasAllZeroBitFieldTypes(u: Union) bool {
+    pub fn hasAllZeroBitFieldTypes(u: Union, mod: *const Module) bool {
         assert(u.haveFieldTypes());
         for (u.fields.values()) |field| {
-            if (field.ty.hasRuntimeBits()) return false;
+            if (field.ty.hasRuntimeBits(mod)) return false;
         }
         return true;
     }
 
-    pub fn mostAlignedField(u: Union, target: Target) u32 {
+    pub fn mostAlignedField(u: Union, mod: *const Module) u32 {
         assert(u.haveFieldTypes());
         var most_alignment: u32 = 0;
         var most_index: usize = undefined;
         for (u.fields.values(), 0..) |field, i| {
-            if (!field.ty.hasRuntimeBits()) continue;
+            if (!field.ty.hasRuntimeBits(mod)) continue;
 
-            const field_align = field.normalAlignment(target);
+            const field_align = field.normalAlignment(mod);
             if (field_align > most_alignment) {
                 most_alignment = field_align;
                 most_index = i;
@@ -1408,20 +1431,20 @@ pub const Union = struct {
     }
 
     /// Returns 0 if the union is represented with 0 bits at runtime.
-    pub fn abiAlignment(u: Union, target: Target, have_tag: bool) u32 {
+    pub fn abiAlignment(u: Union, mod: *const Module, have_tag: bool) u32 {
         var max_align: u32 = 0;
-        if (have_tag) max_align = u.tag_ty.abiAlignment(target);
+        if (have_tag) max_align = u.tag_ty.abiAlignment(mod);
         for (u.fields.values()) |field| {
-            if (!field.ty.hasRuntimeBits()) continue;
+            if (!field.ty.hasRuntimeBits(mod)) continue;
 
-            const field_align = field.normalAlignment(target);
+            const field_align = field.normalAlignment(mod);
             max_align = @max(max_align, field_align);
         }
         return max_align;
     }
 
-    pub fn abiSize(u: Union, target: Target, have_tag: bool) u64 {
-        return u.getLayout(target, have_tag).abi_size;
+    pub fn abiSize(u: Union, mod: *const Module, have_tag: bool) u64 {
+        return u.getLayout(mod, have_tag).abi_size;
     }
 
     pub const Layout = struct {
@@ -1451,7 +1474,7 @@ pub const Union = struct {
         };
     }
 
-    pub fn getLayout(u: Union, target: Target, have_tag: bool) Layout {
+    pub fn getLayout(u: Union, mod: *const Module, have_tag: bool) Layout {
         assert(u.haveLayout());
         var most_aligned_field: u32 = undefined;
         var most_aligned_field_size: u64 = undefined;
@@ -1460,16 +1483,16 @@ pub const Union = struct {
         var payload_align: u32 = 0;
         const fields = u.fields.values();
         for (fields, 0..) |field, i| {
-            if (!field.ty.hasRuntimeBitsIgnoreComptime()) continue;
+            if (!field.ty.hasRuntimeBitsIgnoreComptime(mod)) continue;
 
             const field_align = a: {
                 if (field.abi_align == 0) {
-                    break :a field.ty.abiAlignment(target);
+                    break :a field.ty.abiAlignment(mod);
                 } else {
                     break :a field.abi_align;
                 }
             };
-            const field_size = field.ty.abiSize(target);
+            const field_size = field.ty.abiSize(mod);
             if (field_size > payload_size) {
                 payload_size = field_size;
                 biggest_field = @intCast(u32, i);
@@ -1481,7 +1504,7 @@ pub const Union = struct {
             }
         }
         payload_align = @max(payload_align, 1);
-        if (!have_tag or !u.tag_ty.hasRuntimeBits()) {
+        if (!have_tag or !u.tag_ty.hasRuntimeBits(mod)) {
             return .{
                 .abi_size = std.mem.alignForwardGeneric(u64, payload_size, payload_align),
                 .abi_align = payload_align,
@@ -1497,8 +1520,8 @@ pub const Union = struct {
         }
         // Put the tag before or after the payload depending on which one's
         // alignment is greater.
-        const tag_size = u.tag_ty.abiSize(target);
-        const tag_align = @max(1, u.tag_ty.abiAlignment(target));
+        const tag_size = u.tag_ty.abiSize(mod);
+        const tag_align = @max(1, u.tag_ty.abiAlignment(mod));
         var size: u64 = 0;
         var padding: u32 = undefined;
         if (tag_align >= payload_align) {
@@ -2281,7 +2304,7 @@ pub const ErrorMsg = struct {
     ) !*ErrorMsg {
         const err_msg = try gpa.create(ErrorMsg);
         errdefer gpa.destroy(err_msg);
-        err_msg.* = try init(gpa, src_loc, format, args);
+        err_msg.* = try ErrorMsg.init(gpa, src_loc, format, args);
         return err_msg;
     }
 
@@ -3391,6 +3414,12 @@ pub const CompileError = error{
     ComptimeBreak,
 };
 
+pub fn init(mod: *Module) !void {
+    const gpa = mod.gpa;
+    try mod.error_name_list.append(gpa, "(no error)");
+    try mod.intern_pool.init(gpa);
+}
+
 pub fn deinit(mod: *Module) void {
     const gpa = mod.gpa;
 
@@ -3518,6 +3547,8 @@ pub fn deinit(mod: *Module) void {
 
     mod.string_literal_table.deinit(gpa);
     mod.string_literal_bytes.deinit(gpa);
+
+    mod.intern_pool.deinit(gpa);
 }
 
 pub fn destroyDecl(mod: *Module, decl_index: Decl.Index) void {
@@ -4277,7 +4308,7 @@ pub fn ensureDeclAnalyzed(mod: *Module, decl_index: Decl.Index) SemaError!void {
         // Update all dependents which have at least this level of dependency.
         // If our type remained the same and we're a function, only update
         // decls which depend on our body; otherwise, update all dependents.
-        const update_level: Decl.DepType = if (!type_changed and decl.ty.zigTypeTag() == .Fn) .function_body else .normal;
+        const update_level: Decl.DepType = if (!type_changed and decl.ty.zigTypeTag(mod) == .Fn) .function_body else .normal;
 
         for (decl.dependants.keys(), decl.dependants.values()) |dep_index, dep_type| {
             if (@enumToInt(dep_type) < @enumToInt(update_level)) continue;
@@ -4748,8 +4779,7 @@ fn semaDecl(mod: *Module, decl_index: Decl.Index) !bool {
                 decl_tv.ty.fmt(mod),
             });
         }
-        var buffer: Value.ToTypeBuffer = undefined;
-        const ty = try decl_tv.val.toType(&buffer).copy(decl_arena_allocator);
+        const ty = try decl_tv.val.toType().copy(decl_arena_allocator);
         if (ty.getNamespace() == null) {
             return sema.fail(&block_scope, ty_src, "type {} has no namespace", .{ty.fmt(mod)});
         }
@@ -4775,7 +4805,7 @@ fn semaDecl(mod: *Module, decl_index: Decl.Index) !bool {
             var type_changed = true;
 
             if (decl.has_tv) {
-                prev_type_has_bits = decl.ty.isFnOrHasRuntimeBits();
+                prev_type_has_bits = decl.ty.isFnOrHasRuntimeBits(mod);
                 type_changed = !decl.ty.eql(decl_tv.ty, mod);
                 if (decl.getFunction()) |prev_func| {
                     prev_is_inline = prev_func.state == .inline_only;
@@ -5510,7 +5540,7 @@ pub fn clearDecl(
     try mod.deleteDeclExports(decl_index);
 
     if (decl.has_tv) {
-        if (decl.ty.isFnOrHasRuntimeBits()) {
+        if (decl.ty.isFnOrHasRuntimeBits(mod)) {
             mod.comp.bin_file.freeDecl(decl_index);
         }
         if (decl.getInnerNamespace()) |namespace| {
@@ -5699,7 +5729,7 @@ pub fn analyzeFnBody(mod: *Module, func: *Fn, arena: Allocator) SemaError!Air {
 
             const arg_val = if (arg_tv.val.tag() != .generic_poison)
                 arg_tv.val
-            else if (arg_tv.ty.onePossibleValue()) |opv|
+            else if (arg_tv.ty.onePossibleValue(mod)) |opv|
                 opv
             else
                 break :t arg_tv.ty;
@@ -5773,7 +5803,7 @@ pub fn analyzeFnBody(mod: *Module, func: *Fn, arena: Allocator) SemaError!Air {
     // If we don't get an error return trace from a caller, create our own.
     if (func.calls_or_awaits_errorable_fn and
         mod.comp.bin_file.options.error_return_tracing and
-        !sema.fn_ret_ty.isError())
+        !sema.fn_ret_ty.isError(mod))
     {
         sema.setupErrorReturnTrace(&inner_block, last_arg_index) catch |err| switch (err) {
             // TODO make these unreachable instead of @panic
@@ -5995,23 +6025,9 @@ pub fn initNewAnonDecl(
     // if the Decl is referenced by an instruction or another constant. Otherwise,
     // the Decl will be garbage collected by the `codegen_decl` task instead of sent
     // to the linker.
-    if (typed_value.ty.isFnOrHasRuntimeBits()) {
+    if (typed_value.ty.isFnOrHasRuntimeBits(mod)) {
         try mod.comp.anon_work_queue.writeItem(.{ .codegen_decl = new_decl_index });
     }
-}
-
-pub fn makeIntType(arena: Allocator, signedness: std.builtin.Signedness, bits: u16) !Type {
-    const int_payload = try arena.create(Type.Payload.Bits);
-    int_payload.* = .{
-        .base = .{
-            .tag = switch (signedness) {
-                .signed => .int_signed,
-                .unsigned => .int_unsigned,
-            },
-        },
-        .data = bits,
-    };
-    return Type.initPayload(&int_payload.base);
 }
 
 pub fn errNoteNonLazy(
@@ -6778,4 +6794,205 @@ pub fn backendSupportsFeature(mod: Module, feature: Feature) bool {
         .error_set_has_value => mod.comp.bin_file.options.use_llvm or mod.comp.bin_file.options.target.isWasm(),
         .field_reordering => mod.comp.bin_file.options.use_llvm,
     };
+}
+
+/// Shortcut for calling `intern_pool.get`.
+pub fn intern(mod: *Module, key: InternPool.Key) Allocator.Error!InternPool.Index {
+    return mod.intern_pool.get(mod.gpa, key);
+}
+
+pub fn intType(mod: *Module, signedness: std.builtin.Signedness, bits: u16) Allocator.Error!Type {
+    const i = try intern(mod, .{ .int_type = .{
+        .signedness = signedness,
+        .bits = bits,
+    } });
+    return i.toType();
+}
+
+pub fn smallestUnsignedInt(mod: *Module, max: u64) Allocator.Error!Type {
+    return intType(mod, .unsigned, Type.smallestUnsignedBits(max));
+}
+
+/// Returns the smallest possible integer type containing both `min` and
+/// `max`. Asserts that neither value is undef.
+/// TODO: if #3806 is implemented, this becomes trivial
+pub fn intFittingRange(mod: *Module, min: Value, max: Value) !Type {
+    assert(!min.isUndef());
+    assert(!max.isUndef());
+
+    if (std.debug.runtime_safety) {
+        assert(Value.order(min, max, mod).compare(.lte));
+    }
+
+    const sign = min.orderAgainstZero(mod) == .lt;
+
+    const min_val_bits = intBitsForValue(mod, min, sign);
+    const max_val_bits = intBitsForValue(mod, max, sign);
+
+    return mod.intType(
+        if (sign) .signed else .unsigned,
+        @max(min_val_bits, max_val_bits),
+    );
+}
+
+/// Given a value representing an integer, returns the number of bits necessary to represent
+/// this value in an integer. If `sign` is true, returns the number of bits necessary in a
+/// twos-complement integer; otherwise in an unsigned integer.
+/// Asserts that `val` is not undef. If `val` is negative, asserts that `sign` is true.
+pub fn intBitsForValue(mod: *Module, val: Value, sign: bool) u16 {
+    assert(!val.isUndef());
+    switch (val.tag()) {
+        .int_big_positive => {
+            const limbs = val.castTag(.int_big_positive).?.data;
+            const big: std.math.big.int.Const = .{ .limbs = limbs, .positive = true };
+            return @intCast(u16, big.bitCountAbs() + @boolToInt(sign));
+        },
+        .int_big_negative => {
+            const limbs = val.castTag(.int_big_negative).?.data;
+            // Zero is still a possibility, in which case unsigned is fine
+            for (limbs) |limb| {
+                if (limb != 0) break;
+            } else return 0; // val == 0
+            assert(sign);
+            const big: std.math.big.int.Const = .{ .limbs = limbs, .positive = false };
+            return @intCast(u16, big.bitCountTwosComp());
+        },
+        .int_i64 => {
+            const x = val.castTag(.int_i64).?.data;
+            if (x >= 0) return Type.smallestUnsignedBits(@intCast(u64, x));
+            assert(sign);
+            return Type.smallestUnsignedBits(@intCast(u64, -x - 1)) + 1;
+        },
+        else => {
+            const x = val.toUnsignedInt(mod);
+            return Type.smallestUnsignedBits(x) + @boolToInt(sign);
+        },
+    }
+}
+
+pub const AtomicPtrAlignmentError = error{
+    FloatTooBig,
+    IntTooBig,
+    BadType,
+};
+
+pub const AtomicPtrAlignmentDiagnostics = struct {
+    bits: u16 = undefined,
+    max_bits: u16 = undefined,
+};
+
+/// If ABI alignment of `ty` is OK for atomic operations, returns 0.
+/// Otherwise returns the alignment required on a pointer for the target
+/// to perform atomic operations.
+// TODO this function does not take into account CPU features, which can affect
+// this value. Audit this!
+pub fn atomicPtrAlignment(
+    mod: *const Module,
+    ty: Type,
+    diags: *AtomicPtrAlignmentDiagnostics,
+) AtomicPtrAlignmentError!u32 {
+    const target = mod.getTarget();
+    const max_atomic_bits: u16 = switch (target.cpu.arch) {
+        .avr,
+        .msp430,
+        .spu_2,
+        => 16,
+
+        .arc,
+        .arm,
+        .armeb,
+        .hexagon,
+        .m68k,
+        .le32,
+        .mips,
+        .mipsel,
+        .nvptx,
+        .powerpc,
+        .powerpcle,
+        .r600,
+        .riscv32,
+        .sparc,
+        .sparcel,
+        .tce,
+        .tcele,
+        .thumb,
+        .thumbeb,
+        .x86,
+        .xcore,
+        .amdil,
+        .hsail,
+        .spir,
+        .kalimba,
+        .lanai,
+        .shave,
+        .wasm32,
+        .renderscript32,
+        .csky,
+        .spirv32,
+        .dxil,
+        .loongarch32,
+        .xtensa,
+        => 32,
+
+        .amdgcn,
+        .bpfel,
+        .bpfeb,
+        .le64,
+        .mips64,
+        .mips64el,
+        .nvptx64,
+        .powerpc64,
+        .powerpc64le,
+        .riscv64,
+        .sparc64,
+        .s390x,
+        .amdil64,
+        .hsail64,
+        .spir64,
+        .wasm64,
+        .renderscript64,
+        .ve,
+        .spirv64,
+        .loongarch64,
+        => 64,
+
+        .aarch64,
+        .aarch64_be,
+        .aarch64_32,
+        => 128,
+
+        .x86_64 => if (std.Target.x86.featureSetHas(target.cpu.features, .cx16)) 128 else 64,
+    };
+
+    const int_ty = switch (ty.zigTypeTag(mod)) {
+        .Int => ty,
+        .Enum => ty.intTagType(),
+        .Float => {
+            const bit_count = ty.floatBits(target);
+            if (bit_count > max_atomic_bits) {
+                diags.* = .{
+                    .bits = bit_count,
+                    .max_bits = max_atomic_bits,
+                };
+                return error.FloatTooBig;
+            }
+            return 0;
+        },
+        .Bool => return 0,
+        else => {
+            if (ty.isPtrAtRuntime(mod)) return 0;
+            return error.BadType;
+        },
+    };
+
+    const bit_count = int_ty.intInfo(mod).bits;
+    if (bit_count > max_atomic_bits) {
+        diags.* = .{
+            .bits = bit_count,
+            .max_bits = max_atomic_bits,
+        };
+        return error.IntTooBig;
+    }
+
+    return 0;
 }

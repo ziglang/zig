@@ -7,6 +7,7 @@ const Value = @import("value.zig").Value;
 const Type = @import("type.zig").Type;
 const Air = @import("Air.zig");
 const Liveness = @import("Liveness.zig");
+const InternPool = @import("InternPool.zig");
 
 pub fn write(stream: anytype, module: *Module, air: Air, liveness: ?Liveness) void {
     const instruction_bytes = air.instructions.len *
@@ -965,14 +966,13 @@ const Writer = struct {
         operand: Air.Inst.Ref,
         dies: bool,
     ) @TypeOf(s).Error!void {
-        var i: usize = @enumToInt(operand);
+        const i = @enumToInt(operand);
 
-        if (i < Air.Inst.Ref.typed_value_map.len) {
+        if (i < InternPool.static_len) {
             return s.print("@{}", .{operand});
         }
-        i -= Air.Inst.Ref.typed_value_map.len;
 
-        return w.writeInstIndex(s, @intCast(Air.Inst.Index, i), dies);
+        return w.writeInstIndex(s, i - InternPool.static_len, dies);
     }
 
     fn writeInstIndex(

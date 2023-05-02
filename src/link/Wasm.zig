@@ -1473,7 +1473,7 @@ fn finishUpdateDecl(wasm: *Wasm, decl_index: Module.Decl.Index, code: []const u8
 
     atom.size = @intCast(u32, code.len);
     if (code.len == 0) return;
-    atom.alignment = decl.ty.abiAlignment(wasm.base.options.target);
+    atom.alignment = decl.ty.abiAlignment(mod);
 }
 
 /// From a given symbol location, returns its `wasm.GlobalType`.
@@ -1523,9 +1523,8 @@ fn getFunctionSignature(wasm: *const Wasm, loc: SymbolLoc) std.wasm.Type {
 /// Returns the symbol index of the local
 /// The given `decl` is the parent decl whom owns the constant.
 pub fn lowerUnnamedConst(wasm: *Wasm, tv: TypedValue, decl_index: Module.Decl.Index) !u32 {
-    assert(tv.ty.zigTypeTag() != .Fn); // cannot create local symbols for functions
-
     const mod = wasm.base.options.module.?;
+    assert(tv.ty.zigTypeTag(mod) != .Fn); // cannot create local symbols for functions
     const decl = mod.declPtr(decl_index);
 
     // Create and initialize a new local symbol and atom
@@ -1543,7 +1542,7 @@ pub fn lowerUnnamedConst(wasm: *Wasm, tv: TypedValue, decl_index: Module.Decl.In
 
     const code = code: {
         const atom = wasm.getAtomPtr(atom_index);
-        atom.alignment = tv.ty.abiAlignment(wasm.base.options.target);
+        atom.alignment = tv.ty.abiAlignment(mod);
         wasm.symbols.items[atom.sym_index] = .{
             .name = try wasm.string_table.put(wasm.base.allocator, name),
             .flags = @enumToInt(Symbol.Flag.WASM_SYM_BINDING_LOCAL),
@@ -1632,7 +1631,7 @@ pub fn getDeclVAddr(
     const atom_index = wasm.symbol_atom.get(.{ .file = null, .index = reloc_info.parent_atom_index }).?;
     const atom = wasm.getAtomPtr(atom_index);
     const is_wasm32 = wasm.base.options.target.cpu.arch == .wasm32;
-    if (decl.ty.zigTypeTag() == .Fn) {
+    if (decl.ty.zigTypeTag(mod) == .Fn) {
         assert(reloc_info.addend == 0); // addend not allowed for function relocations
         // We found a function pointer, so add it to our table,
         // as function pointers are not allowed to be stored inside the data section.
@@ -2933,7 +2932,8 @@ pub fn getErrorTableSymbol(wasm: *Wasm) !u32 {
     const atom_index = try wasm.createAtom();
     const atom = wasm.getAtomPtr(atom_index);
     const slice_ty = Type.initTag(.const_slice_u8_sentinel_0);
-    atom.alignment = slice_ty.abiAlignment(wasm.base.options.target);
+    const mod = wasm.base.options.module.?;
+    atom.alignment = slice_ty.abiAlignment(mod);
     const sym_index = atom.sym_index;
 
     const sym_name = try wasm.string_table.put(wasm.base.allocator, "__zig_err_name_table");
@@ -3000,7 +3000,7 @@ fn populateErrorNameTable(wasm: *Wasm) !void {
             .offset = offset,
             .addend = @intCast(i32, addend),
         });
-        atom.size += @intCast(u32, slice_ty.abiSize(wasm.base.options.target));
+        atom.size += @intCast(u32, slice_ty.abiSize(mod));
         addend += len;
 
         // as we updated the error name table, we now store the actual name within the names atom
@@ -3369,7 +3369,7 @@ pub fn flushModule(wasm: *Wasm, comp: *Compilation, prog_node: *std.Progress.Nod
             if (decl.isExtern()) continue;
             const atom_index = entry.value_ptr.*;
             const atom = wasm.getAtomPtr(atom_index);
-            if (decl.ty.zigTypeTag() == .Fn) {
+            if (decl.ty.zigTypeTag(mod) == .Fn) {
                 try wasm.parseAtom(atom_index, .function);
             } else if (decl.getVariable()) |variable| {
                 if (!variable.is_mutable) {
