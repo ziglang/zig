@@ -33,7 +33,7 @@ pub fn main() !void {
         const contents = try std.fs.cwd().readFileAlloc(allocator, name, 250001);
         try output.writeAll("test ");
         try writeString(output, name);
-        try output.writeAll(" {\n    ");
+        try output.writeAll(" {\n    try ");
         switch (name[0]) {
             'y' => try output.writeAll("ok"),
             'n' => try output.writeAll("err"),
