@@ -168,6 +168,10 @@ pub const Inst = struct {
 
         /// Add single precision floating point values
         addss,
+        /// Bitwise logical and of packed single precision floating-point values
+        andps,
+        /// Bitwise logical and not of packed single precision floating-point values
+        andnps,
         /// Compare scalar single-precision floating-point values
         cmpss,
         /// Convert doubleword integer to scalar single-precision floating-point value
@@ -182,6 +186,8 @@ pub const Inst = struct {
         movss,
         /// Multiply scalar single-precision floating-point values
         mulss,
+        /// Bitwise logical or of packed single precision floating-point values
+        orps,
         /// Round scalar single-precision floating-point values
         roundss,
         /// Subtract scalar single-precision floating-point values
@@ -192,6 +198,10 @@ pub const Inst = struct {
         xorps,
         /// Add double precision floating point values
         addsd,
+        /// Bitwise logical and not of packed double precision floating-point values
+        andnpd,
+        /// Bitwise logical and of packed double precision floating-point values
+        andpd,
         /// Compare scalar double-precision floating-point values
         cmpsd,
         /// Convert scalar double-precision floating-point value to scalar single-precision floating-point value
@@ -210,6 +220,8 @@ pub const Inst = struct {
         movsd,
         /// Multiply scalar double-precision floating-point values
         mulsd,
+        /// Bitwise logical or of packed double precision floating-point values
+        orpd,
         /// Round scalar double-precision floating-point values
         roundsd,
         /// Subtract scalar double-precision floating-point values

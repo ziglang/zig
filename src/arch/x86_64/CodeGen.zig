@@ -1458,14 +1458,13 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .log,
             .log2,
             .log10,
-            .fabs,
             .floor,
             .ceil,
             .round,
             .trunc_float,
             => try self.airUnaryMath(inst),
 
-            .neg => try self.airNeg(inst),
+            .neg, .fabs => try self.airFloatSign(inst),
 
             .add_with_overflow => try self.airAddSubWithOverflow(inst),
             .sub_with_overflow => try self.airAddSubWithOverflow(inst),
@@ -4185,7 +4184,7 @@ fn airBitReverse(self: *Self, inst: Air.Inst.Index) !void {
     return self.finishAir(inst, dst_mcv, .{ ty_op.operand, .none, .none });
 }
 
-fn airNeg(self: *Self, inst: Air.Inst.Index) !void {
+fn airFloatSign(self: *Self, inst: Air.Inst.Index) !void {
     const un_op = self.air.instructions.items(.data)[inst].un_op;
     const ty = self.air.typeOf(un_op);
     const ty_bits = ty.floatBits(self.target.*);
@@ -4228,10 +4227,19 @@ fn airNeg(self: *Self, inst: Air.Inst.Index) !void {
     const dst_lock = self.register_manager.lockReg(dst_mcv.register);
     defer if (dst_lock) |lock| self.register_manager.unlockReg(lock);
 
+    const tag = self.air.instructions.items(.tag)[inst];
     try self.genBinOpMir(switch (ty_bits) {
-        32 => .xorps,
-        64 => .xorpd,
-        else => return self.fail("TODO implement airNeg for {}", .{
+        32 => switch (tag) {
+            .neg => .xorps,
+            .fabs => .andnps,
+            else => unreachable,
+        },
+        64 => switch (tag) {
+            .neg => .xorpd,
+            .fabs => .andnpd,
+            else => unreachable,
+        },
+        else => return self.fail("TODO implement airFloatSign for {}", .{
             ty.fmt(self.bin_file.options.module.?),
         }),
     }, vec_ty, dst_mcv, sign_mcv);
