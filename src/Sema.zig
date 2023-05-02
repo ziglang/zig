@@ -23287,8 +23287,7 @@ fn panicWithMsg(
     const arena = sema.arena;
 
     if (!mod.backendSupportsFeature(.panic_fn)) {
-        _ = try block.addNoOp(.breakpoint);
-        _ = try block.addNoOp(.unreach);
+        _ = try block.addNoOp(.trap);
         return;
     }
     const panic_fn = try sema.getBuiltin("panic");
@@ -23336,8 +23335,7 @@ fn panicUnwrapError(
 
     {
         if (!sema.mod.backendSupportsFeature(.panic_unwrap_error)) {
-            _ = try fail_block.addNoOp(.breakpoint);
-            _ = try fail_block.addNoOp(.unreach);
+            _ = try fail_block.addNoOp(.trap);
         } else {
             const panic_fn = try sema.getBuiltin("panicUnwrapError");
             const err = try fail_block.addTyOp(unwrap_err_tag, Type.anyerror, operand);
@@ -23462,8 +23460,7 @@ fn safetyCheckFormatted(
     defer fail_block.instructions.deinit(gpa);
 
     if (!sema.mod.backendSupportsFeature(.safety_check_formatted)) {
-        _ = try fail_block.addNoOp(.breakpoint);
-        _ = try fail_block.addNoOp(.unreach);
+        _ = try fail_block.addNoOp(.trap);
     } else {
         const panic_fn = try sema.getBuiltin(func);
         _ = try sema.analyzeCall(&fail_block, panic_fn, sema.src, sema.src, .auto, false, args, null);

@@ -323,7 +323,7 @@ pub const Instruction = struct {
         var rex = Rex{};
         rex.present = inst.encoding.data.mode == .rex;
         switch (inst.encoding.data.mode) {
-            .long, .sse2_long => rex.w = true,
+            .long, .sse_long, .sse2_long => rex.w = true,
             else => {},
         }
 

@@ -396,6 +396,12 @@ fn addFromDirInner(
                     // Other backends don't support new liveness format
                     continue;
                 }
+                if (backend == .stage2 and target.getOsTag() == .macos and
+                    target.getCpuArch() == .x86_64 and builtin.cpu.arch == .aarch64)
+                {
+                    // Rosetta has issues with ZLD
+                    continue;
+                }
 
                 const next = ctx.cases.items.len;
                 try ctx.cases.append(.{
