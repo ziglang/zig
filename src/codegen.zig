@@ -1156,11 +1156,13 @@ pub fn genTypedValue(
     const target = bin_file.options.target;
     const ptr_bits = target.cpu.arch.ptrBitWidth();
 
-    if (typed_value.val.castTag(.decl_ref)) |payload| {
-        return genDeclRef(bin_file, src_loc, typed_value, payload.data);
-    }
-    if (typed_value.val.castTag(.decl_ref_mut)) |payload| {
-        return genDeclRef(bin_file, src_loc, typed_value, payload.data.decl_index);
+    if (!typed_value.ty.isSlice()) {
+        if (typed_value.val.castTag(.decl_ref)) |payload| {
+            return genDeclRef(bin_file, src_loc, typed_value, payload.data);
+        }
+        if (typed_value.val.castTag(.decl_ref_mut)) |payload| {
+            return genDeclRef(bin_file, src_loc, typed_value, payload.data.decl_index);
+        }
     }
 
     switch (typed_value.ty.zigTypeTag()) {
