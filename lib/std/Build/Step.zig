@@ -232,7 +232,19 @@ pub fn make(s: *Step, options: MakeOptions) error{ MakeFailed, MakeSkipped }!voi
         error.MakeFailed => return error.MakeFailed,
         error.MakeSkipped => return error.MakeSkipped,
         else => {
-            s.result_error_msgs.append(arena, @errorName(err)) catch @panic("OOM");
+            var msg_buffer = arena.alloc(u8, 4096) catch @panic("OOM");
+            var stream = std.io.fixedBufferStream(msg_buffer);
+            const writer = stream.writer();
+
+            writer.writeAll("step failed with error ") catch @panic("msg_buffer OOM");
+            writer.writeAll(@errorName(err)) catch @panic("msg_buffer OOM");
+
+            if (@errorReturnTrace()) |trace| {
+                writer.writeAll(":") catch @panic("msg_buffer OOM");
+                trace.format("", .{}, writer) catch @panic("msg_buffer OOM");
+            }
+
+            s.result_error_msgs.append(arena, msg_buffer[0..stream.pos]) catch @panic("OOM");
             return error.MakeFailed;
         },
     };
