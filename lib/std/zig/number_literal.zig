@@ -126,7 +126,8 @@ pub fn parseNumberLiteral(bytes: []const u8) Result {
             },
             '+', '-' => {
                 switch (special) {
-                    'p', 'P', 'e', 'E' => {},
+                    'p', 'P' => {},
+                    'e', 'E' => if (base != 10) return .{ .failure = .{ .invalid_exponent_sign = i } },
                     else => return .{ .failure = .{ .invalid_exponent_sign = i } },
                 }
                 special = c;
