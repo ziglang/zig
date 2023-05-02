@@ -5,6 +5,7 @@ air: Air,
 liveness: Liveness,
 live: LiveMap = .{},
 blocks: std.AutoHashMapUnmanaged(Air.Inst.Index, LiveMap) = .{},
+intern_pool: *const InternPool,
 
 pub const Error = error{ LivenessInvalid, OutOfMemory };
 
@@ -27,10 +28,11 @@ pub fn verify(self: *Verify) Error!void {
 const LiveMap = std.AutoHashMapUnmanaged(Air.Inst.Index, void);
 
 fn verifyBody(self: *Verify, body: []const Air.Inst.Index) Error!void {
+    const ip = self.intern_pool;
     const tag = self.air.instructions.items(.tag);
     const data = self.air.instructions.items(.data);
     for (body) |inst| {
-        if (self.liveness.isUnused(inst) and !self.air.mustLower(inst)) {
+        if (self.liveness.isUnused(inst) and !self.air.mustLower(inst, ip.*)) {
             // This instruction will not be lowered and should be ignored.
             continue;
         }
@@ -42,6 +44,7 @@ fn verifyBody(self: *Verify, body: []const Air.Inst.Index) Error!void {
             .ret_ptr,
             .constant,
             .const_ty,
+            .interned,
             .breakpoint,
             .dbg_stmt,
             .dbg_inline_begin,
@@ -554,7 +557,7 @@ fn verifyDeath(self: *Verify, inst: Air.Inst.Index, operand: Air.Inst.Index) Err
 fn verifyOperand(self: *Verify, inst: Air.Inst.Index, op_ref: Air.Inst.Ref, dies: bool) Error!void {
     const operand = Air.refToIndex(op_ref) orelse return;
     switch (self.air.instructions.items(.tag)[operand]) {
-        .constant, .const_ty => {},
+        .constant, .const_ty, .interned => {},
         else => {
             if (dies) {
                 if (!self.live.remove(operand)) return invalid("%{}: dead operand %{} reused and killed again", .{ inst, operand });
@@ -576,7 +579,7 @@ fn verifyInst(
     }
     const tag = self.air.instructions.items(.tag);
     switch (tag[inst]) {
-        .constant, .const_ty => unreachable,
+        .constant, .const_ty, .interned => unreachable,
         else => {
             if (self.liveness.isUnused(inst)) {
                 assert(!self.live.contains(inst));
@@ -604,4 +607,5 @@ const log = std.log.scoped(.liveness_verify);
 
 const Air = @import("../Air.zig");
 const Liveness = @import("../Liveness.zig");
+const InternPool = @import("../InternPool.zig");
 const Verify = @This();

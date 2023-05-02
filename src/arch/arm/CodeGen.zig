@@ -477,6 +477,7 @@ pub fn addExtraAssumeCapacity(self: *Self, extra: anytype) u32 {
 }
 
 fn gen(self: *Self) !void {
+    const mod = self.bin_file.options.module.?;
     const cc = self.fn_type.fnCallingConvention();
     if (cc != .Naked) {
         // push {fp, lr}
@@ -518,9 +519,8 @@ fn gen(self: *Self) !void {
                     const inst = self.air.getMainBody()[arg_index];
                     assert(self.air.instructions.items(.tag)[inst] == .arg);
 
-                    const ty = self.air.typeOfIndex(inst);
+                    const ty = self.typeOfIndex(inst);
 
-                    const mod = self.bin_file.options.module.?;
                     const abi_size = @intCast(u32, ty.abiSize(mod));
                     const abi_align = ty.abiAlignment(mod);
                     const stack_offset = try self.allocMem(abi_size, abi_align, inst);
@@ -637,13 +637,14 @@ fn gen(self: *Self) !void {
 }
 
 fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
+    const mod = self.bin_file.options.module.?;
+    const ip = &mod.intern_pool;
     const air_tags = self.air.instructions.items(.tag);
 
     for (body) |inst| {
         // TODO: remove now-redundant isUnused calls from AIR handler functions
-        if (self.liveness.isUnused(inst) and !self.air.mustLower(inst)) {
+        if (self.liveness.isUnused(inst) and !self.air.mustLower(inst, ip.*))
             continue;
-        }
 
         const old_air_bookkeeping = self.air_bookkeeping;
         try self.ensureProcessDeathCapacity(Liveness.bpi);
@@ -829,6 +830,7 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
 
             .constant => unreachable, // excluded from function bodies
             .const_ty => unreachable, // excluded from function bodies
+            .interned => unreachable, // excluded from function bodies
             .unreach  => self.finishAirBookkeeping(),
 
             .optional_payload           => try self.airOptionalPayload(inst),
@@ -1008,7 +1010,7 @@ fn allocMem(
 /// Use a pointer instruction as the basis for allocating stack memory.
 fn allocMemPtr(self: *Self, inst: Air.Inst.Index) !u32 {
     const mod = self.bin_file.options.module.?;
-    const elem_ty = self.air.typeOfIndex(inst).elemType();
+    const elem_ty = self.typeOfIndex(inst).elemType();
 
     if (!elem_ty.hasRuntimeBits(mod)) {
         // As this stack item will never be dereferenced at runtime,
@@ -1050,7 +1052,7 @@ fn allocRegOrMem(self: *Self, elem_ty: Type, reg_ok: bool, maybe_inst: ?Air.Inst
 }
 
 pub fn spillInstruction(self: *Self, reg: Register, inst: Air.Inst.Index) !void {
-    const stack_mcv = try self.allocRegOrMem(self.air.typeOfIndex(inst), false, inst);
+    const stack_mcv = try self.allocRegOrMem(self.typeOfIndex(inst), false, inst);
     log.debug("spilling {} (%{d}) to stack mcv {any}", .{ reg, inst, stack_mcv });
 
     const reg_mcv = self.getResolvedInstValue(inst);
@@ -1064,14 +1066,14 @@ pub fn spillInstruction(self: *Self, reg: Register, inst: Air.Inst.Index) !void 
 
     const branch = &self.branch_stack.items[self.branch_stack.items.len - 1];
     try branch.inst_table.put(self.gpa, inst, stack_mcv);
-    try self.genSetStack(self.air.typeOfIndex(inst), stack_mcv.stack_offset, reg_mcv);
+    try self.genSetStack(self.typeOfIndex(inst), stack_mcv.stack_offset, reg_mcv);
 }
 
 /// Save the current instruction stored in the compare flags if
 /// occupied
 fn spillCompareFlagsIfOccupied(self: *Self) !void {
     if (self.cpsr_flags_inst) |inst_to_save| {
-        const ty = self.air.typeOfIndex(inst_to_save);
+        const ty = self.typeOfIndex(inst_to_save);
         const mcv = self.getResolvedInstValue(inst_to_save);
         const new_mcv = switch (mcv) {
             .cpsr_flags => try self.allocRegOrMem(ty, true, inst_to_save),
@@ -1081,7 +1083,7 @@ fn spillCompareFlagsIfOccupied(self: *Self) !void {
             else => unreachable, // mcv doesn't occupy the compare flags
         };
 
-        try self.setRegOrMem(self.air.typeOfIndex(inst_to_save), new_mcv, mcv);
+        try self.setRegOrMem(self.typeOfIndex(inst_to_save), new_mcv, mcv);
         log.debug("spilling {d} to mcv {any}", .{ inst_to_save, new_mcv });
 
         const branch = &self.branch_stack.items[self.branch_stack.items.len - 1];
@@ -1151,15 +1153,15 @@ fn airFpext(self: *Self, inst: Air.Inst.Index) !void {
 }
 
 fn airIntCast(self: *Self, inst: Air.Inst.Index) !void {
+    const mod = self.bin_file.options.module.?;
     const ty_op = self.air.instructions.items(.data)[inst].ty_op;
     if (self.liveness.isUnused(inst))
         return self.finishAir(inst, .dead, .{ ty_op.operand, .none, .none });
 
     const operand = try self.resolveInst(ty_op.operand);
-    const operand_ty = self.air.typeOf(ty_op.operand);
-    const dest_ty = self.air.typeOfIndex(inst);
+    const operand_ty = self.typeOf(ty_op.operand);
+    const dest_ty = self.typeOfIndex(inst);
 
-    const mod = self.bin_file.options.module.?;
     const operand_abi_size = operand_ty.abiSize(mod);
     const dest_abi_size = dest_ty.abiSize(mod);
     const info_a = operand_ty.intInfo(mod);
@@ -1262,8 +1264,8 @@ fn trunc(
 fn airTrunc(self: *Self, inst: Air.Inst.Index) !void {
     const ty_op = self.air.instructions.items(.data)[inst].ty_op;
     const operand_bind: ReadArg.Bind = .{ .inst = ty_op.operand };
-    const operand_ty = self.air.typeOf(ty_op.operand);
-    const dest_ty = self.air.typeOfIndex(inst);
+    const operand_ty = self.typeOf(ty_op.operand);
+    const dest_ty = self.typeOfIndex(inst);
 
     const result: MCValue = if (self.liveness.isUnused(inst)) .dead else blk: {
         break :blk try self.trunc(inst, operand_bind, operand_ty, dest_ty);
@@ -1284,7 +1286,7 @@ fn airNot(self: *Self, inst: Air.Inst.Index) !void {
     const mod = self.bin_file.options.module.?;
     const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
         const operand_bind: ReadArg.Bind = .{ .inst = ty_op.operand };
-        const operand_ty = self.air.typeOf(ty_op.operand);
+        const operand_ty = self.typeOf(ty_op.operand);
         switch (try operand_bind.resolveToMcv(self)) {
             .dead => unreachable,
             .unreach => unreachable,
@@ -1467,8 +1469,8 @@ fn minMax(
 fn airMinMax(self: *Self, inst: Air.Inst.Index) !void {
     const tag = self.air.instructions.items(.tag)[inst];
     const bin_op = self.air.instructions.items(.data)[inst].bin_op;
-    const lhs_ty = self.air.typeOf(bin_op.lhs);
-    const rhs_ty = self.air.typeOf(bin_op.rhs);
+    const lhs_ty = self.typeOf(bin_op.lhs);
+    const rhs_ty = self.typeOf(bin_op.rhs);
 
     const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
         const lhs_bind: ReadArg.Bind = .{ .inst = bin_op.lhs };
@@ -1487,9 +1489,9 @@ fn airSlice(self: *Self, inst: Air.Inst.Index) !void {
     const bin_op = self.air.extraData(Air.Bin, ty_pl.payload).data;
     const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
         const ptr = try self.resolveInst(bin_op.lhs);
-        const ptr_ty = self.air.typeOf(bin_op.lhs);
+        const ptr_ty = self.typeOf(bin_op.lhs);
         const len = try self.resolveInst(bin_op.rhs);
-        const len_ty = self.air.typeOf(bin_op.rhs);
+        const len_ty = self.typeOf(bin_op.rhs);
 
         const stack_offset = try self.allocMem(8, 4, inst);
         try self.genSetStack(ptr_ty, stack_offset, ptr);
@@ -1501,8 +1503,8 @@ fn airSlice(self: *Self, inst: Air.Inst.Index) !void {
 
 fn airBinOp(self: *Self, inst: Air.Inst.Index, tag: Air.Inst.Tag) !void {
     const bin_op = self.air.instructions.items(.data)[inst].bin_op;
-    const lhs_ty = self.air.typeOf(bin_op.lhs);
-    const rhs_ty = self.air.typeOf(bin_op.rhs);
+    const lhs_ty = self.typeOf(bin_op.lhs);
+    const rhs_ty = self.typeOf(bin_op.rhs);
 
     const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
         const lhs_bind: ReadArg.Bind = .{ .inst = bin_op.lhs };
@@ -1552,8 +1554,8 @@ fn airBinOp(self: *Self, inst: Air.Inst.Index, tag: Air.Inst.Tag) !void {
 fn airPtrArithmetic(self: *Self, inst: Air.Inst.Index, tag: Air.Inst.Tag) !void {
     const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
     const bin_op = self.air.extraData(Air.Bin, ty_pl.payload).data;
-    const lhs_ty = self.air.typeOf(bin_op.lhs);
-    const rhs_ty = self.air.typeOf(bin_op.rhs);
+    const lhs_ty = self.typeOf(bin_op.lhs);
+    const rhs_ty = self.typeOf(bin_op.rhs);
 
     const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
         const lhs_bind: ReadArg.Bind = .{ .inst = bin_op.lhs };
@@ -1590,10 +1592,10 @@ fn airOverflow(self: *Self, inst: Air.Inst.Index) !void {
     const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
         const lhs_bind: ReadArg.Bind = .{ .inst = extra.lhs };
         const rhs_bind: ReadArg.Bind = .{ .inst = extra.rhs };
-        const lhs_ty = self.air.typeOf(extra.lhs);
-        const rhs_ty = self.air.typeOf(extra.rhs);
+        const lhs_ty = self.typeOf(extra.lhs);
+        const rhs_ty = self.typeOf(extra.rhs);
 
-        const tuple_ty = self.air.typeOfIndex(inst);
+        const tuple_ty = self.typeOfIndex(inst);
         const tuple_size = @intCast(u32, tuple_ty.abiSize(mod));
         const tuple_align = tuple_ty.abiAlignment(mod);
         const overflow_bit_offset = @intCast(u32, tuple_ty.structFieldOffset(1, mod));
@@ -1703,10 +1705,10 @@ fn airMulWithOverflow(self: *Self, inst: Air.Inst.Index) !void {
     const result: MCValue = result: {
         const lhs_bind: ReadArg.Bind = .{ .inst = extra.lhs };
         const rhs_bind: ReadArg.Bind = .{ .inst = extra.rhs };
-        const lhs_ty = self.air.typeOf(extra.lhs);
-        const rhs_ty = self.air.typeOf(extra.rhs);
+        const lhs_ty = self.typeOf(extra.lhs);
+        const rhs_ty = self.typeOf(extra.rhs);
 
-        const tuple_ty = self.air.typeOfIndex(inst);
+        const tuple_ty = self.typeOfIndex(inst);
         const tuple_size = @intCast(u32, tuple_ty.abiSize(mod));
         const tuple_align = tuple_ty.abiAlignment(mod);
         const overflow_bit_offset = @intCast(u32, tuple_ty.structFieldOffset(1, mod));
@@ -1865,10 +1867,10 @@ fn airShlWithOverflow(self: *Self, inst: Air.Inst.Index) !void {
     if (self.liveness.isUnused(inst)) return self.finishAir(inst, .dead, .{ extra.lhs, extra.rhs, .none });
     const mod = self.bin_file.options.module.?;
     const result: MCValue = result: {
-        const lhs_ty = self.air.typeOf(extra.lhs);
-        const rhs_ty = self.air.typeOf(extra.rhs);
+        const lhs_ty = self.typeOf(extra.lhs);
+        const rhs_ty = self.typeOf(extra.rhs);
 
-        const tuple_ty = self.air.typeOfIndex(inst);
+        const tuple_ty = self.typeOfIndex(inst);
         const tuple_size = @intCast(u32, tuple_ty.abiSize(mod));
         const tuple_align = tuple_ty.abiAlignment(mod);
         const overflow_bit_offset = @intCast(u32, tuple_ty.structFieldOffset(1, mod));
@@ -2019,10 +2021,10 @@ fn airOptionalPayloadPtrSet(self: *Self, inst: Air.Inst.Index) !void {
 }
 
 fn airWrapOptional(self: *Self, inst: Air.Inst.Index) !void {
+    const mod = self.bin_file.options.module.?;
     const ty_op = self.air.instructions.items(.data)[inst].ty_op;
     const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
-        const optional_ty = self.air.typeOfIndex(inst);
-        const mod = self.bin_file.options.module.?;
+        const optional_ty = self.typeOfIndex(inst);
         const abi_size = @intCast(u32, optional_ty.abiSize(mod));
 
         // Optional with a zero-bit payload type is just a boolean true
@@ -2105,7 +2107,7 @@ fn airUnwrapErrErr(self: *Self, inst: Air.Inst.Index) !void {
     const ty_op = self.air.instructions.items(.data)[inst].ty_op;
     const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
         const error_union_bind: ReadArg.Bind = .{ .inst = ty_op.operand };
-        const error_union_ty = self.air.typeOf(ty_op.operand);
+        const error_union_ty = self.typeOf(ty_op.operand);
 
         break :result try self.errUnionErr(error_union_bind, error_union_ty, inst);
     };
@@ -2182,7 +2184,7 @@ fn airUnwrapErrPayload(self: *Self, inst: Air.Inst.Index) !void {
     const ty_op = self.air.instructions.items(.data)[inst].ty_op;
     const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
         const error_union_bind: ReadArg.Bind = .{ .inst = ty_op.operand };
-        const error_union_ty = self.air.typeOf(ty_op.operand);
+        const error_union_ty = self.typeOf(ty_op.operand);
 
         break :result try self.errUnionPayload(error_union_bind, error_union_ty, inst);
     };
@@ -2430,7 +2432,7 @@ fn ptrElemVal(
 
 fn airSliceElemVal(self: *Self, inst: Air.Inst.Index) !void {
     const bin_op = self.air.instructions.items(.data)[inst].bin_op;
-    const slice_ty = self.air.typeOf(bin_op.lhs);
+    const slice_ty = self.typeOf(bin_op.lhs);
     const result: MCValue = if (!slice_ty.isVolatilePtr() and self.liveness.isUnused(inst)) .dead else result: {
         var buf: Type.SlicePtrFieldTypeBuffer = undefined;
         const ptr_ty = slice_ty.slicePtrFieldType(&buf);
@@ -2456,8 +2458,8 @@ fn airSliceElemPtr(self: *Self, inst: Air.Inst.Index) !void {
         const base_bind: ReadArg.Bind = .{ .mcv = base_mcv };
         const index_bind: ReadArg.Bind = .{ .inst = extra.rhs };
 
-        const slice_ty = self.air.typeOf(extra.lhs);
-        const index_ty = self.air.typeOf(extra.rhs);
+        const slice_ty = self.typeOf(extra.lhs);
+        const index_ty = self.typeOf(extra.rhs);
 
         const addr = try self.ptrArithmetic(.ptr_add, base_bind, index_bind, slice_ty, index_ty, null);
         break :result addr;
@@ -2523,7 +2525,7 @@ fn airArrayElemVal(self: *Self, inst: Air.Inst.Index) !void {
     const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
         const array_bind: ReadArg.Bind = .{ .inst = bin_op.lhs };
         const index_bind: ReadArg.Bind = .{ .inst = bin_op.rhs };
-        const array_ty = self.air.typeOf(bin_op.lhs);
+        const array_ty = self.typeOf(bin_op.lhs);
 
         break :result try self.arrayElemVal(array_bind, index_bind, array_ty, inst);
     };
@@ -2532,7 +2534,7 @@ fn airArrayElemVal(self: *Self, inst: Air.Inst.Index) !void {
 
 fn airPtrElemVal(self: *Self, inst: Air.Inst.Index) !void {
     const bin_op = self.air.instructions.items(.data)[inst].bin_op;
-    const ptr_ty = self.air.typeOf(bin_op.lhs);
+    const ptr_ty = self.typeOf(bin_op.lhs);
     const result: MCValue = if (!ptr_ty.isVolatilePtr() and self.liveness.isUnused(inst)) .dead else result: {
         const base_bind: ReadArg.Bind = .{ .inst = bin_op.lhs };
         const index_bind: ReadArg.Bind = .{ .inst = bin_op.rhs };
@@ -2549,8 +2551,8 @@ fn airPtrElemPtr(self: *Self, inst: Air.Inst.Index) !void {
         const ptr_bind: ReadArg.Bind = .{ .inst = extra.lhs };
         const index_bind: ReadArg.Bind = .{ .inst = extra.rhs };
 
-        const ptr_ty = self.air.typeOf(extra.lhs);
-        const index_ty = self.air.typeOf(extra.rhs);
+        const ptr_ty = self.typeOf(extra.lhs);
+        const index_ty = self.typeOf(extra.rhs);
 
         const addr = try self.ptrArithmetic(.ptr_add, ptr_bind, index_bind, ptr_ty, index_ty, null);
         break :result addr;
@@ -2736,13 +2738,13 @@ fn load(self: *Self, dst_mcv: MCValue, ptr: MCValue, ptr_ty: Type) InnerError!vo
 fn airLoad(self: *Self, inst: Air.Inst.Index) !void {
     const mod = self.bin_file.options.module.?;
     const ty_op = self.air.instructions.items(.data)[inst].ty_op;
-    const elem_ty = self.air.typeOfIndex(inst);
+    const elem_ty = self.typeOfIndex(inst);
     const result: MCValue = result: {
         if (!elem_ty.hasRuntimeBits(mod))
             break :result MCValue.none;
 
         const ptr = try self.resolveInst(ty_op.operand);
-        const is_volatile = self.air.typeOf(ty_op.operand).isVolatilePtr();
+        const is_volatile = self.typeOf(ty_op.operand).isVolatilePtr();
         if (self.liveness.isUnused(inst) and !is_volatile)
             break :result MCValue.dead;
 
@@ -2755,7 +2757,7 @@ fn airLoad(self: *Self, inst: Air.Inst.Index) !void {
                 break :blk try self.allocRegOrMem(elem_ty, true, inst);
             }
         };
-        try self.load(dest_mcv, ptr, self.air.typeOf(ty_op.operand));
+        try self.load(dest_mcv, ptr, self.typeOf(ty_op.operand));
 
         break :result dest_mcv;
     };
@@ -2860,8 +2862,8 @@ fn airStore(self: *Self, inst: Air.Inst.Index, safety: bool) !void {
     const bin_op = self.air.instructions.items(.data)[inst].bin_op;
     const ptr = try self.resolveInst(bin_op.lhs);
     const value = try self.resolveInst(bin_op.rhs);
-    const ptr_ty = self.air.typeOf(bin_op.lhs);
-    const value_ty = self.air.typeOf(bin_op.rhs);
+    const ptr_ty = self.typeOf(bin_op.lhs);
+    const value_ty = self.typeOf(bin_op.rhs);
 
     try self.store(ptr, value, ptr_ty, value_ty);
 
@@ -2885,7 +2887,7 @@ fn structFieldPtr(self: *Self, inst: Air.Inst.Index, operand: Air.Inst.Ref, inde
     return if (self.liveness.isUnused(inst)) .dead else result: {
         const mod = self.bin_file.options.module.?;
         const mcv = try self.resolveInst(operand);
-        const ptr_ty = self.air.typeOf(operand);
+        const ptr_ty = self.typeOf(operand);
         const struct_ty = ptr_ty.childType();
         const struct_field_offset = @intCast(u32, struct_ty.structFieldOffset(index, mod));
         switch (mcv) {
@@ -2910,7 +2912,7 @@ fn airStructFieldVal(self: *Self, inst: Air.Inst.Index) !void {
     const mod = self.bin_file.options.module.?;
     const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
         const mcv = try self.resolveInst(operand);
-        const struct_ty = self.air.typeOf(operand);
+        const struct_ty = self.typeOf(operand);
         const struct_field_offset = @intCast(u32, struct_ty.structFieldOffset(index, mod));
         const struct_field_ty = struct_ty.structFieldType(index);
 
@@ -4169,7 +4171,7 @@ fn airArg(self: *Self, inst: Air.Inst.Index) !void {
     while (self.args[arg_index] == .none) arg_index += 1;
     self.arg_index = arg_index + 1;
 
-    const ty = self.air.typeOfIndex(inst);
+    const ty = self.typeOfIndex(inst);
     const tag = self.air.instructions.items(.tag)[inst];
     const src_index = self.air.instructions.items(.data)[inst].arg.src_index;
     const name = self.mod_fn.getParamName(self.bin_file.options.module.?, src_index);
@@ -4222,7 +4224,7 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallModifier
     const callee = pl_op.operand;
     const extra = self.air.extraData(Air.Call, pl_op.payload);
     const args = @ptrCast([]const Air.Inst.Ref, self.air.extra[extra.end..][0..extra.data.args_len]);
-    const ty = self.air.typeOf(callee);
+    const ty = self.typeOf(callee);
     const mod = self.bin_file.options.module.?;
 
     const fn_ty = switch (ty.zigTypeTag(mod)) {
@@ -4276,7 +4278,7 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallModifier
 
     for (info.args, 0..) |mc_arg, arg_i| {
         const arg = args[arg_i];
-        const arg_ty = self.air.typeOf(arg);
+        const arg_ty = self.typeOf(arg);
         const arg_mcv = try self.resolveInst(args[arg_i]);
 
         switch (mc_arg) {
@@ -4418,7 +4420,7 @@ fn airRet(self: *Self, inst: Air.Inst.Index) !void {
 fn airRetLoad(self: *Self, inst: Air.Inst.Index) !void {
     const un_op = self.air.instructions.items(.data)[inst].un_op;
     const ptr = try self.resolveInst(un_op);
-    const ptr_ty = self.air.typeOf(un_op);
+    const ptr_ty = self.typeOf(un_op);
     const ret_ty = self.fn_type.fnReturnType();
 
     switch (self.ret_mcv) {
@@ -4461,7 +4463,7 @@ fn airRetLoad(self: *Self, inst: Air.Inst.Index) !void {
 
 fn airCmp(self: *Self, inst: Air.Inst.Index, op: math.CompareOperator) !void {
     const bin_op = self.air.instructions.items(.data)[inst].bin_op;
-    const lhs_ty = self.air.typeOf(bin_op.lhs);
+    const lhs_ty = self.typeOf(bin_op.lhs);
 
     const result: MCValue = if (self.liveness.isUnused(inst)) .dead else blk: {
         break :blk try self.cmp(.{ .inst = bin_op.lhs }, .{ .inst = bin_op.rhs }, lhs_ty, op);
@@ -4600,7 +4602,7 @@ fn airDbgVar(self: *Self, inst: Air.Inst.Index) !void {
     const pl_op = self.air.instructions.items(.data)[inst].pl_op;
     const operand = pl_op.operand;
     const tag = self.air.instructions.items(.tag)[inst];
-    const ty = self.air.typeOf(operand);
+    const ty = self.typeOf(operand);
     const mcv = try self.resolveInst(operand);
     const name = self.air.nullTerminatedString(pl_op.payload);
 
@@ -4755,7 +4757,7 @@ fn airCondBr(self: *Self, inst: Air.Inst.Index) !void {
         log.debug("consolidating else_entry {d} {}=>{}", .{ else_key, else_value, canon_mcv });
         // TODO make sure the destination stack offset / register does not already have something
         // going on there.
-        try self.setRegOrMem(self.air.typeOfIndex(else_key), canon_mcv, else_value);
+        try self.setRegOrMem(self.typeOfIndex(else_key), canon_mcv, else_value);
         // TODO track the new register / stack allocation
     }
     try parent_branch.inst_table.ensureUnusedCapacity(self.gpa, saved_then_branch.inst_table.count());
@@ -4782,7 +4784,7 @@ fn airCondBr(self: *Self, inst: Air.Inst.Index) !void {
         log.debug("consolidating then_entry {d} {}=>{}", .{ then_key, parent_mcv, then_value });
         // TODO make sure the destination stack offset / register does not already have something
         // going on there.
-        try self.setRegOrMem(self.air.typeOfIndex(then_key), parent_mcv, then_value);
+        try self.setRegOrMem(self.typeOfIndex(then_key), parent_mcv, then_value);
         // TODO track the new register / stack allocation
     }
 
@@ -4827,7 +4829,7 @@ fn airIsNull(self: *Self, inst: Air.Inst.Index) !void {
     const un_op = self.air.instructions.items(.data)[inst].un_op;
     const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
         const operand_bind: ReadArg.Bind = .{ .inst = un_op };
-        const operand_ty = self.air.typeOf(un_op);
+        const operand_ty = self.typeOf(un_op);
 
         break :result try self.isNull(operand_bind, operand_ty);
     };
@@ -4838,7 +4840,7 @@ fn airIsNullPtr(self: *Self, inst: Air.Inst.Index) !void {
     const un_op = self.air.instructions.items(.data)[inst].un_op;
     const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
         const operand_ptr = try self.resolveInst(un_op);
-        const ptr_ty = self.air.typeOf(un_op);
+        const ptr_ty = self.typeOf(un_op);
         const elem_ty = ptr_ty.elemType();
 
         const operand = try self.allocRegOrMem(elem_ty, true, null);
@@ -4853,7 +4855,7 @@ fn airIsNonNull(self: *Self, inst: Air.Inst.Index) !void {
     const un_op = self.air.instructions.items(.data)[inst].un_op;
     const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
         const operand_bind: ReadArg.Bind = .{ .inst = un_op };
-        const operand_ty = self.air.typeOf(un_op);
+        const operand_ty = self.typeOf(un_op);
 
         break :result try self.isNonNull(operand_bind, operand_ty);
     };
@@ -4864,7 +4866,7 @@ fn airIsNonNullPtr(self: *Self, inst: Air.Inst.Index) !void {
     const un_op = self.air.instructions.items(.data)[inst].un_op;
     const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
         const operand_ptr = try self.resolveInst(un_op);
-        const ptr_ty = self.air.typeOf(un_op);
+        const ptr_ty = self.typeOf(un_op);
         const elem_ty = ptr_ty.elemType();
 
         const operand = try self.allocRegOrMem(elem_ty, true, null);
@@ -4913,7 +4915,7 @@ fn airIsErr(self: *Self, inst: Air.Inst.Index) !void {
     const un_op = self.air.instructions.items(.data)[inst].un_op;
     const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
         const error_union_bind: ReadArg.Bind = .{ .inst = un_op };
-        const error_union_ty = self.air.typeOf(un_op);
+        const error_union_ty = self.typeOf(un_op);
 
         break :result try self.isErr(error_union_bind, error_union_ty);
     };
@@ -4924,7 +4926,7 @@ fn airIsErrPtr(self: *Self, inst: Air.Inst.Index) !void {
     const un_op = self.air.instructions.items(.data)[inst].un_op;
     const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
         const operand_ptr = try self.resolveInst(un_op);
-        const ptr_ty = self.air.typeOf(un_op);
+        const ptr_ty = self.typeOf(un_op);
         const elem_ty = ptr_ty.elemType();
 
         const operand = try self.allocRegOrMem(elem_ty, true, null);
@@ -4939,7 +4941,7 @@ fn airIsNonErr(self: *Self, inst: Air.Inst.Index) !void {
     const un_op = self.air.instructions.items(.data)[inst].un_op;
     const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
         const error_union_bind: ReadArg.Bind = .{ .inst = un_op };
-        const error_union_ty = self.air.typeOf(un_op);
+        const error_union_ty = self.typeOf(un_op);
 
         break :result try self.isNonErr(error_union_bind, error_union_ty);
     };
@@ -4950,7 +4952,7 @@ fn airIsNonErrPtr(self: *Self, inst: Air.Inst.Index) !void {
     const un_op = self.air.instructions.items(.data)[inst].un_op;
     const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
         const operand_ptr = try self.resolveInst(un_op);
-        const ptr_ty = self.air.typeOf(un_op);
+        const ptr_ty = self.typeOf(un_op);
         const elem_ty = ptr_ty.elemType();
 
         const operand = try self.allocRegOrMem(elem_ty, true, null);
@@ -5018,7 +5020,7 @@ fn airBlock(self: *Self, inst: Air.Inst.Index) !void {
 
 fn airSwitch(self: *Self, inst: Air.Inst.Index) !void {
     const pl_op = self.air.instructions.items(.data)[inst].pl_op;
-    const condition_ty = self.air.typeOf(pl_op.operand);
+    const condition_ty = self.typeOf(pl_op.operand);
     const switch_br = self.air.extraData(Air.SwitchBr, pl_op.payload);
     const liveness = try self.liveness.getSwitchBr(
         self.gpa,
@@ -5164,7 +5166,7 @@ fn br(self: *Self, block: Air.Inst.Index, operand: Air.Inst.Ref) !void {
     const mod = self.bin_file.options.module.?;
     const block_data = self.blocks.getPtr(block).?;
 
-    if (self.air.typeOf(operand).hasRuntimeBits(mod)) {
+    if (self.typeOf(operand).hasRuntimeBits(mod)) {
         const operand_mcv = try self.resolveInst(operand);
         const block_mcv = block_data.mcv;
         if (block_mcv == .none) {
@@ -5172,14 +5174,14 @@ fn br(self: *Self, block: Air.Inst.Index, operand: Air.Inst.Ref) !void {
                 .none, .dead, .unreach => unreachable,
                 .register, .stack_offset, .memory => operand_mcv,
                 .immediate, .stack_argument_offset, .cpsr_flags => blk: {
-                    const new_mcv = try self.allocRegOrMem(self.air.typeOfIndex(block), true, block);
-                    try self.setRegOrMem(self.air.typeOfIndex(block), new_mcv, operand_mcv);
+                    const new_mcv = try self.allocRegOrMem(self.typeOfIndex(block), true, block);
+                    try self.setRegOrMem(self.typeOfIndex(block), new_mcv, operand_mcv);
                     break :blk new_mcv;
                 },
                 else => return self.fail("TODO implement block_data.mcv = operand_mcv for {}", .{operand_mcv}),
             };
         } else {
-            try self.setRegOrMem(self.air.typeOfIndex(block), block_mcv, operand_mcv);
+            try self.setRegOrMem(self.typeOfIndex(block), block_mcv, operand_mcv);
         }
     }
     return self.brVoid(block);
@@ -5243,7 +5245,7 @@ fn airAsm(self: *Self, inst: Air.Inst.Index) !void {
 
             const arg_mcv = try self.resolveInst(input);
             try self.register_manager.getReg(reg, null);
-            try self.genSetReg(self.air.typeOf(input), reg, arg_mcv);
+            try self.genSetReg(self.typeOf(input), reg, arg_mcv);
         }
 
         {
@@ -5896,7 +5898,7 @@ fn airBitCast(self: *Self, inst: Air.Inst.Index) !void {
         };
         defer if (operand_lock) |lock| self.register_manager.unlockReg(lock);
 
-        const dest_ty = self.air.typeOfIndex(inst);
+        const dest_ty = self.typeOfIndex(inst);
         const dest = try self.allocRegOrMem(dest_ty, true, inst);
         try self.setRegOrMem(dest_ty, dest, operand);
         break :result dest;
@@ -5907,7 +5909,7 @@ fn airBitCast(self: *Self, inst: Air.Inst.Index) !void {
 fn airArrayToSlice(self: *Self, inst: Air.Inst.Index) !void {
     const ty_op = self.air.instructions.items(.data)[inst].ty_op;
     const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
-        const ptr_ty = self.air.typeOf(ty_op.operand);
+        const ptr_ty = self.typeOf(ty_op.operand);
         const ptr = try self.resolveInst(ty_op.operand);
         const array_ty = ptr_ty.childType();
         const array_len = @intCast(u32, array_ty.arrayLen());
@@ -6023,7 +6025,7 @@ fn airReduce(self: *Self, inst: Air.Inst.Index) !void {
 }
 
 fn airAggregateInit(self: *Self, inst: Air.Inst.Index) !void {
-    const vector_ty = self.air.typeOfIndex(inst);
+    const vector_ty = self.typeOfIndex(inst);
     const len = vector_ty.vectorLen();
     const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
     const elements = @ptrCast([]const Air.Inst.Ref, self.air.extra[ty_pl.payload..][0..len]);
@@ -6072,7 +6074,7 @@ fn airTry(self: *Self, inst: Air.Inst.Index) !void {
     const body = self.air.extra[extra.end..][0..extra.data.body_len];
     const result: MCValue = result: {
         const error_union_bind: ReadArg.Bind = .{ .inst = pl_op.operand };
-        const error_union_ty = self.air.typeOf(pl_op.operand);
+        const error_union_ty = self.typeOf(pl_op.operand);
         const mod = self.bin_file.options.module.?;
         const error_union_size = @intCast(u32, error_union_ty.abiSize(mod));
         const error_union_align = error_union_ty.abiAlignment(mod);
@@ -6107,7 +6109,7 @@ fn resolveInst(self: *Self, inst: Air.Inst.Ref) InnerError!MCValue {
     const mod = self.bin_file.options.module.?;
 
     // If the type has no codegen bits, no need to store it.
-    const inst_ty = self.air.typeOf(inst);
+    const inst_ty = self.typeOf(inst);
     if (!inst_ty.hasRuntimeBitsIgnoreComptime(mod) and !inst_ty.isError(mod))
         return MCValue{ .none = {} };
 
@@ -6332,4 +6334,14 @@ fn parseRegName(name: []const u8) ?Register {
         return Register.parseRegName(name);
     }
     return std.meta.stringToEnum(Register, name);
+}
+
+fn typeOf(self: *Self, inst: Air.Inst.Ref) Type {
+    const mod = self.bin_file.options.module.?;
+    return self.air.typeOf(inst, mod.intern_pool);
+}
+
+fn typeOfIndex(self: *Self, inst: Air.Inst.Index) Type {
+    const mod = self.bin_file.options.module.?;
+    return self.air.typeOfIndex(inst, mod.intern_pool);
 }

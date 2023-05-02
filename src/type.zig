@@ -2827,21 +2827,35 @@ pub const Type = struct {
         };
     }
 
-    /// TODO add enums with no fields here
     pub fn isNoReturn(ty: Type) bool {
-        switch (ty.tag()) {
-            .noreturn => return true,
-            .error_set => {
-                const err_set_obj = ty.castTag(.error_set).?.data;
-                const names = err_set_obj.names.keys();
-                return names.len == 0;
-            },
-            .error_set_merged => {
-                const name_map = ty.castTag(.error_set_merged).?.data;
-                const names = name_map.keys();
-                return names.len == 0;
-            },
+        switch (@enumToInt(ty.ip_index)) {
+            @enumToInt(InternPool.Index.first_type)...@enumToInt(InternPool.Index.noreturn_type) - 1 => return false,
+
+            @enumToInt(InternPool.Index.noreturn_type) => return true,
+
+            @enumToInt(InternPool.Index.noreturn_type) + 1...@enumToInt(InternPool.Index.last_type) => return false,
+
+            @enumToInt(InternPool.Index.first_value)...@enumToInt(InternPool.Index.last_value) => unreachable,
+            @enumToInt(InternPool.Index.generic_poison) => unreachable,
+
+            // TODO add empty error sets here
+            // TODO add enums with no fields here
             else => return false,
+
+            @enumToInt(InternPool.Index.none) => switch (ty.tag()) {
+                .noreturn => return true,
+                .error_set => {
+                    const err_set_obj = ty.castTag(.error_set).?.data;
+                    const names = err_set_obj.names.keys();
+                    return names.len == 0;
+                },
+                .error_set_merged => {
+                    const name_map = ty.castTag(.error_set_merged).?.data;
+                    const names = name_map.keys();
+                    return names.len == 0;
+                },
+                else => return false,
+            },
         }
     }
 

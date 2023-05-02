@@ -306,6 +306,7 @@ const Writer = struct {
             .struct_field_ptr => try w.writeStructField(s, inst),
             .struct_field_val => try w.writeStructField(s, inst),
             .constant => try w.writeConstant(s, inst),
+            .interned => try w.writeInterned(s, inst),
             .assembly => try w.writeAssembly(s, inst),
             .dbg_stmt => try w.writeDbgStmt(s, inst),
 
@@ -515,7 +516,7 @@ const Writer = struct {
         const pl_op = w.air.instructions.items(.data)[inst].pl_op;
         const extra = w.air.extraData(Air.Bin, pl_op.payload).data;
 
-        const elem_ty = w.air.typeOfIndex(inst).childType();
+        const elem_ty = w.typeOfIndex(inst).childType();
         try w.writeType(s, elem_ty);
         try s.writeAll(", ");
         try w.writeOperand(s, inst, 0, pl_op.operand);
@@ -614,6 +615,14 @@ const Writer = struct {
         try s.print(", {}", .{val.fmtValue(ty, w.module)});
     }
 
+    fn writeInterned(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {
+        const mod = w.module;
+        const ip_index = w.air.instructions.items(.data)[inst].interned;
+        const ty = ip_index.toType();
+        try w.writeType(s, ty);
+        try s.print(", {}", .{ip_index.toValue().fmtValue(ty, mod)});
+    }
+
     fn writeAssembly(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {
         const ty_pl = w.air.instructions.items(.data)[inst].ty_pl;
         const extra = w.air.extraData(Air.Asm, ty_pl.payload);
@@ -622,7 +631,7 @@ const Writer = struct {
         var extra_i: usize = extra.end;
         var op_index: usize = 0;
 
-        const ret_ty = w.air.typeOfIndex(inst);
+        const ret_ty = w.typeOfIndex(inst);
         try w.writeType(s, ret_ty);
 
         if (is_volatile) {
@@ -984,5 +993,10 @@ const Writer = struct {
         _ = w;
         try s.print("%{d}", .{inst});
         if (dies) try s.writeByte('!');
+    }
+
+    fn typeOfIndex(w: *Writer, inst: Air.Inst.Index) Type {
+        const mod = w.module;
+        return w.air.typeOfIndex(inst, mod.intern_pool);
     }
 };

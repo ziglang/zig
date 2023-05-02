@@ -241,6 +241,11 @@ pub const Item = struct {
 /// When adding a tag to this enum, consider adding a corresponding entry to
 /// `primitives` in AstGen.zig.
 pub const Index = enum(u32) {
+    pub const first_type: Index = .u1_type;
+    pub const last_type: Index = .empty_struct_type;
+    pub const first_value: Index = .undef;
+    pub const last_value: Index = .empty_struct;
+
     u1_type,
     u8_type,
     i8_type,
@@ -329,6 +334,7 @@ pub const Index = enum(u32) {
     bool_false,
     /// `.{}` (untyped)
     empty_struct,
+
     /// Used for generic parameters where the type and value
     /// is not known until generic function instantiation.
     generic_poison,
