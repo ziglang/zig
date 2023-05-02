@@ -236,14 +236,20 @@ pub fn make(s: *Step, options: MakeOptions) error{ MakeFailed, MakeSkipped }!voi
             var stream = std.io.fixedBufferStream(msg_buffer);
             const writer = stream.writer();
 
-            writer.writeAll("step failed with error ") catch @panic("msg_buffer OOM");
+            writer.writeAll("step failed with error ") catch unreachable;
             writer.writeAll(@errorName(err)) catch @panic("msg_buffer OOM");
 
             if (@errorReturnTrace()) |trace| {
                 writer.writeAll(":") catch @panic("msg_buffer OOM");
-                trace.format("", .{}, writer) catch @panic("msg_buffer OOM");
+                trace.format("", .{}, writer) catch {
+                    // Assumes trace.format has written everything up until failure
+                    const overrun_msg = ".... errorReturnTrace exceeds buffer size!";
+                    for (msg_buffer[stream.pos - overrun_msg.len .. stream.pos], 0..) |*value, i| {
+                        value.* = overrun_msg[i];
+                    }
+                };
             }
-
+            _ = arena.resize(msg_buffer, stream.pos);
             s.result_error_msgs.append(arena, msg_buffer[0..stream.pos]) catch @panic("OOM");
             return error.MakeFailed;
         },
