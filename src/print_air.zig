@@ -94,14 +94,20 @@ const Writer = struct {
         for (w.air.instructions.items(.tag), 0..) |tag, i| {
             const inst = @intCast(Air.Inst.Index, i);
             switch (tag) {
-                .constant, .const_ty => try w.writeInst(s, inst),
+                .constant, .const_ty => {
+                    try w.writeInst(s, inst);
+                    try s.writeByte('\n');
+                },
                 else => continue,
             }
         }
     }
 
     fn writeBody(w: *Writer, s: anytype, body: []const Air.Inst.Index) @TypeOf(s).Error!void {
-        for (body) |inst| try w.writeInst(s, inst);
+        for (body) |inst| {
+            try w.writeInst(s, inst);
+            try s.writeByte('\n');
+        }
     }
 
     fn writeInst(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {
@@ -336,7 +342,7 @@ const Writer = struct {
             .work_group_id,
             => try w.writeWorkDimension(s, inst),
         }
-        try s.writeAll(")\n");
+        try s.writeByte(')');
     }
 
     fn writeBinOp(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {

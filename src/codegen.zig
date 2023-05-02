@@ -7,6 +7,7 @@ const link = @import("link.zig");
 const log = std.log.scoped(.codegen);
 const mem = std.mem;
 const math = std.math;
+const target_util = @import("target.zig");
 const trace = @import("tracy.zig").trace;
 
 const Air = @import("Air.zig");
@@ -89,25 +90,36 @@ pub fn generateFunction(
     }
 }
 
+pub fn generateLazyFunction(
+    bin_file: *link.File,
+    src_loc: Module.SrcLoc,
+    lazy_sym: link.File.LazySymbol,
+    code: *std.ArrayList(u8),
+    debug_output: DebugInfoOutput,
+) CodeGenError!Result {
+    switch (bin_file.options.target.cpu.arch) {
+        .x86_64 => return @import("arch/x86_64/CodeGen.zig").generateLazy(bin_file, src_loc, lazy_sym, code, debug_output),
+        else => unreachable,
+    }
+}
+
 fn writeFloat(comptime F: type, f: F, target: Target, endian: std.builtin.Endian, code: []u8) void {
     _ = target;
-    const Int = @Type(.{ .Int = .{
-        .signedness = .unsigned,
-        .bits = @typeInfo(F).Float.bits,
-    } });
+    const bits = @typeInfo(F).Float.bits;
+    const Int = @Type(.{ .Int = .{ .signedness = .unsigned, .bits = bits } });
     const int = @bitCast(Int, f);
-    mem.writeInt(Int, code[0..@sizeOf(Int)], int, endian);
+    mem.writeInt(Int, code[0..@divExact(bits, 8)], int, endian);
 }
 
 pub fn generateLazySymbol(
     bin_file: *link.File,
     src_loc: Module.SrcLoc,
     lazy_sym: link.File.LazySymbol,
+    alignment: *u32,
     code: *std.ArrayList(u8),
     debug_output: DebugInfoOutput,
     reloc_info: RelocInfo,
 ) CodeGenError!Result {
-    _ = debug_output;
     _ = reloc_info;
 
     const tracy = trace(@src());
@@ -122,7 +134,13 @@ pub fn generateLazySymbol(
         lazy_sym.ty.fmt(mod),
     });
 
-    if (lazy_sym.kind == .const_data and lazy_sym.ty.isAnyError()) {
+    if (lazy_sym.kind == .code) {
+        alignment.* = target_util.defaultFunctionAlignment(target);
+        return generateLazyFunction(bin_file, src_loc, lazy_sym, code, debug_output);
+    }
+
+    if (lazy_sym.ty.isAnyError()) {
+        alignment.* = 4;
         const err_names = mod.error_name_list.items;
         mem.writeInt(u32, try code.addManyAsArray(4), @intCast(u32, err_names.len), endian);
         var offset = code.items.len;
@@ -135,6 +153,14 @@ pub fn generateLazySymbol(
             code.appendAssumeCapacity(0);
         }
         mem.writeInt(u32, code.items[offset..][0..4], @intCast(u32, code.items.len), endian);
+        return Result.ok;
+    } else if (lazy_sym.ty.zigTypeTag() == .Enum) {
+        alignment.* = 1;
+        for (lazy_sym.ty.enumFields().keys()) |tag_name| {
+            try code.ensureUnusedCapacity(tag_name.len + 1);
+            code.appendSliceAssumeCapacity(tag_name);
+            code.appendAssumeCapacity(0);
+        }
         return Result.ok;
     } else return .{ .fail = try ErrorMsg.create(
         bin_file.allocator,
@@ -187,18 +213,14 @@ pub fn generateSymbol(
             };
         },
         .Float => {
-            const float_bits = typed_value.ty.floatBits(target);
-            switch (float_bits) {
+            switch (typed_value.ty.floatBits(target)) {
                 16 => writeFloat(f16, typed_value.val.toFloat(f16), target, endian, try code.addManyAsArray(2)),
                 32 => writeFloat(f32, typed_value.val.toFloat(f32), target, endian, try code.addManyAsArray(4)),
                 64 => writeFloat(f64, typed_value.val.toFloat(f64), target, endian, try code.addManyAsArray(8)),
-                80 => return Result{
-                    .fail = try ErrorMsg.create(
-                        bin_file.allocator,
-                        src_loc,
-                        "TODO handle f80 in generateSymbol",
-                        .{},
-                    ),
+                80 => {
+                    writeFloat(f80, typed_value.val.toFloat(f80), target, endian, try code.addManyAsArray(10));
+                    const abi_size = math.cast(usize, typed_value.ty.abiSize(target)) orelse return error.Overflow;
+                    try code.appendNTimes(0, abi_size - 10);
                 },
                 128 => writeFloat(f128, typed_value.val.toFloat(f128), target, endian, try code.addManyAsArray(16)),
                 else => unreachable,
@@ -291,6 +313,20 @@ pub fn generateSymbol(
             },
         },
         .Pointer => switch (typed_value.val.tag()) {
+            .null_value => {
+                switch (target.cpu.arch.ptrBitWidth()) {
+                    32 => {
+                        mem.writeInt(u32, try code.addManyAsArray(4), 0, endian);
+                        if (typed_value.ty.isSlice()) try code.appendNTimes(0xaa, 4);
+                    },
+                    64 => {
+                        mem.writeInt(u64, try code.addManyAsArray(8), 0, endian);
+                        if (typed_value.ty.isSlice()) try code.appendNTimes(0xaa, 8);
+                    },
+                    else => unreachable,
+                }
+                return Result.ok;
+            },
             .zero, .one, .int_u64, .int_big_positive => {
                 switch (target.cpu.arch.ptrBitWidth()) {
                     32 => {
@@ -397,30 +433,15 @@ pub fn generateSymbol(
                     },
                 }
             },
-            .elem_ptr => {
-                const elem_ptr = typed_value.val.castTag(.elem_ptr).?.data;
-                const elem_size = typed_value.ty.childType().abiSize(target);
-                const addend = @intCast(u32, elem_ptr.index * elem_size);
-                const array_ptr = elem_ptr.array_ptr;
-
-                switch (array_ptr.tag()) {
-                    .decl_ref => {
-                        const decl_index = array_ptr.castTag(.decl_ref).?.data;
-                        return lowerDeclRef(bin_file, src_loc, typed_value, decl_index, code, debug_output, .{
-                            .parent_atom_index = reloc_info.parent_atom_index,
-                            .addend = (reloc_info.addend orelse 0) + addend,
-                        });
-                    },
-                    else => return Result{
-                        .fail = try ErrorMsg.create(
-                            bin_file.allocator,
-                            src_loc,
-                            "TODO implement generateSymbol for pointer type value: '{s}'",
-                            .{@tagName(typed_value.val.tag())},
-                        ),
-                    },
-                }
-            },
+            .elem_ptr => return lowerParentPtr(
+                bin_file,
+                src_loc,
+                typed_value,
+                typed_value.val,
+                code,
+                debug_output,
+                reloc_info,
+            ),
             else => return Result{
                 .fail = try ErrorMsg.create(
                     bin_file.allocator,
@@ -838,9 +859,62 @@ pub fn generateSymbol(
     }
 }
 
+fn lowerParentPtr(
+    bin_file: *link.File,
+    src_loc: Module.SrcLoc,
+    typed_value: TypedValue,
+    parent_ptr: Value,
+    code: *std.ArrayList(u8),
+    debug_output: DebugInfoOutput,
+    reloc_info: RelocInfo,
+) CodeGenError!Result {
+    const target = bin_file.options.target;
+
+    switch (parent_ptr.tag()) {
+        .elem_ptr => {
+            const elem_ptr = parent_ptr.castTag(.elem_ptr).?.data;
+            return lowerParentPtr(
+                bin_file,
+                src_loc,
+                typed_value,
+                elem_ptr.array_ptr,
+                code,
+                debug_output,
+                reloc_info.offset(@intCast(u32, elem_ptr.index * elem_ptr.elem_ty.abiSize(target))),
+            );
+        },
+        .decl_ref => {
+            const decl_index = parent_ptr.castTag(.decl_ref).?.data;
+            return lowerDeclRef(
+                bin_file,
+                src_loc,
+                typed_value,
+                decl_index,
+                code,
+                debug_output,
+                reloc_info,
+            );
+        },
+        else => |t| {
+            return Result{
+                .fail = try ErrorMsg.create(
+                    bin_file.allocator,
+                    src_loc,
+                    "TODO implement lowerParentPtr for type '{s}'",
+                    .{@tagName(t)},
+                ),
+            };
+        },
+    }
+}
+
 const RelocInfo = struct {
     parent_atom_index: u32,
     addend: ?u32 = null,
+
+    fn offset(ri: RelocInfo, addend: u32) RelocInfo {
+        return .{ .parent_atom_index = ri.parent_atom_index, .addend = (ri.addend orelse 0) + addend };
+    }
 };
 
 fn lowerDeclRef(
@@ -1095,6 +1169,9 @@ pub fn genTypedValue(
             .Slice => {},
             else => {
                 switch (typed_value.val.tag()) {
+                    .null_value => {
+                        return GenResult.mcv(.{ .immediate = 0 });
+                    },
                     .int_u64 => {
                         return GenResult.mcv(.{ .immediate = typed_value.val.toUnsignedInt(target) });
                     },
