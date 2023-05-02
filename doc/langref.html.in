@@ -2953,6 +2953,14 @@ test "basic slices" {
     const array_ptr = array[0..array.len];
     try expect(@TypeOf(array_ptr) == *[array.len]i32);
 
+    // You can perform a slice-by-length by slicing twice. This allows the compiler
+    // to perform some optimisations like recognising a comptime-known length when
+    // the start position is only known at runtime.
+    var runtime_start: usize = 1;
+    const length = 2;
+    const array_ptr_len = array[runtime_start..][0..length];
+    try expect(@TypeOf(array_ptr_len) == *[length]i32);
+
     // Using the address-of operator on a slice gives a single-item pointer,
     // while using the `ptr` field gives a many-item pointer.
     try expect(@TypeOf(slice.ptr) == [*]i32);
