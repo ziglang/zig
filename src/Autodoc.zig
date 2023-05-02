@@ -755,6 +755,7 @@ const DocData = struct {
         string: []const u8, // direct value
         sliceIndex: usize,
         slice: Slice,
+        sliceLength: SliceLength,
         cmpxchgIndex: usize,
         cmpxchg: Cmpxchg,
         builtin: Builtin,
@@ -790,6 +791,12 @@ const DocData = struct {
             start: usize,
             end: ?usize = null,
             sentinel: ?usize = null, // index in `exprs`
+        };
+        const SliceLength = struct {
+            lhs: usize,
+            start: usize,
+            len: usize,
+            sentinel: ?usize = null,
         };
         const Cmpxchg = struct {
             name: []const u8,
@@ -1337,7 +1344,12 @@ fn walkInstruction(
                 try self.exprs.append(self.arena, sentinel.expr);
                 break :sentinel_index index;
             } else null;
-            self.exprs.items[slice_index] = .{ .slice = .{ .lhs = lhs_index, .start = start_index, .end = len_index, .sentinel = sentinel_index } };
+            self.exprs.items[slice_index] = .{ .sliceLength = .{
+                .lhs = lhs_index,
+                .start = start_index,
+                .len = len_index,
+                .sentinel = sentinel_index,
+            } };
 
             return DocData.WalkResult{
                 .typeRef = self.decls.items[lhs.expr.declRef.Analyzed].value.typeRef,
