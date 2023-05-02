@@ -233,6 +233,13 @@ pub const MCValue = union(enum) {
         };
     }
 
+    fn isRegisterOffset(mcv: MCValue) bool {
+        return switch (mcv) {
+            .register, .register_offset => true,
+            else => false,
+        };
+    }
+
     fn getReg(mcv: MCValue) ?Register {
         return switch (mcv) {
             .register => |reg| reg,
@@ -4772,10 +4779,21 @@ fn airStructFieldVal(self: *Self, inst: Air.Inst.Index) !void {
 }
 
 fn airFieldParentPtr(self: *Self, inst: Air.Inst.Index) !void {
-    const ty_op = self.air.instructions.items(.data)[inst].ty_op;
-    _ = ty_op;
-    return self.fail("TODO implement airFieldParentPtr for {}", .{self.target.cpu.arch});
-    //return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
+    const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
+    const extra = self.air.extraData(Air.FieldParentPtr, ty_pl.payload).data;
+
+    const inst_ty = self.air.typeOfIndex(inst);
+    const parent_ty = inst_ty.childType();
+    const field_offset = @intCast(i32, parent_ty.structFieldOffset(extra.field_index, self.target.*));
+
+    const src_mcv = try self.resolveInst(extra.field_ptr);
+    const dst_mcv = if (src_mcv.isRegisterOffset() and
+        self.reuseOperand(inst, extra.field_ptr, 0, src_mcv))
+        src_mcv
+    else
+        try self.copyToRegisterWithInstTracking(inst, inst_ty, src_mcv);
+    const result = dst_mcv.offset(-field_offset);
+    return self.finishAir(inst, result, .{ extra.field_ptr, .none, .none });
 }
 
 fn genUnOp(self: *Self, maybe_inst: ?Air.Inst.Index, tag: Air.Inst.Tag, src_air: Air.Inst.Ref) !MCValue {
