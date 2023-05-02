@@ -48,6 +48,22 @@ pub fn values(comptime E: type) []const E {
     return comptime valuesFromFields(E, @typeInfo(E).Enum.fields);
 }
 
+/// A safe alternative to @tagName() for non-exhaustive enums that doesn't
+/// panic when `e` has no tagged value.
+/// Returns the tag name for `e` or null if no tag exists.
+pub fn tagName(comptime E: type, e: E) ?[]const u8 {
+    return inline for (@typeInfo(E).Enum.fields) |f| {
+        if (@enumToInt(e) == f.value) break f.name;
+    } else null;
+}
+
+test tagName {
+    const E = enum(u8) { a, b, _ };
+    try testing.expect(tagName(E, .a) != null);
+    try testing.expectEqualStrings("a", tagName(E, .a).?);
+    try testing.expect(tagName(E, @intToEnum(E, 42)) == null);
+}
+
 /// Determines the length of a direct-mapped enum array, indexed by
 /// @intCast(usize, @enumToInt(enum_value)).
 /// If the enum is non-exhaustive, the resulting length will only be enough
