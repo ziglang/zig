@@ -3502,17 +3502,7 @@ fn genSliceElemPtr(self: *Self, lhs: Air.Inst.Ref, rhs: Air.Inst.Ref) !MCValue {
     defer self.register_manager.unlockReg(offset_reg_lock);
 
     const addr_reg = try self.register_manager.allocReg(null, gp);
-    switch (slice_mcv) {
-        .load_frame => |frame_addr| try self.asmRegisterMemory(
-            .mov,
-            addr_reg.to64(),
-            Memory.sib(.qword, .{
-                .base = .{ .frame = frame_addr.index },
-                .disp = frame_addr.off,
-            }),
-        ),
-        else => return self.fail("TODO implement slice_elem_ptr when slice is {}", .{slice_mcv}),
-    }
+    try self.genSetReg(addr_reg, Type.usize, slice_mcv);
     // TODO we could allocate register here, but need to expect addr register and potentially
     // offset register.
     try self.genBinOpMir(.add, slice_ptr_field_type, .{ .register = addr_reg }, .{
