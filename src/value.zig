@@ -117,6 +117,8 @@ pub const Value = struct {
         int_big_negative,
         function,
         extern_fn,
+        /// A comptime-known pointer can point to the address of a global
+        /// variable. The child element value in this case will have this tag.
         variable,
         /// A wrapper for values which are comptime-known but should
         /// semantically be runtime-known.

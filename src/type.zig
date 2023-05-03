@@ -4319,8 +4319,20 @@ pub const Type = struct {
 
     /// Returns true if the type is optional and would be lowered to a single pointer
     /// address value, using 0 for null. Note that this returns true for C pointers.
-    pub fn isPtrLikeOptional(self: Type, mod: *const Module) bool {
-        switch (self.tag()) {
+    /// This function must be kept in sync with `Sema.typePtrOrOptionalPtrTy`.
+    pub fn isPtrLikeOptional(ty: Type, mod: *const Module) bool {
+        if (ty.ip_index != .none) return switch (mod.intern_pool.indexToKey(ty.ip_index)) {
+            .ptr_type => |ptr_type| ptr_type.size == .C,
+            .optional_type => |o| switch (mod.intern_pool.indexToKey(o.payload_type)) {
+                .ptr_type => |ptr_type| switch (ptr_type.size) {
+                    .Slice, .C => false,
+                    .Many, .One => !ptr_type.is_allowzero,
+                },
+                else => false,
+            },
+            else => false,
+        };
+        switch (ty.tag()) {
             .optional_single_const_pointer,
             .optional_single_mut_pointer,
             .c_const_pointer,
@@ -4328,7 +4340,7 @@ pub const Type = struct {
             => return true,
 
             .optional => {
-                const child_ty = self.castTag(.optional).?.data;
+                const child_ty = ty.castTag(.optional).?.data;
                 if (child_ty.zigTypeTag(mod) != .Pointer) return false;
                 const info = child_ty.ptrInfo().data;
                 switch (info.size) {
@@ -4337,7 +4349,7 @@ pub const Type = struct {
                 }
             },
 
-            .pointer => return self.castTag(.pointer).?.data.size == .C,
+            .pointer => return ty.castTag(.pointer).?.data.size == .C,
 
             else => return false,
         }
