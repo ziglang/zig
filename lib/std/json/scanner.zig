@@ -174,6 +174,20 @@ pub const Token = union(enum) {
     end_of_document,
 };
 
+/// This is only used in peekNextTokenType() and gives a categorization based on the first byte of the next token that will be emitted from a next*() call.
+pub const TokenType = enum {
+    object_begin,
+    object_end,
+    array_begin,
+    array_end,
+    true,
+    false,
+    null,
+    number,
+    string,
+    end_of_document,
+};
+
 /// See the documentation for Token.
 pub const AllocWhen = enum { alloc_if_needed, alloc_always };
 
@@ -204,6 +218,7 @@ pub fn JsonReader(comptime buffer_size: usize, comptime ReaderType: type) type {
 
         pub const Error = ReaderType.Error || JsonError || Allocator.Error;
         pub const AllocError = Error || error{ValueTooLong};
+        pub const PeekError = ReaderType.Error || JsonError;
 
         /// Equivalent to nextAllocMax(allocator, when, default_max_value_len);
         /// See Token for documentation of this function's behavior.
@@ -231,6 +246,19 @@ pub fn JsonReader(comptime buffer_size: usize, comptime ReaderType: type) type {
         pub fn next(self: *@This()) Error!Token {
             while (true) {
                 return self.scanner.next() catch |err| switch (err) {
+                    error.BufferUnderrun => {
+                        try self.refillBuffer();
+                        continue;
+                    },
+                    else => |other_err| return other_err,
+                };
+            }
+        }
+
+        /// See JsonScanner.peekNextTokenType().
+        pub fn peekNextTokenType(self: *@This()) PeekError!TokenType {
+            while (true) {
+                return self.scanner.peekNextTokenType() catch |err| switch (err) {
                     error.BufferUnderrun => {
                         try self.refillBuffer();
                         continue;
@@ -311,6 +339,7 @@ pub const JsonScanner = struct {
 
     pub const Error = JsonError || Allocator.Error || error{BufferUnderrun};
     pub const AllocError = JsonError || Allocator.Error || error{ValueTooLong};
+    pub const PeekError = JsonError || error{BufferUnderrun};
 
     /// Equivalent to nextAllocMax(allocator, when, default_max_value_len);
     /// This function is only available after endInput() (or initCompleteInput()) has been called.
@@ -339,10 +368,7 @@ pub const JsonScanner = struct {
         state_loop: while (true) {
             switch (self.state) {
                 .value => {
-                    self.skipWhitespace();
-                    try self.expectMoreContent();
-                    const c = self.input[self.cursor];
-                    switch (c) {
+                    switch (try self.skipWhitespaceExpectByte()) {
                         // Object, Array
                         '{' => {
                             try self.stack.push(OBJECT_MODE);
@@ -407,20 +433,7 @@ pub const JsonScanner = struct {
                 },
 
                 .post_value => {
-                    self.skipWhitespace();
-                    if (self.cursor >= self.input.len) {
-                        // End of buffer.
-                        if (self.is_end_of_input) {
-                            // End of everything.
-                            if (self.stack.bit_len == 0) {
-                                // We did it!
-                                return .end_of_document;
-                            }
-                            return error.UnexpectedEndOfInput;
-                        }
-                        return error.BufferUnderrun;
-                    }
-                    if (self.stack.bit_len == 0) return error.SyntaxError;
+                    if (try self.skipWhitespaceCheckEnd()) return .end_of_document;
 
                     const c = self.input[self.cursor];
                     if (self.string_is_object_key) {
@@ -465,10 +478,7 @@ pub const JsonScanner = struct {
                 },
 
                 .object_start => {
-                    self.skipWhitespace();
-                    try self.expectMoreContent();
-                    const c = self.input[self.cursor];
-                    switch (c) {
+                    switch (try self.skipWhitespaceExpectByte()) {
                         '"' => {
                             self.cursor += 1;
                             self.value_start = self.cursor;
@@ -486,10 +496,7 @@ pub const JsonScanner = struct {
                     }
                 },
                 .object_post_comma => {
-                    self.skipWhitespace();
-                    try self.expectMoreContent();
-                    const c = self.input[self.cursor];
-                    switch (c) {
+                    switch (try self.skipWhitespaceExpectByte()) {
                         '"' => {
                             self.cursor += 1;
                             self.value_start = self.cursor;
@@ -502,10 +509,7 @@ pub const JsonScanner = struct {
                 },
 
                 .array_start => {
-                    self.skipWhitespace();
-                    try self.expectMoreContent();
-                    const c = self.input[self.cursor];
-                    switch (c) {
+                    switch (try self.skipWhitespaceExpectByte()) {
                         ']' => {
                             self.cursor += 1;
                             _ = self.stack.pop();
@@ -521,8 +525,7 @@ pub const JsonScanner = struct {
 
                 .number_minus => {
                     if (self.cursor >= self.input.len) return self.endOfBufferInNumber(false);
-                    const c = self.input[self.cursor];
-                    switch (c) {
+                    switch (self.input[self.cursor]) {
                         '0' => {
                             self.cursor += 1;
                             self.state = .number_leading_zero;
@@ -538,8 +541,7 @@ pub const JsonScanner = struct {
                 },
                 .number_leading_zero => {
                     if (self.cursor >= self.input.len) return self.endOfBufferInNumber(true);
-                    const c = self.input[self.cursor];
-                    switch (c) {
+                    switch (self.input[self.cursor]) {
                         '.' => {
                             self.cursor += 1;
                             self.state = .number_post_dot;
@@ -558,8 +560,7 @@ pub const JsonScanner = struct {
                 },
                 .number_int => {
                     while (self.cursor < self.input.len) : (self.cursor += 1) {
-                        const c = self.input[self.cursor];
-                        switch (c) {
+                        switch (self.input[self.cursor]) {
                             '0'...'9' => continue,
                             '.' => {
                                 self.cursor += 1;
@@ -581,9 +582,7 @@ pub const JsonScanner = struct {
                 },
                 .number_post_dot => {
                     if (self.cursor >= self.input.len) return self.endOfBufferInNumber(false);
-                    try self.expectMoreContent();
-                    const c = self.input[self.cursor];
-                    switch (c) {
+                    switch (try self.expectByte()) {
                         '0'...'9' => {
                             self.cursor += 1;
                             self.state = .number_frac;
@@ -594,8 +593,7 @@ pub const JsonScanner = struct {
                 },
                 .number_frac => {
                     while (self.cursor < self.input.len) : (self.cursor += 1) {
-                        const c = self.input[self.cursor];
-                        switch (c) {
+                        switch (self.input[self.cursor]) {
                             '0'...'9' => continue,
                             'e', 'E' => {
                                 self.cursor += 1;
@@ -612,8 +610,7 @@ pub const JsonScanner = struct {
                 },
                 .number_post_e => {
                     if (self.cursor >= self.input.len) return self.endOfBufferInNumber(false);
-                    const c = self.input[self.cursor];
-                    switch (c) {
+                    switch (self.input[self.cursor]) {
                         '0'...'9' => {
                             self.cursor += 1;
                             self.state = .number_exp;
@@ -629,8 +626,7 @@ pub const JsonScanner = struct {
                 },
                 .number_post_e_sign => {
                     if (self.cursor >= self.input.len) return self.endOfBufferInNumber(false);
-                    const c = self.input[self.cursor];
-                    switch (c) {
+                    switch (self.input[self.cursor]) {
                         '0'...'9' => {
                             self.cursor += 1;
                             self.state = .number_exp;
@@ -641,8 +637,7 @@ pub const JsonScanner = struct {
                 },
                 .number_exp => {
                     while (self.cursor < self.input.len) : (self.cursor += 1) {
-                        const c = self.input[self.cursor];
-                        switch (c) {
+                        switch (self.input[self.cursor]) {
                             '0'...'9' => continue,
                             else => {
                                 self.state = .post_value;
@@ -655,8 +650,7 @@ pub const JsonScanner = struct {
 
                 .string => {
                     while (self.cursor < self.input.len) : (self.cursor += 1) {
-                        const c = self.input[self.cursor];
-                        switch (c) {
+                        switch (self.input[self.cursor]) {
                             0...0x1f => return error.SyntaxError, // Bare ASCII control code in string.
 
                             // ASCII plain text.
@@ -723,9 +717,7 @@ pub const JsonScanner = struct {
                     return error.BufferUnderrun;
                 },
                 .string_backslash => {
-                    try self.expectMoreContent();
-                    const c = self.input[self.cursor];
-                    switch (c) {
+                    switch (try self.expectByte()) {
                         '"', '\\', '/' => {
                             // Since these characters now represent themselves literally,
                             // we can simply begin the next plaintext slice here.
@@ -773,8 +765,7 @@ pub const JsonScanner = struct {
                     }
                 },
                 .string_backslash_u => {
-                    try self.expectMoreContent();
-                    const c = self.input[self.cursor];
+                    const c = try self.expectByte();
                     switch (c) {
                         '0'...'9' => {
                             self.unicode_code_point = @as(u21, c - '0') << 12;
@@ -792,8 +783,7 @@ pub const JsonScanner = struct {
                     continue :state_loop;
                 },
                 .string_backslash_u_1 => {
-                    try self.expectMoreContent();
-                    const c = self.input[self.cursor];
+                    const c = try self.expectByte();
                     switch (c) {
                         '0'...'9' => {
                             self.unicode_code_point |= @as(u21, c - '0') << 8;
@@ -811,8 +801,7 @@ pub const JsonScanner = struct {
                     continue :state_loop;
                 },
                 .string_backslash_u_2 => {
-                    try self.expectMoreContent();
-                    const c = self.input[self.cursor];
+                    const c = try self.expectByte();
                     switch (c) {
                         '0'...'9' => {
                             self.unicode_code_point |= @as(u21, c - '0') << 4;
@@ -830,8 +819,7 @@ pub const JsonScanner = struct {
                     continue :state_loop;
                 },
                 .string_backslash_u_3 => {
-                    try self.expectMoreContent();
-                    const c = self.input[self.cursor];
+                    const c = try self.expectByte();
                     switch (c) {
                         '0'...'9' => {
                             self.unicode_code_point |= c - '0';
@@ -862,8 +850,7 @@ pub const JsonScanner = struct {
                     }
                 },
                 .string_surrogate_half => {
-                    try self.expectMoreContent();
-                    switch (self.input[self.cursor]) {
+                    switch (try self.expectByte()) {
                         '\\' => {
                             self.cursor += 1;
                             self.state = .string_surrogate_half_backslash;
@@ -873,8 +860,7 @@ pub const JsonScanner = struct {
                     }
                 },
                 .string_surrogate_half_backslash => {
-                    try self.expectMoreContent();
-                    switch (self.input[self.cursor]) {
+                    switch (try self.expectByte()) {
                         'u' => {
                             self.cursor += 1;
                             self.state = .string_surrogate_half_backslash_u;
@@ -884,8 +870,7 @@ pub const JsonScanner = struct {
                     }
                 },
                 .string_surrogate_half_backslash_u => {
-                    try self.expectMoreContent();
-                    switch (self.input[self.cursor]) {
+                    switch (try self.expectByte()) {
                         'D', 'd' => {
                             self.cursor += 1;
                             self.state = .string_surrogate_half_backslash_u_1;
@@ -895,8 +880,7 @@ pub const JsonScanner = struct {
                     }
                 },
                 .string_surrogate_half_backslash_u_1 => {
-                    try self.expectMoreContent();
-                    const c = self.input[self.cursor];
+                    const c = try self.expectByte();
                     switch (c) {
                         'C'...'F' => {
                             self.cursor += 1;
@@ -914,8 +898,7 @@ pub const JsonScanner = struct {
                     }
                 },
                 .string_surrogate_half_backslash_u_2 => {
-                    try self.expectMoreContent();
-                    const c = self.input[self.cursor];
+                    const c = try self.expectByte();
                     switch (c) {
                         '0'...'9' => {
                             self.cursor += 1;
@@ -939,8 +922,7 @@ pub const JsonScanner = struct {
                     }
                 },
                 .string_surrogate_half_backslash_u_3 => {
-                    try self.expectMoreContent();
-                    const c = self.input[self.cursor];
+                    const c = try self.expectByte();
                     switch (c) {
                         '0'...'9' => {
                             self.unicode_code_point |= c - '0';
@@ -960,9 +942,7 @@ pub const JsonScanner = struct {
                 },
 
                 .string_utf8_last_byte => {
-                    try self.expectMoreContent();
-                    const c = self.input[self.cursor];
-                    switch (c) {
+                    switch (try self.expectByte()) {
                         0x80...0xBF => {
                             self.cursor += 1;
                             self.state = .string;
@@ -972,9 +952,7 @@ pub const JsonScanner = struct {
                     }
                 },
                 .string_utf8_second_to_last_byte => {
-                    try self.expectMoreContent();
-                    const c = self.input[self.cursor];
-                    switch (c) {
+                    switch (try self.expectByte()) {
                         0x80...0xBF => {
                             self.cursor += 1;
                             self.state = .string_utf8_last_byte;
@@ -984,9 +962,7 @@ pub const JsonScanner = struct {
                     }
                 },
                 .string_utf8_second_to_last_byte_guard_against_overlong => {
-                    try self.expectMoreContent();
-                    const c = self.input[self.cursor];
-                    switch (c) {
+                    switch (try self.expectByte()) {
                         0xA0...0xBF => {
                             self.cursor += 1;
                             self.state = .string_utf8_last_byte;
@@ -996,9 +972,7 @@ pub const JsonScanner = struct {
                     }
                 },
                 .string_utf8_second_to_last_byte_guard_against_surrogate_half => {
-                    try self.expectMoreContent();
-                    const c = self.input[self.cursor];
-                    switch (c) {
+                    switch (try self.expectByte()) {
                         0x80...0x9F => {
                             self.cursor += 1;
                             self.state = .string_utf8_last_byte;
@@ -1008,9 +982,7 @@ pub const JsonScanner = struct {
                     }
                 },
                 .string_utf8_third_to_last_byte => {
-                    try self.expectMoreContent();
-                    const c = self.input[self.cursor];
-                    switch (c) {
+                    switch (try self.expectByte()) {
                         0x80...0xBF => {
                             self.cursor += 1;
                             self.state = .string_utf8_second_to_last_byte;
@@ -1020,9 +992,7 @@ pub const JsonScanner = struct {
                     }
                 },
                 .string_utf8_third_to_last_byte_guard_against_overlong => {
-                    try self.expectMoreContent();
-                    const c = self.input[self.cursor];
-                    switch (c) {
+                    switch (try self.expectByte()) {
                         0x90...0xBF => {
                             self.cursor += 1;
                             self.state = .string_utf8_second_to_last_byte;
@@ -1032,9 +1002,7 @@ pub const JsonScanner = struct {
                     }
                 },
                 .string_utf8_third_to_last_byte_guard_against_too_large => {
-                    try self.expectMoreContent();
-                    const c = self.input[self.cursor];
-                    switch (c) {
+                    switch (try self.expectByte()) {
                         0x80...0x8F => {
                             self.cursor += 1;
                             self.state = .string_utf8_second_to_last_byte;
@@ -1045,8 +1013,7 @@ pub const JsonScanner = struct {
                 },
 
                 .literal_t => {
-                    try self.expectMoreContent();
-                    switch (self.input[self.cursor]) {
+                    switch (try self.expectByte()) {
                         'r' => {
                             self.cursor += 1;
                             self.state = .literal_tr;
@@ -1056,8 +1023,7 @@ pub const JsonScanner = struct {
                     }
                 },
                 .literal_tr => {
-                    try self.expectMoreContent();
-                    switch (self.input[self.cursor]) {
+                    switch (try self.expectByte()) {
                         'u' => {
                             self.cursor += 1;
                             self.state = .literal_tru;
@@ -1067,8 +1033,7 @@ pub const JsonScanner = struct {
                     }
                 },
                 .literal_tru => {
-                    try self.expectMoreContent();
-                    switch (self.input[self.cursor]) {
+                    switch (try self.expectByte()) {
                         'e' => {
                             self.cursor += 1;
                             self.state = .post_value;
@@ -1078,8 +1043,7 @@ pub const JsonScanner = struct {
                     }
                 },
                 .literal_f => {
-                    try self.expectMoreContent();
-                    switch (self.input[self.cursor]) {
+                    switch (try self.expectByte()) {
                         'a' => {
                             self.cursor += 1;
                             self.state = .literal_fa;
@@ -1089,8 +1053,7 @@ pub const JsonScanner = struct {
                     }
                 },
                 .literal_fa => {
-                    try self.expectMoreContent();
-                    switch (self.input[self.cursor]) {
+                    switch (try self.expectByte()) {
                         'l' => {
                             self.cursor += 1;
                             self.state = .literal_fal;
@@ -1100,8 +1063,7 @@ pub const JsonScanner = struct {
                     }
                 },
                 .literal_fal => {
-                    try self.expectMoreContent();
-                    switch (self.input[self.cursor]) {
+                    switch (try self.expectByte()) {
                         's' => {
                             self.cursor += 1;
                             self.state = .literal_fals;
@@ -1111,8 +1073,7 @@ pub const JsonScanner = struct {
                     }
                 },
                 .literal_fals => {
-                    try self.expectMoreContent();
-                    switch (self.input[self.cursor]) {
+                    switch (try self.expectByte()) {
                         'e' => {
                             self.cursor += 1;
                             self.state = .post_value;
@@ -1122,8 +1083,7 @@ pub const JsonScanner = struct {
                     }
                 },
                 .literal_n => {
-                    try self.expectMoreContent();
-                    switch (self.input[self.cursor]) {
+                    switch (try self.expectByte()) {
                         'u' => {
                             self.cursor += 1;
                             self.state = .literal_nu;
@@ -1133,8 +1093,7 @@ pub const JsonScanner = struct {
                     }
                 },
                 .literal_nu => {
-                    try self.expectMoreContent();
-                    switch (self.input[self.cursor]) {
+                    switch (try self.expectByte()) {
                         'l' => {
                             self.cursor += 1;
                             self.state = .literal_nul;
@@ -1144,8 +1103,7 @@ pub const JsonScanner = struct {
                     }
                 },
                 .literal_nul => {
-                    try self.expectMoreContent();
-                    switch (self.input[self.cursor]) {
+                    switch (try self.expectByte()) {
                         'l' => {
                             self.cursor += 1;
                             self.state = .post_value;
@@ -1154,6 +1112,135 @@ pub const JsonScanner = struct {
                         else => return error.SyntaxError,
                     }
                 },
+            }
+            unreachable;
+        }
+    }
+
+    /// Seeks ahead in the input until the first byte of the next token (or the end of the input)
+    /// determines which type of token will be returned from the next next*() call.
+    /// This function is idempotent, only advancing past commas, colons, and inter-token whitespace.
+    pub fn peekNextTokenType(self: *@This()) PeekError!TokenType {
+        state_loop: while (true) {
+            switch (self.state) {
+                .value => {
+                    switch (try self.skipWhitespaceExpectByte()) {
+                        '{' => return .object_begin,
+                        '[' => return .array_begin,
+                        '"' => return .string,
+                        '-', '0'...'9' => return .number,
+                        't' => return .true,
+                        'f' => return .false,
+                        'n' => return .null,
+                        else => return error.SyntaxError,
+                    }
+                },
+
+                .post_value => {
+                    if (try self.skipWhitespaceCheckEnd()) return .end_of_document;
+
+                    const c = self.input[self.cursor];
+                    if (self.string_is_object_key) {
+                        self.string_is_object_key = false;
+                        switch (c) {
+                            ':' => {
+                                self.cursor += 1;
+                                self.state = .value;
+                                continue :state_loop;
+                            },
+                            else => return error.SyntaxError,
+                        }
+                    }
+
+                    switch (c) {
+                        '}' => return .object_end,
+                        ']' => return .array_end,
+                        ',' => {
+                            switch (self.stack.peek()) {
+                                OBJECT_MODE => {
+                                    self.state = .object_post_comma;
+                                },
+                                ARRAY_MODE => {
+                                    self.state = .value;
+                                },
+                            }
+                            self.cursor += 1;
+                            continue :state_loop;
+                        },
+                        else => return error.SyntaxError,
+                    }
+                },
+
+                .object_start => {
+                    switch (try self.skipWhitespaceExpectByte()) {
+                        '"' => return .string,
+                        '}' => return .object_end,
+                        else => return error.SyntaxError,
+                    }
+                },
+                .object_post_comma => {
+                    switch (try self.skipWhitespaceExpectByte()) {
+                        '"' => return .string,
+                        else => return error.SyntaxError,
+                    }
+                },
+
+                .array_start => {
+                    switch (try self.skipWhitespaceExpectByte()) {
+                        ']' => return .array_end,
+                        else => {
+                            self.state = .value;
+                            continue :state_loop;
+                        },
+                    }
+                },
+
+                .number_minus,
+                .number_leading_zero,
+                .number_int,
+                .number_post_dot,
+                .number_frac,
+                .number_post_e,
+                .number_post_e_sign,
+                .number_exp,
+                => return .number,
+
+                .string,
+                .string_backslash,
+                .string_backslash_u,
+                .string_backslash_u_1,
+                .string_backslash_u_2,
+                .string_backslash_u_3,
+                .string_surrogate_half,
+                .string_surrogate_half_backslash,
+                .string_surrogate_half_backslash_u,
+                .string_surrogate_half_backslash_u_1,
+                .string_surrogate_half_backslash_u_2,
+                .string_surrogate_half_backslash_u_3,
+                => return .string,
+
+                .string_utf8_last_byte,
+                .string_utf8_second_to_last_byte,
+                .string_utf8_second_to_last_byte_guard_against_overlong,
+                .string_utf8_second_to_last_byte_guard_against_surrogate_half,
+                .string_utf8_third_to_last_byte,
+                .string_utf8_third_to_last_byte_guard_against_overlong,
+                .string_utf8_third_to_last_byte_guard_against_too_large,
+                => return .string,
+
+                .literal_t,
+                .literal_tr,
+                .literal_tru,
+                => return .true,
+                .literal_f,
+                .literal_fa,
+                .literal_fal,
+                .literal_fals,
+                => return .false,
+                .literal_n,
+                .literal_nu,
+                .literal_nul,
+                => return .null,
             }
             unreachable;
         }
@@ -1211,21 +1298,46 @@ pub const JsonScanner = struct {
         literal_nul,
     };
 
-    fn expectMoreContent(self: *const @This()) !void {
-        if (self.cursor < self.input.len) return;
+    fn expectByte(self: *const @This()) !u8 {
+        if (self.cursor < self.input.len) {
+            return self.input[self.cursor];
+        }
+        // No byte.
         if (self.is_end_of_input) return error.UnexpectedEndOfInput;
         return error.BufferUnderrun;
     }
 
     fn skipWhitespace(self: *@This()) void {
         while (self.cursor < self.input.len) : (self.cursor += 1) {
-            const c = self.input[self.cursor];
-            switch (c) {
+            switch (self.input[self.cursor]) {
                 // Whitespace
                 ' ', '\t', '\n', '\r' => continue,
                 else => return,
             }
         }
+    }
+
+    fn skipWhitespaceExpectByte(self: *@This()) !u8 {
+        self.skipWhitespace();
+        return self.expectByte();
+    }
+
+    fn skipWhitespaceCheckEnd(self: *@This()) !bool {
+        self.skipWhitespace();
+        if (self.cursor >= self.input.len) {
+            // End of buffer.
+            if (self.is_end_of_input) {
+                // End of everything.
+                if (self.stack.bit_len == 0) {
+                    // We did it!
+                    return true;
+                }
+                return error.UnexpectedEndOfInput;
+            }
+            return error.BufferUnderrun;
+        }
+        if (self.stack.bit_len == 0) return error.SyntaxError;
+        return false;
     }
 
     fn takeValueSlice(self: *@This()) []const u8 {
@@ -1363,6 +1475,15 @@ fn appendSlice(list: *std.ArrayList(u8), buf: []const u8, max_value_len: usize) 
     const new_len = std.math.add(usize, list.items.len, buf.len) catch return error.ValueTooLong;
     if (new_len > max_value_len) return error.ValueTooLong;
     try list.appendSlice(buf);
+}
+
+/// For the slice you get from a .number or .allocated_number,
+/// this function returns true if the number doesn't contain any fraction or exponent components.
+/// Note, the numeric value encoded by the value may still be an integer, such as 1.0.
+/// This function is meant to give a hint about whether integer parsing or float parsing should be used on the value.
+/// This function will not give meaningful results on non-numeric input.
+pub fn isNumberFormattedLikeAnInteger(value: []const u8) bool {
+    return std.mem.indexOfAny(u8, value, ".eE") == null;
 }
 
 test {

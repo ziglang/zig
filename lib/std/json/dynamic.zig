@@ -12,6 +12,7 @@ const stringify = @import("./stringify.zig").stringify;
 const JsonScanner = @import("./scanner.zig").JsonScanner;
 const AllocWhen = @import("./scanner.zig").AllocWhen;
 const Token = @import("./scanner.zig").Token;
+const isNumberFormattedLikeAnInteger = @import("./scanner.zig").isNumberFormattedLikeAnInteger;
 
 pub const ValueTree = struct {
     arena: *ArenaAllocator,
@@ -309,8 +310,7 @@ pub const Parser = struct {
 
     fn parseNumber(p: *Parser, slice: []const u8) !Value {
         _ = p;
-        const is_integer = std.mem.indexOfAny(u8, slice, ".eE") == null;
-        return if (is_integer)
+        return if (isNumberFormattedLikeAnInteger(slice))
             Value{
                 .integer = std.fmt.parseInt(i64, slice, 10) catch |e| switch (e) {
                     error.Overflow => return Value{ .number_string = slice },

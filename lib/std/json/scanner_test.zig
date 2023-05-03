@@ -3,6 +3,7 @@ const JsonScanner = @import("./scanner.zig").JsonScanner;
 const jsonReader = @import("./scanner.zig").jsonReader;
 const JsonReader = @import("./scanner.zig").JsonReader;
 const Token = @import("./scanner.zig").Token;
+const TokenType = @import("./scanner.zig").TokenType;
 const JsonError = @import("./scanner.zig").JsonError;
 const validate = @import("./scanner.zig").validate;
 
@@ -23,8 +24,13 @@ const example_document_str =
     \\}
 ;
 
-fn expectNext(p: *JsonScanner, expected_token: Token) !void {
-    return expectEqualTokens(expected_token, try p.next());
+fn expectNext(scanner_or_reader: anytype, expected_token: Token) !void {
+    return expectEqualTokens(expected_token, try scanner_or_reader.next());
+}
+
+fn expectPeekNext(scanner_or_reader: anytype, expected_token_type: TokenType, expected_token: Token) !void {
+    try std.testing.expectEqual(expected_token_type, try scanner_or_reader.peekNextTokenType());
+    try expectEqualTokens(expected_token, try scanner_or_reader.next());
 }
 
 test "json.token" {
@@ -61,6 +67,50 @@ test "json.token" {
     try expectNext(&scanner, .object_end);
     try expectNext(&scanner, .object_end);
     try expectNext(&scanner, .end_of_document);
+}
+
+const all_types_test_case =
+    \\[
+    \\  "", "a\nb",
+    \\  0, 0.0, -1.1e-1,
+    \\  true, false, null,
+    \\  {"a": {}},
+    \\  []
+    \\]
+;
+
+fn testAllTypes(source: anytype) !void {
+    try expectPeekNext(source, .array_begin, .array_begin);
+    try expectPeekNext(source, .string, Token{ .string = "" });
+    try expectPeekNext(source, .string, Token{ .partial_string = "a" });
+    try expectNext(source, Token{ .partial_string_escaped_1 = "\n".* });
+    try expectNext(source, Token{ .string = "b" });
+    try expectPeekNext(source, .number, Token{ .number = "0" });
+    try expectPeekNext(source, .number, Token{ .number = "0.0" });
+    try expectPeekNext(source, .number, Token{ .number = "-1.1e-1" });
+    try expectPeekNext(source, .true, .true);
+    try expectPeekNext(source, .false, .false);
+    try expectPeekNext(source, .null, .null);
+    try expectPeekNext(source, .object_begin, .object_begin);
+    try expectPeekNext(source, .string, Token{ .string = "a" });
+    try expectPeekNext(source, .object_begin, .object_begin);
+    try expectPeekNext(source, .object_end, .object_end);
+    try expectPeekNext(source, .object_end, .object_end);
+    try expectPeekNext(source, .array_begin, .array_begin);
+    try expectPeekNext(source, .array_end, .array_end);
+    try expectPeekNext(source, .array_end, .array_end);
+    try expectPeekNext(source, .end_of_document, .end_of_document);
+}
+
+test "peek all types" {
+    var scanner = JsonScanner.initCompleteInput(std.testing.allocator, all_types_test_case);
+    defer scanner.deinit();
+    try testAllTypes(&scanner);
+
+    var stream = std.io.fixedBufferStream(all_types_test_case);
+    var json_reader = jsonReader(std.testing.allocator, stream.reader());
+    defer json_reader.deinit();
+    try testAllTypes(&json_reader);
 }
 
 test "json.token mismatched close" {
