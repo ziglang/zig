@@ -1898,10 +1898,14 @@ fn resolveMaybeUndefVal(
     inst: Air.Inst.Ref,
 ) CompileError!?Value {
     const val = (try sema.resolveMaybeUndefValAllowVariables(inst)) orelse return null;
-    switch (val.tag()) {
-        .variable => return null,
+    switch (val.ip_index) {
         .generic_poison => return error.GenericPoison,
         else => return val,
+        .none => switch (val.tag()) {
+            .variable => return null,
+            .generic_poison => return error.GenericPoison,
+            else => return val,
+        },
     }
 }
 
@@ -33483,6 +33487,33 @@ fn typePtrOrOptionalPtrTy(
     buf: *Type.Payload.ElemType,
 ) !?Type {
     const mod = sema.mod;
+
+    if (ty.ip_index != .none) switch (mod.intern_pool.indexToKey(ty.ip_index)) {
+        .ptr_type => |ptr_type| switch (ptr_type.size) {
+            .Slice => return null,
+            .C => return ptr_type.elem_type.toType(),
+            .One, .Many => return ty,
+        },
+        .optional_type => |o| switch (mod.intern_pool.indexToKey(o.payload_type)) {
+            .ptr_type => |ptr_type| switch (ptr_type.size) {
+                .Slice, .C => return null,
+                .Many, .One => {
+                    if (ptr_type.is_allowzero) return null;
+
+                    // optionals of zero sized types behave like bools, not pointers
+                    const payload_ty = o.payload_type.toType();
+                    if ((try sema.typeHasOnePossibleValue(payload_ty)) != null) {
+                        return null;
+                    }
+
+                    return payload_ty;
+                },
+            },
+            else => return null,
+        },
+        else => return null,
+    };
+
     switch (ty.tag()) {
         .optional_single_const_pointer,
         .optional_single_mut_pointer,
