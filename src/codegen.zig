@@ -371,7 +371,7 @@ pub fn generateSymbol(
 
                 // generate length
                 switch (try generateSymbol(bin_file, src_loc, .{
-                    .ty = Type.initTag(.usize),
+                    .ty = Type.usize,
                     .val = slice.len,
                 }, code, debug_output, reloc_info)) {
                     .ok => {},

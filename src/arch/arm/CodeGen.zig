@@ -4308,7 +4308,7 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallModifier
                 const atom = elf_file.getAtom(atom_index);
                 _ = try atom.getOrCreateOffsetTableEntry(elf_file);
                 const got_addr = @intCast(u32, atom.getOffsetTableAddress(elf_file));
-                try self.genSetReg(Type.initTag(.usize), .lr, .{ .memory = got_addr });
+                try self.genSetReg(Type.usize, .lr, .{ .memory = got_addr });
             } else if (self.bin_file.cast(link.File.MachO)) |_| {
                 unreachable; // unsupported architecture for MachO
             } else {
@@ -4326,7 +4326,7 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallModifier
         assert(ty.zigTypeTag(mod) == .Pointer);
         const mcv = try self.resolveInst(callee);
 
-        try self.genSetReg(Type.initTag(.usize), .lr, mcv);
+        try self.genSetReg(Type.usize, .lr, mcv);
     }
 
     // TODO: add Instruction.supportedOn
@@ -5694,7 +5694,7 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
             if (extra_offset) {
                 const offset = if (off <= math.maxInt(u8)) blk: {
                     break :blk Instruction.ExtraLoadStoreOffset.imm(@intCast(u8, off));
-                } else Instruction.ExtraLoadStoreOffset.reg(try self.copyToTmpRegister(Type.initTag(.usize), MCValue{ .immediate = off }));
+                } else Instruction.ExtraLoadStoreOffset.reg(try self.copyToTmpRegister(Type.usize, MCValue{ .immediate = off }));
 
                 _ = try self.addInst(.{
                     .tag = tag,
@@ -5710,7 +5710,7 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
             } else {
                 const offset = if (off <= math.maxInt(u12)) blk: {
                     break :blk Instruction.Offset.imm(@intCast(u12, off));
-                } else Instruction.Offset.reg(try self.copyToTmpRegister(Type.initTag(.usize), MCValue{ .immediate = off }), .none);
+                } else Instruction.Offset.reg(try self.copyToTmpRegister(Type.usize, MCValue{ .immediate = off }), .none);
 
                 _ = try self.addInst(.{
                     .tag = tag,
@@ -5916,7 +5916,7 @@ fn airArrayToSlice(self: *Self, inst: Air.Inst.Index) !void {
 
         const stack_offset = try self.allocMem(8, 8, inst);
         try self.genSetStack(ptr_ty, stack_offset, ptr);
-        try self.genSetStack(Type.initTag(.usize), stack_offset - 4, .{ .immediate = array_len });
+        try self.genSetStack(Type.usize, stack_offset - 4, .{ .immediate = array_len });
         break :result MCValue{ .stack_offset = stack_offset };
     };
     return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });

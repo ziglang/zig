@@ -121,17 +121,6 @@ pub const Type = struct {
             .i64,
             .u128,
             .i128,
-            .usize,
-            .isize,
-            .c_char,
-            .c_short,
-            .c_ushort,
-            .c_int,
-            .c_uint,
-            .c_long,
-            .c_ulong,
-            .c_longlong,
-            .c_ulonglong,
             => return .Int,
 
             .error_set,
@@ -621,19 +610,6 @@ pub const Type = struct {
         switch (a.tag()) {
             .generic_poison => unreachable,
 
-            // Detect that e.g. u64 != usize, even if the bits match on a particular target.
-            .usize,
-            .isize,
-            .c_char,
-            .c_short,
-            .c_ushort,
-            .c_int,
-            .c_uint,
-            .c_long,
-            .c_ulong,
-            .c_longlong,
-            .c_ulonglong,
-
             .bool,
             .void,
             .type,
@@ -1013,22 +989,6 @@ pub const Type = struct {
         switch (ty.tag()) {
             .generic_poison => unreachable,
 
-            .usize,
-            .isize,
-            .c_char,
-            .c_short,
-            .c_ushort,
-            .c_int,
-            .c_uint,
-            .c_long,
-            .c_ulong,
-            .c_longlong,
-            .c_ulonglong,
-            => |ty_tag| {
-                std.hash.autoHash(hasher, std.builtin.TypeId.Int);
-                std.hash.autoHash(hasher, ty_tag);
-            },
-
             .bool => std.hash.autoHash(hasher, std.builtin.TypeId.Bool),
             .void => std.hash.autoHash(hasher, std.builtin.TypeId.Void),
             .type => std.hash.autoHash(hasher, std.builtin.TypeId.Type),
@@ -1345,17 +1305,6 @@ pub const Type = struct {
             .i64,
             .u128,
             .i128,
-            .usize,
-            .isize,
-            .c_char,
-            .c_short,
-            .c_ushort,
-            .c_int,
-            .c_uint,
-            .c_long,
-            .c_ulong,
-            .c_longlong,
-            .c_ulonglong,
             .anyopaque,
             .bool,
             .void,
@@ -1631,17 +1580,6 @@ pub const Type = struct {
                 .i64,
                 .u128,
                 .i128,
-                .usize,
-                .isize,
-                .c_char,
-                .c_short,
-                .c_ushort,
-                .c_int,
-                .c_uint,
-                .c_long,
-                .c_ulong,
-                .c_longlong,
-                .c_ulonglong,
                 .anyopaque,
                 .bool,
                 .void,
@@ -2020,17 +1958,6 @@ pub const Type = struct {
             .i64,
             .u128,
             .i128,
-            .usize,
-            .isize,
-            .c_char,
-            .c_short,
-            .c_ushort,
-            .c_int,
-            .c_uint,
-            .c_long,
-            .c_ulong,
-            .c_longlong,
-            .c_ulonglong,
             .anyopaque,
             .bool,
             .void,
@@ -2322,17 +2249,6 @@ pub const Type = struct {
             .i32 => return Value.initTag(.i32_type),
             .u64 => return Value.initTag(.u64_type),
             .i64 => return Value.initTag(.i64_type),
-            .usize => return Value.initTag(.usize_type),
-            .isize => return Value.initTag(.isize_type),
-            .c_char => return Value.initTag(.c_char_type),
-            .c_short => return Value.initTag(.c_short_type),
-            .c_ushort => return Value.initTag(.c_ushort_type),
-            .c_int => return Value.initTag(.c_int_type),
-            .c_uint => return Value.initTag(.c_uint_type),
-            .c_long => return Value.initTag(.c_long_type),
-            .c_ulong => return Value.initTag(.c_ulong_type),
-            .c_longlong => return Value.initTag(.c_longlong_type),
-            .c_ulonglong => return Value.initTag(.c_ulonglong_type),
             .anyopaque => return Value.initTag(.anyopaque_type),
             .bool => return Value.initTag(.bool_type),
             .void => return Value.initTag(.void_type),
@@ -2462,17 +2378,6 @@ pub const Type = struct {
             .i64,
             .u128,
             .i128,
-            .usize,
-            .isize,
-            .c_char,
-            .c_short,
-            .c_ushort,
-            .c_int,
-            .c_uint,
-            .c_long,
-            .c_ulong,
-            .c_longlong,
-            .c_ulonglong,
             .bool,
             .anyerror,
             .const_slice_u8,
@@ -2713,6 +2618,8 @@ pub const Type = struct {
                 .type_info,
                 .generic_poison,
                 => false,
+
+                .var_args_param => unreachable,
             },
             .struct_type => @panic("TODO"),
             .union_type => @panic("TODO"),
@@ -2734,17 +2641,6 @@ pub const Type = struct {
             .i64,
             .u128,
             .i128,
-            .usize,
-            .isize,
-            .c_char,
-            .c_short,
-            .c_ushort,
-            .c_int,
-            .c_uint,
-            .c_long,
-            .c_ulong,
-            .c_longlong,
-            .c_ulonglong,
             .bool,
             .void,
             .manyptr_u8,
@@ -3040,7 +2936,7 @@ pub const Type = struct {
                 .export_options,
                 .extern_options,
                 .@"anyframe",
-                => return AbiAlignmentAdvanced{ .scalar = @divExact(target.cpu.arch.ptrBitWidth(), 8) },
+                => return AbiAlignmentAdvanced{ .scalar = @divExact(target.ptrBitWidth(), 8) },
 
                 .c_char => return AbiAlignmentAdvanced{ .scalar = target.c_type_alignment(.char) },
                 .c_short => return AbiAlignmentAdvanced{ .scalar = target.c_type_alignment(.short) },
@@ -3089,6 +2985,7 @@ pub const Type = struct {
 
                 .noreturn => unreachable,
                 .generic_poison => unreachable,
+                .var_args_param => unreachable,
             },
             .struct_type => @panic("TODO"),
             .union_type => @panic("TODO"),
@@ -3130,8 +3027,6 @@ pub const Type = struct {
                 return AbiAlignmentAdvanced{ .scalar = target_util.defaultFunctionAlignment(target) };
             },
 
-            .isize,
-            .usize,
             .single_const_pointer_to_comptime_int,
             .const_slice_u8,
             .const_slice_u8_sentinel_0,
@@ -3152,16 +3047,6 @@ pub const Type = struct {
             .@"anyframe",
             .anyframe_T,
             => return AbiAlignmentAdvanced{ .scalar = @divExact(target.ptrBitWidth(), 8) },
-
-            .c_char => return AbiAlignmentAdvanced{ .scalar = target.c_type_alignment(.char) },
-            .c_short => return AbiAlignmentAdvanced{ .scalar = target.c_type_alignment(.short) },
-            .c_ushort => return AbiAlignmentAdvanced{ .scalar = target.c_type_alignment(.ushort) },
-            .c_int => return AbiAlignmentAdvanced{ .scalar = target.c_type_alignment(.int) },
-            .c_uint => return AbiAlignmentAdvanced{ .scalar = target.c_type_alignment(.uint) },
-            .c_long => return AbiAlignmentAdvanced{ .scalar = target.c_type_alignment(.long) },
-            .c_ulong => return AbiAlignmentAdvanced{ .scalar = target.c_type_alignment(.ulong) },
-            .c_longlong => return AbiAlignmentAdvanced{ .scalar = target.c_type_alignment(.longlong) },
-            .c_ulonglong => return AbiAlignmentAdvanced{ .scalar = target.c_type_alignment(.ulonglong) },
 
             // TODO revisit this when we have the concept of the error tag type
             .anyerror_void_error_union,
@@ -3491,7 +3376,7 @@ pub const Type = struct {
                 .usize,
                 .isize,
                 .@"anyframe",
-                => return AbiSizeAdvanced{ .scalar = @divExact(target.cpu.arch.ptrBitWidth(), 8) },
+                => return AbiSizeAdvanced{ .scalar = @divExact(target.ptrBitWidth(), 8) },
 
                 .c_char => return AbiSizeAdvanced{ .scalar = target.c_type_byte_size(.char) },
                 .c_short => return AbiSizeAdvanced{ .scalar = target.c_type_byte_size(.short) },
@@ -3524,6 +3409,7 @@ pub const Type = struct {
                 .type_info => unreachable,
                 .noreturn => unreachable,
                 .generic_poison => unreachable,
+                .var_args_param => unreachable,
             },
             .struct_type => @panic("TODO"),
             .union_type => @panic("TODO"),
@@ -3666,8 +3552,6 @@ pub const Type = struct {
                 return AbiSizeAdvanced{ .scalar = result };
             },
 
-            .isize,
-            .usize,
             .@"anyframe",
             .anyframe_T,
             .optional_single_const_pointer,
@@ -3693,16 +3577,6 @@ pub const Type = struct {
                 .Slice => return AbiSizeAdvanced{ .scalar = @divExact(target.ptrBitWidth(), 8) * 2 },
                 else => return AbiSizeAdvanced{ .scalar = @divExact(target.ptrBitWidth(), 8) },
             },
-
-            .c_char => return AbiSizeAdvanced{ .scalar = target.c_type_byte_size(.char) },
-            .c_short => return AbiSizeAdvanced{ .scalar = target.c_type_byte_size(.short) },
-            .c_ushort => return AbiSizeAdvanced{ .scalar = target.c_type_byte_size(.ushort) },
-            .c_int => return AbiSizeAdvanced{ .scalar = target.c_type_byte_size(.int) },
-            .c_uint => return AbiSizeAdvanced{ .scalar = target.c_type_byte_size(.uint) },
-            .c_long => return AbiSizeAdvanced{ .scalar = target.c_type_byte_size(.long) },
-            .c_ulong => return AbiSizeAdvanced{ .scalar = target.c_type_byte_size(.ulong) },
-            .c_longlong => return AbiSizeAdvanced{ .scalar = target.c_type_byte_size(.longlong) },
-            .c_ulonglong => return AbiSizeAdvanced{ .scalar = target.c_type_byte_size(.ulonglong) },
 
             // TODO revisit this when we have the concept of the error tag type
             .anyerror_void_error_union,
@@ -3856,7 +3730,7 @@ pub const Type = struct {
                 .usize,
                 .isize,
                 .@"anyframe",
-                => return target.cpu.arch.ptrBitWidth(),
+                => return target.ptrBitWidth(),
 
                 .c_char => return target.c_type_bit_size(.char),
                 .c_short => return target.c_type_bit_size(.short),
@@ -3896,6 +3770,7 @@ pub const Type = struct {
                 .export_options => unreachable, // missing call to resolveTypeFields
                 .extern_options => unreachable, // missing call to resolveTypeFields
                 .type_info => unreachable, // missing call to resolveTypeFields
+                .var_args_param => unreachable,
             },
             .struct_type => @panic("TODO"),
             .union_type => @panic("TODO"),
@@ -4000,8 +3875,6 @@ pub const Type = struct {
                 return payload.len * 8 * elem_size + elem_bit_size;
             },
 
-            .isize,
-            .usize,
             .@"anyframe",
             .anyframe_T,
             => return target.ptrBitWidth(),
@@ -4039,16 +3912,6 @@ pub const Type = struct {
             .manyptr_const_u8,
             .manyptr_const_u8_sentinel_0,
             => return target.ptrBitWidth(),
-
-            .c_char => return target.c_type_bit_size(.char),
-            .c_short => return target.c_type_bit_size(.short),
-            .c_ushort => return target.c_type_bit_size(.ushort),
-            .c_int => return target.c_type_bit_size(.int),
-            .c_uint => return target.c_type_bit_size(.uint),
-            .c_long => return target.c_type_bit_size(.long),
-            .c_ulong => return target.c_type_bit_size(.ulong),
-            .c_longlong => return target.c_type_bit_size(.longlong),
-            .c_ulonglong => return target.c_type_bit_size(.ulonglong),
 
             .error_set,
             .error_set_single,
@@ -4876,12 +4739,6 @@ pub const Type = struct {
         };
         return switch (ty.tag()) {
             .i8,
-            .isize,
-            .c_char,
-            .c_short,
-            .c_int,
-            .c_long,
-            .c_longlong,
             .i16,
             .i32,
             .i64,
@@ -4903,11 +4760,6 @@ pub const Type = struct {
             else => return false,
         };
         return switch (ty.tag()) {
-            .usize,
-            .c_ushort,
-            .c_uint,
-            .c_ulong,
-            .c_ulonglong,
             .u1,
             .u8,
             .u16,
@@ -4938,13 +4790,26 @@ pub const Type = struct {
 
         if (ty.ip_index != .none) switch (mod.intern_pool.indexToKey(ty.ip_index)) {
             .int_type => |int_type| return int_type,
-            .ptr_type => @panic("TODO"),
-            .array_type => @panic("TODO"),
+            .ptr_type => unreachable,
+            .array_type => unreachable,
             .vector_type => @panic("TODO"),
-            .optional_type => @panic("TODO"),
-            .error_union_type => @panic("TODO"),
-            .simple_type => @panic("TODO"),
-            .struct_type => unreachable,
+            .optional_type => unreachable,
+            .error_union_type => unreachable,
+            .simple_type => |t| switch (t) {
+                .usize => return .{ .signedness = .unsigned, .bits = target.ptrBitWidth() },
+                .isize => return .{ .signedness = .signed, .bits = target.ptrBitWidth() },
+                .c_char => return .{ .signedness = .signed, .bits = target.c_type_bit_size(.char) },
+                .c_short => return .{ .signedness = .signed, .bits = target.c_type_bit_size(.short) },
+                .c_ushort => return .{ .signedness = .unsigned, .bits = target.c_type_bit_size(.ushort) },
+                .c_int => return .{ .signedness = .signed, .bits = target.c_type_bit_size(.int) },
+                .c_uint => return .{ .signedness = .unsigned, .bits = target.c_type_bit_size(.uint) },
+                .c_long => return .{ .signedness = .signed, .bits = target.c_type_bit_size(.long) },
+                .c_ulong => return .{ .signedness = .unsigned, .bits = target.c_type_bit_size(.ulong) },
+                .c_longlong => return .{ .signedness = .signed, .bits = target.c_type_bit_size(.longlong) },
+                .c_ulonglong => return .{ .signedness = .unsigned, .bits = target.c_type_bit_size(.ulonglong) },
+                else => unreachable,
+            },
+            .struct_type => @panic("TODO"),
             .union_type => unreachable,
             .simple_value => unreachable,
             .extern_func => unreachable,
@@ -4965,17 +4830,6 @@ pub const Type = struct {
             .i64 => return .{ .signedness = .signed, .bits = 64 },
             .u128 => return .{ .signedness = .unsigned, .bits = 128 },
             .i128 => return .{ .signedness = .signed, .bits = 128 },
-            .usize => return .{ .signedness = .unsigned, .bits = target.ptrBitWidth() },
-            .isize => return .{ .signedness = .signed, .bits = target.ptrBitWidth() },
-            .c_char => return .{ .signedness = .signed, .bits = target.c_type_bit_size(.char) },
-            .c_short => return .{ .signedness = .signed, .bits = target.c_type_bit_size(.short) },
-            .c_ushort => return .{ .signedness = .unsigned, .bits = target.c_type_bit_size(.ushort) },
-            .c_int => return .{ .signedness = .signed, .bits = target.c_type_bit_size(.int) },
-            .c_uint => return .{ .signedness = .unsigned, .bits = target.c_type_bit_size(.uint) },
-            .c_long => return .{ .signedness = .signed, .bits = target.c_type_bit_size(.long) },
-            .c_ulong => return .{ .signedness = .unsigned, .bits = target.c_type_bit_size(.ulong) },
-            .c_longlong => return .{ .signedness = .signed, .bits = target.c_type_bit_size(.longlong) },
-            .c_ulonglong => return .{ .signedness = .unsigned, .bits = target.c_type_bit_size(.ulonglong) },
 
             .enum_full, .enum_nonexhaustive => ty = ty.cast(Payload.EnumFull).?.data.tag_ty,
             .enum_numbered => ty = ty.castTag(.enum_numbered).?.data.tag_ty,
@@ -5003,19 +4857,19 @@ pub const Type = struct {
         };
     }
 
-    pub fn isNamedInt(self: Type) bool {
-        return switch (self.tag()) {
-            .usize,
-            .isize,
-            .c_char,
-            .c_short,
-            .c_ushort,
-            .c_int,
-            .c_uint,
-            .c_long,
-            .c_ulong,
-            .c_longlong,
-            .c_ulonglong,
+    pub fn isNamedInt(ty: Type) bool {
+        return switch (ty.ip_index) {
+            .usize_type,
+            .isize_type,
+            .c_char_type,
+            .c_short_type,
+            .c_ushort_type,
+            .c_int_type,
+            .c_uint_type,
+            .c_long_type,
+            .c_ulong_type,
+            .c_longlong_type,
+            .c_ulonglong_type,
             => true,
 
             else => false,
@@ -5180,17 +5034,6 @@ pub const Type = struct {
             .i64,
             .u128,
             .i128,
-            .usize,
-            .isize,
-            .c_char,
-            .c_short,
-            .c_ushort,
-            .c_int,
-            .c_uint,
-            .c_long,
-            .c_ulong,
-            .c_longlong,
-            .c_ulonglong,
             => true,
 
             else => false,
@@ -5284,17 +5127,6 @@ pub const Type = struct {
             .i64,
             .u128,
             .i128,
-            .usize,
-            .isize,
-            .c_char,
-            .c_short,
-            .c_ushort,
-            .c_int,
-            .c_uint,
-            .c_long,
-            .c_ulong,
-            .c_longlong,
-            .c_ulonglong,
             .bool,
             .type,
             .anyerror,
@@ -5502,6 +5334,8 @@ pub const Type = struct {
                 .enum_literal,
                 .type_info,
                 => true,
+
+                .var_args_param => unreachable,
             },
             .struct_type => @panic("TODO"),
             .union_type => @panic("TODO"),
@@ -5524,17 +5358,6 @@ pub const Type = struct {
             .i64,
             .u128,
             .i128,
-            .usize,
-            .isize,
-            .c_char,
-            .c_short,
-            .c_ushort,
-            .c_int,
-            .c_uint,
-            .c_long,
-            .c_ulong,
-            .c_longlong,
-            .c_ulonglong,
             .anyopaque,
             .bool,
             .void,
@@ -6372,17 +6195,6 @@ pub const Type = struct {
         i64,
         u128,
         i128,
-        usize,
-        isize,
-        c_char,
-        c_short,
-        c_ushort,
-        c_int,
-        c_uint,
-        c_long,
-        c_ulong,
-        c_longlong,
-        c_ulonglong,
         anyopaque,
         bool,
         void,
@@ -6480,17 +6292,6 @@ pub const Type = struct {
                 .i64,
                 .u128,
                 .i128,
-                .usize,
-                .isize,
-                .c_char,
-                .c_short,
-                .c_ushort,
-                .c_int,
-                .c_uint,
-                .c_long,
-                .c_ulong,
-                .c_longlong,
-                .c_ulonglong,
                 .anyopaque,
                 .bool,
                 .void,
@@ -6859,9 +6660,13 @@ pub const Type = struct {
     pub const @"u29" = initTag(.u29);
     pub const @"u32" = initTag(.u32);
     pub const @"u64" = initTag(.u64);
+    pub const @"u128" = initTag(.u128);
 
+    pub const @"i8" = initTag(.i8);
+    pub const @"i16" = initTag(.i16);
     pub const @"i32" = initTag(.i32);
     pub const @"i64" = initTag(.i64);
+    pub const @"i128" = initTag(.i128);
 
     pub const @"f16": Type = .{ .ip_index = .f16_type, .legacy = undefined };
     pub const @"f32": Type = .{ .ip_index = .f32_type, .legacy = undefined };
@@ -6870,8 +6675,8 @@ pub const Type = struct {
     pub const @"f128": Type = .{ .ip_index = .f128_type, .legacy = undefined };
 
     pub const @"bool" = initTag(.bool);
-    pub const @"usize" = initTag(.usize);
-    pub const @"isize" = initTag(.isize);
+    pub const @"usize": Type = .{ .ip_index = .usize_type, .legacy = undefined };
+    pub const @"isize": Type = .{ .ip_index = .isize_type, .legacy = undefined };
     pub const @"comptime_int": Type = .{ .ip_index = .comptime_int_type, .legacy = undefined };
     pub const @"comptime_float": Type = .{ .ip_index = .comptime_float_type, .legacy = undefined };
     pub const @"void" = initTag(.void);
@@ -6879,8 +6684,18 @@ pub const Type = struct {
     pub const @"anyerror" = initTag(.anyerror);
     pub const @"anyopaque" = initTag(.anyopaque);
     pub const @"null" = initTag(.null);
+    pub const @"undefined" = initTag(.undefined);
     pub const @"noreturn" = initTag(.noreturn);
 
+    pub const @"c_char": Type = .{ .ip_index = .c_char_type, .legacy = undefined };
+    pub const @"c_short": Type = .{ .ip_index = .c_short_type, .legacy = undefined };
+    pub const @"c_ushort": Type = .{ .ip_index = .c_ushort_type, .legacy = undefined };
+    pub const @"c_int": Type = .{ .ip_index = .c_int_type, .legacy = undefined };
+    pub const @"c_uint": Type = .{ .ip_index = .c_uint_type, .legacy = undefined };
+    pub const @"c_long": Type = .{ .ip_index = .c_long_type, .legacy = undefined };
+    pub const @"c_ulong": Type = .{ .ip_index = .c_ulong_type, .legacy = undefined };
+    pub const @"c_longlong": Type = .{ .ip_index = .c_longlong_type, .legacy = undefined };
+    pub const @"c_ulonglong": Type = .{ .ip_index = .c_ulonglong_type, .legacy = undefined };
     pub const @"c_longdouble": Type = .{ .ip_index = .c_longdouble_type, .legacy = undefined };
 
     pub const err_int = Type.u16;

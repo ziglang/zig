@@ -1749,7 +1749,7 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallModifier
                 const atom = elf_file.getAtom(atom_index);
                 _ = try atom.getOrCreateOffsetTableEntry(elf_file);
                 const got_addr = @intCast(u32, atom.getOffsetTableAddress(elf_file));
-                try self.genSetReg(Type.initTag(.usize), .ra, .{ .memory = got_addr });
+                try self.genSetReg(Type.usize, .ra, .{ .memory = got_addr });
                 _ = try self.addInst(.{
                     .tag = .jalr,
                     .data = .{ .i_type = .{
