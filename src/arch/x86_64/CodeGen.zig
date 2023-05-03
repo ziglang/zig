@@ -5879,7 +5879,12 @@ fn genBinOpMir(self: *Self, mir_tag: Mir.Inst.Tag, ty: Type, dst_mcv: MCValue, s
                         .load_got,
                         .load_tlv,
                         => {
-                            const addr_reg = try self.copyToTmpRegister(ty, src_mcv.address());
+                            var ptr_pl = Type.Payload.ElemType{
+                                .base = .{ .tag = .single_const_pointer },
+                                .data = ty,
+                            };
+                            const ptr_ty = Type.initPayload(&ptr_pl.base);
+                            const addr_reg = try self.copyToTmpRegister(ptr_ty, src_mcv.address());
                             return self.genBinOpMir(mir_tag, ty, dst_mcv, .{
                                 .indirect = .{ .reg = addr_reg },
                             });
