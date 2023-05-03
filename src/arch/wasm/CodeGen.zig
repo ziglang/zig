@@ -5550,16 +5550,12 @@ fn airMulWithOverflow(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
 
     const int_info = lhs_ty.intInfo(func.target);
     const wasm_bits = toWasmBits(int_info.bits) orelse {
-        return func.fail("TODO: Implement overflow arithmetic for integer bitsize: {d}", .{int_info.bits});
-    };
-
-    if (wasm_bits > 64) {
         return func.fail("TODO: Implement `@mulWithOverflow` for integer bitsize: {d}", .{int_info.bits});
-    }
+    };
 
     const zero = switch (wasm_bits) {
         32 => WValue{ .imm32 = 0 },
-        64 => WValue{ .imm64 = 0 },
+        64, 128 => WValue{ .imm64 = 0 },
         else => unreachable,
     };
 
@@ -5638,6 +5634,65 @@ fn airMulWithOverflow(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         _ = try func.cmp(lsb, msb_shifted, lhs_ty, .neq);
         try func.addLabel(.local_set, overflow_bit.local.value);
         break :blk res;
+    } else if (int_info.bits == 128 and int_info.signedness == .unsigned) blk: {
+        var lhs_msb = try (try func.load(lhs, Type.u64, 0)).toLocal(func, Type.u64);
+        defer lhs_msb.free(func);
+        var lhs_lsb = try (try func.load(lhs, Type.u64, 8)).toLocal(func, Type.u64);
+        defer lhs_lsb.free(func);
+        var rhs_msb = try (try func.load(rhs, Type.u64, 0)).toLocal(func, Type.u64);
+        defer rhs_msb.free(func);
+        var rhs_lsb = try (try func.load(rhs, Type.u64, 8)).toLocal(func, Type.u64);
+        defer rhs_lsb.free(func);
+
+        const mul1 = try func.callIntrinsic(
+            "__multi3",
+            &[_]Type{Type.i64} ** 4,
+            Type.initTag(.i128),
+            &.{ lhs_lsb, zero, rhs_msb, zero },
+        );
+        const mul2 = try func.callIntrinsic(
+            "__multi3",
+            &[_]Type{Type.i64} ** 4,
+            Type.initTag(.i128),
+            &.{ rhs_lsb, zero, lhs_msb, zero },
+        );
+        const mul3 = try func.callIntrinsic(
+            "__multi3",
+            &[_]Type{Type.i64} ** 4,
+            Type.initTag(.i128),
+            &.{ lhs_msb, zero, rhs_msb, zero },
+        );
+
+        const rhs_lsb_not_zero = try func.cmp(rhs_lsb, zero, Type.u64, .neq);
+        const lhs_lsb_not_zero = try func.cmp(lhs_lsb, zero, Type.u64, .neq);
+        const lsb_and = try func.binOp(rhs_lsb_not_zero, lhs_lsb_not_zero, Type.bool, .@"and");
+        const mul1_lsb = try func.load(mul1, Type.u64, 8);
+        const mul1_lsb_not_zero = try func.cmp(mul1_lsb, zero, Type.u64, .neq);
+        const lsb_or1 = try func.binOp(lsb_and, mul1_lsb_not_zero, Type.bool, .@"or");
+        const mul2_lsb = try func.load(mul2, Type.u64, 8);
+        const mul2_lsb_not_zero = try func.cmp(mul2_lsb, zero, Type.u64, .neq);
+        const lsb_or = try func.binOp(lsb_or1, mul2_lsb_not_zero, Type.bool, .@"or");
+
+        const mul1_msb = try func.load(mul1, Type.u64, 0);
+        const mul2_msb = try func.load(mul2, Type.u64, 0);
+        const mul_add1 = try func.binOp(mul1_msb, mul2_msb, Type.u64, .add);
+
+        var mul3_lsb = try (try func.load(mul3, Type.u64, 8)).toLocal(func, Type.u64);
+        defer mul3_lsb.free(func);
+        var mul_add2 = try (try func.binOp(mul_add1, mul3_lsb, Type.u64, .add)).toLocal(func, Type.u64);
+        defer mul_add2.free(func);
+        const mul_add_lt = try func.cmp(mul_add2, mul3_lsb, Type.u64, .lt);
+
+        // result for overflow bit
+        _ = try func.binOp(lsb_or, mul_add_lt, Type.bool, .@"or");
+        try func.addLabel(.local_set, overflow_bit.local.value);
+
+        const tmp_result = try func.allocStack(Type.initTag(.u128));
+        try func.emitWValue(tmp_result);
+        const mul3_msb = try func.load(mul3, Type.u64, 0);
+        try func.store(.stack, mul3_msb, Type.u64, tmp_result.offset());
+        try func.store(tmp_result, mul_add2, Type.u64, 8);
+        break :blk tmp_result;
     } else return func.fail("TODO: @mulWithOverflow for integers between 32 and 64 bits", .{});
     var bin_op_local = try bin_op.toLocal(func, lhs_ty);
     defer bin_op_local.free(func);
