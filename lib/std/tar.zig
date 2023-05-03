@@ -121,9 +121,9 @@ test parseNumeric {
         .{ "\x80\x00\x00\x00\x07\x76\xa2\x22\xeb\x8a\x72\x61", 537795476381659745 },
         .{ "\xf7\x76\xa2\x22\xeb\x8a\x72\x61", -615126028225187231 },
         .{ "\xff\xff\xff\xff\xf7\x76\xa2\x22\xeb\x8a\x72\x61", -615126028225187231 },
-        .{ "\x80\x7f\xff\xff\xff\xff\xff\xff\xff", std.math.maxInt(i64) },
+        .{ "\x80\x7f\xff\xff\xff\xff\xff\xff\xff", math.maxInt(i64) },
         .{ "\x80\x80\x00\x00\x00\x00\x00\x00\x00", error.Overflow },
-        .{ "\xff\x80\x00\x00\x00\x00\x00\x00\x00", std.math.minInt(i64) },
+        .{ "\xff\x80\x00\x00\x00\x00\x00\x00\x00", math.minInt(i64) },
         .{ "\xff\x7f\xff\xff\xff\xff\xff\xff\xff", error.Overflow },
         .{ "\xf5\xec\xd1\xc7\x7e\x5f\x26\x48\x81\x9f\x8f\x9b", error.Overflow },
 
@@ -506,7 +506,7 @@ pub const Header = struct {
 
 pub fn unixTime(tv_sec: i64, tv_nsec: i64) !i128 {
     const result = @bitCast(i128, [_]i64{
-        try std.math.mul(i64, tv_sec, time.ns_per_s),
+        try math.mul(i64, tv_sec, time.ns_per_s),
         tv_nsec,
     });
     return result;
@@ -722,14 +722,14 @@ pub fn HeaderIterator(comptime Reader: type) type {
                     .gnu_long_name => {
                         format.setIntersection(fmt_gnu);
                         gnu_long_name = mem.sliceTo(try self.readBlocks(
-                            @intCast(u64, hdr.size),
+                            @intCast(usize, hdr.size),
                             &self.name_buf,
                         ), 0);
                     },
                     .gnu_long_link => {
                         format.setIntersection(fmt_gnu);
                         gnu_long_link = mem.sliceTo(try self.readBlocks(
-                            @intCast(u64, hdr.size),
+                            @intCast(usize, hdr.size),
                             &self.linkname_buf,
                         ), 0);
                     },
@@ -763,10 +763,10 @@ pub fn HeaderIterator(comptime Reader: type) type {
         // else returns `outbuf.items[0..size]`.
         fn readBlocks(
             self: *Self,
-            size: u64,
+            size: usize,
             outbuf: *std.ArrayListUnmanaged(u8),
         ) ![]u8 {
-            var want = mem.alignForwardGeneric(u64, size, block_len);
+            var want = mem.alignForwardGeneric(usize, size, block_len);
             outbuf.items.len = 0;
             var w = outbuf.writer(self.allocator);
             var buf: [block_len]u8 = undefined;
@@ -799,7 +799,7 @@ pub fn HeaderIterator(comptime Reader: type) type {
                     const v7 = self.v7Header();
                     switch (v7.type) {
                         .global_extended_header, .extended_header => {
-                            const size = std.math.cast(u64, try parseOctal(&v7.size)) orelse
+                            const size = math.cast(usize, try parseOctal(&v7.size)) orelse
                                 return error.Header;
                             self.pax_buf.items = try self.readBlocks(size, &self.pax_buf);
                         },
@@ -904,9 +904,9 @@ pub fn HeaderIterator(comptime Reader: type) type {
                 .linkname = mem.sliceTo(&v7.linked_file_name, 0),
                 .size = try parseNumeric(&v7.size),
                 .mode = try parseNumeric(&v7.mode),
-                .uid = std.math.cast(i32, try parseNumeric(&v7.uid)) orelse
+                .uid = math.cast(i32, try parseNumeric(&v7.uid)) orelse
                     return error.Header,
-                .gid = std.math.cast(i32, try parseNumeric(&v7.gid)) orelse
+                .gid = math.cast(i32, try parseNumeric(&v7.gid)) orelse
                     return error.Header,
                 .mtime = try unixTime(try parseNumeric(&v7.mod_time), 0),
             };
@@ -1144,9 +1144,11 @@ pub fn pipeToFileSystem(
                     break :blk subdir.createFile(basename, .{});
                 } else dir.createFile(file_name, .{});
                 defer file.close();
-                const want = mem.alignForwardGeneric(u64, @intCast(u64, header.size), block_len);
+                const size = math.cast(usize, header.size) orelse
+                    return error.Header;
+                const want = mem.alignForwardGeneric(usize, size, block_len);
                 var lim_reader = std.io.limitedReader(reader, want);
-                var bytes_left = @intCast(usize, header.size);
+                var bytes_left = size;
                 while (true) {
                     const amt = try lim_reader.read(iter.buf);
                     switch (amt) {
@@ -1154,7 +1156,7 @@ pub fn pipeToFileSystem(
                         block_len => {},
                         else => return error.UnexpectedEndOfStream,
                     }
-                    _ = try file.write(iter.buf[0..std.math.min(bytes_left, block_len)]);
+                    _ = try file.write(iter.buf[0..math.min(bytes_left, block_len)]);
                     bytes_left -|= block_len;
                 }
 
@@ -1228,4 +1230,5 @@ const fs = std.fs;
 const fmt = std.fmt;
 const log = std.log;
 const time = std.time;
+const math = std.math;
 const builtin = @import("builtin");
