@@ -101,9 +101,13 @@ pub fn lowerMir(lower: *Lower, inst: Mir.Inst) Error![]const Instruction {
         .divss,
         .maxss,
         .minss,
+        .movaps,
         .movss,
+        .movups,
         .mulss,
         .orps,
+        .pextrw,
+        .pinsrw,
         .roundss,
         .sqrtps,
         .sqrtss,
@@ -198,6 +202,8 @@ fn imm(lower: Lower, ops: Mir.Inst.Ops, i: u32) Immediate {
         .mi_rip_u,
         .lock_mi_sib_u,
         .lock_mi_rip_u,
+        .rmi_sib,
+        .rmi_rip,
         .mri_sib,
         .mri_rip,
         => Immediate.u(i),
@@ -212,6 +218,7 @@ fn mem(lower: Lower, ops: Mir.Inst.Ops, payload: u32) Memory {
     return lower.mir.resolveFrameLoc(switch (ops) {
         .rm_sib,
         .rm_sib_cc,
+        .rmi_sib,
         .m_sib,
         .m_sib_cc,
         .mi_sib_u,
@@ -227,6 +234,7 @@ fn mem(lower: Lower, ops: Mir.Inst.Ops, payload: u32) Memory {
 
         .rm_rip,
         .rm_rip_cc,
+        .rmi_rip,
         .m_rip,
         .m_rip_cc,
         .mi_rip_u,
@@ -320,6 +328,11 @@ fn mirGeneric(lower: *Lower, inst: Mir.Inst) Error!void {
         .rm_sib, .rm_rip => &.{
             .{ .reg = inst.data.rx.r },
             .{ .mem = lower.mem(inst.ops, inst.data.rx.payload) },
+        },
+        .rmi_sib, .rmi_rip => &.{
+            .{ .reg = inst.data.rix.r },
+            .{ .mem = lower.mem(inst.ops, inst.data.rix.payload) },
+            .{ .imm = lower.imm(inst.ops, inst.data.rix.i) },
         },
         .mr_sib, .lock_mr_sib, .mr_rip, .lock_mr_rip => &.{
             .{ .mem = lower.mem(inst.ops, inst.data.rx.payload) },

@@ -847,8 +847,14 @@ pub const table = [_]Entry{
 
     .{ .minss, .rm, &.{ .xmm, .xmm_m32 }, &.{ 0xf3, 0x0f, 0x5d }, 0, .sse },
 
+    .{ .movaps, .rm, &.{ .xmm,      .xmm_m128 }, &.{ 0x0f, 0x28 }, 0, .sse },
+    .{ .movaps, .mr, &.{ .xmm_m128, .xmm      }, &.{ 0x0f, 0x29 }, 0, .sse },
+
     .{ .movss, .rm, &.{ .xmm,     .xmm_m32 }, &.{ 0xf3, 0x0f, 0x10 }, 0, .sse },
     .{ .movss, .mr, &.{ .xmm_m32, .xmm     }, &.{ 0xf3, 0x0f, 0x11 }, 0, .sse },
+
+    .{ .movups, .rm, &.{ .xmm,      .xmm_m128 }, &.{ 0x0f, 0x10 }, 0, .sse },
+    .{ .movups, .mr, &.{ .xmm_m128, .xmm      }, &.{ 0x0f, 0x11 }, 0, .sse },
 
     .{ .mulss, .rm, &.{ .xmm, .xmm_m32 }, &.{ 0xf3, 0x0f, 0x59 }, 0, .sse },
 
@@ -885,6 +891,9 @@ pub const table = [_]Entry{
 
     .{ .minsd, .rm, &.{ .xmm, .xmm_m64 }, &.{ 0xf2, 0x0f, 0x5d }, 0, .sse2 },
 
+    .{ .movapd, .rm, &.{ .xmm,      .xmm_m128 }, &.{ 0x66, 0x0f, 0x28 }, 0, .sse2 },
+    .{ .movapd, .mr, &.{ .xmm_m128, .xmm      }, &.{ 0x66, 0x0f, 0x29 }, 0, .sse2 },
+
     .{ .movd, .rm, &.{ .xmm,  .rm32 }, &.{ 0x66, 0x0f, 0x6e }, 0, .sse2 },
     .{ .movd, .mr, &.{ .rm32, .xmm  }, &.{ 0x66, 0x0f, 0x7e }, 0, .sse2 },
 
@@ -894,9 +903,16 @@ pub const table = [_]Entry{
     .{ .movq, .rm, &.{ .xmm,     .xmm_m64 }, &.{ 0xf3, 0x0f, 0x7e }, 0, .sse2 },
     .{ .movq, .mr, &.{ .xmm_m64, .xmm     }, &.{ 0x66, 0x0f, 0xd6 }, 0, .sse2 },
 
+    .{ .movupd, .rm, &.{ .xmm,      .xmm_m128 }, &.{ 0x66, 0x0f, 0x10 }, 0, .sse2 },
+    .{ .movupd, .mr, &.{ .xmm_m128, .xmm      }, &.{ 0x66, 0x0f, 0x11 }, 0, .sse2 },
+
     .{ .mulsd, .rm, &.{ .xmm, .xmm_m64 }, &.{ 0xf2, 0x0f, 0x59 }, 0, .sse2 },
 
     .{ .orpd, .rm, &.{ .xmm, .xmm_m128 }, &.{ 0x66, 0x0f, 0x56 }, 0, .sse2 },
+
+    .{ .pextrw, .mri, &.{ .r16, .xmm, .imm8 }, &.{ 0x66, 0x0f, 0xc5 }, 0, .sse2 },
+
+    .{ .pinsrw, .rmi, &.{ .xmm, .rm16, .imm8 }, &.{ 0x66, 0x0f, 0xc4 }, 0, .sse2 },
 
     .{ .sqrtpd, .rm, &.{ .xmm, .xmm_m128 }, &.{ 0x66, 0x0f, 0x51 }, 0, .sse2 },
     .{ .sqrtsd, .rm, &.{ .xmm, .xmm_m64  }, &.{ 0xf2, 0x0f, 0x51 }, 0, .sse2 },
@@ -911,6 +927,8 @@ pub const table = [_]Entry{
     .{ .xorpd, .rm, &.{ .xmm, .xmm_m128 }, &.{ 0x66, 0x0f, 0x57 }, 0, .sse2 },
 
     // SSE4.1
+    .{ .pextrw, .mri, &.{ .rm16, .xmm, .imm8 }, &.{ 0x66, 0x0f, 0x3a, 0x15 }, 0, .sse4_1 },
+
     .{ .roundss, .rmi, &.{ .xmm, .xmm_m32, .imm8 }, &.{ 0x66, 0x0f, 0x3a, 0x0a }, 0, .sse4_1 },
     .{ .roundsd, .rmi, &.{ .xmm, .xmm_m64, .imm8 }, &.{ 0x66, 0x0f, 0x3a, 0x0b }, 0, .sse4_1 },
 };
