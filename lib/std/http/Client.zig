@@ -71,7 +71,7 @@ pub const ConnectionPool = struct {
         while (next) |node| : (next = node.prev) {
             if ((node.data.buffered.conn.protocol == .tls) != criteria.is_tls) continue;
             if (node.data.port != criteria.port) continue;
-            if (mem.eql(u8, node.data.host, criteria.host)) continue;
+            if (!mem.eql(u8, node.data.host, criteria.host)) continue;
 
             pool.acquireUnsafe(node);
             return node;
@@ -317,32 +317,29 @@ pub const BufferedConnection = struct {
     }
 
     pub fn writeAll(bconn: *BufferedConnection, buffer: []const u8) WriteError!void {
-        if (bconn.write_buf.len - bconn.write_end <= buffer.len) {
-            @memcpy(bconn.write_buf[bconn.write_end..], buffer);
+        if (bconn.write_buf.len - bconn.write_end >= buffer.len) {
+            @memcpy(bconn.write_buf[bconn.write_end..][0..buffer.len], buffer);
             bconn.write_end += @intCast(u16, buffer.len);
         } else {
-            try bconn.conn.writeAll(bconn.write_buf[0..bconn.write_end]);
-            bconn.write_end = 0;
-
+            try bconn.flush();
             try bconn.conn.writeAll(buffer);
         }
     }
 
     pub fn write(bconn: *BufferedConnection, buffer: []const u8) WriteError!usize {
-        if (bconn.write_buf.len - bconn.write_end <= buffer.len) {
-            @memcpy(bconn.write_buf[bconn.write_end..], buffer);
+        if (bconn.write_buf.len - bconn.write_end >= buffer.len) {
+            @memcpy(bconn.write_buf[bconn.write_end..][0..buffer.len], buffer);
             bconn.write_end += @intCast(u16, buffer.len);
 
             return buffer.len;
         } else {
-            try bconn.conn.writeAll(bconn.write_buf[0..bconn.write_end]);
-            bconn.write_end = 0;
-
+            try bconn.flush();
             return try bconn.conn.write(buffer);
         }
     }
 
     pub fn flush(bconn: *BufferedConnection) WriteError!void {
+        defer bconn.write_end = 0;
         return bconn.conn.writeAll(bconn.write_buf[0..bconn.write_end]);
     }
 
@@ -720,12 +717,13 @@ pub const Request = struct {
                 req.response.parser.done = true;
             }
 
+            // we default to using keep-alive if not provided
             const req_connection = req.headers.getFirstValue("connection");
             const req_keepalive = req_connection != null and !std.ascii.eqlIgnoreCase("close", req_connection.?);
 
             const res_connection = req.response.headers.getFirstValue("connection");
             const res_keepalive = res_connection != null and !std.ascii.eqlIgnoreCase("close", res_connection.?);
-            if (req_keepalive and res_keepalive) {
+            if (res_keepalive and (req_keepalive or req_connection == null)) {
                 req.connection.data.closing = false;
             } else {
                 req.connection.data.closing = true;

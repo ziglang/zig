@@ -9,8 +9,8 @@ const testing = std.testing;
 
 const max_header_size = 8192;
 
-var gpa_server = std.heap.GeneralPurposeAllocator(.{}){};
-var gpa_client = std.heap.GeneralPurposeAllocator(.{}){};
+var gpa_server = std.heap.GeneralPurposeAllocator(.{ .stack_trace_frames = 12 }){};
+var gpa_client = std.heap.GeneralPurposeAllocator(.{ .stack_trace_frames = 12 }){};
 
 const salloc = gpa_server.allocator();
 const calloc = gpa_client.allocator();
@@ -44,6 +44,24 @@ fn handleRequest(res: *Server.Response) !void {
             try res.writeAll("World!\n");
             try res.finish();
         }
+    } else if (mem.startsWith(u8, res.request.target, "/large")) {
+        res.transfer_encoding = .{ .content_length = 14 * 1024 + 14 * 10 };
+
+        try res.do();
+
+        var i: u32 = 0;
+        while (i < 5) : (i += 1) {
+            try res.writeAll("Hello, World!\n");
+        }
+
+        try res.writeAll("Hello, World!\n" ** 1024);
+
+        i = 0;
+        while (i < 5) : (i += 1) {
+            try res.writeAll("Hello, World!\n");
+        }
+
+        try res.finish();
     } else if (mem.eql(u8, res.request.target, "/echo-content")) {
         try testing.expectEqualStrings("Hello, World!\n", body);
         try testing.expectEqualStrings("text/plain", res.request.headers.getFirstValue("content-type").?);
@@ -68,6 +86,7 @@ fn handleRequest(res: *Server.Response) !void {
         try res.writeAll("World!\n");
         // try res.finish();
         try res.connection.writeAll("0\r\nX-Checksum: aaaa\r\n\r\n");
+        try res.connection.flush();
     } else if (mem.eql(u8, res.request.target, "/redirect/1")) {
         res.transfer_encoding = .chunked;
 
@@ -177,8 +196,7 @@ pub fn main() !void {
     const server_thread = try std.Thread.spawn(.{}, serverThread, .{&server});
 
     var client = Client{ .allocator = calloc };
-
-    defer client.deinit();
+    // defer client.deinit(); handled below
 
     { // read content-length response
         var h = http.Headers{ .allocator = calloc };
@@ -201,6 +219,33 @@ pub fn main() !void {
         try testing.expectEqualStrings("Hello, World!\n", body);
         try testing.expectEqualStrings("text/plain", req.response.headers.getFirstValue("content-type").?);
     }
+
+    // connection has been kept alive
+    try testing.expect(client.connection_pool.free_len == 1);
+
+    { // read large content-length response
+        var h = http.Headers{ .allocator = calloc };
+        defer h.deinit();
+
+        const location = try std.fmt.allocPrint(calloc, "http://127.0.0.1:{d}/large", .{port});
+        defer calloc.free(location);
+        const uri = try std.Uri.parse(location);
+
+        log.info("{s}", .{location});
+        var req = try client.request(.GET, uri, h, .{});
+        defer req.deinit();
+
+        try req.start();
+        try req.wait();
+
+        const body = try req.reader().readAllAlloc(calloc, 8192 * 1024);
+        defer calloc.free(body);
+
+        try testing.expectEqual(@as(usize, 14 * 1024 + 14 * 10), body.len);
+    }
+
+    // connection has been kept alive
+    try testing.expect(client.connection_pool.free_len == 1);
 
     { // send head request and not read chunked
         var h = http.Headers{ .allocator = calloc };
@@ -225,6 +270,9 @@ pub fn main() !void {
         try testing.expectEqualStrings("14", req.response.headers.getFirstValue("content-length").?);
     }
 
+    // connection has been kept alive
+    try testing.expect(client.connection_pool.free_len == 1);
+
     { // read chunked response
         var h = http.Headers{ .allocator = calloc };
         defer h.deinit();
@@ -246,6 +294,9 @@ pub fn main() !void {
         try testing.expectEqualStrings("Hello, World!\n", body);
         try testing.expectEqualStrings("text/plain", req.response.headers.getFirstValue("content-type").?);
     }
+
+    // connection has been kept alive
+    try testing.expect(client.connection_pool.free_len == 1);
 
     { // send head request and not read chunked
         var h = http.Headers{ .allocator = calloc };
@@ -270,6 +321,9 @@ pub fn main() !void {
         try testing.expectEqualStrings("chunked", req.response.headers.getFirstValue("transfer-encoding").?);
     }
 
+    // connection has been kept alive
+    try testing.expect(client.connection_pool.free_len == 1);
+
     { // check trailing headers
         var h = http.Headers{ .allocator = calloc };
         defer h.deinit();
@@ -291,6 +345,9 @@ pub fn main() !void {
         try testing.expectEqualStrings("Hello, World!\n", body);
         try testing.expectEqualStrings("aaaa", req.response.headers.getFirstValue("x-checksum").?);
     }
+
+    // connection has been kept alive
+    try testing.expect(client.connection_pool.free_len == 1);
 
     { // send content-length request
         var h = http.Headers{ .allocator = calloc };
@@ -321,6 +378,36 @@ pub fn main() !void {
         try testing.expectEqualStrings("Hello, World!\n", body);
     }
 
+    // connection has been kept alive
+    try testing.expect(client.connection_pool.free_len == 1);
+
+    { // read content-length response with connection close
+        var h = http.Headers{ .allocator = calloc };
+        defer h.deinit();
+
+        try h.append("connection", "close");
+
+        const location = try std.fmt.allocPrint(calloc, "http://127.0.0.1:{d}/get", .{port});
+        defer calloc.free(location);
+        const uri = try std.Uri.parse(location);
+
+        log.info("{s}", .{location});
+        var req = try client.request(.GET, uri, h, .{});
+        defer req.deinit();
+
+        try req.start();
+        try req.wait();
+
+        const body = try req.reader().readAllAlloc(calloc, 8192);
+        defer calloc.free(body);
+
+        try testing.expectEqualStrings("Hello, World!\n", body);
+        try testing.expectEqualStrings("text/plain", req.response.headers.getFirstValue("content-type").?);
+    }
+
+    // connection has been closed
+    try testing.expect(client.connection_pool.free_len == 0);
+
     { // send chunked request
         var h = http.Headers{ .allocator = calloc };
         defer h.deinit();
@@ -350,6 +437,9 @@ pub fn main() !void {
         try testing.expectEqualStrings("Hello, World!\n", body);
     }
 
+    // connection has been kept alive
+    try testing.expect(client.connection_pool.free_len == 1);
+
     { // relative redirect
         var h = http.Headers{ .allocator = calloc };
         defer h.deinit();
@@ -370,6 +460,9 @@ pub fn main() !void {
 
         try testing.expectEqualStrings("Hello, World!\n", body);
     }
+
+    // connection has been kept alive
+    try testing.expect(client.connection_pool.free_len == 1);
 
     { // redirect from root
         var h = http.Headers{ .allocator = calloc };
@@ -392,6 +485,9 @@ pub fn main() !void {
         try testing.expectEqualStrings("Hello, World!\n", body);
     }
 
+    // connection has been kept alive
+    try testing.expect(client.connection_pool.free_len == 1);
+
     { // absolute redirect
         var h = http.Headers{ .allocator = calloc };
         defer h.deinit();
@@ -413,6 +509,9 @@ pub fn main() !void {
         try testing.expectEqualStrings("Hello, World!\n", body);
     }
 
+    // connection has been kept alive
+    try testing.expect(client.connection_pool.free_len == 1);
+
     { // too many redirects
         var h = http.Headers{ .allocator = calloc };
         defer h.deinit();
@@ -431,6 +530,11 @@ pub fn main() !void {
             else => return err,
         };
     }
+
+    // connection has been kept alive
+    try testing.expect(client.connection_pool.free_len == 1);
+
+    client.deinit();
 
     killServer(server.socket.listen_address);
     server_thread.join();

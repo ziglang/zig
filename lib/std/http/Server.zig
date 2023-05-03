@@ -161,32 +161,29 @@ pub const BufferedConnection = struct {
     }
 
     pub fn writeAll(bconn: *BufferedConnection, buffer: []const u8) WriteError!void {
-        if (bconn.write_buf.len - bconn.write_end <= buffer.len) {
-            @memcpy(bconn.write_buf[bconn.write_end..], buffer);
+        if (bconn.write_buf.len - bconn.write_end >= buffer.len) {
+            @memcpy(bconn.write_buf[bconn.write_end..][0..buffer.len], buffer);
             bconn.write_end += @intCast(u16, buffer.len);
         } else {
-            try bconn.conn.writeAll(bconn.write_buf[0..bconn.write_end]);
-            bconn.write_end = 0;
-
+            try bconn.flush();
             try bconn.conn.writeAll(buffer);
         }
     }
 
     pub fn write(bconn: *BufferedConnection, buffer: []const u8) WriteError!usize {
-        if (bconn.write_buf.len - bconn.write_end <= buffer.len) {
-            @memcpy(bconn.write_buf[bconn.write_end..], buffer);
+        if (bconn.write_buf.len - bconn.write_end >= buffer.len) {
+            @memcpy(bconn.write_buf[bconn.write_end..][0..buffer.len], buffer);
             bconn.write_end += @intCast(u16, buffer.len);
 
             return buffer.len;
         } else {
-            try bconn.conn.writeAll(bconn.write_buf[0..bconn.write_end]);
-            bconn.write_end = 0;
-
+            try bconn.flush();
             return try bconn.conn.write(buffer);
         }
     }
 
     pub fn flush(bconn: *BufferedConnection) WriteError!void {
+        defer bconn.write_end = 0;
         return bconn.conn.writeAll(bconn.write_buf[0..bconn.write_end]);
     }
 
@@ -397,12 +394,14 @@ pub const Response = struct {
 
         // A connection is only keep-alive if the Connection header is present and it's value is not "close".
         // The server and client must both agree
+        //
+        // do() defaults to using keep-alive if the client requests it.
         const res_connection = res.headers.getFirstValue("connection");
         const res_keepalive = res_connection != null and !std.ascii.eqlIgnoreCase("close", res_connection.?);
 
         const req_connection = res.request.headers.getFirstValue("connection");
         const req_keepalive = req_connection != null and !std.ascii.eqlIgnoreCase("close", req_connection.?);
-        if (res_keepalive and req_keepalive) {
+        if (req_keepalive and (res_keepalive or res_connection == null)) {
             res.connection.conn.closing = false;
         } else {
             res.connection.conn.closing = true;
@@ -424,7 +423,7 @@ pub const Response = struct {
 
         res.headers.clearRetainingCapacity();
 
-        res.request.headers.clearRetainingCapacity();
+        res.request.headers.clearAndFree(); // FIXME: figure out why `clearRetainingCapacity` causes a leak in hash_map here
         res.request.parser.reset();
 
         res.request = Request{
