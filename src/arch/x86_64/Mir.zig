@@ -190,7 +190,11 @@ pub const Inst = struct {
         orps,
         /// Round scalar single-precision floating-point values
         roundss,
+        /// Square root of scalar single precision floating-point value
+        sqrtps,
         /// Subtract scalar single-precision floating-point values
+        sqrtss,
+        /// Square root of single precision floating-point values
         subss,
         /// Unordered compare scalar single-precision floating-point values
         ucomiss,
@@ -224,6 +228,10 @@ pub const Inst = struct {
         orpd,
         /// Round scalar double-precision floating-point values
         roundsd,
+        /// Square root of double precision floating-point values
+        sqrtpd,
+        /// Square root of scalar double precision floating-point value
+        sqrtsd,
         /// Subtract scalar double-precision floating-point values
         subsd,
         /// Unordered compare scalar double-precision floating-point values

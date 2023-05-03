@@ -229,6 +229,7 @@ pub const MCValue = union(enum) {
     fn isRegister(mcv: MCValue) bool {
         return switch (mcv) {
             .register => true,
+            .register_offset => |reg_off| return reg_off.off == 0,
             else => false,
         };
     }
@@ -1449,7 +1450,6 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .shl_sat         => try self.airShlSat(inst),
             .slice           => try self.airSlice(inst),
 
-            .sqrt,
             .sin,
             .cos,
             .tan,
@@ -1464,6 +1464,7 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .trunc_float,
             => try self.airUnaryMath(inst),
 
+            .sqrt => try self.airSqrt(inst),
             .neg, .fabs => try self.airFloatSign(inst),
 
             .add_with_overflow => try self.airAddSubWithOverflow(inst),
@@ -4239,6 +4240,31 @@ fn airFloatSign(self: *Self, inst: Air.Inst.Index) !void {
             ty.fmt(self.bin_file.options.module.?),
         }),
     }, vec_ty, dst_mcv, sign_mcv);
+    return self.finishAir(inst, dst_mcv, .{ un_op, .none, .none });
+}
+
+fn airSqrt(self: *Self, inst: Air.Inst.Index) !void {
+    const un_op = self.air.instructions.items(.data)[inst].un_op;
+    const ty = self.air.typeOf(un_op);
+
+    const src_mcv = try self.resolveInst(un_op);
+    const dst_mcv = if (src_mcv.isRegister() and self.reuseOperand(inst, un_op, 0, src_mcv))
+        src_mcv
+    else
+        try self.copyToRegisterWithInstTracking(inst, ty, src_mcv);
+
+    try self.genBinOpMir(switch (ty.zigTypeTag()) {
+        .Float => switch (ty.floatBits(self.target.*)) {
+            32 => .sqrtss,
+            64 => .sqrtsd,
+            else => return self.fail("TODO implement airSqrt for {}", .{
+                ty.fmt(self.bin_file.options.module.?),
+            }),
+        },
+        else => return self.fail("TODO implement airSqrt for {}", .{
+            ty.fmt(self.bin_file.options.module.?),
+        }),
+    }, ty, dst_mcv, src_mcv);
     return self.finishAir(inst, dst_mcv, .{ un_op, .none, .none });
 }
 
