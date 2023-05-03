@@ -4229,14 +4229,10 @@ fn airFloatSign(self: *Self, inst: Air.Inst.Index) !void {
 
     const tag = self.air.instructions.items(.tag)[inst];
     try self.genBinOpMir(switch (ty_bits) {
-        32 => switch (tag) {
+        // No point using an extra prefix byte for *pd which performs the same operation.
+        32, 64 => switch (tag) {
             .neg => .xorps,
             .fabs => .andnps,
-            else => unreachable,
-        },
-        64 => switch (tag) {
-            .neg => .xorpd,
-            .fabs => .andnpd,
             else => unreachable,
         },
         else => return self.fail("TODO implement airFloatSign for {}", .{
