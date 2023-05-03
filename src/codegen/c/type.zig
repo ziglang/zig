@@ -1359,18 +1359,18 @@ pub const CType = extern union {
             self.* = undefined;
             if (!ty.isFnOrHasRuntimeBitsIgnoreComptime(mod))
                 self.init(.void)
-            else if (ty.isAbiInt(mod)) switch (ty.tag()) {
-                .usize => self.init(.uintptr_t),
-                .isize => self.init(.intptr_t),
-                .c_char => self.init(.char),
-                .c_short => self.init(.short),
-                .c_ushort => self.init(.@"unsigned short"),
-                .c_int => self.init(.int),
-                .c_uint => self.init(.@"unsigned int"),
-                .c_long => self.init(.long),
-                .c_ulong => self.init(.@"unsigned long"),
-                .c_longlong => self.init(.@"long long"),
-                .c_ulonglong => self.init(.@"unsigned long long"),
+            else if (ty.isAbiInt(mod)) switch (ty.ip_index) {
+                .usize_type => self.init(.uintptr_t),
+                .isize_type => self.init(.intptr_t),
+                .c_char_type => self.init(.char),
+                .c_short_type => self.init(.short),
+                .c_ushort_type => self.init(.@"unsigned short"),
+                .c_int_type => self.init(.int),
+                .c_uint_type => self.init(.@"unsigned int"),
+                .c_long_type => self.init(.long),
+                .c_ulong_type => self.init(.@"unsigned long"),
+                .c_longlong_type => self.init(.@"long long"),
+                .c_ulonglong_type => self.init(.@"unsigned long long"),
                 else => switch (tagFromIntInfo(ty.intInfo(mod))) {
                     .void => unreachable,
                     else => |t| self.init(t),

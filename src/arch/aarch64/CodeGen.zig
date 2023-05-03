@@ -4326,7 +4326,7 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallModifier
                 const atom = elf_file.getAtom(atom_index);
                 _ = try atom.getOrCreateOffsetTableEntry(elf_file);
                 const got_addr = @intCast(u32, atom.getOffsetTableAddress(elf_file));
-                try self.genSetReg(Type.initTag(.usize), .x30, .{ .memory = got_addr });
+                try self.genSetReg(Type.usize, .x30, .{ .memory = got_addr });
             } else if (self.bin_file.cast(link.File.MachO)) |macho_file| {
                 const atom = try macho_file.getOrCreateAtomForDecl(func.owner_decl);
                 const sym_index = macho_file.getAtom(atom).getSymbolIndex().?;
@@ -4353,7 +4353,7 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallModifier
                 const got_addr = p9.bases.data;
                 const got_index = decl_block.got_index.?;
                 const fn_got_addr = got_addr + got_index * ptr_bytes;
-                try self.genSetReg(Type.initTag(.usize), .x30, .{ .memory = fn_got_addr });
+                try self.genSetReg(Type.usize, .x30, .{ .memory = fn_got_addr });
             } else unreachable;
 
             _ = try self.addInst(.{
@@ -5968,7 +5968,7 @@ fn airArrayToSlice(self: *Self, inst: Air.Inst.Index) !void {
 
         const stack_offset = try self.allocMem(ptr_bytes * 2, ptr_bytes * 2, inst);
         try self.genSetStack(ptr_ty, stack_offset, ptr);
-        try self.genSetStack(Type.initTag(.usize), stack_offset - ptr_bytes, .{ .immediate = array_len });
+        try self.genSetStack(Type.usize, stack_offset - ptr_bytes, .{ .immediate = array_len });
         break :result MCValue{ .stack_offset = stack_offset };
     };
     return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });

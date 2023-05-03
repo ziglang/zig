@@ -883,7 +883,7 @@ fn airArrayToSlice(self: *Self, inst: Air.Inst.Index) !void {
 
         const stack_offset = try self.allocMem(inst, ptr_bytes * 2, ptr_bytes * 2);
         try self.genSetStack(ptr_ty, stack_offset, ptr);
-        try self.genSetStack(Type.initTag(.usize), stack_offset - ptr_bytes, .{ .immediate = array_len });
+        try self.genSetStack(Type.usize, stack_offset - ptr_bytes, .{ .immediate = array_len });
         break :result MCValue{ .stack_offset = stack_offset };
     };
     return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
@@ -1352,7 +1352,7 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallModifier
                     break :blk @intCast(u32, atom.getOffsetTableAddress(elf_file));
                 } else unreachable;
 
-                try self.genSetReg(Type.initTag(.usize), .o7, .{ .memory = got_addr });
+                try self.genSetReg(Type.usize, .o7, .{ .memory = got_addr });
 
                 _ = try self.addInst(.{
                     .tag = .jmpl,

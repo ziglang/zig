@@ -2499,7 +2499,7 @@ pub const DeclGen = struct {
         const elem_ty = ptr_ty.elemType2(mod); // use elemType() so that we get T for *[N]T.
         const elem_ty_ref = try self.resolveType(elem_ty, .direct);
         const elem_ptr_ty_ref = try self.spv.ptrType(elem_ty_ref, spvStorageClass(ptr_ty.ptrAddressSpace()));
-        if (ptr_ty.isSinglePointer()) {
+        if (ptr_ty.isSinglePointer(mod)) {
             // Pointer-to-array. In this case, the resulting pointer is not of the same type
             // as the ptr_ty (we want a *T, not a *[N]T), and hence we need to use accessChain.
             return try self.accessChain(elem_ptr_ty_ref, ptr_id, &.{index_id});
