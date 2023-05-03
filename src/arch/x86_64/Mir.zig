@@ -168,6 +168,10 @@ pub const Inst = struct {
 
         /// Add single precision floating point values
         addss,
+        /// Bitwise logical and of packed single precision floating-point values
+        andps,
+        /// Bitwise logical and not of packed single precision floating-point values
+        andnps,
         /// Compare scalar single-precision floating-point values
         cmpss,
         /// Convert doubleword integer to scalar single-precision floating-point value
@@ -178,13 +182,27 @@ pub const Inst = struct {
         maxss,
         /// Return minimum single-precision floating-point value
         minss,
+        /// Move aligned packed single-precision floating-point values
+        movaps,
         /// Move scalar single-precision floating-point value
         movss,
+        /// Move unaligned packed single-precision floating-point values
+        movups,
         /// Multiply scalar single-precision floating-point values
         mulss,
+        /// Bitwise logical or of packed single precision floating-point values
+        orps,
+        /// Extract word
+        pextrw,
+        /// Insert word
+        pinsrw,
         /// Round scalar single-precision floating-point values
         roundss,
+        /// Square root of scalar single precision floating-point value
+        sqrtps,
         /// Subtract scalar single-precision floating-point values
+        sqrtss,
+        /// Square root of single precision floating-point values
         subss,
         /// Unordered compare scalar single-precision floating-point values
         ucomiss,
@@ -192,6 +210,10 @@ pub const Inst = struct {
         xorps,
         /// Add double precision floating point values
         addsd,
+        /// Bitwise logical and not of packed double precision floating-point values
+        andnpd,
+        /// Bitwise logical and of packed double precision floating-point values
+        andpd,
         /// Compare scalar double-precision floating-point values
         cmpsd,
         /// Convert scalar double-precision floating-point value to scalar single-precision floating-point value
@@ -210,8 +232,14 @@ pub const Inst = struct {
         movsd,
         /// Multiply scalar double-precision floating-point values
         mulsd,
+        /// Bitwise logical or of packed double precision floating-point values
+        orpd,
         /// Round scalar double-precision floating-point values
         roundsd,
+        /// Square root of double precision floating-point values
+        sqrtpd,
+        /// Square root of scalar double precision floating-point value
+        sqrtsd,
         /// Subtract scalar double-precision floating-point values
         subsd,
         /// Unordered compare scalar double-precision floating-point values
@@ -326,6 +354,12 @@ pub const Inst = struct {
         /// Register, memory (RIP) operands with condition code (CC).
         /// Uses `rx_cc` payload.
         rm_rip_cc,
+        /// Register, memory (SIB), immediate (byte) operands.
+        /// Uses `rix` payload with extra data of type `MemorySib`.
+        rmi_sib,
+        /// Register, memory (RIP), immediate (byte) operands.
+        /// Uses `rix` payload with extra data of type `MemoryRip`.
+        rmi_rip,
         /// Single memory (SIB) operand.
         /// Uses `payload` with extra data of type `MemorySib`.
         m_sib,
