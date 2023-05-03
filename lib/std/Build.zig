@@ -29,20 +29,20 @@ pub const Builder = Build;
 pub const InstallDirectoryOptions = InstallDirStep.Options;
 
 pub const Step = @import("Build/Step.zig");
-pub const CheckFileStep = @import("Build/CheckFileStep.zig");
-pub const CheckObjectStep = @import("Build/CheckObjectStep.zig");
-pub const ConfigHeaderStep = @import("Build/ConfigHeaderStep.zig");
-pub const FmtStep = @import("Build/FmtStep.zig");
-pub const InstallArtifactStep = @import("Build/InstallArtifactStep.zig");
-pub const InstallDirStep = @import("Build/InstallDirStep.zig");
-pub const InstallFileStep = @import("Build/InstallFileStep.zig");
-pub const ObjCopyStep = @import("Build/ObjCopyStep.zig");
-pub const CompileStep = @import("Build/CompileStep.zig");
-pub const OptionsStep = @import("Build/OptionsStep.zig");
-pub const RemoveDirStep = @import("Build/RemoveDirStep.zig");
-pub const RunStep = @import("Build/RunStep.zig");
-pub const TranslateCStep = @import("Build/TranslateCStep.zig");
-pub const WriteFileStep = @import("Build/WriteFileStep.zig");
+pub const CheckFileStep = @import("Build/Step/CheckFile.zig");
+pub const CheckObjectStep = @import("Build/Step/CheckObject.zig");
+pub const ConfigHeaderStep = @import("Build/Step/ConfigHeader.zig");
+pub const FmtStep = @import("Build/Step/Fmt.zig");
+pub const InstallArtifactStep = @import("Build/Step/InstallArtifact.zig");
+pub const InstallDirStep = @import("Build/Step/InstallDir.zig");
+pub const InstallFileStep = @import("Build/Step/InstallFile.zig");
+pub const ObjCopyStep = @import("Build/Step/ObjCopy.zig");
+pub const CompileStep = @import("Build/Step/Compile.zig");
+pub const OptionsStep = @import("Build/Step/Options.zig");
+pub const RemoveDirStep = @import("Build/Step/RemoveDir.zig");
+pub const RunStep = @import("Build/Step/Run.zig");
+pub const TranslateCStep = @import("Build/Step/TranslateC.zig");
+pub const WriteFileStep = @import("Build/Step/WriteFile.zig");
 
 install_tls: TopLevelStep,
 uninstall_tls: TopLevelStep,

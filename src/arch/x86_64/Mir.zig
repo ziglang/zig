@@ -170,6 +170,8 @@ pub const Inst = struct {
         addss,
         /// Compare scalar single-precision floating-point values
         cmpss,
+        /// Convert doubleword integer to scalar single-precision floating-point value
+        cvtsi2ss,
         /// Divide scalar single-precision floating-point values
         divss,
         /// Return maximum single-precision floating-point value
@@ -186,10 +188,18 @@ pub const Inst = struct {
         subss,
         /// Unordered compare scalar single-precision floating-point values
         ucomiss,
+        /// Bitwise logical xor of packed single precision floating-point values
+        xorps,
         /// Add double precision floating point values
         addsd,
         /// Compare scalar double-precision floating-point values
         cmpsd,
+        /// Convert scalar double-precision floating-point value to scalar single-precision floating-point value
+        cvtsd2ss,
+        /// Convert doubleword integer to scalar double-precision floating-point value
+        cvtsi2sd,
+        /// Convert scalar single-precision floating-point value to scalar double-precision floating-point value
+        cvtss2sd,
         /// Divide scalar double-precision floating-point values
         divsd,
         /// Return maximum double-precision floating-point value
@@ -206,6 +216,8 @@ pub const Inst = struct {
         subsd,
         /// Unordered compare scalar double-precision floating-point values
         ucomisd,
+        /// Bitwise logical xor of packed double precision floating-point values
+        xorpd,
 
         /// Compare string operands
         cmps,

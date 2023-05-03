@@ -1,4 +1,4 @@
-const std = @import("../std.zig");
+const std = @import("std");
 const Step = std.Build.Step;
 const FileSource = std.Build.FileSource;
 const InstallDir = std.Build.InstallDir;

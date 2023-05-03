@@ -1,6 +1,9 @@
 //! This step has two modes:
 //! * Modify mode: directly modify source files, formatting them in place.
 //! * Check mode: fail the step if a non-conforming file is found.
+const std = @import("std");
+const Step = std.Build.Step;
+const FmtStep = @This();
 
 step: Step,
 paths: []const []const u8,
@@ -67,7 +70,3 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
 
     return step.evalChildProcess(argv.items);
 }
-
-const std = @import("../std.zig");
-const Step = std.Build.Step;
-const FmtStep = @This();
