@@ -4039,19 +4039,25 @@ pub const Type = struct {
         }
     }
 
-    pub fn isSinglePointer(self: Type) bool {
-        return switch (self.tag()) {
-            .single_const_pointer,
-            .single_mut_pointer,
-            .single_const_pointer_to_comptime_int,
-            .inferred_alloc_const,
-            .inferred_alloc_mut,
-            => true,
+    pub fn isSinglePointer(ty: Type, mod: *const Module) bool {
+        switch (ty.ip_index) {
+            .none => return switch (ty.tag()) {
+                .single_const_pointer,
+                .single_mut_pointer,
+                .single_const_pointer_to_comptime_int,
+                .inferred_alloc_const,
+                .inferred_alloc_mut,
+                => true,
 
-            .pointer => self.castTag(.pointer).?.data.size == .One,
+                .pointer => ty.castTag(.pointer).?.data.size == .One,
 
-            else => false,
-        };
+                else => false,
+            },
+            else => return switch (mod.intern_pool.indexToKey(ty.ip_index)) {
+                .ptr_type => |ptr_info| ptr_info.size == .One,
+                else => false,
+            },
+        }
     }
 
     /// Asserts `ty` is a pointer.
@@ -6142,6 +6148,11 @@ pub const Type = struct {
     }
 
     pub fn declSrcLocOrNull(ty: Type, mod: *Module) ?Module.SrcLoc {
+        if (ty.ip_index != .none) switch (mod.intern_pool.indexToKey(ty.ip_index)) {
+            .struct_type => @panic("TODO"),
+            .union_type => @panic("TODO"),
+            else => return null,
+        };
         switch (ty.tag()) {
             .enum_full, .enum_nonexhaustive => {
                 const enum_full = ty.cast(Payload.EnumFull).?.data;

@@ -3873,7 +3873,7 @@ fn airCmpOp(
     try reap(f, inst, &.{ data.lhs, data.rhs });
 
     const rhs_ty = f.typeOf(data.rhs);
-    const need_cast = lhs_ty.isSinglePointer() or rhs_ty.isSinglePointer();
+    const need_cast = lhs_ty.isSinglePointer(mod) or rhs_ty.isSinglePointer(mod);
     const writer = f.object.writer();
     const local = try f.allocLocal(inst, inst_ty);
     const v = try Vectorize.start(f, inst, writer, lhs_ty);

@@ -5929,7 +5929,7 @@ pub const FuncGen = struct {
         const base_ptr = try self.resolveInst(bin_op.lhs);
         const rhs = try self.resolveInst(bin_op.rhs);
         // TODO: when we go fully opaque pointers in LLVM 16 we can remove this branch
-        const ptr = if (ptr_ty.isSinglePointer()) ptr: {
+        const ptr = if (ptr_ty.isSinglePointer(mod)) ptr: {
             // If this is a single-item pointer to an array, we need another index in the GEP.
             const indices: [2]*llvm.Value = .{ self.context.intType(32).constNull(), rhs };
             break :ptr self.builder.buildInBoundsGEP(llvm_elem_ty, base_ptr, &indices, indices.len, "");
@@ -5962,7 +5962,7 @@ pub const FuncGen = struct {
         if (elem_ptr.ptrInfo().data.vector_index != .none) return base_ptr;
 
         const llvm_elem_ty = try self.dg.lowerPtrElemTy(elem_ty);
-        if (ptr_ty.isSinglePointer()) {
+        if (ptr_ty.isSinglePointer(mod)) {
             // If this is a single-item pointer to an array, we need another index in the GEP.
             const indices: [2]*llvm.Value = .{ self.context.intType(32).constNull(), rhs };
             return self.builder.buildInBoundsGEP(llvm_elem_ty, base_ptr, &indices, indices.len, "");
