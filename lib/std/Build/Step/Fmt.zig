@@ -3,7 +3,7 @@
 //! * Check mode: fail the step if a non-conforming file is found.
 const std = @import("std");
 const Step = std.Build.Step;
-const FmtStep = @This();
+const Fmt = @This();
 
 step: Step,
 paths: []const []const u8,
@@ -19,8 +19,8 @@ pub const Options = struct {
     check: bool = false,
 };
 
-pub fn create(owner: *std.Build, options: Options) *FmtStep {
-    const self = owner.allocator.create(FmtStep) catch @panic("OOM");
+pub fn create(owner: *std.Build, options: Options) *Fmt {
+    const self = owner.allocator.create(Fmt) catch @panic("OOM");
     const name = if (options.check) "zig fmt --check" else "zig fmt";
     self.* = .{
         .step = Step.init(.{
@@ -47,7 +47,7 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
 
     const b = step.owner;
     const arena = b.allocator;
-    const self = @fieldParentPtr(FmtStep, "step", step);
+    const self = @fieldParentPtr(Fmt, "step", step);
 
     var argv: std.ArrayListUnmanaged([]const u8) = .{};
     try argv.ensureUnusedCapacity(arena, 2 + 1 + self.paths.len + 2 * self.exclude_paths.len);

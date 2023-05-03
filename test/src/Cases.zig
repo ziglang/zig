@@ -465,7 +465,7 @@ pub fn lowerToBuildSteps(
     parent_step: *std.Build.Step,
     opt_test_filter: ?[]const u8,
     cases_dir_path: []const u8,
-    incremental_exe: *std.Build.CompileStep,
+    incremental_exe: *std.Build.Step.Compile,
 ) void {
     for (self.incremental_cases.items) |incr_case| {
         if (opt_test_filter) |test_filter| {

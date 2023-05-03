@@ -1,4 +1,4 @@
-//! WriteFileStep is primarily used to create a directory in an appropriate
+//! WriteFile is primarily used to create a directory in an appropriate
 //! location inside the local cache which has a set of files that have either
 //! been generated during the build, or are copied from the source package.
 //!
@@ -12,7 +12,7 @@ const std = @import("std");
 const Step = std.Build.Step;
 const fs = std.fs;
 const ArrayList = std.ArrayList;
-const WriteFileStep = @This();
+const WriteFile = @This();
 
 step: Step,
 /// The elements here are pointers because we need stable pointers for the
@@ -39,8 +39,8 @@ pub const Contents = union(enum) {
     copy: std.Build.FileSource,
 };
 
-pub fn create(owner: *std.Build) *WriteFileStep {
-    const wf = owner.allocator.create(WriteFileStep) catch @panic("OOM");
+pub fn create(owner: *std.Build) *WriteFile {
+    const wf = owner.allocator.create(WriteFile) catch @panic("OOM");
     wf.* = .{
         .step = Step.init(.{
             .id = .write_file,
@@ -55,7 +55,7 @@ pub fn create(owner: *std.Build) *WriteFileStep {
     return wf;
 }
 
-pub fn add(wf: *WriteFileStep, sub_path: []const u8, bytes: []const u8) void {
+pub fn add(wf: *WriteFile, sub_path: []const u8, bytes: []const u8) void {
     const b = wf.step.owner;
     const gpa = b.allocator;
     const file = gpa.create(File) catch @panic("OOM");
@@ -72,11 +72,11 @@ pub fn add(wf: *WriteFileStep, sub_path: []const u8, bytes: []const u8) void {
 /// Place the file into the generated directory within the local cache,
 /// along with all the rest of the files added to this step. The parameter
 /// here is the destination path relative to the local cache directory
-/// associated with this WriteFileStep. It may be a basename, or it may
+/// associated with this WriteFile. It may be a basename, or it may
 /// include sub-directories, in which case this step will ensure the
 /// required sub-path exists.
 /// This is the option expected to be used most commonly with `addCopyFile`.
-pub fn addCopyFile(wf: *WriteFileStep, source: std.Build.FileSource, sub_path: []const u8) void {
+pub fn addCopyFile(wf: *WriteFile, source: std.Build.FileSource, sub_path: []const u8) void {
     const b = wf.step.owner;
     const gpa = b.allocator;
     const file = gpa.create(File) catch @panic("OOM");
@@ -97,7 +97,7 @@ pub fn addCopyFile(wf: *WriteFileStep, source: std.Build.FileSource, sub_path: [
 /// run by a developer with intent to modify source files and then commit
 /// those changes to version control.
 /// A file added this way is not available with `getFileSource`.
-pub fn addCopyFileToSource(wf: *WriteFileStep, source: std.Build.FileSource, sub_path: []const u8) void {
+pub fn addCopyFileToSource(wf: *WriteFile, source: std.Build.FileSource, sub_path: []const u8) void {
     const b = wf.step.owner;
     wf.output_source_files.append(b.allocator, .{
         .contents = .{ .copy = source },
@@ -112,7 +112,7 @@ pub fn addCopyFileToSource(wf: *WriteFileStep, source: std.Build.FileSource, sub
 /// run by a developer with intent to modify source files and then commit
 /// those changes to version control.
 /// A file added this way is not available with `getFileSource`.
-pub fn addBytesToSource(wf: *WriteFileStep, bytes: []const u8, sub_path: []const u8) void {
+pub fn addBytesToSource(wf: *WriteFile, bytes: []const u8, sub_path: []const u8) void {
     const b = wf.step.owner;
     wf.output_source_files.append(b.allocator, .{
         .contents = .{ .bytes = bytes },
@@ -121,7 +121,7 @@ pub fn addBytesToSource(wf: *WriteFileStep, bytes: []const u8, sub_path: []const
 }
 
 /// Gets a file source for the given sub_path. If the file does not exist, returns `null`.
-pub fn getFileSource(wf: *WriteFileStep, sub_path: []const u8) ?std.Build.FileSource {
+pub fn getFileSource(wf: *WriteFile, sub_path: []const u8) ?std.Build.FileSource {
     for (wf.files.items) |file| {
         if (std.mem.eql(u8, file.sub_path, sub_path)) {
             return .{ .generated = &file.generated_file };
@@ -131,12 +131,12 @@ pub fn getFileSource(wf: *WriteFileStep, sub_path: []const u8) ?std.Build.FileSo
 }
 
 /// Returns a `FileSource` representing the base directory that contains all the
-/// files from this `WriteFileStep`.
-pub fn getDirectorySource(wf: *WriteFileStep) std.Build.FileSource {
+/// files from this `WriteFile`.
+pub fn getDirectorySource(wf: *WriteFile) std.Build.FileSource {
     return .{ .generated = &wf.generated_directory };
 }
 
-fn maybeUpdateName(wf: *WriteFileStep) void {
+fn maybeUpdateName(wf: *WriteFile) void {
     if (wf.files.items.len == 1) {
         // First time adding a file; update name.
         if (std.mem.eql(u8, wf.step.name, "WriteFile")) {
@@ -148,10 +148,10 @@ fn maybeUpdateName(wf: *WriteFileStep) void {
 fn make(step: *Step, prog_node: *std.Progress.Node) !void {
     _ = prog_node;
     const b = step.owner;
-    const wf = @fieldParentPtr(WriteFileStep, "step", step);
+    const wf = @fieldParentPtr(WriteFile, "step", step);
 
     // Writing to source files is kind of an extra capability of this
-    // WriteFileStep - arguably it should be a different step. But anyway here
+    // WriteFile - arguably it should be a different step. But anyway here
     // it is, it happens unconditionally and does not interact with the other
     // files here.
     var any_miss = false;
@@ -194,14 +194,14 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
     // the data to a file would probably be very fast - but as a way to find a canonical
     // location to put build artifacts.
 
-    // If, for example, a hard-coded path was used as the location to put WriteFileStep
-    // files, then two WriteFileSteps executing in parallel might clobber each other.
+    // If, for example, a hard-coded path was used as the location to put WriteFile
+    // files, then two WriteFiles executing in parallel might clobber each other.
 
     var man = b.cache.obtain();
     defer man.deinit();
 
-    // Random bytes to make WriteFileStep unique. Refresh this with
-    // new random bytes when WriteFileStep implementation is modified
+    // Random bytes to make WriteFile unique. Refresh this with
+    // new random bytes when WriteFile implementation is modified
     // in a non-backwards-compatible way.
     man.hash.add(@as(u32, 0xd767ee59));
 

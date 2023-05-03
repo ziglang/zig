@@ -533,7 +533,7 @@ fn addCompilerStep(
     b: *std.Build,
     optimize: std.builtin.OptimizeMode,
     target: std.zig.CrossTarget,
-) *std.Build.CompileStep {
+) *std.Build.Step.Compile {
     const exe = b.addExecutable(.{
         .name = "zig",
         .root_source_file = .{ .path = "src/main.zig" },
@@ -561,7 +561,7 @@ const exe_cflags = [_][]const u8{
 fn addCmakeCfgOptionsToExe(
     b: *std.Build,
     cfg: CMakeConfig,
-    exe: *std.Build.CompileStep,
+    exe: *std.Build.Step.Compile,
     use_zig_libcxx: bool,
 ) !void {
     if (exe.target.isDarwin()) {
@@ -640,7 +640,7 @@ fn addCmakeCfgOptionsToExe(
     }
 }
 
-fn addStaticLlvmOptionsToExe(exe: *std.Build.CompileStep) !void {
+fn addStaticLlvmOptionsToExe(exe: *std.Build.Step.Compile) !void {
     // Adds the Zig C++ sources which both stage1 and stage2 need.
     //
     // We need this because otherwise zig_clang_cc1_main.cpp ends up pulling
@@ -679,7 +679,7 @@ fn addStaticLlvmOptionsToExe(exe: *std.Build.CompileStep) !void {
 fn addCxxKnownPath(
     b: *std.Build,
     ctx: CMakeConfig,
-    exe: *std.Build.CompileStep,
+    exe: *std.Build.Step.Compile,
     objname: []const u8,
     errtxt: ?[]const u8,
     need_cpp_includes: bool,
@@ -709,7 +709,7 @@ fn addCxxKnownPath(
     }
 }
 
-fn addCMakeLibraryList(exe: *std.Build.CompileStep, list: []const u8) void {
+fn addCMakeLibraryList(exe: *std.Build.Step.Compile, list: []const u8) void {
     var it = mem.tokenize(u8, list, ";");
     while (it.next()) |lib| {
         if (mem.startsWith(u8, lib, "-l")) {
@@ -723,7 +723,7 @@ fn addCMakeLibraryList(exe: *std.Build.CompileStep, list: []const u8) void {
 }
 
 const CMakeConfig = struct {
-    llvm_linkage: std.Build.CompileStep.Linkage,
+    llvm_linkage: std.Build.Step.Compile.Linkage,
     cmake_binary_dir: []const u8,
     cmake_prefix_path: []const u8,
     cmake_static_library_prefix: []const u8,

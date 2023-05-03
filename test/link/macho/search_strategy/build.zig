@@ -46,7 +46,7 @@ fn createScenario(
     optimize: std.builtin.OptimizeMode,
     target: std.zig.CrossTarget,
     name: []const u8,
-) *std.Build.CompileStep {
+) *std.Build.Step.Compile {
     const static = b.addStaticLibrary(.{
         .name = name,
         .optimize = optimize,

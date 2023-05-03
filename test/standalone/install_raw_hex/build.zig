@@ -1,6 +1,5 @@
 const builtin = @import("builtin");
 const std = @import("std");
-const CheckFileStep = std.Build.CheckFileStep;
 
 pub fn build(b: *std.Build) void {
     const test_step = b.step("test", "Test it");
