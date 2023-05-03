@@ -3,7 +3,7 @@ step: *Step,
 test_index: usize,
 test_filter: ?[]const u8,
 optimize_modes: []const OptimizeMode,
-check_exe: *std.Build.CompileStep,
+check_exe: *std.Build.Step.Compile,
 
 const Expect = [@typeInfo(OptimizeMode).Enum.fields.len][]const u8;
 

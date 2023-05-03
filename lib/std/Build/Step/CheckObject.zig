@@ -6,7 +6,7 @@ const math = std.math;
 const mem = std.mem;
 const testing = std.testing;
 
-const CheckObjectStep = @This();
+const CheckObject = @This();
 
 const Allocator = mem.Allocator;
 const Step = std.Build.Step;
@@ -24,9 +24,9 @@ pub fn create(
     owner: *std.Build,
     source: std.Build.FileSource,
     obj_format: std.Target.ObjectFormat,
-) *CheckObjectStep {
+) *CheckObject {
     const gpa = owner.allocator;
-    const self = gpa.create(CheckObjectStep) catch @panic("OOM");
+    const self = gpa.create(CheckObject) catch @panic("OOM");
     self.* = .{
         .step = Step.init(.{
             .id = .check_file,
@@ -47,11 +47,11 @@ pub fn create(
 /// TODO this doesn't actually compare, and there's no apparent reason for it
 /// to depend on the check object step. I don't see why this function should exist,
 /// the caller could just add the run step directly.
-pub fn runAndCompare(self: *CheckObjectStep) *std.Build.RunStep {
+pub fn runAndCompare(self: *CheckObject) *std.Build.Step.Run {
     const dependencies_len = self.step.dependencies.items.len;
     assert(dependencies_len > 0);
     const exe_step = self.step.dependencies.items[dependencies_len - 1];
-    const exe = exe_step.cast(std.Build.CompileStep).?;
+    const exe = exe_step.cast(std.Build.Step.Compile).?;
     const run = self.step.owner.addRunArtifact(exe);
     run.skip_foreign_checks = true;
     run.step.dependOn(&self.step);
@@ -274,15 +274,15 @@ const Check = struct {
 };
 
 /// Creates a new sequence of actions with `phrase` as the first anchor searched phrase.
-pub fn checkStart(self: *CheckObjectStep, phrase: []const u8) void {
+pub fn checkStart(self: *CheckObject, phrase: []const u8) void {
     var new_check = Check.create(self.step.owner.allocator);
     new_check.match(.{ .string = self.step.owner.dupe(phrase) });
     self.checks.append(new_check) catch @panic("OOM");
 }
 
-/// Adds another searched phrase to the latest created Check with `CheckObjectStep.checkStart(...)`.
+/// Adds another searched phrase to the latest created Check with `CheckObject.checkStart(...)`.
 /// Asserts at least one check already exists.
-pub fn checkNext(self: *CheckObjectStep, phrase: []const u8) void {
+pub fn checkNext(self: *CheckObject, phrase: []const u8) void {
     assert(self.checks.items.len > 0);
     const last = &self.checks.items[self.checks.items.len - 1];
     last.match(.{ .string = self.step.owner.dupe(phrase) });
@@ -291,7 +291,7 @@ pub fn checkNext(self: *CheckObjectStep, phrase: []const u8) void {
 /// Like `checkNext()` but takes an additional argument `FileSource` which will be
 /// resolved to a full search query in `make()`.
 pub fn checkNextFileSource(
-    self: *CheckObjectStep,
+    self: *CheckObject,
     phrase: []const u8,
     file_source: std.Build.FileSource,
 ) void {
@@ -300,10 +300,10 @@ pub fn checkNextFileSource(
     last.match(.{ .string = self.step.owner.dupe(phrase), .file_source = file_source });
 }
 
-/// Adds another searched phrase to the latest created Check with `CheckObjectStep.checkStart(...)`
+/// Adds another searched phrase to the latest created Check with `CheckObject.checkStart(...)`
 /// however ensures there is no matching phrase in the output.
 /// Asserts at least one check already exists.
-pub fn checkNotPresent(self: *CheckObjectStep, phrase: []const u8) void {
+pub fn checkNotPresent(self: *CheckObject, phrase: []const u8) void {
     assert(self.checks.items.len > 0);
     const last = &self.checks.items[self.checks.items.len - 1];
     last.notPresent(.{ .string = self.step.owner.dupe(phrase) });
@@ -312,7 +312,7 @@ pub fn checkNotPresent(self: *CheckObjectStep, phrase: []const u8) void {
 /// Creates a new check checking specifically symbol table parsed and dumped from the object
 /// file.
 /// Issuing this check will force parsing and dumping of the symbol table.
-pub fn checkInSymtab(self: *CheckObjectStep) void {
+pub fn checkInSymtab(self: *CheckObject) void {
     self.dump_symtab = true;
     const symtab_label = switch (self.obj_format) {
         .macho => MachODumper.symtab_label,
@@ -325,7 +325,7 @@ pub fn checkInSymtab(self: *CheckObjectStep) void {
 /// on the extracted variables. It will then compare the reduced program with the value of
 /// the expected variable.
 pub fn checkComputeCompare(
-    self: *CheckObjectStep,
+    self: *CheckObject,
     program: []const u8,
     expected: ComputeCompareExpected,
 ) void {
@@ -338,7 +338,7 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
     _ = prog_node;
     const b = step.owner;
     const gpa = b.allocator;
-    const self = @fieldParentPtr(CheckObjectStep, "step", step);
+    const self = @fieldParentPtr(CheckObject, "step", step);
 
     const src_path = self.source.getPath(b);
     const contents = fs.cwd().readFileAllocOptions(
