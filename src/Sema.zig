@@ -32821,6 +32821,7 @@ pub fn typeHasOnePossibleValue(sema: *Sema, ty: Type) CompileError!?Value {
             .undefined => return Value.undef,
 
             .generic_poison => return error.GenericPoison,
+            .var_args_param => unreachable,
         },
         .struct_type => @panic("TODO"),
         .simple_value => unreachable,
