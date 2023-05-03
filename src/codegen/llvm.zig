@@ -10932,7 +10932,7 @@ const ParamTypeIterator = struct {
                     .riscv32, .riscv64 => {
                         it.zig_index += 1;
                         it.llvm_index += 1;
-                        if (ty.tag() == .f16) {
+                        if (ty.ip_index == .f16_type) {
                             return .as_u16;
                         }
                         switch (riscv_c_abi.classifyType(ty, mod)) {
@@ -11264,10 +11264,10 @@ fn backendSupportsF128(target: std.Target) bool {
 /// LLVM does not support all relevant intrinsics for all targets, so we
 /// may need to manually generate a libc call
 fn intrinsicsAllowed(scalar_ty: Type, target: std.Target) bool {
-    return switch (scalar_ty.tag()) {
-        .f16 => backendSupportsF16(target),
-        .f80 => (target.c_type_bit_size(.longdouble) == 80) and backendSupportsF80(target),
-        .f128 => (target.c_type_bit_size(.longdouble) == 128) and backendSupportsF128(target),
+    return switch (scalar_ty.ip_index) {
+        .f16_type => backendSupportsF16(target),
+        .f80_type => (target.c_type_bit_size(.longdouble) == 80) and backendSupportsF80(target),
+        .f128_type => (target.c_type_bit_size(.longdouble) == 128) and backendSupportsF128(target),
         else => true,
     };
 }
