@@ -727,8 +727,8 @@ pub const Type = struct {
                 const a_info = a.fnInfo();
                 const b_info = b.fnInfo();
 
-                if (a_info.return_type.tag() != .generic_poison and
-                    b_info.return_type.tag() != .generic_poison and
+                if (!a_info.return_type.isGenericPoison() and
+                    !b_info.return_type.isGenericPoison() and
                     !eql(a_info.return_type, b_info.return_type, mod))
                     return false;
 
@@ -758,8 +758,8 @@ pub const Type = struct {
                     if (a_info.comptime_params[i] != b_info.comptime_params[i])
                         return false;
 
-                    if (a_param_ty.tag() == .generic_poison) continue;
-                    if (b_param_ty.tag() == .generic_poison) continue;
+                    if (a_param_ty.isGenericPoison()) continue;
+                    if (b_param_ty.isGenericPoison()) continue;
 
                     if (!eql(a_param_ty, b_param_ty, mod))
                         return false;
@@ -1131,7 +1131,7 @@ pub const Type = struct {
                 std.hash.autoHash(hasher, std.builtin.TypeId.Fn);
 
                 const fn_info = ty.fnInfo();
-                if (fn_info.return_type.tag() != .generic_poison) {
+                if (!fn_info.return_type.isGenericPoison()) {
                     hashWithHasher(fn_info.return_type, hasher, mod);
                 }
                 if (!fn_info.align_is_generic) {
@@ -1148,7 +1148,7 @@ pub const Type = struct {
                 std.hash.autoHash(hasher, fn_info.param_types.len);
                 for (fn_info.param_types, 0..) |param_ty, i| {
                     std.hash.autoHash(hasher, fn_info.paramIsComptime(i));
-                    if (param_ty.tag() == .generic_poison) continue;
+                    if (param_ty.isGenericPoison()) continue;
                     hashWithHasher(param_ty, hasher, mod);
                 }
             },
@@ -2154,7 +2154,7 @@ pub const Type = struct {
                     if (std.math.cast(u5, i)) |index| if (@truncate(u1, fn_info.noalias_bits >> index) != 0) {
                         try writer.writeAll("noalias ");
                     };
-                    if (param_ty.tag() == .generic_poison) {
+                    if (param_ty.isGenericPoison()) {
                         try writer.writeAll("anytype");
                     } else {
                         try print(param_ty, writer, mod);
@@ -2175,7 +2175,7 @@ pub const Type = struct {
                     try writer.writeAll(@tagName(fn_info.cc));
                     try writer.writeAll(") ");
                 }
-                if (fn_info.return_type.tag() == .generic_poison) {
+                if (fn_info.return_type.isGenericPoison()) {
                     try writer.writeAll("anytype");
                 } else {
                     try print(fn_info.return_type, writer, mod);
@@ -6073,6 +6073,14 @@ pub const Type = struct {
 
             else => return null,
         }
+    }
+
+    pub fn isGenericPoison(ty: Type) bool {
+        return switch (ty.ip_index) {
+            .generic_poison_type => true,
+            .none => ty.tag() == .generic_poison,
+            else => false,
+        };
     }
 
     /// This enum does not directly correspond to `std.builtin.TypeId` because

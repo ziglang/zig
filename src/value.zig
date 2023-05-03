@@ -5416,6 +5416,14 @@ pub const Value = struct {
         return initPayload(&value_buffer.base);
     }
 
+    pub fn isGenericPoison(val: Value) bool {
+        return switch (val.ip_index) {
+            .generic_poison => true,
+            .none => val.tag() == .generic_poison,
+            else => false,
+        };
+    }
+
     /// This type is not copyable since it may contain pointers to its inner data.
     pub const Payload = struct {
         tag: Tag,

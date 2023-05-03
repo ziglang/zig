@@ -5728,7 +5728,7 @@ pub fn analyzeFnBody(mod: *Module, func: *Fn, arena: Allocator) SemaError!Air {
         const param_ty = if (func.comptime_args) |comptime_args| t: {
             const arg_tv = comptime_args[total_param_index];
 
-            const arg_val = if (arg_tv.val.tag() != .generic_poison)
+            const arg_val = if (!arg_tv.val.isGenericPoison())
                 arg_tv.val
             else if (arg_tv.ty.onePossibleValue(mod)) |opv|
                 opv

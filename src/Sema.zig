@@ -300,7 +300,7 @@ pub const Block = struct {
                         const src_decl = sema.mod.declPtr(rt.block.src_decl);
                         break :blk rt.func_src.toSrcLoc(src_decl);
                     };
-                    if (rt.return_ty.tag() == .generic_poison) {
+                    if (rt.return_ty.isGenericPoison()) {
                         return sema.mod.errNoteNonLazy(src_loc, parent, prefix ++ "the generic function was instantiated with a comptime-only return type", .{});
                     }
                     try sema.mod.errNoteNonLazy(
@@ -1730,7 +1730,7 @@ pub fn resolveInst(sema: *Sema, zir_ref: Zir.Inst.Ref) !Air.Inst.Ref {
     // The last section of indexes refers to the map of ZIR => AIR.
     const inst = sema.inst_map.get(i - InternPool.static_len).?;
     const ty = sema.typeOf(inst);
-    if (ty.tag() == .generic_poison) return error.GenericPoison;
+    if (ty.isGenericPoison()) return error.GenericPoison;
     return inst;
 }
 
@@ -1766,7 +1766,7 @@ pub fn resolveType(sema: *Sema, block: *Block, src: LazySrcLoc, zir_ref: Zir.Ins
     const air_inst = try sema.resolveInst(zir_ref);
     assert(air_inst != .var_args_param_type);
     const ty = try sema.analyzeAsType(block, src, air_inst);
-    if (ty.tag() == .generic_poison) return error.GenericPoison;
+    if (ty.isGenericPoison()) return error.GenericPoison;
     return ty;
 }
 
@@ -1827,7 +1827,7 @@ fn resolveValue(
     reason: []const u8,
 ) CompileError!Value {
     if (try sema.resolveMaybeUndefValAllowVariables(air_ref)) |val| {
-        if (val.tag() == .generic_poison) return error.GenericPoison;
+        if (val.isGenericPoison()) return error.GenericPoison;
         return val;
     }
     return sema.failWithNeededComptime(block, src, reason);
@@ -6549,8 +6549,8 @@ const GenericCallAdapter = struct {
         const other_comptime_args = other_key.comptime_args.?;
         for (other_comptime_args[0..ctx.func_ty_info.param_types.len], 0..) |other_arg, i| {
             const this_arg = ctx.args[i];
-            const this_is_comptime = this_arg.val.tag() != .generic_poison;
-            const other_is_comptime = other_arg.val.tag() != .generic_poison;
+            const this_is_comptime = !this_arg.val.isGenericPoison();
+            const other_is_comptime = !other_arg.val.isGenericPoison();
             const this_is_anytype = this_arg.is_anytype;
             const other_is_anytype = other_key.isAnytypeParam(ctx.module, @intCast(u32, i));
 
@@ -7189,7 +7189,7 @@ fn analyzeInlineCallArg(
             const param_body = sema.code.extra[extra.end..][0..extra.data.body_len];
             const param_ty = param_ty: {
                 const raw_param_ty = raw_param_types[arg_i.*];
-                if (raw_param_ty.tag() != .generic_poison) break :param_ty raw_param_ty;
+                if (!raw_param_ty.isGenericPoison()) break :param_ty raw_param_ty;
                 const param_ty_inst = try sema.resolveBody(param_block, param_body, inst);
                 break :param_ty try sema.analyzeAsType(param_block, param_src, param_ty_inst);
             };
@@ -7317,7 +7317,7 @@ fn analyzeGenericCallArg(
     runtime_i: *u32,
 ) !void {
     const mod = sema.mod;
-    const is_runtime = comptime_arg.val.tag() == .generic_poison and
+    const is_runtime = comptime_arg.val.isGenericPoison() and
         comptime_arg.ty.hasRuntimeBits(mod) and
         !(try sema.typeRequiresComptime(comptime_arg.ty));
     if (is_runtime) {
@@ -8882,7 +8882,7 @@ fn funcCommon(
     const cc_src: LazySrcLoc = .{ .node_offset_fn_type_cc = src_node_offset };
     const func_src = LazySrcLoc.nodeOffset(src_node_offset);
 
-    var is_generic = bare_return_type.tag() == .generic_poison or
+    var is_generic = bare_return_type.isGenericPoison() or
         alignment == null or
         address_space == null or
         section == .generic or
@@ -8965,7 +8965,7 @@ fn funcCommon(
         var ret_ty_requires_comptime = false;
         const ret_poison = if (sema.typeRequiresComptime(bare_return_type)) |ret_comptime| rp: {
             ret_ty_requires_comptime = ret_comptime;
-            break :rp bare_return_type.tag() == .generic_poison;
+            break :rp bare_return_type.isGenericPoison();
         } else |err| switch (err) {
             error.GenericPoison => rp: {
                 is_generic = true;
@@ -9208,7 +9208,7 @@ fn analyzeParameter(
     const mod = sema.mod;
     const requires_comptime = try sema.typeRequiresComptime(param.ty);
     comptime_params[i] = param.is_comptime or requires_comptime;
-    const this_generic = param.ty.tag() == .generic_poison;
+    const this_generic = param.ty.isGenericPoison();
     is_generic.* = is_generic.* or this_generic;
     const target = mod.getTarget();
     if (param.is_comptime and !Type.fnCallingConventionAllowsZigTypes(target, cc)) {
@@ -15872,7 +15872,7 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
             const param_vals = try params_anon_decl.arena().alloc(Value, info.param_types.len);
             for (param_vals, 0..) |*param_val, i| {
                 const param_ty = info.param_types[i];
-                const is_generic = param_ty.tag() == .generic_poison;
+                const is_generic = param_ty.isGenericPoison();
                 const param_ty_val = if (is_generic)
                     Value.null
                 else
@@ -15936,7 +15936,7 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                 });
             };
 
-            const ret_ty_opt = if (info.return_type.tag() != .generic_poison)
+            const ret_ty_opt = if (!info.return_type.isGenericPoison())
                 try Value.Tag.opt_payload.create(
                     sema.arena,
                     try Value.Tag.ty.create(sema.arena, info.return_type),
@@ -16713,7 +16713,7 @@ fn zirTypeofBuiltin(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileErr
 
     const operand = try sema.resolveBody(&child_block, body, inst);
     const operand_ty = sema.typeOf(operand);
-    if (operand_ty.tag() == .generic_poison) return error.GenericPoison;
+    if (operand_ty.isGenericPoison()) return error.GenericPoison;
     return sema.addType(operand_ty);
 }
 
@@ -17589,7 +17589,7 @@ fn zirPtrType(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
             }
             return err;
         };
-        if (ty.tag() == .generic_poison) return error.GenericPoison;
+        if (ty.isGenericPoison()) return error.GenericPoison;
         break :blk ty;
     };
     const target = sema.mod.getTarget();
@@ -22565,7 +22565,7 @@ fn zirFuncFancy(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!A
         extra_index += body.len;
 
         const val = try sema.resolveGenericBody(block, align_src, body, inst, Type.u29, "alignment must be comptime-known");
-        if (val.tag() == .generic_poison) {
+        if (val.isGenericPoison()) {
             break :blk null;
         }
         const alignment = @intCast(u32, val.toUnsignedInt(mod));
@@ -22601,7 +22601,7 @@ fn zirFuncFancy(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!A
 
         const addrspace_ty = try sema.getBuiltinType("AddressSpace");
         const val = try sema.resolveGenericBody(block, addrspace_src, body, inst, addrspace_ty, "addrespace must be comptime-known");
-        if (val.tag() == .generic_poison) {
+        if (val.isGenericPoison()) {
             break :blk null;
         }
         break :blk val.toEnum(std.builtin.AddressSpace);
@@ -22625,7 +22625,7 @@ fn zirFuncFancy(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!A
 
         const ty = Type.initTag(.const_slice_u8);
         const val = try sema.resolveGenericBody(block, section_src, body, inst, ty, "linksection must be comptime-known");
-        if (val.tag() == .generic_poison) {
+        if (val.isGenericPoison()) {
             break :blk FuncLinkSection{ .generic = {} };
         }
         break :blk FuncLinkSection{ .explicit = try val.toAllocatedBytes(ty, sema.arena, sema.mod) };
@@ -22649,7 +22649,7 @@ fn zirFuncFancy(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!A
 
         const cc_ty = try sema.getBuiltinType("CallingConvention");
         const val = try sema.resolveGenericBody(block, cc_src, body, inst, cc_ty, "calling convention must be comptime-known");
-        if (val.tag() == .generic_poison) {
+        if (val.isGenericPoison()) {
             break :blk null;
         }
         break :blk val.toEnum(std.builtin.CallingConvention);
@@ -31776,7 +31776,7 @@ fn resolveInferredErrorSet(
     // if ies declared by a inline function with generic return type, the return_type should be generic_poison,
     // because inline function does not create a new declaration, and the ies has been filled with analyzeCall,
     // so here we can simply skip this case.
-    if (ies_func_info.return_type.tag() == .generic_poison) {
+    if (ies_func_info.return_type.isGenericPoison()) {
         assert(ies_func_info.cc == .Inline);
     } else if (ies_func_info.return_type.errorUnionSet().castTag(.error_set_inferred).?.data == ies) {
         if (ies_func_info.is_generic) {
@@ -32034,7 +32034,7 @@ fn semaStructFields(mod: *Module, struct_obj: *Module.Struct) CompileError!void 
                 else => |e| return e,
             };
         };
-        if (field_ty.tag() == .generic_poison) {
+        if (field_ty.isGenericPoison()) {
             return error.GenericPoison;
         }
 
@@ -32428,7 +32428,7 @@ fn semaUnionFields(mod: *Module, union_obj: *Module.Union) CompileError!void {
                 else => |e| return e,
             };
 
-        if (field_ty.tag() == .generic_poison) {
+        if (field_ty.isGenericPoison()) {
             return error.GenericPoison;
         }
 
