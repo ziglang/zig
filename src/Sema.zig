@@ -5138,7 +5138,7 @@ fn zirInt(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Ins
     defer tracy.end();
 
     const int = sema.code.instructions.items(.data)[inst].int;
-    return sema.addIntUnsigned(Type.initTag(.comptime_int), int);
+    return sema.addIntUnsigned(Type.comptime_int, int);
 }
 
 fn zirIntBig(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
@@ -5154,7 +5154,7 @@ fn zirIntBig(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.
     @memcpy(mem.sliceAsBytes(limbs), limb_bytes);
 
     return sema.addConstant(
-        Type.initTag(.comptime_int),
+        Type.comptime_int,
         try Value.Tag.int_big_positive.create(arena, limbs),
     );
 }
@@ -5164,7 +5164,7 @@ fn zirFloat(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.I
     const arena = sema.arena;
     const number = sema.code.instructions.items(.data)[inst].float;
     return sema.addConstant(
-        Type.initTag(.comptime_float),
+        Type.comptime_float,
         try Value.Tag.float_64.create(arena, number),
     );
 }
@@ -5176,7 +5176,7 @@ fn zirFloat128(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
     const extra = sema.code.extraData(Zir.Inst.Float128, inst_data.payload_index).data;
     const number = extra.get();
     return sema.addConstant(
-        Type.initTag(.comptime_float),
+        Type.comptime_float,
         try Value.Tag.float_128.create(arena, number),
     );
 }
@@ -15152,8 +15152,8 @@ fn zirAsm(
         const uncasted_arg = try sema.resolveInst(input.data.operand);
         const uncasted_arg_ty = sema.typeOf(uncasted_arg);
         switch (uncasted_arg_ty.zigTypeTag(mod)) {
-            .ComptimeInt => arg.* = try sema.coerce(block, Type.initTag(.usize), uncasted_arg, src),
-            .ComptimeFloat => arg.* = try sema.coerce(block, Type.initTag(.f64), uncasted_arg, src),
+            .ComptimeInt => arg.* = try sema.coerce(block, Type.usize, uncasted_arg, src),
+            .ComptimeFloat => arg.* = try sema.coerce(block, Type.f64, uncasted_arg, src),
             else => {
                 arg.* = uncasted_arg;
                 try sema.queueFullTypeResolution(uncasted_arg_ty);
@@ -31355,14 +31355,59 @@ fn resolveUnionLayout(sema: *Sema, ty: Type) CompileError!void {
 pub fn resolveTypeRequiresComptime(sema: *Sema, ty: Type) CompileError!bool {
     const mod = sema.mod;
 
-    if (ty.ip_index != .none) switch (mod.intern_pool.indexToKey(ty.ip_index)) {
-        .int_type => return false,
+    if (ty.ip_index != .none) return switch (mod.intern_pool.indexToKey(ty.ip_index)) {
+        .int_type => false,
         .ptr_type => @panic("TODO"),
         .array_type => @panic("TODO"),
         .vector_type => @panic("TODO"),
         .optional_type => @panic("TODO"),
         .error_union_type => @panic("TODO"),
-        .simple_type => @panic("TODO"),
+        .simple_type => |t| switch (t) {
+            .f16,
+            .f32,
+            .f64,
+            .f80,
+            .f128,
+            .usize,
+            .isize,
+            .c_char,
+            .c_short,
+            .c_ushort,
+            .c_int,
+            .c_uint,
+            .c_long,
+            .c_ulong,
+            .c_longlong,
+            .c_ulonglong,
+            .c_longdouble,
+            .anyopaque,
+            .bool,
+            .void,
+            .anyerror,
+            .@"anyframe",
+            .noreturn,
+            .generic_poison,
+            .atomic_order,
+            .atomic_rmw_op,
+            .calling_convention,
+            .address_space,
+            .float_mode,
+            .reduce_op,
+            .call_modifier,
+            .prefetch_options,
+            .export_options,
+            .extern_options,
+            => false,
+
+            .type,
+            .comptime_int,
+            .comptime_float,
+            .null,
+            .undefined,
+            .enum_literal,
+            .type_info,
+            => true,
+        },
         .struct_type => @panic("TODO"),
         .union_type => @panic("TODO"),
         .simple_value => unreachable,
@@ -31395,12 +31440,6 @@ pub fn resolveTypeRequiresComptime(sema: *Sema, ty: Type) CompileError!bool {
         .c_ulong,
         .c_longlong,
         .c_ulonglong,
-        .c_longdouble,
-        .f16,
-        .f32,
-        .f64,
-        .f80,
-        .f128,
         .anyopaque,
         .bool,
         .void,
@@ -31441,7 +31480,6 @@ pub fn resolveTypeRequiresComptime(sema: *Sema, ty: Type) CompileError!bool {
         .single_const_pointer_to_comptime_int,
         .type,
         .comptime_int,
-        .comptime_float,
         .enum_literal,
         .type_info,
         .function,
@@ -32912,14 +32950,7 @@ pub fn typeHasOnePossibleValue(sema: *Sema, ty: Type) CompileError!?Value {
     };
 
     switch (ty.tag()) {
-        .f16,
-        .f32,
-        .f64,
-        .f80,
-        .f128,
-        .c_longdouble,
         .comptime_int,
-        .comptime_float,
         .u1,
         .u8,
         .i8,
@@ -33179,19 +33210,12 @@ pub fn addType(sema: *Sema, ty: Type) !Air.Inst.Ref {
         .c_ulong => return .c_ulong_type,
         .c_longlong => return .c_longlong_type,
         .c_ulonglong => return .c_ulonglong_type,
-        .c_longdouble => return .c_longdouble_type,
-        .f16 => return .f16_type,
-        .f32 => return .f32_type,
-        .f64 => return .f64_type,
-        .f80 => return .f80_type,
-        .f128 => return .f128_type,
         .anyopaque => return .anyopaque_type,
         .bool => return .bool_type,
         .void => return .void_type,
         .type => return .type_type,
         .anyerror => return .anyerror_type,
         .comptime_int => return .comptime_int_type,
-        .comptime_float => return .comptime_float_type,
         .noreturn => return .noreturn_type,
         .@"anyframe" => return .anyframe_type,
         .null => return .null_type,
@@ -33581,7 +33605,52 @@ pub fn typeRequiresComptime(sema: *Sema, ty: Type) CompileError!bool {
             .vector_type => @panic("TODO"),
             .optional_type => @panic("TODO"),
             .error_union_type => @panic("TODO"),
-            .simple_type => @panic("TODO"),
+            .simple_type => |t| return switch (t) {
+                .f16,
+                .f32,
+                .f64,
+                .f80,
+                .f128,
+                .usize,
+                .isize,
+                .c_char,
+                .c_short,
+                .c_ushort,
+                .c_int,
+                .c_uint,
+                .c_long,
+                .c_ulong,
+                .c_longlong,
+                .c_ulonglong,
+                .c_longdouble,
+                .anyopaque,
+                .bool,
+                .void,
+                .anyerror,
+                .@"anyframe",
+                .noreturn,
+                .generic_poison,
+                .atomic_order,
+                .atomic_rmw_op,
+                .calling_convention,
+                .address_space,
+                .float_mode,
+                .reduce_op,
+                .call_modifier,
+                .prefetch_options,
+                .export_options,
+                .extern_options,
+                => false,
+
+                .type,
+                .comptime_int,
+                .comptime_float,
+                .null,
+                .undefined,
+                .enum_literal,
+                .type_info,
+                => true,
+            },
             .struct_type => @panic("TODO"),
             .union_type => @panic("TODO"),
             .simple_value => unreachable,
@@ -33614,20 +33683,12 @@ pub fn typeRequiresComptime(sema: *Sema, ty: Type) CompileError!bool {
         .c_ulong,
         .c_longlong,
         .c_ulonglong,
-        .c_longdouble,
-        .f16,
-        .f32,
-        .f64,
-        .f80,
-        .f128,
         .anyopaque,
         .bool,
         .void,
         .anyerror,
         .noreturn,
         .@"anyframe",
-        .null,
-        .undefined,
         .atomic_order,
         .atomic_rmw_op,
         .calling_convention,
@@ -33660,8 +33721,9 @@ pub fn typeRequiresComptime(sema: *Sema, ty: Type) CompileError!bool {
         .single_const_pointer_to_comptime_int,
         .type,
         .comptime_int,
-        .comptime_float,
         .enum_literal,
+        .null,
+        .undefined,
         .type_info,
         .function,
         => true,

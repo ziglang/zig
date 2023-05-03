@@ -3594,7 +3594,7 @@ fn bitcast(func: *CodeGen, wanted_ty: Type, given_ty: Type, operand: WValue) Inn
     const mod = func.bin_file.base.options.module.?;
     // if we bitcast a float to or from an integer we must use the 'reinterpret' instruction
     if (!(wanted_ty.isAnyFloat() or given_ty.isAnyFloat())) return operand;
-    if (wanted_ty.tag() == .f16 or given_ty.tag() == .f16) return operand;
+    if (wanted_ty.ip_index == .f16_type or given_ty.ip_index == .f16_type) return operand;
     if (wanted_ty.bitSize(mod) > 64) return operand;
     assert((wanted_ty.isInt(mod) and given_ty.isAnyFloat()) or (wanted_ty.isAnyFloat() and given_ty.isInt(mod)));
 

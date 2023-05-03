@@ -50,6 +50,7 @@ pub const Type = struct {
                     .f64,
                     .f80,
                     .f128,
+                    .c_longdouble,
                     => return .Float,
 
                     .usize,
@@ -63,7 +64,6 @@ pub const Type = struct {
                     .c_ulong,
                     .c_longlong,
                     .c_ulonglong,
-                    .c_longdouble,
                     => return .Int,
 
                     .anyopaque => return .Opaque,
@@ -134,14 +134,6 @@ pub const Type = struct {
             .c_ulonglong,
             => return .Int,
 
-            .f16,
-            .f32,
-            .f64,
-            .f80,
-            .f128,
-            .c_longdouble,
-            => return .Float,
-
             .error_set,
             .error_set_single,
             .anyerror,
@@ -154,7 +146,6 @@ pub const Type = struct {
             .void => return .Void,
             .type => return .Type,
             .comptime_int => return .ComptimeInt,
-            .comptime_float => return .ComptimeFloat,
             .noreturn => return .NoReturn,
             .null => return .Null,
             .undefined => return .Undefined,
@@ -618,10 +609,13 @@ pub const Type = struct {
     }
 
     pub fn eql(a: Type, b: Type, mod: *Module) bool {
-        // As a shortcut, if the small tags / addresses match, we're done.
         if (a.ip_index != .none or b.ip_index != .none) {
+            // The InternPool data structure hashes based on Key to make interned objects
+            // unique. An Index can be treated simply as u32 value for the
+            // purpose of Type/Value hashing and equality.
             return a.ip_index == b.ip_index;
         }
+        // As a shortcut, if the small tags / addresses match, we're done.
         if (a.legacy.tag_if_small_enough == b.legacy.tag_if_small_enough) return true;
 
         switch (a.tag()) {
@@ -640,18 +634,10 @@ pub const Type = struct {
             .c_longlong,
             .c_ulonglong,
 
-            .f16,
-            .f32,
-            .f64,
-            .f80,
-            .f128,
-            .c_longdouble,
-
             .bool,
             .void,
             .type,
             .comptime_int,
-            .comptime_float,
             .noreturn,
             .null,
             .undefined,
@@ -1018,7 +1004,11 @@ pub const Type = struct {
 
     pub fn hashWithHasher(ty: Type, hasher: *std.hash.Wyhash, mod: *Module) void {
         if (ty.ip_index != .none) {
-            return mod.intern_pool.indexToKey(ty.ip_index).hashWithHasher(hasher);
+            // The InternPool data structure hashes based on Key to make interned objects
+            // unique. An Index can be treated simply as u32 value for the
+            // purpose of Type/Value hashing and equality.
+            std.hash.autoHash(hasher, ty.ip_index);
+            return;
         }
         switch (ty.tag()) {
             .generic_poison => unreachable,
@@ -1039,22 +1029,10 @@ pub const Type = struct {
                 std.hash.autoHash(hasher, ty_tag);
             },
 
-            .f16,
-            .f32,
-            .f64,
-            .f80,
-            .f128,
-            .c_longdouble,
-            => |ty_tag| {
-                std.hash.autoHash(hasher, std.builtin.TypeId.Float);
-                std.hash.autoHash(hasher, ty_tag);
-            },
-
             .bool => std.hash.autoHash(hasher, std.builtin.TypeId.Bool),
             .void => std.hash.autoHash(hasher, std.builtin.TypeId.Void),
             .type => std.hash.autoHash(hasher, std.builtin.TypeId.Type),
             .comptime_int => std.hash.autoHash(hasher, std.builtin.TypeId.ComptimeInt),
-            .comptime_float => std.hash.autoHash(hasher, std.builtin.TypeId.ComptimeFloat),
             .noreturn => std.hash.autoHash(hasher, std.builtin.TypeId.NoReturn),
             .null => std.hash.autoHash(hasher, std.builtin.TypeId.Null),
             .undefined => std.hash.autoHash(hasher, std.builtin.TypeId.Undefined),
@@ -1378,19 +1356,12 @@ pub const Type = struct {
             .c_ulong,
             .c_longlong,
             .c_ulonglong,
-            .c_longdouble,
             .anyopaque,
-            .f16,
-            .f32,
-            .f64,
-            .f80,
-            .f128,
             .bool,
             .void,
             .type,
             .anyerror,
             .comptime_int,
-            .comptime_float,
             .noreturn,
             .null,
             .undefined,
@@ -1671,20 +1642,13 @@ pub const Type = struct {
                 .c_ulong,
                 .c_longlong,
                 .c_ulonglong,
-                .c_longdouble,
                 .anyopaque,
-                .f16,
-                .f32,
-                .f64,
-                .f80,
-                .f128,
                 .bool,
                 .void,
                 .type,
                 .anyerror,
                 .@"anyframe",
                 .comptime_int,
-                .comptime_float,
                 .noreturn,
                 => return writer.writeAll(@tagName(t)),
 
@@ -2067,20 +2031,13 @@ pub const Type = struct {
             .c_ulong,
             .c_longlong,
             .c_ulonglong,
-            .c_longdouble,
             .anyopaque,
-            .f16,
-            .f32,
-            .f64,
-            .f80,
-            .f128,
             .bool,
             .void,
             .type,
             .anyerror,
             .@"anyframe",
             .comptime_int,
-            .comptime_float,
             .noreturn,
             => try writer.writeAll(@tagName(t)),
 
@@ -2353,6 +2310,7 @@ pub const Type = struct {
     }
 
     pub fn toValue(self: Type, allocator: Allocator) Allocator.Error!Value {
+        if (self.ip_index != .none) return self.ip_index.toValue();
         switch (self.tag()) {
             .u1 => return Value.initTag(.u1_type),
             .u8 => return Value.initTag(.u8_type),
@@ -2375,20 +2333,13 @@ pub const Type = struct {
             .c_ulong => return Value.initTag(.c_ulong_type),
             .c_longlong => return Value.initTag(.c_longlong_type),
             .c_ulonglong => return Value.initTag(.c_ulonglong_type),
-            .c_longdouble => return Value.initTag(.c_longdouble_type),
             .anyopaque => return Value.initTag(.anyopaque_type),
-            .f16 => return Value.initTag(.f16_type),
-            .f32 => return Value.initTag(.f32_type),
-            .f64 => return Value.initTag(.f64_type),
-            .f80 => return Value.initTag(.f80_type),
-            .f128 => return Value.initTag(.f128_type),
             .bool => return Value.initTag(.bool_type),
             .void => return Value.initTag(.void_type),
             .type => return Value.initTag(.type_type),
             .anyerror => return Value.initTag(.anyerror_type),
             .@"anyframe" => return Value.initTag(.anyframe_type),
             .comptime_int => return Value.initTag(.comptime_int_type),
-            .comptime_float => return Value.initTag(.comptime_float_type),
             .noreturn => return Value.initTag(.noreturn_type),
             .null => return Value.initTag(.null_type),
             .undefined => return Value.initTag(.undefined_type),
@@ -2522,12 +2473,6 @@ pub const Type = struct {
             .c_ulong,
             .c_longlong,
             .c_ulonglong,
-            .c_longdouble,
-            .f16,
-            .f32,
-            .f64,
-            .f80,
-            .f128,
             .bool,
             .anyerror,
             .const_slice_u8,
@@ -2588,7 +2533,6 @@ pub const Type = struct {
             .void,
             .type,
             .comptime_int,
-            .comptime_float,
             .noreturn,
             .null,
             .undefined,
@@ -2801,12 +2745,6 @@ pub const Type = struct {
             .c_ulong,
             .c_longlong,
             .c_ulonglong,
-            .c_longdouble,
-            .f16,
-            .f32,
-            .f64,
-            .f80,
-            .f128,
             .bool,
             .void,
             .manyptr_u8,
@@ -2852,7 +2790,6 @@ pub const Type = struct {
             .generic_poison,
             .type,
             .comptime_int,
-            .comptime_float,
             .enum_literal,
             .type_info,
             // These are function bodies, not function pointers.
@@ -3085,7 +3022,74 @@ pub const Type = struct {
             .vector_type => @panic("TODO"),
             .optional_type => @panic("TODO"),
             .error_union_type => @panic("TODO"),
-            .simple_type => @panic("TODO"),
+            .simple_type => |t| switch (t) {
+                .bool,
+                .atomic_order,
+                .atomic_rmw_op,
+                .calling_convention,
+                .address_space,
+                .float_mode,
+                .reduce_op,
+                .call_modifier,
+                .prefetch_options,
+                .anyopaque,
+                => return AbiAlignmentAdvanced{ .scalar = 1 },
+
+                .usize,
+                .isize,
+                .export_options,
+                .extern_options,
+                .@"anyframe",
+                => return AbiAlignmentAdvanced{ .scalar = @divExact(target.cpu.arch.ptrBitWidth(), 8) },
+
+                .c_char => return AbiAlignmentAdvanced{ .scalar = target.c_type_alignment(.char) },
+                .c_short => return AbiAlignmentAdvanced{ .scalar = target.c_type_alignment(.short) },
+                .c_ushort => return AbiAlignmentAdvanced{ .scalar = target.c_type_alignment(.ushort) },
+                .c_int => return AbiAlignmentAdvanced{ .scalar = target.c_type_alignment(.int) },
+                .c_uint => return AbiAlignmentAdvanced{ .scalar = target.c_type_alignment(.uint) },
+                .c_long => return AbiAlignmentAdvanced{ .scalar = target.c_type_alignment(.long) },
+                .c_ulong => return AbiAlignmentAdvanced{ .scalar = target.c_type_alignment(.ulong) },
+                .c_longlong => return AbiAlignmentAdvanced{ .scalar = target.c_type_alignment(.longlong) },
+                .c_ulonglong => return AbiAlignmentAdvanced{ .scalar = target.c_type_alignment(.ulonglong) },
+                .c_longdouble => return AbiAlignmentAdvanced{ .scalar = target.c_type_alignment(.longdouble) },
+
+                .f16 => return AbiAlignmentAdvanced{ .scalar = 2 },
+                .f32 => return AbiAlignmentAdvanced{ .scalar = target.c_type_alignment(.float) },
+                .f64 => switch (target.c_type_bit_size(.double)) {
+                    64 => return AbiAlignmentAdvanced{ .scalar = target.c_type_alignment(.double) },
+                    else => return AbiAlignmentAdvanced{ .scalar = 8 },
+                },
+                .f80 => switch (target.c_type_bit_size(.longdouble)) {
+                    80 => return AbiAlignmentAdvanced{ .scalar = target.c_type_alignment(.longdouble) },
+                    else => {
+                        const u80_ty: Type = .{
+                            .ip_index = .u80_type,
+                            .legacy = undefined,
+                        };
+                        return AbiAlignmentAdvanced{ .scalar = abiAlignment(u80_ty, mod) };
+                    },
+                },
+                .f128 => switch (target.c_type_bit_size(.longdouble)) {
+                    128 => return AbiAlignmentAdvanced{ .scalar = target.c_type_alignment(.longdouble) },
+                    else => return AbiAlignmentAdvanced{ .scalar = 16 },
+                },
+
+                // TODO revisit this when we have the concept of the error tag type
+                .anyerror => return AbiAlignmentAdvanced{ .scalar = 2 },
+
+                .void,
+                .type,
+                .comptime_int,
+                .comptime_float,
+                .null,
+                .undefined,
+                .enum_literal,
+                .type_info,
+                => return AbiAlignmentAdvanced{ .scalar = 0 },
+
+                .noreturn => unreachable,
+                .generic_poison => unreachable,
+            },
             .struct_type => @panic("TODO"),
             .union_type => @panic("TODO"),
             .simple_value => unreachable,
@@ -3158,28 +3162,6 @@ pub const Type = struct {
             .c_ulong => return AbiAlignmentAdvanced{ .scalar = target.c_type_alignment(.ulong) },
             .c_longlong => return AbiAlignmentAdvanced{ .scalar = target.c_type_alignment(.longlong) },
             .c_ulonglong => return AbiAlignmentAdvanced{ .scalar = target.c_type_alignment(.ulonglong) },
-            .c_longdouble => return AbiAlignmentAdvanced{ .scalar = target.c_type_alignment(.longdouble) },
-
-            .f16 => return AbiAlignmentAdvanced{ .scalar = 2 },
-            .f32 => return AbiAlignmentAdvanced{ .scalar = target.c_type_alignment(.float) },
-            .f64 => switch (target.c_type_bit_size(.double)) {
-                64 => return AbiAlignmentAdvanced{ .scalar = target.c_type_alignment(.double) },
-                else => return AbiAlignmentAdvanced{ .scalar = 8 },
-            },
-            .f80 => switch (target.c_type_bit_size(.longdouble)) {
-                80 => return AbiAlignmentAdvanced{ .scalar = target.c_type_alignment(.longdouble) },
-                else => {
-                    const u80_ty: Type = .{
-                        .ip_index = .u80_type,
-                        .legacy = undefined,
-                    };
-                    return AbiAlignmentAdvanced{ .scalar = abiAlignment(u80_ty, mod) };
-                },
-            },
-            .f128 => switch (target.c_type_bit_size(.longdouble)) {
-                128 => return AbiAlignmentAdvanced{ .scalar = target.c_type_alignment(.longdouble) },
-                else => return AbiAlignmentAdvanced{ .scalar = 16 },
-            },
 
             // TODO revisit this when we have the concept of the error tag type
             .anyerror_void_error_union,
@@ -3366,7 +3348,6 @@ pub const Type = struct {
             .empty_struct_literal,
             .type,
             .comptime_int,
-            .comptime_float,
             .null,
             .undefined,
             .enum_literal,
@@ -3481,7 +3462,69 @@ pub const Type = struct {
             .vector_type => @panic("TODO"),
             .optional_type => @panic("TODO"),
             .error_union_type => @panic("TODO"),
-            .simple_type => @panic("TODO"),
+            .simple_type => |t| switch (t) {
+                .bool,
+                .atomic_order,
+                .atomic_rmw_op,
+                .calling_convention,
+                .address_space,
+                .float_mode,
+                .reduce_op,
+                .call_modifier,
+                => return AbiSizeAdvanced{ .scalar = 1 },
+
+                .f16 => return AbiSizeAdvanced{ .scalar = 2 },
+                .f32 => return AbiSizeAdvanced{ .scalar = 4 },
+                .f64 => return AbiSizeAdvanced{ .scalar = 8 },
+                .f128 => return AbiSizeAdvanced{ .scalar = 16 },
+                .f80 => switch (target.c_type_bit_size(.longdouble)) {
+                    80 => return AbiSizeAdvanced{ .scalar = target.c_type_byte_size(.longdouble) },
+                    else => {
+                        const u80_ty: Type = .{
+                            .ip_index = .u80_type,
+                            .legacy = undefined,
+                        };
+                        return AbiSizeAdvanced{ .scalar = abiSize(u80_ty, mod) };
+                    },
+                },
+
+                .usize,
+                .isize,
+                .@"anyframe",
+                => return AbiSizeAdvanced{ .scalar = @divExact(target.cpu.arch.ptrBitWidth(), 8) },
+
+                .c_char => return AbiSizeAdvanced{ .scalar = target.c_type_byte_size(.char) },
+                .c_short => return AbiSizeAdvanced{ .scalar = target.c_type_byte_size(.short) },
+                .c_ushort => return AbiSizeAdvanced{ .scalar = target.c_type_byte_size(.ushort) },
+                .c_int => return AbiSizeAdvanced{ .scalar = target.c_type_byte_size(.int) },
+                .c_uint => return AbiSizeAdvanced{ .scalar = target.c_type_byte_size(.uint) },
+                .c_long => return AbiSizeAdvanced{ .scalar = target.c_type_byte_size(.long) },
+                .c_ulong => return AbiSizeAdvanced{ .scalar = target.c_type_byte_size(.ulong) },
+                .c_longlong => return AbiSizeAdvanced{ .scalar = target.c_type_byte_size(.longlong) },
+                .c_ulonglong => return AbiSizeAdvanced{ .scalar = target.c_type_byte_size(.ulonglong) },
+                .c_longdouble => return AbiSizeAdvanced{ .scalar = target.c_type_byte_size(.longdouble) },
+
+                .anyopaque,
+                .void,
+                .type,
+                .comptime_int,
+                .comptime_float,
+                .null,
+                .undefined,
+                .enum_literal,
+                => return AbiSizeAdvanced{ .scalar = 0 },
+
+                // TODO revisit this when we have the concept of the error tag type
+                .anyerror => return AbiSizeAdvanced{ .scalar = 2 },
+
+                .prefetch_options => unreachable, // missing call to resolveTypeFields
+                .export_options => unreachable, // missing call to resolveTypeFields
+                .extern_options => unreachable, // missing call to resolveTypeFields
+
+                .type_info => unreachable,
+                .noreturn => unreachable,
+                .generic_poison => unreachable,
+            },
             .struct_type => @panic("TODO"),
             .union_type => @panic("TODO"),
             .simple_value => unreachable,
@@ -3506,7 +3549,6 @@ pub const Type = struct {
             .anyopaque,
             .type,
             .comptime_int,
-            .comptime_float,
             .null,
             .undefined,
             .enum_literal,
@@ -3661,22 +3703,6 @@ pub const Type = struct {
             .c_ulong => return AbiSizeAdvanced{ .scalar = target.c_type_byte_size(.ulong) },
             .c_longlong => return AbiSizeAdvanced{ .scalar = target.c_type_byte_size(.longlong) },
             .c_ulonglong => return AbiSizeAdvanced{ .scalar = target.c_type_byte_size(.ulonglong) },
-            .c_longdouble => return AbiSizeAdvanced{ .scalar = target.c_type_byte_size(.longdouble) },
-
-            .f16 => return AbiSizeAdvanced{ .scalar = 2 },
-            .f32 => return AbiSizeAdvanced{ .scalar = 4 },
-            .f64 => return AbiSizeAdvanced{ .scalar = 8 },
-            .f128 => return AbiSizeAdvanced{ .scalar = 16 },
-            .f80 => switch (target.c_type_bit_size(.longdouble)) {
-                80 => return AbiSizeAdvanced{ .scalar = target.c_type_byte_size(.longdouble) },
-                else => {
-                    const u80_ty: Type = .{
-                        .ip_index = .u80_type,
-                        .legacy = undefined,
-                    };
-                    return AbiSizeAdvanced{ .scalar = abiSize(u80_ty, mod) };
-                },
-            },
 
             // TODO revisit this when we have the concept of the error tag type
             .anyerror_void_error_union,
@@ -3820,7 +3846,57 @@ pub const Type = struct {
             .vector_type => @panic("TODO"),
             .optional_type => @panic("TODO"),
             .error_union_type => @panic("TODO"),
-            .simple_type => @panic("TODO"),
+            .simple_type => |t| switch (t) {
+                .f16 => return 16,
+                .f32 => return 32,
+                .f64 => return 64,
+                .f80 => return 80,
+                .f128 => return 128,
+
+                .usize,
+                .isize,
+                .@"anyframe",
+                => return target.cpu.arch.ptrBitWidth(),
+
+                .c_char => return target.c_type_bit_size(.char),
+                .c_short => return target.c_type_bit_size(.short),
+                .c_ushort => return target.c_type_bit_size(.ushort),
+                .c_int => return target.c_type_bit_size(.int),
+                .c_uint => return target.c_type_bit_size(.uint),
+                .c_long => return target.c_type_bit_size(.long),
+                .c_ulong => return target.c_type_bit_size(.ulong),
+                .c_longlong => return target.c_type_bit_size(.longlong),
+                .c_ulonglong => return target.c_type_bit_size(.ulonglong),
+                .c_longdouble => return target.c_type_bit_size(.longdouble),
+
+                .bool => return 1,
+                .void => return 0,
+
+                // TODO revisit this when we have the concept of the error tag type
+                .anyerror => return 16,
+
+                .anyopaque => unreachable,
+                .type => unreachable,
+                .comptime_int => unreachable,
+                .comptime_float => unreachable,
+                .noreturn => unreachable,
+                .null => unreachable,
+                .undefined => unreachable,
+                .enum_literal => unreachable,
+                .generic_poison => unreachable,
+
+                .atomic_order => unreachable, // missing call to resolveTypeFields
+                .atomic_rmw_op => unreachable, // missing call to resolveTypeFields
+                .calling_convention => unreachable, // missing call to resolveTypeFields
+                .address_space => unreachable, // missing call to resolveTypeFields
+                .float_mode => unreachable, // missing call to resolveTypeFields
+                .reduce_op => unreachable, // missing call to resolveTypeFields
+                .call_modifier => unreachable, // missing call to resolveTypeFields
+                .prefetch_options => unreachable, // missing call to resolveTypeFields
+                .export_options => unreachable, // missing call to resolveTypeFields
+                .extern_options => unreachable, // missing call to resolveTypeFields
+                .type_info => unreachable, // missing call to resolveTypeFields
+            },
             .struct_type => @panic("TODO"),
             .union_type => @panic("TODO"),
             .simple_value => unreachable,
@@ -3836,7 +3912,6 @@ pub const Type = struct {
             .anyopaque => unreachable,
             .type => unreachable,
             .comptime_int => unreachable,
-            .comptime_float => unreachable,
             .noreturn => unreachable,
             .null => unreachable,
             .undefined => unreachable,
@@ -3852,12 +3927,11 @@ pub const Type = struct {
             .void => return 0,
             .bool, .u1 => return 1,
             .u8, .i8 => return 8,
-            .i16, .u16, .f16 => return 16,
+            .i16, .u16 => return 16,
             .u29 => return 29,
-            .i32, .u32, .f32 => return 32,
-            .i64, .u64, .f64 => return 64,
-            .f80 => return 80,
-            .u128, .i128, .f128 => return 128,
+            .i32, .u32 => return 32,
+            .i64, .u64 => return 64,
+            .u128, .i128 => return 128,
 
             .@"struct" => {
                 const struct_obj = ty.castTag(.@"struct").?.data;
@@ -3975,7 +4049,6 @@ pub const Type = struct {
             .c_ulong => return target.c_type_bit_size(.ulong),
             .c_longlong => return target.c_type_bit_size(.longlong),
             .c_ulonglong => return target.c_type_bit_size(.ulonglong),
-            .c_longdouble => return target.c_type_bit_size(.longdouble),
 
             .error_set,
             .error_set_single,
@@ -4950,14 +5023,14 @@ pub const Type = struct {
     }
 
     /// Returns `false` for `comptime_float`.
-    pub fn isRuntimeFloat(self: Type) bool {
-        return switch (self.tag()) {
-            .f16,
-            .f32,
-            .f64,
-            .f80,
-            .f128,
-            .c_longdouble,
+    pub fn isRuntimeFloat(ty: Type) bool {
+        return switch (ty.ip_index) {
+            .f16_type,
+            .f32_type,
+            .f64_type,
+            .f80_type,
+            .f128_type,
+            .c_longdouble_type,
             => true,
 
             else => false,
@@ -4965,15 +5038,15 @@ pub const Type = struct {
     }
 
     /// Returns `true` for `comptime_float`.
-    pub fn isAnyFloat(self: Type) bool {
-        return switch (self.tag()) {
-            .f16,
-            .f32,
-            .f64,
-            .f80,
-            .f128,
-            .c_longdouble,
-            .comptime_float,
+    pub fn isAnyFloat(ty: Type) bool {
+        return switch (ty.ip_index) {
+            .f16_type,
+            .f32_type,
+            .f64_type,
+            .f80_type,
+            .f128_type,
+            .c_longdouble_type,
+            .comptime_float_type,
             => true,
 
             else => false,
@@ -4982,14 +5055,14 @@ pub const Type = struct {
 
     /// Asserts the type is a fixed-size float or comptime_float.
     /// Returns 128 for comptime_float types.
-    pub fn floatBits(self: Type, target: Target) u16 {
-        return switch (self.tag()) {
-            .f16 => 16,
-            .f32 => 32,
-            .f64 => 64,
-            .f80 => 80,
-            .f128, .comptime_float => 128,
-            .c_longdouble => target.c_type_bit_size(.longdouble),
+    pub fn floatBits(ty: Type, target: Target) u16 {
+        return switch (ty.ip_index) {
+            .f16_type => 16,
+            .f32_type => 32,
+            .f64_type => 64,
+            .f80_type => 80,
+            .f128_type, .comptime_float_type => 128,
+            .c_longdouble_type => target.c_type_bit_size(.longdouble),
 
             else => unreachable,
         };
@@ -5094,14 +5167,7 @@ pub const Type = struct {
             else => false,
         };
         return switch (ty.tag()) {
-            .f16,
-            .f32,
-            .f64,
-            .f80,
-            .f128,
-            .c_longdouble,
             .comptime_int,
-            .comptime_float,
             .u1,
             .u8,
             .i8,
@@ -5205,14 +5271,7 @@ pub const Type = struct {
         };
 
         while (true) switch (ty.tag()) {
-            .f16,
-            .f32,
-            .f64,
-            .f80,
-            .f128,
-            .c_longdouble,
             .comptime_int,
-            .comptime_float,
             .u1,
             .u8,
             .i8,
@@ -5391,14 +5450,59 @@ pub const Type = struct {
     /// TODO merge these implementations together with the "advanced" pattern seen
     /// elsewhere in this file.
     pub fn comptimeOnly(ty: Type, mod: *const Module) bool {
-        if (ty.ip_index != .none) switch (mod.intern_pool.indexToKey(ty.ip_index)) {
-            .int_type => return false,
+        if (ty.ip_index != .none) return switch (mod.intern_pool.indexToKey(ty.ip_index)) {
+            .int_type => false,
             .ptr_type => @panic("TODO"),
             .array_type => @panic("TODO"),
             .vector_type => @panic("TODO"),
             .optional_type => @panic("TODO"),
             .error_union_type => @panic("TODO"),
-            .simple_type => @panic("TODO"),
+            .simple_type => |t| switch (t) {
+                .f16,
+                .f32,
+                .f64,
+                .f80,
+                .f128,
+                .usize,
+                .isize,
+                .c_char,
+                .c_short,
+                .c_ushort,
+                .c_int,
+                .c_uint,
+                .c_long,
+                .c_ulong,
+                .c_longlong,
+                .c_ulonglong,
+                .c_longdouble,
+                .anyopaque,
+                .bool,
+                .void,
+                .anyerror,
+                .@"anyframe",
+                .noreturn,
+                .generic_poison,
+                .atomic_order,
+                .atomic_rmw_op,
+                .calling_convention,
+                .address_space,
+                .float_mode,
+                .reduce_op,
+                .call_modifier,
+                .prefetch_options,
+                .export_options,
+                .extern_options,
+                => false,
+
+                .type,
+                .comptime_int,
+                .comptime_float,
+                .null,
+                .undefined,
+                .enum_literal,
+                .type_info,
+                => true,
+            },
             .struct_type => @panic("TODO"),
             .union_type => @panic("TODO"),
             .simple_value => unreachable,
@@ -5431,20 +5535,12 @@ pub const Type = struct {
             .c_ulong,
             .c_longlong,
             .c_ulonglong,
-            .c_longdouble,
-            .f16,
-            .f32,
-            .f64,
-            .f80,
-            .f128,
             .anyopaque,
             .bool,
             .void,
             .anyerror,
             .noreturn,
             .@"anyframe",
-            .null,
-            .undefined,
             .atomic_order,
             .atomic_rmw_op,
             .calling_convention,
@@ -5477,11 +5573,12 @@ pub const Type = struct {
             .single_const_pointer_to_comptime_int,
             .type,
             .comptime_int,
-            .comptime_float,
             .enum_literal,
             .type_info,
             // These are function bodies, not function pointers.
             .function,
+            .null,
+            .undefined,
             => true,
 
             .inferred_alloc_mut => unreachable,
@@ -6286,19 +6383,12 @@ pub const Type = struct {
         c_ulong,
         c_longlong,
         c_ulonglong,
-        c_longdouble,
-        f16,
-        f32,
-        f64,
-        f80,
-        f128,
         anyopaque,
         bool,
         void,
         type,
         anyerror,
         comptime_int,
-        comptime_float,
         noreturn,
         @"anyframe",
         null,
@@ -6377,7 +6467,6 @@ pub const Type = struct {
         pub const no_payload_count = @enumToInt(last_no_payload_tag) + 1;
 
         pub fn Type(comptime t: Tag) type {
-            // Keep in sync with tools/stage2_pretty_printers_common.py
             return switch (t) {
                 .u1,
                 .u8,
@@ -6402,19 +6491,12 @@ pub const Type = struct {
                 .c_ulong,
                 .c_longlong,
                 .c_ulonglong,
-                .c_longdouble,
-                .f16,
-                .f32,
-                .f64,
-                .f80,
-                .f128,
                 .anyopaque,
                 .bool,
                 .void,
                 .type,
                 .anyerror,
                 .comptime_int,
-                .comptime_float,
                 .noreturn,
                 .enum_literal,
                 .null,
@@ -6781,22 +6863,25 @@ pub const Type = struct {
     pub const @"i32" = initTag(.i32);
     pub const @"i64" = initTag(.i64);
 
-    pub const @"f16" = initTag(.f16);
-    pub const @"f32" = initTag(.f32);
-    pub const @"f64" = initTag(.f64);
-    pub const @"f80" = initTag(.f80);
-    pub const @"f128" = initTag(.f128);
+    pub const @"f16": Type = .{ .ip_index = .f16_type, .legacy = undefined };
+    pub const @"f32": Type = .{ .ip_index = .f32_type, .legacy = undefined };
+    pub const @"f64": Type = .{ .ip_index = .f64_type, .legacy = undefined };
+    pub const @"f80": Type = .{ .ip_index = .f80_type, .legacy = undefined };
+    pub const @"f128": Type = .{ .ip_index = .f128_type, .legacy = undefined };
 
     pub const @"bool" = initTag(.bool);
     pub const @"usize" = initTag(.usize);
     pub const @"isize" = initTag(.isize);
-    pub const @"comptime_int" = initTag(.comptime_int);
+    pub const @"comptime_int": Type = .{ .ip_index = .comptime_int_type, .legacy = undefined };
+    pub const @"comptime_float": Type = .{ .ip_index = .comptime_float_type, .legacy = undefined };
     pub const @"void" = initTag(.void);
     pub const @"type" = initTag(.type);
     pub const @"anyerror" = initTag(.anyerror);
     pub const @"anyopaque" = initTag(.anyopaque);
     pub const @"null" = initTag(.null);
     pub const @"noreturn" = initTag(.noreturn);
+
+    pub const @"c_longdouble": Type = .{ .ip_index = .c_longdouble_type, .legacy = undefined };
 
     pub const err_int = Type.u16;
 

@@ -1412,13 +1412,13 @@ pub const CType = extern union {
 
                 .Bool => self.init(.bool),
 
-                .Float => self.init(switch (ty.tag()) {
-                    .f16 => .zig_f16,
-                    .f32 => .zig_f32,
-                    .f64 => .zig_f64,
-                    .f80 => .zig_f80,
-                    .f128 => .zig_f128,
-                    .c_longdouble => .zig_c_longdouble,
+                .Float => self.init(switch (ty.ip_index) {
+                    .f16_type => .zig_f16,
+                    .f32_type => .zig_f32,
+                    .f64_type => .zig_f64,
+                    .f80_type => .zig_f80,
+                    .f128_type => .zig_f128,
+                    .c_longdouble_type => .zig_c_longdouble,
                     else => unreachable,
                 }),
 
