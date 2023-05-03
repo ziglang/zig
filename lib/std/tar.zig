@@ -26,8 +26,10 @@ pub const FileType = enum(u8) {
 
     pub const sentinel = @intToEnum(FileType, 0xff);
 
+    pub const NamedTypesBitset = std.StaticBitSet(128);
+
     pub const named_types_bitset = blk: {
-        var result = std.StaticBitSet(128).initEmpty();
+        var result = NamedTypesBitset.initEmpty();
         for ([_]FileType{
             .directory,     .normal,            .normal2,       .hard_link,
             .symbolic_link, .character_special, .block_special, .fifo,
@@ -36,6 +38,14 @@ pub const FileType = enum(u8) {
             result.set(@enumToInt(ft));
         break :blk result;
     };
+
+    pub fn isNamedType(ft: FileType) bool {
+        return
+        // verify not beyond NamedTypesBitset.bit_length to avoid assertion
+        // failure in std.bit_set
+        @enumToInt(ft) < NamedTypesBitset.bit_length and
+            named_types_bitset.isSet(@enumToInt(ft));
+    }
 
     pub fn tagName(ft: FileType) ?[]const u8 {
         return inline for (std.meta.fields(FileType)) |f| {
@@ -1110,9 +1120,16 @@ pub fn pipeToFileSystem(
     while (try iter.next()) |header| {
         const file_name = try stripComponents(header.name, options.strip_components);
         log.info("pipeToFileSystem() header.type={?s} stripped file_name={s}", .{ header.type.tagName(), file_name });
-        if (file_name.len == 0 and
-            FileType.named_types_bitset.isSet(@enumToInt(header.type)))
+
+        const must_validate_path = header.type.isNamedType();
+        if (must_validate_path and file_name.len == 0)
             continue;
+        // verify that the path doesn't contain NUL characters
+        // TODO check for other other types of invalid paths
+        //   see https://github.com/ziglang/zig/pull/15382#issuecomment-1532255834
+        //   and https://github.com/ziglang/zig/pull/14533#issuecomment-1416888193
+        if (must_validate_path and mem.indexOfScalar(u8, file_name, 0) != null)
+            return error.InvalidCharacter;
 
         switch (header.type) {
             .directory => {
