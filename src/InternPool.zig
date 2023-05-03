@@ -78,7 +78,11 @@ pub const Key = union(enum) {
     },
     struct_type: struct {
         fields_len: u32,
-        // TODO move Module.Struct data to here
+        // TODO move Module.Struct data to InternPool
+    },
+    union_type: struct {
+        fields_len: u32,
+        // TODO move Module.Union data to InternPool
     },
 
     pub const IntType = std.builtin.Type.Int;
@@ -125,6 +129,10 @@ pub const Key = union(enum) {
                 if (struct_type.fields_len != 0) {
                     @panic("TODO");
                 }
+            },
+            .union_type => |union_type| {
+                _ = union_type;
+                @panic("TODO");
             },
         }
     }
@@ -195,6 +203,14 @@ pub const Key = union(enum) {
 
                 @panic("TODO");
             },
+
+            .union_type => |a_info| {
+                const b_info = b.union_type;
+
+                _ = a_info;
+                _ = b_info;
+                @panic("TODO");
+            },
         }
     }
 
@@ -208,6 +224,7 @@ pub const Key = union(enum) {
             .error_union_type,
             .simple_type,
             .struct_type,
+            .union_type,
             => return .type_type,
 
             .int => |x| return x.ty,
@@ -977,6 +994,11 @@ pub fn get(ip: *InternPool, gpa: Allocator, key: Key) Allocator.Error!Index {
                 .tag = .simple_internal,
                 .data = @enumToInt(SimpleInternal.type_empty_struct),
             });
+        },
+
+        .union_type => |union_type| {
+            _ = union_type;
+            @panic("TODO");
         },
     }
     return @intToEnum(Index, ip.items.len - 1);

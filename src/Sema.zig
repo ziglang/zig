@@ -31359,6 +31359,7 @@ pub fn resolveTypeRequiresComptime(sema: *Sema, ty: Type) CompileError!bool {
         .error_union_type => @panic("TODO"),
         .simple_type => @panic("TODO"),
         .struct_type => @panic("TODO"),
+        .union_type => @panic("TODO"),
         .simple_value => unreachable,
         .extern_func => unreachable,
         .int => unreachable,
@@ -31646,30 +31647,118 @@ fn resolveUnionFully(sema: *Sema, ty: Type) CompileError!void {
 }
 
 pub fn resolveTypeFields(sema: *Sema, ty: Type) CompileError!Type {
-    switch (ty.tag()) {
-        .@"struct" => {
-            const struct_obj = ty.castTag(.@"struct").?.data;
-            try sema.resolveTypeFieldsStruct(ty, struct_obj);
-            return ty;
-        },
-        .@"union", .union_safety_tagged, .union_tagged => {
-            const union_obj = ty.cast(Type.Payload.Union).?.data;
-            try sema.resolveTypeFieldsUnion(ty, union_obj);
-            return ty;
-        },
-        .type_info => return sema.getBuiltinType("Type"),
-        .extern_options => return sema.getBuiltinType("ExternOptions"),
-        .export_options => return sema.getBuiltinType("ExportOptions"),
-        .atomic_order => return sema.getBuiltinType("AtomicOrder"),
-        .atomic_rmw_op => return sema.getBuiltinType("AtomicRmwOp"),
-        .calling_convention => return sema.getBuiltinType("CallingConvention"),
-        .address_space => return sema.getBuiltinType("AddressSpace"),
-        .float_mode => return sema.getBuiltinType("FloatMode"),
-        .reduce_op => return sema.getBuiltinType("ReduceOp"),
-        .modifier => return sema.getBuiltinType("CallModifier"),
-        .prefetch_options => return sema.getBuiltinType("PrefetchOptions"),
+    const mod = sema.mod;
 
-        else => return ty,
+    switch (ty.ip_index) {
+        .none => switch (ty.tag()) {
+            .@"struct" => {
+                const struct_obj = ty.castTag(.@"struct").?.data;
+                try sema.resolveTypeFieldsStruct(ty, struct_obj);
+                return ty;
+            },
+            .@"union", .union_safety_tagged, .union_tagged => {
+                const union_obj = ty.cast(Type.Payload.Union).?.data;
+                try sema.resolveTypeFieldsUnion(ty, union_obj);
+                return ty;
+            },
+            .type_info => return sema.getBuiltinType("Type"),
+            .extern_options => return sema.getBuiltinType("ExternOptions"),
+            .export_options => return sema.getBuiltinType("ExportOptions"),
+            .atomic_order => return sema.getBuiltinType("AtomicOrder"),
+            .atomic_rmw_op => return sema.getBuiltinType("AtomicRmwOp"),
+            .calling_convention => return sema.getBuiltinType("CallingConvention"),
+            .address_space => return sema.getBuiltinType("AddressSpace"),
+            .float_mode => return sema.getBuiltinType("FloatMode"),
+            .reduce_op => return sema.getBuiltinType("ReduceOp"),
+            .modifier => return sema.getBuiltinType("CallModifier"),
+            .prefetch_options => return sema.getBuiltinType("PrefetchOptions"),
+
+            else => return ty,
+        },
+
+        .u1_type,
+        .u8_type,
+        .i8_type,
+        .u16_type,
+        .i16_type,
+        .u29_type,
+        .u32_type,
+        .i32_type,
+        .u64_type,
+        .i64_type,
+        .u80_type,
+        .u128_type,
+        .i128_type,
+        .usize_type,
+        .isize_type,
+        .c_char_type,
+        .c_short_type,
+        .c_ushort_type,
+        .c_int_type,
+        .c_uint_type,
+        .c_long_type,
+        .c_ulong_type,
+        .c_longlong_type,
+        .c_ulonglong_type,
+        .c_longdouble_type,
+        .f16_type,
+        .f32_type,
+        .f64_type,
+        .f80_type,
+        .f128_type,
+        .anyopaque_type,
+        .bool_type,
+        .void_type,
+        .type_type,
+        .anyerror_type,
+        .comptime_int_type,
+        .comptime_float_type,
+        .noreturn_type,
+        .anyframe_type,
+        .null_type,
+        .undefined_type,
+        .enum_literal_type,
+        .manyptr_u8_type,
+        .manyptr_const_u8_type,
+        .single_const_pointer_to_comptime_int_type,
+        .const_slice_u8_type,
+        .anyerror_void_error_union_type,
+        .generic_poison_type,
+        .empty_struct_type,
+        => return ty,
+
+        .undef => unreachable,
+        .zero => unreachable,
+        .zero_usize => unreachable,
+        .one => unreachable,
+        .one_usize => unreachable,
+        .calling_convention_c => unreachable,
+        .calling_convention_inline => unreachable,
+        .void_value => unreachable,
+        .unreachable_value => unreachable,
+        .null_value => unreachable,
+        .bool_true => unreachable,
+        .bool_false => unreachable,
+        .empty_struct => unreachable,
+        .generic_poison => unreachable,
+
+        .type_info_type => return sema.getBuiltinType("Type"),
+        .extern_options_type => return sema.getBuiltinType("ExternOptions"),
+        .export_options_type => return sema.getBuiltinType("ExportOptions"),
+        .atomic_order_type => return sema.getBuiltinType("AtomicOrder"),
+        .atomic_rmw_op_type => return sema.getBuiltinType("AtomicRmwOp"),
+        .calling_convention_type => return sema.getBuiltinType("CallingConvention"),
+        .address_space_type => return sema.getBuiltinType("AddressSpace"),
+        .float_mode_type => return sema.getBuiltinType("FloatMode"),
+        .reduce_op_type => return sema.getBuiltinType("ReduceOp"),
+        .call_modifier_type => return sema.getBuiltinType("CallModifier"),
+        .prefetch_options_type => return sema.getBuiltinType("PrefetchOptions"),
+
+        _ => switch (mod.intern_pool.indexToKey(ty.ip_index)) {
+            .struct_type => @panic("TODO"),
+            .union_type => @panic("TODO"),
+            else => return ty,
+        },
     }
 }
 
@@ -32810,6 +32899,7 @@ pub fn typeHasOnePossibleValue(sema: *Sema, ty: Type) CompileError!?Value {
             .var_args_param => unreachable,
         },
         .struct_type => @panic("TODO"),
+        .union_type => @panic("TODO"),
         .simple_value => unreachable,
         .extern_func => unreachable,
         .int => unreachable,
@@ -33461,6 +33551,7 @@ pub fn typeRequiresComptime(sema: *Sema, ty: Type) CompileError!bool {
             .error_union_type => @panic("TODO"),
             .simple_type => @panic("TODO"),
             .struct_type => @panic("TODO"),
+            .union_type => @panic("TODO"),
             .simple_value => unreachable,
             .extern_func => unreachable,
             .int => unreachable,
