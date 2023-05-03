@@ -5,10 +5,12 @@ const DWORD = windows.DWORD;
 const HKEY = windows.HKEY;
 const BYTE = windows.BYTE;
 const LPCWSTR = windows.LPCWSTR;
+const LPWSTR = windows.LPWSTR;
 const LSTATUS = windows.LSTATUS;
 const REGSAM = windows.REGSAM;
 const ULONG = windows.ULONG;
 const WINAPI = windows.WINAPI;
+const FILETIME = windows.FILETIME;
 
 pub extern "advapi32" fn RegOpenKeyExW(
     hKey: HKEY,
@@ -70,4 +72,15 @@ pub extern "advapi32" fn RegLoadAppKeyW(
     samDesired: REGSAM,
     dwOptions: DWORD,
     reserved: DWORD,
+) callconv(WINAPI) LSTATUS;
+
+pub extern "advapi32" fn RegEnumKeyExW(
+    hKey: HKEY,
+    dwIndex: DWORD,
+    lpName: LPWSTR,
+    lpcchName: *DWORD,
+    lpReserved: ?*DWORD,
+    lpClass: ?LPWSTR,
+    lpcchClass: ?*DWORD,
+    lpftLastWriteTime: ?*FILETIME,
 ) callconv(WINAPI) LSTATUS;
