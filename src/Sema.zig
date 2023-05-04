@@ -11949,6 +11949,9 @@ fn zirImport(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.
             defer sema.gpa.free(name);
             return sema.fail(block, operand_src, "no package named '{s}' available within package '{s}'", .{ operand, name });
         },
+        error.ImportAbsolutePath => {
+            return sema.fail(block, operand_src, "cannot import by absolute path", .{});
+        },
         else => {
             // TODO: these errors are file system errors; make sure an update() will
             // retry this and not cache the file system error, which may be transient.

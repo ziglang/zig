@@ -4957,6 +4957,9 @@ pub fn importFile(
     if (!mem.endsWith(u8, import_string, ".zig")) {
         return error.PackageNotFound;
     }
+    if (std.fs.path.isAbsolute(import_string)) {
+        return error.ImportAbsolutePath;
+    }
     const gpa = mod.gpa;
 
     // The resolved path is used as the key in the import table, to detect if
