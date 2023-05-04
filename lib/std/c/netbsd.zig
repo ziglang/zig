@@ -603,6 +603,17 @@ pub const MAP = struct {
     pub const ANON = 0x1000;
     pub const ANONYMOUS = ANON;
     pub const STACK = 0x2000;
+
+    pub const ALIGNMENT_SHIFT = 24;
+    pub fn ALIGNED(n: u32) u32 {
+        return n << ALIGNMENT_SHIFT;
+    }
+    pub const ALIGNMENT_64KB = MAP.ALIGNED(0xff);
+    pub const ALIGNMENT_16MB = MAP.ALIGNED(16);
+    pub const ALIGNMENT_4GB = MAP.ALIGNED(32);
+    pub const ALIGNMENT_1TB = MAP.ALIGNED(40);
+    pub const ALIGNMENT_256TB = MAP.ALIGNED(48);
+    pub const ALIGNMENT_64PB = MAP.ALIGNED(56);
 };
 
 pub const MSF = struct {

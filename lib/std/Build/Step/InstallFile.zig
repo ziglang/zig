@@ -1,8 +1,8 @@
-const std = @import("../std.zig");
+const std = @import("std");
 const Step = std.Build.Step;
 const FileSource = std.Build.FileSource;
 const InstallDir = std.Build.InstallDir;
-const InstallFileStep = @This();
+const InstallFile = @This();
 const assert = std.debug.assert;
 
 pub const base_id = .install_file;
@@ -20,10 +20,10 @@ pub fn create(
     source: FileSource,
     dir: InstallDir,
     dest_rel_path: []const u8,
-) *InstallFileStep {
+) *InstallFile {
     assert(dest_rel_path.len != 0);
     owner.pushInstalledFile(dir, dest_rel_path);
-    const self = owner.allocator.create(InstallFileStep) catch @panic("OOM");
+    const self = owner.allocator.create(InstallFile) catch @panic("OOM");
     self.* = .{
         .step = Step.init(.{
             .id = base_id,
@@ -43,7 +43,7 @@ pub fn create(
 fn make(step: *Step, prog_node: *std.Progress.Node) !void {
     _ = prog_node;
     const src_builder = step.owner;
-    const self = @fieldParentPtr(InstallFileStep, "step", step);
+    const self = @fieldParentPtr(InstallFile, "step", step);
     const dest_builder = self.dest_builder;
     const full_src_path = self.source.getPath2(src_builder, step);
     const full_dest_path = dest_builder.getInstallPath(self.dir, self.dest_rel_path);

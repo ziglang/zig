@@ -860,8 +860,12 @@ set(ZIG_BUILD_ARGS
 )
 
 add_custom_target(stage3 ALL
-  COMMAND zig2 build compile ${ZIG_BUILD_ARGS}
-  DEPENDS zig2
+  DEPENDS "${CMAKE_BINARY_DIR}/stage3/bin/zig"
+)
+
+add_custom_command(
+  OUTPUT "${CMAKE_BINARY_DIR}/stage3/bin/zig"
+  COMMAND zig2 build --prefix "${CMAKE_BINARY_DIR}/stage3" ${ZIG_BUILD_ARGS}
   COMMENT STATUS "Building stage3"
   WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
 )

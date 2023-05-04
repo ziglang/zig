@@ -37,7 +37,7 @@ result_duration_ns: ?u64,
 result_peak_rss: usize,
 test_results: TestResults,
 
-/// The return addresss associated with creation of this step that can be useful
+/// The return address associated with creation of this step that can be useful
 /// to print along with debugging messages.
 debug_stack_trace: [n_debug_stack_frames]usize,
 
@@ -94,26 +94,41 @@ pub const Id = enum {
     pub fn Type(comptime id: Id) type {
         return switch (id) {
             .top_level => Build.TopLevelStep,
-            .compile => Build.CompileStep,
-            .install_artifact => Build.InstallArtifactStep,
-            .install_file => Build.InstallFileStep,
-            .install_dir => Build.InstallDirStep,
-            .remove_dir => Build.RemoveDirStep,
-            .fmt => Build.FmtStep,
-            .translate_c => Build.TranslateCStep,
-            .write_file => Build.WriteFileStep,
-            .run => Build.RunStep,
-            .check_file => Build.CheckFileStep,
-            .check_object => Build.CheckObjectStep,
-            .config_header => Build.ConfigHeaderStep,
-            .objcopy => Build.ObjCopyStep,
-            .options => Build.OptionsStep,
+            .compile => Compile,
+            .install_artifact => InstallArtifact,
+            .install_file => InstallFile,
+            .install_dir => InstallDir,
+            .remove_dir => RemoveDir,
+            .fmt => Fmt,
+            .translate_c => TranslateC,
+            .write_file => WriteFile,
+            .run => Run,
+            .check_file => CheckFile,
+            .check_object => CheckObject,
+            .config_header => ConfigHeader,
+            .objcopy => ObjCopy,
+            .options => Options,
             .custom => @compileError("no type available for custom step"),
         };
     }
 };
 
-pub const Options = struct {
+pub const CheckFile = @import("Step/CheckFile.zig");
+pub const CheckObject = @import("Step/CheckObject.zig");
+pub const ConfigHeader = @import("Step/ConfigHeader.zig");
+pub const Fmt = @import("Step/Fmt.zig");
+pub const InstallArtifact = @import("Step/InstallArtifact.zig");
+pub const InstallDir = @import("Step/InstallDir.zig");
+pub const InstallFile = @import("Step/InstallFile.zig");
+pub const ObjCopy = @import("Step/ObjCopy.zig");
+pub const Compile = @import("Step/Compile.zig");
+pub const Options = @import("Step/Options.zig");
+pub const RemoveDir = @import("Step/RemoveDir.zig");
+pub const Run = @import("Step/Run.zig");
+pub const TranslateC = @import("Step/TranslateC.zig");
+pub const WriteFile = @import("Step/WriteFile.zig");
+
+pub const StepOptions = struct {
     id: Id,
     name: []const u8,
     owner: *Build,
@@ -122,7 +137,7 @@ pub const Options = struct {
     max_rss: usize = 0,
 };
 
-pub fn init(options: Options) Step {
+pub fn init(options: StepOptions) Step {
     const arena = options.owner.allocator;
 
     var addresses = [1]usize{0} ** n_debug_stack_frames;
@@ -387,8 +402,8 @@ pub fn evalZigProcess(
     s.result_duration_ns = timer.read();
     s.result_peak_rss = child.resource_usage_statistics.getMaxRss() orelse 0;
 
-    // Special handling for CompileStep that is expecting compile errors.
-    if (s.cast(Build.CompileStep)) |compile| switch (term) {
+    // Special handling for Compile step that is expecting compile errors.
+    if (s.cast(Compile)) |compile| switch (term) {
         .Exited => {
             // Note that the exit code may be 0 in this case due to the
             // compiler server protocol.
@@ -534,4 +549,20 @@ pub fn writeManifest(s: *Step, man: *std.Build.Cache.Manifest) !void {
             try s.addError("unable to write cache manifest: {s}", .{@errorName(err)});
         };
     }
+}
+
+test {
+    _ = CheckFile;
+    _ = CheckObject;
+    _ = Fmt;
+    _ = InstallArtifact;
+    _ = InstallDir;
+    _ = InstallFile;
+    _ = ObjCopy;
+    _ = Compile;
+    _ = Options;
+    _ = RemoveDir;
+    _ = Run;
+    _ = TranslateC;
+    _ = WriteFile;
 }

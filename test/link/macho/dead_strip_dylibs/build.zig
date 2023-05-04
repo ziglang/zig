@@ -46,7 +46,7 @@ fn createScenario(
     b: *std.Build,
     optimize: std.builtin.OptimizeMode,
     name: []const u8,
-) *std.Build.CompileStep {
+) *std.Build.Step.Compile {
     const exe = b.addExecutable(.{
         .name = name,
         .optimize = optimize,

@@ -261,7 +261,7 @@ const FutexImpl = struct {
             const signals = (state & signal_mask) / one_signal;
 
             // Reserves which waiters to wake up by incrementing the signals count.
-            // Therefor, the signals count is always less than or equal to the waiters count.
+            // Therefore, the signals count is always less than or equal to the waiters count.
             // We don't need to Futex.wake if there's nothing to wake up or if other wake() threads have reserved to wake up the current waiters.
             const wakeable = waiters - signals;
             if (wakeable == 0) {

@@ -136,7 +136,7 @@ pub const ArenaAllocator = struct {
             it = next_it;
         } else null;
         std.debug.assert(maybe_first_node == null or maybe_first_node.?.next == null);
-        // reset the state before we try resizing the buffers, so we definitly have reset the arena to 0.
+        // reset the state before we try resizing the buffers, so we definitely have reset the arena to 0.
         self.state.end_index = 0;
         if (maybe_first_node) |first_node| {
             // perfect, no need to invoke the child_allocator

@@ -1,15 +1,15 @@
-const std = @import("../std.zig");
+const std = @import("std");
 const fs = std.fs;
 const Step = std.Build.Step;
-const RemoveDirStep = @This();
+const RemoveDir = @This();
 
 pub const base_id = .remove_dir;
 
 step: Step,
 dir_path: []const u8,
 
-pub fn init(owner: *std.Build, dir_path: []const u8) RemoveDirStep {
-    return RemoveDirStep{
+pub fn init(owner: *std.Build, dir_path: []const u8) RemoveDir {
+    return RemoveDir{
         .step = Step.init(.{
             .id = .remove_dir,
             .name = owner.fmt("RemoveDir {s}", .{dir_path}),
@@ -26,7 +26,7 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
     _ = prog_node;
 
     const b = step.owner;
-    const self = @fieldParentPtr(RemoveDirStep, "step", step);
+    const self = @fieldParentPtr(RemoveDir, "step", step);
 
     b.build_root.handle.deleteTree(self.dir_path) catch |err| {
         if (b.build_root.path) |base| {

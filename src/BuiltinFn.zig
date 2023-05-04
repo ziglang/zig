@@ -608,7 +608,7 @@ pub const list = list: {
             "@max",
             .{
                 .tag = .max,
-                .param_count = 2,
+                .param_count = null,
             },
         },
         .{
@@ -629,7 +629,7 @@ pub const list = list: {
             "@min",
             .{
                 .tag = .min,
-                .param_count = 2,
+                .param_count = null,
             },
         },
         .{

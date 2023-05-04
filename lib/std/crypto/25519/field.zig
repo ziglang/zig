@@ -179,7 +179,7 @@ pub const Fe = struct {
         return fe;
     }
 
-    /// Substract a field element
+    /// Subtract a field element
     pub inline fn sub(a: Fe, b: Fe) Fe {
         var fe = b;
         comptime var i = 0;

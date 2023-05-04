@@ -5,6 +5,7 @@ const std = @import("std");
 const fs = std.fs;
 const mem = std.mem;
 const Allocator = mem.Allocator;
+const ascii = std.ascii;
 const assert = std.debug.assert;
 const log = std.log.scoped(.package);
 const main = @import("main.zig");
@@ -488,11 +489,16 @@ fn fetchAndUnpack(
         try req.start();
         try req.wait();
 
-        if (mem.endsWith(u8, uri.path, ".tar.gz")) {
+        const content_type = req.response.headers.getFirstValue("Content-Type") orelse
+            return report.fail(dep.url_tok, "missing Content-Type for '{s}'", .{uri.path});
+
+        if (ascii.eqlIgnoreCase(content_type, "application/gzip") or
+            ascii.eqlIgnoreCase(content_type, "application/x-gzip"))
+        {
             // I observed the gzip stream to read 1 byte at a time, so I am using a
             // buffered reader on the front of it.
             try unpackTarball(gpa, &req, tmp_directory.handle, std.compress.gzip);
-        } else if (mem.endsWith(u8, uri.path, ".tar.xz")) {
+        } else if (ascii.eqlIgnoreCase(content_type, "application/x-xz")) {
             // I have not checked what buffer sizes the xz decompression implementation uses
             // by default, so the same logic applies for buffering the reader as for gzip.
             try unpackTarball(gpa, &req, tmp_directory.handle, std.compress.xz);

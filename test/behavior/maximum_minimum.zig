@@ -102,3 +102,59 @@ test "@min/@max on lazy values" {
     const size = @max(@sizeOf(A), @sizeOf(B));
     try expect(size == @sizeOf(B));
 }
+
+test "@min/@max more than two arguments" {
+    const x: u32 = 30;
+    const y: u32 = 10;
+    const z: u32 = 20;
+    try expectEqual(@as(u32, 10), @min(x, y, z));
+    try expectEqual(@as(u32, 30), @max(x, y, z));
+}
+
+test "@min/@max more than two vector arguments" {
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+
+    const x: @Vector(2, u32) = .{ 3, 2 };
+    const y: @Vector(2, u32) = .{ 4, 1 };
+    const z: @Vector(2, u32) = .{ 5, 0 };
+    try expectEqual(@Vector(2, u32){ 3, 0 }, @min(x, y, z));
+    try expectEqual(@Vector(2, u32){ 5, 2 }, @max(x, y, z));
+}
+
+test "@min/@max notices bounds" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+
+    var x: u16 = 20;
+    const y = 30;
+    var z: u32 = 100;
+    const min = @min(x, y, z);
+    const max = @max(x, y, z);
+    try expectEqual(x, min);
+    try expectEqual(u5, @TypeOf(min));
+    try expectEqual(z, max);
+    try expectEqual(u32, @TypeOf(max));
+}
+
+test "@min/@max notices vector bounds" {
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+
+    var x: @Vector(2, u16) = .{ 140, 40 };
+    const y: @Vector(2, u64) = .{ 5, 100 };
+    var z: @Vector(2, u32) = .{ 10, 300 };
+    const min = @min(x, y, z);
+    const max = @max(x, y, z);
+    try expectEqual(@Vector(2, u32){ 5, 40 }, min);
+    try expectEqual(@Vector(2, u7), @TypeOf(min));
+    try expectEqual(@Vector(2, u32){ 140, 300 }, max);
+    try expectEqual(@Vector(2, u32), @TypeOf(max));
+}

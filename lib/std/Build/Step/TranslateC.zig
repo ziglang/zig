@@ -1,12 +1,10 @@
-const std = @import("../std.zig");
+const std = @import("std");
 const Step = std.Build.Step;
-const CompileStep = std.Build.CompileStep;
-const CheckFileStep = std.Build.CheckFileStep;
 const fs = std.fs;
 const mem = std.mem;
 const CrossTarget = std.zig.CrossTarget;
 
-const TranslateCStep = @This();
+const TranslateC = @This();
 
 pub const base_id = .translate_c;
 
@@ -25,10 +23,10 @@ pub const Options = struct {
     optimize: std.builtin.OptimizeMode,
 };
 
-pub fn create(owner: *std.Build, options: Options) *TranslateCStep {
-    const self = owner.allocator.create(TranslateCStep) catch @panic("OOM");
+pub fn create(owner: *std.Build, options: Options) *TranslateC {
+    const self = owner.allocator.create(TranslateC) catch @panic("OOM");
     const source = options.source_file.dupe(owner);
-    self.* = TranslateCStep{
+    self.* = TranslateC{
         .step = Step.init(.{
             .id = .translate_c,
             .name = "translate-c",
@@ -52,11 +50,11 @@ pub const AddExecutableOptions = struct {
     version: ?std.builtin.Version = null,
     target: ?CrossTarget = null,
     optimize: ?std.builtin.Mode = null,
-    linkage: ?CompileStep.Linkage = null,
+    linkage: ?Step.Compile.Linkage = null,
 };
 
 /// Creates a step to build an executable from the translated source.
-pub fn addExecutable(self: *TranslateCStep, options: AddExecutableOptions) *CompileStep {
+pub fn addExecutable(self: *TranslateC, options: AddExecutableOptions) *Step.Compile {
     return self.step.owner.addExecutable(.{
         .root_source_file = .{ .generated = &self.output_file },
         .name = options.name orelse "translated_c",
@@ -67,12 +65,12 @@ pub fn addExecutable(self: *TranslateCStep, options: AddExecutableOptions) *Comp
     });
 }
 
-pub fn addIncludeDir(self: *TranslateCStep, include_dir: []const u8) void {
+pub fn addIncludeDir(self: *TranslateC, include_dir: []const u8) void {
     self.include_dirs.append(self.step.owner.dupePath(include_dir)) catch @panic("OOM");
 }
 
-pub fn addCheckFile(self: *TranslateCStep, expected_matches: []const []const u8) *CheckFileStep {
-    return CheckFileStep.create(
+pub fn addCheckFile(self: *TranslateC, expected_matches: []const []const u8) *Step.CheckFile {
+    return Step.CheckFile.create(
         self.step.owner,
         .{ .generated = &self.output_file },
         .{ .expected_matches = expected_matches },
@@ -81,19 +79,19 @@ pub fn addCheckFile(self: *TranslateCStep, expected_matches: []const []const u8)
 
 /// If the value is omitted, it is set to 1.
 /// `name` and `value` need not live longer than the function call.
-pub fn defineCMacro(self: *TranslateCStep, name: []const u8, value: ?[]const u8) void {
+pub fn defineCMacro(self: *TranslateC, name: []const u8, value: ?[]const u8) void {
     const macro = std.Build.constructCMacro(self.step.owner.allocator, name, value);
     self.c_macros.append(macro) catch @panic("OOM");
 }
 
 /// name_and_value looks like [name]=[value]. If the value is omitted, it is set to 1.
-pub fn defineCMacroRaw(self: *TranslateCStep, name_and_value: []const u8) void {
+pub fn defineCMacroRaw(self: *TranslateC, name_and_value: []const u8) void {
     self.c_macros.append(self.step.owner.dupe(name_and_value)) catch @panic("OOM");
 }
 
 fn make(step: *Step, prog_node: *std.Progress.Node) !void {
     const b = step.owner;
-    const self = @fieldParentPtr(TranslateCStep, "step", step);
+    const self = @fieldParentPtr(TranslateC, "step", step);
 
     var argv_list = std.ArrayList([]const u8).init(b.allocator);
     try argv_list.append(b.zig_exe);
