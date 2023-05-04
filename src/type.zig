@@ -5921,32 +5921,44 @@ pub const Type = struct {
     };
 
     pub fn isTuple(ty: Type) bool {
-        return switch (ty.tag()) {
-            .tuple, .empty_struct_literal => true,
-            .@"struct" => ty.castTag(.@"struct").?.data.is_tuple,
-            else => false,
+        return switch (ty.ip_index) {
+            .none => switch (ty.tag()) {
+                .tuple, .empty_struct_literal => true,
+                .@"struct" => ty.castTag(.@"struct").?.data.is_tuple,
+                else => false,
+            },
+            else => false, // TODO
         };
     }
 
     pub fn isAnonStruct(ty: Type) bool {
-        return switch (ty.tag()) {
-            .anon_struct, .empty_struct_literal => true,
-            else => false,
+        return switch (ty.ip_index) {
+            .none => switch (ty.tag()) {
+                .anon_struct, .empty_struct_literal => true,
+                else => false,
+            },
+            else => false, // TODO
         };
     }
 
     pub fn isTupleOrAnonStruct(ty: Type) bool {
-        return switch (ty.tag()) {
-            .tuple, .empty_struct_literal, .anon_struct => true,
-            .@"struct" => ty.castTag(.@"struct").?.data.is_tuple,
-            else => false,
+        return switch (ty.ip_index) {
+            .none => switch (ty.tag()) {
+                .tuple, .empty_struct_literal, .anon_struct => true,
+                .@"struct" => ty.castTag(.@"struct").?.data.is_tuple,
+                else => false,
+            },
+            else => false, // TODO
         };
     }
 
     pub fn isSimpleTuple(ty: Type) bool {
-        return switch (ty.tag()) {
-            .tuple, .empty_struct_literal => true,
-            else => false,
+        return switch (ty.ip_index) {
+            .none => switch (ty.tag()) {
+                .tuple, .empty_struct_literal => true,
+                else => false,
+            },
+            else => false, // TODO
         };
     }
 
