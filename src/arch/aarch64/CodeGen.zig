@@ -2577,7 +2577,7 @@ fn airOverflow(self: *Self, inst: Air.Inst.Index) !void {
                         });
 
                         try self.genSetStack(lhs_ty, stack_offset, .{ .register = truncated_reg });
-                        try self.genSetStack(Type.initTag(.u1), stack_offset - overflow_bit_offset, .{ .compare_flags = .ne });
+                        try self.genSetStack(Type.u1, stack_offset - overflow_bit_offset, .{ .compare_flags = .ne });
 
                         break :result MCValue{ .stack_offset = stack_offset };
                     },
@@ -2720,7 +2720,7 @@ fn airMulWithOverflow(self: *Self, inst: Air.Inst.Index) !void {
                     }
 
                     try self.genSetStack(lhs_ty, stack_offset, .{ .register = truncated_reg });
-                    try self.genSetStack(Type.initTag(.u1), stack_offset - overflow_bit_offset, .{ .compare_flags = .ne });
+                    try self.genSetStack(Type.u1, stack_offset - overflow_bit_offset, .{ .compare_flags = .ne });
 
                     break :result MCValue{ .stack_offset = stack_offset };
                 } else if (int_info.bits <= 64) {
@@ -2860,7 +2860,7 @@ fn airMulWithOverflow(self: *Self, inst: Air.Inst.Index) !void {
                     try self.truncRegister(dest_reg, truncated_reg, int_info.signedness, int_info.bits);
 
                     try self.genSetStack(lhs_ty, stack_offset, .{ .register = truncated_reg });
-                    try self.genSetStack(Type.initTag(.u1), stack_offset - overflow_bit_offset, .{ .compare_flags = .ne });
+                    try self.genSetStack(Type.u1, stack_offset - overflow_bit_offset, .{ .compare_flags = .ne });
 
                     break :result MCValue{ .stack_offset = stack_offset };
                 } else return self.fail("TODO implement mul_with_overflow for integers > u64/i64", .{});
@@ -2993,7 +2993,7 @@ fn airShlWithOverflow(self: *Self, inst: Air.Inst.Index) !void {
                     });
 
                     try self.genSetStack(lhs_ty, stack_offset, .{ .register = dest_reg });
-                    try self.genSetStack(Type.initTag(.u1), stack_offset - overflow_bit_offset, .{ .compare_flags = .ne });
+                    try self.genSetStack(Type.u1, stack_offset - overflow_bit_offset, .{ .compare_flags = .ne });
 
                     break :result MCValue{ .stack_offset = stack_offset };
                 } else {
@@ -3780,7 +3780,7 @@ fn genInlineMemset(
 
     const val_reg = switch (val) {
         .register => |r| r,
-        else => try self.copyToTmpRegister(Type.initTag(.u8), val),
+        else => try self.copyToTmpRegister(Type.u8, val),
     };
     const val_reg_lock = self.register_manager.lockReg(val_reg);
     defer if (val_reg_lock) |lock| self.register_manager.unlockReg(lock);
@@ -4330,7 +4330,7 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallModifier
             } else if (self.bin_file.cast(link.File.MachO)) |macho_file| {
                 const atom = try macho_file.getOrCreateAtomForDecl(func.owner_decl);
                 const sym_index = macho_file.getAtom(atom).getSymbolIndex().?;
-                try self.genSetReg(Type.initTag(.u64), .x30, .{
+                try self.genSetReg(Type.u64, .x30, .{
                     .linker_load = .{
                         .type = .got,
                         .sym_index = sym_index,
@@ -4339,7 +4339,7 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallModifier
             } else if (self.bin_file.cast(link.File.Coff)) |coff_file| {
                 const atom = try coff_file.getOrCreateAtomForDecl(func.owner_decl);
                 const sym_index = coff_file.getAtom(atom).getSymbolIndex().?;
-                try self.genSetReg(Type.initTag(.u64), .x30, .{
+                try self.genSetReg(Type.u64, .x30, .{
                     .linker_load = .{
                         .type = .got,
                         .sym_index = sym_index,
@@ -4379,7 +4379,7 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallModifier
                 });
             } else if (self.bin_file.cast(link.File.Coff)) |coff_file| {
                 const sym_index = try coff_file.getGlobalSymbol(decl_name, lib_name);
-                try self.genSetReg(Type.initTag(.u64), .x30, .{
+                try self.genSetReg(Type.u64, .x30, .{
                     .linker_load = .{
                         .type = .import,
                         .sym_index = sym_index,
@@ -4536,7 +4536,7 @@ fn cmp(
             var opt_buffer: Type.Payload.ElemType = undefined;
             const payload_ty = lhs_ty.optionalChild(&opt_buffer);
             if (!payload_ty.hasRuntimeBitsIgnoreComptime(mod)) {
-                break :blk Type.initTag(.u1);
+                break :blk Type.u1;
             } else if (lhs_ty.isPtrLikeOptional(mod)) {
                 break :blk Type.usize;
             } else {
@@ -4546,9 +4546,9 @@ fn cmp(
         .Float => return self.fail("TODO ARM cmp floats", .{}),
         .Enum => lhs_ty.intTagType(),
         .Int => lhs_ty,
-        .Bool => Type.initTag(.u1),
+        .Bool => Type.u1,
         .Pointer => Type.usize,
-        .ErrorSet => Type.initTag(.u16),
+        .ErrorSet => Type.u16,
         else => unreachable,
     };
 

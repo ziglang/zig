@@ -1436,14 +1436,14 @@ fn airCmp(self: *Self, inst: Air.Inst.Index, op: math.CompareOperator) !void {
             .Vector => unreachable, // Handled by cmp_vector.
             .Enum => lhs_ty.intTagType(),
             .Int => lhs_ty,
-            .Bool => Type.initTag(.u1),
+            .Bool => Type.u1,
             .Pointer => Type.usize,
-            .ErrorSet => Type.initTag(.u16),
+            .ErrorSet => Type.u16,
             .Optional => blk: {
                 var opt_buffer: Type.Payload.ElemType = undefined;
                 const payload_ty = lhs_ty.optionalChild(&opt_buffer);
                 if (!payload_ty.hasRuntimeBitsIgnoreComptime(mod)) {
-                    break :blk Type.initTag(.u1);
+                    break :blk Type.u1;
                 } else if (lhs_ty.isPtrLikeOptional(mod)) {
                     break :blk Type.usize;
                 } else {

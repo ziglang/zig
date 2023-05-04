@@ -31464,19 +31464,6 @@ pub fn resolveTypeRequiresComptime(sema: *Sema, ty: Type) CompileError!bool {
     };
 
     return switch (ty.tag()) {
-        .u1,
-        .u8,
-        .i8,
-        .u16,
-        .i16,
-        .u29,
-        .u32,
-        .i32,
-        .u64,
-        .i64,
-        .u128,
-        .i128,
-
         .manyptr_u8,
         .manyptr_const_u8,
         .manyptr_const_u8_sentinel_0,
@@ -32957,19 +32944,6 @@ pub fn typeHasOnePossibleValue(sema: *Sema, ty: Type) CompileError!?Value {
     };
 
     switch (ty.tag()) {
-        .u1,
-        .u8,
-        .i8,
-        .u16,
-        .i16,
-        .u29,
-        .u32,
-        .i32,
-        .u64,
-        .i64,
-        .u128,
-        .i128,
-
         .error_set_single,
         .error_set,
         .error_set_merged,
@@ -33161,19 +33135,6 @@ pub fn addType(sema: *Sema, ty: Type) !Air.Inst.Ref {
         return Air.indexToRef(@intCast(u32, sema.air_instructions.len - 1));
     }
     switch (ty.tag()) {
-        .u1 => return .u1_type,
-        .u8 => return .u8_type,
-        .i8 => return .i8_type,
-        .u16 => return .u16_type,
-        .u29 => return .u29_type,
-        .i16 => return .i16_type,
-        .u32 => return .u32_type,
-        .i32 => return .i32_type,
-        .u64 => return .u64_type,
-        .i64 => return .i64_type,
-        .u128 => return .u128_type,
-        .i128 => return .i128_type,
-
         .manyptr_u8 => return .manyptr_u8_type,
         .manyptr_const_u8 => return .manyptr_const_u8_type,
         .single_const_pointer_to_comptime_int => return .single_const_pointer_to_comptime_int_type,
@@ -33603,19 +33564,6 @@ pub fn typeRequiresComptime(sema: *Sema, ty: Type) CompileError!bool {
         }
     }
     return switch (ty.tag()) {
-        .u1,
-        .u8,
-        .i8,
-        .u16,
-        .i16,
-        .u29,
-        .u32,
-        .i32,
-        .u64,
-        .i64,
-        .u128,
-        .i128,
-
         .manyptr_u8,
         .manyptr_const_u8,
         .manyptr_const_u8_sentinel_0,

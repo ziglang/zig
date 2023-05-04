@@ -107,20 +107,6 @@ pub const Type = struct {
             }
         }
         switch (ty.tag()) {
-            .u1,
-            .u8,
-            .i8,
-            .u16,
-            .i16,
-            .u29,
-            .u32,
-            .i32,
-            .u64,
-            .i64,
-            .u128,
-            .i128,
-            => return .Int,
-
             .error_set,
             .error_set_single,
             .error_set_inferred,
@@ -589,26 +575,6 @@ pub const Type = struct {
         if (a.legacy.tag_if_small_enough == b.legacy.tag_if_small_enough) return true;
 
         switch (a.tag()) {
-            .u1,
-            .u8,
-            .i8,
-            .u16,
-            .i16,
-            .u29,
-            .u32,
-            .i32,
-            .u64,
-            .i64,
-            .u128,
-            .i128,
-            => {
-                if (b.zigTypeTag(mod) != .Int) return false;
-                if (b.isNamedInt()) return false;
-                const info_a = a.intInfo(mod);
-                const info_b = b.intInfo(mod);
-                return info_a.signedness == info_b.signedness and info_a.bits == info_b.bits;
-            },
-
             .error_set_inferred => {
                 // Inferred error sets are only equal if both are inferred
                 // and they share the same pointer.
@@ -926,26 +892,6 @@ pub const Type = struct {
             return;
         }
         switch (ty.tag()) {
-            .u1,
-            .u8,
-            .i8,
-            .u16,
-            .i16,
-            .u29,
-            .u32,
-            .i32,
-            .u64,
-            .i64,
-            .u128,
-            .i128,
-            => {
-                // Arbitrary sized integers.
-                std.hash.autoHash(hasher, std.builtin.TypeId.Int);
-                const info = ty.intInfo(mod);
-                std.hash.autoHash(hasher, info.signedness);
-                std.hash.autoHash(hasher, info.bits);
-            },
-
             .error_set,
             .error_set_single,
             .error_set_merged,
@@ -1183,18 +1129,6 @@ pub const Type = struct {
                 .legacy = .{ .tag_if_small_enough = self.legacy.tag_if_small_enough },
             };
         } else switch (self.legacy.ptr_otherwise.tag) {
-            .u1,
-            .u8,
-            .i8,
-            .u16,
-            .i16,
-            .u29,
-            .u32,
-            .i32,
-            .u64,
-            .i64,
-            .u128,
-            .i128,
             .single_const_pointer_to_comptime_int,
             .const_slice_u8,
             .const_slice_u8_sentinel_0,
@@ -1435,20 +1369,6 @@ pub const Type = struct {
         while (true) {
             const t = ty.tag();
             switch (t) {
-                .u1,
-                .u8,
-                .i8,
-                .u16,
-                .i16,
-                .u29,
-                .u32,
-                .i32,
-                .u64,
-                .i64,
-                .u128,
-                .i128,
-                => return writer.writeAll(@tagName(t)),
-
                 .empty_struct, .empty_struct_literal => return writer.writeAll("struct {}"),
 
                 .@"struct" => {
@@ -1775,20 +1695,6 @@ pub const Type = struct {
             .inferred_alloc_const => unreachable,
             .inferred_alloc_mut => unreachable,
 
-            .u1,
-            .u8,
-            .i8,
-            .u16,
-            .i16,
-            .u29,
-            .u32,
-            .i32,
-            .u64,
-            .i64,
-            .u128,
-            .i128,
-            => try writer.writeAll(@tagName(t)),
-
             .empty_struct_literal => try writer.writeAll("@TypeOf(.{})"),
 
             .empty_struct => {
@@ -2057,16 +1963,6 @@ pub const Type = struct {
     pub fn toValue(self: Type, allocator: Allocator) Allocator.Error!Value {
         if (self.ip_index != .none) return self.ip_index.toValue();
         switch (self.tag()) {
-            .u1 => return Value{ .ip_index = .u1_type, .legacy = undefined },
-            .u8 => return Value{ .ip_index = .u8_type, .legacy = undefined },
-            .i8 => return Value{ .ip_index = .i8_type, .legacy = undefined },
-            .u16 => return Value{ .ip_index = .u16_type, .legacy = undefined },
-            .u29 => return Value{ .ip_index = .u29_type, .legacy = undefined },
-            .i16 => return Value{ .ip_index = .i16_type, .legacy = undefined },
-            .u32 => return Value{ .ip_index = .u32_type, .legacy = undefined },
-            .i32 => return Value{ .ip_index = .i32_type, .legacy = undefined },
-            .u64 => return Value{ .ip_index = .u64_type, .legacy = undefined },
-            .i64 => return Value{ .ip_index = .i64_type, .legacy = undefined },
             .single_const_pointer_to_comptime_int => return Value{ .ip_index = .single_const_pointer_to_comptime_int_type, .legacy = undefined },
             .const_slice_u8 => return Value{ .ip_index = .const_slice_u8_type, .legacy = undefined },
             .const_slice_u8_sentinel_0 => return Value{ .ip_index = .const_slice_u8_sentinel_0_type, .legacy = undefined },
@@ -2162,19 +2058,6 @@ pub const Type = struct {
             .enum_tag => unreachable, // it's a value, not a type
         };
         switch (ty.tag()) {
-            .u1,
-            .u8,
-            .i8,
-            .u16,
-            .i16,
-            .u29,
-            .u32,
-            .i32,
-            .u64,
-            .i64,
-            .u128,
-            .i128,
-
             .const_slice_u8,
             .const_slice_u8_sentinel_0,
             .array_u8_sentinel_0,
@@ -2404,19 +2287,6 @@ pub const Type = struct {
             .enum_tag => unreachable, // it's a value, not a type
         };
         return switch (ty.tag()) {
-            .u1,
-            .u8,
-            .i8,
-            .u16,
-            .i16,
-            .u29,
-            .u32,
-            .i32,
-            .u64,
-            .i64,
-            .u128,
-            .i128,
-
             .manyptr_u8,
             .manyptr_const_u8,
             .manyptr_const_u8_sentinel_0,
@@ -2752,10 +2622,6 @@ pub const Type = struct {
             else => null,
         };
         switch (ty.tag()) {
-            .u1,
-            .u8,
-            .i8,
-
             .array_u8_sentinel_0,
             .array_u8,
             .@"opaque",
@@ -2805,12 +2671,6 @@ pub const Type = struct {
                 const alignment = std.math.ceilPowerOfTwoAssert(u64, bytes);
                 return AbiAlignmentAdvanced{ .scalar = @intCast(u32, alignment) };
             },
-
-            .i16, .u16 => return AbiAlignmentAdvanced{ .scalar = intAbiAlignment(16, target) },
-            .u29 => return AbiAlignmentAdvanced{ .scalar = intAbiAlignment(29, target) },
-            .i32, .u32 => return AbiAlignmentAdvanced{ .scalar = intAbiAlignment(32, target) },
-            .i64, .u64 => return AbiAlignmentAdvanced{ .scalar = intAbiAlignment(64, target) },
-            .u128, .i128 => return AbiAlignmentAdvanced{ .scalar = intAbiAlignment(128, target) },
 
             .optional => {
                 var buf: Payload.ElemType = undefined;
@@ -3208,11 +3068,6 @@ pub const Type = struct {
                 return abiSizeAdvancedUnion(ty, mod, strat, union_obj, true);
             },
 
-            .u1,
-            .u8,
-            .i8,
-            => return AbiSizeAdvanced{ .scalar = 1 },
-
             .array_u8 => return AbiSizeAdvanced{ .scalar = ty.castTag(.array_u8).?.data },
             .array_u8_sentinel_0 => return AbiSizeAdvanced{ .scalar = ty.castTag(.array_u8_sentinel_0).?.data + 1 },
             .array => {
@@ -3292,12 +3147,6 @@ pub const Type = struct {
             .error_set_merged,
             .error_set_single,
             => return AbiSizeAdvanced{ .scalar = 2 },
-
-            .i16, .u16 => return AbiSizeAdvanced{ .scalar = intAbiSize(16, target) },
-            .u29 => return AbiSizeAdvanced{ .scalar = intAbiSize(29, target) },
-            .i32, .u32 => return AbiSizeAdvanced{ .scalar = intAbiSize(32, target) },
-            .i64, .u64 => return AbiSizeAdvanced{ .scalar = intAbiSize(64, target) },
-            .u128, .i128 => return AbiSizeAdvanced{ .scalar = intAbiSize(128, target) },
 
             .optional => {
                 var buf: Payload.ElemType = undefined;
@@ -3496,14 +3345,6 @@ pub const Type = struct {
             .inferred_alloc_const => unreachable,
             .inferred_alloc_mut => unreachable,
             .@"opaque" => unreachable,
-
-            .u1 => return 1,
-            .u8, .i8 => return 8,
-            .i16, .u16 => return 16,
-            .u29 => return 29,
-            .i32, .u32 => return 32,
-            .i64, .u64 => return 64,
-            .u128, .i128 => return 128,
 
             .@"struct" => {
                 const struct_obj = ty.castTag(.@"struct").?.data;
@@ -4398,47 +4239,25 @@ pub const Type = struct {
 
     /// Returns true if and only if the type is a fixed-width, signed integer.
     pub fn isSignedInt(ty: Type, mod: *const Module) bool {
-        if (ty.ip_index != .none) switch (mod.intern_pool.indexToKey(ty.ip_index)) {
-            .int_type => |int_type| return int_type.signedness == .signed,
-            .simple_type => |s| return switch (s) {
-                .c_char, .isize, .c_short, .c_int, .c_long, .c_longlong => true,
+        return switch (ty.ip_index) {
+            .c_char_type, .isize_type, .c_short_type, .c_int_type, .c_long_type, .c_longlong_type => true,
+            .none => false,
+            else => switch (mod.intern_pool.indexToKey(ty.ip_index)) {
+                .int_type => |int_type| int_type.signedness == .signed,
                 else => false,
             },
-            else => return false,
-        };
-        return switch (ty.tag()) {
-            .i8,
-            .i16,
-            .i32,
-            .i64,
-            .i128,
-            => true,
-
-            else => false,
         };
     }
 
     /// Returns true if and only if the type is a fixed-width, unsigned integer.
     pub fn isUnsignedInt(ty: Type, mod: *const Module) bool {
-        if (ty.ip_index != .none) switch (mod.intern_pool.indexToKey(ty.ip_index)) {
-            .int_type => |int_type| return int_type.signedness == .unsigned,
-            .simple_type => |s| return switch (s) {
-                .usize, .c_ushort, .c_uint, .c_ulong, .c_ulonglong => true,
+        return switch (ty.ip_index) {
+            .usize_type, .c_ushort_type, .c_uint_type, .c_ulong_type, .c_ulonglong_type => true,
+            .none => false,
+            else => switch (mod.intern_pool.indexToKey(ty.ip_index)) {
+                .int_type => |int_type| int_type.signedness == .unsigned,
                 else => false,
             },
-            else => return false,
-        };
-        return switch (ty.tag()) {
-            .u1,
-            .u8,
-            .u16,
-            .u29,
-            .u32,
-            .u64,
-            .u128,
-            => true,
-
-            else => false,
         };
     }
 
@@ -4459,19 +4278,6 @@ pub const Type = struct {
 
         while (true) switch (ty.ip_index) {
             .none => switch (ty.tag()) {
-                .u1 => return .{ .signedness = .unsigned, .bits = 1 },
-                .u8 => return .{ .signedness = .unsigned, .bits = 8 },
-                .i8 => return .{ .signedness = .signed, .bits = 8 },
-                .u16 => return .{ .signedness = .unsigned, .bits = 16 },
-                .i16 => return .{ .signedness = .signed, .bits = 16 },
-                .u29 => return .{ .signedness = .unsigned, .bits = 29 },
-                .u32 => return .{ .signedness = .unsigned, .bits = 32 },
-                .i32 => return .{ .signedness = .signed, .bits = 32 },
-                .u64 => return .{ .signedness = .unsigned, .bits = 64 },
-                .i64 => return .{ .signedness = .signed, .bits = 64 },
-                .u128 => return .{ .signedness = .unsigned, .bits = 128 },
-                .i128 => return .{ .signedness = .signed, .bits = 128 },
-
                 .enum_full, .enum_nonexhaustive => ty = ty.cast(Payload.EnumFull).?.data.tag_ty,
                 .enum_numbered => ty = ty.castTag(.enum_numbered).?.data.tag_ty,
                 .enum_simple => {
@@ -4664,50 +4470,34 @@ pub const Type = struct {
     }
 
     pub fn isNumeric(ty: Type, mod: *const Module) bool {
-        if (ty.ip_index != .none) return switch (mod.intern_pool.indexToKey(ty.ip_index)) {
-            .int_type => true,
-            .simple_type => |s| return switch (s) {
-                .f16,
-                .f32,
-                .f64,
-                .f80,
-                .f128,
-                .c_longdouble,
-                .comptime_int,
-                .comptime_float,
-                .usize,
-                .isize,
-                .c_char,
-                .c_short,
-                .c_ushort,
-                .c_int,
-                .c_uint,
-                .c_long,
-                .c_ulong,
-                .c_longlong,
-                .c_ulonglong,
-                => true,
-
-                else => false,
-            },
-            else => false,
-        };
-        return switch (ty.tag()) {
-            .u1,
-            .u8,
-            .i8,
-            .u16,
-            .i16,
-            .u29,
-            .u32,
-            .i32,
-            .u64,
-            .i64,
-            .u128,
-            .i128,
+        return switch (ty.ip_index) {
+            .f16_type,
+            .f32_type,
+            .f64_type,
+            .f80_type,
+            .f128_type,
+            .c_longdouble_type,
+            .comptime_int_type,
+            .comptime_float_type,
+            .usize_type,
+            .isize_type,
+            .c_char_type,
+            .c_short_type,
+            .c_ushort_type,
+            .c_int_type,
+            .c_uint_type,
+            .c_long_type,
+            .c_ulong_type,
+            .c_longlong_type,
+            .c_ulonglong_type,
             => true,
 
-            else => false,
+            .none => false,
+
+            else => switch (mod.intern_pool.indexToKey(ty.ip_index)) {
+                .int_type => true,
+                else => false,
+            },
         };
     }
 
@@ -4785,19 +4575,6 @@ pub const Type = struct {
         };
 
         while (true) switch (ty.tag()) {
-            .u1,
-            .u8,
-            .i8,
-            .u16,
-            .i16,
-            .u29,
-            .u32,
-            .i32,
-            .u64,
-            .i64,
-            .u128,
-            .i128,
-
             .error_union,
             .error_set_single,
             .error_set,
@@ -4995,19 +4772,6 @@ pub const Type = struct {
         };
 
         return switch (ty.tag()) {
-            .u1,
-            .u8,
-            .i8,
-            .u16,
-            .i16,
-            .u29,
-            .u32,
-            .i32,
-            .u64,
-            .i64,
-            .u128,
-            .i128,
-
             .manyptr_u8,
             .manyptr_const_u8,
             .manyptr_const_u8_sentinel_0,
@@ -5764,19 +5528,6 @@ pub const Type = struct {
     /// See `zigTypeTag` for the function that corresponds to `std.builtin.TypeId`.
     pub const Tag = enum(usize) {
         // The first section of this enum are tags that require no payload.
-        u1,
-        u8,
-        i8,
-        u16,
-        i16,
-        u29,
-        u32,
-        i32,
-        u64,
-        i64,
-        u128,
-        i128,
-
         manyptr_u8,
         manyptr_const_u8,
         manyptr_const_u8_sentinel_0,
@@ -5839,19 +5590,6 @@ pub const Type = struct {
 
         pub fn Type(comptime t: Tag) type {
             return switch (t) {
-                .u1,
-                .u8,
-                .i8,
-                .u16,
-                .i16,
-                .u29,
-                .u32,
-                .i32,
-                .u64,
-                .i64,
-                .u128,
-                .i128,
-
                 .single_const_pointer_to_comptime_int,
                 .anyerror_void_error_union,
                 .const_slice_u8,
@@ -6203,19 +5941,19 @@ pub const Type = struct {
         };
     };
 
-    pub const @"u1" = initTag(.u1);
-    pub const @"u8" = initTag(.u8);
-    pub const @"u16" = initTag(.u16);
-    pub const @"u29" = initTag(.u29);
-    pub const @"u32" = initTag(.u32);
-    pub const @"u64" = initTag(.u64);
-    pub const @"u128" = initTag(.u128);
+    pub const @"u1": Type = .{ .ip_index = .u1_type, .legacy = undefined };
+    pub const @"u8": Type = .{ .ip_index = .u8_type, .legacy = undefined };
+    pub const @"u16": Type = .{ .ip_index = .u16_type, .legacy = undefined };
+    pub const @"u29": Type = .{ .ip_index = .u29_type, .legacy = undefined };
+    pub const @"u32": Type = .{ .ip_index = .u32_type, .legacy = undefined };
+    pub const @"u64": Type = .{ .ip_index = .u64_type, .legacy = undefined };
+    pub const @"u128": Type = .{ .ip_index = .u128_type, .legacy = undefined };
 
-    pub const @"i8" = initTag(.i8);
-    pub const @"i16" = initTag(.i16);
-    pub const @"i32" = initTag(.i32);
-    pub const @"i64" = initTag(.i64);
-    pub const @"i128" = initTag(.i128);
+    pub const @"i8": Type = .{ .ip_index = .i8_type, .legacy = undefined };
+    pub const @"i16": Type = .{ .ip_index = .i16_type, .legacy = undefined };
+    pub const @"i32": Type = .{ .ip_index = .i32_type, .legacy = undefined };
+    pub const @"i64": Type = .{ .ip_index = .i64_type, .legacy = undefined };
+    pub const @"i128": Type = .{ .ip_index = .i128_type, .legacy = undefined };
 
     pub const @"f16": Type = .{ .ip_index = .f16_type, .legacy = undefined };
     pub const @"f32": Type = .{ .ip_index = .f32_type, .legacy = undefined };

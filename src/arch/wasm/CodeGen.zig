@@ -4272,7 +4272,7 @@ fn airWrapOptional(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
 
     const result = result: {
         if (!payload_ty.hasRuntimeBitsIgnoreComptime(mod)) {
-            const non_null_bit = try func.allocStack(Type.initTag(.u1));
+            const non_null_bit = try func.allocStack(Type.u1);
             try func.emitWValue(non_null_bit);
             try func.addImm32(1);
             try func.addMemArg(.i32_store8, .{ .offset = non_null_bit.offset(), .alignment = 1 });
@@ -5195,7 +5195,7 @@ fn cmpOptionals(func: *CodeGen, lhs: WValue, rhs: WValue, operand_ty: Type, op: 
 
     // We store the final result in here that will be validated
     // if the optional is truly equal.
-    var result = try func.ensureAllocLocal(Type.initTag(.i32));
+    var result = try func.ensureAllocLocal(Type.i32);
     defer result.free(func);
 
     try func.startBlock(.block, wasm.block_empty);
@@ -5658,7 +5658,7 @@ fn airAddSubWithOverflow(func: *CodeGen, inst: Air.Inst.Index, op: Op) InnerErro
     const result_ptr = try func.allocStack(func.typeOfIndex(inst));
     try func.store(result_ptr, result, lhs_ty, 0);
     const offset = @intCast(u32, lhs_ty.abiSize(mod));
-    try func.store(result_ptr, overflow_local, Type.initTag(.u1), offset);
+    try func.store(result_ptr, overflow_local, Type.u1, offset);
 
     func.finishAir(inst, result_ptr, &.{ extra.lhs, extra.rhs });
 }
@@ -5717,13 +5717,13 @@ fn addSubWithOverflowBigInt(func: *CodeGen, lhs: WValue, rhs: WValue, ty: Type, 
 
         break :blk WValue{ .stack = {} };
     };
-    var overflow_local = try overflow_bit.toLocal(func, Type.initTag(.u1));
+    var overflow_local = try overflow_bit.toLocal(func, Type.u1);
     defer overflow_local.free(func);
 
     const result_ptr = try func.allocStack(result_ty);
     try func.store(result_ptr, high_op_res, Type.u64, 0);
     try func.store(result_ptr, tmp_op, Type.u64, 8);
-    try func.store(result_ptr, overflow_local, Type.initTag(.u1), 16);
+    try func.store(result_ptr, overflow_local, Type.u1, 16);
 
     return result_ptr;
 }
@@ -5774,13 +5774,13 @@ fn airShlWithOverflow(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         const shr = try func.binOp(result, rhs_final, lhs_ty, .shr);
         break :blk try func.cmp(.{ .stack = {} }, shr, lhs_ty, .neq);
     };
-    var overflow_local = try overflow_bit.toLocal(func, Type.initTag(.u1));
+    var overflow_local = try overflow_bit.toLocal(func, Type.u1);
     defer overflow_local.free(func);
 
     const result_ptr = try func.allocStack(func.typeOfIndex(inst));
     try func.store(result_ptr, result, lhs_ty, 0);
     const offset = @intCast(u32, lhs_ty.abiSize(mod));
-    try func.store(result_ptr, overflow_local, Type.initTag(.u1), offset);
+    try func.store(result_ptr, overflow_local, Type.u1, offset);
 
     func.finishAir(inst, result_ptr, &.{ extra.lhs, extra.rhs });
 }
@@ -5800,7 +5800,7 @@ fn airMulWithOverflow(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
 
     // We store the bit if it's overflowed or not in this. As it's zero-initialized
     // we only need to update it if an overflow (or underflow) occurred.
-    var overflow_bit = try func.ensureAllocLocal(Type.initTag(.u1));
+    var overflow_bit = try func.ensureAllocLocal(Type.u1);
     defer overflow_bit.free(func);
 
     const int_info = lhs_ty.intInfo(mod);
@@ -5955,7 +5955,7 @@ fn airMulWithOverflow(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     const result_ptr = try func.allocStack(func.typeOfIndex(inst));
     try func.store(result_ptr, bin_op_local, lhs_ty, 0);
     const offset = @intCast(u32, lhs_ty.abiSize(mod));
-    try func.store(result_ptr, overflow_bit, Type.initTag(.u1), offset);
+    try func.store(result_ptr, overflow_bit, Type.u1, offset);
 
     func.finishAir(inst, result_ptr, &.{ extra.lhs, extra.rhs });
 }
