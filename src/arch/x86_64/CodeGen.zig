@@ -1480,12 +1480,12 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .log,
             .log2,
             .log10,
-            .floor,
-            .ceil,
             .round,
-            .trunc_float,
             => try self.airUnaryMath(inst),
 
+            .floor => try self.airRound(inst, Immediate.u(0b1_0_01)),
+            .ceil => try self.airRound(inst, Immediate.u(0b1_0_10)),
+            .trunc_float => try self.airRound(inst, Immediate.u(0b1_0_11)),
             .sqrt => try self.airSqrt(inst),
             .neg, .fabs => try self.airFloatSign(inst),
 
@@ -4255,6 +4255,44 @@ fn airFloatSign(self: *Self, inst: Air.Inst.Index) !void {
             ty.fmt(self.bin_file.options.module.?),
         }),
     }, vec_ty, dst_mcv, sign_mcv);
+    return self.finishAir(inst, dst_mcv, .{ un_op, .none, .none });
+}
+
+fn airRound(self: *Self, inst: Air.Inst.Index, mode: Immediate) !void {
+    const un_op = self.air.instructions.items(.data)[inst].un_op;
+    const ty = self.air.typeOf(un_op);
+
+    if (!Target.x86.featureSetHas(self.target.cpu.features, .sse4_1))
+        return self.fail("TODO implement airRound without sse4_1 feature", .{});
+
+    const src_mcv = try self.resolveInst(un_op);
+    const dst_mcv = if (src_mcv.isRegister() and self.reuseOperand(inst, un_op, 0, src_mcv))
+        src_mcv
+    else
+        try self.copyToRegisterWithInstTracking(inst, ty, src_mcv);
+
+    const mir_tag: Mir.Inst.Tag = switch (ty.zigTypeTag()) {
+        .Float => switch (ty.floatBits(self.target.*)) {
+            32 => .roundss,
+            64 => .roundsd,
+            else => return self.fail("TODO implement airRound for {}", .{
+                ty.fmt(self.bin_file.options.module.?),
+            }),
+        },
+        else => return self.fail("TODO implement airRound for {}", .{
+            ty.fmt(self.bin_file.options.module.?),
+        }),
+    };
+    assert(dst_mcv.isRegister());
+    if (src_mcv.isRegister())
+        try self.asmRegisterRegisterImmediate(mir_tag, dst_mcv.getReg().?, src_mcv.getReg().?, mode)
+    else
+        try self.asmRegisterMemoryImmediate(
+            mir_tag,
+            dst_mcv.getReg().?,
+            src_mcv.mem(Memory.PtrSize.fromSize(@intCast(u32, ty.abiSize(self.target.*)))),
+            mode,
+        );
     return self.finishAir(inst, dst_mcv, .{ un_op, .none, .none });
 }
 
