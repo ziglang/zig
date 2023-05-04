@@ -800,52 +800,20 @@ fn readCoffDebugInfo(allocator: mem.Allocator, coff_bytes: []const u8) !ModuleDe
             // This coff file has embedded DWARF debug info
             _ = sec;
 
-            const debug_info = coff_obj.getSectionDataAlloc(".debug_info", allocator) catch return error.MissingDebugInfo;
-            errdefer allocator.free(debug_info);
-            const debug_abbrev = coff_obj.getSectionDataAlloc(".debug_abbrev", allocator) catch return error.MissingDebugInfo;
-            errdefer allocator.free(debug_abbrev);
-            const debug_str = coff_obj.getSectionDataAlloc(".debug_str", allocator) catch return error.MissingDebugInfo;
-            errdefer allocator.free(debug_str);
-            const debug_line = coff_obj.getSectionDataAlloc(".debug_line", allocator) catch return error.MissingDebugInfo;
-            errdefer allocator.free(debug_line);
+            const num_sections = std.enums.directEnumArrayLen(DW.DwarfSection, 0);
+            var sections: [num_sections]?[]const u8 = [_]?[]const u8{null} ** num_sections;
+            errdefer for (sections) |section| if (section) |s| allocator.free(s);
 
-            const debug_str_offsets = coff_obj.getSectionDataAlloc(".debug_str_offsets", allocator) catch null;
-            const debug_line_str = coff_obj.getSectionDataAlloc(".debug_line_str", allocator) catch null;
-            const debug_ranges = coff_obj.getSectionDataAlloc(".debug_ranges", allocator) catch null;
-            const debug_loclists = coff_obj.getSectionDataAlloc(".debug_loclists", allocator) catch null;
-            const debug_rnglists = coff_obj.getSectionDataAlloc(".debug_rnglists", allocator) catch null;
-            const debug_addr = coff_obj.getSectionDataAlloc(".debug_addr", allocator) catch null;
-            const debug_names = coff_obj.getSectionDataAlloc(".debug_names", allocator) catch null;
-            const debug_frame = coff_obj.getSectionDataAlloc(".debug_frame", allocator) catch null;
+            inline for (@typeInfo(DW.DwarfSection).Enum.fields, 0..) |section, i| {
+                sections[i] = try coff_obj.getSectionDataAlloc("." ++ section.name, allocator);
+            }
 
             var dwarf = DW.DwarfInfo{
                 .endian = native_endian,
-                .debug_info = debug_info,
-                .debug_abbrev = debug_abbrev,
-                .debug_str = debug_str,
-                .debug_str_offsets = debug_str_offsets,
-                .debug_line = debug_line,
-                .debug_line_str = debug_line_str,
-                .debug_ranges = debug_ranges,
-                .debug_loclists = debug_loclists,
-                .debug_rnglists = debug_rnglists,
-                .debug_addr = debug_addr,
-                .debug_names = debug_names,
-                .debug_frame = debug_frame,
+                .sections = sections,
             };
 
-            DW.openDwarfDebugInfo(&dwarf, allocator) catch |err| {
-                if (debug_str_offsets) |d| allocator.free(d);
-                if (debug_line_str) |d| allocator.free(d);
-                if (debug_ranges) |d| allocator.free(d);
-                if (debug_loclists) |d| allocator.free(d);
-                if (debug_rnglists) |d| allocator.free(d);
-                if (debug_addr) |d| allocator.free(d);
-                if (debug_names) |d| allocator.free(d);
-                if (debug_frame) |d| allocator.free(d);
-                return err;
-            };
-
+            try DW.openDwarfDebugInfo(&dwarf, allocator);
             di.debug_data = PdbOrDwarf{ .dwarf = dwarf };
             return di;
         }
@@ -901,7 +869,7 @@ pub fn readElfDebugInfo(
         };
 
         const mapped_mem = try mapWholeFile(elf_file);
-        if (expected_crc) |crc| if (crc != std.hash.crc.Crc32SmallWithPoly(.IEEE).hash(mapped_mem)) return error.MissingDebugInfo;
+        if (expected_crc) |crc| if (crc != std.hash.crc.Crc32SmallWithPoly(.IEEE).hash(mapped_mem)) return error.InvalidDebugInfo;
 
         const hdr: *const elf.Ehdr = @ptrCast(&mapped_mem[0]);
         if (!mem.eql(u8, hdr.e_ident[0..4], elf.MAGIC)) return error.InvalidElfMagic;
@@ -916,36 +884,23 @@ pub fn readElfDebugInfo(
 
         const shoff = hdr.e_shoff;
         const str_section_off = shoff + @as(u64, hdr.e_shentsize) * @as(u64, hdr.e_shstrndx);
-        const str_shdr: *const elf.Shdr = @ptrCast(@alignCast(
-            &mapped_mem[math.cast(usize, str_section_off) orelse return error.Overflow],
-        ));
-        const header_strings = mapped_mem[str_shdr.sh_offset .. str_shdr.sh_offset + str_shdr.sh_size];
+        const str_shdr: *const elf.Shdr = @ptrCast(@alignCast(&mapped_mem[math.cast(usize, str_section_off) orelse return error.Overflow]));
+        const header_strings = mapped_mem[str_shdr.sh_offset..][0..str_shdr.sh_size];
         const shdrs = @as(
             [*]const elf.Shdr,
             @ptrCast(@alignCast(&mapped_mem[shoff])),
         )[0..hdr.e_shnum];
 
-        var opt_debug_info: ?[]const u8 = null;
-        var opt_debug_abbrev: ?[]const u8 = null;
-        var opt_debug_str: ?[]const u8 = null;
-        var opt_debug_str_offsets: ?[]const u8 = null;
-        var opt_debug_line: ?[]const u8 = null;
-        var opt_debug_line_str: ?[]const u8 = null;
-        var opt_debug_ranges: ?[]const u8 = null;
-        var opt_debug_loclists: ?[]const u8 = null;
-        var opt_debug_rnglists: ?[]const u8 = null;
-        var opt_debug_addr: ?[]const u8 = null;
-        var opt_debug_names: ?[]const u8 = null;
-        var opt_debug_frame: ?[]const u8 = null;
-
-        var owned_sections: [ModuleDebugInfo.num_sections][]const u8 = [_][]const u8{&.{}} ** ModuleDebugInfo.num_sections;
+        const num_sections = std.enums.directEnumArrayLen(DW.DwarfSection, 0);
+        var sections: [num_sections]?[]const u8 = [_]?[]const u8{null} ** num_sections;
+        var owned_sections: [num_sections][]const u8 = [_][]const u8{&.{}} ** num_sections;
         errdefer for (owned_sections) |section| allocator.free(section);
 
         var separate_debug_filename: ?[]const u8 = null;
         var separate_debug_crc: ?u32 = null;
 
         for (shdrs) |*shdr| {
-            if (shdr.sh_type == elf.SHT_NULL) continue;
+            if (shdr.sh_type == elf.SHT_NULL or shdr.sh_type == elf.SHT_NOBITS) continue;
             const name = mem.sliceTo(header_strings[shdr.sh_name..], 0);
 
             if (mem.eql(u8, name, ".gnu_debuglink")) {
@@ -958,26 +913,11 @@ pub fn readElfDebugInfo(
                 continue;
             }
 
-            const sections = [_]struct { name: []const u8, out: *?[]const u8 }{
-                .{ .name = ".debug_info", .out = &opt_debug_info },
-                .{ .name = ".debug_abbrev", .out = &opt_debug_abbrev },
-                .{ .name = ".debug_str", .out = &opt_debug_str },
-                .{ .name = ".debug_str_offsets", .out = &opt_debug_str_offsets },
-                .{ .name = ".debug_line", .out = &opt_debug_line },
-                .{ .name = ".debug_line_str", .out = &opt_debug_line_str },
-                .{ .name = ".debug_ranges", .out = &opt_debug_ranges },
-                .{ .name = ".debug_loclists", .out = &opt_debug_loclists },
-                .{ .name = ".debug_rnglists", .out = &opt_debug_rnglists },
-                .{ .name = ".debug_addr", .out = &opt_debug_addr },
-                .{ .name = ".debug_names", .out = &opt_debug_names },
-                .{ .name = ".debug_frame", .out = &opt_debug_frame },
-            };
-
-            var section_index = for (sections, 0..) |section, i| {
-                if (mem.eql(u8, section.name, name)) {
-                    break i;
-                }
-            } else continue;
+            var section_index: ?usize = null;
+            inline for (@typeInfo(DW.DwarfSection).Enum.fields, 0..) |section, i| {
+                if (mem.eql(u8, "." ++ section.name, name)) section_index = i;
+            }
+            if (section_index == null) continue;
 
             const section_bytes = try chopSlice(mapped_mem, shdr.sh_offset, shdr.sh_size);
             if ((shdr.sh_flags & elf.SHF_COMPRESSED) > 0) {
@@ -997,25 +937,24 @@ pub fn readElfDebugInfo(
                 const read = zlib_stream.reader().readAll(decompressed_section) catch continue;
                 assert(read == decompressed_section.len);
 
-                sections[section_index].out.* = decompressed_section;
-                owned_sections[section_index] = decompressed_section;
+                sections[section_index.?] = decompressed_section;
+                owned_sections[section_index.?] = decompressed_section;
             } else {
-                sections[section_index].out.* = section_bytes;
-            }
+                sections[section_index.?] = section_bytes;
+           }
         }
 
         const missing_debug_info =
-            opt_debug_info == null or
-            opt_debug_abbrev == null or
-            opt_debug_str == null or
-            opt_debug_line == null;
+            sections[@enumToInt(DW.DwarfSection.debug_info)] == null or
+            sections[@enumToInt(DW.DwarfSection.debug_abbrev)] == null or
+            sections[@enumToInt(DW.DwarfSection.debug_str)] == null or
+            sections[@enumToInt(DW.DwarfSection.debug_line)] == null;
 
         // Attempt to load debug info from an external file
         // See: https://sourceware.org/gdb/onlinedocs/gdb/Separate-Debug-Files.html
         if (missing_debug_info) {
             const global_debug_directories = [_][]const u8{
                 "/usr/lib/debug",
-                // TODO: Determine the set of directories used by most distros for this path (check GDB sources)
             };
 
             // <global debug directory>/.build-id/<2-character id prefix>/<id remainder>.debug
@@ -1074,18 +1013,7 @@ pub fn readElfDebugInfo(
 
         var di = DW.DwarfInfo{
             .endian = endian,
-            .debug_info = opt_debug_info.?,
-            .debug_abbrev = opt_debug_abbrev.?,
-            .debug_str = opt_debug_str.?,
-            .debug_str_offsets = opt_debug_str_offsets,
-            .debug_line = opt_debug_line.?,
-            .debug_line_str = opt_debug_line_str,
-            .debug_ranges = opt_debug_ranges,
-            .debug_loclists = opt_debug_loclists,
-            .debug_rnglists = opt_debug_rnglists,
-            .debug_addr = opt_debug_addr,
-            .debug_names = opt_debug_names,
-            .debug_frame = opt_debug_frame,
+            .sections = sections,
         };
 
         try DW.openDwarfDebugInfo(&di, allocator);
@@ -1882,7 +1810,7 @@ pub const ModuleDebugInfo = switch (native_os) {
         mapped_memory: []align(mem.page_size) const u8,
         owned_sections: [num_sections][]const u8 = [_][]const u8{&.{}} ** num_sections,
 
-        const num_sections = 12;
+        const num_sections = 14;
 
         fn deinit(self: *@This(), allocator: mem.Allocator) void {
             self.dwarf.deinit(allocator);
@@ -1916,7 +1844,7 @@ fn getSymbolFromDwarf(allocator: mem.Allocator, address: u64, di: *DW.DwarfInfo)
     if (nosuspend di.findCompileUnit(address)) |compile_unit| {
         return SymbolInfo{
             .symbol_name = nosuspend di.getSymbolName(address) orelse "???",
-            .compile_unit_name = compile_unit.die.getAttrString(di, DW.AT.name, di.debug_str, compile_unit.*) catch |err| switch (err) {
+            .compile_unit_name = compile_unit.die.getAttrString(di, DW.AT.name, di.section(.debug_str), compile_unit.*) catch |err| switch (err) {
                 error.MissingDebugInfo, error.InvalidDebugInfo => "???",
             },
             .line_info = nosuspend di.getLineNumberInfo(allocator, compile_unit.*, address) catch |err| switch (err) {
