@@ -1730,7 +1730,7 @@ pub const Object = struct {
                 return ptr_di_ty;
             },
             .Opaque => {
-                if (ty.tag() == .anyopaque) {
+                if (ty.ip_index == .anyopaque_type) {
                     const di_ty = dib.createBasicType("anyopaque", 0, DW.ATE.signed);
                     gop.value_ptr.* = AnnotatedDITypePtr.initFull(di_ty);
                     return di_ty;
@@ -2847,25 +2847,23 @@ pub const DeclGen = struct {
                 const llvm_addrspace = toLlvmAddressSpace(ptr_info.@"addrspace", target);
                 return dg.context.pointerType(llvm_addrspace);
             },
-            .Opaque => switch (t.tag()) {
-                .@"opaque" => {
-                    const gop = try dg.object.type_map.getOrPutContext(gpa, t, .{ .mod = dg.module });
-                    if (gop.found_existing) return gop.value_ptr.*;
+            .Opaque => {
+                if (t.ip_index == .anyopaque_type) return dg.context.intType(8);
 
-                    // The Type memory is ephemeral; since we want to store a longer-lived
-                    // reference, we need to copy it here.
-                    gop.key_ptr.* = try t.copy(dg.object.type_map_arena.allocator());
+                const gop = try dg.object.type_map.getOrPutContext(gpa, t, .{ .mod = dg.module });
+                if (gop.found_existing) return gop.value_ptr.*;
 
-                    const opaque_obj = t.castTag(.@"opaque").?.data;
-                    const name = try opaque_obj.getFullyQualifiedName(dg.module);
-                    defer gpa.free(name);
+                // The Type memory is ephemeral; since we want to store a longer-lived
+                // reference, we need to copy it here.
+                gop.key_ptr.* = try t.copy(dg.object.type_map_arena.allocator());
 
-                    const llvm_struct_ty = dg.context.structCreateNamed(name);
-                    gop.value_ptr.* = llvm_struct_ty; // must be done before any recursive calls
-                    return llvm_struct_ty;
-                },
-                .anyopaque => return dg.context.intType(8),
-                else => unreachable,
+                const opaque_obj = t.castTag(.@"opaque").?.data;
+                const name = try opaque_obj.getFullyQualifiedName(dg.module);
+                defer gpa.free(name);
+
+                const llvm_struct_ty = dg.context.structCreateNamed(name);
+                gop.value_ptr.* = llvm_struct_ty; // must be done before any recursive calls
+                return llvm_struct_ty;
             },
             .Array => {
                 const elem_ty = t.childType();
@@ -5531,7 +5529,7 @@ pub const FuncGen = struct {
         const payload_has_bits = payload_ty.hasRuntimeBitsIgnoreComptime(mod);
         const err_union_llvm_ty = try fg.dg.lowerType(err_union_ty);
 
-        if (!err_union_ty.errorUnionSet().errorSetIsEmpty()) {
+        if (!err_union_ty.errorUnionSet().errorSetIsEmpty(mod)) {
             const is_err = err: {
                 const err_set_ty = try fg.dg.lowerType(Type.anyerror);
                 const zero = err_set_ty.constNull();
@@ -6715,7 +6713,7 @@ pub const FuncGen = struct {
         const err_set_ty = try self.dg.lowerType(Type.anyerror);
         const zero = err_set_ty.constNull();
 
-        if (err_union_ty.errorUnionSet().errorSetIsEmpty()) {
+        if (err_union_ty.errorUnionSet().errorSetIsEmpty(mod)) {
             const llvm_i1 = self.context.intType(1);
             switch (op) {
                 .EQ => return llvm_i1.constInt(1, .False), // 0 == 0
@@ -6864,7 +6862,7 @@ pub const FuncGen = struct {
         const operand = try self.resolveInst(ty_op.operand);
         const operand_ty = self.typeOf(ty_op.operand);
         const err_union_ty = if (operand_is_ptr) operand_ty.childType() else operand_ty;
-        if (err_union_ty.errorUnionSet().errorSetIsEmpty()) {
+        if (err_union_ty.errorUnionSet().errorSetIsEmpty(mod)) {
             const err_llvm_ty = try self.dg.lowerType(Type.anyerror);
             if (operand_is_ptr) {
                 return operand;

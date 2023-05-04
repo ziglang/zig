@@ -1776,7 +1776,7 @@ fn analyzeAsType(
     src: LazySrcLoc,
     air_inst: Air.Inst.Ref,
 ) !Type {
-    const wanted_type = Type.initTag(.type);
+    const wanted_type = Type.type;
     const coerced_inst = try sema.coerce(block, wanted_type, air_inst, src);
     const val = try sema.resolveConstValue(block, src, coerced_inst, "types must be comptime-known");
     const ty = val.toType();
@@ -3132,7 +3132,7 @@ fn zirUnionDecl(
     errdefer mod.abortAnonDecl(new_decl_index);
     union_obj.* = .{
         .owner_decl = new_decl_index,
-        .tag_ty = Type.initTag(.null),
+        .tag_ty = Type.null,
         .fields = .{},
         .zir_index = inst,
         .layout = small.layout,
@@ -6362,7 +6362,7 @@ fn zirCall(
             if (arg_index >= fn_params_len)
                 break :inst Air.Inst.Ref.var_args_param_type;
 
-            if (func_ty_info.param_types[arg_index].tag() == .generic_poison)
+            if (func_ty_info.param_types[arg_index].isGenericPoison())
                 break :inst Air.Inst.Ref.generic_poison_type;
 
             break :inst try sema.addType(func_ty_info.param_types[arg_index]);
@@ -8175,7 +8175,7 @@ fn zirMergeErrorSets(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileEr
         return sema.fail(block, rhs_src, "expected error set type, found '{}'", .{rhs_ty.fmt(sema.mod)});
 
     // Anything merged with anyerror is anyerror.
-    if (lhs_ty.tag() == .anyerror or rhs_ty.tag() == .anyerror) {
+    if (lhs_ty.ip_index == .anyerror_type or rhs_ty.ip_index == .anyerror_type) {
         return Air.Inst.Ref.anyerror_type;
     }
 
@@ -8206,7 +8206,7 @@ fn zirEnumLiteral(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
     const inst_data = sema.code.instructions.items(.data)[inst].str_tok;
     const duped_name = try sema.arena.dupe(u8, inst_data.get(sema.code));
     return sema.addConstant(
-        Type.initTag(.enum_literal),
+        .{ .ip_index = .enum_literal_type, .legacy = undefined },
         try Value.Tag.enum_literal.create(sema.arena, duped_name),
     );
 }
@@ -8503,6 +8503,7 @@ fn analyzeErrUnionPayload(
     operand_src: LazySrcLoc,
     safety_check: bool,
 ) CompileError!Air.Inst.Ref {
+    const mod = sema.mod;
     const payload_ty = err_union_ty.errorUnionPayload();
     if (try sema.resolveDefinedValue(block, operand_src, operand)) |val| {
         if (val.getError()) |name| {
@@ -8516,7 +8517,7 @@ fn analyzeErrUnionPayload(
 
     // If the error set has no fields then no safety check is needed.
     if (safety_check and block.wantSafety() and
-        !err_union_ty.errorUnionSet().errorSetIsEmpty())
+        !err_union_ty.errorUnionSet().errorSetIsEmpty(mod))
     {
         try sema.panicUnwrapError(block, operand, .unwrap_errunion_err, .is_non_err);
     }
@@ -8602,7 +8603,7 @@ fn analyzeErrUnionPayloadPtr(
 
     // If the error set has no fields then no safety check is needed.
     if (safety_check and block.wantSafety() and
-        !err_union_ty.errorUnionSet().errorSetIsEmpty())
+        !err_union_ty.errorUnionSet().errorSetIsEmpty(mod))
     {
         try sema.panicUnwrapError(block, operand, .unwrap_errunion_err_ptr, .is_non_err_ptr);
     }
@@ -8701,7 +8702,7 @@ fn zirFunc(
                 break :blk ret_ty;
             } else |err| switch (err) {
                 error.GenericPoison => {
-                    break :blk Type.initTag(.generic_poison);
+                    break :blk Type.generic_poison;
                 },
                 else => |e| return e,
             }
@@ -8778,7 +8779,7 @@ fn resolveGenericBody(
     };
     switch (err) {
         error.GenericPoison => {
-            if (dest_ty.tag() == .type) {
+            if (dest_ty.ip_index == .type_type) {
                 return Value.initTag(.generic_poison_type);
             } else {
                 return Value.initTag(.generic_poison);
@@ -9319,7 +9320,7 @@ fn zirParam(
                 // We result the param instruction with a poison value and
                 // insert an anytype parameter.
                 try block.params.append(sema.gpa, .{
-                    .ty = Type.initTag(.generic_poison),
+                    .ty = Type.generic_poison,
                     .is_comptime = comptime_syntax,
                     .name = param_name,
                 });
@@ -9340,7 +9341,7 @@ fn zirParam(
             // We result the param instruction with a poison value and
             // insert an anytype parameter.
             try block.params.append(sema.gpa, .{
-                .ty = Type.initTag(.generic_poison),
+                .ty = Type.generic_poison,
                 .is_comptime = comptime_syntax,
                 .name = param_name,
             });
@@ -9438,7 +9439,7 @@ fn zirParamAnytype(
     // We are evaluating a generic function without any comptime args provided.
 
     try block.params.append(sema.gpa, .{
-        .ty = Type.initTag(.generic_poison),
+        .ty = Type.generic_poison,
         .is_comptime = comptime_syntax,
         .name = param_name,
     });
@@ -18877,7 +18878,7 @@ fn zirReify(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstData, in
         },
         .ErrorSet => {
             const payload_val = union_val.val.optionalValue(mod) orelse
-                return sema.addType(Type.initTag(.anyerror));
+                return sema.addType(Type.anyerror);
             const slice_val = payload_val.castTag(.slice).?.data;
 
             const len = try sema.usizeCast(block, src, slice_val.len.toUnsignedInt(mod));
@@ -19150,7 +19151,7 @@ fn zirReify(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstData, in
             errdefer mod.abortAnonDecl(new_decl_index);
             union_obj.* = .{
                 .owner_decl = new_decl_index,
-                .tag_ty = Type.initTag(.null),
+                .tag_ty = Type.null,
                 .fields = .{},
                 .zir_index = inst,
                 .layout = layout,
@@ -22687,7 +22688,7 @@ fn zirFuncFancy(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!A
         extra_index += 1;
         const ret_ty_tv = sema.resolveInstConst(block, ret_src, ret_ty_ref, "return type must be comptime-known") catch |err| switch (err) {
             error.GenericPoison => {
-                break :blk Type.initTag(.generic_poison);
+                break :blk Type.generic_poison;
             },
             else => |e| return e,
         };
@@ -23012,7 +23013,7 @@ fn zirBuiltinExtern(
         new_decl.src_line = sema.owner_decl.src_line;
         // We only access this decl through the decl_ref with the correct type created
         // below, so this type doesn't matter
-        new_decl.ty = Type.Tag.init(.anyopaque);
+        new_decl.ty = Type.anyopaque;
         new_decl.val = try Value.Tag.variable.create(new_decl_arena_allocator, new_var);
         new_decl.@"align" = 0;
         new_decl.@"linksection" = null;
@@ -24370,9 +24371,8 @@ fn fieldCallBind(
                         decl_type.fnParamLen() >= 1)
                     {
                         const first_param_type = decl_type.fnParamType(0);
-                        const first_param_tag = first_param_type.tag();
                         // zig fmt: off
-                        if (first_param_tag == .generic_poison or (
+                        if (first_param_type.isGenericPoison() or (
                                 first_param_type.zigTypeTag(mod) == .Pointer and
                                 (first_param_type.ptrSize() == .One or
                                 first_param_type.ptrSize() == .C) and
@@ -25525,10 +25525,7 @@ fn coerceExtra(
     inst_src: LazySrcLoc,
     opts: CoerceOpts,
 ) CoersionError!Air.Inst.Ref {
-    switch (dest_ty_unresolved.tag()) {
-        .generic_poison => return inst,
-        else => {},
-    }
+    if (dest_ty_unresolved.isGenericPoison()) return inst;
     const dest_ty_src = inst_src; // TODO better source location
     const dest_ty = try sema.resolveTypeFields(dest_ty_unresolved);
     const inst_ty = try sema.resolveTypeFields(sema.typeOf(inst));
@@ -25567,7 +25564,8 @@ fn coerceExtra(
 
             // cast from ?*T and ?[*]T to ?*anyopaque
             // but don't do it if the source type is a double pointer
-            if (dest_ty.isPtrLikeOptional(mod) and dest_ty.elemType2(mod).tag() == .anyopaque and
+            if (dest_ty.isPtrLikeOptional(mod) and
+                dest_ty.elemType2(mod).ip_index == .anyopaque_type and
                 inst_ty.isPtrAtRuntime(mod))
             anyopaque_check: {
                 if (!sema.checkPtrAttributes(dest_ty, inst_ty, &in_memory_result)) break :optional;
@@ -25705,7 +25703,7 @@ fn coerceExtra(
 
             // cast from *T and [*]T to *anyopaque
             // but don't do it if the source type is a double pointer
-            if (dest_info.pointee_type.tag() == .anyopaque and inst_ty.zigTypeTag(mod) == .Pointer) to_anyopaque: {
+            if (dest_info.pointee_type.ip_index == .anyopaque_type and inst_ty.zigTypeTag(mod) == .Pointer) to_anyopaque: {
                 if (!sema.checkPtrAttributes(dest_ty, inst_ty, &in_memory_result)) break :pointer;
                 const elem_ty = inst_ty.elemType2(mod);
                 if (elem_ty.zigTypeTag(mod) == .Pointer or elem_ty.isPtrLikeOptional(mod)) {
@@ -26749,6 +26747,8 @@ fn coerceInMemoryAllowedErrorSets(
     dest_src: LazySrcLoc,
     src_src: LazySrcLoc,
 ) !InMemoryCoercionResult {
+    const mod = sema.mod;
+
     // Coercion to `anyerror`. Note that this check can return false negatives
     // in case the error sets did not get resolved.
     if (dest_ty.isAnyError()) {
@@ -26759,36 +26759,41 @@ fn coerceInMemoryAllowedErrorSets(
         const dst_ies = dst_payload.data;
         // We will make an effort to return `ok` without resolving either error set, to
         // avoid unnecessary "unable to resolve error set" dependency loop errors.
-        switch (src_ty.tag()) {
-            .error_set_inferred => {
-                // If both are inferred error sets of functions, and
-                // the dest includes the source function, the coercion is OK.
-                // This check is important because it works without forcing a full resolution
-                // of inferred error sets.
-                const src_ies = src_ty.castTag(.error_set_inferred).?.data;
+        switch (src_ty.ip_index) {
+            .none => switch (src_ty.tag()) {
+                .error_set_inferred => {
+                    // If both are inferred error sets of functions, and
+                    // the dest includes the source function, the coercion is OK.
+                    // This check is important because it works without forcing a full resolution
+                    // of inferred error sets.
+                    const src_ies = src_ty.castTag(.error_set_inferred).?.data;
 
-                if (dst_ies.inferred_error_sets.contains(src_ies)) {
-                    return .ok;
-                }
+                    if (dst_ies.inferred_error_sets.contains(src_ies)) {
+                        return .ok;
+                    }
+                },
+                .error_set_single => {
+                    const name = src_ty.castTag(.error_set_single).?.data;
+                    if (dst_ies.errors.contains(name)) return .ok;
+                },
+                .error_set_merged => {
+                    const names = src_ty.castTag(.error_set_merged).?.data.keys();
+                    for (names) |name| {
+                        if (!dst_ies.errors.contains(name)) break;
+                    } else return .ok;
+                },
+                .error_set => {
+                    const names = src_ty.castTag(.error_set).?.data.names.keys();
+                    for (names) |name| {
+                        if (!dst_ies.errors.contains(name)) break;
+                    } else return .ok;
+                },
+                else => unreachable,
             },
-            .error_set_single => {
-                const name = src_ty.castTag(.error_set_single).?.data;
-                if (dst_ies.errors.contains(name)) return .ok;
+            .anyerror_type => {},
+            else => switch (mod.intern_pool.indexToKey(src_ty.ip_index)) {
+                else => @panic("TODO"),
             },
-            .error_set_merged => {
-                const names = src_ty.castTag(.error_set_merged).?.data.keys();
-                for (names) |name| {
-                    if (!dst_ies.errors.contains(name)) break;
-                } else return .ok;
-            },
-            .error_set => {
-                const names = src_ty.castTag(.error_set).?.data.names.keys();
-                for (names) |name| {
-                    if (!dst_ies.errors.contains(name)) break;
-                } else return .ok;
-            },
-            .anyerror => {},
-            else => unreachable,
         }
 
         if (dst_ies.func == sema.owner_func) {
@@ -26808,79 +26813,87 @@ fn coerceInMemoryAllowedErrorSets(
     var missing_error_buf = std.ArrayList([]const u8).init(sema.gpa);
     defer missing_error_buf.deinit();
 
-    switch (src_ty.tag()) {
-        .error_set_inferred => {
-            const src_data = src_ty.castTag(.error_set_inferred).?.data;
+    switch (src_ty.ip_index) {
+        .none => switch (src_ty.tag()) {
+            .error_set_inferred => {
+                const src_data = src_ty.castTag(.error_set_inferred).?.data;
 
-            try sema.resolveInferredErrorSet(block, src_src, src_data);
-            // src anyerror status might have changed after the resolution.
-            if (src_ty.isAnyError()) {
-                // dest_ty.isAnyError() == true is already checked for at this point.
-                return .from_anyerror;
-            }
-
-            for (src_data.errors.keys()) |key| {
-                if (!dest_ty.errorSetHasField(key)) {
-                    try missing_error_buf.append(key);
+                try sema.resolveInferredErrorSet(block, src_src, src_data);
+                // src anyerror status might have changed after the resolution.
+                if (src_ty.isAnyError()) {
+                    // dest_ty.isAnyError() == true is already checked for at this point.
+                    return .from_anyerror;
                 }
-            }
 
-            if (missing_error_buf.items.len != 0) {
-                return InMemoryCoercionResult{
-                    .missing_error = try sema.arena.dupe([]const u8, missing_error_buf.items),
-                };
-            }
+                for (src_data.errors.keys()) |key| {
+                    if (!dest_ty.errorSetHasField(key)) {
+                        try missing_error_buf.append(key);
+                    }
+                }
 
-            return .ok;
-        },
-        .error_set_single => {
-            const name = src_ty.castTag(.error_set_single).?.data;
-            if (dest_ty.errorSetHasField(name)) {
+                if (missing_error_buf.items.len != 0) {
+                    return InMemoryCoercionResult{
+                        .missing_error = try sema.arena.dupe([]const u8, missing_error_buf.items),
+                    };
+                }
+
                 return .ok;
-            }
-            const list = try sema.arena.alloc([]const u8, 1);
-            list[0] = name;
-            return InMemoryCoercionResult{ .missing_error = list };
-        },
-        .error_set_merged => {
-            const names = src_ty.castTag(.error_set_merged).?.data.keys();
-            for (names) |name| {
-                if (!dest_ty.errorSetHasField(name)) {
-                    try missing_error_buf.append(name);
+            },
+            .error_set_single => {
+                const name = src_ty.castTag(.error_set_single).?.data;
+                if (dest_ty.errorSetHasField(name)) {
+                    return .ok;
                 }
-            }
-
-            if (missing_error_buf.items.len != 0) {
-                return InMemoryCoercionResult{
-                    .missing_error = try sema.arena.dupe([]const u8, missing_error_buf.items),
-                };
-            }
-
-            return .ok;
-        },
-        .error_set => {
-            const names = src_ty.castTag(.error_set).?.data.names.keys();
-            for (names) |name| {
-                if (!dest_ty.errorSetHasField(name)) {
-                    try missing_error_buf.append(name);
+                const list = try sema.arena.alloc([]const u8, 1);
+                list[0] = name;
+                return InMemoryCoercionResult{ .missing_error = list };
+            },
+            .error_set_merged => {
+                const names = src_ty.castTag(.error_set_merged).?.data.keys();
+                for (names) |name| {
+                    if (!dest_ty.errorSetHasField(name)) {
+                        try missing_error_buf.append(name);
+                    }
                 }
-            }
 
-            if (missing_error_buf.items.len != 0) {
-                return InMemoryCoercionResult{
-                    .missing_error = try sema.arena.dupe([]const u8, missing_error_buf.items),
-                };
-            }
+                if (missing_error_buf.items.len != 0) {
+                    return InMemoryCoercionResult{
+                        .missing_error = try sema.arena.dupe([]const u8, missing_error_buf.items),
+                    };
+                }
 
-            return .ok;
-        },
-        .anyerror => switch (dest_ty.tag()) {
-            .error_set_inferred => unreachable, // Caught by dest_ty.isAnyError() above.
-            .error_set_single, .error_set_merged, .error_set => return .from_anyerror,
-            .anyerror => unreachable, // Filtered out above.
+                return .ok;
+            },
+            .error_set => {
+                const names = src_ty.castTag(.error_set).?.data.names.keys();
+                for (names) |name| {
+                    if (!dest_ty.errorSetHasField(name)) {
+                        try missing_error_buf.append(name);
+                    }
+                }
+
+                if (missing_error_buf.items.len != 0) {
+                    return InMemoryCoercionResult{
+                        .missing_error = try sema.arena.dupe([]const u8, missing_error_buf.items),
+                    };
+                }
+
+                return .ok;
+            },
             else => unreachable,
         },
-        else => unreachable,
+
+        .anyerror_type => switch (dest_ty.ip_index) {
+            .none => switch (dest_ty.tag()) {
+                .error_set_inferred => unreachable, // Caught by dest_ty.isAnyError() above.
+                .error_set_single, .error_set_merged, .error_set => return .from_anyerror,
+                else => unreachable,
+            },
+            .anyerror_type => unreachable, // Filtered out above.
+            else => @panic("TODO"),
+        },
+
+        else => @panic("TODO"),
     }
 
     unreachable;
@@ -29345,42 +29358,49 @@ fn analyzeIsNonErrComptimeOnly(
     // exception if the error union error set is known to be empty,
     // we allow the comparison but always make it comptime-known.
     const set_ty = operand_ty.errorUnionSet();
-    switch (set_ty.tag()) {
-        .anyerror => {},
-        .error_set_inferred => blk: {
-            // If the error set is empty, we must return a comptime true or false.
-            // However we want to avoid unnecessarily resolving an inferred error set
-            // in case it is already non-empty.
-            const ies = set_ty.castTag(.error_set_inferred).?.data;
-            if (ies.is_anyerror) break :blk;
-            if (ies.errors.count() != 0) break :blk;
-            if (maybe_operand_val == null) {
-                // Try to avoid resolving inferred error set if possible.
+    switch (set_ty.ip_index) {
+        .none => switch (set_ty.tag()) {
+            .error_set_inferred => blk: {
+                // If the error set is empty, we must return a comptime true or false.
+                // However we want to avoid unnecessarily resolving an inferred error set
+                // in case it is already non-empty.
+                const ies = set_ty.castTag(.error_set_inferred).?.data;
+                if (ies.is_anyerror) break :blk;
                 if (ies.errors.count() != 0) break :blk;
-                if (ies.is_anyerror) break :blk;
-                for (ies.inferred_error_sets.keys()) |other_ies| {
-                    if (ies == other_ies) continue;
-                    try sema.resolveInferredErrorSet(block, src, other_ies);
-                    if (other_ies.is_anyerror) {
-                        ies.is_anyerror = true;
-                        ies.is_resolved = true;
-                        break :blk;
-                    }
+                if (maybe_operand_val == null) {
+                    // Try to avoid resolving inferred error set if possible.
+                    if (ies.errors.count() != 0) break :blk;
+                    if (ies.is_anyerror) break :blk;
+                    for (ies.inferred_error_sets.keys()) |other_ies| {
+                        if (ies == other_ies) continue;
+                        try sema.resolveInferredErrorSet(block, src, other_ies);
+                        if (other_ies.is_anyerror) {
+                            ies.is_anyerror = true;
+                            ies.is_resolved = true;
+                            break :blk;
+                        }
 
-                    if (other_ies.errors.count() != 0) break :blk;
+                        if (other_ies.errors.count() != 0) break :blk;
+                    }
+                    if (ies.func == sema.owner_func) {
+                        // We're checking the inferred errorset of the current function and none of
+                        // its child inferred error sets contained any errors meaning that any value
+                        // so far with this type can't contain errors either.
+                        return Air.Inst.Ref.bool_true;
+                    }
+                    try sema.resolveInferredErrorSet(block, src, ies);
+                    if (ies.is_anyerror) break :blk;
+                    if (ies.errors.count() == 0) return Air.Inst.Ref.bool_true;
                 }
-                if (ies.func == sema.owner_func) {
-                    // We're checking the inferred errorset of the current function and none of
-                    // its child inferred error sets contained any errors meaning that any value
-                    // so far with this type can't contain errors either.
-                    return Air.Inst.Ref.bool_true;
-                }
-                try sema.resolveInferredErrorSet(block, src, ies);
-                if (ies.is_anyerror) break :blk;
-                if (ies.errors.count() == 0) return Air.Inst.Ref.bool_true;
-            }
+            },
+            else => if (set_ty.errorSetNames().len == 0) return Air.Inst.Ref.bool_true,
         },
-        else => if (set_ty.errorSetNames().len == 0) return Air.Inst.Ref.bool_true,
+
+        .anyerror_type => {},
+
+        else => switch (mod.intern_pool.indexToKey(set_ty.ip_index)) {
+            else => @panic("TODO"),
+        },
     }
 
     if (maybe_operand_val) |err_union| {
@@ -30294,43 +30314,48 @@ fn wrapErrorUnionSet(
     const inst_ty = sema.typeOf(inst);
     const dest_err_set_ty = dest_ty.errorUnionSet();
     if (try sema.resolveMaybeUndefVal(inst)) |val| {
-        switch (dest_err_set_ty.tag()) {
-            .anyerror => {},
-            .error_set_single => ok: {
-                const expected_name = val.castTag(.@"error").?.data.name;
-                const n = dest_err_set_ty.castTag(.error_set_single).?.data;
-                if (mem.eql(u8, expected_name, n)) break :ok;
-                return sema.failWithErrorSetCodeMissing(block, inst_src, dest_err_set_ty, inst_ty);
-            },
-            .error_set => {
-                const expected_name = val.castTag(.@"error").?.data.name;
-                const error_set = dest_err_set_ty.castTag(.error_set).?.data;
-                if (!error_set.names.contains(expected_name)) {
-                    return sema.failWithErrorSetCodeMissing(block, inst_src, dest_err_set_ty, inst_ty);
-                }
-            },
-            .error_set_inferred => ok: {
-                const expected_name = val.castTag(.@"error").?.data.name;
-                const ies = dest_err_set_ty.castTag(.error_set_inferred).?.data;
+        switch (dest_err_set_ty.ip_index) {
+            .anyerror_type => {},
 
-                // We carefully do this in an order that avoids unnecessarily
-                // resolving the destination error set type.
-                if (ies.is_anyerror) break :ok;
-                if (ies.errors.contains(expected_name)) break :ok;
-                if (.ok == try sema.coerceInMemoryAllowedErrorSets(block, dest_err_set_ty, inst_ty, inst_src, inst_src)) {
-                    break :ok;
-                }
-
-                return sema.failWithErrorSetCodeMissing(block, inst_src, dest_err_set_ty, inst_ty);
-            },
-            .error_set_merged => {
-                const expected_name = val.castTag(.@"error").?.data.name;
-                const error_set = dest_err_set_ty.castTag(.error_set_merged).?.data;
-                if (!error_set.contains(expected_name)) {
+            .none => switch (dest_err_set_ty.tag()) {
+                .error_set_single => ok: {
+                    const expected_name = val.castTag(.@"error").?.data.name;
+                    const n = dest_err_set_ty.castTag(.error_set_single).?.data;
+                    if (mem.eql(u8, expected_name, n)) break :ok;
                     return sema.failWithErrorSetCodeMissing(block, inst_src, dest_err_set_ty, inst_ty);
-                }
+                },
+                .error_set => {
+                    const expected_name = val.castTag(.@"error").?.data.name;
+                    const error_set = dest_err_set_ty.castTag(.error_set).?.data;
+                    if (!error_set.names.contains(expected_name)) {
+                        return sema.failWithErrorSetCodeMissing(block, inst_src, dest_err_set_ty, inst_ty);
+                    }
+                },
+                .error_set_inferred => ok: {
+                    const expected_name = val.castTag(.@"error").?.data.name;
+                    const ies = dest_err_set_ty.castTag(.error_set_inferred).?.data;
+
+                    // We carefully do this in an order that avoids unnecessarily
+                    // resolving the destination error set type.
+                    if (ies.is_anyerror) break :ok;
+                    if (ies.errors.contains(expected_name)) break :ok;
+                    if (.ok == try sema.coerceInMemoryAllowedErrorSets(block, dest_err_set_ty, inst_ty, inst_src, inst_src)) {
+                        break :ok;
+                    }
+
+                    return sema.failWithErrorSetCodeMissing(block, inst_src, dest_err_set_ty, inst_ty);
+                },
+                .error_set_merged => {
+                    const expected_name = val.castTag(.@"error").?.data.name;
+                    const error_set = dest_err_set_ty.castTag(.error_set_merged).?.data;
+                    if (!error_set.contains(expected_name)) {
+                        return sema.failWithErrorSetCodeMissing(block, inst_src, dest_err_set_ty, inst_ty);
+                    }
+                },
+                else => unreachable,
             },
-            else => unreachable,
+
+            else => @panic("TODO"),
         }
         return sema.addConstant(dest_ty, val);
     }
@@ -30366,7 +30391,7 @@ fn resolvePeerTypes(
 ) !Type {
     const mod = sema.mod;
     switch (instructions.len) {
-        0 => return Type.initTag(.noreturn),
+        0 => return Type.noreturn,
         1 => return sema.typeOf(instructions[0]),
         else => {},
     }
@@ -31431,24 +31456,7 @@ pub fn resolveTypeRequiresComptime(sema: *Sema, ty: Type) CompileError!bool {
         .i64,
         .u128,
         .i128,
-        .anyopaque,
-        .bool,
-        .void,
-        .anyerror,
-        .noreturn,
-        .@"anyframe",
-        .null,
-        .undefined,
-        .atomic_order,
-        .atomic_rmw_op,
-        .calling_convention,
-        .address_space,
-        .float_mode,
-        .reduce_op,
-        .modifier,
-        .prefetch_options,
-        .export_options,
-        .extern_options,
+
         .manyptr_u8,
         .manyptr_const_u8,
         .manyptr_const_u8_sentinel_0,
@@ -31462,17 +31470,12 @@ pub fn resolveTypeRequiresComptime(sema: *Sema, ty: Type) CompileError!bool {
         .error_set_inferred,
         .error_set_merged,
         .@"opaque",
-        .generic_poison,
         .array_u8,
         .array_u8_sentinel_0,
         .enum_simple,
         => false,
 
         .single_const_pointer_to_comptime_int,
-        .type,
-        .comptime_int,
-        .enum_literal,
-        .type_info,
         .function,
         => true,
 
@@ -31695,17 +31698,6 @@ pub fn resolveTypeFields(sema: *Sema, ty: Type) CompileError!Type {
                 try sema.resolveTypeFieldsUnion(ty, union_obj);
                 return ty;
             },
-            .type_info => return sema.getBuiltinType("Type"),
-            .extern_options => return sema.getBuiltinType("ExternOptions"),
-            .export_options => return sema.getBuiltinType("ExportOptions"),
-            .atomic_order => return sema.getBuiltinType("AtomicOrder"),
-            .atomic_rmw_op => return sema.getBuiltinType("AtomicRmwOp"),
-            .calling_convention => return sema.getBuiltinType("CallingConvention"),
-            .address_space => return sema.getBuiltinType("AddressSpace"),
-            .float_mode => return sema.getBuiltinType("FloatMode"),
-            .reduce_op => return sema.getBuiltinType("ReduceOp"),
-            .modifier => return sema.getBuiltinType("CallModifier"),
-            .prefetch_options => return sema.getBuiltinType("PrefetchOptions"),
 
             else => return ty,
         },
@@ -31758,6 +31750,7 @@ pub fn resolveTypeFields(sema: *Sema, ty: Type) CompileError!Type {
         .const_slice_u8_type,
         .anyerror_void_error_union_type,
         .generic_poison_type,
+        .var_args_param_type,
         .empty_struct_type,
         => return ty,
 
@@ -31775,7 +31768,6 @@ pub fn resolveTypeFields(sema: *Sema, ty: Type) CompileError!Type {
         .bool_false => unreachable,
         .empty_struct => unreachable,
         .generic_poison => unreachable,
-        .var_args_param_type => unreachable,
 
         .type_info_type => return sema.getBuiltinType("Type"),
         .extern_options_type => return sema.getBuiltinType("ExternOptions"),
@@ -32104,7 +32096,7 @@ fn semaStructFields(mod: *Module, struct_obj: *Module.Struct) CompileError!void 
                 return sema.failWithOwnedErrorMsg(msg);
             }
             gop.value_ptr.* = .{
-                .ty = Type.initTag(.noreturn),
+                .ty = Type.noreturn,
                 .abi_align = 0,
                 .default_val = Value.initTag(.unreachable_value),
                 .is_comptime = is_comptime,
@@ -32538,7 +32530,7 @@ fn semaUnionFields(mod: *Module, union_obj: *Module.Union) CompileError!void {
         const field_ty: Type = if (!has_type)
             Type.void
         else if (field_type_ref == .none)
-            Type.initTag(.noreturn)
+            Type.noreturn
         else
             sema.resolveType(&block_scope, .unneeded, field_type_ref) catch |err| switch (err) {
                 error.NeededSourceLocation => {
@@ -32942,7 +32934,6 @@ pub fn typeHasOnePossibleValue(sema: *Sema, ty: Type) CompileError!?Value {
     };
 
     switch (ty.tag()) {
-        .comptime_int,
         .u1,
         .u8,
         .i8,
@@ -32955,9 +32946,7 @@ pub fn typeHasOnePossibleValue(sema: *Sema, ty: Type) CompileError!?Value {
         .i64,
         .u128,
         .i128,
-        .bool,
-        .type,
-        .anyerror,
+
         .error_set_single,
         .error_set,
         .error_set_merged,
@@ -32970,28 +32959,14 @@ pub fn typeHasOnePossibleValue(sema: *Sema, ty: Type) CompileError!?Value {
         .const_slice_u8_sentinel_0,
         .const_slice,
         .mut_slice,
-        .anyopaque,
         .optional_single_mut_pointer,
         .optional_single_const_pointer,
-        .enum_literal,
         .anyerror_void_error_union,
         .error_set_inferred,
         .@"opaque",
         .manyptr_u8,
         .manyptr_const_u8,
         .manyptr_const_u8_sentinel_0,
-        .atomic_order,
-        .atomic_rmw_op,
-        .calling_convention,
-        .address_space,
-        .float_mode,
-        .reduce_op,
-        .modifier,
-        .prefetch_options,
-        .export_options,
-        .extern_options,
-        .type_info,
-        .@"anyframe",
         .anyframe_T,
         .many_const_pointer,
         .many_mut_pointer,
@@ -33124,10 +33099,6 @@ pub fn typeHasOnePossibleValue(sema: *Sema, ty: Type) CompileError!?Value {
         },
 
         .empty_struct, .empty_struct_literal => return Value.initTag(.empty_struct_value),
-        .void => return Value.void,
-        .noreturn => return Value.initTag(.unreachable_value),
-        .null => return Value.null,
-        .undefined => return Value.initTag(.undef),
 
         .vector, .array, .array_u8 => {
             if (ty.arrayLen() == 0)
@@ -33140,7 +33111,6 @@ pub fn typeHasOnePossibleValue(sema: *Sema, ty: Type) CompileError!?Value {
 
         .inferred_alloc_const => unreachable,
         .inferred_alloc_mut => unreachable,
-        .generic_poison => return error.GenericPoison,
     }
 }
 
@@ -33180,34 +33150,12 @@ pub fn addType(sema: *Sema, ty: Type) !Air.Inst.Ref {
         .i64 => return .i64_type,
         .u128 => return .u128_type,
         .i128 => return .i128_type,
-        .anyopaque => return .anyopaque_type,
-        .bool => return .bool_type,
-        .void => return .void_type,
-        .type => return .type_type,
-        .anyerror => return .anyerror_type,
-        .comptime_int => return .comptime_int_type,
-        .noreturn => return .noreturn_type,
-        .@"anyframe" => return .anyframe_type,
-        .null => return .null_type,
-        .undefined => return .undefined_type,
-        .enum_literal => return .enum_literal_type,
-        .atomic_order => return .atomic_order_type,
-        .atomic_rmw_op => return .atomic_rmw_op_type,
-        .calling_convention => return .calling_convention_type,
-        .address_space => return .address_space_type,
-        .float_mode => return .float_mode_type,
-        .reduce_op => return .reduce_op_type,
-        .modifier => return .call_modifier_type,
-        .prefetch_options => return .prefetch_options_type,
-        .export_options => return .export_options_type,
-        .extern_options => return .extern_options_type,
-        .type_info => return .type_info_type,
+
         .manyptr_u8 => return .manyptr_u8_type,
         .manyptr_const_u8 => return .manyptr_const_u8_type,
         .single_const_pointer_to_comptime_int => return .single_const_pointer_to_comptime_int_type,
         .const_slice_u8 => return .const_slice_u8_type,
         .anyerror_void_error_union => return .anyerror_void_error_union_type,
-        .generic_poison => return .generic_poison_type,
         else => {},
     }
     try sema.air_instructions.append(sema.gpa, .{
@@ -33644,22 +33592,7 @@ pub fn typeRequiresComptime(sema: *Sema, ty: Type) CompileError!bool {
         .i64,
         .u128,
         .i128,
-        .anyopaque,
-        .bool,
-        .void,
-        .anyerror,
-        .noreturn,
-        .@"anyframe",
-        .atomic_order,
-        .atomic_rmw_op,
-        .calling_convention,
-        .address_space,
-        .float_mode,
-        .reduce_op,
-        .modifier,
-        .prefetch_options,
-        .export_options,
-        .extern_options,
+
         .manyptr_u8,
         .manyptr_const_u8,
         .manyptr_const_u8_sentinel_0,
@@ -33673,19 +33606,12 @@ pub fn typeRequiresComptime(sema: *Sema, ty: Type) CompileError!bool {
         .error_set_inferred,
         .error_set_merged,
         .@"opaque",
-        .generic_poison,
         .array_u8,
         .array_u8_sentinel_0,
         .enum_simple,
         => false,
 
         .single_const_pointer_to_comptime_int,
-        .type,
-        .comptime_int,
-        .enum_literal,
-        .null,
-        .undefined,
-        .type_info,
         .function,
         => true,
 
@@ -34462,17 +34388,6 @@ fn enumHasInt(sema: *Sema, ty: Type, int: Value) CompileError!bool {
             const tag_ty = try mod.intType(.unsigned, bits);
             return sema.intInRange(tag_ty, int, fields_len);
         },
-        .atomic_order,
-        .atomic_rmw_op,
-        .calling_convention,
-        .address_space,
-        .float_mode,
-        .reduce_op,
-        .modifier,
-        .prefetch_options,
-        .export_options,
-        .extern_options,
-        => unreachable,
 
         else => unreachable,
     }

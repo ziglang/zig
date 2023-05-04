@@ -1036,8 +1036,8 @@ fn genValtype(ty: Type, mod: *Module) u8 {
 /// Differently from `genValtype` this also allows `void` to create a block
 /// with no return type
 fn genBlockType(ty: Type, mod: *Module) u8 {
-    return switch (ty.tag()) {
-        .void, .noreturn => wasm.block_empty,
+    return switch (ty.ip_index) {
+        .void_type, .noreturn_type => wasm.block_empty,
         else => genValtype(ty, mod),
     };
 }
@@ -3948,7 +3948,7 @@ fn airIsErr(func: *CodeGen, inst: Air.Inst.Index, opcode: wasm.Opcode) InnerErro
     const pl_ty = err_union_ty.errorUnionPayload();
 
     const result = result: {
-        if (err_union_ty.errorUnionSet().errorSetIsEmpty()) {
+        if (err_union_ty.errorUnionSet().errorSetIsEmpty(mod)) {
             switch (opcode) {
                 .i32_ne => break :result WValue{ .imm32 = 0 },
                 .i32_eq => break :result WValue{ .imm32 = 1 },
@@ -4013,7 +4013,7 @@ fn airUnwrapErrUnionError(func: *CodeGen, inst: Air.Inst.Index, op_is_ptr: bool)
     const payload_ty = err_ty.errorUnionPayload();
 
     const result = result: {
-        if (err_ty.errorUnionSet().errorSetIsEmpty()) {
+        if (err_ty.errorUnionSet().errorSetIsEmpty(mod)) {
             break :result WValue{ .imm32 = 0 };
         }
 
@@ -6214,7 +6214,7 @@ fn lowerTry(
     const pl_ty = err_union_ty.errorUnionPayload();
     const pl_has_bits = pl_ty.hasRuntimeBitsIgnoreComptime(mod);
 
-    if (!err_union_ty.errorUnionSet().errorSetIsEmpty()) {
+    if (!err_union_ty.errorUnionSet().errorSetIsEmpty(mod)) {
         // Block we can jump out of when error is not set
         try func.startBlock(.block, wasm.block_empty);
 

@@ -3530,7 +3530,7 @@ fn errUnionPayload(self: *Self, error_union_mcv: MCValue, error_union_ty: Type) 
     const mod = self.bin_file.options.module.?;
     const err_ty = error_union_ty.errorUnionSet();
     const payload_ty = error_union_ty.errorUnionPayload();
-    if (err_ty.errorSetIsEmpty()) {
+    if (err_ty.errorSetIsEmpty(mod)) {
         return error_union_mcv;
     }
     if (!payload_ty.hasRuntimeBitsIgnoreComptime(mod)) {

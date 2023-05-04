@@ -2849,6 +2849,7 @@ pub const DeclGen = struct {
     }
 
     fn airTry(self: *DeclGen, inst: Air.Inst.Index) !?IdRef {
+        const mod = self.module;
         const pl_op = self.air.instructions.items(.data)[inst].pl_op;
         const err_union_id = try self.resolve(pl_op.operand);
         const extra = self.air.extraData(Air.Try, pl_op.payload);
@@ -2862,7 +2863,7 @@ pub const DeclGen = struct {
 
         const eu_layout = self.errorUnionLayout(payload_ty);
 
-        if (!err_union_ty.errorUnionSet().errorSetIsEmpty()) {
+        if (!err_union_ty.errorUnionSet().errorSetIsEmpty(mod)) {
             const err_id = if (eu_layout.payload_has_bits)
                 try self.extractField(Type.anyerror, err_union_id, eu_layout.errorFieldIndex())
             else
@@ -2910,12 +2911,13 @@ pub const DeclGen = struct {
     fn airErrUnionErr(self: *DeclGen, inst: Air.Inst.Index) !?IdRef {
         if (self.liveness.isUnused(inst)) return null;
 
+        const mod = self.module;
         const ty_op = self.air.instructions.items(.data)[inst].ty_op;
         const operand_id = try self.resolve(ty_op.operand);
         const err_union_ty = self.typeOf(ty_op.operand);
         const err_ty_ref = try self.resolveType(Type.anyerror, .direct);
 
-        if (err_union_ty.errorUnionSet().errorSetIsEmpty()) {
+        if (err_union_ty.errorUnionSet().errorSetIsEmpty(mod)) {
             // No error possible, so just return undefined.
             return try self.spv.constUndef(err_ty_ref);
         }
