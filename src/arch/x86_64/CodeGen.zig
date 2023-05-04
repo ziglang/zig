@@ -3798,19 +3798,38 @@ fn airClz(self: *Self, inst: Air.Inst.Index) !void {
 
         const dst_reg = try self.register_manager.allocReg(inst, gp);
         const dst_mcv = MCValue{ .register = dst_reg };
-        const dst_lock = self.register_manager.lockReg(dst_reg);
-        defer if (dst_lock) |lock| self.register_manager.unlockReg(lock);
+        const dst_lock = self.register_manager.lockRegAssumeUnused(dst_reg);
+        defer self.register_manager.unlockReg(dst_lock);
 
+        const src_bits = src_ty.bitSize(self.target.*);
         if (Target.x86.featureSetHas(self.target.cpu.features, .lzcnt)) {
-            try self.genBinOpMir(.lzcnt, src_ty, dst_mcv, mat_src_mcv);
-            const extra_bits = self.regExtraBits(src_ty);
-            if (extra_bits > 0) {
-                try self.genBinOpMir(.sub, dst_ty, dst_mcv, .{ .immediate = extra_bits });
-            }
+            if (src_bits <= 64) {
+                try self.genBinOpMir(.lzcnt, src_ty, dst_mcv, mat_src_mcv);
+
+                const extra_bits = self.regExtraBits(src_ty);
+                if (extra_bits > 0) {
+                    try self.genBinOpMir(.sub, dst_ty, dst_mcv, .{ .immediate = extra_bits });
+                }
+            } else if (src_bits <= 128) {
+                const tmp_reg = try self.register_manager.allocReg(null, gp);
+                const tmp_mcv = MCValue{ .register = tmp_reg };
+                const tmp_lock = self.register_manager.lockRegAssumeUnused(tmp_reg);
+                defer self.register_manager.unlockReg(tmp_lock);
+
+                try self.genBinOpMir(.lzcnt, Type.u64, dst_mcv, mat_src_mcv);
+                try self.genBinOpMir(.add, dst_ty, dst_mcv, .{ .immediate = 64 });
+                try self.genBinOpMir(.lzcnt, Type.u64, tmp_mcv, mat_src_mcv.address().offset(8).deref());
+                try self.asmCmovccRegisterRegister(dst_reg.to32(), tmp_reg.to32(), .nc);
+
+                if (src_bits < 128) {
+                    try self.genBinOpMir(.sub, dst_ty, dst_mcv, .{ .immediate = 128 - src_bits });
+                }
+            } else return self.fail("TODO airClz of {}", .{src_ty.fmt(self.bin_file.options.module.?)});
             break :result dst_mcv;
         }
 
-        const src_bits = src_ty.bitSize(self.target.*);
+        if (src_bits > 64)
+            return self.fail("TODO airClz of {}", .{src_ty.fmt(self.bin_file.options.module.?)});
         if (math.isPowerOfTwo(src_bits)) {
             const imm_reg = try self.copyToTmpRegister(dst_ty, .{
                 .immediate = src_bits ^ (src_bits - 1),
@@ -3870,23 +3889,51 @@ fn airCtz(self: *Self, inst: Air.Inst.Index) !void {
         defer if (dst_lock) |lock| self.register_manager.unlockReg(lock);
 
         if (Target.x86.featureSetHas(self.target.cpu.features, .bmi)) {
-            const extra_bits = self.regExtraBits(src_ty);
-            const masked_mcv = if (extra_bits > 0) masked: {
-                const mask_mcv = MCValue{
-                    .immediate = ((@as(u64, 1) << @intCast(u6, extra_bits)) - 1) <<
-                        @intCast(u6, src_bits),
-                };
-                const tmp_mcv = tmp: {
-                    if (src_mcv.isImmediate() or self.liveness.operandDies(inst, 0)) break :tmp src_mcv;
-                    try self.genSetReg(dst_reg, src_ty, src_mcv);
-                    break :tmp dst_mcv;
-                };
-                try self.genBinOpMir(.@"or", src_ty, tmp_mcv, mask_mcv);
-                break :masked tmp_mcv;
-            } else mat_src_mcv;
-            try self.genBinOpMir(.tzcnt, src_ty, dst_mcv, masked_mcv);
+            if (src_bits <= 64) {
+                const extra_bits = self.regExtraBits(src_ty);
+                const masked_mcv = if (extra_bits > 0) masked: {
+                    const tmp_mcv = tmp: {
+                        if (src_mcv.isImmediate() or self.liveness.operandDies(inst, 0))
+                            break :tmp src_mcv;
+                        try self.genSetReg(dst_reg, src_ty, src_mcv);
+                        break :tmp dst_mcv;
+                    };
+                    try self.genBinOpMir(
+                        .@"or",
+                        src_ty,
+                        tmp_mcv,
+                        .{ .immediate = (@as(u64, math.maxInt(u64)) >> @intCast(u6, 64 - extra_bits)) <<
+                            @intCast(u6, src_bits) },
+                    );
+                    break :masked tmp_mcv;
+                } else mat_src_mcv;
+                try self.genBinOpMir(.tzcnt, src_ty, dst_mcv, masked_mcv);
+            } else if (src_bits <= 128) {
+                const tmp_reg = try self.register_manager.allocReg(null, gp);
+                const tmp_mcv = MCValue{ .register = tmp_reg };
+                const tmp_lock = self.register_manager.lockRegAssumeUnused(tmp_reg);
+                defer self.register_manager.unlockReg(tmp_lock);
+
+                const masked_mcv = if (src_bits < 128) masked: {
+                    try self.genCopy(Type.u64, dst_mcv, mat_src_mcv.address().offset(8).deref());
+                    try self.genBinOpMir(
+                        .@"or",
+                        Type.u64,
+                        dst_mcv,
+                        .{ .immediate = @as(u64, math.maxInt(u64)) << @intCast(u6, src_bits - 64) },
+                    );
+                    break :masked dst_mcv;
+                } else mat_src_mcv.address().offset(8).deref();
+                try self.genBinOpMir(.tzcnt, Type.u64, dst_mcv, masked_mcv);
+                try self.genBinOpMir(.add, dst_ty, dst_mcv, .{ .immediate = 64 });
+                try self.genBinOpMir(.tzcnt, Type.u64, tmp_mcv, mat_src_mcv);
+                try self.asmCmovccRegisterRegister(dst_reg.to32(), tmp_reg.to32(), .nc);
+            } else return self.fail("TODO airCtz of {}", .{src_ty.fmt(self.bin_file.options.module.?)});
             break :result dst_mcv;
         }
+
+        if (src_bits > 64)
+            return self.fail("TODO airCtz of {}", .{src_ty.fmt(self.bin_file.options.module.?)});
 
         const width_reg = try self.copyToTmpRegister(dst_ty, .{ .immediate = src_bits });
         try self.genBinOpMir(.bsf, src_ty, dst_mcv, mat_src_mcv);
