@@ -94,7 +94,7 @@ pub fn classifyType(ty: Type, mod: *const Module, ctx: Context) Class {
             return .byval;
         },
         .Pointer => {
-            assert(!ty.isSlice());
+            assert(!ty.isSlice(mod));
             return .byval;
         },
         .ErrorUnion,

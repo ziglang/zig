@@ -317,11 +317,11 @@ pub fn generateSymbol(
                 switch (target.ptrBitWidth()) {
                     32 => {
                         mem.writeInt(u32, try code.addManyAsArray(4), 0, endian);
-                        if (typed_value.ty.isSlice()) try code.appendNTimes(0xaa, 4);
+                        if (typed_value.ty.isSlice(mod)) try code.appendNTimes(0xaa, 4);
                     },
                     64 => {
                         mem.writeInt(u64, try code.addManyAsArray(8), 0, endian);
-                        if (typed_value.ty.isSlice()) try code.appendNTimes(0xaa, 8);
+                        if (typed_value.ty.isSlice(mod)) try code.appendNTimes(0xaa, 8);
                     },
                     else => unreachable,
                 }
@@ -845,7 +845,7 @@ fn lowerParentPtr(
                 debug_output,
                 reloc_info.offset(@intCast(u32, switch (field_ptr.container_ty.zigTypeTag(mod)) {
                     .Pointer => offset: {
-                        assert(field_ptr.container_ty.isSlice());
+                        assert(field_ptr.container_ty.isSlice(mod));
                         var buf: Type.SlicePtrFieldTypeBuffer = undefined;
                         break :offset switch (field_ptr.field_index) {
                             0 => 0,
@@ -946,7 +946,7 @@ fn lowerDeclRef(
 ) CodeGenError!Result {
     const target = bin_file.options.target;
     const mod = bin_file.options.module.?;
-    if (typed_value.ty.isSlice()) {
+    if (typed_value.ty.isSlice(mod)) {
         // generate ptr
         var buf: Type.SlicePtrFieldTypeBuffer = undefined;
         const slice_ptr_field_type = typed_value.ty.slicePtrFieldType(&buf);
@@ -1174,7 +1174,7 @@ pub fn genTypedValue(
     const target = bin_file.options.target;
     const ptr_bits = target.ptrBitWidth();
 
-    if (!typed_value.ty.isSlice()) {
+    if (!typed_value.ty.isSlice(mod)) {
         if (typed_value.val.castTag(.variable)) |payload| {
             return genDeclRef(bin_file, src_loc, typed_value, payload.data.owner_decl);
         }

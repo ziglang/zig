@@ -259,7 +259,7 @@ pub fn print(
             } else if (field_ptr.container_ty.zigTypeTag(mod) == .Union) {
                 const field_name = field_ptr.container_ty.unionFields().keys()[field_ptr.field_index];
                 return writer.print(".{s}", .{field_name});
-            } else if (field_ptr.container_ty.isSlice()) {
+            } else if (field_ptr.container_ty.isSlice(mod)) {
                 switch (field_ptr.field_index) {
                     Value.Payload.Slice.ptr_index => return writer.writeAll(".ptr"),
                     Value.Payload.Slice.len_index => return writer.writeAll(".len"),

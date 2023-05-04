@@ -2030,7 +2030,7 @@ fn failWithArrayInitNotSupported(sema: *Sema, block: *Block, src: LazySrcLoc, ty
             ty.fmt(mod),
         });
         errdefer msg.destroy(sema.gpa);
-        if (ty.isSlice()) {
+        if (ty.isSlice(mod)) {
             try sema.errNote(block, src, msg, "inferred array length is specified with an underscore: '[_]{}'", .{ty.elemType2(mod).fmt(mod)});
         }
         break :msg msg;
@@ -10359,7 +10359,7 @@ fn zirSwitchCond(
         .ErrorSet,
         .Enum,
         => {
-            if (operand_ty.isSlice()) {
+            if (operand_ty.isSlice(mod)) {
                 return sema.fail(block, src, "switch on type '{}'", .{operand_ty.fmt(sema.mod)});
             }
             if ((try sema.typeHasOnePossibleValue(operand_ty))) |opv| {
@@ -12017,7 +12017,7 @@ fn zirHasField(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
     const ty = try sema.resolveTypeFields(unresolved_ty);
 
     const has_field = hf: {
-        if (ty.isSlice()) {
+        if (ty.isSlice(mod)) {
             if (mem.eql(u8, field_name, "ptr")) break :hf true;
             if (mem.eql(u8, field_name, "len")) break :hf true;
             break :hf false;
@@ -20010,8 +20010,8 @@ fn zirPtrCast(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
         return sema.failWithOwnedErrorMsg(msg);
     }
 
-    const dest_is_slice = dest_ty.isSlice();
-    const operand_is_slice = operand_ty.isSlice();
+    const dest_is_slice = dest_ty.isSlice(mod);
+    const operand_is_slice = operand_ty.isSlice(mod);
     if (dest_is_slice and !operand_is_slice) {
         return sema.fail(block, dest_ty_src, "illegal pointer cast to slice", .{});
     }
@@ -20264,14 +20264,14 @@ fn zirAlignCast(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!A
             Type.usize,
             Value.initPayload(&val_payload.base),
         );
-        const actual_ptr = if (ptr_ty.isSlice())
+        const actual_ptr = if (ptr_ty.isSlice(mod))
             try sema.analyzeSlicePtr(block, ptr_src, ptr, ptr_ty)
         else
             ptr;
         const ptr_int = try block.addUnOp(.ptrtoint, actual_ptr);
         const remainder = try block.addBinOp(.bit_and, ptr_int, align_minus_1);
         const is_aligned = try block.addBinOp(.cmp_eq, remainder, .zero_usize);
-        const ok = if (ptr_ty.isSlice()) ok: {
+        const ok = if (ptr_ty.isSlice(mod)) ok: {
             const len = try sema.analyzeSliceLen(block, ptr_src, ptr);
             const len_zero = try block.addBinOp(.cmp_eq, len, .zero_usize);
             break :ok try block.addBinOp(.bit_or, len_zero, is_aligned);
@@ -22326,7 +22326,7 @@ fn zirMemcpy(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!void
         // Change the src from slice to a many pointer, to avoid multiple ptr
         // slice extractions in AIR instructions.
         const new_src_ptr_ty = sema.typeOf(new_src_ptr);
-        if (new_src_ptr_ty.isSlice()) {
+        if (new_src_ptr_ty.isSlice(mod)) {
             new_src_ptr = try sema.analyzeSlicePtr(block, src_src, new_src_ptr, new_src_ptr_ty);
         }
     } else if (dest_len == .none and len_val == null) {
@@ -22334,7 +22334,7 @@ fn zirMemcpy(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!void
         const dest_ptr_ptr = try sema.analyzeRef(block, dest_src, new_dest_ptr);
         new_dest_ptr = try sema.analyzeSlice(block, dest_src, dest_ptr_ptr, .zero, src_len, .none, .unneeded, dest_src, dest_src, dest_src, false);
         const new_src_ptr_ty = sema.typeOf(new_src_ptr);
-        if (new_src_ptr_ty.isSlice()) {
+        if (new_src_ptr_ty.isSlice(mod)) {
             new_src_ptr = try sema.analyzeSlicePtr(block, src_src, new_src_ptr, new_src_ptr_ty);
         }
     }
@@ -22353,7 +22353,7 @@ fn zirMemcpy(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!void
         // Extract raw pointer from dest slice. The AIR instructions could support them, but
         // it would cause redundant machine code instructions.
         const new_dest_ptr_ty = sema.typeOf(new_dest_ptr);
-        const raw_dest_ptr = if (new_dest_ptr_ty.isSlice())
+        const raw_dest_ptr = if (new_dest_ptr_ty.isSlice(mod))
             try sema.analyzeSlicePtr(block, dest_src, new_dest_ptr, new_dest_ptr_ty)
         else
             new_dest_ptr;
@@ -23373,7 +23373,7 @@ fn validateExternType(
         .Float,
         .AnyFrame,
         => return true,
-        .Pointer => return !(ty.isSlice() or try sema.typeRequiresComptime(ty)),
+        .Pointer => return !(ty.isSlice(mod) or try sema.typeRequiresComptime(ty)),
         .Int => switch (ty.intInfo(mod).bits) {
             8, 16, 32, 64, 128 => return true,
             else => return false,
@@ -23438,7 +23438,7 @@ fn explainWhyTypeIsNotExtern(
         => return,
 
         .Pointer => {
-            if (ty.isSlice()) {
+            if (ty.isSlice(mod)) {
                 try mod.errNoteNonLazy(src_loc, msg, "slices have no guaranteed in-memory representation", .{});
             } else {
                 const pointee_ty = ty.childType();
@@ -23513,7 +23513,7 @@ fn validatePackedType(ty: Type, mod: *const Module) bool {
         .Vector,
         .Enum,
         => return true,
-        .Pointer => return !ty.isSlice(),
+        .Pointer => return !ty.isSlice(mod),
         .Struct, .Union => return ty.containerLayout() == .Packed,
     }
 }
@@ -23793,7 +23793,7 @@ fn panicSentinelMismatch(
     const expected_sentinel = try sema.addConstant(sentinel_ty, expected_sentinel_val);
 
     const ptr_ty = sema.typeOf(ptr);
-    const actual_sentinel = if (ptr_ty.isSlice())
+    const actual_sentinel = if (ptr_ty.isSlice(mod))
         try parent_block.addBinOp(.slice_elem_val, ptr, sentinel_index)
     else blk: {
         const elem_ptr_ty = try sema.elemPtrType(ptr_ty, null);
@@ -24054,7 +24054,7 @@ fn fieldVal(
                     const msg = msg: {
                         const msg = try sema.errMsg(block, src, "type '{}' has no members", .{child_type.fmt(sema.mod)});
                         errdefer msg.destroy(sema.gpa);
-                        if (child_type.isSlice()) try sema.errNote(block, src, msg, "slice values have 'len' and 'ptr' members", .{});
+                        if (child_type.isSlice(mod)) try sema.errNote(block, src, msg, "slice values have 'len' and 'ptr' members", .{});
                         if (child_type.zigTypeTag(mod) == .Array) try sema.errNote(block, src, msg, "array values have 'len' member", .{});
                         break :msg msg;
                     };
@@ -24130,7 +24130,7 @@ fn fieldPtr(
                 );
             }
         },
-        .Pointer => if (inner_ty.isSlice()) {
+        .Pointer => if (inner_ty.isSlice(mod)) {
             const inner_ptr = if (is_pointer_to)
                 try sema.analyzeLoad(block, src, object_ptr, object_ptr_src)
             else
@@ -25733,8 +25733,8 @@ fn coerceExtra(
                     } };
                     break :pointer;
                 }
-                if (dest_ty.isSlice()) break :to_anyopaque;
-                if (inst_ty.isSlice()) {
+                if (dest_ty.isSlice(mod)) break :to_anyopaque;
+                if (inst_ty.isSlice(mod)) {
                     in_memory_result = .{ .slice_to_anyopaque = .{
                         .actual = inst_ty,
                         .wanted = dest_ty,
@@ -25875,7 +25875,7 @@ fn coerceExtra(
                     return sema.coerceTupleToSlicePtrs(block, dest_ty, dest_ty_src, inst, inst_src);
                 },
                 .Many => p: {
-                    if (!inst_ty.isSlice()) break :p;
+                    if (!inst_ty.isSlice(mod)) break :p;
                     if (!sema.checkPtrAttributes(dest_ty, inst_ty, &in_memory_result)) break :p;
                     const inst_info = inst_ty.ptrInfo().data;
 
@@ -26641,7 +26641,7 @@ fn coerceInMemoryAllowed(
     }
 
     // Slices
-    if (dest_ty.isSlice() and src_ty.isSlice()) {
+    if (dest_ty.isSlice(mod) and src_ty.isSlice(mod)) {
         return try sema.coerceInMemoryAllowedPtrs(block, dest_ty, src_ty, dest_ty, src_ty, dest_is_mut, target, dest_src, src_src);
     }
 
@@ -27734,7 +27734,7 @@ fn beginComptimePtrMutation(
                                 );
                             },
                             .Pointer => {
-                                assert(parent.ty.isSlice());
+                                assert(parent.ty.isSlice(mod));
                                 val_ptr.* = try Value.Tag.slice.create(arena, .{
                                     .ptr = Value.undef,
                                     .len = Value.undef,
@@ -28177,7 +28177,7 @@ fn beginComptimePtrLoad(
                 break :blk deref;
             }
 
-            if (field_ptr.container_ty.isSlice()) {
+            if (field_ptr.container_ty.isSlice(mod)) {
                 const slice_val = tv.val.castTag(.slice).?.data;
                 deref.pointee = switch (field_index) {
                     Value.Payload.Slice.ptr_index => TypedValue{
@@ -28432,13 +28432,13 @@ fn coerceCompatiblePtrs(
     if (block.wantSafety() and inst_allows_zero and !dest_ty.ptrAllowsZero(mod) and
         (try sema.typeHasRuntimeBits(dest_ty.elemType2(mod)) or dest_ty.elemType2(mod).zigTypeTag(mod) == .Fn))
     {
-        const actual_ptr = if (inst_ty.isSlice())
+        const actual_ptr = if (inst_ty.isSlice(mod))
             try sema.analyzeSlicePtr(block, inst_src, inst, inst_ty)
         else
             inst;
         const ptr_int = try block.addUnOp(.ptrtoint, actual_ptr);
         const is_non_zero = try block.addBinOp(.cmp_neq, ptr_int, .zero_usize);
-        const ok = if (inst_ty.isSlice()) ok: {
+        const ok = if (inst_ty.isSlice(mod)) ok: {
             const len = try sema.analyzeSliceLen(block, inst_src, inst);
             const len_zero = try block.addBinOp(.cmp_eq, len, .zero_usize);
             break :ok try block.addBinOp(.bit_or, len_zero, is_non_zero);
@@ -29538,7 +29538,7 @@ fn analyzeSlice(
         else => return sema.fail(block, src, "slice of non-array type '{}'", .{ptr_ptr_child_ty.fmt(mod)}),
     }
 
-    const ptr = if (slice_ty.isSlice())
+    const ptr = if (slice_ty.isSlice(mod))
         try sema.analyzeSlicePtr(block, ptr_src, ptr_or_slice, slice_ty)
     else
         ptr_or_slice;
@@ -29595,7 +29595,7 @@ fn analyzeSlice(
             }
 
             break :e try sema.addConstant(Type.usize, len_val);
-        } else if (slice_ty.isSlice()) {
+        } else if (slice_ty.isSlice(mod)) {
             if (!end_is_len) {
                 const end = if (by_length) end: {
                     const len = try sema.coerce(block, Type.usize, uncasted_end_opt, end_src);
@@ -29768,7 +29768,7 @@ fn analyzeSlice(
                     try sema.addSafetyCheck(block, is_non_null, .unwrap_null);
                 }
 
-                if (slice_ty.isSlice()) {
+                if (slice_ty.isSlice(mod)) {
                     const slice_len_inst = try block.addTyOp(.slice_len, Type.usize, ptr_or_slice);
                     const actual_len = if (slice_ty.sentinel() == null)
                         slice_len_inst
@@ -29830,7 +29830,7 @@ fn analyzeSlice(
         // requirement: end <= len
         const opt_len_inst = if (array_ty.zigTypeTag(mod) == .Array)
             try sema.addIntUnsigned(Type.usize, array_ty.arrayLenIncludingSentinel())
-        else if (slice_ty.isSlice()) blk: {
+        else if (slice_ty.isSlice(mod)) blk: {
             if (try sema.resolveDefinedValue(block, src, ptr_or_slice)) |slice_val| {
                 // we don't need to add one for sentinels because the
                 // underlying value data includes the sentinel

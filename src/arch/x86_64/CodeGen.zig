@@ -8688,7 +8688,7 @@ fn isNull(self: *Self, inst: Air.Inst.Index, opt_ty: Type, opt_mcv: MCValue) !MC
 
     var ptr_buf: Type.SlicePtrFieldTypeBuffer = undefined;
     const some_info: struct { off: i32, ty: Type } = if (opt_ty.optionalReprIsPayload(mod))
-        .{ .off = 0, .ty = if (pl_ty.isSlice()) pl_ty.slicePtrFieldType(&ptr_buf) else pl_ty }
+        .{ .off = 0, .ty = if (pl_ty.isSlice(mod)) pl_ty.slicePtrFieldType(&ptr_buf) else pl_ty }
     else
         .{ .off = @intCast(i32, pl_ty.abiSize(mod)), .ty = Type.bool };
 
@@ -8781,7 +8781,7 @@ fn isNullPtr(self: *Self, inst: Air.Inst.Index, ptr_ty: Type, ptr_mcv: MCValue) 
 
     var ptr_buf: Type.SlicePtrFieldTypeBuffer = undefined;
     const some_info: struct { off: i32, ty: Type } = if (opt_ty.optionalReprIsPayload(mod))
-        .{ .off = 0, .ty = if (pl_ty.isSlice()) pl_ty.slicePtrFieldType(&ptr_buf) else pl_ty }
+        .{ .off = 0, .ty = if (pl_ty.isSlice(mod)) pl_ty.slicePtrFieldType(&ptr_buf) else pl_ty }
     else
         .{ .off = @intCast(i32, pl_ty.abiSize(mod)), .ty = Type.bool };
 

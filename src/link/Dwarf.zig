@@ -258,7 +258,7 @@ pub const DeclState = struct {
                 }
             },
             .Pointer => {
-                if (ty.isSlice()) {
+                if (ty.isSlice(mod)) {
                     // Slices are structs: struct { .ptr = *, .len = N }
                     const ptr_bits = target.ptrBitWidth();
                     const ptr_bytes = @intCast(u8, @divExact(ptr_bits, 8));

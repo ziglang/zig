@@ -1636,7 +1636,7 @@ pub const Object = struct {
                     return ptr_di_ty;
                 }
 
-                if (ty.isSlice()) {
+                if (ty.isSlice(mod)) {
                     var buf: Type.SlicePtrFieldTypeBuffer = undefined;
                     const ptr_ty = ty.slicePtrFieldType(&buf);
                     const len_ty = Type.usize;
@@ -2833,7 +2833,7 @@ pub const DeclGen = struct {
             },
             .Bool => return dg.context.intType(1),
             .Pointer => {
-                if (t.isSlice()) {
+                if (t.isSlice(mod)) {
                     var buf: Type.SlicePtrFieldTypeBuffer = undefined;
                     const ptr_type = t.slicePtrFieldType(&buf);
 
@@ -4110,7 +4110,7 @@ pub const DeclGen = struct {
                         }
                     },
                     .Pointer => {
-                        assert(parent_ty.isSlice());
+                        assert(parent_ty.isSlice(mod));
                         const indices: [2]*llvm.Value = .{
                             llvm_u32.constInt(0, .False),
                             llvm_u32.constInt(field_index, .False),
@@ -4184,7 +4184,7 @@ pub const DeclGen = struct {
         decl_index: Module.Decl.Index,
     ) Error!*llvm.Value {
         const mod = self.module;
-        if (tv.ty.isSlice()) {
+        if (tv.ty.isSlice(mod)) {
             var buf: Type.SlicePtrFieldTypeBuffer = undefined;
             const ptr_ty = tv.ty.slicePtrFieldType(&buf);
             var slice_len: Value.Payload.U64 = .{
@@ -5794,7 +5794,8 @@ pub const FuncGen = struct {
     }
 
     fn sliceOrArrayPtr(fg: *FuncGen, ptr: *llvm.Value, ty: Type) *llvm.Value {
-        if (ty.isSlice()) {
+        const mod = fg.dg.module;
+        if (ty.isSlice(mod)) {
             return fg.builder.buildExtractValue(ptr, 0, "");
         } else {
             return ptr;
@@ -6669,7 +6670,7 @@ pub const FuncGen = struct {
                 self.builder.buildLoad(optional_llvm_ty, operand, "")
             else
                 operand;
-            if (payload_ty.isSlice()) {
+            if (payload_ty.isSlice(mod)) {
                 const slice_ptr = self.builder.buildExtractValue(loaded, 0, "");
                 var slice_buf: Type.SlicePtrFieldTypeBuffer = undefined;
                 const ptr_ty = try self.dg.lowerType(payload_ty.slicePtrFieldType(&slice_buf));
@@ -10864,7 +10865,7 @@ const ParamTypeIterator = struct {
                 it.zig_index += 1;
                 it.llvm_index += 1;
                 var buf: Type.Payload.ElemType = undefined;
-                if (ty.isSlice() or (ty.zigTypeTag(mod) == .Optional and ty.optionalChild(&buf).isSlice())) {
+                if (ty.isSlice(mod) or (ty.zigTypeTag(mod) == .Optional and ty.optionalChild(&buf).isSlice(mod))) {
                     it.llvm_index += 1;
                     return .slice;
                 } else if (isByRef(ty, mod)) {

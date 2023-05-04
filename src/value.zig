@@ -1144,7 +1144,7 @@ pub const Value = struct {
                 },
             },
             .Pointer => {
-                if (ty.isSlice()) return error.IllDefinedMemoryLayout;
+                if (ty.isSlice(mod)) return error.IllDefinedMemoryLayout;
                 if (val.isDeclRef()) return error.ReinterpretDeclRef;
                 return val.writeToMemory(Type.usize, mod, buffer);
             },
@@ -1261,7 +1261,7 @@ pub const Value = struct {
                 },
             },
             .Pointer => {
-                assert(!ty.isSlice()); // No well defined layout.
+                assert(!ty.isSlice(mod)); // No well defined layout.
                 if (val.isDeclRef()) return error.ReinterpretDeclRef;
                 return val.writeToPackedMemory(Type.usize, mod, buffer, bit_offset);
             },
@@ -1381,7 +1381,7 @@ pub const Value = struct {
                 return Value.initPayload(&payload.base);
             },
             .Pointer => {
-                assert(!ty.isSlice()); // No well defined layout.
+                assert(!ty.isSlice(mod)); // No well defined layout.
                 return readFromMemory(Type.usize, mod, buffer, arena);
             },
             .Optional => {
@@ -1478,7 +1478,7 @@ pub const Value = struct {
                 },
             },
             .Pointer => {
-                assert(!ty.isSlice()); // No well defined layout.
+                assert(!ty.isSlice(mod)); // No well defined layout.
                 return readFromPackedMemory(Type.usize, mod, buffer, bit_offset, arena);
             },
             .Optional => {

@@ -1773,7 +1773,7 @@ fn isByRef(ty: Type, mod: *const Module) bool {
         },
         .Pointer => {
             // Slices act like struct and will be passed by reference
-            if (ty.isSlice()) return true;
+            if (ty.isSlice(mod)) return true;
             return false;
         },
     }
@@ -2396,7 +2396,7 @@ fn store(func: *CodeGen, lhs: WValue, rhs: WValue, ty: Type, offset: u32) InnerE
             },
         },
         .Pointer => {
-            if (ty.isSlice()) {
+            if (ty.isSlice(mod)) {
                 // store pointer first
                 // lower it to the stack so we do not have to store rhs into a local first
                 try func.emitWValue(lhs);
@@ -3010,11 +3010,11 @@ fn lowerParentPtrDecl(func: *CodeGen, ptr_val: Value, decl_index: Module.Decl.In
 }
 
 fn lowerDeclRefValue(func: *CodeGen, tv: TypedValue, decl_index: Module.Decl.Index, offset: u32) InnerError!WValue {
-    if (tv.ty.isSlice()) {
+    const mod = func.bin_file.base.options.module.?;
+    if (tv.ty.isSlice(mod)) {
         return WValue{ .memory = try func.bin_file.lowerUnnamedConst(tv, decl_index) };
     }
 
-    const mod = func.bin_file.base.options.module.?;
     const decl = mod.declPtr(decl_index);
     if (decl.ty.zigTypeTag(mod) != .Fn and !decl.ty.hasRuntimeBitsIgnoreComptime(mod)) {
         return WValue{ .imm32 = 0xaaaaaaaa };
@@ -4182,7 +4182,7 @@ fn isNull(func: *CodeGen, operand: WValue, optional_ty: Type, opcode: wasm.Opcod
             };
             try func.addMemArg(.i32_load8_u, .{ .offset = operand.offset() + offset, .alignment = 1 });
         }
-    } else if (payload_ty.isSlice()) {
+    } else if (payload_ty.isSlice(mod)) {
         switch (func.arch()) {
             .wasm32 => try func.addMemArg(.i32_load, .{ .offset = operand.offset(), .alignment = 4 }),
             .wasm64 => try func.addMemArg(.i64_load, .{ .offset = operand.offset(), .alignment = 8 }),
@@ -4455,10 +4455,11 @@ fn airArrayToSlice(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
 }
 
 fn airPtrToInt(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
+    const mod = func.bin_file.base.options.module.?;
     const un_op = func.air.instructions.items(.data)[inst].un_op;
     const operand = try func.resolveInst(un_op);
     const ptr_ty = func.typeOf(un_op);
-    const result = if (ptr_ty.isSlice())
+    const result = if (ptr_ty.isSlice(mod))
         try func.slicePtr(operand)
     else switch (operand) {
         // for stack offset, return a pointer to this offset.
@@ -4479,7 +4480,7 @@ fn airPtrElemVal(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     const elem_size = elem_ty.abiSize(mod);
 
     // load pointer onto the stack
-    if (ptr_ty.isSlice()) {
+    if (ptr_ty.isSlice(mod)) {
         _ = try func.load(ptr, Type.usize, 0);
     } else {
         try func.lowerToStack(ptr);
@@ -4518,7 +4519,7 @@ fn airPtrElemPtr(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     const index = try func.resolveInst(bin_op.rhs);
 
     // load pointer onto the stack
-    if (ptr_ty.isSlice()) {
+    if (ptr_ty.isSlice(mod)) {
         _ = try func.load(ptr, Type.usize, 0);
     } else {
         try func.lowerToStack(ptr);
@@ -5441,7 +5442,8 @@ fn airFieldParentPtr(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
 }
 
 fn sliceOrArrayPtr(func: *CodeGen, ptr: WValue, ptr_ty: Type) InnerError!WValue {
-    if (ptr_ty.isSlice()) {
+    const mod = func.bin_file.base.options.module.?;
+    if (ptr_ty.isSlice(mod)) {
         return func.slicePtr(ptr);
     } else {
         return ptr;
