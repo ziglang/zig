@@ -1471,7 +1471,7 @@ pub const CType = extern union {
                             else
                                 info.pointee_type;
 
-                            if (if (info.size == .C and pointee_ty.tag() == .u8)
+                            if (if (info.size == .C and pointee_ty.ip_index == .u8_type)
                                 Tag.char.toIndex()
                             else
                                 try lookup.typeToIndex(pointee_ty, .forward)) |child_idx|

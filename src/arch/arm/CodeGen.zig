@@ -1637,7 +1637,7 @@ fn airOverflow(self: *Self, inst: Air.Inst.Index) !void {
                     });
 
                     try self.genSetStack(lhs_ty, stack_offset, .{ .register = truncated_reg });
-                    try self.genSetStack(Type.initTag(.u1), stack_offset - overflow_bit_offset, .{ .cpsr_flags = .ne });
+                    try self.genSetStack(Type.u1, stack_offset - overflow_bit_offset, .{ .cpsr_flags = .ne });
 
                     break :result MCValue{ .stack_offset = stack_offset };
                 } else if (int_info.bits == 32) {
@@ -1750,7 +1750,7 @@ fn airMulWithOverflow(self: *Self, inst: Air.Inst.Index) !void {
                     });
 
                     try self.genSetStack(lhs_ty, stack_offset, .{ .register = truncated_reg });
-                    try self.genSetStack(Type.initTag(.u1), stack_offset - overflow_bit_offset, .{ .cpsr_flags = .ne });
+                    try self.genSetStack(Type.u1, stack_offset - overflow_bit_offset, .{ .cpsr_flags = .ne });
 
                     break :result MCValue{ .stack_offset = stack_offset };
                 } else if (int_info.bits <= 32) {
@@ -1848,7 +1848,7 @@ fn airMulWithOverflow(self: *Self, inst: Air.Inst.Index) !void {
                     });
 
                     // strb rdlo, [...]
-                    try self.genSetStack(Type.initTag(.u1), stack_offset - overflow_bit_offset, .{ .register = rdlo });
+                    try self.genSetStack(Type.u1, stack_offset - overflow_bit_offset, .{ .register = rdlo });
 
                     break :result MCValue{ .stack_offset = stack_offset };
                 } else {
@@ -1983,7 +1983,7 @@ fn airShlWithOverflow(self: *Self, inst: Air.Inst.Index) !void {
                     });
 
                     try self.genSetStack(lhs_ty, stack_offset, .{ .register = dest_reg });
-                    try self.genSetStack(Type.initTag(.u1), stack_offset - overflow_bit_offset, .{ .cpsr_flags = .ne });
+                    try self.genSetStack(Type.u1, stack_offset - overflow_bit_offset, .{ .cpsr_flags = .ne });
 
                     break :result MCValue{ .stack_offset = stack_offset };
                 } else {
@@ -4086,7 +4086,7 @@ fn genInlineMemset(
 
     const val_reg = switch (val) {
         .register => |r| r,
-        else => try self.copyToTmpRegister(Type.initTag(.u8), val),
+        else => try self.copyToTmpRegister(Type.u8, val),
     };
     const val_reg_lock = self.register_manager.lockReg(val_reg);
     defer if (val_reg_lock) |lock| self.register_manager.unlockReg(lock);
@@ -4485,7 +4485,7 @@ fn cmp(
             var opt_buffer: Type.Payload.ElemType = undefined;
             const payload_ty = lhs_ty.optionalChild(&opt_buffer);
             if (!payload_ty.hasRuntimeBitsIgnoreComptime(mod)) {
-                break :blk Type.initTag(.u1);
+                break :blk Type.u1;
             } else if (lhs_ty.isPtrLikeOptional(mod)) {
                 break :blk Type.usize;
             } else {
@@ -4495,9 +4495,9 @@ fn cmp(
         .Float => return self.fail("TODO ARM cmp floats", .{}),
         .Enum => lhs_ty.intTagType(),
         .Int => lhs_ty,
-        .Bool => Type.initTag(.u1),
+        .Bool => Type.u1,
         .Pointer => Type.usize,
-        .ErrorSet => Type.initTag(.u16),
+        .ErrorSet => Type.u16,
         else => unreachable,
     };
 
@@ -5367,7 +5367,7 @@ fn genSetStack(self: *Self, ty: Type, stack_offset: u32, mcv: MCValue) InnerErro
                 1, 4 => {
                     const offset = if (math.cast(u12, stack_offset)) |imm| blk: {
                         break :blk Instruction.Offset.imm(imm);
-                    } else Instruction.Offset.reg(try self.copyToTmpRegister(Type.initTag(.u32), MCValue{ .immediate = stack_offset }), .none);
+                    } else Instruction.Offset.reg(try self.copyToTmpRegister(Type.u32, MCValue{ .immediate = stack_offset }), .none);
 
                     const tag: Mir.Inst.Tag = switch (abi_size) {
                         1 => .strb,
@@ -5390,7 +5390,7 @@ fn genSetStack(self: *Self, ty: Type, stack_offset: u32, mcv: MCValue) InnerErro
                 2 => {
                     const offset = if (stack_offset <= math.maxInt(u8)) blk: {
                         break :blk Instruction.ExtraLoadStoreOffset.imm(@intCast(u8, stack_offset));
-                    } else Instruction.ExtraLoadStoreOffset.reg(try self.copyToTmpRegister(Type.initTag(.u32), MCValue{ .immediate = stack_offset }));
+                    } else Instruction.ExtraLoadStoreOffset.reg(try self.copyToTmpRegister(Type.u32, MCValue{ .immediate = stack_offset }));
 
                     _ = try self.addInst(.{
                         .tag = .strh,
@@ -5769,7 +5769,7 @@ fn genSetStackArgument(self: *Self, ty: Type, stack_offset: u32, mcv: MCValue) I
                 1, 4 => {
                     const offset = if (math.cast(u12, stack_offset)) |imm| blk: {
                         break :blk Instruction.Offset.imm(imm);
-                    } else Instruction.Offset.reg(try self.copyToTmpRegister(Type.initTag(.u32), MCValue{ .immediate = stack_offset }), .none);
+                    } else Instruction.Offset.reg(try self.copyToTmpRegister(Type.u32, MCValue{ .immediate = stack_offset }), .none);
 
                     const tag: Mir.Inst.Tag = switch (abi_size) {
                         1 => .strb,
@@ -5789,7 +5789,7 @@ fn genSetStackArgument(self: *Self, ty: Type, stack_offset: u32, mcv: MCValue) I
                 2 => {
                     const offset = if (stack_offset <= math.maxInt(u8)) blk: {
                         break :blk Instruction.ExtraLoadStoreOffset.imm(@intCast(u8, stack_offset));
-                    } else Instruction.ExtraLoadStoreOffset.reg(try self.copyToTmpRegister(Type.initTag(.u32), MCValue{ .immediate = stack_offset }));
+                    } else Instruction.ExtraLoadStoreOffset.reg(try self.copyToTmpRegister(Type.u32, MCValue{ .immediate = stack_offset }));
 
                     _ = try self.addInst(.{
                         .tag = .strh,
