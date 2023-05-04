@@ -17945,7 +17945,7 @@ fn zirStructInitAnon(
                     const field_src = Module.initSrc(src.node_offset.x, sema.gpa, decl, i);
                     const msg = try sema.errMsg(block, field_src, "opaque types have unknown size and therefore cannot be directly embedded in structs", .{});
                     errdefer msg.destroy(sema.gpa);
-
+                    try sema.errNote(block, field_src, msg, "use '*opaque {{}}' or '*anyopaque' to make opaques representable", .{});
                     try sema.addDeclaredHereNote(msg, types[i]);
                     break :msg msg;
                 };
@@ -18147,24 +18147,24 @@ fn zirArrayInitAnon(
 
     const opt_runtime_src = rs: {
         var runtime_src: ?LazySrcLoc = null;
-        for (operands, 0..) |operand, i| {
+        for (operands, types, values) |operand, *@"type", *value| {
             const operand_src = src; // TODO better source location
             const elem = try sema.resolveInst(operand);
-            types[i] = sema.typeOf(elem);
-            if (types[i].zigTypeTag() == .Opaque) {
+            @"type".* = sema.typeOf(elem);
+            if (@"type".zigTypeTag() == .Opaque) {
                 const msg = msg: {
                     const msg = try sema.errMsg(block, operand_src, "opaque types have unknown size and therefore cannot be directly embedded in structs", .{});
                     errdefer msg.destroy(sema.gpa);
-
-                    try sema.addDeclaredHereNote(msg, types[i]);
+                    try sema.errNote(block, operand_src, msg, "use '*opaque {{}}' or '*anyopaque' to make opaques representable", .{});
+                    try sema.addDeclaredHereNote(msg, @"type".*);
                     break :msg msg;
                 };
                 return sema.failWithOwnedErrorMsg(msg);
             }
             if (try sema.resolveMaybeUndefVal(elem)) |val| {
-                values[i] = val;
+                value.* = val;
             } else {
-                values[i] = Value.initTag(.unreachable_value);
+                value.* = Value.initTag(.unreachable_value);
                 runtime_src = operand_src;
             }
         }
@@ -19081,7 +19081,7 @@ fn zirReify(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstData, in
                     const msg = msg: {
                         const msg = try sema.errMsg(block, src, "opaque types have unknown size and therefore cannot be directly embedded in unions", .{});
                         errdefer msg.destroy(sema.gpa);
-
+                        try sema.errNote(block, src, msg, "use '*opaque {{}}' or '*anyopaque' to make opaques representable", .{});
                         try sema.addDeclaredHereNote(msg, field_ty);
                         break :msg msg;
                     };
@@ -19369,7 +19369,7 @@ fn reifyStruct(
             const msg = msg: {
                 const msg = try sema.errMsg(block, src, "opaque types have unknown size and therefore cannot be directly embedded in structs", .{});
                 errdefer msg.destroy(sema.gpa);
-
+                try sema.errNote(block, src, msg, "use '*opaque {{}}' or '*anyopaque' to make opaques representable", .{});
                 try sema.addDeclaredHereNote(msg, field_ty);
                 break :msg msg;
             };
@@ -31757,7 +31757,7 @@ fn semaStructFields(mod: *Module, struct_obj: *Module.Struct) CompileError!void 
                 }).lazy;
                 const msg = try sema.errMsg(&block_scope, ty_src, "opaque types have unknown size and therefore cannot be directly embedded in structs", .{});
                 errdefer msg.destroy(sema.gpa);
-
+                try sema.errNote(&block_scope, ty_src, msg, "use '*opaque {{}}' or '*anyopaque' to make opaques representable", .{});
                 try sema.addDeclaredHereNote(msg, field_ty);
                 break :msg msg;
             };
@@ -32181,7 +32181,7 @@ fn semaUnionFields(mod: *Module, union_obj: *Module.Union) CompileError!void {
                 }).lazy;
                 const msg = try sema.errMsg(&block_scope, ty_src, "opaque types have unknown size and therefore cannot be directly embedded in unions", .{});
                 errdefer msg.destroy(sema.gpa);
-
+                try sema.errNote(&block_scope, ty_src, msg, "use '*opaque {{}}' or '*anyopaque' to make opaques representable", .{});
                 try sema.addDeclaredHereNote(msg, field_ty);
                 break :msg msg;
             };

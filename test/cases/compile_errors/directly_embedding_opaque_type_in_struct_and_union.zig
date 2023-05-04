@@ -30,10 +30,14 @@ export fn d() void {
 // target=native
 //
 // :3:8: error: opaque types have unknown size and therefore cannot be directly embedded in structs
+// :3:8: note: use '*opaque {}' or '*anyopaque' to make opaques representable
 // :1:11: note: opaque declared here
 // :7:10: error: opaque types have unknown size and therefore cannot be directly embedded in unions
+// :7:10: note: use '*opaque {}' or '*anyopaque' to make opaques representable
 // :1:11: note: opaque declared here
 // :19:18: error: opaque types have unknown size and therefore cannot be directly embedded in structs
+// :19:18: note: use '*opaque {}' or '*anyopaque' to make opaques representable
 // :18:22: note: opaque declared here
 // :24:23: error: opaque types have unknown size and therefore cannot be directly embedded in structs
+// :24:23: note: use '*opaque {}' or '*anyopaque' to make opaques representable
 // :23:22: note: opaque declared here
