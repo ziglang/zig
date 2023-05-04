@@ -4394,13 +4394,31 @@ pub fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !voi
             try wip_errors.init(gpa);
             defer wip_errors.deinit();
 
-            // Here we borrow main package's table and will replace it with a fresh
-            // one after this process completes.
-            const fetch_result = build_pkg.fetchAndAddDependencies(
-                &main_pkg,
+            const fetch_result = Package.fetchDependencies(
                 arena,
                 &thread_pool,
                 &http_client,
+                build_directory,
+                global_cache_directory,
+                local_cache_directory,
+                "",
+                &wip_errors,
+            );
+
+            if (wip_errors.root_list.items.len > 0) {
+                var errors = try wip_errors.toOwnedBundle("");
+                defer errors.deinit(gpa);
+                errors.renderToStdErr(renderOptions(color));
+                process.exit(1);
+            }
+            try fetch_result;
+
+            // Here we borrow main package's table and will replace it with a fresh
+            // one after this process completes.
+            _ = try build_pkg.addDependencies(
+                &main_pkg,
+                arena,
+                &thread_pool,
                 build_directory,
                 global_cache_directory,
                 local_cache_directory,
@@ -4410,13 +4428,6 @@ pub fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !voi
                 &wip_errors,
                 &all_modules,
             );
-            if (wip_errors.root_list.items.len > 0) {
-                var errors = try wip_errors.toOwnedBundle("");
-                defer errors.deinit(gpa);
-                errors.renderToStdErr(renderOptions(color));
-                process.exit(1);
-            }
-            try fetch_result;
 
             try dependencies_source.appendSlice("};\npub const build_root = struct {\n");
             try dependencies_source.appendSlice(build_roots_source.items);
