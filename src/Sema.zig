@@ -1569,6 +1569,7 @@ fn analyzeBodyInner(
             },
             .condbr => blk: {
                 if (!block.is_comptime) break sema.zirCondbr(block, inst);
+                const mod = sema.mod;
                 // Same as condbr_inline. TODO https://github.com/ziglang/zig/issues/8220
                 const inst_data = datas[inst].pl_node;
                 const cond_src: LazySrcLoc = .{ .node_offset_if_cond = inst_data.src_node };
@@ -1579,7 +1580,7 @@ fn analyzeBodyInner(
                     if (err == error.AnalysisFail and block.comptime_reason != null) try block.comptime_reason.?.explain(sema, sema.err);
                     return err;
                 };
-                const inline_body = if (cond.val.toBool()) then_body else else_body;
+                const inline_body = if (cond.val.toBool(mod)) then_body else else_body;
 
                 try sema.maybeErrorUnwrapCondbr(block, inline_body, extra.data.condition, cond_src);
                 const break_data = (try sema.analyzeBodyBreak(block, inline_body)) orelse
@@ -1591,6 +1592,7 @@ fn analyzeBodyInner(
                 }
             },
             .condbr_inline => blk: {
+                const mod = sema.mod;
                 const inst_data = datas[inst].pl_node;
                 const cond_src: LazySrcLoc = .{ .node_offset_if_cond = inst_data.src_node };
                 const extra = sema.code.extraData(Zir.Inst.CondBr, inst_data.payload_index);
@@ -1600,7 +1602,7 @@ fn analyzeBodyInner(
                     if (err == error.AnalysisFail and block.comptime_reason != null) try block.comptime_reason.?.explain(sema, sema.err);
                     return err;
                 };
-                const inline_body = if (cond.val.toBool()) then_body else else_body;
+                const inline_body = if (cond.val.toBool(mod)) then_body else else_body;
 
                 try sema.maybeErrorUnwrapCondbr(block, inline_body, extra.data.condition, cond_src);
                 const old_runtime_index = block.runtime_index;
@@ -1634,7 +1636,7 @@ fn analyzeBodyInner(
                     if (err == error.AnalysisFail and block.comptime_reason != null) try block.comptime_reason.?.explain(sema, sema.err);
                     return err;
                 };
-                if (is_non_err_val.toBool()) {
+                if (is_non_err_val.toBool(mod)) {
                     break :blk try sema.analyzeErrUnionPayload(block, src, err_union_ty, err_union, operand_src, false);
                 }
                 const break_data = (try sema.analyzeBodyBreak(block, inline_body)) orelse
@@ -1647,6 +1649,7 @@ fn analyzeBodyInner(
             },
             .try_ptr => blk: {
                 if (!block.is_comptime) break :blk try sema.zirTryPtr(block, inst);
+                const mod = sema.mod;
                 const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
                 const src = inst_data.src();
                 const operand_src: LazySrcLoc = .{ .node_offset_bin_lhs = inst_data.src_node };
@@ -1660,7 +1663,7 @@ fn analyzeBodyInner(
                     if (err == error.AnalysisFail and block.comptime_reason != null) try block.comptime_reason.?.explain(sema, sema.err);
                     return err;
                 };
-                if (is_non_err_val.toBool()) {
+                if (is_non_err_val.toBool(mod)) {
                     break :blk try sema.analyzeErrUnionPayloadPtr(block, src, operand, false, false);
                 }
                 const break_data = (try sema.analyzeBodyBreak(block, inline_body)) orelse
@@ -1741,11 +1744,12 @@ fn resolveConstBool(
     zir_ref: Zir.Inst.Ref,
     reason: []const u8,
 ) !bool {
+    const mod = sema.mod;
     const air_inst = try sema.resolveInst(zir_ref);
     const wanted_type = Type.bool;
     const coerced_inst = try sema.coerce(block, wanted_type, air_inst, src);
     const val = try sema.resolveConstValue(block, src, coerced_inst, reason);
-    return val.toBool();
+    return val.toBool(mod);
 }
 
 pub fn resolveConstString(
@@ -1843,9 +1847,12 @@ fn resolveConstMaybeUndefVal(
     reason: []const u8,
 ) CompileError!Value {
     if (try sema.resolveMaybeUndefValAllowVariables(inst)) |val| {
-        switch (val.tag()) {
-            .variable => return sema.failWithNeededComptime(block, src, reason),
+        switch (val.ip_index) {
             .generic_poison => return error.GenericPoison,
+            .none => switch (val.tag()) {
+                .variable => return sema.failWithNeededComptime(block, src, reason),
+                else => return val,
+            },
             else => return val,
         }
     }
@@ -1862,10 +1869,13 @@ fn resolveConstValue(
     reason: []const u8,
 ) CompileError!Value {
     if (try sema.resolveMaybeUndefValAllowVariables(air_ref)) |val| {
-        switch (val.tag()) {
-            .undef => return sema.failWithUseOfUndef(block, src),
-            .variable => return sema.failWithNeededComptime(block, src, reason),
+        switch (val.ip_index) {
             .generic_poison => return error.GenericPoison,
+            .none => switch (val.tag()) {
+                .undef => return sema.failWithUseOfUndef(block, src),
+                .variable => return sema.failWithNeededComptime(block, src, reason),
+                else => return val,
+            },
             else => return val,
         }
     }
@@ -1900,12 +1910,11 @@ fn resolveMaybeUndefVal(
     const val = (try sema.resolveMaybeUndefValAllowVariables(inst)) orelse return null;
     switch (val.ip_index) {
         .generic_poison => return error.GenericPoison,
-        else => return val,
         .none => switch (val.tag()) {
             .variable => return null,
-            .generic_poison => return error.GenericPoison,
             else => return val,
         },
+        else => return val,
     }
 }
 
@@ -1919,12 +1928,18 @@ fn resolveMaybeUndefValIntable(
 ) CompileError!?Value {
     const val = (try sema.resolveMaybeUndefValAllowVariables(inst)) orelse return null;
     var check = val;
-    while (true) switch (check.tag()) {
-        .variable, .decl_ref, .decl_ref_mut, .comptime_field_ptr => return null,
-        .field_ptr => check = check.castTag(.field_ptr).?.data.container_ptr,
-        .elem_ptr => check = check.castTag(.elem_ptr).?.data.array_ptr,
-        .eu_payload_ptr, .opt_payload_ptr => check = check.cast(Value.Payload.PayloadPtr).?.data.container_ptr,
+    while (true) switch (check.ip_index) {
         .generic_poison => return error.GenericPoison,
+        .none => switch (check.tag()) {
+            .variable, .decl_ref, .decl_ref_mut, .comptime_field_ptr => return null,
+            .field_ptr => check = check.castTag(.field_ptr).?.data.container_ptr,
+            .elem_ptr => check = check.castTag(.elem_ptr).?.data.array_ptr,
+            .eu_payload_ptr, .opt_payload_ptr => check = check.cast(Value.Payload.PayloadPtr).?.data.container_ptr,
+            else => {
+                try sema.resolveLazyValue(val);
+                return val;
+            },
+        },
         else => {
             try sema.resolveLazyValue(val);
             return val;
@@ -6208,12 +6223,13 @@ fn popErrorReturnTrace(
     operand: Air.Inst.Ref,
     saved_error_trace_index: Air.Inst.Ref,
 ) CompileError!void {
+    const mod = sema.mod;
     var is_non_error: ?bool = null;
     var is_non_error_inst: Air.Inst.Ref = undefined;
     if (operand != .none) {
         is_non_error_inst = try sema.analyzeIsNonErr(block, src, operand);
         if (try sema.resolveDefinedValue(block, src, is_non_error_inst)) |cond_val|
-            is_non_error = cond_val.toBool();
+            is_non_error = cond_val.toBool(mod);
     } else is_non_error = true; // no operand means pop unconditionally
 
     if (is_non_error == true) {
@@ -7222,7 +7238,7 @@ fn analyzeInlineCallArg(
                     if (err == error.AnalysisFail and param_block.comptime_reason != null) try param_block.comptime_reason.?.explain(sema, sema.err);
                     return err;
                 };
-                switch (arg_val.tag()) {
+                switch (arg_val.ip_index) {
                     .generic_poison, .generic_poison_type => {
                         // This function is currently evaluated as part of an as-of-yet unresolvable
                         // parameter or return type.
@@ -7261,7 +7277,7 @@ fn analyzeInlineCallArg(
                     if (err == error.AnalysisFail and param_block.comptime_reason != null) try param_block.comptime_reason.?.explain(sema, sema.err);
                     return err;
                 };
-                switch (arg_val.tag()) {
+                switch (arg_val.ip_index) {
                     .generic_poison, .generic_poison_type => {
                         // This function is currently evaluated as part of an as-of-yet unresolvable
                         // parameter or return type.
@@ -7443,13 +7459,13 @@ fn instantiateGenericCall(
                 arg_ty.hashWithHasher(&hasher, mod);
                 generic_args[i] = .{
                     .ty = arg_ty,
-                    .val = Value.initTag(.generic_poison),
+                    .val = Value.generic_poison,
                     .is_anytype = true,
                 };
             } else {
                 generic_args[i] = .{
                     .ty = arg_ty,
-                    .val = Value.initTag(.generic_poison),
+                    .val = Value.generic_poison,
                     .is_anytype = false,
                 };
             }
@@ -7815,7 +7831,7 @@ fn resolveGenericInstantiationType(
         } else {
             child_sema.comptime_args[arg_i] = .{
                 .ty = copied_arg_ty,
-                .val = Value.initTag(.generic_poison),
+                .val = Value.generic_poison,
             };
         }
 
@@ -8780,9 +8796,9 @@ fn resolveGenericBody(
     switch (err) {
         error.GenericPoison => {
             if (dest_ty.ip_index == .type_type) {
-                return Value.initTag(.generic_poison_type);
+                return Value.generic_poison_type;
             } else {
-                return Value.initTag(.generic_poison);
+                return Value.generic_poison;
             }
         },
         else => |e| return e,
@@ -9394,7 +9410,7 @@ fn zirParam(
     if (is_comptime) {
         // If this is a comptime parameter we can add a constant generic_poison
         // since this is also a generic parameter.
-        const result = try sema.addConstant(param_ty, Value.initTag(.generic_poison));
+        const result = try sema.addConstant(param_ty, Value.generic_poison);
         sema.inst_map.putAssumeCapacityNoClobber(inst, result);
     } else {
         // Otherwise we need a dummy runtime instruction.
@@ -11819,8 +11835,9 @@ fn validateSwitchItemBool(
     src_node_offset: i32,
     switch_prong_src: Module.SwitchProngSrc,
 ) CompileError!void {
+    const mod = sema.mod;
     const item_val = (try sema.resolveSwitchItemVal(block, item_ref, src_node_offset, switch_prong_src, .none)).val;
-    if (item_val.toBool()) {
+    if (item_val.toBool(mod)) {
         true_count.* += 1;
     } else {
         false_count.* += 1;
@@ -15462,7 +15479,7 @@ fn cmpSelf(
             } else {
                 if (resolved_type.zigTypeTag(mod) == .Bool) {
                     // We can lower bool eq/neq more efficiently.
-                    return sema.runtimeBoolCmp(block, src, op, casted_rhs, lhs_val.toBool(), rhs_src);
+                    return sema.runtimeBoolCmp(block, src, op, casted_rhs, lhs_val.toBool(mod), rhs_src);
                 }
                 break :src rhs_src;
             }
@@ -15472,7 +15489,7 @@ fn cmpSelf(
             if (resolved_type.zigTypeTag(mod) == .Bool) {
                 if (try sema.resolveMaybeUndefVal(casted_rhs)) |rhs_val| {
                     if (rhs_val.isUndef()) return sema.addConstUndef(Type.bool);
-                    return sema.runtimeBoolCmp(block, src, op, casted_lhs, rhs_val.toBool(), lhs_src);
+                    return sema.runtimeBoolCmp(block, src, op, casted_lhs, rhs_val.toBool(mod), lhs_src);
                 }
             }
             break :src lhs_src;
@@ -16815,6 +16832,7 @@ fn zirBoolNot(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
     const tracy = trace(@src());
     defer tracy.end();
 
+    const mod = sema.mod;
     const inst_data = sema.code.instructions.items(.data)[inst].un_node;
     const src = inst_data.src();
     const operand_src: LazySrcLoc = .{ .node_offset_un_op = inst_data.src_node };
@@ -16824,7 +16842,7 @@ fn zirBoolNot(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
     if (try sema.resolveMaybeUndefVal(operand)) |val| {
         return if (val.isUndef())
             sema.addConstUndef(Type.bool)
-        else if (val.toBool())
+        else if (val.toBool(mod))
             Air.Inst.Ref.bool_false
         else
             Air.Inst.Ref.bool_true;
@@ -16842,6 +16860,7 @@ fn zirBoolBr(
     const tracy = trace(@src());
     defer tracy.end();
 
+    const mod = sema.mod;
     const datas = sema.code.instructions.items(.data);
     const inst_data = datas[inst].bool_br;
     const lhs = try sema.resolveInst(inst_data.lhs);
@@ -16851,9 +16870,9 @@ fn zirBoolBr(
     const gpa = sema.gpa;
 
     if (try sema.resolveDefinedValue(parent_block, lhs_src, lhs)) |lhs_val| {
-        if (is_bool_or and lhs_val.toBool()) {
+        if (is_bool_or and lhs_val.toBool(mod)) {
             return Air.Inst.Ref.bool_true;
-        } else if (!is_bool_or and !lhs_val.toBool()) {
+        } else if (!is_bool_or and !lhs_val.toBool(mod)) {
             return Air.Inst.Ref.bool_false;
         }
         // comptime-known left-hand side. No need for a block here; the result
@@ -16897,9 +16916,9 @@ fn zirBoolBr(
     const result = sema.finishCondBr(parent_block, &child_block, &then_block, &else_block, lhs, block_inst);
     if (!sema.typeOf(rhs_result).isNoReturn()) {
         if (try sema.resolveDefinedValue(rhs_block, sema.src, rhs_result)) |rhs_val| {
-            if (is_bool_or and rhs_val.toBool()) {
+            if (is_bool_or and rhs_val.toBool(mod)) {
                 return Air.Inst.Ref.bool_true;
-            } else if (!is_bool_or and !rhs_val.toBool()) {
+            } else if (!is_bool_or and !rhs_val.toBool(mod)) {
                 return Air.Inst.Ref.bool_false;
             }
         }
@@ -17053,7 +17072,7 @@ fn zirCondbr(
     const cond = try sema.coerce(parent_block, Type.bool, uncasted_cond, cond_src);
 
     if (try sema.resolveDefinedValue(parent_block, cond_src, cond)) |cond_val| {
-        const body = if (cond_val.toBool()) then_body else else_body;
+        const body = if (cond_val.toBool(mod)) then_body else else_body;
 
         try sema.maybeErrorUnwrapCondbr(parent_block, body, extra.data.condition, cond_src);
         // We use `analyzeBodyInner` since we want to propagate any possible
@@ -17126,7 +17145,7 @@ fn zirTry(sema: *Sema, parent_block: *Block, inst: Zir.Inst.Index) CompileError!
     const is_non_err = try sema.analyzeIsNonErrComptimeOnly(parent_block, operand_src, err_union);
     if (is_non_err != .none) {
         const is_non_err_val = (try sema.resolveDefinedValue(parent_block, operand_src, is_non_err)).?;
-        if (is_non_err_val.toBool()) {
+        if (is_non_err_val.toBool(mod)) {
             return sema.analyzeErrUnionPayload(parent_block, src, err_union_ty, err_union, operand_src, false);
         }
         // We can analyze the body directly in the parent block because we know there are
@@ -17173,7 +17192,7 @@ fn zirTryPtr(sema: *Sema, parent_block: *Block, inst: Zir.Inst.Index) CompileErr
     const is_non_err = try sema.analyzeIsNonErrComptimeOnly(parent_block, operand_src, err_union);
     if (is_non_err != .none) {
         const is_non_err_val = (try sema.resolveDefinedValue(parent_block, operand_src, is_non_err)).?;
-        if (is_non_err_val.toBool()) {
+        if (is_non_err_val.toBool(mod)) {
             return sema.analyzeErrUnionPayloadPtr(parent_block, src, operand, false, false);
         }
         // We can analyze the body directly in the parent block because we know there are
@@ -18509,11 +18528,12 @@ fn zirAlignOf(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
 }
 
 fn zirBoolToInt(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
+    const mod = sema.mod;
     const inst_data = sema.code.instructions.items(.data)[inst].un_node;
     const operand = try sema.resolveInst(inst_data.operand);
     if (try sema.resolveMaybeUndefVal(operand)) |val| {
         if (val.isUndef()) return sema.addConstUndef(Type.u1);
-        if (val.toBool()) return sema.addConstant(Type.u1, Value.one);
+        if (val.toBool(mod)) return sema.addConstant(Type.u1, Value.one);
         return sema.addConstant(Type.u1, Value.zero);
     }
     return block.addUnOp(.bool_to_int, operand);
@@ -18811,12 +18831,12 @@ fn zirReify(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstData, in
 
             const ty = try Type.ptr(sema.arena, mod, .{
                 .size = ptr_size,
-                .mutable = !is_const_val.toBool(),
-                .@"volatile" = is_volatile_val.toBool(),
+                .mutable = !is_const_val.toBool(mod),
+                .@"volatile" = is_volatile_val.toBool(mod),
                 .@"align" = abi_align,
                 .@"addrspace" = address_space_val.toEnum(std.builtin.AddressSpace),
                 .pointee_type = try elem_ty.copy(sema.arena),
-                .@"allowzero" = is_allowzero_val.toBool(),
+                .@"allowzero" = is_allowzero_val.toBool(mod),
                 .sentinel = actual_sentinel,
             });
             return sema.addType(ty);
@@ -18932,7 +18952,7 @@ fn zirReify(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstData, in
                 return sema.fail(block, src, "non-packed struct does not support backing integer type", .{});
             }
 
-            return try sema.reifyStruct(block, inst, src, layout, backing_int_val, fields_val, name_strategy, is_tuple_val.toBool());
+            return try sema.reifyStruct(block, inst, src, layout, backing_int_val, fields_val, name_strategy, is_tuple_val.toBool(mod));
         },
         .Enum => {
             const struct_val: []const Value = union_val.val.castTag(.aggregate).?.data;
@@ -18961,7 +18981,7 @@ fn zirReify(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstData, in
             const enum_ty_payload = try new_decl_arena_allocator.create(Type.Payload.EnumFull);
             enum_ty_payload.* = .{
                 .base = .{
-                    .tag = if (!is_exhaustive_val.toBool())
+                    .tag = if (!is_exhaustive_val.toBool(mod))
                         .enum_nonexhaustive
                     else
                         .enum_full,
@@ -19295,9 +19315,9 @@ fn zirReify(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstData, in
             // alignment: comptime_int,
             const alignment_val = struct_val[1];
             // is_generic: bool,
-            const is_generic = struct_val[2].toBool();
+            const is_generic = struct_val[2].toBool(mod);
             // is_var_args: bool,
-            const is_var_args = struct_val[3].toBool();
+            const is_var_args = struct_val[3].toBool(mod);
             // return_type: ?type,
             const return_type_val = struct_val[4];
             // args: []const Param,
@@ -19339,9 +19359,9 @@ fn zirReify(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstData, in
                 const arg_val = arg.castTag(.aggregate).?.data;
                 // TODO use reflection instead of magic numbers here
                 // is_generic: bool,
-                const arg_is_generic = arg_val[0].toBool();
+                const arg_is_generic = arg_val[0].toBool(mod);
                 // is_noalias: bool,
-                const arg_is_noalias = arg_val[1].toBool();
+                const arg_is_noalias = arg_val[1].toBool(mod);
                 // type: ?type,
                 const param_type_opt_val = arg_val[2];
 
@@ -19455,9 +19475,9 @@ fn reifyStruct(
 
         if (layout == .Packed) {
             if (abi_align != 0) return sema.fail(block, src, "alignment in a packed struct field must be set to 0", .{});
-            if (is_comptime_val.toBool()) return sema.fail(block, src, "packed struct fields cannot be marked comptime", .{});
+            if (is_comptime_val.toBool(mod)) return sema.fail(block, src, "packed struct fields cannot be marked comptime", .{});
         }
-        if (layout == .Extern and is_comptime_val.toBool()) {
+        if (layout == .Extern and is_comptime_val.toBool(mod)) {
             return sema.fail(block, src, "extern struct fields cannot be marked comptime", .{});
         }
 
@@ -19499,7 +19519,7 @@ fn reifyStruct(
                 opt_val;
             break :blk try payload_val.copy(new_decl_arena_allocator);
         } else Value.initTag(.unreachable_value);
-        if (is_comptime_val.toBool() and default_val.tag() == .unreachable_value) {
+        if (is_comptime_val.toBool(mod) and default_val.tag() == .unreachable_value) {
             return sema.fail(block, src, "comptime field without default initialization value", .{});
         }
 
@@ -19508,7 +19528,7 @@ fn reifyStruct(
             .ty = field_ty,
             .abi_align = abi_align,
             .default_val = default_val,
-            .is_comptime = is_comptime_val.toBool(),
+            .is_comptime = is_comptime_val.toBool(mod),
             .offset = undefined,
         };
 
@@ -21446,7 +21466,7 @@ fn zirSelect(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstData) C
                 const elems = try sema.gpa.alloc(Value, vec_len);
                 for (elems, 0..) |*elem, i| {
                     const pred_elem_val = pred_val.elemValueBuffer(sema.mod, i, &buf);
-                    const should_choose_a = pred_elem_val.toBool();
+                    const should_choose_a = pred_elem_val.toBool(mod);
                     if (should_choose_a) {
                         elem.* = a_val.elemValueBuffer(sema.mod, i, &buf);
                     } else {
@@ -22956,7 +22976,7 @@ fn resolveExternOptions(
         .name = name,
         .library_name = library_name,
         .linkage = linkage,
-        .is_thread_local = is_thread_local_val.toBool(),
+        .is_thread_local = is_thread_local_val.toBool(mod),
     };
 }
 
@@ -31760,8 +31780,10 @@ pub fn resolveTypeFields(sema: *Sema, ty: Type) CompileError!Type {
         .enum_literal_type,
         .manyptr_u8_type,
         .manyptr_const_u8_type,
+        .manyptr_const_u8_sentinel_0_type,
         .single_const_pointer_to_comptime_int_type,
         .const_slice_u8_type,
+        .const_slice_u8_sentinel_0_type,
         .anyerror_void_error_union_type,
         .generic_poison_type,
         .var_args_param_type,
@@ -31771,6 +31793,7 @@ pub fn resolveTypeFields(sema: *Sema, ty: Type) CompileError!Type {
         .undef => unreachable,
         .zero => unreachable,
         .zero_usize => unreachable,
+        .zero_u8 => unreachable,
         .one => unreachable,
         .one_usize => unreachable,
         .calling_convention_c => unreachable,
@@ -34225,12 +34248,9 @@ fn intFitsInType(
     switch (val.tag()) {
         .zero,
         .undef,
-        .bool_false,
         => return true,
 
-        .one,
-        .bool_true,
-        => switch (ty.zigTypeTag(mod)) {
+        .one => switch (ty.zigTypeTag(mod)) {
             .Int => {
                 const info = ty.intInfo(mod);
                 return switch (info.signedness) {

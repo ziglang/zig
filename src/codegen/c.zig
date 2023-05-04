@@ -1191,7 +1191,7 @@ pub const DeclGen = struct {
                 }
             },
             .Bool => {
-                if (val.toBool()) {
+                if (val.toBool(mod)) {
                     return writer.writeAll("true");
                 } else {
                     return writer.writeAll("false");

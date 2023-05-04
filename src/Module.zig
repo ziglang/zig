@@ -4847,31 +4847,37 @@ fn semaDecl(mod: *Module, decl_index: Decl.Index) !bool {
     decl.owns_tv = false;
     var queue_linker_work = false;
     var is_extern = false;
-    switch (decl_tv.val.tag()) {
-        .variable => {
-            const variable = decl_tv.val.castTag(.variable).?.data;
-            if (variable.owner_decl == decl_index) {
-                decl.owns_tv = true;
-                queue_linker_work = true;
-
-                const copied_init = try variable.init.copy(decl_arena_allocator);
-                variable.init = copied_init;
-            }
-        },
-        .extern_fn => {
-            const extern_fn = decl_tv.val.castTag(.extern_fn).?.data;
-            if (extern_fn.owner_decl == decl_index) {
-                decl.owns_tv = true;
-                queue_linker_work = true;
-                is_extern = true;
-            }
-        },
-
+    switch (decl_tv.val.ip_index) {
         .generic_poison => unreachable,
-        .unreachable_value => unreachable,
+        .none => switch (decl_tv.val.tag()) {
+            .variable => {
+                const variable = decl_tv.val.castTag(.variable).?.data;
+                if (variable.owner_decl == decl_index) {
+                    decl.owns_tv = true;
+                    queue_linker_work = true;
 
-        .function => {},
+                    const copied_init = try variable.init.copy(decl_arena_allocator);
+                    variable.init = copied_init;
+                }
+            },
+            .extern_fn => {
+                const extern_fn = decl_tv.val.castTag(.extern_fn).?.data;
+                if (extern_fn.owner_decl == decl_index) {
+                    decl.owns_tv = true;
+                    queue_linker_work = true;
+                    is_extern = true;
+                }
+            },
 
+            .unreachable_value => unreachable,
+
+            .function => {},
+
+            else => {
+                log.debug("send global const to linker: {*} ({s})", .{ decl, decl.name });
+                queue_linker_work = true;
+            },
+        },
         else => {
             log.debug("send global const to linker: {*} ({s})", .{ decl, decl.name });
             queue_linker_work = true;

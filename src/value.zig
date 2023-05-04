@@ -33,58 +33,6 @@ pub const Value = struct {
     // Keep in sync with tools/stage2_pretty_printers_common.py
     pub const Tag = enum(usize) {
         // The first section of this enum are tags that require no payload.
-        u1_type,
-        u8_type,
-        i8_type,
-        u16_type,
-        i16_type,
-        u29_type,
-        u32_type,
-        i32_type,
-        u64_type,
-        i64_type,
-        u128_type,
-        i128_type,
-        usize_type,
-        isize_type,
-        c_char_type,
-        c_short_type,
-        c_ushort_type,
-        c_int_type,
-        c_uint_type,
-        c_long_type,
-        c_ulong_type,
-        c_longlong_type,
-        c_ulonglong_type,
-        c_longdouble_type,
-        f16_type,
-        f32_type,
-        f64_type,
-        f80_type,
-        f128_type,
-        anyopaque_type,
-        bool_type,
-        void_type,
-        type_type,
-        anyerror_type,
-        comptime_int_type,
-        comptime_float_type,
-        noreturn_type,
-        anyframe_type,
-        null_type,
-        undefined_type,
-        enum_literal_type,
-        atomic_order_type,
-        atomic_rmw_op_type,
-        calling_convention_type,
-        address_space_type,
-        float_mode_type,
-        reduce_op_type,
-        modifier_type,
-        prefetch_options_type,
-        export_options_type,
-        extern_options_type,
-        type_info_type,
         manyptr_u8_type,
         manyptr_const_u8_type,
         manyptr_const_u8_sentinel_0_type,
@@ -92,19 +40,14 @@ pub const Value = struct {
         const_slice_u8_type,
         const_slice_u8_sentinel_0_type,
         anyerror_void_error_union_type,
-        generic_poison_type,
 
         undef,
         zero,
         one,
-        void_value,
         unreachable_value,
         /// The only possible value for a particular type, which is stored externally.
         the_only_possible_value,
         null_value,
-        bool_true,
-        bool_false,
-        generic_poison,
 
         empty_struct_value,
         empty_array, // See last_no_payload_tag below.
@@ -197,78 +140,22 @@ pub const Value = struct {
 
         pub fn Type(comptime t: Tag) type {
             return switch (t) {
-                .u1_type,
-                .u8_type,
-                .i8_type,
-                .u16_type,
-                .i16_type,
-                .u29_type,
-                .u32_type,
-                .i32_type,
-                .u64_type,
-                .i64_type,
-                .u128_type,
-                .i128_type,
-                .usize_type,
-                .isize_type,
-                .c_char_type,
-                .c_short_type,
-                .c_ushort_type,
-                .c_int_type,
-                .c_uint_type,
-                .c_long_type,
-                .c_ulong_type,
-                .c_longlong_type,
-                .c_ulonglong_type,
-                .c_longdouble_type,
-                .f16_type,
-                .f32_type,
-                .f64_type,
-                .f80_type,
-                .f128_type,
-                .anyopaque_type,
-                .bool_type,
-                .void_type,
-                .type_type,
-                .anyerror_type,
-                .comptime_int_type,
-                .comptime_float_type,
-                .noreturn_type,
-                .null_type,
-                .undefined_type,
                 .single_const_pointer_to_comptime_int_type,
-                .anyframe_type,
                 .const_slice_u8_type,
                 .const_slice_u8_sentinel_0_type,
                 .anyerror_void_error_union_type,
-                .generic_poison_type,
-                .enum_literal_type,
+
                 .undef,
                 .zero,
                 .one,
-                .void_value,
                 .unreachable_value,
                 .the_only_possible_value,
                 .empty_struct_value,
                 .empty_array,
                 .null_value,
-                .bool_true,
-                .bool_false,
                 .manyptr_u8_type,
                 .manyptr_const_u8_type,
                 .manyptr_const_u8_sentinel_0_type,
-                .atomic_order_type,
-                .atomic_rmw_op_type,
-                .calling_convention_type,
-                .address_space_type,
-                .float_mode_type,
-                .reduce_op_type,
-                .modifier_type,
-                .prefetch_options_type,
-                .export_options_type,
-                .extern_options_type,
-                .type_info_type,
-                .generic_poison,
                 => @compileError("Value Tag " ++ @tagName(t) ++ " has no payload"),
 
                 .int_big_positive,
@@ -418,78 +305,22 @@ pub const Value = struct {
                 .legacy = .{ .tag_if_small_enough = self.legacy.tag_if_small_enough },
             };
         } else switch (self.legacy.ptr_otherwise.tag) {
-            .u1_type,
-            .u8_type,
-            .i8_type,
-            .u16_type,
-            .i16_type,
-            .u29_type,
-            .u32_type,
-            .i32_type,
-            .u64_type,
-            .i64_type,
-            .u128_type,
-            .i128_type,
-            .usize_type,
-            .isize_type,
-            .c_char_type,
-            .c_short_type,
-            .c_ushort_type,
-            .c_int_type,
-            .c_uint_type,
-            .c_long_type,
-            .c_ulong_type,
-            .c_longlong_type,
-            .c_ulonglong_type,
-            .c_longdouble_type,
-            .f16_type,
-            .f32_type,
-            .f64_type,
-            .f80_type,
-            .f128_type,
-            .anyopaque_type,
-            .bool_type,
-            .void_type,
-            .type_type,
-            .anyerror_type,
-            .comptime_int_type,
-            .comptime_float_type,
-            .noreturn_type,
-            .null_type,
-            .undefined_type,
             .single_const_pointer_to_comptime_int_type,
-            .anyframe_type,
             .const_slice_u8_type,
             .const_slice_u8_sentinel_0_type,
             .anyerror_void_error_union_type,
-            .generic_poison_type,
-            .enum_literal_type,
+
             .undef,
             .zero,
             .one,
-            .void_value,
             .unreachable_value,
             .the_only_possible_value,
             .empty_array,
             .null_value,
-            .bool_true,
-            .bool_false,
             .empty_struct_value,
             .manyptr_u8_type,
             .manyptr_const_u8_type,
             .manyptr_const_u8_sentinel_0_type,
-            .atomic_order_type,
-            .atomic_rmw_op_type,
-            .calling_convention_type,
-            .address_space_type,
-            .float_mode_type,
-            .reduce_op_type,
-            .modifier_type,
-            .prefetch_options_type,
-            .export_options_type,
-            .extern_options_type,
-            .type_info_type,
-            .generic_poison,
             => unreachable,
 
             .ty, .lazy_align, .lazy_size => {
@@ -722,67 +553,13 @@ pub const Value = struct {
         }
         var val = start_val;
         while (true) switch (val.tag()) {
-            .u1_type => return out_stream.writeAll("u1"),
-            .u8_type => return out_stream.writeAll("u8"),
-            .i8_type => return out_stream.writeAll("i8"),
-            .u16_type => return out_stream.writeAll("u16"),
-            .u29_type => return out_stream.writeAll("u29"),
-            .i16_type => return out_stream.writeAll("i16"),
-            .u32_type => return out_stream.writeAll("u32"),
-            .i32_type => return out_stream.writeAll("i32"),
-            .u64_type => return out_stream.writeAll("u64"),
-            .i64_type => return out_stream.writeAll("i64"),
-            .u128_type => return out_stream.writeAll("u128"),
-            .i128_type => return out_stream.writeAll("i128"),
-            .isize_type => return out_stream.writeAll("isize"),
-            .usize_type => return out_stream.writeAll("usize"),
-            .c_char_type => return out_stream.writeAll("c_char"),
-            .c_short_type => return out_stream.writeAll("c_short"),
-            .c_ushort_type => return out_stream.writeAll("c_ushort"),
-            .c_int_type => return out_stream.writeAll("c_int"),
-            .c_uint_type => return out_stream.writeAll("c_uint"),
-            .c_long_type => return out_stream.writeAll("c_long"),
-            .c_ulong_type => return out_stream.writeAll("c_ulong"),
-            .c_longlong_type => return out_stream.writeAll("c_longlong"),
-            .c_ulonglong_type => return out_stream.writeAll("c_ulonglong"),
-            .c_longdouble_type => return out_stream.writeAll("c_longdouble"),
-            .f16_type => return out_stream.writeAll("f16"),
-            .f32_type => return out_stream.writeAll("f32"),
-            .f64_type => return out_stream.writeAll("f64"),
-            .f80_type => return out_stream.writeAll("f80"),
-            .f128_type => return out_stream.writeAll("f128"),
-            .anyopaque_type => return out_stream.writeAll("anyopaque"),
-            .bool_type => return out_stream.writeAll("bool"),
-            .void_type => return out_stream.writeAll("void"),
-            .type_type => return out_stream.writeAll("type"),
-            .anyerror_type => return out_stream.writeAll("anyerror"),
-            .comptime_int_type => return out_stream.writeAll("comptime_int"),
-            .comptime_float_type => return out_stream.writeAll("comptime_float"),
-            .noreturn_type => return out_stream.writeAll("noreturn"),
-            .null_type => return out_stream.writeAll("@Type(.Null)"),
-            .undefined_type => return out_stream.writeAll("@Type(.Undefined)"),
             .single_const_pointer_to_comptime_int_type => return out_stream.writeAll("*const comptime_int"),
-            .anyframe_type => return out_stream.writeAll("anyframe"),
             .const_slice_u8_type => return out_stream.writeAll("[]const u8"),
             .const_slice_u8_sentinel_0_type => return out_stream.writeAll("[:0]const u8"),
             .anyerror_void_error_union_type => return out_stream.writeAll("anyerror!void"),
-            .generic_poison_type => return out_stream.writeAll("(generic poison type)"),
-            .generic_poison => return out_stream.writeAll("(generic poison)"),
-            .enum_literal_type => return out_stream.writeAll("@Type(.EnumLiteral)"),
             .manyptr_u8_type => return out_stream.writeAll("[*]u8"),
             .manyptr_const_u8_type => return out_stream.writeAll("[*]const u8"),
             .manyptr_const_u8_sentinel_0_type => return out_stream.writeAll("[*:0]const u8"),
-            .atomic_order_type => return out_stream.writeAll("std.builtin.AtomicOrder"),
-            .atomic_rmw_op_type => return out_stream.writeAll("std.builtin.AtomicRmwOp"),
-            .calling_convention_type => return out_stream.writeAll("std.builtin.CallingConvention"),
-            .address_space_type => return out_stream.writeAll("std.builtin.AddressSpace"),
-            .float_mode_type => return out_stream.writeAll("std.builtin.FloatMode"),
-            .reduce_op_type => return out_stream.writeAll("std.builtin.ReduceOp"),
-            .modifier_type => return out_stream.writeAll("std.builtin.CallModifier"),
-            .prefetch_options_type => return out_stream.writeAll("std.builtin.PrefetchOptions"),
-            .export_options_type => return out_stream.writeAll("std.builtin.ExportOptions"),
-            .extern_options_type => return out_stream.writeAll("std.builtin.ExternOptions"),
-            .type_info_type => return out_stream.writeAll("std.builtin.Type"),
 
             .empty_struct_value => return out_stream.writeAll("struct {}{}"),
             .aggregate => {
@@ -795,11 +572,8 @@ pub const Value = struct {
             .undef => return out_stream.writeAll("undefined"),
             .zero => return out_stream.writeAll("0"),
             .one => return out_stream.writeAll("1"),
-            .void_value => return out_stream.writeAll("{}"),
             .unreachable_value => return out_stream.writeAll("unreachable"),
             .the_only_possible_value => return out_stream.writeAll("(the only possible value)"),
-            .bool_true => return out_stream.writeAll("true"),
-            .bool_false => return out_stream.writeAll("false"),
             .ty => return val.castTag(.ty).?.data.dump("", options, out_stream),
             .lazy_align => {
                 try out_stream.writeAll("@alignOf(");
@@ -943,74 +717,16 @@ pub const Value = struct {
 
     /// Asserts that the value is representable as a type.
     pub fn toType(self: Value) Type {
-        if (self.ip_index != .none) {
-            return .{
-                .ip_index = self.ip_index,
-                .legacy = undefined,
-            };
-        }
+        if (self.ip_index != .none) return self.ip_index.toType();
         return switch (self.tag()) {
             .ty => self.castTag(.ty).?.data,
-            .u1_type => Type.u1,
-            .u8_type => Type.u8,
-            .i8_type => Type.i8,
-            .u16_type => Type.u16,
-            .i16_type => Type.i16,
-            .u29_type => Type.u29,
-            .u32_type => Type.u32,
-            .i32_type => Type.i32,
-            .u64_type => Type.u64,
-            .i64_type => Type.i64,
-            .u128_type => Type.u128,
-            .i128_type => Type.i128,
-            .usize_type => Type.usize,
-            .isize_type => Type.isize,
-            .c_char_type => Type.c_char,
-            .c_short_type => Type.c_short,
-            .c_ushort_type => Type.c_ushort,
-            .c_int_type => Type.c_int,
-            .c_uint_type => Type.c_uint,
-            .c_long_type => Type.c_long,
-            .c_ulong_type => Type.c_ulong,
-            .c_longlong_type => Type.c_longlong,
-            .c_ulonglong_type => Type.c_ulonglong,
-            .c_longdouble_type => Type.c_longdouble,
-            .f16_type => Type.f16,
-            .f32_type => Type.f32,
-            .f64_type => Type.f64,
-            .f80_type => Type.f80,
-            .f128_type => Type.f128,
-            .anyopaque_type => Type.anyopaque,
-            .bool_type => Type.bool,
-            .void_type => Type.void,
-            .type_type => Type.type,
-            .anyerror_type => Type.anyerror,
-            .comptime_int_type => Type.comptime_int,
-            .comptime_float_type => Type.comptime_float,
-            .noreturn_type => Type.noreturn,
-            .null_type => Type.null,
-            .undefined_type => Type.undefined,
             .single_const_pointer_to_comptime_int_type => Type.initTag(.single_const_pointer_to_comptime_int),
-            .anyframe_type => Type.@"anyframe",
             .const_slice_u8_type => Type.initTag(.const_slice_u8),
             .const_slice_u8_sentinel_0_type => Type.initTag(.const_slice_u8_sentinel_0),
             .anyerror_void_error_union_type => Type.initTag(.anyerror_void_error_union),
-            .generic_poison_type => .{ .ip_index = .generic_poison_type, .legacy = undefined },
-            .enum_literal_type => .{ .ip_index = .enum_literal_type, .legacy = undefined },
             .manyptr_u8_type => Type.initTag(.manyptr_u8),
             .manyptr_const_u8_type => Type.initTag(.manyptr_const_u8),
             .manyptr_const_u8_sentinel_0_type => Type.initTag(.manyptr_const_u8_sentinel_0),
-            .atomic_order_type => .{ .ip_index = .atomic_order_type, .legacy = undefined },
-            .atomic_rmw_op_type => .{ .ip_index = .atomic_rmw_op_type, .legacy = undefined },
-            .calling_convention_type => .{ .ip_index = .calling_convention_type, .legacy = undefined },
-            .address_space_type => .{ .ip_index = .address_space_type, .legacy = undefined },
-            .float_mode_type => .{ .ip_index = .float_mode_type, .legacy = undefined },
-            .reduce_op_type => .{ .ip_index = .reduce_op_type, .legacy = undefined },
-            .modifier_type => .{ .ip_index = .call_modifier_type, .legacy = undefined },
-            .prefetch_options_type => .{ .ip_index = .prefetch_options_type, .legacy = undefined },
-            .export_options_type => .{ .ip_index = .export_options_type, .legacy = undefined },
-            .extern_options_type => .{ .ip_index = .extern_options_type, .legacy = undefined },
-            .type_info_type => .{ .ip_index = .type_info_type, .legacy = undefined },
 
             else => unreachable,
         };
@@ -1133,58 +849,63 @@ pub const Value = struct {
         mod: *const Module,
         opt_sema: ?*Sema,
     ) Module.CompileError!BigIntConst {
-        switch (val.tag()) {
-            .null_value,
-            .zero,
-            .bool_false,
-            .the_only_possible_value, // i0, u0
-            => return BigIntMutable.init(&space.limbs, 0).toConst(),
+        switch (val.ip_index) {
+            .bool_false => return BigIntMutable.init(&space.limbs, 0).toConst(),
+            .bool_true => return BigIntMutable.init(&space.limbs, 1).toConst(),
+            .none => switch (val.tag()) {
+                .null_value,
+                .zero,
+                .the_only_possible_value, // i0, u0
+                => return BigIntMutable.init(&space.limbs, 0).toConst(),
 
-            .one,
-            .bool_true,
-            => return BigIntMutable.init(&space.limbs, 1).toConst(),
+                .one => return BigIntMutable.init(&space.limbs, 1).toConst(),
 
-            .enum_field_index => {
-                const index = val.castTag(.enum_field_index).?.data;
-                return BigIntMutable.init(&space.limbs, index).toConst();
+                .enum_field_index => {
+                    const index = val.castTag(.enum_field_index).?.data;
+                    return BigIntMutable.init(&space.limbs, index).toConst();
+                },
+                .runtime_value => {
+                    const sub_val = val.castTag(.runtime_value).?.data;
+                    return sub_val.toBigIntAdvanced(space, mod, opt_sema);
+                },
+                .int_u64 => return BigIntMutable.init(&space.limbs, val.castTag(.int_u64).?.data).toConst(),
+                .int_i64 => return BigIntMutable.init(&space.limbs, val.castTag(.int_i64).?.data).toConst(),
+                .int_big_positive => return val.castTag(.int_big_positive).?.asBigInt(),
+                .int_big_negative => return val.castTag(.int_big_negative).?.asBigInt(),
+
+                .undef => unreachable,
+
+                .lazy_align => {
+                    const ty = val.castTag(.lazy_align).?.data;
+                    if (opt_sema) |sema| {
+                        try sema.resolveTypeLayout(ty);
+                    }
+                    const x = ty.abiAlignment(mod);
+                    return BigIntMutable.init(&space.limbs, x).toConst();
+                },
+                .lazy_size => {
+                    const ty = val.castTag(.lazy_size).?.data;
+                    if (opt_sema) |sema| {
+                        try sema.resolveTypeLayout(ty);
+                    }
+                    const x = ty.abiSize(mod);
+                    return BigIntMutable.init(&space.limbs, x).toConst();
+                },
+
+                .elem_ptr => {
+                    const elem_ptr = val.castTag(.elem_ptr).?.data;
+                    const array_addr = (try elem_ptr.array_ptr.getUnsignedIntAdvanced(mod, opt_sema)).?;
+                    const elem_size = elem_ptr.elem_ty.abiSize(mod);
+                    const new_addr = array_addr + elem_size * elem_ptr.index;
+                    return BigIntMutable.init(&space.limbs, new_addr).toConst();
+                },
+
+                else => unreachable,
             },
-            .runtime_value => {
-                const sub_val = val.castTag(.runtime_value).?.data;
-                return sub_val.toBigIntAdvanced(space, mod, opt_sema);
+            else => switch (mod.intern_pool.indexToKey(val.ip_index)) {
+                .int => |int| return int.big_int,
+                else => unreachable,
             },
-            .int_u64 => return BigIntMutable.init(&space.limbs, val.castTag(.int_u64).?.data).toConst(),
-            .int_i64 => return BigIntMutable.init(&space.limbs, val.castTag(.int_i64).?.data).toConst(),
-            .int_big_positive => return val.castTag(.int_big_positive).?.asBigInt(),
-            .int_big_negative => return val.castTag(.int_big_negative).?.asBigInt(),
-
-            .undef => unreachable,
-
-            .lazy_align => {
-                const ty = val.castTag(.lazy_align).?.data;
-                if (opt_sema) |sema| {
-                    try sema.resolveTypeLayout(ty);
-                }
-                const x = ty.abiAlignment(mod);
-                return BigIntMutable.init(&space.limbs, x).toConst();
-            },
-            .lazy_size => {
-                const ty = val.castTag(.lazy_size).?.data;
-                if (opt_sema) |sema| {
-                    try sema.resolveTypeLayout(ty);
-                }
-                const x = ty.abiSize(mod);
-                return BigIntMutable.init(&space.limbs, x).toConst();
-            },
-
-            .elem_ptr => {
-                const elem_ptr = val.castTag(.elem_ptr).?.data;
-                const array_addr = (try elem_ptr.array_ptr.getUnsignedIntAdvanced(mod, opt_sema)).?;
-                const elem_size = elem_ptr.elem_ty.abiSize(mod);
-                const new_addr = array_addr + elem_size * elem_ptr.index;
-                return BigIntMutable.init(&space.limbs, new_addr).toConst();
-            },
-
-            else => unreachable,
         }
     }
 
@@ -1197,41 +918,46 @@ pub const Value = struct {
     /// If the value fits in a u64, return it, otherwise null.
     /// Asserts not undefined.
     pub fn getUnsignedIntAdvanced(val: Value, mod: *const Module, opt_sema: ?*Sema) !?u64 {
-        switch (val.tag()) {
-            .zero,
-            .bool_false,
-            .the_only_possible_value, // i0, u0
-            => return 0,
+        switch (val.ip_index) {
+            .bool_false => return 0,
+            .bool_true => return 1,
+            .none => switch (val.tag()) {
+                .zero,
+                .the_only_possible_value, // i0, u0
+                => return 0,
 
-            .one,
-            .bool_true,
-            => return 1,
+                .one => return 1,
 
-            .int_u64 => return val.castTag(.int_u64).?.data,
-            .int_i64 => return @intCast(u64, val.castTag(.int_i64).?.data),
-            .int_big_positive => return val.castTag(.int_big_positive).?.asBigInt().to(u64) catch null,
-            .int_big_negative => return val.castTag(.int_big_negative).?.asBigInt().to(u64) catch null,
+                .int_u64 => return val.castTag(.int_u64).?.data,
+                .int_i64 => return @intCast(u64, val.castTag(.int_i64).?.data),
+                .int_big_positive => return val.castTag(.int_big_positive).?.asBigInt().to(u64) catch null,
+                .int_big_negative => return val.castTag(.int_big_negative).?.asBigInt().to(u64) catch null,
 
-            .undef => unreachable,
+                .undef => unreachable,
 
-            .lazy_align => {
-                const ty = val.castTag(.lazy_align).?.data;
-                if (opt_sema) |sema| {
-                    return (try ty.abiAlignmentAdvanced(mod, .{ .sema = sema })).scalar;
-                } else {
-                    return ty.abiAlignment(mod);
-                }
+                .lazy_align => {
+                    const ty = val.castTag(.lazy_align).?.data;
+                    if (opt_sema) |sema| {
+                        return (try ty.abiAlignmentAdvanced(mod, .{ .sema = sema })).scalar;
+                    } else {
+                        return ty.abiAlignment(mod);
+                    }
+                },
+                .lazy_size => {
+                    const ty = val.castTag(.lazy_size).?.data;
+                    if (opt_sema) |sema| {
+                        return (try ty.abiSizeAdvanced(mod, .{ .sema = sema })).scalar;
+                    } else {
+                        return ty.abiSize(mod);
+                    }
+                },
+
+                else => return null,
             },
-            .lazy_size => {
-                const ty = val.castTag(.lazy_size).?.data;
-                if (opt_sema) |sema| {
-                    return (try ty.abiSizeAdvanced(mod, .{ .sema = sema })).scalar;
-                } else {
-                    return ty.abiSize(mod);
-                }
+            else => switch (mod.intern_pool.indexToKey(val.ip_index)) {
+                .int => |int| return int.big_int.to(u64) catch null,
+                else => unreachable,
             },
-
-            else => return null,
         }
     }
 
@@ -1242,51 +968,65 @@ pub const Value = struct {
 
     /// Asserts the value is an integer and it fits in a i64
     pub fn toSignedInt(val: Value, mod: *const Module) i64 {
-        switch (val.tag()) {
-            .zero,
-            .bool_false,
-            .the_only_possible_value, // i0, u0
-            => return 0,
+        switch (val.ip_index) {
+            .bool_false => return 0,
+            .bool_true => return 1,
+            .none => switch (val.tag()) {
+                .zero,
+                .the_only_possible_value, // i0, u0
+                => return 0,
 
-            .one,
-            .bool_true,
-            => return 1,
+                .one => return 1,
 
-            .int_u64 => return @intCast(i64, val.castTag(.int_u64).?.data),
-            .int_i64 => return val.castTag(.int_i64).?.data,
-            .int_big_positive => return val.castTag(.int_big_positive).?.asBigInt().to(i64) catch unreachable,
-            .int_big_negative => return val.castTag(.int_big_negative).?.asBigInt().to(i64) catch unreachable,
+                .int_u64 => return @intCast(i64, val.castTag(.int_u64).?.data),
+                .int_i64 => return val.castTag(.int_i64).?.data,
+                .int_big_positive => return val.castTag(.int_big_positive).?.asBigInt().to(i64) catch unreachable,
+                .int_big_negative => return val.castTag(.int_big_negative).?.asBigInt().to(i64) catch unreachable,
 
-            .lazy_align => {
-                const ty = val.castTag(.lazy_align).?.data;
-                return @intCast(i64, ty.abiAlignment(mod));
+                .lazy_align => {
+                    const ty = val.castTag(.lazy_align).?.data;
+                    return @intCast(i64, ty.abiAlignment(mod));
+                },
+                .lazy_size => {
+                    const ty = val.castTag(.lazy_size).?.data;
+                    return @intCast(i64, ty.abiSize(mod));
+                },
+
+                .undef => unreachable,
+                else => unreachable,
             },
-            .lazy_size => {
-                const ty = val.castTag(.lazy_size).?.data;
-                return @intCast(i64, ty.abiSize(mod));
+            else => switch (mod.intern_pool.indexToKey(val.ip_index)) {
+                .int => |int| return int.big_int.to(i64) catch unreachable,
+                else => unreachable,
             },
-
-            .undef => unreachable,
-            else => unreachable,
         }
     }
 
-    pub fn toBool(self: Value) bool {
-        return switch (self.tag()) {
-            .bool_true, .one => true,
-            .bool_false, .zero => false,
-            .int_u64 => switch (self.castTag(.int_u64).?.data) {
-                0 => false,
-                1 => true,
+    pub fn toBool(val: Value, mod: *const Module) bool {
+        switch (val.ip_index) {
+            .bool_true => return true,
+            .bool_false => return false,
+            .none => return switch (val.tag()) {
+                .one => true,
+                .zero => false,
+
+                .int_u64 => switch (val.castTag(.int_u64).?.data) {
+                    0 => false,
+                    1 => true,
+                    else => unreachable,
+                },
+                .int_i64 => switch (val.castTag(.int_i64).?.data) {
+                    0 => false,
+                    1 => true,
+                    else => unreachable,
+                },
                 else => unreachable,
             },
-            .int_i64 => switch (self.castTag(.int_i64).?.data) {
-                0 => false,
-                1 => true,
+            else => switch (mod.intern_pool.indexToKey(val.ip_index)) {
+                .int => |int| return !int.big_int.eqZero(),
                 else => unreachable,
             },
-            else => unreachable,
-        };
+        }
     }
 
     fn isDeclRef(val: Value) bool {
@@ -1319,7 +1059,7 @@ pub const Value = struct {
         switch (ty.zigTypeTag(mod)) {
             .Void => {},
             .Bool => {
-                buffer[0] = @boolToInt(val.toBool());
+                buffer[0] = @boolToInt(val.toBool(mod));
             },
             .Int, .Enum => {
                 const int_info = ty.intInfo(mod);
@@ -1442,7 +1182,7 @@ pub const Value = struct {
                     .Little => bit_offset / 8,
                     .Big => buffer.len - bit_offset / 8 - 1,
                 };
-                if (val.toBool()) {
+                if (val.toBool(mod)) {
                     buffer[byte_index] |= (@as(u8, 1) << @intCast(u3, bit_offset % 8));
                 } else {
                     buffer[byte_index] &= ~(@as(u8, 1) << @intCast(u3, bit_offset % 8));
@@ -1802,90 +1542,117 @@ pub const Value = struct {
 
     pub fn clz(val: Value, ty: Type, mod: *const Module) u64 {
         const ty_bits = ty.intInfo(mod).bits;
-        switch (val.tag()) {
-            .zero, .bool_false => return ty_bits,
-            .one, .bool_true => return ty_bits - 1,
+        switch (val.ip_index) {
+            .bool_false => return ty_bits,
+            .bool_true => return ty_bits - 1,
+            .none => switch (val.tag()) {
+                .zero => return ty_bits,
+                .one => return ty_bits - 1,
 
-            .int_u64 => {
-                const big = @clz(val.castTag(.int_u64).?.data);
-                return big + ty_bits - 64;
-            },
-            .int_i64 => {
-                @panic("TODO implement i64 Value clz");
-            },
-            .int_big_positive => {
-                const bigint = val.castTag(.int_big_positive).?.asBigInt();
-                return bigint.clz(ty_bits);
-            },
-            .int_big_negative => {
-                @panic("TODO implement int_big_negative Value clz");
-            },
+                .int_u64 => {
+                    const big = @clz(val.castTag(.int_u64).?.data);
+                    return big + ty_bits - 64;
+                },
+                .int_i64 => {
+                    @panic("TODO implement i64 Value clz");
+                },
+                .int_big_positive => {
+                    const bigint = val.castTag(.int_big_positive).?.asBigInt();
+                    return bigint.clz(ty_bits);
+                },
+                .int_big_negative => {
+                    @panic("TODO implement int_big_negative Value clz");
+                },
 
-            .the_only_possible_value => {
-                assert(ty_bits == 0);
-                return ty_bits;
-            },
+                .the_only_possible_value => {
+                    assert(ty_bits == 0);
+                    return ty_bits;
+                },
 
-            .lazy_align, .lazy_size => {
-                var bigint_buf: BigIntSpace = undefined;
-                const bigint = val.toBigIntAdvanced(&bigint_buf, mod, null) catch unreachable;
-                return bigint.clz(ty_bits);
-            },
+                .lazy_align, .lazy_size => {
+                    var bigint_buf: BigIntSpace = undefined;
+                    const bigint = val.toBigIntAdvanced(&bigint_buf, mod, null) catch unreachable;
+                    return bigint.clz(ty_bits);
+                },
 
-            else => unreachable,
+                else => unreachable,
+            },
+            else => switch (mod.intern_pool.indexToKey(val.ip_index)) {
+                .int => |int| return int.big_int.clz(ty_bits),
+                else => unreachable,
+            },
         }
     }
 
     pub fn ctz(val: Value, ty: Type, mod: *const Module) u64 {
         const ty_bits = ty.intInfo(mod).bits;
-        switch (val.tag()) {
-            .zero, .bool_false => return ty_bits,
-            .one, .bool_true => return 0,
+        switch (val.ip_index) {
+            .bool_false => return ty_bits,
+            .bool_true => return 0,
+            .none => switch (val.tag()) {
+                .zero => return ty_bits,
+                .one => return 0,
 
-            .int_u64 => {
-                const big = @ctz(val.castTag(.int_u64).?.data);
-                return if (big == 64) ty_bits else big;
-            },
-            .int_i64 => {
-                @panic("TODO implement i64 Value ctz");
-            },
-            .int_big_positive => {
-                const bigint = val.castTag(.int_big_positive).?.asBigInt();
-                return bigint.ctz();
-            },
-            .int_big_negative => {
-                @panic("TODO implement int_big_negative Value ctz");
-            },
+                .int_u64 => {
+                    const big = @ctz(val.castTag(.int_u64).?.data);
+                    return if (big == 64) ty_bits else big;
+                },
+                .int_i64 => {
+                    @panic("TODO implement i64 Value ctz");
+                },
+                .int_big_positive => {
+                    const bigint = val.castTag(.int_big_positive).?.asBigInt();
+                    return bigint.ctz();
+                },
+                .int_big_negative => {
+                    @panic("TODO implement int_big_negative Value ctz");
+                },
 
-            .the_only_possible_value => {
-                assert(ty_bits == 0);
-                return ty_bits;
-            },
+                .the_only_possible_value => {
+                    assert(ty_bits == 0);
+                    return ty_bits;
+                },
 
-            .lazy_align, .lazy_size => {
-                var bigint_buf: BigIntSpace = undefined;
-                const bigint = val.toBigIntAdvanced(&bigint_buf, mod, null) catch unreachable;
-                return bigint.ctz();
-            },
+                .lazy_align, .lazy_size => {
+                    var bigint_buf: BigIntSpace = undefined;
+                    const bigint = val.toBigIntAdvanced(&bigint_buf, mod, null) catch unreachable;
+                    return bigint.ctz();
+                },
 
-            else => unreachable,
+                else => unreachable,
+            },
+            else => switch (mod.intern_pool.indexToKey(val.ip_index)) {
+                .int => |int| return int.big_int.ctz(),
+                else => unreachable,
+            },
         }
     }
 
     pub fn popCount(val: Value, ty: Type, mod: *const Module) u64 {
         assert(!val.isUndef());
-        switch (val.tag()) {
-            .zero, .bool_false => return 0,
-            .one, .bool_true => return 1,
+        switch (val.ip_index) {
+            .bool_false => return 0,
+            .bool_true => return 1,
+            .none => switch (val.tag()) {
+                .zero => return 0,
+                .one => return 1,
 
-            .int_u64 => return @popCount(val.castTag(.int_u64).?.data),
+                .int_u64 => return @popCount(val.castTag(.int_u64).?.data),
 
-            else => {
-                const info = ty.intInfo(mod);
+                else => {
+                    const info = ty.intInfo(mod);
 
-                var buffer: Value.BigIntSpace = undefined;
-                const int = val.toBigInt(&buffer, mod);
-                return @intCast(u64, int.popCount(info.bits));
+                    var buffer: Value.BigIntSpace = undefined;
+                    const int = val.toBigInt(&buffer, mod);
+                    return @intCast(u64, int.popCount(info.bits));
+                },
+            },
+            else => switch (mod.intern_pool.indexToKey(val.ip_index)) {
+                .int => |int| {
+                    const info = ty.intInfo(mod);
+                    return int.big_int.popCount(info.bits);
+                },
+                else => unreachable,
             },
         }
     }
@@ -1933,37 +1700,42 @@ pub const Value = struct {
     /// Returns the number of bits the value requires to represent stored in twos complement form.
     pub fn intBitCountTwosComp(self: Value, mod: *const Module) usize {
         const target = mod.getTarget();
-        switch (self.tag()) {
-            .zero,
-            .bool_false,
-            .the_only_possible_value,
-            => return 0,
+        switch (self.ip_index) {
+            .bool_false => return 0,
+            .bool_true => return 1,
+            .none => switch (self.tag()) {
+                .zero,
+                .the_only_possible_value,
+                => return 0,
 
-            .one,
-            .bool_true,
-            => return 1,
+                .one => return 1,
 
-            .int_u64 => {
-                const x = self.castTag(.int_u64).?.data;
-                if (x == 0) return 0;
-                return @intCast(usize, std.math.log2(x) + 1);
+                .int_u64 => {
+                    const x = self.castTag(.int_u64).?.data;
+                    if (x == 0) return 0;
+                    return @intCast(usize, std.math.log2(x) + 1);
+                },
+                .int_big_positive => return self.castTag(.int_big_positive).?.asBigInt().bitCountTwosComp(),
+                .int_big_negative => return self.castTag(.int_big_negative).?.asBigInt().bitCountTwosComp(),
+
+                .decl_ref_mut,
+                .comptime_field_ptr,
+                .extern_fn,
+                .decl_ref,
+                .function,
+                .variable,
+                .eu_payload_ptr,
+                .opt_payload_ptr,
+                => return target.ptrBitWidth(),
+
+                else => {
+                    var buffer: BigIntSpace = undefined;
+                    return self.toBigInt(&buffer, mod).bitCountTwosComp();
+                },
             },
-            .int_big_positive => return self.castTag(.int_big_positive).?.asBigInt().bitCountTwosComp(),
-            .int_big_negative => return self.castTag(.int_big_negative).?.asBigInt().bitCountTwosComp(),
-
-            .decl_ref_mut,
-            .comptime_field_ptr,
-            .extern_fn,
-            .decl_ref,
-            .function,
-            .variable,
-            .eu_payload_ptr,
-            .opt_payload_ptr,
-            => return target.ptrBitWidth(),
-
-            else => {
-                var buffer: BigIntSpace = undefined;
-                return self.toBigInt(&buffer, mod).bitCountTwosComp();
+            else => switch (mod.intern_pool.indexToKey(self.ip_index)) {
+                .int => |int| return int.big_int.bitCountTwosComp(),
+                else => unreachable,
             },
         }
     }
@@ -2008,82 +1780,88 @@ pub const Value = struct {
         mod: *const Module,
         opt_sema: ?*Sema,
     ) Module.CompileError!std.math.Order {
-        return switch (lhs.tag()) {
-            .zero,
-            .bool_false,
-            .the_only_possible_value,
-            => .eq,
+        switch (lhs.ip_index) {
+            .bool_false => return .eq,
+            .bool_true => return .gt,
+            .none => return switch (lhs.tag()) {
+                .zero,
+                .the_only_possible_value,
+                => .eq,
 
-            .one,
-            .bool_true,
-            .decl_ref,
-            .decl_ref_mut,
-            .comptime_field_ptr,
-            .extern_fn,
-            .function,
-            .variable,
-            => .gt,
+                .one,
+                .decl_ref,
+                .decl_ref_mut,
+                .comptime_field_ptr,
+                .extern_fn,
+                .function,
+                .variable,
+                => .gt,
 
-            .enum_field_index => return std.math.order(lhs.castTag(.enum_field_index).?.data, 0),
-            .runtime_value => {
-                // This is needed to correctly handle hashing the value.
-                // Checks in Sema should prevent direct comparisons from reaching here.
-                const val = lhs.castTag(.runtime_value).?.data;
-                return val.orderAgainstZeroAdvanced(mod, opt_sema);
+                .enum_field_index => return std.math.order(lhs.castTag(.enum_field_index).?.data, 0),
+                .runtime_value => {
+                    // This is needed to correctly handle hashing the value.
+                    // Checks in Sema should prevent direct comparisons from reaching here.
+                    const val = lhs.castTag(.runtime_value).?.data;
+                    return val.orderAgainstZeroAdvanced(mod, opt_sema);
+                },
+                .int_u64 => std.math.order(lhs.castTag(.int_u64).?.data, 0),
+                .int_i64 => std.math.order(lhs.castTag(.int_i64).?.data, 0),
+                .int_big_positive => lhs.castTag(.int_big_positive).?.asBigInt().orderAgainstScalar(0),
+                .int_big_negative => lhs.castTag(.int_big_negative).?.asBigInt().orderAgainstScalar(0),
+
+                .lazy_align => {
+                    const ty = lhs.castTag(.lazy_align).?.data;
+                    const strat: Type.AbiAlignmentAdvancedStrat = if (opt_sema) |sema| .{ .sema = sema } else .eager;
+                    if (ty.hasRuntimeBitsAdvanced(mod, false, strat) catch |err| switch (err) {
+                        error.NeedLazy => unreachable,
+                        else => |e| return e,
+                    }) {
+                        return .gt;
+                    } else {
+                        return .eq;
+                    }
+                },
+                .lazy_size => {
+                    const ty = lhs.castTag(.lazy_size).?.data;
+                    const strat: Type.AbiAlignmentAdvancedStrat = if (opt_sema) |sema| .{ .sema = sema } else .eager;
+                    if (ty.hasRuntimeBitsAdvanced(mod, false, strat) catch |err| switch (err) {
+                        error.NeedLazy => unreachable,
+                        else => |e| return e,
+                    }) {
+                        return .gt;
+                    } else {
+                        return .eq;
+                    }
+                },
+
+                .float_16 => std.math.order(lhs.castTag(.float_16).?.data, 0),
+                .float_32 => std.math.order(lhs.castTag(.float_32).?.data, 0),
+                .float_64 => std.math.order(lhs.castTag(.float_64).?.data, 0),
+                .float_80 => std.math.order(lhs.castTag(.float_80).?.data, 0),
+                .float_128 => std.math.order(lhs.castTag(.float_128).?.data, 0),
+
+                .elem_ptr => {
+                    const elem_ptr = lhs.castTag(.elem_ptr).?.data;
+                    switch (try elem_ptr.array_ptr.orderAgainstZeroAdvanced(mod, opt_sema)) {
+                        .lt => unreachable,
+                        .gt => return .gt,
+                        .eq => {
+                            if (elem_ptr.index == 0) {
+                                return .eq;
+                            } else {
+                                return .gt;
+                            }
+                        },
+                    }
+                },
+
+                else => unreachable,
             },
-            .int_u64 => std.math.order(lhs.castTag(.int_u64).?.data, 0),
-            .int_i64 => std.math.order(lhs.castTag(.int_i64).?.data, 0),
-            .int_big_positive => lhs.castTag(.int_big_positive).?.asBigInt().orderAgainstScalar(0),
-            .int_big_negative => lhs.castTag(.int_big_negative).?.asBigInt().orderAgainstScalar(0),
-
-            .lazy_align => {
-                const ty = lhs.castTag(.lazy_align).?.data;
-                const strat: Type.AbiAlignmentAdvancedStrat = if (opt_sema) |sema| .{ .sema = sema } else .eager;
-                if (ty.hasRuntimeBitsAdvanced(mod, false, strat) catch |err| switch (err) {
-                    error.NeedLazy => unreachable,
-                    else => |e| return e,
-                }) {
-                    return .gt;
-                } else {
-                    return .eq;
-                }
+            else => switch (mod.intern_pool.indexToKey(lhs.ip_index)) {
+                .int => |int| return int.big_int.orderAgainstScalar(0),
+                else => unreachable,
             },
-            .lazy_size => {
-                const ty = lhs.castTag(.lazy_size).?.data;
-                const strat: Type.AbiAlignmentAdvancedStrat = if (opt_sema) |sema| .{ .sema = sema } else .eager;
-                if (ty.hasRuntimeBitsAdvanced(mod, false, strat) catch |err| switch (err) {
-                    error.NeedLazy => unreachable,
-                    else => |e| return e,
-                }) {
-                    return .gt;
-                } else {
-                    return .eq;
-                }
-            },
-
-            .float_16 => std.math.order(lhs.castTag(.float_16).?.data, 0),
-            .float_32 => std.math.order(lhs.castTag(.float_32).?.data, 0),
-            .float_64 => std.math.order(lhs.castTag(.float_64).?.data, 0),
-            .float_80 => std.math.order(lhs.castTag(.float_80).?.data, 0),
-            .float_128 => std.math.order(lhs.castTag(.float_128).?.data, 0),
-
-            .elem_ptr => {
-                const elem_ptr = lhs.castTag(.elem_ptr).?.data;
-                switch (try elem_ptr.array_ptr.orderAgainstZeroAdvanced(mod, opt_sema)) {
-                    .lt => unreachable,
-                    .gt => return .gt,
-                    .eq => {
-                        if (elem_ptr.index == 0) {
-                            return .eq;
-                        } else {
-                            return .gt;
-                        }
-                    },
-                }
-            },
-
-            else => unreachable,
-        };
+        }
     }
 
     /// Asserts the value is comparable.
@@ -2293,12 +2071,14 @@ pub const Value = struct {
         mod: *Module,
         opt_sema: ?*Sema,
     ) Module.CompileError!bool {
+        if (a.ip_index != .none or b.ip_index != .none) return a.ip_index == b.ip_index;
+
         const target = mod.getTarget();
         const a_tag = a.tag();
         const b_tag = b.tag();
         if (a_tag == b_tag) switch (a_tag) {
             .undef => return true,
-            .void_value, .null_value, .the_only_possible_value, .empty_struct_value => return true,
+            .null_value, .the_only_possible_value, .empty_struct_value => return true,
             .enum_literal => {
                 const a_name = a.castTag(.enum_literal).?.data;
                 const b_name = b.castTag(.enum_literal).?.data;
@@ -2574,6 +2354,13 @@ pub const Value = struct {
     /// This function is used by hash maps and so treats floating-point NaNs as equal
     /// to each other, and not equal to other floating-point values.
     pub fn hash(val: Value, ty: Type, hasher: *std.hash.Wyhash, mod: *Module) void {
+        if (val.ip_index != .none) {
+            // The InternPool data structure hashes based on Key to make interned objects
+            // unique. An Index can be treated simply as u32 value for the
+            // purpose of Type/Value hashing and equality.
+            std.hash.autoHash(hasher, val.ip_index);
+            return;
+        }
         const zig_ty_tag = ty.zigTypeTag(mod);
         std.hash.autoHash(hasher, zig_ty_tag);
         if (val.isUndef()) return;
@@ -2908,8 +2695,6 @@ pub const Value = struct {
             .int_i64,
             .int_big_positive,
             .int_big_negative,
-            .bool_false,
-            .bool_true,
             .the_only_possible_value,
             .lazy_align,
             .lazy_size,
@@ -3050,15 +2835,6 @@ pub const Value = struct {
 
             .opt_payload => return val.castTag(.opt_payload).?.data.elemValueAdvanced(mod, index, arena, buffer),
             .eu_payload => return val.castTag(.eu_payload).?.data.elemValueAdvanced(mod, index, arena, buffer),
-
-            // These values will implicitly be treated as `repeated`.
-            .zero,
-            .one,
-            .bool_false,
-            .bool_true,
-            .int_i64,
-            .int_u64,
-            => return val,
 
             else => unreachable,
         }
@@ -3272,13 +3048,10 @@ pub const Value = struct {
             // in which case the value 0 is null and other values are non-null.
 
             .zero,
-            .bool_false,
             .the_only_possible_value,
             => true,
 
-            .one,
-            .bool_true,
-            => false,
+            .one => false,
 
             .int_u64,
             .int_i64,
@@ -5419,11 +5192,7 @@ pub const Value = struct {
     }
 
     pub fn isGenericPoison(val: Value) bool {
-        return switch (val.ip_index) {
-            .generic_poison => true,
-            .none => val.tag() == .generic_poison,
-            else => false,
-        };
+        return val.ip_index == .generic_poison;
     }
 
     /// This type is not copyable since it may contain pointers to its inner data.
@@ -5673,10 +5442,13 @@ pub const Value = struct {
         .legacy = .{ .ptr_otherwise = &negative_one_payload.base },
     };
     pub const undef = initTag(.undef);
-    pub const @"void" = initTag(.void_value);
+    pub const @"void": Value = .{ .ip_index = .void_value, .legacy = undefined };
     pub const @"null" = initTag(.null_value);
-    pub const @"false" = initTag(.bool_false);
-    pub const @"true" = initTag(.bool_true);
+    pub const @"false": Value = .{ .ip_index = .bool_false, .legacy = undefined };
+    pub const @"true": Value = .{ .ip_index = .bool_true, .legacy = undefined };
+
+    pub const generic_poison: Value = .{ .ip_index = .generic_poison, .legacy = undefined };
+    pub const generic_poison_type: Value = .{ .ip_index = .generic_poison_type, .legacy = undefined };
 
     pub fn makeBool(x: bool) Value {
         return if (x) Value.true else Value.false;
