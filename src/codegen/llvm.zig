@@ -2793,7 +2793,7 @@ pub const DeclGen = struct {
         if (std.debug.runtime_safety and false) check: {
             if (t.zigTypeTag(mod) == .Opaque) break :check;
             if (!t.hasRuntimeBits(mod)) break :check;
-            if (!llvm_ty.isSized().toBool()) break :check;
+            if (!llvm_ty.isSized().toBool(mod)) break :check;
 
             const zig_size = t.abiSize(mod);
             const llvm_size = dg.object.target_data.abiSizeOfType(llvm_ty);
@@ -3272,7 +3272,7 @@ pub const DeclGen = struct {
         switch (tv.ty.zigTypeTag(mod)) {
             .Bool => {
                 const llvm_type = try dg.lowerType(tv.ty);
-                return if (tv.val.toBool()) llvm_type.constAllOnes() else llvm_type.constNull();
+                return if (tv.val.toBool(mod)) llvm_type.constAllOnes() else llvm_type.constNull();
             },
             // TODO this duplicates code with Pointer but they should share the handling
             // of the tv.val.tag() and then Int should do extra constPtrToInt on top

@@ -621,7 +621,7 @@ pub const DeclGen = struct {
             switch (ty.zigTypeTag(mod)) {
                 .Int => try self.addInt(ty, val),
                 .Float => try self.addFloat(ty, val),
-                .Bool => try self.addConstBool(val.toBool()),
+                .Bool => try self.addConstBool(val.toBool(mod)),
                 .Array => switch (val.tag()) {
                     .aggregate => {
                         const elem_vals = val.castTag(.aggregate).?.data;
@@ -989,8 +989,8 @@ pub const DeclGen = struct {
                 }
             },
             .Bool => switch (repr) {
-                .direct => return try self.spv.constBool(result_ty_ref, val.toBool()),
-                .indirect => return try self.spv.constInt(result_ty_ref, @boolToInt(val.toBool())),
+                .direct => return try self.spv.constBool(result_ty_ref, val.toBool(mod)),
+                .indirect => return try self.spv.constInt(result_ty_ref, @boolToInt(val.toBool(mod))),
             },
             .Float => return switch (ty.floatBits(target)) {
                 16 => try self.spv.resolveId(.{ .float = .{ .ty = result_ty_ref, .value = .{ .float16 = val.toFloat(f16) } } }),

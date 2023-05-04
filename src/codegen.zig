@@ -494,7 +494,7 @@ pub fn generateSymbol(
             return Result.ok;
         },
         .Bool => {
-            const x: u8 = @boolToInt(typed_value.val.toBool());
+            const x: u8 = @boolToInt(typed_value.val.toBool(mod));
             try code.append(x);
             return Result.ok;
         },
@@ -1213,7 +1213,7 @@ pub fn genTypedValue(
             }
         },
         .Bool => {
-            return GenResult.mcv(.{ .immediate = @boolToInt(typed_value.val.toBool()) });
+            return GenResult.mcv(.{ .immediate = @boolToInt(typed_value.val.toBool(mod)) });
         },
         .Optional => {
             if (typed_value.ty.isPtrLikeOptional(mod)) {
