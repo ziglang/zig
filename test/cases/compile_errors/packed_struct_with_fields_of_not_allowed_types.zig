@@ -86,6 +86,6 @@ export fn entry12() void {
 // :28:12: note: type has no guaranteed in-memory representation
 // :38:12: error: packed structs cannot contain fields of type 'fn() void'
 // :38:12: note: type has no guaranteed in-memory representation
-// :38:12: note: use '*const ' to make a function pointer type
+// :38:12: note: use '*const fn () void' for a function pointer type
 // :65:31: error: packed structs cannot contain fields of type '[]u8'
 // :65:31: note: slices have no guaranteed in-memory representation

@@ -20447,7 +20447,9 @@ fn checkPtrType(
                 );
                 errdefer msg.destroy(sema.gpa);
 
-                try sema.errNote(block, ty_src, msg, "use '*const ' to make a function pointer type", .{});
+                try sema.errNote(block, ty_src, msg, "use '*const {}' for a function pointer type", .{
+                    ty.fmt(sema.mod),
+                });
 
                 break :msg msg;
             };
@@ -23227,7 +23229,9 @@ fn explainWhyTypeIsNotExtern(
         .Fn => {
             if (position != .other) {
                 try mod.errNoteNonLazy(src_loc, msg, "type has no guaranteed in-memory representation", .{});
-                try mod.errNoteNonLazy(src_loc, msg, "use '*const ' to make a function pointer type", .{});
+                try mod.errNoteNonLazy(src_loc, msg, "use '*const {}' for a function pointer type", .{
+                    ty.fmt(sema.mod),
+                });
                 return;
             }
             switch (ty.fnCallingConvention()) {
@@ -23323,7 +23327,9 @@ fn explainWhyTypeIsNotPacked(
         .Pointer => try mod.errNoteNonLazy(src_loc, msg, "slices have no guaranteed in-memory representation", .{}),
         .Fn => {
             try mod.errNoteNonLazy(src_loc, msg, "type has no guaranteed in-memory representation", .{});
-            try mod.errNoteNonLazy(src_loc, msg, "use '*const ' to make a function pointer type", .{});
+            try mod.errNoteNonLazy(src_loc, msg, "use '*const {}' for a function pointer type", .{
+                ty.fmt(sema.mod),
+            });
         },
         .Struct => try mod.errNoteNonLazy(src_loc, msg, "only packed structs layout are allowed in packed types", .{}),
         .Union => try mod.errNoteNonLazy(src_loc, msg, "only packed unions layout are allowed in packed types", .{}),
