@@ -370,7 +370,6 @@ const Writer = struct {
         switch (t) {
             .inferred_alloc_const => try s.writeAll("(inferred_alloc_const)"),
             .inferred_alloc_mut => try s.writeAll("(inferred_alloc_mut)"),
-            .generic_poison => try s.writeAll("(generic_poison)"),
             else => try ty.print(s, w.module),
         }
     }

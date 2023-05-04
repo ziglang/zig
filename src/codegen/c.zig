@@ -1508,7 +1508,7 @@ pub const DeclGen = struct {
         }
         if (fn_decl.val.castTag(.function)) |func_payload|
             if (func_payload.data.is_cold) try w.writeAll("zig_cold ");
-        if (fn_info.return_type.tag() == .noreturn) try w.writeAll("zig_noreturn ");
+        if (fn_info.return_type.ip_index == .noreturn_type) try w.writeAll("zig_noreturn ");
 
         const trailing = try renderTypePrefix(
             dg.decl_index,
@@ -3783,7 +3783,7 @@ fn airNot(f: *Function, inst: Air.Inst.Index) !CValue {
     const ty_op = f.air.instructions.items(.data)[inst].ty_op;
     const operand_ty = f.typeOf(ty_op.operand);
     const scalar_ty = operand_ty.scalarType(mod);
-    if (scalar_ty.tag() != .bool) return try airUnBuiltinCall(f, inst, "not", .bits);
+    if (scalar_ty.ip_index != .bool_type) return try airUnBuiltinCall(f, inst, "not", .bits);
 
     const op = try f.resolveInst(ty_op.operand);
     try reap(f, inst, &.{ty_op.operand});
@@ -4292,7 +4292,7 @@ fn airBlock(f: *Function, inst: Air.Inst.Index) !CValue {
     const writer = f.object.writer();
 
     const inst_ty = f.typeOfIndex(inst);
-    const result = if (inst_ty.tag() != .void and !f.liveness.isUnused(inst))
+    const result = if (inst_ty.ip_index != .void_type and !f.liveness.isUnused(inst))
         try f.allocLocal(inst, inst_ty)
     else
         .none;
@@ -4354,7 +4354,7 @@ fn lowerTry(
     const payload_ty = err_union_ty.errorUnionPayload();
     const payload_has_bits = payload_ty.hasRuntimeBitsIgnoreComptime(mod);
 
-    if (!err_union_ty.errorUnionSet().errorSetIsEmpty()) {
+    if (!err_union_ty.errorUnionSet().errorSetIsEmpty(mod)) {
         try writer.writeAll("if (");
         if (!payload_has_bits) {
             if (is_ptr)
@@ -5549,7 +5549,7 @@ fn airUnwrapErrUnionErr(f: *Function, inst: Air.Inst.Index) !CValue {
     if (!payload_ty.hasRuntimeBits(mod)) {
         try f.writeCValue(writer, operand, .Other);
     } else {
-        if (!error_ty.errorSetIsEmpty())
+        if (!error_ty.errorSetIsEmpty(mod))
             if (operand_is_ptr)
                 try f.writeCValueDerefMember(writer, operand, .{ .identifier = "error" })
             else
@@ -5768,7 +5768,7 @@ fn airIsErr(f: *Function, inst: Air.Inst.Index, is_ptr: bool, operator: []const 
     try f.writeCValue(writer, local, .Other);
     try writer.writeAll(" = ");
 
-    if (!error_ty.errorSetIsEmpty())
+    if (!error_ty.errorSetIsEmpty(mod))
         if (payload_ty.hasRuntimeBits(mod))
             if (is_ptr)
                 try f.writeCValueDerefMember(writer, operand, .{ .identifier = "error" })
@@ -6032,7 +6032,7 @@ fn airCmpBuiltinCall(
     try writer.writeByte(')');
     if (!ref_ret) try writer.print(" {s} {}", .{
         compareOperatorC(operator),
-        try f.fmtIntLiteral(Type.initTag(.i32), Value.zero),
+        try f.fmtIntLiteral(Type.i32, Value.zero),
     });
     try writer.writeAll(";\n");
     try v.end(f, inst, writer);
@@ -7749,7 +7749,7 @@ const LowerFnRetTyBuffer = struct {
     payload: Type.Payload.AnonStruct,
 };
 fn lowerFnRetTy(ret_ty: Type, buffer: *LowerFnRetTyBuffer, mod: *const Module) Type {
-    if (ret_ty.zigTypeTag(mod) == .NoReturn) return Type.initTag(.noreturn);
+    if (ret_ty.zigTypeTag(mod) == .NoReturn) return Type.noreturn;
 
     if (lowersToArray(ret_ty, mod)) {
         buffer.names = [1][]const u8{"array"};

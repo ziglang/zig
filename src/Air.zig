@@ -1333,7 +1333,7 @@ pub fn typeOfIndex(air: Air, inst: Air.Inst.Index, ip: InternPool) Type {
         .ret_load,
         .unreach,
         .trap,
-        => return Type.initTag(.noreturn),
+        => return Type.noreturn,
 
         .breakpoint,
         .dbg_stmt,
@@ -1370,7 +1370,7 @@ pub fn typeOfIndex(air: Air, inst: Air.Inst.Index, ip: InternPool) Type {
         .wasm_memory_grow => return Type.i32,
         .wasm_memory_size => return Type.u32,
 
-        .bool_to_int => return Type.initTag(.u1),
+        .bool_to_int => return Type.u1,
 
         .tag_name, .error_name => return Type.initTag(.const_slice_u8_sentinel_0),
 

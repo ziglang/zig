@@ -3071,7 +3071,7 @@ fn errUnionErr(
     const mod = self.bin_file.options.module.?;
     const err_ty = error_union_ty.errorUnionSet();
     const payload_ty = error_union_ty.errorUnionPayload();
-    if (err_ty.errorSetIsEmpty()) {
+    if (err_ty.errorSetIsEmpty(mod)) {
         return MCValue{ .immediate = 0 };
     }
     if (!payload_ty.hasRuntimeBitsIgnoreComptime(mod)) {
@@ -3151,7 +3151,7 @@ fn errUnionPayload(
     const mod = self.bin_file.options.module.?;
     const err_ty = error_union_ty.errorUnionSet();
     const payload_ty = error_union_ty.errorUnionPayload();
-    if (err_ty.errorSetIsEmpty()) {
+    if (err_ty.errorSetIsEmpty(mod)) {
         return try error_union_bind.resolveToMcv(self);
     }
     if (!payload_ty.hasRuntimeBitsIgnoreComptime(mod)) {
@@ -4905,9 +4905,10 @@ fn isErr(
     error_union_bind: ReadArg.Bind,
     error_union_ty: Type,
 ) !MCValue {
+    const mod = self.bin_file.options.module.?;
     const error_type = error_union_ty.errorUnionSet();
 
-    if (error_type.errorSetIsEmpty()) {
+    if (error_type.errorSetIsEmpty(mod)) {
         return MCValue{ .immediate = 0 }; // always false
     }
 

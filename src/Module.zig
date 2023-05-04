@@ -1005,7 +1005,7 @@ pub const Struct = struct {
     /// If the layout is packed, this is the backing integer type of the packed struct.
     /// Whether zig chooses this type or the user specifies it, it is stored here.
     /// This will be set to the noreturn type until status is `have_layout`.
-    backing_int_ty: Type = Type.initTag(.noreturn),
+    backing_int_ty: Type = Type.noreturn,
     status: enum {
         none,
         field_types_wip,
@@ -1705,31 +1705,34 @@ pub const Fn = struct {
         is_resolved: bool = false,
 
         pub fn addErrorSet(self: *InferredErrorSet, gpa: Allocator, err_set_ty: Type) !void {
-            switch (err_set_ty.tag()) {
-                .error_set => {
-                    const names = err_set_ty.castTag(.error_set).?.data.names.keys();
-                    for (names) |name| {
-                        try self.errors.put(gpa, name, {});
-                    }
-                },
-                .error_set_single => {
-                    const name = err_set_ty.castTag(.error_set_single).?.data;
-                    try self.errors.put(gpa, name, {});
-                },
-                .error_set_inferred => {
-                    const ies = err_set_ty.castTag(.error_set_inferred).?.data;
-                    try self.inferred_error_sets.put(gpa, ies, {});
-                },
-                .error_set_merged => {
-                    const names = err_set_ty.castTag(.error_set_merged).?.data.keys();
-                    for (names) |name| {
-                        try self.errors.put(gpa, name, {});
-                    }
-                },
-                .anyerror => {
+            switch (err_set_ty.ip_index) {
+                .anyerror_type => {
                     self.is_anyerror = true;
                 },
-                else => unreachable,
+                .none => switch (err_set_ty.tag()) {
+                    .error_set => {
+                        const names = err_set_ty.castTag(.error_set).?.data.names.keys();
+                        for (names) |name| {
+                            try self.errors.put(gpa, name, {});
+                        }
+                    },
+                    .error_set_single => {
+                        const name = err_set_ty.castTag(.error_set_single).?.data;
+                        try self.errors.put(gpa, name, {});
+                    },
+                    .error_set_inferred => {
+                        const ies = err_set_ty.castTag(.error_set_inferred).?.data;
+                        try self.inferred_error_sets.put(gpa, ies, {});
+                    },
+                    .error_set_merged => {
+                        const names = err_set_ty.castTag(.error_set_merged).?.data.keys();
+                        for (names) |name| {
+                            try self.errors.put(gpa, name, {});
+                        }
+                    },
+                    else => unreachable,
+                },
+                else => @panic("TODO"),
             }
         }
     };
@@ -4566,7 +4569,7 @@ pub fn semaFile(mod: *Module, file: *File) SemaError!void {
     const struct_obj = try new_decl_arena_allocator.create(Module.Struct);
     const struct_ty = try Type.Tag.@"struct".create(new_decl_arena_allocator, struct_obj);
     const struct_val = try Value.Tag.ty.create(new_decl_arena_allocator, struct_ty);
-    const ty_ty = comptime Type.initTag(.type);
+    const ty_ty = comptime Type.type;
     struct_obj.* = .{
         .owner_decl = undefined, // set below
         .fields = .{},
