@@ -181,6 +181,7 @@ test "slicing zero length array" {
 }
 
 test "slicing pointer by length" {
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest;
     const array = [_]u8{ 1, 2, 3, 4, 5, 6, 7, 8 };
     const ptr: [*]const u8 = @ptrCast([*]const u8, &array);
     const slice = ptr[1..][0..5];
