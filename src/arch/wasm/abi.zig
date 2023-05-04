@@ -60,7 +60,7 @@ pub fn classifyType(ty: Type, mod: *const Module) [2]Class {
             return direct;
         },
         .Pointer => {
-            std.debug.assert(!ty.isSlice());
+            std.debug.assert(!ty.isSlice(mod));
             return direct;
         },
         .Union => {

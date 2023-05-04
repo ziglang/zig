@@ -52,7 +52,7 @@ pub fn classifyType(ty: Type, mod: *const Module) Class {
             return .byval;
         },
         .Pointer => {
-            std.debug.assert(!ty.isSlice());
+            std.debug.assert(!ty.isSlice(mod));
             return .byval;
         },
         .ErrorUnion,

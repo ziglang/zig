@@ -629,7 +629,7 @@ pub const Tag = enum(u8) {
     /// A vector type.
     /// data is payload to Vector.
     type_vector,
-    /// A pointer type along with all its bells and whistles.
+    /// A fully explicitly specified pointer type.
     /// data is payload to Pointer.
     type_pointer,
     /// An optional type.
@@ -682,13 +682,13 @@ pub const Tag = enum(u8) {
     /// An enum tag identified by a negative integer value.
     /// data is a limbs index to Int.
     enum_tag_negative,
-    /// A float value that can be represented by f32.
+    /// An f32 value.
     /// data is float value bitcasted to u32.
     float_f32,
-    /// A float value that can be represented by f64.
+    /// An f64 value.
     /// data is payload index to Float64.
     float_f64,
-    /// A float value that can be represented by f128.
+    /// An f128 value.
     /// data is payload index to Float128.
     float_f128,
     /// An extern function.
@@ -871,7 +871,47 @@ pub fn indexToKey(ip: InternPool, index: Index) Key {
         .simple_type => .{ .simple_type = @intToEnum(SimpleType, data) },
         .simple_value => .{ .simple_value = @intToEnum(SimpleValue, data) },
 
-        else => @panic("TODO"),
+        .type_vector => {
+            const vector_info = ip.extraData(Vector, data);
+            return .{ .vector_type = .{
+                .len = vector_info.len,
+                .child = vector_info.child,
+            } };
+        },
+
+        .type_pointer => {
+            const ptr_info = ip.extraData(Pointer, data);
+            return .{ .ptr_type = .{
+                .elem_type = ptr_info.child,
+                .sentinel = ptr_info.sentinel,
+                .alignment = ptr_info.flags.alignment,
+                .size = ptr_info.flags.size,
+                .is_const = ptr_info.flags.is_const,
+                .is_volatile = ptr_info.flags.is_volatile,
+                .is_allowzero = ptr_info.flags.is_allowzero,
+                .address_space = ptr_info.flags.address_space,
+            } };
+        },
+
+        .type_optional => .{ .optional_type = .{ .payload_type = @intToEnum(Index, data) } },
+
+        .type_error_union => @panic("TODO"),
+        .type_enum_simple => @panic("TODO"),
+        .simple_internal => @panic("TODO"),
+        .int_small_u32 => @panic("TODO"),
+        .int_small_i32 => @panic("TODO"),
+        .int_small_usize => @panic("TODO"),
+        .int_small_comptime_unsigned => @panic("TODO"),
+        .int_small_comptime_signed => @panic("TODO"),
+        .int_positive => @panic("TODO"),
+        .int_negative => @panic("TODO"),
+        .enum_tag_positive => @panic("TODO"),
+        .enum_tag_negative => @panic("TODO"),
+        .float_f32 => @panic("TODO"),
+        .float_f64 => @panic("TODO"),
+        .float_f128 => @panic("TODO"),
+        .extern_func => @panic("TODO"),
+        .func => @panic("TODO"),
     };
 }
 

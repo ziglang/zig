@@ -556,7 +556,7 @@ pub const DeclGen = struct {
         if (decl.val.castTag(.variable)) |var_payload|
             try dg.renderFwdDecl(decl_index, var_payload.data);
 
-        if (ty.isSlice()) {
+        if (ty.isSlice(mod)) {
             if (location == .StaticInitializer) {
                 try writer.writeByte('{');
             } else {
@@ -603,7 +603,7 @@ pub const DeclGen = struct {
     fn renderParentPtr(dg: *DeclGen, writer: anytype, ptr_val: Value, ptr_ty: Type, location: ValueRenderLocation) error{ OutOfMemory, AnalysisFail }!void {
         const mod = dg.module;
 
-        if (!ptr_ty.isSlice()) {
+        if (!ptr_ty.isSlice(mod)) {
             try writer.writeByte('(');
             try dg.renderType(writer, ptr_ty);
             try writer.writeByte(')');
@@ -776,7 +776,7 @@ pub const DeclGen = struct {
                     try dg.renderValue(writer, repr_ty, Value.undef, .FunctionArgument);
                     return writer.writeByte(')');
                 },
-                .Pointer => if (ty.isSlice()) {
+                .Pointer => if (ty.isSlice(mod)) {
                     if (!location.isInitializer()) {
                         try writer.writeByte('(');
                         try dg.renderType(writer, ty);
@@ -1045,7 +1045,7 @@ pub const DeclGen = struct {
                 return;
             },
             .Pointer => switch (val.tag()) {
-                .null_value, .zero => if (ty.isSlice()) {
+                .null_value, .zero => if (ty.isSlice(mod)) {
                     var slice_pl = Value.Payload.Slice{
                         .base = .{ .tag = .slice },
                         .data = .{ .ptr = val, .len = Value.undef },
@@ -5073,7 +5073,7 @@ fn airIsNull(
         TypedValue{ .ty = optional_ty, .val = Value.null }
     else if (payload_ty.zigTypeTag(mod) == .ErrorSet)
         TypedValue{ .ty = payload_ty, .val = Value.zero }
-    else if (payload_ty.isSlice() and optional_ty.optionalReprIsPayload(mod)) rhs: {
+    else if (payload_ty.isSlice(mod) and optional_ty.optionalReprIsPayload(mod)) rhs: {
         try writer.writeAll(".ptr");
         const slice_ptr_ty = payload_ty.slicePtrFieldType(&slice_ptr_buf);
         break :rhs TypedValue{ .ty = slice_ptr_ty, .val = Value.null };
@@ -5864,6 +5864,7 @@ fn airFloatCast(f: *Function, inst: Air.Inst.Index) !CValue {
 }
 
 fn airPtrToInt(f: *Function, inst: Air.Inst.Index) !CValue {
+    const mod = f.object.dg.module;
     const un_op = f.air.instructions.items(.data)[inst].un_op;
 
     const operand = try f.resolveInst(un_op);
@@ -5877,7 +5878,7 @@ fn airPtrToInt(f: *Function, inst: Air.Inst.Index) !CValue {
     try writer.writeAll(" = (");
     try f.renderType(writer, inst_ty);
     try writer.writeByte(')');
-    if (operand_ty.isSlice()) {
+    if (operand_ty.isSlice(mod)) {
         try f.writeCValueMember(writer, operand, .{ .identifier = "len" });
     } else {
         try f.writeCValue(writer, operand, .Other);
@@ -6272,7 +6273,8 @@ fn airAtomicStore(f: *Function, inst: Air.Inst.Index, order: [*:0]const u8) !CVa
 }
 
 fn writeSliceOrPtr(f: *Function, writer: anytype, ptr: CValue, ptr_ty: Type) !void {
-    if (ptr_ty.isSlice()) {
+    const mod = f.object.dg.module;
+    if (ptr_ty.isSlice(mod)) {
         try f.writeCValueMember(writer, ptr, .{ .identifier = "ptr" });
     } else {
         try f.writeCValue(writer, ptr, .FunctionArgument);

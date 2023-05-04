@@ -2980,12 +2980,12 @@ pub const DeclGen = struct {
             // Pointer payload represents nullability: pointer or slice.
 
             var ptr_buf: Type.SlicePtrFieldTypeBuffer = undefined;
-            const ptr_ty = if (payload_ty.isSlice())
+            const ptr_ty = if (payload_ty.isSlice(mod))
                 payload_ty.slicePtrFieldType(&ptr_buf)
             else
                 payload_ty;
 
-            const ptr_id = if (payload_ty.isSlice())
+            const ptr_id = if (payload_ty.isSlice(mod))
                 try self.extractField(Type.bool, operand_id, 0)
             else
                 operand_id;
