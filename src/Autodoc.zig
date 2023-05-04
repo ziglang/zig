@@ -2153,11 +2153,13 @@ fn walkInstruction(
             };
         },
         .block => {
-            const res = DocData.WalkResult{ .expr = .{
-                .comptimeExpr = self.comptime_exprs.items.len,
-            } };
+            const res = DocData.WalkResult{
+                .typeRef = .{ .type = @enumToInt(Ref.type_type) },
+                .expr = .{ .comptimeExpr = self.comptime_exprs.items.len },
+            };
+            const block_expr = try self.getBlockSource(file, parent_src, inst_index);
             try self.comptime_exprs.append(self.arena, .{
-                .code = "if (...) { ... }",
+                .code = block_expr,
             });
             return res;
         },
@@ -2167,11 +2169,13 @@ fn walkInstruction(
                 parent_scope,
                 parent_src,
                 getBlockInlineBreak(file.zir, inst_index) orelse {
-                    const res = DocData.WalkResult{ .expr = .{
-                        .comptimeExpr = self.comptime_exprs.items.len,
-                    } };
+                    const res = DocData.WalkResult{
+                        .typeRef = .{ .type = @enumToInt(Ref.type_type) },
+                        .expr = .{ .comptimeExpr = self.comptime_exprs.items.len },
+                    };
+                    const block_inline_expr = try self.getBlockSource(file, parent_src, inst_index);
                     try self.comptime_exprs.append(self.arena, .{
-                        .code = "if (...) { ... }",
+                        .code = block_inline_expr,
                     });
                     return res;
                 },
@@ -3201,29 +3205,7 @@ fn analyzeDecl(
     const decl_src = try self.srcLocInfo(file, value_pl_node.src_node, parent_src);
 
     const name: []const u8 = switch (decl_name_index) {
-        0, 1 => unreachable, // comptime or usingnamespace decl
-        2 => {
-            unreachable;
-            // decl test
-            // const decl_status = scope.resolveDeclName(doc_comment_index);
-            // const decl_being_tested = decl_status.Analyzed;
-            // const func_index = getBlockInlineBreak(file.zir, value_index).?;
-
-            // const pl_node = data[Zir.refToIndex(func_index).?].pl_node;
-            // const fn_src = try self.srcLocInfo(file, pl_node.src_node, decl_src);
-            // const tree = try file.getTree(self.comp_module.gpa);
-            // const test_source_code = tree.getNodeSource(fn_src.src_node);
-
-            // const ast_node_index = self.ast_nodes.items.len;
-            // try self.ast_nodes.append(self.arena, .{
-            //     .file = 0,
-            //     .line = 0,
-            //     .col = 0,
-            //     .code = test_source_code,
-            // });
-            // self.decls.items[decl_being_tested].decltest = ast_node_index;
-            // continue;
-        },
+        0, 1, 2 => unreachable, // comptime or usingnamespace decl, decltest
         else => blk: {
             if (file.zir.string_bytes[decl_name_index] == 0) {
                 // test decl
@@ -3360,14 +3342,10 @@ fn analyzeDecltest(
     const decl_name_index = file.zir.extra[d.sub_index + 7];
 
     // This is known to work because decl values are always block_inlines
+    const test_source_code = try self.getBlockSource(file, parent_src, value_index);
+
     const value_pl_node = data[value_index].pl_node;
     const decl_src = try self.srcLocInfo(file, value_pl_node.src_node, parent_src);
-
-    const func_index = getBlockInlineBreak(file.zir, value_index).?;
-    const pl_node = data[Zir.refToIndex(func_index).?].pl_node;
-    const fn_src = try self.srcLocInfo(file, pl_node.src_node, decl_src);
-    const tree = try file.getTree(self.comp_module.gpa);
-    const test_source_code = tree.getNodeSource(fn_src.src_node);
 
     const decl_name: ?[]const u8 = if (decl_name_index != 0)
         file.zir.nullTerminatedString(decl_name_index)
@@ -4812,6 +4790,43 @@ fn declIsVar(
 
     // tags[tok_idx] is the token called 'mut token' in AstGen
     return (tags[tok_idx] == .keyword_var);
+}
+
+fn getBlockSource(
+    self: Autodoc,
+    file: *File,
+    parent_src: SrcLocInfo,
+    value_index: usize,
+) AutodocErrors![]const u8 {
+    const data = file.zir.instructions.items(.data);
+    const tags = file.zir.instructions.items(.tag);
+    const tree = try file.getTree(self.comp_module.gpa);
+
+    // This is known to work because decl values are always block_inlines
+    const block_pl_node = data[value_index].pl_node;
+    const block_src = try self.srcLocInfo(file, block_pl_node.src_node, parent_src);
+
+    const blk_index = idx: {
+        const pl_node = data[value_index].pl_node;
+        const extra = file.zir.extraData(Zir.Inst.Block, pl_node.payload_index);
+        const end_index = file.zir.extra[extra.end..][extra.data.body_len - 1];
+
+        if (tags[end_index] == .break_inline) {
+            break :idx @as(usize, Zir.refToIndex(data[end_index].@"break".operand).?);
+        } else {
+            break :idx null;
+        }
+    };
+
+    const blk_source = src: {
+        if (blk_index) |idx| {
+            const pl_node = data[idx].pl_node;
+            break :src try self.srcLocInfo(file, pl_node.src_node, block_src);
+        } else {
+            break :src block_src;
+        }
+    };
+    return tree.getNodeSource(blk_source.src_node);
 }
 
 fn getTLDocComment(self: *Autodoc, file: *File) ![]const u8 {
