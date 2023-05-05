@@ -356,18 +356,12 @@ pub fn Utf16Iterator(comptime endianness: std.builtin.Endian) type {
         pub fn nextCodepoint(it: *@This()) !?u21 {
             assert(it.i <= it.bytes.len);
             if (it.i == it.bytes.len) return null;
-            const c0: u21 = switch (endianness) {
-                .Little => mem.readIntLittle(u16, it.bytes[it.i..][0..2]),
-                .Big => mem.readIntBig(u16, it.bytes[it.i..][0..2]),
-            };
+            const c0: u21 = mem.readInt(u16, it.bytes[it.i..][0..2], endianness);
             it.i += 2;
             if (c0 & ~@as(u21, 0x03ff) == 0xd800) {
                 // surrogate pair
                 if (it.i >= it.bytes.len) return error.DanglingSurrogateHalf;
-                const c1: u21 = switch (endianness) {
-                    .Little => mem.readIntLittle(u16, it.bytes[it.i..][0..2]),
-                    .Big => mem.readIntBig(u16, it.bytes[it.i..][0..2]),
-                };
+                const c1: u21 = mem.readInt(u16, it.bytes[it.i..][0..2], endianness);
                 if (c1 & ~@as(u21, 0x03ff) != 0xdc00) return error.ExpectedSecondSurrogateHalf;
                 it.i += 2;
                 return 0x10000 + (((c0 & 0x03ff) << 10) | (c1 & 0x03ff));
@@ -815,13 +809,13 @@ pub fn utf8ToUtf16WithNull(
     while (it.nextCodepoint()) |codepoint| {
         if (codepoint < 0x10000) {
             const short = @intCast(u16, codepoint);
-            try result.append(mem.nativeToLittle(u16, short));
+            try result.append(mem.nativeTo(u16, short, endianness));
         } else {
             const high = @intCast(u16, (codepoint - 0x10000) >> 10) + 0xD800;
             const low = @intCast(u16, codepoint & 0x3FF) + 0xDC00;
-            try result.appendSlice(&switch (endianness) {
-                .Little => [2]u16{ mem.nativeToLittle(u16, high), mem.nativeToLittle(u16, low) },
-                .Big => [2]u16{ mem.nativeToBig(u16, high), mem.nativeToBig(u16, low) },
+            try result.appendSlice(&[2]u16{
+                mem.nativeTo(u16, high, endianness),
+                mem.nativeTo(u16, low, endianness),
             });
         }
     }
@@ -844,24 +838,13 @@ pub fn utf8ToUtf16(
         const codepoint = utf8Decode(utf8[src_i..next_src_i]) catch return error.InvalidUtf8;
         if (codepoint < 0x10000) {
             const short = @intCast(u16, codepoint);
-            utf16[dest_i] = switch (endianness) {
-                .Little => mem.nativeToLittle(u16, short),
-                .Big => mem.nativeToBig(u16, short),
-            };
+            utf16[dest_i] = mem.nativeTo(u16, short, endianness);
             dest_i += 1;
         } else {
             const high = @intCast(u16, (codepoint - 0x10000) >> 10) + 0xD800;
             const low = @intCast(u16, codepoint & 0x3FF) + 0xDC00;
-            switch (endianness) {
-                .Little => {
-                    utf16[dest_i] = mem.nativeToLittle(u16, high);
-                    utf16[dest_i + 1] = mem.nativeToLittle(u16, low);
-                },
-                .Big => {
-                    utf16[dest_i] = mem.nativeToBig(u16, high);
-                    utf16[dest_i + 1] = mem.nativeToBig(u16, low);
-                },
-            }
+            utf16[dest_i] = mem.nativeTo(u16, high, endianness);
+            utf16[dest_i + 1] = mem.nativeTo(u16, low, endianness);
             dest_i += 2;
         }
         src_i = next_src_i;
