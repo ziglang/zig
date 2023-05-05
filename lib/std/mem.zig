@@ -4226,7 +4226,8 @@ pub fn alignForwardLog2(addr: usize, log2_alignment: u8) usize {
 /// The alignment must be a power of 2 and greater than 0.
 /// Asserts that rounding up the address does not cause integer overflow.
 pub fn alignForwardGeneric(comptime T: type, addr: T, alignment: T) T {
-    assert(isValidAlignGeneric(T, alignment));
+    assert(alignment > 0);
+    assert(std.math.isPowerOfTwo(alignment));
     return alignBackwardGeneric(T, addr + (alignment - 1), alignment);
 }
 
