@@ -2906,9 +2906,14 @@ fn deferStmt(
         try gz.addDbgBlockBegin();
         const ident_name = try gz.astgen.identAsString(payload_token);
         remapped_err_code = @intCast(Zir.Inst.Index, gz.astgen.instructions.len);
-        // Use a placeholder tag of .as to allow querying things that depend on the tag,
-        // but undefined data to prevent querying of data.bin.
-        try gz.astgen.instructions.append(gz.astgen.gpa, .{ .tag = .as, .data = undefined });
+        try gz.astgen.instructions.append(gz.astgen.gpa, .{
+            .tag = .extended,
+            .data = .{ .extended = .{
+                .opcode = .errdefer_err_code,
+                .small = undefined,
+                .operand = undefined,
+            } },
+        });
         const remapped_err_code_ref = Zir.indexToRef(remapped_err_code);
         local_val_scope = .{
             .parent = &defer_gen.base,
