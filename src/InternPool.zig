@@ -11,6 +11,7 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
 const BigIntConst = std.math.big.int.Const;
+const BigIntMutable = std.math.big.int.Mutable;
 
 const InternPool = @This();
 const DeclIndex = enum(u32) { _ };
@@ -50,10 +51,7 @@ pub const Key = union(enum) {
         /// Index into the string table bytes.
         lib_name: u32,
     },
-    int: struct {
-        ty: Index,
-        big_int: BigIntConst,
-    },
+    int: Key.Int,
     enum_tag: struct {
         ty: Index,
         tag: BigIntConst,
@@ -110,6 +108,32 @@ pub const Key = union(enum) {
         child: Index,
     };
 
+    pub const Int = struct {
+        ty: Index,
+        storage: Storage,
+
+        pub const Storage = union(enum) {
+            u64: u64,
+            i64: i64,
+            big_int: BigIntConst,
+
+            /// Big enough to fit any non-BigInt value
+            pub const BigIntSpace = struct {
+                /// The +1 is headroom so that operations such as incrementing once
+                /// or decrementing once are possible without using an allocator.
+                limbs: [(@sizeOf(u64) / @sizeOf(std.math.big.Limb)) + 1]std.math.big.Limb,
+            };
+
+            pub fn toBigInt(storage: Storage, space: *BigIntSpace) BigIntConst {
+                return switch (storage) {
+                    .big_int => |x| x,
+                    .u64 => |x| BigIntMutable.init(&space.limbs, x).toConst(),
+                    .i64 => |x| BigIntMutable.init(&space.limbs, x).toConst(),
+                };
+            }
+        };
+    };
+
     pub fn hash32(key: Key) u32 {
         return @truncate(u32, key.hash64());
     }
@@ -137,9 +161,13 @@ pub const Key = union(enum) {
             => |info| std.hash.autoHash(hasher, info),
 
             .int => |int| {
+                // Canonicalize all integers by converting them to BigIntConst.
+                var buffer: Key.Int.Storage.BigIntSpace = undefined;
+                const big_int = int.storage.toBigInt(&buffer);
+
                 std.hash.autoHash(hasher, int.ty);
-                std.hash.autoHash(hasher, int.big_int.positive);
-                for (int.big_int.limbs) |limb| std.hash.autoHash(hasher, limb);
+                std.hash.autoHash(hasher, big_int.positive);
+                for (big_int.limbs) |limb| std.hash.autoHash(hasher, limb);
             },
 
             .enum_tag => |enum_tag| {
@@ -573,42 +601,27 @@ pub const static_keys = [_]Key{
 
     .{ .int = .{
         .ty = .comptime_int_type,
-        .big_int = .{
-            .limbs = &.{0},
-            .positive = true,
-        },
+        .storage = .{ .u64 = 0 },
     } },
 
     .{ .int = .{
         .ty = .usize_type,
-        .big_int = .{
-            .limbs = &.{0},
-            .positive = true,
-        },
+        .storage = .{ .u64 = 0 },
     } },
 
     .{ .int = .{
         .ty = .u8_type,
-        .big_int = .{
-            .limbs = &.{0},
-            .positive = true,
-        },
+        .storage = .{ .u64 = 0 },
     } },
 
     .{ .int = .{
         .ty = .comptime_int_type,
-        .big_int = .{
-            .limbs = &.{1},
-            .positive = true,
-        },
+        .storage = .{ .u64 = 1 },
     } },
 
     .{ .int = .{
         .ty = .usize_type,
-        .big_int = .{
-            .limbs = &.{1},
-            .positive = true,
-        },
+        .storage = .{ .u64 = 1 },
     } },
 
     .{ .enum_tag = .{
@@ -680,19 +693,19 @@ pub const Tag = enum(u8) {
     simple_internal,
     /// Type: u32
     /// data is integer value
-    int_small_u32,
+    int_u32,
     /// Type: i32
     /// data is integer value bitcasted to u32.
-    int_small_i32,
+    int_i32,
     /// A usize that fits in 32 bits.
     /// data is integer value.
-    int_small_usize,
+    int_usize,
     /// A comptime_int that fits in a u32.
     /// data is integer value.
-    int_small_comptime_unsigned,
+    int_comptime_int_u32,
     /// A comptime_int that fits in an i32.
     /// data is integer value bitcasted to u32.
-    int_small_comptime_signed,
+    int_comptime_int_i32,
     /// A positive integer value.
     /// data is a limbs index to Int.
     int_positive,
@@ -932,11 +945,26 @@ pub fn indexToKey(ip: InternPool, index: Index) Key {
         .type_error_union => @panic("TODO"),
         .type_enum_simple => @panic("TODO"),
         .simple_internal => @panic("TODO"),
-        .int_small_u32 => @panic("TODO"),
-        .int_small_i32 => @panic("TODO"),
-        .int_small_usize => @panic("TODO"),
-        .int_small_comptime_unsigned => @panic("TODO"),
-        .int_small_comptime_signed => @panic("TODO"),
+        .int_u32 => return .{ .int = .{
+            .ty = .u32_type,
+            .storage = .{ .u64 = data },
+        } },
+        .int_i32 => return .{ .int = .{
+            .ty = .i32_type,
+            .storage = .{ .i64 = @bitCast(i32, data) },
+        } },
+        .int_usize => return .{ .int = .{
+            .ty = .usize_type,
+            .storage = .{ .u64 = data },
+        } },
+        .int_comptime_int_u32 => return .{ .int = .{
+            .ty = .comptime_int_type,
+            .storage = .{ .u64 = data },
+        } },
+        .int_comptime_int_i32 => return .{ .int = .{
+            .ty = .comptime_int_type,
+            .storage = .{ .i64 = @bitCast(i32, data) },
+        } },
         .int_positive => @panic("TODO"),
         .int_negative => @panic("TODO"),
         .enum_tag_positive => @panic("TODO"),
@@ -1041,54 +1069,114 @@ pub fn get(ip: *InternPool, gpa: Allocator, key: Key) Allocator.Error!Index {
 
         .int => |int| b: {
             switch (int.ty) {
-                .u32_type => {
-                    if (int.big_int.fits(u32)) {
-                        ip.items.appendAssumeCapacity(.{
-                            .tag = .int_small_u32,
-                            .data = int.big_int.to(u32) catch unreachable,
-                        });
-                        break :b;
-                    }
+                .u32_type => switch (int.storage) {
+                    .big_int => |big_int| {
+                        if (big_int.to(u32)) |casted| {
+                            ip.items.appendAssumeCapacity(.{
+                                .tag = .int_u32,
+                                .data = casted,
+                            });
+                            break :b;
+                        } else |_| {}
+                    },
+                    inline .u64, .i64 => |x| {
+                        if (std.math.cast(u32, x)) |casted| {
+                            ip.items.appendAssumeCapacity(.{
+                                .tag = .int_u32,
+                                .data = casted,
+                            });
+                            break :b;
+                        }
+                    },
                 },
-                .i32_type => {
-                    if (int.big_int.fits(i32)) {
-                        ip.items.appendAssumeCapacity(.{
-                            .tag = .int_small_i32,
-                            .data = @bitCast(u32, int.big_int.to(i32) catch unreachable),
-                        });
-                        break :b;
-                    }
+                .i32_type => switch (int.storage) {
+                    .big_int => |big_int| {
+                        if (big_int.to(i32)) |casted| {
+                            ip.items.appendAssumeCapacity(.{
+                                .tag = .int_i32,
+                                .data = @bitCast(u32, casted),
+                            });
+                            break :b;
+                        } else |_| {}
+                    },
+                    inline .u64, .i64 => |x| {
+                        if (std.math.cast(i32, x)) |casted| {
+                            ip.items.appendAssumeCapacity(.{
+                                .tag = .int_u32,
+                                .data = @bitCast(u32, casted),
+                            });
+                            break :b;
+                        }
+                    },
                 },
-                .usize_type => {
-                    if (int.big_int.fits(u32)) {
-                        ip.items.appendAssumeCapacity(.{
-                            .tag = .int_small_usize,
-                            .data = int.big_int.to(u32) catch unreachable,
-                        });
-                        break :b;
-                    }
+                .usize_type => switch (int.storage) {
+                    .big_int => |big_int| {
+                        if (big_int.to(u32)) |casted| {
+                            ip.items.appendAssumeCapacity(.{
+                                .tag = .int_usize,
+                                .data = casted,
+                            });
+                            break :b;
+                        } else |_| {}
+                    },
+                    inline .u64, .i64 => |x| {
+                        if (std.math.cast(u32, x)) |casted| {
+                            ip.items.appendAssumeCapacity(.{
+                                .tag = .int_usize,
+                                .data = casted,
+                            });
+                            break :b;
+                        }
+                    },
                 },
-                .comptime_int_type => {
-                    if (int.big_int.fits(u32)) {
-                        ip.items.appendAssumeCapacity(.{
-                            .tag = .int_small_comptime_unsigned,
-                            .data = int.big_int.to(u32) catch unreachable,
-                        });
-                        break :b;
-                    }
-                    if (int.big_int.fits(i32)) {
-                        ip.items.appendAssumeCapacity(.{
-                            .tag = .int_small_comptime_signed,
-                            .data = @bitCast(u32, int.big_int.to(i32) catch unreachable),
-                        });
-                        break :b;
-                    }
+                .comptime_int_type => switch (int.storage) {
+                    .big_int => |big_int| {
+                        if (big_int.to(u32)) |casted| {
+                            ip.items.appendAssumeCapacity(.{
+                                .tag = .int_comptime_int_u32,
+                                .data = casted,
+                            });
+                            break :b;
+                        } else |_| {}
+                        if (big_int.to(i32)) |casted| {
+                            ip.items.appendAssumeCapacity(.{
+                                .tag = .int_comptime_int_i32,
+                                .data = @bitCast(u32, casted),
+                            });
+                            break :b;
+                        } else |_| {}
+                    },
+                    inline .u64, .i64 => |x| {
+                        if (std.math.cast(u32, x)) |casted| {
+                            ip.items.appendAssumeCapacity(.{
+                                .tag = .int_comptime_int_u32,
+                                .data = casted,
+                            });
+                            break :b;
+                        }
+                        if (std.math.cast(i32, x)) |casted| {
+                            ip.items.appendAssumeCapacity(.{
+                                .tag = .int_comptime_int_i32,
+                                .data = @bitCast(u32, casted),
+                            });
+                            break :b;
+                        }
+                    },
                 },
                 else => {},
             }
-
-            const tag: Tag = if (int.big_int.positive) .int_positive else .int_negative;
-            try addInt(ip, gpa, int.ty, tag, int.big_int.limbs);
+            switch (int.storage) {
+                .big_int => |big_int| {
+                    const tag: Tag = if (big_int.positive) .int_positive else .int_negative;
+                    try addInt(ip, gpa, int.ty, tag, big_int.limbs);
+                },
+                inline .i64, .u64 => |x| {
+                    var buf: [2]usize = undefined;
+                    const big_int = BigIntMutable.init(&buf, x).toConst();
+                    const tag: Tag = if (big_int.positive) .int_positive else .int_negative;
+                    try addInt(ip, gpa, int.ty, tag, big_int.limbs);
+                },
+            }
         },
 
         .enum_tag => |enum_tag| {
