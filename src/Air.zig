@@ -1427,8 +1427,11 @@ pub fn getRefType(air: Air, ref: Air.Inst.Ref) Type {
     const inst_index = ref_int - ref_start_index;
     const air_tags = air.instructions.items(.tag);
     const air_datas = air.instructions.items(.data);
-    assert(air_tags[inst_index] == .const_ty);
-    return air_datas[inst_index].ty;
+    return switch (air_tags[inst_index]) {
+        .const_ty => air_datas[inst_index].ty,
+        .interned => air_datas[inst_index].interned.toType(),
+        else => unreachable,
+    };
 }
 
 /// Returns the requested data, as well as the new index which is at the start of the
@@ -1492,6 +1495,7 @@ pub fn value(air: Air, inst: Inst.Ref, mod: *const Module) ?Value {
     switch (air.instructions.items(.tag)[inst_index]) {
         .constant => return air.values[air_datas[inst_index].ty_pl.payload],
         .const_ty => unreachable,
+        .interned => return air_datas[inst_index].interned.toValue(),
         else => return air.typeOfIndex(inst_index, mod.intern_pool).onePossibleValue(mod),
     }
 }
@@ -1717,8 +1721,8 @@ pub fn mustLower(air: Air, inst: Air.Inst.Index, ip: InternPool) bool {
         => false,
 
         .assembly => @truncate(u1, air.extraData(Air.Asm, data.ty_pl.payload).data.flags >> 31) != 0,
-        .load => air.typeOf(data.ty_op.operand, ip).isVolatilePtr(),
-        .slice_elem_val, .ptr_elem_val => air.typeOf(data.bin_op.lhs, ip).isVolatilePtr(),
-        .atomic_load => air.typeOf(data.atomic_load.ptr, ip).isVolatilePtr(),
+        .load => air.typeOf(data.ty_op.operand, ip).isVolatilePtrIp(ip),
+        .slice_elem_val, .ptr_elem_val => air.typeOf(data.bin_op.lhs, ip).isVolatilePtrIp(ip),
+        .atomic_load => air.typeOf(data.atomic_load.ptr, ip).isVolatilePtrIp(ip),
     };
 }

@@ -8400,7 +8400,7 @@ fn analyzeOptionalPayloadPtr(
     const child_type = opt_type.optionalChild(mod);
     const child_pointer = try Type.ptr(sema.arena, sema.mod, .{
         .pointee_type = child_type,
-        .mutable = !optional_ptr_ty.isConstPtr(),
+        .mutable = !optional_ptr_ty.isConstPtr(mod),
         .@"addrspace" = optional_ptr_ty.ptrAddressSpace(mod),
     });
 
@@ -8594,7 +8594,7 @@ fn analyzeErrUnionPayloadPtr(
     const payload_ty = err_union_ty.errorUnionPayload();
     const operand_pointer_ty = try Type.ptr(sema.arena, sema.mod, .{
         .pointee_type = payload_ty,
-        .mutable = !operand_ty.isConstPtr(),
+        .mutable = !operand_ty.isConstPtr(mod),
         .@"addrspace" = operand_ty.ptrAddressSpace(mod),
     });
 
@@ -10147,7 +10147,7 @@ fn zirSwitchCapture(
                     const ptr_field_ty = try Type.ptr(sema.arena, sema.mod, .{
                         .pointee_type = field_ty,
                         .mutable = operand_ptr_ty.ptrIsMutable(mod),
-                        .@"volatile" = operand_ptr_ty.isVolatilePtr(),
+                        .@"volatile" = operand_ptr_ty.isVolatilePtr(mod),
                         .@"addrspace" = operand_ptr_ty.ptrAddressSpace(mod),
                     });
                     return sema.addConstant(
@@ -10166,7 +10166,7 @@ fn zirSwitchCapture(
                 const ptr_field_ty = try Type.ptr(sema.arena, sema.mod, .{
                     .pointee_type = field_ty,
                     .mutable = operand_ptr_ty.ptrIsMutable(mod),
-                    .@"volatile" = operand_ptr_ty.isVolatilePtr(),
+                    .@"volatile" = operand_ptr_ty.isVolatilePtr(mod),
                     .@"addrspace" = operand_ptr_ty.ptrAddressSpace(mod),
                 });
                 return block.addStructFieldPtr(operand_ptr, field_index, ptr_field_ty);
@@ -15292,10 +15292,10 @@ fn zirCmpEq(
     }
 
     // comparing null with optionals
-    if (lhs_ty_tag == .Null and (rhs_ty_tag == .Optional or rhs_ty.isCPtr())) {
+    if (lhs_ty_tag == .Null and (rhs_ty_tag == .Optional or rhs_ty.isCPtr(mod))) {
         return sema.analyzeIsNull(block, src, rhs, op == .neq);
     }
-    if (rhs_ty_tag == .Null and (lhs_ty_tag == .Optional or lhs_ty.isCPtr())) {
+    if (rhs_ty_tag == .Null and (lhs_ty_tag == .Optional or lhs_ty.isCPtr(mod))) {
         return sema.analyzeIsNull(block, src, lhs, op == .neq);
     }
 
@@ -22254,7 +22254,7 @@ fn zirMemcpy(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!void
     const target = sema.mod.getTarget();
     const mod = sema.mod;
 
-    if (dest_ty.isConstPtr()) {
+    if (dest_ty.isConstPtr(mod)) {
         return sema.fail(block, dest_src, "cannot memcpy to constant pointer", .{});
     }
 
@@ -22452,7 +22452,7 @@ fn zirMemset(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!void
     const dest_ptr_ty = sema.typeOf(dest_ptr);
     try checkMemOperand(sema, block, dest_src, dest_ptr_ty);
 
-    if (dest_ptr_ty.isConstPtr()) {
+    if (dest_ptr_ty.isConstPtr(mod)) {
         return sema.fail(block, dest_src, "cannot memset constant pointer", .{});
     }
 
@@ -24206,7 +24206,7 @@ fn fieldPtr(
                 const result_ty = try Type.ptr(sema.arena, sema.mod, .{
                     .pointee_type = slice_ptr_ty,
                     .mutable = attr_ptr_ty.ptrIsMutable(mod),
-                    .@"volatile" = attr_ptr_ty.isVolatilePtr(),
+                    .@"volatile" = attr_ptr_ty.isVolatilePtr(mod),
                     .@"addrspace" = attr_ptr_ty.ptrAddressSpace(mod),
                 });
 
@@ -24227,7 +24227,7 @@ fn fieldPtr(
                 const result_ty = try Type.ptr(sema.arena, sema.mod, .{
                     .pointee_type = Type.usize,
                     .mutable = attr_ptr_ty.ptrIsMutable(mod),
-                    .@"volatile" = attr_ptr_ty.isVolatilePtr(),
+                    .@"volatile" = attr_ptr_ty.isVolatilePtr(mod),
                     .@"addrspace" = attr_ptr_ty.ptrAddressSpace(mod),
                 });
 
@@ -24897,7 +24897,7 @@ fn unionFieldPtr(
     const ptr_field_ty = try Type.ptr(arena, sema.mod, .{
         .pointee_type = field.ty,
         .mutable = union_ptr_ty.ptrIsMutable(mod),
-        .@"volatile" = union_ptr_ty.isVolatilePtr(),
+        .@"volatile" = union_ptr_ty.isVolatilePtr(mod),
         .@"addrspace" = union_ptr_ty.ptrAddressSpace(mod),
     });
     const enum_field_index = @intCast(u32, union_obj.tag_ty.enumFieldIndex(field_name).?);
@@ -25239,7 +25239,7 @@ fn tupleFieldPtr(
     const ptr_field_ty = try Type.ptr(sema.arena, sema.mod, .{
         .pointee_type = field_ty,
         .mutable = tuple_ptr_ty.ptrIsMutable(mod),
-        .@"volatile" = tuple_ptr_ty.isVolatilePtr(),
+        .@"volatile" = tuple_ptr_ty.isVolatilePtr(mod),
         .@"addrspace" = tuple_ptr_ty.ptrAddressSpace(mod),
     });
 
@@ -25767,7 +25767,7 @@ fn coerceExtra(
             }
 
             // coercion from C pointer
-            if (inst_ty.isCPtr()) src_c_ptr: {
+            if (inst_ty.isCPtr(mod)) src_c_ptr: {
                 if (!sema.checkPtrAttributes(dest_ty, inst_ty, &in_memory_result)) break :src_c_ptr;
                 // In this case we must add a safety check because the C pointer
                 // could be null.
@@ -27255,7 +27255,7 @@ fn storePtr2(
 ) CompileError!void {
     const mod = sema.mod;
     const ptr_ty = sema.typeOf(ptr);
-    if (ptr_ty.isConstPtr())
+    if (ptr_ty.isConstPtr(mod))
         return sema.fail(block, ptr_src, "cannot assign to constant", .{});
 
     const elem_ty = ptr_ty.childType(mod);
@@ -29843,7 +29843,7 @@ fn analyzeSlice(
             const result = try block.addBitCast(return_ty, new_ptr);
             if (block.wantSafety()) {
                 // requirement: slicing C ptr is non-null
-                if (ptr_ptr_child_ty.isCPtr()) {
+                if (ptr_ptr_child_ty.isCPtr(mod)) {
                     const is_non_null = try sema.analyzeIsNull(block, ptr_src, ptr, true);
                     try sema.addSafetyCheck(block, is_non_null, .unwrap_null);
                 }
@@ -29902,7 +29902,7 @@ fn analyzeSlice(
     try sema.requireRuntimeBlock(block, src, runtime_src);
     if (block.wantSafety()) {
         // requirement: slicing C ptr is non-null
-        if (ptr_ptr_child_ty.isCPtr()) {
+        if (ptr_ptr_child_ty.isCPtr(mod)) {
             const is_non_null = try sema.analyzeIsNull(block, ptr_src, ptr, true);
             try sema.addSafetyCheck(block, is_non_null, .unwrap_null);
         }
@@ -30720,7 +30720,7 @@ fn resolvePeerTypes(
                             err_set_ty = try chosen_set_ty.errorSetMerge(sema.arena, candidate_set_ty);
                         }
                     }
-                    seen_const = seen_const or chosen_ty.isConstPtr();
+                    seen_const = seen_const or chosen_ty.isConstPtr(mod);
                     chosen = candidate;
                     chosen_i = candidate_i + 1;
                     continue;
@@ -30876,12 +30876,12 @@ fn resolvePeerTypes(
             .Optional => {
                 const opt_child_ty = candidate_ty.optionalChild(mod);
                 if ((try sema.coerceInMemoryAllowed(block, chosen_ty, opt_child_ty, false, target, src, src)) == .ok) {
-                    seen_const = seen_const or opt_child_ty.isConstPtr();
+                    seen_const = seen_const or opt_child_ty.isConstPtr(mod);
                     any_are_null = true;
                     continue;
                 }
 
-                seen_const = seen_const or chosen_ty.isConstPtr();
+                seen_const = seen_const or chosen_ty.isConstPtr(mod);
                 any_are_null = false;
                 chosen = candidate;
                 chosen_i = candidate_i + 1;
@@ -30924,7 +30924,7 @@ fn resolvePeerTypes(
                 .Vector => continue,
                 else => {},
             },
-            .Fn => if (chosen_ty.isSinglePointer(mod) and chosen_ty.isConstPtr() and chosen_ty.childType(mod).zigTypeTag(mod) == .Fn) {
+            .Fn => if (chosen_ty.isSinglePointer(mod) and chosen_ty.isConstPtr(mod) and chosen_ty.childType(mod).zigTypeTag(mod) == .Fn) {
                 if (.ok == try sema.coerceInMemoryAllowedFns(block, chosen_ty.childType(mod), candidate_ty, target, src, src)) {
                     continue;
                 }
@@ -31023,7 +31023,7 @@ fn resolvePeerTypes(
         var info = chosen_ty.ptrInfo(mod);
         info.sentinel = chosen_child_ty.sentinel(mod);
         info.size = .Slice;
-        info.mutable = !(seen_const or chosen_child_ty.isConstPtr());
+        info.mutable = !(seen_const or chosen_child_ty.isConstPtr(mod));
         info.pointee_type = chosen_child_ty.elemType2(mod);
 
         const new_ptr_ty = try Type.ptr(sema.arena, mod, info);

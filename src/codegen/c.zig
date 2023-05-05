@@ -6117,7 +6117,7 @@ fn airCmpxchg(f: *Function, inst: Air.Inst.Index, flavor: [*:0]const u8) !CValue
         try writer.print("zig_cmpxchg_{s}((zig_atomic(", .{flavor});
         try f.renderType(writer, ty);
         try writer.writeByte(')');
-        if (ptr_ty.isVolatilePtr()) try writer.writeAll(" volatile");
+        if (ptr_ty.isVolatilePtr(mod)) try writer.writeAll(" volatile");
         try writer.writeAll(" *)");
         try f.writeCValue(writer, ptr, .Other);
         try writer.writeAll(", ");
@@ -6159,7 +6159,7 @@ fn airCmpxchg(f: *Function, inst: Air.Inst.Index, flavor: [*:0]const u8) !CValue
             try writer.print("zig_cmpxchg_{s}((zig_atomic(", .{flavor});
             try f.renderType(writer, ty);
             try writer.writeByte(')');
-            if (ptr_ty.isVolatilePtr()) try writer.writeAll(" volatile");
+            if (ptr_ty.isVolatilePtr(mod)) try writer.writeAll(" volatile");
             try writer.writeAll(" *)");
             try f.writeCValue(writer, ptr, .Other);
             try writer.writeAll(", ");
@@ -6221,7 +6221,7 @@ fn airAtomicRmw(f: *Function, inst: Air.Inst.Index) !CValue {
     if (use_atomic) try writer.writeAll("zig_atomic(");
     try f.renderType(writer, ty);
     if (use_atomic) try writer.writeByte(')');
-    if (ptr_ty.isVolatilePtr()) try writer.writeAll(" volatile");
+    if (ptr_ty.isVolatilePtr(mod)) try writer.writeAll(" volatile");
     try writer.writeAll(" *)");
     try f.writeCValue(writer, ptr, .Other);
     try writer.writeAll(", ");
@@ -6265,7 +6265,7 @@ fn airAtomicLoad(f: *Function, inst: Air.Inst.Index) !CValue {
     try writer.writeAll(", (zig_atomic(");
     try f.renderType(writer, ty);
     try writer.writeByte(')');
-    if (ptr_ty.isVolatilePtr()) try writer.writeAll(" volatile");
+    if (ptr_ty.isVolatilePtr(mod)) try writer.writeAll(" volatile");
     try writer.writeAll(" *)");
     try f.writeCValue(writer, ptr, .Other);
     try writer.writeAll(", ");
@@ -6299,7 +6299,7 @@ fn airAtomicStore(f: *Function, inst: Air.Inst.Index, order: [*:0]const u8) !CVa
     try writer.writeAll("zig_atomic_store((zig_atomic(");
     try f.renderType(writer, ty);
     try writer.writeByte(')');
-    if (ptr_ty.isVolatilePtr()) try writer.writeAll(" volatile");
+    if (ptr_ty.isVolatilePtr(mod)) try writer.writeAll(" volatile");
     try writer.writeAll(" *)");
     try f.writeCValue(writer, ptr, .Other);
     try writer.writeAll(", ");
@@ -6365,7 +6365,7 @@ fn airMemset(f: *Function, inst: Air.Inst.Index, safety: bool) !CValue {
         return .none;
     }
 
-    if (elem_abi_size > 1 or dest_ty.isVolatilePtr()) {
+    if (elem_abi_size > 1 or dest_ty.isVolatilePtr(mod)) {
         // For the assignment in this loop, the array pointer needs to get
         // casted to a regular pointer, otherwise an error like this occurs:
         // error: array type 'uint32_t[20]' (aka 'unsigned int[20]') is not assignable

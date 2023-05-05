@@ -1827,7 +1827,7 @@ fn airLoad(self: *Self, inst: Air.Inst.Index) !void {
             break :result MCValue.none;
 
         const ptr = try self.resolveInst(ty_op.operand);
-        const is_volatile = self.typeOf(ty_op.operand).isVolatilePtr();
+        const is_volatile = self.typeOf(ty_op.operand).isVolatilePtr(mod);
         if (self.liveness.isUnused(inst) and !is_volatile)
             break :result MCValue.dead;
 
