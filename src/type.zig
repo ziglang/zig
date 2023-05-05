@@ -533,14 +533,14 @@ pub const Type = struct {
                 for (a_tuple.values, 0..) |a_val, i| {
                     const ty = a_tuple.types[i];
                     const b_val = b_tuple.values[i];
-                    if (a_val.tag() == .unreachable_value) {
-                        if (b_val.tag() == .unreachable_value) {
+                    if (a_val.ip_index == .unreachable_value) {
+                        if (b_val.ip_index == .unreachable_value) {
                             continue;
                         } else {
                             return false;
                         }
                     } else {
-                        if (b_val.tag() == .unreachable_value) {
+                        if (b_val.ip_index == .unreachable_value) {
                             return false;
                         } else {
                             if (!Value.eql(a_val, b_val, ty, mod)) return false;
@@ -569,14 +569,14 @@ pub const Type = struct {
                 for (a_struct_obj.values, 0..) |a_val, i| {
                     const ty = a_struct_obj.types[i];
                     const b_val = b_struct_obj.values[i];
-                    if (a_val.tag() == .unreachable_value) {
-                        if (b_val.tag() == .unreachable_value) {
+                    if (a_val.ip_index == .unreachable_value) {
+                        if (b_val.ip_index == .unreachable_value) {
                             continue;
                         } else {
                             return false;
                         }
                     } else {
-                        if (b_val.tag() == .unreachable_value) {
+                        if (b_val.ip_index == .unreachable_value) {
                             return false;
                         } else {
                             if (!Value.eql(a_val, b_val, ty, mod)) return false;
@@ -750,7 +750,7 @@ pub const Type = struct {
                 for (tuple.types, 0..) |field_ty, i| {
                     hashWithHasher(field_ty, hasher, mod);
                     const field_val = tuple.values[i];
-                    if (field_val.tag() == .unreachable_value) continue;
+                    if (field_val.ip_index == .unreachable_value) continue;
                     field_val.hash(field_ty, hasher, mod);
                 }
             },
@@ -764,7 +764,7 @@ pub const Type = struct {
                     const field_val = struct_obj.values[i];
                     hasher.update(field_name);
                     hashWithHasher(field_ty, hasher, mod);
-                    if (field_val.tag() == .unreachable_value) continue;
+                    if (field_val.ip_index == .unreachable_value) continue;
                     field_val.hash(field_ty, hasher, mod);
                 }
             },
@@ -1139,11 +1139,11 @@ pub const Type = struct {
                     for (tuple.types, 0..) |field_ty, i| {
                         if (i != 0) try writer.writeAll(", ");
                         const val = tuple.values[i];
-                        if (val.tag() != .unreachable_value) {
+                        if (val.ip_index != .unreachable_value) {
                             try writer.writeAll("comptime ");
                         }
                         try field_ty.dump("", .{}, writer);
-                        if (val.tag() != .unreachable_value) {
+                        if (val.ip_index != .unreachable_value) {
                             try writer.print(" = {}", .{val.fmtDebug()});
                         }
                     }
@@ -1156,13 +1156,13 @@ pub const Type = struct {
                     for (anon_struct.types, 0..) |field_ty, i| {
                         if (i != 0) try writer.writeAll(", ");
                         const val = anon_struct.values[i];
-                        if (val.tag() != .unreachable_value) {
+                        if (val.ip_index != .unreachable_value) {
                             try writer.writeAll("comptime ");
                         }
                         try writer.writeAll(anon_struct.names[i]);
                         try writer.writeAll(": ");
                         try field_ty.dump("", .{}, writer);
-                        if (val.tag() != .unreachable_value) {
+                        if (val.ip_index != .unreachable_value) {
                             try writer.print(" = {}", .{val.fmtDebug()});
                         }
                     }
@@ -1408,11 +1408,11 @@ pub const Type = struct {
                 for (tuple.types, 0..) |field_ty, i| {
                     if (i != 0) try writer.writeAll(", ");
                     const val = tuple.values[i];
-                    if (val.tag() != .unreachable_value) {
+                    if (val.ip_index != .unreachable_value) {
                         try writer.writeAll("comptime ");
                     }
                     try print(field_ty, writer, mod);
-                    if (val.tag() != .unreachable_value) {
+                    if (val.ip_index != .unreachable_value) {
                         try writer.print(" = {}", .{val.fmtValue(field_ty, mod)});
                     }
                 }
@@ -1425,7 +1425,7 @@ pub const Type = struct {
                 for (anon_struct.types, 0..) |field_ty, i| {
                     if (i != 0) try writer.writeAll(", ");
                     const val = anon_struct.values[i];
-                    if (val.tag() != .unreachable_value) {
+                    if (val.ip_index != .unreachable_value) {
                         try writer.writeAll("comptime ");
                     }
                     try writer.writeAll(anon_struct.names[i]);
@@ -1433,7 +1433,7 @@ pub const Type = struct {
 
                     try print(field_ty, writer, mod);
 
-                    if (val.tag() != .unreachable_value) {
+                    if (val.ip_index != .unreachable_value) {
                         try writer.print(" = {}", .{val.fmtValue(field_ty, mod)});
                     }
                 }
@@ -1770,7 +1770,7 @@ pub const Type = struct {
                 const tuple = ty.tupleFields();
                 for (tuple.types, 0..) |field_ty, i| {
                     const val = tuple.values[i];
-                    if (val.tag() != .unreachable_value) continue; // comptime field
+                    if (val.ip_index != .unreachable_value) continue; // comptime field
                     if (try field_ty.hasRuntimeBitsAdvanced(mod, ignore_comptime_only, strat)) return true;
                 }
                 return false;
@@ -2283,7 +2283,7 @@ pub const Type = struct {
                 var big_align: u32 = 0;
                 for (tuple.types, 0..) |field_ty, i| {
                     const val = tuple.values[i];
-                    if (val.tag() != .unreachable_value) continue; // comptime field
+                    if (val.ip_index != .unreachable_value) continue; // comptime field
                     if (!(field_ty.hasRuntimeBits(mod))) continue;
 
                     switch (try field_ty.abiAlignmentAdvanced(mod, strat)) {
@@ -3845,7 +3845,7 @@ pub const Type = struct {
                 => return null,
 
                 .void => return Value.void,
-                .noreturn => return Value.initTag(.unreachable_value),
+                .noreturn => return Value.@"unreachable",
                 .null => return Value.null,
                 .undefined => return Value.undef,
 
@@ -3896,7 +3896,7 @@ pub const Type = struct {
             .tuple, .anon_struct => {
                 const tuple = ty.tupleFields();
                 for (tuple.values, 0..) |val, i| {
-                    const is_comptime = val.tag() != .unreachable_value;
+                    const is_comptime = val.ip_index != .unreachable_value;
                     if (is_comptime) continue;
                     if (tuple.types[i].onePossibleValue(mod) != null) continue;
                     return null;
@@ -3919,7 +3919,7 @@ pub const Type = struct {
                     return null;
                 }
                 switch (enum_full.fields.count()) {
-                    0 => return Value.initTag(.unreachable_value),
+                    0 => return Value.@"unreachable",
                     1 => if (enum_full.values.count() == 0) {
                         return Value.zero; // auto-numbered
                     } else {
@@ -3931,7 +3931,7 @@ pub const Type = struct {
             .enum_simple => {
                 const enum_simple = ty.castTag(.enum_simple).?.data;
                 switch (enum_simple.fields.count()) {
-                    0 => return Value.initTag(.unreachable_value),
+                    0 => return Value.@"unreachable",
                     1 => return Value.zero,
                     else => return null,
                 }
@@ -3947,7 +3947,7 @@ pub const Type = struct {
             .@"union", .union_safety_tagged, .union_tagged => {
                 const union_obj = ty.cast(Payload.Union).?.data;
                 const tag_val = union_obj.tag_ty.onePossibleValue(mod) orelse return null;
-                if (union_obj.fields.count() == 0) return Value.initTag(.unreachable_value);
+                if (union_obj.fields.count() == 0) return Value.@"unreachable";
                 const only_field = union_obj.fields.values()[0];
                 const val_val = only_field.ty.onePossibleValue(mod) orelse return null;
                 _ = tag_val;
@@ -4075,7 +4075,7 @@ pub const Type = struct {
             .tuple, .anon_struct => {
                 const tuple = ty.tupleFields();
                 for (tuple.types, 0..) |field_ty, i| {
-                    const have_comptime_val = tuple.values[i].tag() != .unreachable_value;
+                    const have_comptime_val = tuple.values[i].ip_index != .unreachable_value;
                     if (!have_comptime_val and field_ty.comptimeOnly(mod)) return true;
                 }
                 return false;
@@ -4514,7 +4514,7 @@ pub const Type = struct {
             .tuple => {
                 const tuple = ty.castTag(.tuple).?.data;
                 const val = tuple.values[index];
-                if (val.tag() == .unreachable_value) {
+                if (val.ip_index == .unreachable_value) {
                     return tuple.types[index].onePossibleValue(mod);
                 } else {
                     return val;
@@ -4523,7 +4523,7 @@ pub const Type = struct {
             .anon_struct => {
                 const anon_struct = ty.castTag(.anon_struct).?.data;
                 const val = anon_struct.values[index];
-                if (val.tag() == .unreachable_value) {
+                if (val.ip_index == .unreachable_value) {
                     return anon_struct.types[index].onePossibleValue(mod);
                 } else {
                     return val;
@@ -4544,12 +4544,12 @@ pub const Type = struct {
             .tuple => {
                 const tuple = ty.castTag(.tuple).?.data;
                 const val = tuple.values[index];
-                return val.tag() != .unreachable_value;
+                return val.ip_index != .unreachable_value;
             },
             .anon_struct => {
                 const anon_struct = ty.castTag(.anon_struct).?.data;
                 const val = anon_struct.values[index];
-                return val.tag() != .unreachable_value;
+                return val.ip_index != .unreachable_value;
             },
             else => unreachable,
         }
@@ -4647,7 +4647,7 @@ pub const Type = struct {
 
                 for (tuple.types, 0..) |field_ty, i| {
                     const field_val = tuple.values[i];
-                    if (field_val.tag() != .unreachable_value or !field_ty.hasRuntimeBits(mod)) {
+                    if (field_val.ip_index != .unreachable_value or !field_ty.hasRuntimeBits(mod)) {
                         // comptime field
                         if (i == index) return offset;
                         continue;

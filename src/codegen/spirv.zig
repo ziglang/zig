@@ -674,7 +674,7 @@ pub const DeclGen = struct {
                         try self.lower(ptr_ty, slice.ptr);
                         try self.addInt(Type.usize, slice.len);
                     },
-                    .null_value, .zero => try self.addNullPtr(try dg.resolveType(ty, .indirect)),
+                    .zero => try self.addNullPtr(try dg.resolveType(ty, .indirect)),
                     .int_u64, .one, .int_big_positive, .lazy_align, .lazy_size => {
                         try self.addInt(Type.usize, val);
                     },
@@ -813,7 +813,8 @@ pub const DeclGen = struct {
                     const error_size = Type.anyerror.abiAlignment(mod);
                     const ty_size = ty.abiSize(mod);
                     const padding = ty_size - payload_size - error_size;
-                    const payload_val = if (val.castTag(.eu_payload)) |pl| pl.data else Value.initTag(.undef);
+
+                    const payload_val = if (val.castTag(.eu_payload)) |pl| pl.data else Value.undef;
 
                     if (eu_layout.error_first) {
                         try self.lower(Type.anyerror, error_val);
@@ -1021,7 +1022,7 @@ pub const DeclGen = struct {
                     return try self.constant(Type.anyerror, error_val, repr);
                 }
 
-                const payload_val = if (val.castTag(.eu_payload)) |pl| pl.data else Value.initTag(.undef);
+                const payload_val = if (val.castTag(.eu_payload)) |pl| pl.data else Value.undef;
 
                 var members: [2]IdRef = undefined;
                 if (eu_layout.error_first) {
@@ -1292,7 +1293,7 @@ pub const DeclGen = struct {
                     var member_index: usize = 0;
                     for (tuple.types, 0..) |field_ty, i| {
                         const field_val = tuple.values[i];
-                        if (field_val.tag() != .unreachable_value or !field_ty.hasRuntimeBits(mod)) continue;
+                        if (field_val.ip_index != .unreachable_value or !field_ty.hasRuntimeBits(mod)) continue;
 
                         member_types[member_index] = try self.resolveType(field_ty, .indirect);
                         member_index += 1;
@@ -1596,7 +1597,7 @@ pub const DeclGen = struct {
             else
                 decl.val;
 
-            if (init_val.tag() == .unreachable_value) {
+            if (init_val.ip_index == .unreachable_value) {
                 return self.todo("importing extern variables", .{});
             }
 

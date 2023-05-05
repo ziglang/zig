@@ -312,7 +312,7 @@ pub fn generateSymbol(
                 ),
             },
         },
-        .Pointer => switch (typed_value.val.tag()) {
+        .Pointer => switch (typed_value.val.ip_index) {
             .null_value => {
                 switch (target.ptrBitWidth()) {
                     32 => {
@@ -327,76 +327,79 @@ pub fn generateSymbol(
                 }
                 return Result.ok;
             },
-            .zero, .one, .int_u64, .int_big_positive => {
-                switch (target.ptrBitWidth()) {
-                    32 => {
-                        const x = typed_value.val.toUnsignedInt(mod);
-                        mem.writeInt(u32, try code.addManyAsArray(4), @intCast(u32, x), endian);
-                    },
-                    64 => {
-                        const x = typed_value.val.toUnsignedInt(mod);
-                        mem.writeInt(u64, try code.addManyAsArray(8), x, endian);
-                    },
-                    else => unreachable,
-                }
-                return Result.ok;
-            },
-            .variable, .decl_ref, .decl_ref_mut => |tag| return lowerDeclRef(
-                bin_file,
-                src_loc,
-                typed_value,
-                switch (tag) {
-                    .variable => typed_value.val.castTag(.variable).?.data.owner_decl,
-                    .decl_ref => typed_value.val.castTag(.decl_ref).?.data,
-                    .decl_ref_mut => typed_value.val.castTag(.decl_ref_mut).?.data.decl_index,
-                    else => unreachable,
+            .none => switch (typed_value.val.tag()) {
+                .zero, .one, .int_u64, .int_big_positive => {
+                    switch (target.ptrBitWidth()) {
+                        32 => {
+                            const x = typed_value.val.toUnsignedInt(mod);
+                            mem.writeInt(u32, try code.addManyAsArray(4), @intCast(u32, x), endian);
+                        },
+                        64 => {
+                            const x = typed_value.val.toUnsignedInt(mod);
+                            mem.writeInt(u64, try code.addManyAsArray(8), x, endian);
+                        },
+                        else => unreachable,
+                    }
+                    return Result.ok;
                 },
-                code,
-                debug_output,
-                reloc_info,
-            ),
-            .slice => {
-                const slice = typed_value.val.castTag(.slice).?.data;
-
-                // generate ptr
-                var buf: Type.SlicePtrFieldTypeBuffer = undefined;
-                const slice_ptr_field_type = typed_value.ty.slicePtrFieldType(&buf);
-                switch (try generateSymbol(bin_file, src_loc, .{
-                    .ty = slice_ptr_field_type,
-                    .val = slice.ptr,
-                }, code, debug_output, reloc_info)) {
-                    .ok => {},
-                    .fail => |em| return Result{ .fail = em },
-                }
-
-                // generate length
-                switch (try generateSymbol(bin_file, src_loc, .{
-                    .ty = Type.usize,
-                    .val = slice.len,
-                }, code, debug_output, reloc_info)) {
-                    .ok => {},
-                    .fail => |em| return Result{ .fail = em },
-                }
-
-                return Result.ok;
-            },
-            .field_ptr, .elem_ptr, .opt_payload_ptr => return lowerParentPtr(
-                bin_file,
-                src_loc,
-                typed_value,
-                typed_value.val,
-                code,
-                debug_output,
-                reloc_info,
-            ),
-            else => return Result{
-                .fail = try ErrorMsg.create(
-                    bin_file.allocator,
+                .variable, .decl_ref, .decl_ref_mut => |tag| return lowerDeclRef(
+                    bin_file,
                     src_loc,
-                    "TODO implement generateSymbol for pointer type value: '{s}'",
-                    .{@tagName(typed_value.val.tag())},
+                    typed_value,
+                    switch (tag) {
+                        .variable => typed_value.val.castTag(.variable).?.data.owner_decl,
+                        .decl_ref => typed_value.val.castTag(.decl_ref).?.data,
+                        .decl_ref_mut => typed_value.val.castTag(.decl_ref_mut).?.data.decl_index,
+                        else => unreachable,
+                    },
+                    code,
+                    debug_output,
+                    reloc_info,
                 ),
+                .slice => {
+                    const slice = typed_value.val.castTag(.slice).?.data;
+
+                    // generate ptr
+                    var buf: Type.SlicePtrFieldTypeBuffer = undefined;
+                    const slice_ptr_field_type = typed_value.ty.slicePtrFieldType(&buf);
+                    switch (try generateSymbol(bin_file, src_loc, .{
+                        .ty = slice_ptr_field_type,
+                        .val = slice.ptr,
+                    }, code, debug_output, reloc_info)) {
+                        .ok => {},
+                        .fail => |em| return Result{ .fail = em },
+                    }
+
+                    // generate length
+                    switch (try generateSymbol(bin_file, src_loc, .{
+                        .ty = Type.usize,
+                        .val = slice.len,
+                    }, code, debug_output, reloc_info)) {
+                        .ok => {},
+                        .fail => |em| return Result{ .fail = em },
+                    }
+
+                    return Result.ok;
+                },
+                .field_ptr, .elem_ptr, .opt_payload_ptr => return lowerParentPtr(
+                    bin_file,
+                    src_loc,
+                    typed_value,
+                    typed_value.val,
+                    code,
+                    debug_output,
+                    reloc_info,
+                ),
+                else => return Result{
+                    .fail = try ErrorMsg.create(
+                        bin_file.allocator,
+                        src_loc,
+                        "TODO implement generateSymbol for pointer type value: '{s}'",
+                        .{@tagName(typed_value.val.tag())},
+                    ),
+                },
             },
+            else => unreachable,
         },
         .Int => {
             const info = typed_value.ty.intInfo(mod);
@@ -652,7 +655,7 @@ pub fn generateSymbol(
             }
 
             const padding = abi_size - (math.cast(usize, payload_type.abiSize(mod)) orelse return error.Overflow) - 1;
-            const value = if (typed_value.val.castTag(.opt_payload)) |payload| payload.data else Value.initTag(.undef);
+            const value = if (typed_value.val.castTag(.opt_payload)) |payload| payload.data else Value.undef;
             switch (try generateSymbol(bin_file, src_loc, .{
                 .ty = payload_type,
                 .val = value,
@@ -696,7 +699,7 @@ pub fn generateSymbol(
             // emit payload part of the error union
             {
                 const begin = code.items.len;
-                const payload_val = if (typed_value.val.castTag(.eu_payload)) |val| val.data else Value.initTag(.undef);
+                const payload_val = if (typed_value.val.castTag(.eu_payload)) |val| val.data else Value.undef;
                 switch (try generateSymbol(bin_file, src_loc, .{
                     .ty = payload_ty,
                     .val = payload_val,
@@ -1189,16 +1192,17 @@ pub fn genTypedValue(
         .Void => return GenResult.mcv(.none),
         .Pointer => switch (typed_value.ty.ptrSize(mod)) {
             .Slice => {},
-            else => {
-                switch (typed_value.val.tag()) {
-                    .null_value => {
-                        return GenResult.mcv(.{ .immediate = 0 });
-                    },
+            else => switch (typed_value.val.ip_index) {
+                .null_value => {
+                    return GenResult.mcv(.{ .immediate = 0 });
+                },
+                .none => switch (typed_value.val.tag()) {
                     .int_u64 => {
                         return GenResult.mcv(.{ .immediate = typed_value.val.toUnsignedInt(mod) });
                     },
                     else => {},
-                }
+                },
+                else => {},
             },
         },
         .Int => {
@@ -1216,7 +1220,7 @@ pub fn genTypedValue(
         },
         .Optional => {
             if (typed_value.ty.isPtrLikeOptional(mod)) {
-                if (typed_value.val.tag() == .null_value) return GenResult.mcv(.{ .immediate = 0 });
+                if (typed_value.val.ip_index == .null_value) return GenResult.mcv(.{ .immediate = 0 });
 
                 return genTypedValue(bin_file, src_loc, .{
                     .ty = typed_value.ty.optionalChild(mod),

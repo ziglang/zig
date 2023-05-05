@@ -1877,8 +1877,8 @@ fn resolveConstValue(
     if (try sema.resolveMaybeUndefValAllowVariables(air_ref)) |val| {
         switch (val.ip_index) {
             .generic_poison => return error.GenericPoison,
+            .undef => return sema.failWithUseOfUndef(block, src),
             .none => switch (val.tag()) {
-                .undef => return sema.failWithUseOfUndef(block, src),
                 .variable => return sema.failWithNeededComptime(block, src, reason),
                 else => return val,
             },
@@ -4409,7 +4409,7 @@ fn validateStructInit(
             if (field_ptr != 0) continue;
 
             const default_val = struct_ty.structFieldDefaultValue(i);
-            if (default_val.tag() == .unreachable_value) {
+            if (default_val.ip_index == .unreachable_value) {
                 if (struct_ty.isTuple()) {
                     const template = "missing tuple field with index {d}";
                     if (root_msg) |msg| {
@@ -4554,7 +4554,7 @@ fn validateStructInit(
         }
 
         const default_val = struct_ty.structFieldDefaultValue(i);
-        if (default_val.tag() == .unreachable_value) {
+        if (default_val.ip_index == .unreachable_value) {
             if (struct_ty.isTuple()) {
                 const template = "missing tuple field with index {d}";
                 if (root_msg) |msg| {
@@ -4644,7 +4644,7 @@ fn zirValidateArrayInit(
             var i = instrs.len;
             while (i < array_len) : (i += 1) {
                 const default_val = array_ty.structFieldDefaultValue(i);
-                if (default_val.tag() == .unreachable_value) {
+                if (default_val.ip_index == .unreachable_value) {
                     const template = "missing tuple field with index {d}";
                     if (root_msg) |msg| {
                         try sema.errNote(block, init_src, msg, template, .{i});
@@ -7885,7 +7885,7 @@ fn resolveTupleLazyValues(sema: *Sema, block: *Block, src: LazySrcLoc, ty: Type)
     const tuple = ty.tupleFields();
     for (tuple.values, 0..) |field_val, i| {
         try sema.resolveTupleLazyValues(block, src, tuple.types[i]);
-        if (field_val.tag() == .unreachable_value) continue;
+        if (field_val.ip_index == .unreachable_value) continue;
         try sema.resolveLazyValue(field_val);
     }
 }
@@ -12641,7 +12641,7 @@ fn analyzeTupleCat(
             const default_val = lhs_ty.structFieldDefaultValue(i);
             values[i] = default_val;
             const operand_src = lhs_src; // TODO better source location
-            if (default_val.tag() == .unreachable_value) {
+            if (default_val.ip_index == .unreachable_value) {
                 runtime_src = operand_src;
             }
         }
@@ -12651,7 +12651,7 @@ fn analyzeTupleCat(
             const default_val = rhs_ty.structFieldDefaultValue(i);
             values[i + lhs_len] = default_val;
             const operand_src = rhs_src; // TODO better source location
-            if (default_val.tag() == .unreachable_value) {
+            if (default_val.ip_index == .unreachable_value) {
                 runtime_src = operand_src;
             }
         }
@@ -12809,8 +12809,8 @@ fn zirArrayCat(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
             while (elem_i < lhs_len) : (elem_i += 1) {
                 const lhs_elem_i = elem_i;
                 const elem_ty = if (lhs_is_tuple) lhs_ty.structFieldType(lhs_elem_i) else lhs_info.elem_type;
-                const elem_default_val = if (lhs_is_tuple) lhs_ty.structFieldDefaultValue(lhs_elem_i) else Value.initTag(.unreachable_value);
-                const elem_val = if (elem_default_val.tag() == .unreachable_value) try lhs_sub_val.elemValue(sema.mod, sema.arena, lhs_elem_i) else elem_default_val;
+                const elem_default_val = if (lhs_is_tuple) lhs_ty.structFieldDefaultValue(lhs_elem_i) else Value.@"unreachable";
+                const elem_val = if (elem_default_val.ip_index == .unreachable_value) try lhs_sub_val.elemValue(sema.mod, sema.arena, lhs_elem_i) else elem_default_val;
                 const elem_val_inst = try sema.addConstant(elem_ty, elem_val);
                 const coerced_elem_val_inst = try sema.coerce(block, resolved_elem_ty, elem_val_inst, .unneeded);
                 const coerced_elem_val = try sema.resolveConstMaybeUndefVal(block, .unneeded, coerced_elem_val_inst, "");
@@ -12819,8 +12819,8 @@ fn zirArrayCat(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
             while (elem_i < result_len) : (elem_i += 1) {
                 const rhs_elem_i = elem_i - lhs_len;
                 const elem_ty = if (rhs_is_tuple) rhs_ty.structFieldType(rhs_elem_i) else rhs_info.elem_type;
-                const elem_default_val = if (rhs_is_tuple) rhs_ty.structFieldDefaultValue(rhs_elem_i) else Value.initTag(.unreachable_value);
-                const elem_val = if (elem_default_val.tag() == .unreachable_value) try rhs_sub_val.elemValue(sema.mod, sema.arena, rhs_elem_i) else elem_default_val;
+                const elem_default_val = if (rhs_is_tuple) rhs_ty.structFieldDefaultValue(rhs_elem_i) else Value.@"unreachable";
+                const elem_val = if (elem_default_val.ip_index == .unreachable_value) try rhs_sub_val.elemValue(sema.mod, sema.arena, rhs_elem_i) else elem_default_val;
                 const elem_val_inst = try sema.addConstant(elem_ty, elem_val);
                 const coerced_elem_val_inst = try sema.coerce(block, resolved_elem_ty, elem_val_inst, .unneeded);
                 const coerced_elem_val = try sema.resolveConstMaybeUndefVal(block, .unneeded, coerced_elem_val_inst, "");
@@ -12962,7 +12962,7 @@ fn analyzeTupleMul(
             types[i] = operand_ty.structFieldType(i);
             values[i] = operand_ty.structFieldDefaultValue(i);
             const operand_src = lhs_src; // TODO better source location
-            if (values[i].tag() == .unreachable_value) {
+            if (values[i].ip_index == .unreachable_value) {
                 runtime_src = operand_src;
             }
         }
@@ -14332,7 +14332,7 @@ fn zirOverflowArithmetic(
 
     var result: struct {
         inst: Air.Inst.Ref = .none,
-        wrapped: Value = Value.initTag(.unreachable_value),
+        wrapped: Value = Value.@"unreachable",
         overflow_bit: Value,
     } = result: {
         switch (zir_tag) {
@@ -14508,8 +14508,8 @@ fn overflowArithmeticTupleType(sema: *Sema, ty: Type) !Type {
 
     types[0] = ty;
     types[1] = ov_ty;
-    values[0] = Value.initTag(.unreachable_value);
-    values[1] = Value.initTag(.unreachable_value);
+    values[0] = Value.@"unreachable";
+    values[1] = Value.@"unreachable";
 
     return tuple_ty;
 }
@@ -15647,7 +15647,7 @@ fn zirClosureCapture(
     // value only. In such case we preserve the type and use a dummy runtime value.
     const operand = try sema.resolveInst(inst_data.operand);
     const val = (try sema.resolveMaybeUndefValAllowVariables(operand)) orelse
-        Value.initTag(.unreachable_value);
+        Value.@"unreachable";
 
     try block.wip_capture_scope.captures.putNoClobber(sema.gpa, inst, .{
         .ty = try sema.typeOf(operand).copy(sema.perm_arena),
@@ -15684,7 +15684,7 @@ fn zirClosureGet(
         scope = scope.parent.?;
     };
 
-    if (tv.val.tag() == .unreachable_value and !block.is_typeof and sema.func == null) {
+    if (tv.val.ip_index == .unreachable_value and !block.is_typeof and sema.func == null) {
         const msg = msg: {
             const name = name: {
                 const file = sema.owner_decl.getFileScope();
@@ -15712,7 +15712,7 @@ fn zirClosureGet(
         return sema.failWithOwnedErrorMsg(msg);
     }
 
-    if (tv.val.tag() == .unreachable_value and !block.is_typeof and !block.is_comptime and sema.func != null) {
+    if (tv.val.ip_index == .unreachable_value and !block.is_typeof and !block.is_comptime and sema.func != null) {
         const msg = msg: {
             const name = name: {
                 const file = sema.owner_decl.getFileScope();
@@ -15742,7 +15742,7 @@ fn zirClosureGet(
         return sema.failWithOwnedErrorMsg(msg);
     }
 
-    if (tv.val.tag() == .unreachable_value) {
+    if (tv.val.ip_index == .unreachable_value) {
         assert(block.is_typeof);
         // We need a dummy runtime instruction with the correct type.
         return block.addTy(.alloc, tv.ty);
@@ -16477,7 +16477,7 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
 
                         const struct_field_fields = try fields_anon_decl.arena().create([5]Value);
                         const field_val = tuple.values[i];
-                        const is_comptime = field_val.tag() != .unreachable_value;
+                        const is_comptime = field_val.ip_index != .unreachable_value;
                         const opt_default_val = if (is_comptime) field_val else null;
                         const default_val_ptr = try sema.optRefValue(block, field_ty, opt_default_val);
                         struct_field_fields.* = .{
@@ -16518,7 +16518,7 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                     };
 
                     const struct_field_fields = try fields_anon_decl.arena().create([5]Value);
-                    const opt_default_val = if (field.default_val.tag() == .unreachable_value)
+                    const opt_default_val = if (field.default_val.ip_index == .unreachable_value)
                         null
                     else
                         field.default_val;
@@ -16570,7 +16570,7 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                     const backing_int_ty_val = try Value.Tag.ty.create(sema.arena, struct_obj.backing_int_ty);
                     break :blk try Value.Tag.opt_payload.create(sema.arena, backing_int_ty_val);
                 } else {
-                    break :blk Value.initTag(.null_value);
+                    break :blk Value.null;
                 }
             };
 
@@ -17974,7 +17974,7 @@ fn finishStructInit(
         for (struct_obj.values, 0..) |default_val, i| {
             if (field_inits[i] != .none) continue;
 
-            if (default_val.tag() == .unreachable_value) {
+            if (default_val.ip_index == .unreachable_value) {
                 const field_name = struct_obj.names[i];
                 const template = "missing struct field: {s}";
                 const args = .{field_name};
@@ -17994,7 +17994,7 @@ fn finishStructInit(
             if (field_inits[i] != .none) continue;
 
             const default_val = struct_ty.structFieldDefaultValue(i);
-            if (default_val.tag() == .unreachable_value) {
+            if (default_val.ip_index == .unreachable_value) {
                 const template = "missing tuple field with index {d}";
                 if (root_msg) |msg| {
                     try sema.errNote(block, init_src, msg, template, .{i});
@@ -18010,7 +18010,7 @@ fn finishStructInit(
         for (struct_obj.fields.values(), 0..) |field, i| {
             if (field_inits[i] != .none) continue;
 
-            if (field.default_val.tag() == .unreachable_value) {
+            if (field.default_val.ip_index == .unreachable_value) {
                 const field_name = struct_obj.fields.keys()[i];
                 const template = "missing struct field: {s}";
                 const args = .{field_name};
@@ -18145,7 +18145,7 @@ fn zirStructInitAnon(
             if (try sema.resolveMaybeUndefVal(init)) |init_val| {
                 values[i] = init_val;
             } else {
-                values[i] = Value.initTag(.unreachable_value);
+                values[i] = Value.@"unreachable";
                 runtime_index = i;
             }
         }
@@ -18191,7 +18191,7 @@ fn zirStructInitAnon(
                 .@"addrspace" = target_util.defaultAddressSpace(target, .local),
                 .pointee_type = field_ty,
             });
-            if (values[i].tag() == .unreachable_value) {
+            if (values[i].ip_index == .unreachable_value) {
                 const init = try sema.resolveInst(item.data.init);
                 const field_ptr = try block.addStructFieldPtr(alloc, i, field_ptr_ty);
                 _ = try block.addBinOp(.store, field_ptr, init);
@@ -18357,7 +18357,7 @@ fn zirArrayInitAnon(
             if (try sema.resolveMaybeUndefVal(elem)) |val| {
                 values[i] = val;
             } else {
-                values[i] = Value.initTag(.unreachable_value);
+                values[i] = Value.@"unreachable";
                 runtime_src = operand_src;
             }
         }
@@ -18390,7 +18390,7 @@ fn zirArrayInitAnon(
                 .@"addrspace" = target_util.defaultAddressSpace(target, .local),
                 .pointee_type = types[i],
             });
-            if (values[i].tag() == .unreachable_value) {
+            if (values[i].ip_index == .unreachable_value) {
                 const field_ptr = try block.addStructFieldPtr(alloc, i, field_ptr_ty);
                 _ = try block.addBinOp(.store, field_ptr, try sema.resolveInst(operand));
             }
@@ -19545,8 +19545,8 @@ fn reifyStruct(
             else
                 opt_val;
             break :blk try payload_val.copy(new_decl_arena_allocator);
-        } else Value.initTag(.unreachable_value);
-        if (is_comptime_val.toBool(mod) and default_val.tag() == .unreachable_value) {
+        } else Value.@"unreachable";
+        if (is_comptime_val.toBool(mod) and default_val.ip_index == .unreachable_value) {
             return sema.fail(block, src, "comptime field without default initialization value", .{});
         }
 
@@ -22569,7 +22569,7 @@ fn zirVarExtended(
 
         break :blk (try sema.resolveMaybeUndefVal(init)) orelse
             return sema.failWithNeededComptime(block, init_src, "container level variable initializers must be comptime-known");
-    } else Value.initTag(.unreachable_value);
+    } else Value.@"unreachable";
 
     try sema.validateVarType(block, ty_src, var_ty, small.is_extern);
 
@@ -23070,7 +23070,7 @@ fn zirBuiltinExtern(
         const new_var = try new_decl_arena_allocator.create(Module.Var);
         new_var.* = .{
             .owner_decl = sema.owner_decl_index,
-            .init = Value.initTag(.unreachable_value),
+            .init = Value.@"unreachable",
             .is_extern = true,
             .is_mutable = false,
             .is_threadlocal = options.is_thread_local,
@@ -25726,7 +25726,7 @@ fn coerceExtra(
                         }
                     } else {
                         in_memory_result = .{ .ptr_sentinel = .{
-                            .actual = Value.initTag(.unreachable_value),
+                            .actual = Value.@"unreachable",
                             .wanted = dest_sent,
                             .ty = dst_elem_type,
                         } };
@@ -26106,26 +26106,28 @@ fn coerceExtra(
         .ErrorUnion => switch (inst_ty.zigTypeTag(mod)) {
             .ErrorUnion => eu: {
                 if (maybe_inst_val) |inst_val| {
-                    switch (inst_val.tag()) {
+                    switch (inst_val.ip_index) {
                         .undef => return sema.addConstUndef(dest_ty),
-                        .eu_payload => {
-                            const payload = try sema.addConstant(
-                                inst_ty.errorUnionPayload(),
-                                inst_val.castTag(.eu_payload).?.data,
-                            );
-                            return sema.wrapErrorUnionPayload(block, dest_ty, payload, inst_src) catch |err| switch (err) {
-                                error.NotCoercible => break :eu,
-                                else => |e| return e,
-                            };
+                        .none => switch (inst_val.tag()) {
+                            .eu_payload => {
+                                const payload = try sema.addConstant(
+                                    inst_ty.errorUnionPayload(),
+                                    inst_val.castTag(.eu_payload).?.data,
+                                );
+                                return sema.wrapErrorUnionPayload(block, dest_ty, payload, inst_src) catch |err| switch (err) {
+                                    error.NotCoercible => break :eu,
+                                    else => |e| return e,
+                                };
+                            },
+                            else => {},
                         },
-                        else => {
-                            const error_set = try sema.addConstant(
-                                inst_ty.errorUnionSet(),
-                                inst_val,
-                            );
-                            return sema.wrapErrorUnionSet(block, dest_ty, error_set, inst_src);
-                        },
+                        else => {},
                     }
+                    const error_set = try sema.addConstant(
+                        inst_ty.errorUnionSet(),
+                        inst_val,
+                    );
+                    return sema.wrapErrorUnionSet(block, dest_ty, error_set, inst_src);
                 }
             },
             .ErrorSet => {
@@ -26403,7 +26405,7 @@ const InMemoryCoercionResult = union(enum) {
                 break;
             },
             .array_sentinel => |sentinel| {
-                if (sentinel.actual.tag() != .unreachable_value) {
+                if (sentinel.actual.ip_index != .unreachable_value) {
                     try sema.errNote(block, src, msg, "array sentinel '{}' cannot cast into array sentinel '{}'", .{
                         sentinel.actual.fmtValue(sentinel.ty, sema.mod), sentinel.wanted.fmtValue(sentinel.ty, sema.mod),
                     });
@@ -26529,7 +26531,7 @@ const InMemoryCoercionResult = union(enum) {
                 break;
             },
             .ptr_sentinel => |sentinel| {
-                if (sentinel.actual.tag() != .unreachable_value) {
+                if (sentinel.actual.ip_index != .unreachable_value) {
                     try sema.errNote(block, src, msg, "pointer sentinel '{}' cannot cast into pointer sentinel '{}'", .{
                         sentinel.actual.fmtValue(sentinel.ty, sema.mod), sentinel.wanted.fmtValue(sentinel.ty, sema.mod),
                     });
@@ -26737,8 +26739,8 @@ fn coerceInMemoryAllowed(
             dest_info.sentinel.?.eql(src_info.sentinel.?, dest_info.elem_type, mod));
         if (!ok_sent) {
             return InMemoryCoercionResult{ .array_sentinel = .{
-                .actual = src_info.sentinel orelse Value.initTag(.unreachable_value),
-                .wanted = dest_info.sentinel orelse Value.initTag(.unreachable_value),
+                .actual = src_info.sentinel orelse Value.@"unreachable",
+                .wanted = dest_info.sentinel orelse Value.@"unreachable",
                 .ty = dest_info.elem_type,
             } };
         }
@@ -27119,8 +27121,8 @@ fn coerceInMemoryAllowedPtrs(
         dest_info.sentinel.?.eql(src_info.sentinel.?, dest_info.pointee_type, sema.mod));
     if (!ok_sent) {
         return InMemoryCoercionResult{ .ptr_sentinel = .{
-            .actual = src_info.sentinel orelse Value.initTag(.unreachable_value),
-            .wanted = dest_info.sentinel orelse Value.initTag(.unreachable_value),
+            .actual = src_info.sentinel orelse Value.@"unreachable",
+            .wanted = dest_info.sentinel orelse Value.@"unreachable",
             .ty = dest_info.pointee_type,
         } };
     }
@@ -27530,7 +27532,7 @@ fn beginComptimePtrMutation(
                             };
                         }
 
-                        switch (val_ptr.tag()) {
+                        switch (val_ptr.ip_index) {
                             .undef => {
                                 // An array has been initialized to undefined at comptime and now we
                                 // are for the first time setting an element. We must change the representation
@@ -27555,127 +27557,130 @@ fn beginComptimePtrMutation(
                                     parent.decl_ref_mut,
                                 );
                             },
-                            .bytes => {
-                                // An array is memory-optimized to store a slice of bytes, but we are about
-                                // to modify an individual field and the representation has to change.
-                                // If we wanted to avoid this, there would need to be special detection
-                                // elsewhere to identify when writing a value to an array element that is stored
-                                // using the `bytes` tag, and handle it without making a call to this function.
-                                const arena = parent.beginArena(sema.mod);
-                                defer parent.finishArena(sema.mod);
+                            .none => switch (val_ptr.tag()) {
+                                .bytes => {
+                                    // An array is memory-optimized to store a slice of bytes, but we are about
+                                    // to modify an individual field and the representation has to change.
+                                    // If we wanted to avoid this, there would need to be special detection
+                                    // elsewhere to identify when writing a value to an array element that is stored
+                                    // using the `bytes` tag, and handle it without making a call to this function.
+                                    const arena = parent.beginArena(sema.mod);
+                                    defer parent.finishArena(sema.mod);
 
-                                const bytes = val_ptr.castTag(.bytes).?.data;
-                                const dest_len = parent.ty.arrayLenIncludingSentinel(mod);
-                                // bytes.len may be one greater than dest_len because of the case when
-                                // assigning `[N:S]T` to `[N]T`. This is allowed; the sentinel is omitted.
-                                assert(bytes.len >= dest_len);
-                                const elems = try arena.alloc(Value, @intCast(usize, dest_len));
-                                for (elems, 0..) |*elem, i| {
-                                    elem.* = try Value.Tag.int_u64.create(arena, bytes[i]);
-                                }
+                                    const bytes = val_ptr.castTag(.bytes).?.data;
+                                    const dest_len = parent.ty.arrayLenIncludingSentinel(mod);
+                                    // bytes.len may be one greater than dest_len because of the case when
+                                    // assigning `[N:S]T` to `[N]T`. This is allowed; the sentinel is omitted.
+                                    assert(bytes.len >= dest_len);
+                                    const elems = try arena.alloc(Value, @intCast(usize, dest_len));
+                                    for (elems, 0..) |*elem, i| {
+                                        elem.* = try Value.Tag.int_u64.create(arena, bytes[i]);
+                                    }
 
-                                val_ptr.* = try Value.Tag.aggregate.create(arena, elems);
+                                    val_ptr.* = try Value.Tag.aggregate.create(arena, elems);
 
-                                return beginComptimePtrMutationInner(
+                                    return beginComptimePtrMutationInner(
+                                        sema,
+                                        block,
+                                        src,
+                                        elem_ty,
+                                        &elems[elem_ptr.index],
+                                        ptr_elem_ty,
+                                        parent.decl_ref_mut,
+                                    );
+                                },
+                                .str_lit => {
+                                    // An array is memory-optimized to store a slice of bytes, but we are about
+                                    // to modify an individual field and the representation has to change.
+                                    // If we wanted to avoid this, there would need to be special detection
+                                    // elsewhere to identify when writing a value to an array element that is stored
+                                    // using the `str_lit` tag, and handle it without making a call to this function.
+                                    const arena = parent.beginArena(sema.mod);
+                                    defer parent.finishArena(sema.mod);
+
+                                    const str_lit = val_ptr.castTag(.str_lit).?.data;
+                                    const dest_len = parent.ty.arrayLenIncludingSentinel(mod);
+                                    const bytes = sema.mod.string_literal_bytes.items[str_lit.index..][0..str_lit.len];
+                                    const elems = try arena.alloc(Value, @intCast(usize, dest_len));
+                                    for (bytes, 0..) |byte, i| {
+                                        elems[i] = try Value.Tag.int_u64.create(arena, byte);
+                                    }
+                                    if (parent.ty.sentinel(mod)) |sent_val| {
+                                        assert(elems.len == bytes.len + 1);
+                                        elems[bytes.len] = sent_val;
+                                    }
+
+                                    val_ptr.* = try Value.Tag.aggregate.create(arena, elems);
+
+                                    return beginComptimePtrMutationInner(
+                                        sema,
+                                        block,
+                                        src,
+                                        elem_ty,
+                                        &elems[elem_ptr.index],
+                                        ptr_elem_ty,
+                                        parent.decl_ref_mut,
+                                    );
+                                },
+                                .repeated => {
+                                    // An array is memory-optimized to store only a single element value, and
+                                    // that value is understood to be the same for the entire length of the array.
+                                    // However, now we want to modify an individual field and so the
+                                    // representation has to change.  If we wanted to avoid this, there would
+                                    // need to be special detection elsewhere to identify when writing a value to an
+                                    // array element that is stored using the `repeated` tag, and handle it
+                                    // without making a call to this function.
+                                    const arena = parent.beginArena(sema.mod);
+                                    defer parent.finishArena(sema.mod);
+
+                                    const repeated_val = try val_ptr.castTag(.repeated).?.data.copy(arena);
+                                    const array_len_including_sentinel =
+                                        try sema.usizeCast(block, src, parent.ty.arrayLenIncludingSentinel(mod));
+                                    const elems = try arena.alloc(Value, array_len_including_sentinel);
+                                    if (elems.len > 0) elems[0] = repeated_val;
+                                    for (elems[1..]) |*elem| {
+                                        elem.* = try repeated_val.copy(arena);
+                                    }
+
+                                    val_ptr.* = try Value.Tag.aggregate.create(arena, elems);
+
+                                    return beginComptimePtrMutationInner(
+                                        sema,
+                                        block,
+                                        src,
+                                        elem_ty,
+                                        &elems[elem_ptr.index],
+                                        ptr_elem_ty,
+                                        parent.decl_ref_mut,
+                                    );
+                                },
+
+                                .aggregate => return beginComptimePtrMutationInner(
                                     sema,
                                     block,
                                     src,
                                     elem_ty,
-                                    &elems[elem_ptr.index],
+                                    &val_ptr.castTag(.aggregate).?.data[elem_ptr.index],
                                     ptr_elem_ty,
                                     parent.decl_ref_mut,
-                                );
+                                ),
+
+                                .the_only_possible_value => {
+                                    const duped = try sema.arena.create(Value);
+                                    duped.* = Value.initTag(.the_only_possible_value);
+                                    return beginComptimePtrMutationInner(
+                                        sema,
+                                        block,
+                                        src,
+                                        elem_ty,
+                                        duped,
+                                        ptr_elem_ty,
+                                        parent.decl_ref_mut,
+                                    );
+                                },
+
+                                else => unreachable,
                             },
-                            .str_lit => {
-                                // An array is memory-optimized to store a slice of bytes, but we are about
-                                // to modify an individual field and the representation has to change.
-                                // If we wanted to avoid this, there would need to be special detection
-                                // elsewhere to identify when writing a value to an array element that is stored
-                                // using the `str_lit` tag, and handle it without making a call to this function.
-                                const arena = parent.beginArena(sema.mod);
-                                defer parent.finishArena(sema.mod);
-
-                                const str_lit = val_ptr.castTag(.str_lit).?.data;
-                                const dest_len = parent.ty.arrayLenIncludingSentinel(mod);
-                                const bytes = sema.mod.string_literal_bytes.items[str_lit.index..][0..str_lit.len];
-                                const elems = try arena.alloc(Value, @intCast(usize, dest_len));
-                                for (bytes, 0..) |byte, i| {
-                                    elems[i] = try Value.Tag.int_u64.create(arena, byte);
-                                }
-                                if (parent.ty.sentinel(mod)) |sent_val| {
-                                    assert(elems.len == bytes.len + 1);
-                                    elems[bytes.len] = sent_val;
-                                }
-
-                                val_ptr.* = try Value.Tag.aggregate.create(arena, elems);
-
-                                return beginComptimePtrMutationInner(
-                                    sema,
-                                    block,
-                                    src,
-                                    elem_ty,
-                                    &elems[elem_ptr.index],
-                                    ptr_elem_ty,
-                                    parent.decl_ref_mut,
-                                );
-                            },
-                            .repeated => {
-                                // An array is memory-optimized to store only a single element value, and
-                                // that value is understood to be the same for the entire length of the array.
-                                // However, now we want to modify an individual field and so the
-                                // representation has to change.  If we wanted to avoid this, there would
-                                // need to be special detection elsewhere to identify when writing a value to an
-                                // array element that is stored using the `repeated` tag, and handle it
-                                // without making a call to this function.
-                                const arena = parent.beginArena(sema.mod);
-                                defer parent.finishArena(sema.mod);
-
-                                const repeated_val = try val_ptr.castTag(.repeated).?.data.copy(arena);
-                                const array_len_including_sentinel =
-                                    try sema.usizeCast(block, src, parent.ty.arrayLenIncludingSentinel(mod));
-                                const elems = try arena.alloc(Value, array_len_including_sentinel);
-                                if (elems.len > 0) elems[0] = repeated_val;
-                                for (elems[1..]) |*elem| {
-                                    elem.* = try repeated_val.copy(arena);
-                                }
-
-                                val_ptr.* = try Value.Tag.aggregate.create(arena, elems);
-
-                                return beginComptimePtrMutationInner(
-                                    sema,
-                                    block,
-                                    src,
-                                    elem_ty,
-                                    &elems[elem_ptr.index],
-                                    ptr_elem_ty,
-                                    parent.decl_ref_mut,
-                                );
-                            },
-
-                            .aggregate => return beginComptimePtrMutationInner(
-                                sema,
-                                block,
-                                src,
-                                elem_ty,
-                                &val_ptr.castTag(.aggregate).?.data[elem_ptr.index],
-                                ptr_elem_ty,
-                                parent.decl_ref_mut,
-                            ),
-
-                            .the_only_possible_value => {
-                                const duped = try sema.arena.create(Value);
-                                duped.* = Value.initTag(.the_only_possible_value);
-                                return beginComptimePtrMutationInner(
-                                    sema,
-                                    block,
-                                    src,
-                                    elem_ty,
-                                    duped,
-                                    ptr_elem_ty,
-                                    parent.decl_ref_mut,
-                                );
-                            },
-
                             else => unreachable,
                         }
                     },
@@ -27728,7 +27733,7 @@ fn beginComptimePtrMutation(
 
             var parent = try sema.beginComptimePtrMutation(block, src, field_ptr.container_ptr, field_ptr.container_ty);
             switch (parent.pointee) {
-                .direct => |val_ptr| switch (val_ptr.tag()) {
+                .direct => |val_ptr| switch (val_ptr.ip_index) {
                     .undef => {
                         // A struct or union has been initialized to undefined at comptime and now we
                         // are for the first time setting a field. We must change the representation
@@ -27805,72 +27810,75 @@ fn beginComptimePtrMutation(
                             else => unreachable,
                         }
                     },
-                    .aggregate => return beginComptimePtrMutationInner(
-                        sema,
-                        block,
-                        src,
-                        parent.ty.structFieldType(field_index),
-                        &val_ptr.castTag(.aggregate).?.data[field_index],
-                        ptr_elem_ty,
-                        parent.decl_ref_mut,
-                    ),
-
-                    .@"union" => {
-                        // We need to set the active field of the union.
-                        const arena = parent.beginArena(sema.mod);
-                        defer parent.finishArena(sema.mod);
-
-                        const payload = &val_ptr.castTag(.@"union").?.data;
-                        payload.tag = try Value.Tag.enum_field_index.create(arena, field_index);
-
-                        return beginComptimePtrMutationInner(
+                    .none => switch (val_ptr.tag()) {
+                        .aggregate => return beginComptimePtrMutationInner(
                             sema,
                             block,
                             src,
                             parent.ty.structFieldType(field_index),
-                            &payload.val,
-                            ptr_elem_ty,
-                            parent.decl_ref_mut,
-                        );
-                    },
-                    .slice => switch (field_index) {
-                        Value.Payload.Slice.ptr_index => return beginComptimePtrMutationInner(
-                            sema,
-                            block,
-                            src,
-                            parent.ty.slicePtrFieldType(try sema.arena.create(Type.SlicePtrFieldTypeBuffer)),
-                            &val_ptr.castTag(.slice).?.data.ptr,
+                            &val_ptr.castTag(.aggregate).?.data[field_index],
                             ptr_elem_ty,
                             parent.decl_ref_mut,
                         ),
 
-                        Value.Payload.Slice.len_index => return beginComptimePtrMutationInner(
-                            sema,
-                            block,
-                            src,
-                            Type.usize,
-                            &val_ptr.castTag(.slice).?.data.len,
-                            ptr_elem_ty,
-                            parent.decl_ref_mut,
-                        ),
+                        .@"union" => {
+                            // We need to set the active field of the union.
+                            const arena = parent.beginArena(sema.mod);
+                            defer parent.finishArena(sema.mod);
+
+                            const payload = &val_ptr.castTag(.@"union").?.data;
+                            payload.tag = try Value.Tag.enum_field_index.create(arena, field_index);
+
+                            return beginComptimePtrMutationInner(
+                                sema,
+                                block,
+                                src,
+                                parent.ty.structFieldType(field_index),
+                                &payload.val,
+                                ptr_elem_ty,
+                                parent.decl_ref_mut,
+                            );
+                        },
+                        .slice => switch (field_index) {
+                            Value.Payload.Slice.ptr_index => return beginComptimePtrMutationInner(
+                                sema,
+                                block,
+                                src,
+                                parent.ty.slicePtrFieldType(try sema.arena.create(Type.SlicePtrFieldTypeBuffer)),
+                                &val_ptr.castTag(.slice).?.data.ptr,
+                                ptr_elem_ty,
+                                parent.decl_ref_mut,
+                            ),
+
+                            Value.Payload.Slice.len_index => return beginComptimePtrMutationInner(
+                                sema,
+                                block,
+                                src,
+                                Type.usize,
+                                &val_ptr.castTag(.slice).?.data.len,
+                                ptr_elem_ty,
+                                parent.decl_ref_mut,
+                            ),
+
+                            else => unreachable,
+                        },
+
+                        .empty_struct_value => {
+                            const duped = try sema.arena.create(Value);
+                            duped.* = Value.initTag(.the_only_possible_value);
+                            return beginComptimePtrMutationInner(
+                                sema,
+                                block,
+                                src,
+                                parent.ty.structFieldType(field_index),
+                                duped,
+                                ptr_elem_ty,
+                                parent.decl_ref_mut,
+                            );
+                        },
 
                         else => unreachable,
                     },
-
-                    .empty_struct_value => {
-                        const duped = try sema.arena.create(Value);
-                        duped.* = Value.initTag(.the_only_possible_value);
-                        return beginComptimePtrMutationInner(
-                            sema,
-                            block,
-                            src,
-                            parent.ty.structFieldType(field_index),
-                            duped,
-                            ptr_elem_ty,
-                            parent.decl_ref_mut,
-                        );
-                    },
-
                     else => unreachable,
                 },
                 .reinterpret => |reinterpret| {
@@ -27941,7 +27949,7 @@ fn beginComptimePtrMutation(
             switch (parent.pointee) {
                 .direct => |val_ptr| {
                     const payload_ty = parent.ty.optionalChild(mod);
-                    switch (val_ptr.tag()) {
+                    switch (val_ptr.ip_index) {
                         .undef, .null_value => {
                             // An optional has been initialized to undefined at comptime and now we
                             // are for the first time setting the payload. We must change the
@@ -27963,12 +27971,19 @@ fn beginComptimePtrMutation(
                                 .ty = payload_ty,
                             };
                         },
-                        .opt_payload => return ComptimePtrMutationKit{
-                            .decl_ref_mut = parent.decl_ref_mut,
-                            .pointee = .{ .direct = &val_ptr.castTag(.opt_payload).?.data },
-                            .ty = payload_ty,
-                        },
+                        .none => switch (val_ptr.tag()) {
+                            .opt_payload => return ComptimePtrMutationKit{
+                                .decl_ref_mut = parent.decl_ref_mut,
+                                .pointee = .{ .direct = &val_ptr.castTag(.opt_payload).?.data },
+                                .ty = payload_ty,
+                            },
 
+                            else => return ComptimePtrMutationKit{
+                                .decl_ref_mut = parent.decl_ref_mut,
+                                .pointee = .{ .direct = val_ptr },
+                                .ty = payload_ty,
+                            },
+                        },
                         else => return ComptimePtrMutationKit{
                             .decl_ref_mut = parent.decl_ref_mut,
                             .pointee = .{ .direct = val_ptr },
@@ -28082,231 +28097,236 @@ fn beginComptimePtrLoad(
 ) ComptimePtrLoadError!ComptimePtrLoadKit {
     const mod = sema.mod;
     const target = sema.mod.getTarget();
-    var deref: ComptimePtrLoadKit = switch (ptr_val.tag()) {
-        .decl_ref,
-        .decl_ref_mut,
-        => blk: {
-            const decl_index = switch (ptr_val.tag()) {
-                .decl_ref => ptr_val.castTag(.decl_ref).?.data,
-                .decl_ref_mut => ptr_val.castTag(.decl_ref_mut).?.data.decl_index,
-                else => unreachable,
-            };
-            const is_mutable = ptr_val.tag() == .decl_ref_mut;
-            const decl = sema.mod.declPtr(decl_index);
-            const decl_tv = try decl.typedValue();
-            if (decl_tv.val.tag() == .variable) return error.RuntimeLoad;
 
-            const layout_defined = decl.ty.hasWellDefinedLayout(mod);
-            break :blk ComptimePtrLoadKit{
-                .parent = if (layout_defined) .{ .tv = decl_tv, .byte_offset = 0 } else null,
-                .pointee = decl_tv,
-                .is_mutable = is_mutable,
-                .ty_without_well_defined_layout = if (!layout_defined) decl.ty else null,
-            };
-        },
-
-        .elem_ptr => blk: {
-            const elem_ptr = ptr_val.castTag(.elem_ptr).?.data;
-            const elem_ty = elem_ptr.elem_ty;
-            var deref = try sema.beginComptimePtrLoad(block, src, elem_ptr.array_ptr, null);
-
-            // This code assumes that elem_ptrs have been "flattened" in order for direct dereference
-            // to succeed, meaning that elem ptrs of the same elem_ty are coalesced. Here we check that
-            // our parent is not an elem_ptr with the same elem_ty, since that would be "unflattened"
-            if (elem_ptr.array_ptr.castTag(.elem_ptr)) |parent_elem_ptr| {
-                assert(!(parent_elem_ptr.data.elem_ty.eql(elem_ty, sema.mod)));
-            }
-
-            if (elem_ptr.index != 0) {
-                if (elem_ty.hasWellDefinedLayout(mod)) {
-                    if (deref.parent) |*parent| {
-                        // Update the byte offset (in-place)
-                        const elem_size = try sema.typeAbiSize(elem_ty);
-                        const offset = parent.byte_offset + elem_size * elem_ptr.index;
-                        parent.byte_offset = try sema.usizeCast(block, src, offset);
-                    }
-                } else {
-                    deref.parent = null;
-                    deref.ty_without_well_defined_layout = elem_ty;
-                }
-            }
-
-            // If we're loading an elem_ptr that was derived from a different type
-            // than the true type of the underlying decl, we cannot deref directly
-            const ty_matches = if (deref.pointee != null and deref.pointee.?.ty.isArrayOrVector(mod)) x: {
-                const deref_elem_ty = deref.pointee.?.ty.childType(mod);
-                break :x (try sema.coerceInMemoryAllowed(block, deref_elem_ty, elem_ty, false, target, src, src)) == .ok or
-                    (try sema.coerceInMemoryAllowed(block, elem_ty, deref_elem_ty, false, target, src, src)) == .ok;
-            } else false;
-            if (!ty_matches) {
-                deref.pointee = null;
-                break :blk deref;
-            }
-
-            var array_tv = deref.pointee.?;
-            const check_len = array_tv.ty.arrayLenIncludingSentinel(mod);
-            if (maybe_array_ty) |load_ty| {
-                // It's possible that we're loading a [N]T, in which case we'd like to slice
-                // the pointee array directly from our parent array.
-                if (load_ty.isArrayOrVector(mod) and load_ty.childType(mod).eql(elem_ty, sema.mod)) {
-                    const N = try sema.usizeCast(block, src, load_ty.arrayLenIncludingSentinel(mod));
-                    deref.pointee = if (elem_ptr.index + N <= check_len) TypedValue{
-                        .ty = try Type.array(sema.arena, N, null, elem_ty, sema.mod),
-                        .val = try array_tv.val.sliceArray(sema.mod, sema.arena, elem_ptr.index, elem_ptr.index + N),
-                    } else null;
-                    break :blk deref;
-                }
-            }
-
-            if (elem_ptr.index >= check_len) {
-                deref.pointee = null;
-                break :blk deref;
-            }
-            if (elem_ptr.index == check_len - 1) {
-                if (array_tv.ty.sentinel(mod)) |sent| {
-                    deref.pointee = TypedValue{
-                        .ty = elem_ty,
-                        .val = sent,
-                    };
-                    break :blk deref;
-                }
-            }
-            deref.pointee = TypedValue{
-                .ty = elem_ty,
-                .val = try array_tv.val.elemValue(sema.mod, sema.arena, elem_ptr.index),
-            };
-            break :blk deref;
-        },
-
-        .slice => blk: {
-            const slice = ptr_val.castTag(.slice).?.data;
-            break :blk try sema.beginComptimePtrLoad(block, src, slice.ptr, null);
-        },
-
-        .field_ptr => blk: {
-            const field_ptr = ptr_val.castTag(.field_ptr).?.data;
-            const field_index = @intCast(u32, field_ptr.field_index);
-            var deref = try sema.beginComptimePtrLoad(block, src, field_ptr.container_ptr, field_ptr.container_ty);
-
-            if (field_ptr.container_ty.hasWellDefinedLayout(mod)) {
-                const struct_ty = field_ptr.container_ty.castTag(.@"struct");
-                if (struct_ty != null and struct_ty.?.data.layout == .Packed) {
-                    // packed structs are not byte addressable
-                    deref.parent = null;
-                } else if (deref.parent) |*parent| {
-                    // Update the byte offset (in-place)
-                    try sema.resolveTypeLayout(field_ptr.container_ty);
-                    const field_offset = field_ptr.container_ty.structFieldOffset(field_index, mod);
-                    parent.byte_offset = try sema.usizeCast(block, src, parent.byte_offset + field_offset);
-                }
-            } else {
-                deref.parent = null;
-                deref.ty_without_well_defined_layout = field_ptr.container_ty;
-            }
-
-            const tv = deref.pointee orelse {
-                deref.pointee = null;
-                break :blk deref;
-            };
-            const coerce_in_mem_ok =
-                (try sema.coerceInMemoryAllowed(block, field_ptr.container_ty, tv.ty, false, target, src, src)) == .ok or
-                (try sema.coerceInMemoryAllowed(block, tv.ty, field_ptr.container_ty, false, target, src, src)) == .ok;
-            if (!coerce_in_mem_ok) {
-                deref.pointee = null;
-                break :blk deref;
-            }
-
-            if (field_ptr.container_ty.isSlice(mod)) {
-                const slice_val = tv.val.castTag(.slice).?.data;
-                deref.pointee = switch (field_index) {
-                    Value.Payload.Slice.ptr_index => TypedValue{
-                        .ty = field_ptr.container_ty.slicePtrFieldType(try sema.arena.create(Type.SlicePtrFieldTypeBuffer)),
-                        .val = slice_val.ptr,
-                    },
-                    Value.Payload.Slice.len_index => TypedValue{
-                        .ty = Type.usize,
-                        .val = slice_val.len,
-                    },
-                    else => unreachable,
-                };
-            } else {
-                const field_ty = field_ptr.container_ty.structFieldType(field_index);
-                deref.pointee = TypedValue{
-                    .ty = field_ty,
-                    .val = tv.val.fieldValue(tv.ty, mod, field_index),
-                };
-            }
-            break :blk deref;
-        },
-
-        .comptime_field_ptr => blk: {
-            const comptime_field_ptr = ptr_val.castTag(.comptime_field_ptr).?.data;
-            break :blk ComptimePtrLoadKit{
-                .parent = null,
-                .pointee = .{ .ty = comptime_field_ptr.field_ty, .val = comptime_field_ptr.field_val },
-                .is_mutable = false,
-                .ty_without_well_defined_layout = comptime_field_ptr.field_ty,
-            };
-        },
-
-        .opt_payload_ptr,
-        .eu_payload_ptr,
-        => blk: {
-            const payload_ptr = ptr_val.cast(Value.Payload.PayloadPtr).?.data;
-            const payload_ty = switch (ptr_val.tag()) {
-                .eu_payload_ptr => payload_ptr.container_ty.errorUnionPayload(),
-                .opt_payload_ptr => payload_ptr.container_ty.optionalChild(mod),
-                else => unreachable,
-            };
-            var deref = try sema.beginComptimePtrLoad(block, src, payload_ptr.container_ptr, payload_ptr.container_ty);
-
-            // eu_payload_ptr and opt_payload_ptr never have a well-defined layout
-            if (deref.parent != null) {
-                deref.parent = null;
-                deref.ty_without_well_defined_layout = payload_ptr.container_ty;
-            }
-
-            if (deref.pointee) |*tv| {
-                const coerce_in_mem_ok =
-                    (try sema.coerceInMemoryAllowed(block, payload_ptr.container_ty, tv.ty, false, target, src, src)) == .ok or
-                    (try sema.coerceInMemoryAllowed(block, tv.ty, payload_ptr.container_ty, false, target, src, src)) == .ok;
-                if (coerce_in_mem_ok) {
-                    const payload_val = switch (ptr_val.tag()) {
-                        .eu_payload_ptr => if (tv.val.castTag(.eu_payload)) |some| some.data else {
-                            return sema.fail(block, src, "attempt to unwrap error: {s}", .{tv.val.castTag(.@"error").?.data.name});
-                        },
-                        .opt_payload_ptr => if (tv.val.castTag(.opt_payload)) |some| some.data else opt: {
-                            if (tv.val.isNull(mod)) return sema.fail(block, src, "attempt to use null value", .{});
-                            break :opt tv.val;
-                        },
-                        else => unreachable,
-                    };
-                    tv.* = TypedValue{ .ty = payload_ty, .val = payload_val };
-                    break :blk deref;
-                }
-            }
-            deref.pointee = null;
-            break :blk deref;
-        },
+    var deref: ComptimePtrLoadKit = switch (ptr_val.ip_index) {
         .null_value => {
             return sema.fail(block, src, "attempt to use null value", .{});
         },
-        .opt_payload => blk: {
-            const opt_payload = ptr_val.castTag(.opt_payload).?.data;
-            break :blk try sema.beginComptimePtrLoad(block, src, opt_payload, null);
+
+        .none => switch (ptr_val.tag()) {
+            .decl_ref,
+            .decl_ref_mut,
+            => blk: {
+                const decl_index = switch (ptr_val.tag()) {
+                    .decl_ref => ptr_val.castTag(.decl_ref).?.data,
+                    .decl_ref_mut => ptr_val.castTag(.decl_ref_mut).?.data.decl_index,
+                    else => unreachable,
+                };
+                const is_mutable = ptr_val.tag() == .decl_ref_mut;
+                const decl = sema.mod.declPtr(decl_index);
+                const decl_tv = try decl.typedValue();
+                if (decl_tv.val.tag() == .variable) return error.RuntimeLoad;
+
+                const layout_defined = decl.ty.hasWellDefinedLayout(mod);
+                break :blk ComptimePtrLoadKit{
+                    .parent = if (layout_defined) .{ .tv = decl_tv, .byte_offset = 0 } else null,
+                    .pointee = decl_tv,
+                    .is_mutable = is_mutable,
+                    .ty_without_well_defined_layout = if (!layout_defined) decl.ty else null,
+                };
+            },
+
+            .elem_ptr => blk: {
+                const elem_ptr = ptr_val.castTag(.elem_ptr).?.data;
+                const elem_ty = elem_ptr.elem_ty;
+                var deref = try sema.beginComptimePtrLoad(block, src, elem_ptr.array_ptr, null);
+
+                // This code assumes that elem_ptrs have been "flattened" in order for direct dereference
+                // to succeed, meaning that elem ptrs of the same elem_ty are coalesced. Here we check that
+                // our parent is not an elem_ptr with the same elem_ty, since that would be "unflattened"
+                if (elem_ptr.array_ptr.castTag(.elem_ptr)) |parent_elem_ptr| {
+                    assert(!(parent_elem_ptr.data.elem_ty.eql(elem_ty, sema.mod)));
+                }
+
+                if (elem_ptr.index != 0) {
+                    if (elem_ty.hasWellDefinedLayout(mod)) {
+                        if (deref.parent) |*parent| {
+                            // Update the byte offset (in-place)
+                            const elem_size = try sema.typeAbiSize(elem_ty);
+                            const offset = parent.byte_offset + elem_size * elem_ptr.index;
+                            parent.byte_offset = try sema.usizeCast(block, src, offset);
+                        }
+                    } else {
+                        deref.parent = null;
+                        deref.ty_without_well_defined_layout = elem_ty;
+                    }
+                }
+
+                // If we're loading an elem_ptr that was derived from a different type
+                // than the true type of the underlying decl, we cannot deref directly
+                const ty_matches = if (deref.pointee != null and deref.pointee.?.ty.isArrayOrVector(mod)) x: {
+                    const deref_elem_ty = deref.pointee.?.ty.childType(mod);
+                    break :x (try sema.coerceInMemoryAllowed(block, deref_elem_ty, elem_ty, false, target, src, src)) == .ok or
+                        (try sema.coerceInMemoryAllowed(block, elem_ty, deref_elem_ty, false, target, src, src)) == .ok;
+                } else false;
+                if (!ty_matches) {
+                    deref.pointee = null;
+                    break :blk deref;
+                }
+
+                var array_tv = deref.pointee.?;
+                const check_len = array_tv.ty.arrayLenIncludingSentinel(mod);
+                if (maybe_array_ty) |load_ty| {
+                    // It's possible that we're loading a [N]T, in which case we'd like to slice
+                    // the pointee array directly from our parent array.
+                    if (load_ty.isArrayOrVector(mod) and load_ty.childType(mod).eql(elem_ty, sema.mod)) {
+                        const N = try sema.usizeCast(block, src, load_ty.arrayLenIncludingSentinel(mod));
+                        deref.pointee = if (elem_ptr.index + N <= check_len) TypedValue{
+                            .ty = try Type.array(sema.arena, N, null, elem_ty, sema.mod),
+                            .val = try array_tv.val.sliceArray(sema.mod, sema.arena, elem_ptr.index, elem_ptr.index + N),
+                        } else null;
+                        break :blk deref;
+                    }
+                }
+
+                if (elem_ptr.index >= check_len) {
+                    deref.pointee = null;
+                    break :blk deref;
+                }
+                if (elem_ptr.index == check_len - 1) {
+                    if (array_tv.ty.sentinel(mod)) |sent| {
+                        deref.pointee = TypedValue{
+                            .ty = elem_ty,
+                            .val = sent,
+                        };
+                        break :blk deref;
+                    }
+                }
+                deref.pointee = TypedValue{
+                    .ty = elem_ty,
+                    .val = try array_tv.val.elemValue(sema.mod, sema.arena, elem_ptr.index),
+                };
+                break :blk deref;
+            },
+
+            .slice => blk: {
+                const slice = ptr_val.castTag(.slice).?.data;
+                break :blk try sema.beginComptimePtrLoad(block, src, slice.ptr, null);
+            },
+
+            .field_ptr => blk: {
+                const field_ptr = ptr_val.castTag(.field_ptr).?.data;
+                const field_index = @intCast(u32, field_ptr.field_index);
+                var deref = try sema.beginComptimePtrLoad(block, src, field_ptr.container_ptr, field_ptr.container_ty);
+
+                if (field_ptr.container_ty.hasWellDefinedLayout(mod)) {
+                    const struct_ty = field_ptr.container_ty.castTag(.@"struct");
+                    if (struct_ty != null and struct_ty.?.data.layout == .Packed) {
+                        // packed structs are not byte addressable
+                        deref.parent = null;
+                    } else if (deref.parent) |*parent| {
+                        // Update the byte offset (in-place)
+                        try sema.resolveTypeLayout(field_ptr.container_ty);
+                        const field_offset = field_ptr.container_ty.structFieldOffset(field_index, mod);
+                        parent.byte_offset = try sema.usizeCast(block, src, parent.byte_offset + field_offset);
+                    }
+                } else {
+                    deref.parent = null;
+                    deref.ty_without_well_defined_layout = field_ptr.container_ty;
+                }
+
+                const tv = deref.pointee orelse {
+                    deref.pointee = null;
+                    break :blk deref;
+                };
+                const coerce_in_mem_ok =
+                    (try sema.coerceInMemoryAllowed(block, field_ptr.container_ty, tv.ty, false, target, src, src)) == .ok or
+                    (try sema.coerceInMemoryAllowed(block, tv.ty, field_ptr.container_ty, false, target, src, src)) == .ok;
+                if (!coerce_in_mem_ok) {
+                    deref.pointee = null;
+                    break :blk deref;
+                }
+
+                if (field_ptr.container_ty.isSlice(mod)) {
+                    const slice_val = tv.val.castTag(.slice).?.data;
+                    deref.pointee = switch (field_index) {
+                        Value.Payload.Slice.ptr_index => TypedValue{
+                            .ty = field_ptr.container_ty.slicePtrFieldType(try sema.arena.create(Type.SlicePtrFieldTypeBuffer)),
+                            .val = slice_val.ptr,
+                        },
+                        Value.Payload.Slice.len_index => TypedValue{
+                            .ty = Type.usize,
+                            .val = slice_val.len,
+                        },
+                        else => unreachable,
+                    };
+                } else {
+                    const field_ty = field_ptr.container_ty.structFieldType(field_index);
+                    deref.pointee = TypedValue{
+                        .ty = field_ty,
+                        .val = tv.val.fieldValue(tv.ty, mod, field_index),
+                    };
+                }
+                break :blk deref;
+            },
+
+            .comptime_field_ptr => blk: {
+                const comptime_field_ptr = ptr_val.castTag(.comptime_field_ptr).?.data;
+                break :blk ComptimePtrLoadKit{
+                    .parent = null,
+                    .pointee = .{ .ty = comptime_field_ptr.field_ty, .val = comptime_field_ptr.field_val },
+                    .is_mutable = false,
+                    .ty_without_well_defined_layout = comptime_field_ptr.field_ty,
+                };
+            },
+
+            .opt_payload_ptr,
+            .eu_payload_ptr,
+            => blk: {
+                const payload_ptr = ptr_val.cast(Value.Payload.PayloadPtr).?.data;
+                const payload_ty = switch (ptr_val.tag()) {
+                    .eu_payload_ptr => payload_ptr.container_ty.errorUnionPayload(),
+                    .opt_payload_ptr => payload_ptr.container_ty.optionalChild(mod),
+                    else => unreachable,
+                };
+                var deref = try sema.beginComptimePtrLoad(block, src, payload_ptr.container_ptr, payload_ptr.container_ty);
+
+                // eu_payload_ptr and opt_payload_ptr never have a well-defined layout
+                if (deref.parent != null) {
+                    deref.parent = null;
+                    deref.ty_without_well_defined_layout = payload_ptr.container_ty;
+                }
+
+                if (deref.pointee) |*tv| {
+                    const coerce_in_mem_ok =
+                        (try sema.coerceInMemoryAllowed(block, payload_ptr.container_ty, tv.ty, false, target, src, src)) == .ok or
+                        (try sema.coerceInMemoryAllowed(block, tv.ty, payload_ptr.container_ty, false, target, src, src)) == .ok;
+                    if (coerce_in_mem_ok) {
+                        const payload_val = switch (ptr_val.tag()) {
+                            .eu_payload_ptr => if (tv.val.castTag(.eu_payload)) |some| some.data else {
+                                return sema.fail(block, src, "attempt to unwrap error: {s}", .{tv.val.castTag(.@"error").?.data.name});
+                            },
+                            .opt_payload_ptr => if (tv.val.castTag(.opt_payload)) |some| some.data else opt: {
+                                if (tv.val.isNull(mod)) return sema.fail(block, src, "attempt to use null value", .{});
+                                break :opt tv.val;
+                            },
+                            else => unreachable,
+                        };
+                        tv.* = TypedValue{ .ty = payload_ty, .val = payload_val };
+                        break :blk deref;
+                    }
+                }
+                deref.pointee = null;
+                break :blk deref;
+            },
+            .opt_payload => blk: {
+                const opt_payload = ptr_val.castTag(.opt_payload).?.data;
+                break :blk try sema.beginComptimePtrLoad(block, src, opt_payload, null);
+            },
+
+            .zero,
+            .one,
+            .int_u64,
+            .int_i64,
+            .int_big_positive,
+            .int_big_negative,
+            .variable,
+            .extern_fn,
+            .function,
+            => return error.RuntimeLoad,
+
+            else => unreachable,
         },
-
-        .zero,
-        .one,
-        .int_u64,
-        .int_i64,
-        .int_big_positive,
-        .int_big_negative,
-        .variable,
-        .extern_fn,
-        .function,
-        => return error.RuntimeLoad,
-
         else => unreachable,
     };
 
@@ -28943,7 +28963,7 @@ fn coerceTupleToStruct(
         const field_name = fields.keys()[i];
         const field = fields.values()[i];
         const field_src = inst_src; // TODO better source location
-        if (field.default_val.tag() == .unreachable_value) {
+        if (field.default_val.ip_index == .unreachable_value) {
             const template = "missing struct field: {s}";
             const args = .{field_name};
             if (root_msg) |msg| {
@@ -29013,7 +29033,7 @@ fn coerceTupleToTuple(
         const elem_ref = try sema.tupleField(block, inst_src, inst, field_src, field_i);
         const coerced = try sema.coerce(block, field_ty, elem_ref, field_src);
         field_refs[field_index] = coerced;
-        if (default_val.tag() != .unreachable_value) {
+        if (default_val.ip_index != .unreachable_value) {
             const init_val = (try sema.resolveMaybeUndefVal(coerced)) orelse {
                 return sema.failWithNeededComptime(block, field_src, "value stored in comptime field must be comptime-known");
             };
@@ -29042,7 +29062,7 @@ fn coerceTupleToTuple(
         const field_ty = tuple_ty.structFieldType(i);
 
         const field_src = inst_src; // TODO better source location
-        if (default_val.tag() == .unreachable_value) {
+        if (default_val.ip_index == .unreachable_value) {
             if (tuple_ty.isTuple()) {
                 const template = "missing tuple field: {d}";
                 if (root_msg) |msg| {
@@ -31543,7 +31563,7 @@ pub fn resolveTypeRequiresComptime(sema: *Sema, ty: Type) CompileError!bool {
         .tuple, .anon_struct => {
             const tuple = ty.tupleFields();
             for (tuple.types, 0..) |field_ty, i| {
-                const have_comptime_val = tuple.values[i].tag() != .unreachable_value;
+                const have_comptime_val = tuple.values[i].ip_index != .unreachable_value;
                 if (!have_comptime_val and try sema.resolveTypeRequiresComptime(field_ty)) {
                     return true;
                 }
@@ -32127,7 +32147,7 @@ fn semaStructFields(mod: *Module, struct_obj: *Module.Struct) CompileError!void 
             gop.value_ptr.* = .{
                 .ty = Type.noreturn,
                 .abi_align = 0,
-                .default_val = Value.initTag(.unreachable_value),
+                .default_val = Value.@"unreachable",
                 .is_comptime = is_comptime,
                 .offset = undefined,
             };
@@ -32951,7 +32971,7 @@ pub fn typeHasOnePossibleValue(sema: *Sema, ty: Type) CompileError!?Value {
             => return null,
 
             .void => return Value.void,
-            .noreturn => return Value.initTag(.unreachable_value),
+            .noreturn => return Value.@"unreachable",
             .null => return Value.null,
             .undefined => return Value.undef,
 
@@ -33013,7 +33033,7 @@ pub fn typeHasOnePossibleValue(sema: *Sema, ty: Type) CompileError!?Value {
         .tuple, .anon_struct => {
             const tuple = ty.tupleFields();
             for (tuple.values, 0..) |val, i| {
-                const is_comptime = val.tag() != .unreachable_value;
+                const is_comptime = val.ip_index != .unreachable_value;
                 if (is_comptime) continue;
                 if ((try sema.typeHasOnePossibleValue(tuple.types[i])) != null) continue;
                 return null;
@@ -33045,7 +33065,7 @@ pub fn typeHasOnePossibleValue(sema: *Sema, ty: Type) CompileError!?Value {
                 return null;
             }
             switch (enum_obj.fields.count()) {
-                0 => return Value.initTag(.unreachable_value),
+                0 => return Value.@"unreachable",
                 1 => if (enum_obj.values.count() == 0) {
                     return Value.zero; // auto-numbered
                 } else {
@@ -33058,7 +33078,7 @@ pub fn typeHasOnePossibleValue(sema: *Sema, ty: Type) CompileError!?Value {
             const resolved_ty = try sema.resolveTypeFields(ty);
             const enum_simple = resolved_ty.castTag(.enum_simple).?.data;
             switch (enum_simple.fields.count()) {
-                0 => return Value.initTag(.unreachable_value),
+                0 => return Value.@"unreachable",
                 1 => return Value.zero,
                 else => return null,
             }
@@ -33077,7 +33097,7 @@ pub fn typeHasOnePossibleValue(sema: *Sema, ty: Type) CompileError!?Value {
             const tag_val = (try sema.typeHasOnePossibleValue(union_obj.tag_ty)) orelse
                 return null;
             const fields = union_obj.fields.values();
-            if (fields.len == 0) return Value.initTag(.unreachable_value);
+            if (fields.len == 0) return Value.@"unreachable";
             const only_field = fields[0];
             if (only_field.ty.eql(resolved_ty, sema.mod)) {
                 const msg = try Module.ErrorMsg.create(
@@ -33586,7 +33606,7 @@ pub fn typeRequiresComptime(sema: *Sema, ty: Type) CompileError!bool {
         .tuple, .anon_struct => {
             const tuple = ty.tupleFields();
             for (tuple.types, 0..) |field_ty, i| {
-                const have_comptime_val = tuple.values[i].tag() != .unreachable_value;
+                const have_comptime_val = tuple.values[i].ip_index != .unreachable_value;
                 if (!have_comptime_val and try sema.typeRequiresComptime(field_ty)) {
                     return true;
                 }
@@ -33800,7 +33820,7 @@ fn numberAddWrapScalar(
     rhs: Value,
     ty: Type,
 ) !Value {
-    if (lhs.isUndef() or rhs.isUndef()) return Value.initTag(.undef);
+    if (lhs.isUndef() or rhs.isUndef()) return Value.undef;
 
     const mod = sema.mod;
     if (ty.zigTypeTag(mod) == .ComptimeInt) {
@@ -33860,7 +33880,7 @@ fn numberSubWrapScalar(
     rhs: Value,
     ty: Type,
 ) !Value {
-    if (lhs.isUndef() or rhs.isUndef()) return Value.initTag(.undef);
+    if (lhs.isUndef() or rhs.isUndef()) return Value.undef;
 
     const mod = sema.mod;
     if (ty.zigTypeTag(mod) == .ComptimeInt) {
@@ -34142,12 +34162,16 @@ fn intFitsInType(
 ) CompileError!bool {
     const mod = sema.mod;
     const target = mod.getTarget();
-    switch (val.tag()) {
-        .zero,
+    switch (val.ip_index) {
         .undef,
+        .zero,
+        .zero_usize,
+        .zero_u8,
         => return true,
 
-        .one => switch (ty.zigTypeTag(mod)) {
+        .one,
+        .one_usize,
+        => switch (ty.zigTypeTag(mod)) {
             .Int => {
                 const info = ty.intInfo(mod);
                 return switch (info.signedness) {
@@ -34159,111 +34183,129 @@ fn intFitsInType(
             else => unreachable,
         },
 
-        .lazy_align => switch (ty.zigTypeTag(mod)) {
-            .Int => {
-                const info = ty.intInfo(mod);
-                const max_needed_bits = @as(u16, 16) + @boolToInt(info.signedness == .signed);
-                // If it is u16 or bigger we know the alignment fits without resolving it.
-                if (info.bits >= max_needed_bits) return true;
-                const x = try sema.typeAbiAlignment(val.castTag(.lazy_align).?.data);
-                if (x == 0) return true;
-                const actual_needed_bits = std.math.log2(x) + 1 + @boolToInt(info.signedness == .signed);
-                return info.bits >= actual_needed_bits;
-            },
-            .ComptimeInt => return true,
-            else => unreachable,
-        },
-        .lazy_size => switch (ty.zigTypeTag(mod)) {
-            .Int => {
-                const info = ty.intInfo(mod);
-                const max_needed_bits = @as(u16, 64) + @boolToInt(info.signedness == .signed);
-                // If it is u64 or bigger we know the size fits without resolving it.
-                if (info.bits >= max_needed_bits) return true;
-                const x = try sema.typeAbiSize(val.castTag(.lazy_size).?.data);
-                if (x == 0) return true;
-                const actual_needed_bits = std.math.log2(x) + 1 + @boolToInt(info.signedness == .signed);
-                return info.bits >= actual_needed_bits;
-            },
-            .ComptimeInt => return true,
-            else => unreachable,
-        },
+        .none => switch (val.tag()) {
+            .zero => return true,
 
-        .int_u64 => switch (ty.zigTypeTag(mod)) {
-            .Int => {
-                const x = val.castTag(.int_u64).?.data;
-                if (x == 0) return true;
-                const info = ty.intInfo(mod);
-                const needed_bits = std.math.log2(x) + 1 + @boolToInt(info.signedness == .signed);
-                return info.bits >= needed_bits;
+            .one => switch (ty.zigTypeTag(mod)) {
+                .Int => {
+                    const info = ty.intInfo(mod);
+                    return switch (info.signedness) {
+                        .signed => info.bits >= 2,
+                        .unsigned => info.bits >= 1,
+                    };
+                },
+                .ComptimeInt => return true,
+                else => unreachable,
             },
-            .ComptimeInt => return true,
-            else => unreachable,
-        },
-        .int_i64 => switch (ty.zigTypeTag(mod)) {
-            .Int => {
-                const x = val.castTag(.int_i64).?.data;
-                if (x == 0) return true;
-                const info = ty.intInfo(mod);
-                if (info.signedness == .unsigned and x < 0)
-                    return false;
-                var buffer: Value.BigIntSpace = undefined;
-                return (try val.toBigIntAdvanced(&buffer, mod, sema)).fitsInTwosComp(info.signedness, info.bits);
-            },
-            .ComptimeInt => return true,
-            else => unreachable,
-        },
-        .int_big_positive => switch (ty.zigTypeTag(mod)) {
-            .Int => {
-                const info = ty.intInfo(mod);
-                return val.castTag(.int_big_positive).?.asBigInt().fitsInTwosComp(info.signedness, info.bits);
-            },
-            .ComptimeInt => return true,
-            else => unreachable,
-        },
-        .int_big_negative => switch (ty.zigTypeTag(mod)) {
-            .Int => {
-                const info = ty.intInfo(mod);
-                return val.castTag(.int_big_negative).?.asBigInt().fitsInTwosComp(info.signedness, info.bits);
-            },
-            .ComptimeInt => return true,
-            else => unreachable,
-        },
 
-        .the_only_possible_value => {
-            assert(ty.intInfo(mod).bits == 0);
-            return true;
-        },
-
-        .decl_ref_mut,
-        .extern_fn,
-        .decl_ref,
-        .function,
-        .variable,
-        => switch (ty.zigTypeTag(mod)) {
-            .Int => {
-                const info = ty.intInfo(mod);
-                const ptr_bits = target.ptrBitWidth();
-                return switch (info.signedness) {
-                    .signed => info.bits > ptr_bits,
-                    .unsigned => info.bits >= ptr_bits,
-                };
+            .lazy_align => switch (ty.zigTypeTag(mod)) {
+                .Int => {
+                    const info = ty.intInfo(mod);
+                    const max_needed_bits = @as(u16, 16) + @boolToInt(info.signedness == .signed);
+                    // If it is u16 or bigger we know the alignment fits without resolving it.
+                    if (info.bits >= max_needed_bits) return true;
+                    const x = try sema.typeAbiAlignment(val.castTag(.lazy_align).?.data);
+                    if (x == 0) return true;
+                    const actual_needed_bits = std.math.log2(x) + 1 + @boolToInt(info.signedness == .signed);
+                    return info.bits >= actual_needed_bits;
+                },
+                .ComptimeInt => return true,
+                else => unreachable,
             },
-            .ComptimeInt => return true,
-            else => unreachable,
-        },
+            .lazy_size => switch (ty.zigTypeTag(mod)) {
+                .Int => {
+                    const info = ty.intInfo(mod);
+                    const max_needed_bits = @as(u16, 64) + @boolToInt(info.signedness == .signed);
+                    // If it is u64 or bigger we know the size fits without resolving it.
+                    if (info.bits >= max_needed_bits) return true;
+                    const x = try sema.typeAbiSize(val.castTag(.lazy_size).?.data);
+                    if (x == 0) return true;
+                    const actual_needed_bits = std.math.log2(x) + 1 + @boolToInt(info.signedness == .signed);
+                    return info.bits >= actual_needed_bits;
+                },
+                .ComptimeInt => return true,
+                else => unreachable,
+            },
 
-        .aggregate => {
-            assert(ty.zigTypeTag(mod) == .Vector);
-            for (val.castTag(.aggregate).?.data, 0..) |elem, i| {
-                if (!(try sema.intFitsInType(elem, ty.scalarType(mod), null))) {
-                    if (vector_index) |some| some.* = i;
-                    return false;
+            .int_u64 => switch (ty.zigTypeTag(mod)) {
+                .Int => {
+                    const x = val.castTag(.int_u64).?.data;
+                    if (x == 0) return true;
+                    const info = ty.intInfo(mod);
+                    const needed_bits = std.math.log2(x) + 1 + @boolToInt(info.signedness == .signed);
+                    return info.bits >= needed_bits;
+                },
+                .ComptimeInt => return true,
+                else => unreachable,
+            },
+            .int_i64 => switch (ty.zigTypeTag(mod)) {
+                .Int => {
+                    const x = val.castTag(.int_i64).?.data;
+                    if (x == 0) return true;
+                    const info = ty.intInfo(mod);
+                    if (info.signedness == .unsigned and x < 0)
+                        return false;
+                    var buffer: Value.BigIntSpace = undefined;
+                    return (try val.toBigIntAdvanced(&buffer, mod, sema)).fitsInTwosComp(info.signedness, info.bits);
+                },
+                .ComptimeInt => return true,
+                else => unreachable,
+            },
+            .int_big_positive => switch (ty.zigTypeTag(mod)) {
+                .Int => {
+                    const info = ty.intInfo(mod);
+                    return val.castTag(.int_big_positive).?.asBigInt().fitsInTwosComp(info.signedness, info.bits);
+                },
+                .ComptimeInt => return true,
+                else => unreachable,
+            },
+            .int_big_negative => switch (ty.zigTypeTag(mod)) {
+                .Int => {
+                    const info = ty.intInfo(mod);
+                    return val.castTag(.int_big_negative).?.asBigInt().fitsInTwosComp(info.signedness, info.bits);
+                },
+                .ComptimeInt => return true,
+                else => unreachable,
+            },
+
+            .the_only_possible_value => {
+                assert(ty.intInfo(mod).bits == 0);
+                return true;
+            },
+
+            .decl_ref_mut,
+            .extern_fn,
+            .decl_ref,
+            .function,
+            .variable,
+            => switch (ty.zigTypeTag(mod)) {
+                .Int => {
+                    const info = ty.intInfo(mod);
+                    const ptr_bits = target.ptrBitWidth();
+                    return switch (info.signedness) {
+                        .signed => info.bits > ptr_bits,
+                        .unsigned => info.bits >= ptr_bits,
+                    };
+                },
+                .ComptimeInt => return true,
+                else => unreachable,
+            },
+
+            .aggregate => {
+                assert(ty.zigTypeTag(mod) == .Vector);
+                for (val.castTag(.aggregate).?.data, 0..) |elem, i| {
+                    if (!(try sema.intFitsInType(elem, ty.scalarType(mod), null))) {
+                        if (vector_index) |some| some.* = i;
+                        return false;
+                    }
                 }
-            }
-            return true;
+                return true;
+            },
+
+            else => unreachable,
         },
 
-        else => unreachable,
+        else => @panic("TODO"),
     }
 }
 

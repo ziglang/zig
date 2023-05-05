@@ -2028,7 +2028,7 @@ pub const Object = struct {
 
                     for (tuple.types, 0..) |field_ty, i| {
                         const field_val = tuple.values[i];
-                        if (field_val.tag() != .unreachable_value or !field_ty.hasRuntimeBits(mod)) continue;
+                        if (field_val.ip_index != .unreachable_value or !field_ty.hasRuntimeBits(mod)) continue;
 
                         const field_size = field_ty.abiSize(mod);
                         const field_align = field_ty.abiAlignment(mod);
@@ -2498,7 +2498,7 @@ pub const DeclGen = struct {
                 global.setGlobalConstant(.True);
                 break :init_val decl.val;
             };
-            if (init_val.tag() != .unreachable_value) {
+            if (init_val.ip_index != .unreachable_value) {
                 const llvm_init = try dg.lowerValue(.{ .ty = decl.ty, .val = init_val });
                 if (global.globalGetValueType() == llvm_init.typeOf()) {
                     global.setInitializer(llvm_init);
@@ -2954,7 +2954,7 @@ pub const DeclGen = struct {
 
                     for (tuple.types, 0..) |field_ty, i| {
                         const field_val = tuple.values[i];
-                        if (field_val.tag() != .unreachable_value or !field_ty.hasRuntimeBits(mod)) continue;
+                        if (field_val.ip_index != .unreachable_value or !field_ty.hasRuntimeBits(mod)) continue;
 
                         const field_align = field_ty.abiAlignment(mod);
                         big_align = @max(big_align, field_align);
@@ -3359,58 +3359,65 @@ pub const DeclGen = struct {
                     else => unreachable,
                 }
             },
-            .Pointer => switch (tv.val.tag()) {
-                .decl_ref_mut => return lowerDeclRefValue(dg, tv, tv.val.castTag(.decl_ref_mut).?.data.decl_index),
-                .decl_ref => return lowerDeclRefValue(dg, tv, tv.val.castTag(.decl_ref).?.data),
-                .variable => {
-                    const decl_index = tv.val.castTag(.variable).?.data.owner_decl;
-                    const decl = dg.module.declPtr(decl_index);
-                    dg.module.markDeclAlive(decl);
-
-                    const llvm_wanted_addrspace = toLlvmAddressSpace(decl.@"addrspace", target);
-                    const llvm_actual_addrspace = toLlvmGlobalAddressSpace(decl.@"addrspace", target);
-
-                    const val = try dg.resolveGlobalDecl(decl_index);
-                    const addrspace_casted_ptr = if (llvm_actual_addrspace != llvm_wanted_addrspace)
-                        val.constAddrSpaceCast(dg.context.pointerType(llvm_wanted_addrspace))
-                    else
-                        val;
-                    return addrspace_casted_ptr;
-                },
-                .slice => {
-                    const slice = tv.val.castTag(.slice).?.data;
-                    var buf: Type.SlicePtrFieldTypeBuffer = undefined;
-                    const fields: [2]*llvm.Value = .{
-                        try dg.lowerValue(.{
-                            .ty = tv.ty.slicePtrFieldType(&buf),
-                            .val = slice.ptr,
-                        }),
-                        try dg.lowerValue(.{
-                            .ty = Type.usize,
-                            .val = slice.len,
-                        }),
-                    };
-                    return dg.context.constStruct(&fields, fields.len, .False);
-                },
-                .int_u64, .one, .int_big_positive, .lazy_align, .lazy_size => {
-                    const llvm_usize = try dg.lowerType(Type.usize);
-                    const llvm_int = llvm_usize.constInt(tv.val.toUnsignedInt(mod), .False);
-                    return llvm_int.constIntToPtr(try dg.lowerType(tv.ty));
-                },
-                .field_ptr, .opt_payload_ptr, .eu_payload_ptr, .elem_ptr => {
-                    return dg.lowerParentPtr(tv.val, tv.ty.ptrInfo(mod).bit_offset % 8 == 0);
-                },
-                .null_value, .zero => {
+            .Pointer => switch (tv.val.ip_index) {
+                .null_value => {
                     const llvm_type = try dg.lowerType(tv.ty);
                     return llvm_type.constNull();
                 },
-                .opt_payload => {
-                    const payload = tv.val.castTag(.opt_payload).?.data;
-                    return dg.lowerParentPtr(payload, tv.ty.ptrInfo(mod).bit_offset % 8 == 0);
+                .none => switch (tv.val.tag()) {
+                    .decl_ref_mut => return lowerDeclRefValue(dg, tv, tv.val.castTag(.decl_ref_mut).?.data.decl_index),
+                    .decl_ref => return lowerDeclRefValue(dg, tv, tv.val.castTag(.decl_ref).?.data),
+                    .variable => {
+                        const decl_index = tv.val.castTag(.variable).?.data.owner_decl;
+                        const decl = dg.module.declPtr(decl_index);
+                        dg.module.markDeclAlive(decl);
+
+                        const llvm_wanted_addrspace = toLlvmAddressSpace(decl.@"addrspace", target);
+                        const llvm_actual_addrspace = toLlvmGlobalAddressSpace(decl.@"addrspace", target);
+
+                        const val = try dg.resolveGlobalDecl(decl_index);
+                        const addrspace_casted_ptr = if (llvm_actual_addrspace != llvm_wanted_addrspace)
+                            val.constAddrSpaceCast(dg.context.pointerType(llvm_wanted_addrspace))
+                        else
+                            val;
+                        return addrspace_casted_ptr;
+                    },
+                    .slice => {
+                        const slice = tv.val.castTag(.slice).?.data;
+                        var buf: Type.SlicePtrFieldTypeBuffer = undefined;
+                        const fields: [2]*llvm.Value = .{
+                            try dg.lowerValue(.{
+                                .ty = tv.ty.slicePtrFieldType(&buf),
+                                .val = slice.ptr,
+                            }),
+                            try dg.lowerValue(.{
+                                .ty = Type.usize,
+                                .val = slice.len,
+                            }),
+                        };
+                        return dg.context.constStruct(&fields, fields.len, .False);
+                    },
+                    .int_u64, .one, .int_big_positive, .lazy_align, .lazy_size => {
+                        const llvm_usize = try dg.lowerType(Type.usize);
+                        const llvm_int = llvm_usize.constInt(tv.val.toUnsignedInt(mod), .False);
+                        return llvm_int.constIntToPtr(try dg.lowerType(tv.ty));
+                    },
+                    .field_ptr, .opt_payload_ptr, .eu_payload_ptr, .elem_ptr => {
+                        return dg.lowerParentPtr(tv.val, tv.ty.ptrInfo(mod).bit_offset % 8 == 0);
+                    },
+                    .zero => {
+                        const llvm_type = try dg.lowerType(tv.ty);
+                        return llvm_type.constNull();
+                    },
+                    .opt_payload => {
+                        const payload = tv.val.castTag(.opt_payload).?.data;
+                        return dg.lowerParentPtr(payload, tv.ty.ptrInfo(mod).bit_offset % 8 == 0);
+                    },
+                    else => |tag| return dg.todo("implement const of pointer type '{}' ({})", .{
+                        tv.ty.fmtDebug(), tag,
+                    }),
                 },
-                else => |tag| return dg.todo("implement const of pointer type '{}' ({})", .{
-                    tv.ty.fmtDebug(), tag,
-                }),
+                else => unreachable,
             },
             .Array => switch (tv.val.tag()) {
                 .bytes => {
@@ -3555,7 +3562,7 @@ pub const DeclGen = struct {
                 var fields_buf: [3]*llvm.Value = undefined;
                 fields_buf[0] = try dg.lowerValue(.{
                     .ty = payload_ty,
-                    .val = if (tv.val.castTag(.opt_payload)) |pl| pl.data else Value.initTag(.undef),
+                    .val = if (tv.val.castTag(.opt_payload)) |pl| pl.data else Value.undef,
                 });
                 fields_buf[1] = non_null_bit;
                 if (llvm_field_count > 2) {
@@ -3606,7 +3613,7 @@ pub const DeclGen = struct {
                 });
                 const llvm_payload_value = try dg.lowerValue(.{
                     .ty = payload_type,
-                    .val = if (tv.val.castTag(.eu_payload)) |pl| pl.data else Value.initTag(.undef),
+                    .val = if (tv.val.castTag(.eu_payload)) |pl| pl.data else Value.undef,
                 });
                 var fields_buf: [3]*llvm.Value = undefined;
 
@@ -3645,7 +3652,7 @@ pub const DeclGen = struct {
                     var need_unnamed = false;
 
                     for (tuple.types, 0..) |field_ty, i| {
-                        if (tuple.values[i].tag() != .unreachable_value) continue;
+                        if (tuple.values[i].ip_index != .unreachable_value) continue;
                         if (!field_ty.hasRuntimeBitsIgnoreComptime(mod)) continue;
 
                         const field_align = field_ty.abiAlignment(mod);
@@ -10501,7 +10508,7 @@ fn llvmFieldIndex(
         const tuple = ty.tupleFields();
         var llvm_field_index: c_uint = 0;
         for (tuple.types, 0..) |field_ty, i| {
-            if (tuple.values[i].tag() != .unreachable_value or !field_ty.hasRuntimeBits(mod)) continue;
+            if (tuple.values[i].ip_index != .unreachable_value or !field_ty.hasRuntimeBits(mod)) continue;
 
             const field_align = field_ty.abiAlignment(mod);
             big_align = @max(big_align, field_align);
@@ -11117,7 +11124,7 @@ fn isByRef(ty: Type, mod: *const Module) bool {
                 const tuple = ty.tupleFields();
                 var count: usize = 0;
                 for (tuple.values, 0..) |field_val, i| {
-                    if (field_val.tag() != .unreachable_value or !tuple.types[i].hasRuntimeBits(mod)) continue;
+                    if (field_val.ip_index != .unreachable_value or !tuple.types[i].hasRuntimeBits(mod)) continue;
 
                     count += 1;
                     if (count > max_fields_byval) return true;
