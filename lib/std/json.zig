@@ -9,6 +9,10 @@ pub const JsonReader = @import("json/scanner.zig").JsonReader;
 pub const JsonScanner = @import("json/scanner.zig").JsonScanner;
 pub const validate = @import("json/scanner.zig").validate;
 
+pub const parse = @compileError("Deprecated; use parseFromSlice() or parseFromTokenSource() instead.");
+pub const StreamingParser = @compileError("Deprecated; use JsonScanner or JsonReader instead.");
+pub const TokenStream = @compileError("Deprecated; use JsonScanner or JsonReader instead.");
+
 test {
     _ = @import("json/test.zig");
     _ = @import("json/scanner.zig");

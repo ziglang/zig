@@ -117,19 +117,18 @@ pub const default_buffer_size = 0x1000;
 ///    | .string
 ///    | .allocated_string
 ///
-/// For all tokens with a []const u8 or [n]u8 payload, the payload represents the content of the value.
+/// For all tokens with a []const u8, []u8, or [n]u8 payload, the payload represents the content of the value.
 /// For number values, this is the representation of the number exactly as it appears in the input.
 /// For strings, this is the content of the string after resolving escape sequences.
 ///
-/// For .allocated_number and .allocated_string, the []const u8 payloads are allocations made with the given allocator.
+/// For .allocated_number and .allocated_string, the []u8 payloads are allocations made with the given allocator.
 /// You are responsible for managing that memory. JsonReader.deinit() does *not* free those allocations.
 ///
 /// The .partial_* tokens indicate that a value spans multiple input buffers or that a string contains escape sequences.
 /// To get a complete value in memory, you need to concatenate the values yourself.
 /// Calling nextAlloc*() does this for you, and returns an .allocated_* token with the result.
 ///
-/// For tokens with a []const u8 payload other than .allocated_number and .allocated_string,
-/// the payload is a slice into the current input buffer.
+/// For tokens with a []const u8 payload, the payload is a slice into the current input buffer.
 /// The memory may become undefined during the next call to JsonReader.next*() or JsonScanner.feedInput().
 /// To keep the value persistently, it recommended to make a copy or to use .alloc_always,
 /// which makes a copy for you.
@@ -161,7 +160,7 @@ pub const Token = union(enum) {
 
     number: []const u8,
     partial_number: []const u8,
-    allocated_number: []const u8,
+    allocated_number: []u8,
 
     string: []const u8,
     partial_string: []const u8,
@@ -169,7 +168,7 @@ pub const Token = union(enum) {
     partial_string_escaped_2: [2]u8,
     partial_string_escaped_3: [3]u8,
     partial_string_escaped_4: [4]u8,
-    allocated_string: []const u8,
+    allocated_string: []u8,
 
     end_of_document,
 };

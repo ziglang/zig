@@ -1,70 +1,94 @@
 const std = @import("std");
 const mem = std.mem;
 
-pub const ParseOptions = struct {
-    allocator: ?Allocator = null,
+const assert = std.debug.assert;
+const Allocator = std.mem.Allocator;
+const ArrayList = std.ArrayList;
 
+const JsonScanner = @import("./scanner.zig").JsonScanner;
+const Token = @import("./scanner.zig").Token;
+const AllocWhen = @import("./scanner.zig").AllocWhen;
+const default_max_value_len = @import("./scanner.zig").default_max_value_len;
+const isNumberFormattedLikeAnInteger = @import("./scanner.zig").isNumberFormattedLikeAnInteger;
+
+pub const ParseOptions = struct {
     /// Behaviour when a duplicate field is encountered.
     duplicate_field_behavior: enum {
-        UseFirst,
-        Error,
-        UseLast,
-    } = .Error,
+        use_first,
+        @"error",
+        use_last,
+    } = .@"error",
 
     /// If false, finding an unknown field returns an error.
     ignore_unknown_fields: bool = false,
 
-    allow_trailing_data: bool = false,
+    /// Passed to JsonScanner.nextAllocMax() or JsonReader.nextAllocMax().
+    /// The default for parseFromSlice() or parseFromTokenSource() with a *JsonScanner input
+    /// is the length of the input slice, which means error.ValueTooLong will never be returned.
+    /// The default for parseFromTokenSource() with a *JsonReader is default_max_value_len.
+    max_value_len: ?usize = null,
 };
 
-const SkipValueError = error{UnexpectedJsonDepth} || TokenStream.Error;
+pub fn parseFromSlice(comptime T: type, allocator: Allocator, s: []const u8, options: ParseOptions) ParseError(T, JsonScanner)!T {
+    var scanner = JsonScanner.initCompleteInput(allocator, s);
+    defer scanner.deinit();
 
-fn skipValue(tokens: *TokenStream) SkipValueError!void {
-    const original_depth = tokens.stackUsed();
-
-    // Return an error if no value is found
-    _ = try tokens.next();
-    if (tokens.stackUsed() < original_depth) return error.UnexpectedJsonDepth;
-    if (tokens.stackUsed() == original_depth) return;
-
-    while (try tokens.next()) |_| {
-        if (tokens.stackUsed() == original_depth) return;
+    return parseFromTokenSource(T, allocator, &scanner, options);
+}
+/// scanner_or_reader must be either a *JsonScanner with complete input or a *JsonReader.
+/// allocator is used to allocate the data of T if necessary,
+/// such as if T is *u32 or []u32.
+/// If T contains no pointers, the allocator is never used.
+pub fn parseFromTokenSource(comptime T: type, allocator: Allocator, scanner_or_reader: anytype, options: ParseOptions) ParseError(T, @TypeOf(scanner_or_reader.*))!T {
+    if (@TypeOf(scanner_or_reader.*) == JsonScanner) {
+        assert(scanner_or_reader.is_end_of_input);
     }
+
+    var resolved_options = options;
+    if (resolved_options.max_value_len == null) {
+        if (@TypeOf(scanner_or_reader.*) == JsonScanner) {
+            resolved_options.max_value_len = scanner_or_reader.input.len;
+        } else {
+            resolved_options.max_value_len = default_max_value_len;
+        }
+    }
+
+    const r = try parseInternal(T, allocator, scanner_or_reader, resolved_options);
+    errdefer parseFree(T, allocator, r);
+
+    assert(.end_of_document == try scanner_or_reader.next());
+
+    return r;
 }
 
-fn ParseInternalError(comptime T: type) type {
+fn ParseError(comptime T: type, comptime Source: type) type {
     // `inferred_types` is used to avoid infinite recursion for recursive type definitions.
     const inferred_types = [_]type{};
-    return ParseInternalErrorImpl(T, &inferred_types);
+    // A few of these will either always be present or present enough of the time that
+    // omitting them is more confusing than always including them.
+    return error{UnexpectedToken} || Source.NextError || Source.PeekError ||
+        ParseInternalErrorImpl(T, Source, &inferred_types);
 }
 
-fn ParseInternalErrorImpl(comptime T: type, comptime inferred_types: []const type) type {
+fn ParseInternalErrorImpl(comptime T: type, comptime Source: type, comptime inferred_types: []const type) type {
     for (inferred_types) |ty| {
         if (T == ty) return error{};
     }
 
     switch (@typeInfo(T)) {
-        .Bool => return error{UnexpectedToken},
-        .Float, .ComptimeFloat => return error{UnexpectedToken} || std.fmt.ParseFloatError,
+        .Bool => return error{},
+        .Float, .ComptimeFloat => return Source.AllocError || std.fmt.ParseFloatError,
         .Int, .ComptimeInt => {
-            return error{ UnexpectedToken, InvalidNumber, Overflow } ||
+            return Source.AllocError || error{ InvalidNumber, Overflow } ||
                 std.fmt.ParseIntError || std.fmt.ParseFloatError;
         },
-        .Optional => |optionalInfo| {
-            return ParseInternalErrorImpl(optionalInfo.child, inferred_types ++ [_]type{T});
-        },
-        .Enum => return error{ UnexpectedToken, InvalidEnumTag } || std.fmt.ParseIntError ||
-            std.meta.IntToEnumError || std.meta.IntToEnumError,
+        .Optional => |optional_info| return ParseInternalErrorImpl(optional_info.child, Source, inferred_types ++ [_]type{T}),
+        .Enum => return Source.AllocError || error{InvalidEnumTag},
         .Union => |unionInfo| {
             if (unionInfo.tag_type) |_| {
-                var errors = error{
-                    ConflictingUnionFields,
-                    UnknownField,
-                    UnexpectedToken,
-                    MissingField,
-                } || TokenStream.Error;
+                var errors = Source.AllocError || error{UnknownField};
                 for (unionInfo.fields) |u_field| {
-                    errors = errors || ParseInternalErrorImpl(u_field.type, inferred_types ++ [_]type{T});
+                    errors = errors || ParseInternalErrorImpl(u_field.type, Source, inferred_types ++ [_]type{T});
                 }
                 return errors;
             } else {
@@ -72,34 +96,24 @@ fn ParseInternalErrorImpl(comptime T: type, comptime inferred_types: []const typ
             }
         },
         .Struct => |structInfo| {
-            var errors = error{
-                DuplicateJSONField,
-                UnexpectedEndOfJson,
-                UnexpectedToken,
-                UnexpectedValue,
+            var errors = JsonScanner.AllocError || error{
+                DuplicateField,
                 UnknownField,
                 MissingField,
-            } || SkipValueError || TokenStream.Error;
+            };
             for (structInfo.fields) |field| {
-                errors = errors || ParseInternalErrorImpl(field.type, inferred_types ++ [_]type{T});
+                errors = errors || ParseInternalErrorImpl(field.type, Source, inferred_types ++ [_]type{T});
             }
             return errors;
         },
         .Array => |arrayInfo| {
-            return error{ UnexpectedEndOfJson, UnexpectedToken, LengthMismatch } || TokenStream.Error ||
-                UnescapeValidStringError ||
-                ParseInternalErrorImpl(arrayInfo.child, inferred_types ++ [_]type{T});
+            return error{LengthMismatch} ||
+                ParseInternalErrorImpl(arrayInfo.child, Source, inferred_types ++ [_]type{T});
         },
         .Pointer => |ptrInfo| {
-            var errors = error{AllocatorRequired} || std.mem.Allocator.Error;
             switch (ptrInfo.size) {
-                .One => {
-                    return errors || ParseInternalErrorImpl(ptrInfo.child, inferred_types ++ [_]type{T});
-                },
-                .Slice => {
-                    return errors || error{ UnexpectedEndOfJson, UnexpectedToken } ||
-                        ParseInternalErrorImpl(ptrInfo.child, inferred_types ++ [_]type{T}) ||
-                        UnescapeValidStringError || TokenStream.Error;
+                .One, .Slice => {
+                    return ParseInternalErrorImpl(ptrInfo.child, Source, inferred_types ++ [_]type{T});
                 },
                 else => @compileError("Unable to parse into type '" ++ @typeName(T) ++ "'"),
             }
@@ -111,223 +125,212 @@ fn ParseInternalErrorImpl(comptime T: type, comptime inferred_types: []const typ
 
 fn parseInternal(
     comptime T: type,
-    token: Token,
-    tokens: *TokenStream,
+    allocator: Allocator,
+    source: anytype,
     options: ParseOptions,
-) ParseInternalError(T)!T {
+) ParseError(T, @TypeOf(source.*))!T {
     switch (@typeInfo(T)) {
         .Bool => {
-            return switch (token) {
-                .True => true,
-                .False => false,
+            return switch (try source.next()) {
+                .true => true,
+                .false => false,
                 else => error.UnexpectedToken,
             };
         },
         .Float, .ComptimeFloat => {
-            switch (token) {
-                .Number => |numberToken| return try std.fmt.parseFloat(T, numberToken.slice(tokens.slice, tokens.i - 1)),
-                .String => |stringToken| return try std.fmt.parseFloat(T, stringToken.slice(tokens.slice, tokens.i - 1)),
+            const token = try source.nextAlloc(allocator, .alloc_if_needed);
+            defer freeAllocated(allocator, token);
+            const slice = switch (token) {
+                .number, .string => |slice| slice,
+                .allocated_number, .allocated_string => |slice| slice,
                 else => return error.UnexpectedToken,
-            }
+            };
+            return try std.fmt.parseFloat(T, slice);
         },
         .Int, .ComptimeInt => {
-            switch (token) {
-                .Number => |numberToken| {
-                    if (numberToken.is_integer)
-                        return try std.fmt.parseInt(T, numberToken.slice(tokens.slice, tokens.i - 1), 10);
-                    const float = try std.fmt.parseFloat(f128, numberToken.slice(tokens.slice, tokens.i - 1));
-                    if (@round(float) != float) return error.InvalidNumber;
-                    if (float > std.math.maxInt(T) or float < std.math.minInt(T)) return error.Overflow;
-                    return @floatToInt(T, float);
-                },
-                .String => |stringToken| {
-                    return std.fmt.parseInt(T, stringToken.slice(tokens.slice, tokens.i - 1), 10) catch |err| {
-                        switch (err) {
-                            error.Overflow => return err,
-                            error.InvalidCharacter => {
-                                const float = try std.fmt.parseFloat(f128, stringToken.slice(tokens.slice, tokens.i - 1));
-                                if (@round(float) != float) return error.InvalidNumber;
-                                if (float > std.math.maxInt(T) or float < std.math.minInt(T)) return error.Overflow;
-                                return @floatToInt(T, float);
-                            },
-                        }
-                    };
-                },
+            const token = try source.nextAlloc(allocator, .alloc_if_needed);
+            defer freeAllocated(allocator, token);
+            const slice = switch (token) {
+                .number, .string => |slice| slice,
+                .allocated_number, .allocated_string => |slice| slice,
                 else => return error.UnexpectedToken,
-            }
+            };
+            if (isNumberFormattedLikeAnInteger(slice))
+                return std.fmt.parseInt(T, slice, 10);
+            // Try to coerce a float to an integer.
+            const float = try std.fmt.parseFloat(f128, slice);
+            if (@round(float) != float) return error.InvalidNumber;
+            if (float > std.math.maxInt(T) or float < std.math.minInt(T)) return error.Overflow;
+            return @floatToInt(T, float);
         },
         .Optional => |optionalInfo| {
-            if (token == .Null) {
-                return null;
-            } else {
-                return try parseInternal(optionalInfo.child, token, tokens, options);
+            switch (try source.peekNextTokenType()) {
+                .null => {
+                    _ = try source.next();
+                    return null;
+                },
+                else => {
+                    return try parseInternal(optionalInfo.child, allocator, source, options);
+                },
             }
         },
         .Enum => |enumInfo| {
-            switch (token) {
-                .Number => |numberToken| {
-                    if (!numberToken.is_integer) return error.UnexpectedToken;
-                    const n = try std.fmt.parseInt(enumInfo.tag_type, numberToken.slice(tokens.slice, tokens.i - 1), 10);
-                    return try std.meta.intToEnum(T, n);
-                },
-                .String => |stringToken| {
-                    const source_slice = stringToken.slice(tokens.slice, tokens.i - 1);
-                    switch (stringToken.escapes) {
-                        .None => return std.meta.stringToEnum(T, source_slice) orelse return error.InvalidEnumTag,
-                        .Some => {
-                            inline for (enumInfo.fields) |field| {
-                                if (field.name.len == stringToken.decodedLength() and encodesTo(field.name, source_slice)) {
-                                    return @field(T, field.name);
-                                }
-                            }
-                            return error.InvalidEnumTag;
-                        },
-                    }
-                },
+            const token = try source.nextAlloc(allocator, .alloc_if_needed);
+            defer freeAllocated(allocator, token);
+            const slice = switch (token) {
+                .number, .string => |slice| slice,
+                .allocated_number, .allocated_string => |slice| slice,
                 else => return error.UnexpectedToken,
-            }
+            };
+            // Check for a named value.
+            if (std.meta.stringToEnum(T, slice)) |value| return value;
+            // Check for a numeric value.
+            if (!isNumberFormattedLikeAnInteger(slice)) return error.InvalidEnumTag;
+            const n = std.fmt.parseInt(enumInfo.tag_type, slice, 10) catch return error.InvalidEnumTag;
+            return try std.meta.intToEnum(T, n);
         },
         .Union => |unionInfo| {
             const UnionTagType = unionInfo.tag_type orelse @compileError("Unable to parse into untagged union '" ++ @typeName(T) ++ "'");
-            switch (token) {
-                .ObjectBegin => {},
-                else => return error.UnexpectedToken,
-            }
 
-            var r: T = undefined;
-            var seen_any_value = false;
+            if (.object_begin != try source.next()) return error.UnexpectedToken;
+
+            var result: ?T = null;
             errdefer {
-                if (seen_any_value) {
+                if (result) |r| {
                     inline for (unionInfo.fields) |u_field| {
                         if (r == @field(UnionTagType, u_field.name)) {
-                            parseFree(u_field.type, @field(r, u_field.name), options);
+                            parseFree(u_field.type, allocator, @field(r, u_field.name));
                         }
                     }
                 }
             }
-            while (true) {
-                switch ((try tokens.next()) orelse return error.UnexpectedEndOfJson) {
-                    .ObjectEnd => break,
-                    .String => |stringToken| {
-                        if (seen_any_value) return error.ConflictingUnionFields;
-                        const key_source_slice = stringToken.slice(tokens.slice, tokens.i - 1);
-                        var child_options = options;
-                        child_options.allow_trailing_data = true;
-                        inline for (unionInfo.fields) |u_field| {
-                            if (switch (stringToken.escapes) {
-                                .None => mem.eql(u8, u_field.name, key_source_slice),
-                                .Some => (u_field.name.len == stringToken.decodedLength() and encodesTo(u_field.name, key_source_slice)),
-                            }) {
-                                if (u_field.type == void) {
-                                    // void isn't really a json type, but we can support void payload union tags with {} as a value.
-                                    if (.ObjectBegin != (try tokens.next()) orelse return error.UnexpectedEndOfJson) return error.UnexpectedToken;
-                                    if (.ObjectEnd != (try tokens.next()) orelse return error.UnexpectedEndOfJson) return error.UnexpectedToken;
-                                    r = @unionInit(T, u_field.name, {});
-                                } else {
-                                    r = @unionInit(T, u_field.name, try parse(u_field.type, tokens, child_options));
-                                }
-                                seen_any_value = true;
-                                break;
-                            }
-                        } else {
-                            // Didn't match anything.
-                            return error.UnknownField;
-                        }
-                    },
-                    else => return error.UnexpectedToken,
+
+            var name_token: ?Token = try source.nextAlloc(allocator, .alloc_if_needed);
+            errdefer {
+                if (name_token) |t| {
+                    freeAllocated(allocator, t);
                 }
             }
-            if (!seen_any_value) return error.MissingField;
-            return r;
+            const field_name = switch (name_token.?) {
+                .string => |slice| slice,
+                .allocated_string => |slice| slice,
+                else => return error.UnexpectedToken,
+            };
+
+            inline for (unionInfo.fields) |u_field| {
+                if (mem.eql(u8, u_field.name, field_name)) {
+                    // Free the name token now in case we're using an allocator that optimizes freeing the last allocated object.
+                    // (Recursing into parseInternal() might trigger more allocations.)
+                    freeAllocated(allocator, name_token.?);
+                    name_token = null;
+
+                    if (u_field.type == void) {
+                        // void isn't really a json type, but we can support void payload union tags with {} as a value.
+                        if (.object_begin != try source.next()) return error.UnexpectedToken;
+                        if (.object_end != try source.next()) return error.UnexpectedToken;
+                        result = @unionInit(T, u_field.name, {});
+                    } else {
+                        // Recurse.
+                        result = @unionInit(T, u_field.name, try parseInternal(u_field.type, allocator, source, options));
+                    }
+                    break;
+                }
+            } else {
+                // Didn't match anything.
+                return error.UnknownField;
+            }
+
+            if (.object_end != try source.next()) return error.UnexpectedToken;
+
+            return result.?;
         },
+
         .Struct => |structInfo| {
             if (structInfo.is_tuple) {
-                switch (token) {
-                    .ArrayBegin => {},
-                    else => return error.UnexpectedToken,
-                }
+                if (.array_begin != try source.next()) return error.UnexpectedToken;
+
                 var r: T = undefined;
-                var child_options = options;
-                child_options.allow_trailing_data = true;
                 var fields_seen: usize = 0;
                 errdefer {
                     inline for (0..structInfo.fields.len) |i| {
                         if (i < fields_seen) {
-                            parseFree(structInfo.fields[i].type, r[i], options);
+                            parseFree(structInfo.fields[i].type, allocator, r[i]);
                         }
                     }
                 }
                 inline for (0..structInfo.fields.len) |i| {
-                    r[i] = try parse(structInfo.fields[i].type, tokens, child_options);
+                    r[i] = try parseInternal(structInfo.fields[i].type, allocator, source, options);
                     fields_seen = i + 1;
                 }
-                const tok = (try tokens.next()) orelse return error.UnexpectedEndOfJson;
-                switch (tok) {
-                    .ArrayEnd => {},
-                    else => return error.UnexpectedToken,
-                }
+
+                if (.array_end != try source.next()) return error.UnexpectedToken;
+
                 return r;
             }
 
-            switch (token) {
-                .ObjectBegin => {},
-                else => return error.UnexpectedToken,
-            }
+            if (.object_begin != try source.next()) return error.UnexpectedToken;
+
             var r: T = undefined;
             var fields_seen = [_]bool{false} ** structInfo.fields.len;
             errdefer {
                 inline for (structInfo.fields, 0..) |field, i| {
                     if (fields_seen[i]) {
-                        parseFree(field.type, @field(r, field.name), options);
+                        parseFree(field.type, allocator, @field(r, field.name));
                     }
                 }
             }
 
             while (true) {
-                switch ((try tokens.next()) orelse return error.UnexpectedEndOfJson) {
-                    .ObjectEnd => break,
-                    .String => |stringToken| {
-                        const key_source_slice = stringToken.slice(tokens.slice, tokens.i - 1);
-                        var child_options = options;
-                        child_options.allow_trailing_data = true;
-                        var found = false;
-                        inline for (structInfo.fields, 0..) |field, i| {
-                            if (field.is_comptime) @compileError("comptime fields are not supported: " ++ @typeName(T) ++ "." ++ field.name);
-                            if (switch (stringToken.escapes) {
-                                .None => mem.eql(u8, field.name, key_source_slice),
-                                .Some => (field.name.len == stringToken.decodedLength() and encodesTo(field.name, key_source_slice)),
-                            }) {
-                                if (fields_seen[i]) {
-                                    switch (options.duplicate_field_behavior) {
-                                        .UseFirst => {
-                                            // unconditonally ignore value. for comptime fields, this skips check against default_value
-                                            parseFree(field.type, try parse(field.type, tokens, child_options), child_options);
-                                            found = true;
-                                            break;
-                                        },
-                                        .Error => return error.DuplicateJSONField,
-                                        .UseLast => {
-                                            parseFree(field.type, @field(r, field.name), child_options);
-                                            fields_seen[i] = false;
-                                        },
-                                    }
-                                }
-                                @field(r, field.name) = try parse(field.type, tokens, child_options);
-                                fields_seen[i] = true;
-                                found = true;
-                                break;
-                            }
-                        }
-                        if (!found) {
-                            if (options.ignore_unknown_fields) {
-                                try skipValue(tokens);
-                                continue;
-                            } else {
-                                return error.UnknownField;
-                            }
-                        }
-                    },
+                var name_token: ?Token = try source.nextAlloc(allocator, .alloc_if_needed);
+                errdefer {
+                    if (name_token) |t| {
+                        freeAllocated(allocator, t);
+                    }
+                }
+                const field_name = switch (name_token.?) {
+                    .object_end => break, // No more fields.
+                    .string => |slice| slice,
+                    .allocated_string => |slice| slice,
                     else => return error.UnexpectedToken,
+                };
+
+                inline for (structInfo.fields, 0..) |field, i| {
+                    if (field.is_comptime) @compileError("comptime fields are not supported: " ++ @typeName(T) ++ "." ++ field.name);
+                    if (mem.eql(u8, field.name, field_name)) {
+                        // Free the name token now in case we're using an allocator that optimizes freeing the last allocated object.
+                        // (Recursing into parseInternal() might trigger more allocations.)
+                        freeAllocated(allocator, name_token.?);
+                        name_token = null;
+
+                        if (fields_seen[i]) {
+                            switch (options.duplicate_field_behavior) {
+                                .use_first => {
+                                    // Parse and then delete the redundant value.
+                                    // We don't want to skip the value, because we want type checking.
+                                    const ignored_value = try parseInternal(field.type, allocator, source, options);
+                                    parseFree(field.type, allocator, ignored_value);
+                                    break;
+                                },
+                                .@"error" => return error.DuplicateField,
+                                .use_last => {
+                                    // Delete the stale value. We're about to get a new one.
+                                    parseFree(field.type, allocator, @field(r, field.name));
+                                    fields_seen[i] = false;
+                                },
+                            }
+                        }
+                        @field(r, field.name) = try parseInternal(field.type, allocator, source, options);
+                        fields_seen[i] = true;
+                        break;
+                    }
+                } else {
+                    // Didn't match anything.
+                    freeAllocated(allocator, name_token.?);
+                    if (options.ignore_unknown_fields) {
+                        try source.skipValue();
+                    } else {
+                        return error.UnknownField;
+                    }
                 }
             }
             inline for (structInfo.fields, 0..) |field, i| {
@@ -342,74 +345,112 @@ fn parseInternal(
             }
             return r;
         },
+
         .Array => |arrayInfo| {
-            switch (token) {
-                .ArrayBegin => {
+            switch (try source.peekNextTokenType()) {
+                .array_begin => {
+                    _ = try source.next();
+
+                    // Typical array.
                     var r: T = undefined;
                     var i: usize = 0;
-                    var child_options = options;
-                    child_options.allow_trailing_data = true;
                     errdefer {
                         // Without the r.len check `r[i]` is not allowed
                         if (r.len > 0) while (true) : (i -= 1) {
-                            parseFree(arrayInfo.child, r[i], options);
+                            parseFree(arrayInfo.child, allocator, r[i]);
                             if (i == 0) break;
                         };
                     }
                     while (i < r.len) : (i += 1) {
-                        r[i] = try parse(arrayInfo.child, tokens, child_options);
+                        r[i] = try parseInternal(arrayInfo.child, allocator, source, options);
                     }
-                    const tok = (try tokens.next()) orelse return error.UnexpectedEndOfJson;
-                    switch (tok) {
-                        .ArrayEnd => {},
-                        else => return error.UnexpectedToken,
-                    }
+
+                    if (.array_end != try source.next()) return error.UnexpectedToken;
+
                     return r;
                 },
-                .String => |stringToken| {
+                .string => {
                     if (arrayInfo.child != u8) return error.UnexpectedToken;
+
+                    // Fixed-length string.
                     var r: T = undefined;
-                    const source_slice = stringToken.slice(tokens.slice, tokens.i - 1);
-                    if (r.len != stringToken.decodedLength()) return error.LengthMismatch;
-                    switch (stringToken.escapes) {
-                        .None => mem.copy(u8, &r, source_slice),
-                        .Some => try unescapeValidString(&r, source_slice),
+                    var i: usize = 0;
+                    while (true) {
+                        switch (try source.next()) {
+                            .string => |slice| {
+                                if (i + slice.len != r.len) return error.LengthMismatch;
+                                std.mem.copy(u8, r[i..], slice);
+                                break;
+                            },
+                            .partial_string => |slice| {
+                                if (i + slice.len > r.len) return error.LengthMismatch;
+                                std.mem.copy(u8, r[i..], slice);
+                                i += slice.len;
+                            },
+                            .partial_string_escaped_1 => |arr| {
+                                if (i + arr.len > r.len) return error.LengthMismatch;
+                                std.mem.copy(u8, r[i..], arr[0..]);
+                                i += arr.len;
+                            },
+                            .partial_string_escaped_2 => |arr| {
+                                if (i + arr.len > r.len) return error.LengthMismatch;
+                                std.mem.copy(u8, r[i..], arr[0..]);
+                                i += arr.len;
+                            },
+                            .partial_string_escaped_3 => |arr| {
+                                if (i + arr.len > r.len) return error.LengthMismatch;
+                                std.mem.copy(u8, r[i..], arr[0..]);
+                                i += arr.len;
+                            },
+                            .partial_string_escaped_4 => |arr| {
+                                if (i + arr.len > r.len) return error.LengthMismatch;
+                                std.mem.copy(u8, r[i..], arr[0..]);
+                                i += arr.len;
+                            },
+                            else => unreachable,
+                        }
                     }
+
                     return r;
                 },
+
                 else => return error.UnexpectedToken,
             }
         },
+
         .Pointer => |ptrInfo| {
-            const allocator = options.allocator orelse return error.AllocatorRequired;
             switch (ptrInfo.size) {
                 .One => {
                     const r: *ptrInfo.child = try allocator.create(ptrInfo.child);
                     errdefer allocator.destroy(r);
-                    r.* = try parseInternal(ptrInfo.child, token, tokens, options);
+                    r.* = try parseInternal(ptrInfo.child, allocator, source, options);
                     return r;
                 },
                 .Slice => {
-                    switch (token) {
-                        .ArrayBegin => {
-                            var arraylist = std.ArrayList(ptrInfo.child).init(allocator);
+                    switch (try source.peekNextTokenType()) {
+                        .array_begin => {
+                            _ = try source.next();
+
+                            // Typical array.
+                            var arraylist = ArrayList(ptrInfo.child).init(allocator);
                             errdefer {
                                 while (arraylist.popOrNull()) |v| {
-                                    parseFree(ptrInfo.child, v, options);
+                                    parseFree(ptrInfo.child, allocator, v);
                                 }
                                 arraylist.deinit();
                             }
 
                             while (true) {
-                                const tok = (try tokens.next()) orelse return error.UnexpectedEndOfJson;
-                                switch (tok) {
-                                    .ArrayEnd => break,
+                                switch (try source.peekNextTokenType()) {
+                                    .array_end => {
+                                        _ = try source.next();
+                                        break;
+                                    },
                                     else => {},
                                 }
 
                                 try arraylist.ensureUnusedCapacity(1);
-                                const v = try parseInternal(ptrInfo.child, tok, tokens, options);
-                                arraylist.appendAssumeCapacity(v);
+                                arraylist.appendAssumeCapacity(try parseInternal(ptrInfo.child, allocator, source, options));
                             }
 
                             if (ptrInfo.sentinel) |some| {
@@ -419,21 +460,21 @@ fn parseInternal(
 
                             return try arraylist.toOwnedSlice();
                         },
-                        .String => |stringToken| {
+                        .string => {
                             if (ptrInfo.child != u8) return error.UnexpectedToken;
-                            const source_slice = stringToken.slice(tokens.slice, tokens.i - 1);
-                            const len = stringToken.decodedLength();
-                            const output = if (ptrInfo.sentinel) |sentinel_ptr|
-                                try allocator.allocSentinel(u8, len, @ptrCast(*const u8, sentinel_ptr).*)
-                            else
-                                try allocator.alloc(u8, len);
-                            errdefer allocator.free(output);
-                            switch (stringToken.escapes) {
-                                .None => mem.copy(u8, output, source_slice),
-                                .Some => try unescapeValidString(output, source_slice),
-                            }
 
-                            return output;
+                            // Dynamic length string.
+                            if (ptrInfo.sentinel) |sentinel_ptr| {
+                                // Use our own array list so we can append the sentinel.
+                                var value_list = ArrayList(u8).init(allocator);
+                                errdefer value_list.deinit();
+                                _ = try source.allocNextIntoArrayList(&value_list, .alloc_always);
+                                return try value_list.toOwnedSliceSentinel(@ptrCast(*const u8, sentinel_ptr).*);
+                            }
+                            switch (try source.nextAlloc(allocator, .alloc_always)) {
+                                .allocated_string => |slice| return slice,
+                                else => unreachable,
+                            }
                         },
                         else => return error.UnexpectedToken,
                     }
@@ -446,36 +487,30 @@ fn parseInternal(
     unreachable;
 }
 
-pub fn ParseError(comptime T: type) type {
-    return ParseInternalError(T) || error{UnexpectedEndOfJson} || TokenStream.Error;
-}
-
-pub fn parse(comptime T: type, tokens: *TokenStream, options: ParseOptions) ParseError(T)!T {
-    const token = (try tokens.next()) orelse return error.UnexpectedEndOfJson;
-    const r = try parseInternal(T, token, tokens, options);
-    errdefer parseFree(T, r, options);
-    if (!options.allow_trailing_data) {
-        if ((try tokens.next()) != null) unreachable;
-        assert(tokens.i >= tokens.slice.len);
+fn freeAllocated(allocator: Allocator, token: Token) void {
+    switch (token) {
+        .allocated_number, .allocated_string => |slice| {
+            allocator.free(slice);
+        },
+        else => {},
     }
-    return r;
 }
 
 /// Releases resources created by `parse`.
 /// Should be called with the same type and `ParseOptions` that were passed to `parse`
-pub fn parseFree(comptime T: type, value: T, options: ParseOptions) void {
+pub fn parseFree(comptime T: type, allocator: Allocator, value: T) void {
     switch (@typeInfo(T)) {
         .Bool, .Float, .ComptimeFloat, .Int, .ComptimeInt, .Enum => {},
         .Optional => {
             if (value) |v| {
-                return parseFree(@TypeOf(v), v, options);
+                return parseFree(@TypeOf(v), allocator, v);
             }
         },
         .Union => |unionInfo| {
             if (unionInfo.tag_type) |UnionTagType| {
                 inline for (unionInfo.fields) |u_field| {
                     if (value == @field(UnionTagType, u_field.name)) {
-                        parseFree(u_field.type, @field(value, u_field.name), options);
+                        parseFree(u_field.type, allocator, @field(value, u_field.name));
                         break;
                     }
                 }
@@ -514,25 +549,24 @@ pub fn parseFree(comptime T: type, value: T, options: ParseOptions) void {
                     }
                 }
                 if (should_free) {
-                    parseFree(field.type, @field(value, field.name), options);
+                    parseFree(field.type, allocator, @field(value, field.name));
                 }
             }
         },
         .Array => |arrayInfo| {
             for (value) |v| {
-                parseFree(arrayInfo.child, v, options);
+                parseFree(arrayInfo.child, allocator, v);
             }
         },
         .Pointer => |ptrInfo| {
-            const allocator = options.allocator orelse unreachable;
             switch (ptrInfo.size) {
                 .One => {
-                    parseFree(ptrInfo.child, value.*, options);
+                    parseFree(ptrInfo.child, allocator, value.*);
                     allocator.destroy(value);
                 },
                 .Slice => {
                     for (value) |v| {
-                        parseFree(ptrInfo.child, v, options);
+                        parseFree(ptrInfo.child, allocator, v);
                     }
                     allocator.free(value);
                 },
@@ -543,167 +577,24 @@ pub fn parseFree(comptime T: type, value: T, options: ParseOptions) void {
     }
 }
 
-pub const UnescapeValidStringError = error{InvalidUnicodeHexSymbol};
-
-/// Unescape a JSON string
-/// Only to be used on strings already validated by the parser
-/// (note the unreachable statements and lack of bounds checking)
-pub fn unescapeValidString(output: []u8, input: []const u8) UnescapeValidStringError!void {
-    var inIndex: usize = 0;
-    var outIndex: usize = 0;
-
-    while (inIndex < input.len) {
-        if (input[inIndex] != '\\') {
-            // not an escape sequence
-            output[outIndex] = input[inIndex];
-            inIndex += 1;
-            outIndex += 1;
-        } else if (input[inIndex + 1] != 'u') {
-            // a simple escape sequence
-            output[outIndex] = @as(u8, switch (input[inIndex + 1]) {
-                '\\' => '\\',
-                '/' => '/',
-                'n' => '\n',
-                'r' => '\r',
-                't' => '\t',
-                'f' => 12,
-                'b' => 8,
-                '"' => '"',
-                else => unreachable,
-            });
-            inIndex += 2;
-            outIndex += 1;
-        } else {
-            // a unicode escape sequence
-            const firstCodeUnit = std.fmt.parseInt(u16, input[inIndex + 2 .. inIndex + 6], 16) catch unreachable;
-
-            // guess optimistically that it's not a surrogate pair
-            if (std.unicode.utf8Encode(firstCodeUnit, output[outIndex..])) |byteCount| {
-                outIndex += byteCount;
-                inIndex += 6;
-            } else |err| {
-                // it might be a surrogate pair
-                if (err != error.Utf8CannotEncodeSurrogateHalf) {
-                    return error.InvalidUnicodeHexSymbol;
-                }
-                // check if a second code unit is present
-                if (inIndex + 7 >= input.len or input[inIndex + 6] != '\\' or input[inIndex + 7] != 'u') {
-                    return error.InvalidUnicodeHexSymbol;
-                }
-
-                const secondCodeUnit = std.fmt.parseInt(u16, input[inIndex + 8 .. inIndex + 12], 16) catch unreachable;
-
-                const utf16le_seq = [2]u16{
-                    mem.nativeToLittle(u16, firstCodeUnit),
-                    mem.nativeToLittle(u16, secondCodeUnit),
-                };
-                if (std.unicode.utf16leToUtf8(output[outIndex..], &utf16le_seq)) |byteCount| {
-                    outIndex += byteCount;
-                    inIndex += 12;
-                } else |_| {
-                    return error.InvalidUnicodeHexSymbol;
-                }
-            }
-        }
-    }
-    assert(outIndex == output.len);
-}
-
-test "skipValue" {
-    var ts = TokenStream.init("false");
-    try skipValue(&ts);
-    ts = TokenStream.init("true");
-    try skipValue(&ts);
-    ts = TokenStream.init("null");
-    try skipValue(&ts);
-    ts = TokenStream.init("42");
-    try skipValue(&ts);
-    ts = TokenStream.init("42.0");
-    try skipValue(&ts);
-    ts = TokenStream.init("\"foo\"");
-    try skipValue(&ts);
-    ts = TokenStream.init("[101, 111, 121]");
-    try skipValue(&ts);
-    ts = TokenStream.init("{}");
-    try skipValue(&ts);
-    ts = TokenStream.init("{\"foo\": \"bar\"}");
-    try skipValue(&ts);
-
-    { // An absurd number of nestings
-        const nestings = StreamingParser.default_max_nestings + 1;
-
-        ts = TokenStream.init("[" ** nestings ++ "]" ** nestings);
-        try testing.expectError(error.TooManyNestedItems, skipValue(&ts));
-    }
-
-    { // Would a number token cause problems in a deeply-nested array?
-        const nestings = StreamingParser.default_max_nestings;
-        const deeply_nested_array = "[" ** nestings ++ "0.118, 999, 881.99, 911.9, 725, 3" ++ "]" ** nestings;
-
-        ts = TokenStream.init(deeply_nested_array);
-        try skipValue(&ts);
-
-        ts = TokenStream.init("[" ++ deeply_nested_array ++ "]");
-        try testing.expectError(error.TooManyNestedItems, skipValue(&ts));
-    }
-
-    // Mismatched brace/square bracket
-    ts = TokenStream.init("[102, 111, 111}");
-    try testing.expectError(error.UnexpectedClosingBrace, skipValue(&ts));
-
-    { // should fail if no value found (e.g. immediate close of object)
-        var empty_object = TokenStream.init("{}");
-        assert(.ObjectBegin == (try empty_object.next()).?);
-        try testing.expectError(error.UnexpectedJsonDepth, skipValue(&empty_object));
-
-        var empty_array = TokenStream.init("[]");
-        assert(.ArrayBegin == (try empty_array.next()).?);
-        try testing.expectError(error.UnexpectedJsonDepth, skipValue(&empty_array));
-    }
-}
-
-test "deserializing string with escape sequence into sentinel slice" {
-    const json = "\"\\n\"";
-    var token_stream = TokenStream.init(json);
-    const options = ParseOptions{ .allocator = std.testing.allocator };
-
-    // Pre-fix, this line would panic:
-    const result = try parse([:0]const u8, &token_stream, options);
-    defer parseFree([:0]const u8, result, options);
-
-    // Double-check that we're getting the right result
-    try testing.expect(mem.eql(u8, result, "\n"));
-}
+const testing = std.testing;
 
 test "parse" {
-    var ts = TokenStream.init("false");
-    try testing.expectEqual(false, try parse(bool, &ts, ParseOptions{}));
-    ts = TokenStream.init("true");
-    try testing.expectEqual(true, try parse(bool, &ts, ParseOptions{}));
-    ts = TokenStream.init("1");
-    try testing.expectEqual(@as(u1, 1), try parse(u1, &ts, ParseOptions{}));
-    ts = TokenStream.init("50");
-    try testing.expectError(error.Overflow, parse(u1, &ts, ParseOptions{}));
-    ts = TokenStream.init("42");
-    try testing.expectEqual(@as(u64, 42), try parse(u64, &ts, ParseOptions{}));
-    ts = TokenStream.init("42.0");
-    try testing.expectEqual(@as(f64, 42), try parse(f64, &ts, ParseOptions{}));
-    ts = TokenStream.init("null");
-    try testing.expectEqual(@as(?bool, null), try parse(?bool, &ts, ParseOptions{}));
-    ts = TokenStream.init("true");
-    try testing.expectEqual(@as(?bool, true), try parse(?bool, &ts, ParseOptions{}));
+    try testing.expectEqual(false, try parseFromSlice(bool, testing.allocator, "false", .{}));
+    try testing.expectEqual(true, try parseFromSlice(bool, testing.allocator, "true", .{}));
+    try testing.expectEqual(@as(u1, 1), try parseFromSlice(u1, testing.allocator, "1", .{}));
+    try testing.expectError(error.Overflow, parseFromSlice(u1, testing.allocator, "50", .{}));
+    try testing.expectEqual(@as(u64, 42), try parseFromSlice(u64, testing.allocator, "42", .{}));
+    try testing.expectEqual(@as(f64, 42), try parseFromSlice(f64, testing.allocator, "42.0", .{}));
+    try testing.expectEqual(@as(?bool, null), try parseFromSlice(?bool, testing.allocator, "null", .{}));
+    try testing.expectEqual(@as(?bool, true), try parseFromSlice(?bool, testing.allocator, "true", .{}));
 
-    ts = TokenStream.init("\"foo\"");
-    try testing.expectEqual(@as([3]u8, "foo".*), try parse([3]u8, &ts, ParseOptions{}));
-    ts = TokenStream.init("[102, 111, 111]");
-    try testing.expectEqual(@as([3]u8, "foo".*), try parse([3]u8, &ts, ParseOptions{}));
-    ts = TokenStream.init("[]");
-    try testing.expectEqual(@as([0]u8, undefined), try parse([0]u8, &ts, ParseOptions{}));
+    try testing.expectEqual(@as([3]u8, "foo".*), try parseFromSlice([3]u8, testing.allocator, "\"foo\"", .{}));
+    try testing.expectEqual(@as([3]u8, "foo".*), try parseFromSlice([3]u8, testing.allocator, "[102, 111, 111]", .{}));
+    try testing.expectEqual(@as([0]u8, undefined), try parseFromSlice([0]u8, testing.allocator, "[]", .{}));
 
-    ts = TokenStream.init("\"12345678901234567890\"");
-    try testing.expectEqual(@as(u64, 12345678901234567890), try parse(u64, &ts, ParseOptions{}));
-    ts = TokenStream.init("\"123.456\"");
-    try testing.expectEqual(@as(f64, 123.456), try parse(f64, &ts, ParseOptions{}));
+    try testing.expectEqual(@as(u64, 12345678901234567890), try parseFromSlice(u64, testing.allocator, "\"12345678901234567890\"", .{}));
+    try testing.expectEqual(@as(f64, 123.456), try parseFromSlice(f64, testing.allocator, "\"123.456\"", .{}));
 }
 
 test "parse into enum" {
@@ -712,51 +603,37 @@ test "parse into enum" {
         Bar,
         @"with\\escape",
     };
-    var ts = TokenStream.init("\"Foo\"");
-    try testing.expectEqual(@as(T, .Foo), try parse(T, &ts, ParseOptions{}));
-    ts = TokenStream.init("42");
-    try testing.expectEqual(@as(T, .Foo), try parse(T, &ts, ParseOptions{}));
-    ts = TokenStream.init("\"with\\\\escape\"");
-    try testing.expectEqual(@as(T, .@"with\\escape"), try parse(T, &ts, ParseOptions{}));
-    ts = TokenStream.init("5");
-    try testing.expectError(error.InvalidEnumTag, parse(T, &ts, ParseOptions{}));
-    ts = TokenStream.init("\"Qux\"");
-    try testing.expectError(error.InvalidEnumTag, parse(T, &ts, ParseOptions{}));
-}
-
-test "parse with trailing data" {
-    var ts = TokenStream.init("falsed");
-    try testing.expectEqual(false, try parse(bool, &ts, ParseOptions{ .allow_trailing_data = true }));
-    ts = TokenStream.init("falsed");
-    try testing.expectError(error.InvalidTopLevelTrailing, parse(bool, &ts, ParseOptions{ .allow_trailing_data = false }));
-    // trailing whitespace is okay
-    ts = TokenStream.init("false \n");
-    try testing.expectEqual(false, try parse(bool, &ts, ParseOptions{ .allow_trailing_data = false }));
+    try testing.expectEqual(@as(T, .Foo), try parseFromSlice(T, testing.allocator, "\"Foo\"", .{}));
+    try testing.expectEqual(@as(T, .Foo), try parseFromSlice(T, testing.allocator, "42", .{}));
+    try testing.expectEqual(@as(T, .@"with\\escape"), try parseFromSlice(T, testing.allocator, "\"with\\\\escape\"", .{}));
+    try testing.expectError(error.InvalidEnumTag, parseFromSlice(T, testing.allocator, "5", .{}));
+    try testing.expectError(error.InvalidEnumTag, parseFromSlice(T, testing.allocator, "\"Qux\"", .{}));
 }
 
 test "parse into that allocates a slice" {
-    var ts = TokenStream.init("\"foo\"");
-    try testing.expectError(error.AllocatorRequired, parse([]u8, &ts, ParseOptions{}));
-
-    const options = ParseOptions{ .allocator = testing.allocator };
     {
-        ts = TokenStream.init("\"foo\"");
-        const r = try parse([]u8, &ts, options);
-        defer parseFree([]u8, r, options);
+        // string as string
+        const r = try parseFromSlice([]u8, testing.allocator, "\"foo\"", .{});
+        defer parseFree([]u8, testing.allocator, r);
         try testing.expectEqualSlices(u8, "foo", r);
     }
     {
-        ts = TokenStream.init("[102, 111, 111]");
-        const r = try parse([]u8, &ts, options);
-        defer parseFree([]u8, r, options);
+        // string as array of u8 integers
+        const r = try parseFromSlice([]u8, testing.allocator, "[102, 111, 111]", .{});
+        defer parseFree([]u8, testing.allocator, r);
         try testing.expectEqualSlices(u8, "foo", r);
     }
     {
-        ts = TokenStream.init("\"with\\\\escape\"");
-        const r = try parse([]u8, &ts, options);
-        defer parseFree([]u8, r, options);
+        const r = try parseFromSlice([]u8, testing.allocator, "\"with\\\\escape\"", .{});
+        defer parseFree([]u8, testing.allocator, r);
         try testing.expectEqualSlices(u8, "with\\escape", r);
     }
+}
+
+test "parse into sentinel slice" {
+    const result = try parseFromSlice([:0]const u8, testing.allocator, "\"\\n\"", .{});
+    defer parseFree([:0]const u8, testing.allocator, result);
+    try testing.expect(mem.eql(u8, result, "\n"));
 }
 
 test "parse into tagged union" {
@@ -766,12 +643,9 @@ test "parse into tagged union" {
         float: f64,
         string: []const u8,
     };
-    var ts = TokenStream.init("{\"float\":1.5}");
-    try testing.expectEqual(T{ .float = 1.5 }, try parse(T, &ts, ParseOptions{}));
-    ts = TokenStream.init("{\"int\":1}");
-    try testing.expectEqual(T{ .int = 1 }, try parse(T, &ts, ParseOptions{}));
-    ts = TokenStream.init("{\"nothing\":{}}");
-    try testing.expectEqual(T{ .nothing = {} }, try parse(T, &ts, ParseOptions{}));
+    try testing.expectEqual(T{ .float = 1.5 }, try parseFromSlice(T, testing.allocator, "{\"float\":1.5}", .{}));
+    try testing.expectEqual(T{ .int = 1 }, try parseFromSlice(T, testing.allocator, "{\"int\":1}", .{}));
+    try testing.expectEqual(T{ .nothing = {} }, try parseFromSlice(T, testing.allocator, "{\"nothing\":{}}", .{}));
 }
 
 test "parse into tagged union errors" {
@@ -781,61 +655,42 @@ test "parse into tagged union errors" {
         float: f64,
         string: []const u8,
     };
-    var ts = TokenStream.init("42");
-    try testing.expectError(error.UnexpectedToken, parse(T, &ts, ParseOptions{}));
+    try testing.expectError(error.UnexpectedToken, parseFromSlice(T, testing.allocator, "42", .{}));
+    try testing.expectError(error.UnexpectedToken, parseFromSlice(T, testing.allocator, "{}", .{}));
+    try testing.expectError(error.UnknownField, parseFromSlice(T, testing.allocator, "{\"bogus\":1}", .{}));
+    try testing.expectError(error.UnexpectedToken, parseFromSlice(T, testing.allocator, "{\"int\":1, \"int\":1", .{}));
+    try testing.expectError(error.UnexpectedToken, parseFromSlice(T, testing.allocator, "{\"int\":1, \"float\":1.0}", .{}));
+    try testing.expectError(error.UnexpectedToken, parseFromSlice(T, testing.allocator, "{\"nothing\":null}", .{}));
+    try testing.expectError(error.UnexpectedToken, parseFromSlice(T, testing.allocator, "{\"nothing\":{\"no\":0}}", .{}));
 
-    ts = TokenStream.init("{}");
-    try testing.expectError(error.MissingField, parse(T, &ts, ParseOptions{}));
-
-    ts = TokenStream.init("{\"bogus\":1}");
-    try testing.expectError(error.UnknownField, parse(T, &ts, ParseOptions{}));
-
-    ts = TokenStream.init("{\"int\":1, \"int\":1}");
-    try testing.expectError(error.ConflictingUnionFields, parse(T, &ts, ParseOptions{}));
-
-    ts = TokenStream.init("{\"int\":1, \"float\":1.0}");
-    try testing.expectError(error.ConflictingUnionFields, parse(T, &ts, ParseOptions{}));
-
-    ts = TokenStream.init("{\"string\":\"foo\"}");
-    try testing.expectError(error.AllocatorRequired, parse(T, &ts, ParseOptions{}));
-
-    ts = TokenStream.init("{\"nothing\":null}");
-    try testing.expectError(error.UnexpectedToken, parse(T, &ts, ParseOptions{}));
-
-    ts = TokenStream.init("{\"nothing\":{\"no\":0}}");
-    try testing.expectError(error.UnexpectedToken, parse(T, &ts, ParseOptions{}));
+    // Allocator failure
+    var fail_alloc = testing.FailingAllocator.init(testing.allocator, 0);
+    const failing_allocator = fail_alloc.allocator();
+    try testing.expectError(error.OutOfMemory, parseFromSlice(T, failing_allocator, "{\"string\"\"foo\"}", .{}));
 }
 
 test "parseFree descends into tagged union" {
-    var fail_alloc = testing.FailingAllocator.init(testing.allocator, 1);
-    const options = ParseOptions{ .allocator = fail_alloc.allocator() };
     const T = union(enum) {
+        nothing,
         int: i32,
         float: f64,
         string: []const u8,
     };
-    // use a string with unicode escape so we know result can't be a reference to global constant
-    var ts = TokenStream.init("{\"string\":\"with\\u0105unicode\"}");
-    const r = try parse(T, &ts, options);
-    try testing.expectEqual(std.meta.Tag(T).string, @as(std.meta.Tag(T), r));
-    try testing.expectEqualSlices(u8, "withąunicode", r.string);
-    try testing.expectEqual(@as(usize, 0), fail_alloc.deallocations);
-    parseFree(T, r, options);
-    try testing.expectEqual(@as(usize, 1), fail_alloc.deallocations);
+    const r = try parseFromSlice(T, testing.allocator, "{\"string\":\"foo\"}", .{});
+    try testing.expectEqualSlices(u8, "foo", r.string);
+    parseFree(T, testing.allocator, r);
 }
 
 test "parse into struct with no fields" {
     const T = struct {};
-    var ts = TokenStream.init("{}");
-    try testing.expectEqual(T{}, try parse(T, &ts, ParseOptions{}));
+    try testing.expectEqual(T{}, try parseFromSlice(T, testing.allocator, "{}", .{}));
 }
 
 const test_const_value: usize = 123;
 
 test "parse into struct with default const pointer field" {
     const T = struct { a: *const usize = &test_const_value };
-    var ts = TokenStream.init("{}");
-    try testing.expectEqual(T{}, try parse(T, &ts, .{}));
+    try testing.expectEqual(T{}, try parseFromSlice(T, testing.allocator, "{}", .{}));
 }
 
 const test_default_usize: usize = 123;
@@ -854,24 +709,18 @@ test "freeing parsed structs with pointers to default values" {
         str_slice: []const []const u8 = &test_default_str_slice,
     };
 
-    var ts = json.TokenStream.init("{}");
-    const options = .{ .allocator = std.heap.page_allocator };
-    const parsed = try json.parse(T, &ts, options);
-
+    const parsed = try parseFromSlice(T, testing.allocator, "{}", .{});
     try testing.expectEqual(T{}, parsed);
-
-    json.parseFree(T, parsed, options);
+    // This will panic if it tries to free global constants:
+    parseFree(T, testing.allocator, parsed);
 }
 
 test "parse into struct where destination and source lengths mismatch" {
     const T = struct { a: [2]u8 };
-    var ts = TokenStream.init("{\"a\": \"bbb\"}");
-    try testing.expectError(error.LengthMismatch, parse(T, &ts, ParseOptions{}));
+    try testing.expectError(error.LengthMismatch, parseFromSlice(T, testing.allocator, "{\"a\": \"bbb\"}", .{}));
 }
 
 test "parse into struct with misc fields" {
-    @setEvalBranchQuota(10000);
-    const options = ParseOptions{ .allocator = testing.allocator };
     const T = struct {
         int: i64,
         float: f64,
@@ -898,7 +747,7 @@ test "parse into struct with misc fields" {
             string: []const u8,
         };
     };
-    var ts = TokenStream.init(
+    var document_str =
         \\{
         \\  "int": 420,
         \\  "float": 3.14,
@@ -922,9 +771,9 @@ test "parse into struct with misc fields" {
         \\    "float": 100000
         \\  }
         \\}
-    );
-    const r = try parse(T, &ts, options);
-    defer parseFree(T, r, options);
+    ;
+    const r = try parseFromSlice(T, testing.allocator, document_str, .{});
+    defer parseFree(T, testing.allocator, r);
     try testing.expectEqual(@as(i64, 420), r.int);
     try testing.expectEqual(@as(f64, 3.14), r.float);
     try testing.expectEqual(true, r.@"with\\escape");
@@ -946,24 +795,22 @@ test "parse into struct with misc fields" {
 }
 
 test "parse into struct with strings and arrays with sentinels" {
-    @setEvalBranchQuota(10000);
-    const options = ParseOptions{ .allocator = testing.allocator };
     const T = struct {
         language: [:0]const u8,
         language_without_sentinel: []const u8,
         data: [:99]const i32,
         simple_data: []const i32,
     };
-    var ts = TokenStream.init(
+    var document_str =
         \\{
         \\  "language": "zig",
         \\  "language_without_sentinel": "zig again!",
         \\  "data": [1, 2, 3],
         \\  "simple_data": [4, 5, 6]
         \\}
-    );
-    const r = try parse(T, &ts, options);
-    defer parseFree(T, r, options);
+    ;
+    const r = try parseFromSlice(T, testing.allocator, document_str, .{});
+    defer parseFree(T, testing.allocator, r);
 
     try testing.expectEqualSentinel(u8, 0, "zig", r.language);
 
@@ -980,27 +827,19 @@ test "parse into struct with duplicate field" {
     const ballast = try testing.allocator.alloc(u64, 1);
     defer testing.allocator.free(ballast);
 
-    const options_first = ParseOptions{ .allocator = testing.allocator, .duplicate_field_behavior = .UseFirst };
-
-    const options_last = ParseOptions{
-        .allocator = testing.allocator,
-        .duplicate_field_behavior = .UseLast,
-    };
+    const options_first = ParseOptions{ .duplicate_field_behavior = .use_first };
+    const options_last = ParseOptions{ .duplicate_field_behavior = .use_last };
 
     const str = "{ \"a\": 1, \"a\": 0.25 }";
 
     const T1 = struct { a: *u64 };
-    // both .UseFirst and .UseLast should fail because second "a" value isn't a u64
-    var ts = TokenStream.init(str);
-    try testing.expectError(error.InvalidNumber, parse(T1, &ts, options_first));
-    ts = TokenStream.init(str);
-    try testing.expectError(error.InvalidNumber, parse(T1, &ts, options_last));
+    // both .use_first and .use_last should fail because second "a" value isn't a u64
+    try testing.expectError(error.InvalidNumber, parseFromSlice(T1, testing.allocator, str, options_first));
+    try testing.expectError(error.InvalidNumber, parseFromSlice(T1, testing.allocator, str, options_last));
 
     const T2 = struct { a: f64 };
-    ts = TokenStream.init(str);
-    try testing.expectEqual(T2{ .a = 1.0 }, try parse(T2, &ts, options_first));
-    ts = TokenStream.init(str);
-    try testing.expectEqual(T2{ .a = 0.25 }, try parse(T2, &ts, options_last));
+    try testing.expectEqual(T2{ .a = 1.0 }, try parseFromSlice(T2, testing.allocator, str, options_first));
+    try testing.expectEqual(T2{ .a = 0.25 }, try parseFromSlice(T2, testing.allocator, str, options_last));
 }
 
 test "parse into struct ignoring unknown fields" {
@@ -1009,12 +848,7 @@ test "parse into struct ignoring unknown fields" {
         language: []const u8,
     };
 
-    const ops = ParseOptions{
-        .allocator = testing.allocator,
-        .ignore_unknown_fields = true,
-    };
-
-    var ts = TokenStream.init(
+    var str =
         \\{
         \\  "int": 420,
         \\  "float": 3.14,
@@ -1033,19 +867,20 @@ test "parse into struct ignoring unknown fields" {
         \\      "foo": "rocks"
         \\    }
         \\  ],
-        \\  "a_union": 100000,
+        \\  "a_union": {
+        \\    "float": 100000
+        \\  },
         \\  "language": "zig"
         \\}
-    );
-    const r = try parse(T, &ts, ops);
-    defer parseFree(T, r, ops);
+    ;
+    const r = try parseFromSlice(T, testing.allocator, str, .{ .ignore_unknown_fields = true });
+    defer parseFree(T, testing.allocator, r);
 
     try testing.expectEqual(@as(i64, 420), r.int);
     try testing.expectEqualSlices(u8, "zig", r.language);
 }
 
 test "parse into tuple" {
-    const options = ParseOptions{ .allocator = testing.allocator };
     const Union = union(enum) {
         char: u8,
         float: f64,
@@ -1064,7 +899,7 @@ test "parse into tuple" {
         std.meta.Tuple(&.{ u8, []const u8, u8 }),
         Union,
     });
-    var ts = TokenStream.init(
+    var str =
         \\[
         \\  420,
         \\  3.14,
@@ -1078,9 +913,9 @@ test "parse into tuple" {
         \\  [4, "två", 42],
         \\  {"float": 12.34}
         \\]
-    );
-    const r = try parse(T, &ts, options);
-    defer parseFree(T, r, options);
+    ;
+    const r = try parseFromSlice(T, testing.allocator, str, .{});
+    defer parseFree(T, testing.allocator, r);
     try testing.expectEqual(@as(i64, 420), r[0]);
     try testing.expectEqual(@as(f64, 3.14), r[1]);
     try testing.expectEqual(true, r[2]);
@@ -1103,11 +938,9 @@ test "parse into recursive union definition" {
     const T = struct {
         values: ParseIntoRecursiveUnionDefinitionValue,
     };
-    const ops = ParseOptions{ .allocator = testing.allocator };
 
-    var ts = TokenStream.init("{\"values\":{\"array\":[{\"integer\":58}]}}");
-    const r = try parse(T, &ts, ops);
-    defer parseFree(T, r, ops);
+    const r = try parseFromSlice(T, testing.allocator, "{\"values\":{\"array\":[{\"integer\":58}]}}", .{});
+    defer parseFree(T, testing.allocator, r);
 
     try testing.expectEqual(@as(i64, 58), r.values.array[0].integer);
 }
@@ -1126,22 +959,17 @@ test "parse into double recursive union definition" {
     const T = struct {
         values: ParseIntoDoubleRecursiveUnionValueFirst,
     };
-    const ops = ParseOptions{ .allocator = testing.allocator };
 
-    var ts = TokenStream.init("{\"values\":{\"array\":[{\"array\":[{\"integer\":58}]}]}}");
-    const r = try parse(T, &ts, ops);
-    defer parseFree(T, r, ops);
+    const r = try parseFromSlice(T, testing.allocator, "{\"values\":{\"array\":[{\"array\":[{\"integer\":58}]}]}}", .{});
+    defer parseFree(T, testing.allocator, r);
 
     try testing.expectEqual(@as(i64, 58), r.values.array[0].array[0].integer);
 }
 
 test "parse exponential into int" {
     const T = struct { int: i64 };
-    var ts = TokenStream.init("{ \"int\": 4.2e2 }");
-    const r = try parse(T, &ts, ParseOptions{});
+    const r = try parseFromSlice(T, testing.allocator, "{ \"int\": 4.2e2 }", .{});
     try testing.expectEqual(@as(i64, 420), r.int);
-    ts = TokenStream.init("{ \"int\": 0.042e2 }");
-    try testing.expectError(error.InvalidNumber, parse(T, &ts, ParseOptions{}));
-    ts = TokenStream.init("{ \"int\": 18446744073709551616.0 }");
-    try testing.expectError(error.Overflow, parse(T, &ts, ParseOptions{}));
+    try testing.expectError(error.InvalidNumber, parseFromSlice(T, testing.allocator, "{ \"int\": 0.042e2 }", .{}));
+    try testing.expectError(error.Overflow, parseFromSlice(T, testing.allocator, "{ \"int\": 18446744073709551616.0 }", .{}));
 }
