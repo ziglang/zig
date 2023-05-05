@@ -5805,7 +5805,7 @@ pub fn analyzeFnBody(mod: *Module, func: *Fn, arena: Allocator) SemaError!Air {
             // is unused so it just has to be a no-op.
             sema.air_instructions.set(ptr_inst.*, .{
                 .tag = .alloc,
-                .data = .{ .ty = Type.initTag(.single_const_pointer_to_comptime_int) },
+                .data = .{ .ty = Type.single_const_pointer_to_comptime_int },
             });
         }
     }
@@ -6545,7 +6545,7 @@ pub fn populateTestFunctions(
     }
     const decl = mod.declPtr(decl_index);
     var buf: Type.SlicePtrFieldTypeBuffer = undefined;
-    const tmp_test_fn_ty = decl.ty.slicePtrFieldType(&buf).elemType();
+    const tmp_test_fn_ty = decl.ty.slicePtrFieldType(&buf).childType(mod);
 
     const array_decl_index = d: {
         // Add mod.test_functions to an array decl then make the test_functions
@@ -6575,7 +6575,7 @@ pub fn populateTestFunctions(
                 errdefer name_decl_arena.deinit();
                 const bytes = try name_decl_arena.allocator().dupe(u8, test_name_slice);
                 const test_name_decl_index = try mod.createAnonymousDeclFromDecl(array_decl, array_decl.src_namespace, null, .{
-                    .ty = try Type.Tag.array_u8.create(name_decl_arena.allocator(), bytes.len),
+                    .ty = try Type.array(name_decl_arena.allocator(), bytes.len, null, Type.u8, mod),
                     .val = try Value.Tag.bytes.create(name_decl_arena.allocator(), bytes),
                 });
                 try mod.declPtr(test_name_decl_index).finalizeNewArena(&name_decl_arena);
@@ -6609,7 +6609,12 @@ pub fn populateTestFunctions(
 
         {
             // This copy accesses the old Decl Type/Value so it must be done before `clearValues`.
-            const new_ty = try Type.Tag.const_slice.create(arena, try tmp_test_fn_ty.copy(arena));
+            const new_ty = try Type.ptr(arena, mod, .{
+                .size = .Slice,
+                .pointee_type = try tmp_test_fn_ty.copy(arena),
+                .mutable = false,
+                .@"addrspace" = .generic,
+            });
             const new_var = try gpa.create(Var);
             errdefer gpa.destroy(new_var);
             new_var.* = decl.val.castTag(.variable).?.data.*;
@@ -6817,6 +6822,34 @@ pub fn intType(mod: *Module, signedness: std.builtin.Signedness, bits: u16) Allo
         .bits = bits,
     } });
     return i.toType();
+}
+
+pub fn arrayType(mod: *Module, info: InternPool.Key.ArrayType) Allocator.Error!Type {
+    const i = try intern(mod, .{ .array_type = info });
+    return i.toType();
+}
+
+pub fn vectorType(mod: *Module, info: InternPool.Key.VectorType) Allocator.Error!Type {
+    const i = try intern(mod, .{ .vector_type = info });
+    return i.toType();
+}
+
+pub fn optionalType(mod: *Module, child_type: InternPool.Index) Allocator.Error!Type {
+    const i = try intern(mod, .{ .opt_type = child_type });
+    return i.toType();
+}
+
+pub fn ptrType(mod: *Module, info: InternPool.Key.PtrType) Allocator.Error!Type {
+    const i = try intern(mod, .{ .ptr_type = info });
+    return i.toType();
+}
+
+pub fn singleMutPtrType(mod: *Module, child_type: Type) Allocator.Error!Type {
+    return ptrType(mod, .{ .elem_type = child_type.ip_index });
+}
+
+pub fn singleConstPtrType(mod: *Module, child_type: Type) Allocator.Error!Type {
+    return ptrType(mod, .{ .elem_type = child_type.ip_index, .is_const = true });
 }
 
 pub fn smallestUnsignedInt(mod: *Module, max: u64) Allocator.Error!Type {

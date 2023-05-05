@@ -225,6 +225,7 @@ pub fn categorizeOperand(
     air: Air,
     inst: Air.Inst.Index,
     operand: Air.Inst.Index,
+    ip: InternPool,
 ) OperandCategory {
     const air_tags = air.instructions.items(.tag);
     const air_datas = air.instructions.items(.data);
@@ -534,7 +535,7 @@ pub fn categorizeOperand(
         .aggregate_init => {
             const ty_pl = air_datas[inst].ty_pl;
             const aggregate_ty = air.getRefType(ty_pl.ty);
-            const len = @intCast(usize, aggregate_ty.arrayLen());
+            const len = @intCast(usize, aggregate_ty.arrayLenIp(ip));
             const elements = @ptrCast([]const Air.Inst.Ref, air.extra[ty_pl.payload..][0..len]);
 
             if (elements.len <= bpi - 1) {
@@ -625,7 +626,7 @@ pub fn categorizeOperand(
 
                 var operand_live: bool = true;
                 for (air.extra[cond_extra.end..][0..2]) |cond_inst| {
-                    if (l.categorizeOperand(air, cond_inst, operand) == .tomb)
+                    if (l.categorizeOperand(air, cond_inst, operand, ip) == .tomb)
                         operand_live = false;
 
                     switch (air_tags[cond_inst]) {
@@ -872,6 +873,7 @@ fn analyzeInst(
     data: *LivenessPassData(pass),
     inst: Air.Inst.Index,
 ) Allocator.Error!void {
+    const ip = a.intern_pool;
     const inst_tags = a.air.instructions.items(.tag);
     const inst_datas = a.air.instructions.items(.data);
 
@@ -1140,7 +1142,7 @@ fn analyzeInst(
         .aggregate_init => {
             const ty_pl = inst_datas[inst].ty_pl;
             const aggregate_ty = a.air.getRefType(ty_pl.ty);
-            const len = @intCast(usize, aggregate_ty.arrayLen());
+            const len = @intCast(usize, aggregate_ty.arrayLenIp(ip.*));
             const elements = @ptrCast([]const Air.Inst.Ref, a.air.extra[ty_pl.payload..][0..len]);
 
             if (elements.len <= bpi - 1) {

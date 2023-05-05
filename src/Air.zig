@@ -1375,7 +1375,7 @@ pub fn typeOfIndex(air: Air, inst: Air.Inst.Index, ip: InternPool) Type {
 
         .bool_to_int => return Type.u1,
 
-        .tag_name, .error_name => return Type.initTag(.const_slice_u8_sentinel_0),
+        .tag_name, .error_name => return Type.const_slice_u8_sentinel_0,
 
         .call, .call_always_tail, .call_never_tail, .call_never_inline => {
             const callee_ty = air.typeOf(datas[inst].pl_op.operand, ip);
@@ -1384,18 +1384,21 @@ pub fn typeOfIndex(air: Air, inst: Air.Inst.Index, ip: InternPool) Type {
 
         .slice_elem_val, .ptr_elem_val, .array_elem_val => {
             const ptr_ty = air.typeOf(datas[inst].bin_op.lhs, ip);
-            return ptr_ty.elemType();
+            return ptr_ty.childTypeIp(ip);
         },
         .atomic_load => {
             const ptr_ty = air.typeOf(datas[inst].atomic_load.ptr, ip);
-            return ptr_ty.elemType();
+            return ptr_ty.childTypeIp(ip);
         },
         .atomic_rmw => {
             const ptr_ty = air.typeOf(datas[inst].pl_op.operand, ip);
-            return ptr_ty.elemType();
+            return ptr_ty.childTypeIp(ip);
         },
 
-        .reduce, .reduce_optimized => return air.typeOf(datas[inst].reduce.operand, ip).childType(),
+        .reduce, .reduce_optimized => {
+            const operand_ty = air.typeOf(datas[inst].reduce.operand, ip);
+            return ip.indexToKey(operand_ty.ip_index).vector_type.child.toType();
+        },
 
         .mul_add => return air.typeOf(datas[inst].pl_op.operand, ip),
         .select => {

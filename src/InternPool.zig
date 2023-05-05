@@ -31,28 +31,10 @@ const KeyAdapter = struct {
 
 pub const Key = union(enum) {
     int_type: IntType,
-    ptr_type: struct {
-        elem_type: Index,
-        sentinel: Index = .none,
-        alignment: u16 = 0,
-        size: std.builtin.Type.Pointer.Size,
-        is_const: bool = false,
-        is_volatile: bool = false,
-        is_allowzero: bool = false,
-        address_space: std.builtin.AddressSpace = .generic,
-    },
-    array_type: struct {
-        len: u64,
-        child: Index,
-        sentinel: Index,
-    },
-    vector_type: struct {
-        len: u32,
-        child: Index,
-    },
-    optional_type: struct {
-        payload_type: Index,
-    },
+    ptr_type: PtrType,
+    array_type: ArrayType,
+    vector_type: VectorType,
+    opt_type: Index,
     error_union_type: struct {
         error_set_type: Index,
         payload_type: Index,
@@ -87,6 +69,47 @@ pub const Key = union(enum) {
 
     pub const IntType = std.builtin.Type.Int;
 
+    pub const PtrType = struct {
+        elem_type: Index,
+        sentinel: Index = .none,
+        /// If zero use pointee_type.abiAlignment()
+        /// When creating pointer types, if alignment is equal to pointee type
+        /// abi alignment, this value should be set to 0 instead.
+        alignment: u16 = 0,
+        /// If this is non-zero it means the pointer points to a sub-byte
+        /// range of data, which is backed by a "host integer" with this
+        /// number of bytes.
+        /// When host_size=pointee_abi_size and bit_offset=0, this must be
+        /// represented with host_size=0 instead.
+        host_size: u16 = 0,
+        bit_offset: u16 = 0,
+        vector_index: VectorIndex = .none,
+        size: std.builtin.Type.Pointer.Size = .One,
+        is_const: bool = false,
+        is_volatile: bool = false,
+        is_allowzero: bool = false,
+        /// See src/target.zig defaultAddressSpace function for how to obtain
+        /// an appropriate value for this field.
+        address_space: std.builtin.AddressSpace = .generic,
+
+        pub const VectorIndex = enum(u32) {
+            none = std.math.maxInt(u32),
+            runtime = std.math.maxInt(u32) - 1,
+            _,
+        };
+    };
+
+    pub const ArrayType = struct {
+        len: u64,
+        child: Index,
+        sentinel: Index,
+    };
+
+    pub const VectorType = struct {
+        len: u32,
+        child: Index,
+    };
+
     pub fn hash32(key: Key) u32 {
         return @truncate(u32, key.hash64());
     }
@@ -106,7 +129,7 @@ pub const Key = union(enum) {
             .ptr_type,
             .array_type,
             .vector_type,
-            .optional_type,
+            .opt_type,
             .error_union_type,
             .simple_type,
             .simple_value,
@@ -159,8 +182,8 @@ pub const Key = union(enum) {
                 const b_info = b.vector_type;
                 return std.meta.eql(a_info, b_info);
             },
-            .optional_type => |a_info| {
-                const b_info = b.optional_type;
+            .opt_type => |a_info| {
+                const b_info = b.opt_type;
                 return std.meta.eql(a_info, b_info);
             },
             .error_union_type => |a_info| {
@@ -220,7 +243,7 @@ pub const Key = union(enum) {
             .ptr_type,
             .array_type,
             .vector_type,
-            .optional_type,
+            .opt_type,
             .error_union_type,
             .simple_type,
             .struct_type,
@@ -630,6 +653,7 @@ pub const Tag = enum(u8) {
     /// data is payload to Vector.
     type_vector,
     /// A fully explicitly specified pointer type.
+    /// TODO actually this is missing some stuff like bit_offset
     /// data is payload to Pointer.
     type_pointer,
     /// An optional type.
@@ -893,7 +917,7 @@ pub fn indexToKey(ip: InternPool, index: Index) Key {
             } };
         },
 
-        .type_optional => .{ .optional_type = .{ .payload_type = @intToEnum(Index, data) } },
+        .type_optional => .{ .opt_type = @intToEnum(Index, data) },
 
         .type_error_union => @panic("TODO"),
         .type_enum_simple => @panic("TODO"),
@@ -971,10 +995,10 @@ pub fn get(ip: *InternPool, gpa: Allocator, key: Key) Allocator.Error!Index {
                 }),
             });
         },
-        .optional_type => |optional_type| {
+        .opt_type => |opt_type| {
             ip.items.appendAssumeCapacity(.{
                 .tag = .type_optional,
-                .data = @enumToInt(optional_type.payload_type),
+                .data = @enumToInt(opt_type),
             });
         },
         .error_union_type => |error_union_type| {
@@ -1191,4 +1215,14 @@ test "basic usage" {
         .sentinel = .none,
     } });
     try std.testing.expect(another_array_i32 == array_i32);
+}
+
+pub fn childType(ip: InternPool, i: Index) Index {
+    return switch (ip.indexToKey(i)) {
+        .ptr_type => |ptr_type| ptr_type.elem_type,
+        .vector_type => |vector_type| vector_type.child,
+        .array_type => |array_type| array_type.child,
+        .opt_type => |child| child,
+        else => unreachable,
+    };
 }
