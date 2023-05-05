@@ -1,10 +1,12 @@
-
 const std = @import("std");
 const testing = std.testing;
 
 const parseFromSlice = @import("./static.zig").parseFromSlice;
+const parseFromTokenSource = @import("./static.zig").parseFromTokenSource;
 const parseFree = @import("./static.zig").parseFree;
 const ParseOptions = @import("./static.zig").ParseOptions;
+const JsonScanner = @import("./scanner.zig").JsonScanner;
+const jsonReader = @import("./scanner.zig").jsonReader;
 
 test "parse" {
     try testing.expectEqual(false, try parseFromSlice(bool, testing.allocator, "false", .{}));
@@ -399,4 +401,19 @@ test "parse exponential into int" {
     try testing.expectEqual(@as(i64, 420), r.int);
     try testing.expectError(error.InvalidNumber, parseFromSlice(T, testing.allocator, "{ \"int\": 0.042e2 }", .{}));
     try testing.expectError(error.Overflow, parseFromSlice(T, testing.allocator, "{ \"int\": 18446744073709551616.0 }", .{}));
+}
+
+test "parseFromTokenSource" {
+    var scanner = JsonScanner.initCompleteInput(testing.allocator, "123");
+    defer scanner.deinit();
+    try testing.expectEqual(@as(u32, 123), try parseFromTokenSource(u32, testing.allocator, &scanner, .{}));
+
+    var stream = std.io.fixedBufferStream("123");
+    var json_reader = jsonReader(std.testing.allocator, stream.reader());
+    defer json_reader.deinit();
+    try testing.expectEqual(@as(u32, 123), try parseFromTokenSource(u32, testing.allocator, &json_reader, .{}));
+}
+
+test "max_value_len" {
+    try testing.expectError(error.ValueTooLong, parseFromSlice([]u8, testing.allocator, "\"0123456789\"", .{ .max_value_len = 5 }));
 }

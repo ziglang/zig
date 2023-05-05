@@ -27,12 +27,18 @@ pub const ParseOptions = struct {
     max_value_len: ?usize = null,
 };
 
+/// Parses the json document from s and returns the result.
+/// The provided allocator is used both for temporary allocations during parsing the document,
+/// and also to allocate any pointer values in the return type.
+/// If T contains any pointers, free the memory with parseFree().
+/// Note that error.BufferUnderrun is not actually possible to return from this function.
 pub fn parseFromSlice(comptime T: type, allocator: Allocator, s: []const u8, options: ParseOptions) ParseError(T, JsonScanner)!T {
     var scanner = JsonScanner.initCompleteInput(allocator, s);
     defer scanner.deinit();
 
     return parseFromTokenSource(T, allocator, &scanner, options);
 }
+
 /// scanner_or_reader must be either a *JsonScanner with complete input or a *JsonReader.
 /// allocator is used to allocate the data of T if necessary,
 /// such as if T is *u32 or []u32.
@@ -59,7 +65,9 @@ pub fn parseFromTokenSource(comptime T: type, allocator: Allocator, scanner_or_r
     return r;
 }
 
-fn ParseError(comptime T: type, comptime Source: type) type {
+/// The error set that will be returned from parsing T from *Source.
+/// Note that this may contain error.BufferUnderrun, but that error will never actually be returned.
+pub fn ParseError(comptime T: type, comptime Source: type) type {
     // `inferred_types` is used to avoid infinite recursion for recursive type definitions.
     const inferred_types = [_]type{};
     // A few of these will either always be present or present enough of the time that
@@ -136,7 +144,7 @@ fn parseInternal(
             };
         },
         .Float, .ComptimeFloat => {
-            const token = try source.nextAlloc(allocator, .alloc_if_needed);
+            const token = try source.nextAllocMax(allocator, .alloc_if_needed, options.max_value_len.?);
             defer freeAllocated(allocator, token);
             const slice = switch (token) {
                 .number, .string => |slice| slice,
@@ -146,7 +154,7 @@ fn parseInternal(
             return try std.fmt.parseFloat(T, slice);
         },
         .Int, .ComptimeInt => {
-            const token = try source.nextAlloc(allocator, .alloc_if_needed);
+            const token = try source.nextAllocMax(allocator, .alloc_if_needed, options.max_value_len.?);
             defer freeAllocated(allocator, token);
             const slice = switch (token) {
                 .number, .string => |slice| slice,
@@ -173,7 +181,7 @@ fn parseInternal(
             }
         },
         .Enum => |enumInfo| {
-            const token = try source.nextAlloc(allocator, .alloc_if_needed);
+            const token = try source.nextAllocMax(allocator, .alloc_if_needed, options.max_value_len.?);
             defer freeAllocated(allocator, token);
             const slice = switch (token) {
                 .number, .string => |slice| slice,
@@ -203,7 +211,7 @@ fn parseInternal(
                 }
             }
 
-            var name_token: ?Token = try source.nextAlloc(allocator, .alloc_if_needed);
+            var name_token: ?Token = try source.nextAllocMax(allocator, .alloc_if_needed, options.max_value_len.?);
             errdefer {
                 if (name_token) |t| {
                     freeAllocated(allocator, t);
@@ -279,7 +287,7 @@ fn parseInternal(
             }
 
             while (true) {
-                var name_token: ?Token = try source.nextAlloc(allocator, .alloc_if_needed);
+                var name_token: ?Token = try source.nextAllocMax(allocator, .alloc_if_needed, options.max_value_len.?);
                 errdefer {
                     if (name_token) |t| {
                         freeAllocated(allocator, t);
@@ -469,7 +477,7 @@ fn parseInternal(
                                 _ = try source.allocNextIntoArrayList(&value_list, .alloc_always);
                                 return try value_list.toOwnedSliceSentinel(@ptrCast(*const u8, sentinel_ptr).*);
                             }
-                            switch (try source.nextAlloc(allocator, .alloc_always)) {
+                            switch (try source.nextAllocMax(allocator, .alloc_always, options.max_value_len.?)) {
                                 .allocated_string => |slice| return slice,
                                 else => unreachable,
                             }
@@ -494,8 +502,7 @@ fn freeAllocated(allocator: Allocator, token: Token) void {
     }
 }
 
-/// Releases resources created by `parse`.
-/// Should be called with the same type and `ParseOptions` that were passed to `parse`
+/// Releases resources created by parseFromSlice() or parseFromTokenSource().
 pub fn parseFree(comptime T: type, allocator: Allocator, value: T) void {
     switch (@typeInfo(T)) {
         .Bool, .Float, .ComptimeFloat, .Int, .ComptimeInt, .Enum => {},
