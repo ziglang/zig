@@ -584,7 +584,10 @@ pub const ChildProcess = struct {
             }
 
             if (self.cwd_dir) |cwd| {
-                os.fchdir(cwd.fd) catch |err| forkChildErrReport(err_pipe[1], err);
+                // Calling fchdir with AT_FDCWD will cause an EBADF and would be a no-op anyways.
+                if (cwd.fd != std.os.AT.FDCWD) {
+                    os.fchdir(cwd.fd) catch |err| forkChildErrReport(err_pipe[1], err);
+                }
             } else if (self.cwd) |cwd| {
                 os.chdir(cwd) catch |err| forkChildErrReport(err_pipe[1], err);
             }
