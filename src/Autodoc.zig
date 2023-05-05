@@ -1876,12 +1876,14 @@ fn walkInstruction(
             // WIP
             const pl_node = data[inst_index].pl_node;
             const extra = file.zir.extraData(Zir.Inst.SwitchBlock, pl_node.payload_index);
+
+            const switch_cond = try self.walkRef(file, parent_scope, parent_src, extra.data.operand, false);
             const cond_index = self.exprs.items.len;
+            try self.exprs.append(self.arena, switch_cond.expr);
+            _ = cond_index;
 
-            _ = try self.walkRef(file, parent_scope, parent_src, extra.data.operand, false);
-
-            const ast_index = self.ast_nodes.items.len;
-            const type_index = self.types.items.len - 1;
+            // const ast_index = self.ast_nodes.items.len;
+            // const type_index = self.types.items.len - 1;
 
             // const ast_line = self.ast_nodes.items[ast_index - 1];
 
@@ -1894,12 +1896,18 @@ fn walkInstruction(
             // log.debug("{s}", .{sep});
 
             const switch_index = self.exprs.items.len;
-            try self.exprs.append(self.arena, .{ .switchOp = .{
-                .cond_index = cond_index,
-                .file_name = file.sub_file_path,
-                .src = ast_index,
-                .outer_decl = type_index,
-            } });
+
+            // const src_loc = try self.srcLocInfo(file, pl_node.src_node, parent_src);
+
+            const switch_expr = try self.getBlockSource(file, parent_src, pl_node.src_node);
+            try self.exprs.append(self.arena, .{ .comptimeExpr = self.comptime_exprs.items.len });
+            try self.comptime_exprs.append(self.arena, .{ .code = switch_expr });
+            // try self.exprs.append(self.arena, .{ .switchOp = .{
+            //     .cond_index = cond_index,
+            //     .file_name = file.sub_file_path,
+            //     .src = ast_index,
+            //     .outer_decl = type_index,
+            // } });
 
             return DocData.WalkResult{
                 .typeRef = .{ .type = @enumToInt(Ref.type_type) },
@@ -2157,7 +2165,8 @@ fn walkInstruction(
                 .typeRef = .{ .type = @enumToInt(Ref.type_type) },
                 .expr = .{ .comptimeExpr = self.comptime_exprs.items.len },
             };
-            const block_expr = try self.getBlockSource(file, parent_src, inst_index);
+            const pl_node = data[inst_index].pl_node;
+            const block_expr = try self.getBlockSource(file, parent_src, pl_node.src_node);
             try self.comptime_exprs.append(self.arena, .{
                 .code = block_expr,
             });
@@ -2173,7 +2182,8 @@ fn walkInstruction(
                         .typeRef = .{ .type = @enumToInt(Ref.type_type) },
                         .expr = .{ .comptimeExpr = self.comptime_exprs.items.len },
                     };
-                    const block_inline_expr = try self.getBlockSource(file, parent_src, inst_index);
+                    const pl_node = data[inst_index].pl_node;
+                    const block_inline_expr = try self.getBlockSource(file, parent_src, pl_node.src_node);
                     try self.comptime_exprs.append(self.arena, .{
                         .code = block_inline_expr,
                     });
@@ -3341,11 +3351,10 @@ fn analyzeDecltest(
     const value_index = file.zir.extra[d.sub_index + 6];
     const decl_name_index = file.zir.extra[d.sub_index + 7];
 
-    // This is known to work because decl values are always block_inlines
-    const test_source_code = try self.getBlockSource(file, parent_src, value_index);
-
     const value_pl_node = data[value_index].pl_node;
     const decl_src = try self.srcLocInfo(file, value_pl_node.src_node, parent_src);
+
+    const test_source_code = try self.getBlockSource(file, parent_src, value_pl_node.src_node);
 
     const decl_name: ?[]const u8 = if (decl_name_index != 0)
         file.zir.nullTerminatedString(decl_name_index)
@@ -4796,37 +4805,11 @@ fn getBlockSource(
     self: Autodoc,
     file: *File,
     parent_src: SrcLocInfo,
-    value_index: usize,
+    block_src_node: i32,
 ) AutodocErrors![]const u8 {
-    const data = file.zir.instructions.items(.data);
-    const tags = file.zir.instructions.items(.tag);
     const tree = try file.getTree(self.comp_module.gpa);
-
-    // This is known to work because decl values are always block_inlines
-    const block_pl_node = data[value_index].pl_node;
-    const block_src = try self.srcLocInfo(file, block_pl_node.src_node, parent_src);
-
-    const blk_index = idx: {
-        const pl_node = data[value_index].pl_node;
-        const extra = file.zir.extraData(Zir.Inst.Block, pl_node.payload_index);
-        const end_index = file.zir.extra[extra.end..][extra.data.body_len - 1];
-
-        if (tags[end_index] == .break_inline) {
-            break :idx @as(usize, Zir.refToIndex(data[end_index].@"break".operand).?);
-        } else {
-            break :idx null;
-        }
-    };
-
-    const blk_source = src: {
-        if (blk_index) |idx| {
-            const pl_node = data[idx].pl_node;
-            break :src try self.srcLocInfo(file, pl_node.src_node, block_src);
-        } else {
-            break :src block_src;
-        }
-    };
-    return tree.getNodeSource(blk_source.src_node);
+    const block_src = try self.srcLocInfo(file, block_src_node, parent_src);
+    return tree.getNodeSource(block_src.src_node);
 }
 
 fn getTLDocComment(self: *Autodoc, file: *File) ![]const u8 {
