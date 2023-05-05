@@ -6,6 +6,7 @@ pub const Dependency = struct {
     url_tok: Ast.TokenIndex,
     hash: ?[]const u8,
     hash_tok: Ast.TokenIndex,
+    source_only: bool = false,
 };
 
 pub const ErrorMessage = struct {
@@ -244,6 +245,8 @@ const Parse = struct {
                     else => |e| return e,
                 };
                 dep.hash_tok = main_tokens[field_init];
+            } else if (mem.eql(u8, field_name, "source_only")) {
+                dep.source_only = try parseBoolean(p, field_init);
             } else {
                 // Ignore unknown fields so that we can add fields in future zig
                 // versions without breaking older zig versions.
@@ -255,6 +258,26 @@ const Parse = struct {
         }
 
         return dep;
+    }
+
+    fn parseBoolean(p: *Parse, node: Ast.Node.Index) !bool {
+        const ast = p.ast;
+        const node_tags = ast.nodes.items(.tag);
+        const main_tokens = ast.nodes.items(.main_token);
+
+        if (node_tags[node] != .identifier) {
+            return fail(p, main_tokens[node], "expected identifier", .{});
+        }
+        const str_lit_token = main_tokens[node];
+        const identifier = ast.tokenSlice(str_lit_token);
+        if (mem.eql(u8, identifier, "true")) {
+            return true;
+        }
+        if (mem.eql(u8, identifier, "false")) {
+            return false;
+        }
+
+        return fail(p, main_tokens[node], "expected [true] or [false] identifier", .{});
     }
 
     fn parseString(p: *Parse, node: Ast.Node.Index) ![]const u8 {
@@ -303,6 +326,7 @@ const Parse = struct {
     fn identifierTokenString(p: *Parse, token: Ast.TokenIndex) InnerError![]const u8 {
         const ast = p.ast;
         const token_tags = ast.tokens.items(.tag);
+
         assert(token_tags[token] == .identifier);
         const ident_name = ast.tokenSlice(token);
         if (!mem.startsWith(u8, ident_name, "@")) {
@@ -465,6 +489,7 @@ test "basic" {
         \\        .bar = .{
         \\            .url = "https://example.com/baz.tar.gz",
         \\            .hash = "1220f1b680b6065fcfc94fe777f22e73bcb7e2767e5f4d99d4255fe76ded69c7a35f",
+        \\            .source_only = true,
         \\        },
         \\    },
         \\}
@@ -477,6 +502,8 @@ test "basic" {
 
     var manifest = try Manifest.parse(gpa, ast);
     defer manifest.deinit(gpa);
+
+    //try testing.expect(manifest.errors.len == 0);
 
     try testing.expectEqualStrings("foo", manifest.name);
 

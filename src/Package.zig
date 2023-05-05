@@ -455,10 +455,7 @@ pub fn addDependencies(
     defer ast.deinit(gpa);
     var manifest = try Manifest.parse(gpa, ast);
     defer manifest.deinit(gpa);
-    const deps_list = manifest.dependencies.values();
-
-    for (manifest.dependencies.keys(), 0..) |name, i| {
-        const dep = deps_list[i];
+    for (manifest.dependencies.keys(), manifest.dependencies.values()) |name, dep| {
         const sub_prefix = try std.fmt.allocPrint(arena, "{s}{s}.", .{ name_prefix, name });
         const fqn = sub_prefix[0 .. sub_prefix.len - 1];
 
@@ -478,6 +475,10 @@ pub fn addDependencies(
         try build_roots_source.writer().print("    pub const {s} = \"{}\";\n", .{
             std.zig.fmtId(fqn), std.zig.fmtEscapes(build_root),
         });
+
+        if (dep.source_only) {
+            continue;
+        }
 
         // The compiler has a rule that a file must not be included in multiple modules,
         // so we must detect if a module has been created for this package and reuse it.

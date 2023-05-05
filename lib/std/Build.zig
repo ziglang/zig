@@ -1492,6 +1492,32 @@ pub const Dependency = struct {
     }
 };
 
+pub const SourceDependency = struct {
+    root_path: []const u8,
+};
+
+pub fn sourceDependency(b: *Build, name: []const u8) SourceDependency {
+    const build_runner = @import("root");
+    const deps = build_runner.dependencies;
+
+    inline for (@typeInfo(deps.build_root).Struct.decls) |decl| {
+        if (mem.startsWith(u8, decl.name, b.dep_prefix) and
+            mem.endsWith(u8, decl.name, name) and
+            decl.name.len == b.dep_prefix.len + name.len)
+        {
+            if (@hasField(deps.imports, decl.name)) {
+                std.debug.print("Source dependency already included as import! {}.\n", .{decl.name});
+                process.exit(1);
+            }
+            return SourceDependency{ .root_path = @field(deps.build_root, decl.name) };
+        }
+    }
+
+    const full_path = b.pathFromRoot("build.zig.zon");
+    std.debug.print("no dependency named '{s}' in '{s}'. All packages used in build.zig must be declared in this file.\n", .{ name, full_path });
+    process.exit(1);
+}
+
 pub fn dependency(b: *Build, name: []const u8, args: anytype) *Dependency {
     const build_runner = @import("root");
     const deps = build_runner.dependencies;
