@@ -1689,7 +1689,7 @@ pub const DeclGen = struct {
         const indirect_value_ty_ref = try self.resolveType(value_ty, .indirect);
         const result_id = self.spv.allocId();
         const access = spec.MemoryAccess.Extended{
-            .Volatile = ptr_ty.isVolatilePtr(),
+            .Volatile = ptr_ty.isVolatilePtr(mod),
         };
         try self.func.body.emit(self.spv.gpa, .OpLoad, .{
             .id_result_type = self.typeId(indirect_value_ty_ref),
@@ -1705,7 +1705,7 @@ pub const DeclGen = struct {
         const value_ty = ptr_ty.childType(mod);
         const indirect_value_id = try self.convertToIndirect(value_ty, value_id);
         const access = spec.MemoryAccess.Extended{
-            .Volatile = ptr_ty.isVolatilePtr(),
+            .Volatile = ptr_ty.isVolatilePtr(mod),
         };
         try self.func.body.emit(self.spv.gpa, .OpStore, .{
             .pointer = ptr_id,
@@ -2464,9 +2464,10 @@ pub const DeclGen = struct {
     }
 
     fn airSliceElemPtr(self: *DeclGen, inst: Air.Inst.Index) !?IdRef {
+        const mod = self.module;
         const bin_op = self.air.instructions.items(.data)[inst].bin_op;
         const slice_ty = self.typeOf(bin_op.lhs);
-        if (!slice_ty.isVolatilePtr() and self.liveness.isUnused(inst)) return null;
+        if (!slice_ty.isVolatilePtr(mod) and self.liveness.isUnused(inst)) return null;
 
         const slice_id = try self.resolve(bin_op.lhs);
         const index_id = try self.resolve(bin_op.rhs);
@@ -2479,9 +2480,10 @@ pub const DeclGen = struct {
     }
 
     fn airSliceElemVal(self: *DeclGen, inst: Air.Inst.Index) !?IdRef {
+        const mod = self.module;
         const bin_op = self.air.instructions.items(.data)[inst].bin_op;
         const slice_ty = self.typeOf(bin_op.lhs);
-        if (!slice_ty.isVolatilePtr() and self.liveness.isUnused(inst)) return null;
+        if (!slice_ty.isVolatilePtr(mod) and self.liveness.isUnused(inst)) return null;
 
         const slice_id = try self.resolve(bin_op.lhs);
         const index_id = try self.resolve(bin_op.rhs);
@@ -2781,10 +2783,11 @@ pub const DeclGen = struct {
     }
 
     fn airLoad(self: *DeclGen, inst: Air.Inst.Index) !?IdRef {
+        const mod = self.module;
         const ty_op = self.air.instructions.items(.data)[inst].ty_op;
         const ptr_ty = self.typeOf(ty_op.operand);
         const operand = try self.resolve(ty_op.operand);
-        if (!ptr_ty.isVolatilePtr() and self.liveness.isUnused(inst)) return null;
+        if (!ptr_ty.isVolatilePtr(mod) and self.liveness.isUnused(inst)) return null;
 
         return try self.load(ptr_ty, operand);
     }

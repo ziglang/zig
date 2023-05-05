@@ -73,7 +73,7 @@ pub const Key = union(enum) {
         /// If zero use pointee_type.abiAlignment()
         /// When creating pointer types, if alignment is equal to pointee type
         /// abi alignment, this value should be set to 0 instead.
-        alignment: u16 = 0,
+        alignment: u64 = 0,
         /// If this is non-zero it means the pointer points to a sub-byte
         /// range of data, which is backed by a "host integer" with this
         /// number of bytes.
@@ -90,9 +90,9 @@ pub const Key = union(enum) {
         /// an appropriate value for this field.
         address_space: std.builtin.AddressSpace = .generic,
 
-        pub const VectorIndex = enum(u32) {
-            none = std.math.maxInt(u32),
-            runtime = std.math.maxInt(u32) - 1,
+        pub const VectorIndex = enum(u16) {
+            none = std.math.maxInt(u16),
+            runtime = std.math.maxInt(u16) - 1,
             _,
         };
     };
@@ -806,16 +806,33 @@ pub const Pointer = struct {
     sentinel: Index,
     flags: Flags,
     packed_offset: PackedOffset,
-    vector_index: VectorIndex,
+
+    /// Stored as a power-of-two, with one special value to indicate none.
+    pub const Alignment = enum(u6) {
+        none = std.math.maxInt(u6),
+        _,
+
+        pub fn toByteUnits(a: Alignment, default: u64) u64 {
+            return switch (a) {
+                .none => default,
+                _ => @as(u64, 1) << @enumToInt(a),
+            };
+        }
+
+        pub fn fromByteUnits(n: u64) Alignment {
+            if (n == 0) return .none;
+            return @intToEnum(Alignment, @ctz(n));
+        }
+    };
 
     pub const Flags = packed struct(u32) {
-        alignment: u16,
+        size: Size,
+        alignment: Alignment,
         is_const: bool,
         is_volatile: bool,
         is_allowzero: bool,
-        size: Size,
         address_space: AddressSpace,
-        _: u7 = undefined,
+        vector_index: VectorIndex,
     };
 
     pub const PackedOffset = packed struct(u32) {
@@ -928,13 +945,13 @@ pub fn indexToKey(ip: InternPool, index: Index) Key {
             return .{ .ptr_type = .{
                 .elem_type = ptr_info.child,
                 .sentinel = ptr_info.sentinel,
-                .alignment = ptr_info.flags.alignment,
+                .alignment = ptr_info.flags.alignment.toByteUnits(0),
                 .size = ptr_info.flags.size,
                 .is_const = ptr_info.flags.is_const,
                 .is_volatile = ptr_info.flags.is_volatile,
                 .is_allowzero = ptr_info.flags.is_allowzero,
                 .address_space = ptr_info.flags.address_space,
-                .vector_index = ptr_info.vector_index,
+                .vector_index = ptr_info.flags.vector_index,
                 .host_size = ptr_info.packed_offset.host_size,
                 .bit_offset = ptr_info.packed_offset.bit_offset,
             } };
@@ -1003,18 +1020,18 @@ pub fn get(ip: *InternPool, gpa: Allocator, key: Key) Allocator.Error!Index {
                     .child = ptr_type.elem_type,
                     .sentinel = ptr_type.sentinel,
                     .flags = .{
-                        .alignment = ptr_type.alignment,
+                        .alignment = Pointer.Alignment.fromByteUnits(ptr_type.alignment),
                         .is_const = ptr_type.is_const,
                         .is_volatile = ptr_type.is_volatile,
                         .is_allowzero = ptr_type.is_allowzero,
                         .size = ptr_type.size,
                         .address_space = ptr_type.address_space,
+                        .vector_index = ptr_type.vector_index,
                     },
                     .packed_offset = .{
                         .host_size = ptr_type.host_size,
                         .bit_offset = ptr_type.bit_offset,
                     },
-                    .vector_index = ptr_type.vector_index,
                 }),
             });
         },

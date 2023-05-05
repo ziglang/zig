@@ -193,7 +193,7 @@ pub const Type = struct {
             .Frame,
             => false,
 
-            .Pointer => !ty.isSlice(mod) and (is_equality_cmp or ty.isCPtr()),
+            .Pointer => !ty.isSlice(mod) and (is_equality_cmp or ty.isCPtr(mod)),
             .Optional => {
                 if (!is_equality_cmp) return false;
                 return ty.optionalChild(mod).isSelfComparable(mod, is_equality_cmp);
@@ -3012,38 +3012,59 @@ pub const Type = struct {
         }
     }
 
-    pub fn isConstPtr(self: Type) bool {
-        return switch (self.tag()) {
-            .pointer => !self.castTag(.pointer).?.data.mutable,
-            else => false,
-        };
-    }
-
-    pub fn isVolatilePtr(self: Type) bool {
-        return switch (self.tag()) {
-            .pointer => {
-                const payload = self.castTag(.pointer).?.data;
-                return payload.@"volatile";
+    pub fn isConstPtr(ty: Type, mod: *const Module) bool {
+        return switch (ty.ip_index) {
+            .none => switch (ty.tag()) {
+                .pointer => !ty.castTag(.pointer).?.data.mutable,
+                else => false,
             },
-            else => false,
-        };
-    }
-
-    pub fn isAllowzeroPtr(self: Type, mod: *const Module) bool {
-        return switch (self.tag()) {
-            .pointer => {
-                const payload = self.castTag(.pointer).?.data;
-                return payload.@"allowzero";
+            else => switch (mod.intern_pool.indexToKey(ty.ip_index)) {
+                .ptr_type => |ptr_type| ptr_type.is_const,
+                else => false,
             },
-            else => return self.zigTypeTag(mod) == .Optional,
         };
     }
 
-    pub fn isCPtr(self: Type) bool {
-        return switch (self.tag()) {
-            .pointer => self.castTag(.pointer).?.data.size == .C,
+    pub fn isVolatilePtr(ty: Type, mod: *const Module) bool {
+        return isVolatilePtrIp(ty, mod.intern_pool);
+    }
 
-            else => return false,
+    pub fn isVolatilePtrIp(ty: Type, ip: InternPool) bool {
+        return switch (ty.ip_index) {
+            .none => switch (ty.tag()) {
+                .pointer => ty.castTag(.pointer).?.data.@"volatile",
+                else => false,
+            },
+            else => switch (ip.indexToKey(ty.ip_index)) {
+                .ptr_type => |ptr_type| ptr_type.is_volatile,
+                else => false,
+            },
+        };
+    }
+
+    pub fn isAllowzeroPtr(ty: Type, mod: *const Module) bool {
+        return switch (ty.ip_index) {
+            .none => switch (ty.tag()) {
+                .pointer => ty.castTag(.pointer).?.data.@"allowzero",
+                else => ty.zigTypeTag(mod) == .Optional,
+            },
+            else => switch (mod.intern_pool.indexToKey(ty.ip_index)) {
+                .ptr_type => |ptr_type| ptr_type.is_allowzero,
+                else => false,
+            },
+        };
+    }
+
+    pub fn isCPtr(ty: Type, mod: *const Module) bool {
+        return switch (ty.ip_index) {
+            .none => switch (ty.tag()) {
+                .pointer => ty.castTag(.pointer).?.data.size == .C,
+                else => false,
+            },
+            else => switch (mod.intern_pool.indexToKey(ty.ip_index)) {
+                .ptr_type => |ptr_type| ptr_type.size == .C,
+                else => false,
+            },
         };
     }
 
@@ -5063,7 +5084,7 @@ pub const Type = struct {
                     return .{
                         .pointee_type = p.elem_type.toType(),
                         .sentinel = if (p.sentinel != .none) p.sentinel.toValue() else null,
-                        .@"align" = p.alignment,
+                        .@"align" = @intCast(u32, p.alignment),
                         .@"addrspace" = p.address_space,
                         .bit_offset = p.bit_offset,
                         .host_size = p.host_size,
@@ -5246,6 +5267,24 @@ pub const Type = struct {
                 assert(d.bit_offset == 0);
                 d.host_size = 0;
             }
+        }
+
+        if (d.pointee_type.ip_index != .none and
+            (d.sentinel == null or d.sentinel.?.ip_index != .none))
+        {
+            return mod.ptrType(.{
+                .elem_type = d.pointee_type.ip_index,
+                .sentinel = if (d.sentinel) |s| s.ip_index else .none,
+                .alignment = d.@"align",
+                .host_size = d.host_size,
+                .bit_offset = d.bit_offset,
+                .vector_index = d.vector_index,
+                .size = d.size,
+                .is_const = !d.mutable,
+                .is_volatile = d.@"volatile",
+                .is_allowzero = d.@"allowzero",
+                .address_space = d.@"addrspace",
+            });
         }
 
         return Type.Tag.pointer.create(arena, d);

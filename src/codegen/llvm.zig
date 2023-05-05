@@ -7046,7 +7046,7 @@ pub const FuncGen = struct {
             const elem_llvm_ty = try self.dg.lowerType(vector_ptr_ty.childType(mod));
             const load_inst = self.builder.buildLoad(elem_llvm_ty, vector_ptr, "");
             load_inst.setAlignment(vector_ptr_ty.ptrAlignment(mod));
-            load_inst.setVolatile(llvm.Bool.fromBool(vector_ptr_ty.isVolatilePtr()));
+            load_inst.setVolatile(llvm.Bool.fromBool(vector_ptr_ty.isVolatilePtr(mod)));
             break :blk load_inst;
         };
         const modified_vector = self.builder.buildInsertElement(loaded_vector, operand, index, "");
@@ -8221,7 +8221,7 @@ pub const FuncGen = struct {
             const usize_llvm_ty = try self.dg.lowerType(Type.usize);
             const len = usize_llvm_ty.constInt(operand_size, .False);
             const dest_ptr_align = ptr_ty.ptrAlignment(mod);
-            _ = self.builder.buildMemSet(dest_ptr, fill_byte, len, dest_ptr_align, ptr_ty.isVolatilePtr());
+            _ = self.builder.buildMemSet(dest_ptr, fill_byte, len, dest_ptr_align, ptr_ty.isVolatilePtr(mod));
             if (safety and mod.comp.bin_file.options.valgrind) {
                 self.valgrindMarkUndef(dest_ptr, len);
             }
@@ -8497,7 +8497,7 @@ pub const FuncGen = struct {
         const dest_ptr_align = ptr_ty.ptrAlignment(mod);
         const u8_llvm_ty = self.context.intType(8);
         const dest_ptr = self.sliceOrArrayPtr(dest_slice, ptr_ty);
-        const is_volatile = ptr_ty.isVolatilePtr();
+        const is_volatile = ptr_ty.isVolatilePtr(mod);
 
         if (self.air.value(bin_op.rhs, mod)) |elem_val| {
             if (elem_val.isUndefDeep()) {
@@ -8621,7 +8621,7 @@ pub const FuncGen = struct {
         const len = self.sliceOrArrayLenInBytes(dest_slice, dest_ptr_ty);
         const dest_ptr = self.sliceOrArrayPtr(dest_slice, dest_ptr_ty);
         const mod = self.dg.module;
-        const is_volatile = src_ptr_ty.isVolatilePtr() or dest_ptr_ty.isVolatilePtr();
+        const is_volatile = src_ptr_ty.isVolatilePtr(mod) or dest_ptr_ty.isVolatilePtr(mod);
         _ = self.builder.buildMemCpy(
             dest_ptr,
             dest_ptr_ty.ptrAlignment(mod),
@@ -9894,7 +9894,7 @@ pub const FuncGen = struct {
         if (!info.pointee_type.hasRuntimeBitsIgnoreComptime(mod)) return null;
 
         const ptr_alignment = info.alignment(mod);
-        const ptr_volatile = llvm.Bool.fromBool(ptr_ty.isVolatilePtr());
+        const ptr_volatile = llvm.Bool.fromBool(ptr_ty.isVolatilePtr(mod));
 
         assert(info.vector_index != .runtime);
         if (info.vector_index != .none) {

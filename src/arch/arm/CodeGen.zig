@@ -2428,9 +2428,10 @@ fn ptrElemVal(
 }
 
 fn airSliceElemVal(self: *Self, inst: Air.Inst.Index) !void {
+    const mod = self.bin_file.options.module.?;
     const bin_op = self.air.instructions.items(.data)[inst].bin_op;
     const slice_ty = self.typeOf(bin_op.lhs);
-    const result: MCValue = if (!slice_ty.isVolatilePtr() and self.liveness.isUnused(inst)) .dead else result: {
+    const result: MCValue = if (!slice_ty.isVolatilePtr(mod) and self.liveness.isUnused(inst)) .dead else result: {
         var buf: Type.SlicePtrFieldTypeBuffer = undefined;
         const ptr_ty = slice_ty.slicePtrFieldType(&buf);
 
@@ -2527,9 +2528,10 @@ fn airArrayElemVal(self: *Self, inst: Air.Inst.Index) !void {
 }
 
 fn airPtrElemVal(self: *Self, inst: Air.Inst.Index) !void {
+    const mod = self.bin_file.options.module.?;
     const bin_op = self.air.instructions.items(.data)[inst].bin_op;
     const ptr_ty = self.typeOf(bin_op.lhs);
-    const result: MCValue = if (!ptr_ty.isVolatilePtr() and self.liveness.isUnused(inst)) .dead else result: {
+    const result: MCValue = if (!ptr_ty.isVolatilePtr(mod) and self.liveness.isUnused(inst)) .dead else result: {
         const base_bind: ReadArg.Bind = .{ .inst = bin_op.lhs };
         const index_bind: ReadArg.Bind = .{ .inst = bin_op.rhs };
 
@@ -2738,7 +2740,7 @@ fn airLoad(self: *Self, inst: Air.Inst.Index) !void {
             break :result MCValue.none;
 
         const ptr = try self.resolveInst(ty_op.operand);
-        const is_volatile = self.typeOf(ty_op.operand).isVolatilePtr();
+        const is_volatile = self.typeOf(ty_op.operand).isVolatilePtr(mod);
         if (self.liveness.isUnused(inst) and !is_volatile)
             break :result MCValue.dead;
 
