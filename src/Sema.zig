@@ -1017,10 +1017,8 @@ fn analyzeBodyInner(
             .switch_block                 => try sema.zirSwitchBlock(block, inst),
             .switch_cond                  => try sema.zirSwitchCond(block, inst, false),
             .switch_cond_ref              => try sema.zirSwitchCond(block, inst, true),
-            .switch_capture               => try sema.zirSwitchCapture(block, inst, false, false),
-            .switch_capture_ref           => try sema.zirSwitchCapture(block, inst, false, true),
-            .switch_capture_multi         => try sema.zirSwitchCapture(block, inst, true, false),
-            .switch_capture_multi_ref     => try sema.zirSwitchCapture(block, inst, true, true),
+            .switch_capture               => try sema.zirSwitchCapture(block, inst, false),
+            .switch_capture_ref           => try sema.zirSwitchCapture(block, inst, true),
             .switch_capture_tag           => try sema.zirSwitchCaptureTag(block, inst),
             .type_info                    => try sema.zirTypeInfo(block, inst),
             .size_of                      => try sema.zirSizeOf(block, inst),
@@ -10089,7 +10087,6 @@ fn zirSwitchCapture(
     sema: *Sema,
     block: *Block,
     inst: Zir.Inst.Index,
-    is_multi: bool,
     is_ref: bool,
 ) CompileError!Air.Inst.Ref {
     const tracy = trace(@src());
@@ -10178,12 +10175,7 @@ fn zirSwitchCapture(
         }
     }
 
-    const items = if (is_multi)
-        switch_extra.data.getMultiProng(sema.code, switch_extra.end, capture_info.prong_index).items
-    else
-        &[_]Zir.Inst.Ref{
-            switch_extra.data.getScalarProng(sema.code, switch_extra.end, capture_info.prong_index).item,
-        };
+    const items = switch_extra.data.getProng(sema.code, switch_extra.end, capture_info.prong_index).items;
 
     switch (operand_ty.zigTypeTag(mod)) {
         .Union => {
@@ -10252,7 +10244,7 @@ fn zirSwitchCapture(
             return block.addStructFieldVal(operand, first_field_index, first_field.ty);
         },
         .ErrorSet => {
-            if (is_multi) {
+            if (items.len > 1) {
                 var names: Module.Fn.InferredErrorSet.NameMap = .{};
                 try names.ensureUnusedCapacity(sema.arena, items.len);
                 for (items) |item| {

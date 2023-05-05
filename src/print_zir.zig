@@ -438,8 +438,6 @@ const Writer = struct {
 
             .switch_capture,
             .switch_capture_ref,
-            .switch_capture_multi,
-            .switch_capture_multi_ref,
             => try self.writeSwitchCapture(stream, inst),
 
             .dbg_stmt => try self.writeDbgStmt(stream, inst),

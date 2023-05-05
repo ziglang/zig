@@ -687,15 +687,6 @@ pub const Inst = struct {
         /// If the `prong_index` field is max int, it means this is the capture
         /// for the else/`_` prong.
         switch_capture_ref,
-        /// Produces the capture value for a switch prong.
-        /// The prong is one of the multi cases.
-        /// Uses the `switch_capture` field.
-        switch_capture_multi,
-        /// Produces the capture value for a switch prong.
-        /// The prong is one of the multi cases.
-        /// Result is a pointer to the value.
-        /// Uses the `switch_capture` field.
-        switch_capture_multi_ref,
         /// Produces the capture value for an inline switch prong tag capture.
         /// Uses the `un_tok` field.
         switch_capture_tag,
@@ -1146,8 +1137,6 @@ pub const Inst = struct {
                 .set_eval_branch_quota,
                 .switch_capture,
                 .switch_capture_ref,
-                .switch_capture_multi,
-                .switch_capture_multi_ref,
                 .switch_capture_tag,
                 .switch_block,
                 .switch_cond,
@@ -1440,8 +1429,6 @@ pub const Inst = struct {
                 .typeof_log2_int_type,
                 .switch_capture,
                 .switch_capture_ref,
-                .switch_capture_multi,
-                .switch_capture_multi_ref,
                 .switch_capture_tag,
                 .switch_block,
                 .switch_cond,
@@ -1700,8 +1687,6 @@ pub const Inst = struct {
                 .switch_cond_ref = .un_node,
                 .switch_capture = .switch_capture,
                 .switch_capture_ref = .switch_capture,
-                .switch_capture_multi = .switch_capture,
-                .switch_capture_multi_ref = .switch_capture,
                 .switch_capture_tag = .un_tok,
                 .array_base_ptr = .un_node,
                 .field_base_ptr = .un_node,
@@ -2735,8 +2720,8 @@ pub const Inst = struct {
             }
         };
 
-        pub const ScalarProng = struct {
-            item: Ref,
+        pub const MultiProng = struct {
+            items: []const Ref,
             body: []const Index,
         };
 
@@ -2744,56 +2729,13 @@ pub const Inst = struct {
         /// change the definition of switch_capture instruction to store extra_index
         /// instead of prong_index. This way, Sema won't be doing O(N^2) iterations
         /// over the switch prongs.
-        pub fn getScalarProng(
-            self: SwitchBlock,
-            zir: Zir,
-            extra_end: usize,
-            prong_index: usize,
-        ) ScalarProng {
-            var extra_index: usize = extra_end;
-
-            if (self.bits.has_multi_cases) {
-                extra_index += 1;
-            }
-
-            if (self.bits.specialProng() != .none) {
-                const body_len = @truncate(u31, zir.extra[extra_index]);
-                extra_index += 1;
-                const body = zir.extra[extra_index..][0..body_len];
-                extra_index += body.len;
-            }
-
-            var scalar_i: usize = 0;
-            while (true) : (scalar_i += 1) {
-                const item = @intToEnum(Ref, zir.extra[extra_index]);
-                extra_index += 1;
-                const body_len = @truncate(u31, zir.extra[extra_index]);
-                extra_index += 1;
-                const body = zir.extra[extra_index..][0..body_len];
-                extra_index += body.len;
-
-                if (scalar_i < prong_index) continue;
-
-                return .{
-                    .item = item,
-                    .body = body,
-                };
-            }
-        }
-
-        pub const MultiProng = struct {
-            items: []const Ref,
-            body: []const Index,
-        };
-
-        pub fn getMultiProng(
+        pub fn getProng(
             self: SwitchBlock,
             zir: Zir,
             extra_end: usize,
             prong_index: usize,
         ) MultiProng {
-            // +1 for self.bits.has_multi_cases == true
-            var extra_index: usize = extra_end + 1;
+            var extra_index: usize = extra_end + @boolToInt(self.bits.has_multi_cases);
 
             if (self.bits.specialProng() != .none) {
                 const body_len = @truncate(u31, zir.extra[extra_index]);
@@ -2802,15 +2744,22 @@ pub const Inst = struct {
                 extra_index += body.len;
             }
 
-            var scalar_i: usize = 0;
-            while (scalar_i < self.bits.scalar_cases_len) : (scalar_i += 1) {
+            var cur_idx: usize = 0;
+            while (cur_idx < self.bits.scalar_cases_len) : (cur_idx += 1) {
+                const items = zir.refSlice(extra_index, 1);
                 extra_index += 1;
                 const body_len = @truncate(u31, zir.extra[extra_index]);
                 extra_index += 1;
+                const body = zir.extra[extra_index..][0..body_len];
                 extra_index += body_len;
+                if (cur_idx == prong_index) {
+                    return .{
+                        .items = items,
+                        .body = body,
+                    };
+                }
             }
-            var multi_i: u32 = 0;
-            while (true) : (multi_i += 1) {
+            while (true) : (cur_idx += 1) {
                 const items_len = zir.extra[extra_index];
                 extra_index += 1;
                 const ranges_len = zir.extra[extra_index];
@@ -2825,11 +2774,12 @@ pub const Inst = struct {
                 const body = zir.extra[extra_index..][0..body_len];
                 extra_index += body_len;
 
-                if (multi_i < prong_index) continue;
-                return .{
-                    .items = items,
-                    .body = body,
-                };
+                if (cur_idx == prong_index) {
+                    return .{
+                        .items = items,
+                        .body = body,
+                    };
+                }
             }
         }
     };

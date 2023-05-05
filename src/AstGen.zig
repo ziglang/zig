@@ -2614,8 +2614,6 @@ fn addEnsureResult(gz: *GenZir, maybe_unused_result: Zir.Inst.Ref, statement: As
             .switch_cond_ref,
             .switch_capture,
             .switch_capture_ref,
-            .switch_capture_multi,
-            .switch_capture_multi_ref,
             .switch_capture_tag,
             .struct_init_empty,
             .struct_init,
@@ -6916,15 +6914,8 @@ fn switchExpr(
                         },
                     });
                 } else {
-                    const is_multi_case_bits: u2 = @boolToInt(is_multi_case);
-                    const is_ptr_bits: u2 = @boolToInt(is_ptr);
-                    const capture_tag: Zir.Inst.Tag = switch ((is_multi_case_bits << 1) | is_ptr_bits) {
-                        0b00 => .switch_capture,
-                        0b01 => .switch_capture_ref,
-                        0b10 => .switch_capture_multi,
-                        0b11 => .switch_capture_multi_ref,
-                    };
-                    const capture_index = if (is_multi_case) multi_case_index else scalar_case_index;
+                    const capture_tag: Zir.Inst.Tag = if (is_ptr) .switch_capture_ref else .switch_capture;
+                    const capture_index = if (is_multi_case) scalar_cases_len + multi_case_index else scalar_case_index;
                     capture_inst = @intCast(Zir.Inst.Index, astgen.instructions.len);
                     try astgen.instructions.append(gpa, .{
                         .tag = capture_tag,
