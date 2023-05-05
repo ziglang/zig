@@ -897,7 +897,35 @@ pub extern "c" fn pthread_attr_get_qos_class_np(attr: *pthread_attr_t, qos_class
 pub extern "c" fn pthread_set_qos_class_self_np(qos_class: qos_class_t, relative_priority: c_int) c_int;
 pub extern "c" fn pthread_get_qos_class_np(pthread: std.c.pthread_t, qos_class: *qos_class_t, relative_priority: *c_int) c_int;
 
+pub const CCryptorStatus = enum(i32) {
+    /// Operation completed
+    kCCSuccess = 0,
+    /// Illegal parameter
+    kCCParamError = -4300,
+    /// Provided buffer too small
+    kCCBufferTooSmall = -4301,
+    /// Failed memory allocation
+    kCCMemoryFailure = -4302,
+    /// Size alignment issue
+    kCCAlignmentError = -4303,
+    /// Decoding issue
+    kCCDecodeError = -4304,
+    /// Call not implemented
+    kCCUnimplemented = -4305,
+    kCCOverflow = -4306,
+    kCCRNGFailure = -4307,
+    /// Unspecified error
+    kCCUnspecifiedError = -4308,
+    kCCCallSequenceError = -4309,
+    kCCKeySizeError = -4310,
+    /// Invalid key
+    kCCInvalidKey = -4311,
+};
+
+pub const CCRNGStatus = CCryptorStatus;
+
 pub extern "c" fn arc4random_buf(buf: [*]u8, len: usize) void;
+pub extern "c" fn CCRandomGenerateBytes(bytes: ?*anyopaque, count: usize) CCRNGStatus;
 
 // Grand Central Dispatch is exposed by libSystem.
 pub extern "c" fn dispatch_release(object: *anyopaque) void;
@@ -3868,3 +3896,23 @@ pub const MIN = struct {
 
 pub extern "c" fn mincore(addr: *align(std.mem.page_size) const anyopaque, length: usize, vec: [*]u8) c_int;
 pub extern "c" fn os_proc_available_memory() usize;
+
+pub const thread_affinity_policy = extern struct {
+    tag: integer_t,
+};
+
+pub const thread_policy_flavor_t = natural_t;
+pub const thread_policy_t = [*]integer_t;
+pub const thread_affinity_policy_data_t = thread_affinity_policy;
+pub const thread_affinity_policy_t = [*]thread_affinity_policy;
+
+pub const THREAD_AFFINITY = struct {
+    pub const POLICY = 0;
+    pub const POLICY_COUNT = @intCast(mach_msg_type_number_t, @sizeOf(thread_affinity_policy_data_t) / @sizeOf(integer_t));
+};
+
+/// cpu affinity api
+/// albeit it is also available on arm64, it always fails as in this architecture there is no sense of
+/// individual cpus (high performance cpus group and low consumption one), thus the pthread QOS api is more appropriate in this case.
+pub extern "c" fn thread_affinity_get(thread: thread_act_t, flavor: thread_policy_flavor_t, info: thread_policy_t, infocnt: [*]mach_msg_type_number_t, default: *boolean_t) kern_return_t;
+pub extern "c" fn thread_affinity_set(thread: thread_act_t, flavor: thread_policy_flavor_t, info: thread_policy_t, infocnt: mach_msg_type_number_t) kern_return_t;

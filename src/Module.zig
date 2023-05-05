@@ -3671,74 +3671,13 @@ pub fn astGenFile(mod: *Module, file: *File) !void {
                 file.sub_file_path, header.instructions_len,
             });
 
-            var instructions: std.MultiArrayList(Zir.Inst) = .{};
-            defer instructions.deinit(gpa);
-
-            try instructions.setCapacity(gpa, header.instructions_len);
-            instructions.len = header.instructions_len;
-
-            var zir: Zir = .{
-                .instructions = instructions.toOwnedSlice(),
-                .string_bytes = &.{},
-                .extra = &.{},
+            file.zir = loadZirCacheBody(gpa, header, cache_file) catch |err| switch (err) {
+                error.UnexpectedFileSize => {
+                    log.warn("unexpected EOF reading cached ZIR for {s}", .{file.sub_file_path});
+                    break :update;
+                },
+                else => |e| return e,
             };
-            var keep_zir = false;
-            defer if (!keep_zir) zir.deinit(gpa);
-
-            zir.string_bytes = try gpa.alloc(u8, header.string_bytes_len);
-            zir.extra = try gpa.alloc(u32, header.extra_len);
-
-            const safety_buffer = if (data_has_safety_tag)
-                try gpa.alloc([8]u8, header.instructions_len)
-            else
-                undefined;
-            defer if (data_has_safety_tag) gpa.free(safety_buffer);
-
-            const data_ptr = if (data_has_safety_tag)
-                @ptrCast([*]u8, safety_buffer.ptr)
-            else
-                @ptrCast([*]u8, zir.instructions.items(.data).ptr);
-
-            var iovecs = [_]std.os.iovec{
-                .{
-                    .iov_base = @ptrCast([*]u8, zir.instructions.items(.tag).ptr),
-                    .iov_len = header.instructions_len,
-                },
-                .{
-                    .iov_base = data_ptr,
-                    .iov_len = header.instructions_len * 8,
-                },
-                .{
-                    .iov_base = zir.string_bytes.ptr,
-                    .iov_len = header.string_bytes_len,
-                },
-                .{
-                    .iov_base = @ptrCast([*]u8, zir.extra.ptr),
-                    .iov_len = header.extra_len * 4,
-                },
-            };
-            const amt_read = try cache_file.readvAll(&iovecs);
-            const amt_expected = zir.instructions.len * 9 +
-                zir.string_bytes.len +
-                zir.extra.len * 4;
-            if (amt_read != amt_expected) {
-                log.warn("unexpected EOF reading cached ZIR for {s}", .{file.sub_file_path});
-                break :update;
-            }
-            if (data_has_safety_tag) {
-                const tags = zir.instructions.items(.tag);
-                for (zir.instructions.items(.data), 0..) |*data, i| {
-                    const union_tag = Zir.Inst.Tag.data_tags[@enumToInt(tags[i])];
-                    const as_struct = @ptrCast(*HackDataLayout, data);
-                    as_struct.* = .{
-                        .safety_tag = @enumToInt(union_tag),
-                        .data = safety_buffer[i],
-                    };
-                }
-            }
-
-            keep_zir = true;
-            file.zir = zir;
             file.zir_loaded = true;
             file.stat = .{
                 .size = header.stat_size,
@@ -3914,6 +3853,76 @@ pub fn astGenFile(mod: *Module, file: *File) !void {
         try file.outdated_decls.resize(gpa, 1);
         file.outdated_decls.items[0] = root_decl;
     }
+}
+
+pub fn loadZirCache(gpa: Allocator, cache_file: std.fs.File) !Zir {
+    return loadZirCacheBody(gpa, try cache_file.reader().readStruct(Zir.Header), cache_file);
+}
+
+fn loadZirCacheBody(gpa: Allocator, header: Zir.Header, cache_file: std.fs.File) !Zir {
+    var instructions: std.MultiArrayList(Zir.Inst) = .{};
+    errdefer instructions.deinit(gpa);
+
+    try instructions.setCapacity(gpa, header.instructions_len);
+    instructions.len = header.instructions_len;
+
+    var zir: Zir = .{
+        .instructions = instructions.toOwnedSlice(),
+        .string_bytes = &.{},
+        .extra = &.{},
+    };
+    errdefer zir.deinit(gpa);
+
+    zir.string_bytes = try gpa.alloc(u8, header.string_bytes_len);
+    zir.extra = try gpa.alloc(u32, header.extra_len);
+
+    const safety_buffer = if (data_has_safety_tag)
+        try gpa.alloc([8]u8, header.instructions_len)
+    else
+        undefined;
+    defer if (data_has_safety_tag) gpa.free(safety_buffer);
+
+    const data_ptr = if (data_has_safety_tag)
+        @ptrCast([*]u8, safety_buffer.ptr)
+    else
+        @ptrCast([*]u8, zir.instructions.items(.data).ptr);
+
+    var iovecs = [_]std.os.iovec{
+        .{
+            .iov_base = @ptrCast([*]u8, zir.instructions.items(.tag).ptr),
+            .iov_len = header.instructions_len,
+        },
+        .{
+            .iov_base = data_ptr,
+            .iov_len = header.instructions_len * 8,
+        },
+        .{
+            .iov_base = zir.string_bytes.ptr,
+            .iov_len = header.string_bytes_len,
+        },
+        .{
+            .iov_base = @ptrCast([*]u8, zir.extra.ptr),
+            .iov_len = header.extra_len * 4,
+        },
+    };
+    const amt_read = try cache_file.readvAll(&iovecs);
+    const amt_expected = zir.instructions.len * 9 +
+        zir.string_bytes.len +
+        zir.extra.len * 4;
+    if (amt_read != amt_expected) return error.UnexpectedFileSize;
+    if (data_has_safety_tag) {
+        const tags = zir.instructions.items(.tag);
+        for (zir.instructions.items(.data), 0..) |*data, i| {
+            const union_tag = Zir.Inst.Tag.data_tags[@enumToInt(tags[i])];
+            const as_struct = @ptrCast(*HackDataLayout, data);
+            as_struct.* = .{
+                .safety_tag = @enumToInt(union_tag),
+                .data = safety_buffer[i],
+            };
+        }
+    }
+
+    return zir;
 }
 
 /// Patch ups:
