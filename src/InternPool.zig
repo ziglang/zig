@@ -653,7 +653,6 @@ pub const Tag = enum(u8) {
     /// data is payload to Vector.
     type_vector,
     /// A fully explicitly specified pointer type.
-    /// TODO actually this is missing some stuff like bit_offset
     /// data is payload to Pointer.
     type_pointer,
     /// An optional type.
@@ -793,6 +792,8 @@ pub const Pointer = struct {
     child: Index,
     sentinel: Index,
     flags: Flags,
+    packed_offset: PackedOffset,
+    vector_index: VectorIndex,
 
     pub const Flags = packed struct(u32) {
         alignment: u16,
@@ -804,8 +805,14 @@ pub const Pointer = struct {
         _: u7 = undefined,
     };
 
+    pub const PackedOffset = packed struct(u32) {
+        host_size: u16,
+        bit_offset: u16,
+    };
+
     pub const Size = std.builtin.Type.Pointer.Size;
     pub const AddressSpace = std.builtin.AddressSpace;
+    pub const VectorIndex = Key.PtrType.VectorIndex;
 };
 
 /// Used for non-sentineled arrays that have length fitting in u32, as well as
@@ -914,6 +921,9 @@ pub fn indexToKey(ip: InternPool, index: Index) Key {
                 .is_volatile = ptr_info.flags.is_volatile,
                 .is_allowzero = ptr_info.flags.is_allowzero,
                 .address_space = ptr_info.flags.address_space,
+                .vector_index = ptr_info.vector_index,
+                .host_size = ptr_info.packed_offset.host_size,
+                .bit_offset = ptr_info.packed_offset.bit_offset,
             } };
         },
 
@@ -972,6 +982,11 @@ pub fn get(ip: *InternPool, gpa: Allocator, key: Key) Allocator.Error!Index {
                         .size = ptr_type.size,
                         .address_space = ptr_type.address_space,
                     },
+                    .packed_offset = .{
+                        .host_size = ptr_type.host_size,
+                        .bit_offset = ptr_type.bit_offset,
+                    },
+                    .vector_index = ptr_type.vector_index,
                 }),
             });
         },
@@ -1126,6 +1141,8 @@ fn addExtraAssumeCapacity(ip: *InternPool, extra: anytype) u32 {
             Index => @enumToInt(@field(extra, field.name)),
             i32 => @bitCast(u32, @field(extra, field.name)),
             Pointer.Flags => @bitCast(u32, @field(extra, field.name)),
+            Pointer.PackedOffset => @bitCast(u32, @field(extra, field.name)),
+            Pointer.VectorIndex => @enumToInt(@field(extra, field.name)),
             else => @compileError("bad field type: " ++ @typeName(field.type)),
         });
     }
@@ -1180,6 +1197,8 @@ fn extraData(ip: InternPool, comptime T: type, index: usize) T {
             Index => @intToEnum(Index, ip.extra.items[i]),
             i32 => @bitCast(i32, ip.extra.items[i]),
             Pointer.Flags => @bitCast(Pointer.Flags, ip.extra.items[i]),
+            Pointer.PackedOffset => @bitCast(Pointer.PackedOffset, ip.extra.items[i]),
+            Pointer.VectorIndex => @intToEnum(Pointer.VectorIndex, ip.extra.items[i]),
             else => @compileError("bad field type: " ++ @typeName(field.type)),
         };
         i += 1;
