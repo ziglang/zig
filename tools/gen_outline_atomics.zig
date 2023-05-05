@@ -88,7 +88,7 @@ fn writeFunction(
         \\    asm volatile (
         \\
     );
-    var iter = std.mem.split(u8, body, "\n");
+    var iter = std.mem.splitScalar(u8, body, '\n');
     while (iter.next()) |line| {
         try w.writeAll("        \\\\");
         try w.writeAll(line);

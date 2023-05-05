@@ -1995,7 +1995,7 @@ fn renderArrayInit(
             if (!expr_newlines[i]) {
                 try ais.writer().writeAll(expr_text);
             } else {
-                var by_line = std.mem.split(u8, expr_text, "\n");
+                var by_line = std.mem.splitScalar(u8, expr_text, '\n');
                 var last_line_was_empty = false;
                 try ais.writer().writeAll(by_line.first());
                 while (by_line.next()) |line| {

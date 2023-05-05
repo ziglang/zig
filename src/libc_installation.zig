@@ -63,7 +63,7 @@ pub const LibCInstallation = struct {
         var it = std.mem.tokenizeScalar(u8, contents, '\n');
         while (it.next()) |line| {
             if (line.len == 0 or line[0] == '#') continue;
-            var line_it = std.mem.split(u8, line, "=");
+            var line_it = std.mem.splitScalar(u8, line, '=');
             const name = line_it.first();
             const value = line_it.rest();
             inline for (fields, 0..) |field, i| {

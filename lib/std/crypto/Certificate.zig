@@ -337,8 +337,8 @@ pub const Parsed = struct {
             return true; // exact match
         }
 
-        var it_host = std.mem.split(u8, host_name, ".");
-        var it_dns = std.mem.split(u8, dns_name, ".");
+        var it_host = std.mem.splitScalar(u8, host_name, '.');
+        var it_dns = std.mem.splitScalar(u8, dns_name, '.');
 
         const len_match = while (true) {
             const host = it_host.next();

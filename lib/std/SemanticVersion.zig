@@ -42,8 +42,8 @@ pub fn order(lhs: Version, rhs: Version) std.math.Order {
     if (lhs.pre == null and rhs.pre != null) return .gt;
 
     // Iterate over pre-release identifiers until a difference is found.
-    var lhs_pre_it = std.mem.split(u8, lhs.pre.?, ".");
-    var rhs_pre_it = std.mem.split(u8, rhs.pre.?, ".");
+    var lhs_pre_it = std.mem.splitScalar(u8, lhs.pre.?, '.');
+    var rhs_pre_it = std.mem.splitScalar(u8, rhs.pre.?, '.');
     while (true) {
         const next_lid = lhs_pre_it.next();
         const next_rid = rhs_pre_it.next();
@@ -86,7 +86,7 @@ pub fn parse(text: []const u8) !Version {
     // Parse the required major, minor, and patch numbers.
     const extra_index = std.mem.indexOfAny(u8, text, "-+");
     const required = text[0..(extra_index orelse text.len)];
-    var it = std.mem.split(u8, required, ".");
+    var it = std.mem.splitScalar(u8, required, '.');
     var ver = Version{
         .major = try parseNum(it.first()),
         .minor = try parseNum(it.next() orelse return error.InvalidVersion),
@@ -108,7 +108,7 @@ pub fn parse(text: []const u8) !Version {
     // Check validity of optional pre-release identifiers.
     // See: https://semver.org/#spec-item-9
     if (ver.pre) |pre| {
-        it = std.mem.split(u8, pre, ".");
+        it = std.mem.splitScalar(u8, pre, '.');
         while (it.next()) |id| {
             // Identifiers MUST NOT be empty.
             if (id.len == 0) return error.InvalidVersion;
@@ -127,7 +127,7 @@ pub fn parse(text: []const u8) !Version {
     // Check validity of optional build metadata identifiers.
     // See: https://semver.org/#spec-item-10
     if (ver.build) |build| {
-        it = std.mem.split(u8, build, ".");
+        it = std.mem.splitScalar(u8, build, '.');
         while (it.next()) |id| {
             // Identifiers MUST NOT be empty.
             if (id.len == 0) return error.InvalidVersion;

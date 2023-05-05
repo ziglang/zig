@@ -2140,7 +2140,7 @@ fn checkCompileErrors(self: *Compile) !void {
     // Render the expected lines into a string that we can compare verbatim.
     var expected_generated = std.ArrayList(u8).init(arena);
 
-    var actual_line_it = mem.split(u8, actual_stderr, "\n");
+    var actual_line_it = mem.splitScalar(u8, actual_stderr, '\n');
     for (self.expect_errors) |expect_line| {
         const actual_line = actual_line_it.next() orelse {
             try expected_generated.appendSlice(expect_line);

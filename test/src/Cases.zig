@@ -877,7 +877,7 @@ const TestManifest = struct {
             if (trimmed.len == 0) break;
 
             // Parse key=value(s)
-            var kv_it = std.mem.split(u8, trimmed, "=");
+            var kv_it = std.mem.splitScalar(u8, trimmed, '=');
             const key = kv_it.first();
             try manifest.config_map.putNoClobber(key, kv_it.next() orelse return error.MissingValuesForConfig);
         }
@@ -895,7 +895,7 @@ const TestManifest = struct {
     ) ConfigValueIterator(T) {
         const bytes = self.config_map.get(key) orelse TestManifestConfigDefaults.get(self.type, key);
         return ConfigValueIterator(T){
-            .inner = std.mem.split(u8, bytes, ","),
+            .inner = std.mem.splitScalar(u8, bytes, ','),
         };
     }
 
@@ -1399,7 +1399,7 @@ fn runOneCase(
                 // Render the expected lines into a string that we can compare verbatim.
                 var expected_generated = std.ArrayList(u8).init(arena);
 
-                var actual_line_it = std.mem.split(u8, actual_stderr.items, "\n");
+                var actual_line_it = std.mem.splitScalar(u8, actual_stderr.items, '\n');
                 for (expected_errors) |expect_line| {
                     const actual_line = actual_line_it.next() orelse {
                         try expected_generated.appendSlice(expect_line);

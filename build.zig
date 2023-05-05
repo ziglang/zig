@@ -239,7 +239,7 @@ pub fn build(b: *std.Build) !void {
             },
             2 => {
                 // Untagged development build (e.g. 0.10.0-dev.2025+ecf0050a9).
-                var it = mem.split(u8, git_describe, "-");
+                var it = mem.splitScalar(u8, git_describe, '-');
                 const tagged_ancestor = it.first();
                 const commit_height = it.next().?;
                 const commit_id = it.next().?;
@@ -859,14 +859,14 @@ fn parseConfigH(b: *std.Build, config_h_text: []const u8) ?CMakeConfig {
     while (lines_it.next()) |line| {
         inline for (mappings) |mapping| {
             if (mem.startsWith(u8, line, mapping.prefix)) {
-                var it = mem.split(u8, line, "\"");
+                var it = mem.splitScalar(u8, line, '"');
                 _ = it.first(); // skip the stuff before the quote
                 const quoted = it.next().?; // the stuff inside the quote
                 @field(ctx, mapping.field) = toNativePathSep(b, quoted);
             }
         }
         if (mem.startsWith(u8, line, "#define ZIG_LLVM_LINK_MODE ")) {
-            var it = mem.split(u8, line, "\"");
+            var it = mem.splitScalar(u8, line, '"');
             _ = it.next().?; // skip the stuff before the quote
             const quoted = it.next().?; // the stuff inside the quote
             ctx.llvm_linkage = if (mem.eql(u8, quoted, "shared")) .dynamic else .static;

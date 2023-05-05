@@ -976,7 +976,7 @@ fn buildOutputType(
                         }
                     } else if (mem.eql(u8, arg, "--mod")) {
                         const info = args_iter.nextOrFatal();
-                        var info_it = mem.split(u8, info, ":");
+                        var info_it = mem.splitScalar(u8, info, ':');
                         const mod_name = info_it.next() orelse fatal("expected non-empty argument after {s}", .{arg});
                         const deps_str = info_it.next() orelse fatal("expected 'name:deps:path' after {s}", .{arg});
                         const root_src_orig = info_it.rest();
@@ -1176,7 +1176,7 @@ fn buildOutputType(
                         } else {
                             if (build_options.omit_pkg_fetching_code) unreachable;
                             // example: --listen 127.0.0.1:9000
-                            var it = std.mem.split(u8, next_arg, ":");
+                            var it = std.mem.splitScalar(u8, next_arg, ':');
                             const host = it.next().?;
                             const port_text = it.next() orelse "14735";
                             const port = std.fmt.parseInt(u16, port_text, 10) catch |err|
@@ -1673,7 +1673,7 @@ fn buildOutputType(
                     },
                     .rdynamic => rdynamic = true,
                     .wl => {
-                        var split_it = mem.split(u8, it.only_arg, ",");
+                        var split_it = mem.splitScalar(u8, it.only_arg, ',');
                         while (split_it.next()) |linker_arg| {
                             // Handle nested-joined args like `-Wl,-rpath=foo`.
                             // Must be prefixed with 1 or 2 dashes.
@@ -2183,17 +2183,17 @@ fn buildOutputType(
                     const next_arg = linker_args_it.nextOrFatal();
                     try symbol_wrap_set.put(arena, next_arg, {});
                 } else if (mem.startsWith(u8, arg, "/subsystem:")) {
-                    var split_it = mem.splitBackwards(u8, arg, ":");
+                    var split_it = mem.splitBackwardsScalar(u8, arg, ':');
                     subsystem = try parseSubSystem(split_it.first());
                 } else if (mem.startsWith(u8, arg, "/implib:")) {
-                    var split_it = mem.splitBackwards(u8, arg, ":");
+                    var split_it = mem.splitBackwardsScalar(u8, arg, ':');
                     emit_implib = .{ .yes = split_it.first() };
                     emit_implib_arg_provided = true;
                 } else if (mem.startsWith(u8, arg, "/pdb:")) {
-                    var split_it = mem.splitBackwards(u8, arg, ":");
+                    var split_it = mem.splitBackwardsScalar(u8, arg, ':');
                     pdb_out_path = split_it.first();
                 } else if (mem.startsWith(u8, arg, "/version:")) {
-                    var split_it = mem.splitBackwards(u8, arg, ":");
+                    var split_it = mem.splitBackwardsScalar(u8, arg, ':');
                     const version_arg = split_it.first();
                     version = std.builtin.Version.parse(version_arg) catch |err| {
                         fatal("unable to parse /version '{s}': {s}", .{ arg, @errorName(err) });
@@ -3534,7 +3534,7 @@ const ModuleDepIterator = struct {
     split: mem.SplitIterator(u8, .scalar),
 
     fn init(deps_str: []const u8) ModuleDepIterator {
-        return .{ .split = mem.split(u8, deps_str, ",") };
+        return .{ .split = mem.splitScalar(u8, deps_str, ',') };
     }
 
     const Dependency = struct {

@@ -426,7 +426,7 @@ pub const Response = struct {
             } else if (std.ascii.eqlIgnoreCase(header_name, "transfer-encoding")) {
                 // Transfer-Encoding: second, first
                 // Transfer-Encoding: deflate, chunked
-                var iter = mem.splitBackwards(u8, header_value, ",");
+                var iter = mem.splitBackwardsScalar(u8, header_value, ',');
 
                 if (iter.next()) |first| {
                     const trimmed = mem.trim(u8, first, " ");

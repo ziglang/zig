@@ -556,7 +556,7 @@ fn glibcVerFromSoFile(file: fs.File) !std.builtin.Version {
     const dynstr_size = @intCast(usize, dynstr.size);
     const dynstr_bytes = buf[0..dynstr_size];
     _ = try preadMin(file, dynstr_bytes, dynstr.offset, dynstr_bytes.len);
-    var it = mem.split(u8, dynstr_bytes, &.{0});
+    var it = mem.splitScalar(u8, dynstr_bytes, 0);
     var max_ver: std.builtin.Version = .{ .major = 2, .minor = 2, .patch = 5 };
     while (it.next()) |s| {
         if (mem.startsWith(u8, s, "GLIBC_2.")) {

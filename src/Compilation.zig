@@ -4636,7 +4636,7 @@ pub fn hasSharedLibraryExt(filename: []const u8) bool {
         return true;
     }
     // Look for .so.X, .so.X.Y, .so.X.Y.Z
-    var it = mem.split(u8, filename, ".");
+    var it = mem.splitScalar(u8, filename, '.');
     _ = it.first();
     var so_txt = it.next() orelse return false;
     while (!mem.eql(u8, so_txt, "so")) {
@@ -5016,14 +5016,14 @@ fn parseLldStderr(comp: *Compilation, comptime prefix: []const u8, stderr: []con
     defer context_lines.deinit();
 
     var current_err: ?*LldError = null;
-    var lines = mem.split(u8, stderr, std.cstr.line_sep);
+    var lines = mem.splitFull(u8, stderr, std.cstr.line_sep);
     while (lines.next()) |line| {
         if (mem.startsWith(u8, line, prefix ++ ":")) {
             if (current_err) |err| {
                 err.context_lines = try context_lines.toOwnedSlice();
             }
 
-            var split = std.mem.split(u8, line, "error: ");
+            var split = std.mem.splitFull(u8, line, "error: ");
             _ = split.first();
 
             const duped_msg = try std.fmt.allocPrint(comp.gpa, "{s}: {s}", .{ prefix, split.rest() });
