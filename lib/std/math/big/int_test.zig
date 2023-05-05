@@ -1373,6 +1373,19 @@ test "big.int div trunc single-single -/-" {
     try testing.expect((try r.to(i32)) == er);
 }
 
+test "big.int divTrunc #15535" {
+    var one = try Managed.initSet(testing.allocator, 1);
+    defer one.deinit();
+    var x = try Managed.initSet(testing.allocator, std.math.pow(u128, 2, 64));
+    defer x.deinit();
+    var r = try Managed.init(testing.allocator);
+    defer r.deinit();
+    var q = try Managed.init(testing.allocator);
+    defer q.deinit();
+    try q.divTrunc(&r, &x, &x);
+    try testing.expect(r.order(one) == std.math.Order.lt);
+}
+
 test "big.int divFloor #10932" {
     var a = try Managed.init(testing.allocator);
     defer a.deinit();
