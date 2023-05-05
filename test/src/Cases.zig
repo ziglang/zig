@@ -959,7 +959,7 @@ const TestManifest = struct {
             }.parse,
             .Enum => return struct {
                 fn parse(str: []const u8) anyerror!T {
-                    return std.meta.stringToEnum(T, str) orelse {
+                    return std.enums.fromString(T, str) orelse {
                         std.log.err("unknown enum variant for {s}: {s}", .{ @typeName(T), str });
                         return error.UnknownEnumVariant;
                     };

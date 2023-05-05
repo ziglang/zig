@@ -411,10 +411,10 @@ pub const Response = struct {
                 if (iter.next()) |first| {
                     const trimmed = mem.trim(u8, first, " ");
 
-                    if (std.meta.stringToEnum(http.TransferEncoding, trimmed)) |te| {
+                    if (std.enums.fromString(http.TransferEncoding, trimmed)) |te| {
                         if (res.transfer_encoding != null) return error.HttpHeadersInvalid;
                         res.transfer_encoding = te;
-                    } else if (std.meta.stringToEnum(http.ContentEncoding, trimmed)) |ce| {
+                    } else if (std.enums.fromString(http.ContentEncoding, trimmed)) |ce| {
                         if (res.transfer_compression != null) return error.HttpHeadersInvalid;
                         res.transfer_compression = ce;
                     } else {
@@ -427,7 +427,7 @@ pub const Response = struct {
 
                     const trimmed = mem.trim(u8, second, " ");
 
-                    if (std.meta.stringToEnum(http.ContentEncoding, trimmed)) |ce| {
+                    if (std.enums.fromString(http.ContentEncoding, trimmed)) |ce| {
                         res.transfer_compression = ce;
                     } else {
                         return error.HttpTransferEncodingUnsupported;
@@ -440,7 +440,7 @@ pub const Response = struct {
 
                 const trimmed = mem.trim(u8, header_value, " ");
 
-                if (std.meta.stringToEnum(http.ContentEncoding, trimmed)) |ce| {
+                if (std.enums.fromString(http.ContentEncoding, trimmed)) |ce| {
                     res.transfer_compression = ce;
                 } else {
                     return error.HttpTransferEncodingUnsupported;

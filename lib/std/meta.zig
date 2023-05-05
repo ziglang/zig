@@ -105,45 +105,6 @@ test "std.meta.isTag for Tagged Unions" {
     try testing.expect(!isTag(flt, "int"));
 }
 
-/// Returns the variant of an enum type, `T`, which is named `str`, or `null` if no such variant exists.
-pub fn stringToEnum(comptime T: type, str: []const u8) ?T {
-    // Using ComptimeStringMap here is more performant, but it will start to take too
-    // long to compile if the enum is large enough, due to the current limits of comptime
-    // performance when doing things like constructing lookup maps at comptime.
-    // TODO The '100' here is arbitrary and should be increased when possible:
-    // - https://github.com/ziglang/zig/issues/4055
-    // - https://github.com/ziglang/zig/issues/3863
-    if (@typeInfo(T).Enum.fields.len <= 100) {
-        const kvs = comptime build_kvs: {
-            const EnumKV = struct { []const u8, T };
-            var kvs_array: [@typeInfo(T).Enum.fields.len]EnumKV = undefined;
-            inline for (@typeInfo(T).Enum.fields, 0..) |enumField, i| {
-                kvs_array[i] = .{ enumField.name, @field(T, enumField.name) };
-            }
-            break :build_kvs kvs_array[0..];
-        };
-        const map = std.ComptimeStringMap(T, kvs);
-        return map.get(str);
-    } else {
-        inline for (@typeInfo(T).Enum.fields) |enumField| {
-            if (mem.eql(u8, str, enumField.name)) {
-                return @field(T, enumField.name);
-            }
-        }
-        return null;
-    }
-}
-
-test "std.meta.stringToEnum" {
-    const E1 = enum {
-        A,
-        B,
-    };
-    try testing.expect(E1.A == stringToEnum(E1, "A").?);
-    try testing.expect(E1.B == stringToEnum(E1, "B").?);
-    try testing.expect(null == stringToEnum(E1, "C"));
-}
-
 /// Returns the alignment of type T.
 /// Note that if T is a pointer or function type the result is different than
 /// the one returned by @alignOf(T).

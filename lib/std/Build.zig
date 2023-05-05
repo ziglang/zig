@@ -881,7 +881,7 @@ pub fn option(self: *Build, comptime T: type, name_raw: []const u8, description_
                 return null;
             },
             .scalar => |s| {
-                if (std.meta.stringToEnum(T, s)) |enum_lit| {
+                if (std.enums.fromString(T, s)) |enum_lit| {
                     return enum_lit;
                 } else {
                     log.err("Expected -D{s} to be of type {s}.\n", .{ name, @typeName(T) });

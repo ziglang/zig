@@ -47,7 +47,7 @@ pub fn cmdObjCopy(
             if (mem.eql(u8, next_arg, "binary")) {
                 opt_out_fmt = .raw;
             } else {
-                opt_out_fmt = std.meta.stringToEnum(std.Target.ObjectFormat, next_arg) orelse
+                opt_out_fmt = std.enums.fromString(std.Target.ObjectFormat, next_arg) orelse
                     fatal("invalid output format: '{s}'", .{next_arg});
             }
         } else if (mem.startsWith(u8, arg, "--output-target=")) {
@@ -55,7 +55,7 @@ pub fn cmdObjCopy(
             if (mem.eql(u8, next_arg, "binary")) {
                 opt_out_fmt = .raw;
             } else {
-                opt_out_fmt = std.meta.stringToEnum(std.Target.ObjectFormat, next_arg) orelse
+                opt_out_fmt = std.enums.fromString(std.Target.ObjectFormat, next_arg) orelse
                     fatal("invalid output format: '{s}'", .{next_arg});
             }
         } else if (mem.eql(u8, arg, "-j") or mem.eql(u8, arg, "--only-section")) {

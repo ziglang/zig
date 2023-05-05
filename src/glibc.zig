@@ -122,7 +122,7 @@ pub fn loadMetaData(gpa: Allocator, contents: []const u8) LoadMetaDataError!*ABI
                 log.err("abilists: expected ABI name", .{});
                 return error.ZigInstallationCorrupt;
             };
-            const arch_tag = std.meta.stringToEnum(std.Target.Cpu.Arch, arch_name) orelse {
+            const arch_tag = std.enums.fromString(std.Target.Cpu.Arch, arch_name) orelse {
                 log.err("abilists: unrecognized arch: '{s}'", .{arch_name});
                 return error.ZigInstallationCorrupt;
             };
@@ -130,7 +130,7 @@ pub fn loadMetaData(gpa: Allocator, contents: []const u8) LoadMetaDataError!*ABI
                 log.err("abilists: expected OS 'linux', found '{s}'", .{os_name});
                 return error.ZigInstallationCorrupt;
             }
-            const abi_tag = std.meta.stringToEnum(std.Target.Abi, abi_name) orelse {
+            const abi_tag = std.enums.fromString(std.Target.Abi, abi_name) orelse {
                 log.err("abilists: unrecognized ABI: '{s}'", .{abi_name});
                 return error.ZigInstallationCorrupt;
             };

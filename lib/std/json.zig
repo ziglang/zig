@@ -1506,7 +1506,7 @@ fn parseInternal(
                 .String => |stringToken| {
                     const source_slice = stringToken.slice(tokens.slice, tokens.i - 1);
                     switch (stringToken.escapes) {
-                        .None => return std.meta.stringToEnum(T, source_slice) orelse return error.InvalidEnumTag,
+                        .None => return std.enums.fromString(T, source_slice) orelse return error.InvalidEnumTag,
                         .Some => {
                             inline for (enumInfo.fields) |field| {
                                 if (field.name.len == stringToken.decodedLength() and encodesTo(field.name, source_slice)) {

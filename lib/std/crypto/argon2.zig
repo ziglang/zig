@@ -555,7 +555,7 @@ const PhcFormatHasher = struct {
     ) HasherError!void {
         const hash_result = try phc_format.deserialize(HashResult, str);
 
-        const mode = std.meta.stringToEnum(Mode, hash_result.alg_id) orelse
+        const mode = std.enums.fromString(Mode, hash_result.alg_id) orelse
             return HasherError.PasswordVerificationFailed;
         if (hash_result.alg_version) |v| {
             if (v != version) return HasherError.InvalidEncoding;

@@ -76,7 +76,7 @@ pub const DevicePathProtocol = extern struct {
 
     pub fn getDevicePath(self: *const DevicePathProtocol) ?DevicePath {
         inline for (@typeInfo(DevicePath).Union.fields) |ufield| {
-            const enum_value = std.meta.stringToEnum(DevicePathType, ufield.name);
+            const enum_value = std.enums.fromString(DevicePathType, ufield.name);
 
             // Got the associated union type for self.type, now
             // we need to initialize it and its subtype

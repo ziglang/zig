@@ -175,7 +175,7 @@ pub fn main() !void {
                     std.debug.print("Expected [auto|on|off] after {s}\n\n", .{arg});
                     usageAndErr(builder, false, stderr_stream);
                 };
-                color = std.meta.stringToEnum(Color, next_arg) orelse {
+                color = std.enums.fromString(Color, next_arg) orelse {
                     std.debug.print("Expected [auto|on|off] after {s}, found '{s}'\n\n", .{ arg, next_arg });
                     usageAndErr(builder, false, stderr_stream);
                 };

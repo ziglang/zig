@@ -6367,7 +6367,7 @@ fn parseRegName(name: []const u8) ?Register {
     if (@hasDecl(Register, "parseRegName")) {
         return Register.parseRegName(name);
     }
-    return std.meta.stringToEnum(Register, name);
+    return std.enums.fromString(Register, name);
 }
 
 fn registerAlias(self: *Self, reg: Register, ty: Type) Register {

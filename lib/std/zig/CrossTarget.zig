@@ -243,7 +243,7 @@ pub fn parse(args: ParseOptions) !CrossTarget {
     const arch_name = it.first();
     const arch_is_native = mem.eql(u8, arch_name, "native");
     if (!arch_is_native) {
-        result.cpu_arch = std.meta.stringToEnum(Target.Cpu.Arch, arch_name) orelse
+        result.cpu_arch = std.enums.fromString(Target.Cpu.Arch, arch_name) orelse
             return error.UnknownArchitecture;
     }
     const arch = result.getCpuArch();
@@ -258,7 +258,7 @@ pub fn parse(args: ParseOptions) !CrossTarget {
     const opt_abi_text = it.next();
     if (opt_abi_text) |abi_text| {
         var abi_it = mem.split(u8, abi_text, ".");
-        const abi = std.meta.stringToEnum(Target.Abi, abi_it.first()) orelse
+        const abi = std.enums.fromString(Target.Abi, abi_it.first()) orelse
             return error.UnknownApplicationBinaryInterface;
         result.abi = abi;
         diags.abi = abi;
@@ -331,7 +331,7 @@ pub fn parse(args: ParseOptions) !CrossTarget {
     }
 
     if (args.object_format) |ofmt_name| {
-        result.ofmt = std.meta.stringToEnum(Target.ObjectFormat, ofmt_name) orelse
+        result.ofmt = std.enums.fromString(Target.ObjectFormat, ofmt_name) orelse
             return error.UnknownObjectFormat;
     }
 
@@ -349,7 +349,7 @@ pub fn parseCpuArch(args: ParseOptions) ?Target.Cpu.Arch {
     if (arch_is_native) {
         return builtin.cpu.arch;
     } else {
-        return std.meta.stringToEnum(Target.Cpu.Arch, arch_name);
+        return std.enums.fromString(Target.Cpu.Arch, arch_name);
     }
 }
 
@@ -650,7 +650,7 @@ fn parseOs(result: *CrossTarget, diags: *ParseOptions.Diagnostics, text: []const
     diags.os_name = os_name;
     const os_is_native = mem.eql(u8, os_name, "native");
     if (!os_is_native) {
-        result.os_tag = std.meta.stringToEnum(Target.Os.Tag, os_name) orelse
+        result.os_tag = std.enums.fromString(Target.Os.Tag, os_name) orelse
             return error.UnknownOperatingSystem;
     }
     const tag = result.getOsTag();
@@ -729,12 +729,12 @@ fn parseOs(result: *CrossTarget, diags: *ParseOptions.Diagnostics, text: []const
             var range_it = mem.split(u8, version_text, "...");
 
             const min_text = range_it.first();
-            const min_ver = std.meta.stringToEnum(Target.Os.WindowsVersion, min_text) orelse
+            const min_ver = std.enums.fromString(Target.Os.WindowsVersion, min_text) orelse
                 return error.InvalidOperatingSystemVersion;
             result.os_version_min = .{ .windows = min_ver };
 
             const max_text = range_it.next() orelse return;
-            const max_ver = std.meta.stringToEnum(Target.Os.WindowsVersion, max_text) orelse
+            const max_ver = std.enums.fromString(Target.Os.WindowsVersion, max_text) orelse
                 return error.InvalidOperatingSystemVersion;
             result.os_version_max = .{ .windows = max_ver };
         },

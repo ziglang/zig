@@ -219,7 +219,7 @@ pub const Request = struct {
 
         const method_end = mem.indexOfScalar(u8, first_line, ' ') orelse return error.HttpHeadersInvalid;
         const method_str = first_line[0..method_end];
-        const method = std.meta.stringToEnum(http.Method, method_str) orelse return error.UnknownHttpMethod;
+        const method = std.enums.fromString(http.Method, method_str) orelse return error.UnknownHttpMethod;
 
         const version_start = mem.lastIndexOfScalar(u8, first_line, ' ') orelse return error.HttpHeadersInvalid;
         if (version_start == method_end) return error.HttpHeadersInvalid;
@@ -262,10 +262,10 @@ pub const Request = struct {
                 if (iter.next()) |first| {
                     const trimmed = mem.trim(u8, first, " ");
 
-                    if (std.meta.stringToEnum(http.TransferEncoding, trimmed)) |te| {
+                    if (std.enums.fromString(http.TransferEncoding, trimmed)) |te| {
                         if (req.transfer_encoding != null) return error.HttpHeadersInvalid;
                         req.transfer_encoding = te;
-                    } else if (std.meta.stringToEnum(http.ContentEncoding, trimmed)) |ce| {
+                    } else if (std.enums.fromString(http.ContentEncoding, trimmed)) |ce| {
                         if (req.transfer_compression != null) return error.HttpHeadersInvalid;
                         req.transfer_compression = ce;
                     } else {
@@ -278,7 +278,7 @@ pub const Request = struct {
 
                     const trimmed = mem.trim(u8, second, " ");
 
-                    if (std.meta.stringToEnum(http.ContentEncoding, trimmed)) |ce| {
+                    if (std.enums.fromString(http.ContentEncoding, trimmed)) |ce| {
                         req.transfer_compression = ce;
                     } else {
                         return error.HttpTransferEncodingUnsupported;
@@ -291,7 +291,7 @@ pub const Request = struct {
 
                 const trimmed = mem.trim(u8, header_value, " ");
 
-                if (std.meta.stringToEnum(http.ContentEncoding, trimmed)) |ce| {
+                if (std.enums.fromString(http.ContentEncoding, trimmed)) |ce| {
                     req.transfer_compression = ce;
                 } else {
                     return error.HttpTransferEncodingUnsupported;

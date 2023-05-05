@@ -569,7 +569,7 @@ fn parseInstruction(self: *Assembler) !void {
 
     const opcode_text = self.tokenText(opcode_tok);
     @setEvalBranchQuota(10000);
-    self.inst.opcode = std.meta.stringToEnum(Opcode, opcode_text) orelse {
+    self.inst.opcode = std.enums.fromString(Opcode, opcode_text) orelse {
         return self.fail(opcode_tok.start, "invalid opcode '{s}'", .{opcode_text});
     };
 

@@ -1024,7 +1024,7 @@ fn buildOutputType(
                         const next_arg = args_iter.next() orelse {
                             fatal("expected [auto|on|off] after --color", .{});
                         };
-                        color = std.meta.stringToEnum(Color, next_arg) orelse {
+                        color = std.enums.fromString(Color, next_arg) orelse {
                             fatal("expected [auto|on|off] after --color, found '{s}'", .{next_arg});
                         };
                     } else if (mem.eql(u8, arg, "--subsystem")) {
@@ -1065,7 +1065,7 @@ fn buildOutputType(
                         install_name = args_iter.nextOrFatal();
                     } else if (mem.startsWith(u8, arg, "--compress-debug-sections=")) {
                         const param = arg["--compress-debug-sections=".len..];
-                        linker_compress_debug_sections = std.meta.stringToEnum(link.CompressDebugSections, param) orelse {
+                        linker_compress_debug_sections = std.enums.fromString(link.CompressDebugSections, param) orelse {
                             fatal("expected --compress-debug-sections=[none|zlib], found '{s}'", .{param});
                         };
                     } else if (mem.eql(u8, arg, "--compress-debug-sections")) {
@@ -1493,7 +1493,7 @@ fn buildOutputType(
                             fatal("language not recognized: '{s}'", .{lang});
                         }
                     } else if (mem.startsWith(u8, arg, "-mexec-model=")) {
-                        wasi_exec_model = std.meta.stringToEnum(std.builtin.WasiExecModel, arg["-mexec-model=".len..]) orelse {
+                        wasi_exec_model = std.enums.fromString(std.builtin.WasiExecModel, arg["-mexec-model=".len..]) orelse {
                             fatal("expected [command|reactor] for -mexec-mode=[value], found '{s}'", .{arg["-mexec-model=".len..]});
                         };
                     } else {
@@ -1521,7 +1521,7 @@ fn buildOutputType(
                 }
             }
             if (optimize_mode_string) |s| {
-                optimize_mode = std.meta.stringToEnum(std.builtin.Mode, s) orelse
+                optimize_mode = std.enums.fromString(std.builtin.Mode, s) orelse
                     fatal("unrecognized optimization mode: '{s}'", .{s});
             }
         },
@@ -1823,7 +1823,7 @@ fn buildOutputType(
                     .nostdlibinc => want_native_include_dirs = false,
                     .strip => strip = true,
                     .exec_model => {
-                        wasi_exec_model = std.meta.stringToEnum(std.builtin.WasiExecModel, it.only_arg) orelse {
+                        wasi_exec_model = std.enums.fromString(std.builtin.WasiExecModel, it.only_arg) orelse {
                             fatal("expected [command|reactor] for -mexec-mode=[value], found '{s}'", .{it.only_arg});
                         };
                     },
@@ -1843,7 +1843,7 @@ fn buildOutputType(
                         if (it.only_arg.len == 0) {
                             linker_compress_debug_sections = .zlib;
                         } else {
-                            linker_compress_debug_sections = std.meta.stringToEnum(link.CompressDebugSections, it.only_arg) orelse {
+                            linker_compress_debug_sections = std.enums.fromString(link.CompressDebugSections, it.only_arg) orelse {
                                 fatal("expected [none|zlib] after --compress-debug-sections, found '{s}'", .{it.only_arg});
                             };
                         }
@@ -1952,7 +1952,7 @@ fn buildOutputType(
                     linker_print_map = true;
                 } else if (mem.eql(u8, arg, "--sort-section")) {
                     const arg1 = linker_args_it.nextOrFatal();
-                    linker_sort_section = std.meta.stringToEnum(link.SortSection, arg1) orelse {
+                    linker_sort_section = std.enums.fromString(link.SortSection, arg1) orelse {
                         fatal("expected [name|alignment] after --sort-section, found '{s}'", .{arg1});
                     };
                 } else if (mem.eql(u8, arg, "--allow-shlib-undefined") or
@@ -1994,7 +1994,7 @@ fn buildOutputType(
                     try linker_export_symbol_names.append(linker_args_it.nextOrFatal());
                 } else if (mem.eql(u8, arg, "--compress-debug-sections")) {
                     const arg1 = linker_args_it.nextOrFatal();
-                    linker_compress_debug_sections = std.meta.stringToEnum(link.CompressDebugSections, arg1) orelse {
+                    linker_compress_debug_sections = std.enums.fromString(link.CompressDebugSections, arg1) orelse {
                         fatal("expected [none|zlib] after --compress-debug-sections, found '{s}'", .{arg1});
                     };
                 } else if (mem.startsWith(u8, arg, "-z")) {
@@ -2171,7 +2171,7 @@ fn buildOutputType(
                     mem.eql(u8, arg, "--hash-style"))
                 {
                     const next_arg = linker_args_it.nextOrFatal();
-                    hash_style = std.meta.stringToEnum(link.HashStyle, next_arg) orelse {
+                    hash_style = std.enums.fromString(link.HashStyle, next_arg) orelse {
                         fatal("expected [sysv|gnu|both] after --hash-style, found '{s}'", .{
                             next_arg,
                         });
@@ -4606,7 +4606,7 @@ pub fn cmdFmt(gpa: Allocator, arena: Allocator, args: []const []const u8) !void 
                     }
                     i += 1;
                     const next_arg = args[i];
-                    color = std.meta.stringToEnum(Color, next_arg) orelse {
+                    color = std.enums.fromString(Color, next_arg) orelse {
                         fatal("expected [auto|on|off] after --color, found '{s}'", .{next_arg});
                     };
                 } else if (mem.eql(u8, arg, "--stdin")) {
@@ -5352,7 +5352,7 @@ pub const ClangArgIterator = struct {
 };
 
 fn parseCodeModel(arg: []const u8) std.builtin.CodeModel {
-    return std.meta.stringToEnum(std.builtin.CodeModel, arg) orelse
+    return std.enums.fromString(std.builtin.CodeModel, arg) orelse
         fatal("unsupported machine code model: '{s}'", .{arg});
 }
 
@@ -5448,7 +5448,7 @@ pub fn cmdAstCheck(
                 }
                 i += 1;
                 const next_arg = args[i];
-                color = std.meta.stringToEnum(Color, next_arg) orelse {
+                color = std.enums.fromString(Color, next_arg) orelse {
                     fatal("expected [auto|on|off] after --color, found '{s}'", .{next_arg});
                 };
             } else {

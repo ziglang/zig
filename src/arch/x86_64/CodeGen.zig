@@ -6985,11 +6985,11 @@ fn airAsm(self: *Self, inst: Air.Inst.Index) !void {
             null;
         const mnem = mnem: {
             if (mnem_size) |_| {
-                if (std.meta.stringToEnum(Mir.Inst.Tag, mnem_str[0 .. mnem_str.len - 1])) |mnem| {
+                if (std.enums.fromString(Mir.Inst.Tag, mnem_str[0 .. mnem_str.len - 1])) |mnem| {
                     break :mnem mnem;
                 }
             }
-            break :mnem std.meta.stringToEnum(Mir.Inst.Tag, mnem_str) orelse
+            break :mnem std.enums.fromString(Mir.Inst.Tag, mnem_str) orelse
                 return self.fail("Invalid mnemonic: '{s}'", .{mnem_str});
         };
 
@@ -8807,7 +8807,7 @@ fn parseRegName(name: []const u8) ?Register {
     if (@hasDecl(Register, "parseRegName")) {
         return Register.parseRegName(name);
     }
-    return std.meta.stringToEnum(Register, name);
+    return std.enums.fromString(Register, name);
 }
 
 /// Returns register wide enough to hold at least `size_bytes`.
