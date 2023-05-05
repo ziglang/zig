@@ -807,7 +807,7 @@ fn allocMem(self: *Self, inst: Air.Inst.Index, abi_size: u32, abi_align: u32) !u
 /// Use a pointer instruction as the basis for allocating stack memory.
 fn allocMemPtr(self: *Self, inst: Air.Inst.Index) !u32 {
     const mod = self.bin_file.options.module.?;
-    const elem_ty = self.typeOfIndex(inst).elemType();
+    const elem_ty = self.typeOfIndex(inst).childType(mod);
     const abi_size = math.cast(u32, elem_ty.abiSize(mod)) orelse {
         return self.fail("type '{}' too big to fit into stack frame", .{elem_ty.fmt(mod)});
     };
@@ -1099,9 +1099,9 @@ fn binOp(
             switch (lhs_ty.zigTypeTag(mod)) {
                 .Pointer => {
                     const ptr_ty = lhs_ty;
-                    const elem_ty = switch (ptr_ty.ptrSize()) {
-                        .One => ptr_ty.childType().childType(), // ptr to array, so get array element type
-                        else => ptr_ty.childType(),
+                    const elem_ty = switch (ptr_ty.ptrSize(mod)) {
+                        .One => ptr_ty.childType(mod).childType(mod), // ptr to array, so get array element type
+                        else => ptr_ty.childType(mod),
                     };
                     const elem_size = elem_ty.abiSize(mod);
 
@@ -1502,7 +1502,8 @@ fn reuseOperand(self: *Self, inst: Air.Inst.Index, operand: Air.Inst.Ref, op_ind
 }
 
 fn load(self: *Self, dst_mcv: MCValue, ptr: MCValue, ptr_ty: Type) InnerError!void {
-    const elem_ty = ptr_ty.elemType();
+    const mod = self.bin_file.options.module.?;
+    const elem_ty = ptr_ty.childType(mod);
     switch (ptr) {
         .none => unreachable,
         .undef => unreachable,
@@ -2496,8 +2497,9 @@ fn airReduce(self: *Self, inst: Air.Inst.Index) !void {
 }
 
 fn airAggregateInit(self: *Self, inst: Air.Inst.Index) !void {
+    const mod = self.bin_file.options.module.?;
     const vector_ty = self.typeOfIndex(inst);
-    const len = vector_ty.vectorLen();
+    const len = vector_ty.vectorLen(mod);
     const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
     const elements = @ptrCast([]const Air.Inst.Ref, self.air.extra[ty_pl.payload..][0..len]);
     const result: MCValue = res: {

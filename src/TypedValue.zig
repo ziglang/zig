@@ -77,15 +77,6 @@ pub fn print(
         return writer.writeAll("(variable)");
 
     while (true) switch (val.tag()) {
-        .single_const_pointer_to_comptime_int_type => return writer.writeAll("*const comptime_int"),
-        .const_slice_u8_type => return writer.writeAll("[]const u8"),
-        .const_slice_u8_sentinel_0_type => return writer.writeAll("[:0]const u8"),
-        .anyerror_void_error_union_type => return writer.writeAll("anyerror!void"),
-
-        .manyptr_u8_type => return writer.writeAll("[*]u8"),
-        .manyptr_const_u8_type => return writer.writeAll("[*]const u8"),
-        .manyptr_const_u8_sentinel_0_type => return writer.writeAll("[*:0]const u8"),
-
         .empty_struct_value, .aggregate => {
             if (level == 0) {
                 return writer.writeAll(".{ ... }");
@@ -112,7 +103,7 @@ pub fn print(
                 return writer.writeAll("}");
             } else {
                 const elem_ty = ty.elemType2(mod);
-                const len = ty.arrayLen();
+                const len = ty.arrayLen(mod);
 
                 if (elem_ty.eql(Type.u8, mod)) str: {
                     const max_len = @intCast(usize, std.math.min(len, max_string_len));
@@ -288,7 +279,7 @@ pub fn print(
                 .ty = ty.elemType2(mod),
                 .val = val.castTag(.repeated).?.data,
             };
-            const len = ty.arrayLen();
+            const len = ty.arrayLen(mod);
             const max_len = std.math.min(len, max_aggregate_items);
             while (i < max_len) : (i += 1) {
                 if (i != 0) try writer.writeAll(", ");
@@ -306,7 +297,7 @@ pub fn print(
             try writer.writeAll(".{ ");
             try print(.{
                 .ty = ty.elemType2(mod),
-                .val = ty.sentinel().?,
+                .val = ty.sentinel(mod).?,
             }, writer, level - 1, mod);
             return writer.writeAll(" }");
         },
@@ -364,8 +355,7 @@ pub fn print(
         },
         .opt_payload => {
             val = val.castTag(.opt_payload).?.data;
-            var buf: Type.Payload.ElemType = undefined;
-            ty = ty.optionalChild(&buf);
+            ty = ty.optionalChild(mod);
             return print(.{ .ty = ty, .val = val }, writer, level, mod);
         },
         .eu_payload_ptr => {
@@ -386,13 +376,8 @@ pub fn print(
 
             try writer.writeAll(", &(payload of ");
 
-            var ptr_ty: Type.Payload.ElemType = .{
-                .base = .{ .tag = .single_mut_pointer },
-                .data = data.container_ty,
-            };
-
             try print(.{
-                .ty = Type.initPayload(&ptr_ty.base),
+                .ty = mod.singleMutPtrType(data.container_ty) catch @panic("OOM"),
                 .val = data.container_ptr,
             }, writer, level - 1, mod);
 
@@ -415,13 +400,8 @@ pub fn print(
 
             try writer.writeAll(", &(payload of ");
 
-            var ptr_ty: Type.Payload.ElemType = .{
-                .base = .{ .tag = .single_mut_pointer },
-                .data = data.container_ty,
-            };
-
             try print(.{
-                .ty = Type.initPayload(&ptr_ty.base),
+                .ty = mod.singleMutPtrType(data.container_ty) catch @panic("OOM"),
                 .val = data.container_ptr,
             }, writer, level - 1, mod);
 

@@ -433,9 +433,10 @@ const Writer = struct {
     }
 
     fn writeAggregateInit(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {
+        const mod = w.module;
         const ty_pl = w.air.instructions.items(.data)[inst].ty_pl;
         const vector_ty = w.air.getRefType(ty_pl.ty);
-        const len = @intCast(usize, vector_ty.arrayLen());
+        const len = @intCast(usize, vector_ty.arrayLen(mod));
         const elements = @ptrCast([]const Air.Inst.Ref, w.air.extra[ty_pl.payload..][0..len]);
 
         try w.writeType(s, vector_ty);
@@ -512,10 +513,11 @@ const Writer = struct {
     }
 
     fn writeSelect(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {
+        const mod = w.module;
         const pl_op = w.air.instructions.items(.data)[inst].pl_op;
         const extra = w.air.extraData(Air.Bin, pl_op.payload).data;
 
-        const elem_ty = w.typeOfIndex(inst).childType();
+        const elem_ty = w.typeOfIndex(inst).childType(mod);
         try w.writeType(s, elem_ty);
         try s.writeAll(", ");
         try w.writeOperand(s, inst, 0, pl_op.operand);

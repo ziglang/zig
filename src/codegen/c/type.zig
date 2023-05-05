@@ -1423,7 +1423,7 @@ pub const CType = extern union {
                 }),
 
                 .Pointer => {
-                    const info = ty.ptrInfo().data;
+                    const info = ty.ptrInfo(mod);
                     switch (info.size) {
                         .Slice => {
                             if (switch (kind) {
@@ -1625,9 +1625,9 @@ pub const CType = extern union {
                                 .Vector => .vector,
                                 else => unreachable,
                             };
-                            if (try lookup.typeToIndex(ty.childType(), kind)) |child_idx| {
+                            if (try lookup.typeToIndex(ty.childType(mod), kind)) |child_idx| {
                                 self.storage = .{ .seq = .{ .base = .{ .tag = t }, .data = .{
-                                    .len = ty.arrayLenIncludingSentinel(),
+                                    .len = ty.arrayLenIncludingSentinel(mod),
                                     .elem_type = child_idx,
                                 } } };
                                 self.value = .{ .cty = initPayload(&self.storage.seq) };
@@ -1639,8 +1639,7 @@ pub const CType = extern union {
                 },
 
                 .Optional => {
-                    var buf: Type.Payload.ElemType = undefined;
-                    const payload_ty = ty.optionalChild(&buf);
+                    const payload_ty = ty.optionalChild(mod);
                     if (payload_ty.hasRuntimeBitsIgnoreComptime(mod)) {
                         if (ty.optionalReprIsPayload(mod)) {
                             try self.initType(payload_ty, kind, lookup);

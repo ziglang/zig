@@ -325,7 +325,7 @@ fn verifyBody(self: *Verify, body: []const Air.Inst.Index) Error!void {
             .aggregate_init => {
                 const ty_pl = data[inst].ty_pl;
                 const aggregate_ty = self.air.getRefType(ty_pl.ty);
-                const len = @intCast(usize, aggregate_ty.arrayLen());
+                const len = @intCast(usize, aggregate_ty.arrayLenIp(ip.*));
                 const elements = @ptrCast([]const Air.Inst.Ref, self.air.extra[ty_pl.payload..][0..len]);
 
                 var bt = self.liveness.iterateBigTomb(inst);

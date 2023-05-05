@@ -1030,7 +1030,7 @@ fn allocMem(
 /// Use a pointer instruction as the basis for allocating stack memory.
 fn allocMemPtr(self: *Self, inst: Air.Inst.Index) !u32 {
     const mod = self.bin_file.options.module.?;
-    const elem_ty = self.typeOfIndex(inst).elemType();
+    const elem_ty = self.typeOfIndex(inst).childType(mod);
 
     if (!elem_ty.hasRuntimeBits(mod)) {
         // return the stack offset 0. Stack offset 0 will be where all
@@ -1140,17 +1140,14 @@ fn airAlloc(self: *Self, inst: Air.Inst.Index) !void {
 }
 
 fn airRetPtr(self: *Self, inst: Air.Inst.Index) !void {
+    const mod = self.bin_file.options.module.?;
     const result: MCValue = switch (self.ret_mcv) {
         .none, .register => .{ .ptr_stack_offset = try self.allocMemPtr(inst) },
         .stack_offset => blk: {
             // self.ret_mcv is an address to where this function
             // should store its result into
             const ret_ty = self.fn_type.fnReturnType();
-            var ptr_ty_payload: Type.Payload.ElemType = .{
-                .base = .{ .tag = .single_mut_pointer },
-                .data = ret_ty,
-            };
-            const ptr_ty = Type.initPayload(&ptr_ty_payload.base);
+            const ptr_ty = try mod.singleMutPtrType(ret_ty);
 
             // addr_reg will contain the address of where to store the
             // result into
@@ -2406,9 +2403,9 @@ fn ptrArithmetic(
             assert(rhs_ty.eql(Type.usize, mod));
 
             const ptr_ty = lhs_ty;
-            const elem_ty = switch (ptr_ty.ptrSize()) {
-                .One => ptr_ty.childType().childType(), // ptr to array, so get array element type
-                else => ptr_ty.childType(),
+            const elem_ty = switch (ptr_ty.ptrSize(mod)) {
+                .One => ptr_ty.childType(mod).childType(mod), // ptr to array, so get array element type
+                else => ptr_ty.childType(mod),
             };
             const elem_size = elem_ty.abiSize(mod);
 
@@ -3024,8 +3021,7 @@ fn airOptionalPayload(self: *Self, inst: Air.Inst.Index) !void {
 
 fn optionalPayload(self: *Self, inst: Air.Inst.Index, mcv: MCValue, optional_ty: Type) !MCValue {
     const mod = self.bin_file.options.module.?;
-    var opt_buf: Type.Payload.ElemType = undefined;
-    const payload_ty = optional_ty.optionalChild(&opt_buf);
+    const payload_ty = optional_ty.optionalChild(mod);
     if (!payload_ty.hasRuntimeBits(mod)) return MCValue.none;
     if (optional_ty.isPtrLikeOptional(mod)) {
         // TODO should we reuse the operand here?
@@ -3459,7 +3455,7 @@ fn ptrElemVal(
     maybe_inst: ?Air.Inst.Index,
 ) !MCValue {
     const mod = self.bin_file.options.module.?;
-    const elem_ty = ptr_ty.childType();
+    const elem_ty = ptr_ty.childType(mod);
     const elem_size = @intCast(u32, elem_ty.abiSize(mod));
 
     // TODO optimize for elem_sizes of 1, 2, 4, 8
@@ -3617,7 +3613,7 @@ fn reuseOperand(
 
 fn load(self: *Self, dst_mcv: MCValue, ptr: MCValue, ptr_ty: Type) InnerError!void {
     const mod = self.bin_file.options.module.?;
-    const elem_ty = ptr_ty.elemType();
+    const elem_ty = ptr_ty.childType(mod);
     const elem_size = elem_ty.abiSize(mod);
 
     switch (ptr) {
@@ -3773,7 +3769,7 @@ fn genInlineMemset(
 ) !void {
     const dst_reg = switch (dst) {
         .register => |r| r,
-        else => try self.copyToTmpRegister(Type.initTag(.manyptr_u8), dst),
+        else => try self.copyToTmpRegister(Type.manyptr_u8, dst),
     };
     const dst_reg_lock = self.register_manager.lockReg(dst_reg);
     defer if (dst_reg_lock) |lock| self.register_manager.unlockReg(lock);
@@ -4096,7 +4092,7 @@ fn structFieldPtr(self: *Self, inst: Air.Inst.Index, operand: Air.Inst.Ref, inde
         const mod = self.bin_file.options.module.?;
         const mcv = try self.resolveInst(operand);
         const ptr_ty = self.typeOf(operand);
-        const struct_ty = ptr_ty.childType();
+        const struct_ty = ptr_ty.childType(mod);
         const struct_field_offset = @intCast(u32, struct_ty.structFieldOffset(index, mod));
         switch (mcv) {
             .ptr_stack_offset => |off| {
@@ -4173,7 +4169,7 @@ fn airFieldParentPtr(self: *Self, inst: Air.Inst.Index) !void {
     const extra = self.air.extraData(Air.FieldParentPtr, ty_pl.payload).data;
     const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
         const field_ptr = try self.resolveInst(extra.field_ptr);
-        const struct_ty = self.air.getRefType(ty_pl.ty).childType();
+        const struct_ty = self.air.getRefType(ty_pl.ty).childType(mod);
         const struct_field_offset = @intCast(u32, struct_ty.structFieldOffset(extra.field_index, mod));
         switch (field_ptr) {
             .ptr_stack_offset => |off| {
@@ -4254,7 +4250,7 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallModifier
 
     const fn_ty = switch (ty.zigTypeTag(mod)) {
         .Fn => ty,
-        .Pointer => ty.childType(),
+        .Pointer => ty.childType(mod),
         else => unreachable,
     };
 
@@ -4280,11 +4276,7 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallModifier
 
         const ret_ptr_reg = self.registerAlias(.x0, Type.usize);
 
-        var ptr_ty_payload: Type.Payload.ElemType = .{
-            .base = .{ .tag = .single_mut_pointer },
-            .data = ret_ty,
-        };
-        const ptr_ty = Type.initPayload(&ptr_ty_payload.base);
+        const ptr_ty = try mod.singleMutPtrType(ret_ty);
         try self.register_manager.getReg(ret_ptr_reg, null);
         try self.genSetReg(ptr_ty, ret_ptr_reg, .{ .ptr_stack_offset = stack_offset });
 
@@ -4453,11 +4445,7 @@ fn airRet(self: *Self, inst: Air.Inst.Index) !void {
             //
             // self.ret_mcv is an address to where this function
             // should store its result into
-            var ptr_ty_payload: Type.Payload.ElemType = .{
-                .base = .{ .tag = .single_mut_pointer },
-                .data = ret_ty,
-            };
-            const ptr_ty = Type.initPayload(&ptr_ty_payload.base);
+            const ptr_ty = try mod.singleMutPtrType(ret_ty);
             try self.store(self.ret_mcv, operand, ptr_ty, ret_ty);
         },
         else => unreachable,
@@ -4533,8 +4521,7 @@ fn cmp(
     const mod = self.bin_file.options.module.?;
     const int_ty = switch (lhs_ty.zigTypeTag(mod)) {
         .Optional => blk: {
-            var opt_buffer: Type.Payload.ElemType = undefined;
-            const payload_ty = lhs_ty.optionalChild(&opt_buffer);
+            const payload_ty = lhs_ty.optionalChild(mod);
             if (!payload_ty.hasRuntimeBitsIgnoreComptime(mod)) {
                 break :blk Type.u1;
             } else if (lhs_ty.isPtrLikeOptional(mod)) {
@@ -4850,8 +4837,7 @@ fn airCondBr(self: *Self, inst: Air.Inst.Index) !void {
 fn isNull(self: *Self, operand_bind: ReadArg.Bind, operand_ty: Type) !MCValue {
     const mod = self.bin_file.options.module.?;
     const sentinel: struct { ty: Type, bind: ReadArg.Bind } = if (!operand_ty.isPtrLikeOptional(mod)) blk: {
-        var buf: Type.Payload.ElemType = undefined;
-        const payload_ty = operand_ty.optionalChild(&buf);
+        const payload_ty = operand_ty.optionalChild(mod);
         if (!payload_ty.hasRuntimeBitsIgnoreComptime(mod))
             break :blk .{ .ty = operand_ty, .bind = operand_bind };
 
@@ -4947,11 +4933,12 @@ fn airIsNull(self: *Self, inst: Air.Inst.Index) !void {
 }
 
 fn airIsNullPtr(self: *Self, inst: Air.Inst.Index) !void {
+    const mod = self.bin_file.options.module.?;
     const un_op = self.air.instructions.items(.data)[inst].un_op;
     const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
         const operand_ptr = try self.resolveInst(un_op);
         const ptr_ty = self.typeOf(un_op);
-        const elem_ty = ptr_ty.elemType();
+        const elem_ty = ptr_ty.childType(mod);
 
         const operand = try self.allocRegOrMem(elem_ty, true, null);
         try self.load(operand, operand_ptr, ptr_ty);
@@ -4973,11 +4960,12 @@ fn airIsNonNull(self: *Self, inst: Air.Inst.Index) !void {
 }
 
 fn airIsNonNullPtr(self: *Self, inst: Air.Inst.Index) !void {
+    const mod = self.bin_file.options.module.?;
     const un_op = self.air.instructions.items(.data)[inst].un_op;
     const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
         const operand_ptr = try self.resolveInst(un_op);
         const ptr_ty = self.typeOf(un_op);
-        const elem_ty = ptr_ty.elemType();
+        const elem_ty = ptr_ty.childType(mod);
 
         const operand = try self.allocRegOrMem(elem_ty, true, null);
         try self.load(operand, operand_ptr, ptr_ty);
@@ -4999,11 +4987,12 @@ fn airIsErr(self: *Self, inst: Air.Inst.Index) !void {
 }
 
 fn airIsErrPtr(self: *Self, inst: Air.Inst.Index) !void {
+    const mod = self.bin_file.options.module.?;
     const un_op = self.air.instructions.items(.data)[inst].un_op;
     const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
         const operand_ptr = try self.resolveInst(un_op);
         const ptr_ty = self.typeOf(un_op);
-        const elem_ty = ptr_ty.elemType();
+        const elem_ty = ptr_ty.childType(mod);
 
         const operand = try self.allocRegOrMem(elem_ty, true, null);
         try self.load(operand, operand_ptr, ptr_ty);
@@ -5025,11 +5014,12 @@ fn airIsNonErr(self: *Self, inst: Air.Inst.Index) !void {
 }
 
 fn airIsNonErrPtr(self: *Self, inst: Air.Inst.Index) !void {
+    const mod = self.bin_file.options.module.?;
     const un_op = self.air.instructions.items(.data)[inst].un_op;
     const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
         const operand_ptr = try self.resolveInst(un_op);
         const ptr_ty = self.typeOf(un_op);
-        const elem_ty = ptr_ty.elemType();
+        const elem_ty = ptr_ty.childType(mod);
 
         const operand = try self.allocRegOrMem(elem_ty, true, null);
         try self.load(operand, operand_ptr, ptr_ty);
@@ -5511,11 +5501,7 @@ fn genSetStack(self: *Self, ty: Type, stack_offset: u32, mcv: MCValue) InnerErro
                 const reg = try self.copyToTmpRegister(ty, mcv);
                 return self.genSetStack(ty, stack_offset, MCValue{ .register = reg });
             } else {
-                var ptr_ty_payload: Type.Payload.ElemType = .{
-                    .base = .{ .tag = .single_mut_pointer },
-                    .data = ty,
-                };
-                const ptr_ty = Type.initPayload(&ptr_ty_payload.base);
+                const ptr_ty = try mod.singleMutPtrType(ty);
 
                 // TODO call extern memcpy
                 const regs = try self.register_manager.allocRegs(5, .{ null, null, null, null, null }, gp);
@@ -5833,11 +5819,7 @@ fn genSetStackArgument(self: *Self, ty: Type, stack_offset: u32, mcv: MCValue) I
                 const reg = try self.copyToTmpRegister(ty, mcv);
                 return self.genSetStackArgument(ty, stack_offset, MCValue{ .register = reg });
             } else {
-                var ptr_ty_payload: Type.Payload.ElemType = .{
-                    .base = .{ .tag = .single_mut_pointer },
-                    .data = ty,
-                };
-                const ptr_ty = Type.initPayload(&ptr_ty_payload.base);
+                const ptr_ty = try mod.singleMutPtrType(ty);
 
                 // TODO call extern memcpy
                 const regs = try self.register_manager.allocRegs(5, .{ null, null, null, null, null }, gp);
@@ -5957,12 +5939,13 @@ fn airBitCast(self: *Self, inst: Air.Inst.Index) !void {
 }
 
 fn airArrayToSlice(self: *Self, inst: Air.Inst.Index) !void {
+    const mod = self.bin_file.options.module.?;
     const ty_op = self.air.instructions.items(.data)[inst].ty_op;
     const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
         const ptr_ty = self.typeOf(ty_op.operand);
         const ptr = try self.resolveInst(ty_op.operand);
-        const array_ty = ptr_ty.childType();
-        const array_len = @intCast(u32, array_ty.arrayLen());
+        const array_ty = ptr_ty.childType(mod);
+        const array_len = @intCast(u32, array_ty.arrayLen(mod));
 
         const ptr_bits = self.target.ptrBitWidth();
         const ptr_bytes = @divExact(ptr_bits, 8);
@@ -6079,8 +6062,9 @@ fn airReduce(self: *Self, inst: Air.Inst.Index) !void {
 }
 
 fn airAggregateInit(self: *Self, inst: Air.Inst.Index) !void {
+    const mod = self.bin_file.options.module.?;
     const vector_ty = self.typeOfIndex(inst);
-    const len = vector_ty.vectorLen();
+    const len = vector_ty.vectorLen(mod);
     const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
     const elements = @ptrCast([]const Air.Inst.Ref, self.air.extra[ty_pl.payload..][0..len]);
     const result: MCValue = res: {

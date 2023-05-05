@@ -2931,7 +2931,7 @@ pub fn getErrorTableSymbol(wasm: *Wasm) !u32 {
 
     const atom_index = try wasm.createAtom();
     const atom = wasm.getAtomPtr(atom_index);
-    const slice_ty = Type.initTag(.const_slice_u8_sentinel_0);
+    const slice_ty = Type.const_slice_u8_sentinel_0;
     const mod = wasm.base.options.module.?;
     atom.alignment = slice_ty.abiAlignment(mod);
     const sym_index = atom.sym_index;
@@ -2988,7 +2988,7 @@ fn populateErrorNameTable(wasm: *Wasm) !void {
     for (mod.error_name_list.items) |error_name| {
         const len = @intCast(u32, error_name.len + 1); // names are 0-termianted
 
-        const slice_ty = Type.initTag(.const_slice_u8_sentinel_0);
+        const slice_ty = Type.const_slice_u8_sentinel_0;
         const offset = @intCast(u32, atom.code.items.len);
         // first we create the data for the slice of the name
         try atom.code.appendNTimes(wasm.base.allocator, 0, 4); // ptr to name, will be relocated

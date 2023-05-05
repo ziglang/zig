@@ -230,7 +230,7 @@ pub fn generateSymbol(
         .Array => switch (typed_value.val.tag()) {
             .bytes => {
                 const bytes = typed_value.val.castTag(.bytes).?.data;
-                const len = @intCast(usize, typed_value.ty.arrayLenIncludingSentinel());
+                const len = @intCast(usize, typed_value.ty.arrayLenIncludingSentinel(mod));
                 // The bytes payload already includes the sentinel, if any
                 try code.ensureUnusedCapacity(len);
                 code.appendSliceAssumeCapacity(bytes[0..len]);
@@ -241,7 +241,7 @@ pub fn generateSymbol(
                 const bytes = mod.string_literal_bytes.items[str_lit.index..][0..str_lit.len];
                 try code.ensureUnusedCapacity(bytes.len + 1);
                 code.appendSliceAssumeCapacity(bytes);
-                if (typed_value.ty.sentinel()) |sent_val| {
+                if (typed_value.ty.sentinel(mod)) |sent_val| {
                     const byte = @intCast(u8, sent_val.toUnsignedInt(mod));
                     code.appendAssumeCapacity(byte);
                 }
@@ -249,8 +249,8 @@ pub fn generateSymbol(
             },
             .aggregate => {
                 const elem_vals = typed_value.val.castTag(.aggregate).?.data;
-                const elem_ty = typed_value.ty.elemType();
-                const len = @intCast(usize, typed_value.ty.arrayLenIncludingSentinel());
+                const elem_ty = typed_value.ty.childType(mod);
+                const len = @intCast(usize, typed_value.ty.arrayLenIncludingSentinel(mod));
                 for (elem_vals[0..len]) |elem_val| {
                     switch (try generateSymbol(bin_file, src_loc, .{
                         .ty = elem_ty,
@@ -264,9 +264,9 @@ pub fn generateSymbol(
             },
             .repeated => {
                 const array = typed_value.val.castTag(.repeated).?.data;
-                const elem_ty = typed_value.ty.childType();
-                const sentinel = typed_value.ty.sentinel();
-                const len = typed_value.ty.arrayLen();
+                const elem_ty = typed_value.ty.childType(mod);
+                const sentinel = typed_value.ty.sentinel(mod);
+                const len = typed_value.ty.arrayLen(mod);
 
                 var index: u64 = 0;
                 while (index < len) : (index += 1) {
@@ -292,8 +292,8 @@ pub fn generateSymbol(
                 return Result.ok;
             },
             .empty_array_sentinel => {
-                const elem_ty = typed_value.ty.childType();
-                const sentinel_val = typed_value.ty.sentinel().?;
+                const elem_ty = typed_value.ty.childType(mod);
+                const sentinel_val = typed_value.ty.sentinel(mod).?;
                 switch (try generateSymbol(bin_file, src_loc, .{
                     .ty = elem_ty,
                     .val = sentinel_val,
@@ -618,8 +618,7 @@ pub fn generateSymbol(
             return Result.ok;
         },
         .Optional => {
-            var opt_buf: Type.Payload.ElemType = undefined;
-            const payload_type = typed_value.ty.optionalChild(&opt_buf);
+            const payload_type = typed_value.ty.optionalChild(mod);
             const is_pl = !typed_value.val.isNull(mod);
             const abi_size = math.cast(usize, typed_value.ty.abiSize(mod)) orelse return error.Overflow;
 
@@ -751,7 +750,7 @@ pub fn generateSymbol(
         .Vector => switch (typed_value.val.tag()) {
             .bytes => {
                 const bytes = typed_value.val.castTag(.bytes).?.data;
-                const len = math.cast(usize, typed_value.ty.arrayLen()) orelse return error.Overflow;
+                const len = math.cast(usize, typed_value.ty.arrayLen(mod)) orelse return error.Overflow;
                 const padding = math.cast(usize, typed_value.ty.abiSize(mod) - len) orelse
                     return error.Overflow;
                 try code.ensureUnusedCapacity(len + padding);
@@ -761,8 +760,8 @@ pub fn generateSymbol(
             },
             .aggregate => {
                 const elem_vals = typed_value.val.castTag(.aggregate).?.data;
-                const elem_ty = typed_value.ty.elemType();
-                const len = math.cast(usize, typed_value.ty.arrayLen()) orelse return error.Overflow;
+                const elem_ty = typed_value.ty.childType(mod);
+                const len = math.cast(usize, typed_value.ty.arrayLen(mod)) orelse return error.Overflow;
                 const padding = math.cast(usize, typed_value.ty.abiSize(mod) -
                     (math.divCeil(u64, elem_ty.bitSize(mod) * len, 8) catch |err| switch (err) {
                     error.DivisionByZero => unreachable,
@@ -782,8 +781,8 @@ pub fn generateSymbol(
             },
             .repeated => {
                 const array = typed_value.val.castTag(.repeated).?.data;
-                const elem_ty = typed_value.ty.childType();
-                const len = typed_value.ty.arrayLen();
+                const elem_ty = typed_value.ty.childType(mod);
+                const len = typed_value.ty.arrayLen(mod);
                 const padding = math.cast(usize, typed_value.ty.abiSize(mod) -
                     (math.divCeil(u64, elem_ty.bitSize(mod) * len, 8) catch |err| switch (err) {
                     error.DivisionByZero => unreachable,
@@ -1188,7 +1187,7 @@ pub fn genTypedValue(
 
     switch (typed_value.ty.zigTypeTag(mod)) {
         .Void => return GenResult.mcv(.none),
-        .Pointer => switch (typed_value.ty.ptrSize()) {
+        .Pointer => switch (typed_value.ty.ptrSize(mod)) {
             .Slice => {},
             else => {
                 switch (typed_value.val.tag()) {
@@ -1219,9 +1218,8 @@ pub fn genTypedValue(
             if (typed_value.ty.isPtrLikeOptional(mod)) {
                 if (typed_value.val.tag() == .null_value) return GenResult.mcv(.{ .immediate = 0 });
 
-                var buf: Type.Payload.ElemType = undefined;
                 return genTypedValue(bin_file, src_loc, .{
-                    .ty = typed_value.ty.optionalChild(&buf),
+                    .ty = typed_value.ty.optionalChild(mod),
                     .val = if (typed_value.val.castTag(.opt_payload)) |pl| pl.data else typed_value.val,
                 }, owner_decl_index);
             } else if (typed_value.ty.abiSize(mod) == 1) {

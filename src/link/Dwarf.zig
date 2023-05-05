@@ -219,8 +219,7 @@ pub const DeclState = struct {
                     try dbg_info_buffer.writer().print("{}\x00", .{ty.fmt(mod)});
                 } else {
                     // Non-pointer optionals are structs: struct { .maybe = *, .val = * }
-                    var buf = try arena.create(Type.Payload.ElemType);
-                    const payload_ty = ty.optionalChild(buf);
+                    const payload_ty = ty.optionalChild(mod);
                     // DW.AT.structure_type
                     try dbg_info_buffer.append(@enumToInt(AbbrevKind.struct_type));
                     // DW.AT.byte_size, DW.FORM.udata
@@ -304,7 +303,7 @@ pub const DeclState = struct {
                     // DW.AT.type, DW.FORM.ref4
                     const index = dbg_info_buffer.items.len;
                     try dbg_info_buffer.resize(index + 4);
-                    try self.addTypeRelocGlobal(atom_index, ty.childType(), @intCast(u32, index));
+                    try self.addTypeRelocGlobal(atom_index, ty.childType(mod), @intCast(u32, index));
                 }
             },
             .Array => {
@@ -315,7 +314,7 @@ pub const DeclState = struct {
                 // DW.AT.type, DW.FORM.ref4
                 var index = dbg_info_buffer.items.len;
                 try dbg_info_buffer.resize(index + 4);
-                try self.addTypeRelocGlobal(atom_index, ty.childType(), @intCast(u32, index));
+                try self.addTypeRelocGlobal(atom_index, ty.childType(mod), @intCast(u32, index));
                 // DW.AT.subrange_type
                 try dbg_info_buffer.append(@enumToInt(AbbrevKind.array_dim));
                 // DW.AT.type, DW.FORM.ref4
@@ -323,7 +322,7 @@ pub const DeclState = struct {
                 try dbg_info_buffer.resize(index + 4);
                 try self.addTypeRelocGlobal(atom_index, Type.usize, @intCast(u32, index));
                 // DW.AT.count, DW.FORM.udata
-                const len = ty.arrayLenIncludingSentinel();
+                const len = ty.arrayLenIncludingSentinel(mod);
                 try leb128.writeULEB128(dbg_info_buffer.writer(), len);
                 // DW.AT.array_type delimit children
                 try dbg_info_buffer.append(0);
@@ -688,7 +687,7 @@ pub const DeclState = struct {
         const mod = self.mod;
         const target = mod.getTarget();
         const endian = target.cpu.arch.endian();
-        const child_ty = if (is_ptr) ty.childType() else ty;
+        const child_ty = if (is_ptr) ty.childType(mod) else ty;
 
         switch (loc) {
             .register => |reg| {

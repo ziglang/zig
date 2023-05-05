@@ -838,8 +838,9 @@ fn airAddSubWithOverflow(self: *Self, inst: Air.Inst.Index) !void {
 }
 
 fn airAggregateInit(self: *Self, inst: Air.Inst.Index) !void {
+    const mod = self.bin_file.options.module.?;
     const vector_ty = self.typeOfIndex(inst);
-    const len = vector_ty.vectorLen();
+    const len = vector_ty.vectorLen(mod);
     const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
     const elements = @ptrCast([]const Air.Inst.Ref, self.air.extra[ty_pl.payload..][0..len]);
     const result: MCValue = res: {
@@ -871,12 +872,13 @@ fn airArrayElemVal(self: *Self, inst: Air.Inst.Index) !void {
 }
 
 fn airArrayToSlice(self: *Self, inst: Air.Inst.Index) !void {
+    const mod = self.bin_file.options.module.?;
     const ty_op = self.air.instructions.items(.data)[inst].ty_op;
     const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
         const ptr_ty = self.typeOf(ty_op.operand);
         const ptr = try self.resolveInst(ty_op.operand);
-        const array_ty = ptr_ty.childType();
-        const array_len = @intCast(u32, array_ty.arrayLen());
+        const array_ty = ptr_ty.childType(mod);
+        const array_len = @intCast(u32, array_ty.arrayLen(mod));
 
         const ptr_bits = self.target.ptrBitWidth();
         const ptr_bytes = @divExact(ptr_bits, 8);
@@ -1300,7 +1302,7 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallModifier
     const mod = self.bin_file.options.module.?;
     const fn_ty = switch (ty.zigTypeTag(mod)) {
         .Fn => ty,
-        .Pointer => ty.childType(),
+        .Pointer => ty.childType(mod),
         else => unreachable,
     };
 
@@ -1440,8 +1442,7 @@ fn airCmp(self: *Self, inst: Air.Inst.Index, op: math.CompareOperator) !void {
             .Pointer => Type.usize,
             .ErrorSet => Type.u16,
             .Optional => blk: {
-                var opt_buffer: Type.Payload.ElemType = undefined;
-                const payload_ty = lhs_ty.optionalChild(&opt_buffer);
+                const payload_ty = lhs_ty.optionalChild(mod);
                 if (!payload_ty.hasRuntimeBitsIgnoreComptime(mod)) {
                     break :blk Type.u1;
                 } else if (lhs_ty.isPtrLikeOptional(mod)) {
@@ -2447,6 +2448,7 @@ fn airSlice(self: *Self, inst: Air.Inst.Index) !void {
 }
 
 fn airSliceElemVal(self: *Self, inst: Air.Inst.Index) !void {
+    const mod = self.bin_file.options.module.?;
     const is_volatile = false; // TODO
     const bin_op = self.air.instructions.items(.data)[inst].bin_op;
 
@@ -2456,8 +2458,7 @@ fn airSliceElemVal(self: *Self, inst: Air.Inst.Index) !void {
         const index_mcv = try self.resolveInst(bin_op.rhs);
 
         const slice_ty = self.typeOf(bin_op.lhs);
-        const elem_ty = slice_ty.childType();
-        const mod = self.bin_file.options.module.?;
+        const elem_ty = slice_ty.childType(mod);
         const elem_size = elem_ty.abiSize(mod);
 
         var buf: Type.SlicePtrFieldTypeBuffer = undefined;
@@ -2797,7 +2798,7 @@ fn allocMem(self: *Self, inst: Air.Inst.Index, abi_size: u32, abi_align: u32) !u
 /// Use a pointer instruction as the basis for allocating stack memory.
 fn allocMemPtr(self: *Self, inst: Air.Inst.Index) !u32 {
     const mod = self.bin_file.options.module.?;
-    const elem_ty = self.typeOfIndex(inst).elemType();
+    const elem_ty = self.typeOfIndex(inst).childType(mod);
 
     if (!elem_ty.hasRuntimeBits(mod)) {
         // As this stack item will never be dereferenced at runtime,
@@ -3001,9 +3002,9 @@ fn binOp(
             switch (lhs_ty.zigTypeTag(mod)) {
                 .Pointer => {
                     const ptr_ty = lhs_ty;
-                    const elem_ty = switch (ptr_ty.ptrSize()) {
-                        .One => ptr_ty.childType().childType(), // ptr to array, so get array element type
-                        else => ptr_ty.childType(),
+                    const elem_ty = switch (ptr_ty.ptrSize(mod)) {
+                        .One => ptr_ty.childType(mod).childType(mod), // ptr to array, so get array element type
+                        else => ptr_ty.childType(mod),
                     };
                     const elem_size = elem_ty.abiSize(mod);
 
@@ -3019,7 +3020,7 @@ fn binOp(
                         // multiplying it with elem_size
 
                         const offset = try self.binOp(.mul, rhs, .{ .immediate = elem_size }, Type.usize, Type.usize, null);
-                        const addr = try self.binOp(tag, lhs, offset, Type.initTag(.manyptr_u8), Type.usize, null);
+                        const addr = try self.binOp(tag, lhs, offset, Type.manyptr_u8, Type.usize, null);
                         return addr;
                     }
                 },
@@ -4042,11 +4043,7 @@ fn genSetStack(self: *Self, ty: Type, stack_offset: u32, mcv: MCValue) InnerErro
                 const reg = try self.copyToTmpRegister(ty, mcv);
                 return self.genSetStack(ty, stack_offset, MCValue{ .register = reg });
             } else {
-                var ptr_ty_payload: Type.Payload.ElemType = .{
-                    .base = .{ .tag = .single_mut_pointer },
-                    .data = ty,
-                };
-                const ptr_ty = Type.initPayload(&ptr_ty_payload.base);
+                const ptr_ty = try mod.singleMutPtrType(ty);
 
                 const regs = try self.register_manager.allocRegs(4, .{ null, null, null, null }, gp);
                 const regs_locks = self.register_manager.lockRegsAssumeUnused(4, regs);
@@ -4269,7 +4266,7 @@ fn jump(self: *Self, inst: Mir.Inst.Index) !void {
 
 fn load(self: *Self, dst_mcv: MCValue, ptr: MCValue, ptr_ty: Type) InnerError!void {
     const mod = self.bin_file.options.module.?;
-    const elem_ty = ptr_ty.elemType();
+    const elem_ty = ptr_ty.childType(mod);
     const elem_size = elem_ty.abiSize(mod);
 
     switch (ptr) {
@@ -4729,7 +4726,7 @@ fn structFieldPtr(self: *Self, inst: Air.Inst.Index, operand: Air.Inst.Ref, inde
         const mod = self.bin_file.options.module.?;
         const mcv = try self.resolveInst(operand);
         const ptr_ty = self.typeOf(operand);
-        const struct_ty = ptr_ty.childType();
+        const struct_ty = ptr_ty.childType(mod);
         const struct_field_offset = @intCast(u32, struct_ty.structFieldOffset(index, mod));
         switch (mcv) {
             .ptr_stack_offset => |off| {

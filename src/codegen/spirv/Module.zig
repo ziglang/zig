@@ -11,7 +11,8 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
 
-const ZigDecl = @import("../../Module.zig").Decl;
+const ZigModule = @import("../../Module.zig");
+const ZigDecl = ZigModule.Decl;
 
 const spec = @import("spec.zig");
 const Word = spec.Word;
