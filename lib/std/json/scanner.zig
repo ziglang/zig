@@ -105,11 +105,11 @@ pub const default_buffer_size = 0x1000;
 ///    | .partial_string_escaped_3
 ///    | .partial_string_escaped_4
 ///
-/// nextAlloc(allocator, .alloc_always):
+/// nextAlloc*(..., .alloc_always):
 ///  <number> = .allocated_number
 ///  <string> = .allocated_string
 ///
-/// nextAlloc(allocator, .alloc_if_needed):
+/// nextAlloc*(..., .alloc_if_needed):
 ///  <number> =
 ///    | .number
 ///    | .allocated_number
@@ -126,7 +126,7 @@ pub const default_buffer_size = 0x1000;
 ///
 /// The .partial_* tokens indicate that a value spans multiple input buffers or that a string contains escape sequences.
 /// To get a complete value in memory, you need to concatenate the values yourself.
-/// Calling nextAlloc() does this for you, and returns an .allocated_* token with the result.
+/// Calling nextAlloc*() does this for you, and returns an .allocated_* token with the result.
 ///
 /// For tokens with a []const u8 payload other than .allocated_number and .allocated_string,
 /// the payload is a slice into the current input buffer.
@@ -221,18 +221,53 @@ pub fn JsonReader(comptime buffer_size: usize, comptime ReaderType: type) type {
         pub const PeekError = ReaderType.Error || JsonError;
 
         /// Equivalent to nextAllocMax(allocator, when, default_max_value_len);
-        /// See Token for documentation of this function's behavior.
+        /// See also Token for documentation of nextAlloc*() function behavior.
         pub fn nextAlloc(self: *@This(), allocator: Allocator, when: AllocWhen) AllocError!Token {
             return self.nextAllocMax(allocator, when, default_max_value_len);
         }
-        /// See Token for documentation of this function's behavior.
+        /// See also Token for documentation of nextAlloc*() function behavior.
         pub fn nextAllocMax(self: *@This(), allocator: Allocator, when: AllocWhen, max_value_len: usize) AllocError!Token {
-            var value_list = ArrayList(u8).init(allocator);
-            errdefer {
-                value_list.deinit();
+            const token_type = try self.peekNextTokenType();
+            switch (token_type) {
+                .number, .string => {
+                    var value_list = ArrayList(u8).init(allocator);
+                    errdefer {
+                        value_list.deinit();
+                    }
+                    if (try self.allocNextIntoArrayListMax(&value_list, when, max_value_len)) |slice| {
+                        return if (token_type == .number)
+                            Token{ .number = slice }
+                        else
+                            Token{ .string = slice };
+                    } else {
+                        return if (token_type == .number)
+                            Token{ .allocated_number = try value_list.toOwnedSlice() }
+                        else
+                            Token{ .allocated_string = try value_list.toOwnedSlice() };
+                    }
+                },
+
+                // Simple tokens never alloc.
+                .object_begin,
+                .object_end,
+                .array_begin,
+                .array_end,
+                .true,
+                .false,
+                .null,
+                .end_of_document,
+                => return try self.next(),
             }
+        }
+
+        /// Equivalent to allocNextIntoArrayListMax(value_list, when, default_max_value_len)
+        pub fn allocNextIntoArrayList(self: *@This(), value_list: *ArrayList(u8), when: AllocWhen) AllocError!?[]const u8 {
+            return self.allocNextIntoArrayListMax(value_list, when, default_max_value_len);
+        }
+        /// Calls JsonScanner.allocNextIntoArrayListMax() and handles BufferUnderrun.
+        pub fn allocNextIntoArrayListMax(self: *@This(), value_list: *ArrayList(u8), when: AllocWhen, max_value_len: usize) AllocError!?[]const u8 {
             while (true) {
-                return nextIntoArrayList(&self.scanner, &value_list, max_value_len, when) catch |err| switch (err) {
+                return self.scanner.allocNextIntoArrayListMax(value_list, when, max_value_len) catch |err| switch (err) {
                     error.BufferUnderrun => {
                         try self.refillBuffer();
                         continue;
@@ -340,27 +375,128 @@ pub const JsonScanner = struct {
     pub const Error = JsonError || Allocator.Error || error{BufferUnderrun};
     pub const AllocError = JsonError || Allocator.Error || error{ValueTooLong};
     pub const PeekError = JsonError || error{BufferUnderrun};
+    pub const AllocIntoArrayListError = AllocError || error{BufferUnderrun};
 
     /// Equivalent to nextAllocMax(allocator, when, default_max_value_len);
     /// This function is only available after endInput() (or initCompleteInput()) has been called.
-    /// See Token for documentation of this function's behavior.
+    /// See also Token for documentation of nextAlloc*() function behavior.
     pub fn nextAlloc(self: *@This(), allocator: Allocator, when: AllocWhen) AllocError!Token {
         return self.nextAllocMax(allocator, when, default_max_value_len);
     }
 
     /// This function is only available after endInput() (or initCompleteInput()) has been called.
-    /// See Token for documentation of this function's behavior.
+    /// See also Token for documentation of nextAlloc*() function behavior.
     pub fn nextAllocMax(self: *@This(), allocator: Allocator, when: AllocWhen, max_value_len: usize) AllocError!Token {
         assert(self.is_end_of_input); // This function is not available in streaming mode.
-
-        var value_list = ArrayList(u8).init(allocator);
-        errdefer {
-            value_list.deinit();
-        }
-        return nextIntoArrayList(self, &value_list, max_value_len, when) catch |e| switch (e) {
+        const token_type = self.peekNextTokenType() catch |e| switch (e) {
             error.BufferUnderrun => unreachable,
             else => |err| return err,
         };
+        switch (token_type) {
+            .number, .string => {
+                var value_list = ArrayList(u8).init(allocator);
+                errdefer {
+                    value_list.deinit();
+                }
+                if (self.allocNextIntoArrayListMax(&value_list, when, max_value_len) catch |e| switch (e) {
+                    error.BufferUnderrun => unreachable,
+                    else => |err| return err,
+                }) |slice| {
+                    return if (token_type == .number)
+                        Token{ .number = slice }
+                    else
+                        Token{ .string = slice };
+                } else {
+                    return if (token_type == .number)
+                        Token{ .allocated_number = try value_list.toOwnedSlice() }
+                    else
+                        Token{ .allocated_string = try value_list.toOwnedSlice() };
+                }
+            },
+
+            // Simple tokens never alloc.
+            .object_begin,
+            .object_end,
+            .array_begin,
+            .array_end,
+            .true,
+            .false,
+            .null,
+            .end_of_document,
+            => return self.next() catch |e| switch (e) {
+                error.BufferUnderrun => unreachable,
+                else => |err| return err,
+            },
+        }
+    }
+
+    /// Equivalent to allocNextIntoArrayListMax(value_list, when, default_max_value_len)
+    pub fn allocNextIntoArrayList(self: *@This(), value_list: *ArrayList(u8), when: AllocWhen) AllocIntoArrayListError!?[]const u8 {
+        return self.allocNextIntoArrayListMax(value_list, when, default_max_value_len);
+    }
+    /// The next token type must be either .number or .string. See peekNextTokenType().
+    /// When allocation is not necessary with .alloc_if_needed,
+    /// this method returns the content slice from the input buffer, and value_list is not touched.
+    /// When allocation is necessary or with .alloc_always, this method concatenates partial tokens into the given value_list,
+    /// and returns null once the final .number or .string token has been written into it.
+    /// In case of a BufferUnderrun, partial values will be left in the given value_list.
+    /// The given value_list is never reset by this method, so a BufferUnderrun situation can be resumed by passing the same array list in again.
+    /// This method does not indicate whether the token content being returned is for a .number or .string token type;
+    /// the caller of this method is expected to know which type of token is being processed.
+    pub fn allocNextIntoArrayListMax(self: *@This(), value_list: *ArrayList(u8), when: AllocWhen, max_value_len: usize) AllocIntoArrayListError!?[]const u8 {
+        while (true) {
+            const token = try self.next();
+            switch (token) {
+                // Accumulate partial values.
+                .partial_number, .partial_string => |slice| {
+                    try appendSlice(value_list, slice, max_value_len);
+                },
+                .partial_string_escaped_1 => |buf| {
+                    try appendSlice(value_list, buf[0..], max_value_len);
+                },
+                .partial_string_escaped_2 => |buf| {
+                    try appendSlice(value_list, buf[0..], max_value_len);
+                },
+                .partial_string_escaped_3 => |buf| {
+                    try appendSlice(value_list, buf[0..], max_value_len);
+                },
+                .partial_string_escaped_4 => |buf| {
+                    try appendSlice(value_list, buf[0..], max_value_len);
+                },
+
+                // Return complete values.
+                .number => |slice| {
+                    if (when == .alloc_if_needed and value_list.items.len == 0) {
+                        // No alloc necessary.
+                        return slice;
+                    }
+                    try appendSlice(value_list, slice, max_value_len);
+                    // The token is complete.
+                    return null;
+                },
+                .string => |slice| {
+                    if (when == .alloc_if_needed and value_list.items.len == 0) {
+                        // No alloc necessary.
+                        return slice;
+                    }
+                    try appendSlice(value_list, slice, max_value_len);
+                    // The token is complete.
+                    return null;
+                },
+
+                .object_begin,
+                .object_end,
+                .array_begin,
+                .array_end,
+                .true,
+                .false,
+                .null,
+                .end_of_document,
+                => unreachable, // Only .number and .string token types are allowed here. Check peekNextTokenType() before calling this.
+
+                .allocated_number, .allocated_string => unreachable,
+            }
+        }
     }
 
     /// See Token for documentation of this function.
@@ -1415,61 +1551,6 @@ const BitStack = struct {
         return b;
     }
 };
-
-fn nextIntoArrayList(scanner: *JsonScanner, value_list: *ArrayList(u8), max_value_len: usize, when: AllocWhen) !Token {
-    while (true) {
-        const token = try scanner.next();
-        switch (token) {
-            // Accumulate partial values.
-            .partial_number, .partial_string => |slice| {
-                try appendSlice(value_list, slice, max_value_len);
-            },
-            .partial_string_escaped_1 => |buf| {
-                try appendSlice(value_list, buf[0..], max_value_len);
-            },
-            .partial_string_escaped_2 => |buf| {
-                try appendSlice(value_list, buf[0..], max_value_len);
-            },
-            .partial_string_escaped_3 => |buf| {
-                try appendSlice(value_list, buf[0..], max_value_len);
-            },
-            .partial_string_escaped_4 => |buf| {
-                try appendSlice(value_list, buf[0..], max_value_len);
-            },
-
-            // Return complete values.
-            .number => |slice| {
-                if (when == .alloc_if_needed and value_list.items.len == 0) {
-                    // No alloc necessary.
-                    return token;
-                }
-                try appendSlice(value_list, slice, max_value_len);
-                return Token{ .allocated_number = try value_list.toOwnedSlice() };
-            },
-            .string => |slice| {
-                if (when == .alloc_if_needed and value_list.items.len == 0) {
-                    // No alloc necessary.
-                    return token;
-                }
-                try appendSlice(value_list, slice, max_value_len);
-                return Token{ .allocated_string = try value_list.toOwnedSlice() };
-            },
-
-            // Passthrough simple tokens.
-            .object_begin,
-            .object_end,
-            .array_begin,
-            .array_end,
-            .true,
-            .false,
-            .null,
-            .end_of_document,
-            => return token,
-
-            .allocated_number, .allocated_string => unreachable,
-        }
-    }
-}
 
 fn appendSlice(list: *std.ArrayList(u8), buf: []const u8, max_value_len: usize) !void {
     const new_len = std.math.add(usize, list.items.len, buf.len) catch return error.ValueTooLong;
