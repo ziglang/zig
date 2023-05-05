@@ -258,7 +258,7 @@ pub const Value = struct {
     }
 
     pub fn castTag(self: Value, comptime t: Tag) ?*t.Type() {
-        assert(self.ip_index == .none);
+        if (self.ip_index != .none) return null;
 
         if (@enumToInt(self.legacy.tag_if_small_enough) < Tag.no_payload_count)
             return null;
@@ -2806,24 +2806,30 @@ pub const Value = struct {
     }
 
     pub fn isPtrToThreadLocal(val: Value, mod: *Module) bool {
-        return switch (val.tag()) {
-            .variable => false,
+        return switch (val.ip_index) {
+            .none => switch (val.tag()) {
+                .variable => false,
+                else => val.isPtrToThreadLocalInner(mod),
+            },
             else => val.isPtrToThreadLocalInner(mod),
         };
     }
 
     fn isPtrToThreadLocalInner(val: Value, mod: *Module) bool {
-        return switch (val.tag()) {
-            .slice => val.castTag(.slice).?.data.ptr.isPtrToThreadLocalInner(mod),
-            .comptime_field_ptr => val.castTag(.comptime_field_ptr).?.data.field_val.isPtrToThreadLocalInner(mod),
-            .elem_ptr => val.castTag(.elem_ptr).?.data.array_ptr.isPtrToThreadLocalInner(mod),
-            .field_ptr => val.castTag(.field_ptr).?.data.container_ptr.isPtrToThreadLocalInner(mod),
-            .eu_payload_ptr => val.castTag(.eu_payload_ptr).?.data.container_ptr.isPtrToThreadLocalInner(mod),
-            .opt_payload_ptr => val.castTag(.opt_payload_ptr).?.data.container_ptr.isPtrToThreadLocalInner(mod),
-            .decl_ref => mod.declPtr(val.castTag(.decl_ref).?.data).val.isPtrToThreadLocalInner(mod),
-            .decl_ref_mut => mod.declPtr(val.castTag(.decl_ref_mut).?.data.decl_index).val.isPtrToThreadLocalInner(mod),
+        return switch (val.ip_index) {
+            .none => switch (val.tag()) {
+                .slice => val.castTag(.slice).?.data.ptr.isPtrToThreadLocalInner(mod),
+                .comptime_field_ptr => val.castTag(.comptime_field_ptr).?.data.field_val.isPtrToThreadLocalInner(mod),
+                .elem_ptr => val.castTag(.elem_ptr).?.data.array_ptr.isPtrToThreadLocalInner(mod),
+                .field_ptr => val.castTag(.field_ptr).?.data.container_ptr.isPtrToThreadLocalInner(mod),
+                .eu_payload_ptr => val.castTag(.eu_payload_ptr).?.data.container_ptr.isPtrToThreadLocalInner(mod),
+                .opt_payload_ptr => val.castTag(.opt_payload_ptr).?.data.container_ptr.isPtrToThreadLocalInner(mod),
+                .decl_ref => mod.declPtr(val.castTag(.decl_ref).?.data).val.isPtrToThreadLocalInner(mod),
+                .decl_ref_mut => mod.declPtr(val.castTag(.decl_ref_mut).?.data.decl_index).val.isPtrToThreadLocalInner(mod),
 
-            .variable => val.castTag(.variable).?.data.is_threadlocal,
+                .variable => val.castTag(.variable).?.data.is_threadlocal,
+                else => false,
+            },
             else => false,
         };
     }
