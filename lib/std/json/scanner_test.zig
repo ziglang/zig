@@ -320,3 +320,38 @@ test "json.validate" {
     try std.testing.expectEqual(false, try validate(std.testing.allocator, "[}"));
     try std.testing.expectEqual(false, try validate(std.testing.allocator, "{{{{[]}}}]"));
 }
+
+fn testSkipValue(s: []const u8) !void {
+    var scanner = JsonScanner.initCompleteInput(std.testing.allocator, s);
+    defer scanner.deinit();
+    try scanner.skipValue();
+    try expectEqualTokens(.end_of_document, try scanner.next());
+
+    var stream = std.io.fixedBufferStream(s);
+    var json_reader = jsonReader(std.testing.allocator, stream.reader());
+    defer json_reader.deinit();
+    try json_reader.skipValue();
+    try expectEqualTokens(.end_of_document, try json_reader.next());
+}
+
+test "skipValue" {
+    try testSkipValue("false");
+    try testSkipValue("true");
+    try testSkipValue("null");
+    try testSkipValue("42");
+    try testSkipValue("42.0");
+    try testSkipValue("\"foo\"");
+    try testSkipValue("[101, 111, 121]");
+    try testSkipValue("{}");
+    try testSkipValue("{\"foo\": \"bar\\nbaz\"}");
+
+    // An absurd number of nestings
+    const nestings = 1000;
+    try testSkipValue("[" ** nestings ++ "]" ** nestings);
+
+    // Would a number token cause problems in a deeply-nested array?
+    try testSkipValue("[" ** nestings ++ "0.118, 999, 881.99, 911.9, 725, 3" ++ "]" ** nestings);
+
+    // Mismatched brace/square bracket
+    try std.testing.expectError(error.SyntaxError, testSkipValue("[102, 111, 111}"));
+}

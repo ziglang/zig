@@ -216,8 +216,9 @@ pub fn JsonReader(comptime buffer_size: usize, comptime ReaderType: type) type {
             self.* = undefined;
         }
 
-        pub const Error = ReaderType.Error || JsonError || Allocator.Error;
-        pub const AllocError = Error || error{ValueTooLong};
+        pub const NextError = ReaderType.Error || JsonError || Allocator.Error;
+        pub const SkipError = NextError;
+        pub const AllocError = NextError || error{ValueTooLong};
         pub const PeekError = ReaderType.Error || JsonError;
 
         /// Equivalent to nextAllocMax(allocator, when, default_max_value_len);
@@ -277,8 +278,56 @@ pub fn JsonReader(comptime buffer_size: usize, comptime ReaderType: type) type {
             }
         }
 
+        /// Like JsonScanner.skipValue(), but handles BufferUnderrun.
+        pub fn skipValue(self: *@This()) SkipError!void {
+            switch (try self.peekNextTokenType()) {
+                .object_begin, .array_begin => {
+                    try self.skipUntilStackHeight(self.stackHeight());
+                },
+                .number, .string => {
+                    while (true) {
+                        switch (try self.next()) {
+                            .partial_number,
+                            .partial_string,
+                            .partial_string_escaped_1,
+                            .partial_string_escaped_2,
+                            .partial_string_escaped_3,
+                            .partial_string_escaped_4,
+                            => continue,
+
+                            .number, .string => break,
+
+                            else => unreachable,
+                        }
+                    }
+                },
+                .true, .false, .null => {
+                    _ = try self.next();
+                },
+
+                .object_end, .array_end, .end_of_document => unreachable, // Attempt to skip a non-value token.
+            }
+        }
+        /// Like JsonScanner.skipUntilStackHeight() but handles BufferUnderrun.
+        pub fn skipUntilStackHeight(self: *@This(), terminal_stack_height: u32) NextError!void {
+            while (true) {
+                return self.scanner.skipUntilStackHeight(terminal_stack_height) catch |err| switch (err) {
+                    error.BufferUnderrun => {
+                        try self.refillBuffer();
+                        continue;
+                    },
+                    else => |other_err| return other_err,
+                };
+            }
+        }
+
+        /// Calls JsonScanner.stackHeight().
+        pub fn stackHeight(self: *const @This()) u32 {
+            return self.scanner.stackHeight();
+        }
+
         /// See Token for documentation of this function.
-        pub fn next(self: *@This()) Error!Token {
+        pub fn next(self: *@This()) NextError!Token {
             while (true) {
                 return self.scanner.next() catch |err| switch (err) {
                     error.BufferUnderrun => {
@@ -367,14 +416,15 @@ pub const JsonScanner = struct {
     /// Call this when you will no longer call feedInput() anymore.
     /// This can be called either immediately after the last feedInput(),
     /// or at any time afterward, such as when getting error.BufferUnderrun from next().
-    /// Don't forget to call next() after endInput() until you get .end_of_document.
+    /// Don't forget to call next*() after endInput() until you get .end_of_document.
     pub fn endInput(self: *@This()) void {
         self.is_end_of_input = true;
     }
 
-    pub const Error = JsonError || Allocator.Error || error{BufferUnderrun};
+    pub const NextError = JsonError || Allocator.Error || error{BufferUnderrun};
     pub const AllocError = JsonError || Allocator.Error || error{ValueTooLong};
     pub const PeekError = JsonError || error{BufferUnderrun};
+    pub const SkipError = JsonError || Allocator.Error;
     pub const AllocIntoArrayListError = AllocError || error{BufferUnderrun};
 
     /// Equivalent to nextAllocMax(allocator, when, default_max_value_len);
@@ -499,8 +549,78 @@ pub const JsonScanner = struct {
         }
     }
 
+    /// This function is only available after endInput() (or initCompleteInput()) has been called.
+    /// If the next token type is .object_begin or .array_begin,
+    /// this function calls next() repeatedly until the corresponding .object_end or .array_end is found.
+    /// If the next token type is .number or .string,
+    /// this function calls next() repeatedly until the (non .partial_*) .number or .string token is found.
+    /// If the next token type is .true, .false, or .null, this function calls next() once.
+    /// The next token type must not be .object_end, .array_end, or .end_of_document;
+    /// see peekNextTokenType().
+    pub fn skipValue(self: *@This()) SkipError!void {
+        assert(self.is_end_of_input); // This function is not available in streaming mode.
+        switch (self.peekNextTokenType() catch |e| switch (e) {
+            error.BufferUnderrun => unreachable,
+            else => |err| return err,
+        }) {
+            .object_begin, .array_begin => {
+                self.skipUntilStackHeight(self.stackHeight()) catch |e| switch (e) {
+                    error.BufferUnderrun => unreachable,
+                    else => |err| return err,
+                };
+            },
+            .number, .string => {
+                while (true) {
+                    switch (self.next() catch |e| switch (e) {
+                        error.BufferUnderrun => unreachable,
+                        else => |err| return err,
+                    }) {
+                        .partial_number,
+                        .partial_string,
+                        .partial_string_escaped_1,
+                        .partial_string_escaped_2,
+                        .partial_string_escaped_3,
+                        .partial_string_escaped_4,
+                        => continue,
+
+                        .number, .string => break,
+
+                        else => unreachable,
+                    }
+                }
+            },
+            .true, .false, .null => {
+                _ = self.next() catch |e| switch (e) {
+                    error.BufferUnderrun => unreachable,
+                    else => |err| return err,
+                };
+            },
+
+            .object_end, .array_end, .end_of_document => unreachable, // Attempt to skip a non-value token.
+        }
+    }
+
+    /// Skip tokens until an .object_end or .array_end token results in a stackHeight() equal the given stack height.
+    /// Unlike skipValue(), this function is available in streaming mode.
+    pub fn skipUntilStackHeight(self: *@This(), terminal_stack_height: u32) NextError!void {
+        while (true) {
+            switch (try self.next()) {
+                .object_end, .array_end => {
+                    if (self.stackHeight() == terminal_stack_height) break;
+                },
+                .end_of_document => unreachable,
+                else => continue,
+            }
+        }
+    }
+
+    /// The depth of {} or [] nesting levels at the current position.
+    pub fn stackHeight(self: *const @This()) u32 {
+        return self.stack.bit_len;
+    }
+
     /// See Token for documentation of this function.
-    pub fn next(self: *@This()) Error!Token {
+    pub fn next(self: *@This()) NextError!Token {
         state_loop: while (true) {
             switch (self.state) {
                 .value => {
@@ -1464,7 +1584,7 @@ pub const JsonScanner = struct {
             // End of buffer.
             if (self.is_end_of_input) {
                 // End of everything.
-                if (self.stack.bit_len == 0) {
+                if (self.stackHeight() == 0) {
                     // We did it!
                     return true;
                 }
@@ -1472,7 +1592,7 @@ pub const JsonScanner = struct {
             }
             return error.BufferUnderrun;
         }
-        if (self.stack.bit_len == 0) return error.SyntaxError;
+        if (self.stackHeight() == 0) return error.SyntaxError;
         return false;
     }
 
