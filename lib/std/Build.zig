@@ -1496,20 +1496,19 @@ pub const SourceDependency = struct {
     root_path: []const u8,
 };
 
-pub fn sourceDependency(b: *Build, name: []const u8) SourceDependency {
+pub fn sourceDependency(b: *Build, name: []const u8, comptime build_zig: type, args: anytype) *Dependency {
     const build_runner = @import("root");
     const deps = build_runner.dependencies;
 
     inline for (@typeInfo(deps.build_root).Struct.decls) |decl| {
-        if (mem.startsWith(u8, decl.name, b.dep_prefix) and
-            mem.endsWith(u8, decl.name, name) and
-            decl.name.len == b.dep_prefix.len + name.len)
-        {
+        // @check may need prefix for sub-dependencies of root which have free standing packages.
+        if (mem.eql(u8, decl.name, name)) {
             if (@hasField(deps.imports, decl.name)) {
                 std.debug.print("Source dependency already included as import! {}.\n", .{decl.name});
                 process.exit(1);
             }
-            return SourceDependency{ .root_path = @field(deps.build_root, decl.name) };
+            const root_path = @field(deps.build_root, decl.name);
+            return b.dependencyInner(decl.name, root_path, build_zig, args);
         }
     }
 
