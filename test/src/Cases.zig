@@ -795,7 +795,7 @@ const TestManifest = struct {
     };
 
     const TrailingIterator = struct {
-        inner: std.mem.TokenIterator(u8),
+        inner: std.mem.TokenIterator(u8, .any),
 
         fn next(self: *TrailingIterator) ?[]const u8 {
             const next_inner = self.inner.next() orelse return null;
@@ -805,7 +805,7 @@ const TestManifest = struct {
 
     fn ConfigValueIterator(comptime T: type) type {
         return struct {
-            inner: std.mem.SplitIterator(u8),
+            inner: std.mem.SplitIterator(u8, .scalar),
 
             fn next(self: *@This()) !?T {
                 const next_raw = self.inner.next() orelse return null;

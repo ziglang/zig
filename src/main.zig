@@ -3531,7 +3531,7 @@ fn serveUpdateResults(s: *Server, comp: *Compilation) !void {
 }
 
 const ModuleDepIterator = struct {
-    split: mem.SplitIterator(u8),
+    split: mem.SplitIterator(u8, .scalar),
 
     fn init(deps_str: []const u8) ModuleDepIterator {
         return .{ .split = mem.split(u8, deps_str, ",") };
