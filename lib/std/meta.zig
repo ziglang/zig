@@ -105,6 +105,8 @@ test "std.meta.isTag for Tagged Unions" {
     try testing.expect(!isTag(flt, "int"));
 }
 
+pub const stringToEnum = @compileError("deprecated; use std.enums.fromString instead");
+
 /// Returns the alignment of type T.
 /// Note that if T is a pointer or function type the result is different than
 /// the one returned by @alignOf(T).
