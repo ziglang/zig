@@ -190,7 +190,7 @@ pub const CallingConvention = enum {
 
 /// This data structure is used by the Zig language code generation and
 /// therefore must be kept in sync with the compiler implementation.
-pub const AddressSpace = enum(u4) {
+pub const AddressSpace = enum(u5) {
     generic,
     gs,
     fs,
