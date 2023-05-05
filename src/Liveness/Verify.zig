@@ -555,7 +555,7 @@ fn verifyDeath(self: *Verify, inst: Air.Inst.Index, operand: Air.Inst.Index) Err
 }
 
 fn verifyOperand(self: *Verify, inst: Air.Inst.Index, op_ref: Air.Inst.Ref, dies: bool) Error!void {
-    const operand = Air.refToIndex(op_ref) orelse return;
+    const operand = Air.refToIndexAllowNone(op_ref) orelse return;
     switch (self.air.instructions.items(.tag)[operand]) {
         .constant, .const_ty, .interned => {},
         else => {

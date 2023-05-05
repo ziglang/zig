@@ -925,7 +925,7 @@ pub const Inst = struct {
 
         /// This Ref does not correspond to any AIR instruction or constant
         /// value and may instead be used as a sentinel to indicate null.
-        none = std.math.maxInt(u32),
+        none = @enumToInt(InternPool.Index.none),
         _,
     };
 
@@ -1461,11 +1461,12 @@ pub fn deinit(air: *Air, gpa: std.mem.Allocator) void {
 
 pub const ref_start_index: u32 = InternPool.static_len;
 
-pub fn indexToRef(inst: Air.Inst.Index) Air.Inst.Ref {
-    return @intToEnum(Air.Inst.Ref, ref_start_index + inst);
+pub fn indexToRef(inst: Inst.Index) Inst.Ref {
+    return @intToEnum(Inst.Ref, ref_start_index + inst);
 }
 
-pub fn refToIndex(inst: Air.Inst.Ref) ?Air.Inst.Index {
+pub fn refToIndex(inst: Inst.Ref) ?Inst.Index {
+    assert(inst != .none);
     const ref_int = @enumToInt(inst);
     if (ref_int >= ref_start_index) {
         return ref_int - ref_start_index;
@@ -1474,8 +1475,13 @@ pub fn refToIndex(inst: Air.Inst.Ref) ?Air.Inst.Index {
     }
 }
 
+pub fn refToIndexAllowNone(inst: Inst.Ref) ?Inst.Index {
+    if (inst == .none) return null;
+    return refToIndex(inst);
+}
+
 /// Returns `null` if runtime-known.
-pub fn value(air: Air, inst: Air.Inst.Ref, mod: *const Module) ?Value {
+pub fn value(air: Air, inst: Inst.Ref, mod: *const Module) ?Value {
     const ref_int = @enumToInt(inst);
     if (ref_int < ref_start_index) {
         const ip_index = @intToEnum(InternPool.Index, ref_int);

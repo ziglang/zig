@@ -968,7 +968,7 @@ fn analyzeBodyInner(
             .int_big                      => try sema.zirIntBig(block, inst),
             .float                        => try sema.zirFloat(block, inst),
             .float128                     => try sema.zirFloat128(block, inst),
-            .int_type                     => try sema.zirIntType(block, inst),
+            .int_type                     => try sema.zirIntType(inst),
             .is_non_err                   => try sema.zirIsNonErr(block, inst),
             .is_non_err_ptr               => try sema.zirIsNonErrPtr(block, inst),
             .ret_is_non_err               => try sema.zirRetIsNonErr(block, inst),
@@ -1694,7 +1694,7 @@ fn analyzeBodyInner(
                 const extra = sema.code.extraData(Zir.Inst.DeferErrCode, inst_data.payload_index).data;
                 const defer_body = sema.code.extra[extra.index..][0..extra.len];
                 const err_code = try sema.resolveInst(inst_data.err_code);
-                sema.inst_map.putAssumeCapacity(extra.remapped_err_code, err_code);
+                map.putAssumeCapacity(extra.remapped_err_code, err_code);
                 const break_inst = sema.analyzeBodyInner(block, defer_body) catch |err| switch (err) {
                     error.ComptimeBreak => sema.comptime_break_inst,
                     else => |e| return e,
@@ -1730,7 +1730,16 @@ fn analyzeBodyInner(
     return result;
 }
 
+pub fn resolveInstAllowNone(sema: *Sema, zir_ref: Zir.Inst.Ref) !Air.Inst.Ref {
+    if (zir_ref == .none) {
+        return .none;
+    } else {
+        return resolveInst(sema, zir_ref);
+    }
+}
+
 pub fn resolveInst(sema: *Sema, zir_ref: Zir.Inst.Ref) !Air.Inst.Ref {
+    assert(zir_ref != .none);
     const i = @enumToInt(zir_ref);
     // First section of indexes correspond to a set number of constant values.
     // We intentionally map the same indexes to the same values between ZIR and AIR.
@@ -1969,6 +1978,7 @@ fn resolveMaybeUndefValAllowVariablesMaybeRuntime(
     inst: Air.Inst.Ref,
     make_runtime: *bool,
 ) CompileError!?Value {
+    assert(inst != .none);
     // First section of indexes correspond to a set number of constant values.
     const int = @enumToInt(inst);
     if (int < InternPool.static_len) {
@@ -1985,17 +1995,17 @@ fn resolveMaybeUndefValAllowVariablesMaybeRuntime(
         }
         return opv;
     }
+    const air_datas = sema.air_instructions.items(.data);
     switch (air_tags[i]) {
         .constant => {
-            const ty_pl = sema.air_instructions.items(.data)[i].ty_pl;
+            const ty_pl = air_datas[i].ty_pl;
             const val = sema.air_values.items[ty_pl.payload];
             if (val.tag() == .runtime_value) make_runtime.* = true;
             if (val.isPtrToThreadLocal(sema.mod)) make_runtime.* = true;
             return val;
         },
-        .const_ty => {
-            return try sema.air_instructions.items(.data)[i].ty.toValue(sema.arena);
-        },
+        .const_ty => return try air_datas[i].ty.toValue(sema.arena),
+        .interned => return air_datas[i].interned.toValue(),
         else => return null,
     }
 }
@@ -7913,15 +7923,10 @@ fn emitDbgInline(
     });
 }
 
-fn zirIntType(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
-    _ = block;
-    const tracy = trace(@src());
-    defer tracy.end();
-
+fn zirIntType(sema: *Sema, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
     const mod = sema.mod;
     const int_type = sema.code.instructions.items(.data)[inst].int_type;
     const ty = try mod.intType(int_type.signedness, int_type.bit_count);
-
     return sema.addType(ty);
 }
 
@@ -17509,7 +17514,7 @@ fn zirRestoreErrRetIndex(sema: *Sema, start_block: *Block, inst: Zir.Inst.Index)
     const tracy = trace(@src());
     defer tracy.end();
 
-    const saved_index = if (Zir.refToIndex(inst_data.block)) |zir_block| b: {
+    const saved_index = if (Zir.refToIndexAllowNone(inst_data.block)) |zir_block| b: {
         var block = start_block;
         while (true) {
             if (block.label) |label| {
@@ -17535,7 +17540,7 @@ fn zirRestoreErrRetIndex(sema: *Sema, start_block: *Block, inst: Zir.Inst.Index)
 
     assert(saved_index != .none); // The .error_return_trace_index field was dropped somewhere
 
-    const operand = try sema.resolveInst(inst_data.operand);
+    const operand = try sema.resolveInstAllowNone(inst_data.operand);
     return sema.popErrorReturnTrace(start_block, src, operand, saved_index);
 }
 
