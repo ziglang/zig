@@ -2132,7 +2132,7 @@ pub const Inst = struct {
 
         /// This Ref does not correspond to any ZIR instruction or constant
         /// value and may instead be used as a sentinel to indicate null.
-        none = std.math.maxInt(u32),
+        none = @enumToInt(InternPool.Index.none),
         _,
     };
 
@@ -3814,17 +3814,23 @@ pub fn getFnInfo(zir: Zir, fn_inst: Inst.Index) FnInfo {
     };
 }
 
-const ref_start_index: u32 = InternPool.static_len;
+pub const ref_start_index: u32 = InternPool.static_len;
 
 pub fn indexToRef(inst: Inst.Index) Inst.Ref {
     return @intToEnum(Inst.Ref, ref_start_index + inst);
 }
 
 pub fn refToIndex(inst: Inst.Ref) ?Inst.Index {
+    assert(inst != .none);
     const ref_int = @enumToInt(inst);
     if (ref_int >= ref_start_index) {
         return ref_int - ref_start_index;
     } else {
         return null;
     }
+}
+
+pub fn refToIndexAllowNone(inst: Inst.Ref) ?Inst.Index {
+    if (inst == .none) return null;
+    return refToIndex(inst);
 }
