@@ -1981,7 +1981,7 @@ fn resolveMaybeUndefValAllowVariablesMaybeRuntime(
         if (air_tags[i] == .constant) {
             const ty_pl = sema.air_instructions.items(.data)[i].ty_pl;
             const val = sema.air_values.items[ty_pl.payload];
-            if (val.tag() == .variable) return val;
+            if (val.tagIsVariable()) return val;
         }
         return opv;
     }
@@ -5033,7 +5033,7 @@ fn storeToInferredAllocComptime(
     // There will be only one store_to_inferred_ptr because we are running at comptime.
     // The alloc will turn into a Decl.
     if (try sema.resolveMaybeUndefValAllowVariables(operand)) |operand_val| store: {
-        if (operand_val.tag() == .variable) break :store;
+        if (operand_val.tagIsVariable()) break :store;
         var anon_decl = try block.startAnonDecl();
         defer anon_decl.deinit();
         iac.data.decl_index = try anon_decl.finish(
@@ -28115,7 +28115,7 @@ fn beginComptimePtrLoad(
                 const is_mutable = ptr_val.tag() == .decl_ref_mut;
                 const decl = sema.mod.declPtr(decl_index);
                 const decl_tv = try decl.typedValue();
-                if (decl_tv.val.tag() == .variable) return error.RuntimeLoad;
+                if (decl_tv.val.tagIsVariable()) return error.RuntimeLoad;
 
                 const layout_defined = decl.ty.hasWellDefinedLayout(mod);
                 break :blk ComptimePtrLoadKit{

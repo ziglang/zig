@@ -796,17 +796,17 @@ pub const Value = struct {
         mod: *const Module,
         opt_sema: ?*Sema,
     ) Module.CompileError!BigIntConst {
-        switch (val.ip_index) {
-            .bool_false => return BigIntMutable.init(&space.limbs, 0).toConst(),
-            .bool_true => return BigIntMutable.init(&space.limbs, 1).toConst(),
+        return switch (val.ip_index) {
+            .bool_false => BigIntMutable.init(&space.limbs, 0).toConst(),
+            .bool_true => BigIntMutable.init(&space.limbs, 1).toConst(),
             .undef => unreachable,
-            .null_value => return BigIntMutable.init(&space.limbs, 0).toConst(),
+            .null_value => BigIntMutable.init(&space.limbs, 0).toConst(),
             .none => switch (val.tag()) {
                 .zero,
                 .the_only_possible_value, // i0, u0
-                => return BigIntMutable.init(&space.limbs, 0).toConst(),
+                => BigIntMutable.init(&space.limbs, 0).toConst(),
 
-                .one => return BigIntMutable.init(&space.limbs, 1).toConst(),
+                .one => BigIntMutable.init(&space.limbs, 1).toConst(),
 
                 .enum_field_index => {
                     const index = val.castTag(.enum_field_index).?.data;
@@ -816,10 +816,10 @@ pub const Value = struct {
                     const sub_val = val.castTag(.runtime_value).?.data;
                     return sub_val.toBigIntAdvanced(space, mod, opt_sema);
                 },
-                .int_u64 => return BigIntMutable.init(&space.limbs, val.castTag(.int_u64).?.data).toConst(),
-                .int_i64 => return BigIntMutable.init(&space.limbs, val.castTag(.int_i64).?.data).toConst(),
-                .int_big_positive => return val.castTag(.int_big_positive).?.asBigInt(),
-                .int_big_negative => return val.castTag(.int_big_negative).?.asBigInt(),
+                .int_u64 => BigIntMutable.init(&space.limbs, val.castTag(.int_u64).?.data).toConst(),
+                .int_i64 => BigIntMutable.init(&space.limbs, val.castTag(.int_i64).?.data).toConst(),
+                .int_big_positive => val.castTag(.int_big_positive).?.asBigInt(),
+                .int_big_negative => val.castTag(.int_big_negative).?.asBigInt(),
 
                 .lazy_align => {
                     const ty = val.castTag(.lazy_align).?.data;
@@ -849,10 +849,10 @@ pub const Value = struct {
                 else => unreachable,
             },
             else => switch (mod.intern_pool.indexToKey(val.ip_index)) {
-                .int => |int| return int.big_int,
+                .int => |int| int.storage.toBigInt(space),
                 else => unreachable,
             },
-        }
+        };
     }
 
     /// If the value fits in a u64, return it, otherwise null.
@@ -900,7 +900,11 @@ pub const Value = struct {
                 else => return null,
             },
             else => return switch (mod.intern_pool.indexToKey(val.ip_index)) {
-                .int => |int| int.big_int.to(u64) catch null,
+                .int => |int| switch (int.storage) {
+                    .big_int => |big_int| big_int.to(u64) catch null,
+                    .u64 => |x| x,
+                    .i64 => |x| std.math.cast(u64, x),
+                },
                 else => null,
             },
         }
@@ -940,18 +944,22 @@ pub const Value = struct {
 
                 else => unreachable,
             },
-            else => switch (mod.intern_pool.indexToKey(val.ip_index)) {
-                .int => |int| return int.big_int.to(i64) catch unreachable,
+            else => return switch (mod.intern_pool.indexToKey(val.ip_index)) {
+                .int => |int| switch (int.storage) {
+                    .big_int => |big_int| big_int.to(i64) catch unreachable,
+                    .i64 => |x| x,
+                    .u64 => |x| @intCast(i64, x),
+                },
                 else => unreachable,
             },
         }
     }
 
     pub fn toBool(val: Value, mod: *const Module) bool {
-        switch (val.ip_index) {
-            .bool_true => return true,
-            .bool_false => return false,
-            .none => return switch (val.tag()) {
+        return switch (val.ip_index) {
+            .bool_true => true,
+            .bool_false => false,
+            .none => switch (val.tag()) {
                 .one => true,
                 .zero => false,
 
@@ -968,10 +976,13 @@ pub const Value = struct {
                 else => unreachable,
             },
             else => switch (mod.intern_pool.indexToKey(val.ip_index)) {
-                .int => |int| return !int.big_int.eqZero(),
+                .int => |int| switch (int.storage) {
+                    .big_int => |big_int| !big_int.eqZero(),
+                    inline .u64, .i64 => |x| x != 0,
+                },
                 else => unreachable,
             },
-        }
+        };
     }
 
     fn isDeclRef(val: Value) bool {
@@ -1483,12 +1494,12 @@ pub const Value = struct {
 
     pub fn clz(val: Value, ty: Type, mod: *const Module) u64 {
         const ty_bits = ty.intInfo(mod).bits;
-        switch (val.ip_index) {
-            .bool_false => return ty_bits,
-            .bool_true => return ty_bits - 1,
+        return switch (val.ip_index) {
+            .bool_false => ty_bits,
+            .bool_true => ty_bits - 1,
             .none => switch (val.tag()) {
-                .zero => return ty_bits,
-                .one => return ty_bits - 1,
+                .zero => ty_bits,
+                .one => ty_bits - 1,
 
                 .int_u64 => {
                     const big = @clz(val.castTag(.int_u64).?.data);
@@ -1519,20 +1530,24 @@ pub const Value = struct {
                 else => unreachable,
             },
             else => switch (mod.intern_pool.indexToKey(val.ip_index)) {
-                .int => |int| return int.big_int.clz(ty_bits),
+                .int => |int| switch (int.storage) {
+                    .big_int => |big_int| big_int.clz(ty_bits),
+                    .u64 => |x| @clz(x) + ty_bits - 64,
+                    .i64 => @panic("TODO implement i64 Value clz"),
+                },
                 else => unreachable,
             },
-        }
+        };
     }
 
     pub fn ctz(val: Value, ty: Type, mod: *const Module) u64 {
         const ty_bits = ty.intInfo(mod).bits;
-        switch (val.ip_index) {
-            .bool_false => return ty_bits,
-            .bool_true => return 0,
+        return switch (val.ip_index) {
+            .bool_false => ty_bits,
+            .bool_true => 0,
             .none => switch (val.tag()) {
-                .zero => return ty_bits,
-                .one => return 0,
+                .zero => ty_bits,
+                .one => 0,
 
                 .int_u64 => {
                     const big = @ctz(val.castTag(.int_u64).?.data);
@@ -1563,10 +1578,17 @@ pub const Value = struct {
                 else => unreachable,
             },
             else => switch (mod.intern_pool.indexToKey(val.ip_index)) {
-                .int => |int| return int.big_int.ctz(),
+                .int => |int| switch (int.storage) {
+                    .big_int => |big_int| big_int.ctz(),
+                    .u64 => |x| {
+                        const big = @ctz(x);
+                        return if (big == 64) ty_bits else big;
+                    },
+                    .i64 => @panic("TODO implement i64 Value ctz"),
+                },
                 else => unreachable,
             },
-        }
+        };
     }
 
     pub fn popCount(val: Value, ty: Type, mod: *const Module) u64 {
@@ -1591,7 +1613,9 @@ pub const Value = struct {
             else => switch (mod.intern_pool.indexToKey(val.ip_index)) {
                 .int => |int| {
                     const info = ty.intInfo(mod);
-                    return int.big_int.popCount(info.bits);
+                    var buffer: Value.BigIntSpace = undefined;
+                    const big_int = int.storage.toBigInt(&buffer);
+                    return @intCast(u64, big_int.popCount(info.bits));
                 },
                 else => unreachable,
             },
@@ -1641,23 +1665,23 @@ pub const Value = struct {
     /// Returns the number of bits the value requires to represent stored in twos complement form.
     pub fn intBitCountTwosComp(self: Value, mod: *const Module) usize {
         const target = mod.getTarget();
-        switch (self.ip_index) {
-            .bool_false => return 0,
-            .bool_true => return 1,
+        return switch (self.ip_index) {
+            .bool_false => 0,
+            .bool_true => 1,
             .none => switch (self.tag()) {
                 .zero,
                 .the_only_possible_value,
-                => return 0,
+                => 0,
 
-                .one => return 1,
+                .one => 1,
 
                 .int_u64 => {
                     const x = self.castTag(.int_u64).?.data;
                     if (x == 0) return 0;
                     return @intCast(usize, std.math.log2(x) + 1);
                 },
-                .int_big_positive => return self.castTag(.int_big_positive).?.asBigInt().bitCountTwosComp(),
-                .int_big_negative => return self.castTag(.int_big_negative).?.asBigInt().bitCountTwosComp(),
+                .int_big_positive => self.castTag(.int_big_positive).?.asBigInt().bitCountTwosComp(),
+                .int_big_negative => self.castTag(.int_big_negative).?.asBigInt().bitCountTwosComp(),
 
                 .decl_ref_mut,
                 .comptime_field_ptr,
@@ -1667,7 +1691,7 @@ pub const Value = struct {
                 .variable,
                 .eu_payload_ptr,
                 .opt_payload_ptr,
-                => return target.ptrBitWidth(),
+                => target.ptrBitWidth(),
 
                 else => {
                     var buffer: BigIntSpace = undefined;
@@ -1675,10 +1699,18 @@ pub const Value = struct {
                 },
             },
             else => switch (mod.intern_pool.indexToKey(self.ip_index)) {
-                .int => |int| return int.big_int.bitCountTwosComp(),
+                .int => |int| switch (int.storage) {
+                    .big_int => |big_int| big_int.bitCountTwosComp(),
+                    .u64 => |x| if (x == 0) 0 else @intCast(usize, std.math.log2(x) + 1),
+                    .i64 => {
+                        var buffer: Value.BigIntSpace = undefined;
+                        const big_int = int.storage.toBigInt(&buffer);
+                        return big_int.bitCountTwosComp();
+                    },
+                },
                 else => unreachable,
             },
-        }
+        };
     }
 
     /// Converts an integer or a float to a float. May result in a loss of information.
@@ -1798,8 +1830,11 @@ pub const Value = struct {
 
                 else => unreachable,
             },
-            else => switch (mod.intern_pool.indexToKey(lhs.ip_index)) {
-                .int => |int| return int.big_int.orderAgainstScalar(0),
+            else => return switch (mod.intern_pool.indexToKey(lhs.ip_index)) {
+                .int => |int| switch (int.storage) {
+                    .big_int => |big_int| big_int.orderAgainstScalar(0),
+                    inline .u64, .i64 => |x| std.math.order(x, 0),
+                },
                 else => unreachable,
             },
         }
@@ -2775,6 +2810,10 @@ pub const Value = struct {
             },
             else => unreachable,
         }
+    }
+
+    pub fn tagIsVariable(val: Value) bool {
+        return val.ip_index == .none and val.tag() == .variable;
     }
 
     /// Returns true if a Value is backed by a variable
@@ -5399,12 +5438,7 @@ pub const Value = struct {
         };
     };
 
-    /// Big enough to fit any non-BigInt value
-    pub const BigIntSpace = struct {
-        /// The +1 is headroom so that operations such as incrementing once or decrementing once
-        /// are possible without using an allocator.
-        limbs: [(@sizeOf(u64) / @sizeOf(std.math.big.Limb)) + 1]std.math.big.Limb,
-    };
+    pub const BigIntSpace = InternPool.Key.Int.Storage.BigIntSpace;
 
     pub const zero = initTag(.zero);
     pub const one = initTag(.one);
