@@ -284,7 +284,7 @@ pub fn build(b: *std.Build) !void {
             // That means we also have to rely on stage1 compiled c++ files. We parse config.h to find
             // the information passed on to us from cmake.
             if (cfg.cmake_prefix_path.len > 0) {
-                var it = mem.tokenize(u8, cfg.cmake_prefix_path, ";");
+                var it = mem.tokenizeScalar(u8, cfg.cmake_prefix_path, ';');
                 while (it.next()) |path| {
                     b.addSearchPrefix(path);
                 }
@@ -687,7 +687,7 @@ fn addCxxKnownPath(
     if (!std.process.can_spawn)
         return error.RequiredLibraryNotFound;
     const path_padded = b.exec(&.{ ctx.cxx_compiler, b.fmt("-print-file-name={s}", .{objname}) });
-    var tokenizer = mem.tokenize(u8, path_padded, "\r\n");
+    var tokenizer = mem.tokenizeAny(u8, path_padded, "\r\n");
     const path_unpadded = tokenizer.next().?;
     if (mem.eql(u8, path_unpadded, objname)) {
         if (errtxt) |msg| {
@@ -710,7 +710,7 @@ fn addCxxKnownPath(
 }
 
 fn addCMakeLibraryList(exe: *std.Build.Step.Compile, list: []const u8) void {
-    var it = mem.tokenize(u8, list, ";");
+    var it = mem.tokenizeScalar(u8, list, ';');
     while (it.next()) |lib| {
         if (mem.startsWith(u8, lib, "-l")) {
             exe.linkSystemLibrary(lib["-l".len..]);
@@ -855,7 +855,7 @@ fn parseConfigH(b: *std.Build, config_h_text: []const u8) ?CMakeConfig {
         // .prefix = ZIG_LLVM_LINK_MODE parsed manually below
     };
 
-    var lines_it = mem.tokenize(u8, config_h_text, "\r\n");
+    var lines_it = mem.tokenizeAny(u8, config_h_text, "\r\n");
     while (lines_it.next()) |line| {
         inline for (mappings) |mapping| {
             if (mem.startsWith(u8, line, mapping.prefix)) {

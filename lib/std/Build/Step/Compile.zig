@@ -777,7 +777,7 @@ fn runPkgConfig(self: *Compile, lib_name: []const u8) ![]const []const u8 {
     var zig_args = ArrayList([]const u8).init(b.allocator);
     defer zig_args.deinit();
 
-    var it = mem.tokenize(u8, stdout, " \r\n\t");
+    var it = mem.tokenizeAny(u8, stdout, " \r\n\t");
     while (it.next()) |tok| {
         if (mem.eql(u8, tok, "-I")) {
             const dir = it.next() orelse return error.PkgConfigInvalidOutput;
@@ -2017,10 +2017,10 @@ fn execPkgConfigList(self: *std.Build, out_code: *u8) (PkgConfigError || ExecErr
     const stdout = try self.execAllowFail(&[_][]const u8{ "pkg-config", "--list-all" }, out_code, .Ignore);
     var list = ArrayList(PkgConfigPkg).init(self.allocator);
     errdefer list.deinit();
-    var line_it = mem.tokenize(u8, stdout, "\r\n");
+    var line_it = mem.tokenizeAny(u8, stdout, "\r\n");
     while (line_it.next()) |line| {
         if (mem.trim(u8, line, " \t").len == 0) continue;
-        var tok_it = mem.tokenize(u8, line, " \t");
+        var tok_it = mem.tokenizeAny(u8, line, " \t");
         try list.append(PkgConfigPkg{
             .name = tok_it.next() orelse return error.PkgConfigInvalidOutput,
             .desc = tok_it.rest(),

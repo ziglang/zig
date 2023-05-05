@@ -354,7 +354,7 @@ fn detectAbiAndDynamicLinker(
             const newline = mem.indexOfScalar(u8, buffer[0..len], '\n') orelse break :blk file;
             const line = buffer[0..newline];
             if (!mem.startsWith(u8, line, "#!")) break :blk file;
-            var it = mem.tokenize(u8, line[2..], " ");
+            var it = mem.tokenizeScalar(u8, line[2..], ' ');
             file_name = it.next() orelse return defaultAbiAndDynamicLinker(cpu, os, cross_target);
             file.close();
         }
@@ -811,7 +811,7 @@ pub fn abiAndDynamicLinkerFromFile(
                 const strtab = strtab_buf[0..strtab_read_len];
 
                 const rpath_list = mem.sliceTo(strtab, 0);
-                var it = mem.tokenize(u8, rpath_list, ":");
+                var it = mem.tokenizeScalar(u8, rpath_list, ':');
                 while (it.next()) |rpath| {
                     if (glibcVerFromRPath(rpath)) |ver| {
                         result.target.os.version_range.linux.glibc = ver;

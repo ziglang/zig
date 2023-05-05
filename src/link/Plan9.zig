@@ -264,7 +264,7 @@ fn putFn(self: *Plan9, decl_index: Module.Decl.Index, out: FnDeclOutput) !void {
 
 fn addPathComponents(self: *Plan9, path: []const u8, a: *std.ArrayList(u8)) !void {
     const sep = std.fs.path.sep;
-    var it = std.mem.tokenize(u8, path, &.{sep});
+    var it = std.mem.tokenizeScalar(u8, path, sep);
     while (it.next()) |component| {
         if (self.file_segments.get(component)) |num| {
             try a.writer().writeIntBig(u16, num);

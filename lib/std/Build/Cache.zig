@@ -434,7 +434,7 @@ pub const Manifest = struct {
 
             const input_file_count = self.files.items.len;
             var any_file_changed = false;
-            var line_iter = mem.tokenize(u8, file_contents, "\n");
+            var line_iter = mem.tokenizeScalar(u8, file_contents, '\n');
             var idx: usize = 0;
             if (if (line_iter.next()) |line| !std.mem.eql(u8, line, manifest_header) else true) {
                 if (try self.upgradeToExclusiveLock()) continue;
@@ -463,7 +463,7 @@ pub const Manifest = struct {
                     break :blk new;
                 };
 
-                var iter = mem.tokenize(u8, line, " ");
+                var iter = mem.tokenizeScalar(u8, line, ' ');
                 const size = iter.next() orelse return error.InvalidFormat;
                 const inode = iter.next() orelse return error.InvalidFormat;
                 const mtime_nsec_str = iter.next() orelse return error.InvalidFormat;

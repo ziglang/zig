@@ -846,7 +846,7 @@ const TestManifest = struct {
         const actual_start = start orelse return error.MissingTestManifest;
         const manifest_bytes = bytes[actual_start..end];
 
-        var it = std.mem.tokenize(u8, manifest_bytes, "\r\n");
+        var it = std.mem.tokenizeAny(u8, manifest_bytes, "\r\n");
 
         // First line is the test type
         const tt: Type = blk: {
@@ -923,7 +923,7 @@ const TestManifest = struct {
 
     fn trailing(self: TestManifest) TrailingIterator {
         return .{
-            .inner = std.mem.tokenize(u8, self.trailing_bytes, "\r\n"),
+            .inner = std.mem.tokenizeAny(u8, self.trailing_bytes, "\r\n"),
         };
     }
 

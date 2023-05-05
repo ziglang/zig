@@ -8409,9 +8409,9 @@ fn airAsm(self: *Self, inst: Air.Inst.Index) !void {
     }
 
     const asm_source = mem.sliceAsBytes(self.air.extra[extra_i..])[0..extra.data.source_len];
-    var line_it = mem.tokenize(u8, asm_source, "\n\r;");
+    var line_it = mem.tokenizeAny(u8, asm_source, "\n\r;");
     while (line_it.next()) |line| {
-        var mnem_it = mem.tokenize(u8, line, " \t");
+        var mnem_it = mem.tokenizeAny(u8, line, " \t");
         const mnem_str = mnem_it.next() orelse continue;
         if (mem.startsWith(u8, mnem_str, "#")) continue;
 
@@ -8435,7 +8435,7 @@ fn airAsm(self: *Self, inst: Air.Inst.Index) !void {
                 return self.fail("Invalid mnemonic: '{s}'", .{mnem_str});
         } };
 
-        var op_it = mem.tokenize(u8, mnem_it.rest(), ",");
+        var op_it = mem.tokenizeScalar(u8, mnem_it.rest(), ',');
         var ops = [1]encoder.Instruction.Operand{.none} ** 4;
         for (&ops) |*op| {
             const op_str = mem.trim(u8, op_it.next() orelse break, " \t");

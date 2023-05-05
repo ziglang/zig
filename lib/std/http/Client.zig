@@ -386,7 +386,7 @@ pub const Response = struct {
     };
 
     pub fn parse(res: *Response, bytes: []const u8, trailing: bool) ParseError!void {
-        var it = mem.tokenize(u8, bytes[0 .. bytes.len - 4], "\r\n");
+        var it = mem.tokenizeAny(u8, bytes[0 .. bytes.len - 4], "\r\n");
 
         const first_line = it.next() orelse return error.HttpHeadersInvalid;
         if (first_line.len < 12)
@@ -412,7 +412,7 @@ pub const Response = struct {
                 else => {},
             }
 
-            var line_it = mem.tokenize(u8, line, ": ");
+            var line_it = mem.tokenizeAny(u8, line, ": ");
             const header_name = line_it.next() orelse return error.HttpHeadersInvalid;
             const header_value = line_it.rest();
 

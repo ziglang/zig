@@ -1266,7 +1266,7 @@ fn linuxLookupNameFromHosts(
         var split_it = mem.split(u8, line, "#");
         const no_comment_line = split_it.first();
 
-        var line_it = mem.tokenize(u8, no_comment_line, " \t");
+        var line_it = mem.tokenizeAny(u8, no_comment_line, " \t");
         const ip_text = line_it.next() orelse continue;
         var first_name_text: ?[]const u8 = null;
         while (line_it.next()) |name_text| {
@@ -1346,7 +1346,7 @@ fn linuxLookupNameFromDnsSearch(
     @memcpy(canon.items, canon_name);
     try canon.append('.');
 
-    var tok_it = mem.tokenize(u8, search, " \t");
+    var tok_it = mem.tokenizeAny(u8, search, " \t");
     while (tok_it.next()) |tok| {
         canon.shrinkRetainingCapacity(canon_name.len + 1);
         try canon.appendSlice(tok);
@@ -1468,7 +1468,7 @@ fn getResolvConf(allocator: mem.Allocator, rc: *ResolvConf) !void {
             var split = mem.split(u8, line, "#");
             break :no_comment_line split.first();
         };
-        var line_it = mem.tokenize(u8, no_comment_line, " \t");
+        var line_it = mem.tokenizeAny(u8, no_comment_line, " \t");
 
         const token = line_it.next() orelse continue;
         if (mem.eql(u8, token, "options")) {

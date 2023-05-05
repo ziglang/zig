@@ -257,7 +257,7 @@ fn render_autoconf(
             try output.appendSlice("\n");
             continue;
         }
-        var it = std.mem.tokenize(u8, line[1..], " \t\r");
+        var it = std.mem.tokenizeAny(u8, line[1..], " \t\r");
         const undef = it.next().?;
         if (!std.mem.eql(u8, undef, "undef")) {
             try output.appendSlice(line);
@@ -304,7 +304,7 @@ fn render_cmake(
             try output.appendSlice("\n");
             continue;
         }
-        var it = std.mem.tokenize(u8, line[1..], " \t\r");
+        var it = std.mem.tokenizeAny(u8, line[1..], " \t\r");
         const cmakedefine = it.next().?;
         if (!std.mem.eql(u8, cmakedefine, "cmakedefine") and
             !std.mem.eql(u8, cmakedefine, "cmakedefine01"))

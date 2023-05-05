@@ -2581,7 +2581,7 @@ const Writer = struct {
     fn writeDocComment(self: *Writer, stream: anytype, doc_comment_index: u32) !void {
         if (doc_comment_index != 0) {
             const doc_comment = self.code.nullTerminatedString(doc_comment_index);
-            var it = std.mem.tokenize(u8, doc_comment, "\n");
+            var it = std.mem.tokenizeScalar(u8, doc_comment, '\n');
             while (it.next()) |doc_line| {
                 try stream.writeByteNTimes(' ', self.indent);
                 try stream.print("///{s}\n", .{doc_line});

@@ -1200,7 +1200,7 @@ fn totalSystemMemoryLinux() !usize {
     var buf: [50]u8 = undefined;
     const amt = try file.read(&buf);
     if (amt != 50) return error.Unexpected;
-    var it = std.mem.tokenize(u8, buf[0..amt], " \n");
+    var it = std.mem.tokenizeAny(u8, buf[0..amt], " \n");
     const label = it.next().?;
     if (!std.mem.eql(u8, label, "MemTotal:")) return error.Unexpected;
     const int_text = it.next() orelse return error.Unexpected;

@@ -31,7 +31,7 @@ pub fn detect(allocator: Allocator, native_info: NativeTargetInfo) !NativePaths 
         defer allocator.free(nix_cflags_compile);
 
         is_nix = true;
-        var it = mem.tokenize(u8, nix_cflags_compile, " ");
+        var it = mem.tokenizeScalar(u8, nix_cflags_compile, ' ');
         while (true) {
             const word = it.next() orelse break;
             if (mem.eql(u8, word, "-isystem")) {
@@ -62,7 +62,7 @@ pub fn detect(allocator: Allocator, native_info: NativeTargetInfo) !NativePaths 
         defer allocator.free(nix_ldflags);
 
         is_nix = true;
-        var it = mem.tokenize(u8, nix_ldflags, " ");
+        var it = mem.tokenizeScalar(u8, nix_ldflags, ' ');
         while (true) {
             const word = it.next() orelse break;
             if (mem.eql(u8, word, "-rpath")) {
@@ -147,21 +147,21 @@ pub fn detect(allocator: Allocator, native_info: NativeTargetInfo) !NativePaths 
         // We use os.getenv here since this part won't be executed on
         // windows, to get rid of unnecessary error handling.
         if (std.os.getenv("C_INCLUDE_PATH")) |c_include_path| {
-            var it = mem.tokenize(u8, c_include_path, ":");
+            var it = mem.tokenizeScalar(u8, c_include_path, ':');
             while (it.next()) |dir| {
                 try self.addIncludeDir(dir);
             }
         }
 
         if (std.os.getenv("CPLUS_INCLUDE_PATH")) |cplus_include_path| {
-            var it = mem.tokenize(u8, cplus_include_path, ":");
+            var it = mem.tokenizeScalar(u8, cplus_include_path, ':');
             while (it.next()) |dir| {
                 try self.addIncludeDir(dir);
             }
         }
 
         if (std.os.getenv("LIBRARY_PATH")) |library_path| {
-            var it = mem.tokenize(u8, library_path, ":");
+            var it = mem.tokenizeScalar(u8, library_path, ':');
             while (it.next()) |dir| {
                 try self.addLibDir(dir);
             }
