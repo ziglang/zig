@@ -209,10 +209,19 @@ pub const Instruction = struct {
         const enc = inst.encoding;
         const data = enc.data;
 
-        try inst.encodeLegacyPrefixes(encoder);
-        try inst.encodeMandatoryPrefix(encoder);
-        try inst.encodeRexPrefix(encoder);
-        try inst.encodeOpcode(encoder);
+        switch (data.mode) {
+            .none, .short, .rex, .long => {
+                try inst.encodeLegacyPrefixes(encoder);
+                try inst.encodeMandatoryPrefix(encoder);
+                try inst.encodeRexPrefix(encoder);
+                try inst.encodeOpcode(encoder);
+            },
+            .vex_128, .vex_128_long, .vex_256, .vex_256_long => {
+                try inst.encodeVexPrefix(encoder);
+                const opc = inst.encoding.opcode();
+                try encoder.opcode_1byte(opc[opc.len - 1]);
+            },
+        }
 
         switch (data.op_en) {
             .np, .o => {},
@@ -309,6 +318,7 @@ pub const Instruction = struct {
                 }
             else
                 null,
+            .rrm, .rrmi => unreachable,
         };
         if (segment_override) |seg| {
             legacy.setSegmentOverride(seg);
@@ -322,10 +332,7 @@ pub const Instruction = struct {
 
         var rex = Rex{};
         rex.present = inst.encoding.data.mode == .rex;
-        switch (inst.encoding.data.mode) {
-            .long, .sse_long, .sse2_long => rex.w = true,
-            else => {},
-        }
+        rex.w = inst.encoding.data.mode == .long;
 
         switch (op_en) {
             .np, .i, .zi, .fd, .td, .d => {},
@@ -346,9 +353,74 @@ pub const Instruction = struct {
                 rex.b = b_x_op.isBaseExtended();
                 rex.x = b_x_op.isIndexExtended();
             },
+            .rrm, .rrmi => unreachable,
         }
 
         try encoder.rex(rex);
+    }
+
+    fn encodeVexPrefix(inst: Instruction, encoder: anytype) !void {
+        const op_en = inst.encoding.data.op_en;
+        const opc = inst.encoding.opcode();
+        const mand_pre = inst.encoding.mandatoryPrefix();
+
+        var vex = Vex{};
+
+        vex.w = switch (inst.encoding.data.mode) {
+            .vex_128, .vex_256 => false,
+            .vex_128_long, .vex_256_long => true,
+            else => unreachable,
+        };
+
+        switch (op_en) {
+            .np, .i, .zi, .fd, .td, .d => {},
+            .o, .oi => vex.b = inst.ops[0].reg.isExtended(),
+            .m, .mi, .m1, .mc, .mr, .rm, .rmi, .mri, .mrc, .rrm, .rrmi => {
+                const r_op = switch (op_en) {
+                    .rm, .rmi, .rrm, .rrmi => inst.ops[0],
+                    .mr, .mri, .mrc => inst.ops[1],
+                    else => .none,
+                };
+                vex.r = r_op.isBaseExtended();
+
+                const b_x_op = switch (op_en) {
+                    .rm, .rmi => inst.ops[1],
+                    .m, .mi, .m1, .mc, .mr, .mri, .mrc => inst.ops[0],
+                    .rrm, .rrmi => inst.ops[2],
+                    else => unreachable,
+                };
+                vex.b = b_x_op.isBaseExtended();
+                vex.x = b_x_op.isIndexExtended();
+            },
+        }
+
+        vex.l = switch (inst.encoding.data.mode) {
+            .vex_128, .vex_128_long => false,
+            .vex_256, .vex_256_long => true,
+            else => unreachable,
+        };
+
+        vex.p = if (mand_pre) |mand| switch (mand) {
+            0x66 => .@"66",
+            0xf2 => .f2,
+            0xf3 => .f3,
+            else => unreachable,
+        } else .none;
+
+        const leading: usize = if (mand_pre) |_| 1 else 0;
+        assert(opc[leading] == 0x0f);
+        vex.m = switch (opc[leading + 1]) {
+            else => .@"0f",
+            0x38 => .@"0f38",
+            0x3a => .@"0f3a",
+        };
+
+        switch (op_en) {
+            else => {},
+            .rrm, .rrmi => vex.v = inst.ops[1].reg,
+        }
+
+        try encoder.vex(vex);
     }
 
     fn encodeMandatoryPrefix(inst: Instruction, encoder: anytype) !void {
@@ -562,17 +634,48 @@ fn Encoder(comptime T: type, comptime opts: Options) type {
         /// or one of reg, index, r/m, base, or opcode-reg might be extended.
         ///
         /// See struct `Rex` for a description of each field.
-        pub fn rex(self: Self, byte: Rex) !void {
-            if (!byte.present and !byte.isSet()) return;
+        pub fn rex(self: Self, fields: Rex) !void {
+            if (!fields.present and !fields.isSet()) return;
 
-            var value: u8 = 0b0100_0000;
+            var byte: u8 = 0b0100_0000;
 
-            if (byte.w) value |= 0b1000;
-            if (byte.r) value |= 0b0100;
-            if (byte.x) value |= 0b0010;
-            if (byte.b) value |= 0b0001;
+            if (fields.w) byte |= 0b1000;
+            if (fields.r) byte |= 0b0100;
+            if (fields.x) byte |= 0b0010;
+            if (fields.b) byte |= 0b0001;
 
-            try self.writer.writeByte(value);
+            try self.writer.writeByte(byte);
+        }
+
+        /// Encodes a VEX prefix given all the fields
+        ///
+        /// See struct `Vex` for a description of each field.
+        pub fn vex(self: Self, fields: Vex) !void {
+            if (fields.is3Byte()) {
+                try self.writer.writeByte(0b1100_0100);
+
+                try self.writer.writeByte(
+                    @as(u8, ~@boolToInt(fields.r)) << 7 |
+                        @as(u8, ~@boolToInt(fields.x)) << 6 |
+                        @as(u8, ~@boolToInt(fields.b)) << 5 |
+                        @as(u8, @enumToInt(fields.m)) << 0,
+                );
+
+                try self.writer.writeByte(
+                    @as(u8, @boolToInt(fields.w)) << 7 |
+                        @as(u8, ~fields.v.enc()) << 3 |
+                        @as(u8, @boolToInt(fields.l)) << 2 |
+                        @as(u8, @enumToInt(fields.p)) << 0,
+                );
+            } else {
+                try self.writer.writeByte(0b1100_0101);
+                try self.writer.writeByte(
+                    @as(u8, ~@boolToInt(fields.r)) << 7 |
+                        @as(u8, ~fields.v.enc()) << 3 |
+                        @as(u8, @boolToInt(fields.l)) << 2 |
+                        @as(u8, @enumToInt(fields.p)) << 0,
+                );
+            }
         }
 
         // ------
@@ -845,6 +948,31 @@ pub const Rex = struct {
 
     pub fn isSet(rex: Rex) bool {
         return rex.w or rex.r or rex.x or rex.b;
+    }
+};
+
+pub const Vex = struct {
+    w: bool = false,
+    r: bool = false,
+    x: bool = false,
+    b: bool = false,
+    l: bool = false,
+    p: enum(u2) {
+        none = 0b00,
+        @"66" = 0b01,
+        f3 = 0b10,
+        f2 = 0b11,
+    } = .none,
+    m: enum(u5) {
+        @"0f" = 0b0_0001,
+        @"0f38" = 0b0_0010,
+        @"0f3a" = 0b0_0011,
+        _,
+    } = .@"0f",
+    v: Register = .ymm0,
+
+    pub fn is3Byte(vex: Vex) bool {
+        return vex.w or vex.x or vex.b or vex.m != .@"0f";
     }
 };
 

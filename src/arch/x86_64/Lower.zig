@@ -133,6 +133,9 @@ pub fn lowerMir(lower: *Lower, inst: Mir.Inst) Error![]const Instruction {
         .subsd,
         .ucomisd,
         .xorpd,
+
+        .vcvtph2ps,
+        .vcvtps2ph,
         => try lower.mirGeneric(inst),
 
         .cmps,

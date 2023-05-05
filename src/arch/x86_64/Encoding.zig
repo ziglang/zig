@@ -23,6 +23,7 @@ const Data = struct {
     opc: [7]u8,
     modrm_ext: u3,
     mode: Mode,
+    feature: Feature,
 };
 
 pub fn findByMnemonic(
@@ -58,7 +59,7 @@ pub fn findByMnemonic(
     next: for (mnemonic_to_encodings_map[@enumToInt(mnemonic)]) |data| {
         switch (data.mode) {
             .rex => if (!rex_required) continue,
-            .long, .sse_long, .sse2_long => {},
+            .long => {},
             else => if (rex_required) continue,
         }
         for (input_ops, data.ops) |input_op, data_op|
@@ -136,22 +137,20 @@ pub fn modRmExt(encoding: Encoding) u3 {
 }
 
 pub fn operandBitSize(encoding: Encoding) u64 {
-    switch (encoding.data.mode) {
-        .short => return 16,
-        .long, .sse_long, .sse2_long => return 64,
-        else => {},
-    }
-    const bit_size: u64 = switch (encoding.data.op_en) {
-        .np => switch (encoding.data.ops[0]) {
-            .o16 => 16,
-            .o32 => 32,
-            .o64 => 64,
-            else => 32,
+    return switch (encoding.data.mode) {
+        .short => 16,
+        .long => 64,
+        else => switch (encoding.data.op_en) {
+            .np => switch (encoding.data.ops[0]) {
+                .o16 => 16,
+                .o32 => 32,
+                .o64 => 64,
+                else => 32,
+            },
+            .td => encoding.data.ops[1].bitSize(),
+            else => encoding.data.ops[0].bitSize(),
         },
-        .td => encoding.data.ops[1].bitSize(),
-        else => encoding.data.ops[0].bitSize(),
     };
-    return bit_size;
 }
 
 pub fn format(
@@ -162,12 +161,50 @@ pub fn format(
 ) !void {
     _ = options;
     _ = fmt;
+
+    var opc = encoding.opcode();
     switch (encoding.data.mode) {
-        .long, .sse_long, .sse2_long => try writer.writeAll("REX.W + "),
         else => {},
+        .long => try writer.writeAll("REX.W + "),
+        .vex_128, .vex_128_long, .vex_256, .vex_256_long => {
+            try writer.writeAll("VEX.");
+
+            switch (encoding.data.mode) {
+                .vex_128, .vex_128_long => try writer.writeAll("128"),
+                .vex_256, .vex_256_long => try writer.writeAll("256"),
+                else => unreachable,
+            }
+
+            switch (opc[0]) {
+                else => {},
+                0x66, 0xf3, 0xf2 => {
+                    try writer.print(".{X:0>2}", .{opc[0]});
+                    opc = opc[1..];
+                },
+            }
+
+            try writer.print(".{X:0>2}", .{opc[0]});
+            opc = opc[1..];
+
+            switch (opc[0]) {
+                else => {},
+                0x38, 0x3A => {
+                    try writer.print("{X:0>2}", .{opc[0]});
+                    opc = opc[1..];
+                },
+            }
+
+            try writer.writeByte('.');
+            try writer.writeAll(switch (encoding.data.mode) {
+                .vex_128, .vex_256 => "W0",
+                .vex_128_long, .vex_256_long => "W1",
+                else => unreachable,
+            });
+            try writer.writeByte(' ');
+        },
     }
 
-    for (encoding.opcode()) |byte| {
+    for (opc) |byte| {
         try writer.print("{x:0>2} ", .{byte});
     }
 
@@ -184,15 +221,16 @@ pub fn format(
             try writer.print("+{s} ", .{tag});
         },
         .m, .mi, .m1, .mc => try writer.print("/{d} ", .{encoding.modRmExt()}),
-        .mr, .rm, .rmi, .mri, .mrc => try writer.writeAll("/r "),
+        .mr, .rm, .rmi, .mri, .mrc, .rrm, .rrmi => try writer.writeAll("/r "),
     }
 
     switch (encoding.data.op_en) {
-        .i, .d, .zi, .oi, .mi, .rmi, .mri => {
+        .i, .d, .zi, .oi, .mi, .rmi, .mri, .rrmi => {
             const op = switch (encoding.data.op_en) {
                 .i, .d => encoding.data.ops[0],
                 .zi, .oi, .mi => encoding.data.ops[1],
                 .rmi, .mri => encoding.data.ops[2],
+                .rrmi => encoding.data.ops[3],
                 else => unreachable,
             };
             const tag = switch (op) {
@@ -207,7 +245,7 @@ pub fn format(
             };
             try writer.print("{s} ", .{tag});
         },
-        .np, .fd, .td, .o, .m, .m1, .mc, .mr, .rm, .mrc => {},
+        .np, .fd, .td, .o, .m, .m1, .mc, .mr, .rm, .mrc, .rrm => {},
     }
 
     try writer.print("{s} ", .{@tagName(encoding.mnemonic)});
@@ -305,6 +343,8 @@ pub const Mnemonic = enum {
     // SSE4.1
     roundss,
     roundsd,
+    // F16C
+    vcvtph2ps, vcvtps2ph,
     // zig fmt: on
 };
 
@@ -317,6 +357,7 @@ pub const OpEn = enum {
     fd, td,
     m1, mc, mi, mr, rm,
     rmi, mri, mrc,
+    rrm, rrmi,
     // zig fmt: on
 };
 
@@ -549,14 +590,21 @@ pub const Op = enum {
 pub const Mode = enum {
     none,
     short,
-    fpu,
     rex,
     long,
+    vex_128,
+    vex_128_long,
+    vex_256,
+    vex_256_long,
+};
+
+pub const Feature = enum {
+    none,
+    f16c,
     sse,
-    sse_long,
     sse2,
-    sse2_long,
     sse4_1,
+    x87,
 };
 
 fn estimateInstructionLength(prefix: Prefix, encoding: Encoding, ops: []const Operand) usize {
@@ -593,6 +641,7 @@ const mnemonic_to_encodings_map = init: {
             .opc = undefined,
             .modrm_ext = entry[4],
             .mode = entry[5],
+            .feature = entry[6],
         };
         // TODO: use `@memcpy` for these. When I did that, I got a false positive
         // compile error for this copy happening at compile time.

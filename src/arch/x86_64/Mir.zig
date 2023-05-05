@@ -247,6 +247,11 @@ pub const Inst = struct {
         /// Bitwise logical xor of packed double precision floating-point values
         xorpd,
 
+        /// Convert 16-bit floating-point values to single-precision floating-point values
+        vcvtph2ps,
+        /// Convert single-precision floating-point values to 16-bit floating-point values
+        vcvtps2ph,
+
         /// Compare string operands
         cmps,
         /// Load string

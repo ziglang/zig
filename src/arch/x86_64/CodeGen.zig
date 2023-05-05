@@ -2172,12 +2172,9 @@ fn airRetPtr(self: *Self, inst: Air.Inst.Index) !void {
 fn airFptrunc(self: *Self, inst: Air.Inst.Index) !void {
     const ty_op = self.air.instructions.items(.data)[inst].ty_op;
     const dst_ty = self.air.typeOfIndex(inst);
+    const dst_bits = dst_ty.floatBits(self.target.*);
     const src_ty = self.air.typeOf(ty_op.operand);
-    if (dst_ty.floatBits(self.target.*) != 32 or src_ty.floatBits(self.target.*) != 64 or
-        !Target.x86.featureSetHas(self.target.cpu.features, .sse2))
-        return self.fail("TODO implement airFptrunc from {} to {}", .{
-            src_ty.fmt(self.bin_file.options.module.?), dst_ty.fmt(self.bin_file.options.module.?),
-        });
+    const src_bits = src_ty.floatBits(self.target.*);
 
     const src_mcv = try self.resolveInst(ty_op.operand);
     const dst_mcv = if (src_mcv.isRegister() and self.reuseOperand(inst, ty_op.operand, 0, src_mcv))
@@ -2187,19 +2184,32 @@ fn airFptrunc(self: *Self, inst: Air.Inst.Index) !void {
     const dst_lock = self.register_manager.lockReg(dst_mcv.register);
     defer if (dst_lock) |lock| self.register_manager.unlockReg(lock);
 
-    try self.genBinOpMir(.cvtsd2ss, src_ty, dst_mcv, src_mcv);
+    if (src_bits == 32 and dst_bits == 16 and self.hasFeature(.f16c))
+        try self.asmRegisterRegisterImmediate(
+            .vcvtps2ph,
+            dst_mcv.register,
+            if (src_mcv.isRegister()) src_mcv.getReg().? else src_reg: {
+                const src_reg = dst_mcv.register;
+                try self.genSetReg(src_reg, src_ty, src_mcv);
+                break :src_reg src_reg;
+            },
+            Immediate.u(0b1_00),
+        )
+    else if (src_bits == 64 and dst_bits == 32)
+        try self.genBinOpMir(.cvtsd2ss, src_ty, dst_mcv, src_mcv)
+    else
+        return self.fail("TODO implement airFptrunc from {} to {}", .{
+            src_ty.fmt(self.bin_file.options.module.?), dst_ty.fmt(self.bin_file.options.module.?),
+        });
     return self.finishAir(inst, dst_mcv, .{ ty_op.operand, .none, .none });
 }
 
 fn airFpext(self: *Self, inst: Air.Inst.Index) !void {
     const ty_op = self.air.instructions.items(.data)[inst].ty_op;
     const dst_ty = self.air.typeOfIndex(inst);
+    const dst_bits = dst_ty.floatBits(self.target.*);
     const src_ty = self.air.typeOf(ty_op.operand);
-    if (dst_ty.floatBits(self.target.*) != 64 or src_ty.floatBits(self.target.*) != 32 or
-        !Target.x86.featureSetHas(self.target.cpu.features, .sse2))
-        return self.fail("TODO implement airFpext from {} to {}", .{
-            src_ty.fmt(self.bin_file.options.module.?), dst_ty.fmt(self.bin_file.options.module.?),
-        });
+    const src_bits = src_ty.floatBits(self.target.*);
 
     const src_mcv = try self.resolveInst(ty_op.operand);
     const dst_mcv = if (src_mcv.isRegister() and self.reuseOperand(inst, ty_op.operand, 0, src_mcv))
@@ -2209,7 +2219,19 @@ fn airFpext(self: *Self, inst: Air.Inst.Index) !void {
     const dst_lock = self.register_manager.lockReg(dst_mcv.register);
     defer if (dst_lock) |lock| self.register_manager.unlockReg(lock);
 
-    try self.genBinOpMir(.cvtss2sd, src_ty, dst_mcv, src_mcv);
+    try self.genBinOpMir(
+        if (src_bits == 16 and dst_bits == 32 and self.hasFeature(.f16c))
+            .vcvtph2ps
+        else if (src_bits == 32 and dst_bits == 64)
+            .cvtss2sd
+        else
+            return self.fail("TODO implement airFpext from {} to {}", .{
+                src_ty.fmt(self.bin_file.options.module.?), dst_ty.fmt(self.bin_file.options.module.?),
+            }),
+        src_ty,
+        dst_mcv,
+        src_mcv,
+    );
     return self.finishAir(inst, dst_mcv, .{ ty_op.operand, .none, .none });
 }
 
@@ -3802,7 +3824,7 @@ fn airClz(self: *Self, inst: Air.Inst.Index) !void {
         defer self.register_manager.unlockReg(dst_lock);
 
         const src_bits = src_ty.bitSize(self.target.*);
-        if (Target.x86.featureSetHas(self.target.cpu.features, .lzcnt)) {
+        if (self.hasFeature(.lzcnt)) {
             if (src_bits <= 64) {
                 try self.genBinOpMir(.lzcnt, src_ty, dst_mcv, mat_src_mcv);
 
@@ -3888,7 +3910,7 @@ fn airCtz(self: *Self, inst: Air.Inst.Index) !void {
         const dst_lock = self.register_manager.lockReg(dst_reg);
         defer if (dst_lock) |lock| self.register_manager.unlockReg(lock);
 
-        if (Target.x86.featureSetHas(self.target.cpu.features, .bmi)) {
+        if (self.hasFeature(.bmi)) {
             if (src_bits <= 64) {
                 const extra_bits = self.regExtraBits(src_ty);
                 const masked_mcv = if (extra_bits > 0) masked: {
@@ -3956,7 +3978,7 @@ fn airPopcount(self: *Self, inst: Air.Inst.Index) !void {
         const src_abi_size = @intCast(u32, src_ty.abiSize(self.target.*));
         const src_mcv = try self.resolveInst(ty_op.operand);
 
-        if (Target.x86.featureSetHas(self.target.cpu.features, .popcnt)) {
+        if (self.hasFeature(.popcnt)) {
             const mat_src_mcv = switch (src_mcv) {
                 .immediate => MCValue{ .register = try self.copyToTmpRegister(src_ty, src_mcv) },
                 else => src_mcv,
@@ -4309,7 +4331,7 @@ fn airRound(self: *Self, inst: Air.Inst.Index, mode: Immediate) !void {
     const un_op = self.air.instructions.items(.data)[inst].un_op;
     const ty = self.air.typeOf(un_op);
 
-    if (!Target.x86.featureSetHas(self.target.cpu.features, .sse4_1))
+    if (!self.hasFeature(.sse4_1))
         return self.fail("TODO implement airRound without sse4_1 feature", .{});
 
     const src_mcv = try self.resolveInst(un_op);
@@ -5712,7 +5734,7 @@ fn genBinOp(
                 => {},
                 .div_trunc,
                 .div_floor,
-                => if (Target.x86.featureSetHas(self.target.cpu.features, .sse4_1)) {
+                => if (self.hasFeature(.sse4_1)) {
                     const abi_size = @intCast(u32, lhs_ty.abiSize(self.target.*));
                     const dst_alias = registerAlias(dst_mcv.register, abi_size);
                     try self.asmRegisterRegisterImmediate(switch (lhs_ty.floatBits(self.target.*)) {
@@ -9592,4 +9614,14 @@ fn regBitSize(self: *Self, ty: Type) u64 {
 
 fn regExtraBits(self: *Self, ty: Type) u64 {
     return self.regBitSize(ty) - ty.bitSize(self.target.*);
+}
+
+fn hasFeature(self: *Self, feature: Target.x86.Feature) bool {
+    return Target.x86.featureSetHas(self.target.cpu.features, feature);
+}
+fn hasAnyFeatures(self: *Self, features: anytype) bool {
+    return Target.x86.featureSetHasAny(self.target.cpu.features, features);
+}
+fn hasAllFeatures(self: *Self, features: anytype) bool {
+    return Target.x86.featureSetHasAll(self.target.cpu.features, features);
 }
