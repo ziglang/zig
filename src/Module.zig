@@ -4903,9 +4903,12 @@ fn semaDecl(mod: *Module, decl_index: Decl.Index) !bool {
         break :blk (try decl_arena_allocator.dupeZ(u8, bytes)).ptr;
     };
     decl.@"addrspace" = blk: {
-        const addrspace_ctx: Sema.AddressSpaceContext = switch (decl_tv.val.tag()) {
-            .function, .extern_fn => .function,
-            .variable => .variable,
+        const addrspace_ctx: Sema.AddressSpaceContext = switch (decl_tv.val.ip_index) {
+            .none => switch (decl_tv.val.tag()) {
+                .function, .extern_fn => .function,
+                .variable => .variable,
+                else => .constant,
+            },
             else => .constant,
         };
 

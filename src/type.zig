@@ -252,7 +252,7 @@ pub const Type = struct {
     }
 
     pub fn castTag(self: Type, comptime t: Tag) ?*t.Type() {
-        assert(self.ip_index == .none);
+        if (self.ip_index != .none) return null;
 
         if (@enumToInt(self.legacy.tag_if_small_enough) < Tag.no_payload_count)
             return null;
