@@ -33,13 +33,10 @@ pub const Value = struct {
     // Keep in sync with tools/stage2_pretty_printers_common.py
     pub const Tag = enum(usize) {
         // The first section of this enum are tags that require no payload.
-        undef,
         zero,
         one,
-        unreachable_value,
         /// The only possible value for a particular type, which is stored externally.
         the_only_possible_value,
-        null_value,
 
         empty_struct_value,
         empty_array, // See last_no_payload_tag below.
@@ -132,14 +129,11 @@ pub const Value = struct {
 
         pub fn Type(comptime t: Tag) type {
             return switch (t) {
-                .undef,
                 .zero,
                 .one,
-                .unreachable_value,
                 .the_only_possible_value,
                 .empty_struct_value,
                 .empty_array,
-                .null_value,
                 => @compileError("Value Tag " ++ @tagName(t) ++ " has no payload"),
 
                 .int_big_positive,
@@ -287,13 +281,10 @@ pub const Value = struct {
                 .legacy = .{ .tag_if_small_enough = self.legacy.tag_if_small_enough },
             };
         } else switch (self.legacy.ptr_otherwise.tag) {
-            .undef,
             .zero,
             .one,
-            .unreachable_value,
             .the_only_possible_value,
             .empty_array,
-            .null_value,
             .empty_struct_value,
             => unreachable,
 
@@ -522,7 +513,7 @@ pub const Value = struct {
     ) !void {
         comptime assert(fmt.len == 0);
         if (start_val.ip_index != .none) {
-            try out_stream.print("(interned {d})", .{@enumToInt(start_val.ip_index)});
+            try out_stream.print("(interned: {})", .{start_val.ip_index});
             return;
         }
         var val = start_val;
@@ -534,11 +525,8 @@ pub const Value = struct {
             .@"union" => {
                 return out_stream.writeAll("(union value)");
             },
-            .null_value => return out_stream.writeAll("null"),
-            .undef => return out_stream.writeAll("undefined"),
             .zero => return out_stream.writeAll("0"),
             .one => return out_stream.writeAll("1"),
-            .unreachable_value => return out_stream.writeAll("unreachable"),
             .the_only_possible_value => return out_stream.writeAll("(the only possible value)"),
             .ty => return val.castTag(.ty).?.data.dump("", options, out_stream),
             .lazy_align => {
@@ -811,8 +799,9 @@ pub const Value = struct {
         switch (val.ip_index) {
             .bool_false => return BigIntMutable.init(&space.limbs, 0).toConst(),
             .bool_true => return BigIntMutable.init(&space.limbs, 1).toConst(),
+            .undef => unreachable,
+            .null_value => return BigIntMutable.init(&space.limbs, 0).toConst(),
             .none => switch (val.tag()) {
-                .null_value,
                 .zero,
                 .the_only_possible_value, // i0, u0
                 => return BigIntMutable.init(&space.limbs, 0).toConst(),
@@ -831,8 +820,6 @@ pub const Value = struct {
                 .int_i64 => return BigIntMutable.init(&space.limbs, val.castTag(.int_i64).?.data).toConst(),
                 .int_big_positive => return val.castTag(.int_big_positive).?.asBigInt(),
                 .int_big_negative => return val.castTag(.int_big_negative).?.asBigInt(),
-
-                .undef => unreachable,
 
                 .lazy_align => {
                     const ty = val.castTag(.lazy_align).?.data;
@@ -880,6 +867,7 @@ pub const Value = struct {
         switch (val.ip_index) {
             .bool_false => return 0,
             .bool_true => return 1,
+            .undef => unreachable,
             .none => switch (val.tag()) {
                 .zero,
                 .the_only_possible_value, // i0, u0
@@ -891,8 +879,6 @@ pub const Value = struct {
                 .int_i64 => return @intCast(u64, val.castTag(.int_i64).?.data),
                 .int_big_positive => return val.castTag(.int_big_positive).?.asBigInt().to(u64) catch null,
                 .int_big_negative => return val.castTag(.int_big_negative).?.asBigInt().to(u64) catch null,
-
-                .undef => unreachable,
 
                 .lazy_align => {
                     const ty = val.castTag(.lazy_align).?.data;
@@ -913,9 +899,9 @@ pub const Value = struct {
 
                 else => return null,
             },
-            else => switch (mod.intern_pool.indexToKey(val.ip_index)) {
-                .int => |int| return int.big_int.to(u64) catch null,
-                else => unreachable,
+            else => return switch (mod.intern_pool.indexToKey(val.ip_index)) {
+                .int => |int| int.big_int.to(u64) catch null,
+                else => null,
             },
         }
     }
@@ -930,6 +916,7 @@ pub const Value = struct {
         switch (val.ip_index) {
             .bool_false => return 0,
             .bool_true => return 1,
+            .undef => unreachable,
             .none => switch (val.tag()) {
                 .zero,
                 .the_only_possible_value, // i0, u0
@@ -951,7 +938,6 @@ pub const Value = struct {
                     return @intCast(i64, ty.abiSize(mod));
                 },
 
-                .undef => unreachable,
                 else => unreachable,
             },
             else => switch (mod.intern_pool.indexToKey(val.ip_index)) {
@@ -2032,8 +2018,7 @@ pub const Value = struct {
         const a_tag = a.tag();
         const b_tag = b.tag();
         if (a_tag == b_tag) switch (a_tag) {
-            .undef => return true,
-            .null_value, .the_only_possible_value, .empty_struct_value => return true,
+            .the_only_possible_value, .empty_struct_value => return true,
             .enum_literal => {
                 const a_name = a.castTag(.enum_literal).?.data;
                 const b_name = b.castTag(.enum_literal).?.data;
@@ -2162,9 +2147,7 @@ pub const Value = struct {
                 return eqlAdvanced(a_union.val, active_field_ty, b_union.val, active_field_ty, mod, opt_sema);
             },
             else => {},
-        } else if (b_tag == .null_value or b_tag == .@"error") {
-            return false;
-        } else if (a_tag == .undef or b_tag == .undef) {
+        } else if (b_tag == .@"error") {
             return false;
         }
 
@@ -2283,7 +2266,7 @@ pub const Value = struct {
                 if (a_nan) return true;
                 return a_float == b_float;
             },
-            .Optional => if (a_tag != .null_value and b_tag == .opt_payload) {
+            .Optional => if (b_tag == .opt_payload) {
                 var sub_pl: Payload.SubValue = .{
                     .base = .{ .tag = b.tag() },
                     .data = a,
@@ -2301,7 +2284,7 @@ pub const Value = struct {
             },
             else => {},
         }
-        if (a_tag == .null_value or a_tag == .@"error") return false;
+        if (a_tag == .@"error") return false;
         return (try orderAdvanced(a, b, mod, opt_sema)).compare(.eq);
     }
 
@@ -2642,7 +2625,6 @@ pub const Value = struct {
 
             .zero,
             .one,
-            .null_value,
             .int_u64,
             .int_i64,
             .int_big_positive,
@@ -2717,102 +2699,108 @@ pub const Value = struct {
         arena: ?Allocator,
         buffer: *ElemValueBuffer,
     ) error{OutOfMemory}!Value {
-        switch (val.tag()) {
-            // This is the case of accessing an element of an undef array.
+        switch (val.ip_index) {
             .undef => return Value.undef,
-            .empty_array => unreachable, // out of bounds array index
-            .empty_struct_value => unreachable, // out of bounds array index
+            .none => switch (val.tag()) {
+                // This is the case of accessing an element of an undef array.
+                .empty_array => unreachable, // out of bounds array index
+                .empty_struct_value => unreachable, // out of bounds array index
 
-            .empty_array_sentinel => {
-                assert(index == 0); // The only valid index for an empty array with sentinel.
-                return val.castTag(.empty_array_sentinel).?.data;
+                .empty_array_sentinel => {
+                    assert(index == 0); // The only valid index for an empty array with sentinel.
+                    return val.castTag(.empty_array_sentinel).?.data;
+                },
+
+                .bytes => {
+                    const byte = val.castTag(.bytes).?.data[index];
+                    if (arena) |a| {
+                        return Tag.int_u64.create(a, byte);
+                    } else {
+                        buffer.* = .{
+                            .base = .{ .tag = .int_u64 },
+                            .data = byte,
+                        };
+                        return initPayload(&buffer.base);
+                    }
+                },
+                .str_lit => {
+                    const str_lit = val.castTag(.str_lit).?.data;
+                    const bytes = mod.string_literal_bytes.items[str_lit.index..][0..str_lit.len];
+                    const byte = bytes[index];
+                    if (arena) |a| {
+                        return Tag.int_u64.create(a, byte);
+                    } else {
+                        buffer.* = .{
+                            .base = .{ .tag = .int_u64 },
+                            .data = byte,
+                        };
+                        return initPayload(&buffer.base);
+                    }
+                },
+
+                // No matter the index; all the elements are the same!
+                .repeated => return val.castTag(.repeated).?.data,
+
+                .aggregate => return val.castTag(.aggregate).?.data[index],
+                .slice => return val.castTag(.slice).?.data.ptr.elemValueAdvanced(mod, index, arena, buffer),
+
+                .decl_ref => return mod.declPtr(val.castTag(.decl_ref).?.data).val.elemValueAdvanced(mod, index, arena, buffer),
+                .decl_ref_mut => return mod.declPtr(val.castTag(.decl_ref_mut).?.data.decl_index).val.elemValueAdvanced(mod, index, arena, buffer),
+                .comptime_field_ptr => return val.castTag(.comptime_field_ptr).?.data.field_val.elemValueAdvanced(mod, index, arena, buffer),
+                .elem_ptr => {
+                    const data = val.castTag(.elem_ptr).?.data;
+                    return data.array_ptr.elemValueAdvanced(mod, index + data.index, arena, buffer);
+                },
+                .field_ptr => {
+                    const data = val.castTag(.field_ptr).?.data;
+                    if (data.container_ptr.pointerDecl()) |decl_index| {
+                        const container_decl = mod.declPtr(decl_index);
+                        const field_type = data.container_ty.structFieldType(data.field_index);
+                        const field_val = container_decl.val.fieldValue(field_type, mod, data.field_index);
+                        return field_val.elemValueAdvanced(mod, index, arena, buffer);
+                    } else unreachable;
+                },
+
+                // The child type of arrays which have only one possible value need
+                // to have only one possible value itself.
+                .the_only_possible_value => return val,
+
+                .opt_payload_ptr => return val.castTag(.opt_payload_ptr).?.data.container_ptr.elemValueAdvanced(mod, index, arena, buffer),
+                .eu_payload_ptr => return val.castTag(.eu_payload_ptr).?.data.container_ptr.elemValueAdvanced(mod, index, arena, buffer),
+
+                .opt_payload => return val.castTag(.opt_payload).?.data.elemValueAdvanced(mod, index, arena, buffer),
+                .eu_payload => return val.castTag(.eu_payload).?.data.elemValueAdvanced(mod, index, arena, buffer),
+
+                else => unreachable,
             },
-
-            .bytes => {
-                const byte = val.castTag(.bytes).?.data[index];
-                if (arena) |a| {
-                    return Tag.int_u64.create(a, byte);
-                } else {
-                    buffer.* = .{
-                        .base = .{ .tag = .int_u64 },
-                        .data = byte,
-                    };
-                    return initPayload(&buffer.base);
-                }
-            },
-            .str_lit => {
-                const str_lit = val.castTag(.str_lit).?.data;
-                const bytes = mod.string_literal_bytes.items[str_lit.index..][0..str_lit.len];
-                const byte = bytes[index];
-                if (arena) |a| {
-                    return Tag.int_u64.create(a, byte);
-                } else {
-                    buffer.* = .{
-                        .base = .{ .tag = .int_u64 },
-                        .data = byte,
-                    };
-                    return initPayload(&buffer.base);
-                }
-            },
-
-            // No matter the index; all the elements are the same!
-            .repeated => return val.castTag(.repeated).?.data,
-
-            .aggregate => return val.castTag(.aggregate).?.data[index],
-            .slice => return val.castTag(.slice).?.data.ptr.elemValueAdvanced(mod, index, arena, buffer),
-
-            .decl_ref => return mod.declPtr(val.castTag(.decl_ref).?.data).val.elemValueAdvanced(mod, index, arena, buffer),
-            .decl_ref_mut => return mod.declPtr(val.castTag(.decl_ref_mut).?.data.decl_index).val.elemValueAdvanced(mod, index, arena, buffer),
-            .comptime_field_ptr => return val.castTag(.comptime_field_ptr).?.data.field_val.elemValueAdvanced(mod, index, arena, buffer),
-            .elem_ptr => {
-                const data = val.castTag(.elem_ptr).?.data;
-                return data.array_ptr.elemValueAdvanced(mod, index + data.index, arena, buffer);
-            },
-            .field_ptr => {
-                const data = val.castTag(.field_ptr).?.data;
-                if (data.container_ptr.pointerDecl()) |decl_index| {
-                    const container_decl = mod.declPtr(decl_index);
-                    const field_type = data.container_ty.structFieldType(data.field_index);
-                    const field_val = container_decl.val.fieldValue(field_type, mod, data.field_index);
-                    return field_val.elemValueAdvanced(mod, index, arena, buffer);
-                } else unreachable;
-            },
-
-            // The child type of arrays which have only one possible value need
-            // to have only one possible value itself.
-            .the_only_possible_value => return val,
-
-            .opt_payload_ptr => return val.castTag(.opt_payload_ptr).?.data.container_ptr.elemValueAdvanced(mod, index, arena, buffer),
-            .eu_payload_ptr => return val.castTag(.eu_payload_ptr).?.data.container_ptr.elemValueAdvanced(mod, index, arena, buffer),
-
-            .opt_payload => return val.castTag(.opt_payload).?.data.elemValueAdvanced(mod, index, arena, buffer),
-            .eu_payload => return val.castTag(.eu_payload).?.data.elemValueAdvanced(mod, index, arena, buffer),
-
             else => unreachable,
         }
     }
 
     /// Returns true if a Value is backed by a variable
     pub fn isVariable(val: Value, mod: *Module) bool {
-        return switch (val.tag()) {
-            .slice => val.castTag(.slice).?.data.ptr.isVariable(mod),
-            .comptime_field_ptr => val.castTag(.comptime_field_ptr).?.data.field_val.isVariable(mod),
-            .elem_ptr => val.castTag(.elem_ptr).?.data.array_ptr.isVariable(mod),
-            .field_ptr => val.castTag(.field_ptr).?.data.container_ptr.isVariable(mod),
-            .eu_payload_ptr => val.castTag(.eu_payload_ptr).?.data.container_ptr.isVariable(mod),
-            .opt_payload_ptr => val.castTag(.opt_payload_ptr).?.data.container_ptr.isVariable(mod),
-            .decl_ref => {
-                const decl = mod.declPtr(val.castTag(.decl_ref).?.data);
-                assert(decl.has_tv);
-                return decl.val.isVariable(mod);
-            },
-            .decl_ref_mut => {
-                const decl = mod.declPtr(val.castTag(.decl_ref_mut).?.data.decl_index);
-                assert(decl.has_tv);
-                return decl.val.isVariable(mod);
-            },
+        return switch (val.ip_index) {
+            .none => switch (val.tag()) {
+                .slice => val.castTag(.slice).?.data.ptr.isVariable(mod),
+                .comptime_field_ptr => val.castTag(.comptime_field_ptr).?.data.field_val.isVariable(mod),
+                .elem_ptr => val.castTag(.elem_ptr).?.data.array_ptr.isVariable(mod),
+                .field_ptr => val.castTag(.field_ptr).?.data.container_ptr.isVariable(mod),
+                .eu_payload_ptr => val.castTag(.eu_payload_ptr).?.data.container_ptr.isVariable(mod),
+                .opt_payload_ptr => val.castTag(.opt_payload_ptr).?.data.container_ptr.isVariable(mod),
+                .decl_ref => {
+                    const decl = mod.declPtr(val.castTag(.decl_ref).?.data);
+                    assert(decl.has_tv);
+                    return decl.val.isVariable(mod);
+                },
+                .decl_ref_mut => {
+                    const decl = mod.declPtr(val.castTag(.decl_ref_mut).?.data.decl_index);
+                    assert(decl.has_tv);
+                    return decl.val.isVariable(mod);
+                },
 
-            .variable => true,
+                .variable => true,
+                else => false,
+            },
             else => false,
         };
     }
@@ -2878,39 +2866,46 @@ pub const Value = struct {
     }
 
     pub fn fieldValue(val: Value, ty: Type, mod: *const Module, index: usize) Value {
-        switch (val.tag()) {
-            .aggregate => {
-                const field_values = val.castTag(.aggregate).?.data;
-                return field_values[index];
-            },
-            .@"union" => {
-                const payload = val.castTag(.@"union").?.data;
-                // TODO assert the tag is correct
-                return payload.val;
-            },
-
-            .the_only_possible_value => return ty.onePossibleValue(mod).?,
-
-            .empty_struct_value => {
-                if (ty.isSimpleTupleOrAnonStruct()) {
-                    const tuple = ty.tupleFields();
-                    return tuple.values[index];
-                }
-                if (ty.structFieldValueComptime(mod, index)) |some| {
-                    return some;
-                }
-                unreachable;
-            },
+        switch (val.ip_index) {
             .undef => return Value.undef,
+            .none => switch (val.tag()) {
+                .aggregate => {
+                    const field_values = val.castTag(.aggregate).?.data;
+                    return field_values[index];
+                },
+                .@"union" => {
+                    const payload = val.castTag(.@"union").?.data;
+                    // TODO assert the tag is correct
+                    return payload.val;
+                },
 
+                .the_only_possible_value => return ty.onePossibleValue(mod).?,
+
+                .empty_struct_value => {
+                    if (ty.isSimpleTupleOrAnonStruct()) {
+                        const tuple = ty.tupleFields();
+                        return tuple.values[index];
+                    }
+                    if (ty.structFieldValueComptime(mod, index)) |some| {
+                        return some;
+                    }
+                    unreachable;
+                },
+
+                else => unreachable,
+            },
             else => unreachable,
         }
     }
 
     pub fn unionTag(val: Value) Value {
-        switch (val.tag()) {
-            .undef, .enum_field_index => return val,
-            .@"union" => return val.castTag(.@"union").?.data.tag,
+        switch (val.ip_index) {
+            .undef => return val,
+            .none => switch (val.tag()) {
+                .enum_field_index => return val,
+                .@"union" => return val.castTag(.@"union").?.data.tag,
+                else => unreachable,
+            },
             else => unreachable,
         }
     }
@@ -2946,15 +2941,15 @@ pub const Value = struct {
         });
     }
 
-    pub fn isUndef(self: Value) bool {
-        return self.tag() == .undef;
+    pub fn isUndef(val: Value) bool {
+        return val.ip_index == .undef;
     }
 
     /// TODO: check for cases such as array that is not marked undef but all the element
     /// values are marked undef, or struct that is not marked undef but all fields are marked
     /// undef, etc.
-    pub fn isUndefDeep(self: Value) bool {
-        return self.isUndef();
+    pub fn isUndefDeep(val: Value) bool {
+        return val.isUndef();
     }
 
     /// Returns true if any value contained in `self` is undefined.
@@ -2962,27 +2957,29 @@ pub const Value = struct {
     /// values are marked undef, or struct that is not marked undef but all fields are marked
     /// undef, etc.
     pub fn anyUndef(self: Value, mod: *Module) bool {
-        switch (self.tag()) {
-            .slice => {
-                const payload = self.castTag(.slice).?;
-                const len = payload.data.len.toUnsignedInt(mod);
-
-                var elem_value_buf: ElemValueBuffer = undefined;
-                var i: usize = 0;
-                while (i < len) : (i += 1) {
-                    const elem_val = payload.data.ptr.elemValueBuffer(mod, i, &elem_value_buf);
-                    if (elem_val.anyUndef(mod)) return true;
-                }
-            },
-
-            .aggregate => {
-                const payload = self.castTag(.aggregate).?;
-                for (payload.data) |val| {
-                    if (val.anyUndef(mod)) return true;
-                }
-            },
-
+        switch (self.ip_index) {
             .undef => return true,
+            .none => switch (self.tag()) {
+                .slice => {
+                    const payload = self.castTag(.slice).?;
+                    const len = payload.data.len.toUnsignedInt(mod);
+
+                    var elem_value_buf: ElemValueBuffer = undefined;
+                    var i: usize = 0;
+                    while (i < len) : (i += 1) {
+                        const elem_val = payload.data.ptr.elemValueBuffer(mod, i, &elem_value_buf);
+                        if (elem_val.anyUndef(mod)) return true;
+                    }
+                },
+
+                .aggregate => {
+                    const payload = self.castTag(.aggregate).?;
+                    for (payload.data) |val| {
+                        if (val.anyUndef(mod)) return true;
+                    }
+                },
+                else => {},
+            },
             else => {},
         }
 
@@ -2992,30 +2989,33 @@ pub const Value = struct {
     /// Asserts the value is not undefined and not unreachable.
     /// Integer value 0 is considered null because of C pointers.
     pub fn isNull(self: Value, mod: *const Module) bool {
-        return switch (self.tag()) {
-            .null_value => true,
-            .opt_payload => false,
-
-            // If it's not one of those two tags then it must be a C pointer value,
-            // in which case the value 0 is null and other values are non-null.
-
-            .zero,
-            .the_only_possible_value,
-            => true,
-
-            .one => false,
-
-            .int_u64,
-            .int_i64,
-            .int_big_positive,
-            .int_big_negative,
-            => self.orderAgainstZero(mod).compare(.eq),
-
+        return switch (self.ip_index) {
             .undef => unreachable,
             .unreachable_value => unreachable,
-            .inferred_alloc => unreachable,
-            .inferred_alloc_comptime => unreachable,
+            .null_value => true,
+            .none => switch (self.tag()) {
+                .opt_payload => false,
 
+                // If it's not one of those two tags then it must be a C pointer value,
+                // in which case the value 0 is null and other values are non-null.
+
+                .zero,
+                .the_only_possible_value,
+                => true,
+
+                .one => false,
+
+                .int_u64,
+                .int_i64,
+                .int_big_positive,
+                .int_big_negative,
+                => self.orderAgainstZero(mod).compare(.eq),
+
+                .inferred_alloc => unreachable,
+                .inferred_alloc_comptime => unreachable,
+
+                else => false,
+            },
             else => false,
         };
     }
@@ -3025,18 +3025,21 @@ pub const Value = struct {
     /// something is an error or not because it works without having to figure out the
     /// string.
     pub fn getError(self: Value) ?[]const u8 {
-        return switch (self.tag()) {
-            .@"error" => self.castTag(.@"error").?.data.name,
-            .int_u64 => @panic("TODO"),
-            .int_i64 => @panic("TODO"),
-            .int_big_positive => @panic("TODO"),
-            .int_big_negative => @panic("TODO"),
-            .one => @panic("TODO"),
+        return switch (self.ip_index) {
             .undef => unreachable,
             .unreachable_value => unreachable,
-            .inferred_alloc => unreachable,
-            .inferred_alloc_comptime => unreachable,
+            .none => switch (self.tag()) {
+                .@"error" => self.castTag(.@"error").?.data.name,
+                .int_u64 => @panic("TODO"),
+                .int_i64 => @panic("TODO"),
+                .int_big_positive => @panic("TODO"),
+                .int_big_negative => @panic("TODO"),
+                .one => @panic("TODO"),
+                .inferred_alloc => unreachable,
+                .inferred_alloc_comptime => unreachable,
 
+                else => null,
+            },
             else => null,
         };
     }
@@ -3044,13 +3047,16 @@ pub const Value = struct {
     /// Assumes the type is an error union. Returns true if and only if the value is
     /// the error union payload, not an error.
     pub fn errorUnionIsPayload(val: Value) bool {
-        return switch (val.tag()) {
-            .eu_payload => true,
-            else => false,
-
+        return switch (val.ip_index) {
             .undef => unreachable,
-            .inferred_alloc => unreachable,
-            .inferred_alloc_comptime => unreachable,
+            .none => switch (val.tag()) {
+                .eu_payload => true,
+                else => false,
+
+                .inferred_alloc => unreachable,
+                .inferred_alloc_comptime => unreachable,
+            },
+            else => false,
         };
     }
 
@@ -3065,17 +3071,20 @@ pub const Value = struct {
 
     /// Valid for all types. Asserts the value is not undefined.
     pub fn isFloat(self: Value) bool {
-        return switch (self.tag()) {
+        return switch (self.ip_index) {
             .undef => unreachable,
-            .inferred_alloc => unreachable,
-            .inferred_alloc_comptime => unreachable,
+            .none => switch (self.tag()) {
+                .inferred_alloc => unreachable,
+                .inferred_alloc_comptime => unreachable,
 
-            .float_16,
-            .float_32,
-            .float_64,
-            .float_80,
-            .float_128,
-            => true,
+                .float_16,
+                .float_32,
+                .float_64,
+                .float_80,
+                .float_128,
+                => true,
+                else => false,
+            },
             else => false,
         };
     }
@@ -3102,40 +3111,44 @@ pub const Value = struct {
 
     pub fn intToFloatScalar(val: Value, arena: Allocator, float_ty: Type, mod: *Module, opt_sema: ?*Sema) !Value {
         const target = mod.getTarget();
-        switch (val.tag()) {
-            .undef, .zero, .one => return val,
-            .the_only_possible_value => return Value.initTag(.zero), // for i0, u0
-            .int_u64 => {
-                return intToFloatInner(val.castTag(.int_u64).?.data, arena, float_ty, target);
-            },
-            .int_i64 => {
-                return intToFloatInner(val.castTag(.int_i64).?.data, arena, float_ty, target);
-            },
-            .int_big_positive => {
-                const limbs = val.castTag(.int_big_positive).?.data;
-                const float = bigIntToFloat(limbs, true);
-                return floatToValue(float, arena, float_ty, target);
-            },
-            .int_big_negative => {
-                const limbs = val.castTag(.int_big_negative).?.data;
-                const float = bigIntToFloat(limbs, false);
-                return floatToValue(float, arena, float_ty, target);
-            },
-            .lazy_align => {
-                const ty = val.castTag(.lazy_align).?.data;
-                if (opt_sema) |sema| {
-                    return intToFloatInner((try ty.abiAlignmentAdvanced(mod, .{ .sema = sema })).scalar, arena, float_ty, target);
-                } else {
-                    return intToFloatInner(ty.abiAlignment(mod), arena, float_ty, target);
-                }
-            },
-            .lazy_size => {
-                const ty = val.castTag(.lazy_size).?.data;
-                if (opt_sema) |sema| {
-                    return intToFloatInner((try ty.abiSizeAdvanced(mod, .{ .sema = sema })).scalar, arena, float_ty, target);
-                } else {
-                    return intToFloatInner(ty.abiSize(mod), arena, float_ty, target);
-                }
+        switch (val.ip_index) {
+            .undef => return val,
+            .none => switch (val.tag()) {
+                .zero, .one => return val,
+                .the_only_possible_value => return Value.initTag(.zero), // for i0, u0
+                .int_u64 => {
+                    return intToFloatInner(val.castTag(.int_u64).?.data, arena, float_ty, target);
+                },
+                .int_i64 => {
+                    return intToFloatInner(val.castTag(.int_i64).?.data, arena, float_ty, target);
+                },
+                .int_big_positive => {
+                    const limbs = val.castTag(.int_big_positive).?.data;
+                    const float = bigIntToFloat(limbs, true);
+                    return floatToValue(float, arena, float_ty, target);
+                },
+                .int_big_negative => {
+                    const limbs = val.castTag(.int_big_negative).?.data;
+                    const float = bigIntToFloat(limbs, false);
+                    return floatToValue(float, arena, float_ty, target);
+                },
+                .lazy_align => {
+                    const ty = val.castTag(.lazy_align).?.data;
+                    if (opt_sema) |sema| {
+                        return intToFloatInner((try ty.abiAlignmentAdvanced(mod, .{ .sema = sema })).scalar, arena, float_ty, target);
+                    } else {
+                        return intToFloatInner(ty.abiAlignment(mod), arena, float_ty, target);
+                    }
+                },
+                .lazy_size => {
+                    const ty = val.castTag(.lazy_size).?.data;
+                    if (opt_sema) |sema| {
+                        return intToFloatInner((try ty.abiSizeAdvanced(mod, .{ .sema = sema })).scalar, arena, float_ty, target);
+                    } else {
+                        return intToFloatInner(ty.abiSize(mod), arena, float_ty, target);
+                    }
+                },
+                else => unreachable,
             },
             else => unreachable,
         }
@@ -3381,7 +3394,7 @@ pub const Value = struct {
         arena: Allocator,
         mod: *Module,
     ) !Value {
-        if (lhs.isUndef() or rhs.isUndef()) return Value.initTag(.undef);
+        if (lhs.isUndef() or rhs.isUndef()) return Value.undef;
 
         if (ty.zigTypeTag(mod) == .ComptimeInt) {
             return intMul(lhs, rhs, ty, arena, mod);
@@ -3492,7 +3505,7 @@ pub const Value = struct {
 
     /// operands must be integers; handles undefined.
     pub fn bitwiseNotScalar(val: Value, ty: Type, arena: Allocator, mod: *Module) !Value {
-        if (val.isUndef()) return Value.initTag(.undef);
+        if (val.isUndef()) return Value.undef;
 
         const info = ty.intInfo(mod);
 
@@ -3532,7 +3545,7 @@ pub const Value = struct {
 
     /// operands must be integers; handles undefined.
     pub fn bitwiseAndScalar(lhs: Value, rhs: Value, arena: Allocator, mod: *Module) !Value {
-        if (lhs.isUndef() or rhs.isUndef()) return Value.initTag(.undef);
+        if (lhs.isUndef() or rhs.isUndef()) return Value.undef;
 
         // TODO is this a performance issue? maybe we should try the operation without
         // resorting to BigInt first.
@@ -3568,7 +3581,7 @@ pub const Value = struct {
 
     /// operands must be integers; handles undefined.
     pub fn bitwiseNandScalar(lhs: Value, rhs: Value, ty: Type, arena: Allocator, mod: *Module) !Value {
-        if (lhs.isUndef() or rhs.isUndef()) return Value.initTag(.undef);
+        if (lhs.isUndef() or rhs.isUndef()) return Value.undef;
 
         const anded = try bitwiseAnd(lhs, rhs, ty, arena, mod);
 
@@ -3598,7 +3611,7 @@ pub const Value = struct {
 
     /// operands must be integers; handles undefined.
     pub fn bitwiseOrScalar(lhs: Value, rhs: Value, arena: Allocator, mod: *Module) !Value {
-        if (lhs.isUndef() or rhs.isUndef()) return Value.initTag(.undef);
+        if (lhs.isUndef() or rhs.isUndef()) return Value.undef;
 
         // TODO is this a performance issue? maybe we should try the operation without
         // resorting to BigInt first.
@@ -3633,7 +3646,7 @@ pub const Value = struct {
 
     /// operands must be integers; handles undefined.
     pub fn bitwiseXorScalar(lhs: Value, rhs: Value, arena: Allocator, mod: *Module) !Value {
-        if (lhs.isUndef() or rhs.isUndef()) return Value.initTag(.undef);
+        if (lhs.isUndef() or rhs.isUndef()) return Value.undef;
 
         // TODO is this a performance issue? maybe we should try the operation without
         // resorting to BigInt first.
@@ -5393,11 +5406,12 @@ pub const Value = struct {
         .ip_index = .none,
         .legacy = .{ .ptr_otherwise = &negative_one_payload.base },
     };
-    pub const undef = initTag(.undef);
+    pub const undef: Value = .{ .ip_index = .undef, .legacy = undefined };
     pub const @"void": Value = .{ .ip_index = .void_value, .legacy = undefined };
-    pub const @"null" = initTag(.null_value);
+    pub const @"null": Value = .{ .ip_index = .null_value, .legacy = undefined };
     pub const @"false": Value = .{ .ip_index = .bool_false, .legacy = undefined };
     pub const @"true": Value = .{ .ip_index = .bool_true, .legacy = undefined };
+    pub const @"unreachable": Value = .{ .ip_index = .unreachable_value, .legacy = undefined };
 
     pub const generic_poison: Value = .{ .ip_index = .generic_poison, .legacy = undefined };
     pub const generic_poison_type: Value = .{ .ip_index = .generic_poison_type, .legacy = undefined };

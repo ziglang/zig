@@ -932,7 +932,7 @@ pub const Decl = struct {
         assert(decl.has_tv);
         return switch (decl.val.tag()) {
             .extern_fn => true,
-            .variable => decl.val.castTag(.variable).?.data.init.tag() == .unreachable_value,
+            .variable => decl.val.castTag(.variable).?.data.init.ip_index == .unreachable_value,
             else => false,
         };
     }
@@ -4849,6 +4849,8 @@ fn semaDecl(mod: *Module, decl_index: Decl.Index) !bool {
     var is_extern = false;
     switch (decl_tv.val.ip_index) {
         .generic_poison => unreachable,
+        .unreachable_value => unreachable,
+
         .none => switch (decl_tv.val.tag()) {
             .variable => {
                 const variable = decl_tv.val.castTag(.variable).?.data;
@@ -4868,8 +4870,6 @@ fn semaDecl(mod: *Module, decl_index: Decl.Index) !bool {
                     is_extern = true;
                 }
             },
-
-            .unreachable_value => unreachable,
 
             .function => {},
 
@@ -6592,7 +6592,7 @@ pub fn populateTestFunctions(
                     .len = try Value.Tag.int_u64.create(arena, test_name_slice.len),
                 }), // name
                 try Value.Tag.decl_ref.create(arena, test_decl_index), // func
-                Value.initTag(.null_value), // async_frame_size
+                Value.null, // async_frame_size
             };
             test_fn_vals[i] = try Value.Tag.aggregate.create(arena, field_vals);
         }
