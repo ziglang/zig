@@ -3257,32 +3257,23 @@ pub const DeclGen = struct {
             },
             // TODO this duplicates code with Pointer but they should share the handling
             // of the tv.val.tag() and then Int should do extra constPtrToInt on top
-            .Int => switch (tv.val.tag()) {
-                .decl_ref_mut => return lowerDeclRefValue(dg, tv, tv.val.castTag(.decl_ref_mut).?.data.decl_index),
-                .decl_ref => return lowerDeclRefValue(dg, tv, tv.val.castTag(.decl_ref).?.data),
-                else => {
-                    var bigint_space: Value.BigIntSpace = undefined;
-                    const bigint = tv.val.toBigInt(&bigint_space, mod);
-                    const int_info = tv.ty.intInfo(mod);
-                    assert(int_info.bits != 0);
-                    const llvm_type = dg.context.intType(int_info.bits);
-
-                    const unsigned_val = v: {
-                        if (bigint.limbs.len == 1) {
-                            break :v llvm_type.constInt(bigint.limbs[0], .False);
-                        }
-                        if (@sizeOf(usize) == @sizeOf(u64)) {
-                            break :v llvm_type.constIntOfArbitraryPrecision(
-                                @intCast(c_uint, bigint.limbs.len),
-                                bigint.limbs.ptr,
-                            );
-                        }
-                        @panic("TODO implement bigint to llvm int for 32-bit compiler builds");
-                    };
-                    if (!bigint.positive) {
-                        return llvm.constNeg(unsigned_val);
-                    }
-                    return unsigned_val;
+            .Int => switch (tv.val.ip_index) {
+                .none => switch (tv.val.tag()) {
+                    .decl_ref_mut => return lowerDeclRefValue(dg, tv, tv.val.castTag(.decl_ref_mut).?.data.decl_index),
+                    .decl_ref => return lowerDeclRefValue(dg, tv, tv.val.castTag(.decl_ref).?.data),
+                    else => {
+                        var bigint_space: Value.BigIntSpace = undefined;
+                        const bigint = tv.val.toBigInt(&bigint_space, mod);
+                        return lowerBigInt(dg, tv.ty, bigint);
+                    },
+                },
+                else => switch (mod.intern_pool.indexToKey(tv.val.ip_index)) {
+                    .int => |int| {
+                        var bigint_space: Value.BigIntSpace = undefined;
+                        const bigint = int.storage.toBigInt(&bigint_space);
+                        return lowerBigInt(dg, tv.ty, bigint);
+                    },
+                    else => unreachable,
                 },
             },
             .Enum => {
@@ -3981,6 +3972,30 @@ pub const DeclGen = struct {
             .AnyFrame,
             => return dg.todo("implement const of type '{}'", .{tv.ty.fmtDebug()}),
         }
+    }
+
+    fn lowerBigInt(dg: *DeclGen, ty: Type, bigint: std.math.big.int.Const) *llvm.Value {
+        const mod = dg.module;
+        const int_info = ty.intInfo(mod);
+        assert(int_info.bits != 0);
+        const llvm_type = dg.context.intType(int_info.bits);
+
+        const unsigned_val = v: {
+            if (bigint.limbs.len == 1) {
+                break :v llvm_type.constInt(bigint.limbs[0], .False);
+            }
+            if (@sizeOf(usize) == @sizeOf(u64)) {
+                break :v llvm_type.constIntOfArbitraryPrecision(
+                    @intCast(c_uint, bigint.limbs.len),
+                    bigint.limbs.ptr,
+                );
+            }
+            @panic("TODO implement bigint to llvm int for 32-bit compiler builds");
+        };
+        if (!bigint.positive) {
+            return llvm.constNeg(unsigned_val);
+        }
+        return unsigned_val;
     }
 
     const ParentPtr = struct {
