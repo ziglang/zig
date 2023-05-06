@@ -1047,6 +1047,8 @@ test "indexOfNone" {
     try testing.expect(lastIndexOfNone(u8, "123abc", "123").? == 5);
     try testing.expect(indexOfNone(u8, "123123", "123") == null);
     try testing.expect(indexOfNone(u8, "333333", "123") == null);
+
+    try testing.expect(indexOfNonePos(u8, "abc123", 3, "321") == null);
 }
 
 pub fn indexOf(comptime T: type, haystack: []const T, needle: []const T) ?usize {
