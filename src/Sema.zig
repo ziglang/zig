@@ -31485,11 +31485,18 @@ pub fn resolveTypeRequiresComptime(sema: *Sema, ty: Type) CompileError!bool {
 
     if (ty.ip_index != .none) return switch (mod.intern_pool.indexToKey(ty.ip_index)) {
         .int_type => false,
-        .ptr_type => @panic("TODO"),
-        .array_type => @panic("TODO"),
+        .ptr_type => |ptr_type| {
+            const child_ty = ptr_type.elem_type.toType();
+            if (child_ty.zigTypeTag(mod) == .Fn) {
+                return child_ty.fnInfo().is_generic;
+            } else {
+                return sema.resolveTypeRequiresComptime(child_ty);
+            }
+        },
+        .array_type => |array_type| return sema.resolveTypeRequiresComptime(array_type.child.toType()),
         .vector_type => |vector_type| return sema.resolveTypeRequiresComptime(vector_type.child.toType()),
-        .opt_type => @panic("TODO"),
-        .error_union_type => @panic("TODO"),
+        .opt_type => |child| return sema.resolveTypeRequiresComptime(child.toType()),
+        .error_union_type => |error_union_type| return sema.resolveTypeRequiresComptime(error_union_type.payload_type.toType()),
         .simple_type => |t| switch (t) {
             .f16,
             .f32,
@@ -33528,11 +33535,20 @@ pub fn typeRequiresComptime(sema: *Sema, ty: Type) CompileError!bool {
     if (ty.ip_index != .none) {
         switch (mod.intern_pool.indexToKey(ty.ip_index)) {
             .int_type => return false,
-            .ptr_type => @panic("TODO"),
-            .array_type => @panic("TODO"),
+            .ptr_type => |ptr_type| {
+                const child_ty = ptr_type.elem_type.toType();
+                if (child_ty.zigTypeTag(mod) == .Fn) {
+                    return child_ty.fnInfo().is_generic;
+                } else {
+                    return sema.typeRequiresComptime(child_ty);
+                }
+            },
+            .array_type => |array_type| return sema.typeRequiresComptime(array_type.child.toType()),
             .vector_type => |vector_type| return sema.typeRequiresComptime(vector_type.child.toType()),
-            .opt_type => @panic("TODO"),
-            .error_union_type => @panic("TODO"),
+            .opt_type => |child| return sema.typeRequiresComptime(child.toType()),
+            .error_union_type => |error_union_type| {
+                return sema.typeRequiresComptime(error_union_type.payload_type.toType());
+            },
             .simple_type => |t| return switch (t) {
                 .f16,
                 .f32,
