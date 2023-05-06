@@ -1040,6 +1040,7 @@ pub fn get(ip: *InternPool, gpa: Allocator, key: Key) Allocator.Error!Index {
             });
         },
         .ptr_type => |ptr_type| {
+            assert(ptr_type.elem_type != .none);
             // TODO introduce more pointer encodings
             ip.items.appendAssumeCapacity(.{
                 .tag = .type_pointer,
