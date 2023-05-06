@@ -1274,11 +1274,77 @@ pub const Type = struct {
                 };
                 return writer.print("{c}{d}", .{ sign_char, int_type.bits });
             },
-            .ptr_type => @panic("TODO"),
-            .array_type => @panic("TODO"),
-            .vector_type => @panic("TODO"),
-            .opt_type => @panic("TODO"),
-            .error_union_type => @panic("TODO"),
+            .ptr_type => {
+                const info = ty.ptrInfo(mod);
+
+                if (info.sentinel) |s| switch (info.size) {
+                    .One, .C => unreachable,
+                    .Many => try writer.print("[*:{}]", .{s.fmtValue(info.pointee_type, mod)}),
+                    .Slice => try writer.print("[:{}]", .{s.fmtValue(info.pointee_type, mod)}),
+                } else switch (info.size) {
+                    .One => try writer.writeAll("*"),
+                    .Many => try writer.writeAll("[*]"),
+                    .C => try writer.writeAll("[*c]"),
+                    .Slice => try writer.writeAll("[]"),
+                }
+                if (info.@"align" != 0 or info.host_size != 0 or info.vector_index != .none) {
+                    if (info.@"align" != 0) {
+                        try writer.print("align({d}", .{info.@"align"});
+                    } else {
+                        const alignment = info.pointee_type.abiAlignment(mod);
+                        try writer.print("align({d}", .{alignment});
+                    }
+
+                    if (info.bit_offset != 0 or info.host_size != 0) {
+                        try writer.print(":{d}:{d}", .{ info.bit_offset, info.host_size });
+                    }
+                    if (info.vector_index == .runtime) {
+                        try writer.writeAll(":?");
+                    } else if (info.vector_index != .none) {
+                        try writer.print(":{d}", .{@enumToInt(info.vector_index)});
+                    }
+                    try writer.writeAll(") ");
+                }
+                if (info.@"addrspace" != .generic) {
+                    try writer.print("addrspace(.{s}) ", .{@tagName(info.@"addrspace")});
+                }
+                if (!info.mutable) try writer.writeAll("const ");
+                if (info.@"volatile") try writer.writeAll("volatile ");
+                if (info.@"allowzero" and info.size != .C) try writer.writeAll("allowzero ");
+
+                try print(info.pointee_type, writer, mod);
+                return;
+            },
+            .array_type => |array_type| {
+                if (array_type.sentinel == .none) {
+                    try writer.print("[{d}]", .{array_type.len});
+                    try print(array_type.child.toType(), writer, mod);
+                } else {
+                    try writer.print("[{d}:{}]", .{
+                        array_type.len,
+                        array_type.sentinel.toValue().fmtValue(array_type.child.toType(), mod),
+                    });
+                    try print(array_type.child.toType(), writer, mod);
+                }
+                return;
+            },
+            .vector_type => |vector_type| {
+                try writer.print("@Vector({d}, ", .{vector_type.len});
+                try print(vector_type.child.toType(), writer, mod);
+                try writer.writeAll(")");
+                return;
+            },
+            .opt_type => |child| {
+                try writer.writeByte('?');
+                try print(child.toType(), writer, mod);
+                return;
+            },
+            .error_union_type => |error_union_type| {
+                try print(error_union_type.error_set_type.toType(), writer, mod);
+                try writer.writeByte('!');
+                try print(error_union_type.payload_type.toType(), writer, mod);
+                return;
+            },
             .simple_type => |s| return writer.writeAll(@tagName(s)),
             .struct_type => @panic("TODO"),
             .union_type => @panic("TODO"),
@@ -2055,8 +2121,8 @@ pub const Type = struct {
                 return AbiAlignmentAdvanced{ .scalar = alignment };
             },
 
-            .opt_type => @panic("TODO"),
-            .error_union_type => @panic("TODO"),
+            .opt_type => return abiAlignmentAdvancedOptional(ty, mod, strat),
+            .error_union_type => return abiAlignmentAdvancedErrorUnion(ty, mod, strat),
             .simple_type => |t| switch (t) {
                 .bool,
                 .atomic_order,
@@ -2157,64 +2223,8 @@ pub const Type = struct {
 
             .array, .array_sentinel => return ty.childType(mod).abiAlignmentAdvanced(mod, strat),
 
-            .optional => {
-                const child_type = ty.optionalChild(mod);
-
-                switch (child_type.zigTypeTag(mod)) {
-                    .Pointer => return AbiAlignmentAdvanced{ .scalar = @divExact(target.ptrBitWidth(), 8) },
-                    .ErrorSet => return abiAlignmentAdvanced(Type.anyerror, mod, strat),
-                    .NoReturn => return AbiAlignmentAdvanced{ .scalar = 0 },
-                    else => {},
-                }
-
-                switch (strat) {
-                    .eager, .sema => {
-                        if (!(child_type.hasRuntimeBitsAdvanced(mod, false, strat) catch |err| switch (err) {
-                            error.NeedLazy => return AbiAlignmentAdvanced{ .val = try Value.Tag.lazy_align.create(strat.lazy, ty) },
-                            else => |e| return e,
-                        })) {
-                            return AbiAlignmentAdvanced{ .scalar = 1 };
-                        }
-                        return child_type.abiAlignmentAdvanced(mod, strat);
-                    },
-                    .lazy => |arena| switch (try child_type.abiAlignmentAdvanced(mod, strat)) {
-                        .scalar => |x| return AbiAlignmentAdvanced{ .scalar = @max(x, 1) },
-                        .val => return AbiAlignmentAdvanced{ .val = try Value.Tag.lazy_align.create(arena, ty) },
-                    },
-                }
-            },
-
-            .error_union => {
-                // This code needs to be kept in sync with the equivalent switch prong
-                // in abiSizeAdvanced.
-                const data = ty.castTag(.error_union).?.data;
-                const code_align = abiAlignment(Type.anyerror, mod);
-                switch (strat) {
-                    .eager, .sema => {
-                        if (!(data.payload.hasRuntimeBitsAdvanced(mod, false, strat) catch |err| switch (err) {
-                            error.NeedLazy => return AbiAlignmentAdvanced{ .val = try Value.Tag.lazy_align.create(strat.lazy, ty) },
-                            else => |e| return e,
-                        })) {
-                            return AbiAlignmentAdvanced{ .scalar = code_align };
-                        }
-                        return AbiAlignmentAdvanced{ .scalar = @max(
-                            code_align,
-                            (try data.payload.abiAlignmentAdvanced(mod, strat)).scalar,
-                        ) };
-                    },
-                    .lazy => |arena| {
-                        switch (try data.payload.abiAlignmentAdvanced(mod, strat)) {
-                            .scalar => |payload_align| {
-                                return AbiAlignmentAdvanced{
-                                    .scalar = @max(code_align, payload_align),
-                                };
-                            },
-                            .val => {},
-                        }
-                        return AbiAlignmentAdvanced{ .val = try Value.Tag.lazy_align.create(arena, ty) };
-                    },
-                }
-            },
+            .optional => return abiAlignmentAdvancedOptional(ty, mod, strat),
+            .error_union => return abiAlignmentAdvancedErrorUnion(ty, mod, strat),
 
             .@"struct" => {
                 const struct_obj = ty.castTag(.@"struct").?.data;
@@ -2318,6 +2328,74 @@ pub const Type = struct {
             .inferred_alloc_const,
             .inferred_alloc_mut,
             => unreachable,
+        }
+    }
+
+    fn abiAlignmentAdvancedErrorUnion(
+        ty: Type,
+        mod: *const Module,
+        strat: AbiAlignmentAdvancedStrat,
+    ) Module.CompileError!AbiAlignmentAdvanced {
+        // This code needs to be kept in sync with the equivalent switch prong
+        // in abiSizeAdvanced.
+        const data = ty.castTag(.error_union).?.data;
+        const code_align = abiAlignment(Type.anyerror, mod);
+        switch (strat) {
+            .eager, .sema => {
+                if (!(data.payload.hasRuntimeBitsAdvanced(mod, false, strat) catch |err| switch (err) {
+                    error.NeedLazy => return AbiAlignmentAdvanced{ .val = try Value.Tag.lazy_align.create(strat.lazy, ty) },
+                    else => |e| return e,
+                })) {
+                    return AbiAlignmentAdvanced{ .scalar = code_align };
+                }
+                return AbiAlignmentAdvanced{ .scalar = @max(
+                    code_align,
+                    (try data.payload.abiAlignmentAdvanced(mod, strat)).scalar,
+                ) };
+            },
+            .lazy => |arena| {
+                switch (try data.payload.abiAlignmentAdvanced(mod, strat)) {
+                    .scalar => |payload_align| {
+                        return AbiAlignmentAdvanced{
+                            .scalar = @max(code_align, payload_align),
+                        };
+                    },
+                    .val => {},
+                }
+                return AbiAlignmentAdvanced{ .val = try Value.Tag.lazy_align.create(arena, ty) };
+            },
+        }
+    }
+
+    fn abiAlignmentAdvancedOptional(
+        ty: Type,
+        mod: *const Module,
+        strat: AbiAlignmentAdvancedStrat,
+    ) Module.CompileError!AbiAlignmentAdvanced {
+        const target = mod.getTarget();
+        const child_type = ty.optionalChild(mod);
+
+        switch (child_type.zigTypeTag(mod)) {
+            .Pointer => return AbiAlignmentAdvanced{ .scalar = @divExact(target.ptrBitWidth(), 8) },
+            .ErrorSet => return abiAlignmentAdvanced(Type.anyerror, mod, strat),
+            .NoReturn => return AbiAlignmentAdvanced{ .scalar = 0 },
+            else => {},
+        }
+
+        switch (strat) {
+            .eager, .sema => {
+                if (!(child_type.hasRuntimeBitsAdvanced(mod, false, strat) catch |err| switch (err) {
+                    error.NeedLazy => return AbiAlignmentAdvanced{ .val = try Value.Tag.lazy_align.create(strat.lazy, ty) },
+                    else => |e| return e,
+                })) {
+                    return AbiAlignmentAdvanced{ .scalar = 1 };
+                }
+                return child_type.abiAlignmentAdvanced(mod, strat);
+            },
+            .lazy => |arena| switch (try child_type.abiAlignmentAdvanced(mod, strat)) {
+                .scalar => |x| return AbiAlignmentAdvanced{ .scalar = @max(x, 1) },
+                .val => return AbiAlignmentAdvanced{ .val = try Value.Tag.lazy_align.create(arena, ty) },
+            },
         }
     }
 

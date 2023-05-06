@@ -1848,8 +1848,6 @@ pub const Value = struct {
     /// Asserts the value is comparable.
     /// If opt_sema is null then this function asserts things are resolved and cannot fail.
     pub fn orderAdvanced(lhs: Value, rhs: Value, mod: *const Module, opt_sema: ?*Sema) !std.math.Order {
-        const lhs_tag = lhs.tag();
-        const rhs_tag = rhs.tag();
         const lhs_against_zero = try lhs.orderAgainstZeroAdvanced(mod, opt_sema);
         const rhs_against_zero = try rhs.orderAgainstZeroAdvanced(mod, opt_sema);
         switch (lhs_against_zero) {
@@ -1866,6 +1864,8 @@ pub const Value = struct {
         const lhs_float = lhs.isFloat();
         const rhs_float = rhs.isFloat();
         if (lhs_float and rhs_float) {
+            const lhs_tag = lhs.tag();
+            const rhs_tag = rhs.tag();
             if (lhs_tag == rhs_tag) {
                 return switch (lhs.tag()) {
                     .float_16 => return std.math.order(lhs.castTag(.float_16).?.data, rhs.castTag(.float_16).?.data),
@@ -2601,12 +2601,15 @@ pub const Value = struct {
     /// to a decl, or if it points to some part of a decl (like field_ptr or element_ptr),
     /// this function returns null.
     pub fn pointerDecl(val: Value) ?Module.Decl.Index {
-        return switch (val.tag()) {
-            .decl_ref_mut => val.castTag(.decl_ref_mut).?.data.decl_index,
-            .extern_fn => val.castTag(.extern_fn).?.data.owner_decl,
-            .function => val.castTag(.function).?.data.owner_decl,
-            .variable => val.castTag(.variable).?.data.owner_decl,
-            .decl_ref => val.cast(Payload.Decl).?.data,
+        return switch (val.ip_index) {
+            .none => switch (val.tag()) {
+                .decl_ref_mut => val.castTag(.decl_ref_mut).?.data.decl_index,
+                .extern_fn => val.castTag(.extern_fn).?.data.owner_decl,
+                .function => val.castTag(.function).?.data.owner_decl,
+                .variable => val.castTag(.variable).?.data.owner_decl,
+                .decl_ref => val.cast(Payload.Decl).?.data,
+                else => null,
+            },
             else => null,
         };
     }
@@ -3831,35 +3834,44 @@ pub const Value = struct {
 
     /// Returns true if the value is a floating point type and is NaN. Returns false otherwise.
     pub fn isNan(val: Value) bool {
-        return switch (val.tag()) {
-            .float_16 => std.math.isNan(val.castTag(.float_16).?.data),
-            .float_32 => std.math.isNan(val.castTag(.float_32).?.data),
-            .float_64 => std.math.isNan(val.castTag(.float_64).?.data),
-            .float_80 => std.math.isNan(val.castTag(.float_80).?.data),
-            .float_128 => std.math.isNan(val.castTag(.float_128).?.data),
+        return switch (val.ip_index) {
+            .none => switch (val.tag()) {
+                .float_16 => std.math.isNan(val.castTag(.float_16).?.data),
+                .float_32 => std.math.isNan(val.castTag(.float_32).?.data),
+                .float_64 => std.math.isNan(val.castTag(.float_64).?.data),
+                .float_80 => std.math.isNan(val.castTag(.float_80).?.data),
+                .float_128 => std.math.isNan(val.castTag(.float_128).?.data),
+                else => false,
+            },
             else => false,
         };
     }
 
     /// Returns true if the value is a floating point type and is infinite. Returns false otherwise.
     pub fn isInf(val: Value) bool {
-        return switch (val.tag()) {
-            .float_16 => std.math.isInf(val.castTag(.float_16).?.data),
-            .float_32 => std.math.isInf(val.castTag(.float_32).?.data),
-            .float_64 => std.math.isInf(val.castTag(.float_64).?.data),
-            .float_80 => std.math.isInf(val.castTag(.float_80).?.data),
-            .float_128 => std.math.isInf(val.castTag(.float_128).?.data),
+        return switch (val.ip_index) {
+            .none => switch (val.tag()) {
+                .float_16 => std.math.isInf(val.castTag(.float_16).?.data),
+                .float_32 => std.math.isInf(val.castTag(.float_32).?.data),
+                .float_64 => std.math.isInf(val.castTag(.float_64).?.data),
+                .float_80 => std.math.isInf(val.castTag(.float_80).?.data),
+                .float_128 => std.math.isInf(val.castTag(.float_128).?.data),
+                else => false,
+            },
             else => false,
         };
     }
 
     pub fn isNegativeInf(val: Value) bool {
-        return switch (val.tag()) {
-            .float_16 => std.math.isNegativeInf(val.castTag(.float_16).?.data),
-            .float_32 => std.math.isNegativeInf(val.castTag(.float_32).?.data),
-            .float_64 => std.math.isNegativeInf(val.castTag(.float_64).?.data),
-            .float_80 => std.math.isNegativeInf(val.castTag(.float_80).?.data),
-            .float_128 => std.math.isNegativeInf(val.castTag(.float_128).?.data),
+        return switch (val.ip_index) {
+            .none => switch (val.tag()) {
+                .float_16 => std.math.isNegativeInf(val.castTag(.float_16).?.data),
+                .float_32 => std.math.isNegativeInf(val.castTag(.float_32).?.data),
+                .float_64 => std.math.isNegativeInf(val.castTag(.float_64).?.data),
+                .float_80 => std.math.isNegativeInf(val.castTag(.float_80).?.data),
+                .float_128 => std.math.isNegativeInf(val.castTag(.float_128).?.data),
+                else => false,
+            },
             else => false,
         };
     }
