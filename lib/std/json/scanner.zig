@@ -90,8 +90,8 @@ pub const default_buffer_size = 0x1000;
 ///    | .null
 ///  <object> = .object_begin ( <string> <value> )* .object_end
 ///  <array> = .array_begin ( <value> )* .array_end
-///  <number> = <it depends. see below>
-///  <string> = <it depends. see below>
+///  <number> = <It depends. See below.>
+///  <string> = <It depends. See below.>
 ///
 /// What you get for <number> and <string> values depends on which next*() method you call:
 ///
@@ -129,7 +129,8 @@ pub const default_buffer_size = 0x1000;
 /// Calling nextAlloc*() does this for you, and returns an .allocated_* token with the result.
 ///
 /// For tokens with a []const u8 payload, the payload is a slice into the current input buffer.
-/// The memory may become undefined during the next call to JsonReader.next*() or JsonScanner.feedInput().
+/// The memory may become undefined during the next call to JsonScanner.feedInput()
+/// or any JsonReader method whose return error set includes JsonError.
 /// To keep the value persistently, it recommended to make a copy or to use .alloc_always,
 /// which makes a copy for you.
 ///
@@ -140,14 +141,14 @@ pub const default_buffer_size = 0x1000;
 ///
 /// The recommended strategy for using the different next*() methods is something like this:
 ///  * When you're expecting an object key, use .alloc_if_needed.
-///    You usually don't need a copy of the key string to persist; you just need to check which field it is.
-///    In the case that the key happens to require an allocation, just free it immediately afterward.
-///  * When you're expecting a meaningful string value (such as on the right of a `:`), use .alloc_always.
-///    The reason you're parsing a json document is probably to get this value, so you want it to persist through the parsing process.
-///  * When you're expecting a meaningful number value, use .alloc_if_needed.
+///    You often don't need a copy of the key string to persist; you might just check which field it is.
+///    In the case that the key happens to require an allocation, free it immediately after checking it.
+///  * When you're expecting a meaningful string value (such as on the right of a `:`),
+///    use .alloc_always in order to keep the value valid throughout parsing the rest of the document.
+///  * When you're expecting a number value, use .alloc_if_needed.
 ///    You're probably going to be parsing the string representation of the number into a numeric representation,
 ///    so you need the complete string representation only temporarily.
-///  * When you're skipping an unrecognized value, use next().
+///  * When you're skipping an unrecognized value, use skipValue().
 pub const Token = union(enum) {
     object_begin,
     object_end,

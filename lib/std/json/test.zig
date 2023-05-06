@@ -33,7 +33,6 @@ fn testHighLevelDynamicParser(s: []const u8) !void {
 }
 
 // Additional tests not part of test JSONTestSuite.
-
 test "y_trailing_comma_after_empty" {
     try roundTrip(
         \\{"1":[],"2":{},"3":"4"}
@@ -44,6 +43,7 @@ test "n_object_closed_missing_value" {
         \\{"a":}
     );
 }
+
 fn roundTrip(s: []const u8) !void {
     try testing.expect(try validate(testing.allocator, s));
 
