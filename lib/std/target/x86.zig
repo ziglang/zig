@@ -326,7 +326,7 @@ pub const all_features = blk: {
     };
     result[@enumToInt(Feature.avx512ifma)] = .{
         .llvm_name = "avx512ifma",
-        .description = "Enable AVX-512 Integer Fused Multiple-Add",
+        .description = "Enable AVX-512 Integer Fused Multiply-Add",
         .dependencies = featureSet(&[_]Feature{
             .avx512f,
         }),
@@ -599,14 +599,14 @@ pub const all_features = blk: {
     };
     result[@enumToInt(Feature.fma)] = .{
         .llvm_name = "fma",
-        .description = "Enable three-operand fused multiple-add",
+        .description = "Enable three-operand fused multiply-add",
         .dependencies = featureSet(&[_]Feature{
             .avx,
         }),
     };
     result[@enumToInt(Feature.fma4)] = .{
         .llvm_name = "fma4",
-        .description = "Enable four-operand fused multiple-add",
+        .description = "Enable four-operand fused multiply-add",
         .dependencies = featureSet(&[_]Feature{
             .avx,
             .sse4a,
