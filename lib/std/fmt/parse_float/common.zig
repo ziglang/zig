@@ -86,6 +86,6 @@ pub fn mantissaType(comptime T: type) type {
     return switch (T) {
         f16, f32, f64 => u64,
         f128 => u128,
-        else => unreachable,
+        else => @compileError("Invalid type for Mantissa - should be a floating-point type."),
     };
 }
