@@ -1319,7 +1319,7 @@ fn addLimbsExtraAssumeCapacity(ip: *InternPool, extra: anytype) u32 {
         @sizeOf(u64) => {},
         else => @compileError("unsupported host"),
     }
-    const result = @intCast(u32, ip.extra.items.len);
+    const result = @intCast(u32, ip.limbs.items.len);
     inline for (@typeInfo(@TypeOf(extra)).Struct.fields, 0..) |field, i| {
         const new: u32 = switch (field.type) {
             u32 => @field(extra, field.name),
@@ -1452,11 +1452,19 @@ fn dumpFallible(ip: InternPool, arena: Allocator) anyerror!void {
 
     std.debug.print(
         \\InternPool size: {d} bytes
-        \\  items: {d} bytes
-        \\  extra: {d} bytes
-        \\  limbs: {d} bytes
+        \\  {d} items: {d} bytes
+        \\  {d} extra: {d} bytes
+        \\  {d} limbs: {d} bytes
         \\
-    , .{ total_size, items_size, extra_size, limbs_size });
+    , .{
+        total_size,
+        ip.items.len,
+        items_size,
+        ip.extra.items.len,
+        extra_size,
+        ip.limbs.items.len,
+        limbs_size,
+    });
 
     const tags = ip.items.items(.tag);
     const datas = ip.items.items(.data);
@@ -1512,10 +1520,10 @@ fn dumpFallible(ip: InternPool, arena: Allocator) anyerror!void {
         }
     };
     counts.sort(SortContext{ .map = &counts });
-    const len = @min(50, tags.len);
-    std.debug.print("top 50 tags:\n", .{});
+    const len = @min(50, counts.count());
+    std.debug.print("  top 50 tags:\n", .{});
     for (counts.keys()[0..len], counts.values()[0..len]) |tag, stats| {
-        std.debug.print("  {s}: {d} occurrences, {d} total bytes\n", .{
+        std.debug.print("    {s}: {d} occurrences, {d} total bytes\n", .{
             @tagName(tag), stats.count, stats.bytes,
         });
     }
