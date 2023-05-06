@@ -2026,6 +2026,11 @@ pub fn update(comp: *Compilation, main_progress_node: *std.Progress.Node) !void 
     try comp.performAllTheWork(main_progress_node);
 
     if (comp.bin_file.options.module) |module| {
+        std.debug.print("intern pool stats for '{s}':\n", .{
+            comp.bin_file.options.root_name,
+        });
+        module.intern_pool.dump();
+
         if (comp.bin_file.options.is_test and comp.totalErrorCount() == 0) {
             // The `test_functions` decl has been intentionally postponed until now,
             // at which point we must populate it with the list of test functions that
