@@ -24191,7 +24191,7 @@ fn fieldPtr(
 
             if (mem.eql(u8, field_name, "ptr")) {
                 const buf = try sema.arena.create(Type.SlicePtrFieldTypeBuffer);
-                const slice_ptr_ty = inner_ty.slicePtrFieldType(buf);
+                const slice_ptr_ty = inner_ty.slicePtrFieldType(buf, mod);
 
                 const result_ty = try Type.ptr(sema.arena, sema.mod, .{
                     .pointee_type = slice_ptr_ty,
@@ -27794,7 +27794,7 @@ fn beginComptimePtrMutation(
                                         sema,
                                         block,
                                         src,
-                                        parent.ty.slicePtrFieldType(try sema.arena.create(Type.SlicePtrFieldTypeBuffer)),
+                                        parent.ty.slicePtrFieldType(try sema.arena.create(Type.SlicePtrFieldTypeBuffer), mod),
                                         &val_ptr.castTag(.slice).?.data.ptr,
                                         ptr_elem_ty,
                                         parent.decl_ref_mut,
@@ -27849,7 +27849,7 @@ fn beginComptimePtrMutation(
                                 sema,
                                 block,
                                 src,
-                                parent.ty.slicePtrFieldType(try sema.arena.create(Type.SlicePtrFieldTypeBuffer)),
+                                parent.ty.slicePtrFieldType(try sema.arena.create(Type.SlicePtrFieldTypeBuffer), mod),
                                 &val_ptr.castTag(.slice).?.data.ptr,
                                 ptr_elem_ty,
                                 parent.decl_ref_mut,
@@ -28246,7 +28246,7 @@ fn beginComptimePtrLoad(
                     const slice_val = tv.val.castTag(.slice).?.data;
                     deref.pointee = switch (field_index) {
                         Value.Payload.Slice.ptr_index => TypedValue{
-                            .ty = field_ptr.container_ty.slicePtrFieldType(try sema.arena.create(Type.SlicePtrFieldTypeBuffer)),
+                            .ty = field_ptr.container_ty.slicePtrFieldType(try sema.arena.create(Type.SlicePtrFieldTypeBuffer), mod),
                             .val = slice_val.ptr,
                         },
                         Value.Payload.Slice.len_index => TypedValue{
@@ -29329,8 +29329,9 @@ fn analyzeSlicePtr(
     slice: Air.Inst.Ref,
     slice_ty: Type,
 ) CompileError!Air.Inst.Ref {
+    const mod = sema.mod;
     const buf = try sema.arena.create(Type.SlicePtrFieldTypeBuffer);
-    const result_ty = slice_ty.slicePtrFieldType(buf);
+    const result_ty = slice_ty.slicePtrFieldType(buf, mod);
     if (try sema.resolveMaybeUndefVal(slice)) |val| {
         if (val.isUndef()) return sema.addConstUndef(result_ty);
         return sema.addConstant(result_ty, val.slicePtr());

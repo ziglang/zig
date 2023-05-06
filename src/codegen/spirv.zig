@@ -669,7 +669,7 @@ pub const DeclGen = struct {
                         const slice = val.castTag(.slice).?.data;
 
                         var buf: Type.SlicePtrFieldTypeBuffer = undefined;
-                        const ptr_ty = ty.slicePtrFieldType(&buf);
+                        const ptr_ty = ty.slicePtrFieldType(&buf, mod);
 
                         try self.lower(ptr_ty, slice.ptr);
                         try self.addInt(Type.usize, slice.len);
@@ -2489,7 +2489,7 @@ pub const DeclGen = struct {
         const index_id = try self.resolve(bin_op.rhs);
 
         var slice_buf: Type.SlicePtrFieldTypeBuffer = undefined;
-        const ptr_ty = slice_ty.slicePtrFieldType(&slice_buf);
+        const ptr_ty = slice_ty.slicePtrFieldType(&slice_buf, mod);
         const ptr_ty_ref = try self.resolveType(ptr_ty, .direct);
 
         const slice_ptr = try self.extractField(ptr_ty, slice_id, 0);
@@ -2987,7 +2987,7 @@ pub const DeclGen = struct {
 
             var ptr_buf: Type.SlicePtrFieldTypeBuffer = undefined;
             const ptr_ty = if (payload_ty.isSlice(mod))
-                payload_ty.slicePtrFieldType(&ptr_buf)
+                payload_ty.slicePtrFieldType(&ptr_buf, mod)
             else
                 payload_ty;
 

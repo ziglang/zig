@@ -2462,7 +2462,7 @@ fn airSliceElemVal(self: *Self, inst: Air.Inst.Index) !void {
         const elem_size = elem_ty.abiSize(mod);
 
         var buf: Type.SlicePtrFieldTypeBuffer = undefined;
-        const slice_ptr_field_type = slice_ty.slicePtrFieldType(&buf);
+        const slice_ptr_field_type = slice_ty.slicePtrFieldType(&buf, mod);
 
         const index_lock: ?RegisterLock = if (index_mcv == .register)
             self.register_manager.lockRegAssumeUnused(index_mcv.register)

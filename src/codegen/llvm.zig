@@ -1638,7 +1638,7 @@ pub const Object = struct {
 
                 if (ty.isSlice(mod)) {
                     var buf: Type.SlicePtrFieldTypeBuffer = undefined;
-                    const ptr_ty = ty.slicePtrFieldType(&buf);
+                    const ptr_ty = ty.slicePtrFieldType(&buf, mod);
                     const len_ty = Type.usize;
 
                     const name = try ty.nameAlloc(gpa, o.module);
@@ -2822,7 +2822,7 @@ pub const DeclGen = struct {
             .Pointer => {
                 if (t.isSlice(mod)) {
                     var buf: Type.SlicePtrFieldTypeBuffer = undefined;
-                    const ptr_type = t.slicePtrFieldType(&buf);
+                    const ptr_type = t.slicePtrFieldType(&buf, mod);
 
                     const fields: [2]*llvm.Type = .{
                         try dg.lowerType(ptr_type),
@@ -3182,9 +3182,9 @@ pub const DeclGen = struct {
                 const param_ty = fn_info.param_types[it.zig_index - 1];
                 var buf: Type.SlicePtrFieldTypeBuffer = undefined;
                 const ptr_ty = if (param_ty.zigTypeTag(mod) == .Optional)
-                    param_ty.optionalChild(mod).slicePtrFieldType(&buf)
+                    param_ty.optionalChild(mod).slicePtrFieldType(&buf, mod)
                 else
-                    param_ty.slicePtrFieldType(&buf);
+                    param_ty.slicePtrFieldType(&buf, mod);
                 const ptr_llvm_ty = try dg.lowerType(ptr_ty);
                 const len_llvm_ty = try dg.lowerType(Type.usize);
 
@@ -3387,7 +3387,7 @@ pub const DeclGen = struct {
                         var buf: Type.SlicePtrFieldTypeBuffer = undefined;
                         const fields: [2]*llvm.Value = .{
                             try dg.lowerValue(.{
-                                .ty = tv.ty.slicePtrFieldType(&buf),
+                                .ty = tv.ty.slicePtrFieldType(&buf, mod),
                                 .val = slice.ptr,
                             }),
                             try dg.lowerValue(.{
@@ -4169,7 +4169,7 @@ pub const DeclGen = struct {
         const mod = self.module;
         if (tv.ty.isSlice(mod)) {
             var buf: Type.SlicePtrFieldTypeBuffer = undefined;
-            const ptr_ty = tv.ty.slicePtrFieldType(&buf);
+            const ptr_ty = tv.ty.slicePtrFieldType(&buf, mod);
             var slice_len: Value.Payload.U64 = .{
                 .base = .{ .tag = .int_u64 },
                 .data = tv.val.sliceLen(mod),
@@ -6654,7 +6654,7 @@ pub const FuncGen = struct {
             if (payload_ty.isSlice(mod)) {
                 const slice_ptr = self.builder.buildExtractValue(loaded, 0, "");
                 var slice_buf: Type.SlicePtrFieldTypeBuffer = undefined;
-                const ptr_ty = try self.dg.lowerType(payload_ty.slicePtrFieldType(&slice_buf));
+                const ptr_ty = try self.dg.lowerType(payload_ty.slicePtrFieldType(&slice_buf, mod));
                 return self.builder.buildICmp(pred, slice_ptr, ptr_ty.constNull(), "");
             }
             return self.builder.buildICmp(pred, loaded, optional_llvm_ty.constNull(), "");

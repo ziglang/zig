@@ -566,7 +566,7 @@ pub const DeclGen = struct {
             }
 
             var buf: Type.SlicePtrFieldTypeBuffer = undefined;
-            try dg.renderValue(writer, ty.slicePtrFieldType(&buf), val.slicePtr(), .Initializer);
+            try dg.renderValue(writer, ty.slicePtrFieldType(&buf, mod), val.slicePtr(), .Initializer);
 
             var len_pl: Value.Payload.U64 = .{
                 .base = .{ .tag = .int_u64 },
@@ -787,7 +787,7 @@ pub const DeclGen = struct {
 
                     try writer.writeAll("{(");
                     var buf: Type.SlicePtrFieldTypeBuffer = undefined;
-                    const ptr_ty = ty.slicePtrFieldType(&buf);
+                    const ptr_ty = ty.slicePtrFieldType(&buf, mod);
                     try dg.renderType(writer, ptr_ty);
                     return writer.print("){x}, {0x}}}", .{try dg.fmtIntLiteral(Type.usize, val, .Other)});
                 } else {
@@ -1088,7 +1088,7 @@ pub const DeclGen = struct {
                         var buf: Type.SlicePtrFieldTypeBuffer = undefined;
 
                         try writer.writeByte('{');
-                        try dg.renderValue(writer, ty.slicePtrFieldType(&buf), slice.ptr, initializer_type);
+                        try dg.renderValue(writer, ty.slicePtrFieldType(&buf, mod), slice.ptr, initializer_type);
                         try writer.writeAll(", ");
                         try dg.renderValue(writer, Type.usize, slice.len, initializer_type);
                         try writer.writeByte('}');
@@ -4107,6 +4107,7 @@ fn airMinMax(f: *Function, inst: Air.Inst.Index, operator: u8, operation: []cons
 }
 
 fn airSlice(f: *Function, inst: Air.Inst.Index) !CValue {
+    const mod = f.object.dg.module;
     const ty_pl = f.air.instructions.items(.data)[inst].ty_pl;
     const bin_op = f.air.extraData(Air.Bin, ty_pl.payload).data;
 
@@ -4116,7 +4117,7 @@ fn airSlice(f: *Function, inst: Air.Inst.Index) !CValue {
 
     const inst_ty = f.typeOfIndex(inst);
     var buf: Type.SlicePtrFieldTypeBuffer = undefined;
-    const ptr_ty = inst_ty.slicePtrFieldType(&buf);
+    const ptr_ty = inst_ty.slicePtrFieldType(&buf, mod);
 
     const writer = f.object.writer();
     const local = try f.allocLocal(inst, inst_ty);
@@ -5112,7 +5113,7 @@ fn airIsNull(
         TypedValue{ .ty = payload_ty, .val = Value.zero }
     else if (payload_ty.isSlice(mod) and optional_ty.optionalReprIsPayload(mod)) rhs: {
         try writer.writeAll(".ptr");
-        const slice_ptr_ty = payload_ty.slicePtrFieldType(&slice_ptr_buf);
+        const slice_ptr_ty = payload_ty.slicePtrFieldType(&slice_ptr_buf, mod);
         break :rhs TypedValue{ .ty = slice_ptr_ty, .val = Value.null };
     } else rhs: {
         try writer.writeAll(".is_null");
@@ -5845,7 +5846,7 @@ fn airArrayToSlice(f: *Function, inst: Air.Inst.Index) !CValue {
     // &(*(void *)p)[0], although LLVM does via GetElementPtr
     if (operand == .undef) {
         var buf: Type.SlicePtrFieldTypeBuffer = undefined;
-        try f.writeCValue(writer, .{ .undef = inst_ty.slicePtrFieldType(&buf) }, .Initializer);
+        try f.writeCValue(writer, .{ .undef = inst_ty.slicePtrFieldType(&buf, mod) }, .Initializer);
     } else if (array_ty.hasRuntimeBitsIgnoreComptime(mod)) {
         try writer.writeAll("&(");
         try f.writeCValueDeref(writer, operand);
