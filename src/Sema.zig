@@ -32950,14 +32950,27 @@ pub fn typeHasOnePossibleValue(sema: *Sema, ty: Type) CompileError!?Value {
             }
         },
         .ptr_type => return null,
-        .array_type => @panic("TODO"),
+        .array_type => |array_type| {
+            if (array_type.len == 0)
+                return Value.initTag(.empty_array);
+            if ((try sema.typeHasOnePossibleValue(array_type.child.toType())) != null) {
+                return Value.initTag(.the_only_possible_value);
+            }
+            return null;
+        },
         .vector_type => |vector_type| {
             if (vector_type.len == 0) return Value.initTag(.empty_array);
             if (try sema.typeHasOnePossibleValue(vector_type.child.toType())) |v| return v;
             return null;
         },
-        .opt_type => @panic("TODO"),
-        .error_union_type => @panic("TODO"),
+        .opt_type => |child| {
+            if (child.toType().isNoReturn()) {
+                return Value.null;
+            } else {
+                return null;
+            }
+        },
+        .error_union_type => return null,
         .simple_type => |t| switch (t) {
             .f16,
             .f32,
