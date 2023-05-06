@@ -3909,15 +3909,27 @@ pub const Type = struct {
                     return null;
                 }
             },
-            .ptr_type => @panic("TODO"),
-            .array_type => @panic("TODO"),
+            .ptr_type => return null,
+            .array_type => |array_type| {
+                if (array_type.len == 0)
+                    return Value.initTag(.empty_array);
+                if (array_type.child.toType().onePossibleValue(mod) != null)
+                    return Value.initTag(.the_only_possible_value);
+                return null;
+            },
             .vector_type => |vector_type| {
                 if (vector_type.len == 0) return Value.initTag(.empty_array);
                 if (vector_type.child.toType().onePossibleValue(mod)) |v| return v;
                 return null;
             },
-            .opt_type => @panic("TODO"),
-            .error_union_type => @panic("TODO"),
+            .opt_type => |child| {
+                if (child.toType().isNoReturn()) {
+                    return Value.null;
+                } else {
+                    return null;
+                }
+            },
+            .error_union_type => return null,
             .simple_type => |t| switch (t) {
                 .f16,
                 .f32,
