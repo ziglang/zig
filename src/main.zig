@@ -122,6 +122,7 @@ const debug_usage = normal_usage ++
     \\Debug Commands:
     \\
     \\  changelist       Compute mappings from old ZIR to new ZIR
+    \\  dump-zir         Dump a file containing cached ZIR
     \\
 ;
 
@@ -328,6 +329,8 @@ pub fn mainArgs(gpa: Allocator, arena: Allocator, args: []const []const u8) !voi
         return cmdAstCheck(gpa, arena, cmd_args);
     } else if (debug_extensions_enabled and mem.eql(u8, cmd, "changelist")) {
         return cmdChangelist(gpa, arena, cmd_args);
+    } else if (debug_extensions_enabled and mem.eql(u8, cmd, "dump-zir")) {
+        return cmdDumpZir(gpa, arena, cmd_args);
     } else {
         std.log.info("{s}", .{usage});
         fatal("unknown command: {s}", .{args[1]});
@@ -5716,6 +5719,65 @@ pub fn cmdAstCheck(
             fmtIntSizeBin(file.source.len),
             file.tree.tokens.len, fmtIntSizeBin(token_bytes),
             file.tree.nodes.len, fmtIntSizeBin(tree_bytes),
+            fmtIntSizeBin(total_bytes),
+            file.zir.instructions.len, fmtIntSizeBin(instruction_bytes),
+            fmtIntSizeBin(file.zir.string_bytes.len),
+            file.zir.extra.len, fmtIntSizeBin(extra_bytes),
+        });
+        // zig fmt: on
+    }
+
+    return @import("print_zir.zig").renderAsTextToFile(gpa, &file, io.getStdOut());
+}
+
+/// This is only enabled for debug builds.
+pub fn cmdDumpZir(
+    gpa: Allocator,
+    arena: Allocator,
+    args: []const []const u8,
+) !void {
+    _ = arena;
+    const Zir = @import("Zir.zig");
+
+    const cache_file = args[0];
+
+    var f = fs.cwd().openFile(cache_file, .{}) catch |err| {
+        fatal("unable to open zir cache file for dumping '{s}': {s}", .{ cache_file, @errorName(err) });
+    };
+    defer f.close();
+
+    var file: Module.File = .{
+        .status = .never_loaded,
+        .source_loaded = false,
+        .tree_loaded = false,
+        .zir_loaded = true,
+        .sub_file_path = undefined,
+        .source = undefined,
+        .stat = undefined,
+        .tree = undefined,
+        .zir = try Module.loadZirCache(gpa, f),
+        .pkg = undefined,
+        .root_decl = .none,
+    };
+
+    {
+        const instruction_bytes = file.zir.instructions.len *
+            // Here we don't use @sizeOf(Zir.Inst.Data) because it would include
+            // the debug safety tag but we want to measure release size.
+            (@sizeOf(Zir.Inst.Tag) + 8);
+        const extra_bytes = file.zir.extra.len * @sizeOf(u32);
+        const total_bytes = @sizeOf(Zir) + instruction_bytes + extra_bytes +
+            file.zir.string_bytes.len * @sizeOf(u8);
+        const stdout = io.getStdOut();
+        const fmtIntSizeBin = std.fmt.fmtIntSizeBin;
+        // zig fmt: off
+        try stdout.writer().print(
+            \\# Total ZIR bytes:    {}
+            \\# Instructions:       {d} ({})
+            \\# String Table Bytes: {}
+            \\# Extra Data Items:   {d} ({})
+            \\
+        , .{
             fmtIntSizeBin(total_bytes),
             file.zir.instructions.len, fmtIntSizeBin(instruction_bytes),
             fmtIntSizeBin(file.zir.string_bytes.len),

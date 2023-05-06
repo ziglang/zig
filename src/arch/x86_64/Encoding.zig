@@ -58,7 +58,7 @@ pub fn findByMnemonic(
     next: for (mnemonic_to_encodings_map[@enumToInt(mnemonic)]) |data| {
         switch (data.mode) {
             .rex => if (!rex_required) continue,
-            .long, .sse2_long => {},
+            .long, .sse_long, .sse2_long => {},
             else => if (rex_required) continue,
         }
         for (input_ops, data.ops) |input_op, data_op|
@@ -90,7 +90,7 @@ pub fn findByOpcode(opc: []const u8, prefixes: struct {
         if (prefixes.rex.w) {
             switch (data.mode) {
                 .short, .fpu, .sse, .sse2, .sse4_1, .none => continue,
-                .long, .sse2_long, .rex => {},
+                .long, .sse_long, .sse2_long, .rex => {},
             }
         } else if (prefixes.rex.present and !prefixes.rex.isSet()) {
             switch (data.mode) {
@@ -138,7 +138,7 @@ pub fn modRmExt(encoding: Encoding) u3 {
 pub fn operandBitSize(encoding: Encoding) u64 {
     switch (encoding.data.mode) {
         .short => return 16,
-        .long, .sse2_long => return 64,
+        .long, .sse_long, .sse2_long => return 64,
         else => {},
     }
     const bit_size: u64 = switch (encoding.data.op_en) {
@@ -163,7 +163,7 @@ pub fn format(
     _ = options;
     _ = fmt;
     switch (encoding.data.mode) {
-        .long, .sse2_long => try writer.writeAll("REX.W + "),
+        .long, .sse_long, .sse2_long => try writer.writeAll("REX.W + "),
         else => {},
     }
 
@@ -268,22 +268,40 @@ pub const Mnemonic = enum {
     movd,
     // SSE
     addss,
+    andps,
+    andnps,
     cmpss,
+    cvtsi2ss,
     divss,
     maxss, minss,
-    movss,
+    movaps, movss, movups,
     mulss,
+    orps,
+    pextrw,
+    pinsrw,
+    sqrtps,
+    sqrtss,
     subss,
     ucomiss,
+    xorps,
     // SSE2
     addsd,
+    andpd,
+    andnpd,
     //cmpsd,
+    cvtsd2ss, cvtsi2sd, cvtss2sd,
     divsd,
     maxsd, minsd,
+    movapd,
     movq, //movd, movsd,
+    movupd,
     mulsd,
+    orpd,
+    sqrtpd,
+    sqrtsd,
     subsd,
     ucomisd,
+    xorpd,
     // SSE4.1
     roundss,
     roundsd,
@@ -318,7 +336,7 @@ pub const Op = enum {
     m,
     moffs,
     sreg,
-    xmm, xmm_m32, xmm_m64,
+    xmm, xmm_m32, xmm_m64, xmm_m128,
     // zig fmt: on
 
     pub fn fromOperand(operand: Instruction.Operand) Op {
@@ -400,7 +418,7 @@ pub const Op = enum {
             .imm32, .imm32s, .eax, .r32, .m32, .rm32, .rel32, .xmm_m32 => 32,
             .imm64, .rax, .r64, .m64, .rm64, .xmm_m64 => 64,
             .m80 => 80,
-            .m128, .xmm => 128,
+            .m128, .xmm, .xmm_m128 => 128,
         };
     }
 
@@ -423,8 +441,8 @@ pub const Op = enum {
             .al, .ax, .eax, .rax,
             .r8, .r16, .r32, .r64,
             .rm8, .rm16, .rm32, .rm64,
-            .xmm, .xmm_m32, .xmm_m64,
-            =>  true,
+            .xmm, .xmm_m32, .xmm_m64, .xmm_m128,
+            => true,
             else => false,
         };
         // zig fmt: on
@@ -449,7 +467,7 @@ pub const Op = enum {
             .rm8, .rm16, .rm32, .rm64,
             .m8, .m16, .m32, .m64, .m80, .m128,
             .m,
-            .xmm_m32, .xmm_m64,
+            .xmm_m32, .xmm_m64, .xmm_m128,
             =>  true,
             else => false,
         };
@@ -470,13 +488,13 @@ pub const Op = enum {
             .r8, .r16, .r32, .r64 => .general_purpose,
             .rm8, .rm16, .rm32, .rm64 => .general_purpose,
             .sreg => .segment,
-            .xmm, .xmm_m32, .xmm_m64 => .floating_point,
+            .xmm, .xmm_m32, .xmm_m64, .xmm_m128 => .floating_point,
         };
     }
 
     pub fn isFloatingPointRegister(op: Op) bool {
         return switch (op) {
-            .xmm, .xmm_m32, .xmm_m64 => true,
+            .xmm, .xmm_m32, .xmm_m64, .xmm_m128 => true,
             else => false,
         };
     }
@@ -535,6 +553,7 @@ pub const Mode = enum {
     rex,
     long,
     sse,
+    sse_long,
     sse2,
     sse2_long,
     sse4_1,

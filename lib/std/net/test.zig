@@ -1,4 +1,4 @@
-const std = @import("../std.zig");
+const std = @import("std");
 const builtin = @import("builtin");
 const net = std.net;
 const mem = std.mem;
@@ -300,22 +300,23 @@ test "listen on a unix socket, send bytes, receive bytes" {
     var server = net.StreamServer.init(.{});
     defer server.deinit();
 
-    const socket_path = "socket.unix";
+    var socket_path = try generateFileName("socket.unix");
+    defer testing.allocator.free(socket_path);
 
     var socket_addr = try net.Address.initUnix(socket_path);
     defer std.fs.cwd().deleteFile(socket_path) catch {};
     try server.listen(socket_addr);
 
     const S = struct {
-        fn clientFn() !void {
-            const socket = try net.connectUnixSocket(socket_path);
+        fn clientFn(path: []const u8) !void {
+            const socket = try net.connectUnixSocket(path);
             defer socket.close();
 
             _ = try socket.writer().writeAll("Hello world!");
         }
     };
 
-    const t = try std.Thread.spawn(.{}, S.clientFn, .{});
+    const t = try std.Thread.spawn(.{}, S.clientFn, .{socket_path});
     defer t.join();
 
     var client = try server.accept();
@@ -325,4 +326,14 @@ test "listen on a unix socket, send bytes, receive bytes" {
 
     try testing.expectEqual(@as(usize, 12), n);
     try testing.expectEqualSlices(u8, "Hello world!", buf[0..n]);
+}
+
+fn generateFileName(base_name: []const u8) ![]const u8 {
+    const random_bytes_count = 12;
+    const sub_path_len = comptime std.fs.base64_encoder.calcSize(random_bytes_count);
+    var random_bytes: [12]u8 = undefined;
+    std.crypto.random.bytes(&random_bytes);
+    var sub_path: [sub_path_len]u8 = undefined;
+    _ = std.fs.base64_encoder.encode(&sub_path, &random_bytes);
+    return std.fmt.allocPrint(testing.allocator, "{s}-{s}", .{ sub_path[0..], base_name });
 }

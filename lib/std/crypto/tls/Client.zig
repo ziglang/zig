@@ -1330,18 +1330,15 @@ const VecPut = struct {
 
 /// Limit iovecs to a specific byte size.
 fn limitVecs(iovecs: []std.os.iovec, len: usize) []std.os.iovec {
-    var vec_i: usize = 0;
     var bytes_left: usize = len;
-    while (true) {
-        if (bytes_left >= iovecs[vec_i].iov_len) {
-            bytes_left -= iovecs[vec_i].iov_len;
-            vec_i += 1;
-            if (vec_i == iovecs.len or bytes_left == 0) return iovecs[0..vec_i];
-            continue;
+    for (iovecs, 0..) |*iovec, vec_i| {
+        if (bytes_left <= iovec.iov_len) {
+            iovec.iov_len = bytes_left;
+            return iovecs[0 .. vec_i + 1];
         }
-        iovecs[vec_i].iov_len = bytes_left;
-        return iovecs[0..vec_i];
+        bytes_left -= iovec.iov_len;
     }
+    return iovecs;
 }
 
 /// The priority order here is chosen based on what crypto algorithms Zig has

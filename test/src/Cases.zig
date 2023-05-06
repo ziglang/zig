@@ -396,6 +396,12 @@ fn addFromDirInner(
                     // Other backends don't support new liveness format
                     continue;
                 }
+                if (backend == .stage2 and target.getOsTag() == .macos and
+                    target.getCpuArch() == .x86_64 and builtin.cpu.arch == .aarch64)
+                {
+                    // Rosetta has issues with ZLD
+                    continue;
+                }
 
                 const next = ctx.cases.items.len;
                 try ctx.cases.append(.{
@@ -459,7 +465,7 @@ pub fn lowerToBuildSteps(
     parent_step: *std.Build.Step,
     opt_test_filter: ?[]const u8,
     cases_dir_path: []const u8,
-    incremental_exe: *std.Build.CompileStep,
+    incremental_exe: *std.Build.Step.Compile,
 ) void {
     for (self.incremental_cases.items) |incr_case| {
         if (opt_test_filter) |test_filter| {

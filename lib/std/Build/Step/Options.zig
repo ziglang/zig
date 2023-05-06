@@ -1,12 +1,11 @@
-const std = @import("../std.zig");
+const std = @import("std");
 const builtin = @import("builtin");
 const fs = std.fs;
 const Step = std.Build.Step;
 const GeneratedFile = std.Build.GeneratedFile;
-const CompileStep = std.Build.CompileStep;
 const FileSource = std.Build.FileSource;
 
-const OptionsStep = @This();
+const Options = @This();
 
 pub const base_id = .options;
 
@@ -17,8 +16,8 @@ contents: std.ArrayList(u8),
 artifact_args: std.ArrayList(OptionArtifactArg),
 file_source_args: std.ArrayList(OptionFileSourceArg),
 
-pub fn create(owner: *std.Build) *OptionsStep {
-    const self = owner.allocator.create(OptionsStep) catch @panic("OOM");
+pub fn create(owner: *std.Build) *Options {
+    const self = owner.allocator.create(Options) catch @panic("OOM");
     self.* = .{
         .step = Step.init(.{
             .id = base_id,
@@ -36,11 +35,11 @@ pub fn create(owner: *std.Build) *OptionsStep {
     return self;
 }
 
-pub fn addOption(self: *OptionsStep, comptime T: type, name: []const u8, value: T) void {
+pub fn addOption(self: *Options, comptime T: type, name: []const u8, value: T) void {
     return addOptionFallible(self, T, name, value) catch @panic("unhandled error");
 }
 
-fn addOptionFallible(self: *OptionsStep, comptime T: type, name: []const u8, value: T) !void {
+fn addOptionFallible(self: *Options, comptime T: type, name: []const u8, value: T) !void {
     const out = self.contents.writer();
     switch (T) {
         []const []const u8 => {
@@ -189,7 +188,7 @@ fn printLiteral(out: anytype, val: anytype, indent: u8) !void {
 /// The value is the path in the cache dir.
 /// Adds a dependency automatically.
 pub fn addOptionFileSource(
-    self: *OptionsStep,
+    self: *Options,
     name: []const u8,
     source: FileSource,
 ) void {
@@ -202,19 +201,19 @@ pub fn addOptionFileSource(
 
 /// The value is the path in the cache dir.
 /// Adds a dependency automatically.
-pub fn addOptionArtifact(self: *OptionsStep, name: []const u8, artifact: *CompileStep) void {
+pub fn addOptionArtifact(self: *Options, name: []const u8, artifact: *Step.Compile) void {
     self.artifact_args.append(.{ .name = self.step.owner.dupe(name), .artifact = artifact }) catch @panic("OOM");
     self.step.dependOn(&artifact.step);
 }
 
-pub fn createModule(self: *OptionsStep) *std.Build.Module {
+pub fn createModule(self: *Options) *std.Build.Module {
     return self.step.owner.createModule(.{
         .source_file = self.getSource(),
         .dependencies = &.{},
     });
 }
 
-pub fn getSource(self: *OptionsStep) FileSource {
+pub fn getSource(self: *Options) FileSource {
     return .{ .generated = &self.generated_file };
 }
 
@@ -223,7 +222,7 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
     _ = prog_node;
 
     const b = step.owner;
-    const self = @fieldParentPtr(OptionsStep, "step", step);
+    const self = @fieldParentPtr(Options, "step", step);
 
     for (self.artifact_args.items) |item| {
         self.addOption(
@@ -314,7 +313,7 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
 
 const OptionArtifactArg = struct {
     name: []const u8,
-    artifact: *CompileStep,
+    artifact: *Step.Compile,
 };
 
 const OptionFileSourceArg = struct {
@@ -322,7 +321,7 @@ const OptionFileSourceArg = struct {
     source: FileSource,
 };
 
-test "OptionsStep" {
+test Options {
     if (builtin.os.tag == .wasi) return error.SkipZigTest;
 
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
