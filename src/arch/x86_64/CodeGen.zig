@@ -4922,7 +4922,14 @@ fn airStructFieldVal(self: *Self, inst: Air.Inst.Index) !void {
                 }
 
                 if (field_extra_bits > 0) try self.truncateRegister(field_ty, dst_reg);
-                break :result .{ .register = dst_reg };
+
+                const dst_mcv = MCValue{ .register = dst_reg };
+                const dst_rc = regClassForType(field_ty);
+                if (dst_rc.eql(gp)) break :result dst_mcv;
+
+                const result_reg = try self.register_manager.allocReg(inst, dst_rc);
+                try self.genSetReg(result_reg, field_ty, dst_mcv);
+                break :result .{ .register = result_reg };
             },
             .register => |reg| {
                 const reg_lock = self.register_manager.lockRegAssumeUnused(reg);
@@ -7896,7 +7903,8 @@ fn genCopy(self: *Self, ty: Type, dst_mcv: MCValue, src_mcv: MCValue) InnerError
 
 fn genSetReg(self: *Self, dst_reg: Register, ty: Type, src_mcv: MCValue) InnerError!void {
     const abi_size = @intCast(u32, ty.abiSize(self.target.*));
-    if (abi_size > 8) return self.fail("genSetReg called with a value larger than one register", .{});
+    if (abi_size * 8 > dst_reg.bitSize())
+        return self.fail("genSetReg called with a value larger than dst_reg", .{});
     switch (src_mcv) {
         .none,
         .unreach,
