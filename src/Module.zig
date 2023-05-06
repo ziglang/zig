@@ -98,6 +98,10 @@ string_literal_bytes: ArrayListUnmanaged(u8) = .{},
 
 /// Stores all Type and Value objects; periodically garbage collected.
 intern_pool: InternPool = .{},
+/// Temporarily used for some unfortunate allocations made by backends that need to construct
+/// pointer types that can't be represented by the InternPool. Once all types are migrated
+/// to be stored in the InternPool, this can be removed.
+tmp_hack_arena: std.heap.ArenaAllocator,
 
 /// The set of all the generic function instantiations. This is used so that when a generic
 /// function is called twice with the same comptime parameter arguments, both calls dispatch
@@ -3552,6 +3556,7 @@ pub fn deinit(mod: *Module) void {
     mod.string_literal_bytes.deinit(gpa);
 
     mod.intern_pool.deinit(gpa);
+    mod.tmp_hack_arena.deinit();
 }
 
 pub fn destroyDecl(mod: *Module, decl_index: Decl.Index) void {
@@ -6848,10 +6853,25 @@ pub fn ptrType(mod: *Module, info: InternPool.Key.PtrType) Allocator.Error!Type 
 }
 
 pub fn singleMutPtrType(mod: *Module, child_type: Type) Allocator.Error!Type {
+    if (child_type.ip_index == .none) {
+        // TODO remove this after all types can be represented via the InternPool
+        return Type.Tag.pointer.create(mod.tmp_hack_arena.allocator(), .{
+            .pointee_type = child_type,
+            .@"addrspace" = .generic,
+        });
+    }
     return ptrType(mod, .{ .elem_type = child_type.ip_index });
 }
 
 pub fn singleConstPtrType(mod: *Module, child_type: Type) Allocator.Error!Type {
+    if (child_type.ip_index == .none) {
+        // TODO remove this after all types can be represented via the InternPool
+        return Type.Tag.pointer.create(mod.tmp_hack_arena.allocator(), .{
+            .pointee_type = child_type,
+            .mutable = false,
+            .@"addrspace" = .generic,
+        });
+    }
     return ptrType(mod, .{ .elem_type = child_type.ip_index, .is_const = true });
 }
 
