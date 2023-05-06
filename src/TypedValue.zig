@@ -413,8 +413,12 @@ pub fn print(
             .runtime_value => return writer.writeAll("[runtime value]"),
         },
         else => {
-            try writer.print("(interned: {})", .{val.ip_index});
-            return;
+            const key = mod.intern_pool.indexToKey(val.ip_index);
+            if (key.typeOf() == .type_type) {
+                return Type.print(val.toType(), writer, mod);
+            } else {
+                return writer.print("{}", .{val.ip_index});
+            }
         },
     };
 }
