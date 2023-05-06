@@ -4076,11 +4076,18 @@ pub const Type = struct {
     pub fn comptimeOnly(ty: Type, mod: *const Module) bool {
         if (ty.ip_index != .none) return switch (mod.intern_pool.indexToKey(ty.ip_index)) {
             .int_type => false,
-            .ptr_type => @panic("TODO"),
-            .array_type => |array_type| return array_type.child.toType().comptimeOnly(mod),
-            .vector_type => |vector_type| return vector_type.child.toType().comptimeOnly(mod),
-            .opt_type => @panic("TODO"),
-            .error_union_type => @panic("TODO"),
+            .ptr_type => |ptr_type| {
+                const child_ty = ptr_type.elem_type.toType();
+                if (child_ty.zigTypeTag(mod) == .Fn) {
+                    return false;
+                } else {
+                    return child_ty.comptimeOnly(mod);
+                }
+            },
+            .array_type => |array_type| array_type.child.toType().comptimeOnly(mod),
+            .vector_type => |vector_type| vector_type.child.toType().comptimeOnly(mod),
+            .opt_type => |child| child.toType().comptimeOnly(mod),
+            .error_union_type => |error_union_type| error_union_type.payload_type.toType().comptimeOnly(mod),
             .simple_type => |t| switch (t) {
                 .f16,
                 .f32,
