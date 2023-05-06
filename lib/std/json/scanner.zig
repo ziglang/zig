@@ -324,6 +324,10 @@ pub fn JsonReader(comptime buffer_size: usize, comptime ReaderType: type) type {
         pub fn stackHeight(self: *const @This()) u32 {
             return self.scanner.stackHeight();
         }
+        /// Calls JsonScanner.ensureTotalStackCapacity().
+        pub fn ensureTotalStackCapacity(self: *@This(), height: u32) Allocator.Error!void {
+            try self.scanner.ensureTotalStackCapacity(height);
+        }
 
         /// See Token for documentation of this function.
         pub fn next(self: *@This()) NextError!Token {
@@ -616,6 +620,12 @@ pub const JsonScanner = struct {
     /// The depth of {} or [] nesting levels at the current position.
     pub fn stackHeight(self: *const @This()) u32 {
         return self.stack.bit_len;
+    }
+
+    /// Pre allocate memory to hold the given number of nesting levels.
+    /// stackHeight() up to the given number will not cause allocations.
+    pub fn ensureTotalStackCapacity(self: *@This(), height: u32) Allocator.Error!void {
+        try self.stack.ensureTotalCapacity(height);
     }
 
     /// See Token for documentation of this function.
@@ -1642,6 +1652,11 @@ const BitStack = struct {
     pub fn deinit(self: *@This()) void {
         self.bytes.deinit();
         self.* = undefined;
+    }
+
+    pub fn ensureTotalCapacity(self: *@This(), bit_capcity: u32) Allocator.Error!void {
+        const byte_capacity = (bit_capcity + 7) >> 3;
+        try self.bytes.ensureTotalCapacity(byte_capacity);
     }
 
     pub fn push(self: *@This(), b: u1) Allocator.Error!void {

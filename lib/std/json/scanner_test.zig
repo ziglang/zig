@@ -83,12 +83,12 @@ fn testAllTypes(source: anytype, large_buffer: bool) !void {
     try expectPeekNext(source, .array_begin, .array_begin);
     try expectPeekNext(source, .string, Token{ .string = "" });
     try expectPeekNext(source, .string, Token{ .partial_string = "a" });
-    try expectPeekNext(source, .string,  Token{ .partial_string_escaped_1 = "\n".* });
+    try expectPeekNext(source, .string, Token{ .partial_string_escaped_1 = "\n".* });
     if (large_buffer) {
-        try expectPeekNext(source, .string,  Token{ .string = "b" });
+        try expectPeekNext(source, .string, Token{ .string = "b" });
     } else {
-        try expectPeekNext(source, .string,  Token{ .partial_string = "b" });
-        try expectPeekNext(source, .string,  Token{ .string = "" });
+        try expectPeekNext(source, .string, Token{ .partial_string = "b" });
+        try expectPeekNext(source, .string, Token{ .string = "" });
     }
     if (large_buffer) {
         try expectPeekNext(source, .number, Token{ .number = "0" });
@@ -392,4 +392,26 @@ test "skipValue" {
 
     // Mismatched brace/square bracket
     try std.testing.expectError(error.SyntaxError, testSkipValue("[102, 111, 111}"));
+}
+
+fn testEnsureStackCapacity(do_ensure: bool) !void {
+    var fail_alloc = std.testing.FailingAllocator.init(std.testing.allocator, 1);
+    const failing_allocator = fail_alloc.allocator();
+
+    const nestings = 999; // intentionally not a power of 2.
+    var scanner = JsonScanner.initCompleteInput(failing_allocator, "[" ** nestings ++ "]" ** nestings);
+    defer scanner.deinit();
+
+    if (do_ensure) {
+        try scanner.ensureTotalStackCapacity(nestings);
+    }
+
+    try scanner.skipValue();
+    try std.testing.expectEqual(Token.end_of_document, try scanner.next());
+}
+test "ensureTotalStackCapacity" {
+    // Once to demonstrate failure.
+    try std.testing.expectError(error.OutOfMemory, testEnsureStackCapacity(false));
+    // Then to demonstrate it works.
+    try testEnsureStackCapacity(true);
 }
