@@ -416,8 +416,12 @@ pub fn print(
             const key = mod.intern_pool.indexToKey(val.ip_index);
             if (key.typeOf() == .type_type) {
                 return Type.print(val.toType(), writer, mod);
-            } else {
-                return writer.print("{}", .{val.ip_index});
+            }
+            switch (key) {
+                .int => |int| switch (int.storage) {
+                    inline .u64, .i64, .big_int => |x| return writer.print("{}", .{x}),
+                },
+                else => return writer.print("{}", .{val.ip_index}),
             }
         },
     };
