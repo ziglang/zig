@@ -159,7 +159,7 @@ const reserved_idents = std.ComptimeStringMap(void, .{
     .{ "double", {} },
     .{ "else", {} },
     .{ "enum", {} },
-    .{ "extern ", {} },
+    .{ "extern", {} },
     .{ "float", {} },
     .{ "for", {} },
     .{ "fortran", {} },
@@ -198,7 +198,7 @@ const reserved_idents = std.ComptimeStringMap(void, .{
     .{ "unsigned", {} },
     .{ "void", {} },
     .{ "volatile", {} },
-    .{ "while ", {} },
+    .{ "while", {} },
 
     // stdarg.h
     .{ "va_start", {} },
