@@ -621,7 +621,7 @@ const Writer = struct {
     fn writeInterned(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {
         const mod = w.module;
         const ip_index = w.air.instructions.items(.data)[inst].interned;
-        const ty = ip_index.toType();
+        const ty = mod.intern_pool.indexToKey(ip_index).typeOf().toType();
         try w.writeType(s, ty);
         try s.print(", {}", .{ip_index.toValue().fmtValue(ty, mod)});
     }
