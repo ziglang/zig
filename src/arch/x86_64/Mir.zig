@@ -196,8 +196,6 @@ pub const Inst = struct {
         pextrw,
         /// Insert word
         pinsrw,
-        /// Round scalar single-precision floating-point values
-        roundss,
         /// Square root of scalar single precision floating-point value
         sqrtps,
         /// Subtract scalar single-precision floating-point values
@@ -208,6 +206,7 @@ pub const Inst = struct {
         ucomiss,
         /// Bitwise logical xor of packed single precision floating-point values
         xorps,
+
         /// Add double precision floating point values
         addsd,
         /// Bitwise logical and not of packed double precision floating-point values
@@ -234,8 +233,32 @@ pub const Inst = struct {
         mulsd,
         /// Bitwise logical or of packed double precision floating-point values
         orpd,
-        /// Round scalar double-precision floating-point values
-        roundsd,
+        /// Shuffle packed high words
+        pshufhw,
+        /// Shuffle packed low words
+        pshuflw,
+        /// Shift packed data right logical
+        psrld,
+        /// Shift packed data right logical
+        psrlq,
+        /// Shift packed data right logical
+        psrlw,
+        /// Unpack high data
+        punpckhbw,
+        /// Unpack high data
+        punpckhdq,
+        /// Unpack high data
+        punpckhqdq,
+        /// Unpack high data
+        punpckhwd,
+        /// Unpack low data
+        punpcklbw,
+        /// Unpack low data
+        punpckldq,
+        /// Unpack low data
+        punpcklqdq,
+        /// Unpack low data
+        punpcklwd,
         /// Square root of double precision floating-point values
         sqrtpd,
         /// Square root of scalar double precision floating-point value
@@ -246,6 +269,55 @@ pub const Inst = struct {
         ucomisd,
         /// Bitwise logical xor of packed double precision floating-point values
         xorpd,
+
+        /// Replicate double floating-point values
+        movddup,
+        /// Replicate single floating-point values
+        movshdup,
+        /// Replicate single floating-point values
+        movsldup,
+
+        /// Round scalar double-precision floating-point values
+        roundsd,
+        /// Round scalar single-precision floating-point values
+        roundss,
+
+        /// Replicate double floating-point values
+        vmovddup,
+        /// Replicate single floating-point values
+        vmovshdup,
+        /// Replicate single floating-point values
+        vmovsldup,
+        /// Extract word
+        vpextrw,
+        /// Insert word
+        vpinsrw,
+        /// Shuffle packed high words
+        vpshufhw,
+        /// Shuffle packed low words
+        vpshuflw,
+        /// Shift packed data right logical
+        vpsrld,
+        /// Shift packed data right logical
+        vpsrlq,
+        /// Shift packed data right logical
+        vpsrlw,
+        /// Unpack high data
+        vpunpckhbw,
+        /// Unpack high data
+        vpunpckhdq,
+        /// Unpack high data
+        vpunpckhqdq,
+        /// Unpack high data
+        vpunpckhwd,
+        /// Unpack low data
+        vpunpcklbw,
+        /// Unpack low data
+        vpunpckldq,
+        /// Unpack low data
+        vpunpcklqdq,
+        /// Unpack low data
+        vpunpcklwd,
 
         /// Convert 16-bit floating-point values to single-precision floating-point values
         vcvtph2ps,

@@ -58,9 +58,9 @@ pub fn findByMnemonic(
     var shortest_len: ?usize = null;
     next: for (mnemonic_to_encodings_map[@enumToInt(mnemonic)]) |data| {
         switch (data.mode) {
-            .rex => if (!rex_required) continue,
-            .long => {},
-            else => if (rex_required) continue,
+            .none, .short => if (rex_required) continue,
+            .rex, .rex_short => if (!rex_required) continue,
+            else => {},
         }
         for (input_ops, data.ops) |input_op, data_op|
             if (!input_op.isSubset(data_op)) continue :next;
@@ -90,24 +90,26 @@ pub fn findByOpcode(opc: []const u8, prefixes: struct {
         if (!std.mem.eql(u8, opc, enc.opcode())) continue;
         if (prefixes.rex.w) {
             switch (data.mode) {
-                .short, .fpu, .sse, .sse2, .sse4_1, .none => continue,
-                .long, .sse_long, .sse2_long, .rex => {},
+                .none, .short, .rex, .rex_short, .vex_128, .vex_256 => continue,
+                .long, .vex_128_long, .vex_256_long => {},
             }
         } else if (prefixes.rex.present and !prefixes.rex.isSet()) {
             switch (data.mode) {
-                .rex => {},
+                .rex, .rex_short => {},
                 else => continue,
             }
         } else if (prefixes.legacy.prefix_66) {
-            switch (enc.operandBitSize()) {
-                16 => {},
-                else => continue,
+            switch (data.mode) {
+                .short, .rex_short => {},
+                .none, .rex, .vex_128, .vex_256 => continue,
+                .long, .vex_128_long, .vex_256_long => continue,
             }
         } else {
             switch (data.mode) {
-                .none => switch (enc.operandBitSize()) {
-                    16 => continue,
-                    else => {},
+                .none => switch (data.mode) {
+                    .short, .rex_short => continue,
+                    .none, .rex, .vex_128, .vex_256 => {},
+                    .long, .vex_128_long, .vex_256_long => {},
                 },
                 else => continue,
             }
@@ -131,25 +133,8 @@ pub fn mandatoryPrefix(encoding: *const Encoding) ?u8 {
 
 pub fn modRmExt(encoding: Encoding) u3 {
     return switch (encoding.data.op_en) {
-        .m, .mi, .m1, .mc => encoding.data.modrm_ext,
+        .m, .mi, .m1, .mc, .vmi => encoding.data.modrm_ext,
         else => unreachable,
-    };
-}
-
-pub fn operandBitSize(encoding: Encoding) u64 {
-    return switch (encoding.data.mode) {
-        .short => 16,
-        .long => 64,
-        else => switch (encoding.data.op_en) {
-            .np => switch (encoding.data.ops[0]) {
-                .o16 => 16,
-                .o32 => 32,
-                .o64 => 64,
-                else => 32,
-            },
-            .td => encoding.data.ops[1].bitSize(),
-            else => encoding.data.ops[0].bitSize(),
-        },
     };
 }
 
@@ -220,17 +205,17 @@ pub fn format(
             };
             try writer.print("+{s} ", .{tag});
         },
-        .m, .mi, .m1, .mc => try writer.print("/{d} ", .{encoding.modRmExt()}),
-        .mr, .rm, .rmi, .mri, .mrc, .rrm, .rrmi => try writer.writeAll("/r "),
+        .m, .mi, .m1, .mc, .vmi => try writer.print("/{d} ", .{encoding.modRmExt()}),
+        .mr, .rm, .rmi, .mri, .mrc, .rvm, .rvmi => try writer.writeAll("/r "),
     }
 
     switch (encoding.data.op_en) {
-        .i, .d, .zi, .oi, .mi, .rmi, .mri, .rrmi => {
+        .i, .d, .zi, .oi, .mi, .rmi, .mri, .vmi, .rvmi => {
             const op = switch (encoding.data.op_en) {
                 .i, .d => encoding.data.ops[0],
                 .zi, .oi, .mi => encoding.data.ops[1],
-                .rmi, .mri => encoding.data.ops[2],
-                .rrmi => encoding.data.ops[3],
+                .rmi, .mri, .vmi => encoding.data.ops[2],
+                .rvmi => encoding.data.ops[3],
                 else => unreachable,
             };
             const tag = switch (op) {
@@ -245,7 +230,7 @@ pub fn format(
             };
             try writer.print("{s} ", .{tag});
         },
-        .np, .fd, .td, .o, .m, .m1, .mc, .mr, .rm, .mrc, .rrm => {},
+        .np, .fd, .td, .o, .m, .m1, .mc, .mr, .rm, .mrc, .rvm => {},
     }
 
     try writer.print("{s} ", .{@tagName(encoding.mnemonic)});
@@ -315,8 +300,7 @@ pub const Mnemonic = enum {
     movaps, movss, movups,
     mulss,
     orps,
-    pextrw,
-    pinsrw,
+    pextrw, pinsrw,
     sqrtps,
     sqrtss,
     subss,
@@ -335,14 +319,25 @@ pub const Mnemonic = enum {
     movupd,
     mulsd,
     orpd,
-    sqrtpd,
-    sqrtsd,
+    pshufhw, pshuflw,
+    psrld, psrlq, psrlw,
+    punpckhbw, punpckhdq, punpckhqdq, punpckhwd,
+    punpcklbw, punpckldq, punpcklqdq, punpcklwd,
+    sqrtpd, sqrtsd,
     subsd,
     ucomisd,
     xorpd,
+    // SSE3
+    movddup, movshdup, movsldup,
     // SSE4.1
-    roundss,
-    roundsd,
+    roundsd, roundss,
+    // AVX
+    vmovddup, vmovshdup, vmovsldup,
+    vpextrw, vpinsrw,
+    vpshufhw, vpshuflw,
+    vpsrld, vpsrlq, vpsrlw,
+    vpunpckhbw, vpunpckhdq, vpunpckhqdq, vpunpckhwd,
+    vpunpcklbw, vpunpckldq, vpunpcklqdq, vpunpcklwd,
     // F16C
     vcvtph2ps, vcvtps2ph,
     // zig fmt: on
@@ -357,7 +352,7 @@ pub const OpEn = enum {
     fd, td,
     m1, mc, mi, mr, rm,
     rmi, mri, mrc,
-    rrm, rrmi,
+    vmi, rvm, rvmi,
     // zig fmt: on
 };
 
@@ -372,6 +367,7 @@ pub const Op = enum {
     cl,
     r8, r16, r32, r64,
     rm8, rm16, rm32, rm64,
+    r32_m16, r64_m16,
     m8, m16, m32, m64, m80, m128,
     rel8, rel16, rel32,
     m,
@@ -450,16 +446,49 @@ pub const Op = enum {
         }
     }
 
-    pub fn bitSize(op: Op) u64 {
+    pub fn immBitSize(op: Op) u64 {
         return switch (op) {
             .none, .o16, .o32, .o64, .moffs, .m, .sreg => unreachable,
+            .al, .cl, .r8, .rm8 => unreachable,
+            .ax, .r16, .rm16 => unreachable,
+            .eax, .r32, .rm32, .r32_m16 => unreachable,
+            .rax, .r64, .rm64, .r64_m16 => unreachable,
+            .xmm, .xmm_m32, .xmm_m64, .xmm_m128 => unreachable,
+            .m8, .m16, .m32, .m64, .m80, .m128 => unreachable,
             .unity => 1,
-            .imm8, .imm8s, .al, .cl, .r8, .m8, .rm8, .rel8 => 8,
-            .imm16, .imm16s, .ax, .r16, .m16, .rm16, .rel16 => 16,
-            .imm32, .imm32s, .eax, .r32, .m32, .rm32, .rel32, .xmm_m32 => 32,
-            .imm64, .rax, .r64, .m64, .rm64, .xmm_m64 => 64,
+            .imm8, .imm8s, .rel8 => 8,
+            .imm16, .imm16s, .rel16 => 16,
+            .imm32, .imm32s, .rel32 => 32,
+            .imm64 => 64,
+        };
+    }
+
+    pub fn regBitSize(op: Op) u64 {
+        return switch (op) {
+            .none, .o16, .o32, .o64, .moffs, .m, .sreg => unreachable,
+            .unity, .imm8, .imm8s, .imm16, .imm16s, .imm32, .imm32s, .imm64 => unreachable,
+            .rel8, .rel16, .rel32 => unreachable,
+            .m8, .m16, .m32, .m64, .m80, .m128 => unreachable,
+            .al, .cl, .r8, .rm8 => 8,
+            .ax, .r16, .rm16 => 16,
+            .eax, .r32, .rm32, .r32_m16 => 32,
+            .rax, .r64, .rm64, .r64_m16 => 64,
+            .xmm, .xmm_m32, .xmm_m64, .xmm_m128 => 128,
+        };
+    }
+
+    pub fn memBitSize(op: Op) u64 {
+        return switch (op) {
+            .none, .o16, .o32, .o64, .moffs, .m, .sreg => unreachable,
+            .unity, .imm8, .imm8s, .imm16, .imm16s, .imm32, .imm32s, .imm64 => unreachable,
+            .rel8, .rel16, .rel32 => unreachable,
+            .al, .cl, .r8, .ax, .r16, .eax, .r32, .rax, .r64, .xmm => unreachable,
+            .m8, .rm8 => 8,
+            .m16, .rm16, .r32_m16, .r64_m16 => 16,
+            .m32, .rm32, .xmm_m32 => 32,
+            .m64, .rm64, .xmm_m64 => 64,
             .m80 => 80,
-            .m128, .xmm, .xmm_m128 => 128,
+            .m128, .xmm_m128 => 128,
         };
     }
 
@@ -482,6 +511,7 @@ pub const Op = enum {
             .al, .ax, .eax, .rax,
             .r8, .r16, .r32, .r64,
             .rm8, .rm16, .rm32, .rm64,
+            .r32_m16, .r64_m16,
             .xmm, .xmm_m32, .xmm_m64, .xmm_m128,
             => true,
             else => false,
@@ -506,6 +536,7 @@ pub const Op = enum {
         // zig fmt: off
         return switch (op) {
             .rm8, .rm16, .rm32, .rm64,
+            .r32_m16, .r64_m16,
             .m8, .m16, .m32, .m64, .m80, .m128,
             .m,
             .xmm_m32, .xmm_m64, .xmm_m128,
@@ -528,15 +559,9 @@ pub const Op = enum {
             .al, .ax, .eax, .rax, .cl => .general_purpose,
             .r8, .r16, .r32, .r64 => .general_purpose,
             .rm8, .rm16, .rm32, .rm64 => .general_purpose,
+            .r32_m16, .r64_m16 => .general_purpose,
             .sreg => .segment,
             .xmm, .xmm_m32, .xmm_m64, .xmm_m128 => .floating_point,
-        };
-    }
-
-    pub fn isFloatingPointRegister(op: Op) bool {
-        return switch (op) {
-            .xmm, .xmm_m32, .xmm_m64, .xmm_m128 => true,
-            else => false,
         };
     }
 
@@ -553,30 +578,27 @@ pub const Op = enum {
                 if (op.isRegister() and target.isRegister()) {
                     return switch (target) {
                         .cl, .al, .ax, .eax, .rax => op == target,
-                        else => op.class() == target.class() and switch (target.class()) {
-                            .floating_point => true,
-                            else => op.bitSize() == target.bitSize(),
-                        },
+                        else => op.class() == target.class() and op.regBitSize() == target.regBitSize(),
                     };
                 }
                 if (op.isMemory() and target.isMemory()) {
                     switch (target) {
                         .m => return true,
-                        else => return op.bitSize() == target.bitSize(),
+                        else => return op.memBitSize() == target.memBitSize(),
                     }
                 }
                 if (op.isImmediate() and target.isImmediate()) {
                     switch (target) {
-                        .imm64 => if (op.bitSize() <= 64) return true,
-                        .imm32s, .rel32 => if (op.bitSize() < 32 or (op.bitSize() == 32 and op.isSigned()))
+                        .imm64 => if (op.immBitSize() <= 64) return true,
+                        .imm32s, .rel32 => if (op.immBitSize() < 32 or (op.immBitSize() == 32 and op.isSigned()))
                             return true,
-                        .imm32 => if (op.bitSize() <= 32) return true,
-                        .imm16s, .rel16 => if (op.bitSize() < 16 or (op.bitSize() == 16 and op.isSigned()))
+                        .imm32 => if (op.immBitSize() <= 32) return true,
+                        .imm16s, .rel16 => if (op.immBitSize() < 16 or (op.immBitSize() == 16 and op.isSigned()))
                             return true,
-                        .imm16 => if (op.bitSize() <= 16) return true,
-                        .imm8s, .rel8 => if (op.bitSize() < 8 or (op.bitSize() == 8 and op.isSigned()))
+                        .imm16 => if (op.immBitSize() <= 16) return true,
+                        .imm8s, .rel8 => if (op.immBitSize() < 8 or (op.immBitSize() == 8 and op.isSigned()))
                             return true,
-                        .imm8 => if (op.bitSize() <= 8) return true,
+                        .imm8 => if (op.immBitSize() <= 8) return true,
                         else => {},
                     }
                     return op == target;
@@ -590,8 +612,9 @@ pub const Op = enum {
 pub const Mode = enum {
     none,
     short,
-    rex,
     long,
+    rex,
+    rex_short,
     vex_128,
     vex_128_long,
     vex_256,
@@ -600,9 +623,11 @@ pub const Mode = enum {
 
 pub const Feature = enum {
     none,
+    avx,
     f16c,
     sse,
     sse2,
+    sse3,
     sse4_1,
     x87,
 };

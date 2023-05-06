@@ -151,15 +151,12 @@ pub const Instruction = struct {
                         moffs.offset,
                     }),
                 },
-                .imm => |imm| try writer.print("0x{x}", .{imm.asUnsigned(enc_op.bitSize())}),
+                .imm => |imm| try writer.print("0x{x}", .{imm.asUnsigned(enc_op.immBitSize())}),
             }
         }
 
         pub fn fmtPrint(op: Operand, enc_op: Encoding.Op) std.fmt.Formatter(fmt) {
-            return .{ .data = .{
-                .op = op,
-                .enc_op = enc_op,
-            } };
+            return .{ .data = .{ .op = op, .enc_op = enc_op } };
         }
     };
 
@@ -210,7 +207,7 @@ pub const Instruction = struct {
         const data = enc.data;
 
         switch (data.mode) {
-            .none, .short, .rex, .long => {
+            .none, .short, .long, .rex, .rex_short => {
                 try inst.encodeLegacyPrefixes(encoder);
                 try inst.encodeMandatoryPrefix(encoder);
                 try inst.encodeRexPrefix(encoder);
@@ -232,15 +229,16 @@ pub const Instruction = struct {
             else => {
                 const mem_op = switch (data.op_en) {
                     .m, .mi, .m1, .mc, .mr, .mri, .mrc => inst.ops[0],
-                    .rm, .rmi => inst.ops[1],
+                    .rm, .rmi, .vmi => inst.ops[1],
+                    .rvm, .rvmi => inst.ops[2],
                     else => unreachable,
                 };
                 switch (mem_op) {
                     .reg => |reg| {
                         const rm = switch (data.op_en) {
-                            .m, .mi, .m1, .mc => enc.modRmExt(),
+                            .m, .mi, .m1, .mc, .vmi => enc.modRmExt(),
                             .mr, .mri, .mrc => inst.ops[1].reg.lowEnc(),
-                            .rm, .rmi => inst.ops[0].reg.lowEnc(),
+                            .rm, .rmi, .rvm, .rvmi => inst.ops[0].reg.lowEnc(),
                             else => unreachable,
                         };
                         try encoder.modRm_direct(rm, reg.lowEnc());
@@ -259,7 +257,8 @@ pub const Instruction = struct {
 
                 switch (data.op_en) {
                     .mi => try encodeImm(inst.ops[1].imm, data.ops[1], encoder),
-                    .rmi, .mri => try encodeImm(inst.ops[2].imm, data.ops[2], encoder),
+                    .rmi, .mri, .vmi => try encodeImm(inst.ops[2].imm, data.ops[2], encoder),
+                    .rvmi => try encodeImm(inst.ops[3].imm, data.ops[3], encoder),
                     else => {},
                 }
             },
@@ -291,11 +290,9 @@ pub const Instruction = struct {
             .rep, .repe, .repz => legacy.prefix_f3 = true,
         }
 
-        if (data.mode == .none) {
-            const bit_size = enc.operandBitSize();
-            if (bit_size == 16) {
-                legacy.set16BitOverride();
-            }
+        switch (data.mode) {
+            .short, .rex_short => legacy.set16BitOverride(),
+            else => {},
         }
 
         const segment_override: ?Register = switch (op_en) {
@@ -318,7 +315,7 @@ pub const Instruction = struct {
                 }
             else
                 null,
-            .rrm, .rrmi => unreachable,
+            .vmi, .rvm, .rvmi => unreachable,
         };
         if (segment_override) |seg| {
             legacy.setSegmentOverride(seg);
@@ -353,7 +350,7 @@ pub const Instruction = struct {
                 rex.b = b_x_op.isBaseExtended();
                 rex.x = b_x_op.isIndexExtended();
             },
-            .rrm, .rrmi => unreachable,
+            .vmi, .rvm, .rvmi => unreachable,
         }
 
         try encoder.rex(rex);
@@ -375,18 +372,19 @@ pub const Instruction = struct {
         switch (op_en) {
             .np, .i, .zi, .fd, .td, .d => {},
             .o, .oi => vex.b = inst.ops[0].reg.isExtended(),
-            .m, .mi, .m1, .mc, .mr, .rm, .rmi, .mri, .mrc, .rrm, .rrmi => {
+            .m, .mi, .m1, .mc, .mr, .rm, .rmi, .mri, .mrc, .vmi, .rvm, .rvmi => {
                 const r_op = switch (op_en) {
-                    .rm, .rmi, .rrm, .rrmi => inst.ops[0],
+                    .rm, .rmi, .rvm, .rvmi => inst.ops[0],
                     .mr, .mri, .mrc => inst.ops[1],
-                    else => .none,
+                    .m, .mi, .m1, .mc, .vmi => .none,
+                    else => unreachable,
                 };
                 vex.r = r_op.isBaseExtended();
 
                 const b_x_op = switch (op_en) {
-                    .rm, .rmi => inst.ops[1],
+                    .rm, .rmi, .vmi => inst.ops[1],
                     .m, .mi, .m1, .mc, .mr, .mri, .mrc => inst.ops[0],
-                    .rrm, .rrmi => inst.ops[2],
+                    .rvm, .rvmi => inst.ops[2],
                     else => unreachable,
                 };
                 vex.b = b_x_op.isBaseExtended();
@@ -417,7 +415,8 @@ pub const Instruction = struct {
 
         switch (op_en) {
             else => {},
-            .rrm, .rrmi => vex.v = inst.ops[1].reg,
+            .vmi => vex.v = inst.ops[0].reg,
+            .rvm, .rvmi => vex.v = inst.ops[1].reg,
         }
 
         try encoder.vex(vex);
@@ -515,8 +514,8 @@ pub const Instruction = struct {
     }
 
     fn encodeImm(imm: Immediate, kind: Encoding.Op, encoder: anytype) !void {
-        const raw = imm.asUnsigned(kind.bitSize());
-        switch (kind.bitSize()) {
+        const raw = imm.asUnsigned(kind.immBitSize());
+        switch (kind.immBitSize()) {
             8 => try encoder.imm8(@intCast(u8, raw)),
             16 => try encoder.imm16(@intCast(u16, raw)),
             32 => try encoder.imm32(@intCast(u32, raw)),

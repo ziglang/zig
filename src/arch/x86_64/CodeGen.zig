@@ -6737,26 +6737,43 @@ fn airCmp(self: *Self, inst: Air.Inst.Index, op: math.CompareOperator) !void {
     defer if (dst_lock) |lock| self.register_manager.unlockReg(lock);
 
     const src_mcv = if (flipped) lhs_mcv else rhs_mcv;
-    try self.genBinOpMir(switch (ty.zigTypeTag()) {
-        else => .cmp,
+    switch (ty.zigTypeTag()) {
+        else => try self.genBinOpMir(.cmp, ty, dst_mcv, src_mcv),
         .Float => switch (ty.floatBits(self.target.*)) {
-            32 => if (Target.x86.featureSetHas(self.target.cpu.features, .sse))
-                .ucomiss
-            else
-                return self.fail("TODO implement airCmp for {} without sse", .{
-                    ty.fmt(self.bin_file.options.module.?),
-                }),
-            64 => if (Target.x86.featureSetHas(self.target.cpu.features, .sse2))
-                .ucomisd
-            else
-                return self.fail("TODO implement airCmp for {} without sse2", .{
-                    ty.fmt(self.bin_file.options.module.?),
-                }),
+            16 => if (self.hasFeature(.f16c)) {
+                const dst_reg = dst_mcv.getReg().?.to128();
+
+                const tmp_reg = (try self.register_manager.allocReg(null, sse)).to128();
+                const tmp_lock = self.register_manager.lockRegAssumeUnused(tmp_reg);
+                defer self.register_manager.unlockReg(tmp_lock);
+
+                if (src_mcv.isRegister())
+                    try self.asmRegisterRegisterRegister(
+                        .vpunpcklwd,
+                        dst_reg,
+                        dst_reg,
+                        src_mcv.getReg().?.to128(),
+                    )
+                else
+                    try self.asmRegisterMemoryImmediate(
+                        .vpinsrw,
+                        dst_reg,
+                        src_mcv.mem(.word),
+                        Immediate.u(1),
+                    );
+                try self.asmRegisterRegister(.vcvtph2ps, dst_reg, dst_reg);
+                try self.asmRegisterRegister(.vmovshdup, tmp_reg, dst_reg);
+                try self.genBinOpMir(.ucomiss, ty, dst_mcv, .{ .register = tmp_reg });
+            } else return self.fail("TODO implement airCmp for {}", .{
+                ty.fmt(self.bin_file.options.module.?),
+            }),
+            32 => try self.genBinOpMir(.ucomiss, ty, dst_mcv, src_mcv),
+            64 => try self.genBinOpMir(.ucomisd, ty, dst_mcv, src_mcv),
             else => return self.fail("TODO implement airCmp for {}", .{
                 ty.fmt(self.bin_file.options.module.?),
             }),
         },
-    }, ty, dst_mcv, src_mcv);
+    }
 
     const signedness = if (ty.isAbiInt()) ty.intInfo(self.target.*).signedness else .unsigned;
     const result = MCValue{
@@ -7834,8 +7851,8 @@ fn genSetReg(self: *Self, dst_reg: Register, ty: Type, src_mcv: MCValue) InnerEr
             else switch (abi_size) {
                 2 => return try self.asmRegisterRegisterImmediate(
                     if (dst_reg.class() == .floating_point) .pinsrw else .pextrw,
-                    registerAlias(dst_reg, abi_size),
-                    registerAlias(src_reg, abi_size),
+                    registerAlias(dst_reg, 4),
+                    registerAlias(src_reg, 4),
                     Immediate.u(0),
                 ),
                 4 => .movd,
@@ -8045,7 +8062,7 @@ fn genSetMem(self: *Self, base: Memory.Base, disp: i32, ty: Type, src_mcv: MCVal
                 try self.asmMemoryRegisterImmediate(
                     .pextrw,
                     dst_mem,
-                    registerAlias(src_reg, abi_size),
+                    src_reg.to128(),
                     Immediate.u(0),
                 )
             else
