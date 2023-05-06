@@ -434,6 +434,12 @@ pub const Inst = struct {
         /// Register, memory (SIB), immediate (byte) operands.
         /// Uses `rix` payload with extra data of type `MemorySib`.
         rmi_sib,
+        /// Register, register, memory (RIP), immediate (byte) operands.
+        /// Uses `rrix` payload with extra data of type `MemoryRip`.
+        rrmi_rip,
+        /// Register, register, memory (SIB), immediate (byte) operands.
+        /// Uses `rrix` payload with extra data of type `MemorySib`.
+        rrmi_sib,
         /// Register, memory (RIP), immediate (byte) operands.
         /// Uses `rix` payload with extra data of type `MemoryRip`.
         rmi_rip,
@@ -524,16 +530,16 @@ pub const Inst = struct {
         /// Uses `reloc` payload.
         reloc,
         /// Linker relocation - GOT indirection.
-        /// Uses `payload` payload with extra data of type `LeaRegisterReloc`.
+        /// Uses `rx` payload with extra data of type `Reloc`.
         got_reloc,
         /// Linker relocation - direct reference.
-        /// Uses `payload` payload with extra data of type `LeaRegisterReloc`.
+        /// Uses `rx` payload with extra data of type `Reloc`.
         direct_reloc,
         /// Linker relocation - imports table indirection (binding).
-        /// Uses `payload` payload with extra data of type `LeaRegisterReloc`.
+        /// Uses `rx` payload with extra data of type `Reloc`.
         import_reloc,
         /// Linker relocation - threadlocal variable via GOT indirection.
-        /// Uses `payload` payload with extra data of type `LeaRegisterReloc`.
+        /// Uses `rx` payload with extra data of type `Reloc`.
         tlv_reloc,
     };
 
@@ -567,12 +573,14 @@ pub const Inst = struct {
         },
         /// Condition code (CC), followed by custom payload found in extra.
         x_cc: struct {
+            scratch: Register,
             cc: bits.Condition,
             payload: u32,
         },
         /// Register with condition code (CC).
         r_cc: struct {
             r: Register,
+            scratch: Register,
             cc: bits.Condition,
         },
         /// Register, register with condition code (CC).
@@ -614,6 +622,13 @@ pub const Inst = struct {
             i: u8,
             payload: u32,
         },
+        /// Register, register, byte immediate, followed by Custom payload found in extra.
+        rrix: struct {
+            r1: Register,
+            r2: Register,
+            i: u8,
+            payload: u32,
+        },
         /// String instruction prefix and width.
         string: struct {
             repeat: bits.StringRepeat,
@@ -622,12 +637,7 @@ pub const Inst = struct {
         /// Relocation for the linker where:
         /// * `atom_index` is the index of the source
         /// * `sym_index` is the index of the target
-        relocation: struct {
-            /// Index of the containing atom.
-            atom_index: u32,
-            /// Index into the linker's symbol table.
-            sym_index: u32,
-        },
+        relocation: Reloc,
         /// Debug line and column position
         line_column: struct {
             line: u32,
@@ -646,9 +656,7 @@ pub const Inst = struct {
     }
 };
 
-pub const LeaRegisterReloc = struct {
-    /// Destination register.
-    reg: u32,
+pub const Reloc = struct {
     /// Index of the containing atom.
     atom_index: u32,
     /// Index into the linker's symbol table.

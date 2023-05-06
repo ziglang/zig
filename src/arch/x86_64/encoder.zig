@@ -245,9 +245,9 @@ pub const Instruction = struct {
                     },
                     .mem => |mem| {
                         const op = switch (data.op_en) {
-                            .m, .mi, .m1, .mc => .none,
+                            .m, .mi, .m1, .mc, .vmi => .none,
                             .mr, .mri, .mrc => inst.ops[1],
-                            .rm, .rmi => inst.ops[0],
+                            .rm, .rmi, .rvm, .rvmi => inst.ops[0],
                             else => unreachable,
                         };
                         try encodeMemory(enc, mem, op, encoder);

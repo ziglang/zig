@@ -72,6 +72,12 @@ pub const Condition = enum(u5) {
     /// zero
     z,
 
+    // Pseudo conditions
+    /// zero and not parity
+    z_and_np,
+    /// not zero or parity
+    nz_or_p,
+
     /// Converts a std.math.CompareOperator into a condition flag,
     /// i.e. returns the condition that is true iff the result of the
     /// comparison is true. Assumes signed comparison
@@ -143,6 +149,9 @@ pub const Condition = enum(u5) {
             .po => .pe,
             .s => .ns,
             .z => .nz,
+
+            .z_and_np => .nz_or_p,
+            .nz_or_p => .z_and_np,
         };
     }
 };
