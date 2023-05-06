@@ -188,6 +188,30 @@ pub const TokenType = enum {
     end_of_document,
 };
 
+/// To enable diagnostics, declare `var diagnostics = Diagnostics{};` then call `source.enableDiagnostics(&diagnostics);`
+/// where `source` is either a JsonReader or a JsonScanner that has just been initialized.
+/// At any time, notably just after an error, call getLine(), getColumn(), and/or getByteOffset()
+/// to get meaningful information from this.
+pub const Diagnostics = struct {
+    line_number: u64 = 1,
+    line_start_cursor: usize = 0xffff_ffff_ffff_ffff, // Start just "before" the input buffer to get a 1-based column for line 1.
+    total_bytes_before_current_input: u64 = 0,
+    cursor_pointer: *const usize = undefined,
+
+    /// Starts at 1.
+    pub fn getLine(self: *const @This()) u64 {
+        return self.line_number;
+    }
+    /// Starts at 1.
+    pub fn getColumn(self: *const @This()) u64 {
+        return self.cursor_pointer.* -% self.line_start_cursor;
+    }
+    /// Starts at 0. Measures the byte offset since the start of the input.
+    pub fn getByteOffset(self: *const @This()) u64 {
+        return self.total_bytes_before_current_input + self.cursor_pointer.*;
+    }
+};
+
 /// See the documentation for Token.
 pub const AllocWhen = enum { alloc_if_needed, alloc_always };
 
@@ -214,6 +238,11 @@ pub fn JsonReader(comptime buffer_size: usize, comptime ReaderType: type) type {
         pub fn deinit(self: *@This()) void {
             self.scanner.deinit();
             self.* = undefined;
+        }
+
+        /// Calls JsonScanner.enableDiagnostics().
+        pub fn enableDiagnostics(self: *@This(), diagnostics: *Diagnostics) void {
+            self.scanner.enableDiagnostics(diagnostics);
         }
 
         pub const NextError = ReaderType.Error || JsonError || Allocator.Error;
@@ -385,6 +414,7 @@ pub const JsonScanner = struct {
     input: []const u8 = "",
     cursor: usize = 0,
     is_end_of_input: bool = false,
+    diagnostics: ?*Diagnostics = null,
 
     /// The allocator is only used to track [] and {} nesting levels.
     pub fn initStreaming(allocator: Allocator) @This() {
@@ -409,10 +439,21 @@ pub const JsonScanner = struct {
         self.* = undefined;
     }
 
+    pub fn enableDiagnostics(self: *@This(), diagnostics: *Diagnostics) void {
+        diagnostics.cursor_pointer = &self.cursor;
+        self.diagnostics = diagnostics;
+    }
+
     /// Call this whenever you get error.BufferUnderrun from next().
     /// When there is no more input to provide, call endInput().
     pub fn feedInput(self: *@This(), input: []const u8) void {
         assert(self.cursor == self.input.len); // Not done with the last input slice.
+        if (self.diagnostics) |diag| {
+            diag.total_bytes_before_current_input += self.input.len;
+            // This usually goes "negative" to measure how far before the beginning
+            // of the new buffer the current line started.
+            diag.line_start_cursor -%= self.cursor;
+        }
         self.input = input;
         self.cursor = 0;
         self.value_start = 0;
@@ -1577,7 +1618,16 @@ pub const JsonScanner = struct {
         while (self.cursor < self.input.len) : (self.cursor += 1) {
             switch (self.input[self.cursor]) {
                 // Whitespace
-                ' ', '\t', '\n', '\r' => continue,
+                ' ', '\t', '\r' => continue,
+                '\n' => {
+                    if (self.diagnostics) |diag| {
+                        diag.line_number += 1;
+                        // This will count the newline itself,
+                        // which means a straight-forward subtraction will give a 1-based column number.
+                        diag.line_start_cursor = self.cursor;
+                    }
+                    continue;
+                },
                 else => return,
             }
         }

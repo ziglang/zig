@@ -4,6 +4,7 @@ const jsonReader = @import("./scanner.zig").jsonReader;
 const JsonReader = @import("./scanner.zig").JsonReader;
 const Token = @import("./scanner.zig").Token;
 const TokenType = @import("./scanner.zig").TokenType;
+const Diagnostics = @import("./scanner.zig").Diagnostics;
 const JsonError = @import("./scanner.zig").JsonError;
 const validate = @import("./scanner.zig").validate;
 
@@ -414,4 +415,52 @@ test "ensureTotalStackCapacity" {
     try std.testing.expectError(error.OutOfMemory, testEnsureStackCapacity(false));
     // Then to demonstrate it works.
     try testEnsureStackCapacity(true);
+}
+
+fn testDiagnosticsFromSource(expected_error: ?anyerror, line: u64, col: u64, byte_offset: u64, source: anytype) !void {
+    var diagnostics = Diagnostics{};
+    source.enableDiagnostics(&diagnostics);
+
+    if (expected_error) |expected_err| {
+        try std.testing.expectError(expected_err, source.skipValue());
+    } else {
+        try source.skipValue();
+        try std.testing.expectEqual(Token.end_of_document, try source.next());
+    }
+    try std.testing.expectEqual(line, diagnostics.getLine());
+    try std.testing.expectEqual(col, diagnostics.getColumn());
+    try std.testing.expectEqual(byte_offset, diagnostics.getByteOffset());
+}
+fn testDiagnostics(expected_error: ?anyerror, line: u64, col: u64, byte_offset: u64, s: []const u8) !void {
+    var scanner = JsonScanner.initCompleteInput(std.testing.allocator, s);
+    defer scanner.deinit();
+    try testDiagnosticsFromSource(expected_error, line, col, byte_offset, &scanner);
+
+    var tiny_stream = std.io.fixedBufferStream(s);
+    var tiny_json_reader = JsonReader(1, @TypeOf(tiny_stream.reader())).init(std.testing.allocator, tiny_stream.reader());
+    defer tiny_json_reader.deinit();
+    try testDiagnosticsFromSource(expected_error, line, col, byte_offset, &tiny_json_reader);
+
+    var medium_stream = std.io.fixedBufferStream(s);
+    var medium_json_reader = JsonReader(5, @TypeOf(medium_stream.reader())).init(std.testing.allocator, medium_stream.reader());
+    defer medium_json_reader.deinit();
+    try testDiagnosticsFromSource(expected_error, line, col, byte_offset, &medium_json_reader);
+}
+test "enableDiagnostics" {
+    try testDiagnostics(error.UnexpectedEndOfInput, 1, 1, 0, "");
+    try testDiagnostics(null, 1, 3, 2, "[]");
+    try testDiagnostics(null, 2, 2, 3, "[\n]");
+    try testDiagnostics(null, 14, 2, example_document_str.len, example_document_str);
+
+    try testDiagnostics(error.SyntaxError, 3, 1, 25,
+        \\{
+        \\  "common": "mistake",
+        \\}
+    );
+
+    inline for ([_]comptime_int{ 5, 6, 7, 99 }) |reps| {
+        // The error happens 1 byte before the end.
+        const s = "[" ** reps ++ "}";
+        try testDiagnostics(error.SyntaxError, 1, s.len, s.len - 1, s);
+    }
 }

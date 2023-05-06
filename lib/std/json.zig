@@ -10,6 +10,7 @@ pub const jsonReader = @import("json/scanner.zig").jsonReader;
 pub const default_buffer_size = @import("json/scanner.zig").default_buffer_size;
 pub const Token = @import("json/scanner.zig").Token;
 pub const TokenType = @import("json/scanner.zig").TokenType;
+pub const Diagnostics = @import("json/scanner.zig").Diagnostics;
 pub const AllocWhen = @import("json/scanner.zig").AllocWhen;
 pub const default_max_value_len = @import("json/scanner.zig").default_max_value_len;
 pub const JsonReader = @import("json/scanner.zig").JsonReader;
