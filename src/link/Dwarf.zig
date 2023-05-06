@@ -278,7 +278,7 @@ pub const DeclState = struct {
                     var index = dbg_info_buffer.items.len;
                     try dbg_info_buffer.resize(index + 4);
                     var buf = try arena.create(Type.SlicePtrFieldTypeBuffer);
-                    const ptr_ty = ty.slicePtrFieldType(buf);
+                    const ptr_ty = ty.slicePtrFieldType(buf, mod);
                     try self.addTypeRelocGlobal(atom_index, ptr_ty, @intCast(u32, index));
                     // DW.AT.data_member_location, DW.FORM.udata
                     try dbg_info_buffer.ensureUnusedCapacity(6);

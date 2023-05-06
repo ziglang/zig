@@ -2042,7 +2042,18 @@ pub const Type = struct {
                 else => unreachable,
             },
             else => switch (mod.intern_pool.indexToKey(ty.ip_index)) {
-                else => @panic("TODO"),
+                .ptr_type => |ptr_type| {
+                    if (ptr_type.alignment != 0) {
+                        return @intCast(u32, ptr_type.alignment);
+                    } else if (opt_sema) |sema| {
+                        const res = try ptr_type.elem_type.toType().abiAlignmentAdvanced(mod, .{ .sema = sema });
+                        return res.scalar;
+                    } else {
+                        return (ptr_type.elem_type.toType().abiAlignmentAdvanced(mod, .eager) catch unreachable).scalar;
+                    }
+                },
+                .opt_type => |child| return child.toType().ptrAlignmentAdvanced(mod, opt_sema),
+                else => unreachable,
             },
         }
     }
@@ -3060,33 +3071,36 @@ pub const Type = struct {
         pointer: Payload.Pointer,
     };
 
-    pub fn slicePtrFieldType(self: Type, buffer: *SlicePtrFieldTypeBuffer) Type {
-        switch (self.tag()) {
-            .pointer => {
-                const payload = self.castTag(.pointer).?.data;
-                assert(payload.size == .Slice);
+    pub fn slicePtrFieldType(ty: Type, buffer: *SlicePtrFieldTypeBuffer, mod: *const Module) Type {
+        switch (ty.ip_index) {
+            .none => switch (ty.tag()) {
+                .pointer => {
+                    const payload = ty.castTag(.pointer).?.data;
+                    assert(payload.size == .Slice);
 
-                buffer.* = .{
-                    .pointer = .{
-                        .data = .{
-                            .pointee_type = payload.pointee_type,
-                            .sentinel = payload.sentinel,
-                            .@"align" = payload.@"align",
-                            .@"addrspace" = payload.@"addrspace",
-                            .bit_offset = payload.bit_offset,
-                            .host_size = payload.host_size,
-                            .vector_index = payload.vector_index,
-                            .@"allowzero" = payload.@"allowzero",
-                            .mutable = payload.mutable,
-                            .@"volatile" = payload.@"volatile",
-                            .size = .Many,
+                    buffer.* = .{
+                        .pointer = .{
+                            .data = .{
+                                .pointee_type = payload.pointee_type,
+                                .sentinel = payload.sentinel,
+                                .@"align" = payload.@"align",
+                                .@"addrspace" = payload.@"addrspace",
+                                .bit_offset = payload.bit_offset,
+                                .host_size = payload.host_size,
+                                .vector_index = payload.vector_index,
+                                .@"allowzero" = payload.@"allowzero",
+                                .mutable = payload.mutable,
+                                .@"volatile" = payload.@"volatile",
+                                .size = .Many,
+                            },
                         },
-                    },
-                };
-                return Type.initPayload(&buffer.pointer.base);
-            },
+                    };
+                    return Type.initPayload(&buffer.pointer.base);
+                },
 
-            else => unreachable,
+                else => unreachable,
+            },
+            else => return mod.intern_pool.slicePtrType(ty.ip_index).toType(),
         }
     }
 

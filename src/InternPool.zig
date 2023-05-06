@@ -668,6 +668,9 @@ pub const Tag = enum(u8) {
     /// A fully explicitly specified pointer type.
     /// data is payload to Pointer.
     type_pointer,
+    /// A slice type.
+    /// data is Index of underlying pointer type.
+    type_slice,
     /// An optional type.
     /// data is the child type.
     type_optional,
@@ -984,6 +987,13 @@ pub fn indexToKey(ip: InternPool, index: Index) Key {
             } };
         },
 
+        .type_slice => {
+            const ptr_ty_index = @intToEnum(Index, data);
+            var result = indexToKey(ip, ptr_ty_index);
+            result.ptr_type.size = .Slice;
+            return result;
+        },
+
         .type_optional => .{ .opt_type = @intToEnum(Index, data) },
 
         .type_error_union => @panic("TODO"),
@@ -1041,6 +1051,19 @@ pub fn get(ip: *InternPool, gpa: Allocator, key: Key) Allocator.Error!Index {
         },
         .ptr_type => |ptr_type| {
             assert(ptr_type.elem_type != .none);
+
+            if (ptr_type.size == .Slice) {
+                var new_key = key;
+                new_key.ptr_type.size = .Many;
+                const ptr_ty_index = try get(ip, gpa, new_key);
+                try ip.items.ensureUnusedCapacity(gpa, 1);
+                ip.items.appendAssumeCapacity(.{
+                    .tag = .type_slice,
+                    .data = @enumToInt(ptr_ty_index),
+                });
+                return @intToEnum(Index, ip.items.len - 1);
+            }
+
             // TODO introduce more pointer encodings
             ip.items.appendAssumeCapacity(.{
                 .tag = .type_pointer,
@@ -1401,6 +1424,20 @@ pub fn childType(ip: InternPool, i: Index) Index {
     };
 }
 
+/// Given a slice type, returns the type of the pointer field.
+pub fn slicePtrType(ip: InternPool, i: Index) Index {
+    switch (i) {
+        .const_slice_u8_type => return .manyptr_const_u8_type,
+        .const_slice_u8_sentinel_0_type => return .manyptr_const_u8_sentinel_0_type,
+        else => {},
+    }
+    const item = ip.items.get(@enumToInt(i));
+    switch (item.tag) {
+        .type_slice => return @intToEnum(Index, item.data),
+        else => unreachable, // not a slice type
+    }
+}
+
 pub fn dump(ip: InternPool) void {
     dumpFallible(ip, std.heap.page_allocator) catch return;
 }
@@ -1438,6 +1475,7 @@ fn dumpFallible(ip: InternPool, arena: Allocator) anyerror!void {
             .type_array => @sizeOf(Vector),
             .type_vector => @sizeOf(Vector),
             .type_pointer => @sizeOf(Pointer),
+            .type_slice => 0,
             .type_optional => 0,
             .type_error_union => @sizeOf(ErrorUnion),
             .type_enum_simple => @sizeOf(EnumSimple),

@@ -6553,7 +6553,7 @@ pub fn populateTestFunctions(
     }
     const decl = mod.declPtr(decl_index);
     var buf: Type.SlicePtrFieldTypeBuffer = undefined;
-    const tmp_test_fn_ty = decl.ty.slicePtrFieldType(&buf).childType(mod);
+    const tmp_test_fn_ty = decl.ty.slicePtrFieldType(&buf, mod).childType(mod);
 
     const array_decl_index = d: {
         // Add mod.test_functions to an array decl then make the test_functions

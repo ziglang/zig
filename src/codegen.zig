@@ -361,7 +361,7 @@ pub fn generateSymbol(
 
                     // generate ptr
                     var buf: Type.SlicePtrFieldTypeBuffer = undefined;
-                    const slice_ptr_field_type = typed_value.ty.slicePtrFieldType(&buf);
+                    const slice_ptr_field_type = typed_value.ty.slicePtrFieldType(&buf, mod);
                     switch (try generateSymbol(bin_file, src_loc, .{
                         .ty = slice_ptr_field_type,
                         .val = slice.ptr,
@@ -851,7 +851,7 @@ fn lowerParentPtr(
                         var buf: Type.SlicePtrFieldTypeBuffer = undefined;
                         break :offset switch (field_ptr.field_index) {
                             0 => 0,
-                            1 => field_ptr.container_ty.slicePtrFieldType(&buf).abiSize(mod),
+                            1 => field_ptr.container_ty.slicePtrFieldType(&buf, mod).abiSize(mod),
                             else => unreachable,
                         };
                     },
@@ -951,7 +951,7 @@ fn lowerDeclRef(
     if (typed_value.ty.isSlice(mod)) {
         // generate ptr
         var buf: Type.SlicePtrFieldTypeBuffer = undefined;
-        const slice_ptr_field_type = typed_value.ty.slicePtrFieldType(&buf);
+        const slice_ptr_field_type = typed_value.ty.slicePtrFieldType(&buf, mod);
         switch (try generateSymbol(bin_file, src_loc, .{
             .ty = slice_ptr_field_type,
             .val = typed_value.val,

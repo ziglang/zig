@@ -2078,7 +2078,7 @@ pub const Value = struct {
                 }
 
                 var ptr_buf: Type.SlicePtrFieldTypeBuffer = undefined;
-                const ptr_ty = ty.slicePtrFieldType(&ptr_buf);
+                const ptr_ty = ty.slicePtrFieldType(&ptr_buf, mod);
 
                 return eqlAdvanced(a_payload.ptr, ptr_ty, b_payload.ptr, ptr_ty, mod, opt_sema);
             },
@@ -2237,7 +2237,7 @@ pub const Value = struct {
                     }
 
                     var ptr_buf: Type.SlicePtrFieldTypeBuffer = undefined;
-                    const ptr_ty = ty.slicePtrFieldType(&ptr_buf);
+                    const ptr_ty = ty.slicePtrFieldType(&ptr_buf, mod);
                     const a_ptr = switch (a_ty.ptrSize(mod)) {
                         .Slice => a.slicePtr(),
                         .One => a,
@@ -2376,7 +2376,7 @@ pub const Value = struct {
                 .slice => {
                     const slice = val.castTag(.slice).?.data;
                     var ptr_buf: Type.SlicePtrFieldTypeBuffer = undefined;
-                    const ptr_ty = ty.slicePtrFieldType(&ptr_buf);
+                    const ptr_ty = ty.slicePtrFieldType(&ptr_buf, mod);
                     hash(slice.ptr, ptr_ty, hasher, mod);
                     hash(slice.len, Type.usize, hasher, mod);
                 },
@@ -2499,7 +2499,7 @@ pub const Value = struct {
                 .slice => {
                     const slice = val.castTag(.slice).?.data;
                     var ptr_buf: Type.SlicePtrFieldTypeBuffer = undefined;
-                    const ptr_ty = ty.slicePtrFieldType(&ptr_buf);
+                    const ptr_ty = ty.slicePtrFieldType(&ptr_buf, mod);
                     slice.ptr.hashUncoerced(ptr_ty, hasher, mod);
                 },
                 else => val.hashPtr(hasher, mod),
