@@ -79,20 +79,53 @@ const all_types_test_case =
     \\]
 ;
 
-fn testAllTypes(source: anytype) !void {
+fn testAllTypes(source: anytype, large_buffer: bool) !void {
     try expectPeekNext(source, .array_begin, .array_begin);
     try expectPeekNext(source, .string, Token{ .string = "" });
     try expectPeekNext(source, .string, Token{ .partial_string = "a" });
-    try expectNext(source, Token{ .partial_string_escaped_1 = "\n".* });
-    try expectNext(source, Token{ .string = "b" });
-    try expectPeekNext(source, .number, Token{ .number = "0" });
-    try expectPeekNext(source, .number, Token{ .number = "0.0" });
-    try expectPeekNext(source, .number, Token{ .number = "-1.1e-1" });
+    try expectPeekNext(source, .string,  Token{ .partial_string_escaped_1 = "\n".* });
+    if (large_buffer) {
+        try expectPeekNext(source, .string,  Token{ .string = "b" });
+    } else {
+        try expectPeekNext(source, .string,  Token{ .partial_string = "b" });
+        try expectPeekNext(source, .string,  Token{ .string = "" });
+    }
+    if (large_buffer) {
+        try expectPeekNext(source, .number, Token{ .number = "0" });
+    } else {
+        try expectPeekNext(source, .number, Token{ .partial_number = "0" });
+        try expectPeekNext(source, .number, Token{ .number = "" });
+    }
+    if (large_buffer) {
+        try expectPeekNext(source, .number, Token{ .number = "0.0" });
+    } else {
+        try expectPeekNext(source, .number, Token{ .partial_number = "0" });
+        try expectPeekNext(source, .number, Token{ .partial_number = "." });
+        try expectPeekNext(source, .number, Token{ .partial_number = "0" });
+        try expectPeekNext(source, .number, Token{ .number = "" });
+    }
+    if (large_buffer) {
+        try expectPeekNext(source, .number, Token{ .number = "-1.1e-1" });
+    } else {
+        try expectPeekNext(source, .number, Token{ .partial_number = "-" });
+        try expectPeekNext(source, .number, Token{ .partial_number = "1" });
+        try expectPeekNext(source, .number, Token{ .partial_number = "." });
+        try expectPeekNext(source, .number, Token{ .partial_number = "1" });
+        try expectPeekNext(source, .number, Token{ .partial_number = "e" });
+        try expectPeekNext(source, .number, Token{ .partial_number = "-" });
+        try expectPeekNext(source, .number, Token{ .partial_number = "1" });
+        try expectPeekNext(source, .number, Token{ .number = "" });
+    }
     try expectPeekNext(source, .true, .true);
     try expectPeekNext(source, .false, .false);
     try expectPeekNext(source, .null, .null);
     try expectPeekNext(source, .object_begin, .object_begin);
-    try expectPeekNext(source, .string, Token{ .string = "a" });
+    if (large_buffer) {
+        try expectPeekNext(source, .string, Token{ .string = "a" });
+    } else {
+        try expectPeekNext(source, .string, Token{ .partial_string = "a" });
+        try expectPeekNext(source, .string, Token{ .string = "" });
+    }
     try expectPeekNext(source, .object_begin, .object_begin);
     try expectPeekNext(source, .object_end, .object_end);
     try expectPeekNext(source, .object_end, .object_end);
@@ -105,12 +138,17 @@ fn testAllTypes(source: anytype) !void {
 test "peek all types" {
     var scanner = JsonScanner.initCompleteInput(std.testing.allocator, all_types_test_case);
     defer scanner.deinit();
-    try testAllTypes(&scanner);
+    try testAllTypes(&scanner, true);
 
     var stream = std.io.fixedBufferStream(all_types_test_case);
     var json_reader = jsonReader(std.testing.allocator, stream.reader());
     defer json_reader.deinit();
-    try testAllTypes(&json_reader);
+    try testAllTypes(&json_reader, true);
+
+    var tiny_stream = std.io.fixedBufferStream(all_types_test_case);
+    var tiny_json_reader = JsonReader(1, @TypeOf(tiny_stream.reader())).init(std.testing.allocator, tiny_stream.reader());
+    defer tiny_json_reader.deinit();
+    try testAllTypes(&tiny_json_reader, false);
 }
 
 test "json.token mismatched close" {

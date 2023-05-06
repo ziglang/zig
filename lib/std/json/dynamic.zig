@@ -170,7 +170,11 @@ pub const Parser = struct {
                     var value = p.stack.pop();
                     try p.pushToParent(&value);
                 },
-                .string, .allocated_string => |s| {
+                .string => |s| {
+                    try p.stack.append(Value{ .string = s });
+                    p.state = .object_value;
+                },
+                .allocated_string => |s| {
                     try p.stack.append(Value{ .string = s });
                     p.state = .object_value;
                 },
@@ -189,12 +193,22 @@ pub const Parser = struct {
                         try p.stack.append(Value{ .array = Array.init(allocator) });
                         p.state = .array_value;
                     },
-                    .string, .allocated_string => |s| {
+                    .string => |s| {
                         try object.put(key, Value{ .string = s });
                         _ = p.stack.pop();
                         p.state = .object_key;
                     },
-                    .number, .allocated_number => |slice| {
+                    .allocated_string => |s| {
+                        try object.put(key, Value{ .string = s });
+                        _ = p.stack.pop();
+                        p.state = .object_key;
+                    },
+                    .number => |slice| {
+                        try object.put(key, try p.parseNumber(slice));
+                        _ = p.stack.pop();
+                        p.state = .object_key;
+                    },
+                    .allocated_number => |slice| {
                         try object.put(key, try p.parseNumber(slice));
                         _ = p.stack.pop();
                         p.state = .object_key;
@@ -238,10 +252,16 @@ pub const Parser = struct {
                         try p.stack.append(Value{ .array = Array.init(allocator) });
                         p.state = .array_value;
                     },
-                    .string, .allocated_string => |s| {
+                    .string => |s| {
                         try array.append(Value{ .string = s });
                     },
-                    .number, .allocated_number => |slice| {
+                    .allocated_string => |s| {
+                        try array.append(Value{ .string = s });
+                    },
+                    .number => |slice| {
+                        try array.append(try p.parseNumber(slice));
+                    },
+                    .allocated_number => |slice| {
                         try array.append(try p.parseNumber(slice));
                     },
                     .true => {
@@ -266,10 +286,16 @@ pub const Parser = struct {
                     try p.stack.append(Value{ .array = Array.init(allocator) });
                     p.state = .array_value;
                 },
-                .string, .allocated_string => |s| {
+                .string => |s| {
                     try p.stack.append(Value{ .string = s });
                 },
-                .number, .allocated_number => |slice| {
+                .allocated_string => |s| {
+                    try p.stack.append(Value{ .string = s });
+                },
+                .number => |slice| {
+                    try p.stack.append(try p.parseNumber(slice));
+                },
+                .allocated_number => |slice| {
                     try p.stack.append(try p.parseNumber(slice));
                 },
                 .true => {
