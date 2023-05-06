@@ -1198,6 +1198,7 @@ fn analyzeBodyInner(
                         i += 1;
                         continue;
                     },
+                    .errdefer_err_code => unreachable, // never appears in a body
                 };
             },
 
