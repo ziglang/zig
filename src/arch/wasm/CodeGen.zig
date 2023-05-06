@@ -881,6 +881,9 @@ fn processDeath(func: *CodeGen, ref: Air.Inst.Ref) void {
     const value = func.currentBranch().values.getPtr(ref) orelse return;
     if (value.* != .local) return;
     log.debug("Decreasing reference for ref: %{?d}\n", .{Air.refToIndex(ref)});
+    if (value.local.value < func.arg_index) {
+        return; // function arguments can never be re-used
+    }
     value.local.references -= 1; // if this panics, a call to `reuseOperand` was forgotten by the developer
     if (value.local.references == 0) {
         value.free(func);
@@ -4021,7 +4024,13 @@ fn airIntcast(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         return func.fail("todo Wasm intcast for bitsize > 128", .{});
     }
 
-    const result = try (try func.intcast(operand, operand_ty, ty)).toLocal(func, ty);
+    const op_bits = toWasmBits(@intCast(u16, ty.bitSize(func.target))).?;
+    const wanted_bits = toWasmBits(@intCast(u16, ty.bitSize(func.target))).?;
+    const result = if (op_bits == wanted_bits)
+        func.reuseOperand(ty_op.operand, operand)
+    else
+        try (try func.intcast(operand, operand_ty, ty)).toLocal(func, ty);
+
     func.finishAir(inst, result, &.{});
 }
 
