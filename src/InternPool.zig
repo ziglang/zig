@@ -722,10 +722,10 @@ pub const Tag = enum(u8) {
     /// data is float value bitcasted to u32.
     float_f32,
     /// An f64 value.
-    /// data is payload index to Float64.
+    /// data is extra index to Float64.
     float_f64,
     /// An f128 value.
-    /// data is payload index to Float128.
+    /// data is extra index to Float128.
     float_f128,
     /// An extern function.
     extern_func,
@@ -875,6 +875,33 @@ pub const EnumSimple = struct {
 pub const Int = struct {
     ty: Index,
     limbs_len: u32,
+};
+
+/// A f64 value, broken up into 2 u32 parts.
+pub const Float64 = struct {
+    piece0: u32,
+    piece1: u32,
+
+    pub fn get(self: Float64) f64 {
+        const int_bits = @as(u64, self.piece0) | (@as(u64, self.piece1) << 32);
+        return @bitCast(u64, int_bits);
+    }
+};
+
+/// A f128 value, broken up into 4 u32 parts.
+pub const Float128 = struct {
+    piece0: u32,
+    piece1: u32,
+    piece2: u32,
+    piece3: u32,
+
+    pub fn get(self: Float128) f128 {
+        const int_bits = @as(u128, self.piece0) |
+            (@as(u128, self.piece1) << 32) |
+            (@as(u128, self.piece2) << 64) |
+            (@as(u128, self.piece3) << 96);
+        return @bitCast(f128, int_bits);
+    }
 };
 
 pub fn init(ip: *InternPool, gpa: Allocator) !void {
@@ -1293,20 +1320,42 @@ fn addLimbsAssumeCapacity(ip: *InternPool, limbs: []const usize) void {
 }
 
 fn extraData(ip: InternPool, comptime T: type, index: usize) T {
-    const fields = std.meta.fields(T);
-    var i: usize = index;
     var result: T = undefined;
-    inline for (fields) |field| {
+    inline for (@typeInfo(T).Struct.fields, 0..) |field, i| {
+        const int32 = ip.extra.items[i + index];
         @field(result, field.name) = switch (field.type) {
-            u32 => ip.extra.items[i],
-            Index => @intToEnum(Index, ip.extra.items[i]),
-            i32 => @bitCast(i32, ip.extra.items[i]),
-            Pointer.Flags => @bitCast(Pointer.Flags, ip.extra.items[i]),
-            Pointer.PackedOffset => @bitCast(Pointer.PackedOffset, ip.extra.items[i]),
-            Pointer.VectorIndex => @intToEnum(Pointer.VectorIndex, ip.extra.items[i]),
+            u32 => int32,
+            Index => @intToEnum(Index, int32),
+            i32 => @bitCast(i32, int32),
+            Pointer.Flags => @bitCast(Pointer.Flags, int32),
+            Pointer.PackedOffset => @bitCast(Pointer.PackedOffset, int32),
+            Pointer.VectorIndex => @intToEnum(Pointer.VectorIndex, int32),
             else => @compileError("bad field type: " ++ @typeName(field.type)),
         };
-        i += 1;
+    }
+    return result;
+}
+
+/// Asserts the struct has 32-bit fields and the number of fields is evenly divisible by 2.
+fn limbData(ip: InternPool, comptime T: type, index: usize) T {
+    switch (@sizeOf(usize)) {
+        @sizeOf(u32) => return extraData(ip, T, index),
+        @sizeOf(u64) => {},
+        else => @compileError("unsupported host"),
+    }
+    var result: T = undefined;
+    inline for (@typeInfo(T).Struct.fields, 0..) |field, i| {
+        const host_int = ip.limbs.items[index + i / 2];
+        const int32 = if (i % 2 == 0)
+            @truncate(u32, host_int)
+        else
+            @truncate(u32, host_int >> 32);
+
+        @field(result, field.name) = switch (field.type) {
+            u32 => int32,
+            Index => @intToEnum(Index, int32),
+            else => @compileError("bad field type: " ++ @typeName(field.type)),
+        };
     }
     return result;
 }
@@ -1349,4 +1398,86 @@ pub fn childType(ip: InternPool, i: Index) Index {
         .opt_type => |child| child,
         else => unreachable,
     };
+}
+
+pub fn dump(ip: InternPool) void {
+    dumpFallible(ip, std.heap.page_allocator) catch return;
+}
+
+fn dumpFallible(ip: InternPool, arena: Allocator) anyerror!void {
+    const items_size = (1 + 4) * ip.items.len;
+    const extra_size = 4 * ip.extra.items.len;
+    const limbs_size = 8 * ip.limbs.items.len;
+
+    // TODO: map overhead size is not taken into account
+    const total_size = @sizeOf(InternPool) + items_size + extra_size + limbs_size;
+
+    std.debug.print(
+        \\InternPool size: {d} bytes
+        \\  items: {d} bytes
+        \\  extra: {d} bytes
+        \\  limbs: {d} bytes
+        \\
+    , .{ total_size, items_size, extra_size, limbs_size });
+
+    const tags = ip.items.items(.tag);
+    const datas = ip.items.items(.data);
+    const TagStats = struct {
+        count: usize = 0,
+        bytes: usize = 0,
+    };
+    var counts = std.AutoArrayHashMap(Tag, TagStats).init(arena);
+    for (tags, datas) |tag, data| {
+        const gop = try counts.getOrPut(tag);
+        if (!gop.found_existing) gop.value_ptr.* = .{};
+        gop.value_ptr.count += 1;
+        gop.value_ptr.bytes += 1 + 4 + @as(usize, switch (tag) {
+            .type_int_signed => 0,
+            .type_int_unsigned => 0,
+            .type_array => @sizeOf(Vector),
+            .type_vector => @sizeOf(Vector),
+            .type_pointer => @sizeOf(Pointer),
+            .type_optional => 0,
+            .type_error_union => @sizeOf(ErrorUnion),
+            .type_enum_simple => @sizeOf(EnumSimple),
+            .simple_type => 0,
+            .simple_value => 0,
+            .simple_internal => 0,
+            .int_u32 => 0,
+            .int_i32 => 0,
+            .int_usize => 0,
+            .int_comptime_int_u32 => 0,
+            .int_comptime_int_i32 => 0,
+
+            .int_positive,
+            .int_negative,
+            .enum_tag_positive,
+            .enum_tag_negative,
+            => b: {
+                const int = ip.limbData(Int, data);
+                break :b @sizeOf(Int) + int.limbs_len * 8;
+            },
+
+            .float_f32 => 0,
+            .float_f64 => @sizeOf(Float64),
+            .float_f128 => @sizeOf(Float128),
+            .extern_func => @panic("TODO"),
+            .func => @panic("TODO"),
+        });
+    }
+    const SortContext = struct {
+        map: *std.AutoArrayHashMap(Tag, TagStats),
+        pub fn lessThan(ctx: @This(), a_index: usize, b_index: usize) bool {
+            const values = ctx.map.values();
+            return values[a_index].bytes > values[b_index].bytes;
+        }
+    };
+    counts.sort(SortContext{ .map = &counts });
+    const len = @min(50, tags.len);
+    std.debug.print("top 50 tags:\n", .{});
+    for (counts.keys()[0..len], counts.values()[0..len]) |tag, stats| {
+        std.debug.print("  {s}: {d} occurrences, {d} total bytes\n", .{
+            @tagName(tag), stats.count, stats.bytes,
+        });
+    }
 }
