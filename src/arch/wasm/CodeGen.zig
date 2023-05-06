@@ -2523,10 +2523,34 @@ fn airBinOp(func: *CodeGen, inst: Air.Inst.Index, op: Op) InnerError!void {
     const bin_op = func.air.instructions.items(.data)[inst].bin_op;
     const lhs = try func.resolveInst(bin_op.lhs);
     const rhs = try func.resolveInst(bin_op.rhs);
-    const ty = func.air.typeOf(bin_op.lhs);
+    const lhs_ty = func.air.typeOf(bin_op.lhs);
+    const rhs_ty = func.air.typeOf(bin_op.rhs);
 
-    const stack_value = try func.binOp(lhs, rhs, ty, op);
-    func.finishAir(inst, try stack_value.toLocal(func, ty), &.{ bin_op.lhs, bin_op.rhs });
+    // For certain operations, such as shifting, the types are different.
+    // When converting this to a WebAssembly type, they *must* match to perform
+    // an operation. For this reason we verify if the WebAssembly type is different, in which
+    // case we first coerce the operands to the same type before performing the operation.
+    // For big integers we can ignore this as we will call into compiler-rt which handles this.
+    const result = switch (op) {
+        .shr, .shl => res: {
+            const lhs_wasm_bits = toWasmBits(@intCast(u16, lhs_ty.bitSize(func.target))) orelse {
+                return func.fail("TODO: implement '{s}' for types larger than 128 bits", .{@tagName(op)});
+            };
+            const rhs_wasm_bits = toWasmBits(@intCast(u16, rhs_ty.bitSize(func.target))).?;
+            const new_rhs = if (lhs_wasm_bits != rhs_wasm_bits and lhs_wasm_bits != 128) blk: {
+                const tmp = try func.intcast(rhs, rhs_ty, lhs_ty);
+                break :blk try tmp.toLocal(func, lhs_ty);
+            } else rhs;
+            const stack_result = try func.binOp(lhs, new_rhs, lhs_ty, op);
+            break :res try stack_result.toLocal(func, lhs_ty);
+        },
+        else => res: {
+            const stack_result = try func.binOp(lhs, rhs, lhs_ty, op);
+            break :res try stack_result.toLocal(func, lhs_ty);
+        },
+    };
+
+    func.finishAir(inst, result, &.{ bin_op.lhs, bin_op.rhs });
 }
 
 /// Performs a binary operation on the given `WValue`'s
@@ -2769,14 +2793,38 @@ fn airWrapBinOp(func: *CodeGen, inst: Air.Inst.Index, op: Op) InnerError!void {
 
     const lhs = try func.resolveInst(bin_op.lhs);
     const rhs = try func.resolveInst(bin_op.rhs);
-    const ty = func.air.typeOf(bin_op.lhs);
+    const lhs_ty = func.air.typeOf(bin_op.lhs);
+    const rhs_ty = func.air.typeOf(bin_op.rhs);
 
-    if (ty.zigTypeTag() == .Vector) {
+    if (lhs_ty.zigTypeTag() == .Vector or rhs_ty.zigTypeTag() == .Vector) {
         return func.fail("TODO: Implement wrapping arithmetic for vectors", .{});
     }
 
-    const result = try (try func.wrapBinOp(lhs, rhs, ty, op)).toLocal(func, ty);
-    func.finishAir(inst, result, &.{ bin_op.lhs, bin_op.rhs });
+    // For certain operations, such as shifting, the types are different.
+    // When converting this to a WebAssembly type, they *must* match to perform
+    // an operation. For this reason we verify if the WebAssembly type is different, in which
+    // case we first coerce the operands to the same type before performing the operation.
+    // For big integers we can ignore this as we will call into compiler-rt which handles this.
+    const result = switch (op) {
+        .shr, .shl => res: {
+            const lhs_wasm_bits = toWasmBits(@intCast(u16, lhs_ty.bitSize(func.target))) orelse {
+                return func.fail("TODO: implement '{s}' for types larger than 128 bits", .{@tagName(op)});
+            };
+            const rhs_wasm_bits = toWasmBits(@intCast(u16, rhs_ty.bitSize(func.target))).?;
+            const new_rhs = if (lhs_wasm_bits != rhs_wasm_bits and lhs_wasm_bits != 128) blk: {
+                const tmp = try func.intcast(rhs, rhs_ty, lhs_ty);
+                break :blk try tmp.toLocal(func, lhs_ty);
+            } else rhs;
+            const stack_result = try func.wrapBinOp(lhs, new_rhs, lhs_ty, op);
+            break :res try stack_result.toLocal(func, lhs_ty);
+        },
+        else => res: {
+            const stack_result = try func.wrapBinOp(lhs, rhs, lhs_ty, op);
+            break :res try stack_result.toLocal(func, lhs_ty);
+        },
+    };
+
+    return func.finishAir(inst, result, &.{ bin_op.lhs, bin_op.rhs });
 }
 
 /// Performs a wrapping binary operation.
