@@ -3570,15 +3570,21 @@ pub const DeclGen = struct {
             },
             .ErrorSet => {
                 const llvm_ty = try dg.lowerType(Type.anyerror);
-                switch (tv.val.tag()) {
-                    .@"error" => {
-                        const err_name = tv.val.castTag(.@"error").?.data.name;
-                        const kv = try dg.module.getErrorValue(err_name);
-                        return llvm_ty.constInt(kv.value, .False);
+                switch (tv.val.ip_index) {
+                    .none => switch (tv.val.tag()) {
+                        .@"error" => {
+                            const err_name = tv.val.castTag(.@"error").?.data.name;
+                            const kv = try dg.module.getErrorValue(err_name);
+                            return llvm_ty.constInt(kv.value, .False);
+                        },
+                        else => {
+                            // In this case we are rendering an error union which has a 0 bits payload.
+                            return llvm_ty.constNull();
+                        },
                     },
-                    else => {
-                        // In this case we are rendering an error union which has a 0 bits payload.
-                        return llvm_ty.constNull();
+                    else => switch (mod.intern_pool.indexToKey(tv.val.ip_index)) {
+                        .int => |int| return llvm_ty.constInt(int.storage.u64, .False),
+                        else => unreachable,
                     },
                 }
             },
@@ -3588,7 +3594,7 @@ pub const DeclGen = struct {
 
                 if (!payload_type.hasRuntimeBitsIgnoreComptime(mod)) {
                     // We use the error type directly as the type.
-                    const err_val = if (!is_pl) tv.val else try mod.intValue(Type.anyerror, 0);
+                    const err_val = if (!is_pl) tv.val else try mod.intValue(Type.err_int, 0);
                     return dg.lowerValue(.{ .ty = Type.anyerror, .val = err_val });
                 }
 
@@ -3596,7 +3602,7 @@ pub const DeclGen = struct {
                 const error_align = Type.anyerror.abiAlignment(mod);
                 const llvm_error_value = try dg.lowerValue(.{
                     .ty = Type.anyerror,
-                    .val = if (is_pl) try mod.intValue(Type.anyerror, 0) else tv.val,
+                    .val = if (is_pl) try mod.intValue(Type.err_int, 0) else tv.val,
                 });
                 const llvm_payload_value = try dg.lowerValue(.{
                     .ty = payload_type,
@@ -6873,7 +6879,7 @@ pub const FuncGen = struct {
         const err_union_ty = self.typeOf(ty_op.operand).childType(mod);
 
         const payload_ty = err_union_ty.errorUnionPayload();
-        const non_error_val = try self.dg.lowerValue(.{ .ty = Type.anyerror, .val = try mod.intValue(Type.anyerror, 0) });
+        const non_error_val = try self.dg.lowerValue(.{ .ty = Type.anyerror, .val = try mod.intValue(Type.err_int, 0) });
         if (!payload_ty.hasRuntimeBitsIgnoreComptime(mod)) {
             _ = self.builder.buildStore(non_error_val, operand);
             return operand;
