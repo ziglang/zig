@@ -6115,6 +6115,8 @@ pub const PeerTypeCandidateSrc = union(enum) {
                 return null;
             },
             .override => |candidate_srcs| {
+                if (candidate_i >= candidate_srcs.len)
+                    return null;
                 return candidate_srcs[candidate_i];
             },
             .typeof_builtin_call_node_offset => |node_offset| {
