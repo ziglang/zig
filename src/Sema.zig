@@ -12307,8 +12307,7 @@ fn zirShl(
     if (block.wantSafety()) {
         const bit_count = scalar_ty.intInfo(mod).bits;
         if (!std.math.isPowerOfTwo(bit_count)) {
-            const bit_count_val = try mod.intValue(scalar_ty, bit_count);
-
+            const bit_count_val = try mod.intValue(scalar_rhs_ty, bit_count);
             const ok = if (rhs_ty.zigTypeTag(mod) == .Vector) ok: {
                 const bit_count_inst = try sema.addConstant(rhs_ty, try Value.Tag.repeated.create(sema.arena, bit_count_val));
                 const lt = try block.addCmpVector(rhs, bit_count_inst, .lt);
@@ -27391,10 +27390,19 @@ fn obtainBitCastedVectorPtr(sema: *Sema, ptr: Air.Inst.Ref) ?Air.Inst.Ref {
     const prev_ptr = while (air_tags[ptr_inst] == .bitcast) {
         const prev_ptr = air_datas[ptr_inst].ty_op.operand;
         const prev_ptr_ty = sema.typeOf(prev_ptr);
-        const prev_ptr_child_ty = switch (prev_ptr_ty.tag()) {
-            .pointer => prev_ptr_ty.castTag(.pointer).?.data.pointee_type,
-            else => return null,
-        };
+        if (prev_ptr_ty.zigTypeTag(mod) != .Pointer) return null;
+
+        // TODO: I noticed that the behavior tests do not pass if these two
+        // checks are missing. I don't understand why the presence of inferred
+        // allocations is relevant to this function, or why it would have
+        // different behavior depending on whether the types were inferred.
+        // Something seems wrong here.
+        if (prev_ptr_ty.ip_index == .none) {
+            if (prev_ptr_ty.tag() == .inferred_alloc_mut) return null;
+            if (prev_ptr_ty.tag() == .inferred_alloc_const) return null;
+        }
+
+        const prev_ptr_child_ty = prev_ptr_ty.childType(mod);
         if (prev_ptr_child_ty.zigTypeTag(mod) == .Vector) break prev_ptr;
         ptr_inst = Air.refToIndex(prev_ptr) orelse return null;
     } else return null;
