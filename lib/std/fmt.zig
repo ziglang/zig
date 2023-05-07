@@ -2285,7 +2285,7 @@ test "enum" {
     try expectFmt("enum: fmt.test.enum.Enum.Two\n", "enum: {}\n", .{Enum.Two});
 
     // test very large enum to verify ct branch quota is large enough
-    // TODO: renable if debug mode can generate few enough locals for wasm
+    // TODO: https://github.com/ziglang/zig/issues/15609
     if (!((builtin.cpu.arch == .wasm32) and builtin.mode == .Debug)) {
         try expectFmt("enum: os.windows.win32error.Win32Error.INVALID_FUNCTION\n", "enum: {}\n", .{std.os.windows.Win32Error.INVALID_FUNCTION});
     }
