@@ -296,6 +296,8 @@ pub const SHT_GROUP = 17;
 pub const SHT_SYMTAB_SHNDX = 18;
 /// Start of OS-specific
 pub const SHT_LOOS = 0x60000000;
+/// LLVM address-significance table
+pub const SHT_LLVM_ADDRSIG = 0x6fff4c03;
 /// End of OS-specific
 pub const SHT_HIOS = 0x6fffffff;
 /// Start of processor-specific
@@ -306,8 +308,6 @@ pub const SHT_X86_64_UNWIND = 0x70000001;
 pub const SHT_HIPROC = 0x7fffffff;
 /// Start of application-specific
 pub const SHT_LOUSER = 0x80000000;
-/// LLVM address-significance table
-pub const SHT_LLVM_ADDRSIG = 0xfff4c03;
 /// End of application-specific
 pub const SHT_HIUSER = 0xffffffff;
 
