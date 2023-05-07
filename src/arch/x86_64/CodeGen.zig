@@ -4531,59 +4531,117 @@ fn airSqrt(self: *Self, inst: Air.Inst.Index) !void {
     const dst_lock = self.register_manager.lockReg(dst_reg);
     defer if (dst_lock) |lock| self.register_manager.unlockReg(lock);
 
-    const tag = if (@as(?Mir.Inst.Tag, switch (ty.zigTypeTag()) {
-        .Float => switch (ty.childType().floatBits(self.target.*)) {
-            32 => if (self.hasFeature(.avx)) .vsqrtss else .sqrtss,
-            64 => if (self.hasFeature(.avx)) .vsqrtsd else .sqrtsd,
-            16, 80, 128 => null,
-            else => unreachable,
-        },
-        .Vector => switch (ty.childType().zigTypeTag()) {
-            .Float => switch (ty.childType().floatBits(self.target.*)) {
-                32 => switch (ty.vectorLen()) {
-                    1 => if (self.hasFeature(.avx)) .vsqrtss else .sqrtss,
-                    2...4 => if (self.hasFeature(.avx)) .vsqrtps else .sqrtps,
-                    5...8 => if (self.hasFeature(.avx)) .vsqrtps else null,
-                    else => null,
+    const result: MCValue = result: {
+        const tag = if (@as(?Mir.Inst.Tag, switch (ty.zigTypeTag()) {
+            .Float => switch (ty.floatBits(self.target.*)) {
+                16 => if (self.hasFeature(.f16c)) {
+                    const mat_src_reg = if (src_mcv.isRegister())
+                        src_mcv.getReg().?
+                    else
+                        try self.copyToTmpRegister(ty, src_mcv);
+                    try self.asmRegisterRegister(.vcvtph2ps, dst_reg, mat_src_reg.to128());
+                    try self.asmRegisterRegisterRegister(.vsqrtss, dst_reg, dst_reg, dst_reg);
+                    try self.asmRegisterRegisterImmediate(
+                        .vcvtps2ph,
+                        dst_reg,
+                        dst_reg,
+                        Immediate.u(0b1_00),
+                    );
+                    break :result dst_mcv;
+                } else null,
+                32 => if (self.hasFeature(.avx)) .vsqrtss else .sqrtss,
+                64 => if (self.hasFeature(.avx)) .vsqrtsd else .sqrtsd,
+                80, 128 => null,
+                else => unreachable,
+            },
+            .Vector => switch (ty.childType().zigTypeTag()) {
+                .Float => switch (ty.childType().floatBits(self.target.*)) {
+                    16 => if (self.hasFeature(.f16c)) switch (ty.vectorLen()) {
+                        1 => {
+                            const mat_src_reg = if (src_mcv.isRegister())
+                                src_mcv.getReg().?
+                            else
+                                try self.copyToTmpRegister(ty, src_mcv);
+                            try self.asmRegisterRegister(.vcvtph2ps, dst_reg, mat_src_reg.to128());
+                            try self.asmRegisterRegisterRegister(.vsqrtss, dst_reg, dst_reg, dst_reg);
+                            try self.asmRegisterRegisterImmediate(
+                                .vcvtps2ph,
+                                dst_reg,
+                                dst_reg,
+                                Immediate.u(0b1_00),
+                            );
+                            break :result dst_mcv;
+                        },
+                        2...8 => {
+                            const wide_reg = registerAlias(dst_reg, abi_size * 2);
+                            if (src_mcv.isRegister()) try self.asmRegisterRegister(
+                                .vcvtph2ps,
+                                wide_reg,
+                                src_mcv.getReg().?.to128(),
+                            ) else try self.asmRegisterMemory(
+                                .vcvtph2ps,
+                                wide_reg,
+                                src_mcv.mem(Memory.PtrSize.fromSize(
+                                    @intCast(u32, @divExact(wide_reg.bitSize(), 16)),
+                                )),
+                            );
+                            try self.asmRegisterRegister(.vsqrtps, wide_reg, wide_reg);
+                            try self.asmRegisterRegisterImmediate(
+                                .vcvtps2ph,
+                                dst_reg,
+                                wide_reg,
+                                Immediate.u(0b1_00),
+                            );
+                            break :result dst_mcv;
+                        },
+                        else => null,
+                    } else null,
+                    32 => switch (ty.vectorLen()) {
+                        1 => if (self.hasFeature(.avx)) .vsqrtss else .sqrtss,
+                        2...4 => if (self.hasFeature(.avx)) .vsqrtps else .sqrtps,
+                        5...8 => if (self.hasFeature(.avx)) .vsqrtps else null,
+                        else => null,
+                    },
+                    64 => switch (ty.vectorLen()) {
+                        1 => if (self.hasFeature(.avx)) .vsqrtsd else .sqrtsd,
+                        2 => if (self.hasFeature(.avx)) .vsqrtpd else .sqrtpd,
+                        3...4 => if (self.hasFeature(.avx)) .vsqrtpd else null,
+                        else => null,
+                    },
+                    80, 128 => null,
+                    else => unreachable,
                 },
-                64 => switch (ty.vectorLen()) {
-                    1 => if (self.hasFeature(.avx)) .vsqrtsd else .sqrtsd,
-                    2 => if (self.hasFeature(.avx)) .vsqrtpd else .sqrtpd,
-                    3...4 => if (self.hasFeature(.avx)) .vsqrtpd else null,
-                    else => null,
-                },
-                16, 80, 128 => null,
                 else => unreachable,
             },
             else => unreachable,
-        },
-        else => unreachable,
-    })) |tag| tag else return self.fail("TODO implement airSqrt for {}", .{
-        ty.fmt(self.bin_file.options.module.?),
-    });
-    switch (tag) {
-        .vsqrtss, .vsqrtsd => if (src_mcv.isRegister()) try self.asmRegisterRegisterRegister(
-            tag,
-            dst_reg,
-            dst_reg,
-            registerAlias(src_mcv.getReg().?, abi_size),
-        ) else try self.asmRegisterRegisterMemory(
-            tag,
-            dst_reg,
-            dst_reg,
-            src_mcv.mem(Memory.PtrSize.fromSize(abi_size)),
-        ),
-        else => if (src_mcv.isRegister()) try self.asmRegisterRegister(
-            tag,
-            dst_reg,
-            registerAlias(src_mcv.getReg().?, abi_size),
-        ) else try self.asmRegisterMemory(
-            tag,
-            dst_reg,
-            src_mcv.mem(Memory.PtrSize.fromSize(abi_size)),
-        ),
-    }
-    return self.finishAir(inst, dst_mcv, .{ un_op, .none, .none });
+        })) |tag| tag else return self.fail("TODO implement airSqrt for {}", .{
+            ty.fmt(self.bin_file.options.module.?),
+        });
+        switch (tag) {
+            .vsqrtss, .vsqrtsd => if (src_mcv.isRegister()) try self.asmRegisterRegisterRegister(
+                tag,
+                dst_reg,
+                dst_reg,
+                registerAlias(src_mcv.getReg().?, abi_size),
+            ) else try self.asmRegisterRegisterMemory(
+                tag,
+                dst_reg,
+                dst_reg,
+                src_mcv.mem(Memory.PtrSize.fromSize(abi_size)),
+            ),
+            else => if (src_mcv.isRegister()) try self.asmRegisterRegister(
+                tag,
+                dst_reg,
+                registerAlias(src_mcv.getReg().?, abi_size),
+            ) else try self.asmRegisterMemory(
+                tag,
+                dst_reg,
+                src_mcv.mem(Memory.PtrSize.fromSize(abi_size)),
+            ),
+        }
+        break :result dst_mcv;
+    };
+    return self.finishAir(inst, result, .{ un_op, .none, .none });
 }
 
 fn airUnaryMath(self: *Self, inst: Air.Inst.Index) !void {
