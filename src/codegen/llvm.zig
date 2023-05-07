@@ -2481,7 +2481,7 @@ pub const DeclGen = struct {
         log.debug("gen: {s} type: {}, value: {}", .{
             decl.name, decl.ty.fmtDebug(), decl.val.fmtDebug(),
         });
-        assert(decl.val.tag() != .function);
+        assert(decl.val.ip_index != .none or decl.val.tag() != .function);
         if (decl.val.castTag(.extern_fn)) |extern_fn| {
             _ = try dg.resolveLlvmFunction(extern_fn.data.owner_decl);
         } else {

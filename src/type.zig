@@ -2471,7 +2471,7 @@ pub const Type = struct {
     pub fn lazyAbiSize(ty: Type, mod: *Module, arena: Allocator) !Value {
         switch (try ty.abiSizeAdvanced(mod, .{ .lazy = arena })) {
             .val => |val| return val,
-            .scalar => |x| return mod.intValue(ty, x),
+            .scalar => |x| return mod.intValue(Type.comptime_int, x),
         }
     }
 
@@ -2504,8 +2504,20 @@ pub const Type = struct {
                 if (int_type.bits == 0) return AbiSizeAdvanced{ .scalar = 0 };
                 return AbiSizeAdvanced{ .scalar = intAbiSize(int_type.bits, target) };
             },
-            .ptr_type => @panic("TODO"),
-            .array_type => @panic("TODO"),
+            .ptr_type => |ptr_type| switch (ptr_type.size) {
+                .Slice => return .{ .scalar = @divExact(target.ptrBitWidth(), 8) * 2 },
+                else => return .{ .scalar = @divExact(target.ptrBitWidth(), 8) },
+            },
+            .array_type => |array_type| {
+                const len = array_type.len + @boolToInt(array_type.sentinel != .none);
+                switch (try array_type.child.toType().abiSizeAdvanced(mod, strat)) {
+                    .scalar => |elem_size| return .{ .scalar = len * elem_size },
+                    .val => switch (strat) {
+                        .sema, .eager => unreachable,
+                        .lazy => |arena| return .{ .val = try Value.Tag.lazy_size.create(arena, ty) },
+                    },
+                }
+            },
             .vector_type => |vector_type| {
                 const opt_sema = switch (strat) {
                     .sema => |sema| sema,
@@ -2528,7 +2540,7 @@ pub const Type = struct {
                 return AbiSizeAdvanced{ .scalar = result };
             },
 
-            .opt_type => @panic("TODO"),
+            .opt_type => return ty.abiSizeAdvancedOptional(mod, strat),
             .error_union_type => @panic("TODO"),
             .simple_type => |t| switch (t) {
                 .bool,
@@ -2698,39 +2710,7 @@ pub const Type = struct {
             .error_set_single,
             => return AbiSizeAdvanced{ .scalar = 2 },
 
-            .optional => {
-                const child_type = ty.optionalChild(mod);
-
-                if (child_type.isNoReturn()) {
-                    return AbiSizeAdvanced{ .scalar = 0 };
-                }
-
-                if (!(child_type.hasRuntimeBitsAdvanced(mod, false, strat) catch |err| switch (err) {
-                    error.NeedLazy => return AbiSizeAdvanced{ .val = try Value.Tag.lazy_size.create(strat.lazy, ty) },
-                    else => |e| return e,
-                })) return AbiSizeAdvanced{ .scalar = 1 };
-
-                if (ty.optionalReprIsPayload(mod)) {
-                    return abiSizeAdvanced(child_type, mod, strat);
-                }
-
-                const payload_size = switch (try child_type.abiSizeAdvanced(mod, strat)) {
-                    .scalar => |elem_size| elem_size,
-                    .val => switch (strat) {
-                        .sema => unreachable,
-                        .eager => unreachable,
-                        .lazy => |arena| return AbiSizeAdvanced{ .val = try Value.Tag.lazy_size.create(arena, ty) },
-                    },
-                };
-
-                // Optional types are represented as a struct with the child type as the first
-                // field and a boolean as the second. Since the child type's abi alignment is
-                // guaranteed to be >= that of bool's (1 byte) the added size is exactly equal
-                // to the child type's ABI alignment.
-                return AbiSizeAdvanced{
-                    .scalar = child_type.abiAlignment(mod) + payload_size,
-                };
-            },
+            .optional => return ty.abiSizeAdvancedOptional(mod, strat),
 
             .error_union => {
                 // This code needs to be kept in sync with the equivalent switch prong
@@ -2791,6 +2771,44 @@ pub const Type = struct {
         return AbiSizeAdvanced{ .scalar = union_obj.abiSize(mod, have_tag) };
     }
 
+    fn abiSizeAdvancedOptional(
+        ty: Type,
+        mod: *const Module,
+        strat: AbiAlignmentAdvancedStrat,
+    ) Module.CompileError!AbiSizeAdvanced {
+        const child_ty = ty.optionalChild(mod);
+
+        if (child_ty.isNoReturn()) {
+            return AbiSizeAdvanced{ .scalar = 0 };
+        }
+
+        if (!(child_ty.hasRuntimeBitsAdvanced(mod, false, strat) catch |err| switch (err) {
+            error.NeedLazy => return AbiSizeAdvanced{ .val = try Value.Tag.lazy_size.create(strat.lazy, ty) },
+            else => |e| return e,
+        })) return AbiSizeAdvanced{ .scalar = 1 };
+
+        if (ty.optionalReprIsPayload(mod)) {
+            return abiSizeAdvanced(child_ty, mod, strat);
+        }
+
+        const payload_size = switch (try child_ty.abiSizeAdvanced(mod, strat)) {
+            .scalar => |elem_size| elem_size,
+            .val => switch (strat) {
+                .sema => unreachable,
+                .eager => unreachable,
+                .lazy => |arena| return AbiSizeAdvanced{ .val = try Value.Tag.lazy_size.create(arena, ty) },
+            },
+        };
+
+        // Optional types are represented as a struct with the child type as the first
+        // field and a boolean as the second. Since the child type's abi alignment is
+        // guaranteed to be >= that of bool's (1 byte) the added size is exactly equal
+        // to the child type's ABI alignment.
+        return AbiSizeAdvanced{
+            .scalar = child_ty.abiAlignment(mod) + payload_size,
+        };
+    }
+
     fn intAbiSize(bits: u16, target: Target) u64 {
         const alignment = intAbiAlignment(bits, target);
         return std.mem.alignForwardGeneric(u64, @intCast(u16, (@as(u17, bits) + 7) / 8), alignment);
@@ -2819,8 +2837,19 @@ pub const Type = struct {
 
         if (ty.ip_index != .none) switch (mod.intern_pool.indexToKey(ty.ip_index)) {
             .int_type => |int_type| return int_type.bits,
-            .ptr_type => @panic("TODO"),
-            .array_type => @panic("TODO"),
+            .ptr_type => |ptr_type| switch (ptr_type.size) {
+                .Slice => return target.ptrBitWidth() * 2,
+                else => return target.ptrBitWidth() * 2,
+            },
+            .array_type => |array_type| {
+                const len = array_type.len + @boolToInt(array_type.sentinel != .none);
+                if (len == 0) return 0;
+                const elem_ty = array_type.child.toType();
+                const elem_size = std.math.max(elem_ty.abiAlignment(mod), elem_ty.abiSize(mod));
+                if (elem_size == 0) return 0;
+                const elem_bit_size = try bitSizeAdvanced(elem_ty, mod, opt_sema);
+                return (len - 1) * 8 * elem_size + elem_bit_size;
+            },
             .vector_type => |vector_type| {
                 const child_ty = vector_type.child.toType();
                 const elem_bit_size = try bitSizeAdvanced(child_ty, mod, opt_sema);
@@ -3208,6 +3237,20 @@ pub const Type = struct {
 
     /// See also `isPtrLikeOptional`.
     pub fn optionalReprIsPayload(ty: Type, mod: *const Module) bool {
+        if (ty.ip_index != .none) return switch (mod.intern_pool.indexToKey(ty.ip_index)) {
+            .opt_type => |child| switch (child.toType().zigTypeTag(mod)) {
+                .Pointer => {
+                    const info = child.toType().ptrInfo(mod);
+                    switch (info.size) {
+                        .C => return false,
+                        else => return !info.@"allowzero",
+                    }
+                },
+                .ErrorSet => true,
+                else => false,
+            },
+            else => false,
+        };
         switch (ty.tag()) {
             .optional => {
                 const child_ty = ty.castTag(.optional).?.data;
