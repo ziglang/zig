@@ -166,7 +166,9 @@ pub const Inst = struct {
         /// Logical exclusive-or
         xor,
 
-        /// Add single precision floating point values
+        /// Add packed single-precision floating-point values
+        addps,
+        /// Add scalar single-precision floating-point values
         addss,
         /// Bitwise logical and of packed single precision floating-point values
         andps,
@@ -176,11 +178,17 @@ pub const Inst = struct {
         cmpss,
         /// Convert doubleword integer to scalar single-precision floating-point value
         cvtsi2ss,
+        /// Divide packed single-precision floating-point values
+        divps,
         /// Divide scalar single-precision floating-point values
         divss,
-        /// Return maximum single-precision floating-point value
+        /// Maximum of packed single-precision floating-point values
+        maxps,
+        /// Maximum of scalar single-precision floating-point values
         maxss,
-        /// Return minimum single-precision floating-point value
+        /// Minimum of packed single-precision floating-point values
+        minps,
+        /// Minimum of scalar single-precision floating-point values
         minss,
         /// Move aligned packed single-precision floating-point values
         movaps,
@@ -188,6 +196,8 @@ pub const Inst = struct {
         movss,
         /// Move unaligned packed single-precision floating-point values
         movups,
+        /// Multiply packed single-precision floating-point values
+        mulps,
         /// Multiply scalar single-precision floating-point values
         mulss,
         /// Bitwise logical or of packed single precision floating-point values
@@ -196,18 +206,22 @@ pub const Inst = struct {
         pextrw,
         /// Insert word
         pinsrw,
-        /// Square root of scalar single precision floating-point value
+        /// Square root of packed single-precision floating-point values
         sqrtps,
-        /// Subtract scalar single-precision floating-point values
+        /// Square root of scalar single-precision floating-point value
         sqrtss,
-        /// Square root of single precision floating-point values
+        /// Subtract packed single-precision floating-point values
+        subps,
+        /// Subtract scalar single-precision floating-point values
         subss,
         /// Unordered compare scalar single-precision floating-point values
         ucomiss,
         /// Bitwise logical xor of packed single precision floating-point values
         xorps,
 
-        /// Add double precision floating point values
+        /// Add packed double-precision floating-point values
+        addpd,
+        /// Add scalar double-precision floating-point values
         addsd,
         /// Bitwise logical and not of packed double precision floating-point values
         andnpd,
@@ -221,14 +235,22 @@ pub const Inst = struct {
         cvtsi2sd,
         /// Convert scalar single-precision floating-point value to scalar double-precision floating-point value
         cvtss2sd,
+        /// Divide packed double-precision floating-point values
+        divpd,
         /// Divide scalar double-precision floating-point values
         divsd,
-        /// Return maximum double-precision floating-point value
+        /// Maximum of packed double-precision floating-point values
+        maxpd,
+        /// Maximum of scalar double-precision floating-point values
         maxsd,
-        /// Return minimum double-precision floating-point value
+        /// Minimum of packed double-precision floating-point values
+        minpd,
+        /// Minimum of scalar double-precision floating-point values
         minsd,
         /// Move scalar double-precision floating-point value
         movsd,
+        /// Multiply packed double-precision floating-point values
+        mulpd,
         /// Multiply scalar double-precision floating-point values
         mulsd,
         /// Bitwise logical or of packed double precision floating-point values
@@ -263,6 +285,8 @@ pub const Inst = struct {
         sqrtpd,
         /// Square root of scalar double precision floating-point value
         sqrtsd,
+        /// Subtract packed double-precision floating-point values
+        subpd,
         /// Subtract scalar double-precision floating-point values
         subsd,
         /// Unordered compare scalar double-precision floating-point values
@@ -277,11 +301,23 @@ pub const Inst = struct {
         /// Replicate single floating-point values
         movsldup,
 
-        /// Round scalar double-precision floating-point values
+        /// Round packed double-precision floating-point values
+        roundpd,
+        /// Round packed single-precision floating-point values
+        roundps,
+        /// Round scalar double-precision floating-point value
         roundsd,
-        /// Round scalar single-precision floating-point values
+        /// Round scalar single-precision floating-point value
         roundss,
 
+        /// Add packed double-precision floating-point values
+        vaddpd,
+        /// Add packed single-precision floating-point values
+        vaddps,
+        /// Add scalar double-precision floating-point values
+        vaddsd,
+        /// Add scalar single-precision floating-point values
+        vaddss,
         /// Convert scalar double-precision floating-point value to scalar single-precision floating-point value
         vcvtsd2ss,
         /// Convert doubleword integer to scalar double-precision floating-point value
@@ -290,6 +326,30 @@ pub const Inst = struct {
         vcvtsi2ss,
         /// Convert scalar single-precision floating-point value to scalar double-precision floating-point value
         vcvtss2sd,
+        /// Divide packed double-precision floating-point values
+        vdivpd,
+        /// Divide packed single-precision floating-point values
+        vdivps,
+        /// Divide scalar double-precision floating-point values
+        vdivsd,
+        /// Divide scalar single-precision floating-point values
+        vdivss,
+        /// Maximum of packed double-precision floating-point values
+        vmaxpd,
+        /// Maximum of packed single-precision floating-point values
+        vmaxps,
+        /// Maximum of scalar double-precision floating-point values
+        vmaxsd,
+        /// Maximum of scalar single-precision floating-point values
+        vmaxss,
+        /// Minimum of packed double-precision floating-point values
+        vminpd,
+        /// Minimum of packed single-precision floating-point values
+        vminps,
+        /// Minimum of scalar double-precision floating-point values
+        vminsd,
+        /// Minimum of scalar single-precision floating-point values
+        vminss,
         /// Move aligned packed double-precision floating-point values
         vmovapd,
         /// Move aligned packed single-precision floating-point values
@@ -308,6 +368,14 @@ pub const Inst = struct {
         vmovupd,
         /// Move unaligned packed single-precision floating-point values
         vmovups,
+        /// Multiply packed double-precision floating-point values
+        vmulpd,
+        /// Multiply packed single-precision floating-point values
+        vmulps,
+        /// Multiply scalar double-precision floating-point values
+        vmulsd,
+        /// Multiply scalar single-precision floating-point values
+        vmulss,
         /// Extract word
         vpextrw,
         /// Insert word
@@ -338,6 +406,14 @@ pub const Inst = struct {
         vpunpcklqdq,
         /// Unpack low data
         vpunpcklwd,
+        /// Round packed double-precision floating-point values
+        vroundpd,
+        /// Round packed single-precision floating-point values
+        vroundps,
+        /// Round scalar double-precision floating-point value
+        vroundsd,
+        /// Round scalar single-precision floating-point value
+        vroundss,
         /// Square root of packed double-precision floating-point value
         vsqrtpd,
         /// Square root of packed single-precision floating-point value
@@ -346,6 +422,14 @@ pub const Inst = struct {
         vsqrtsd,
         /// Square root of scalar single-precision floating-point value
         vsqrtss,
+        /// Subtract packed double-precision floating-point values
+        vsubpd,
+        /// Subtract packed single-precision floating-point values
+        vsubps,
+        /// Subtract scalar double-precision floating-point values
+        vsubsd,
+        /// Subtract scalar single-precision floating-point values
+        vsubss,
 
         /// Convert 16-bit floating-point values to single-precision floating-point values
         vcvtph2ps,
@@ -442,6 +526,9 @@ pub const Inst = struct {
         /// Register, register, register operands.
         /// Uses `rrr` payload.
         rrr,
+        /// Register, register, register, immediate (byte) operands.
+        /// Uses `rrri` payload.
+        rrri,
         /// Register, register, immediate (sign-extended) operands.
         /// Uses `rri`  payload.
         rri_s,
@@ -624,6 +711,12 @@ pub const Inst = struct {
             r1: Register,
             r2: Register,
             r3: Register,
+        },
+        rrri: struct {
+            r1: Register,
+            r2: Register,
+            r3: Register,
+            i: u8,
         },
         rri: struct {
             r1: Register,
