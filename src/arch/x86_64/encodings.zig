@@ -418,17 +418,21 @@ pub const table = [_]Entry{
     .{ .movsx, .rm, &.{ .r32, .rm8  }, &.{ 0x0f, 0xbe }, 0, .rex,       .none },
     .{ .movsx, .rm, &.{ .r64, .rm8  }, &.{ 0x0f, 0xbe }, 0, .long,      .none },
     .{ .movsx, .rm, &.{ .r32, .rm16 }, &.{ 0x0f, 0xbf }, 0, .none,      .none },
+    .{ .movsx, .rm, &.{ .r32, .rm16 }, &.{ 0x0f, 0xbf }, 0, .rex,       .none },
     .{ .movsx, .rm, &.{ .r64, .rm16 }, &.{ 0x0f, 0xbf }, 0, .long,      .none },
 
     // This instruction is discouraged.
     .{ .movsxd, .rm, &.{ .r32, .rm32 }, &.{ 0x63 }, 0, .none, .none },
     .{ .movsxd, .rm, &.{ .r64, .rm32 }, &.{ 0x63 }, 0, .long, .none },
 
-    .{ .movzx, .rm, &.{ .r16, .rm8  }, &.{ 0x0f, 0xb6 }, 0, .short, .none },
-    .{ .movzx, .rm, &.{ .r32, .rm8  }, &.{ 0x0f, 0xb6 }, 0, .none,  .none },
-    .{ .movzx, .rm, &.{ .r64, .rm8  }, &.{ 0x0f, 0xb6 }, 0, .long,  .none },
-    .{ .movzx, .rm, &.{ .r32, .rm16 }, &.{ 0x0f, 0xb7 }, 0, .none,  .none },
-    .{ .movzx, .rm, &.{ .r64, .rm16 }, &.{ 0x0f, 0xb7 }, 0, .long,  .none },
+    .{ .movzx, .rm, &.{ .r16, .rm8  }, &.{ 0x0f, 0xb6 }, 0, .short,     .none },
+    .{ .movzx, .rm, &.{ .r16, .rm8  }, &.{ 0x0f, 0xb6 }, 0, .rex_short, .none },
+    .{ .movzx, .rm, &.{ .r32, .rm8  }, &.{ 0x0f, 0xb6 }, 0, .none,      .none },
+    .{ .movzx, .rm, &.{ .r32, .rm8  }, &.{ 0x0f, 0xb6 }, 0, .rex,       .none },
+    .{ .movzx, .rm, &.{ .r64, .rm8  }, &.{ 0x0f, 0xb6 }, 0, .long,      .none },
+    .{ .movzx, .rm, &.{ .r32, .rm16 }, &.{ 0x0f, 0xb7 }, 0, .none,      .none },
+    .{ .movzx, .rm, &.{ .r32, .rm16 }, &.{ 0x0f, 0xb7 }, 0, .rex,       .none },
+    .{ .movzx, .rm, &.{ .r64, .rm16 }, &.{ 0x0f, 0xb7 }, 0, .long,      .none },
 
     .{ .mul, .m, &.{ .rm8  }, &.{ 0xf6 }, 4, .none,  .none },
     .{ .mul, .m, &.{ .rm8  }, &.{ 0xf6 }, 4, .rex,   .none },
