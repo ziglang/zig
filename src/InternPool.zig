@@ -5,6 +5,8 @@ items: std.MultiArrayList(Item) = .{},
 extra: std.ArrayListUnmanaged(u32) = .{},
 /// On 32-bit systems, this array is ignored and extra is used for everything.
 /// On 64-bit systems, this array is used for big integers and associated metadata.
+/// Use the helper methods instead of accessing this directly in order to not
+/// violate the above mechanism.
 limbs: std.ArrayListUnmanaged(u64) = .{},
 
 const std = @import("std");
@@ -12,6 +14,7 @@ const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
 const BigIntConst = std.math.big.int.Const;
 const BigIntMutable = std.math.big.int.Mutable;
+const Limb = std.math.big.Limb;
 
 const InternPool = @This();
 const DeclIndex = enum(u32) { _ };
@@ -233,9 +236,23 @@ pub const Key = union(enum) {
 
             .int => |a_info| {
                 const b_info = b.int;
-                _ = a_info;
-                _ = b_info;
-                @panic("TODO");
+                return switch (a_info.storage) {
+                    .u64 => |aa| switch (b_info.storage) {
+                        .u64 => |bb| aa == bb,
+                        .i64 => |bb| aa == bb,
+                        .big_int => |bb| bb.orderAgainstScalar(aa) == .eq,
+                    },
+                    .i64 => |aa| switch (b_info.storage) {
+                        .u64 => |bb| aa == bb,
+                        .i64 => |bb| aa == bb,
+                        .big_int => |bb| bb.orderAgainstScalar(aa) == .eq,
+                    },
+                    .big_int => |aa| switch (b_info.storage) {
+                        .u64 => |bb| aa.orderAgainstScalar(bb) == .eq,
+                        .i64 => |bb| aa.orderAgainstScalar(bb) == .eq,
+                        .big_int => |bb| aa.eq(bb),
+                    },
+                };
             },
 
             .enum_tag => |a_info| {
@@ -1056,8 +1073,8 @@ pub fn indexToKey(ip: InternPool, index: Index) Key {
             .ty = .comptime_int_type,
             .storage = .{ .i64 = @bitCast(i32, data) },
         } },
-        .int_positive => @panic("TODO"),
-        .int_negative => @panic("TODO"),
+        .int_positive => indexToKeyBigInt(ip, data, true),
+        .int_negative => indexToKeyBigInt(ip, data, false),
         .enum_tag_positive => @panic("TODO"),
         .enum_tag_negative => @panic("TODO"),
         .float_f32 => @panic("TODO"),
@@ -1066,6 +1083,17 @@ pub fn indexToKey(ip: InternPool, index: Index) Key {
         .extern_func => @panic("TODO"),
         .func => @panic("TODO"),
     };
+}
+
+fn indexToKeyBigInt(ip: InternPool, limb_index: u32, positive: bool) Key {
+    const int_info = ip.limbData(Int, limb_index);
+    return .{ .int = .{
+        .ty = int_info.ty,
+        .storage = .{ .big_int = .{
+            .limbs = ip.limbSlice(Int, limb_index, int_info.limbs_len),
+            .positive = positive,
+        } },
+    } };
 }
 
 pub fn get(ip: *InternPool, gpa: Allocator, key: Key) Allocator.Error!Index {
@@ -1293,7 +1321,7 @@ pub fn get(ip: *InternPool, gpa: Allocator, key: Key) Allocator.Error!Index {
                     try addInt(ip, gpa, int.ty, tag, big_int.limbs);
                 },
                 inline .i64, .u64 => |x| {
-                    var buf: [2]usize = undefined;
+                    var buf: [2]Limb = undefined;
                     const big_int = BigIntMutable.init(&buf, x).toConst();
                     const tag: Tag = if (big_int.positive) .int_positive else .int_negative;
                     try addInt(ip, gpa, int.ty, tag, big_int.limbs);
@@ -1324,7 +1352,7 @@ pub fn get(ip: *InternPool, gpa: Allocator, key: Key) Allocator.Error!Index {
     return @intToEnum(Index, ip.items.len - 1);
 }
 
-fn addInt(ip: *InternPool, gpa: Allocator, ty: Index, tag: Tag, limbs: []const usize) !void {
+fn addInt(ip: *InternPool, gpa: Allocator, ty: Index, tag: Tag, limbs: []const Limb) !void {
     const limbs_len = @intCast(u32, limbs.len);
     try ip.reserveLimbs(gpa, @typeInfo(Int).Struct.fields.len + limbs_len);
     ip.items.appendAssumeCapacity(.{
@@ -1360,7 +1388,7 @@ fn addExtraAssumeCapacity(ip: *InternPool, extra: anytype) u32 {
 }
 
 fn reserveLimbs(ip: *InternPool, gpa: Allocator, n: usize) !void {
-    switch (@sizeOf(usize)) {
+    switch (@sizeOf(Limb)) {
         @sizeOf(u32) => try ip.extra.ensureUnusedCapacity(gpa, n),
         @sizeOf(u64) => try ip.limbs.ensureUnusedCapacity(gpa, n),
         else => @compileError("unsupported host"),
@@ -1368,7 +1396,7 @@ fn reserveLimbs(ip: *InternPool, gpa: Allocator, n: usize) !void {
 }
 
 fn addLimbsExtraAssumeCapacity(ip: *InternPool, extra: anytype) u32 {
-    switch (@sizeOf(usize)) {
+    switch (@sizeOf(Limb)) {
         @sizeOf(u32) => return addExtraAssumeCapacity(ip, extra),
         @sizeOf(u64) => {},
         else => @compileError("unsupported host"),
@@ -1389,8 +1417,8 @@ fn addLimbsExtraAssumeCapacity(ip: *InternPool, extra: anytype) u32 {
     return result;
 }
 
-fn addLimbsAssumeCapacity(ip: *InternPool, limbs: []const usize) void {
-    switch (@sizeOf(usize)) {
+fn addLimbsAssumeCapacity(ip: *InternPool, limbs: []const Limb) void {
+    switch (@sizeOf(Limb)) {
         @sizeOf(u32) => ip.extra.appendSliceAssumeCapacity(limbs),
         @sizeOf(u64) => ip.limbs.appendSliceAssumeCapacity(limbs),
         else => @compileError("unsupported host"),
@@ -1416,7 +1444,7 @@ fn extraData(ip: InternPool, comptime T: type, index: usize) T {
 
 /// Asserts the struct has 32-bit fields and the number of fields is evenly divisible by 2.
 fn limbData(ip: InternPool, comptime T: type, index: usize) T {
-    switch (@sizeOf(usize)) {
+    switch (@sizeOf(Limb)) {
         @sizeOf(u32) => return extraData(ip, T, index),
         @sizeOf(u64) => {},
         else => @compileError("unsupported host"),
@@ -1436,6 +1464,21 @@ fn limbData(ip: InternPool, comptime T: type, index: usize) T {
         };
     }
     return result;
+}
+
+fn limbSlice(ip: InternPool, comptime S: type, limb_index: u32, len: u32) []const Limb {
+    const field_count = @typeInfo(S).Struct.fields.len;
+    switch (@sizeOf(Limb)) {
+        @sizeOf(u32) => {
+            const start = limb_index + field_count;
+            return ip.extra.items[start..][0..len];
+        },
+        @sizeOf(u64) => {
+            const start = limb_index + @divExact(field_count, 2);
+            return ip.limbs.items[start..][0..len];
+        },
+        else => @compileError("unsupported host"),
+    }
 }
 
 test "basic usage" {
