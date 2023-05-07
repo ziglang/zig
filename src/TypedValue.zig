@@ -41,8 +41,8 @@ pub fn hash(tv: TypedValue, hasher: *std.hash.Wyhash, mod: *Module) void {
     return tv.val.hash(tv.ty, hasher, mod);
 }
 
-pub fn enumToInt(tv: TypedValue, buffer: *Value.Payload.U64) Value {
-    return tv.val.enumToInt(tv.ty, buffer);
+pub fn enumToInt(tv: TypedValue, mod: *Module) Allocator.Error!Value {
+    return tv.val.enumToInt(tv.ty, mod);
 }
 
 const max_aggregate_items = 100;
@@ -157,14 +157,8 @@ pub fn print(
 
                 return writer.writeAll(" }");
             },
-            .zero => return writer.writeAll("0"),
-            .one => return writer.writeAll("1"),
             .the_only_possible_value => return writer.writeAll("0"),
             .ty => return val.castTag(.ty).?.data.print(writer, mod),
-            .int_u64 => return std.fmt.formatIntValue(val.castTag(.int_u64).?.data, "", .{}, writer),
-            .int_i64 => return std.fmt.formatIntValue(val.castTag(.int_i64).?.data, "", .{}, writer),
-            .int_big_positive => return writer.print("{}", .{val.castTag(.int_big_positive).?.asBigInt()}),
-            .int_big_negative => return writer.print("{}", .{val.castTag(.int_big_negative).?.asBigInt()}),
             .lazy_align => {
                 const sub_ty = val.castTag(.lazy_align).?.data;
                 const x = sub_ty.abiAlignment(mod);
@@ -313,8 +307,9 @@ pub fn print(
 
                     var i: u32 = 0;
                     while (i < max_len) : (i += 1) {
-                        var elem_buf: Value.ElemValueBuffer = undefined;
-                        const elem_val = payload.ptr.elemValueBuffer(mod, i, &elem_buf);
+                        const elem_val = payload.ptr.elemValue(mod, i) catch |err| switch (err) {
+                            error.OutOfMemory => @panic("OOM"), // TODO: eliminate this panic
+                        };
                         if (elem_val.isUndef()) break :str;
                         buf[i] = std.math.cast(u8, elem_val.toUnsignedInt(mod)) orelse break :str;
                     }
@@ -330,10 +325,12 @@ pub fn print(
                 var i: u32 = 0;
                 while (i < max_len) : (i += 1) {
                     if (i != 0) try writer.writeAll(", ");
-                    var buf: Value.ElemValueBuffer = undefined;
+                    const elem_val = payload.ptr.elemValue(mod, i) catch |err| switch (err) {
+                        error.OutOfMemory => @panic("OOM"), // TODO: eliminate this panic
+                    };
                     try print(.{
                         .ty = elem_ty,
-                        .val = payload.ptr.elemValueBuffer(mod, i, &buf),
+                        .val = elem_val,
                     }, writer, level - 1, mod);
                 }
                 if (len > max_aggregate_items) {

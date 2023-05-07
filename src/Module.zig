@@ -6597,7 +6597,7 @@ pub fn populateTestFunctions(
             field_vals.* = .{
                 try Value.Tag.slice.create(arena, .{
                     .ptr = try Value.Tag.decl_ref.create(arena, test_name_decl_index),
-                    .len = try Value.Tag.int_u64.create(arena, test_name_slice.len),
+                    .len = try mod.intValue(Type.usize, test_name_slice.len),
                 }), // name
                 try Value.Tag.decl_ref.create(arena, test_decl_index), // func
                 Value.null, // async_frame_size
@@ -6628,7 +6628,7 @@ pub fn populateTestFunctions(
             new_var.* = decl.val.castTag(.variable).?.data.*;
             new_var.init = try Value.Tag.slice.create(arena, .{
                 .ptr = try Value.Tag.decl_ref.create(arena, array_decl_index),
-                .len = try Value.Tag.int_u64.create(arena, mod.test_functions.count()),
+                .len = try mod.intValue(Type.usize, mod.test_functions.count()),
             });
             const new_val = try Value.Tag.variable.create(arena, new_var);
 
@@ -6875,6 +6875,38 @@ pub fn singleConstPtrType(mod: *Module, child_type: Type) Allocator.Error!Type {
     return ptrType(mod, .{ .elem_type = child_type.ip_index, .is_const = true });
 }
 
+pub fn intValue(mod: *Module, ty: Type, x: anytype) Allocator.Error!Value {
+    if (std.math.cast(u64, x)) |casted| return intValue_u64(mod, ty, casted);
+    if (std.math.cast(i64, x)) |casted| return intValue_i64(mod, ty, casted);
+    var limbs_buffer: [4]usize = undefined;
+    var big_int = BigIntMutable.init(&limbs_buffer, x);
+    return intValue_big(mod, ty, big_int.toConst());
+}
+
+pub fn intValue_big(mod: *Module, ty: Type, x: BigIntConst) Allocator.Error!Value {
+    const i = try intern(mod, .{ .int = .{
+        .ty = ty.ip_index,
+        .storage = .{ .big_int = x },
+    } });
+    return i.toValue();
+}
+
+pub fn intValue_u64(mod: *Module, ty: Type, x: u64) Allocator.Error!Value {
+    const i = try intern(mod, .{ .int = .{
+        .ty = ty.ip_index,
+        .storage = .{ .u64 = x },
+    } });
+    return i.toValue();
+}
+
+pub fn intValue_i64(mod: *Module, ty: Type, x: i64) Allocator.Error!Value {
+    const i = try intern(mod, .{ .int = .{
+        .ty = ty.ip_index,
+        .storage = .{ .i64 = x },
+    } });
+    return i.toValue();
+}
+
 pub fn smallestUnsignedInt(mod: *Module, max: u64) Allocator.Error!Type {
     return intType(mod, .unsigned, Type.smallestUnsignedBits(max));
 }
@@ -6907,31 +6939,26 @@ pub fn intFittingRange(mod: *Module, min: Value, max: Value) !Type {
 /// Asserts that `val` is not undef. If `val` is negative, asserts that `sign` is true.
 pub fn intBitsForValue(mod: *Module, val: Value, sign: bool) u16 {
     assert(!val.isUndef());
-    switch (val.tag()) {
-        .int_big_positive => {
-            const limbs = val.castTag(.int_big_positive).?.data;
-            const big: std.math.big.int.Const = .{ .limbs = limbs, .positive = true };
-            return @intCast(u16, big.bitCountAbs() + @boolToInt(sign));
-        },
-        .int_big_negative => {
-            const limbs = val.castTag(.int_big_negative).?.data;
-            // Zero is still a possibility, in which case unsigned is fine
-            for (limbs) |limb| {
-                if (limb != 0) break;
-            } else return 0; // val == 0
+
+    const key = mod.intern_pool.indexToKey(val.ip_index);
+    switch (key.int.storage) {
+        .i64 => |x| {
+            if (std.math.cast(u64, x)) |casted| return Type.smallestUnsignedBits(casted);
             assert(sign);
-            const big: std.math.big.int.Const = .{ .limbs = limbs, .positive = false };
-            return @intCast(u16, big.bitCountTwosComp());
-        },
-        .int_i64 => {
-            const x = val.castTag(.int_i64).?.data;
-            if (x >= 0) return Type.smallestUnsignedBits(@intCast(u64, x));
-            assert(sign);
+            // Protect against overflow in the following negation.
+            if (x == std.math.minInt(i64)) return 64;
             return Type.smallestUnsignedBits(@intCast(u64, -x - 1)) + 1;
         },
-        else => {
-            const x = val.toUnsignedInt(mod);
+        .u64 => |x| {
             return Type.smallestUnsignedBits(x) + @boolToInt(sign);
+        },
+        .big_int => |big| {
+            if (big.positive) return @intCast(u16, big.bitCountAbs() + @boolToInt(sign));
+
+            // Zero is still a possibility, in which case unsigned is fine
+            if (big.eqZero()) return 0;
+
+            return @intCast(u16, big.bitCountTwosComp());
         },
     }
 }

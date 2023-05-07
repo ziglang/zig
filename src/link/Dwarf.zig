@@ -421,8 +421,7 @@ pub const DeclState = struct {
                         const value = vals.keys()[field_i];
                         // TODO do not assume a 64bit enum value - could be bigger.
                         // See https://github.com/ziglang/zig/issues/645
-                        var int_buffer: Value.Payload.U64 = undefined;
-                        const field_int_val = value.enumToInt(ty, &int_buffer);
+                        const field_int_val = try value.enumToInt(ty, mod);
                         break :value @bitCast(u64, field_int_val.toSignedInt(mod));
                     } else @intCast(u64, field_i);
                     mem.writeInt(u64, dbg_info_buffer.addManyAsArrayAssumeCapacity(8), value, target_endian);

@@ -390,6 +390,8 @@ pub const Index = enum(u32) {
     one,
     /// `1` (usize)
     one_usize,
+    /// `-1` (comptime_int)
+    negative_one,
     /// `std.builtin.CallingConvention.C`
     calling_convention_c,
     /// `std.builtin.CallingConvention.Inline`
@@ -622,6 +624,11 @@ pub const static_keys = [_]Key{
     .{ .int = .{
         .ty = .usize_type,
         .storage = .{ .u64 = 1 },
+    } },
+
+    .{ .int = .{
+        .ty = .comptime_int_type,
+        .storage = .{ .i64 = -1 },
     } },
 
     .{ .enum_tag = .{
@@ -999,23 +1006,23 @@ pub fn indexToKey(ip: InternPool, index: Index) Key {
         .type_error_union => @panic("TODO"),
         .type_enum_simple => @panic("TODO"),
         .simple_internal => @panic("TODO"),
-        .int_u32 => return .{ .int = .{
+        .int_u32 => .{ .int = .{
             .ty = .u32_type,
             .storage = .{ .u64 = data },
         } },
-        .int_i32 => return .{ .int = .{
+        .int_i32 => .{ .int = .{
             .ty = .i32_type,
             .storage = .{ .i64 = @bitCast(i32, data) },
         } },
-        .int_usize => return .{ .int = .{
+        .int_usize => .{ .int = .{
             .ty = .usize_type,
             .storage = .{ .u64 = data },
         } },
-        .int_comptime_int_u32 => return .{ .int = .{
+        .int_comptime_int_u32 => .{ .int = .{
             .ty = .comptime_int_type,
             .storage = .{ .u64 = data },
         } },
-        .int_comptime_int_i32 => return .{ .int = .{
+        .int_comptime_int_i32 => .{ .int = .{
             .ty = .comptime_int_type,
             .storage = .{ .i64 = @bitCast(i32, data) },
         } },
@@ -1137,6 +1144,7 @@ pub fn get(ip: *InternPool, gpa: Allocator, key: Key) Allocator.Error!Index {
 
         .int => |int| b: {
             switch (int.ty) {
+                .none => unreachable,
                 .u32_type => switch (int.storage) {
                     .big_int => |big_int| {
                         if (big_int.to(u32)) |casted| {

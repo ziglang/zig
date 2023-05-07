@@ -214,15 +214,15 @@ pub fn generateSymbol(
         },
         .Float => {
             switch (typed_value.ty.floatBits(target)) {
-                16 => writeFloat(f16, typed_value.val.toFloat(f16), target, endian, try code.addManyAsArray(2)),
-                32 => writeFloat(f32, typed_value.val.toFloat(f32), target, endian, try code.addManyAsArray(4)),
-                64 => writeFloat(f64, typed_value.val.toFloat(f64), target, endian, try code.addManyAsArray(8)),
+                16 => writeFloat(f16, typed_value.val.toFloat(f16, mod), target, endian, try code.addManyAsArray(2)),
+                32 => writeFloat(f32, typed_value.val.toFloat(f32, mod), target, endian, try code.addManyAsArray(4)),
+                64 => writeFloat(f64, typed_value.val.toFloat(f64, mod), target, endian, try code.addManyAsArray(8)),
                 80 => {
-                    writeFloat(f80, typed_value.val.toFloat(f80), target, endian, try code.addManyAsArray(10));
+                    writeFloat(f80, typed_value.val.toFloat(f80, mod), target, endian, try code.addManyAsArray(10));
                     const abi_size = math.cast(usize, typed_value.ty.abiSize(mod)) orelse return error.Overflow;
                     try code.appendNTimes(0, abi_size - 10);
                 },
-                128 => writeFloat(f128, typed_value.val.toFloat(f128), target, endian, try code.addManyAsArray(16)),
+                128 => writeFloat(f128, typed_value.val.toFloat(f128, mod), target, endian, try code.addManyAsArray(16)),
                 else => unreachable,
             }
             return Result.ok;
@@ -328,20 +328,6 @@ pub fn generateSymbol(
                 return Result.ok;
             },
             .none => switch (typed_value.val.tag()) {
-                .zero, .one, .int_u64, .int_big_positive => {
-                    switch (target.ptrBitWidth()) {
-                        32 => {
-                            const x = typed_value.val.toUnsignedInt(mod);
-                            mem.writeInt(u32, try code.addManyAsArray(4), @intCast(u32, x), endian);
-                        },
-                        64 => {
-                            const x = typed_value.val.toUnsignedInt(mod);
-                            mem.writeInt(u64, try code.addManyAsArray(8), x, endian);
-                        },
-                        else => unreachable,
-                    }
-                    return Result.ok;
-                },
                 .variable, .decl_ref, .decl_ref_mut => |tag| return lowerDeclRef(
                     bin_file,
                     src_loc,
@@ -399,7 +385,23 @@ pub fn generateSymbol(
                     ),
                 },
             },
-            else => unreachable,
+            else => switch (mod.intern_pool.indexToKey(typed_value.val.ip_index)) {
+                .int => {
+                    switch (target.ptrBitWidth()) {
+                        32 => {
+                            const x = typed_value.val.toUnsignedInt(mod);
+                            mem.writeInt(u32, try code.addManyAsArray(4), @intCast(u32, x), endian);
+                        },
+                        64 => {
+                            const x = typed_value.val.toUnsignedInt(mod);
+                            mem.writeInt(u64, try code.addManyAsArray(8), x, endian);
+                        },
+                        else => unreachable,
+                    }
+                    return Result.ok;
+                },
+                else => unreachable,
+            },
         },
         .Int => {
             const info = typed_value.ty.intInfo(mod);
@@ -449,8 +451,7 @@ pub fn generateSymbol(
             return Result.ok;
         },
         .Enum => {
-            var int_buffer: Value.Payload.U64 = undefined;
-            const int_val = typed_value.enumToInt(&int_buffer);
+            const int_val = try typed_value.enumToInt(mod);
 
             const info = typed_value.ty.intInfo(mod);
             if (info.bits <= 8) {
@@ -674,7 +675,7 @@ pub fn generateSymbol(
             const is_payload = typed_value.val.errorUnionIsPayload();
 
             if (!payload_ty.hasRuntimeBitsIgnoreComptime(mod)) {
-                const err_val = if (is_payload) Value.initTag(.zero) else typed_value.val;
+                const err_val = if (is_payload) Value.zero else typed_value.val;
                 return generateSymbol(bin_file, src_loc, .{
                     .ty = error_ty,
                     .val = err_val,
@@ -689,7 +690,7 @@ pub fn generateSymbol(
             if (error_align > payload_align) {
                 switch (try generateSymbol(bin_file, src_loc, .{
                     .ty = error_ty,
-                    .val = if (is_payload) Value.initTag(.zero) else typed_value.val,
+                    .val = if (is_payload) Value.zero else typed_value.val,
                 }, code, debug_output, reloc_info)) {
                     .ok => {},
                     .fail => |em| return Result{ .fail = em },
@@ -721,7 +722,7 @@ pub fn generateSymbol(
                 const begin = code.items.len;
                 switch (try generateSymbol(bin_file, src_loc, .{
                     .ty = error_ty,
-                    .val = if (is_payload) Value.initTag(.zero) else typed_value.val,
+                    .val = if (is_payload) Value.zero else typed_value.val,
                 }, code, debug_output, reloc_info)) {
                     .ok => {},
                     .fail => |em| return Result{ .fail = em },
@@ -961,13 +962,9 @@ fn lowerDeclRef(
         }
 
         // generate length
-        var slice_len: Value.Payload.U64 = .{
-            .base = .{ .tag = .int_u64 },
-            .data = typed_value.val.sliceLen(mod),
-        };
         switch (try generateSymbol(bin_file, src_loc, .{
             .ty = Type.usize,
-            .val = Value.initPayload(&slice_len.base),
+            .val = try mod.intValue(Type.usize, typed_value.val.sliceLen(mod)),
         }, code, debug_output, reloc_info)) {
             .ok => {},
             .fail => |em| return Result{ .fail = em },
@@ -1196,13 +1193,13 @@ pub fn genTypedValue(
                 .null_value => {
                     return GenResult.mcv(.{ .immediate = 0 });
                 },
-                .none => switch (typed_value.val.tag()) {
-                    .int_u64 => {
+                .none => {},
+                else => switch (mod.intern_pool.indexToKey(typed_value.val.ip_index)) {
+                    .int => {
                         return GenResult.mcv(.{ .immediate = typed_value.val.toUnsignedInt(mod) });
                     },
                     else => {},
                 },
-                else => {},
             },
         },
         .Int => {
@@ -1283,7 +1280,7 @@ pub fn genTypedValue(
 
             if (!payload_type.hasRuntimeBitsIgnoreComptime(mod)) {
                 // We use the error type directly as the type.
-                const err_val = if (!is_pl) typed_value.val else Value.initTag(.zero);
+                const err_val = if (!is_pl) typed_value.val else Value.zero;
                 return genTypedValue(bin_file, src_loc, .{
                     .ty = error_type,
                     .val = err_val,
