@@ -184,6 +184,10 @@ pub fn lowerMir(lower: *Lower, index: Mir.Inst.Index) Error!struct {
         .roundsd,
         .roundss,
 
+        .vcvtsd2ss,
+        .vcvtsi2sd,
+        .vcvtsi2ss,
+        .vcvtss2sd,
         .vmovapd,
         .vmovaps,
         .vmovddup,

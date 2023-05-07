@@ -2287,26 +2287,46 @@ fn airFptrunc(self: *Self, inst: Air.Inst.Index) !void {
         src_mcv
     else
         try self.copyToRegisterWithInstTracking(inst, dst_ty, src_mcv);
-    const dst_lock = self.register_manager.lockReg(dst_mcv.register);
+    const dst_reg = dst_mcv.getReg().?.to128();
+    const dst_lock = self.register_manager.lockReg(dst_reg);
     defer if (dst_lock) |lock| self.register_manager.unlockReg(lock);
 
-    if (src_bits == 32 and dst_bits == 16 and self.hasFeature(.f16c))
-        try self.asmRegisterRegisterImmediate(
-            .vcvtps2ph,
-            dst_mcv.register,
-            if (src_mcv.isRegister()) src_mcv.getReg().? else src_reg: {
-                const src_reg = dst_mcv.register;
-                try self.genSetReg(src_reg, src_ty, src_mcv);
-                break :src_reg src_reg;
+    if (dst_bits == 16 and self.hasFeature(.f16c)) {
+        switch (src_bits) {
+            32 => {
+                const mat_src_reg = if (src_mcv.isRegister())
+                    src_mcv.getReg().?
+                else
+                    try self.copyToTmpRegister(src_ty, src_mcv);
+                try self.asmRegisterRegisterImmediate(
+                    .vcvtps2ph,
+                    dst_reg,
+                    mat_src_reg.to128(),
+                    Immediate.u(0b1_00),
+                );
             },
-            Immediate.u(0b1_00),
-        )
-    else if (src_bits == 64 and dst_bits == 32)
-        try self.genBinOpMir(.cvtsd2ss, src_ty, dst_mcv, src_mcv)
-    else
-        return self.fail("TODO implement airFptrunc from {} to {}", .{
-            src_ty.fmt(self.bin_file.options.module.?), dst_ty.fmt(self.bin_file.options.module.?),
-        });
+            else => return self.fail("TODO implement airFptrunc from {} to {}", .{
+                src_ty.fmt(self.bin_file.options.module.?), dst_ty.fmt(self.bin_file.options.module.?),
+            }),
+        }
+    } else if (src_bits == 64 and dst_bits == 32) {
+        if (self.hasFeature(.avx)) if (src_mcv.isRegister()) try self.asmRegisterRegisterRegister(
+            .vcvtsd2ss,
+            dst_reg,
+            dst_reg,
+            src_mcv.getReg().?.to128(),
+        ) else try self.asmRegisterRegisterMemory(
+            .vcvtsd2ss,
+            dst_reg,
+            dst_reg,
+            src_mcv.mem(.qword),
+        ) else if (src_mcv.isRegister())
+            try self.asmRegisterRegister(.cvtsd2ss, dst_reg, src_mcv.getReg().?.to128())
+        else
+            try self.asmRegisterMemory(.cvtsd2ss, dst_reg, src_mcv.mem(.qword));
+    } else return self.fail("TODO implement airFptrunc from {} to {}", .{
+        src_ty.fmt(self.bin_file.options.module.?), dst_ty.fmt(self.bin_file.options.module.?),
+    });
     return self.finishAir(inst, dst_mcv, .{ ty_op.operand, .none, .none });
 }
 
@@ -2322,22 +2342,41 @@ fn airFpext(self: *Self, inst: Air.Inst.Index) !void {
         src_mcv
     else
         try self.copyToRegisterWithInstTracking(inst, dst_ty, src_mcv);
-    const dst_lock = self.register_manager.lockReg(dst_mcv.register);
+    const dst_reg = dst_mcv.getReg().?.to128();
+    const dst_lock = self.register_manager.lockReg(dst_reg);
     defer if (dst_lock) |lock| self.register_manager.unlockReg(lock);
 
-    try self.genBinOpMir(
-        if (src_bits == 16 and dst_bits == 32 and self.hasFeature(.f16c))
-            .vcvtph2ps
-        else if (src_bits == 32 and dst_bits == 64)
-            .cvtss2sd
+    if (src_bits == 16 and self.hasFeature(.f16c)) {
+        const mat_src_reg = if (src_mcv.isRegister())
+            src_mcv.getReg().?
         else
-            return self.fail("TODO implement airFpext from {} to {}", .{
+            try self.copyToTmpRegister(src_ty, src_mcv);
+        try self.asmRegisterRegister(.vcvtph2ps, dst_reg, mat_src_reg.to128());
+        switch (dst_bits) {
+            32 => {},
+            64 => try self.asmRegisterRegisterRegister(.vcvtss2sd, dst_reg, dst_reg, dst_reg),
+            else => return self.fail("TODO implement airFpext from {} to {}", .{
                 src_ty.fmt(self.bin_file.options.module.?), dst_ty.fmt(self.bin_file.options.module.?),
             }),
-        src_ty,
-        dst_mcv,
-        src_mcv,
-    );
+        }
+    } else if (src_bits == 32 and dst_bits == 64) {
+        if (self.hasFeature(.avx)) if (src_mcv.isRegister()) try self.asmRegisterRegisterRegister(
+            .vcvtss2sd,
+            dst_reg,
+            dst_reg,
+            src_mcv.getReg().?.to128(),
+        ) else try self.asmRegisterRegisterMemory(
+            .vcvtss2sd,
+            dst_reg,
+            dst_reg,
+            src_mcv.mem(.dword),
+        ) else if (src_mcv.isRegister())
+            try self.asmRegisterRegister(.cvtss2sd, dst_reg, src_mcv.getReg().?.to128())
+        else
+            try self.asmRegisterMemory(.cvtss2sd, dst_reg, src_mcv.mem(.dword));
+    } else return self.fail("TODO implement airFpext from {} to {}", .{
+        src_ty.fmt(self.bin_file.options.module.?), dst_ty.fmt(self.bin_file.options.module.?),
+    });
     return self.finishAir(inst, dst_mcv, .{ ty_op.operand, .none, .none });
 }
 

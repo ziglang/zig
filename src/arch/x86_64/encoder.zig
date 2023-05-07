@@ -206,18 +206,15 @@ pub const Instruction = struct {
         const enc = inst.encoding;
         const data = enc.data;
 
-        switch (data.mode) {
-            .none, .short, .long, .rex, .rex_short => {
-                try inst.encodeLegacyPrefixes(encoder);
-                try inst.encodeMandatoryPrefix(encoder);
-                try inst.encodeRexPrefix(encoder);
-                try inst.encodeOpcode(encoder);
-            },
-            .vex_128, .vex_128_long, .vex_256, .vex_256_long => {
-                try inst.encodeVexPrefix(encoder);
-                const opc = inst.encoding.opcode();
-                try encoder.opcode_1byte(opc[opc.len - 1]);
-            },
+        if (data.mode.isVex()) {
+            try inst.encodeVexPrefix(encoder);
+            const opc = inst.encoding.opcode();
+            try encoder.opcode_1byte(opc[opc.len - 1]);
+        } else {
+            try inst.encodeLegacyPrefixes(encoder);
+            try inst.encodeMandatoryPrefix(encoder);
+            try inst.encodeRexPrefix(encoder);
+            try inst.encodeOpcode(encoder);
         }
 
         switch (data.op_en) {
@@ -365,11 +362,7 @@ pub const Instruction = struct {
 
         var vex = Vex{};
 
-        vex.w = switch (inst.encoding.data.mode) {
-            .vex_128, .vex_256 => false,
-            .vex_128_long, .vex_256_long => true,
-            else => unreachable,
-        };
+        vex.w = inst.encoding.data.mode.isLong();
 
         switch (op_en) {
             .np, .i, .zi, .fd, .td, .d => {},
@@ -395,11 +388,7 @@ pub const Instruction = struct {
             },
         }
 
-        vex.l = switch (inst.encoding.data.mode) {
-            .vex_128, .vex_128_long => false,
-            .vex_256, .vex_256_long => true,
-            else => unreachable,
-        };
+        vex.l = inst.encoding.data.mode.isVecLong();
 
         vex.p = if (mand_pre) |mand| switch (mand) {
             0x66 => .@"66",

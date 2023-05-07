@@ -89,30 +89,13 @@ pub fn findByOpcode(opc: []const u8, prefixes: struct {
         if (modrm_ext) |ext| if (ext != data.modrm_ext) continue;
         if (!std.mem.eql(u8, opc, enc.opcode())) continue;
         if (prefixes.rex.w) {
-            switch (data.mode) {
-                .none, .short, .rex, .rex_short, .vex_128, .vex_256 => continue,
-                .long, .vex_128_long, .vex_256_long => {},
-            }
+            if (!data.mode.isLong()) continue;
         } else if (prefixes.rex.present and !prefixes.rex.isSet()) {
-            switch (data.mode) {
-                .rex, .rex_short => {},
-                else => continue,
-            }
+            if (!data.mode.isRex()) continue;
         } else if (prefixes.legacy.prefix_66) {
-            switch (data.mode) {
-                .short, .rex_short => {},
-                .none, .rex, .vex_128, .vex_256 => continue,
-                .long, .vex_128_long, .vex_256_long => continue,
-            }
+            if (!data.mode.isShort()) continue;
         } else {
-            switch (data.mode) {
-                .none => switch (data.mode) {
-                    .short, .rex_short => continue,
-                    .none, .rex, .vex_128, .vex_256 => {},
-                    .long, .vex_128_long, .vex_256_long => {},
-                },
-                else => continue,
-            }
+            if (data.mode.isShort()) continue;
         }
         return enc;
     };
@@ -148,50 +131,39 @@ pub fn format(
     _ = fmt;
 
     var opc = encoding.opcode();
-    switch (encoding.data.mode) {
-        else => {},
-        .long => try writer.writeAll("REX.W + "),
-        .vex_128, .vex_128_long, .vex_256, .vex_256_long => {
-            try writer.writeAll("VEX.");
+    if (encoding.data.mode.isVex()) {
+        try writer.writeAll("VEX.");
 
-            switch (encoding.data.mode) {
-                .vex_128, .vex_128_long => try writer.writeAll("128"),
-                .vex_256, .vex_256_long => try writer.writeAll("256"),
-                else => unreachable,
-            }
+        try writer.writeAll(switch (encoding.data.mode) {
+            .vex_128_w0, .vex_128_w1, .vex_128_wig => "128",
+            .vex_256_w0, .vex_256_w1, .vex_256_wig => "256",
+            .vex_lig_w0, .vex_lig_w1, .vex_lig_wig => "LIG",
+            .vex_lz_w0, .vex_lz_w1, .vex_lz_wig => "LZ",
+            else => unreachable,
+        });
 
-            switch (opc[0]) {
-                else => {},
-                0x66, 0xf3, 0xf2 => {
-                    try writer.print(".{X:0>2}", .{opc[0]});
-                    opc = opc[1..];
-                },
-            }
+        switch (opc[0]) {
+            else => {},
+            0x66, 0xf3, 0xf2 => {
+                try writer.print(".{X:0>2}", .{opc[0]});
+                opc = opc[1..];
+            },
+        }
 
-            try writer.print(".{X:0>2}", .{opc[0]});
-            opc = opc[1..];
+        try writer.print(".{}", .{std.fmt.fmtSliceHexUpper(opc[0 .. opc.len - 1])});
+        opc = opc[opc.len - 1 ..];
 
-            switch (opc[0]) {
-                else => {},
-                0x38, 0x3A => {
-                    try writer.print("{X:0>2}", .{opc[0]});
-                    opc = opc[1..];
-                },
-            }
+        try writer.writeAll(".W");
+        try writer.writeAll(switch (encoding.data.mode) {
+            .vex_128_w0, .vex_256_w0, .vex_lig_w0, .vex_lz_w0 => "0",
+            .vex_128_w1, .vex_256_w1, .vex_lig_w1, .vex_lz_w1 => "1",
+            .vex_128_wig, .vex_256_wig, .vex_lig_wig, .vex_lz_wig => "IG",
+            else => unreachable,
+        });
 
-            try writer.writeByte('.');
-            try writer.writeAll(switch (encoding.data.mode) {
-                .vex_128, .vex_256 => "W0",
-                .vex_128_long, .vex_256_long => "W1",
-                else => unreachable,
-            });
-            try writer.writeByte(' ');
-        },
-    }
-
-    for (opc) |byte| {
-        try writer.print("{x:0>2} ", .{byte});
-    }
+        try writer.writeByte(' ');
+    } else if (encoding.data.mode.isLong()) try writer.writeAll("REX.W + ");
+    for (opc) |byte| try writer.print("{x:0>2} ", .{byte});
 
     switch (encoding.data.op_en) {
         .np, .fd, .td, .i, .zi, .d => {},
@@ -332,6 +304,7 @@ pub const Mnemonic = enum {
     // SSE4.1
     roundsd, roundss,
     // AVX
+    vcvtsd2ss, vcvtsi2sd, vcvtsi2ss, vcvtss2sd,
     vmovapd, vmovaps,
     vmovddup,
     vmovsd,
@@ -629,20 +602,74 @@ pub const Op = enum {
 };
 
 pub const Mode = enum {
+    // zig fmt: off
     none,
-    short,
-    long,
-    rex,
-    rex_short,
-    vex_128,
-    vex_128_long,
-    vex_256,
-    vex_256_long,
+    short, long,
+    rex, rex_short,
+    vex_128_w0, vex_128_w1, vex_128_wig,
+    vex_256_w0, vex_256_w1, vex_256_wig,
+    vex_lig_w0, vex_lig_w1, vex_lig_wig,
+    vex_lz_w0,  vex_lz_w1,  vex_lz_wig,
+    // zig fmt: on
+
+    pub fn isShort(mode: Mode) bool {
+        return switch (mode) {
+            .short, .rex_short => true,
+            else => false,
+        };
+    }
+
+    pub fn isLong(mode: Mode) bool {
+        return switch (mode) {
+            .long,
+            .vex_128_w1,
+            .vex_256_w1,
+            .vex_lig_w1,
+            .vex_lz_w1,
+            => true,
+            else => false,
+        };
+    }
+
+    pub fn isRex(mode: Mode) bool {
+        return switch (mode) {
+            else => false,
+            .rex, .rex_short => true,
+        };
+    }
+
+    pub fn isVex(mode: Mode) bool {
+        return switch (mode) {
+            // zig fmt: off
+            else => false,
+            .vex_128_w0, .vex_128_w1, .vex_128_wig,
+            .vex_256_w0, .vex_256_w1, .vex_256_wig,
+            .vex_lig_w0, .vex_lig_w1, .vex_lig_wig,
+            .vex_lz_w0,  .vex_lz_w1,  .vex_lz_wig,
+            => true,
+            // zig fmt: on
+        };
+    }
+
+    pub fn isVecLong(mode: Mode) bool {
+        return switch (mode) {
+            // zig fmt: off
+            else => unreachable,
+            .vex_128_w0, .vex_128_w1, .vex_128_wig,
+            .vex_lig_w0, .vex_lig_w1, .vex_lig_wig,
+            .vex_lz_w0,  .vex_lz_w1,  .vex_lz_wig,
+            => false,
+            .vex_256_w0, .vex_256_w1, .vex_256_wig,
+            => true,
+            // zig fmt: on
+        };
+    }
 };
 
 pub const Feature = enum {
     none,
     avx,
+    avx2,
     f16c,
     fma,
     sse,

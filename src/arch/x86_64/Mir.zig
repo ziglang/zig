@@ -282,6 +282,14 @@ pub const Inst = struct {
         /// Round scalar single-precision floating-point values
         roundss,
 
+        /// Convert scalar double-precision floating-point value to scalar single-precision floating-point value
+        vcvtsd2ss,
+        /// Convert doubleword integer to scalar double-precision floating-point value
+        vcvtsi2sd,
+        /// Convert doubleword integer to scalar single-precision floating-point value
+        vcvtsi2ss,
+        /// Convert scalar single-precision floating-point value to scalar double-precision floating-point value
+        vcvtss2sd,
         /// Move aligned packed double-precision floating-point values
         vmovapd,
         /// Move aligned packed single-precision floating-point values
