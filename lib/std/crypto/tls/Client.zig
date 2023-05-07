@@ -1233,7 +1233,7 @@ fn finishRead2(c: *Client, first: []const u8, frag1: []const u8, out: usize) usi
         c.partial_cleartext_idx = 0;
         c.partial_ciphertext_idx = 0;
         c.partial_ciphertext_end = @intCast(@TypeOf(c.partial_ciphertext_end), first.len + frag1.len);
-        @memcpy(c.partially_read_buffer[0..first.len], first);
+        std.mem.copyForwards(u8, c.partially_read_buffer[0..first.len], first);
         @memcpy(c.partially_read_buffer[first.len..][0..frag1.len], frag1);
     }
     return out;
