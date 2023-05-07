@@ -1535,6 +1535,26 @@ pub fn slicePtrType(ip: InternPool, i: Index) Index {
     }
 }
 
+/// Given an existing integer value, returns the same numerical value but with
+/// the supplied type.
+pub fn getCoercedInt(ip: *InternPool, gpa: Allocator, val: Index, new_ty: Index) Allocator.Error!Index {
+    const key = ip.indexToKey(val);
+    // The key cannot be passed directly to `get`, otherwise in the case of
+    // big_int storage, the limbs would be invalidated before they are read.
+    // Here we pre-reserve the limbs to ensure that the logic in `addInt` will
+    // not use an invalidated limbs pointer.
+    switch (key.int.storage) {
+        .u64, .i64 => {},
+        .big_int => |big_int| {
+            try reserveLimbs(ip, gpa, @typeInfo(Int).Struct.fields.len + big_int.limbs.len);
+        },
+    }
+    return ip.get(gpa, .{ .int = .{
+        .ty = new_ty,
+        .storage = key.int.storage,
+    } });
+}
+
 pub fn dump(ip: InternPool) void {
     dumpFallible(ip, std.heap.page_allocator) catch return;
 }
