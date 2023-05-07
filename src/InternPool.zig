@@ -721,6 +721,9 @@ pub const Tag = enum(u8) {
     /// only an enum tag, but will be presented via the API with a different Key.
     /// data is SimpleInternal enum value.
     simple_internal,
+    /// Type: u8
+    /// data is integer value
+    int_u8,
     /// Type: u16
     /// data is integer value
     int_u16,
@@ -1056,6 +1059,10 @@ pub fn indexToKey(ip: InternPool, index: Index) Key {
         .type_error_union => @panic("TODO"),
         .type_enum_simple => @panic("TODO"),
         .simple_internal => @panic("TODO"),
+        .int_u8 => .{ .int = .{
+            .ty = .u8_type,
+            .storage = .{ .u64 = data },
+        } },
         .int_u16 => .{ .int = .{
             .ty = .u16_type,
             .storage = .{ .u64 = data },
@@ -1226,6 +1233,22 @@ pub fn get(ip: *InternPool, gpa: Allocator, key: Key) Allocator.Error!Index {
         .int => |int| b: {
             switch (int.ty) {
                 .none => unreachable,
+                .u8_type => switch (int.storage) {
+                    .big_int => |big_int| {
+                        ip.items.appendAssumeCapacity(.{
+                            .tag = .int_u8,
+                            .data = big_int.to(u8) catch unreachable,
+                        });
+                        break :b;
+                    },
+                    inline .u64, .i64 => |x| {
+                        ip.items.appendAssumeCapacity(.{
+                            .tag = .int_u8,
+                            .data = @intCast(u8, x),
+                        });
+                        break :b;
+                    },
+                },
                 .u16_type => switch (int.storage) {
                     .big_int => |big_int| {
                         if (big_int.to(u32)) |casted| {
@@ -1678,6 +1701,7 @@ fn dumpFallible(ip: InternPool, arena: Allocator) anyerror!void {
             .simple_type => 0,
             .simple_value => 0,
             .simple_internal => 0,
+            .int_u8 => 0,
             .int_u16 => 0,
             .int_u32 => 0,
             .int_i32 => 0,
