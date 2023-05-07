@@ -5146,7 +5146,7 @@ fn addStrLit(sema: *Sema, block: *Block, zir_bytes: []const u8) CompileError!Air
         defer anon_decl.deinit();
 
         const decl_index = try anon_decl.finish(
-            try Type.array(anon_decl.arena(), gop.key_ptr.len, Value.zero, Type.u8, mod),
+            try Type.array(anon_decl.arena(), gop.key_ptr.len, try mod.intValue(Type.u8, 0), Type.u8, mod),
             try Value.Tag.str_lit.create(anon_decl.arena(), gop.key_ptr.*),
             0, // default alignment
         );
@@ -15567,7 +15567,7 @@ fn zirSizeOf(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.
         => {},
     }
     const val = try ty.lazyAbiSize(mod, sema.arena);
-    if (val.tag() == .lazy_size) {
+    if (val.ip_index == .none and val.tag() == .lazy_size) {
         try sema.queueFullTypeResolution(ty);
     }
     return sema.addConstant(Type.comptime_int, val);
@@ -16006,8 +16006,8 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                 sema.arena,
                 @enumToInt(info.signedness),
             );
-            // bits: comptime_int,
-            field_values[1] = try mod.intValue(Type.comptime_int, info.bits);
+            // bits: u16,
+            field_values[1] = try mod.intValue(Type.u16, info.bits);
 
             return sema.addConstant(
                 type_info_ty,
@@ -16019,8 +16019,8 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
         },
         .Float => {
             const field_values = try sema.arena.alloc(Value, 1);
-            // bits: comptime_int,
-            field_values[0] = try mod.intValue(Type.comptime_int, ty.bitSize(mod));
+            // bits: u16,
+            field_values[0] = try mod.intValue(Type.u16, ty.bitSize(mod));
 
             return sema.addConstant(
                 type_info_ty,
@@ -25957,7 +25957,21 @@ fn coerceExtra(
                         if (!opts.report_err) return error.NotCoercible;
                         return sema.fail(block, inst_src, "type '{}' cannot represent integer value '{}'", .{ dest_ty.fmt(sema.mod), val.fmtValue(inst_ty, sema.mod) });
                     }
-                    return try sema.addConstant(dest_ty, val);
+                    const key = mod.intern_pool.indexToKey(val.ip_index);
+                    // If the int is represented as a bigint, copy it so we can safely pass it to `mod.intern`
+                    const int_storage: InternPool.Key.Int.Storage = switch (key.int.storage) {
+                        .u64 => |x| .{ .u64 = x },
+                        .i64 => |x| .{ .i64 = x },
+                        .big_int => |big_int| .{ .big_int = .{
+                            .limbs = try sema.arena.dupe(std.math.big.Limb, big_int.limbs),
+                            .positive = big_int.positive,
+                        } },
+                    };
+                    const new_val = try mod.intern(.{ .int = .{
+                        .ty = dest_ty.ip_index,
+                        .storage = int_storage,
+                    } });
+                    return try sema.addConstant(dest_ty, new_val.toValue());
                 }
                 if (dest_ty.zigTypeTag(mod) == .ComptimeInt) {
                     if (!opts.report_err) return error.NotCoercible;
@@ -31061,39 +31075,42 @@ pub fn resolveFnTypes(sema: *Sema, fn_info: Type.Payload.Function.Data) CompileE
 /// Make it so that calling hash() and eql() on `val` will not assert due
 /// to a type not having its layout resolved.
 fn resolveLazyValue(sema: *Sema, val: Value) CompileError!void {
-    switch (val.tag()) {
-        .lazy_align => {
-            const ty = val.castTag(.lazy_align).?.data;
-            return sema.resolveTypeLayout(ty);
-        },
-        .lazy_size => {
-            const ty = val.castTag(.lazy_size).?.data;
-            return sema.resolveTypeLayout(ty);
-        },
-        .comptime_field_ptr => {
-            const field_ptr = val.castTag(.comptime_field_ptr).?.data;
-            return sema.resolveLazyValue(field_ptr.field_val);
-        },
-        .eu_payload,
-        .opt_payload,
-        => {
-            const sub_val = val.cast(Value.Payload.SubValue).?.data;
-            return sema.resolveLazyValue(sub_val);
-        },
-        .@"union" => {
-            const union_val = val.castTag(.@"union").?.data;
-            return sema.resolveLazyValue(union_val.val);
-        },
-        .aggregate => {
-            const aggregate = val.castTag(.aggregate).?.data;
-            for (aggregate) |elem_val| {
-                try sema.resolveLazyValue(elem_val);
-            }
-        },
-        .slice => {
-            const slice = val.castTag(.slice).?.data;
-            try sema.resolveLazyValue(slice.ptr);
-            return sema.resolveLazyValue(slice.len);
+    switch (val.ip_index) {
+        .none => switch (val.tag()) {
+            .lazy_align => {
+                const ty = val.castTag(.lazy_align).?.data;
+                return sema.resolveTypeLayout(ty);
+            },
+            .lazy_size => {
+                const ty = val.castTag(.lazy_size).?.data;
+                return sema.resolveTypeLayout(ty);
+            },
+            .comptime_field_ptr => {
+                const field_ptr = val.castTag(.comptime_field_ptr).?.data;
+                return sema.resolveLazyValue(field_ptr.field_val);
+            },
+            .eu_payload,
+            .opt_payload,
+            => {
+                const sub_val = val.cast(Value.Payload.SubValue).?.data;
+                return sema.resolveLazyValue(sub_val);
+            },
+            .@"union" => {
+                const union_val = val.castTag(.@"union").?.data;
+                return sema.resolveLazyValue(union_val.val);
+            },
+            .aggregate => {
+                const aggregate = val.castTag(.aggregate).?.data;
+                for (aggregate) |elem_val| {
+                    try sema.resolveLazyValue(elem_val);
+                }
+            },
+            .slice => {
+                const slice = val.castTag(.slice).?.data;
+                try sema.resolveLazyValue(slice.ptr);
+                return sema.resolveLazyValue(slice.len);
+            },
+            else => return,
         },
         else => return,
     }
@@ -31200,7 +31217,7 @@ fn resolveStructLayout(sema: *Sema, ty: Type) CompileError!void {
             };
 
             for (struct_obj.fields.values(), 0..) |field, i| {
-                optimized_order[i] = if (!(try sema.typeHasRuntimeBits(field.ty)))
+                optimized_order[i] = if (try sema.typeHasRuntimeBits(field.ty))
                     @intCast(u32, i)
                 else
                     Module.Struct.omitted_field;

@@ -1832,35 +1832,37 @@ pub const Value = struct {
             }
         }
 
-        switch (lhs.tag()) {
-            .repeated => return lhs.castTag(.repeated).?.data.compareAllWithZeroAdvancedExtra(op, mod, opt_sema),
-            .aggregate => {
-                for (lhs.castTag(.aggregate).?.data) |elem_val| {
-                    if (!(try elem_val.compareAllWithZeroAdvancedExtra(op, mod, opt_sema))) return false;
-                }
-                return true;
+        switch (lhs.ip_index) {
+            .none => switch (lhs.tag()) {
+                .repeated => return lhs.castTag(.repeated).?.data.compareAllWithZeroAdvancedExtra(op, mod, opt_sema),
+                .aggregate => {
+                    for (lhs.castTag(.aggregate).?.data) |elem_val| {
+                        if (!(try elem_val.compareAllWithZeroAdvancedExtra(op, mod, opt_sema))) return false;
+                    }
+                    return true;
+                },
+                .str_lit => {
+                    const str_lit = lhs.castTag(.str_lit).?.data;
+                    const bytes = mod.string_literal_bytes.items[str_lit.index..][0..str_lit.len];
+                    for (bytes) |byte| {
+                        if (!std.math.compare(byte, op, 0)) return false;
+                    }
+                    return true;
+                },
+                .bytes => {
+                    const bytes = lhs.castTag(.bytes).?.data;
+                    for (bytes) |byte| {
+                        if (!std.math.compare(byte, op, 0)) return false;
+                    }
+                    return true;
+                },
+                .float_16 => if (std.math.isNan(lhs.castTag(.float_16).?.data)) return op == .neq,
+                .float_32 => if (std.math.isNan(lhs.castTag(.float_32).?.data)) return op == .neq,
+                .float_64 => if (std.math.isNan(lhs.castTag(.float_64).?.data)) return op == .neq,
+                .float_80 => if (std.math.isNan(lhs.castTag(.float_80).?.data)) return op == .neq,
+                .float_128 => if (std.math.isNan(lhs.castTag(.float_128).?.data)) return op == .neq,
+                else => {},
             },
-            .empty_array => return true,
-            .str_lit => {
-                const str_lit = lhs.castTag(.str_lit).?.data;
-                const bytes = mod.string_literal_bytes.items[str_lit.index..][0..str_lit.len];
-                for (bytes) |byte| {
-                    if (!std.math.compare(byte, op, 0)) return false;
-                }
-                return true;
-            },
-            .bytes => {
-                const bytes = lhs.castTag(.bytes).?.data;
-                for (bytes) |byte| {
-                    if (!std.math.compare(byte, op, 0)) return false;
-                }
-                return true;
-            },
-            .float_16 => if (std.math.isNan(lhs.castTag(.float_16).?.data)) return op == .neq,
-            .float_32 => if (std.math.isNan(lhs.castTag(.float_32).?.data)) return op == .neq,
-            .float_64 => if (std.math.isNan(lhs.castTag(.float_64).?.data)) return op == .neq,
-            .float_80 => if (std.math.isNan(lhs.castTag(.float_80).?.data)) return op == .neq,
-            .float_128 => if (std.math.isNan(lhs.castTag(.float_128).?.data)) return op == .neq,
             else => {},
         }
         return (try orderAgainstZeroAdvanced(lhs, mod, opt_sema)).compare(op);
@@ -2404,37 +2406,43 @@ pub const Value = struct {
     };
 
     pub fn isComptimeMutablePtr(val: Value) bool {
-        return switch (val.tag()) {
-            .decl_ref_mut, .comptime_field_ptr => true,
-            .elem_ptr => isComptimeMutablePtr(val.castTag(.elem_ptr).?.data.array_ptr),
-            .field_ptr => isComptimeMutablePtr(val.castTag(.field_ptr).?.data.container_ptr),
-            .eu_payload_ptr => isComptimeMutablePtr(val.castTag(.eu_payload_ptr).?.data.container_ptr),
-            .opt_payload_ptr => isComptimeMutablePtr(val.castTag(.opt_payload_ptr).?.data.container_ptr),
-            .slice => isComptimeMutablePtr(val.castTag(.slice).?.data.ptr),
+        return switch (val.ip_index) {
+            .none => switch (val.tag()) {
+                .decl_ref_mut, .comptime_field_ptr => true,
+                .elem_ptr => isComptimeMutablePtr(val.castTag(.elem_ptr).?.data.array_ptr),
+                .field_ptr => isComptimeMutablePtr(val.castTag(.field_ptr).?.data.container_ptr),
+                .eu_payload_ptr => isComptimeMutablePtr(val.castTag(.eu_payload_ptr).?.data.container_ptr),
+                .opt_payload_ptr => isComptimeMutablePtr(val.castTag(.opt_payload_ptr).?.data.container_ptr),
+                .slice => isComptimeMutablePtr(val.castTag(.slice).?.data.ptr),
 
+                else => false,
+            },
             else => false,
         };
     }
 
     pub fn canMutateComptimeVarState(val: Value) bool {
         if (val.isComptimeMutablePtr()) return true;
-        switch (val.tag()) {
-            .repeated => return val.castTag(.repeated).?.data.canMutateComptimeVarState(),
-            .eu_payload => return val.castTag(.eu_payload).?.data.canMutateComptimeVarState(),
-            .eu_payload_ptr => return val.castTag(.eu_payload_ptr).?.data.container_ptr.canMutateComptimeVarState(),
-            .opt_payload => return val.castTag(.opt_payload).?.data.canMutateComptimeVarState(),
-            .opt_payload_ptr => return val.castTag(.opt_payload_ptr).?.data.container_ptr.canMutateComptimeVarState(),
-            .aggregate => {
-                const fields = val.castTag(.aggregate).?.data;
-                for (fields) |field| {
-                    if (field.canMutateComptimeVarState()) return true;
-                }
-                return false;
+        return switch (val.ip_index) {
+            .none => switch (val.tag()) {
+                .repeated => return val.castTag(.repeated).?.data.canMutateComptimeVarState(),
+                .eu_payload => return val.castTag(.eu_payload).?.data.canMutateComptimeVarState(),
+                .eu_payload_ptr => return val.castTag(.eu_payload_ptr).?.data.container_ptr.canMutateComptimeVarState(),
+                .opt_payload => return val.castTag(.opt_payload).?.data.canMutateComptimeVarState(),
+                .opt_payload_ptr => return val.castTag(.opt_payload_ptr).?.data.container_ptr.canMutateComptimeVarState(),
+                .aggregate => {
+                    const fields = val.castTag(.aggregate).?.data;
+                    for (fields) |field| {
+                        if (field.canMutateComptimeVarState()) return true;
+                    }
+                    return false;
+                },
+                .@"union" => return val.cast(Payload.Union).?.data.val.canMutateComptimeVarState(),
+                .slice => return val.castTag(.slice).?.data.ptr.canMutateComptimeVarState(),
+                else => return false,
             },
-            .@"union" => return val.cast(Payload.Union).?.data.val.canMutateComptimeVarState(),
-            .slice => return val.castTag(.slice).?.data.ptr.canMutateComptimeVarState(),
             else => return false,
-        }
+        };
     }
 
     /// Gets the decl referenced by this pointer.  If the pointer does not point

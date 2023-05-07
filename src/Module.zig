@@ -934,9 +934,12 @@ pub const Decl = struct {
 
     pub fn isExtern(decl: Decl) bool {
         assert(decl.has_tv);
-        return switch (decl.val.tag()) {
-            .extern_fn => true,
-            .variable => decl.val.castTag(.variable).?.data.init.ip_index == .unreachable_value,
+        return switch (decl.val.ip_index) {
+            .none => switch (decl.val.tag()) {
+                .extern_fn => true,
+                .variable => decl.val.castTag(.variable).?.data.init.ip_index == .unreachable_value,
+                else => false,
+            },
             else => false,
         };
     }
@@ -6833,6 +6836,10 @@ pub fn intType(mod: *Module, signedness: std.builtin.Signedness, bits: u16) Allo
 }
 
 pub fn arrayType(mod: *Module, info: InternPool.Key.ArrayType) Allocator.Error!Type {
+    if (std.debug.runtime_safety and info.sentinel != .none) {
+        const sent_ty = mod.intern_pool.indexToKey(info.sentinel).typeOf();
+        assert(sent_ty == info.child);
+    }
     const i = try intern(mod, .{ .array_type = info });
     return i.toType();
 }
@@ -6848,6 +6855,10 @@ pub fn optionalType(mod: *Module, child_type: InternPool.Index) Allocator.Error!
 }
 
 pub fn ptrType(mod: *Module, info: InternPool.Key.PtrType) Allocator.Error!Type {
+    if (std.debug.runtime_safety and info.sentinel != .none) {
+        const sent_ty = mod.intern_pool.indexToKey(info.sentinel).typeOf();
+        assert(sent_ty == info.elem_type);
+    }
     const i = try intern(mod, .{ .ptr_type = info });
     return i.toType();
 }
