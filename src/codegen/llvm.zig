@@ -12,6 +12,7 @@ const link = @import("../link.zig");
 const Compilation = @import("../Compilation.zig");
 const build_options = @import("build_options");
 const Module = @import("../Module.zig");
+const InternPool = @import("../InternPool.zig");
 const Package = @import("../Package.zig");
 const TypedValue = @import("../TypedValue.zig");
 const Air = @import("../Air.zig");
@@ -1535,8 +1536,7 @@ pub const Object = struct {
                     defer gpa.free(field_name_z);
 
                     buf_field_index.data = @intCast(u32, i);
-                    var buf_u64: Value.Payload.U64 = undefined;
-                    const field_int_val = field_index_val.enumToInt(ty, &buf_u64);
+                    const field_int_val = try field_index_val.enumToInt(ty, mod);
 
                     var bigint_space: Value.BigIntSpace = undefined;
                     const bigint = field_int_val.toBigInt(&bigint_space, mod);
@@ -3255,8 +3255,6 @@ pub const DeclGen = struct {
                 const llvm_type = try dg.lowerType(tv.ty);
                 return if (tv.val.toBool(mod)) llvm_type.constAllOnes() else llvm_type.constNull();
             },
-            // TODO this duplicates code with Pointer but they should share the handling
-            // of the tv.val.tag() and then Int should do extra constPtrToInt on top
             .Int => switch (tv.val.ip_index) {
                 .none => switch (tv.val.tag()) {
                     .decl_ref_mut => return lowerDeclRefValue(dg, tv, tv.val.castTag(.decl_ref_mut).?.data.decl_index),
@@ -3277,8 +3275,7 @@ pub const DeclGen = struct {
                 },
             },
             .Enum => {
-                var int_buffer: Value.Payload.U64 = undefined;
-                const int_val = tv.enumToInt(&int_buffer);
+                const int_val = try tv.enumToInt(mod);
 
                 var bigint_space: Value.BigIntSpace = undefined;
                 const bigint = int_val.toBigInt(&bigint_space, mod);
@@ -3307,25 +3304,25 @@ pub const DeclGen = struct {
                 const llvm_ty = try dg.lowerType(tv.ty);
                 switch (tv.ty.floatBits(target)) {
                     16 => {
-                        const repr = @bitCast(u16, tv.val.toFloat(f16));
+                        const repr = @bitCast(u16, tv.val.toFloat(f16, mod));
                         const llvm_i16 = dg.context.intType(16);
                         const int = llvm_i16.constInt(repr, .False);
                         return int.constBitCast(llvm_ty);
                     },
                     32 => {
-                        const repr = @bitCast(u32, tv.val.toFloat(f32));
+                        const repr = @bitCast(u32, tv.val.toFloat(f32, mod));
                         const llvm_i32 = dg.context.intType(32);
                         const int = llvm_i32.constInt(repr, .False);
                         return int.constBitCast(llvm_ty);
                     },
                     64 => {
-                        const repr = @bitCast(u64, tv.val.toFloat(f64));
+                        const repr = @bitCast(u64, tv.val.toFloat(f64, mod));
                         const llvm_i64 = dg.context.intType(64);
                         const int = llvm_i64.constInt(repr, .False);
                         return int.constBitCast(llvm_ty);
                     },
                     80 => {
-                        const float = tv.val.toFloat(f80);
+                        const float = tv.val.toFloat(f80, mod);
                         const repr = std.math.break_f80(float);
                         const llvm_i80 = dg.context.intType(80);
                         var x = llvm_i80.constInt(repr.exp, .False);
@@ -3338,7 +3335,7 @@ pub const DeclGen = struct {
                         }
                     },
                     128 => {
-                        var buf: [2]u64 = @bitCast([2]u64, tv.val.toFloat(f128));
+                        var buf: [2]u64 = @bitCast([2]u64, tv.val.toFloat(f128, mod));
                         // LLVM seems to require that the lower half of the f128 be placed first
                         // in the buffer.
                         if (native_endian == .Big) {
@@ -3388,17 +3385,13 @@ pub const DeclGen = struct {
                         };
                         return dg.context.constStruct(&fields, fields.len, .False);
                     },
-                    .int_u64, .one, .int_big_positive, .lazy_align, .lazy_size => {
+                    .lazy_align, .lazy_size => {
                         const llvm_usize = try dg.lowerType(Type.usize);
                         const llvm_int = llvm_usize.constInt(tv.val.toUnsignedInt(mod), .False);
                         return llvm_int.constIntToPtr(try dg.lowerType(tv.ty));
                     },
                     .field_ptr, .opt_payload_ptr, .eu_payload_ptr, .elem_ptr => {
                         return dg.lowerParentPtr(tv.val, tv.ty.ptrInfo(mod).bit_offset % 8 == 0);
-                    },
-                    .zero => {
-                        const llvm_type = try dg.lowerType(tv.ty);
-                        return llvm_type.constNull();
                     },
                     .opt_payload => {
                         const payload = tv.val.castTag(.opt_payload).?.data;
@@ -3408,7 +3401,10 @@ pub const DeclGen = struct {
                         tv.ty.fmtDebug(), tag,
                     }),
                 },
-                else => unreachable,
+                else => switch (mod.intern_pool.indexToKey(tv.val.ip_index)) {
+                    .int => |int| return lowerIntAsPtr(dg, int),
+                    else => unreachable,
+                },
             },
             .Array => switch (tv.val.tag()) {
                 .bytes => {
@@ -3592,7 +3588,7 @@ pub const DeclGen = struct {
 
                 if (!payload_type.hasRuntimeBitsIgnoreComptime(mod)) {
                     // We use the error type directly as the type.
-                    const err_val = if (!is_pl) tv.val else Value.initTag(.zero);
+                    const err_val = if (!is_pl) tv.val else Value.zero;
                     return dg.lowerValue(.{ .ty = Type.anyerror, .val = err_val });
                 }
 
@@ -3600,7 +3596,7 @@ pub const DeclGen = struct {
                 const error_align = Type.anyerror.abiAlignment(mod);
                 const llvm_error_value = try dg.lowerValue(.{
                     .ty = Type.anyerror,
-                    .val = if (is_pl) Value.initTag(.zero) else tv.val,
+                    .val = if (is_pl) Value.zero else tv.val,
                 });
                 const llvm_payload_value = try dg.lowerValue(.{
                     .ty = payload_type,
@@ -3882,14 +3878,9 @@ pub const DeclGen = struct {
                     const llvm_elems = try dg.gpa.alloc(*llvm.Value, vector_len);
                     defer dg.gpa.free(llvm_elems);
                     for (llvm_elems, 0..) |*elem, i| {
-                        var byte_payload: Value.Payload.U64 = .{
-                            .base = .{ .tag = .int_u64 },
-                            .data = bytes[i],
-                        };
-
                         elem.* = try dg.lowerValue(.{
                             .ty = elem_ty,
-                            .val = Value.initPayload(&byte_payload.base),
+                            .val = try mod.intValue(elem_ty, bytes[i]),
                         });
                     }
                     return llvm.constVector(
@@ -3940,14 +3931,9 @@ pub const DeclGen = struct {
                     const llvm_elems = try dg.gpa.alloc(*llvm.Value, vector_len);
                     defer dg.gpa.free(llvm_elems);
                     for (llvm_elems, 0..) |*elem, i| {
-                        var byte_payload: Value.Payload.U64 = .{
-                            .base = .{ .tag = .int_u64 },
-                            .data = bytes[i],
-                        };
-
                         elem.* = try dg.lowerValue(.{
                             .ty = elem_ty,
-                            .val = Value.initPayload(&byte_payload.base),
+                            .val = try mod.intValue(elem_ty, bytes[i]),
                         });
                     }
                     return llvm.constVector(
@@ -3972,6 +3958,13 @@ pub const DeclGen = struct {
             .AnyFrame,
             => return dg.todo("implement const of type '{}'", .{tv.ty.fmtDebug()}),
         }
+    }
+
+    fn lowerIntAsPtr(dg: *DeclGen, int: InternPool.Key.Int) *llvm.Value {
+        var bigint_space: Value.BigIntSpace = undefined;
+        const bigint = int.storage.toBigInt(&bigint_space);
+        const llvm_int = lowerBigInt(dg, Type.usize, bigint);
+        return llvm_int.constIntToPtr(dg.context.pointerType(0));
     }
 
     fn lowerBigInt(dg: *DeclGen, ty: Type, bigint: std.math.big.int.Const) *llvm.Value {
@@ -4018,6 +4011,10 @@ pub const DeclGen = struct {
     fn lowerParentPtr(dg: *DeclGen, ptr_val: Value, byte_aligned: bool) Error!*llvm.Value {
         const mod = dg.module;
         const target = mod.getTarget();
+        if (ptr_val.ip_index != .none) switch (mod.intern_pool.indexToKey(ptr_val.ip_index)) {
+            .int => |int| return lowerIntAsPtr(dg, int),
+            else => unreachable,
+        };
         switch (ptr_val.tag()) {
             .decl_ref_mut => {
                 const decl = ptr_val.castTag(.decl_ref_mut).?.data.decl_index;
@@ -4030,18 +4027,6 @@ pub const DeclGen = struct {
             .variable => {
                 const decl = ptr_val.castTag(.variable).?.data.owner_decl;
                 return dg.lowerParentPtrDecl(ptr_val, decl);
-            },
-            .int_i64 => {
-                const int = ptr_val.castTag(.int_i64).?.data;
-                const llvm_usize = try dg.lowerType(Type.usize);
-                const llvm_int = llvm_usize.constInt(@bitCast(u64, int), .False);
-                return llvm_int.constIntToPtr(dg.context.pointerType(0));
-            },
-            .int_u64 => {
-                const int = ptr_val.castTag(.int_u64).?.data;
-                const llvm_usize = try dg.lowerType(Type.usize);
-                const llvm_int = llvm_usize.constInt(int, .False);
-                return llvm_int.constIntToPtr(dg.context.pointerType(0));
             },
             .field_ptr => {
                 const field_ptr = ptr_val.castTag(.field_ptr).?.data;
@@ -4185,10 +4170,6 @@ pub const DeclGen = struct {
         if (tv.ty.isSlice(mod)) {
             var buf: Type.SlicePtrFieldTypeBuffer = undefined;
             const ptr_ty = tv.ty.slicePtrFieldType(&buf, mod);
-            var slice_len: Value.Payload.U64 = .{
-                .base = .{ .tag = .int_u64 },
-                .data = tv.val.sliceLen(mod),
-            };
             const fields: [2]*llvm.Value = .{
                 try self.lowerValue(.{
                     .ty = ptr_ty,
@@ -4196,7 +4177,7 @@ pub const DeclGen = struct {
                 }),
                 try self.lowerValue(.{
                     .ty = Type.usize,
-                    .val = Value.initPayload(&slice_len.base),
+                    .val = try mod.intValue(Type.usize, tv.val.sliceLen(mod)),
                 }),
             };
             return self.context.constStruct(&fields, fields.len, .False);
@@ -8507,8 +8488,7 @@ pub const FuncGen = struct {
         const dest_slice = try self.resolveInst(bin_op.lhs);
         const ptr_ty = self.typeOf(bin_op.lhs);
         const elem_ty = self.typeOf(bin_op.rhs);
-        const module = self.dg.module;
-        const target = module.getTarget();
+        const target = mod.getTarget();
         const dest_ptr_align = ptr_ty.ptrAlignment(mod);
         const u8_llvm_ty = self.context.intType(8);
         const dest_ptr = self.sliceOrArrayPtr(dest_slice, ptr_ty);
@@ -8526,7 +8506,7 @@ pub const FuncGen = struct {
                 const len = self.sliceOrArrayLenInBytes(dest_slice, ptr_ty);
                 _ = self.builder.buildMemSet(dest_ptr, fill_byte, len, dest_ptr_align, is_volatile);
 
-                if (safety and module.comp.bin_file.options.valgrind) {
+                if (safety and mod.comp.bin_file.options.valgrind) {
                     self.valgrindMarkUndef(dest_ptr, len);
                 }
                 return null;
@@ -8536,8 +8516,7 @@ pub const FuncGen = struct {
             // repeating byte pattern, for example, `@as(u64, 0)` has a
             // repeating byte pattern of 0 bytes. In such case, the memset
             // intrinsic can be used.
-            var value_buffer: Value.Payload.U64 = undefined;
-            if (try elem_val.hasRepeatedByteRepr(elem_ty, module, &value_buffer)) |byte_val| {
+            if (try elem_val.hasRepeatedByteRepr(elem_ty, mod)) |byte_val| {
                 const fill_byte = try self.resolveValue(.{
                     .ty = Type.u8,
                     .val = byte_val,
@@ -8829,16 +8808,10 @@ pub const FuncGen = struct {
 
         for (names) |name| {
             const err_int = mod.global_error_set.get(name).?;
-            const this_tag_int_value = int: {
-                var tag_val_payload: Value.Payload.U64 = .{
-                    .base = .{ .tag = .int_u64 },
-                    .data = err_int,
-                };
-                break :int try self.dg.lowerValue(.{
-                    .ty = Type.err_int,
-                    .val = Value.initPayload(&tag_val_payload.base),
-                });
-            };
+            const this_tag_int_value = try self.dg.lowerValue(.{
+                .ty = Type.err_int,
+                .val = try mod.intValue(Type.err_int, err_int),
+            });
             switch_instr.addCase(this_tag_int_value, valid_block);
         }
         self.builder.positionBuilderAtEnd(valid_block);
@@ -9122,8 +9095,7 @@ pub const FuncGen = struct {
         const llvm_i32 = self.context.intType(32);
 
         for (values, 0..) |*val, i| {
-            var buf: Value.ElemValueBuffer = undefined;
-            const elem = mask.elemValueBuffer(mod, i, &buf);
+            const elem = try mask.elemValue(mod, i);
             if (elem.isUndef()) {
                 val.* = llvm_i32.getUndef();
             } else {
@@ -9457,8 +9429,7 @@ pub const FuncGen = struct {
                 .data = @intCast(u32, enum_field_index),
             };
             const tag_val = Value.initPayload(&tag_val_payload.base);
-            var int_payload: Value.Payload.U64 = undefined;
-            const tag_int_val = tag_val.enumToInt(tag_ty, &int_payload);
+            const tag_int_val = try tag_val.enumToInt(tag_ty, mod);
             break :blk tag_int_val.toUnsignedInt(mod);
         };
         if (layout.payload_size == 0) {

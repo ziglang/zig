@@ -2120,6 +2120,7 @@ pub const Inst = struct {
         zero_u8 = @enumToInt(InternPool.Index.zero_u8),
         one = @enumToInt(InternPool.Index.one),
         one_usize = @enumToInt(InternPool.Index.one_usize),
+        negative_one = @enumToInt(InternPool.Index.negative_one),
         calling_convention_c = @enumToInt(InternPool.Index.calling_convention_c),
         calling_convention_inline = @enumToInt(InternPool.Index.calling_convention_inline),
         void_value = @enumToInt(InternPool.Index.void_value),

@@ -33,8 +33,6 @@ pub const Value = struct {
     // Keep in sync with tools/stage2_pretty_printers_common.py
     pub const Tag = enum(usize) {
         // The first section of this enum are tags that require no payload.
-        zero,
-        one,
         /// The only possible value for a particular type, which is stored externally.
         the_only_possible_value,
 
@@ -43,10 +41,6 @@ pub const Value = struct {
         // After this, the tag requires a payload.
 
         ty,
-        int_u64,
-        int_i64,
-        int_big_positive,
-        int_big_negative,
         function,
         extern_fn,
         /// A comptime-known pointer can point to the address of a global
@@ -129,16 +123,10 @@ pub const Value = struct {
 
         pub fn Type(comptime t: Tag) type {
             return switch (t) {
-                .zero,
-                .one,
                 .the_only_possible_value,
                 .empty_struct_value,
                 .empty_array,
                 => @compileError("Value Tag " ++ @tagName(t) ++ " has no payload"),
-
-                .int_big_positive,
-                .int_big_negative,
-                => Payload.BigInt,
 
                 .extern_fn => Payload.ExternFn,
 
@@ -169,8 +157,6 @@ pub const Value = struct {
                 .lazy_size,
                 => Payload.Ty,
 
-                .int_u64 => Payload.U64,
-                .int_i64 => Payload.I64,
                 .function => Payload.Function,
                 .variable => Payload.Variable,
                 .decl_ref_mut => Payload.DeclRefMut,
@@ -281,8 +267,6 @@ pub const Value = struct {
                 .legacy = .{ .tag_if_small_enough = self.legacy.tag_if_small_enough },
             };
         } else switch (self.legacy.ptr_otherwise.tag) {
-            .zero,
-            .one,
             .the_only_possible_value,
             .empty_array,
             .empty_struct_value,
@@ -294,20 +278,6 @@ pub const Value = struct {
                 new_payload.* = .{
                     .base = payload.base,
                     .data = try payload.data.copy(arena),
-                };
-                return Value{
-                    .ip_index = .none,
-                    .legacy = .{ .ptr_otherwise = &new_payload.base },
-                };
-            },
-            .int_u64 => return self.copyPayloadShallow(arena, Payload.U64),
-            .int_i64 => return self.copyPayloadShallow(arena, Payload.I64),
-            .int_big_positive, .int_big_negative => {
-                const old_payload = self.cast(Payload.BigInt).?;
-                const new_payload = try arena.create(Payload.BigInt);
-                new_payload.* = .{
-                    .base = .{ .tag = self.legacy.ptr_otherwise.tag },
-                    .data = try arena.dupe(std.math.big.Limb, old_payload.data),
                 };
                 return Value{
                     .ip_index = .none,
@@ -525,8 +495,6 @@ pub const Value = struct {
             .@"union" => {
                 return out_stream.writeAll("(union value)");
             },
-            .zero => return out_stream.writeAll("0"),
-            .one => return out_stream.writeAll("1"),
             .the_only_possible_value => return out_stream.writeAll("(the only possible value)"),
             .ty => return val.castTag(.ty).?.data.dump("", options, out_stream),
             .lazy_align => {
@@ -539,10 +507,6 @@ pub const Value = struct {
                 try val.castTag(.lazy_size).?.data.dump("", options, out_stream);
                 return try out_stream.writeAll(")");
             },
-            .int_u64 => return std.fmt.formatIntValue(val.castTag(.int_u64).?.data, "", options, out_stream),
-            .int_i64 => return std.fmt.formatIntValue(val.castTag(.int_i64).?.data, "", options, out_stream),
-            .int_big_positive => return out_stream.print("{}", .{val.castTag(.int_big_positive).?.asBigInt()}),
-            .int_big_negative => return out_stream.print("{}", .{val.castTag(.int_big_negative).?.asBigInt()}),
             .runtime_value => return out_stream.writeAll("[runtime value]"),
             .function => return out_stream.print("(function decl={d})", .{val.castTag(.function).?.data.owner_decl}),
             .extern_fn => return out_stream.writeAll("(extern function)"),
@@ -661,9 +625,8 @@ pub const Value = struct {
 
     fn arrayToAllocatedBytes(val: Value, len: u64, allocator: Allocator, mod: *Module) ![]u8 {
         const result = try allocator.alloc(u8, @intCast(usize, len));
-        var elem_value_buf: ElemValueBuffer = undefined;
         for (result, 0..) |*elem, i| {
-            const elem_val = val.elemValueBuffer(mod, i, &elem_value_buf);
+            const elem_val = try val.elemValue(mod, i);
             elem.* = @intCast(u8, elem_val.toUnsignedInt(mod));
         }
         return result;
@@ -695,7 +658,7 @@ pub const Value = struct {
         }
     }
 
-    pub fn enumToInt(val: Value, ty: Type, buffer: *Payload.U64) Value {
+    pub fn enumToInt(val: Value, ty: Type, mod: *Module) Allocator.Error!Value {
         const field_index = switch (val.tag()) {
             .enum_field_index => val.castTag(.enum_field_index).?.data,
             .the_only_possible_value => blk: {
@@ -717,11 +680,7 @@ pub const Value = struct {
                     return enum_full.values.keys()[field_index];
                 } else {
                     // Field index and integer values are the same.
-                    buffer.* = .{
-                        .base = .{ .tag = .int_u64 },
-                        .data = field_index,
-                    };
-                    return Value.initPayload(&buffer.base);
+                    return mod.intValue(enum_full.tag_ty, field_index);
                 }
             },
             .enum_numbered => {
@@ -730,20 +689,13 @@ pub const Value = struct {
                     return enum_obj.values.keys()[field_index];
                 } else {
                     // Field index and integer values are the same.
-                    buffer.* = .{
-                        .base = .{ .tag = .int_u64 },
-                        .data = field_index,
-                    };
-                    return Value.initPayload(&buffer.base);
+                    return mod.intValue(enum_obj.tag_ty, field_index);
                 }
             },
             .enum_simple => {
                 // Field index and integer values are the same.
-                buffer.* = .{
-                    .base = .{ .tag = .int_u64 },
-                    .data = field_index,
-                };
-                return Value.initPayload(&buffer.base);
+                const tag_ty = ty.intTagType();
+                return mod.intValue(tag_ty, field_index);
             },
             else => unreachable,
         }
@@ -802,11 +754,8 @@ pub const Value = struct {
             .undef => unreachable,
             .null_value => BigIntMutable.init(&space.limbs, 0).toConst(),
             .none => switch (val.tag()) {
-                .zero,
                 .the_only_possible_value, // i0, u0
                 => BigIntMutable.init(&space.limbs, 0).toConst(),
-
-                .one => BigIntMutable.init(&space.limbs, 1).toConst(),
 
                 .enum_field_index => {
                     const index = val.castTag(.enum_field_index).?.data;
@@ -816,11 +765,6 @@ pub const Value = struct {
                     const sub_val = val.castTag(.runtime_value).?.data;
                     return sub_val.toBigIntAdvanced(space, mod, opt_sema);
                 },
-                .int_u64 => BigIntMutable.init(&space.limbs, val.castTag(.int_u64).?.data).toConst(),
-                .int_i64 => BigIntMutable.init(&space.limbs, val.castTag(.int_i64).?.data).toConst(),
-                .int_big_positive => val.castTag(.int_big_positive).?.asBigInt(),
-                .int_big_negative => val.castTag(.int_big_negative).?.asBigInt(),
-
                 .lazy_align => {
                     const ty = val.castTag(.lazy_align).?.data;
                     if (opt_sema) |sema| {
@@ -869,16 +813,8 @@ pub const Value = struct {
             .bool_true => return 1,
             .undef => unreachable,
             .none => switch (val.tag()) {
-                .zero,
                 .the_only_possible_value, // i0, u0
                 => return 0,
-
-                .one => return 1,
-
-                .int_u64 => return val.castTag(.int_u64).?.data,
-                .int_i64 => return @intCast(u64, val.castTag(.int_i64).?.data),
-                .int_big_positive => return val.castTag(.int_big_positive).?.asBigInt().to(u64) catch null,
-                .int_big_negative => return val.castTag(.int_big_negative).?.asBigInt().to(u64) catch null,
 
                 .lazy_align => {
                     const ty = val.castTag(.lazy_align).?.data;
@@ -922,16 +858,8 @@ pub const Value = struct {
             .bool_true => return 1,
             .undef => unreachable,
             .none => switch (val.tag()) {
-                .zero,
                 .the_only_possible_value, // i0, u0
                 => return 0,
-
-                .one => return 1,
-
-                .int_u64 => return @intCast(i64, val.castTag(.int_u64).?.data),
-                .int_i64 => return val.castTag(.int_i64).?.data,
-                .int_big_positive => return val.castTag(.int_big_positive).?.asBigInt().to(i64) catch unreachable,
-                .int_big_negative => return val.castTag(.int_big_negative).?.asBigInt().to(i64) catch unreachable,
 
                 .lazy_align => {
                     const ty = val.castTag(.lazy_align).?.data;
@@ -959,22 +887,7 @@ pub const Value = struct {
         return switch (val.ip_index) {
             .bool_true => true,
             .bool_false => false,
-            .none => switch (val.tag()) {
-                .one => true,
-                .zero => false,
-
-                .int_u64 => switch (val.castTag(.int_u64).?.data) {
-                    0 => false,
-                    1 => true,
-                    else => unreachable,
-                },
-                .int_i64 => switch (val.castTag(.int_i64).?.data) {
-                    0 => false,
-                    1 => true,
-                    else => unreachable,
-                },
-                else => unreachable,
-            },
+            .none => unreachable,
             else => switch (mod.intern_pool.indexToKey(val.ip_index)) {
                 .int => |int| switch (int.storage) {
                     .big_int => |big_int| !big_int.eqZero(),
@@ -1004,6 +917,7 @@ pub const Value = struct {
         ReinterpretDeclRef,
         IllDefinedMemoryLayout,
         Unimplemented,
+        OutOfMemory,
     }!void {
         const target = mod.getTarget();
         const endian = target.cpu.arch.endian();
@@ -1022,16 +936,14 @@ pub const Value = struct {
                 const bits = int_info.bits;
                 const byte_count = (bits + 7) / 8;
 
-                var enum_buffer: Payload.U64 = undefined;
-                const int_val = val.enumToInt(ty, &enum_buffer);
+                const int_val = try val.enumToInt(ty, mod);
 
                 if (byte_count <= @sizeOf(u64)) {
-                    const int: u64 = switch (int_val.tag()) {
-                        .zero => 0,
-                        .one => 1,
-                        .int_u64 => int_val.castTag(.int_u64).?.data,
-                        .int_i64 => @bitCast(u64, int_val.castTag(.int_i64).?.data),
-                        else => unreachable,
+                    const ip_key = mod.intern_pool.indexToKey(int_val.ip_index);
+                    const int: u64 = switch (ip_key.int.storage) {
+                        .u64 => |x| x,
+                        .i64 => |x| @bitCast(u64, x),
+                        .big_int => unreachable,
                     };
                     for (buffer[0..byte_count], 0..) |_, i| switch (endian) {
                         .Little => buffer[i] = @truncate(u8, (int >> @intCast(u6, (8 * i)))),
@@ -1044,11 +956,11 @@ pub const Value = struct {
                 }
             },
             .Float => switch (ty.floatBits(target)) {
-                16 => std.mem.writeInt(u16, buffer[0..2], @bitCast(u16, val.toFloat(f16)), endian),
-                32 => std.mem.writeInt(u32, buffer[0..4], @bitCast(u32, val.toFloat(f32)), endian),
-                64 => std.mem.writeInt(u64, buffer[0..8], @bitCast(u64, val.toFloat(f64)), endian),
-                80 => std.mem.writeInt(u80, buffer[0..10], @bitCast(u80, val.toFloat(f80)), endian),
-                128 => std.mem.writeInt(u128, buffer[0..16], @bitCast(u128, val.toFloat(f128)), endian),
+                16 => std.mem.writeInt(u16, buffer[0..2], @bitCast(u16, val.toFloat(f16, mod)), endian),
+                32 => std.mem.writeInt(u32, buffer[0..4], @bitCast(u32, val.toFloat(f32, mod)), endian),
+                64 => std.mem.writeInt(u64, buffer[0..8], @bitCast(u64, val.toFloat(f64, mod)), endian),
+                80 => std.mem.writeInt(u80, buffer[0..10], @bitCast(u80, val.toFloat(f80, mod)), endian),
+                128 => std.mem.writeInt(u128, buffer[0..16], @bitCast(u128, val.toFloat(f128, mod)), endian),
                 else => unreachable,
             },
             .Array => {
@@ -1056,10 +968,9 @@ pub const Value = struct {
                 const elem_ty = ty.childType(mod);
                 const elem_size = @intCast(usize, elem_ty.abiSize(mod));
                 var elem_i: usize = 0;
-                var elem_value_buf: ElemValueBuffer = undefined;
                 var buf_off: usize = 0;
                 while (elem_i < len) : (elem_i += 1) {
-                    const elem_val = val.elemValueBuffer(mod, elem_i, &elem_value_buf);
+                    const elem_val = try val.elemValue(mod, elem_i);
                     try elem_val.writeToMemory(elem_ty, mod, buffer[buf_off..]);
                     buf_off += elem_size;
                 }
@@ -1122,7 +1033,13 @@ pub const Value = struct {
     ///
     /// Both the start and the end of the provided buffer must be tight, since
     /// big-endian packed memory layouts start at the end of the buffer.
-    pub fn writeToPackedMemory(val: Value, ty: Type, mod: *Module, buffer: []u8, bit_offset: usize) error{ReinterpretDeclRef}!void {
+    pub fn writeToPackedMemory(
+        val: Value,
+        ty: Type,
+        mod: *Module,
+        buffer: []u8,
+        bit_offset: usize,
+    ) error{ ReinterpretDeclRef, OutOfMemory }!void {
         const target = mod.getTarget();
         const endian = target.cpu.arch.endian();
         if (val.isUndef()) {
@@ -1147,16 +1064,14 @@ pub const Value = struct {
                 const bits = ty.intInfo(mod).bits;
                 const abi_size = @intCast(usize, ty.abiSize(mod));
 
-                var enum_buffer: Payload.U64 = undefined;
-                const int_val = val.enumToInt(ty, &enum_buffer);
+                const int_val = try val.enumToInt(ty, mod);
 
                 if (abi_size == 0) return;
                 if (abi_size <= @sizeOf(u64)) {
-                    const int: u64 = switch (int_val.tag()) {
-                        .zero => 0,
-                        .one => 1,
-                        .int_u64 => int_val.castTag(.int_u64).?.data,
-                        .int_i64 => @bitCast(u64, int_val.castTag(.int_i64).?.data),
+                    const ip_key = mod.intern_pool.indexToKey(int_val.ip_index);
+                    const int: u64 = switch (ip_key.int.storage) {
+                        .u64 => |x| x,
+                        .i64 => |x| @bitCast(u64, x),
                         else => unreachable,
                     };
                     std.mem.writeVarPackedInt(buffer, bit_offset, bits, int, endian);
@@ -1167,11 +1082,11 @@ pub const Value = struct {
                 }
             },
             .Float => switch (ty.floatBits(target)) {
-                16 => std.mem.writePackedInt(u16, buffer, bit_offset, @bitCast(u16, val.toFloat(f16)), endian),
-                32 => std.mem.writePackedInt(u32, buffer, bit_offset, @bitCast(u32, val.toFloat(f32)), endian),
-                64 => std.mem.writePackedInt(u64, buffer, bit_offset, @bitCast(u64, val.toFloat(f64)), endian),
-                80 => std.mem.writePackedInt(u80, buffer, bit_offset, @bitCast(u80, val.toFloat(f80)), endian),
-                128 => std.mem.writePackedInt(u128, buffer, bit_offset, @bitCast(u128, val.toFloat(f128)), endian),
+                16 => std.mem.writePackedInt(u16, buffer, bit_offset, @bitCast(u16, val.toFloat(f16, mod)), endian),
+                32 => std.mem.writePackedInt(u32, buffer, bit_offset, @bitCast(u32, val.toFloat(f32, mod)), endian),
+                64 => std.mem.writePackedInt(u64, buffer, bit_offset, @bitCast(u64, val.toFloat(f64, mod)), endian),
+                80 => std.mem.writePackedInt(u80, buffer, bit_offset, @bitCast(u80, val.toFloat(f80, mod)), endian),
+                128 => std.mem.writePackedInt(u128, buffer, bit_offset, @bitCast(u128, val.toFloat(f128, mod)), endian),
                 else => unreachable,
             },
             .Vector => {
@@ -1181,11 +1096,10 @@ pub const Value = struct {
 
                 var bits: u16 = 0;
                 var elem_i: usize = 0;
-                var elem_value_buf: ElemValueBuffer = undefined;
                 while (elem_i < len) : (elem_i += 1) {
                     // On big-endian systems, LLVM reverses the element order of vectors by default
                     const tgt_elem_i = if (endian == .Big) len - elem_i - 1 else elem_i;
-                    const elem_val = val.elemValueBuffer(mod, tgt_elem_i, &elem_value_buf);
+                    const elem_val = try val.elemValue(mod, tgt_elem_i);
                     try elem_val.writeToPackedMemory(elem_ty, mod, buffer, bit_offset + bits);
                     bits += elem_bit_size;
                 }
@@ -1264,11 +1178,13 @@ pub const Value = struct {
                 if (bits <= 64) switch (int_info.signedness) { // Fast path for integers <= u64
                     .signed => {
                         const val = std.mem.readVarInt(i64, buffer[0..byte_count], endian);
-                        return Value.Tag.int_i64.create(arena, (val << @intCast(u6, 64 - bits)) >> @intCast(u6, 64 - bits));
+                        const result = (val << @intCast(u6, 64 - bits)) >> @intCast(u6, 64 - bits);
+                        return mod.intValue(ty, result);
                     },
                     .unsigned => {
                         const val = std.mem.readVarInt(u64, buffer[0..byte_count], endian);
-                        return Value.Tag.int_u64.create(arena, (val << @intCast(u6, 64 - bits)) >> @intCast(u6, 64 - bits));
+                        const result = (val << @intCast(u6, 64 - bits)) >> @intCast(u6, 64 - bits);
+                        return mod.intValue(ty, result);
                     },
                 } else { // Slow path, we have to construct a big-int
                     const Limb = std.math.big.Limb;
@@ -1277,7 +1193,7 @@ pub const Value = struct {
 
                     var bigint = BigIntMutable.init(limbs_buffer, 0);
                     bigint.readTwosComplement(buffer[0..byte_count], bits, endian, int_info.signedness);
-                    return fromBigInt(arena, bigint.toConst());
+                    return mod.intValue_big(ty, bigint.toConst());
                 }
             },
             .Float => switch (ty.floatBits(target)) {
@@ -1381,8 +1297,8 @@ pub const Value = struct {
                 const bits = int_info.bits;
                 if (bits == 0) return Value.zero;
                 if (bits <= 64) switch (int_info.signedness) { // Fast path for integers <= u64
-                    .signed => return Value.Tag.int_i64.create(arena, std.mem.readVarPackedInt(i64, buffer, bit_offset, bits, endian, .signed)),
-                    .unsigned => return Value.Tag.int_u64.create(arena, std.mem.readVarPackedInt(u64, buffer, bit_offset, bits, endian, .unsigned)),
+                    .signed => return mod.intValue(ty, std.mem.readVarPackedInt(i64, buffer, bit_offset, bits, endian, .signed)),
+                    .unsigned => return mod.intValue(ty, std.mem.readVarPackedInt(u64, buffer, bit_offset, bits, endian, .unsigned)),
                 } else { // Slow path, we have to construct a big-int
                     const Limb = std.math.big.Limb;
                     const limb_count = (abi_size + @sizeOf(Limb) - 1) / @sizeOf(Limb);
@@ -1390,7 +1306,7 @@ pub const Value = struct {
 
                     var bigint = BigIntMutable.init(limbs_buffer, 0);
                     bigint.readPackedTwosComplement(buffer, bit_offset, bits, endian, int_info.signedness);
-                    return fromBigInt(arena, bigint.toConst());
+                    return mod.intValue_big(ty, bigint.toConst());
                 }
             },
             .Float => switch (ty.floatBits(target)) {
@@ -1444,32 +1360,29 @@ pub const Value = struct {
     }
 
     /// Asserts that the value is a float or an integer.
-    pub fn toFloat(val: Value, comptime T: type) T {
-        return switch (val.tag()) {
-            .float_16 => @floatCast(T, val.castTag(.float_16).?.data),
-            .float_32 => @floatCast(T, val.castTag(.float_32).?.data),
-            .float_64 => @floatCast(T, val.castTag(.float_64).?.data),
-            .float_80 => @floatCast(T, val.castTag(.float_80).?.data),
-            .float_128 => @floatCast(T, val.castTag(.float_128).?.data),
+    pub fn toFloat(val: Value, comptime T: type, mod: *const Module) T {
+        return switch (val.ip_index) {
+            .none => switch (val.tag()) {
+                .float_16 => @floatCast(T, val.castTag(.float_16).?.data),
+                .float_32 => @floatCast(T, val.castTag(.float_32).?.data),
+                .float_64 => @floatCast(T, val.castTag(.float_64).?.data),
+                .float_80 => @floatCast(T, val.castTag(.float_80).?.data),
+                .float_128 => @floatCast(T, val.castTag(.float_128).?.data),
 
-            .zero => 0,
-            .one => 1,
-            .int_u64 => {
-                if (T == f80) {
-                    @panic("TODO we can't lower this properly on non-x86 llvm backend yet");
-                }
-                return @intToFloat(T, val.castTag(.int_u64).?.data);
+                else => unreachable,
             },
-            .int_i64 => {
-                if (T == f80) {
-                    @panic("TODO we can't lower this properly on non-x86 llvm backend yet");
-                }
-                return @intToFloat(T, val.castTag(.int_i64).?.data);
+            else => switch (mod.intern_pool.indexToKey(val.ip_index)) {
+                .int => |int| switch (int.storage) {
+                    .big_int => |big_int| @floatCast(T, bigIntToFloat(big_int.limbs, big_int.positive)),
+                    inline .u64, .i64 => |x| {
+                        if (T == f80) {
+                            @panic("TODO we can't lower this properly on non-x86 llvm backend yet");
+                        }
+                        return @intToFloat(T, x);
+                    },
+                },
+                else => unreachable,
             },
-
-            .int_big_positive => @floatCast(T, bigIntToFloat(val.castTag(.int_big_positive).?.data, true)),
-            .int_big_negative => @floatCast(T, bigIntToFloat(val.castTag(.int_big_negative).?.data, false)),
-            else => unreachable,
         };
     }
 
@@ -1498,24 +1411,6 @@ pub const Value = struct {
             .bool_false => ty_bits,
             .bool_true => ty_bits - 1,
             .none => switch (val.tag()) {
-                .zero => ty_bits,
-                .one => ty_bits - 1,
-
-                .int_u64 => {
-                    const big = @clz(val.castTag(.int_u64).?.data);
-                    return big + ty_bits - 64;
-                },
-                .int_i64 => {
-                    @panic("TODO implement i64 Value clz");
-                },
-                .int_big_positive => {
-                    const bigint = val.castTag(.int_big_positive).?.asBigInt();
-                    return bigint.clz(ty_bits);
-                },
-                .int_big_negative => {
-                    @panic("TODO implement int_big_negative Value clz");
-                },
-
                 .the_only_possible_value => {
                     assert(ty_bits == 0);
                     return ty_bits;
@@ -1546,24 +1441,6 @@ pub const Value = struct {
             .bool_false => ty_bits,
             .bool_true => 0,
             .none => switch (val.tag()) {
-                .zero => ty_bits,
-                .one => 0,
-
-                .int_u64 => {
-                    const big = @ctz(val.castTag(.int_u64).?.data);
-                    return if (big == 64) ty_bits else big;
-                },
-                .int_i64 => {
-                    @panic("TODO implement i64 Value ctz");
-                },
-                .int_big_positive => {
-                    const bigint = val.castTag(.int_big_positive).?.asBigInt();
-                    return bigint.ctz();
-                },
-                .int_big_negative => {
-                    @panic("TODO implement int_big_negative Value ctz");
-                },
-
                 .the_only_possible_value => {
                     assert(ty_bits == 0);
                     return ty_bits;
@@ -1596,20 +1473,7 @@ pub const Value = struct {
         switch (val.ip_index) {
             .bool_false => return 0,
             .bool_true => return 1,
-            .none => switch (val.tag()) {
-                .zero => return 0,
-                .one => return 1,
-
-                .int_u64 => return @popCount(val.castTag(.int_u64).?.data),
-
-                else => {
-                    const info = ty.intInfo(mod);
-
-                    var buffer: Value.BigIntSpace = undefined;
-                    const int = val.toBigInt(&buffer, mod);
-                    return @intCast(u64, int.popCount(info.bits));
-                },
-            },
+            .none => unreachable,
             else => switch (mod.intern_pool.indexToKey(val.ip_index)) {
                 .int => |int| {
                     const info = ty.intInfo(mod);
@@ -1622,7 +1486,7 @@ pub const Value = struct {
         }
     }
 
-    pub fn bitReverse(val: Value, ty: Type, mod: *const Module, arena: Allocator) !Value {
+    pub fn bitReverse(val: Value, ty: Type, mod: *Module, arena: Allocator) !Value {
         assert(!val.isUndef());
 
         const info = ty.intInfo(mod);
@@ -1637,10 +1501,10 @@ pub const Value = struct {
         var result_bigint = BigIntMutable{ .limbs = limbs, .positive = undefined, .len = undefined };
         result_bigint.bitReverse(operand_bigint, info.signedness, info.bits);
 
-        return fromBigInt(arena, result_bigint.toConst());
+        return mod.intValue_big(ty, result_bigint.toConst());
     }
 
-    pub fn byteSwap(val: Value, ty: Type, mod: *const Module, arena: Allocator) !Value {
+    pub fn byteSwap(val: Value, ty: Type, mod: *Module, arena: Allocator) !Value {
         assert(!val.isUndef());
 
         const info = ty.intInfo(mod);
@@ -1658,7 +1522,7 @@ pub const Value = struct {
         var result_bigint = BigIntMutable{ .limbs = limbs, .positive = undefined, .len = undefined };
         result_bigint.byteSwap(operand_bigint, info.signedness, info.bits / 8);
 
-        return fromBigInt(arena, result_bigint.toConst());
+        return mod.intValue_big(ty, result_bigint.toConst());
     }
 
     /// Asserts the value is an integer and not undefined.
@@ -1669,19 +1533,7 @@ pub const Value = struct {
             .bool_false => 0,
             .bool_true => 1,
             .none => switch (self.tag()) {
-                .zero,
-                .the_only_possible_value,
-                => 0,
-
-                .one => 1,
-
-                .int_u64 => {
-                    const x = self.castTag(.int_u64).?.data;
-                    if (x == 0) return 0;
-                    return @intCast(usize, std.math.log2(x) + 1);
-                },
-                .int_big_positive => self.castTag(.int_big_positive).?.asBigInt().bitCountTwosComp(),
-                .int_big_negative => self.castTag(.int_big_negative).?.asBigInt().bitCountTwosComp(),
+                .the_only_possible_value => 0,
 
                 .decl_ref_mut,
                 .comptime_field_ptr,
@@ -1715,13 +1567,14 @@ pub const Value = struct {
 
     /// Converts an integer or a float to a float. May result in a loss of information.
     /// Caller can find out by equality checking the result against the operand.
-    pub fn floatCast(self: Value, arena: Allocator, dest_ty: Type, target: Target) !Value {
+    pub fn floatCast(self: Value, arena: Allocator, dest_ty: Type, mod: *const Module) !Value {
+        const target = mod.getTarget();
         switch (dest_ty.floatBits(target)) {
-            16 => return Value.Tag.float_16.create(arena, self.toFloat(f16)),
-            32 => return Value.Tag.float_32.create(arena, self.toFloat(f32)),
-            64 => return Value.Tag.float_64.create(arena, self.toFloat(f64)),
-            80 => return Value.Tag.float_80.create(arena, self.toFloat(f80)),
-            128 => return Value.Tag.float_128.create(arena, self.toFloat(f128)),
+            16 => return Value.Tag.float_16.create(arena, self.toFloat(f16, mod)),
+            32 => return Value.Tag.float_32.create(arena, self.toFloat(f32, mod)),
+            64 => return Value.Tag.float_64.create(arena, self.toFloat(f64, mod)),
+            80 => return Value.Tag.float_80.create(arena, self.toFloat(f80, mod)),
+            128 => return Value.Tag.float_128.create(arena, self.toFloat(f128, mod)),
             else => unreachable,
         }
     }
@@ -1729,10 +1582,6 @@ pub const Value = struct {
     /// Asserts the value is a float
     pub fn floatHasFraction(self: Value) bool {
         return switch (self.tag()) {
-            .zero,
-            .one,
-            => false,
-
             .float_16 => @rem(self.castTag(.float_16).?.data, 1) != 0,
             .float_32 => @rem(self.castTag(.float_32).?.data, 1) != 0,
             .float_64 => @rem(self.castTag(.float_64).?.data, 1) != 0,
@@ -1757,11 +1606,8 @@ pub const Value = struct {
             .bool_false => return .eq,
             .bool_true => return .gt,
             .none => return switch (lhs.tag()) {
-                .zero,
-                .the_only_possible_value,
-                => .eq,
+                .the_only_possible_value => .eq,
 
-                .one,
                 .decl_ref,
                 .decl_ref_mut,
                 .comptime_field_ptr,
@@ -1777,10 +1623,6 @@ pub const Value = struct {
                     const val = lhs.castTag(.runtime_value).?.data;
                     return val.orderAgainstZeroAdvanced(mod, opt_sema);
                 },
-                .int_u64 => std.math.order(lhs.castTag(.int_u64).?.data, 0),
-                .int_i64 => std.math.order(lhs.castTag(.int_i64).?.data, 0),
-                .int_big_positive => lhs.castTag(.int_big_positive).?.asBigInt().orderAgainstScalar(0),
-                .int_big_negative => lhs.castTag(.int_big_negative).?.asBigInt().orderAgainstScalar(0),
 
                 .lazy_align => {
                     const ty = lhs.castTag(.lazy_align).?.data;
@@ -1878,8 +1720,8 @@ pub const Value = struct {
             }
         }
         if (lhs_float or rhs_float) {
-            const lhs_f128 = lhs.toFloat(f128);
-            const rhs_f128 = rhs.toFloat(f128);
+            const lhs_f128 = lhs.toFloat(f128, mod);
+            const rhs_f128 = rhs.toFloat(f128, mod);
             return std.math.order(lhs_f128, rhs_f128);
         }
 
@@ -1929,15 +1771,13 @@ pub const Value = struct {
 
     /// Asserts the values are comparable. Both operands have type `ty`.
     /// For vectors, returns true if comparison is true for ALL elements.
-    pub fn compareAll(lhs: Value, op: std.math.CompareOperator, rhs: Value, ty: Type, mod: *Module) bool {
+    pub fn compareAll(lhs: Value, op: std.math.CompareOperator, rhs: Value, ty: Type, mod: *Module) !bool {
         if (ty.zigTypeTag(mod) == .Vector) {
-            var i: usize = 0;
-            while (i < ty.vectorLen(mod)) : (i += 1) {
-                var lhs_buf: Value.ElemValueBuffer = undefined;
-                var rhs_buf: Value.ElemValueBuffer = undefined;
-                const lhs_elem = lhs.elemValueBuffer(mod, i, &lhs_buf);
-                const rhs_elem = rhs.elemValueBuffer(mod, i, &rhs_buf);
-                if (!compareScalar(lhs_elem, op, rhs_elem, ty.scalarType(mod), mod)) {
+            const scalar_ty = ty.scalarType(mod);
+            for (0..ty.vectorLen(mod)) |i| {
+                const lhs_elem = try lhs.elemValue(mod, i);
+                const rhs_elem = try rhs.elemValue(mod, i);
+                if (!compareScalar(lhs_elem, op, rhs_elem, scalar_ty, mod)) {
                     return false;
                 }
             }
@@ -2203,10 +2043,8 @@ pub const Value = struct {
                 return a_type.eql(b_type, mod);
             },
             .Enum => {
-                var buf_a: Payload.U64 = undefined;
-                var buf_b: Payload.U64 = undefined;
-                const a_val = a.enumToInt(ty, &buf_a);
-                const b_val = b.enumToInt(ty, &buf_b);
+                const a_val = try a.enumToInt(ty, mod);
+                const b_val = try b.enumToInt(ty, mod);
                 const int_ty = ty.intTagType();
                 return eqlAdvanced(a_val, int_ty, b_val, int_ty, mod, opt_sema);
             },
@@ -2214,11 +2052,9 @@ pub const Value = struct {
                 const len = ty.arrayLen(mod);
                 const elem_ty = ty.childType(mod);
                 var i: usize = 0;
-                var a_buf: ElemValueBuffer = undefined;
-                var b_buf: ElemValueBuffer = undefined;
                 while (i < len) : (i += 1) {
-                    const a_elem = elemValueBuffer(a, mod, i, &a_buf);
-                    const b_elem = elemValueBuffer(b, mod, i, &b_buf);
+                    const a_elem = try elemValue(a, mod, i);
+                    const b_elem = try elemValue(b, mod, i);
                     if (!(try eqlAdvanced(a_elem, elem_ty, b_elem, elem_ty, mod, opt_sema))) {
                         return false;
                     }
@@ -2282,17 +2118,17 @@ pub const Value = struct {
             },
             .Float => {
                 switch (ty.floatBits(target)) {
-                    16 => return @bitCast(u16, a.toFloat(f16)) == @bitCast(u16, b.toFloat(f16)),
-                    32 => return @bitCast(u32, a.toFloat(f32)) == @bitCast(u32, b.toFloat(f32)),
-                    64 => return @bitCast(u64, a.toFloat(f64)) == @bitCast(u64, b.toFloat(f64)),
-                    80 => return @bitCast(u80, a.toFloat(f80)) == @bitCast(u80, b.toFloat(f80)),
-                    128 => return @bitCast(u128, a.toFloat(f128)) == @bitCast(u128, b.toFloat(f128)),
+                    16 => return @bitCast(u16, a.toFloat(f16, mod)) == @bitCast(u16, b.toFloat(f16, mod)),
+                    32 => return @bitCast(u32, a.toFloat(f32, mod)) == @bitCast(u32, b.toFloat(f32, mod)),
+                    64 => return @bitCast(u64, a.toFloat(f64, mod)) == @bitCast(u64, b.toFloat(f64, mod)),
+                    80 => return @bitCast(u80, a.toFloat(f80, mod)) == @bitCast(u80, b.toFloat(f80, mod)),
+                    128 => return @bitCast(u128, a.toFloat(f128, mod)) == @bitCast(u128, b.toFloat(f128, mod)),
                     else => unreachable,
                 }
             },
             .ComptimeFloat => {
-                const a_float = a.toFloat(f128);
-                const b_float = b.toFloat(f128);
+                const a_float = a.toFloat(f128, mod);
+                const b_float = b.toFloat(f128, mod);
 
                 const a_nan = std.math.isNan(a_float);
                 const b_nan = std.math.isNan(b_float);
@@ -2354,16 +2190,16 @@ pub const Value = struct {
             .Float => {
                 // For hash/eql purposes, we treat floats as their IEEE integer representation.
                 switch (ty.floatBits(mod.getTarget())) {
-                    16 => std.hash.autoHash(hasher, @bitCast(u16, val.toFloat(f16))),
-                    32 => std.hash.autoHash(hasher, @bitCast(u32, val.toFloat(f32))),
-                    64 => std.hash.autoHash(hasher, @bitCast(u64, val.toFloat(f64))),
-                    80 => std.hash.autoHash(hasher, @bitCast(u80, val.toFloat(f80))),
-                    128 => std.hash.autoHash(hasher, @bitCast(u128, val.toFloat(f128))),
+                    16 => std.hash.autoHash(hasher, @bitCast(u16, val.toFloat(f16, mod))),
+                    32 => std.hash.autoHash(hasher, @bitCast(u32, val.toFloat(f32, mod))),
+                    64 => std.hash.autoHash(hasher, @bitCast(u64, val.toFloat(f64, mod))),
+                    80 => std.hash.autoHash(hasher, @bitCast(u80, val.toFloat(f80, mod))),
+                    128 => std.hash.autoHash(hasher, @bitCast(u128, val.toFloat(f128, mod))),
                     else => unreachable,
                 }
             },
             .ComptimeFloat => {
-                const float = val.toFloat(f128);
+                const float = val.toFloat(f128, mod);
                 const is_nan = std.math.isNan(float);
                 std.hash.autoHash(hasher, is_nan);
                 if (!is_nan) {
@@ -2387,9 +2223,11 @@ pub const Value = struct {
                 const len = ty.arrayLen(mod);
                 const elem_ty = ty.childType(mod);
                 var index: usize = 0;
-                var elem_value_buf: ElemValueBuffer = undefined;
                 while (index < len) : (index += 1) {
-                    const elem_val = val.elemValueBuffer(mod, index, &elem_value_buf);
+                    const elem_val = val.elemValue(mod, index) catch |err| switch (err) {
+                        // Will be solved when arrays and vectors get migrated to the intern pool.
+                        error.OutOfMemory => @panic("OOM"),
+                    };
                     elem_val.hash(elem_ty, hasher, mod);
                 }
             },
@@ -2438,8 +2276,8 @@ pub const Value = struct {
                 hasher.update(val.getError().?);
             },
             .Enum => {
-                var enum_space: Payload.U64 = undefined;
-                const int_val = val.enumToInt(ty, &enum_space);
+                // This panic will go away when enum values move to be stored in the intern pool.
+                const int_val = val.enumToInt(ty, mod) catch @panic("OOM");
                 hashInt(int_val, hasher, mod);
             },
             .Union => {
@@ -2494,7 +2332,7 @@ pub const Value = struct {
             .Type => {
                 val.toType().hashWithHasher(hasher, mod);
             },
-            .Float, .ComptimeFloat => std.hash.autoHash(hasher, @bitCast(u128, val.toFloat(f128))),
+            .Float, .ComptimeFloat => std.hash.autoHash(hasher, @bitCast(u128, val.toFloat(f128, mod))),
             .Bool, .Int, .ComptimeInt, .Pointer, .Fn => switch (val.tag()) {
                 .slice => {
                     const slice = val.castTag(.slice).?.data;
@@ -2508,9 +2346,11 @@ pub const Value = struct {
                 const len = ty.arrayLen(mod);
                 const elem_ty = ty.childType(mod);
                 var index: usize = 0;
-                var elem_value_buf: ElemValueBuffer = undefined;
                 while (index < len) : (index += 1) {
-                    const elem_val = val.elemValueBuffer(mod, index, &elem_value_buf);
+                    const elem_val = val.elemValue(mod, index) catch |err| switch (err) {
+                        // Will be solved when arrays and vectors get migrated to the intern pool.
+                        error.OutOfMemory => @panic("OOM"),
+                    };
                     elem_val.hashUncoerced(elem_ty, hasher, mod);
                 }
             },
@@ -2661,12 +2501,6 @@ pub const Value = struct {
                 hashPtr(opt_ptr.container_ptr, hasher, mod);
             },
 
-            .zero,
-            .one,
-            .int_u64,
-            .int_i64,
-            .int_big_positive,
-            .int_big_negative,
             .the_only_possible_value,
             .lazy_align,
             .lazy_size,
@@ -2720,23 +2554,7 @@ pub const Value = struct {
 
     /// Asserts the value is a single-item pointer to an array, or an array,
     /// or an unknown-length pointer, and returns the element value at the index.
-    pub fn elemValue(val: Value, mod: *Module, arena: Allocator, index: usize) !Value {
-        return elemValueAdvanced(val, mod, index, arena, undefined);
-    }
-
-    pub const ElemValueBuffer = Payload.U64;
-
-    pub fn elemValueBuffer(val: Value, mod: *Module, index: usize, buffer: *ElemValueBuffer) Value {
-        return elemValueAdvanced(val, mod, index, null, buffer) catch unreachable;
-    }
-
-    pub fn elemValueAdvanced(
-        val: Value,
-        mod: *Module,
-        index: usize,
-        arena: ?Allocator,
-        buffer: *ElemValueBuffer,
-    ) error{OutOfMemory}!Value {
+    pub fn elemValue(val: Value, mod: *Module, index: usize) Allocator.Error!Value {
         switch (val.ip_index) {
             .undef => return Value.undef,
             .none => switch (val.tag()) {
@@ -2751,43 +2569,27 @@ pub const Value = struct {
 
                 .bytes => {
                     const byte = val.castTag(.bytes).?.data[index];
-                    if (arena) |a| {
-                        return Tag.int_u64.create(a, byte);
-                    } else {
-                        buffer.* = .{
-                            .base = .{ .tag = .int_u64 },
-                            .data = byte,
-                        };
-                        return initPayload(&buffer.base);
-                    }
+                    return mod.intValue(Type.u8, byte);
                 },
                 .str_lit => {
                     const str_lit = val.castTag(.str_lit).?.data;
                     const bytes = mod.string_literal_bytes.items[str_lit.index..][0..str_lit.len];
                     const byte = bytes[index];
-                    if (arena) |a| {
-                        return Tag.int_u64.create(a, byte);
-                    } else {
-                        buffer.* = .{
-                            .base = .{ .tag = .int_u64 },
-                            .data = byte,
-                        };
-                        return initPayload(&buffer.base);
-                    }
+                    return mod.intValue(Type.u8, byte);
                 },
 
                 // No matter the index; all the elements are the same!
                 .repeated => return val.castTag(.repeated).?.data,
 
                 .aggregate => return val.castTag(.aggregate).?.data[index],
-                .slice => return val.castTag(.slice).?.data.ptr.elemValueAdvanced(mod, index, arena, buffer),
+                .slice => return val.castTag(.slice).?.data.ptr.elemValue(mod, index),
 
-                .decl_ref => return mod.declPtr(val.castTag(.decl_ref).?.data).val.elemValueAdvanced(mod, index, arena, buffer),
-                .decl_ref_mut => return mod.declPtr(val.castTag(.decl_ref_mut).?.data.decl_index).val.elemValueAdvanced(mod, index, arena, buffer),
-                .comptime_field_ptr => return val.castTag(.comptime_field_ptr).?.data.field_val.elemValueAdvanced(mod, index, arena, buffer),
+                .decl_ref => return mod.declPtr(val.castTag(.decl_ref).?.data).val.elemValue(mod, index),
+                .decl_ref_mut => return mod.declPtr(val.castTag(.decl_ref_mut).?.data.decl_index).val.elemValue(mod, index),
+                .comptime_field_ptr => return val.castTag(.comptime_field_ptr).?.data.field_val.elemValue(mod, index),
                 .elem_ptr => {
                     const data = val.castTag(.elem_ptr).?.data;
-                    return data.array_ptr.elemValueAdvanced(mod, index + data.index, arena, buffer);
+                    return data.array_ptr.elemValue(mod, index + data.index);
                 },
                 .field_ptr => {
                     const data = val.castTag(.field_ptr).?.data;
@@ -2795,7 +2597,7 @@ pub const Value = struct {
                         const container_decl = mod.declPtr(decl_index);
                         const field_type = data.container_ty.structFieldType(data.field_index);
                         const field_val = container_decl.val.fieldValue(field_type, mod, data.field_index);
-                        return field_val.elemValueAdvanced(mod, index, arena, buffer);
+                        return field_val.elemValue(mod, index);
                     } else unreachable;
                 },
 
@@ -2803,11 +2605,11 @@ pub const Value = struct {
                 // to have only one possible value itself.
                 .the_only_possible_value => return val,
 
-                .opt_payload_ptr => return val.castTag(.opt_payload_ptr).?.data.container_ptr.elemValueAdvanced(mod, index, arena, buffer),
-                .eu_payload_ptr => return val.castTag(.eu_payload_ptr).?.data.container_ptr.elemValueAdvanced(mod, index, arena, buffer),
+                .opt_payload_ptr => return val.castTag(.opt_payload_ptr).?.data.container_ptr.elemValue(mod, index),
+                .eu_payload_ptr => return val.castTag(.eu_payload_ptr).?.data.container_ptr.elemValue(mod, index),
 
-                .opt_payload => return val.castTag(.opt_payload).?.data.elemValueAdvanced(mod, index, arena, buffer),
-                .eu_payload => return val.castTag(.eu_payload).?.data.elemValueAdvanced(mod, index, arena, buffer),
+                .opt_payload => return val.castTag(.opt_payload).?.data.elemValue(mod, index),
+                .eu_payload => return val.castTag(.eu_payload).?.data.elemValue(mod, index),
 
                 else => unreachable,
             },
@@ -3004,7 +2806,7 @@ pub const Value = struct {
     /// TODO: check for cases such as array that is not marked undef but all the element
     /// values are marked undef, or struct that is not marked undef but all fields are marked
     /// undef, etc.
-    pub fn anyUndef(self: Value, mod: *Module) bool {
+    pub fn anyUndef(self: Value, mod: *Module) !bool {
         switch (self.ip_index) {
             .undef => return true,
             .none => switch (self.tag()) {
@@ -3012,18 +2814,16 @@ pub const Value = struct {
                     const payload = self.castTag(.slice).?;
                     const len = payload.data.len.toUnsignedInt(mod);
 
-                    var elem_value_buf: ElemValueBuffer = undefined;
-                    var i: usize = 0;
-                    while (i < len) : (i += 1) {
-                        const elem_val = payload.data.ptr.elemValueBuffer(mod, i, &elem_value_buf);
-                        if (elem_val.anyUndef(mod)) return true;
+                    for (0..len) |i| {
+                        const elem_val = try payload.data.ptr.elemValue(mod, i);
+                        if (try elem_val.anyUndef(mod)) return true;
                     }
                 },
 
                 .aggregate => {
                     const payload = self.castTag(.aggregate).?;
                     for (payload.data) |val| {
-                        if (val.anyUndef(mod)) return true;
+                        if (try val.anyUndef(mod)) return true;
                     }
                 },
                 else => {},
@@ -3036,35 +2836,37 @@ pub const Value = struct {
 
     /// Asserts the value is not undefined and not unreachable.
     /// Integer value 0 is considered null because of C pointers.
-    pub fn isNull(self: Value, mod: *const Module) bool {
-        return switch (self.ip_index) {
+    pub fn isNull(val: Value, mod: *const Module) bool {
+        return switch (val.ip_index) {
             .undef => unreachable,
             .unreachable_value => unreachable,
-            .null_value => true,
-            .none => switch (self.tag()) {
+
+            .null_value,
+            .zero,
+            .zero_usize,
+            .zero_u8,
+            => true,
+
+            .none => switch (val.tag()) {
                 .opt_payload => false,
 
                 // If it's not one of those two tags then it must be a C pointer value,
                 // in which case the value 0 is null and other values are non-null.
 
-                .zero,
-                .the_only_possible_value,
-                => true,
-
-                .one => false,
-
-                .int_u64,
-                .int_i64,
-                .int_big_positive,
-                .int_big_negative,
-                => self.orderAgainstZero(mod).compare(.eq),
+                .the_only_possible_value => true,
 
                 .inferred_alloc => unreachable,
                 .inferred_alloc_comptime => unreachable,
 
                 else => false,
             },
-            else => false,
+            else => return switch (mod.intern_pool.indexToKey(val.ip_index)) {
+                .int => |int| switch (int.storage) {
+                    .big_int => |big_int| big_int.eqZero(),
+                    inline .u64, .i64 => |x| x == 0,
+                },
+                else => unreachable,
+            },
         };
     }
 
@@ -3078,17 +2880,13 @@ pub const Value = struct {
             .unreachable_value => unreachable,
             .none => switch (self.tag()) {
                 .@"error" => self.castTag(.@"error").?.data.name,
-                .int_u64 => @panic("TODO"),
-                .int_i64 => @panic("TODO"),
-                .int_big_positive => @panic("TODO"),
-                .int_big_negative => @panic("TODO"),
-                .one => @panic("TODO"),
+                .eu_payload => null,
+
                 .inferred_alloc => unreachable,
                 .inferred_alloc_comptime => unreachable,
-
-                else => null,
+                else => unreachable,
             },
-            else => null,
+            else => unreachable,
         };
     }
 
@@ -3147,10 +2945,10 @@ pub const Value = struct {
     pub fn intToFloatAdvanced(val: Value, arena: Allocator, int_ty: Type, float_ty: Type, mod: *Module, opt_sema: ?*Sema) !Value {
         if (int_ty.zigTypeTag(mod) == .Vector) {
             const result_data = try arena.alloc(Value, int_ty.vectorLen(mod));
+            const scalar_ty = float_ty.scalarType(mod);
             for (result_data, 0..) |*scalar, i| {
-                var buf: Value.ElemValueBuffer = undefined;
-                const elem_val = val.elemValueBuffer(mod, i, &buf);
-                scalar.* = try intToFloatScalar(elem_val, arena, float_ty.scalarType(mod), mod, opt_sema);
+                const elem_val = try val.elemValue(mod, i);
+                scalar.* = try intToFloatScalar(elem_val, arena, scalar_ty, mod, opt_sema);
             }
             return Value.Tag.aggregate.create(arena, result_data);
         }
@@ -3162,24 +2960,7 @@ pub const Value = struct {
         switch (val.ip_index) {
             .undef => return val,
             .none => switch (val.tag()) {
-                .zero, .one => return val,
-                .the_only_possible_value => return Value.initTag(.zero), // for i0, u0
-                .int_u64 => {
-                    return intToFloatInner(val.castTag(.int_u64).?.data, arena, float_ty, target);
-                },
-                .int_i64 => {
-                    return intToFloatInner(val.castTag(.int_i64).?.data, arena, float_ty, target);
-                },
-                .int_big_positive => {
-                    const limbs = val.castTag(.int_big_positive).?.data;
-                    const float = bigIntToFloat(limbs, true);
-                    return floatToValue(float, arena, float_ty, target);
-                },
-                .int_big_negative => {
-                    const limbs = val.castTag(.int_big_negative).?.data;
-                    const float = bigIntToFloat(limbs, false);
-                    return floatToValue(float, arena, float_ty, target);
-                },
+                .the_only_possible_value => return Value.zero, // for i0, u0
                 .lazy_align => {
                     const ty = val.castTag(.lazy_align).?.data;
                     if (opt_sema) |sema| {
@@ -3198,7 +2979,16 @@ pub const Value = struct {
                 },
                 else => unreachable,
             },
-            else => unreachable,
+            else => return switch (mod.intern_pool.indexToKey(val.ip_index)) {
+                .int => |int| switch (int.storage) {
+                    .big_int => |big_int| {
+                        const float = bigIntToFloat(big_int.limbs, big_int.positive);
+                        return floatToValue(float, arena, float_ty, target);
+                    },
+                    inline .u64, .i64 => |x| intToFloatInner(x, arena, float_ty, target),
+                },
+                else => unreachable,
+            },
         }
     }
 
@@ -3238,22 +3028,6 @@ pub const Value = struct {
         wrapped_result: Value,
     };
 
-    pub fn fromBigInt(arena: Allocator, big_int: BigIntConst) !Value {
-        if (big_int.positive) {
-            if (big_int.to(u64)) |x| {
-                return Value.Tag.int_u64.create(arena, x);
-            } else |_| {
-                return Value.Tag.int_big_positive.create(arena, big_int.limbs);
-            }
-        } else {
-            if (big_int.to(i64)) |x| {
-                return Value.Tag.int_i64.create(arena, x);
-            } else |_| {
-                return Value.Tag.int_big_negative.create(arena, big_int.limbs);
-            }
-        }
-    }
-
     /// Supports (vectors of) integers only; asserts neither operand is undefined.
     pub fn intAddSat(
         lhs: Value,
@@ -3264,12 +3038,11 @@ pub const Value = struct {
     ) !Value {
         if (ty.zigTypeTag(mod) == .Vector) {
             const result_data = try arena.alloc(Value, ty.vectorLen(mod));
+            const scalar_ty = ty.scalarType(mod);
             for (result_data, 0..) |*scalar, i| {
-                var lhs_buf: Value.ElemValueBuffer = undefined;
-                var rhs_buf: Value.ElemValueBuffer = undefined;
-                const lhs_elem = lhs.elemValueBuffer(mod, i, &lhs_buf);
-                const rhs_elem = rhs.elemValueBuffer(mod, i, &rhs_buf);
-                scalar.* = try intAddSatScalar(lhs_elem, rhs_elem, ty.scalarType(mod), arena, mod);
+                const lhs_elem = try lhs.elemValue(mod, i);
+                const rhs_elem = try rhs.elemValue(mod, i);
+                scalar.* = try intAddSatScalar(lhs_elem, rhs_elem, scalar_ty, arena, mod);
             }
             return Value.Tag.aggregate.create(arena, result_data);
         }
@@ -3299,7 +3072,7 @@ pub const Value = struct {
         );
         var result_bigint = BigIntMutable{ .limbs = limbs, .positive = undefined, .len = undefined };
         result_bigint.addSat(lhs_bigint, rhs_bigint, info.signedness, info.bits);
-        return fromBigInt(arena, result_bigint.toConst());
+        return mod.intValue_big(ty, result_bigint.toConst());
     }
 
     /// Supports (vectors of) integers only; asserts neither operand is undefined.
@@ -3312,12 +3085,11 @@ pub const Value = struct {
     ) !Value {
         if (ty.zigTypeTag(mod) == .Vector) {
             const result_data = try arena.alloc(Value, ty.vectorLen(mod));
+            const scalar_ty = ty.scalarType(mod);
             for (result_data, 0..) |*scalar, i| {
-                var lhs_buf: Value.ElemValueBuffer = undefined;
-                var rhs_buf: Value.ElemValueBuffer = undefined;
-                const lhs_elem = lhs.elemValueBuffer(mod, i, &lhs_buf);
-                const rhs_elem = rhs.elemValueBuffer(mod, i, &rhs_buf);
-                scalar.* = try intSubSatScalar(lhs_elem, rhs_elem, ty.scalarType(mod), arena, mod);
+                const lhs_elem = try lhs.elemValue(mod, i);
+                const rhs_elem = try rhs.elemValue(mod, i);
+                scalar.* = try intSubSatScalar(lhs_elem, rhs_elem, scalar_ty, arena, mod);
             }
             return Value.Tag.aggregate.create(arena, result_data);
         }
@@ -3347,7 +3119,7 @@ pub const Value = struct {
         );
         var result_bigint = BigIntMutable{ .limbs = limbs, .positive = undefined, .len = undefined };
         result_bigint.subSat(lhs_bigint, rhs_bigint, info.signedness, info.bits);
-        return fromBigInt(arena, result_bigint.toConst());
+        return mod.intValue_big(ty, result_bigint.toConst());
     }
 
     pub fn intMulWithOverflow(
@@ -3360,12 +3132,11 @@ pub const Value = struct {
         if (ty.zigTypeTag(mod) == .Vector) {
             const overflowed_data = try arena.alloc(Value, ty.vectorLen(mod));
             const result_data = try arena.alloc(Value, ty.vectorLen(mod));
+            const scalar_ty = ty.scalarType(mod);
             for (result_data, 0..) |*scalar, i| {
-                var lhs_buf: Value.ElemValueBuffer = undefined;
-                var rhs_buf: Value.ElemValueBuffer = undefined;
-                const lhs_elem = lhs.elemValueBuffer(mod, i, &lhs_buf);
-                const rhs_elem = rhs.elemValueBuffer(mod, i, &rhs_buf);
-                const of_math_result = try intMulWithOverflowScalar(lhs_elem, rhs_elem, ty.scalarType(mod), arena, mod);
+                const lhs_elem = try lhs.elemValue(mod, i);
+                const rhs_elem = try rhs.elemValue(mod, i);
+                const of_math_result = try intMulWithOverflowScalar(lhs_elem, rhs_elem, scalar_ty, arena, mod);
                 overflowed_data[i] = of_math_result.overflow_bit;
                 scalar.* = of_math_result.wrapped_result;
             }
@@ -3408,7 +3179,7 @@ pub const Value = struct {
 
         return OverflowArithmeticResult{
             .overflow_bit = boolToInt(overflowed),
-            .wrapped_result = try fromBigInt(arena, result_bigint.toConst()),
+            .wrapped_result = try mod.intValue_big(ty, result_bigint.toConst()),
         };
     }
 
@@ -3423,10 +3194,8 @@ pub const Value = struct {
         if (ty.zigTypeTag(mod) == .Vector) {
             const result_data = try arena.alloc(Value, ty.vectorLen(mod));
             for (result_data, 0..) |*scalar, i| {
-                var lhs_buf: Value.ElemValueBuffer = undefined;
-                var rhs_buf: Value.ElemValueBuffer = undefined;
-                const lhs_elem = lhs.elemValueBuffer(mod, i, &lhs_buf);
-                const rhs_elem = rhs.elemValueBuffer(mod, i, &rhs_buf);
+                const lhs_elem = try lhs.elemValue(mod, i);
+                const rhs_elem = try rhs.elemValue(mod, i);
                 scalar.* = try numberMulWrapScalar(lhs_elem, rhs_elem, ty.scalarType(mod), arena, mod);
             }
             return Value.Tag.aggregate.create(arena, result_data);
@@ -3467,10 +3236,8 @@ pub const Value = struct {
         if (ty.zigTypeTag(mod) == .Vector) {
             const result_data = try arena.alloc(Value, ty.vectorLen(mod));
             for (result_data, 0..) |*scalar, i| {
-                var lhs_buf: Value.ElemValueBuffer = undefined;
-                var rhs_buf: Value.ElemValueBuffer = undefined;
-                const lhs_elem = lhs.elemValueBuffer(mod, i, &lhs_buf);
-                const rhs_elem = rhs.elemValueBuffer(mod, i, &rhs_buf);
+                const lhs_elem = try lhs.elemValue(mod, i);
+                const rhs_elem = try rhs.elemValue(mod, i);
                 scalar.* = try intMulSatScalar(lhs_elem, rhs_elem, ty.scalarType(mod), arena, mod);
             }
             return Value.Tag.aggregate.create(arena, result_data);
@@ -3510,7 +3277,7 @@ pub const Value = struct {
         );
         result_bigint.mul(lhs_bigint, rhs_bigint, limbs_buffer, arena);
         result_bigint.saturate(result_bigint.toConst(), info.signedness, info.bits);
-        return fromBigInt(arena, result_bigint.toConst());
+        return mod.intValue_big(ty, result_bigint.toConst());
     }
 
     /// Supports both floats and ints; handles undefined.
@@ -3542,8 +3309,7 @@ pub const Value = struct {
         if (ty.zigTypeTag(mod) == .Vector) {
             const result_data = try arena.alloc(Value, ty.vectorLen(mod));
             for (result_data, 0..) |*scalar, i| {
-                var buf: Value.ElemValueBuffer = undefined;
-                const elem_val = val.elemValueBuffer(mod, i, &buf);
+                const elem_val = try val.elemValue(mod, i);
                 scalar.* = try bitwiseNotScalar(elem_val, ty.scalarType(mod), arena, mod);
             }
             return Value.Tag.aggregate.create(arena, result_data);
@@ -3572,7 +3338,7 @@ pub const Value = struct {
 
         var result_bigint = BigIntMutable{ .limbs = limbs, .positive = undefined, .len = undefined };
         result_bigint.bitNotWrap(val_bigint, info.signedness, info.bits);
-        return fromBigInt(arena, result_bigint.toConst());
+        return mod.intValue_big(ty, result_bigint.toConst());
     }
 
     /// operands must be (vectors of) integers; handles undefined scalars.
@@ -3580,19 +3346,17 @@ pub const Value = struct {
         if (ty.zigTypeTag(mod) == .Vector) {
             const result_data = try allocator.alloc(Value, ty.vectorLen(mod));
             for (result_data, 0..) |*scalar, i| {
-                var lhs_buf: Value.ElemValueBuffer = undefined;
-                var rhs_buf: Value.ElemValueBuffer = undefined;
-                const lhs_elem = lhs.elemValueBuffer(mod, i, &lhs_buf);
-                const rhs_elem = rhs.elemValueBuffer(mod, i, &rhs_buf);
-                scalar.* = try bitwiseAndScalar(lhs_elem, rhs_elem, allocator, mod);
+                const lhs_elem = try lhs.elemValue(mod, i);
+                const rhs_elem = try rhs.elemValue(mod, i);
+                scalar.* = try bitwiseAndScalar(lhs_elem, rhs_elem, ty.scalarType(mod), allocator, mod);
             }
             return Value.Tag.aggregate.create(allocator, result_data);
         }
-        return bitwiseAndScalar(lhs, rhs, allocator, mod);
+        return bitwiseAndScalar(lhs, rhs, ty, allocator, mod);
     }
 
     /// operands must be integers; handles undefined.
-    pub fn bitwiseAndScalar(lhs: Value, rhs: Value, arena: Allocator, mod: *Module) !Value {
+    pub fn bitwiseAndScalar(lhs: Value, rhs: Value, ty: Type, arena: Allocator, mod: *Module) !Value {
         if (lhs.isUndef() or rhs.isUndef()) return Value.undef;
 
         // TODO is this a performance issue? maybe we should try the operation without
@@ -3608,7 +3372,7 @@ pub const Value = struct {
         );
         var result_bigint = BigIntMutable{ .limbs = limbs, .positive = undefined, .len = undefined };
         result_bigint.bitAnd(lhs_bigint, rhs_bigint);
-        return fromBigInt(arena, result_bigint.toConst());
+        return mod.intValue_big(ty, result_bigint.toConst());
     }
 
     /// operands must be (vectors of) integers; handles undefined scalars.
@@ -3616,10 +3380,8 @@ pub const Value = struct {
         if (ty.zigTypeTag(mod) == .Vector) {
             const result_data = try arena.alloc(Value, ty.vectorLen(mod));
             for (result_data, 0..) |*scalar, i| {
-                var lhs_buf: Value.ElemValueBuffer = undefined;
-                var rhs_buf: Value.ElemValueBuffer = undefined;
-                const lhs_elem = lhs.elemValueBuffer(mod, i, &lhs_buf);
-                const rhs_elem = rhs.elemValueBuffer(mod, i, &rhs_buf);
+                const lhs_elem = try lhs.elemValue(mod, i);
+                const rhs_elem = try rhs.elemValue(mod, i);
                 scalar.* = try bitwiseNandScalar(lhs_elem, rhs_elem, ty.scalarType(mod), arena, mod);
             }
             return Value.Tag.aggregate.create(arena, result_data);
@@ -3632,12 +3394,7 @@ pub const Value = struct {
         if (lhs.isUndef() or rhs.isUndef()) return Value.undef;
 
         const anded = try bitwiseAnd(lhs, rhs, ty, arena, mod);
-
-        const all_ones = if (ty.isSignedInt(mod))
-            try Value.Tag.int_i64.create(arena, -1)
-        else
-            try ty.maxInt(arena, mod);
-
+        const all_ones = if (ty.isSignedInt(mod)) Value.negative_one else try ty.maxIntScalar(mod);
         return bitwiseXor(anded, all_ones, ty, arena, mod);
     }
 
@@ -3646,19 +3403,17 @@ pub const Value = struct {
         if (ty.zigTypeTag(mod) == .Vector) {
             const result_data = try allocator.alloc(Value, ty.vectorLen(mod));
             for (result_data, 0..) |*scalar, i| {
-                var lhs_buf: Value.ElemValueBuffer = undefined;
-                var rhs_buf: Value.ElemValueBuffer = undefined;
-                const lhs_elem = lhs.elemValueBuffer(mod, i, &lhs_buf);
-                const rhs_elem = rhs.elemValueBuffer(mod, i, &rhs_buf);
-                scalar.* = try bitwiseOrScalar(lhs_elem, rhs_elem, allocator, mod);
+                const lhs_elem = try lhs.elemValue(mod, i);
+                const rhs_elem = try rhs.elemValue(mod, i);
+                scalar.* = try bitwiseOrScalar(lhs_elem, rhs_elem, ty.scalarType(mod), allocator, mod);
             }
             return Value.Tag.aggregate.create(allocator, result_data);
         }
-        return bitwiseOrScalar(lhs, rhs, allocator, mod);
+        return bitwiseOrScalar(lhs, rhs, ty, allocator, mod);
     }
 
     /// operands must be integers; handles undefined.
-    pub fn bitwiseOrScalar(lhs: Value, rhs: Value, arena: Allocator, mod: *Module) !Value {
+    pub fn bitwiseOrScalar(lhs: Value, rhs: Value, ty: Type, arena: Allocator, mod: *Module) !Value {
         if (lhs.isUndef() or rhs.isUndef()) return Value.undef;
 
         // TODO is this a performance issue? maybe we should try the operation without
@@ -3673,27 +3428,26 @@ pub const Value = struct {
         );
         var result_bigint = BigIntMutable{ .limbs = limbs, .positive = undefined, .len = undefined };
         result_bigint.bitOr(lhs_bigint, rhs_bigint);
-        return fromBigInt(arena, result_bigint.toConst());
+        return mod.intValue_big(ty, result_bigint.toConst());
     }
 
     /// operands must be (vectors of) integers; handles undefined scalars.
     pub fn bitwiseXor(lhs: Value, rhs: Value, ty: Type, allocator: Allocator, mod: *Module) !Value {
         if (ty.zigTypeTag(mod) == .Vector) {
             const result_data = try allocator.alloc(Value, ty.vectorLen(mod));
+            const scalar_ty = ty.scalarType(mod);
             for (result_data, 0..) |*scalar, i| {
-                var lhs_buf: Value.ElemValueBuffer = undefined;
-                var rhs_buf: Value.ElemValueBuffer = undefined;
-                const lhs_elem = lhs.elemValueBuffer(mod, i, &lhs_buf);
-                const rhs_elem = rhs.elemValueBuffer(mod, i, &rhs_buf);
-                scalar.* = try bitwiseXorScalar(lhs_elem, rhs_elem, allocator, mod);
+                const lhs_elem = try lhs.elemValue(mod, i);
+                const rhs_elem = try rhs.elemValue(mod, i);
+                scalar.* = try bitwiseXorScalar(lhs_elem, rhs_elem, scalar_ty, allocator, mod);
             }
             return Value.Tag.aggregate.create(allocator, result_data);
         }
-        return bitwiseXorScalar(lhs, rhs, allocator, mod);
+        return bitwiseXorScalar(lhs, rhs, ty, allocator, mod);
     }
 
     /// operands must be integers; handles undefined.
-    pub fn bitwiseXorScalar(lhs: Value, rhs: Value, arena: Allocator, mod: *Module) !Value {
+    pub fn bitwiseXorScalar(lhs: Value, rhs: Value, ty: Type, arena: Allocator, mod: *Module) !Value {
         if (lhs.isUndef() or rhs.isUndef()) return Value.undef;
 
         // TODO is this a performance issue? maybe we should try the operation without
@@ -3709,25 +3463,24 @@ pub const Value = struct {
         );
         var result_bigint = BigIntMutable{ .limbs = limbs, .positive = undefined, .len = undefined };
         result_bigint.bitXor(lhs_bigint, rhs_bigint);
-        return fromBigInt(arena, result_bigint.toConst());
+        return mod.intValue_big(ty, result_bigint.toConst());
     }
 
     pub fn intDiv(lhs: Value, rhs: Value, ty: Type, allocator: Allocator, mod: *Module) !Value {
         if (ty.zigTypeTag(mod) == .Vector) {
             const result_data = try allocator.alloc(Value, ty.vectorLen(mod));
+            const scalar_ty = ty.scalarType(mod);
             for (result_data, 0..) |*scalar, i| {
-                var lhs_buf: Value.ElemValueBuffer = undefined;
-                var rhs_buf: Value.ElemValueBuffer = undefined;
-                const lhs_elem = lhs.elemValueBuffer(mod, i, &lhs_buf);
-                const rhs_elem = rhs.elemValueBuffer(mod, i, &rhs_buf);
-                scalar.* = try intDivScalar(lhs_elem, rhs_elem, allocator, mod);
+                const lhs_elem = try lhs.elemValue(mod, i);
+                const rhs_elem = try rhs.elemValue(mod, i);
+                scalar.* = try intDivScalar(lhs_elem, rhs_elem, scalar_ty, allocator, mod);
             }
             return Value.Tag.aggregate.create(allocator, result_data);
         }
-        return intDivScalar(lhs, rhs, allocator, mod);
+        return intDivScalar(lhs, rhs, ty, allocator, mod);
     }
 
-    pub fn intDivScalar(lhs: Value, rhs: Value, allocator: Allocator, mod: *Module) !Value {
+    pub fn intDivScalar(lhs: Value, rhs: Value, ty: Type, allocator: Allocator, mod: *Module) !Value {
         // TODO is this a performance issue? maybe we should try the operation without
         // resorting to BigInt first.
         var lhs_space: Value.BigIntSpace = undefined;
@@ -3749,25 +3502,24 @@ pub const Value = struct {
         var result_q = BigIntMutable{ .limbs = limbs_q, .positive = undefined, .len = undefined };
         var result_r = BigIntMutable{ .limbs = limbs_r, .positive = undefined, .len = undefined };
         result_q.divTrunc(&result_r, lhs_bigint, rhs_bigint, limbs_buffer);
-        return fromBigInt(allocator, result_q.toConst());
+        return mod.intValue_big(ty, result_q.toConst());
     }
 
     pub fn intDivFloor(lhs: Value, rhs: Value, ty: Type, allocator: Allocator, mod: *Module) !Value {
         if (ty.zigTypeTag(mod) == .Vector) {
             const result_data = try allocator.alloc(Value, ty.vectorLen(mod));
+            const scalar_ty = ty.scalarType(mod);
             for (result_data, 0..) |*scalar, i| {
-                var lhs_buf: Value.ElemValueBuffer = undefined;
-                var rhs_buf: Value.ElemValueBuffer = undefined;
-                const lhs_elem = lhs.elemValueBuffer(mod, i, &lhs_buf);
-                const rhs_elem = rhs.elemValueBuffer(mod, i, &rhs_buf);
-                scalar.* = try intDivFloorScalar(lhs_elem, rhs_elem, allocator, mod);
+                const lhs_elem = try lhs.elemValue(mod, i);
+                const rhs_elem = try rhs.elemValue(mod, i);
+                scalar.* = try intDivFloorScalar(lhs_elem, rhs_elem, scalar_ty, allocator, mod);
             }
             return Value.Tag.aggregate.create(allocator, result_data);
         }
-        return intDivFloorScalar(lhs, rhs, allocator, mod);
+        return intDivFloorScalar(lhs, rhs, ty, allocator, mod);
     }
 
-    pub fn intDivFloorScalar(lhs: Value, rhs: Value, allocator: Allocator, mod: *Module) !Value {
+    pub fn intDivFloorScalar(lhs: Value, rhs: Value, ty: Type, allocator: Allocator, mod: *Module) !Value {
         // TODO is this a performance issue? maybe we should try the operation without
         // resorting to BigInt first.
         var lhs_space: Value.BigIntSpace = undefined;
@@ -3789,25 +3541,24 @@ pub const Value = struct {
         var result_q = BigIntMutable{ .limbs = limbs_q, .positive = undefined, .len = undefined };
         var result_r = BigIntMutable{ .limbs = limbs_r, .positive = undefined, .len = undefined };
         result_q.divFloor(&result_r, lhs_bigint, rhs_bigint, limbs_buffer);
-        return fromBigInt(allocator, result_q.toConst());
+        return mod.intValue_big(ty, result_q.toConst());
     }
 
     pub fn intMod(lhs: Value, rhs: Value, ty: Type, allocator: Allocator, mod: *Module) !Value {
         if (ty.zigTypeTag(mod) == .Vector) {
             const result_data = try allocator.alloc(Value, ty.vectorLen(mod));
+            const scalar_ty = ty.scalarType(mod);
             for (result_data, 0..) |*scalar, i| {
-                var lhs_buf: Value.ElemValueBuffer = undefined;
-                var rhs_buf: Value.ElemValueBuffer = undefined;
-                const lhs_elem = lhs.elemValueBuffer(mod, i, &lhs_buf);
-                const rhs_elem = rhs.elemValueBuffer(mod, i, &rhs_buf);
-                scalar.* = try intModScalar(lhs_elem, rhs_elem, allocator, mod);
+                const lhs_elem = try lhs.elemValue(mod, i);
+                const rhs_elem = try rhs.elemValue(mod, i);
+                scalar.* = try intModScalar(lhs_elem, rhs_elem, scalar_ty, allocator, mod);
             }
             return Value.Tag.aggregate.create(allocator, result_data);
         }
-        return intModScalar(lhs, rhs, allocator, mod);
+        return intModScalar(lhs, rhs, ty, allocator, mod);
     }
 
-    pub fn intModScalar(lhs: Value, rhs: Value, allocator: Allocator, mod: *Module) !Value {
+    pub fn intModScalar(lhs: Value, rhs: Value, ty: Type, allocator: Allocator, mod: *Module) !Value {
         // TODO is this a performance issue? maybe we should try the operation without
         // resorting to BigInt first.
         var lhs_space: Value.BigIntSpace = undefined;
@@ -3829,7 +3580,7 @@ pub const Value = struct {
         var result_q = BigIntMutable{ .limbs = limbs_q, .positive = undefined, .len = undefined };
         var result_r = BigIntMutable{ .limbs = limbs_r, .positive = undefined, .len = undefined };
         result_q.divFloor(&result_r, lhs_bigint, rhs_bigint, limbs_buffer);
-        return fromBigInt(allocator, result_r.toConst());
+        return mod.intValue_big(ty, result_r.toConst());
     }
 
     /// Returns true if the value is a floating point type and is NaN. Returns false otherwise.
@@ -3877,46 +3628,44 @@ pub const Value = struct {
     }
 
     pub fn floatRem(lhs: Value, rhs: Value, float_type: Type, arena: Allocator, mod: *Module) !Value {
-        const target = mod.getTarget();
         if (float_type.zigTypeTag(mod) == .Vector) {
             const result_data = try arena.alloc(Value, float_type.vectorLen(mod));
             for (result_data, 0..) |*scalar, i| {
-                var lhs_buf: Value.ElemValueBuffer = undefined;
-                var rhs_buf: Value.ElemValueBuffer = undefined;
-                const lhs_elem = lhs.elemValueBuffer(mod, i, &lhs_buf);
-                const rhs_elem = rhs.elemValueBuffer(mod, i, &rhs_buf);
-                scalar.* = try floatRemScalar(lhs_elem, rhs_elem, float_type.scalarType(mod), arena, target);
+                const lhs_elem = try lhs.elemValue(mod, i);
+                const rhs_elem = try rhs.elemValue(mod, i);
+                scalar.* = try floatRemScalar(lhs_elem, rhs_elem, float_type.scalarType(mod), arena, mod);
             }
             return Value.Tag.aggregate.create(arena, result_data);
         }
-        return floatRemScalar(lhs, rhs, float_type, arena, target);
+        return floatRemScalar(lhs, rhs, float_type, arena, mod);
     }
 
-    pub fn floatRemScalar(lhs: Value, rhs: Value, float_type: Type, arena: Allocator, target: Target) !Value {
+    pub fn floatRemScalar(lhs: Value, rhs: Value, float_type: Type, arena: Allocator, mod: *const Module) !Value {
+        const target = mod.getTarget();
         switch (float_type.floatBits(target)) {
             16 => {
-                const lhs_val = lhs.toFloat(f16);
-                const rhs_val = rhs.toFloat(f16);
+                const lhs_val = lhs.toFloat(f16, mod);
+                const rhs_val = rhs.toFloat(f16, mod);
                 return Value.Tag.float_16.create(arena, @rem(lhs_val, rhs_val));
             },
             32 => {
-                const lhs_val = lhs.toFloat(f32);
-                const rhs_val = rhs.toFloat(f32);
+                const lhs_val = lhs.toFloat(f32, mod);
+                const rhs_val = rhs.toFloat(f32, mod);
                 return Value.Tag.float_32.create(arena, @rem(lhs_val, rhs_val));
             },
             64 => {
-                const lhs_val = lhs.toFloat(f64);
-                const rhs_val = rhs.toFloat(f64);
+                const lhs_val = lhs.toFloat(f64, mod);
+                const rhs_val = rhs.toFloat(f64, mod);
                 return Value.Tag.float_64.create(arena, @rem(lhs_val, rhs_val));
             },
             80 => {
-                const lhs_val = lhs.toFloat(f80);
-                const rhs_val = rhs.toFloat(f80);
+                const lhs_val = lhs.toFloat(f80, mod);
+                const rhs_val = rhs.toFloat(f80, mod);
                 return Value.Tag.float_80.create(arena, @rem(lhs_val, rhs_val));
             },
             128 => {
-                const lhs_val = lhs.toFloat(f128);
-                const rhs_val = rhs.toFloat(f128);
+                const lhs_val = lhs.toFloat(f128, mod);
+                const rhs_val = rhs.toFloat(f128, mod);
                 return Value.Tag.float_128.create(arena, @rem(lhs_val, rhs_val));
             },
             else => unreachable,
@@ -3924,46 +3673,44 @@ pub const Value = struct {
     }
 
     pub fn floatMod(lhs: Value, rhs: Value, float_type: Type, arena: Allocator, mod: *Module) !Value {
-        const target = mod.getTarget();
         if (float_type.zigTypeTag(mod) == .Vector) {
             const result_data = try arena.alloc(Value, float_type.vectorLen(mod));
             for (result_data, 0..) |*scalar, i| {
-                var lhs_buf: Value.ElemValueBuffer = undefined;
-                var rhs_buf: Value.ElemValueBuffer = undefined;
-                const lhs_elem = lhs.elemValueBuffer(mod, i, &lhs_buf);
-                const rhs_elem = rhs.elemValueBuffer(mod, i, &rhs_buf);
-                scalar.* = try floatModScalar(lhs_elem, rhs_elem, float_type.scalarType(mod), arena, target);
+                const lhs_elem = try lhs.elemValue(mod, i);
+                const rhs_elem = try rhs.elemValue(mod, i);
+                scalar.* = try floatModScalar(lhs_elem, rhs_elem, float_type.scalarType(mod), arena, mod);
             }
             return Value.Tag.aggregate.create(arena, result_data);
         }
-        return floatModScalar(lhs, rhs, float_type, arena, target);
+        return floatModScalar(lhs, rhs, float_type, arena, mod);
     }
 
-    pub fn floatModScalar(lhs: Value, rhs: Value, float_type: Type, arena: Allocator, target: Target) !Value {
+    pub fn floatModScalar(lhs: Value, rhs: Value, float_type: Type, arena: Allocator, mod: *const Module) !Value {
+        const target = mod.getTarget();
         switch (float_type.floatBits(target)) {
             16 => {
-                const lhs_val = lhs.toFloat(f16);
-                const rhs_val = rhs.toFloat(f16);
+                const lhs_val = lhs.toFloat(f16, mod);
+                const rhs_val = rhs.toFloat(f16, mod);
                 return Value.Tag.float_16.create(arena, @mod(lhs_val, rhs_val));
             },
             32 => {
-                const lhs_val = lhs.toFloat(f32);
-                const rhs_val = rhs.toFloat(f32);
+                const lhs_val = lhs.toFloat(f32, mod);
+                const rhs_val = rhs.toFloat(f32, mod);
                 return Value.Tag.float_32.create(arena, @mod(lhs_val, rhs_val));
             },
             64 => {
-                const lhs_val = lhs.toFloat(f64);
-                const rhs_val = rhs.toFloat(f64);
+                const lhs_val = lhs.toFloat(f64, mod);
+                const rhs_val = rhs.toFloat(f64, mod);
                 return Value.Tag.float_64.create(arena, @mod(lhs_val, rhs_val));
             },
             80 => {
-                const lhs_val = lhs.toFloat(f80);
-                const rhs_val = rhs.toFloat(f80);
+                const lhs_val = lhs.toFloat(f80, mod);
+                const rhs_val = rhs.toFloat(f80, mod);
                 return Value.Tag.float_80.create(arena, @mod(lhs_val, rhs_val));
             },
             128 => {
-                const lhs_val = lhs.toFloat(f128);
-                const rhs_val = rhs.toFloat(f128);
+                const lhs_val = lhs.toFloat(f128, mod);
+                const rhs_val = rhs.toFloat(f128, mod);
                 return Value.Tag.float_128.create(arena, @mod(lhs_val, rhs_val));
             },
             else => unreachable,
@@ -3973,19 +3720,18 @@ pub const Value = struct {
     pub fn intMul(lhs: Value, rhs: Value, ty: Type, allocator: Allocator, mod: *Module) !Value {
         if (ty.zigTypeTag(mod) == .Vector) {
             const result_data = try allocator.alloc(Value, ty.vectorLen(mod));
+            const scalar_ty = ty.scalarType(mod);
             for (result_data, 0..) |*scalar, i| {
-                var lhs_buf: Value.ElemValueBuffer = undefined;
-                var rhs_buf: Value.ElemValueBuffer = undefined;
-                const lhs_elem = lhs.elemValueBuffer(mod, i, &lhs_buf);
-                const rhs_elem = rhs.elemValueBuffer(mod, i, &rhs_buf);
-                scalar.* = try intMulScalar(lhs_elem, rhs_elem, allocator, mod);
+                const lhs_elem = try lhs.elemValue(mod, i);
+                const rhs_elem = try rhs.elemValue(mod, i);
+                scalar.* = try intMulScalar(lhs_elem, rhs_elem, scalar_ty, allocator, mod);
             }
             return Value.Tag.aggregate.create(allocator, result_data);
         }
-        return intMulScalar(lhs, rhs, allocator, mod);
+        return intMulScalar(lhs, rhs, ty, allocator, mod);
     }
 
-    pub fn intMulScalar(lhs: Value, rhs: Value, allocator: Allocator, mod: *Module) !Value {
+    pub fn intMulScalar(lhs: Value, rhs: Value, ty: Type, allocator: Allocator, mod: *Module) !Value {
         // TODO is this a performance issue? maybe we should try the operation without
         // resorting to BigInt first.
         var lhs_space: Value.BigIntSpace = undefined;
@@ -4003,20 +3749,20 @@ pub const Value = struct {
         );
         defer allocator.free(limbs_buffer);
         result_bigint.mul(lhs_bigint, rhs_bigint, limbs_buffer, allocator);
-        return fromBigInt(allocator, result_bigint.toConst());
+        return mod.intValue_big(ty, result_bigint.toConst());
     }
 
     pub fn intTrunc(val: Value, ty: Type, allocator: Allocator, signedness: std.builtin.Signedness, bits: u16, mod: *Module) !Value {
         if (ty.zigTypeTag(mod) == .Vector) {
             const result_data = try allocator.alloc(Value, ty.vectorLen(mod));
+            const scalar_ty = ty.scalarType(mod);
             for (result_data, 0..) |*scalar, i| {
-                var buf: Value.ElemValueBuffer = undefined;
-                const elem_val = val.elemValueBuffer(mod, i, &buf);
-                scalar.* = try intTruncScalar(elem_val, allocator, signedness, bits, mod);
+                const elem_val = try val.elemValue(mod, i);
+                scalar.* = try intTruncScalar(elem_val, scalar_ty, allocator, signedness, bits, mod);
             }
             return Value.Tag.aggregate.create(allocator, result_data);
         }
-        return intTruncScalar(val, allocator, signedness, bits, mod);
+        return intTruncScalar(val, ty, allocator, signedness, bits, mod);
     }
 
     /// This variant may vectorize on `bits`. Asserts that `bits` is a (vector of) `u16`.
@@ -4030,19 +3776,25 @@ pub const Value = struct {
     ) !Value {
         if (ty.zigTypeTag(mod) == .Vector) {
             const result_data = try allocator.alloc(Value, ty.vectorLen(mod));
+            const scalar_ty = ty.scalarType(mod);
             for (result_data, 0..) |*scalar, i| {
-                var buf: Value.ElemValueBuffer = undefined;
-                const elem_val = val.elemValueBuffer(mod, i, &buf);
-                var bits_buf: Value.ElemValueBuffer = undefined;
-                const bits_elem = bits.elemValueBuffer(mod, i, &bits_buf);
-                scalar.* = try intTruncScalar(elem_val, allocator, signedness, @intCast(u16, bits_elem.toUnsignedInt(mod)), mod);
+                const elem_val = try val.elemValue(mod, i);
+                const bits_elem = try bits.elemValue(mod, i);
+                scalar.* = try intTruncScalar(elem_val, scalar_ty, allocator, signedness, @intCast(u16, bits_elem.toUnsignedInt(mod)), mod);
             }
             return Value.Tag.aggregate.create(allocator, result_data);
         }
-        return intTruncScalar(val, allocator, signedness, @intCast(u16, bits.toUnsignedInt(mod)), mod);
+        return intTruncScalar(val, ty, allocator, signedness, @intCast(u16, bits.toUnsignedInt(mod)), mod);
     }
 
-    pub fn intTruncScalar(val: Value, allocator: Allocator, signedness: std.builtin.Signedness, bits: u16, mod: *Module) !Value {
+    pub fn intTruncScalar(
+        val: Value,
+        ty: Type,
+        allocator: Allocator,
+        signedness: std.builtin.Signedness,
+        bits: u16,
+        mod: *Module,
+    ) !Value {
         if (bits == 0) return Value.zero;
 
         var val_space: Value.BigIntSpace = undefined;
@@ -4055,25 +3807,24 @@ pub const Value = struct {
         var result_bigint = BigIntMutable{ .limbs = limbs, .positive = undefined, .len = undefined };
 
         result_bigint.truncate(val_bigint, signedness, bits);
-        return fromBigInt(allocator, result_bigint.toConst());
+        return mod.intValue_big(ty, result_bigint.toConst());
     }
 
     pub fn shl(lhs: Value, rhs: Value, ty: Type, allocator: Allocator, mod: *Module) !Value {
         if (ty.zigTypeTag(mod) == .Vector) {
             const result_data = try allocator.alloc(Value, ty.vectorLen(mod));
+            const scalar_ty = ty.scalarType(mod);
             for (result_data, 0..) |*scalar, i| {
-                var lhs_buf: Value.ElemValueBuffer = undefined;
-                var rhs_buf: Value.ElemValueBuffer = undefined;
-                const lhs_elem = lhs.elemValueBuffer(mod, i, &lhs_buf);
-                const rhs_elem = rhs.elemValueBuffer(mod, i, &rhs_buf);
-                scalar.* = try shlScalar(lhs_elem, rhs_elem, allocator, mod);
+                const lhs_elem = try lhs.elemValue(mod, i);
+                const rhs_elem = try rhs.elemValue(mod, i);
+                scalar.* = try shlScalar(lhs_elem, rhs_elem, scalar_ty, allocator, mod);
             }
             return Value.Tag.aggregate.create(allocator, result_data);
         }
-        return shlScalar(lhs, rhs, allocator, mod);
+        return shlScalar(lhs, rhs, ty, allocator, mod);
     }
 
-    pub fn shlScalar(lhs: Value, rhs: Value, allocator: Allocator, mod: *Module) !Value {
+    pub fn shlScalar(lhs: Value, rhs: Value, ty: Type, allocator: Allocator, mod: *Module) !Value {
         // TODO is this a performance issue? maybe we should try the operation without
         // resorting to BigInt first.
         var lhs_space: Value.BigIntSpace = undefined;
@@ -4089,7 +3840,7 @@ pub const Value = struct {
             .len = undefined,
         };
         result_bigint.shiftLeft(lhs_bigint, shift);
-        return fromBigInt(allocator, result_bigint.toConst());
+        return mod.intValue_big(ty, result_bigint.toConst());
     }
 
     pub fn shlWithOverflow(
@@ -4103,10 +3854,8 @@ pub const Value = struct {
             const overflowed_data = try allocator.alloc(Value, ty.vectorLen(mod));
             const result_data = try allocator.alloc(Value, ty.vectorLen(mod));
             for (result_data, 0..) |*scalar, i| {
-                var lhs_buf: Value.ElemValueBuffer = undefined;
-                var rhs_buf: Value.ElemValueBuffer = undefined;
-                const lhs_elem = lhs.elemValueBuffer(mod, i, &lhs_buf);
-                const rhs_elem = rhs.elemValueBuffer(mod, i, &rhs_buf);
+                const lhs_elem = try lhs.elemValue(mod, i);
+                const rhs_elem = try rhs.elemValue(mod, i);
                 const of_math_result = try shlWithOverflowScalar(lhs_elem, rhs_elem, ty.scalarType(mod), allocator, mod);
                 overflowed_data[i] = of_math_result.overflow_bit;
                 scalar.* = of_math_result.wrapped_result;
@@ -4146,7 +3895,7 @@ pub const Value = struct {
         }
         return OverflowArithmeticResult{
             .overflow_bit = boolToInt(overflowed),
-            .wrapped_result = try fromBigInt(allocator, result_bigint.toConst()),
+            .wrapped_result = try mod.intValue_big(ty, result_bigint.toConst()),
         };
     }
 
@@ -4160,10 +3909,8 @@ pub const Value = struct {
         if (ty.zigTypeTag(mod) == .Vector) {
             const result_data = try arena.alloc(Value, ty.vectorLen(mod));
             for (result_data, 0..) |*scalar, i| {
-                var lhs_buf: Value.ElemValueBuffer = undefined;
-                var rhs_buf: Value.ElemValueBuffer = undefined;
-                const lhs_elem = lhs.elemValueBuffer(mod, i, &lhs_buf);
-                const rhs_elem = rhs.elemValueBuffer(mod, i, &rhs_buf);
+                const lhs_elem = try lhs.elemValue(mod, i);
+                const rhs_elem = try rhs.elemValue(mod, i);
                 scalar.* = try shlSatScalar(lhs_elem, rhs_elem, ty.scalarType(mod), arena, mod);
             }
             return Value.Tag.aggregate.create(arena, result_data);
@@ -4195,7 +3942,7 @@ pub const Value = struct {
             .len = undefined,
         };
         result_bigint.shiftLeftSat(lhs_bigint, shift, info.signedness, info.bits);
-        return fromBigInt(arena, result_bigint.toConst());
+        return mod.intValue_big(ty, result_bigint.toConst());
     }
 
     pub fn shlTrunc(
@@ -4208,10 +3955,8 @@ pub const Value = struct {
         if (ty.zigTypeTag(mod) == .Vector) {
             const result_data = try arena.alloc(Value, ty.vectorLen(mod));
             for (result_data, 0..) |*scalar, i| {
-                var lhs_buf: Value.ElemValueBuffer = undefined;
-                var rhs_buf: Value.ElemValueBuffer = undefined;
-                const lhs_elem = lhs.elemValueBuffer(mod, i, &lhs_buf);
-                const rhs_elem = rhs.elemValueBuffer(mod, i, &rhs_buf);
+                const lhs_elem = try lhs.elemValue(mod, i);
+                const rhs_elem = try rhs.elemValue(mod, i);
                 scalar.* = try shlTruncScalar(lhs_elem, rhs_elem, ty.scalarType(mod), arena, mod);
             }
             return Value.Tag.aggregate.create(arena, result_data);
@@ -4235,19 +3980,18 @@ pub const Value = struct {
     pub fn shr(lhs: Value, rhs: Value, ty: Type, allocator: Allocator, mod: *Module) !Value {
         if (ty.zigTypeTag(mod) == .Vector) {
             const result_data = try allocator.alloc(Value, ty.vectorLen(mod));
+            const scalar_ty = ty.scalarType(mod);
             for (result_data, 0..) |*scalar, i| {
-                var lhs_buf: Value.ElemValueBuffer = undefined;
-                var rhs_buf: Value.ElemValueBuffer = undefined;
-                const lhs_elem = lhs.elemValueBuffer(mod, i, &lhs_buf);
-                const rhs_elem = rhs.elemValueBuffer(mod, i, &rhs_buf);
-                scalar.* = try shrScalar(lhs_elem, rhs_elem, allocator, mod);
+                const lhs_elem = try lhs.elemValue(mod, i);
+                const rhs_elem = try rhs.elemValue(mod, i);
+                scalar.* = try shrScalar(lhs_elem, rhs_elem, scalar_ty, allocator, mod);
             }
             return Value.Tag.aggregate.create(allocator, result_data);
         }
-        return shrScalar(lhs, rhs, allocator, mod);
+        return shrScalar(lhs, rhs, ty, allocator, mod);
     }
 
-    pub fn shrScalar(lhs: Value, rhs: Value, allocator: Allocator, mod: *Module) !Value {
+    pub fn shrScalar(lhs: Value, rhs: Value, ty: Type, allocator: Allocator, mod: *Module) !Value {
         // TODO is this a performance issue? maybe we should try the operation without
         // resorting to BigInt first.
         var lhs_space: Value.BigIntSpace = undefined;
@@ -4275,7 +4019,7 @@ pub const Value = struct {
             .len = undefined,
         };
         result_bigint.shiftRight(lhs_bigint, shift);
-        return fromBigInt(allocator, result_bigint.toConst());
+        return mod.intValue_big(ty, result_bigint.toConst());
     }
 
     pub fn floatNeg(
@@ -4284,31 +4028,30 @@ pub const Value = struct {
         arena: Allocator,
         mod: *Module,
     ) !Value {
-        const target = mod.getTarget();
         if (float_type.zigTypeTag(mod) == .Vector) {
             const result_data = try arena.alloc(Value, float_type.vectorLen(mod));
             for (result_data, 0..) |*scalar, i| {
-                var buf: Value.ElemValueBuffer = undefined;
-                const elem_val = val.elemValueBuffer(mod, i, &buf);
-                scalar.* = try floatNegScalar(elem_val, float_type.scalarType(mod), arena, target);
+                const elem_val = try val.elemValue(mod, i);
+                scalar.* = try floatNegScalar(elem_val, float_type.scalarType(mod), arena, mod);
             }
             return Value.Tag.aggregate.create(arena, result_data);
         }
-        return floatNegScalar(val, float_type, arena, target);
+        return floatNegScalar(val, float_type, arena, mod);
     }
 
     pub fn floatNegScalar(
         val: Value,
         float_type: Type,
         arena: Allocator,
-        target: Target,
+        mod: *const Module,
     ) !Value {
+        const target = mod.getTarget();
         switch (float_type.floatBits(target)) {
-            16 => return Value.Tag.float_16.create(arena, -val.toFloat(f16)),
-            32 => return Value.Tag.float_32.create(arena, -val.toFloat(f32)),
-            64 => return Value.Tag.float_64.create(arena, -val.toFloat(f64)),
-            80 => return Value.Tag.float_80.create(arena, -val.toFloat(f80)),
-            128 => return Value.Tag.float_128.create(arena, -val.toFloat(f128)),
+            16 => return Value.Tag.float_16.create(arena, -val.toFloat(f16, mod)),
+            32 => return Value.Tag.float_32.create(arena, -val.toFloat(f32, mod)),
+            64 => return Value.Tag.float_64.create(arena, -val.toFloat(f64, mod)),
+            80 => return Value.Tag.float_80.create(arena, -val.toFloat(f80, mod)),
+            128 => return Value.Tag.float_128.create(arena, -val.toFloat(f128, mod)),
             else => unreachable,
         }
     }
@@ -4320,19 +4063,16 @@ pub const Value = struct {
         arena: Allocator,
         mod: *Module,
     ) !Value {
-        const target = mod.getTarget();
         if (float_type.zigTypeTag(mod) == .Vector) {
             const result_data = try arena.alloc(Value, float_type.vectorLen(mod));
             for (result_data, 0..) |*scalar, i| {
-                var lhs_buf: Value.ElemValueBuffer = undefined;
-                var rhs_buf: Value.ElemValueBuffer = undefined;
-                const lhs_elem = lhs.elemValueBuffer(mod, i, &lhs_buf);
-                const rhs_elem = rhs.elemValueBuffer(mod, i, &rhs_buf);
-                scalar.* = try floatDivScalar(lhs_elem, rhs_elem, float_type.scalarType(mod), arena, target);
+                const lhs_elem = try lhs.elemValue(mod, i);
+                const rhs_elem = try rhs.elemValue(mod, i);
+                scalar.* = try floatDivScalar(lhs_elem, rhs_elem, float_type.scalarType(mod), arena, mod);
             }
             return Value.Tag.aggregate.create(arena, result_data);
         }
-        return floatDivScalar(lhs, rhs, float_type, arena, target);
+        return floatDivScalar(lhs, rhs, float_type, arena, mod);
     }
 
     pub fn floatDivScalar(
@@ -4340,32 +4080,33 @@ pub const Value = struct {
         rhs: Value,
         float_type: Type,
         arena: Allocator,
-        target: Target,
+        mod: *const Module,
     ) !Value {
+        const target = mod.getTarget();
         switch (float_type.floatBits(target)) {
             16 => {
-                const lhs_val = lhs.toFloat(f16);
-                const rhs_val = rhs.toFloat(f16);
+                const lhs_val = lhs.toFloat(f16, mod);
+                const rhs_val = rhs.toFloat(f16, mod);
                 return Value.Tag.float_16.create(arena, lhs_val / rhs_val);
             },
             32 => {
-                const lhs_val = lhs.toFloat(f32);
-                const rhs_val = rhs.toFloat(f32);
+                const lhs_val = lhs.toFloat(f32, mod);
+                const rhs_val = rhs.toFloat(f32, mod);
                 return Value.Tag.float_32.create(arena, lhs_val / rhs_val);
             },
             64 => {
-                const lhs_val = lhs.toFloat(f64);
-                const rhs_val = rhs.toFloat(f64);
+                const lhs_val = lhs.toFloat(f64, mod);
+                const rhs_val = rhs.toFloat(f64, mod);
                 return Value.Tag.float_64.create(arena, lhs_val / rhs_val);
             },
             80 => {
-                const lhs_val = lhs.toFloat(f80);
-                const rhs_val = rhs.toFloat(f80);
+                const lhs_val = lhs.toFloat(f80, mod);
+                const rhs_val = rhs.toFloat(f80, mod);
                 return Value.Tag.float_80.create(arena, lhs_val / rhs_val);
             },
             128 => {
-                const lhs_val = lhs.toFloat(f128);
-                const rhs_val = rhs.toFloat(f128);
+                const lhs_val = lhs.toFloat(f128, mod);
+                const rhs_val = rhs.toFloat(f128, mod);
                 return Value.Tag.float_128.create(arena, lhs_val / rhs_val);
             },
             else => unreachable,
@@ -4379,19 +4120,16 @@ pub const Value = struct {
         arena: Allocator,
         mod: *Module,
     ) !Value {
-        const target = mod.getTarget();
         if (float_type.zigTypeTag(mod) == .Vector) {
             const result_data = try arena.alloc(Value, float_type.vectorLen(mod));
             for (result_data, 0..) |*scalar, i| {
-                var lhs_buf: Value.ElemValueBuffer = undefined;
-                var rhs_buf: Value.ElemValueBuffer = undefined;
-                const lhs_elem = lhs.elemValueBuffer(mod, i, &lhs_buf);
-                const rhs_elem = rhs.elemValueBuffer(mod, i, &rhs_buf);
-                scalar.* = try floatDivFloorScalar(lhs_elem, rhs_elem, float_type.scalarType(mod), arena, target);
+                const lhs_elem = try lhs.elemValue(mod, i);
+                const rhs_elem = try rhs.elemValue(mod, i);
+                scalar.* = try floatDivFloorScalar(lhs_elem, rhs_elem, float_type.scalarType(mod), arena, mod);
             }
             return Value.Tag.aggregate.create(arena, result_data);
         }
-        return floatDivFloorScalar(lhs, rhs, float_type, arena, target);
+        return floatDivFloorScalar(lhs, rhs, float_type, arena, mod);
     }
 
     pub fn floatDivFloorScalar(
@@ -4399,32 +4137,33 @@ pub const Value = struct {
         rhs: Value,
         float_type: Type,
         arena: Allocator,
-        target: Target,
+        mod: *const Module,
     ) !Value {
+        const target = mod.getTarget();
         switch (float_type.floatBits(target)) {
             16 => {
-                const lhs_val = lhs.toFloat(f16);
-                const rhs_val = rhs.toFloat(f16);
+                const lhs_val = lhs.toFloat(f16, mod);
+                const rhs_val = rhs.toFloat(f16, mod);
                 return Value.Tag.float_16.create(arena, @divFloor(lhs_val, rhs_val));
             },
             32 => {
-                const lhs_val = lhs.toFloat(f32);
-                const rhs_val = rhs.toFloat(f32);
+                const lhs_val = lhs.toFloat(f32, mod);
+                const rhs_val = rhs.toFloat(f32, mod);
                 return Value.Tag.float_32.create(arena, @divFloor(lhs_val, rhs_val));
             },
             64 => {
-                const lhs_val = lhs.toFloat(f64);
-                const rhs_val = rhs.toFloat(f64);
+                const lhs_val = lhs.toFloat(f64, mod);
+                const rhs_val = rhs.toFloat(f64, mod);
                 return Value.Tag.float_64.create(arena, @divFloor(lhs_val, rhs_val));
             },
             80 => {
-                const lhs_val = lhs.toFloat(f80);
-                const rhs_val = rhs.toFloat(f80);
+                const lhs_val = lhs.toFloat(f80, mod);
+                const rhs_val = rhs.toFloat(f80, mod);
                 return Value.Tag.float_80.create(arena, @divFloor(lhs_val, rhs_val));
             },
             128 => {
-                const lhs_val = lhs.toFloat(f128);
-                const rhs_val = rhs.toFloat(f128);
+                const lhs_val = lhs.toFloat(f128, mod);
+                const rhs_val = rhs.toFloat(f128, mod);
                 return Value.Tag.float_128.create(arena, @divFloor(lhs_val, rhs_val));
             },
             else => unreachable,
@@ -4438,19 +4177,16 @@ pub const Value = struct {
         arena: Allocator,
         mod: *Module,
     ) !Value {
-        const target = mod.getTarget();
         if (float_type.zigTypeTag(mod) == .Vector) {
             const result_data = try arena.alloc(Value, float_type.vectorLen(mod));
             for (result_data, 0..) |*scalar, i| {
-                var lhs_buf: Value.ElemValueBuffer = undefined;
-                var rhs_buf: Value.ElemValueBuffer = undefined;
-                const lhs_elem = lhs.elemValueBuffer(mod, i, &lhs_buf);
-                const rhs_elem = rhs.elemValueBuffer(mod, i, &rhs_buf);
-                scalar.* = try floatDivTruncScalar(lhs_elem, rhs_elem, float_type.scalarType(mod), arena, target);
+                const lhs_elem = try lhs.elemValue(mod, i);
+                const rhs_elem = try rhs.elemValue(mod, i);
+                scalar.* = try floatDivTruncScalar(lhs_elem, rhs_elem, float_type.scalarType(mod), arena, mod);
             }
             return Value.Tag.aggregate.create(arena, result_data);
         }
-        return floatDivTruncScalar(lhs, rhs, float_type, arena, target);
+        return floatDivTruncScalar(lhs, rhs, float_type, arena, mod);
     }
 
     pub fn floatDivTruncScalar(
@@ -4458,32 +4194,33 @@ pub const Value = struct {
         rhs: Value,
         float_type: Type,
         arena: Allocator,
-        target: Target,
+        mod: *const Module,
     ) !Value {
+        const target = mod.getTarget();
         switch (float_type.floatBits(target)) {
             16 => {
-                const lhs_val = lhs.toFloat(f16);
-                const rhs_val = rhs.toFloat(f16);
+                const lhs_val = lhs.toFloat(f16, mod);
+                const rhs_val = rhs.toFloat(f16, mod);
                 return Value.Tag.float_16.create(arena, @divTrunc(lhs_val, rhs_val));
             },
             32 => {
-                const lhs_val = lhs.toFloat(f32);
-                const rhs_val = rhs.toFloat(f32);
+                const lhs_val = lhs.toFloat(f32, mod);
+                const rhs_val = rhs.toFloat(f32, mod);
                 return Value.Tag.float_32.create(arena, @divTrunc(lhs_val, rhs_val));
             },
             64 => {
-                const lhs_val = lhs.toFloat(f64);
-                const rhs_val = rhs.toFloat(f64);
+                const lhs_val = lhs.toFloat(f64, mod);
+                const rhs_val = rhs.toFloat(f64, mod);
                 return Value.Tag.float_64.create(arena, @divTrunc(lhs_val, rhs_val));
             },
             80 => {
-                const lhs_val = lhs.toFloat(f80);
-                const rhs_val = rhs.toFloat(f80);
+                const lhs_val = lhs.toFloat(f80, mod);
+                const rhs_val = rhs.toFloat(f80, mod);
                 return Value.Tag.float_80.create(arena, @divTrunc(lhs_val, rhs_val));
             },
             128 => {
-                const lhs_val = lhs.toFloat(f128);
-                const rhs_val = rhs.toFloat(f128);
+                const lhs_val = lhs.toFloat(f128, mod);
+                const rhs_val = rhs.toFloat(f128, mod);
                 return Value.Tag.float_128.create(arena, @divTrunc(lhs_val, rhs_val));
             },
             else => unreachable,
@@ -4497,19 +4234,16 @@ pub const Value = struct {
         arena: Allocator,
         mod: *Module,
     ) !Value {
-        const target = mod.getTarget();
         if (float_type.zigTypeTag(mod) == .Vector) {
             const result_data = try arena.alloc(Value, float_type.vectorLen(mod));
             for (result_data, 0..) |*scalar, i| {
-                var lhs_buf: Value.ElemValueBuffer = undefined;
-                var rhs_buf: Value.ElemValueBuffer = undefined;
-                const lhs_elem = lhs.elemValueBuffer(mod, i, &lhs_buf);
-                const rhs_elem = rhs.elemValueBuffer(mod, i, &rhs_buf);
-                scalar.* = try floatMulScalar(lhs_elem, rhs_elem, float_type.scalarType(mod), arena, target);
+                const lhs_elem = try lhs.elemValue(mod, i);
+                const rhs_elem = try rhs.elemValue(mod, i);
+                scalar.* = try floatMulScalar(lhs_elem, rhs_elem, float_type.scalarType(mod), arena, mod);
             }
             return Value.Tag.aggregate.create(arena, result_data);
         }
-        return floatMulScalar(lhs, rhs, float_type, arena, target);
+        return floatMulScalar(lhs, rhs, float_type, arena, mod);
     }
 
     pub fn floatMulScalar(
@@ -4517,32 +4251,33 @@ pub const Value = struct {
         rhs: Value,
         float_type: Type,
         arena: Allocator,
-        target: Target,
+        mod: *const Module,
     ) !Value {
+        const target = mod.getTarget();
         switch (float_type.floatBits(target)) {
             16 => {
-                const lhs_val = lhs.toFloat(f16);
-                const rhs_val = rhs.toFloat(f16);
+                const lhs_val = lhs.toFloat(f16, mod);
+                const rhs_val = rhs.toFloat(f16, mod);
                 return Value.Tag.float_16.create(arena, lhs_val * rhs_val);
             },
             32 => {
-                const lhs_val = lhs.toFloat(f32);
-                const rhs_val = rhs.toFloat(f32);
+                const lhs_val = lhs.toFloat(f32, mod);
+                const rhs_val = rhs.toFloat(f32, mod);
                 return Value.Tag.float_32.create(arena, lhs_val * rhs_val);
             },
             64 => {
-                const lhs_val = lhs.toFloat(f64);
-                const rhs_val = rhs.toFloat(f64);
+                const lhs_val = lhs.toFloat(f64, mod);
+                const rhs_val = rhs.toFloat(f64, mod);
                 return Value.Tag.float_64.create(arena, lhs_val * rhs_val);
             },
             80 => {
-                const lhs_val = lhs.toFloat(f80);
-                const rhs_val = rhs.toFloat(f80);
+                const lhs_val = lhs.toFloat(f80, mod);
+                const rhs_val = rhs.toFloat(f80, mod);
                 return Value.Tag.float_80.create(arena, lhs_val * rhs_val);
             },
             128 => {
-                const lhs_val = lhs.toFloat(f128);
-                const rhs_val = rhs.toFloat(f128);
+                const lhs_val = lhs.toFloat(f128, mod);
+                const rhs_val = rhs.toFloat(f128, mod);
                 return Value.Tag.float_128.create(arena, lhs_val * rhs_val);
             },
             else => unreachable,
@@ -4550,39 +4285,38 @@ pub const Value = struct {
     }
 
     pub fn sqrt(val: Value, float_type: Type, arena: Allocator, mod: *Module) !Value {
-        const target = mod.getTarget();
         if (float_type.zigTypeTag(mod) == .Vector) {
             const result_data = try arena.alloc(Value, float_type.vectorLen(mod));
             for (result_data, 0..) |*scalar, i| {
-                var buf: Value.ElemValueBuffer = undefined;
-                const elem_val = val.elemValueBuffer(mod, i, &buf);
-                scalar.* = try sqrtScalar(elem_val, float_type.scalarType(mod), arena, target);
+                const elem_val = try val.elemValue(mod, i);
+                scalar.* = try sqrtScalar(elem_val, float_type.scalarType(mod), arena, mod);
             }
             return Value.Tag.aggregate.create(arena, result_data);
         }
-        return sqrtScalar(val, float_type, arena, target);
+        return sqrtScalar(val, float_type, arena, mod);
     }
 
-    pub fn sqrtScalar(val: Value, float_type: Type, arena: Allocator, target: Target) Allocator.Error!Value {
+    pub fn sqrtScalar(val: Value, float_type: Type, arena: Allocator, mod: *const Module) Allocator.Error!Value {
+        const target = mod.getTarget();
         switch (float_type.floatBits(target)) {
             16 => {
-                const f = val.toFloat(f16);
+                const f = val.toFloat(f16, mod);
                 return Value.Tag.float_16.create(arena, @sqrt(f));
             },
             32 => {
-                const f = val.toFloat(f32);
+                const f = val.toFloat(f32, mod);
                 return Value.Tag.float_32.create(arena, @sqrt(f));
             },
             64 => {
-                const f = val.toFloat(f64);
+                const f = val.toFloat(f64, mod);
                 return Value.Tag.float_64.create(arena, @sqrt(f));
             },
             80 => {
-                const f = val.toFloat(f80);
+                const f = val.toFloat(f80, mod);
                 return Value.Tag.float_80.create(arena, @sqrt(f));
             },
             128 => {
-                const f = val.toFloat(f128);
+                const f = val.toFloat(f128, mod);
                 return Value.Tag.float_128.create(arena, @sqrt(f));
             },
             else => unreachable,
@@ -4590,39 +4324,38 @@ pub const Value = struct {
     }
 
     pub fn sin(val: Value, float_type: Type, arena: Allocator, mod: *Module) !Value {
-        const target = mod.getTarget();
         if (float_type.zigTypeTag(mod) == .Vector) {
             const result_data = try arena.alloc(Value, float_type.vectorLen(mod));
             for (result_data, 0..) |*scalar, i| {
-                var buf: Value.ElemValueBuffer = undefined;
-                const elem_val = val.elemValueBuffer(mod, i, &buf);
-                scalar.* = try sinScalar(elem_val, float_type.scalarType(mod), arena, target);
+                const elem_val = try val.elemValue(mod, i);
+                scalar.* = try sinScalar(elem_val, float_type.scalarType(mod), arena, mod);
             }
             return Value.Tag.aggregate.create(arena, result_data);
         }
-        return sinScalar(val, float_type, arena, target);
+        return sinScalar(val, float_type, arena, mod);
     }
 
-    pub fn sinScalar(val: Value, float_type: Type, arena: Allocator, target: Target) Allocator.Error!Value {
+    pub fn sinScalar(val: Value, float_type: Type, arena: Allocator, mod: *const Module) Allocator.Error!Value {
+        const target = mod.getTarget();
         switch (float_type.floatBits(target)) {
             16 => {
-                const f = val.toFloat(f16);
+                const f = val.toFloat(f16, mod);
                 return Value.Tag.float_16.create(arena, @sin(f));
             },
             32 => {
-                const f = val.toFloat(f32);
+                const f = val.toFloat(f32, mod);
                 return Value.Tag.float_32.create(arena, @sin(f));
             },
             64 => {
-                const f = val.toFloat(f64);
+                const f = val.toFloat(f64, mod);
                 return Value.Tag.float_64.create(arena, @sin(f));
             },
             80 => {
-                const f = val.toFloat(f80);
+                const f = val.toFloat(f80, mod);
                 return Value.Tag.float_80.create(arena, @sin(f));
             },
             128 => {
-                const f = val.toFloat(f128);
+                const f = val.toFloat(f128, mod);
                 return Value.Tag.float_128.create(arena, @sin(f));
             },
             else => unreachable,
@@ -4630,39 +4363,38 @@ pub const Value = struct {
     }
 
     pub fn cos(val: Value, float_type: Type, arena: Allocator, mod: *Module) !Value {
-        const target = mod.getTarget();
         if (float_type.zigTypeTag(mod) == .Vector) {
             const result_data = try arena.alloc(Value, float_type.vectorLen(mod));
             for (result_data, 0..) |*scalar, i| {
-                var buf: Value.ElemValueBuffer = undefined;
-                const elem_val = val.elemValueBuffer(mod, i, &buf);
-                scalar.* = try cosScalar(elem_val, float_type.scalarType(mod), arena, target);
+                const elem_val = try val.elemValue(mod, i);
+                scalar.* = try cosScalar(elem_val, float_type.scalarType(mod), arena, mod);
             }
             return Value.Tag.aggregate.create(arena, result_data);
         }
-        return cosScalar(val, float_type, arena, target);
+        return cosScalar(val, float_type, arena, mod);
     }
 
-    pub fn cosScalar(val: Value, float_type: Type, arena: Allocator, target: Target) Allocator.Error!Value {
+    pub fn cosScalar(val: Value, float_type: Type, arena: Allocator, mod: *const Module) Allocator.Error!Value {
+        const target = mod.getTarget();
         switch (float_type.floatBits(target)) {
             16 => {
-                const f = val.toFloat(f16);
+                const f = val.toFloat(f16, mod);
                 return Value.Tag.float_16.create(arena, @cos(f));
             },
             32 => {
-                const f = val.toFloat(f32);
+                const f = val.toFloat(f32, mod);
                 return Value.Tag.float_32.create(arena, @cos(f));
             },
             64 => {
-                const f = val.toFloat(f64);
+                const f = val.toFloat(f64, mod);
                 return Value.Tag.float_64.create(arena, @cos(f));
             },
             80 => {
-                const f = val.toFloat(f80);
+                const f = val.toFloat(f80, mod);
                 return Value.Tag.float_80.create(arena, @cos(f));
             },
             128 => {
-                const f = val.toFloat(f128);
+                const f = val.toFloat(f128, mod);
                 return Value.Tag.float_128.create(arena, @cos(f));
             },
             else => unreachable,
@@ -4670,39 +4402,38 @@ pub const Value = struct {
     }
 
     pub fn tan(val: Value, float_type: Type, arena: Allocator, mod: *Module) !Value {
-        const target = mod.getTarget();
         if (float_type.zigTypeTag(mod) == .Vector) {
             const result_data = try arena.alloc(Value, float_type.vectorLen(mod));
             for (result_data, 0..) |*scalar, i| {
-                var buf: Value.ElemValueBuffer = undefined;
-                const elem_val = val.elemValueBuffer(mod, i, &buf);
-                scalar.* = try tanScalar(elem_val, float_type.scalarType(mod), arena, target);
+                const elem_val = try val.elemValue(mod, i);
+                scalar.* = try tanScalar(elem_val, float_type.scalarType(mod), arena, mod);
             }
             return Value.Tag.aggregate.create(arena, result_data);
         }
-        return tanScalar(val, float_type, arena, target);
+        return tanScalar(val, float_type, arena, mod);
     }
 
-    pub fn tanScalar(val: Value, float_type: Type, arena: Allocator, target: Target) Allocator.Error!Value {
+    pub fn tanScalar(val: Value, float_type: Type, arena: Allocator, mod: *const Module) Allocator.Error!Value {
+        const target = mod.getTarget();
         switch (float_type.floatBits(target)) {
             16 => {
-                const f = val.toFloat(f16);
+                const f = val.toFloat(f16, mod);
                 return Value.Tag.float_16.create(arena, @tan(f));
             },
             32 => {
-                const f = val.toFloat(f32);
+                const f = val.toFloat(f32, mod);
                 return Value.Tag.float_32.create(arena, @tan(f));
             },
             64 => {
-                const f = val.toFloat(f64);
+                const f = val.toFloat(f64, mod);
                 return Value.Tag.float_64.create(arena, @tan(f));
             },
             80 => {
-                const f = val.toFloat(f80);
+                const f = val.toFloat(f80, mod);
                 return Value.Tag.float_80.create(arena, @tan(f));
             },
             128 => {
-                const f = val.toFloat(f128);
+                const f = val.toFloat(f128, mod);
                 return Value.Tag.float_128.create(arena, @tan(f));
             },
             else => unreachable,
@@ -4710,39 +4441,38 @@ pub const Value = struct {
     }
 
     pub fn exp(val: Value, float_type: Type, arena: Allocator, mod: *Module) !Value {
-        const target = mod.getTarget();
         if (float_type.zigTypeTag(mod) == .Vector) {
             const result_data = try arena.alloc(Value, float_type.vectorLen(mod));
             for (result_data, 0..) |*scalar, i| {
-                var buf: Value.ElemValueBuffer = undefined;
-                const elem_val = val.elemValueBuffer(mod, i, &buf);
-                scalar.* = try expScalar(elem_val, float_type.scalarType(mod), arena, target);
+                const elem_val = try val.elemValue(mod, i);
+                scalar.* = try expScalar(elem_val, float_type.scalarType(mod), arena, mod);
             }
             return Value.Tag.aggregate.create(arena, result_data);
         }
-        return expScalar(val, float_type, arena, target);
+        return expScalar(val, float_type, arena, mod);
     }
 
-    pub fn expScalar(val: Value, float_type: Type, arena: Allocator, target: Target) Allocator.Error!Value {
+    pub fn expScalar(val: Value, float_type: Type, arena: Allocator, mod: *const Module) Allocator.Error!Value {
+        const target = mod.getTarget();
         switch (float_type.floatBits(target)) {
             16 => {
-                const f = val.toFloat(f16);
+                const f = val.toFloat(f16, mod);
                 return Value.Tag.float_16.create(arena, @exp(f));
             },
             32 => {
-                const f = val.toFloat(f32);
+                const f = val.toFloat(f32, mod);
                 return Value.Tag.float_32.create(arena, @exp(f));
             },
             64 => {
-                const f = val.toFloat(f64);
+                const f = val.toFloat(f64, mod);
                 return Value.Tag.float_64.create(arena, @exp(f));
             },
             80 => {
-                const f = val.toFloat(f80);
+                const f = val.toFloat(f80, mod);
                 return Value.Tag.float_80.create(arena, @exp(f));
             },
             128 => {
-                const f = val.toFloat(f128);
+                const f = val.toFloat(f128, mod);
                 return Value.Tag.float_128.create(arena, @exp(f));
             },
             else => unreachable,
@@ -4750,39 +4480,38 @@ pub const Value = struct {
     }
 
     pub fn exp2(val: Value, float_type: Type, arena: Allocator, mod: *Module) !Value {
-        const target = mod.getTarget();
         if (float_type.zigTypeTag(mod) == .Vector) {
             const result_data = try arena.alloc(Value, float_type.vectorLen(mod));
             for (result_data, 0..) |*scalar, i| {
-                var buf: Value.ElemValueBuffer = undefined;
-                const elem_val = val.elemValueBuffer(mod, i, &buf);
-                scalar.* = try exp2Scalar(elem_val, float_type.scalarType(mod), arena, target);
+                const elem_val = try val.elemValue(mod, i);
+                scalar.* = try exp2Scalar(elem_val, float_type.scalarType(mod), arena, mod);
             }
             return Value.Tag.aggregate.create(arena, result_data);
         }
-        return exp2Scalar(val, float_type, arena, target);
+        return exp2Scalar(val, float_type, arena, mod);
     }
 
-    pub fn exp2Scalar(val: Value, float_type: Type, arena: Allocator, target: Target) Allocator.Error!Value {
+    pub fn exp2Scalar(val: Value, float_type: Type, arena: Allocator, mod: *const Module) Allocator.Error!Value {
+        const target = mod.getTarget();
         switch (float_type.floatBits(target)) {
             16 => {
-                const f = val.toFloat(f16);
+                const f = val.toFloat(f16, mod);
                 return Value.Tag.float_16.create(arena, @exp2(f));
             },
             32 => {
-                const f = val.toFloat(f32);
+                const f = val.toFloat(f32, mod);
                 return Value.Tag.float_32.create(arena, @exp2(f));
             },
             64 => {
-                const f = val.toFloat(f64);
+                const f = val.toFloat(f64, mod);
                 return Value.Tag.float_64.create(arena, @exp2(f));
             },
             80 => {
-                const f = val.toFloat(f80);
+                const f = val.toFloat(f80, mod);
                 return Value.Tag.float_80.create(arena, @exp2(f));
             },
             128 => {
-                const f = val.toFloat(f128);
+                const f = val.toFloat(f128, mod);
                 return Value.Tag.float_128.create(arena, @exp2(f));
             },
             else => unreachable,
@@ -4790,39 +4519,38 @@ pub const Value = struct {
     }
 
     pub fn log(val: Value, float_type: Type, arena: Allocator, mod: *Module) !Value {
-        const target = mod.getTarget();
         if (float_type.zigTypeTag(mod) == .Vector) {
             const result_data = try arena.alloc(Value, float_type.vectorLen(mod));
             for (result_data, 0..) |*scalar, i| {
-                var buf: Value.ElemValueBuffer = undefined;
-                const elem_val = val.elemValueBuffer(mod, i, &buf);
-                scalar.* = try logScalar(elem_val, float_type.scalarType(mod), arena, target);
+                const elem_val = try val.elemValue(mod, i);
+                scalar.* = try logScalar(elem_val, float_type.scalarType(mod), arena, mod);
             }
             return Value.Tag.aggregate.create(arena, result_data);
         }
-        return logScalar(val, float_type, arena, target);
+        return logScalar(val, float_type, arena, mod);
     }
 
-    pub fn logScalar(val: Value, float_type: Type, arena: Allocator, target: Target) Allocator.Error!Value {
+    pub fn logScalar(val: Value, float_type: Type, arena: Allocator, mod: *const Module) Allocator.Error!Value {
+        const target = mod.getTarget();
         switch (float_type.floatBits(target)) {
             16 => {
-                const f = val.toFloat(f16);
+                const f = val.toFloat(f16, mod);
                 return Value.Tag.float_16.create(arena, @log(f));
             },
             32 => {
-                const f = val.toFloat(f32);
+                const f = val.toFloat(f32, mod);
                 return Value.Tag.float_32.create(arena, @log(f));
             },
             64 => {
-                const f = val.toFloat(f64);
+                const f = val.toFloat(f64, mod);
                 return Value.Tag.float_64.create(arena, @log(f));
             },
             80 => {
-                const f = val.toFloat(f80);
+                const f = val.toFloat(f80, mod);
                 return Value.Tag.float_80.create(arena, @log(f));
             },
             128 => {
-                const f = val.toFloat(f128);
+                const f = val.toFloat(f128, mod);
                 return Value.Tag.float_128.create(arena, @log(f));
             },
             else => unreachable,
@@ -4830,39 +4558,38 @@ pub const Value = struct {
     }
 
     pub fn log2(val: Value, float_type: Type, arena: Allocator, mod: *Module) !Value {
-        const target = mod.getTarget();
         if (float_type.zigTypeTag(mod) == .Vector) {
             const result_data = try arena.alloc(Value, float_type.vectorLen(mod));
             for (result_data, 0..) |*scalar, i| {
-                var buf: Value.ElemValueBuffer = undefined;
-                const elem_val = val.elemValueBuffer(mod, i, &buf);
-                scalar.* = try log2Scalar(elem_val, float_type.scalarType(mod), arena, target);
+                const elem_val = try val.elemValue(mod, i);
+                scalar.* = try log2Scalar(elem_val, float_type.scalarType(mod), arena, mod);
             }
             return Value.Tag.aggregate.create(arena, result_data);
         }
-        return log2Scalar(val, float_type, arena, target);
+        return log2Scalar(val, float_type, arena, mod);
     }
 
-    pub fn log2Scalar(val: Value, float_type: Type, arena: Allocator, target: Target) Allocator.Error!Value {
+    pub fn log2Scalar(val: Value, float_type: Type, arena: Allocator, mod: *const Module) Allocator.Error!Value {
+        const target = mod.getTarget();
         switch (float_type.floatBits(target)) {
             16 => {
-                const f = val.toFloat(f16);
+                const f = val.toFloat(f16, mod);
                 return Value.Tag.float_16.create(arena, @log2(f));
             },
             32 => {
-                const f = val.toFloat(f32);
+                const f = val.toFloat(f32, mod);
                 return Value.Tag.float_32.create(arena, @log2(f));
             },
             64 => {
-                const f = val.toFloat(f64);
+                const f = val.toFloat(f64, mod);
                 return Value.Tag.float_64.create(arena, @log2(f));
             },
             80 => {
-                const f = val.toFloat(f80);
+                const f = val.toFloat(f80, mod);
                 return Value.Tag.float_80.create(arena, @log2(f));
             },
             128 => {
-                const f = val.toFloat(f128);
+                const f = val.toFloat(f128, mod);
                 return Value.Tag.float_128.create(arena, @log2(f));
             },
             else => unreachable,
@@ -4870,39 +4597,38 @@ pub const Value = struct {
     }
 
     pub fn log10(val: Value, float_type: Type, arena: Allocator, mod: *Module) !Value {
-        const target = mod.getTarget();
         if (float_type.zigTypeTag(mod) == .Vector) {
             const result_data = try arena.alloc(Value, float_type.vectorLen(mod));
             for (result_data, 0..) |*scalar, i| {
-                var buf: Value.ElemValueBuffer = undefined;
-                const elem_val = val.elemValueBuffer(mod, i, &buf);
-                scalar.* = try log10Scalar(elem_val, float_type.scalarType(mod), arena, target);
+                const elem_val = try val.elemValue(mod, i);
+                scalar.* = try log10Scalar(elem_val, float_type.scalarType(mod), arena, mod);
             }
             return Value.Tag.aggregate.create(arena, result_data);
         }
-        return log10Scalar(val, float_type, arena, target);
+        return log10Scalar(val, float_type, arena, mod);
     }
 
-    pub fn log10Scalar(val: Value, float_type: Type, arena: Allocator, target: Target) Allocator.Error!Value {
+    pub fn log10Scalar(val: Value, float_type: Type, arena: Allocator, mod: *const Module) Allocator.Error!Value {
+        const target = mod.getTarget();
         switch (float_type.floatBits(target)) {
             16 => {
-                const f = val.toFloat(f16);
+                const f = val.toFloat(f16, mod);
                 return Value.Tag.float_16.create(arena, @log10(f));
             },
             32 => {
-                const f = val.toFloat(f32);
+                const f = val.toFloat(f32, mod);
                 return Value.Tag.float_32.create(arena, @log10(f));
             },
             64 => {
-                const f = val.toFloat(f64);
+                const f = val.toFloat(f64, mod);
                 return Value.Tag.float_64.create(arena, @log10(f));
             },
             80 => {
-                const f = val.toFloat(f80);
+                const f = val.toFloat(f80, mod);
                 return Value.Tag.float_80.create(arena, @log10(f));
             },
             128 => {
-                const f = val.toFloat(f128);
+                const f = val.toFloat(f128, mod);
                 return Value.Tag.float_128.create(arena, @log10(f));
             },
             else => unreachable,
@@ -4910,39 +4636,38 @@ pub const Value = struct {
     }
 
     pub fn fabs(val: Value, float_type: Type, arena: Allocator, mod: *Module) !Value {
-        const target = mod.getTarget();
         if (float_type.zigTypeTag(mod) == .Vector) {
             const result_data = try arena.alloc(Value, float_type.vectorLen(mod));
             for (result_data, 0..) |*scalar, i| {
-                var buf: Value.ElemValueBuffer = undefined;
-                const elem_val = val.elemValueBuffer(mod, i, &buf);
-                scalar.* = try fabsScalar(elem_val, float_type.scalarType(mod), arena, target);
+                const elem_val = try val.elemValue(mod, i);
+                scalar.* = try fabsScalar(elem_val, float_type.scalarType(mod), arena, mod);
             }
             return Value.Tag.aggregate.create(arena, result_data);
         }
-        return fabsScalar(val, float_type, arena, target);
+        return fabsScalar(val, float_type, arena, mod);
     }
 
-    pub fn fabsScalar(val: Value, float_type: Type, arena: Allocator, target: Target) Allocator.Error!Value {
+    pub fn fabsScalar(val: Value, float_type: Type, arena: Allocator, mod: *const Module) Allocator.Error!Value {
+        const target = mod.getTarget();
         switch (float_type.floatBits(target)) {
             16 => {
-                const f = val.toFloat(f16);
+                const f = val.toFloat(f16, mod);
                 return Value.Tag.float_16.create(arena, @fabs(f));
             },
             32 => {
-                const f = val.toFloat(f32);
+                const f = val.toFloat(f32, mod);
                 return Value.Tag.float_32.create(arena, @fabs(f));
             },
             64 => {
-                const f = val.toFloat(f64);
+                const f = val.toFloat(f64, mod);
                 return Value.Tag.float_64.create(arena, @fabs(f));
             },
             80 => {
-                const f = val.toFloat(f80);
+                const f = val.toFloat(f80, mod);
                 return Value.Tag.float_80.create(arena, @fabs(f));
             },
             128 => {
-                const f = val.toFloat(f128);
+                const f = val.toFloat(f128, mod);
                 return Value.Tag.float_128.create(arena, @fabs(f));
             },
             else => unreachable,
@@ -4950,39 +4675,38 @@ pub const Value = struct {
     }
 
     pub fn floor(val: Value, float_type: Type, arena: Allocator, mod: *Module) !Value {
-        const target = mod.getTarget();
         if (float_type.zigTypeTag(mod) == .Vector) {
             const result_data = try arena.alloc(Value, float_type.vectorLen(mod));
             for (result_data, 0..) |*scalar, i| {
-                var buf: Value.ElemValueBuffer = undefined;
-                const elem_val = val.elemValueBuffer(mod, i, &buf);
-                scalar.* = try floorScalar(elem_val, float_type.scalarType(mod), arena, target);
+                const elem_val = try val.elemValue(mod, i);
+                scalar.* = try floorScalar(elem_val, float_type.scalarType(mod), arena, mod);
             }
             return Value.Tag.aggregate.create(arena, result_data);
         }
-        return floorScalar(val, float_type, arena, target);
+        return floorScalar(val, float_type, arena, mod);
     }
 
-    pub fn floorScalar(val: Value, float_type: Type, arena: Allocator, target: Target) Allocator.Error!Value {
+    pub fn floorScalar(val: Value, float_type: Type, arena: Allocator, mod: *const Module) Allocator.Error!Value {
+        const target = mod.getTarget();
         switch (float_type.floatBits(target)) {
             16 => {
-                const f = val.toFloat(f16);
+                const f = val.toFloat(f16, mod);
                 return Value.Tag.float_16.create(arena, @floor(f));
             },
             32 => {
-                const f = val.toFloat(f32);
+                const f = val.toFloat(f32, mod);
                 return Value.Tag.float_32.create(arena, @floor(f));
             },
             64 => {
-                const f = val.toFloat(f64);
+                const f = val.toFloat(f64, mod);
                 return Value.Tag.float_64.create(arena, @floor(f));
             },
             80 => {
-                const f = val.toFloat(f80);
+                const f = val.toFloat(f80, mod);
                 return Value.Tag.float_80.create(arena, @floor(f));
             },
             128 => {
-                const f = val.toFloat(f128);
+                const f = val.toFloat(f128, mod);
                 return Value.Tag.float_128.create(arena, @floor(f));
             },
             else => unreachable,
@@ -4990,39 +4714,38 @@ pub const Value = struct {
     }
 
     pub fn ceil(val: Value, float_type: Type, arena: Allocator, mod: *Module) !Value {
-        const target = mod.getTarget();
         if (float_type.zigTypeTag(mod) == .Vector) {
             const result_data = try arena.alloc(Value, float_type.vectorLen(mod));
             for (result_data, 0..) |*scalar, i| {
-                var buf: Value.ElemValueBuffer = undefined;
-                const elem_val = val.elemValueBuffer(mod, i, &buf);
-                scalar.* = try ceilScalar(elem_val, float_type.scalarType(mod), arena, target);
+                const elem_val = try val.elemValue(mod, i);
+                scalar.* = try ceilScalar(elem_val, float_type.scalarType(mod), arena, mod);
             }
             return Value.Tag.aggregate.create(arena, result_data);
         }
-        return ceilScalar(val, float_type, arena, target);
+        return ceilScalar(val, float_type, arena, mod);
     }
 
-    pub fn ceilScalar(val: Value, float_type: Type, arena: Allocator, target: Target) Allocator.Error!Value {
+    pub fn ceilScalar(val: Value, float_type: Type, arena: Allocator, mod: *const Module) Allocator.Error!Value {
+        const target = mod.getTarget();
         switch (float_type.floatBits(target)) {
             16 => {
-                const f = val.toFloat(f16);
+                const f = val.toFloat(f16, mod);
                 return Value.Tag.float_16.create(arena, @ceil(f));
             },
             32 => {
-                const f = val.toFloat(f32);
+                const f = val.toFloat(f32, mod);
                 return Value.Tag.float_32.create(arena, @ceil(f));
             },
             64 => {
-                const f = val.toFloat(f64);
+                const f = val.toFloat(f64, mod);
                 return Value.Tag.float_64.create(arena, @ceil(f));
             },
             80 => {
-                const f = val.toFloat(f80);
+                const f = val.toFloat(f80, mod);
                 return Value.Tag.float_80.create(arena, @ceil(f));
             },
             128 => {
-                const f = val.toFloat(f128);
+                const f = val.toFloat(f128, mod);
                 return Value.Tag.float_128.create(arena, @ceil(f));
             },
             else => unreachable,
@@ -5030,39 +4753,38 @@ pub const Value = struct {
     }
 
     pub fn round(val: Value, float_type: Type, arena: Allocator, mod: *Module) !Value {
-        const target = mod.getTarget();
         if (float_type.zigTypeTag(mod) == .Vector) {
             const result_data = try arena.alloc(Value, float_type.vectorLen(mod));
             for (result_data, 0..) |*scalar, i| {
-                var buf: Value.ElemValueBuffer = undefined;
-                const elem_val = val.elemValueBuffer(mod, i, &buf);
-                scalar.* = try roundScalar(elem_val, float_type.scalarType(mod), arena, target);
+                const elem_val = try val.elemValue(mod, i);
+                scalar.* = try roundScalar(elem_val, float_type.scalarType(mod), arena, mod);
             }
             return Value.Tag.aggregate.create(arena, result_data);
         }
-        return roundScalar(val, float_type, arena, target);
+        return roundScalar(val, float_type, arena, mod);
     }
 
-    pub fn roundScalar(val: Value, float_type: Type, arena: Allocator, target: Target) Allocator.Error!Value {
+    pub fn roundScalar(val: Value, float_type: Type, arena: Allocator, mod: *const Module) Allocator.Error!Value {
+        const target = mod.getTarget();
         switch (float_type.floatBits(target)) {
             16 => {
-                const f = val.toFloat(f16);
+                const f = val.toFloat(f16, mod);
                 return Value.Tag.float_16.create(arena, @round(f));
             },
             32 => {
-                const f = val.toFloat(f32);
+                const f = val.toFloat(f32, mod);
                 return Value.Tag.float_32.create(arena, @round(f));
             },
             64 => {
-                const f = val.toFloat(f64);
+                const f = val.toFloat(f64, mod);
                 return Value.Tag.float_64.create(arena, @round(f));
             },
             80 => {
-                const f = val.toFloat(f80);
+                const f = val.toFloat(f80, mod);
                 return Value.Tag.float_80.create(arena, @round(f));
             },
             128 => {
-                const f = val.toFloat(f128);
+                const f = val.toFloat(f128, mod);
                 return Value.Tag.float_128.create(arena, @round(f));
             },
             else => unreachable,
@@ -5070,39 +4792,38 @@ pub const Value = struct {
     }
 
     pub fn trunc(val: Value, float_type: Type, arena: Allocator, mod: *Module) !Value {
-        const target = mod.getTarget();
         if (float_type.zigTypeTag(mod) == .Vector) {
             const result_data = try arena.alloc(Value, float_type.vectorLen(mod));
             for (result_data, 0..) |*scalar, i| {
-                var buf: Value.ElemValueBuffer = undefined;
-                const elem_val = val.elemValueBuffer(mod, i, &buf);
-                scalar.* = try truncScalar(elem_val, float_type.scalarType(mod), arena, target);
+                const elem_val = try val.elemValue(mod, i);
+                scalar.* = try truncScalar(elem_val, float_type.scalarType(mod), arena, mod);
             }
             return Value.Tag.aggregate.create(arena, result_data);
         }
-        return truncScalar(val, float_type, arena, target);
+        return truncScalar(val, float_type, arena, mod);
     }
 
-    pub fn truncScalar(val: Value, float_type: Type, arena: Allocator, target: Target) Allocator.Error!Value {
+    pub fn truncScalar(val: Value, float_type: Type, arena: Allocator, mod: *const Module) Allocator.Error!Value {
+        const target = mod.getTarget();
         switch (float_type.floatBits(target)) {
             16 => {
-                const f = val.toFloat(f16);
+                const f = val.toFloat(f16, mod);
                 return Value.Tag.float_16.create(arena, @trunc(f));
             },
             32 => {
-                const f = val.toFloat(f32);
+                const f = val.toFloat(f32, mod);
                 return Value.Tag.float_32.create(arena, @trunc(f));
             },
             64 => {
-                const f = val.toFloat(f64);
+                const f = val.toFloat(f64, mod);
                 return Value.Tag.float_64.create(arena, @trunc(f));
             },
             80 => {
-                const f = val.toFloat(f80);
+                const f = val.toFloat(f80, mod);
                 return Value.Tag.float_80.create(arena, @trunc(f));
             },
             128 => {
-                const f = val.toFloat(f128);
+                const f = val.toFloat(f128, mod);
                 return Value.Tag.float_128.create(arena, @trunc(f));
             },
             else => unreachable,
@@ -5117,28 +4838,24 @@ pub const Value = struct {
         arena: Allocator,
         mod: *Module,
     ) !Value {
-        const target = mod.getTarget();
         if (float_type.zigTypeTag(mod) == .Vector) {
             const result_data = try arena.alloc(Value, float_type.vectorLen(mod));
             for (result_data, 0..) |*scalar, i| {
-                var mulend1_buf: Value.ElemValueBuffer = undefined;
-                const mulend1_elem = mulend1.elemValueBuffer(mod, i, &mulend1_buf);
-                var mulend2_buf: Value.ElemValueBuffer = undefined;
-                const mulend2_elem = mulend2.elemValueBuffer(mod, i, &mulend2_buf);
-                var addend_buf: Value.ElemValueBuffer = undefined;
-                const addend_elem = addend.elemValueBuffer(mod, i, &addend_buf);
+                const mulend1_elem = try mulend1.elemValue(mod, i);
+                const mulend2_elem = try mulend2.elemValue(mod, i);
+                const addend_elem = try addend.elemValue(mod, i);
                 scalar.* = try mulAddScalar(
                     float_type.scalarType(mod),
                     mulend1_elem,
                     mulend2_elem,
                     addend_elem,
                     arena,
-                    target,
+                    mod,
                 );
             }
             return Value.Tag.aggregate.create(arena, result_data);
         }
-        return mulAddScalar(float_type, mulend1, mulend2, addend, arena, target);
+        return mulAddScalar(float_type, mulend1, mulend2, addend, arena, mod);
     }
 
     pub fn mulAddScalar(
@@ -5147,37 +4864,38 @@ pub const Value = struct {
         mulend2: Value,
         addend: Value,
         arena: Allocator,
-        target: Target,
+        mod: *const Module,
     ) Allocator.Error!Value {
+        const target = mod.getTarget();
         switch (float_type.floatBits(target)) {
             16 => {
-                const m1 = mulend1.toFloat(f16);
-                const m2 = mulend2.toFloat(f16);
-                const a = addend.toFloat(f16);
+                const m1 = mulend1.toFloat(f16, mod);
+                const m2 = mulend2.toFloat(f16, mod);
+                const a = addend.toFloat(f16, mod);
                 return Value.Tag.float_16.create(arena, @mulAdd(f16, m1, m2, a));
             },
             32 => {
-                const m1 = mulend1.toFloat(f32);
-                const m2 = mulend2.toFloat(f32);
-                const a = addend.toFloat(f32);
+                const m1 = mulend1.toFloat(f32, mod);
+                const m2 = mulend2.toFloat(f32, mod);
+                const a = addend.toFloat(f32, mod);
                 return Value.Tag.float_32.create(arena, @mulAdd(f32, m1, m2, a));
             },
             64 => {
-                const m1 = mulend1.toFloat(f64);
-                const m2 = mulend2.toFloat(f64);
-                const a = addend.toFloat(f64);
+                const m1 = mulend1.toFloat(f64, mod);
+                const m2 = mulend2.toFloat(f64, mod);
+                const a = addend.toFloat(f64, mod);
                 return Value.Tag.float_64.create(arena, @mulAdd(f64, m1, m2, a));
             },
             80 => {
-                const m1 = mulend1.toFloat(f80);
-                const m2 = mulend2.toFloat(f80);
-                const a = addend.toFloat(f80);
+                const m1 = mulend1.toFloat(f80, mod);
+                const m2 = mulend2.toFloat(f80, mod);
+                const a = addend.toFloat(f80, mod);
                 return Value.Tag.float_80.create(arena, @mulAdd(f80, m1, m2, a));
             },
             128 => {
-                const m1 = mulend1.toFloat(f128);
-                const m2 = mulend2.toFloat(f128);
-                const a = addend.toFloat(f128);
+                const m1 = mulend1.toFloat(f128, mod);
+                const m2 = mulend2.toFloat(f128, mod);
+                const a = addend.toFloat(f128, mod);
                 return Value.Tag.float_128.create(arena, @mulAdd(f128, m1, m2, a));
             },
             else => unreachable,
@@ -5186,13 +4904,14 @@ pub const Value = struct {
 
     /// If the value is represented in-memory as a series of bytes that all
     /// have the same value, return that byte value, otherwise null.
-    pub fn hasRepeatedByteRepr(val: Value, ty: Type, mod: *Module, value_buffer: *Payload.U64) !?Value {
+    pub fn hasRepeatedByteRepr(val: Value, ty: Type, mod: *Module) !?Value {
         const abi_size = std.math.cast(usize, ty.abiSize(mod)) orelse return null;
         assert(abi_size >= 1);
         const byte_buffer = try mod.gpa.alloc(u8, abi_size);
         defer mod.gpa.free(byte_buffer);
 
         writeToMemory(val, ty, mod, byte_buffer) catch |err| switch (err) {
+            error.OutOfMemory => return error.OutOfMemory,
             error.ReinterpretDeclRef => return null,
             // TODO: The writeToMemory function was originally created for the purpose
             // of comptime pointer casting. However, it is now additionally being used
@@ -5206,11 +4925,7 @@ pub const Value = struct {
         for (byte_buffer[1..]) |byte| {
             if (byte != first_byte) return null;
         }
-        value_buffer.* = .{
-            .base = .{ .tag = .int_u64 },
-            .data = first_byte,
-        };
-        return initPayload(&value_buffer.base);
+        return try mod.intValue(Type.u8, first_byte);
     }
 
     pub fn isGenericPoison(val: Value) bool {
@@ -5224,30 +4939,6 @@ pub const Value = struct {
         pub const U32 = struct {
             base: Payload,
             data: u32,
-        };
-
-        pub const U64 = struct {
-            base: Payload,
-            data: u64,
-        };
-
-        pub const I64 = struct {
-            base: Payload,
-            data: i64,
-        };
-
-        pub const BigInt = struct {
-            base: Payload,
-            data: []const std.math.big.Limb,
-
-            pub fn asBigInt(self: BigInt) BigIntConst {
-                const positive = switch (self.base.tag) {
-                    .int_big_positive => true,
-                    .int_big_negative => false,
-                    else => unreachable,
-                };
-                return BigIntConst{ .limbs = self.data, .positive = positive };
-            }
         };
 
         pub const Function = struct {
@@ -5452,12 +5143,9 @@ pub const Value = struct {
 
     pub const BigIntSpace = InternPool.Key.Int.Storage.BigIntSpace;
 
-    pub const zero = initTag(.zero);
-    pub const one = initTag(.one);
-    pub const negative_one: Value = .{
-        .ip_index = .none,
-        .legacy = .{ .ptr_otherwise = &negative_one_payload.base },
-    };
+    pub const zero: Value = .{ .ip_index = .zero, .legacy = undefined };
+    pub const one: Value = .{ .ip_index = .one, .legacy = undefined };
+    pub const negative_one: Value = .{ .ip_index = .negative_one, .legacy = undefined };
     pub const undef: Value = .{ .ip_index = .undef, .legacy = undefined };
     pub const @"void": Value = .{ .ip_index = .void_value, .legacy = undefined };
     pub const @"null": Value = .{ .ip_index = .null_value, .legacy = undefined };
@@ -5514,9 +5202,4 @@ pub const Value = struct {
             _ = &dbHelper;
         }
     }
-};
-
-var negative_one_payload: Value.Payload.I64 = .{
-    .base = .{ .tag = .int_i64 },
-    .data = -1,
 };

@@ -2757,11 +2757,8 @@ fn airTrunc(self: *Self, inst: Air.Inst.Index) !void {
                 dst_ty.fmt(self.bin_file.options.module.?),
             });
 
-            var mask_pl = Value.Payload.U64{
-                .base = .{ .tag = .int_u64 },
-                .data = @as(u64, math.maxInt(u64)) >> @intCast(u6, 64 - dst_info.bits),
-            };
-            const mask_val = Value.initPayload(&mask_pl.base);
+            const elem_ty = src_ty.childType(mod);
+            const mask_val = try mod.intValue(elem_ty, @as(u64, math.maxInt(u64)) >> @intCast(u6, 64 - dst_info.bits));
 
             var splat_pl = Value.Payload.SubValue{
                 .base = .{ .tag = .repeated },
@@ -4906,18 +4903,6 @@ fn airFloatSign(self: *Self, inst: Air.Inst.Index) !void {
     defer arena.deinit();
 
     const ExpectedContents = struct {
-        scalar: union {
-            i64: Value.Payload.I64,
-            big: struct {
-                limbs: [
-                    @max(
-                        std.math.big.int.Managed.default_capacity,
-                        std.math.big.int.calcTwosCompLimbCount(128),
-                    )
-                ]std.math.big.Limb,
-                pl: Value.Payload.BigInt,
-            },
-        },
         repeated: Value.Payload.SubValue,
     };
     var stack align(@alignOf(ExpectedContents)) =
@@ -11429,8 +11414,7 @@ fn airUnionInit(self: *Self, inst: Air.Inst.Index) !void {
         const field_index = @intCast(u32, tag_ty.enumFieldIndex(field_name).?);
         var tag_pl = Value.Payload.U32{ .base = .{ .tag = .enum_field_index }, .data = field_index };
         const tag_val = Value.initPayload(&tag_pl.base);
-        var tag_int_pl: Value.Payload.U64 = undefined;
-        const tag_int_val = tag_val.enumToInt(tag_ty, &tag_int_pl);
+        const tag_int_val = try tag_val.enumToInt(tag_ty, mod);
         const tag_int = tag_int_val.toUnsignedInt(mod);
         const tag_off = if (layout.tag_align < layout.payload_align)
             @intCast(i32, layout.payload_size)

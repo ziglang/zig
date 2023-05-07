@@ -2077,10 +2077,10 @@ pub const Type = struct {
     }
 
     /// May capture a reference to `ty`.
-    pub fn lazyAbiAlignment(ty: Type, mod: *const Module, arena: Allocator) !Value {
+    pub fn lazyAbiAlignment(ty: Type, mod: *Module, arena: Allocator) !Value {
         switch (try ty.abiAlignmentAdvanced(mod, .{ .lazy = arena })) {
             .val => |val| return val,
-            .scalar => |x| return Value.Tag.int_u64.create(arena, x),
+            .scalar => |x| return mod.intValue(ty, x),
         }
     }
 
@@ -2468,10 +2468,10 @@ pub const Type = struct {
     }
 
     /// May capture a reference to `ty`.
-    pub fn lazyAbiSize(ty: Type, mod: *const Module, arena: Allocator) !Value {
+    pub fn lazyAbiSize(ty: Type, mod: *Module, arena: Allocator) !Value {
         switch (try ty.abiSizeAdvanced(mod, .{ .lazy = arena })) {
             .val => |val| return val,
-            .scalar => |x| return Value.Tag.int_u64.create(arena, x),
+            .scalar => |x| return mod.intValue(ty, x),
         }
     }
 
@@ -4310,8 +4310,8 @@ pub const Type = struct {
     }
 
     // Works for vectors and vectors of integers.
-    pub fn minInt(ty: Type, arena: Allocator, mod: *const Module) !Value {
-        const scalar = try minIntScalar(ty.scalarType(mod), arena, mod);
+    pub fn minInt(ty: Type, arena: Allocator, mod: *Module) !Value {
+        const scalar = try minIntScalar(ty.scalarType(mod), mod);
         if (ty.zigTypeTag(mod) == .Vector and scalar.tag() != .the_only_possible_value) {
             return Value.Tag.repeated.create(arena, scalar);
         } else {
@@ -4319,38 +4319,28 @@ pub const Type = struct {
         }
     }
 
-    /// Asserts that self.zigTypeTag(mod) == .Int.
-    pub fn minIntScalar(ty: Type, arena: Allocator, mod: *const Module) !Value {
-        assert(ty.zigTypeTag(mod) == .Int);
+    /// Asserts that the type is an integer.
+    pub fn minIntScalar(ty: Type, mod: *Module) !Value {
         const info = ty.intInfo(mod);
-
-        if (info.bits == 0) {
-            return Value.initTag(.the_only_possible_value);
-        }
-
-        if (info.signedness == .unsigned) {
-            return Value.zero;
-        }
+        if (info.signedness == .unsigned) return Value.zero;
+        if (info.bits == 0) return Value.negative_one;
 
         if (std.math.cast(u6, info.bits - 1)) |shift| {
             const n = @as(i64, std.math.minInt(i64)) >> (63 - shift);
-            return Value.Tag.int_i64.create(arena, n);
+            return mod.intValue(Type.comptime_int, n);
         }
 
-        var res = try std.math.big.int.Managed.init(arena);
+        var res = try std.math.big.int.Managed.init(mod.gpa);
+        defer res.deinit();
+
         try res.setTwosCompIntLimit(.min, info.signedness, info.bits);
 
-        const res_const = res.toConst();
-        if (res_const.positive) {
-            return Value.Tag.int_big_positive.create(arena, res_const.limbs);
-        } else {
-            return Value.Tag.int_big_negative.create(arena, res_const.limbs);
-        }
+        return mod.intValue_big(Type.comptime_int, res.toConst());
     }
 
     // Works for vectors and vectors of integers.
-    pub fn maxInt(ty: Type, arena: Allocator, mod: *const Module) !Value {
-        const scalar = try maxIntScalar(ty.scalarType(mod), arena, mod);
+    pub fn maxInt(ty: Type, arena: Allocator, mod: *Module) !Value {
+        const scalar = try maxIntScalar(ty.scalarType(mod), mod);
         if (ty.zigTypeTag(mod) == .Vector and scalar.tag() != .the_only_possible_value) {
             return Value.Tag.repeated.create(arena, scalar);
         } else {
@@ -4358,41 +4348,39 @@ pub const Type = struct {
         }
     }
 
-    /// Asserts that self.zigTypeTag() == .Int.
-    pub fn maxIntScalar(self: Type, arena: Allocator, mod: *const Module) !Value {
-        assert(self.zigTypeTag(mod) == .Int);
+    /// Asserts that the type is an integer.
+    pub fn maxIntScalar(self: Type, mod: *Module) !Value {
         const info = self.intInfo(mod);
 
-        if (info.bits == 0) {
-            return Value.initTag(.the_only_possible_value);
-        }
-
-        switch (info.bits - @boolToInt(info.signedness == .signed)) {
-            0 => return Value.zero,
-            1 => return Value.one,
+        switch (info.bits) {
+            0 => return switch (info.signedness) {
+                .signed => Value.negative_one,
+                .unsigned => Value.zero,
+            },
+            1 => return switch (info.signedness) {
+                .signed => Value.zero,
+                .unsigned => Value.one,
+            },
             else => {},
         }
 
         if (std.math.cast(u6, info.bits - 1)) |shift| switch (info.signedness) {
             .signed => {
                 const n = @as(i64, std.math.maxInt(i64)) >> (63 - shift);
-                return Value.Tag.int_i64.create(arena, n);
+                return mod.intValue(Type.comptime_int, n);
             },
             .unsigned => {
                 const n = @as(u64, std.math.maxInt(u64)) >> (63 - shift);
-                return Value.Tag.int_u64.create(arena, n);
+                return mod.intValue(Type.comptime_int, n);
             },
         };
 
-        var res = try std.math.big.int.Managed.init(arena);
+        var res = try std.math.big.int.Managed.init(mod.gpa);
+        defer res.deinit();
+
         try res.setTwosCompIntLimit(.max, info.signedness, info.bits);
 
-        const res_const = res.toConst();
-        if (res_const.positive) {
-            return Value.Tag.int_big_positive.create(arena, res_const.limbs);
-        } else {
-            return Value.Tag.int_big_negative.create(arena, res_const.limbs);
-        }
+        return mod.intValue_big(Type.comptime_int, res.toConst());
     }
 
     /// Asserts the type is an enum or a union.
@@ -4497,12 +4485,11 @@ pub const Type = struct {
         const S = struct {
             fn fieldWithRange(int_ty: Type, int_val: Value, end: usize, m: *Module) ?usize {
                 if (int_val.compareAllWithZero(.lt, m)) return null;
-                var end_payload: Value.Payload.U64 = .{
-                    .base = .{ .tag = .int_u64 },
-                    .data = end,
+                const end_val = m.intValue(int_ty, end) catch |err| switch (err) {
+                    // TODO: eliminate this failure condition
+                    error.OutOfMemory => @panic("OOM"),
                 };
-                const end_val = Value.initPayload(&end_payload.base);
-                if (int_val.compareAll(.gte, end_val, int_ty, m)) return null;
+                if (int_val.compareScalar(.gte, end_val, int_ty, m)) return null;
                 return @intCast(usize, int_val.toUnsignedInt(m));
             }
         };

@@ -3083,20 +3083,21 @@ fn lowerConstant(func: *CodeGen, arg_val: Value, ty: Type) InnerError!WValue {
         },
         .Bool => return WValue{ .imm32 = @intCast(u32, val.toUnsignedInt(mod)) },
         .Float => switch (ty.floatBits(func.target)) {
-            16 => return WValue{ .imm32 = @bitCast(u16, val.toFloat(f16)) },
-            32 => return WValue{ .float32 = val.toFloat(f32) },
-            64 => return WValue{ .float64 = val.toFloat(f64) },
+            16 => return WValue{ .imm32 = @bitCast(u16, val.toFloat(f16, mod)) },
+            32 => return WValue{ .float32 = val.toFloat(f32, mod) },
+            64 => return WValue{ .float64 = val.toFloat(f64, mod) },
             else => unreachable,
         },
-        .Pointer => switch (val.ip_index) {
-            .null_value => return WValue{ .imm32 = 0 },
+        .Pointer => return switch (val.ip_index) {
+            .null_value => WValue{ .imm32 = 0 },
             .none => switch (val.tag()) {
-                .field_ptr, .elem_ptr, .opt_payload_ptr => return func.lowerParentPtr(val, 0),
-                .int_u64, .one => return WValue{ .imm32 = @intCast(u32, val.toUnsignedInt(mod)) },
-                .zero => return WValue{ .imm32 = 0 },
+                .field_ptr, .elem_ptr, .opt_payload_ptr => func.lowerParentPtr(val, 0),
                 else => return func.fail("Wasm TODO: lowerConstant for other const pointer tag {}", .{val.tag()}),
             },
-            else => unreachable,
+            else => switch (mod.intern_pool.indexToKey(val.ip_index)) {
+                .int => |int| WValue{ .imm32 = @intCast(u32, int.storage.u64) },
+                else => unreachable,
+            },
         },
         .Enum => {
             if (val.castTag(.enum_field_index)) |field_index| {
@@ -3137,7 +3138,7 @@ fn lowerConstant(func: *CodeGen, arg_val: Value, ty: Type) InnerError!WValue {
             if (!payload_type.hasRuntimeBitsIgnoreComptime(mod)) {
                 // We use the error type directly as the type.
                 const is_pl = val.errorUnionIsPayload();
-                const err_val = if (!is_pl) val else Value.initTag(.zero);
+                const err_val = if (!is_pl) val else Value.zero;
                 return func.lowerConstant(err_val, error_type);
             }
             return func.fail("Wasm TODO: lowerConstant error union with non-zero-bit payload type", .{});
@@ -3160,11 +3161,10 @@ fn lowerConstant(func: *CodeGen, arg_val: Value, ty: Type) InnerError!WValue {
             assert(struct_obj.layout == .Packed);
             var buf: [8]u8 = .{0} ** 8; // zero the buffer so we do not read 0xaa as integer
             val.writeToPackedMemory(ty, func.bin_file.base.options.module.?, &buf, 0) catch unreachable;
-            var payload: Value.Payload.U64 = .{
-                .base = .{ .tag = .int_u64 },
-                .data = std.mem.readIntLittle(u64, &buf),
-            };
-            const int_val = Value.initPayload(&payload.base);
+            const int_val = try mod.intValue(
+                struct_obj.backing_int_ty,
+                std.mem.readIntLittle(u64, &buf),
+            );
             return func.lowerConstant(int_val, struct_obj.backing_int_ty);
         },
         .Vector => {
@@ -4899,8 +4899,7 @@ fn airShuffle(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         const result = try func.allocStack(inst_ty);
 
         for (0..mask_len) |index| {
-            var buf: Value.ElemValueBuffer = undefined;
-            const value = mask.elemValueBuffer(mod, index, &buf).toSignedInt(mod);
+            const value = (try mask.elemValue(mod, index)).toSignedInt(mod);
 
             try func.emitWValue(result);
 
@@ -4920,8 +4919,7 @@ fn airShuffle(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
 
         var lanes = std.mem.asBytes(operands[1..]);
         for (0..@intCast(usize, mask_len)) |index| {
-            var buf: Value.ElemValueBuffer = undefined;
-            const mask_elem = mask.elemValueBuffer(mod, index, &buf).toSignedInt(mod);
+            const mask_elem = (try mask.elemValue(mod, index)).toSignedInt(mod);
             const base_index = if (mask_elem >= 0)
                 @intCast(u8, @intCast(i64, elem_size) * mask_elem)
             else
