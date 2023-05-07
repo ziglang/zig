@@ -3916,3 +3916,89 @@ pub const THREAD_AFFINITY = struct {
 /// individual cpus (high performance cpus group and low consumption one), thus the pthread QOS api is more appropriate in this case.
 pub extern "c" fn thread_affinity_get(thread: thread_act_t, flavor: thread_policy_flavor_t, info: thread_policy_t, infocnt: [*]mach_msg_type_number_t, default: *boolean_t) kern_return_t;
 pub extern "c" fn thread_affinity_set(thread: thread_act_t, flavor: thread_policy_flavor_t, info: thread_policy_t, infocnt: mach_msg_type_number_t) kern_return_t;
+
+pub const cpu_type_t = integer_t;
+pub const cpu_subtype_t = integer_t;
+pub const cpu_threadtype_t = integer_t;
+pub const host_flavor_t = integer_t;
+pub const host_info_t = *integer_t;
+pub const host_can_has_debugger_info = extern struct {
+    can_has_debugger: boolean_t,
+};
+pub const host_can_has_debugger_info_data_t = host_can_has_debugger_info;
+pub const host_can_has_debugger_info_t = *host_can_has_debugger_info;
+
+pub const host_sched_info = extern struct {
+    min_timeout: integer_t,
+    min_quantum: integer_t,
+};
+pub const host_sched_info_data_t = host_sched_info;
+pub const host_sched_info_t = *host_sched_info;
+
+pub const kernel_resource_sizes = extern struct {
+    task: natural_t,
+    thread: natural_t,
+    port: natural_t,
+    memory_region: natural_t,
+    memory_object: natural_t,
+};
+
+pub const kernel_resource_sizes_data_t = kernel_resource_sizes;
+pub const kernel_resource_sizes_t = *kernel_resource_sizes;
+
+pub const host_priority_info = extern struct {
+    kernel_priority: integer_t,
+    system_priority: integer_t,
+    server_priority: integer_t,
+    user_priority: integer_t,
+    depress_priority: integer_t,
+    idle_priority: integer_t,
+    minimum_priority: integer_t,
+    maximum_priority: integer_t,
+};
+
+pub const host_priority_info_data_t = host_priority_info;
+pub const host_priority_info_t = *host_priority_info;
+
+pub const CPU_STATE_MAX = 4;
+
+pub const host_cpu_load_info = extern struct {
+    cpu_ticks: [CPU_STATE_MAX]natural_t,
+};
+
+pub const host_cpu_load_info_data_t = host_cpu_load_info;
+pub const host_cpu_load_info_t = *host_cpu_load_info;
+
+pub const HOST = struct {
+    pub const BASIC_INFO = 1;
+    pub const SCHED_INFO = 3;
+    pub const RESOURCE_SIZES = 4;
+    pub const PRIORITY_INFO = 5;
+    pub const SEMAPHORE_TRAPS = 7;
+    pub const MACH_MSG_TRAPS = 8;
+    pub const VM_PURGEABLE = 9;
+    pub const DEBUG_INFO_INTERNAL = 10;
+    pub const CAN_HAS_DEBUGGER = 11;
+    pub const PREFERRED_USER_ARCH = 12;
+    pub const CAN_HAS_DEBUGGER_COUNT = @intCast(mach_msg_type_number_t, @sizeOf(host_can_has_debugger_info_data_t) / @sizeOf(integer_t));
+    pub const SCHED_INFO_COUNT = @intCast(mach_msg_type_number_t, @sizeOf(host_sched_info_data_t) / @sizeOf(integer_t));
+    pub const RESOURCES_SIZES_COUNT = @intCast(mach_msg_type_number_t, @sizeOf(kernel_resource_sizes_data_t) / @sizeOf(integer_t));
+    pub const PRIORITY_INFO_COUNT = @intCast(mach_msg_type_number_t, @sizeOf(host_priority_info_data_t) / @sizeOf(integer_t));
+    pub const CPU_LOAD_INFO_COUNT = @intCast(mach_msg_type_number_t, @sizeOf(host_cpu_load_info_data_t) / @sizeOf(integer_t));
+};
+
+pub const host_basic_info = packed struct(u32) {
+    max_cpus: integer_t,
+    avail_cpus: integer_t,
+    memory_size: natural_t,
+    cpu_type: cpu_type_t,
+    cpu_subtype: cpu_subtype_t,
+    cpu_threadtype: cpu_threadtype_t,
+    physical_cpu: integer_t,
+    physical_cpu_max: integer_t,
+    logical_cpu: integer_t,
+    logical_cpu_max: integer_t,
+    max_mem: u64,
+};
+
+pub extern "c" fn host_info(host: host_t, flavor: host_flavor_t, info_out: host_info_t, info_outCnt: [*]mach_msg_type_number_t) kern_return_t;
