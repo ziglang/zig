@@ -1343,7 +1343,7 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallModifier
 
     // Due to incremental compilation, how function calls are generated depends
     // on linking.
-    if (self.air.value(callee, mod)) |func_value| {
+    if (try self.air.value(callee, mod)) |func_value| {
         if (self.bin_file.tag == link.File.Elf.base_tag) {
             if (func_value.castTag(.function)) |func_payload| {
                 const func = func_payload.data;
@@ -4575,7 +4575,7 @@ fn resolveInst(self: *Self, ref: Air.Inst.Ref) InnerError!MCValue {
 
     return self.genTypedValue(.{
         .ty = ty,
-        .val = self.air.value(ref, mod).?,
+        .val = (try self.air.value(ref, mod)).?,
     });
 }
 

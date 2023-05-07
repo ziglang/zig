@@ -1485,7 +1485,7 @@ pub fn refToIndexAllowNone(inst: Inst.Ref) ?Inst.Index {
 }
 
 /// Returns `null` if runtime-known.
-pub fn value(air: Air, inst: Inst.Ref, mod: *const Module) ?Value {
+pub fn value(air: Air, inst: Inst.Ref, mod: *Module) !?Value {
     const ref_int = @enumToInt(inst);
     if (ref_int < ref_start_index) {
         const ip_index = @intToEnum(InternPool.Index, ref_int);

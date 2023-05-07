@@ -61,7 +61,10 @@ pub fn format(
 ) !void {
     _ = options;
     comptime std.debug.assert(fmt.len == 0);
-    return ctx.tv.print(writer, 3, ctx.mod);
+    return ctx.tv.print(writer, 3, ctx.mod) catch |err| switch (err) {
+        error.OutOfMemory => @panic("OOM"), // We're not allowed to return this from a format function
+        else => |e| return e,
+    };
 }
 
 /// Prints the Value according to the Type, not according to the Value Tag.
@@ -70,7 +73,7 @@ pub fn print(
     writer: anytype,
     level: u8,
     mod: *Module,
-) @TypeOf(writer).Error!void {
+) (@TypeOf(writer).Error || Allocator.Error)!void {
     var val = tv.val;
     var ty = tv.ty;
     if (val.isVariable(mod))
@@ -95,7 +98,7 @@ pub fn print(
                         }
                         try print(.{
                             .ty = ty.structFieldType(i),
-                            .val = val.fieldValue(ty, mod, i),
+                            .val = try val.fieldValue(ty, mod, i),
                         }, writer, level - 1, mod);
                     }
                     if (ty.structFieldCount() > max_aggregate_items) {
@@ -112,7 +115,7 @@ pub fn print(
 
                         var i: u32 = 0;
                         while (i < max_len) : (i += 1) {
-                            const elem = val.fieldValue(ty, mod, i);
+                            const elem = try val.fieldValue(ty, mod, i);
                             if (elem.isUndef()) break :str;
                             buf[i] = std.math.cast(u8, elem.toUnsignedInt(mod)) orelse break :str;
                         }
@@ -129,7 +132,7 @@ pub fn print(
                         if (i != 0) try writer.writeAll(", ");
                         try print(.{
                             .ty = elem_ty,
-                            .val = val.fieldValue(ty, mod, i),
+                            .val = try val.fieldValue(ty, mod, i),
                         }, writer, level - 1, mod);
                     }
                     if (len > max_aggregate_items) {

@@ -789,7 +789,7 @@ fn resolveInst(func: *CodeGen, ref: Air.Inst.Ref) InnerError!WValue {
     assert(!gop.found_existing);
 
     const mod = func.bin_file.base.options.module.?;
-    const val = func.air.value(ref, mod).?;
+    const val = (try func.air.value(ref, mod)).?;
     const ty = func.typeOf(ref);
     if (!ty.hasRuntimeBitsIgnoreComptime(mod) and !ty.isInt(mod) and !ty.isError(mod)) {
         gop.value_ptr.* = WValue{ .none = {} };
@@ -2195,7 +2195,7 @@ fn airCall(func: *CodeGen, inst: Air.Inst.Index, modifier: std.builtin.CallModif
     const first_param_sret = firstParamSRet(fn_info.cc, fn_info.return_type, mod);
 
     const callee: ?Decl.Index = blk: {
-        const func_val = func.air.value(pl_op.operand, mod) orelse break :blk null;
+        const func_val = (try func.air.value(pl_op.operand, mod)) orelse break :blk null;
 
         if (func_val.castTag(.function)) |function| {
             _ = try func.bin_file.getOrCreateAtomForDecl(function.data.owner_decl);
@@ -3138,7 +3138,7 @@ fn lowerConstant(func: *CodeGen, arg_val: Value, ty: Type) InnerError!WValue {
             if (!payload_type.hasRuntimeBitsIgnoreComptime(mod)) {
                 // We use the error type directly as the type.
                 const is_pl = val.errorUnionIsPayload();
-                const err_val = if (!is_pl) val else Value.zero;
+                const err_val = if (!is_pl) val else try mod.intValue(error_type, 0);
                 return func.lowerConstant(err_val, error_type);
             }
             return func.fail("Wasm TODO: lowerConstant error union with non-zero-bit payload type", .{});
@@ -3792,7 +3792,7 @@ fn airSwitchBr(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         errdefer func.gpa.free(values);
 
         for (items, 0..) |ref, i| {
-            const item_val = func.air.value(ref, mod).?;
+            const item_val = (try func.air.value(ref, mod)).?;
             const int_val = func.valueAsI32(item_val, target_ty);
             if (lowest_maybe == null or int_val < lowest_maybe.?) {
                 lowest_maybe = int_val;
@@ -5048,7 +5048,7 @@ fn airAggregateInit(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
                     const result = try func.allocStack(result_ty);
                     const offset = try func.buildPointerOffset(result, 0, .new); // pointer to offset
                     for (elements, 0..) |elem, elem_index| {
-                        if (result_ty.structFieldValueComptime(mod, elem_index) != null) continue;
+                        if ((try result_ty.structFieldValueComptime(mod, elem_index)) != null) continue;
 
                         const elem_ty = result_ty.structFieldType(elem_index);
                         const elem_size = @intCast(u32, elem_ty.abiSize(mod));
