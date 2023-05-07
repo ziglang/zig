@@ -4915,7 +4915,7 @@ fn airFloatSign(self: *Self, inst: Air.Inst.Index) !void {
 
     const sign_val = switch (tag) {
         .neg => try vec_ty.minInt(stack.get(), mod),
-        .fabs => try vec_ty.maxInt(stack.get(), mod),
+        .fabs => try vec_ty.maxInt(stack.get(), mod, vec_ty),
         else => unreachable,
     };
 

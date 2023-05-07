@@ -4382,8 +4382,9 @@ pub const Type = struct {
     }
 
     // Works for vectors and vectors of integers.
-    pub fn maxInt(ty: Type, arena: Allocator, mod: *Module) !Value {
-        const scalar = try maxIntScalar(ty.scalarType(mod), mod);
+    /// The returned Value will have type dest_ty.
+    pub fn maxInt(ty: Type, arena: Allocator, mod: *Module, dest_ty: Type) !Value {
+        const scalar = try maxIntScalar(ty.scalarType(mod), mod, dest_ty);
         if (ty.zigTypeTag(mod) == .Vector and scalar.tag() != .the_only_possible_value) {
             return Value.Tag.repeated.create(arena, scalar);
         } else {
@@ -4391,18 +4392,18 @@ pub const Type = struct {
         }
     }
 
-    /// Asserts that the type is an integer.
-    pub fn maxIntScalar(ty: Type, mod: *Module) !Value {
+    /// The returned Value will have type dest_ty.
+    pub fn maxIntScalar(ty: Type, mod: *Module, dest_ty: Type) !Value {
         const info = ty.intInfo(mod);
 
         switch (info.bits) {
             0 => return switch (info.signedness) {
-                .signed => mod.intValue(ty, -1),
-                .unsigned => mod.intValue(ty, 0),
+                .signed => try mod.intValue(dest_ty, -1),
+                .unsigned => try mod.intValue(dest_ty, 0),
             },
             1 => return switch (info.signedness) {
-                .signed => mod.intValue(ty, 0),
-                .unsigned => mod.intValue(ty, 0),
+                .signed => try mod.intValue(dest_ty, 0),
+                .unsigned => try mod.intValue(dest_ty, 1),
             },
             else => {},
         }
@@ -4410,11 +4411,11 @@ pub const Type = struct {
         if (std.math.cast(u6, info.bits - 1)) |shift| switch (info.signedness) {
             .signed => {
                 const n = @as(i64, std.math.maxInt(i64)) >> (63 - shift);
-                return mod.intValue(Type.comptime_int, n);
+                return mod.intValue(dest_ty, n);
             },
             .unsigned => {
                 const n = @as(u64, std.math.maxInt(u64)) >> (63 - shift);
-                return mod.intValue(Type.comptime_int, n);
+                return mod.intValue(dest_ty, n);
             },
         };
 
@@ -4423,7 +4424,7 @@ pub const Type = struct {
 
         try res.setTwosCompIntLimit(.max, info.signedness, info.bits);
 
-        return mod.intValue_big(Type.comptime_int, res.toConst());
+        return mod.intValue_big(dest_ty, res.toConst());
     }
 
     /// Asserts the type is an enum or a union.
@@ -5068,6 +5069,7 @@ pub const Type = struct {
 
     pub fn isSimpleTuple(ty: Type) bool {
         return switch (ty.ip_index) {
+            .empty_struct => true,
             .none => switch (ty.tag()) {
                 .tuple, .empty_struct_literal => true,
                 else => false,
@@ -5077,21 +5079,29 @@ pub const Type = struct {
     }
 
     pub fn isSimpleTupleOrAnonStruct(ty: Type) bool {
-        return switch (ty.tag()) {
-            .tuple, .empty_struct_literal, .anon_struct => true,
+        return switch (ty.ip_index) {
+            .empty_struct => true,
+            .none => switch (ty.tag()) {
+                .tuple, .empty_struct_literal, .anon_struct => true,
+                else => false,
+            },
             else => false,
         };
     }
 
     // Only allowed for simple tuple types
     pub fn tupleFields(ty: Type) Payload.Tuple.Data {
-        return switch (ty.tag()) {
-            .tuple => ty.castTag(.tuple).?.data,
-            .anon_struct => .{
-                .types = ty.castTag(.anon_struct).?.data.types,
-                .values = ty.castTag(.anon_struct).?.data.values,
+        return switch (ty.ip_index) {
+            .empty_struct => .{ .types = &.{}, .values = &.{} },
+            .none => switch (ty.tag()) {
+                .tuple => ty.castTag(.tuple).?.data,
+                .anon_struct => .{
+                    .types = ty.castTag(.anon_struct).?.data.types,
+                    .values = ty.castTag(.anon_struct).?.data.values,
+                },
+                .empty_struct_literal => .{ .types = &.{}, .values = &.{} },
+                else => unreachable,
             },
-            .empty_struct_literal => .{ .types = &.{}, .values = &.{} },
             else => unreachable,
         };
     }

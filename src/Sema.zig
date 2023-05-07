@@ -1746,8 +1746,9 @@ pub fn resolveInst(sema: *Sema, zir_ref: Zir.Inst.Ref) !Air.Inst.Ref {
     if (i < InternPool.static_len) return @intToEnum(Air.Inst.Ref, i);
     // The last section of indexes refers to the map of ZIR => AIR.
     const inst = sema.inst_map.get(i - InternPool.static_len).?;
+    if (inst == .generic_poison) return error.GenericPoison;
     const ty = sema.typeOf(inst);
-    if (ty.isGenericPoison()) return error.GenericPoison;
+    assert(!ty.isGenericPoison());
     return inst;
 }
 
@@ -2000,7 +2001,7 @@ fn resolveMaybeUndefValAllowVariablesMaybeRuntime(
         .constant => {
             const ty_pl = air_datas[i].ty_pl;
             const val = sema.air_values.items[ty_pl.payload];
-            if (val.tag() == .runtime_value) make_runtime.* = true;
+            if (val.isRuntimeValue()) make_runtime.* = true;
             if (val.isPtrToThreadLocal(sema.mod)) make_runtime.* = true;
             return val;
         },
@@ -9688,7 +9689,7 @@ fn intCast(
         // range shrinkage
         // requirement: int value fits into target type
         if (wanted_value_bits < actual_value_bits) {
-            const dest_max_val_scalar = try dest_scalar_ty.maxIntScalar(mod);
+            const dest_max_val_scalar = try dest_scalar_ty.maxIntScalar(mod, operand_ty);
             const dest_max_val = if (is_vector)
                 try Value.Tag.repeated.create(sema.arena, dest_max_val_scalar)
             else
@@ -10831,7 +10832,7 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
                     defer arena.deinit();
 
                     const min_int = try operand_ty.minInt(arena.allocator(), mod);
-                    const max_int = try operand_ty.maxIntScalar(mod);
+                    const max_int = try operand_ty.maxIntScalar(mod, Type.comptime_int);
                     if (try range_set.spans(min_int, max_int, operand_ty)) {
                         if (special_prong == .@"else") {
                             return sema.fail(
@@ -11683,7 +11684,7 @@ const RangeSetUnhandledIterator = struct {
     fn init(sema: *Sema, ty: Type, range_set: RangeSet) !RangeSetUnhandledIterator {
         const mod = sema.mod;
         const min = try ty.minInt(sema.arena, mod);
-        const max = try ty.maxIntScalar(mod);
+        const max = try ty.maxIntScalar(mod, Type.comptime_int);
 
         return RangeSetUnhandledIterator{
             .sema = sema,
@@ -12294,7 +12295,7 @@ fn zirShl(
         {
             const max_int = try sema.addConstant(
                 lhs_ty,
-                try lhs_ty.maxInt(sema.arena, mod),
+                try lhs_ty.maxInt(sema.arena, mod, lhs_ty),
             );
             const rhs_limited = try sema.analyzeMinMax(block, rhs_src, .min, &.{ rhs, max_int }, &.{ rhs_src, rhs_src });
             break :rhs try sema.intCast(block, src, lhs_ty, rhs_src, rhs_limited, rhs_src, false);
@@ -16503,7 +16504,7 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                             else
                                 try std.fmt.allocPrintZ(anon_decl.arena(), "{d}", .{i});
                             const new_decl = try anon_decl.finish(
-                                try Type.array(anon_decl.arena(), bytes.len, try mod.intValue(Type.u8, 0), Type.u8, mod),
+                                try Type.array(anon_decl.arena(), bytes.len, Value.zero_u8, Type.u8, mod),
                                 try Value.Tag.bytes.create(anon_decl.arena(), bytes[0 .. bytes.len + 1]),
                                 0, // default alignment
                             );
@@ -22192,8 +22193,8 @@ fn analyzeMinMax(
             else => unreachable,
         };
         const max_val = switch (air_tag) {
-            .min => try comptime_elem_ty.maxInt(sema.arena, mod), // @min(ct, rt) <= ct
-            .max => try unrefined_elem_ty.maxInt(sema.arena, mod),
+            .min => try comptime_elem_ty.maxInt(sema.arena, mod, Type.comptime_int), // @min(ct, rt) <= ct
+            .max => try unrefined_elem_ty.maxInt(sema.arena, mod, Type.comptime_int),
             else => unreachable,
         };
 
@@ -27921,33 +27922,32 @@ fn beginComptimePtrMutation(
             switch (parent.pointee) {
                 .direct => |val_ptr| {
                     const payload_ty = parent.ty.errorUnionPayload();
-                    switch (val_ptr.tag()) {
-                        else => {
-                            // An error union has been initialized to undefined at comptime and now we
-                            // are for the first time setting the payload. We must change the
-                            // representation of the error union from `undef` to `opt_payload`.
-                            const arena = parent.beginArena(sema.mod);
-                            defer parent.finishArena(sema.mod);
-
-                            const payload = try arena.create(Value.Payload.SubValue);
-                            payload.* = .{
-                                .base = .{ .tag = .eu_payload },
-                                .data = Value.undef,
-                            };
-
-                            val_ptr.* = Value.initPayload(&payload.base);
-
-                            return ComptimePtrMutationKit{
-                                .decl_ref_mut = parent.decl_ref_mut,
-                                .pointee = .{ .direct = &payload.data },
-                                .ty = payload_ty,
-                            };
-                        },
-                        .eu_payload => return ComptimePtrMutationKit{
+                    if (val_ptr.ip_index == .none and val_ptr.tag() == .eu_payload) {
+                        return ComptimePtrMutationKit{
                             .decl_ref_mut = parent.decl_ref_mut,
                             .pointee = .{ .direct = &val_ptr.castTag(.eu_payload).?.data },
                             .ty = payload_ty,
-                        },
+                        };
+                    } else {
+                        // An error union has been initialized to undefined at comptime and now we
+                        // are for the first time setting the payload. We must change the
+                        // representation of the error union from `undef` to `opt_payload`.
+                        const arena = parent.beginArena(sema.mod);
+                        defer parent.finishArena(sema.mod);
+
+                        const payload = try arena.create(Value.Payload.SubValue);
+                        payload.* = .{
+                            .base = .{ .tag = .eu_payload },
+                            .data = Value.undef,
+                        };
+
+                        val_ptr.* = Value.initPayload(&payload.base);
+
+                        return ComptimePtrMutationKit{
+                            .decl_ref_mut = parent.decl_ref_mut,
+                            .pointee = .{ .direct = &payload.data },
+                            .ty = payload_ty,
+                        };
                     }
                 },
                 .bad_decl_ty, .bad_ptr_ty => return parent,
@@ -33211,7 +33211,7 @@ fn addConstUndef(sema: *Sema, ty: Type) CompileError!Air.Inst.Ref {
 
 pub fn addConstant(sema: *Sema, ty: Type, val: Value) SemaError!Air.Inst.Ref {
     const gpa = sema.gpa;
-    if (val.ip_index != .none) {
+    if (val.ip_index != .none and val.ip_index != .null_value) {
         if (@enumToInt(val.ip_index) < Air.ref_start_index)
             return @intToEnum(Air.Inst.Ref, @enumToInt(val.ip_index));
         try sema.air_instructions.append(gpa, .{

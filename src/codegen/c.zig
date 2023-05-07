@@ -3542,7 +3542,7 @@ fn airTrunc(f: *Function, inst: Air.Inst.Index) !CValue {
         try v.elem(f, writer);
     } else switch (dest_int_info.signedness) {
         .unsigned => {
-            const mask_val = try inst_scalar_ty.maxIntScalar(mod);
+            const mask_val = try inst_scalar_ty.maxIntScalar(mod, scalar_ty);
             try writer.writeAll("zig_and_");
             try f.object.dg.renderTypeForBuiltinFnName(writer, scalar_ty);
             try writer.writeByte('(');
@@ -6681,13 +6681,13 @@ fn airReduce(f: *Function, inst: Air.Inst.Index) !CValue {
         .And => switch (scalar_ty.zigTypeTag(mod)) {
             .Bool => try mod.intValue(Type.comptime_int, 1),
             else => switch (scalar_ty.intInfo(mod).signedness) {
-                .unsigned => try scalar_ty.maxIntScalar(mod),
+                .unsigned => try scalar_ty.maxIntScalar(mod, scalar_ty),
                 .signed => try mod.intValue(scalar_ty, -1),
             },
         },
         .Min => switch (scalar_ty.zigTypeTag(mod)) {
-            .Bool => try mod.intValue(Type.comptime_int, 1),
-            .Int => try scalar_ty.maxIntScalar(mod),
+            .Bool => Value.one_comptime_int,
+            .Int => try scalar_ty.maxIntScalar(mod, scalar_ty),
             .Float => try Value.floatToValue(std.math.nan(f128), stack.get(), scalar_ty, target),
             else => unreachable,
         },
