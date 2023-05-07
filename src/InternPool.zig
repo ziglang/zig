@@ -721,6 +721,9 @@ pub const Tag = enum(u8) {
     /// only an enum tag, but will be presented via the API with a different Key.
     /// data is SimpleInternal enum value.
     simple_internal,
+    /// Type: u16
+    /// data is integer value
+    int_u16,
     /// Type: u32
     /// data is integer value
     int_u32,
@@ -1053,6 +1056,10 @@ pub fn indexToKey(ip: InternPool, index: Index) Key {
         .type_error_union => @panic("TODO"),
         .type_enum_simple => @panic("TODO"),
         .simple_internal => @panic("TODO"),
+        .int_u16 => .{ .int = .{
+            .ty = .u16_type,
+            .storage = .{ .u64 = data },
+        } },
         .int_u32 => .{ .int = .{
             .ty = .u32_type,
             .storage = .{ .u64 = data },
@@ -1219,6 +1226,26 @@ pub fn get(ip: *InternPool, gpa: Allocator, key: Key) Allocator.Error!Index {
         .int => |int| b: {
             switch (int.ty) {
                 .none => unreachable,
+                .u16_type => switch (int.storage) {
+                    .big_int => |big_int| {
+                        if (big_int.to(u32)) |casted| {
+                            ip.items.appendAssumeCapacity(.{
+                                .tag = .int_u16,
+                                .data = casted,
+                            });
+                            break :b;
+                        } else |_| {}
+                    },
+                    inline .u64, .i64 => |x| {
+                        if (std.math.cast(u32, x)) |casted| {
+                            ip.items.appendAssumeCapacity(.{
+                                .tag = .int_u16,
+                                .data = casted,
+                            });
+                            break :b;
+                        }
+                    },
+                },
                 .u32_type => switch (int.storage) {
                     .big_int => |big_int| {
                         if (big_int.to(u32)) |casted| {
@@ -1252,7 +1279,7 @@ pub fn get(ip: *InternPool, gpa: Allocator, key: Key) Allocator.Error!Index {
                     inline .u64, .i64 => |x| {
                         if (std.math.cast(i32, x)) |casted| {
                             ip.items.appendAssumeCapacity(.{
-                                .tag = .int_u32,
+                                .tag = .int_i32,
                                 .data = @bitCast(u32, casted),
                             });
                             break :b;
@@ -1466,6 +1493,7 @@ fn limbData(ip: InternPool, comptime T: type, index: usize) T {
     return result;
 }
 
+/// This function returns the Limb slice that is trailing data after a payload.
 fn limbSlice(ip: InternPool, comptime S: type, limb_index: u32, len: u32) []const Limb {
     const field_count = @typeInfo(S).Struct.fields.len;
     switch (@sizeOf(Limb)) {
@@ -1479,6 +1507,33 @@ fn limbSlice(ip: InternPool, comptime S: type, limb_index: u32, len: u32) []cons
         },
         else => @compileError("unsupported host"),
     }
+}
+
+const LimbsAsIndexes = struct {
+    start: u32,
+    len: u32,
+};
+
+fn limbsSliceToIndex(ip: InternPool, limbs: []const Limb) LimbsAsIndexes {
+    const host_slice = switch (@sizeOf(Limb)) {
+        @sizeOf(u32) => ip.extra.items,
+        @sizeOf(u64) => ip.limbs.items,
+        else => @compileError("unsupported host"),
+    };
+    // TODO: https://github.com/ziglang/zig/issues/1738
+    return .{
+        .start = @intCast(u32, @divExact(@ptrToInt(limbs.ptr) - @ptrToInt(host_slice.ptr), @sizeOf(Limb))),
+        .len = @intCast(u32, limbs.len),
+    };
+}
+
+/// This function converts Limb array indexes to a primitive slice type.
+fn limbsIndexToSlice(ip: InternPool, limbs: LimbsAsIndexes) []const Limb {
+    return switch (@sizeOf(Limb)) {
+        @sizeOf(u32) => ip.extra.items[limbs.start..][0..limbs.len],
+        @sizeOf(u64) => ip.limbs.items[limbs.start..][0..limbs.len],
+        else => @compileError("unsupported host"),
+    };
 }
 
 test "basic usage" {
@@ -1544,15 +1599,30 @@ pub fn getCoercedInt(ip: *InternPool, gpa: Allocator, val: Index, new_ty: Index)
     // Here we pre-reserve the limbs to ensure that the logic in `addInt` will
     // not use an invalidated limbs pointer.
     switch (key.int.storage) {
-        .u64, .i64 => {},
+        .u64 => |x| return ip.get(gpa, .{ .int = .{
+            .ty = new_ty,
+            .storage = .{ .u64 = x },
+        } }),
+        .i64 => |x| return ip.get(gpa, .{ .int = .{
+            .ty = new_ty,
+            .storage = .{ .i64 = x },
+        } }),
+
         .big_int => |big_int| {
+            const positive = big_int.positive;
+            const limbs = ip.limbsSliceToIndex(big_int.limbs);
+            // This line invalidates the limbs slice, but the indexes computed in the
+            // previous line are still correct.
             try reserveLimbs(ip, gpa, @typeInfo(Int).Struct.fields.len + big_int.limbs.len);
+            return ip.get(gpa, .{ .int = .{
+                .ty = new_ty,
+                .storage = .{ .big_int = .{
+                    .limbs = ip.limbsIndexToSlice(limbs),
+                    .positive = positive,
+                } },
+            } });
         },
     }
-    return ip.get(gpa, .{ .int = .{
-        .ty = new_ty,
-        .storage = key.int.storage,
-    } });
 }
 
 pub fn dump(ip: InternPool) void {
@@ -1608,6 +1678,7 @@ fn dumpFallible(ip: InternPool, arena: Allocator) anyerror!void {
             .simple_type => 0,
             .simple_value => 0,
             .simple_internal => 0,
+            .int_u16 => 0,
             .int_u32 => 0,
             .int_i32 => 0,
             .int_usize => 0,
