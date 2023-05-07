@@ -287,7 +287,7 @@ pub const Function = struct {
             if (gop.found_existing) return gop.value_ptr.*;
 
             const mod = f.object.dg.module;
-            const val = f.air.value(ref, mod).?;
+            const val = (try f.air.value(ref, mod)).?;
             const ty = f.typeOf(ref);
 
             const result: CValue = if (lowersToArray(ty, mod)) result: {
@@ -356,7 +356,7 @@ pub const Function = struct {
             .constant => |inst| {
                 const mod = f.object.dg.module;
                 const ty = f.typeOf(inst);
-                const val = f.air.value(inst, mod).?;
+                const val = (try f.air.value(inst, mod)).?;
                 return f.object.dg.renderValue(w, ty, val, location);
             },
             .undef => |ty| return f.object.dg.renderValue(w, ty, Value.undef, location),
@@ -369,7 +369,7 @@ pub const Function = struct {
             .constant => |inst| {
                 const mod = f.object.dg.module;
                 const ty = f.typeOf(inst);
-                const val = f.air.value(inst, mod).?;
+                const val = (try f.air.value(inst, mod)).?;
                 try w.writeAll("(*");
                 try f.object.dg.renderValue(w, ty, val, .Other);
                 return w.writeByte(')');
@@ -383,7 +383,7 @@ pub const Function = struct {
             .constant => |inst| {
                 const mod = f.object.dg.module;
                 const ty = f.typeOf(inst);
-                const val = f.air.value(inst, mod).?;
+                const val = (try f.air.value(inst, mod)).?;
                 try f.object.dg.renderValue(w, ty, val, .Other);
                 try w.writeByte('.');
                 return f.writeCValue(w, member, .Other);
@@ -397,7 +397,7 @@ pub const Function = struct {
             .constant => |inst| {
                 const mod = f.object.dg.module;
                 const ty = f.typeOf(inst);
-                const val = f.air.value(inst, mod).?;
+                const val = (try f.air.value(inst, mod)).?;
                 try w.writeByte('(');
                 try f.object.dg.renderValue(w, ty, val, .Other);
                 try w.writeAll(")->");
@@ -690,7 +690,7 @@ pub const DeclGen = struct {
                             location,
                         );
                         try writer.print(") + {})", .{
-                            try dg.fmtIntLiteral(Type.usize, Value.one, .Other),
+                            try dg.fmtIntLiteral(Type.usize, try mod.intValue(Type.usize, 1), .Other),
                         });
                     },
                 }
@@ -1253,7 +1253,7 @@ pub const DeclGen = struct {
             .ErrorUnion => {
                 const payload_ty = ty.errorUnionPayload();
                 const error_ty = ty.errorUnionSet();
-                const error_val = if (val.errorUnionIsPayload()) Value.zero else val;
+                const error_val = if (val.errorUnionIsPayload()) try mod.intValue(Type.anyerror, 0) else val;
 
                 if (!payload_ty.hasRuntimeBitsIgnoreComptime(mod)) {
                     return dg.renderValue(writer, error_ty, error_val, location);
@@ -3611,7 +3611,7 @@ fn airStore(f: *Function, inst: Air.Inst.Index, safety: bool) !CValue {
     const ptr_val = try f.resolveInst(bin_op.lhs);
     const src_ty = f.typeOf(bin_op.rhs);
 
-    const val_is_undef = if (f.air.value(bin_op.rhs, mod)) |v| v.isUndefDeep() else false;
+    const val_is_undef = if (try f.air.value(bin_op.rhs, mod)) |v| v.isUndefDeep() else false;
 
     if (val_is_undef) {
         try reap(f, inst, &.{ bin_op.lhs, bin_op.rhs });
@@ -4183,7 +4183,7 @@ fn airCall(
     callee: {
         known: {
             const fn_decl = fn_decl: {
-                const callee_val = f.air.value(pl_op.operand, mod) orelse break :known;
+                const callee_val = (try f.air.value(pl_op.operand, mod)) orelse break :known;
                 break :fn_decl switch (callee_val.tag()) {
                     .extern_fn => callee_val.castTag(.extern_fn).?.data.owner_decl,
                     .function => callee_val.castTag(.function).?.data.owner_decl,
@@ -4269,7 +4269,7 @@ fn airDbgVar(f: *Function, inst: Air.Inst.Index) !CValue {
     const mod = f.object.dg.module;
     const pl_op = f.air.instructions.items(.data)[inst].pl_op;
     const name = f.air.nullTerminatedString(pl_op.payload);
-    const operand_is_undef = if (f.air.value(pl_op.operand, mod)) |v| v.isUndefDeep() else false;
+    const operand_is_undef = if (try f.air.value(pl_op.operand, mod)) |v| v.isUndefDeep() else false;
     if (!operand_is_undef) _ = try f.resolveInst(pl_op.operand);
 
     try reap(f, inst, &.{pl_op.operand});
@@ -4735,7 +4735,7 @@ fn airSwitchBr(f: *Function, inst: Air.Inst.Index) !CValue {
                 try f.renderType(writer, Type.usize);
                 try writer.writeByte(')');
             }
-            try f.object.dg.renderValue(writer, condition_ty, f.air.value(item, mod).?, .Other);
+            try f.object.dg.renderValue(writer, condition_ty, (try f.air.value(item, mod)).?, .Other);
             try writer.writeByte(':');
         }
         try writer.writeByte(' ');
@@ -5069,7 +5069,7 @@ fn airIsNull(
         // operand is a regular pointer, test `operand !=/== NULL`
         TypedValue{ .ty = optional_ty, .val = Value.null }
     else if (payload_ty.zigTypeTag(mod) == .ErrorSet)
-        TypedValue{ .ty = payload_ty, .val = Value.zero }
+        TypedValue{ .ty = payload_ty, .val = try mod.intValue(payload_ty, 0) }
     else if (payload_ty.isSlice(mod) and optional_ty.optionalReprIsPayload(mod)) rhs: {
         try writer.writeAll(".ptr");
         const slice_ptr_ty = payload_ty.slicePtrFieldType(&slice_ptr_buf, mod);
@@ -5325,7 +5325,7 @@ fn airFieldParentPtr(f: *Function, inst: Air.Inst.Index) !CValue {
         },
         .end => {
             try f.writeCValue(writer, field_ptr_val, .Other);
-            try writer.print(" - {}", .{try f.fmtIntLiteral(Type.usize, Value.one)});
+            try writer.print(" - {}", .{try f.fmtIntLiteral(Type.usize, try mod.intValue(Type.usize, 1))});
         },
     }
 
@@ -5378,7 +5378,7 @@ fn fieldPtr(
         .end => {
             try writer.writeByte('(');
             try f.writeCValue(writer, container_ptr_val, .Other);
-            try writer.print(" + {})", .{try f.fmtIntLiteral(Type.usize, Value.one)});
+            try writer.print(" + {})", .{try f.fmtIntLiteral(Type.usize, try mod.intValue(Type.usize, 1))});
         },
     }
 
@@ -5546,7 +5546,7 @@ fn airUnwrapErrUnionErr(f: *Function, inst: Air.Inst.Index) !CValue {
             else
                 try f.writeCValueMember(writer, operand, .{ .identifier = "error" })
         else
-            try f.object.dg.renderValue(writer, error_ty, Value.zero, .Initializer);
+            try f.object.dg.renderValue(writer, error_ty, try mod.intValue(error_ty, 0), .Initializer);
     }
     try writer.writeAll(";\n");
     return local;
@@ -5673,7 +5673,7 @@ fn airErrUnionPayloadPtrSet(f: *Function, inst: Air.Inst.Index) !CValue {
     if (!payload_ty.hasRuntimeBitsIgnoreComptime(mod)) {
         try f.writeCValueDeref(writer, operand);
         try writer.writeAll(" = ");
-        try f.object.dg.renderValue(writer, error_ty, Value.zero, .Other);
+        try f.object.dg.renderValue(writer, error_ty, try mod.intValue(error_ty, 0), .Other);
         try writer.writeAll(";\n ");
 
         return operand;
@@ -5681,7 +5681,7 @@ fn airErrUnionPayloadPtrSet(f: *Function, inst: Air.Inst.Index) !CValue {
     try reap(f, inst, &.{ty_op.operand});
     try f.writeCValueDeref(writer, operand);
     try writer.writeAll(".error = ");
-    try f.object.dg.renderValue(writer, error_ty, Value.zero, .Other);
+    try f.object.dg.renderValue(writer, error_ty, try mod.intValue(error_ty, 0), .Other);
     try writer.writeAll(";\n");
 
     // Then return the payload pointer (only if it is used)
@@ -5737,7 +5737,7 @@ fn airWrapErrUnionPay(f: *Function, inst: Air.Inst.Index) !CValue {
         else
             try f.writeCValueMember(writer, local, .{ .identifier = "error" });
         try a.assign(f, writer);
-        try f.object.dg.renderValue(writer, err_ty, Value.zero, .Other);
+        try f.object.dg.renderValue(writer, err_ty, try mod.intValue(err_ty, 0), .Other);
         try a.end(f, writer);
     }
     return local;
@@ -5768,11 +5768,11 @@ fn airIsErr(f: *Function, inst: Air.Inst.Index, is_ptr: bool, operator: []const 
         else
             try f.writeCValue(writer, operand, .Other)
     else
-        try f.object.dg.renderValue(writer, error_ty, Value.zero, .Other);
+        try f.object.dg.renderValue(writer, error_ty, try mod.intValue(error_ty, 0), .Other);
     try writer.writeByte(' ');
     try writer.writeAll(operator);
     try writer.writeByte(' ');
-    try f.object.dg.renderValue(writer, error_ty, Value.zero, .Other);
+    try f.object.dg.renderValue(writer, error_ty, try mod.intValue(error_ty, 0), .Other);
     try writer.writeAll(";\n");
     return local;
 }
@@ -5798,7 +5798,7 @@ fn airArrayToSlice(f: *Function, inst: Air.Inst.Index) !CValue {
     } else if (array_ty.hasRuntimeBitsIgnoreComptime(mod)) {
         try writer.writeAll("&(");
         try f.writeCValueDeref(writer, operand);
-        try writer.print(")[{}]", .{try f.fmtIntLiteral(Type.usize, Value.zero)});
+        try writer.print(")[{}]", .{try f.fmtIntLiteral(Type.usize, try mod.intValue(Type.usize, 0))});
     } else try f.writeCValue(writer, operand, .Initializer);
     try writer.writeAll("; ");
 
@@ -6022,7 +6022,7 @@ fn airCmpBuiltinCall(
     try writer.writeByte(')');
     if (!ref_ret) try writer.print(" {s} {}", .{
         compareOperatorC(operator),
-        try f.fmtIntLiteral(Type.i32, Value.zero),
+        try f.fmtIntLiteral(Type.i32, try mod.intValue(Type.i32, 0)),
     });
     try writer.writeAll(";\n");
     try v.end(f, inst, writer);
@@ -6278,7 +6278,7 @@ fn airMemset(f: *Function, inst: Air.Inst.Index, safety: bool) !CValue {
     const value = try f.resolveInst(bin_op.rhs);
     const elem_ty = f.typeOf(bin_op.rhs);
     const elem_abi_size = elem_ty.abiSize(mod);
-    const val_is_undef = if (f.air.value(bin_op.rhs, mod)) |val| val.isUndefDeep() else false;
+    const val_is_undef = if (try f.air.value(bin_op.rhs, mod)) |val| val.isUndefDeep() else false;
     const writer = f.object.writer();
 
     if (val_is_undef) {
@@ -6326,7 +6326,7 @@ fn airMemset(f: *Function, inst: Air.Inst.Index, safety: bool) !CValue {
         try writer.writeAll("for (");
         try f.writeCValue(writer, index, .Other);
         try writer.writeAll(" = ");
-        try f.object.dg.renderValue(writer, Type.usize, Value.zero, .Initializer);
+        try f.object.dg.renderValue(writer, Type.usize, try mod.intValue(Type.usize, 0), .Initializer);
         try writer.writeAll("; ");
         try f.writeCValue(writer, index, .Other);
         try writer.writeAll(" != ");
@@ -6677,27 +6677,27 @@ fn airReduce(f: *Function, inst: Air.Inst.Index) !CValue {
         std.heap.stackFallback(@sizeOf(ExpectedContents), arena.allocator());
 
     try f.object.dg.renderValue(writer, scalar_ty, switch (reduce.operation) {
-        .Or, .Xor, .Add => Value.zero,
+        .Or, .Xor, .Add => try mod.intValue(scalar_ty, 0),
         .And => switch (scalar_ty.zigTypeTag(mod)) {
-            .Bool => Value.one,
+            .Bool => try mod.intValue(Type.comptime_int, 1),
             else => switch (scalar_ty.intInfo(mod).signedness) {
                 .unsigned => try scalar_ty.maxIntScalar(mod),
-                .signed => Value.negative_one,
+                .signed => try mod.intValue(scalar_ty, -1),
             },
         },
         .Min => switch (scalar_ty.zigTypeTag(mod)) {
-            .Bool => Value.one,
+            .Bool => try mod.intValue(Type.comptime_int, 1),
             .Int => try scalar_ty.maxIntScalar(mod),
             .Float => try Value.floatToValue(std.math.nan(f128), stack.get(), scalar_ty, target),
             else => unreachable,
         },
         .Max => switch (scalar_ty.zigTypeTag(mod)) {
-            .Bool => Value.zero,
+            .Bool => try mod.intValue(scalar_ty, 0),
             .Int => try scalar_ty.minInt(stack.get(), mod),
             .Float => try Value.floatToValue(std.math.nan(f128), stack.get(), scalar_ty, target),
             else => unreachable,
         },
-        .Mul => Value.one,
+        .Mul => try mod.intValue(Type.comptime_int, 1),
     }, .Initializer);
     try writer.writeAll(";\n");
 
@@ -7686,13 +7686,13 @@ const Vectorize = struct {
 
             try writer.writeAll("for (");
             try f.writeCValue(writer, local, .Other);
-            try writer.print(" = {d}; ", .{try f.fmtIntLiteral(Type.usize, Value.zero)});
+            try writer.print(" = {d}; ", .{try f.fmtIntLiteral(Type.usize, try mod.intValue(Type.usize, 0))});
             try f.writeCValue(writer, local, .Other);
             try writer.print(" < {d}; ", .{
                 try f.fmtIntLiteral(Type.usize, len_val),
             });
             try f.writeCValue(writer, local, .Other);
-            try writer.print(" += {d}) {{\n", .{try f.fmtIntLiteral(Type.usize, Value.one)});
+            try writer.print(" += {d}) {{\n", .{try f.fmtIntLiteral(Type.usize, try mod.intValue(Type.usize, 1))});
             f.object.indent_writer.pushIndent();
 
             break :index .{ .index = local };

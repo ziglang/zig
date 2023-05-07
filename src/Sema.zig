@@ -3062,9 +3062,9 @@ fn zirEnumDecl(
             }
         } else if (any_values) {
             const tag_val = if (last_tag_val) |val|
-                try sema.intAdd(val, Value.one, enum_obj.tag_ty)
+                try sema.intAdd(val, try mod.intValue(enum_obj.tag_ty, 1), enum_obj.tag_ty)
             else
-                Value.zero;
+                try mod.intValue(enum_obj.tag_ty, 0);
             last_tag_val = tag_val;
             const copied_tag_val = try tag_val.copy(decl_arena_allocator);
             const gop_val = enum_obj.values.getOrPutAssumeCapacityContext(copied_tag_val, .{
@@ -4709,7 +4709,7 @@ fn zirValidateArrayInit(
         // Determine whether the value stored to this pointer is comptime-known.
 
         if (array_ty.isTuple()) {
-            if (array_ty.structFieldValueComptime(mod, i)) |opv| {
+            if (try array_ty.structFieldValueComptime(mod, i)) |opv| {
                 element_vals[i] = opv;
                 continue;
             }
@@ -8132,7 +8132,7 @@ fn zirErrorToInt(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstDat
     if (!op_ty.isAnyError()) {
         const names = op_ty.errorSetNames();
         switch (names.len) {
-            0 => return sema.addConstant(Type.err_int, Value.zero),
+            0 => return sema.addConstant(Type.err_int, try mod.intValue(Type.err_int, 0)),
             1 => return sema.addIntUnsigned(Type.err_int, sema.mod.global_error_set.get(names[0]).?),
             else => {},
         }
@@ -8167,7 +8167,7 @@ fn zirIntToError(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstDat
     try sema.requireRuntimeBlock(block, src, operand_src);
     if (block.wantSafety()) {
         const is_lt_len = try block.addUnOp(.cmp_lt_errors_len, operand);
-        const zero_val = try sema.addConstant(Type.err_int, Value.zero);
+        const zero_val = try sema.addConstant(Type.err_int, try mod.intValue(Type.err_int, 0));
         const is_non_zero = try block.addBinOp(.cmp_neq, operand, zero_val);
         const ok = try block.addBinOp(.bit_and, is_lt_len, is_non_zero);
         try sema.addSafetyCheck(block, ok, .invalid_error_code);
@@ -9656,7 +9656,7 @@ fn intCast(
 
             if (wanted_bits == 0) {
                 const ok = if (is_vector) ok: {
-                    const zeros = try Value.Tag.repeated.create(sema.arena, Value.zero);
+                    const zeros = try Value.Tag.repeated.create(sema.arena, try mod.intValue(operand_scalar_ty, 0));
                     const zero_inst = try sema.addConstant(sema.typeOf(operand), zeros);
                     const is_in_range = try block.addCmpVector(operand, zero_inst, .eq);
                     const all_in_range = try block.addInst(.{
@@ -9665,7 +9665,7 @@ fn intCast(
                     });
                     break :ok all_in_range;
                 } else ok: {
-                    const zero_inst = try sema.addConstant(sema.typeOf(operand), Value.zero);
+                    const zero_inst = try sema.addConstant(sema.typeOf(operand), try mod.intValue(operand_ty, 0));
                     const is_in_range = try block.addBinOp(.cmp_lte, operand, zero_inst);
                     break :ok is_in_range;
                 };
@@ -9705,8 +9705,9 @@ fn intCast(
                 // If the destination type is signed, then we need to double its
                 // range to account for negative values.
                 const dest_range_val = if (wanted_info.signedness == .signed) range_val: {
-                    const range_minus_one = try dest_max_val.shl(Value.one, unsigned_operand_ty, sema.arena, sema.mod);
-                    break :range_val try sema.intAdd(range_minus_one, Value.one, unsigned_operand_ty);
+                    const one = try mod.intValue(unsigned_operand_ty, 1);
+                    const range_minus_one = try dest_max_val.shl(one, unsigned_operand_ty, sema.arena, sema.mod);
+                    break :range_val try sema.intAdd(range_minus_one, one, unsigned_operand_ty);
                 } else dest_max_val;
                 const dest_range = try sema.addConstant(unsigned_operand_ty, dest_range_val);
 
@@ -9747,7 +9748,7 @@ fn intCast(
             // no shrinkage, yes sign loss
             // requirement: signed to unsigned >= 0
             const ok = if (is_vector) ok: {
-                const zero_val = try Value.Tag.repeated.create(sema.arena, Value.zero);
+                const zero_val = try Value.Tag.repeated.create(sema.arena, try mod.intValue(operand_scalar_ty, 0));
                 const zero_inst = try sema.addConstant(operand_ty, zero_val);
                 const is_in_range = try block.addCmpVector(operand, zero_inst, .gte);
                 const all_in_range = try block.addInst(.{
@@ -9759,7 +9760,7 @@ fn intCast(
                 });
                 break :ok all_in_range;
             } else ok: {
-                const zero_inst = try sema.addConstant(operand_ty, Value.zero);
+                const zero_inst = try sema.addConstant(operand_ty, try mod.intValue(operand_ty, 0));
                 const is_in_range = try block.addBinOp(.cmp_gte, operand, zero_inst);
                 break :ok is_in_range;
             };
@@ -11250,7 +11251,7 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
 
                 while (item.compareScalar(.lte, item_last, operand_ty, mod)) : ({
                     // Previous validation has resolved any possible lazy values.
-                    item = try sema.intAddScalar(item, Value.one, operand_ty);
+                    item = try sema.intAddScalar(item, try mod.intValue(operand_ty, 1), operand_ty);
                 }) {
                     cases_len += 1;
 
@@ -11696,7 +11697,7 @@ const RangeSetUnhandledIterator = struct {
     fn next(it: *RangeSetUnhandledIterator) !?Value {
         while (it.range_i < it.ranges.len) : (it.range_i += 1) {
             if (!it.first) {
-                it.cur = try it.sema.intAddScalar(it.cur, Value.one, it.ty);
+                it.cur = try it.sema.intAddScalar(it.cur, try it.sema.mod.intValue(it.ty, 1), it.ty);
             }
             it.first = false;
             if (it.cur.compareScalar(.lt, it.ranges[it.range_i].first, it.ty, it.sema.mod)) {
@@ -11705,7 +11706,7 @@ const RangeSetUnhandledIterator = struct {
             it.cur = it.ranges[it.range_i].last;
         }
         if (!it.first) {
-            it.cur = try it.sema.intAddScalar(it.cur, Value.one, it.ty);
+            it.cur = try it.sema.intAddScalar(it.cur, try it.sema.mod.intValue(it.ty, 1), it.ty);
         }
         it.first = false;
         if (it.cur.compareScalar(.lte, it.max, it.ty, it.sema.mod)) {
@@ -12150,7 +12151,7 @@ fn zirEmbedFile(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!A
     //   into the final binary, and never loads the data into memory.
     // - When a Decl is destroyed, it can free the `*Module.EmbedFile`.
     embed_file.owner_decl = try anon_decl.finish(
-        try Type.array(anon_decl.arena(), embed_file.bytes.len, Value.zero, Type.u8, mod),
+        try Type.array(anon_decl.arena(), embed_file.bytes.len, try mod.intValue(Type.u8, 0), Type.u8, mod),
         try Value.Tag.bytes.create(anon_decl.arena(), bytes_including_null),
         0, // default alignment
     );
@@ -12235,14 +12236,14 @@ fn zirShl(
             var i: usize = 0;
             while (i < rhs_ty.vectorLen(mod)) : (i += 1) {
                 const rhs_elem = try rhs_val.elemValue(sema.mod, i);
-                if (rhs_elem.compareHetero(.lt, Value.zero, mod)) {
+                if (rhs_elem.compareHetero(.lt, try mod.intValue(scalar_rhs_ty, 0), mod)) {
                     return sema.fail(block, rhs_src, "shift by negative amount '{}' at index '{d}'", .{
                         rhs_elem.fmtValue(scalar_ty, sema.mod),
                         i,
                     });
                 }
             }
-        } else if (rhs_val.compareHetero(.lt, Value.zero, mod)) {
+        } else if (rhs_val.compareHetero(.lt, try mod.intValue(rhs_ty, 0), mod)) {
             return sema.fail(block, rhs_src, "shift by negative amount '{}'", .{
                 rhs_val.fmtValue(scalar_ty, sema.mod),
             });
@@ -12348,7 +12349,7 @@ fn zirShl(
                 })
             else
                 ov_bit;
-            const zero_ov = try sema.addConstant(Type.u1, Value.zero);
+            const zero_ov = try sema.addConstant(Type.u1, try mod.intValue(Type.u1, 0));
             const no_ov = try block.addBinOp(.cmp_eq, any_ov_bit, zero_ov);
 
             try sema.addSafetyCheck(block, no_ov, .shl_overflow);
@@ -12417,14 +12418,14 @@ fn zirShr(
             var i: usize = 0;
             while (i < rhs_ty.vectorLen(mod)) : (i += 1) {
                 const rhs_elem = try rhs_val.elemValue(sema.mod, i);
-                if (rhs_elem.compareHetero(.lt, Value.zero, mod)) {
+                if (rhs_elem.compareHetero(.lt, try mod.intValue(rhs_ty.childType(mod), 0), mod)) {
                     return sema.fail(block, rhs_src, "shift by negative amount '{}' at index '{d}'", .{
                         rhs_elem.fmtValue(scalar_ty, sema.mod),
                         i,
                     });
                 }
             }
-        } else if (rhs_val.compareHetero(.lt, Value.zero, mod)) {
+        } else if (rhs_val.compareHetero(.lt, try mod.intValue(rhs_ty, 0), mod)) {
             return sema.fail(block, rhs_src, "shift by negative amount '{}'", .{
                 rhs_val.fmtValue(scalar_ty, sema.mod),
             });
@@ -13156,9 +13157,9 @@ fn zirNegate(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.
     }
 
     const lhs = if (rhs_ty.zigTypeTag(mod) == .Vector)
-        try sema.addConstant(rhs_ty, try Value.Tag.repeated.create(sema.arena, Value.zero))
+        try sema.addConstant(rhs_ty, try Value.Tag.repeated.create(sema.arena, try mod.intValue(rhs_scalar_ty, 0)))
     else
-        try sema.resolveInst(.zero);
+        try sema.addConstant(rhs_ty, try mod.intValue(rhs_ty, 0));
 
     return sema.analyzeArithmetic(block, .sub, lhs, rhs, src, lhs_src, rhs_src, true);
 }
@@ -13180,9 +13181,9 @@ fn zirNegateWrap(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!
     }
 
     const lhs = if (rhs_ty.zigTypeTag(mod) == .Vector)
-        try sema.addConstant(rhs_ty, try Value.Tag.repeated.create(sema.arena, Value.zero))
+        try sema.addConstant(rhs_ty, try Value.Tag.repeated.create(sema.arena, try mod.intValue(rhs_scalar_ty, 0)))
     else
-        try sema.resolveInst(.zero);
+        try sema.addConstant(rhs_ty, try mod.intValue(rhs_ty, 0));
 
     return sema.analyzeArithmetic(block, .subwrap, lhs, rhs, src, lhs_src, rhs_src, true);
 }
@@ -13293,9 +13294,14 @@ fn zirDiv(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Ins
             if (maybe_lhs_val) |lhs_val| {
                 if (!lhs_val.isUndef()) {
                     if (try lhs_val.compareAllWithZeroAdvanced(.eq, sema)) {
+                        const scalar_zero = switch (scalar_tag) {
+                            .ComptimeFloat, .Float => Value.float_zero, // TODO migrate to internpool
+                            .ComptimeInt, .Int => try mod.intValue(resolved_type.scalarType(mod), 0),
+                            else => unreachable,
+                        };
                         const zero_val = if (is_vector) b: {
-                            break :b try Value.Tag.repeated.create(sema.arena, Value.zero);
-                        } else Value.zero;
+                            break :b try Value.Tag.repeated.create(sema.arena, scalar_zero);
+                        } else scalar_zero;
                         return sema.addConstant(resolved_type, zero_val);
                     }
                 }
@@ -13318,7 +13324,7 @@ fn zirDiv(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Ins
             if (lhs_val.isUndef()) {
                 if (lhs_scalar_ty.isSignedInt(mod) and rhs_scalar_ty.isSignedInt(mod)) {
                     if (maybe_rhs_val) |rhs_val| {
-                        if (try sema.compareAll(rhs_val, .neq, Value.negative_one, resolved_type)) {
+                        if (try sema.compareAll(rhs_val, .neq, try mod.intValue(resolved_type, -1), resolved_type)) {
                             return sema.addConstUndef(resolved_type);
                         }
                     }
@@ -13427,9 +13433,14 @@ fn zirDivExact(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                 return sema.failWithUseOfUndef(block, rhs_src);
             } else {
                 if (try lhs_val.compareAllWithZeroAdvanced(.eq, sema)) {
+                    const scalar_zero = switch (scalar_tag) {
+                        .ComptimeFloat, .Float => Value.float_zero, // TODO migrate to internpool
+                        .ComptimeInt, .Int => try mod.intValue(resolved_type.scalarType(mod), 0),
+                        else => unreachable,
+                    };
                     const zero_val = if (is_vector) b: {
-                        break :b try Value.Tag.repeated.create(sema.arena, Value.zero);
-                    } else Value.zero;
+                        break :b try Value.Tag.repeated.create(sema.arena, scalar_zero);
+                    } else scalar_zero;
                     return sema.addConstant(resolved_type, zero_val);
                 }
             }
@@ -13507,8 +13518,13 @@ fn zirDivExact(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
         } else ok: {
             const remainder = try block.addBinOp(.rem, casted_lhs, casted_rhs);
 
+            const scalar_zero = switch (scalar_tag) {
+                .ComptimeFloat, .Float => Value.float_zero, // TODO migrate to internpool
+                .ComptimeInt, .Int => try mod.intValue(resolved_type.scalarType(mod), 0),
+                else => unreachable,
+            };
             if (resolved_type.zigTypeTag(mod) == .Vector) {
-                const zero_val = try Value.Tag.repeated.create(sema.arena, Value.zero);
+                const zero_val = try Value.Tag.repeated.create(sema.arena, scalar_zero);
                 const zero = try sema.addConstant(resolved_type, zero_val);
                 const eql = try block.addCmpVector(remainder, zero, .eq);
                 break :ok try block.addInst(.{
@@ -13519,7 +13535,7 @@ fn zirDivExact(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                     } },
                 });
             } else {
-                const zero = try sema.addConstant(resolved_type, Value.zero);
+                const zero = try sema.addConstant(resolved_type, scalar_zero);
                 const is_in_range = try block.addBinOp(.cmp_eq, remainder, zero);
                 break :ok is_in_range;
             }
@@ -13592,9 +13608,14 @@ fn zirDivFloor(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
         if (maybe_lhs_val) |lhs_val| {
             if (!lhs_val.isUndef()) {
                 if (try lhs_val.compareAllWithZeroAdvanced(.eq, sema)) {
+                    const scalar_zero = switch (scalar_tag) {
+                        .ComptimeFloat, .Float => Value.float_zero, // TODO migrate to internpool
+                        .ComptimeInt, .Int => try mod.intValue(resolved_type.scalarType(mod), 0),
+                        else => unreachable,
+                    };
                     const zero_val = if (is_vector) b: {
-                        break :b try Value.Tag.repeated.create(sema.arena, Value.zero);
-                    } else Value.zero;
+                        break :b try Value.Tag.repeated.create(sema.arena, scalar_zero);
+                    } else scalar_zero;
                     return sema.addConstant(resolved_type, zero_val);
                 }
             }
@@ -13612,7 +13633,7 @@ fn zirDivFloor(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
             if (lhs_val.isUndef()) {
                 if (lhs_scalar_ty.isSignedInt(mod) and rhs_scalar_ty.isSignedInt(mod)) {
                     if (maybe_rhs_val) |rhs_val| {
-                        if (try sema.compareAll(rhs_val, .neq, Value.negative_one, resolved_type)) {
+                        if (try sema.compareAll(rhs_val, .neq, try mod.intValue(resolved_type, -1), resolved_type)) {
                             return sema.addConstUndef(resolved_type);
                         }
                     }
@@ -13708,9 +13729,14 @@ fn zirDivTrunc(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
         if (maybe_lhs_val) |lhs_val| {
             if (!lhs_val.isUndef()) {
                 if (try lhs_val.compareAllWithZeroAdvanced(.eq, sema)) {
+                    const scalar_zero = switch (scalar_tag) {
+                        .ComptimeFloat, .Float => Value.float_zero, // TODO migrate to internpool
+                        .ComptimeInt, .Int => try mod.intValue(resolved_type.scalarType(mod), 0),
+                        else => unreachable,
+                    };
                     const zero_val = if (is_vector) b: {
-                        break :b try Value.Tag.repeated.create(sema.arena, Value.zero);
-                    } else Value.zero;
+                        break :b try Value.Tag.repeated.create(sema.arena, scalar_zero);
+                    } else scalar_zero;
                     return sema.addConstant(resolved_type, zero_val);
                 }
             }
@@ -13727,7 +13753,7 @@ fn zirDivTrunc(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
             if (lhs_val.isUndef()) {
                 if (lhs_scalar_ty.isSignedInt(mod) and rhs_scalar_ty.isSignedInt(mod)) {
                     if (maybe_rhs_val) |rhs_val| {
-                        if (try sema.compareAll(rhs_val, .neq, Value.negative_one, resolved_type)) {
+                        if (try sema.compareAll(rhs_val, .neq, try mod.intValue(resolved_type, -1), resolved_type)) {
                             return sema.addConstUndef(resolved_type);
                         }
                     }
@@ -13862,8 +13888,9 @@ fn addDivByZeroSafety(
     if (maybe_rhs_val != null) return;
 
     const mod = sema.mod;
+    const scalar_zero = if (is_int) try mod.intValue(resolved_type.scalarType(mod), 0) else Value.float_zero; // TODO migrate to internpool
     const ok = if (resolved_type.zigTypeTag(mod) == .Vector) ok: {
-        const zero_val = try Value.Tag.repeated.create(sema.arena, Value.zero);
+        const zero_val = try Value.Tag.repeated.create(sema.arena, scalar_zero);
         const zero = try sema.addConstant(resolved_type, zero_val);
         const ok = try block.addCmpVector(casted_rhs, zero, .neq);
         break :ok try block.addInst(.{
@@ -13874,7 +13901,7 @@ fn addDivByZeroSafety(
             } },
         });
     } else ok: {
-        const zero = try sema.addConstant(resolved_type, Value.zero);
+        const zero = try sema.addConstant(resolved_type, scalar_zero);
         break :ok try block.addBinOp(if (is_int) .cmp_neq else .cmp_neq_optimized, casted_rhs, zero);
     };
     try sema.addSafetyCheck(block, ok, .divide_by_zero);
@@ -13946,9 +13973,14 @@ fn zirModRem(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.
                     return sema.failWithUseOfUndef(block, lhs_src);
                 }
                 if (try lhs_val.compareAllWithZeroAdvanced(.eq, sema)) {
+                    const scalar_zero = switch (scalar_tag) {
+                        .ComptimeFloat, .Float => Value.float_zero, // TODO migrate to internpool
+                        .ComptimeInt, .Int => try mod.intValue(resolved_type.scalarType(mod), 0),
+                        else => unreachable,
+                    };
                     const zero_val = if (is_vector) b: {
-                        break :b try Value.Tag.repeated.create(sema.arena, Value.zero);
-                    } else Value.zero;
+                        break :b try Value.Tag.repeated.create(sema.arena, scalar_zero);
+                    } else scalar_zero;
                     return sema.addConstant(resolved_type, zero_val);
                 }
             } else if (lhs_scalar_ty.isSignedInt(mod)) {
@@ -14325,6 +14357,7 @@ fn zirOverflowArithmetic(
         wrapped: Value = Value.@"unreachable",
         overflow_bit: Value,
     } = result: {
+        const zero = try mod.intValue(dest_ty.scalarType(mod), 0);
         switch (zir_tag) {
             .add_with_overflow => {
                 // If either of the arguments is zero, `false` is returned and the other is stored
@@ -14332,12 +14365,12 @@ fn zirOverflowArithmetic(
                 // Otherwise, if either of the argument is undefined, undefined is returned.
                 if (maybe_lhs_val) |lhs_val| {
                     if (!lhs_val.isUndef() and (try lhs_val.compareAllWithZeroAdvanced(.eq, sema))) {
-                        break :result .{ .overflow_bit = try maybeRepeated(sema, dest_ty, Value.zero), .inst = rhs };
+                        break :result .{ .overflow_bit = try maybeRepeated(sema, dest_ty, zero), .inst = rhs };
                     }
                 }
                 if (maybe_rhs_val) |rhs_val| {
                     if (!rhs_val.isUndef() and (try rhs_val.compareAllWithZeroAdvanced(.eq, sema))) {
-                        break :result .{ .overflow_bit = try maybeRepeated(sema, dest_ty, Value.zero), .inst = lhs };
+                        break :result .{ .overflow_bit = try maybeRepeated(sema, dest_ty, zero), .inst = lhs };
                     }
                 }
                 if (maybe_lhs_val) |lhs_val| {
@@ -14358,7 +14391,7 @@ fn zirOverflowArithmetic(
                     if (rhs_val.isUndef()) {
                         break :result .{ .overflow_bit = Value.undef, .wrapped = Value.undef };
                     } else if (try rhs_val.compareAllWithZeroAdvanced(.eq, sema)) {
-                        break :result .{ .overflow_bit = try maybeRepeated(sema, dest_ty, Value.zero), .inst = lhs };
+                        break :result .{ .overflow_bit = try maybeRepeated(sema, dest_ty, zero), .inst = lhs };
                     } else if (maybe_lhs_val) |lhs_val| {
                         if (lhs_val.isUndef()) {
                             break :result .{ .overflow_bit = Value.undef, .wrapped = Value.undef };
@@ -14373,12 +14406,13 @@ fn zirOverflowArithmetic(
                 // If either of the arguments is zero, the result is zero and no overflow occured.
                 // If either of the arguments is one, the result is the other and no overflow occured.
                 // Otherwise, if either of the arguments is undefined, both results are undefined.
+                const scalar_one = try mod.intValue(dest_ty.scalarType(mod), 1);
                 if (maybe_lhs_val) |lhs_val| {
                     if (!lhs_val.isUndef()) {
                         if (try lhs_val.compareAllWithZeroAdvanced(.eq, sema)) {
-                            break :result .{ .overflow_bit = try maybeRepeated(sema, dest_ty, Value.zero), .inst = lhs };
-                        } else if (try sema.compareAll(lhs_val, .eq, try maybeRepeated(sema, dest_ty, Value.one), dest_ty)) {
-                            break :result .{ .overflow_bit = try maybeRepeated(sema, dest_ty, Value.zero), .inst = rhs };
+                            break :result .{ .overflow_bit = try maybeRepeated(sema, dest_ty, zero), .inst = lhs };
+                        } else if (try sema.compareAll(lhs_val, .eq, try maybeRepeated(sema, dest_ty, scalar_one), dest_ty)) {
+                            break :result .{ .overflow_bit = try maybeRepeated(sema, dest_ty, zero), .inst = rhs };
                         }
                     }
                 }
@@ -14386,9 +14420,9 @@ fn zirOverflowArithmetic(
                 if (maybe_rhs_val) |rhs_val| {
                     if (!rhs_val.isUndef()) {
                         if (try rhs_val.compareAllWithZeroAdvanced(.eq, sema)) {
-                            break :result .{ .overflow_bit = try maybeRepeated(sema, dest_ty, Value.zero), .inst = rhs };
-                        } else if (try sema.compareAll(rhs_val, .eq, try maybeRepeated(sema, dest_ty, Value.one), dest_ty)) {
-                            break :result .{ .overflow_bit = try maybeRepeated(sema, dest_ty, Value.zero), .inst = lhs };
+                            break :result .{ .overflow_bit = try maybeRepeated(sema, dest_ty, zero), .inst = rhs };
+                        } else if (try sema.compareAll(rhs_val, .eq, try maybeRepeated(sema, dest_ty, scalar_one), dest_ty)) {
+                            break :result .{ .overflow_bit = try maybeRepeated(sema, dest_ty, zero), .inst = lhs };
                         }
                     }
                 }
@@ -14410,12 +14444,12 @@ fn zirOverflowArithmetic(
                 // Oterhwise if either of the arguments is undefined, both results are undefined.
                 if (maybe_lhs_val) |lhs_val| {
                     if (!lhs_val.isUndef() and (try lhs_val.compareAllWithZeroAdvanced(.eq, sema))) {
-                        break :result .{ .overflow_bit = try maybeRepeated(sema, dest_ty, Value.zero), .inst = lhs };
+                        break :result .{ .overflow_bit = try maybeRepeated(sema, dest_ty, zero), .inst = lhs };
                     }
                 }
                 if (maybe_rhs_val) |rhs_val| {
                     if (!rhs_val.isUndef() and (try rhs_val.compareAllWithZeroAdvanced(.eq, sema))) {
-                        break :result .{ .overflow_bit = try maybeRepeated(sema, dest_ty, Value.zero), .inst = lhs };
+                        break :result .{ .overflow_bit = try maybeRepeated(sema, dest_ty, zero), .inst = lhs };
                     }
                 }
                 if (maybe_lhs_val) |lhs_val| {
@@ -14766,6 +14800,11 @@ fn analyzeArithmetic(
                 // If either of the operands are inf, and the other operand is zero,
                 // the result is nan.
                 // If either of the operands are nan, the result is nan.
+                const scalar_zero = switch (scalar_tag) {
+                    .ComptimeFloat, .Float => Value.float_zero, // TODO migrate to internpool
+                    .ComptimeInt, .Int => try mod.intValue(resolved_type.scalarType(mod), 0),
+                    else => unreachable,
+                };
                 if (maybe_lhs_val) |lhs_val| {
                     if (!lhs_val.isUndef()) {
                         if (lhs_val.isNan()) {
@@ -14783,11 +14822,11 @@ fn analyzeArithmetic(
                                 break :lz;
                             }
                             const zero_val = if (is_vector) b: {
-                                break :b try Value.Tag.repeated.create(sema.arena, Value.zero);
-                            } else Value.zero;
+                                break :b try Value.Tag.repeated.create(sema.arena, scalar_zero);
+                            } else scalar_zero;
                             return sema.addConstant(resolved_type, zero_val);
                         }
-                        if (try sema.compareAll(lhs_val, .eq, Value.one, resolved_type)) {
+                        if (try sema.compareAll(lhs_val, .eq, try mod.intValue(resolved_type, 1), resolved_type)) {
                             return casted_rhs;
                         }
                     }
@@ -14813,11 +14852,11 @@ fn analyzeArithmetic(
                             break :rz;
                         }
                         const zero_val = if (is_vector) b: {
-                            break :b try Value.Tag.repeated.create(sema.arena, Value.zero);
-                        } else Value.zero;
+                            break :b try Value.Tag.repeated.create(sema.arena, scalar_zero);
+                        } else scalar_zero;
                         return sema.addConstant(resolved_type, zero_val);
                     }
-                    if (try sema.compareAll(rhs_val, .eq, Value.one, resolved_type)) {
+                    if (try sema.compareAll(rhs_val, .eq, try mod.intValue(resolved_type, 1), resolved_type)) {
                         return casted_lhs;
                     }
                     if (maybe_lhs_val) |lhs_val| {
@@ -14849,15 +14888,20 @@ fn analyzeArithmetic(
                 // If either of the operands are zero, result is zero.
                 // If either of the operands are one, result is the other operand.
                 // If either of the operands are undefined, result is undefined.
+                const scalar_zero = switch (scalar_tag) {
+                    .ComptimeFloat, .Float => Value.float_zero, // TODO migrate to internpool
+                    .ComptimeInt, .Int => try mod.intValue(resolved_type.scalarType(mod), 0),
+                    else => unreachable,
+                };
                 if (maybe_lhs_val) |lhs_val| {
                     if (!lhs_val.isUndef()) {
                         if (try lhs_val.compareAllWithZeroAdvanced(.eq, sema)) {
                             const zero_val = if (is_vector) b: {
-                                break :b try Value.Tag.repeated.create(sema.arena, Value.zero);
-                            } else Value.zero;
+                                break :b try Value.Tag.repeated.create(sema.arena, scalar_zero);
+                            } else scalar_zero;
                             return sema.addConstant(resolved_type, zero_val);
                         }
-                        if (try sema.compareAll(lhs_val, .eq, Value.one, resolved_type)) {
+                        if (try sema.compareAll(lhs_val, .eq, try mod.intValue(resolved_type, 1), resolved_type)) {
                             return casted_rhs;
                         }
                     }
@@ -14869,11 +14913,11 @@ fn analyzeArithmetic(
                     }
                     if (try rhs_val.compareAllWithZeroAdvanced(.eq, sema)) {
                         const zero_val = if (is_vector) b: {
-                            break :b try Value.Tag.repeated.create(sema.arena, Value.zero);
-                        } else Value.zero;
+                            break :b try Value.Tag.repeated.create(sema.arena, scalar_zero);
+                        } else scalar_zero;
                         return sema.addConstant(resolved_type, zero_val);
                     }
-                    if (try sema.compareAll(rhs_val, .eq, Value.one, resolved_type)) {
+                    if (try sema.compareAll(rhs_val, .eq, try mod.intValue(resolved_type, 1), resolved_type)) {
                         return casted_lhs;
                     }
                     if (maybe_lhs_val) |lhs_val| {
@@ -14892,15 +14936,20 @@ fn analyzeArithmetic(
                 // If either of the operands are zero, result is zero.
                 // If either of the operands are one, result is the other operand.
                 // If either of the operands are undefined, result is undefined.
+                const scalar_zero = switch (scalar_tag) {
+                    .ComptimeFloat, .Float => Value.float_zero, // TODO migrate to internpool
+                    .ComptimeInt, .Int => try mod.intValue(resolved_type.scalarType(mod), 0),
+                    else => unreachable,
+                };
                 if (maybe_lhs_val) |lhs_val| {
                     if (!lhs_val.isUndef()) {
                         if (try lhs_val.compareAllWithZeroAdvanced(.eq, sema)) {
                             const zero_val = if (is_vector) b: {
-                                break :b try Value.Tag.repeated.create(sema.arena, Value.zero);
-                            } else Value.zero;
+                                break :b try Value.Tag.repeated.create(sema.arena, scalar_zero);
+                            } else scalar_zero;
                             return sema.addConstant(resolved_type, zero_val);
                         }
-                        if (try sema.compareAll(lhs_val, .eq, Value.one, resolved_type)) {
+                        if (try sema.compareAll(lhs_val, .eq, try mod.intValue(resolved_type, 1), resolved_type)) {
                             return casted_rhs;
                         }
                     }
@@ -14911,11 +14960,11 @@ fn analyzeArithmetic(
                     }
                     if (try rhs_val.compareAllWithZeroAdvanced(.eq, sema)) {
                         const zero_val = if (is_vector) b: {
-                            break :b try Value.Tag.repeated.create(sema.arena, Value.zero);
-                        } else Value.zero;
+                            break :b try Value.Tag.repeated.create(sema.arena, scalar_zero);
+                        } else scalar_zero;
                         return sema.addConstant(resolved_type, zero_val);
                     }
-                    if (try sema.compareAll(rhs_val, .eq, Value.one, resolved_type)) {
+                    if (try sema.compareAll(rhs_val, .eq, try mod.intValue(resolved_type, 1), resolved_type)) {
                         return casted_lhs;
                     }
                     if (maybe_lhs_val) |lhs_val| {
@@ -14968,7 +15017,7 @@ fn analyzeArithmetic(
                     })
                 else
                     ov_bit;
-                const zero_ov = try sema.addConstant(Type.u1, Value.zero);
+                const zero_ov = try sema.addConstant(Type.u1, try mod.intValue(Type.u1, 0));
                 const no_ov = try block.addBinOp(.cmp_eq, any_ov_bit, zero_ov);
 
                 try sema.addSafetyCheck(block, no_ov, .integer_overflow);
@@ -15785,7 +15834,7 @@ fn zirBuiltinSrc(
         const name = std.mem.span(fn_owner_decl.name);
         const bytes = try anon_decl.arena().dupe(u8, name[0 .. name.len + 1]);
         const new_decl = try anon_decl.finish(
-            try Type.array(anon_decl.arena(), bytes.len - 1, Value.zero, Type.u8, mod),
+            try Type.array(anon_decl.arena(), bytes.len - 1, try mod.intValue(Type.u8, 0), Type.u8, mod),
             try Value.Tag.bytes.create(anon_decl.arena(), bytes),
             0, // default alignment
         );
@@ -15798,7 +15847,7 @@ fn zirBuiltinSrc(
         // The compiler must not call realpath anywhere.
         const name = try fn_owner_decl.getFileScope().fullPathZ(anon_decl.arena());
         const new_decl = try anon_decl.finish(
-            try Type.array(anon_decl.arena(), name.len, Value.zero, Type.u8, mod),
+            try Type.array(anon_decl.arena(), name.len, try mod.intValue(Type.u8, 0), Type.u8, mod),
             try Value.Tag.bytes.create(anon_decl.arena(), name[0 .. name.len + 1]),
             0, // default alignment
         );
@@ -16148,7 +16197,7 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                         defer anon_decl.deinit();
                         const bytes = try anon_decl.arena().dupeZ(u8, name);
                         const new_decl = try anon_decl.finish(
-                            try Type.array(anon_decl.arena(), bytes.len, Value.zero, Type.u8, mod),
+                            try Type.array(anon_decl.arena(), bytes.len, try mod.intValue(Type.u8, 0), Type.u8, mod),
                             try Value.Tag.bytes.create(anon_decl.arena(), bytes[0 .. bytes.len + 1]),
                             0, // default alignment
                         );
@@ -16256,7 +16305,7 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                     defer anon_decl.deinit();
                     const bytes = try anon_decl.arena().dupeZ(u8, name);
                     const new_decl = try anon_decl.finish(
-                        try Type.array(anon_decl.arena(), bytes.len, Value.zero, Type.u8, mod),
+                        try Type.array(anon_decl.arena(), bytes.len, try mod.intValue(Type.u8, 0), Type.u8, mod),
                         try Value.Tag.bytes.create(anon_decl.arena(), bytes[0 .. bytes.len + 1]),
                         0, // default alignment
                     );
@@ -16344,7 +16393,7 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                     defer anon_decl.deinit();
                     const bytes = try anon_decl.arena().dupeZ(u8, name);
                     const new_decl = try anon_decl.finish(
-                        try Type.array(anon_decl.arena(), bytes.len, Value.zero, Type.u8, mod),
+                        try Type.array(anon_decl.arena(), bytes.len, try mod.intValue(Type.u8, 0), Type.u8, mod),
                         try Value.Tag.bytes.create(anon_decl.arena(), bytes[0 .. bytes.len + 1]),
                         0, // default alignment
                     );
@@ -16454,7 +16503,7 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                             else
                                 try std.fmt.allocPrintZ(anon_decl.arena(), "{d}", .{i});
                             const new_decl = try anon_decl.finish(
-                                try Type.array(anon_decl.arena(), bytes.len, Value.zero, Type.u8, mod),
+                                try Type.array(anon_decl.arena(), bytes.len, try mod.intValue(Type.u8, 0), Type.u8, mod),
                                 try Value.Tag.bytes.create(anon_decl.arena(), bytes[0 .. bytes.len + 1]),
                                 0, // default alignment
                             );
@@ -16496,7 +16545,7 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                         defer anon_decl.deinit();
                         const bytes = try anon_decl.arena().dupeZ(u8, name);
                         const new_decl = try anon_decl.finish(
-                            try Type.array(anon_decl.arena(), bytes.len, Value.zero, Type.u8, mod),
+                            try Type.array(anon_decl.arena(), bytes.len, try mod.intValue(Type.u8, 0), Type.u8, mod),
                             try Value.Tag.bytes.create(anon_decl.arena(), bytes[0 .. bytes.len + 1]),
                             0, // default alignment
                         );
@@ -16692,7 +16741,7 @@ fn typeInfoNamespaceDecls(
             defer anon_decl.deinit();
             const bytes = try anon_decl.arena().dupeZ(u8, mem.sliceTo(decl.name, 0));
             const new_decl = try anon_decl.finish(
-                try Type.array(anon_decl.arena(), bytes.len, Value.zero, Type.u8, mod),
+                try Type.array(anon_decl.arena(), bytes.len, try mod.intValue(Type.u8, 0), Type.u8, mod),
                 try Value.Tag.bytes.create(anon_decl.arena(), bytes[0 .. bytes.len + 1]),
                 0, // default alignment
             );
@@ -17884,7 +17933,7 @@ fn zirStructInit(
             }
             found_fields[field_index] = item.data.field_type;
             field_inits[field_index] = try sema.resolveInst(item.data.init);
-            if (!is_packed) if (resolved_ty.structFieldValueComptime(mod, field_index)) |default_value| {
+            if (!is_packed) if (try resolved_ty.structFieldValueComptime(mod, field_index)) |default_value| {
                 const init_val = (try sema.resolveMaybeUndefVal(field_inits[field_index])) orelse {
                     return sema.failWithNeededComptime(block, field_src, "value stored in comptime field must be comptime-known");
                 };
@@ -18544,8 +18593,8 @@ fn zirBoolToInt(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!A
     const operand = try sema.resolveInst(inst_data.operand);
     if (try sema.resolveMaybeUndefVal(operand)) |val| {
         if (val.isUndef()) return sema.addConstUndef(Type.u1);
-        if (val.toBool(mod)) return sema.addConstant(Type.u1, Value.one);
-        return sema.addConstant(Type.u1, Value.zero);
+        if (val.toBool(mod)) return sema.addConstant(Type.u1, try mod.intValue(Type.u1, 1));
+        return sema.addConstant(Type.u1, try mod.intValue(Type.u1, 0));
     }
     return block.addUnOp(.bool_to_int, operand);
 }
@@ -19761,7 +19810,7 @@ fn zirTypeName(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
     const bytes = try ty.nameAllocArena(anon_decl.arena(), mod);
 
     const new_decl = try anon_decl.finish(
-        try Type.array(anon_decl.arena(), bytes.len, Value.zero, Type.u8, mod),
+        try Type.array(anon_decl.arena(), bytes.len, try mod.intValue(Type.u8, 0), Type.u8, mod),
         try Value.Tag.bytes.create(anon_decl.arena(), bytes[0 .. bytes.len + 1]),
         0, // default alignment
     );
@@ -19804,17 +19853,17 @@ fn zirFloatToInt(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!
     try sema.requireRuntimeBlock(block, inst_data.src(), operand_src);
     if (dest_ty.intInfo(mod).bits == 0) {
         if (block.wantSafety()) {
-            const ok = try block.addBinOp(if (block.float_mode == .Optimized) .cmp_eq_optimized else .cmp_eq, operand, try sema.addConstant(operand_ty, Value.zero));
+            const ok = try block.addBinOp(if (block.float_mode == .Optimized) .cmp_eq_optimized else .cmp_eq, operand, try sema.addConstant(operand_ty, try mod.intValue(operand_ty, 0)));
             try sema.addSafetyCheck(block, ok, .integer_part_out_of_bounds);
         }
-        return sema.addConstant(dest_ty, Value.zero);
+        return sema.addConstant(dest_ty, try mod.intValue(dest_ty, 0));
     }
     const result = try block.addTyOp(if (block.float_mode == .Optimized) .float_to_int_optimized else .float_to_int, dest_ty, operand);
     if (block.wantSafety()) {
         const back = try block.addTyOp(.int_to_float, operand_ty, result);
         const diff = try block.addBinOp(.sub, operand, back);
-        const ok_pos = try block.addBinOp(if (block.float_mode == .Optimized) .cmp_lt_optimized else .cmp_lt, diff, try sema.addConstant(operand_ty, Value.one));
-        const ok_neg = try block.addBinOp(if (block.float_mode == .Optimized) .cmp_gt_optimized else .cmp_gt, diff, try sema.addConstant(operand_ty, Value.negative_one));
+        const ok_pos = try block.addBinOp(if (block.float_mode == .Optimized) .cmp_lt_optimized else .cmp_lt, diff, try sema.addConstant(operand_ty, try mod.intValue(operand_ty, 1)));
+        const ok_neg = try block.addBinOp(if (block.float_mode == .Optimized) .cmp_gt_optimized else .cmp_gt, diff, try sema.addConstant(operand_ty, try mod.intValue(operand_ty, -1)));
         const ok = try block.addBinOp(.bool_and, ok_pos, ok_neg);
         try sema.addSafetyCheck(block, ok, .integer_part_out_of_bounds);
     }
@@ -21398,7 +21447,7 @@ fn analyzeShuffle(
             expand_mask_values[i] = try mod.intValue(Type.comptime_int, i);
         }
         while (i < max_len) : (i += 1) {
-            expand_mask_values[i] = Value.negative_one;
+            expand_mask_values[i] = try mod.intValue(Type.comptime_int, -1);
         }
         const expand_mask = try Value.Tag.aggregate.create(sema.arena, expand_mask_values);
 
@@ -24504,7 +24553,7 @@ fn finishFieldCallBind(
 
     const container_ty = ptr_ty.childType(mod);
     if (container_ty.zigTypeTag(mod) == .Struct) {
-        if (container_ty.structFieldValueComptime(mod, field_index)) |default_val| {
+        if (try container_ty.structFieldValueComptime(mod, field_index)) |default_val| {
             return .{ .direct = try sema.addConstant(field_ty, default_val) };
         }
     }
@@ -24815,7 +24864,7 @@ fn tupleFieldValByIndex(
     const mod = sema.mod;
     const field_ty = tuple_ty.structFieldType(field_index);
 
-    if (tuple_ty.structFieldValueComptime(mod, field_index)) |default_value| {
+    if (try tuple_ty.structFieldValueComptime(mod, field_index)) |default_value| {
         return sema.addConstant(field_ty, default_value);
     }
 
@@ -24828,7 +24877,7 @@ fn tupleFieldValByIndex(
         return sema.addConstant(field_ty, field_values[field_index]);
     }
 
-    if (tuple_ty.structFieldValueComptime(mod, field_index)) |default_val| {
+    if (try tuple_ty.structFieldValueComptime(mod, field_index)) |default_val| {
         return sema.addConstant(field_ty, default_val);
     }
 
@@ -25205,7 +25254,7 @@ fn tupleFieldPtr(
         .@"addrspace" = tuple_ptr_ty.ptrAddressSpace(mod),
     });
 
-    if (tuple_ty.structFieldValueComptime(mod, field_index)) |default_val| {
+    if (try tuple_ty.structFieldValueComptime(mod, field_index)) |default_val| {
         const val = try Value.Tag.comptime_field_ptr.create(sema.arena, .{
             .field_ty = field_ty,
             .field_val = default_val,
@@ -25256,13 +25305,13 @@ fn tupleField(
 
     const field_ty = tuple_ty.structFieldType(field_index);
 
-    if (tuple_ty.structFieldValueComptime(mod, field_index)) |default_value| {
+    if (try tuple_ty.structFieldValueComptime(mod, field_index)) |default_value| {
         return sema.addConstant(field_ty, default_value); // comptime field
     }
 
     if (try sema.resolveMaybeUndefVal(tuple)) |tuple_val| {
         if (tuple_val.isUndef()) return sema.addConstUndef(field_ty);
-        return sema.addConstant(field_ty, tuple_val.fieldValue(tuple_ty, mod, field_index));
+        return sema.addConstant(field_ty, try tuple_val.fieldValue(tuple_ty, mod, field_index));
     }
 
     try sema.validateRuntimeElemAccess(block, field_index_src, field_ty, tuple_ty, tuple_src);
@@ -25812,7 +25861,7 @@ fn coerceExtra(
                         if (inst_info.size == .Slice) {
                             assert(dest_info.sentinel == null);
                             if (inst_info.sentinel == null or
-                                !inst_info.sentinel.?.eql(Value.zero, dest_info.pointee_type, sema.mod))
+                                !inst_info.sentinel.?.eql(try mod.intValue(dest_info.pointee_type, 0), dest_info.pointee_type, sema.mod))
                                 break :p;
 
                             const slice_ptr = try sema.analyzeSlicePtr(block, inst_src, inst, inst_ty);
@@ -25879,7 +25928,7 @@ fn coerceExtra(
                                 try mod.intValue(Type.usize, dest_info.@"align")
                             else
                                 try dest_info.pointee_type.lazyAbiAlignment(mod, sema.arena),
-                            .len = Value.zero,
+                            .len = try mod.intValue(Type.usize, 0),
                         });
                         return sema.addConstant(dest_ty, slice_val);
                     }
@@ -28234,7 +28283,7 @@ fn beginComptimePtrLoad(
                     const field_ty = field_ptr.container_ty.structFieldType(field_index);
                     deref.pointee = TypedValue{
                         .ty = field_ty,
-                        .val = tv.val.fieldValue(tv.ty, mod, field_index),
+                        .val = try tv.val.fieldValue(tv.ty, mod, field_index),
                     };
                 }
                 break :blk deref;
@@ -32532,9 +32581,9 @@ fn semaUnionFields(mod: *Module, union_obj: *Module.Union) CompileError!void {
                 break :blk try val.copy(decl_arena_allocator);
             } else blk: {
                 const val = if (last_tag_val) |val|
-                    try sema.intAdd(val, Value.one, int_tag_ty)
+                    try sema.intAdd(val, try mod.intValue(int_tag_ty, 1), int_tag_ty)
                 else
-                    Value.zero;
+                    try mod.intValue(int_tag_ty, 0);
                 last_tag_val = val;
 
                 break :blk try val.copy(decl_arena_allocator);
@@ -32903,7 +32952,7 @@ pub fn typeHasOnePossibleValue(sema: *Sema, ty: Type) CompileError!?Value {
     if (ty.ip_index != .none) switch (mod.intern_pool.indexToKey(ty.ip_index)) {
         .int_type => |int_type| {
             if (int_type.bits == 0) {
-                return Value.zero;
+                return try mod.intValue(ty, 0);
             } else {
                 return null;
             }
@@ -33049,7 +33098,7 @@ pub fn typeHasOnePossibleValue(sema: *Sema, ty: Type) CompileError!?Value {
             }
             if (enum_obj.fields.count() == 1) {
                 if (enum_obj.values.count() == 0) {
-                    return Value.zero; // auto-numbered
+                    return try mod.intValue(ty, 0); // auto-numbered
                 } else {
                     return enum_obj.values.keys()[0];
                 }
@@ -33066,7 +33115,7 @@ pub fn typeHasOnePossibleValue(sema: *Sema, ty: Type) CompileError!?Value {
             switch (enum_obj.fields.count()) {
                 0 => return Value.@"unreachable",
                 1 => if (enum_obj.values.count() == 0) {
-                    return Value.zero; // auto-numbered
+                    return try mod.intValue(ty, 0); // auto-numbered
                 } else {
                     return enum_obj.values.keys()[0];
                 },
@@ -33078,14 +33127,14 @@ pub fn typeHasOnePossibleValue(sema: *Sema, ty: Type) CompileError!?Value {
             const enum_simple = resolved_ty.castTag(.enum_simple).?.data;
             switch (enum_simple.fields.count()) {
                 0 => return Value.@"unreachable",
-                1 => return Value.zero,
+                1 => return try mod.intValue(ty, 0),
                 else => return null,
             }
         },
         .enum_nonexhaustive => {
             const tag_ty = ty.castTag(.enum_nonexhaustive).?.data.tag_ty;
             if (tag_ty.zigTypeTag(mod) != .ComptimeInt and !(try sema.typeHasRuntimeBits(tag_ty))) {
-                return Value.zero;
+                return try mod.intValue(ty, 0);
             } else {
                 return null;
             }

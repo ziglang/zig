@@ -232,7 +232,7 @@ pub const DeclGen = struct {
     /// Fetch the result-id for a previously generated instruction or constant.
     fn resolve(self: *DeclGen, inst: Air.Inst.Ref) !IdRef {
         const mod = self.module;
-        if (self.air.value(inst, mod)) |val| {
+        if (try self.air.value(inst, mod)) |val| {
             const ty = self.typeOf(inst);
             if (ty.zigTypeTag(mod) == .Fn) {
                 const fn_decl_index = switch (val.tag()) {
@@ -584,7 +584,7 @@ pub const DeclGen = struct {
                     // TODO: Properly lower function pointers. For now we are going to hack around it and
                     // just generate an empty pointer. Function pointers are represented by usize for now,
                     // though.
-                    try self.addInt(Type.usize, Value.zero);
+                    try self.addInt(Type.usize, Value.zero_usize);
                     // TODO: Add dependency
                     return;
                 },
@@ -803,7 +803,7 @@ pub const DeclGen = struct {
                 .ErrorUnion => {
                     const payload_ty = ty.errorUnionPayload();
                     const is_pl = val.errorUnionIsPayload();
-                    const error_val = if (!is_pl) val else Value.zero;
+                    const error_val = if (!is_pl) val else try mod.intValue(Type.anyerror, 0);
 
                     const eu_layout = dg.errorUnionLayout(payload_ty);
                     if (!eu_layout.payload_has_bits) {
@@ -2801,7 +2801,7 @@ pub const DeclGen = struct {
         const value = try self.resolve(bin_op.rhs);
         const ptr_ty_ref = try self.resolveType(ptr_ty, .direct);
 
-        const val_is_undef = if (self.air.value(bin_op.rhs, mod)) |val| val.isUndefDeep() else false;
+        const val_is_undef = if (try self.air.value(bin_op.rhs, mod)) |val| val.isUndefDeep() else false;
         if (val_is_undef) {
             const undef = try self.spv.constUndef(ptr_ty_ref);
             try self.store(ptr_ty, ptr, undef);
@@ -3141,7 +3141,7 @@ pub const DeclGen = struct {
                 const label = IdRef{ .id = first_case_label.id + case_i };
 
                 for (items) |item| {
-                    const value = self.air.value(item, mod) orelse {
+                    const value = (try self.air.value(item, mod)) orelse {
                         return self.todo("switch on runtime value???", .{});
                     };
                     const int_val = switch (cond_ty.zigTypeTag(mod)) {

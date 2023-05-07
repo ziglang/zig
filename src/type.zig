@@ -3377,7 +3377,7 @@ pub const Type = struct {
     }
 
     /// For vectors, returns the element type. Otherwise returns self.
-    pub fn scalarType(ty: Type, mod: *const Module) Type {
+    pub fn scalarType(ty: Type, mod: *Module) Type {
         return switch (ty.zigTypeTag(mod)) {
             .Vector => ty.childType(mod),
             else => ty,
@@ -3941,13 +3941,13 @@ pub const Type = struct {
 
     /// During semantic analysis, instead call `Sema.typeHasOnePossibleValue` which
     /// resolves field types rather than asserting they are already resolved.
-    pub fn onePossibleValue(starting_type: Type, mod: *const Module) ?Value {
+    pub fn onePossibleValue(starting_type: Type, mod: *Module) !?Value {
         var ty = starting_type;
 
         if (ty.ip_index != .none) switch (mod.intern_pool.indexToKey(ty.ip_index)) {
             .int_type => |int_type| {
                 if (int_type.bits == 0) {
-                    return Value.zero;
+                    return try mod.intValue(ty, 0);
                 } else {
                     return null;
                 }
@@ -3956,13 +3956,13 @@ pub const Type = struct {
             .array_type => |array_type| {
                 if (array_type.len == 0)
                     return Value.initTag(.empty_array);
-                if (array_type.child.toType().onePossibleValue(mod) != null)
+                if ((try array_type.child.toType().onePossibleValue(mod)) != null)
                     return Value.initTag(.the_only_possible_value);
                 return null;
             },
             .vector_type => |vector_type| {
                 if (vector_type.len == 0) return Value.initTag(.empty_array);
-                if (vector_type.child.toType().onePossibleValue(mod)) |v| return v;
+                if (try vector_type.child.toType().onePossibleValue(mod)) |v| return v;
                 return null;
             },
             .opt_type => |child| {
@@ -4055,7 +4055,7 @@ pub const Type = struct {
                 assert(s.haveFieldTypes());
                 for (s.fields.values()) |field| {
                     if (field.is_comptime) continue;
-                    if (field.ty.onePossibleValue(mod) != null) continue;
+                    if ((try field.ty.onePossibleValue(mod)) != null) continue;
                     return null;
                 }
                 return Value.initTag(.empty_struct_value);
@@ -4066,7 +4066,7 @@ pub const Type = struct {
                 for (tuple.values, 0..) |val, i| {
                     const is_comptime = val.ip_index != .unreachable_value;
                     if (is_comptime) continue;
-                    if (tuple.types[i].onePossibleValue(mod) != null) continue;
+                    if ((try tuple.types[i].onePossibleValue(mod)) != null) continue;
                     return null;
                 }
                 return Value.initTag(.empty_struct_value);
@@ -4089,7 +4089,7 @@ pub const Type = struct {
                 switch (enum_full.fields.count()) {
                     0 => return Value.@"unreachable",
                     1 => if (enum_full.values.count() == 0) {
-                        return Value.zero; // auto-numbered
+                        return try mod.intValue(ty, 0); // auto-numbered
                     } else {
                         return enum_full.values.keys()[0];
                     },
@@ -4100,24 +4100,24 @@ pub const Type = struct {
                 const enum_simple = ty.castTag(.enum_simple).?.data;
                 switch (enum_simple.fields.count()) {
                     0 => return Value.@"unreachable",
-                    1 => return Value.zero,
+                    1 => return try mod.intValue(ty, 0),
                     else => return null,
                 }
             },
             .enum_nonexhaustive => {
                 const tag_ty = ty.castTag(.enum_nonexhaustive).?.data.tag_ty;
                 if (!tag_ty.hasRuntimeBits(mod)) {
-                    return Value.zero;
+                    return try mod.intValue(ty, 0);
                 } else {
                     return null;
                 }
             },
             .@"union", .union_safety_tagged, .union_tagged => {
                 const union_obj = ty.cast(Payload.Union).?.data;
-                const tag_val = union_obj.tag_ty.onePossibleValue(mod) orelse return null;
+                const tag_val = (try union_obj.tag_ty.onePossibleValue(mod)) orelse return null;
                 if (union_obj.fields.count() == 0) return Value.@"unreachable";
                 const only_field = union_obj.fields.values()[0];
-                const val_val = only_field.ty.onePossibleValue(mod) orelse return null;
+                const val_val = (try only_field.ty.onePossibleValue(mod)) orelse return null;
                 _ = tag_val;
                 _ = val_val;
                 return Value.initTag(.empty_struct_value);
@@ -4128,7 +4128,7 @@ pub const Type = struct {
             .array => {
                 if (ty.arrayLen(mod) == 0)
                     return Value.initTag(.empty_array);
-                if (ty.childType(mod).onePossibleValue(mod) != null)
+                if ((try ty.childType(mod).onePossibleValue(mod)) != null)
                     return Value.initTag(.the_only_possible_value);
                 return null;
             },
@@ -4365,8 +4365,8 @@ pub const Type = struct {
     /// Asserts that the type is an integer.
     pub fn minIntScalar(ty: Type, mod: *Module) !Value {
         const info = ty.intInfo(mod);
-        if (info.signedness == .unsigned) return Value.zero;
-        if (info.bits == 0) return Value.negative_one;
+        if (info.signedness == .unsigned) return mod.intValue(ty, 0);
+        if (info.bits == 0) return mod.intValue(ty, -1);
 
         if (std.math.cast(u6, info.bits - 1)) |shift| {
             const n = @as(i64, std.math.minInt(i64)) >> (63 - shift);
@@ -4392,17 +4392,17 @@ pub const Type = struct {
     }
 
     /// Asserts that the type is an integer.
-    pub fn maxIntScalar(self: Type, mod: *Module) !Value {
-        const info = self.intInfo(mod);
+    pub fn maxIntScalar(ty: Type, mod: *Module) !Value {
+        const info = ty.intInfo(mod);
 
         switch (info.bits) {
             0 => return switch (info.signedness) {
-                .signed => Value.negative_one,
-                .unsigned => Value.zero,
+                .signed => mod.intValue(ty, -1),
+                .unsigned => mod.intValue(ty, 0),
             },
             1 => return switch (info.signedness) {
-                .signed => Value.zero,
-                .unsigned => Value.one,
+                .signed => mod.intValue(ty, 0),
+                .unsigned => mod.intValue(ty, 0),
             },
             else => {},
         }
@@ -4662,7 +4662,7 @@ pub const Type = struct {
         }
     }
 
-    pub fn structFieldValueComptime(ty: Type, mod: *const Module, index: usize) ?Value {
+    pub fn structFieldValueComptime(ty: Type, mod: *Module, index: usize) !?Value {
         switch (ty.tag()) {
             .@"struct" => {
                 const struct_obj = ty.castTag(.@"struct").?.data;

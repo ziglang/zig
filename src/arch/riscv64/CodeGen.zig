@@ -1743,7 +1743,7 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallModifier
             }
         }
 
-        if (self.air.value(callee, mod)) |func_value| {
+        if (try self.air.value(callee, mod)) |func_value| {
             if (func_value.castTag(.function)) |func_payload| {
                 const func = func_payload.data;
                 const atom_index = try elf_file.getOrCreateAtomForDecl(func.owner_decl);
@@ -2551,7 +2551,7 @@ fn resolveInst(self: *Self, inst: Air.Inst.Ref) InnerError!MCValue {
 
     const inst_index = Air.refToIndex(inst) orelse return self.genTypedValue(.{
         .ty = inst_ty,
-        .val = self.air.value(inst, mod).?,
+        .val = (try self.air.value(inst, mod)).?,
     });
 
     switch (self.air.instructions.items(.tag)[inst_index]) {

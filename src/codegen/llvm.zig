@@ -2854,7 +2854,7 @@ pub const DeclGen = struct {
             },
             .Array => {
                 const elem_ty = t.childType(mod);
-                assert(elem_ty.onePossibleValue(mod) == null);
+                if (std.debug.runtime_safety) assert((try elem_ty.onePossibleValue(mod)) == null);
                 const elem_llvm_ty = try dg.lowerType(elem_ty);
                 const total_len = t.arrayLen(mod) + @boolToInt(t.sentinel(mod) != null);
                 return elem_llvm_ty.arrayType(@intCast(c_uint, total_len));
@@ -3588,7 +3588,7 @@ pub const DeclGen = struct {
 
                 if (!payload_type.hasRuntimeBitsIgnoreComptime(mod)) {
                     // We use the error type directly as the type.
-                    const err_val = if (!is_pl) tv.val else Value.zero;
+                    const err_val = if (!is_pl) tv.val else try mod.intValue(Type.anyerror, 0);
                     return dg.lowerValue(.{ .ty = Type.anyerror, .val = err_val });
                 }
 
@@ -3596,7 +3596,7 @@ pub const DeclGen = struct {
                 const error_align = Type.anyerror.abiAlignment(mod);
                 const llvm_error_value = try dg.lowerValue(.{
                     .ty = Type.anyerror,
-                    .val = if (is_pl) Value.zero else tv.val,
+                    .val = if (is_pl) try mod.intValue(Type.anyerror, 0) else tv.val,
                 });
                 const llvm_payload_value = try dg.lowerValue(.{
                     .ty = payload_type,
@@ -4476,7 +4476,7 @@ pub const FuncGen = struct {
         const mod = self.dg.module;
         const llvm_val = try self.resolveValue(.{
             .ty = self.typeOf(inst),
-            .val = self.air.value(inst, mod).?,
+            .val = (try self.air.value(inst, mod)).?,
         });
         gop.value_ptr.* = llvm_val;
         return llvm_val;
@@ -6873,7 +6873,7 @@ pub const FuncGen = struct {
         const err_union_ty = self.typeOf(ty_op.operand).childType(mod);
 
         const payload_ty = err_union_ty.errorUnionPayload();
-        const non_error_val = try self.dg.lowerValue(.{ .ty = Type.anyerror, .val = Value.zero });
+        const non_error_val = try self.dg.lowerValue(.{ .ty = Type.anyerror, .val = try mod.intValue(Type.anyerror, 0) });
         if (!payload_ty.hasRuntimeBitsIgnoreComptime(mod)) {
             _ = self.builder.buildStore(non_error_val, operand);
             return operand;
@@ -8203,7 +8203,7 @@ pub const FuncGen = struct {
         const ptr_ty = self.typeOf(bin_op.lhs);
         const operand_ty = ptr_ty.childType(mod);
 
-        const val_is_undef = if (self.air.value(bin_op.rhs, mod)) |val| val.isUndefDeep() else false;
+        const val_is_undef = if (try self.air.value(bin_op.rhs, mod)) |val| val.isUndefDeep() else false;
         if (val_is_undef) {
             // Even if safety is disabled, we still emit a memset to undefined since it conveys
             // extra information to LLVM. However, safety makes the difference between using
@@ -8494,7 +8494,7 @@ pub const FuncGen = struct {
         const dest_ptr = self.sliceOrArrayPtr(dest_slice, ptr_ty);
         const is_volatile = ptr_ty.isVolatilePtr(mod);
 
-        if (self.air.value(bin_op.rhs, mod)) |elem_val| {
+        if (try self.air.value(bin_op.rhs, mod)) |elem_val| {
             if (elem_val.isUndefDeep()) {
                 // Even if safety is disabled, we still emit a memset to undefined since it conveys
                 // extra information to LLVM. However, safety makes the difference between using
@@ -9323,7 +9323,7 @@ pub const FuncGen = struct {
 
                     var indices: [2]*llvm.Value = .{ llvm_u32.constNull(), undefined };
                     for (elements, 0..) |elem, i| {
-                        if (result_ty.structFieldValueComptime(mod, i) != null) continue;
+                        if ((try result_ty.structFieldValueComptime(mod, i)) != null) continue;
 
                         const llvm_elem = try self.resolveInst(elem);
                         const llvm_i = llvmFieldIndex(result_ty, i, mod, &ptr_ty_buf).?;
@@ -9344,7 +9344,7 @@ pub const FuncGen = struct {
                 } else {
                     var result = llvm_result_ty.getUndef();
                     for (elements, 0..) |elem, i| {
-                        if (result_ty.structFieldValueComptime(mod, i) != null) continue;
+                        if ((try result_ty.structFieldValueComptime(mod, i)) != null) continue;
 
                         const llvm_elem = try self.resolveInst(elem);
                         const llvm_i = llvmFieldIndex(result_ty, i, mod, &ptr_ty_buf).?;

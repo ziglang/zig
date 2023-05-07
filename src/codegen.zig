@@ -675,7 +675,7 @@ pub fn generateSymbol(
             const is_payload = typed_value.val.errorUnionIsPayload();
 
             if (!payload_ty.hasRuntimeBitsIgnoreComptime(mod)) {
-                const err_val = if (is_payload) Value.zero else typed_value.val;
+                const err_val = if (is_payload) try mod.intValue(error_ty, 0) else typed_value.val;
                 return generateSymbol(bin_file, src_loc, .{
                     .ty = error_ty,
                     .val = err_val,
@@ -690,7 +690,7 @@ pub fn generateSymbol(
             if (error_align > payload_align) {
                 switch (try generateSymbol(bin_file, src_loc, .{
                     .ty = error_ty,
-                    .val = if (is_payload) Value.zero else typed_value.val,
+                    .val = if (is_payload) try mod.intValue(error_ty, 0) else typed_value.val,
                 }, code, debug_output, reloc_info)) {
                     .ok => {},
                     .fail => |em| return Result{ .fail = em },
@@ -722,7 +722,7 @@ pub fn generateSymbol(
                 const begin = code.items.len;
                 switch (try generateSymbol(bin_file, src_loc, .{
                     .ty = error_ty,
-                    .val = if (is_payload) Value.zero else typed_value.val,
+                    .val = if (is_payload) try mod.intValue(error_ty, 0) else typed_value.val,
                 }, code, debug_output, reloc_info)) {
                     .ok => {},
                     .fail => |em| return Result{ .fail = em },
@@ -1280,7 +1280,7 @@ pub fn genTypedValue(
 
             if (!payload_type.hasRuntimeBitsIgnoreComptime(mod)) {
                 // We use the error type directly as the type.
-                const err_val = if (!is_pl) typed_value.val else Value.zero;
+                const err_val = if (!is_pl) typed_value.val else try mod.intValue(error_type, 0);
                 return genTypedValue(bin_file, src_loc, .{
                     .ty = error_type,
                     .val = err_val,

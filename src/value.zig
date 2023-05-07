@@ -1022,7 +1022,7 @@ pub const Value = struct {
                 if (opt_val) |some| {
                     return some.writeToMemory(child, mod, buffer);
                 } else {
-                    return writeToMemory(Value.zero, Type.usize, mod, buffer);
+                    return writeToMemory(try mod.intValue(Type.usize, 0), Type.usize, mod, buffer);
                 }
             },
             else => return error.Unimplemented,
@@ -1124,7 +1124,7 @@ pub const Value = struct {
                 .Packed => {
                     const field_index = ty.unionTagFieldIndex(val.unionTag(), mod);
                     const field_type = ty.unionFields().values()[field_index.?].ty;
-                    const field_val = val.fieldValue(field_type, mod, field_index.?);
+                    const field_val = try val.fieldValue(field_type, mod, field_index.?);
 
                     return field_val.writeToPackedMemory(field_type, mod, buffer, bit_offset);
                 },
@@ -1141,7 +1141,7 @@ pub const Value = struct {
                 if (opt_val) |some| {
                     return some.writeToPackedMemory(child, mod, buffer, bit_offset);
                 } else {
-                    return writeToPackedMemory(Value.zero, Type.usize, mod, buffer, bit_offset);
+                    return writeToPackedMemory(try mod.intValue(Type.usize, 0), Type.usize, mod, buffer, bit_offset);
                 }
             },
             else => @panic("TODO implement writeToPackedMemory for more types"),
@@ -1173,7 +1173,7 @@ pub const Value = struct {
                 const int_info = ty.intInfo(mod);
                 const bits = int_info.bits;
                 const byte_count = (bits + 7) / 8;
-                if (bits == 0 or buffer.len == 0) return Value.zero;
+                if (bits == 0 or buffer.len == 0) return mod.intValue(ty, 0);
 
                 if (bits <= 64) switch (int_info.signedness) { // Fast path for integers <= u64
                     .signed => {
@@ -1290,12 +1290,12 @@ pub const Value = struct {
                 }
             },
             .Int, .Enum => {
-                if (buffer.len == 0) return Value.zero;
+                if (buffer.len == 0) return mod.intValue(ty, 0);
                 const int_info = ty.intInfo(mod);
                 const abi_size = @intCast(usize, ty.abiSize(mod));
 
                 const bits = int_info.bits;
-                if (bits == 0) return Value.zero;
+                if (bits == 0) return mod.intValue(ty, 0);
                 if (bits <= 64) switch (int_info.signedness) { // Fast path for integers <= u64
                     .signed => return mod.intValue(ty, std.mem.readVarPackedInt(i64, buffer, bit_offset, bits, endian, .signed)),
                     .unsigned => return mod.intValue(ty, std.mem.readVarPackedInt(u64, buffer, bit_offset, bits, endian, .unsigned)),
@@ -2091,11 +2091,11 @@ pub const Value = struct {
                 //   .the_one_possible_value,
                 //   .aggregate,
                 // Note that we already checked above for matching tags, e.g. both .aggregate.
-                return ty.onePossibleValue(mod) != null;
+                return (try ty.onePossibleValue(mod)) != null;
             },
             .Union => {
                 // Here we have to check for value equality, as-if `a` has been coerced to `ty`.
-                if (ty.onePossibleValue(mod) != null) {
+                if ((try ty.onePossibleValue(mod)) != null) {
                     return true;
                 }
                 if (a_ty.castTag(.anon_struct)) |payload| {
@@ -2604,7 +2604,7 @@ pub const Value = struct {
                     if (data.container_ptr.pointerDecl()) |decl_index| {
                         const container_decl = mod.declPtr(decl_index);
                         const field_type = data.container_ty.structFieldType(data.field_index);
-                        const field_val = container_decl.val.fieldValue(field_type, mod, data.field_index);
+                        const field_val = try container_decl.val.fieldValue(field_type, mod, data.field_index);
                         return field_val.elemValue(mod, index);
                     } else unreachable;
                 },
@@ -2723,7 +2723,7 @@ pub const Value = struct {
         };
     }
 
-    pub fn fieldValue(val: Value, ty: Type, mod: *const Module, index: usize) Value {
+    pub fn fieldValue(val: Value, ty: Type, mod: *Module, index: usize) !Value {
         switch (val.ip_index) {
             .undef => return Value.undef,
             .none => switch (val.tag()) {
@@ -2737,14 +2737,14 @@ pub const Value = struct {
                     return payload.val;
                 },
 
-                .the_only_possible_value => return ty.onePossibleValue(mod).?,
+                .the_only_possible_value => return (try ty.onePossibleValue(mod)).?,
 
                 .empty_struct_value => {
                     if (ty.isSimpleTupleOrAnonStruct()) {
                         const tuple = ty.tupleFields();
                         return tuple.values[index];
                     }
-                    if (ty.structFieldValueComptime(mod, index)) |some| {
+                    if (try ty.structFieldValueComptime(mod, index)) |some| {
                         return some;
                     }
                     unreachable;
@@ -2968,7 +2968,7 @@ pub const Value = struct {
         switch (val.ip_index) {
             .undef => return val,
             .none => switch (val.tag()) {
-                .the_only_possible_value => return Value.zero, // for i0, u0
+                .the_only_possible_value => return Value.float_zero, // for i0, u0
                 .lazy_align => {
                     const ty = val.castTag(.lazy_align).?.data;
                     if (opt_sema) |sema| {
@@ -3402,7 +3402,7 @@ pub const Value = struct {
         if (lhs.isUndef() or rhs.isUndef()) return Value.undef;
 
         const anded = try bitwiseAnd(lhs, rhs, ty, arena, mod);
-        const all_ones = if (ty.isSignedInt(mod)) Value.negative_one else try ty.maxIntScalar(mod);
+        const all_ones = if (ty.isSignedInt(mod)) try mod.intValue(ty, -1) else try ty.maxIntScalar(mod);
         return bitwiseXor(anded, all_ones, ty, arena, mod);
     }
 
@@ -3803,7 +3803,7 @@ pub const Value = struct {
         bits: u16,
         mod: *Module,
     ) !Value {
-        if (bits == 0) return Value.zero;
+        if (bits == 0) return mod.intValue(ty, 0);
 
         var val_space: Value.BigIntSpace = undefined;
         const val_bigint = val.toBigInt(&val_space, mod);
@@ -4011,9 +4011,9 @@ pub const Value = struct {
             // The shift is enough to remove all the bits from the number, which means the
             // result is 0 or -1 depending on the sign.
             if (lhs_bigint.positive) {
-                return Value.zero;
+                return mod.intValue(ty, 0);
             } else {
-                return Value.negative_one;
+                return mod.intValue(ty, -1);
             }
         }
 
@@ -5151,10 +5151,9 @@ pub const Value = struct {
 
     pub const BigIntSpace = InternPool.Key.Int.Storage.BigIntSpace;
 
-    pub const zero: Value = .{ .ip_index = .zero, .legacy = undefined };
-    pub const one: Value = .{ .ip_index = .one, .legacy = undefined };
-    pub const negative_one: Value = .{ .ip_index = .negative_one, .legacy = undefined };
+    pub const zero_usize: Value = .{ .ip_index = .zero_usize, .legacy = undefined };
     pub const undef: Value = .{ .ip_index = .undef, .legacy = undefined };
+    pub const float_zero: Value = .{ .ip_index = .zero, .legacy = undefined }; // TODO: replace this!
     pub const @"void": Value = .{ .ip_index = .void_value, .legacy = undefined };
     pub const @"null": Value = .{ .ip_index = .null_value, .legacy = undefined };
     pub const @"false": Value = .{ .ip_index = .bool_false, .legacy = undefined };
@@ -5169,7 +5168,9 @@ pub const Value = struct {
     }
 
     pub fn boolToInt(x: bool) Value {
-        return if (x) Value.one else Value.zero;
+        const zero: Value = .{ .ip_index = .zero, .legacy = undefined };
+        const one: Value = .{ .ip_index = .one, .legacy = undefined };
+        return if (x) one else zero;
     }
 
     pub const RuntimeIndex = enum(u32) {

@@ -5750,7 +5750,7 @@ pub fn analyzeFnBody(mod: *Module, func: *Fn, arena: Allocator) SemaError!Air {
 
             const arg_val = if (!arg_tv.val.isGenericPoison())
                 arg_tv.val
-            else if (arg_tv.ty.onePossibleValue(mod)) |opv|
+            else if (try arg_tv.ty.onePossibleValue(mod)) |opv|
                 opv
             else
                 break :t arg_tv.ty;
@@ -6887,6 +6887,16 @@ pub fn singleConstPtrType(mod: *Module, child_type: Type) Allocator.Error!Type {
 }
 
 pub fn intValue(mod: *Module, ty: Type, x: anytype) Allocator.Error!Value {
+    if (std.debug.runtime_safety) {
+        // TODO: decide if this also works for ABI int types like enums
+        const tag = ty.zigTypeTag(mod);
+        assert(tag == .Int or tag == .ComptimeInt);
+    }
+    if (@TypeOf(x) == comptime_int) {
+        if (comptime std.math.cast(u64, x)) |casted| return intValue_u64(mod, ty, casted);
+        if (comptime std.math.cast(i64, x)) |casted| return intValue_i64(mod, ty, casted);
+        @compileError("Out-of-range comptime_int passed to Module.intValue");
+    }
     if (std.math.cast(u64, x)) |casted| return intValue_u64(mod, ty, casted);
     if (std.math.cast(i64, x)) |casted| return intValue_i64(mod, ty, casted);
     var limbs_buffer: [4]usize = undefined;
