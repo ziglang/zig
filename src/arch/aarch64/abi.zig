@@ -15,7 +15,7 @@ pub const Class = union(enum) {
 };
 
 /// For `float_array` the second element will be the amount of floats.
-pub fn classifyType(ty: Type, mod: *const Module) Class {
+pub fn classifyType(ty: Type, mod: *Module) Class {
     std.debug.assert(ty.hasRuntimeBitsIgnoreComptime(mod));
 
     var maybe_float_bits: ?u16 = null;
@@ -74,7 +74,7 @@ pub fn classifyType(ty: Type, mod: *const Module) Class {
 }
 
 const sret_float_count = 4;
-fn countFloats(ty: Type, mod: *const Module, maybe_float_bits: *?u16) u8 {
+fn countFloats(ty: Type, mod: *Module, maybe_float_bits: *?u16) u8 {
     const target = mod.getTarget();
     const invalid = std.math.maxInt(u8);
     switch (ty.zigTypeTag(mod)) {
@@ -115,7 +115,7 @@ fn countFloats(ty: Type, mod: *const Module, maybe_float_bits: *?u16) u8 {
     }
 }
 
-pub fn getFloatArrayType(ty: Type, mod: *const Module) ?Type {
+pub fn getFloatArrayType(ty: Type, mod: *Module) ?Type {
     switch (ty.zigTypeTag(mod)) {
         .Union => {
             const fields = ty.unionFields();

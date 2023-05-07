@@ -1393,7 +1393,7 @@ fn resolveCallingConventionValues(func: *CodeGen, fn_ty: Type) InnerError!CallWV
     return result;
 }
 
-fn firstParamSRet(cc: std.builtin.CallingConvention, return_type: Type, mod: *const Module) bool {
+fn firstParamSRet(cc: std.builtin.CallingConvention, return_type: Type, mod: *Module) bool {
     switch (cc) {
         .Unspecified, .Inline => return isByRef(return_type, mod),
         .C => {
@@ -1713,7 +1713,7 @@ fn arch(func: *const CodeGen) std.Target.Cpu.Arch {
 
 /// For a given `Type`, will return true when the type will be passed
 /// by reference, rather than by value
-fn isByRef(ty: Type, mod: *const Module) bool {
+fn isByRef(ty: Type, mod: *Module) bool {
     const target = mod.getTarget();
     switch (ty.zigTypeTag(mod)) {
         .Type,
@@ -1787,7 +1787,7 @@ const SimdStoreStrategy = enum {
 /// This means when a given type is 128 bits and either the simd128 or relaxed-simd
 /// features are enabled, the function will return `.direct`. This would allow to store
 /// it using a instruction, rather than an unrolled version.
-fn determineSimdStoreStrategy(ty: Type, mod: *const Module) SimdStoreStrategy {
+fn determineSimdStoreStrategy(ty: Type, mod: *Module) SimdStoreStrategy {
     std.debug.assert(ty.zigTypeTag(mod) == .Vector);
     if (ty.bitSize(mod) != 128) return .unrolled;
     const hasFeature = std.Target.wasm.featureSetHas;
@@ -3121,7 +3121,7 @@ fn lowerConstant(func: *CodeGen, arg_val: Value, ty: Type) InnerError!WValue {
                     else => return func.fail("TODO: lowerConstant for enum tag: {}", .{ty.tag()}),
                 }
             } else {
-                const int_tag_ty = ty.intTagType();
+                const int_tag_ty = try ty.intTagType(mod);
                 return func.lowerConstant(val, int_tag_ty);
             }
         },
@@ -3235,7 +3235,7 @@ fn emitUndefined(func: *CodeGen, ty: Type) InnerError!WValue {
 /// Returns a `Value` as a signed 32 bit value.
 /// It's illegal to provide a value with a type that cannot be represented
 /// as an integer value.
-fn valueAsI32(func: *const CodeGen, val: Value, ty: Type) i32 {
+fn valueAsI32(func: *const CodeGen, val: Value, ty: Type) !i32 {
     const mod = func.bin_file.base.options.module.?;
     switch (ty.zigTypeTag(mod)) {
         .Enum => {
@@ -3257,7 +3257,7 @@ fn valueAsI32(func: *const CodeGen, val: Value, ty: Type) i32 {
                     else => unreachable,
                 }
             } else {
-                const int_tag_ty = ty.intTagType();
+                const int_tag_ty = try ty.intTagType(mod);
                 return func.valueAsI32(val, int_tag_ty);
             }
         },
@@ -3793,7 +3793,7 @@ fn airSwitchBr(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
 
         for (items, 0..) |ref, i| {
             const item_val = (try func.air.value(ref, mod)).?;
-            const int_val = func.valueAsI32(item_val, target_ty);
+            const int_val = try func.valueAsI32(item_val, target_ty);
             if (lowest_maybe == null or int_val < lowest_maybe.?) {
                 lowest_maybe = int_val;
             }
@@ -6814,7 +6814,7 @@ fn getTagNameFunction(func: *CodeGen, enum_ty: Type) InnerError!u32 {
         return loc.index;
     }
 
-    const int_tag_ty = enum_ty.intTagType();
+    const int_tag_ty = try enum_ty.intTagType(mod);
 
     if (int_tag_ty.bitSize(mod) > 64) {
         return func.fail("TODO: Implement @tagName for enums with tag size larger than 64 bits", .{});

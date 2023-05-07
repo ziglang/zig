@@ -1241,7 +1241,7 @@ pub fn genTypedValue(
                         if (enum_values.count() != 0) {
                             const tag_val = enum_values.keys()[field_index.data];
                             return genTypedValue(bin_file, src_loc, .{
-                                .ty = typed_value.ty.intTagType(),
+                                .ty = try typed_value.ty.intTagType(mod),
                                 .val = tag_val,
                             }, owner_decl_index);
                         } else {
@@ -1251,7 +1251,7 @@ pub fn genTypedValue(
                     else => unreachable,
                 }
             } else {
-                const int_tag_ty = typed_value.ty.intTagType();
+                const int_tag_ty = try typed_value.ty.intTagType(mod);
                 return genTypedValue(bin_file, src_loc, .{
                     .ty = int_tag_ty,
                     .val = typed_value.val,
@@ -1303,7 +1303,7 @@ pub fn genTypedValue(
     return genUnnamedConst(bin_file, src_loc, typed_value, owner_decl_index);
 }
 
-pub fn errUnionPayloadOffset(payload_ty: Type, mod: *const Module) u64 {
+pub fn errUnionPayloadOffset(payload_ty: Type, mod: *Module) u64 {
     if (!payload_ty.hasRuntimeBitsIgnoreComptime(mod)) return 0;
     const payload_align = payload_ty.abiAlignment(mod);
     const error_align = Type.anyerror.abiAlignment(mod);
@@ -1314,7 +1314,7 @@ pub fn errUnionPayloadOffset(payload_ty: Type, mod: *const Module) u64 {
     }
 }
 
-pub fn errUnionErrorOffset(payload_ty: Type, mod: *const Module) u64 {
+pub fn errUnionErrorOffset(payload_ty: Type, mod: *Module) u64 {
     if (!payload_ty.hasRuntimeBitsIgnoreComptime(mod)) return 0;
     const payload_align = payload_ty.abiAlignment(mod);
     const error_align = Type.anyerror.abiAlignment(mod);

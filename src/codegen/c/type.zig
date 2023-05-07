@@ -292,17 +292,17 @@ pub const CType = extern union {
                 .abi = std.math.log2_int(u32, abi_alignment),
             };
         }
-        pub fn abiAlign(ty: Type, mod: *const Module) AlignAs {
+        pub fn abiAlign(ty: Type, mod: *Module) AlignAs {
             const abi_align = ty.abiAlignment(mod);
             return init(abi_align, abi_align);
         }
-        pub fn fieldAlign(struct_ty: Type, field_i: usize, mod: *const Module) AlignAs {
+        pub fn fieldAlign(struct_ty: Type, field_i: usize, mod: *Module) AlignAs {
             return init(
                 struct_ty.structFieldAlign(field_i, mod),
                 struct_ty.structFieldType(field_i).abiAlignment(mod),
             );
         }
-        pub fn unionPayloadAlign(union_ty: Type, mod: *const Module) AlignAs {
+        pub fn unionPayloadAlign(union_ty: Type, mod: *Module) AlignAs {
             const union_obj = union_ty.cast(Type.Payload.Union).?.data;
             const union_payload_align = union_obj.abiAlignment(mod, false);
             return init(union_payload_align, union_payload_align);
@@ -1897,7 +1897,7 @@ pub const CType = extern union {
         }
     }
 
-    fn createFromType(store: *Store.Promoted, ty: Type, mod: *const Module, kind: Kind) !CType {
+    fn createFromType(store: *Store.Promoted, ty: Type, mod: *Module, kind: Kind) !CType {
         var convert: Convert = undefined;
         try convert.initType(ty, kind, .{ .imm = .{ .set = &store.set, .mod = mod } });
         return createFromConvert(store, ty, mod, kind, &convert);

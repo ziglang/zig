@@ -8249,7 +8249,6 @@ fn zirEnumLiteral(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
 
 fn zirEnumToInt(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
     const mod = sema.mod;
-    const arena = sema.arena;
     const inst_data = sema.code.instructions.items(.data)[inst].un_node;
     const src = inst_data.src();
     const operand_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = inst_data.src_node };
@@ -8278,7 +8277,7 @@ fn zirEnumToInt(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!A
     };
     const enum_tag_ty = sema.typeOf(enum_tag);
 
-    const int_tag_ty = try enum_tag_ty.intTagType().copy(arena);
+    const int_tag_ty = try enum_tag_ty.intTagType(mod);
 
     if (try sema.typeHasOnePossibleValue(enum_tag_ty)) |opv| {
         return sema.addConstant(int_tag_ty, opv);
@@ -8310,7 +8309,7 @@ fn zirIntToEnum(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!A
 
     if (try sema.resolveMaybeUndefVal(operand)) |int_val| {
         if (dest_ty.isNonexhaustiveEnum()) {
-            const int_tag_ty = dest_ty.intTagType();
+            const int_tag_ty = try dest_ty.intTagType(mod);
             if (try sema.intFitsInType(int_val, int_tag_ty, null)) {
                 return sema.addConstant(dest_ty, int_val);
             }
@@ -16268,7 +16267,7 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
         },
         .Enum => {
             // TODO: look into memoizing this result.
-            const int_tag_ty = try ty.intTagType().copy(sema.arena);
+            const int_tag_ty = try ty.intTagType(mod);
 
             const is_exhaustive = Value.makeBool(!ty.isNonexhaustiveEnum());
 
@@ -20354,7 +20353,7 @@ fn zirBitCount(
     block: *Block,
     inst: Zir.Inst.Index,
     air_tag: Air.Inst.Tag,
-    comptime comptimeOp: fn (val: Value, ty: Type, mod: *const Module) u64,
+    comptime comptimeOp: fn (val: Value, ty: Type, mod: *Module) u64,
 ) CompileError!Air.Inst.Ref {
     const mod = sema.mod;
     const inst_data = sema.code.instructions.items(.data)[inst].un_node;
@@ -20755,6 +20754,7 @@ fn checkAtomicPtrOperand(
     const mod = sema.mod;
     var diag: Module.AtomicPtrAlignmentDiagnostics = .{};
     const alignment = mod.atomicPtrAlignment(elem_ty, &diag) catch |err| switch (err) {
+        error.OutOfMemory => return error.OutOfMemory,
         error.FloatTooBig => return sema.fail(
             block,
             elem_ty_src,
@@ -23462,7 +23462,7 @@ fn validateExternType(
             return !Type.fnCallingConventionAllowsZigTypes(target, ty.fnCallingConvention());
         },
         .Enum => {
-            return sema.validateExternType(ty.intTagType(), position);
+            return sema.validateExternType(try ty.intTagType(mod), position);
         },
         .Struct, .Union => switch (ty.containerLayout()) {
             .Extern => return true,
@@ -23540,7 +23540,7 @@ fn explainWhyTypeIsNotExtern(
             }
         },
         .Enum => {
-            const tag_ty = ty.intTagType();
+            const tag_ty = try ty.intTagType(mod);
             try mod.errNoteNonLazy(src_loc, msg, "enum tag type '{}' is not extern compatible", .{tag_ty.fmt(sema.mod)});
             try sema.explainWhyTypeIsNotExtern(msg, src_loc, tag_ty, position);
         },

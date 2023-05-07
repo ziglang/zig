@@ -605,7 +605,7 @@ const FrameAlloc = struct {
             .ref_count = 0,
         };
     }
-    fn initType(ty: Type, mod: *const Module) FrameAlloc {
+    fn initType(ty: Type, mod: *Module) FrameAlloc {
         return init(.{ .size = ty.abiSize(mod), .alignment = ty.abiAlignment(mod) });
     }
 };
@@ -2309,7 +2309,7 @@ fn allocRegOrMemAdvanced(self: *Self, ty: Type, inst: ?Air.Inst.Index, reg_ok: b
     return .{ .load_frame = .{ .index = frame_index } };
 }
 
-fn regClassForType(ty: Type, mod: *const Module) RegisterManager.RegisterBitSet {
+fn regClassForType(ty: Type, mod: *Module) RegisterManager.RegisterBitSet {
     return switch (ty.zigTypeTag(mod)) {
         .Float, .Vector => sse,
         else => gp,

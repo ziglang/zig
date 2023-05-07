@@ -1300,7 +1300,7 @@ pub const DeclGen = struct {
                         }
                     },
                     else => {
-                        const int_tag_ty = ty.intTagType();
+                        const int_tag_ty = try ty.intTagType(mod);
                         return dg.renderValue(writer, int_tag_ty, val, location);
                     },
                 }
@@ -5198,7 +5198,7 @@ fn fieldLocation(
     container_ty: Type,
     field_ptr_ty: Type,
     field_index: u32,
-    mod: *const Module,
+    mod: *Module,
 ) union(enum) {
     begin: void,
     field: CValue,
@@ -7722,7 +7722,7 @@ const LowerFnRetTyBuffer = struct {
     values: [1]Value,
     payload: Type.Payload.AnonStruct,
 };
-fn lowerFnRetTy(ret_ty: Type, buffer: *LowerFnRetTyBuffer, mod: *const Module) Type {
+fn lowerFnRetTy(ret_ty: Type, buffer: *LowerFnRetTyBuffer, mod: *Module) Type {
     if (ret_ty.zigTypeTag(mod) == .NoReturn) return Type.noreturn;
 
     if (lowersToArray(ret_ty, mod)) {
@@ -7740,7 +7740,7 @@ fn lowerFnRetTy(ret_ty: Type, buffer: *LowerFnRetTyBuffer, mod: *const Module) T
     return if (ret_ty.hasRuntimeBitsIgnoreComptime(mod)) ret_ty else Type.void;
 }
 
-fn lowersToArray(ty: Type, mod: *const Module) bool {
+fn lowersToArray(ty: Type, mod: *Module) bool {
     return switch (ty.zigTypeTag(mod)) {
         .Array, .Vector => return true,
         else => return ty.isAbiInt(mod) and toCIntBits(@intCast(u32, ty.bitSize(mod))) == null,

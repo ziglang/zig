@@ -1527,7 +1527,7 @@ pub const Object = struct {
                 };
                 const field_index_val = Value.initPayload(&buf_field_index.base);
 
-                const int_ty = ty.intTagType();
+                const int_ty = try ty.intTagType(mod);
                 const int_info = ty.intInfo(mod);
                 assert(int_info.bits != 0);
 
@@ -2805,7 +2805,7 @@ pub const DeclGen = struct {
                 return dg.context.intType(info.bits);
             },
             .Enum => {
-                const int_ty = t.intTagType();
+                const int_ty = try t.intTagType(mod);
                 const bit_count = int_ty.intInfo(mod).bits;
                 assert(bit_count != 0);
                 return dg.context.intType(bit_count);
@@ -4334,7 +4334,9 @@ pub const DeclGen = struct {
         const mod = dg.module;
         const int_ty = switch (ty.zigTypeTag(mod)) {
             .Int => ty,
-            .Enum => ty.intTagType(),
+            .Enum => ty.intTagType(mod) catch |err| switch (err) {
+                error.OutOfMemory => @panic("OOM"),
+            },
             .Float => {
                 if (!is_rmw_xchg) return null;
                 return dg.context.intType(@intCast(c_uint, ty.abiSize(mod) * 8));
@@ -5286,7 +5288,7 @@ pub const FuncGen = struct {
         const mod = self.dg.module;
         const scalar_ty = operand_ty.scalarType(mod);
         const int_ty = switch (scalar_ty.zigTypeTag(mod)) {
-            .Enum => scalar_ty.intTagType(),
+            .Enum => try scalar_ty.intTagType(mod),
             .Int, .Bool, .Pointer, .ErrorSet => scalar_ty,
             .Optional => blk: {
                 const payload_ty = operand_ty.optionalChild(mod);
@@ -8867,7 +8869,7 @@ pub const FuncGen = struct {
         defer self.gpa.free(fqn);
         const llvm_fn_name = try std.fmt.allocPrintZ(arena, "__zig_is_named_enum_value_{s}", .{fqn});
 
-        const int_tag_ty = enum_ty.intTagType();
+        const int_tag_ty = try enum_ty.intTagType(mod);
         const param_types = [_]*llvm.Type{try self.dg.lowerType(int_tag_ty)};
 
         const llvm_ret_ty = try self.dg.lowerType(Type.bool);
@@ -8950,7 +8952,7 @@ pub const FuncGen = struct {
         const usize_llvm_ty = try self.dg.lowerType(Type.usize);
         const slice_alignment = slice_ty.abiAlignment(mod);
 
-        const int_tag_ty = enum_ty.intTagType();
+        const int_tag_ty = try enum_ty.intTagType(mod);
         const param_types = [_]*llvm.Type{try self.dg.lowerType(int_tag_ty)};
 
         const fn_type = llvm.functionType(llvm_ret_ty, &param_types, param_types.len, .False);
@@ -10487,7 +10489,7 @@ fn toLlvmGlobalAddressSpace(wanted_address_space: std.builtin.AddressSpace, targ
 fn llvmFieldIndex(
     ty: Type,
     field_index: usize,
-    mod: *const Module,
+    mod: *Module,
     ptr_pl_buf: *Type.Payload.Pointer,
 ) ?c_uint {
     // Detects where we inserted extra padding fields so that we can skip
@@ -10564,7 +10566,7 @@ fn llvmFieldIndex(
     }
 }
 
-fn firstParamSRet(fn_info: Type.Payload.Function.Data, mod: *const Module) bool {
+fn firstParamSRet(fn_info: Type.Payload.Function.Data, mod: *Module) bool {
     if (!fn_info.return_type.hasRuntimeBitsIgnoreComptime(mod)) return false;
 
     const target = mod.getTarget();
@@ -10593,7 +10595,7 @@ fn firstParamSRet(fn_info: Type.Payload.Function.Data, mod: *const Module) bool 
     }
 }
 
-fn firstParamSRetSystemV(ty: Type, mod: *const Module) bool {
+fn firstParamSRetSystemV(ty: Type, mod: *Module) bool {
     const class = x86_64_abi.classifySystemV(ty, mod, .ret);
     if (class[0] == .memory) return true;
     if (class[0] == .x87 and class[2] != .none) return true;
@@ -11041,7 +11043,7 @@ fn iterateParamTypes(dg: *DeclGen, fn_info: Type.Payload.Function.Data) ParamTyp
 
 fn ccAbiPromoteInt(
     cc: std.builtin.CallingConvention,
-    mod: *const Module,
+    mod: *Module,
     ty: Type,
 ) ?std.builtin.Signedness {
     const target = mod.getTarget();
@@ -11080,7 +11082,7 @@ fn ccAbiPromoteInt(
 
 /// This is the one source of truth for whether a type is passed around as an LLVM pointer,
 /// or as an LLVM value.
-fn isByRef(ty: Type, mod: *const Module) bool {
+fn isByRef(ty: Type, mod: *Module) bool {
     // For tuples and structs, if there are more than this many non-void
     // fields, then we make it byref, otherwise byval.
     const max_fields_byval = 0;
@@ -11159,7 +11161,7 @@ fn isByRef(ty: Type, mod: *const Module) bool {
     }
 }
 
-fn isScalar(mod: *const Module, ty: Type) bool {
+fn isScalar(mod: *Module, ty: Type) bool {
     return switch (ty.zigTypeTag(mod)) {
         .Void,
         .Bool,
@@ -11344,11 +11346,11 @@ fn buildAllocaInner(
     return alloca;
 }
 
-fn errUnionPayloadOffset(payload_ty: Type, mod: *const Module) u1 {
+fn errUnionPayloadOffset(payload_ty: Type, mod: *Module) u1 {
     return @boolToInt(Type.anyerror.abiAlignment(mod) > payload_ty.abiAlignment(mod));
 }
 
-fn errUnionErrorOffset(payload_ty: Type, mod: *const Module) u1 {
+fn errUnionErrorOffset(payload_ty: Type, mod: *Module) u1 {
     return @boolToInt(Type.anyerror.abiAlignment(mod) <= payload_ty.abiAlignment(mod));
 }
 
