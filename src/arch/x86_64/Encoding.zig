@@ -340,6 +340,11 @@ pub const Mnemonic = enum {
     vpunpcklbw, vpunpckldq, vpunpcklqdq, vpunpcklwd,
     // F16C
     vcvtph2ps, vcvtps2ph,
+    // FMA
+    vfmadd132pd, vfmadd213pd, vfmadd231pd,
+    vfmadd132ps, vfmadd213ps, vfmadd231ps,
+    vfmadd132sd, vfmadd213sd, vfmadd231sd,
+    vfmadd132ss, vfmadd213ss, vfmadd231ss,
     // zig fmt: on
 };
 
@@ -368,12 +373,13 @@ pub const Op = enum {
     r8, r16, r32, r64,
     rm8, rm16, rm32, rm64,
     r32_m16, r64_m16,
-    m8, m16, m32, m64, m80, m128,
+    m8, m16, m32, m64, m80, m128, m256,
     rel8, rel16, rel32,
     m,
     moffs,
     sreg,
     xmm, xmm_m32, xmm_m64, xmm_m128,
+    ymm, ymm_m256,
     // zig fmt: on
 
     pub fn fromOperand(operand: Instruction.Operand) Op {
@@ -385,6 +391,7 @@ pub const Op = enum {
                     .segment => return .sreg,
                     .floating_point => return switch (reg.bitSize()) {
                         128 => .xmm,
+                        256 => .ymm,
                         else => unreachable,
                     },
                     .general_purpose => {
@@ -418,6 +425,7 @@ pub const Op = enum {
                         64 => .m64,
                         80 => .m80,
                         128 => .m128,
+                        256 => .m256,
                         else => unreachable,
                     };
                 },
@@ -454,7 +462,8 @@ pub const Op = enum {
             .eax, .r32, .rm32, .r32_m16 => unreachable,
             .rax, .r64, .rm64, .r64_m16 => unreachable,
             .xmm, .xmm_m32, .xmm_m64, .xmm_m128 => unreachable,
-            .m8, .m16, .m32, .m64, .m80, .m128 => unreachable,
+            .ymm, .ymm_m256 => unreachable,
+            .m8, .m16, .m32, .m64, .m80, .m128, .m256 => unreachable,
             .unity => 1,
             .imm8, .imm8s, .rel8 => 8,
             .imm16, .imm16s, .rel16 => 16,
@@ -468,12 +477,13 @@ pub const Op = enum {
             .none, .o16, .o32, .o64, .moffs, .m, .sreg => unreachable,
             .unity, .imm8, .imm8s, .imm16, .imm16s, .imm32, .imm32s, .imm64 => unreachable,
             .rel8, .rel16, .rel32 => unreachable,
-            .m8, .m16, .m32, .m64, .m80, .m128 => unreachable,
+            .m8, .m16, .m32, .m64, .m80, .m128, .m256 => unreachable,
             .al, .cl, .r8, .rm8 => 8,
             .ax, .r16, .rm16 => 16,
             .eax, .r32, .rm32, .r32_m16 => 32,
             .rax, .r64, .rm64, .r64_m16 => 64,
             .xmm, .xmm_m32, .xmm_m64, .xmm_m128 => 128,
+            .ymm, .ymm_m256 => 256,
         };
     }
 
@@ -482,13 +492,14 @@ pub const Op = enum {
             .none, .o16, .o32, .o64, .moffs, .m, .sreg => unreachable,
             .unity, .imm8, .imm8s, .imm16, .imm16s, .imm32, .imm32s, .imm64 => unreachable,
             .rel8, .rel16, .rel32 => unreachable,
-            .al, .cl, .r8, .ax, .r16, .eax, .r32, .rax, .r64, .xmm => unreachable,
+            .al, .cl, .r8, .ax, .r16, .eax, .r32, .rax, .r64, .xmm, .ymm => unreachable,
             .m8, .rm8 => 8,
             .m16, .rm16, .r32_m16, .r64_m16 => 16,
             .m32, .rm32, .xmm_m32 => 32,
             .m64, .rm64, .xmm_m64 => 64,
             .m80 => 80,
             .m128, .xmm_m128 => 128,
+            .m256, .ymm_m256 => 256,
         };
     }
 
@@ -513,6 +524,7 @@ pub const Op = enum {
             .rm8, .rm16, .rm32, .rm64,
             .r32_m16, .r64_m16,
             .xmm, .xmm_m32, .xmm_m64, .xmm_m128,
+            .ymm, .ymm_m256,
             => true,
             else => false,
         };
@@ -539,7 +551,7 @@ pub const Op = enum {
             .r32_m16, .r64_m16,
             .m8, .m16, .m32, .m64, .m80, .m128,
             .m,
-            .xmm_m32, .xmm_m64, .xmm_m128,
+            .xmm_m32, .xmm_m64, .xmm_m128, .ymm_m256,
             =>  true,
             else => false,
         };
@@ -562,6 +574,7 @@ pub const Op = enum {
             .r32_m16, .r64_m16 => .general_purpose,
             .sreg => .segment,
             .xmm, .xmm_m32, .xmm_m64, .xmm_m128 => .floating_point,
+            .ymm, .ymm_m256 => .floating_point,
         };
     }
 
@@ -625,6 +638,7 @@ pub const Feature = enum {
     none,
     avx,
     f16c,
+    fma,
     sse,
     sse2,
     sse3,

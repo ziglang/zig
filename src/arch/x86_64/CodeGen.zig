@@ -1200,6 +1200,32 @@ fn asmRegisterRegisterImmediate(
     });
 }
 
+fn asmRegisterRegisterMemory(
+    self: *Self,
+    tag: Mir.Inst.Tag,
+    reg1: Register,
+    reg2: Register,
+    m: Memory,
+) !void {
+    _ = try self.addInst(.{
+        .tag = tag,
+        .ops = switch (m) {
+            .sib => .rrm_sib,
+            .rip => .rrm_rip,
+            else => unreachable,
+        },
+        .data = .{ .rrx = .{
+            .r1 = reg1,
+            .r2 = reg2,
+            .payload = switch (m) {
+                .sib => try self.addExtra(Mir.MemorySib.encode(m)),
+                .rip => try self.addExtra(Mir.MemoryRip.encode(m)),
+                else => unreachable,
+            },
+        } },
+    });
+}
+
 fn asmMemory(self: *Self, tag: Mir.Inst.Tag, m: Memory) !void {
     _ = try self.addInst(.{
         .tag = tag,
@@ -9369,9 +9395,146 @@ fn airPrefetch(self: *Self, inst: Air.Inst.Index) !void {
 fn airMulAdd(self: *Self, inst: Air.Inst.Index) !void {
     const pl_op = self.air.instructions.items(.data)[inst].pl_op;
     const extra = self.air.extraData(Air.Bin, pl_op.payload).data;
-    _ = extra;
-    return self.fail("TODO implement airMulAdd for x86_64", .{});
-    //return self.finishAir(inst, result, .{ extra.lhs, extra.rhs, pl_op.operand });
+    const ty = self.air.typeOfIndex(inst);
+
+    if (!self.hasFeature(.fma)) return self.fail("TODO implement airMulAdd for {}", .{
+        ty.fmt(self.bin_file.options.module.?),
+    });
+
+    const ops = [3]Air.Inst.Ref{ extra.lhs, extra.rhs, pl_op.operand };
+    var mcvs: [3]MCValue = undefined;
+    var locks = [1]?RegisterManager.RegisterLock{null} ** 3;
+    defer for (locks) |reg_lock| if (reg_lock) |lock| self.register_manager.unlockReg(lock);
+    var order = [1]u2{0} ** 3;
+    var unused = std.StaticBitSet(3).initFull();
+    for (ops, &mcvs, &locks, 0..) |op, *mcv, *lock, op_i| {
+        const op_index = @intCast(u2, op_i);
+        mcv.* = try self.resolveInst(op);
+        if (unused.isSet(0) and mcv.isRegister() and self.reuseOperand(inst, op, op_index, mcv.*)) {
+            order[op_index] = 1;
+            unused.unset(0);
+        } else if (unused.isSet(2) and mcv.isMemory()) {
+            order[op_index] = 3;
+            unused.unset(2);
+        }
+        switch (mcv.*) {
+            .register => |reg| lock.* = self.register_manager.lockReg(reg),
+            else => {},
+        }
+    }
+    for (&order, &mcvs, &locks) |*mop_index, *mcv, *lock| {
+        if (mop_index.* != 0) continue;
+        mop_index.* = 1 + @intCast(u2, unused.toggleFirstSet().?);
+        if (mop_index.* > 1 and mcv.isRegister()) continue;
+        const reg = try self.copyToTmpRegister(ty, mcv.*);
+        mcv.* = .{ .register = reg };
+        if (lock.*) |old_lock| self.register_manager.unlockReg(old_lock);
+        lock.* = self.register_manager.lockRegAssumeUnused(reg);
+    }
+
+    const tag: ?Mir.Inst.Tag =
+        if (mem.eql(u2, &order, &.{ 1, 3, 2 }) or mem.eql(u2, &order, &.{ 3, 1, 2 }))
+        switch (ty.zigTypeTag()) {
+            .Float => switch (ty.floatBits(self.target.*)) {
+                32 => .vfmadd132ss,
+                64 => .vfmadd132sd,
+                else => null,
+            },
+            .Vector => switch (ty.childType().zigTypeTag()) {
+                .Float => switch (ty.childType().floatBits(self.target.*)) {
+                    32 => switch (ty.vectorLen()) {
+                        1 => .vfmadd132ss,
+                        2...8 => .vfmadd132ps,
+                        else => null,
+                    },
+                    64 => switch (ty.vectorLen()) {
+                        1 => .vfmadd132sd,
+                        2...4 => .vfmadd132pd,
+                        else => null,
+                    },
+                    else => null,
+                },
+                else => null,
+            },
+            else => unreachable,
+        }
+    else if (mem.eql(u2, &order, &.{ 2, 1, 3 }) or mem.eql(u2, &order, &.{ 1, 2, 3 }))
+        switch (ty.zigTypeTag()) {
+            .Float => switch (ty.floatBits(self.target.*)) {
+                32 => .vfmadd213ss,
+                64 => .vfmadd213sd,
+                else => null,
+            },
+            .Vector => switch (ty.childType().zigTypeTag()) {
+                .Float => switch (ty.childType().floatBits(self.target.*)) {
+                    32 => switch (ty.vectorLen()) {
+                        1 => .vfmadd213ss,
+                        2...8 => .vfmadd213ps,
+                        else => null,
+                    },
+                    64 => switch (ty.vectorLen()) {
+                        1 => .vfmadd213sd,
+                        2...4 => .vfmadd213pd,
+                        else => null,
+                    },
+                    else => null,
+                },
+                else => null,
+            },
+            else => unreachable,
+        }
+    else if (mem.eql(u2, &order, &.{ 2, 3, 1 }) or mem.eql(u2, &order, &.{ 3, 2, 1 }))
+        switch (ty.zigTypeTag()) {
+            .Float => switch (ty.floatBits(self.target.*)) {
+                32 => .vfmadd231ss,
+                64 => .vfmadd231sd,
+                else => null,
+            },
+            .Vector => switch (ty.childType().zigTypeTag()) {
+                .Float => switch (ty.childType().floatBits(self.target.*)) {
+                    32 => switch (ty.vectorLen()) {
+                        1 => .vfmadd231ss,
+                        2...8 => .vfmadd231ps,
+                        else => null,
+                    },
+                    64 => switch (ty.vectorLen()) {
+                        1 => .vfmadd231sd,
+                        2...4 => .vfmadd231pd,
+                        else => null,
+                    },
+                    else => null,
+                },
+                else => null,
+            },
+            else => null,
+        }
+    else
+        unreachable;
+    if (tag == null) return self.fail("TODO implement airMulAdd for {}", .{
+        ty.fmt(self.bin_file.options.module.?),
+    });
+
+    var mops: [3]MCValue = undefined;
+    for (order, mcvs) |mop_index, mcv| mops[mop_index - 1] = mcv;
+
+    const abi_size = @intCast(u32, ty.abiSize(self.target.*));
+    const mop1_reg = registerAlias(mops[0].getReg().?, abi_size);
+    const mop2_reg = registerAlias(mops[1].getReg().?, abi_size);
+    if (mops[2].isRegister())
+        try self.asmRegisterRegisterRegister(
+            tag.?,
+            mop1_reg,
+            mop2_reg,
+            registerAlias(mops[2].getReg().?, abi_size),
+        )
+    else
+        try self.asmRegisterRegisterMemory(
+            tag.?,
+            mop1_reg,
+            mop2_reg,
+            mops[2].mem(Memory.PtrSize.fromSize(abi_size)),
+        );
+    return self.finishAir(inst, mops[0], ops);
 }
 
 fn resolveInst(self: *Self, ref: Air.Inst.Ref) InnerError!MCValue {

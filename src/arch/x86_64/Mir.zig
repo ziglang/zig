@@ -324,6 +324,31 @@ pub const Inst = struct {
         /// Convert single-precision floating-point values to 16-bit floating-point values
         vcvtps2ph,
 
+        /// Fused multiply-add of packed double-precision floating-point values
+        vfmadd132pd,
+        /// Fused multiply-add of packed double-precision floating-point values
+        vfmadd213pd,
+        /// Fused multiply-add of packed double-precision floating-point values
+        vfmadd231pd,
+        /// Fused multiply-add of packed single-precision floating-point values
+        vfmadd132ps,
+        /// Fused multiply-add of packed single-precision floating-point values
+        vfmadd213ps,
+        /// Fused multiply-add of packed single-precision floating-point values
+        vfmadd231ps,
+        /// Fused multiply-add of scalar double-precision floating-point values
+        vfmadd132sd,
+        /// Fused multiply-add of scalar double-precision floating-point values
+        vfmadd213sd,
+        /// Fused multiply-add of scalar double-precision floating-point values
+        vfmadd231sd,
+        /// Fused multiply-add of scalar single-precision floating-point values
+        vfmadd132ss,
+        /// Fused multiply-add of scalar single-precision floating-point values
+        vfmadd213ss,
+        /// Fused multiply-add of scalar single-precision floating-point values
+        vfmadd231ss,
+
         /// Compare string operands
         cmps,
         /// Load string
@@ -434,6 +459,12 @@ pub const Inst = struct {
         /// Register, memory (SIB), immediate (byte) operands.
         /// Uses `rix` payload with extra data of type `MemorySib`.
         rmi_sib,
+        /// Register, register, memory (RIP).
+        /// Uses `rrix` payload with extra data of type `MemoryRip`.
+        rrm_rip,
+        /// Register, register, memory (SIB).
+        /// Uses `rrix` payload with extra data of type `MemorySib`.
+        rrm_sib,
         /// Register, register, memory (RIP), immediate (byte) operands.
         /// Uses `rrix` payload with extra data of type `MemoryRip`.
         rrmi_rip,

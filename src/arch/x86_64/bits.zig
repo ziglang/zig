@@ -485,7 +485,9 @@ pub const Memory = union(enum) {
         dword,
         qword,
         tbyte,
-        dqword,
+        xword,
+        yword,
+        zword,
 
         pub fn fromSize(size: u32) PtrSize {
             return switch (size) {
@@ -493,7 +495,9 @@ pub const Memory = union(enum) {
                 2...2 => .word,
                 3...4 => .dword,
                 5...8 => .qword,
-                9...16 => .dqword,
+                9...16 => .xword,
+                17...32 => .yword,
+                33...64 => .zword,
                 else => unreachable,
             };
         }
@@ -505,7 +509,9 @@ pub const Memory = union(enum) {
                 32 => .dword,
                 64 => .qword,
                 80 => .tbyte,
-                128 => .dqword,
+                128 => .xword,
+                256 => .yword,
+                512 => .zword,
                 else => unreachable,
             };
         }
@@ -517,7 +523,9 @@ pub const Memory = union(enum) {
                 .dword => 32,
                 .qword => 64,
                 .tbyte => 80,
-                .dqword => 128,
+                .xword => 128,
+                .yword => 256,
+                .zword => 512,
             };
         }
     };
