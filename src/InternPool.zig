@@ -666,9 +666,12 @@ pub const Tag = enum(u8) {
     /// An integer type.
     /// data is number of bits
     type_int_unsigned,
+    /// An array type whose length requires 64 bits or which has a sentinel.
+    /// data is payload to Array.
+    type_array_big,
     /// An array type that has no sentinel and whose length fits in 32 bits.
     /// data is payload to Vector.
-    type_array,
+    type_array_small,
     /// A vector type.
     /// data is payload to Vector.
     type_vector,
@@ -862,6 +865,25 @@ pub const Vector = struct {
     child: Index,
 };
 
+pub const Array = struct {
+    len0: u32,
+    len1: u32,
+    child: Index,
+    sentinel: Index,
+
+    pub const Length = packed struct(u64) {
+        len0: u32,
+        len1: u32,
+    };
+
+    pub fn getLength(a: Array) u64 {
+        return @bitCast(u64, Length{
+            .len0 = a.len0,
+            .len1 = a.len1,
+        });
+    }
+};
+
 pub const ErrorUnion = struct {
     error_set_type: Index,
     payload_type: Index,
@@ -958,7 +980,15 @@ pub fn indexToKey(ip: InternPool, index: Index) Key {
                 .bits = @intCast(u16, data),
             },
         },
-        .type_array => {
+        .type_array_big => {
+            const array_info = ip.extraData(Array, data);
+            return .{ .array_type = .{
+                .len = array_info.getLength(),
+                .child = array_info.child,
+                .sentinel = array_info.sentinel,
+            } };
+        },
+        .type_array_small => {
             const array_info = ip.extraData(Vector, data);
             return .{ .array_type = .{
                 .len = array_info.len,
@@ -1094,13 +1124,29 @@ pub fn get(ip: *InternPool, gpa: Allocator, key: Key) Allocator.Error!Index {
             });
         },
         .array_type => |array_type| {
-            const len = @intCast(u32, array_type.len); // TODO have a big_array encoding
-            assert(array_type.sentinel == .none); // TODO have a sentinel_array encoding
+            assert(array_type.child != .none);
+
+            if (std.math.cast(u32, array_type.len)) |len| {
+                if (array_type.sentinel == .none) {
+                    ip.items.appendAssumeCapacity(.{
+                        .tag = .type_array_small,
+                        .data = try ip.addExtra(gpa, Vector{
+                            .len = len,
+                            .child = array_type.child,
+                        }),
+                    });
+                    return @intToEnum(Index, ip.items.len - 1);
+                }
+            }
+
+            const length = @bitCast(Array.Length, array_type.len);
             ip.items.appendAssumeCapacity(.{
-                .tag = .type_array,
-                .data = try ip.addExtra(gpa, Vector{
-                    .len = len,
+                .tag = .type_array_big,
+                .data = try ip.addExtra(gpa, Array{
+                    .len0 = length.len0,
+                    .len1 = length.len1,
                     .child = array_type.child,
+                    .sentinel = array_type.sentinel,
                 }),
             });
         },
@@ -1488,7 +1534,8 @@ fn dumpFallible(ip: InternPool, arena: Allocator) anyerror!void {
         gop.value_ptr.bytes += 1 + 4 + @as(usize, switch (tag) {
             .type_int_signed => 0,
             .type_int_unsigned => 0,
-            .type_array => @sizeOf(Vector),
+            .type_array_small => @sizeOf(Vector),
+            .type_array_big => @sizeOf(Array),
             .type_vector => @sizeOf(Vector),
             .type_pointer => @sizeOf(Pointer),
             .type_slice => 0,
