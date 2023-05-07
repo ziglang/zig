@@ -526,7 +526,7 @@ pub const DeclState = struct {
             .ErrorUnion => {
                 const error_ty = ty.errorUnionSet();
                 const payload_ty = ty.errorUnionPayload();
-                const payload_align = payload_ty.abiAlignment(target);
+                const payload_align = if (payload_ty.isNoReturn()) 0 else payload_ty.abiAlignment(target);
                 const error_align = Type.anyerror.abiAlignment(target);
                 const abi_size = ty.abiSize(target);
                 const payload_off = if (error_align >= payload_align) Type.anyerror.abiSize(target) else 0;
@@ -540,31 +540,35 @@ pub const DeclState = struct {
                 const name = try ty.nameAllocArena(arena, module);
                 try dbg_info_buffer.writer().print("{s}\x00", .{name});
 
-                // DW.AT.member
-                try dbg_info_buffer.ensureUnusedCapacity(7);
-                dbg_info_buffer.appendAssumeCapacity(@enumToInt(AbbrevKind.struct_member));
-                // DW.AT.name, DW.FORM.string
-                dbg_info_buffer.appendSliceAssumeCapacity("value");
-                dbg_info_buffer.appendAssumeCapacity(0);
-                // DW.AT.type, DW.FORM.ref4
-                var index = dbg_info_buffer.items.len;
-                try dbg_info_buffer.resize(index + 4);
-                try self.addTypeRelocGlobal(atom_index, payload_ty, @intCast(u32, index));
-                // DW.AT.data_member_location, DW.FORM.sdata
-                try leb128.writeULEB128(dbg_info_buffer.writer(), payload_off);
+                if (!payload_ty.isNoReturn()) {
+                    // DW.AT.member
+                    try dbg_info_buffer.ensureUnusedCapacity(7);
+                    dbg_info_buffer.appendAssumeCapacity(@enumToInt(AbbrevKind.struct_member));
+                    // DW.AT.name, DW.FORM.string
+                    dbg_info_buffer.appendSliceAssumeCapacity("value");
+                    dbg_info_buffer.appendAssumeCapacity(0);
+                    // DW.AT.type, DW.FORM.ref4
+                    const index = dbg_info_buffer.items.len;
+                    try dbg_info_buffer.resize(index + 4);
+                    try self.addTypeRelocGlobal(atom_index, payload_ty, @intCast(u32, index));
+                    // DW.AT.data_member_location, DW.FORM.sdata
+                    try leb128.writeULEB128(dbg_info_buffer.writer(), payload_off);
+                }
 
-                // DW.AT.member
-                try dbg_info_buffer.ensureUnusedCapacity(5);
-                dbg_info_buffer.appendAssumeCapacity(@enumToInt(AbbrevKind.struct_member));
-                // DW.AT.name, DW.FORM.string
-                dbg_info_buffer.appendSliceAssumeCapacity("err");
-                dbg_info_buffer.appendAssumeCapacity(0);
-                // DW.AT.type, DW.FORM.ref4
-                index = dbg_info_buffer.items.len;
-                try dbg_info_buffer.resize(index + 4);
-                try self.addTypeRelocGlobal(atom_index, error_ty, @intCast(u32, index));
-                // DW.AT.data_member_location, DW.FORM.sdata
-                try leb128.writeULEB128(dbg_info_buffer.writer(), error_off);
+                {
+                    // DW.AT.member
+                    try dbg_info_buffer.ensureUnusedCapacity(5);
+                    dbg_info_buffer.appendAssumeCapacity(@enumToInt(AbbrevKind.struct_member));
+                    // DW.AT.name, DW.FORM.string
+                    dbg_info_buffer.appendSliceAssumeCapacity("err");
+                    dbg_info_buffer.appendAssumeCapacity(0);
+                    // DW.AT.type, DW.FORM.ref4
+                    const index = dbg_info_buffer.items.len;
+                    try dbg_info_buffer.resize(index + 4);
+                    try self.addTypeRelocGlobal(atom_index, error_ty, @intCast(u32, index));
+                    // DW.AT.data_member_location, DW.FORM.sdata
+                    try leb128.writeULEB128(dbg_info_buffer.writer(), error_off);
+                }
 
                 // DW.AT.structure_type delimit children
                 try dbg_info_buffer.append(0);
