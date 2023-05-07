@@ -300,10 +300,14 @@ pub const SHT_LOOS = 0x60000000;
 pub const SHT_HIOS = 0x6fffffff;
 /// Start of processor-specific
 pub const SHT_LOPROC = 0x70000000;
+/// Unwind information
+pub const SHT_X86_64_UNWIND = 0x70000001;
 /// End of processor-specific
 pub const SHT_HIPROC = 0x7fffffff;
 /// Start of application-specific
 pub const SHT_LOUSER = 0x80000000;
+/// LLVM address-significance table
+pub const SHT_LLVM_ADDRSIG = 0xfff4c03;
 /// End of application-specific
 pub const SHT_HIUSER = 0xffffffff;
 
@@ -1631,6 +1635,9 @@ pub const SHF_TLS = 0x400;
 
 /// Identifies a section containing compressed data.
 pub const SHF_COMPRESSED = 0x800;
+
+/// Not to be GCed by the linker
+pub const SHF_GNU_RETAIN = 0x200000;
 
 /// This section is excluded from the final executable or shared library.
 pub const SHF_EXCLUDE = 0x80000000;
