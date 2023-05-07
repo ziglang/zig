@@ -662,12 +662,18 @@ pub const DwarfSection = enum {
 
 pub const DwarfInfo = struct {
     endian: std.builtin.Endian,
-    // No memory is owned by the DwarfInfo
+
+    // No section memory is owned by the DwarfInfo
     sections: [std.enums.directEnumArrayLen(DwarfSection, 0)]?[]const u8,
+
     // Filled later by the initializer
     abbrev_table_list: std.ArrayListUnmanaged(AbbrevTableHeader) = .{},
     compile_unit_list: std.ArrayListUnmanaged(CompileUnit) = .{},
     func_list: std.ArrayListUnmanaged(Func) = .{},
+
+    cie_map: std.AutoArrayHashMapUnmanaged(u64, CommonInformationEntry) = .{},
+    // Sorted by start_pc
+    fde_list: std.ArrayListUnmanaged(FrameDescriptionEntry) = .{},
 
     pub fn section(di: DwarfInfo, dwarf_section: DwarfSection) ?[]const u8 {
         return di.sections[@enumToInt(dwarf_section)];
@@ -1434,6 +1440,7 @@ pub const DwarfInfo = struct {
         return getStringGeneric(di.section(.debug_line_str), offset);
     }
 
+
     fn readDebugAddr(di: DwarfInfo, compile_unit: CompileUnit, index: u64) !u64 {
         const debug_addr = di.section(.debug_addr) orelse return badDwarf();
 
@@ -1459,6 +1466,56 @@ pub const DwarfInfo = struct {
             else => badDwarf(),
         };
     }
+
+    pub fn scanAllUnwindInfo(di: *DwarfInfo, allocator: mem.Allocator) !void {
+        var has_eh_frame_hdr = false;
+        if (di.section(.eh_frame)) |eh_frame_hdr| {
+            has_eh_frame_hdr = true;
+
+            // TODO: Parse this section
+            _ = eh_frame_hdr;
+        }
+
+        if (di.section(.eh_frame)) |eh_frame| {
+            var stream = io.fixedBufferStream(eh_frame);
+            const reader = stream.reader();
+
+            while (stream.pos < stream.buffer.len) {
+                const length_offset = stream.pos;
+                var length: u64 = try reader.readInt(u32, di.endian);
+                if (length == 0) break;
+
+                var is_64 = length == math.maxInt(u32);
+                if (is_64) {
+                    length = try reader.readInt(u64, di.endian);
+                }
+
+                const entry_bytes = eh_frame[stream.pos..][0..length];
+                const id = try reader.readInt(u32, di.endian);
+
+                // TODO: Get section_offset here (pass in from headers)
+
+                if (id == 0) {
+                    const cie = try CommonInformationEntry.parse(entry_bytes, @ptrToInt(eh_frame.ptr), 0, length_offset, @sizeOf(usize), di.endian);
+                    try di.cie_map.put(allocator, length_offset, cie);
+                } else {
+                    const cie_offset = stream.pos - 4 - id;
+                    const cie = di.cie_map.get(cie_offset) orelse return badDwarf();
+                    const fde = try FrameDescriptionEntry.parse(entry_bytes, @ptrToInt(eh_frame.ptr), 0, cie, @sizeOf(usize), di.endian);
+                    try di.fde_list.append(allocator, fde);
+                }
+            }
+
+            // TODO: Avoiding sorting if has_eh_frame_hdr exists
+            std.sort.sort(FrameDescriptionEntry, di.fde_list.items, {}, struct {
+                fn lessThan(ctx: void, a: FrameDescriptionEntry, b: FrameDescriptionEntry) bool {
+                    _ = ctx;
+                    return a.pc_begin < b.pc_begin;
+                }
+            }.lessThan);
+        }
+    }
+
 };
 
 /// Initialize DWARF info. The caller has the responsibility to initialize most
@@ -1467,11 +1524,8 @@ pub fn openDwarfDebugInfo(di: *DwarfInfo, allocator: mem.Allocator) !void {
     try di.scanAllFunctions(allocator);
     try di.scanAllCompileUnits(allocator);
 
-    // DEBUG
-    if (di.section(.eh_frame)) |eh_frame| {
-        _ = try CommonInformationEntry.parse(eh_frame, 8, .Little);
-    }
-
+    // Unwind info is not required
+    di.scanAllUnwindInfo(allocator) catch {};
 }
 
 /// This function is to make it handy to comment out the return and make it
@@ -1495,74 +1549,131 @@ fn getStringGeneric(opt_str: ?[]const u8, offset: u64) ![:0]const u8 {
     return str[casted_offset..last :0];
 }
 
-const EhPointer = struct {
-    value: union(enum) {
-        signed: i64,
-        unsigned: u64,
-    },
-    relative_to: u8,
+const EhPointerContext = struct {
+    // The address of the pointer field itself
+    pc_rel_base: u64,
 
-    // address of the encoded value
-    pc: u64,
-
-    // TODO: Function to resolve the value given input state (.text start, .eh_frame_hdr start, functions start)
+    // These relative addressing modes are only used in specific cases, and
+    // might not be available / required in all parsing contexts
+    data_rel_base: ?u64 = null,
+    text_rel_base: ?u64 = null,
+    function_rel_base: ?u64 = null,
 };
 
-fn readEhPointer(enc: u8, pc: usize, addr_size_bytes: u8, endian: std.builtin.Endian, reader: anytype) !?EhPointer {
+fn readEhPointer(reader: anytype, enc: u8, addr_size_bytes: u8, ctx: EhPointerContext, endian: std.builtin.Endian) !?u64 {
     if (enc == EH.PE.omit) return null;
-    return EhPointer{
-        .value = switch (enc & 0x0f) {
-            EH.PE.absptr => .{ .unsigned = switch (addr_size_bytes) {
+
+    const value: union(enum) {
+        signed: i64,
+        unsigned: u64,
+    } = switch (enc & 0x0f) {
+        EH.PE.absptr => .{
+            .unsigned = switch (addr_size_bytes) {
                 2 => try reader.readInt(u16, endian),
                 4 => try reader.readInt(u32, endian),
                 8 => try reader.readInt(u64, endian),
                 else => return error.InvalidAddrSize,
-            } },
-            EH.PE.uleb128 => .{ .unsigned = try leb.readULEB128(u64, reader) },
-            EH.PE.udata2 => .{ .unsigned = try reader.readInt(u16, endian) },
-            EH.PE.udata4 => .{ .unsigned = try reader.readInt(u32, endian) },
-            EH.PE.udata8 => .{ .unsigned = try reader.readInt(u64, endian) },
-            EH.PE.sleb128 => .{ .signed = try leb.readILEB128(i64, reader) },
-            EH.PE.sdata2 => .{ .signed = try reader.readInt(i16, endian) },
-            EH.PE.sdata4 => .{ .signed = try reader.readInt(i32, endian) },
-            EH.PE.sdata8 => .{ .signed = try reader.readInt(i64, endian) },
-            else => return badDwarf(),
+            },
         },
-        .relative_to = enc & 0xf0,
-        .pc = pc
+        EH.PE.uleb128 => .{ .unsigned = try leb.readULEB128(u64, reader) },
+        EH.PE.udata2 => .{ .unsigned = try reader.readInt(u16, endian) },
+        EH.PE.udata4 => .{ .unsigned = try reader.readInt(u32, endian) },
+        EH.PE.udata8 => .{ .unsigned = try reader.readInt(u64, endian) },
+        EH.PE.sleb128 => .{ .signed = try leb.readILEB128(i64, reader) },
+        EH.PE.sdata2 => .{ .signed = try reader.readInt(i16, endian) },
+        EH.PE.sdata4 => .{ .signed = try reader.readInt(i32, endian) },
+        EH.PE.sdata8 => .{ .signed = try reader.readInt(i64, endian) },
+        else => return badDwarf(),
     };
+
+    const relative_to = enc & 0xf0;
+    var base = switch (relative_to) {
+        EH.PE.pcrel => ctx.pc_rel_base,
+        EH.PE.textrel => ctx.text_rel_base orelse return error.PointerBaseNotSpecified,
+        EH.PE.datarel => ctx.data_rel_base orelse return error.PointerBaseNotSpecified,
+        EH.PE.funcrel => ctx.function_rel_base orelse return error.PointerBaseNotSpecified,
+        EH.PE.indirect => {
+            switch (addr_size_bytes) {
+                2 => return @intToPtr(*const u16, value.unsigned).*,
+                4 => return @intToPtr(*const u32, value.unsigned).*,
+                8 => return @intToPtr(*const u64, value.unsigned).*,
+                else => return error.UnsupportedAddrSize,
+            }
+        },
+        else => null,
+    };
+
+    if (base) |b| {
+        return switch (value) {
+            .signed => |s| @intCast(u64, s + @intCast(i64, b)),
+            .unsigned => |u| u + b,
+        };
+    } else {
+        return switch (value) {
+            .signed => |s| @intCast(u64, s),
+            .unsigned => |u| u,
+        };
+    }
 }
 
-const CommonInformationEntry = struct {
-    length: u32,
-    id: u32,
+pub const CommonInformationEntry = struct {
+    // Used in .eh_frame
+    pub const eh_id = 0;
+
+    // Used in .debug_frame (DWARF32)
+    pub const dwarf32_id = std.math.maxInt(u32);
+
+    // Used in .debug_frame (DWARF64)
+    pub const dwarf64_id = std.math.maxInt(u64);
+
+    // Offset of the length field of this entry in the eh_frame section.
+    // This is the key that FDEs use to reference CIEs.
+    length_offset: u64,
     version: u8,
-    code_alignment_factor: u64,
-    data_alignment_factor: u64,
-    return_address_register: u64,
 
-    // Augmented data
-    lsda_pointer_enc: ?u8,
-    personality_routine_pointer: ?EhPointer,
-    fde_pointer_enc: ?u8,
+    code_alignment_factor: u32,
+    data_alignment_factor: i32,
+    return_address_register: u8,
 
+    aug_str: []const u8,
+    aug_data: []const u8,
+    lsda_pointer_enc: u8,
+    personality_enc: ?u8,
+    personality_routine_pointer: ?u64,
+    fde_pointer_enc: u8,
     initial_instructions: []const u8,
 
-    // The returned struct references memory in `bytes`.
-    pub fn parse(bytes: []const u8, addr_size_bytes: u8, endian: std.builtin.Endian) !CommonInformationEntry {
-        if (addr_size_bytes > 8) return error.InvalidAddrSize;
-        if (bytes.len < 4) return badDwarf();
-        const length = mem.readInt(u32, bytes[0..4], endian);
-        const cie_bytes = bytes[4..][0..length];
+    pub fn isSignalFrame(self: CommonInformationEntry) bool {
+        for (self.aug_str) |c| if (c == 'S') return true;
+        return false;
+    }
+
+    pub fn addressesSignedWithBKey(self: CommonInformationEntry) bool {
+        for (self.aug_str) |c| if (c == 'B') return true;
+        return false;
+    }
+
+    pub fn mteTaggedFrame(self: CommonInformationEntry) bool {
+        for (self.aug_str) |c| if (c == 'G') return true;
+        return false;
+    }
+
+    // The returned struct references memory backed by cie_bytes
+    pub fn parse(
+        cie_bytes: []const u8,
+        section_base: u64,
+        section_offset: u64,
+        length_offset: u64,
+        addr_size_bytes: u8,
+        endian: std.builtin.Endian,
+    ) !CommonInformationEntry {
+        if (addr_size_bytes > 8) return error.UnsupportedAddrSize;
 
         var stream = io.fixedBufferStream(cie_bytes);
         const reader = stream.reader();
 
-        const id = try reader.readInt(u32, endian);
-        if (id != 0) return badDwarf();
-
         const version = try reader.readByte();
-        if (version != 1) return badDwarf();
+        if (version != 1 and version != 3) return error.UnsupportedDwarfVersion;
 
         var has_eh_data = false;
         var has_aug_data = false;
@@ -1575,76 +1686,153 @@ const CommonInformationEntry = struct {
                 'z' => {
                     if (aug_str_len != 0) return badDwarf();
                     has_aug_data = true;
-                    aug_str_start = stream.pos;
                 },
                 'e' => {
                     if (has_aug_data or aug_str_len != 0) return badDwarf();
                     if (try reader.readByte() != 'h') return badDwarf();
                     has_eh_data = true;
                 },
-                else => {
-                    if (has_eh_data) return badDwarf();
-                    aug_str_len += 1;
-                },
+                else => if (has_eh_data) return badDwarf(),
             }
+
+            aug_str_len += 1;
         }
 
         if (has_eh_data) {
-            // legacy data created by older versions of gcc - ignored here
+            // legacy data created by older versions of gcc - unsupported here
             for (0..addr_size_bytes) |_| _ = try reader.readByte();
         }
 
-        const code_alignment_factor = try leb.readULEB128(u64, reader);
-        const data_alignment_factor = try leb.readULEB128(u64, reader);
-        const return_address_register = try leb.readULEB128(u64, reader);
+        const code_alignment_factor = try leb.readULEB128(u32, reader);
+        const data_alignment_factor = try leb.readILEB128(i32, reader);
+        const return_address_register = if (version == 1) try reader.readByte() else try leb.readULEB128(u8, reader);
 
-        var lsda_pointer_enc: ?u8 = null;
-        var personality_routine_pointer: ?EhPointer = null;
-        var fde_pointer_enc: ?u8 = null;
+        var lsda_pointer_enc: u8 = EH.PE.omit;
+        var personality_enc: ?u8 = null;
+        var personality_routine_pointer: ?u64 = null;
+        var fde_pointer_enc: u8 = EH.PE.absptr;
 
-        if (has_aug_data) {
+        var aug_data: []const u8 = &[_]u8{};
+        const aug_str = if (has_aug_data) blk: {
             const aug_data_len = try leb.readULEB128(usize, reader);
             const aug_data_start = stream.pos;
+            aug_data = cie_bytes[aug_data_start..][0..aug_data_len];
 
             const aug_str = cie_bytes[aug_str_start..][0..aug_str_len];
-            for (aug_str) |byte| {
+            for (aug_str[1..]) |byte| {
                 switch (byte) {
                     'L' => {
                         lsda_pointer_enc = try reader.readByte();
                     },
                     'P' => {
-                        const personality_enc = try reader.readByte();
+                        personality_enc = try reader.readByte();
                         personality_routine_pointer = try readEhPointer(
-                            personality_enc,
-                            @ptrToInt(&cie_bytes[stream.pos]),
-                            addr_size_bytes,
-                            endian,
                             reader,
+                            personality_enc.?,
+                            addr_size_bytes,
+                            .{ .pc_rel_base = @ptrToInt(&cie_bytes[stream.pos]) - section_base + section_offset },
+                            endian,
                         );
                     },
                     'R' => {
                         fde_pointer_enc = try reader.readByte();
                     },
+                    'S', 'B', 'G' => {},
                     else => return badDwarf(),
                 }
             }
 
-            // verify length field
-            if (stream.pos != (aug_data_start + aug_data_len)) return badDwarf();
-        }
+            // aug_data_len can include padding so the CIE ends on an address boundary
+            try stream.seekTo(aug_data_start + aug_data_len);
+            break :blk aug_str;
+        } else &[_]u8{};
 
         const initial_instructions = cie_bytes[stream.pos..];
         return .{
-            .length = length,
-            .id = id,
+            .length_offset = length_offset,
             .version = version,
             .code_alignment_factor = code_alignment_factor,
             .data_alignment_factor = data_alignment_factor,
             .return_address_register = return_address_register,
+            .aug_str = aug_str,
+            .aug_data = aug_data,
             .lsda_pointer_enc = lsda_pointer_enc,
+            .personality_enc = personality_enc,
             .personality_routine_pointer = personality_routine_pointer,
             .fde_pointer_enc = fde_pointer_enc,
             .initial_instructions = initial_instructions,
+        };
+    }
+};
+
+pub const FrameDescriptionEntry = struct {
+    // Offset into eh_frame where the CIE for this FDE is stored
+    cie_length_offset: u64,
+
+    pc_begin: u64,
+    pc_range: u64,
+    lsda_pointer: ?u64,
+    aug_data: []const u8,
+    instructions: []const u8,
+
+    pub fn parse(
+        fde_bytes: []const u8,
+        section_base: u64,
+        section_offset: u64,
+        cie: CommonInformationEntry,
+        addr_size_bytes: u8,
+        endian: std.builtin.Endian,
+    ) !FrameDescriptionEntry {
+        if (addr_size_bytes > 8) return error.InvalidAddrSize;
+
+        var stream = io.fixedBufferStream(fde_bytes);
+        const reader = stream.reader();
+
+        const pc_begin = try readEhPointer(
+            reader,
+            cie.fde_pointer_enc,
+            addr_size_bytes,
+            .{ .pc_rel_base = @ptrToInt(&fde_bytes[stream.pos]) - section_base + section_offset },
+            endian,
+        ) orelse return badDwarf();
+
+        const pc_range = try readEhPointer(
+            reader,
+            cie.fde_pointer_enc & 0x0f,
+            addr_size_bytes,
+            .{ .pc_rel_base = @ptrToInt(&fde_bytes[stream.pos]) - section_base + section_offset },
+            endian,
+        ) orelse return badDwarf();
+
+        var aug_data: []const u8 = &[_]u8{};
+        const lsda_pointer = if (cie.aug_str.len > 0) blk: {
+            const aug_data_len = try leb.readULEB128(u64, reader);
+            const aug_data_start = stream.pos;
+            aug_data = fde_bytes[aug_data_start..][0..aug_data_len];
+
+            const lsda_pointer = if (cie.lsda_pointer_enc != EH.PE.omit)
+                try readEhPointer(
+                    reader,
+                    cie.lsda_pointer_enc & 0x0f,
+                    addr_size_bytes,
+                    .{ .pc_rel_base = @ptrToInt(&fde_bytes[stream.pos]) },
+                    endian,
+                )
+            else
+                null;
+
+            try stream.seekTo(aug_data_start + aug_data_len);
+            break :blk lsda_pointer;
+        } else null;
+
+        const instructions = fde_bytes[stream.pos..];
+        return .{
+            .cie_length_offset = cie.length_offset,
+            .pc_begin = pc_begin,
+            .pc_range = pc_range,
+            .lsda_pointer = lsda_pointer,
+            .aug_data = aug_data,
+            .instructions = instructions,
         };
     }
 };

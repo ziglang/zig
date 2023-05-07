@@ -1,5 +1,6 @@
 pub const PE = struct {
     pub const absptr = 0x00;
+
     pub const uleb128 = 0x01;
     pub const udata2 = 0x02;
     pub const udata4 = 0x03;
@@ -14,6 +15,7 @@ pub const PE = struct {
     pub const datarel = 0x30;
     pub const funcrel = 0x40;
     pub const aligned = 0x50;
+    pub const indirect = 0x80;
 
     pub const omit = 0xff;
 };
