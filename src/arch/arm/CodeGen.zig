@@ -4480,7 +4480,7 @@ fn cmp(
             }
         },
         .Float => return self.fail("TODO ARM cmp floats", .{}),
-        .Enum => lhs_ty.intTagType(),
+        .Enum => try lhs_ty.intTagType(mod),
         .Int => lhs_ty,
         .Bool => Type.u1,
         .Pointer => Type.usize,

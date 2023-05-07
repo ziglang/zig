@@ -694,7 +694,7 @@ pub const Value = struct {
             },
             .enum_simple => {
                 // Field index and integer values are the same.
-                const tag_ty = ty.intTagType();
+                const tag_ty = try ty.intTagType(mod);
                 return mod.intValue(tag_ty, field_index);
             },
             else => unreachable,
@@ -722,7 +722,9 @@ pub const Value = struct {
                     // auto-numbered enum
                     break :field_index @intCast(u32, val.toUnsignedInt(mod));
                 }
-                const int_tag_ty = ty.intTagType();
+                const int_tag_ty = ty.intTagType(mod) catch |err| switch (err) {
+                    error.OutOfMemory => @panic("OOM"), // TODO handle this failure
+                };
                 break :field_index @intCast(u32, values.getIndexContext(val, .{ .ty = int_tag_ty, .mod = mod }).?);
             },
         };
@@ -737,7 +739,7 @@ pub const Value = struct {
     }
 
     /// Asserts the value is an integer.
-    pub fn toBigInt(val: Value, space: *BigIntSpace, mod: *const Module) BigIntConst {
+    pub fn toBigInt(val: Value, space: *BigIntSpace, mod: *Module) BigIntConst {
         return val.toBigIntAdvanced(space, mod, null) catch unreachable;
     }
 
@@ -745,7 +747,7 @@ pub const Value = struct {
     pub fn toBigIntAdvanced(
         val: Value,
         space: *BigIntSpace,
-        mod: *const Module,
+        mod: *Module,
         opt_sema: ?*Sema,
     ) Module.CompileError!BigIntConst {
         return switch (val.ip_index) {
@@ -801,13 +803,13 @@ pub const Value = struct {
 
     /// If the value fits in a u64, return it, otherwise null.
     /// Asserts not undefined.
-    pub fn getUnsignedInt(val: Value, mod: *const Module) ?u64 {
+    pub fn getUnsignedInt(val: Value, mod: *Module) ?u64 {
         return getUnsignedIntAdvanced(val, mod, null) catch unreachable;
     }
 
     /// If the value fits in a u64, return it, otherwise null.
     /// Asserts not undefined.
-    pub fn getUnsignedIntAdvanced(val: Value, mod: *const Module, opt_sema: ?*Sema) !?u64 {
+    pub fn getUnsignedIntAdvanced(val: Value, mod: *Module, opt_sema: ?*Sema) !?u64 {
         switch (val.ip_index) {
             .bool_false => return 0,
             .bool_true => return 1,
@@ -847,12 +849,12 @@ pub const Value = struct {
     }
 
     /// Asserts the value is an integer and it fits in a u64
-    pub fn toUnsignedInt(val: Value, mod: *const Module) u64 {
+    pub fn toUnsignedInt(val: Value, mod: *Module) u64 {
         return getUnsignedInt(val, mod).?;
     }
 
     /// Asserts the value is an integer and it fits in a i64
-    pub fn toSignedInt(val: Value, mod: *const Module) i64 {
+    pub fn toSignedInt(val: Value, mod: *Module) i64 {
         switch (val.ip_index) {
             .bool_false => return 0,
             .bool_true => return 1,
@@ -1405,7 +1407,7 @@ pub const Value = struct {
         }
     }
 
-    pub fn clz(val: Value, ty: Type, mod: *const Module) u64 {
+    pub fn clz(val: Value, ty: Type, mod: *Module) u64 {
         const ty_bits = ty.intInfo(mod).bits;
         return switch (val.ip_index) {
             .bool_false => ty_bits,
@@ -1435,7 +1437,7 @@ pub const Value = struct {
         };
     }
 
-    pub fn ctz(val: Value, ty: Type, mod: *const Module) u64 {
+    pub fn ctz(val: Value, ty: Type, mod: *Module) u64 {
         const ty_bits = ty.intInfo(mod).bits;
         return switch (val.ip_index) {
             .bool_false => ty_bits,
@@ -1468,7 +1470,7 @@ pub const Value = struct {
         };
     }
 
-    pub fn popCount(val: Value, ty: Type, mod: *const Module) u64 {
+    pub fn popCount(val: Value, ty: Type, mod: *Module) u64 {
         assert(!val.isUndef());
         switch (val.ip_index) {
             .bool_false => return 0,
@@ -1527,7 +1529,7 @@ pub const Value = struct {
 
     /// Asserts the value is an integer and not undefined.
     /// Returns the number of bits the value requires to represent stored in twos complement form.
-    pub fn intBitCountTwosComp(self: Value, mod: *const Module) usize {
+    pub fn intBitCountTwosComp(self: Value, mod: *Module) usize {
         const target = mod.getTarget();
         return switch (self.ip_index) {
             .bool_false => 0,
@@ -1593,13 +1595,13 @@ pub const Value = struct {
         };
     }
 
-    pub fn orderAgainstZero(lhs: Value, mod: *const Module) std.math.Order {
+    pub fn orderAgainstZero(lhs: Value, mod: *Module) std.math.Order {
         return orderAgainstZeroAdvanced(lhs, mod, null) catch unreachable;
     }
 
     pub fn orderAgainstZeroAdvanced(
         lhs: Value,
-        mod: *const Module,
+        mod: *Module,
         opt_sema: ?*Sema,
     ) Module.CompileError!std.math.Order {
         switch (lhs.ip_index) {
@@ -1683,13 +1685,13 @@ pub const Value = struct {
     }
 
     /// Asserts the value is comparable.
-    pub fn order(lhs: Value, rhs: Value, mod: *const Module) std.math.Order {
+    pub fn order(lhs: Value, rhs: Value, mod: *Module) std.math.Order {
         return orderAdvanced(lhs, rhs, mod, null) catch unreachable;
     }
 
     /// Asserts the value is comparable.
     /// If opt_sema is null then this function asserts things are resolved and cannot fail.
-    pub fn orderAdvanced(lhs: Value, rhs: Value, mod: *const Module, opt_sema: ?*Sema) !std.math.Order {
+    pub fn orderAdvanced(lhs: Value, rhs: Value, mod: *Module, opt_sema: ?*Sema) !std.math.Order {
         const lhs_against_zero = try lhs.orderAgainstZeroAdvanced(mod, opt_sema);
         const rhs_against_zero = try rhs.orderAgainstZeroAdvanced(mod, opt_sema);
         switch (lhs_against_zero) {
@@ -1734,7 +1736,7 @@ pub const Value = struct {
 
     /// Asserts the value is comparable. Does not take a type parameter because it supports
     /// comparisons between heterogeneous types.
-    pub fn compareHetero(lhs: Value, op: std.math.CompareOperator, rhs: Value, mod: *const Module) bool {
+    pub fn compareHetero(lhs: Value, op: std.math.CompareOperator, rhs: Value, mod: *Module) bool {
         return compareHeteroAdvanced(lhs, op, rhs, mod, null) catch unreachable;
     }
 
@@ -1742,7 +1744,7 @@ pub const Value = struct {
         lhs: Value,
         op: std.math.CompareOperator,
         rhs: Value,
-        mod: *const Module,
+        mod: *Module,
         opt_sema: ?*Sema,
     ) !bool {
         if (lhs.pointerDecl()) |lhs_decl| {
@@ -2047,7 +2049,7 @@ pub const Value = struct {
             .Enum => {
                 const a_val = try a.enumToInt(ty, mod);
                 const b_val = try b.enumToInt(ty, mod);
-                const int_ty = ty.intTagType();
+                const int_ty = try ty.intTagType(mod);
                 return eqlAdvanced(a_val, int_ty, b_val, int_ty, mod, opt_sema);
             },
             .Array, .Vector => {
@@ -2462,7 +2464,7 @@ pub const Value = struct {
         };
     }
 
-    fn hashInt(int_val: Value, hasher: *std.hash.Wyhash, mod: *const Module) void {
+    fn hashInt(int_val: Value, hasher: *std.hash.Wyhash, mod: *Module) void {
         var buffer: BigIntSpace = undefined;
         const big = int_val.toBigInt(&buffer, mod);
         std.hash.autoHash(hasher, big.positive);
@@ -2471,7 +2473,7 @@ pub const Value = struct {
         }
     }
 
-    fn hashPtr(ptr_val: Value, hasher: *std.hash.Wyhash, mod: *const Module) void {
+    fn hashPtr(ptr_val: Value, hasher: *std.hash.Wyhash, mod: *Module) void {
         switch (ptr_val.tag()) {
             .decl_ref,
             .decl_ref_mut,

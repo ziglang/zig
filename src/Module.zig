@@ -944,7 +944,7 @@ pub const Decl = struct {
         };
     }
 
-    pub fn getAlignment(decl: Decl, mod: *const Module) u32 {
+    pub fn getAlignment(decl: Decl, mod: *Module) u32 {
         assert(decl.has_tv);
         if (decl.@"align" != 0) {
             // Explicit alignment.
@@ -1053,7 +1053,7 @@ pub const Struct = struct {
         /// Returns the field alignment. If the struct is packed, returns 0.
         pub fn alignment(
             field: Field,
-            mod: *const Module,
+            mod: *Module,
             layout: std.builtin.Type.ContainerLayout,
         ) u32 {
             if (field.abi_align != 0) {
@@ -1076,7 +1076,7 @@ pub const Struct = struct {
             }
         }
 
-        pub fn alignmentExtern(field: Field, mod: *const Module) u32 {
+        pub fn alignmentExtern(field: Field, mod: *Module) u32 {
             // This logic is duplicated in Type.abiAlignmentAdvanced.
             const ty_abi_align = field.ty.abiAlignment(mod);
 
@@ -1157,7 +1157,7 @@ pub const Struct = struct {
         };
     }
 
-    pub fn packedFieldBitOffset(s: Struct, mod: *const Module, index: usize) u16 {
+    pub fn packedFieldBitOffset(s: Struct, mod: *Module, index: usize) u16 {
         assert(s.layout == .Packed);
         assert(s.haveLayout());
         var bit_sum: u64 = 0;
@@ -1171,7 +1171,7 @@ pub const Struct = struct {
     }
 
     pub const RuntimeFieldIterator = struct {
-        module: *const Module,
+        module: *Module,
         struct_obj: *const Struct,
         index: u32 = 0,
 
@@ -1201,7 +1201,7 @@ pub const Struct = struct {
         }
     };
 
-    pub fn runtimeFieldIterator(s: *const Struct, module: *const Module) RuntimeFieldIterator {
+    pub fn runtimeFieldIterator(s: *const Struct, module: *Module) RuntimeFieldIterator {
         return .{
             .struct_obj = s,
             .module = module,
@@ -1353,7 +1353,7 @@ pub const Union = struct {
         /// Returns the field alignment, assuming the union is not packed.
         /// Keep implementation in sync with `Sema.unionFieldAlignment`.
         /// Prefer to call that function instead of this one during Sema.
-        pub fn normalAlignment(field: Field, mod: *const Module) u32 {
+        pub fn normalAlignment(field: Field, mod: *Module) u32 {
             if (field.abi_align == 0) {
                 return field.ty.abiAlignment(mod);
             } else {
@@ -1413,7 +1413,7 @@ pub const Union = struct {
         };
     }
 
-    pub fn hasAllZeroBitFieldTypes(u: Union, mod: *const Module) bool {
+    pub fn hasAllZeroBitFieldTypes(u: Union, mod: *Module) bool {
         assert(u.haveFieldTypes());
         for (u.fields.values()) |field| {
             if (field.ty.hasRuntimeBits(mod)) return false;
@@ -1421,7 +1421,7 @@ pub const Union = struct {
         return true;
     }
 
-    pub fn mostAlignedField(u: Union, mod: *const Module) u32 {
+    pub fn mostAlignedField(u: Union, mod: *Module) u32 {
         assert(u.haveFieldTypes());
         var most_alignment: u32 = 0;
         var most_index: usize = undefined;
@@ -1438,7 +1438,7 @@ pub const Union = struct {
     }
 
     /// Returns 0 if the union is represented with 0 bits at runtime.
-    pub fn abiAlignment(u: Union, mod: *const Module, have_tag: bool) u32 {
+    pub fn abiAlignment(u: Union, mod: *Module, have_tag: bool) u32 {
         var max_align: u32 = 0;
         if (have_tag) max_align = u.tag_ty.abiAlignment(mod);
         for (u.fields.values()) |field| {
@@ -1450,7 +1450,7 @@ pub const Union = struct {
         return max_align;
     }
 
-    pub fn abiSize(u: Union, mod: *const Module, have_tag: bool) u64 {
+    pub fn abiSize(u: Union, mod: *Module, have_tag: bool) u64 {
         return u.getLayout(mod, have_tag).abi_size;
     }
 
@@ -1481,7 +1481,7 @@ pub const Union = struct {
         };
     }
 
-    pub fn getLayout(u: Union, mod: *const Module, have_tag: bool) Layout {
+    pub fn getLayout(u: Union, mod: *Module, have_tag: bool) Layout {
         assert(u.haveLayout());
         var most_aligned_field: u32 = undefined;
         var most_aligned_field_size: u64 = undefined;
@@ -6988,6 +6988,7 @@ pub const AtomicPtrAlignmentError = error{
     FloatTooBig,
     IntTooBig,
     BadType,
+    OutOfMemory,
 };
 
 pub const AtomicPtrAlignmentDiagnostics = struct {
@@ -7001,7 +7002,7 @@ pub const AtomicPtrAlignmentDiagnostics = struct {
 // TODO this function does not take into account CPU features, which can affect
 // this value. Audit this!
 pub fn atomicPtrAlignment(
-    mod: *const Module,
+    mod: *Module,
     ty: Type,
     diags: *AtomicPtrAlignmentDiagnostics,
 ) AtomicPtrAlignmentError!u32 {
@@ -7080,7 +7081,7 @@ pub fn atomicPtrAlignment(
 
     const int_ty = switch (ty.zigTypeTag(mod)) {
         .Int => ty,
-        .Enum => ty.intTagType(),
+        .Enum => try ty.intTagType(mod),
         .Float => {
             const bit_count = ty.floatBits(target);
             if (bit_count > max_atomic_bits) {

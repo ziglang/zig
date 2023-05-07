@@ -7,7 +7,7 @@ const Module = @import("../../Module.zig");
 
 pub const Class = enum { memory, byval, integer, double_integer };
 
-pub fn classifyType(ty: Type, mod: *const Module) Class {
+pub fn classifyType(ty: Type, mod: *Module) Class {
     const target = mod.getTarget();
     std.debug.assert(ty.hasRuntimeBitsIgnoreComptime(mod));
 

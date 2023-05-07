@@ -21,7 +21,7 @@ const direct: [2]Class = .{ .direct, .none };
 /// Classifies a given Zig type to determine how they must be passed
 /// or returned as value within a wasm function.
 /// When all elements result in `.none`, no value must be passed in or returned.
-pub fn classifyType(ty: Type, mod: *const Module) [2]Class {
+pub fn classifyType(ty: Type, mod: *Module) [2]Class {
     const target = mod.getTarget();
     if (!ty.hasRuntimeBitsIgnoreComptime(mod)) return none;
     switch (ty.zigTypeTag(mod)) {
@@ -93,7 +93,7 @@ pub fn classifyType(ty: Type, mod: *const Module) [2]Class {
 /// Returns the scalar type a given type can represent.
 /// Asserts given type can be represented as scalar, such as
 /// a struct with a single scalar field.
-pub fn scalarType(ty: Type, mod: *const Module) Type {
+pub fn scalarType(ty: Type, mod: *Module) Type {
     switch (ty.zigTypeTag(mod)) {
         .Struct => {
             switch (ty.containerLayout()) {

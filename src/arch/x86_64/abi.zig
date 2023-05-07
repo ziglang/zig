@@ -12,7 +12,7 @@ pub const Class = enum {
     float_combine,
 };
 
-pub fn classifyWindows(ty: Type, mod: *const Module) Class {
+pub fn classifyWindows(ty: Type, mod: *Module) Class {
     // https://docs.microsoft.com/en-gb/cpp/build/x64-calling-convention?view=vs-2017
     // "There's a strict one-to-one correspondence between a function call's arguments
     // and the registers used for those arguments. Any argument that doesn't fit in 8
@@ -68,7 +68,7 @@ pub const Context = enum { ret, arg, other };
 
 /// There are a maximum of 8 possible return slots. Returned values are in
 /// the beginning of the array; unused slots are filled with .none.
-pub fn classifySystemV(ty: Type, mod: *const Module, ctx: Context) [8]Class {
+pub fn classifySystemV(ty: Type, mod: *Module, ctx: Context) [8]Class {
     const target = mod.getTarget();
     const memory_class = [_]Class{
         .memory, .none, .none, .none,

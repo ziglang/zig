@@ -24,7 +24,7 @@ pub const Class = union(enum) {
 
 pub const Context = enum { ret, arg };
 
-pub fn classifyType(ty: Type, mod: *const Module, ctx: Context) Class {
+pub fn classifyType(ty: Type, mod: *Module, ctx: Context) Class {
     assert(ty.hasRuntimeBitsIgnoreComptime(mod));
 
     var maybe_float_bits: ?u16 = null;
@@ -116,7 +116,7 @@ pub fn classifyType(ty: Type, mod: *const Module, ctx: Context) Class {
 }
 
 const byval_float_count = 4;
-fn countFloats(ty: Type, mod: *const Module, maybe_float_bits: *?u16) u32 {
+fn countFloats(ty: Type, mod: *Module, maybe_float_bits: *?u16) u32 {
     const target = mod.getTarget();
     const invalid = std.math.maxInt(u32);
     switch (ty.zigTypeTag(mod)) {
