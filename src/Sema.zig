@@ -25957,20 +25957,7 @@ fn coerceExtra(
                         if (!opts.report_err) return error.NotCoercible;
                         return sema.fail(block, inst_src, "type '{}' cannot represent integer value '{}'", .{ dest_ty.fmt(sema.mod), val.fmtValue(inst_ty, sema.mod) });
                     }
-                    const key = mod.intern_pool.indexToKey(val.ip_index);
-                    // If the int is represented as a bigint, copy it so we can safely pass it to `mod.intern`
-                    const int_storage: InternPool.Key.Int.Storage = switch (key.int.storage) {
-                        .u64 => |x| .{ .u64 = x },
-                        .i64 => |x| .{ .i64 = x },
-                        .big_int => |big_int| .{ .big_int = .{
-                            .limbs = try sema.arena.dupe(std.math.big.Limb, big_int.limbs),
-                            .positive = big_int.positive,
-                        } },
-                    };
-                    const new_val = try mod.intern(.{ .int = .{
-                        .ty = dest_ty.ip_index,
-                        .storage = int_storage,
-                    } });
+                    const new_val = try mod.intern_pool.getCoercedInt(sema.gpa, val.ip_index, dest_ty.ip_index);
                     return try sema.addConstant(dest_ty, new_val.toValue());
                 }
                 if (dest_ty.zigTypeTag(mod) == .ComptimeInt) {
