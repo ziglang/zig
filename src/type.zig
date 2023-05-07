@@ -2058,16 +2058,23 @@ pub const Type = struct {
         }
     }
 
-    pub fn ptrAddressSpace(self: Type, mod: *const Module) std.builtin.AddressSpace {
-        return switch (self.tag()) {
-            .pointer => self.castTag(.pointer).?.data.@"addrspace",
+    pub fn ptrAddressSpace(ty: Type, mod: *const Module) std.builtin.AddressSpace {
+        return switch (ty.ip_index) {
+            .none => switch (ty.tag()) {
+                .pointer => ty.castTag(.pointer).?.data.@"addrspace",
 
-            .optional => {
-                const child_type = self.optionalChild(mod);
-                return child_type.ptrAddressSpace(mod);
+                .optional => {
+                    const child_type = ty.optionalChild(mod);
+                    return child_type.ptrAddressSpace(mod);
+                },
+
+                else => unreachable,
             },
-
-            else => unreachable,
+            else => switch (mod.intern_pool.indexToKey(ty.ip_index)) {
+                .ptr_type => |ptr_type| ptr_type.address_space,
+                .opt_type => |child| mod.intern_pool.indexToKey(child).ptr_type.address_space,
+                else => unreachable,
+            },
         };
     }
 

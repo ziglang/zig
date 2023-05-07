@@ -644,15 +644,32 @@ pub const Value = struct {
 
     /// Asserts the type is an enum type.
     pub fn toEnum(val: Value, comptime E: type) E {
-        switch (val.tag()) {
-            .enum_field_index => {
-                const field_index = val.castTag(.enum_field_index).?.data;
-                return @intToEnum(E, field_index);
+        switch (val.ip_index) {
+            .calling_convention_c => {
+                if (E == std.builtin.CallingConvention) {
+                    return .C;
+                } else {
+                    unreachable;
+                }
             },
-            .the_only_possible_value => {
-                const fields = std.meta.fields(E);
-                assert(fields.len == 1);
-                return @intToEnum(E, fields[0].value);
+            .calling_convention_inline => {
+                if (E == std.builtin.CallingConvention) {
+                    return .Inline;
+                } else {
+                    unreachable;
+                }
+            },
+            .none => switch (val.tag()) {
+                .enum_field_index => {
+                    const field_index = val.castTag(.enum_field_index).?.data;
+                    return @intToEnum(E, field_index);
+                },
+                .the_only_possible_value => {
+                    const fields = std.meta.fields(E);
+                    assert(fields.len == 1);
+                    return @intToEnum(E, fields[0].value);
+                },
+                else => unreachable,
             },
             else => unreachable,
         }
@@ -2177,7 +2194,7 @@ pub const Value = struct {
         std.hash.autoHash(hasher, zig_ty_tag);
         if (val.isUndef()) return;
         // The value is runtime-known and shouldn't affect the hash.
-        if (val.tag() == .runtime_value) return;
+        if (val.isRuntimeValue()) return;
 
         switch (zig_ty_tag) {
             .Opaque => unreachable, // Cannot hash opaque types
@@ -2323,7 +2340,7 @@ pub const Value = struct {
     pub fn hashUncoerced(val: Value, ty: Type, hasher: *std.hash.Wyhash, mod: *Module) void {
         if (val.isUndef()) return;
         // The value is runtime-known and shouldn't affect the hash.
-        if (val.tag() == .runtime_value) return;
+        if (val.isRuntimeValue()) return;
 
         switch (ty.zigTypeTag(mod)) {
             .Opaque => unreachable, // Cannot hash opaque types

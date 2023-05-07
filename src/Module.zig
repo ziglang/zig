@@ -6716,6 +6716,7 @@ fn reportRetryableFileError(
 }
 
 pub fn markReferencedDeclsAlive(mod: *Module, val: Value) void {
+    if (val.ip_index != .none) return;
     switch (val.tag()) {
         .decl_ref_mut => return mod.markDeclIndexAlive(val.castTag(.decl_ref_mut).?.data.decl_index),
         .extern_fn => return mod.markDeclIndexAlive(val.castTag(.extern_fn).?.data.owner_decl),
