@@ -5016,14 +5016,14 @@ fn parseLldStderr(comp: *Compilation, comptime prefix: []const u8, stderr: []con
     defer context_lines.deinit();
 
     var current_err: ?*LldError = null;
-    var lines = mem.splitFull(u8, stderr, std.cstr.line_sep);
+    var lines = mem.splitSequence(u8, stderr, std.cstr.line_sep);
     while (lines.next()) |line| {
         if (mem.startsWith(u8, line, prefix ++ ":")) {
             if (current_err) |err| {
                 err.context_lines = try context_lines.toOwnedSlice();
             }
 
-            var split = std.mem.splitFull(u8, line, "error: ");
+            var split = std.mem.splitSequence(u8, line, "error: ");
             _ = split.first();
 
             const duped_msg = try std.fmt.allocPrint(comp.gpa, "{s}: {s}", .{ prefix, split.rest() });

@@ -706,7 +706,7 @@ fn parseOs(result: *CrossTarget, diags: *ParseOptions.Diagnostics, text: []const
         .linux,
         .dragonfly,
         => {
-            var range_it = mem.splitFull(u8, version_text, "...");
+            var range_it = mem.splitSequence(u8, version_text, "...");
 
             const min_text = range_it.next().?;
             const min_ver = SemVer.parse(min_text) catch |err| switch (err) {
@@ -726,7 +726,7 @@ fn parseOs(result: *CrossTarget, diags: *ParseOptions.Diagnostics, text: []const
         },
 
         .windows => {
-            var range_it = mem.splitFull(u8, version_text, "...");
+            var range_it = mem.splitSequence(u8, version_text, "...");
 
             const min_text = range_it.first();
             const min_ver = std.meta.stringToEnum(Target.Os.WindowsVersion, min_text) orelse

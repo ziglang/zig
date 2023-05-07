@@ -1910,7 +1910,7 @@ test "byteSwapAllFields" {
     }, s);
 }
 
-/// Deprecated: use `tokenizeAny`, `tokenizeFull`, or `tokenizeScalar`
+/// Deprecated: use `tokenizeAny`, `tokenizeSequence`, or `tokenizeScalar`
 pub const tokenize = tokenizeAny;
 
 /// Returns an iterator that iterates over the slices of `buffer` that are not
@@ -1923,9 +1923,9 @@ pub const tokenize = tokenizeAny;
 /// If none of `delimiters` exist in buffer,
 /// the iterator will return `buffer`, null, in that order.
 ///
-/// See also: `tokenizeFull`, `tokenizeScalar`,
-///           `splitFull`,`splitAny`, `splitScalar`,
-///           `splitBackwardsFull`, `splitBackwardsAny`, and `splitBackwardsScalar`
+/// See also: `tokenizeSequence`, `tokenizeScalar`,
+///           `splitSequence`,`splitAny`, `splitScalar`,
+///           `splitBackwardsSequence`, `splitBackwardsAny`, and `splitBackwardsScalar`
 pub fn tokenizeAny(comptime T: type, buffer: []const T, delimiters: []const T) TokenIterator(T, .any) {
     return .{
         .index = 0,
@@ -1937,7 +1937,7 @@ pub fn tokenizeAny(comptime T: type, buffer: []const T, delimiters: []const T) T
 /// Returns an iterator that iterates over the slices of `buffer` that are not
 /// the sequence in `delimiter`.
 ///
-/// `tokenizeFull(u8, "<>abc><def<><>ghi", "<>")` will return slices
+/// `tokenizeSequence(u8, "<>abc><def<><>ghi", "<>")` will return slices
 /// for "abc><def", "ghi", null, in that order.
 ///
 /// If `buffer` is empty, the iterator will return null.
@@ -1946,9 +1946,9 @@ pub fn tokenizeAny(comptime T: type, buffer: []const T, delimiters: []const T) T
 /// The delimiter length must not be zero.
 ///
 /// See also: `tokenizeAny`, `tokenizeScalar`,
-///           `splitFull`,`splitAny`, and `splitScalar`
-///           `splitBackwardsFull`, `splitBackwardsAny`, and `splitBackwardsScalar`
-pub fn tokenizeFull(comptime T: type, buffer: []const T, delimiter: []const T) TokenIterator(T, .full) {
+///           `splitSequence`,`splitAny`, and `splitScalar`
+///           `splitBackwardsSequence`, `splitBackwardsAny`, and `splitBackwardsScalar`
+pub fn tokenizeSequence(comptime T: type, buffer: []const T, delimiter: []const T) TokenIterator(T, .sequence) {
     assert(delimiter.len != 0);
     return .{
         .index = 0,
@@ -1967,9 +1967,9 @@ pub fn tokenizeFull(comptime T: type, buffer: []const T, delimiter: []const T) T
 /// If `delimiter` does not exist in buffer,
 /// the iterator will return `buffer`, null, in that order.
 ///
-/// See also: `tokenizeAny`, `tokenizeFull`,
-///           `splitFull`,`splitAny`, and `splitScalar`
-///           `splitBackwardsFull`, `splitBackwardsAny`, and `splitBackwardsScalar`
+/// See also: `tokenizeAny`, `tokenizeSequence`,
+///           `splitSequence`,`splitAny`, and `splitScalar`
+///           `splitBackwardsSequence`, `splitBackwardsAny`, and `splitBackwardsScalar`
 pub fn tokenizeScalar(comptime T: type, buffer: []const T, delimiter: T) TokenIterator(T, .scalar) {
     return .{
         .index = 0,
@@ -2019,7 +2019,7 @@ test "tokenizeScalar" {
     try testing.expect(it16.next() == null);
 }
 
-test "tokenizeAny (multibyte)" {
+test "tokenizeAny" {
     var it = tokenizeAny(u8, "a|b,c/d e", " /,|");
     try testing.expect(eql(u8, it.next().?, "a"));
     try testing.expect(eql(u8, it.peek().?, "b"));
@@ -2047,8 +2047,8 @@ test "tokenizeAny (multibyte)" {
     try testing.expect(it16.next() == null);
 }
 
-test "tokenizeFull" {
-    var it = tokenizeFull(u8, "a<>b<><>c><>d><", "<>");
+test "tokenizeSequence" {
+    var it = tokenizeSequence(u8, "a<>b<><>c><>d><", "<>");
     try testing.expectEqualStrings("a", it.next().?);
     try testing.expectEqualStrings("b", it.peek().?);
     try testing.expectEqualStrings("b", it.next().?);
@@ -2057,7 +2057,7 @@ test "tokenizeFull" {
     try testing.expect(it.next() == null);
     try testing.expect(it.peek() == null);
 
-    var it16 = tokenizeFull(
+    var it16 = tokenizeSequence(
         u16,
         std.unicode.utf8ToUtf16LeStringLiteral("a<>b<><>c><>d><"),
         std.unicode.utf8ToUtf16LeStringLiteral("<>"),
@@ -2084,7 +2084,7 @@ test "tokenize (reset)" {
         try testing.expect(it.next() == null);
     }
     {
-        var it = tokenizeFull(u8, "<><>abc<>def<><>ghi<>", "<>");
+        var it = tokenizeSequence(u8, "<><>abc<>def<><>ghi<>", "<>");
         try testing.expect(eql(u8, it.next().?, "abc"));
         try testing.expect(eql(u8, it.next().?, "def"));
         try testing.expect(eql(u8, it.next().?, "ghi"));
@@ -2111,23 +2111,23 @@ test "tokenize (reset)" {
     }
 }
 
-/// Deprecated: use `splitFull`, `splitAny`, or `splitScalar`
-pub const split = splitFull;
+/// Deprecated: use `splitSequence`, `splitAny`, or `splitScalar`
+pub const split = splitSequence;
 
 /// Returns an iterator that iterates over the slices of `buffer` that
 /// are separated by the byte sequence in `delimiter`.
 ///
-/// `splitFull(u8, "abc||def||||ghi", "||")` will return slices
+/// `splitSequence(u8, "abc||def||||ghi", "||")` will return slices
 /// for "abc", "def", "", "ghi", null, in that order.
 ///
 /// If `delimiter` does not exist in buffer,
 /// the iterator will return `buffer`, null, in that order.
 /// The delimiter length must not be zero.
 ///
-/// See also: `splitAny`, `splitScalar`, `splitBackwardsFull`,
+/// See also: `splitAny`, `splitScalar`, `splitBackwardsSequence`,
 ///           `splitBackwardsAny`,`splitBackwardsScalar`,
-///           `tokenizeAny`, `tokenizeFull`, and `tokenizeScalar`.
-pub fn splitFull(comptime T: type, buffer: []const T, delimiter: []const T) SplitIterator(T, .full) {
+///           `tokenizeAny`, `tokenizeSequence`, and `tokenizeScalar`.
+pub fn splitSequence(comptime T: type, buffer: []const T, delimiter: []const T) SplitIterator(T, .sequence) {
     assert(delimiter.len != 0);
     return .{
         .index = 0,
@@ -2145,9 +2145,9 @@ pub fn splitFull(comptime T: type, buffer: []const T, delimiter: []const T) Spli
 /// If none of `delimiters` exist in buffer,
 /// the iterator will return `buffer`, null, in that order.
 ///
-/// See also: `splitFull`, `splitScalar`, `splitBackwardsFull`,
+/// See also: `splitSequence`, `splitScalar`, `splitBackwardsSequence`,
 ///           `splitBackwardsAny`,`splitBackwardsScalar`,
-///           `tokenizeAny`, `tokenizeFull`, and `tokenizeScalar`.
+///           `tokenizeAny`, `tokenizeSequence`, and `tokenizeScalar`.
 pub fn splitAny(comptime T: type, buffer: []const T, delimiters: []const T) SplitIterator(T, .any) {
     return .{
         .index = 0,
@@ -2165,9 +2165,9 @@ pub fn splitAny(comptime T: type, buffer: []const T, delimiters: []const T) Spli
 /// If `delimiter` does not exist in buffer,
 /// the iterator will return `buffer`, null, in that order.
 ///
-/// See also: `splitFull`, `splitAny`, `splitBackwardsFull`,
+/// See also: `splitSequence`, `splitAny`, `splitBackwardsSequence`,
 ///           `splitBackwardsAny`,`splitBackwardsScalar`,
-///           `tokenizeAny`, `tokenizeFull`, and `tokenizeScalar`.
+///           `tokenizeAny`, `tokenizeSequence`, and `tokenizeScalar`.
 pub fn splitScalar(comptime T: type, buffer: []const T, delimiter: T) SplitIterator(T, .scalar) {
     return .{
         .index = 0,
@@ -2215,8 +2215,8 @@ test "splitScalar" {
     try testing.expect(it16.next() == null);
 }
 
-test "splitFull (multibyte)" {
-    var it = splitFull(u8, "a, b ,, c, d, e", ", ");
+test "splitSequence" {
+    var it = splitSequence(u8, "a, b ,, c, d, e", ", ");
     try testing.expectEqualSlices(u8, it.first(), "a");
     try testing.expectEqualSlices(u8, it.rest(), "b ,, c, d, e");
     try testing.expectEqualSlices(u8, it.next().?, "b ,");
@@ -2225,7 +2225,7 @@ test "splitFull (multibyte)" {
     try testing.expectEqualSlices(u8, it.next().?, "e");
     try testing.expect(it.next() == null);
 
-    var it16 = splitFull(
+    var it16 = splitSequence(
         u16,
         std.unicode.utf8ToUtf16LeStringLiteral("a, b ,, c, d, e"),
         std.unicode.utf8ToUtf16LeStringLiteral(", "),
@@ -2269,7 +2269,7 @@ test "splitAny" {
 
 test "split (reset)" {
     {
-        var it = splitFull(u8, "abc def ghi", " ");
+        var it = splitSequence(u8, "abc def ghi", " ");
         try testing.expect(eql(u8, it.first(), "abc"));
         try testing.expect(eql(u8, it.next().?, "def"));
         try testing.expect(eql(u8, it.next().?, "ghi"));
@@ -2309,13 +2309,13 @@ test "split (reset)" {
     }
 }
 
-/// Deprecated: use `splitBackwardsFull`, `splitBackwardsAny`, or `splitBackwardsScalar`
-pub const splitBackwards = splitBackwardsFull;
+/// Deprecated: use `splitBackwardsSequence`, `splitBackwardsAny`, or `splitBackwardsScalar`
+pub const splitBackwards = splitBackwardsSequence;
 
 /// Returns an iterator that iterates backwards over the slices of `buffer` that
 /// are separated by the sequence in `delimiter`.
 ///
-/// `splitBackwardsFull(u8, "abc||def||||ghi", "||")` will return slices
+/// `splitBackwardsSequence(u8, "abc||def||||ghi", "||")` will return slices
 /// for "ghi", "", "def", "abc", null, in that order.
 ///
 /// If `delimiter` does not exist in buffer,
@@ -2323,9 +2323,9 @@ pub const splitBackwards = splitBackwardsFull;
 /// The delimiter length must not be zero.
 ///
 /// See also: `splitBackwardsAny`, `splitBackwardsScalar`,
-///           `splitFull`, `splitAny`,`splitScalar`,
-///           `tokenizeAny`, `tokenizeFull`, and `tokenizeScalar`.
-pub fn splitBackwardsFull(comptime T: type, buffer: []const T, delimiter: []const T) SplitBackwardsIterator(T, .full) {
+///           `splitSequence`, `splitAny`,`splitScalar`,
+///           `tokenizeAny`, `tokenizeSequence`, and `tokenizeScalar`.
+pub fn splitBackwardsSequence(comptime T: type, buffer: []const T, delimiter: []const T) SplitBackwardsIterator(T, .sequence) {
     assert(delimiter.len != 0);
     return .{
         .index = buffer.len,
@@ -2343,9 +2343,9 @@ pub fn splitBackwardsFull(comptime T: type, buffer: []const T, delimiter: []cons
 /// If none of `delimiters` exist in buffer,
 /// the iterator will return `buffer`, null, in that order.
 ///
-/// See also: `splitBackwardsFull`, `splitBackwardsScalar`,
-///           `splitFull`, `splitAny`,`splitScalar`,
-///           `tokenizeAny`, `tokenizeFull`, and `tokenizeScalar`.
+/// See also: `splitBackwardsSequence`, `splitBackwardsScalar`,
+///           `splitSequence`, `splitAny`,`splitScalar`,
+///           `tokenizeAny`, `tokenizeSequence`, and `tokenizeScalar`.
 pub fn splitBackwardsAny(comptime T: type, buffer: []const T, delimiters: []const T) SplitBackwardsIterator(T, .any) {
     return .{
         .index = buffer.len,
@@ -2363,9 +2363,9 @@ pub fn splitBackwardsAny(comptime T: type, buffer: []const T, delimiters: []cons
 /// If `delimiter` does not exist in buffer,
 /// the iterator will return `buffer`, null, in that order.
 ///
-/// See also: `splitBackwardsFull`, `splitBackwardsAny`,
-///           `splitFull`, `splitAny`,`splitScalar`,
-///           `tokenizeAny`, `tokenizeFull`, and `tokenizeScalar`.
+/// See also: `splitBackwardsSequence`, `splitBackwardsAny`,
+///           `splitSequence`, `splitAny`,`splitScalar`,
+///           `tokenizeAny`, `tokenizeSequence`, and `tokenizeScalar`.
 pub fn splitBackwardsScalar(comptime T: type, buffer: []const T, delimiter: T) SplitBackwardsIterator(T, .scalar) {
     return .{
         .index = buffer.len,
@@ -2413,8 +2413,8 @@ test "splitBackwardsScalar" {
     try testing.expect(it16.next() == null);
 }
 
-test "splitBackwardsFull (multibyte)" {
-    var it = splitBackwardsFull(u8, "a, b ,, c, d, e", ", ");
+test "splitBackwardsSequence" {
+    var it = splitBackwardsSequence(u8, "a, b ,, c, d, e", ", ");
     try testing.expectEqualSlices(u8, it.rest(), "a, b ,, c, d, e");
     try testing.expectEqualSlices(u8, it.first(), "e");
 
@@ -2433,7 +2433,7 @@ test "splitBackwardsFull (multibyte)" {
     try testing.expectEqualSlices(u8, it.rest(), "");
     try testing.expect(it.next() == null);
 
-    var it16 = splitBackwardsFull(
+    var it16 = splitBackwardsSequence(
         u16,
         std.unicode.utf8ToUtf16LeStringLiteral("a, b ,, c, d, e"),
         std.unicode.utf8ToUtf16LeStringLiteral(", "),
@@ -2485,7 +2485,7 @@ test "splitBackwardsAny" {
 
 test "splitBackwards (reset)" {
     {
-        var it = splitBackwardsFull(u8, "abc def ghi", " ");
+        var it = splitBackwardsSequence(u8, "abc def ghi", " ");
         try testing.expect(eql(u8, it.first(), "ghi"));
         try testing.expect(eql(u8, it.next().?, "def"));
         try testing.expect(eql(u8, it.next().?, "abc"));
@@ -2693,13 +2693,13 @@ test "endsWith" {
     try testing.expect(!endsWith(u8, "Bob", "Bo"));
 }
 
-pub const DelimiterType = enum { full, any, scalar };
+pub const DelimiterType = enum { sequence, any, scalar };
 
 pub fn TokenIterator(comptime T: type, comptime delimiter_type: DelimiterType) type {
     return struct {
         buffer: []const T,
         delimiter: switch (delimiter_type) {
-            .full, .any => []const T,
+            .sequence, .any => []const T,
             .scalar => T,
         },
         index: usize,
@@ -2719,7 +2719,7 @@ pub fn TokenIterator(comptime T: type, comptime delimiter_type: DelimiterType) t
         pub fn peek(self: *Self) ?[]const T {
             // move to beginning of token
             while (self.index < self.buffer.len and self.isDelimiter(self.index)) : (self.index += switch (delimiter_type) {
-                .full => self.delimiter.len,
+                .sequence => self.delimiter.len,
                 .any, .scalar => 1,
             }) {}
             const start = self.index;
@@ -2739,7 +2739,7 @@ pub fn TokenIterator(comptime T: type, comptime delimiter_type: DelimiterType) t
             // move to beginning of token
             var index: usize = self.index;
             while (index < self.buffer.len and self.isDelimiter(index)) : (index += switch (delimiter_type) {
-                .full => self.delimiter.len,
+                .sequence => self.delimiter.len,
                 .any, .scalar => 1,
             }) {}
             return self.buffer[index..];
@@ -2752,7 +2752,7 @@ pub fn TokenIterator(comptime T: type, comptime delimiter_type: DelimiterType) t
 
         fn isDelimiter(self: Self, index: usize) bool {
             switch (delimiter_type) {
-                .full => return startsWith(T, self.buffer[index..], self.delimiter),
+                .sequence => return startsWith(T, self.buffer[index..], self.delimiter),
                 .any => {
                     const item = self.buffer[index];
                     for (self.delimiter) |delimiter_item| {
@@ -2773,7 +2773,7 @@ pub fn SplitIterator(comptime T: type, comptime delimiter_type: DelimiterType) t
         buffer: []const T,
         index: ?usize,
         delimiter: switch (delimiter_type) {
-            .full, .any => []const T,
+            .sequence, .any => []const T,
             .scalar => T,
         },
 
@@ -2790,12 +2790,12 @@ pub fn SplitIterator(comptime T: type, comptime delimiter_type: DelimiterType) t
         pub fn next(self: *Self) ?[]const T {
             const start = self.index orelse return null;
             const end = if (switch (delimiter_type) {
-                .full => indexOfPos(T, self.buffer, start, self.delimiter),
+                .sequence => indexOfPos(T, self.buffer, start, self.delimiter),
                 .any => indexOfAnyPos(T, self.buffer, start, self.delimiter),
                 .scalar => indexOfScalarPos(T, self.buffer, start, self.delimiter),
             }) |delim_start| blk: {
                 self.index = delim_start + switch (delimiter_type) {
-                    .full => self.delimiter.len,
+                    .sequence => self.delimiter.len,
                     .any, .scalar => 1,
                 };
                 break :blk delim_start;
@@ -2825,7 +2825,7 @@ pub fn SplitBackwardsIterator(comptime T: type, comptime delimiter_type: Delimit
         buffer: []const T,
         index: ?usize,
         delimiter: switch (delimiter_type) {
-            .full, .any => []const T,
+            .sequence, .any => []const T,
             .scalar => T,
         },
 
@@ -2842,13 +2842,13 @@ pub fn SplitBackwardsIterator(comptime T: type, comptime delimiter_type: Delimit
         pub fn next(self: *Self) ?[]const T {
             const end = self.index orelse return null;
             const start = if (switch (delimiter_type) {
-                .full => lastIndexOf(T, self.buffer[0..end], self.delimiter),
+                .sequence => lastIndexOf(T, self.buffer[0..end], self.delimiter),
                 .any => lastIndexOfAny(T, self.buffer[0..end], self.delimiter),
                 .scalar => lastIndexOfScalar(T, self.buffer[0..end], self.delimiter),
             }) |delim_start| blk: {
                 self.index = delim_start;
                 break :blk delim_start + switch (delimiter_type) {
-                    .full => self.delimiter.len,
+                    .sequence => self.delimiter.len,
                     .any, .scalar => 1,
                 };
             } else blk: {
