@@ -6,4 +6,4 @@ comptime{
 // backend=stage2
 // target=native
 //
-// :1:17: error: cannot import by absolute path
+// :2:17: error: cannot import by absolute path
