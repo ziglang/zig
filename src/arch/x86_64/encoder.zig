@@ -228,7 +228,7 @@ pub const Instruction = struct {
             .td => try encoder.imm64(inst.ops[0].mem.moffs.offset),
             else => {
                 const mem_op = switch (data.op_en) {
-                    .m, .mi, .m1, .mc, .mr, .mri, .mrc => inst.ops[0],
+                    .m, .mi, .m1, .mc, .mr, .mri, .mrc, .mvr => inst.ops[0],
                     .rm, .rmi, .vmi => inst.ops[1],
                     .rvm, .rvmi => inst.ops[2],
                     else => unreachable,
@@ -239,6 +239,7 @@ pub const Instruction = struct {
                             .m, .mi, .m1, .mc, .vmi => enc.modRmExt(),
                             .mr, .mri, .mrc => inst.ops[1].reg.lowEnc(),
                             .rm, .rmi, .rvm, .rvmi => inst.ops[0].reg.lowEnc(),
+                            .mvr => inst.ops[2].reg.lowEnc(),
                             else => unreachable,
                         };
                         try encoder.modRm_direct(rm, reg.lowEnc());
@@ -248,6 +249,7 @@ pub const Instruction = struct {
                             .m, .mi, .m1, .mc, .vmi => .none,
                             .mr, .mri, .mrc => inst.ops[1],
                             .rm, .rmi, .rvm, .rvmi => inst.ops[0],
+                            .mvr => inst.ops[2],
                             else => unreachable,
                         };
                         try encodeMemory(enc, mem, op, encoder);
@@ -315,7 +317,7 @@ pub const Instruction = struct {
                 }
             else
                 null,
-            .vmi, .rvm, .rvmi => unreachable,
+            .vmi, .rvm, .rvmi, .mvr => unreachable,
         };
         if (segment_override) |seg| {
             legacy.setSegmentOverride(seg);
@@ -350,7 +352,7 @@ pub const Instruction = struct {
                 rex.b = b_x_op.isBaseExtended();
                 rex.x = b_x_op.isIndexExtended();
             },
-            .vmi, .rvm, .rvmi => unreachable,
+            .vmi, .rvm, .rvmi, .mvr => unreachable,
         }
 
         try encoder.rex(rex);
@@ -372,10 +374,11 @@ pub const Instruction = struct {
         switch (op_en) {
             .np, .i, .zi, .fd, .td, .d => {},
             .o, .oi => vex.b = inst.ops[0].reg.isExtended(),
-            .m, .mi, .m1, .mc, .mr, .rm, .rmi, .mri, .mrc, .vmi, .rvm, .rvmi => {
+            .m, .mi, .m1, .mc, .mr, .rm, .rmi, .mri, .mrc, .vmi, .rvm, .rvmi, .mvr => {
                 const r_op = switch (op_en) {
                     .rm, .rmi, .rvm, .rvmi => inst.ops[0],
                     .mr, .mri, .mrc => inst.ops[1],
+                    .mvr => inst.ops[2],
                     .m, .mi, .m1, .mc, .vmi => .none,
                     else => unreachable,
                 };
@@ -383,7 +386,7 @@ pub const Instruction = struct {
 
                 const b_x_op = switch (op_en) {
                     .rm, .rmi, .vmi => inst.ops[1],
-                    .m, .mi, .m1, .mc, .mr, .mri, .mrc => inst.ops[0],
+                    .m, .mi, .m1, .mc, .mr, .mri, .mrc, .mvr => inst.ops[0],
                     .rvm, .rvmi => inst.ops[2],
                     else => unreachable,
                 };

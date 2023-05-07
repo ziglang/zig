@@ -206,7 +206,7 @@ pub fn format(
             try writer.print("+{s} ", .{tag});
         },
         .m, .mi, .m1, .mc, .vmi => try writer.print("/{d} ", .{encoding.modRmExt()}),
-        .mr, .rm, .rmi, .mri, .mrc, .rvm, .rvmi => try writer.writeAll("/r "),
+        .mr, .rm, .rmi, .mri, .mrc, .rvm, .rvmi, .mvr => try writer.writeAll("/r "),
     }
 
     switch (encoding.data.op_en) {
@@ -230,7 +230,7 @@ pub fn format(
             };
             try writer.print("{s} ", .{tag});
         },
-        .np, .fd, .td, .o, .m, .m1, .mc, .mr, .rm, .mrc, .rvm => {},
+        .np, .fd, .td, .o, .m, .m1, .mc, .mr, .rm, .mrc, .rvm, .mvr => {},
     }
 
     try writer.print("{s} ", .{@tagName(encoding.mnemonic)});
@@ -332,7 +332,12 @@ pub const Mnemonic = enum {
     // SSE4.1
     roundsd, roundss,
     // AVX
-    vmovddup, vmovshdup, vmovsldup,
+    vmovapd, vmovaps,
+    vmovddup,
+    vmovsd,
+    vmovshdup, vmovsldup,
+    vmovss,
+    vmovupd, vmovups,
     vpextrw, vpinsrw,
     vpshufhw, vpshuflw,
     vpsrld, vpsrlq, vpsrlw,
@@ -357,7 +362,7 @@ pub const OpEn = enum {
     fd, td,
     m1, mc, mi, mr, rm,
     rmi, mri, mrc,
-    vmi, rvm, rvmi,
+    vmi, rvm, rvmi, mvr,
     // zig fmt: on
 };
 
@@ -549,9 +554,10 @@ pub const Op = enum {
         return switch (op) {
             .rm8, .rm16, .rm32, .rm64,
             .r32_m16, .r64_m16,
-            .m8, .m16, .m32, .m64, .m80, .m128,
+            .m8, .m16, .m32, .m64, .m80, .m128, .m256,
             .m,
-            .xmm_m32, .xmm_m64, .xmm_m128, .ymm_m256,
+            .xmm_m32, .xmm_m64, .xmm_m128,
+            .ymm_m256,
             =>  true,
             else => false,
         };

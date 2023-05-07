@@ -2008,6 +2008,11 @@ fn computeFrameLayout(self: *Self) !FrameLayout {
     };
 }
 
+fn getFrameAddrAlignment(self: *Self, frame_addr: FrameAddr) u32 {
+    const alloc_align = @as(u32, 1) << self.frame_allocs.get(@enumToInt(frame_addr.index)).abi_align;
+    return @min(alloc_align, @bitCast(u32, frame_addr.off) & (alloc_align - 1));
+}
+
 fn allocFrameIndex(self: *Self, alloc: FrameAlloc) !FrameIndex {
     const frame_allocs_slice = self.frame_allocs.slice();
     const frame_size = frame_allocs_slice.items(.abi_size);
@@ -2051,24 +2056,36 @@ fn allocTempRegOrMem(self: *Self, elem_ty: Type, reg_ok: bool) !MCValue {
     return self.allocRegOrMemAdvanced(elem_ty, null, reg_ok);
 }
 
-fn allocRegOrMemAdvanced(self: *Self, elem_ty: Type, inst: ?Air.Inst.Index, reg_ok: bool) !MCValue {
-    const abi_size = math.cast(u32, elem_ty.abiSize(self.target.*)) orelse {
+fn allocRegOrMemAdvanced(self: *Self, ty: Type, inst: ?Air.Inst.Index, reg_ok: bool) !MCValue {
+    const abi_size = math.cast(u32, ty.abiSize(self.target.*)) orelse {
         const mod = self.bin_file.options.module.?;
-        return self.fail("type '{}' too big to fit into stack frame", .{elem_ty.fmt(mod)});
+        return self.fail("type '{}' too big to fit into stack frame", .{ty.fmt(mod)});
     };
 
-    if (reg_ok) {
-        // Make sure the type can fit in a register before we try to allocate one.
-        const ptr_bits = self.target.cpu.arch.ptrBitWidth();
-        const ptr_bytes: u64 = @divExact(ptr_bits, 8);
-        if (abi_size <= ptr_bytes) {
-            if (self.register_manager.tryAllocReg(inst, regClassForType(elem_ty))) |reg| {
+    if (reg_ok) need_mem: {
+        if (abi_size <= @as(u32, switch (ty.zigTypeTag()) {
+            .Float => switch (ty.floatBits(self.target.*)) {
+                16, 32, 64, 128 => 16,
+                80 => break :need_mem,
+                else => unreachable,
+            },
+            .Vector => switch (ty.childType().zigTypeTag()) {
+                .Float => switch (ty.childType().floatBits(self.target.*)) {
+                    16, 32, 64 => if (self.hasFeature(.avx)) 32 else 16,
+                    80, 128 => break :need_mem,
+                    else => unreachable,
+                },
+                else => break :need_mem,
+            },
+            else => 8,
+        })) {
+            if (self.register_manager.tryAllocReg(inst, regClassForType(ty))) |reg| {
                 return MCValue{ .register = registerAlias(reg, abi_size) };
             }
         }
     }
 
-    const frame_index = try self.allocFrameIndex(FrameAlloc.initType(elem_ty, self.target.*));
+    const frame_index = try self.allocFrameIndex(FrameAlloc.initType(ty, self.target.*));
     return .{ .load_frame = .{ .index = frame_index } };
 }
 
@@ -4442,12 +4459,19 @@ fn airRound(self: *Self, inst: Air.Inst.Index, mode: Immediate) !void {
         }),
     };
     assert(dst_mcv.isRegister());
+    const abi_size = @intCast(u32, ty.abiSize(self.target.*));
+    const dst_reg = registerAlias(dst_mcv.getReg().?, abi_size);
     if (src_mcv.isRegister())
-        try self.asmRegisterRegisterImmediate(mir_tag, dst_mcv.getReg().?, src_mcv.getReg().?, mode)
+        try self.asmRegisterRegisterImmediate(
+            mir_tag,
+            dst_reg,
+            registerAlias(src_mcv.getReg().?, abi_size),
+            mode,
+        )
     else
         try self.asmRegisterMemoryImmediate(
             mir_tag,
-            dst_mcv.getReg().?,
+            dst_reg,
             src_mcv.mem(Memory.PtrSize.fromSize(@intCast(u32, ty.abiSize(self.target.*)))),
             mode,
         );
@@ -7847,19 +7871,43 @@ fn airAsm(self: *Self, inst: Air.Inst.Index) !void {
     return self.finishAirResult(inst, result);
 }
 
-fn movMirTag(self: *Self, ty: Type) !Mir.Inst.Tag {
-    return switch (ty.zigTypeTag()) {
-        else => .mov,
+fn movMirTag(self: *Self, ty: Type, aligned: bool) !Mir.Inst.Tag {
+    switch (ty.zigTypeTag()) {
+        else => return .mov,
         .Float => switch (ty.floatBits(self.target.*)) {
             16 => unreachable, // needs special handling
-            32 => .movss,
-            64 => .movsd,
-            128 => .movaps,
-            else => return self.fail("TODO movMirTag from {}", .{
-                ty.fmt(self.bin_file.options.module.?),
-            }),
+            32 => return if (self.hasFeature(.avx)) .vmovss else .movss,
+            64 => return if (self.hasFeature(.avx)) .vmovsd else .movsd,
+            128 => return if (self.hasFeature(.avx))
+                if (aligned) .vmovaps else .vmovups
+            else if (aligned) .movaps else .movups,
+            else => {},
         },
-    };
+        .Vector => switch (ty.childType().zigTypeTag()) {
+            .Float => switch (ty.childType().floatBits(self.target.*)) {
+                16 => unreachable, // needs special handling
+                32 => switch (ty.vectorLen()) {
+                    1 => return if (self.hasFeature(.avx)) .vmovss else .movss,
+                    2...4 => return if (self.hasFeature(.avx))
+                        if (aligned) .vmovaps else .vmovups
+                    else if (aligned) .movaps else .movups,
+                    5...8 => if (self.hasFeature(.avx)) return if (aligned) .vmovaps else .vmovups,
+                    else => {},
+                },
+                64 => switch (ty.vectorLen()) {
+                    1 => return if (self.hasFeature(.avx)) .vmovsd else .movsd,
+                    2 => return if (self.hasFeature(.avx))
+                        if (aligned) .vmovaps else .vmovups
+                    else if (aligned) .movaps else .movups,
+                    3...4 => if (self.hasFeature(.avx)) return if (aligned) .vmovaps else .vmovups,
+                    else => {},
+                },
+                else => {},
+            },
+            else => {},
+        },
+    }
+    return self.fail("TODO movMirTag for {}", .{ty.fmt(self.bin_file.options.module.?)});
 }
 
 fn genCopy(self: *Self, ty: Type, dst_mcv: MCValue, src_mcv: MCValue) InnerError!void {
@@ -8016,7 +8064,11 @@ fn genSetReg(self: *Self, dst_reg: Register, ty: Type, src_mcv: MCValue) InnerEr
                             0 => return self.genSetReg(dst_reg, ty, .{ .register = reg_off.reg }),
                             else => .lea,
                         },
-                        .indirect, .load_frame => try self.movMirTag(ty),
+                        .indirect => try self.movMirTag(ty, false),
+                        .load_frame => |frame_addr| try self.movMirTag(
+                            ty,
+                            self.getFrameAddrAlignment(frame_addr) >= ty.abiAlignment(self.target.*),
+                        ),
                         .lea_frame => .lea,
                         else => unreachable,
                     },
@@ -8040,7 +8092,11 @@ fn genSetReg(self: *Self, dst_reg: Register, ty: Type, src_mcv: MCValue) InnerEr
                         )
                     else
                         self.asmRegisterMemory(
-                            try self.movMirTag(ty),
+                            try self.movMirTag(ty, mem.isAlignedGeneric(
+                                u32,
+                                @bitCast(u32, small_addr),
+                                ty.abiAlignment(self.target.*),
+                            )),
                             registerAlias(dst_reg, abi_size),
                             src_mem,
                         );
@@ -8080,7 +8136,7 @@ fn genSetReg(self: *Self, dst_reg: Register, ty: Type, src_mcv: MCValue) InnerEr
                 )
             else
                 try self.asmRegisterMemory(
-                    try self.movMirTag(ty),
+                    try self.movMirTag(ty, false),
                     registerAlias(dst_reg, abi_size),
                     src_mem,
                 );
@@ -8194,7 +8250,24 @@ fn genSetMem(self: *Self, base: Memory.Base, disp: i32, ty: Type, src_mcv: MCVal
                 )
             else
                 try self.asmMemoryRegister(
-                    try self.movMirTag(ty),
+                    try self.movMirTag(ty, switch (base) {
+                        .none => mem.isAlignedGeneric(
+                            u32,
+                            @bitCast(u32, disp),
+                            ty.abiAlignment(self.target.*),
+                        ),
+                        .reg => |reg| switch (reg) {
+                            .es, .cs, .ss, .ds => mem.isAlignedGeneric(
+                                u32,
+                                @bitCast(u32, disp),
+                                ty.abiAlignment(self.target.*),
+                            ),
+                            else => false,
+                        },
+                        .frame => |frame_index| self.getFrameAddrAlignment(
+                            .{ .index = frame_index, .off = disp },
+                        ) >= ty.abiAlignment(self.target.*),
+                    }),
                     dst_mem,
                     registerAlias(src_reg, abi_size),
                 );
@@ -8415,7 +8488,7 @@ fn airBitCast(self: *Self, inst: Air.Inst.Index) !void {
         defer if (operand_lock) |lock| self.register_manager.unlockReg(lock);
 
         const dest = try self.allocRegOrMem(inst, true);
-        try self.genCopy(self.air.typeOfIndex(inst), dest, operand);
+        try self.genCopy(if (!dest.isMemory() or operand.isMemory()) dst_ty else src_ty, dest, operand);
         break :result dest;
     };
     return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });

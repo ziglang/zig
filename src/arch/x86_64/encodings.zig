@@ -974,11 +974,41 @@ pub const table = [_]Entry{
     .{ .roundsd, .rmi, &.{ .xmm, .xmm_m64, .imm8 }, &.{ 0x66, 0x0f, 0x3a, 0x0b }, 0, .none, .sse4_1 },
 
     // AVX
+    .{ .vmovapd, .rm, &.{ .xmm,      .xmm_m128 }, &.{ 0x66, 0x0f, 0x28 }, 0, .vex_128, .avx },
+    .{ .vmovapd, .mr, &.{ .xmm_m128, .xmm      }, &.{ 0x66, 0x0f, 0x29 }, 0, .vex_128, .avx },
+    .{ .vmovapd, .rm, &.{ .ymm,      .ymm_m256 }, &.{ 0x66, 0x0f, 0x28 }, 0, .vex_256, .avx },
+    .{ .vmovapd, .mr, &.{ .ymm_m256, .ymm      }, &.{ 0x66, 0x0f, 0x29 }, 0, .vex_256, .avx },
+
+    .{ .vmovaps, .rm, &.{ .xmm,      .xmm_m128 }, &.{ 0x0f, 0x28 }, 0, .vex_128, .avx },
+    .{ .vmovaps, .mr, &.{ .xmm_m128, .xmm      }, &.{ 0x0f, 0x29 }, 0, .vex_128, .avx },
+    .{ .vmovaps, .rm, &.{ .ymm,      .ymm_m256 }, &.{ 0x0f, 0x28 }, 0, .vex_256, .avx },
+    .{ .vmovaps, .mr, &.{ .ymm_m256, .ymm      }, &.{ 0x0f, 0x29 }, 0, .vex_256, .avx },
+
     .{ .vmovddup, .rm, &.{ .xmm, .xmm_m64 }, &.{ 0xf2, 0x0f, 0x12 }, 0, .vex_128, .avx },
+
+    .{ .vmovsd, .rvm, &.{ .xmm, .xmm, .xmm }, &.{ 0xf2, 0x0f, 0x10 }, 0, .vex_128, .avx },
+    .{ .vmovsd, .rm,  &.{       .xmm, .m64 }, &.{ 0xf2, 0x0f, 0x10 }, 0, .vex_128, .avx },
+    .{ .vmovsd, .mvr, &.{ .xmm, .xmm, .xmm }, &.{ 0xf2, 0x0f, 0x11 }, 0, .vex_128, .avx },
+    .{ .vmovsd, .mr,  &.{       .m64, .xmm }, &.{ 0xf2, 0x0f, 0x11 }, 0, .vex_128, .avx },
 
     .{ .vmovshdup, .rm, &.{ .xmm, .xmm_m128 }, &.{ 0xf3, 0x0f, 0x16 }, 0, .vex_128, .avx },
 
     .{ .vmovsldup, .rm, &.{ .xmm, .xmm_m128 }, &.{ 0xf3, 0x0f, 0x12 }, 0, .vex_128, .avx },
+
+    .{ .vmovss, .rvm, &.{ .xmm, .xmm, .xmm }, &.{ 0xf3, 0x0f, 0x10 }, 0, .vex_128, .avx },
+    .{ .vmovss, .rm,  &.{       .xmm, .m32 }, &.{ 0xf3, 0x0f, 0x10 }, 0, .vex_128, .avx },
+    .{ .vmovss, .mvr, &.{ .xmm, .xmm, .xmm }, &.{ 0xf3, 0x0f, 0x11 }, 0, .vex_128, .avx },
+    .{ .vmovss, .mr,  &.{       .m32, .xmm }, &.{ 0xf3, 0x0f, 0x11 }, 0, .vex_128, .avx },
+
+    .{ .vmovupd, .rm, &.{ .xmm,      .xmm_m128 }, &.{ 0x66, 0x0f, 0x10 }, 0, .vex_128, .avx },
+    .{ .vmovupd, .mr, &.{ .xmm_m128, .xmm      }, &.{ 0x66, 0x0f, 0x11 }, 0, .vex_128, .avx },
+    .{ .vmovupd, .rm, &.{ .ymm,      .ymm_m256 }, &.{ 0x66, 0x0f, 0x10 }, 0, .vex_256, .avx },
+    .{ .vmovupd, .mr, &.{ .ymm_m256, .ymm      }, &.{ 0x66, 0x0f, 0x11 }, 0, .vex_256, .avx },
+
+    .{ .vmovups, .rm, &.{ .xmm,      .xmm_m128 }, &.{ 0x0f, 0x10 }, 0, .vex_128, .avx },
+    .{ .vmovups, .mr, &.{ .xmm_m128, .xmm      }, &.{ 0x0f, 0x11 }, 0, .vex_128, .avx },
+    .{ .vmovups, .rm, &.{ .ymm,      .ymm_m256 }, &.{ 0x0f, 0x10 }, 0, .vex_256, .avx },
+    .{ .vmovups, .mr, &.{ .ymm_m256, .ymm      }, &.{ 0x0f, 0x11 }, 0, .vex_256, .avx },
 
     .{ .vpextrw, .mri, &.{ .r32,     .xmm, .imm8 }, &.{ 0x66, 0x0f,       0x15 }, 0, .vex_128,      .avx },
     .{ .vpextrw, .mri, &.{ .r64,     .xmm, .imm8 }, &.{ 0x66, 0x0f,       0x15 }, 0, .vex_128_long, .avx },

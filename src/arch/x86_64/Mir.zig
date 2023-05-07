@@ -282,12 +282,24 @@ pub const Inst = struct {
         /// Round scalar single-precision floating-point values
         roundss,
 
+        /// Move aligned packed double-precision floating-point values
+        vmovapd,
+        /// Move aligned packed single-precision floating-point values
+        vmovaps,
         /// Replicate double floating-point values
         vmovddup,
+        /// Move or merge scalar double-precision floating-point value
+        vmovsd,
         /// Replicate single floating-point values
         vmovshdup,
         /// Replicate single floating-point values
         vmovsldup,
+        /// Move or merge scalar single-precision floating-point value
+        vmovss,
+        /// Move unaligned packed double-precision floating-point values
+        vmovupd,
+        /// Move unaligned packed single-precision floating-point values
+        vmovups,
         /// Extract word
         vpextrw,
         /// Insert word
