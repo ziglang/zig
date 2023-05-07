@@ -95,7 +95,7 @@ pub const Connection = struct {
 
 /// A buffered (and peekable) Connection.
 pub const BufferedConnection = struct {
-    pub const buffer_size = 0x2000;
+    pub const buffer_size = std.crypto.tls.max_ciphertext_record_len;
 
     conn: Connection,
     read_buf: [buffer_size]u8 = undefined,
