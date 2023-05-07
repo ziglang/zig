@@ -212,6 +212,10 @@ pub fn lowerMir(lower: *Lower, index: Mir.Inst.Index) Error!struct {
         .vpunpckldq,
         .vpunpcklqdq,
         .vpunpcklwd,
+        .vsqrtpd,
+        .vsqrtps,
+        .vsqrtsd,
+        .vsqrtss,
 
         .vcvtph2ps,
         .vcvtps2ph,

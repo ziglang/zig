@@ -316,6 +316,7 @@ pub const Mnemonic = enum {
     vpsrld, vpsrlq, vpsrlw,
     vpunpckhbw, vpunpckhdq, vpunpckhqdq, vpunpckhwd,
     vpunpcklbw, vpunpckldq, vpunpcklqdq, vpunpcklwd,
+    vsqrtpd, vsqrtps, vsqrtsd, vsqrtss,
     // F16C
     vcvtph2ps, vcvtps2ph,
     // FMA

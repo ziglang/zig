@@ -338,6 +338,14 @@ pub const Inst = struct {
         vpunpcklqdq,
         /// Unpack low data
         vpunpcklwd,
+        /// Square root of packed double-precision floating-point value
+        vsqrtpd,
+        /// Square root of packed single-precision floating-point value
+        vsqrtps,
+        /// Square root of scalar double-precision floating-point value
+        vsqrtsd,
+        /// Square root of scalar single-precision floating-point value
+        vsqrtss,
 
         /// Convert 16-bit floating-point values to single-precision floating-point values
         vcvtph2ps,

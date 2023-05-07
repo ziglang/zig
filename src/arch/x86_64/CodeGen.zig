@@ -4520,25 +4520,69 @@ fn airRound(self: *Self, inst: Air.Inst.Index, mode: Immediate) !void {
 fn airSqrt(self: *Self, inst: Air.Inst.Index) !void {
     const un_op = self.air.instructions.items(.data)[inst].un_op;
     const ty = self.air.typeOf(un_op);
+    const abi_size = @intCast(u32, ty.abiSize(self.target.*));
 
     const src_mcv = try self.resolveInst(un_op);
     const dst_mcv = if (src_mcv.isRegister() and self.reuseOperand(inst, un_op, 0, src_mcv))
         src_mcv
     else
         try self.copyToRegisterWithInstTracking(inst, ty, src_mcv);
+    const dst_reg = registerAlias(dst_mcv.getReg().?, abi_size);
+    const dst_lock = self.register_manager.lockReg(dst_reg);
+    defer if (dst_lock) |lock| self.register_manager.unlockReg(lock);
 
-    try self.genBinOpMir(switch (ty.zigTypeTag()) {
-        .Float => switch (ty.floatBits(self.target.*)) {
-            32 => .sqrtss,
-            64 => .sqrtsd,
-            else => return self.fail("TODO implement airSqrt for {}", .{
-                ty.fmt(self.bin_file.options.module.?),
-            }),
+    const tag = if (@as(?Mir.Inst.Tag, switch (ty.zigTypeTag()) {
+        .Float => switch (ty.childType().floatBits(self.target.*)) {
+            32 => if (self.hasFeature(.avx)) .vsqrtss else .sqrtss,
+            64 => if (self.hasFeature(.avx)) .vsqrtsd else .sqrtsd,
+            16, 80, 128 => null,
+            else => unreachable,
         },
-        else => return self.fail("TODO implement airSqrt for {}", .{
-            ty.fmt(self.bin_file.options.module.?),
-        }),
-    }, ty, dst_mcv, src_mcv);
+        .Vector => switch (ty.childType().zigTypeTag()) {
+            .Float => switch (ty.childType().floatBits(self.target.*)) {
+                32 => switch (ty.vectorLen()) {
+                    1 => if (self.hasFeature(.avx)) .vsqrtss else .sqrtss,
+                    2...4 => if (self.hasFeature(.avx)) .vsqrtps else .sqrtps,
+                    5...8 => if (self.hasFeature(.avx)) .vsqrtps else null,
+                    else => null,
+                },
+                64 => switch (ty.vectorLen()) {
+                    1 => if (self.hasFeature(.avx)) .vsqrtsd else .sqrtsd,
+                    2 => if (self.hasFeature(.avx)) .vsqrtpd else .sqrtpd,
+                    3...4 => if (self.hasFeature(.avx)) .vsqrtpd else null,
+                    else => null,
+                },
+                16, 80, 128 => null,
+                else => unreachable,
+            },
+            else => unreachable,
+        },
+        else => unreachable,
+    })) |tag| tag else return self.fail("TODO implement airSqrt for {}", .{
+        ty.fmt(self.bin_file.options.module.?),
+    });
+    switch (tag) {
+        .vsqrtss, .vsqrtsd => if (src_mcv.isRegister()) try self.asmRegisterRegisterRegister(
+            tag,
+            dst_reg,
+            dst_reg,
+            registerAlias(src_mcv.getReg().?, abi_size),
+        ) else try self.asmRegisterRegisterMemory(
+            tag,
+            dst_reg,
+            dst_reg,
+            src_mcv.mem(Memory.PtrSize.fromSize(abi_size)),
+        ),
+        else => if (src_mcv.isRegister()) try self.asmRegisterRegister(
+            tag,
+            dst_reg,
+            registerAlias(src_mcv.getReg().?, abi_size),
+        ) else try self.asmRegisterMemory(
+            tag,
+            dst_reg,
+            src_mcv.mem(Memory.PtrSize.fromSize(abi_size)),
+        ),
+    }
     return self.finishAir(inst, dst_mcv, .{ un_op, .none, .none });
 }
 
@@ -9544,85 +9588,92 @@ fn airMulAdd(self: *Self, inst: Air.Inst.Index) !void {
         lock.* = self.register_manager.lockRegAssumeUnused(reg);
     }
 
-    const tag: ?Mir.Inst.Tag =
+    const tag = if (@as(
+        ?Mir.Inst.Tag,
         if (mem.eql(u2, &order, &.{ 1, 3, 2 }) or mem.eql(u2, &order, &.{ 3, 1, 2 }))
-        switch (ty.zigTypeTag()) {
-            .Float => switch (ty.floatBits(self.target.*)) {
-                32 => .vfmadd132ss,
-                64 => .vfmadd132sd,
-                else => null,
-            },
-            .Vector => switch (ty.childType().zigTypeTag()) {
-                .Float => switch (ty.childType().floatBits(self.target.*)) {
-                    32 => switch (ty.vectorLen()) {
-                        1 => .vfmadd132ss,
-                        2...8 => .vfmadd132ps,
-                        else => null,
-                    },
-                    64 => switch (ty.vectorLen()) {
-                        1 => .vfmadd132sd,
-                        2...4 => .vfmadd132pd,
-                        else => null,
-                    },
-                    else => null,
+            switch (ty.zigTypeTag()) {
+                .Float => switch (ty.floatBits(self.target.*)) {
+                    32 => .vfmadd132ss,
+                    64 => .vfmadd132sd,
+                    16, 80, 128 => null,
+                    else => unreachable,
                 },
-                else => null,
-            },
-            else => unreachable,
-        }
-    else if (mem.eql(u2, &order, &.{ 2, 1, 3 }) or mem.eql(u2, &order, &.{ 1, 2, 3 }))
-        switch (ty.zigTypeTag()) {
-            .Float => switch (ty.floatBits(self.target.*)) {
-                32 => .vfmadd213ss,
-                64 => .vfmadd213sd,
-                else => null,
-            },
-            .Vector => switch (ty.childType().zigTypeTag()) {
-                .Float => switch (ty.childType().floatBits(self.target.*)) {
-                    32 => switch (ty.vectorLen()) {
-                        1 => .vfmadd213ss,
-                        2...8 => .vfmadd213ps,
-                        else => null,
+                .Vector => switch (ty.childType().zigTypeTag()) {
+                    .Float => switch (ty.childType().floatBits(self.target.*)) {
+                        32 => switch (ty.vectorLen()) {
+                            1 => .vfmadd132ss,
+                            2...8 => .vfmadd132ps,
+                            else => null,
+                        },
+                        64 => switch (ty.vectorLen()) {
+                            1 => .vfmadd132sd,
+                            2...4 => .vfmadd132pd,
+                            else => null,
+                        },
+                        16, 80, 128 => null,
+                        else => unreachable,
                     },
-                    64 => switch (ty.vectorLen()) {
-                        1 => .vfmadd213sd,
-                        2...4 => .vfmadd213pd,
-                        else => null,
-                    },
-                    else => null,
+                    else => unreachable,
                 },
-                else => null,
-            },
-            else => unreachable,
-        }
-    else if (mem.eql(u2, &order, &.{ 2, 3, 1 }) or mem.eql(u2, &order, &.{ 3, 2, 1 }))
-        switch (ty.zigTypeTag()) {
-            .Float => switch (ty.floatBits(self.target.*)) {
-                32 => .vfmadd231ss,
-                64 => .vfmadd231sd,
-                else => null,
-            },
-            .Vector => switch (ty.childType().zigTypeTag()) {
-                .Float => switch (ty.childType().floatBits(self.target.*)) {
-                    32 => switch (ty.vectorLen()) {
-                        1 => .vfmadd231ss,
-                        2...8 => .vfmadd231ps,
-                        else => null,
-                    },
-                    64 => switch (ty.vectorLen()) {
-                        1 => .vfmadd231sd,
-                        2...4 => .vfmadd231pd,
-                        else => null,
-                    },
-                    else => null,
+                else => unreachable,
+            }
+        else if (mem.eql(u2, &order, &.{ 2, 1, 3 }) or mem.eql(u2, &order, &.{ 1, 2, 3 }))
+            switch (ty.zigTypeTag()) {
+                .Float => switch (ty.floatBits(self.target.*)) {
+                    32 => .vfmadd213ss,
+                    64 => .vfmadd213sd,
+                    16, 80, 128 => null,
+                    else => unreachable,
                 },
-                else => null,
-            },
-            else => null,
-        }
-    else
-        unreachable;
-    if (tag == null) return self.fail("TODO implement airMulAdd for {}", .{
+                .Vector => switch (ty.childType().zigTypeTag()) {
+                    .Float => switch (ty.childType().floatBits(self.target.*)) {
+                        32 => switch (ty.vectorLen()) {
+                            1 => .vfmadd213ss,
+                            2...8 => .vfmadd213ps,
+                            else => null,
+                        },
+                        64 => switch (ty.vectorLen()) {
+                            1 => .vfmadd213sd,
+                            2...4 => .vfmadd213pd,
+                            else => null,
+                        },
+                        16, 80, 128 => null,
+                        else => unreachable,
+                    },
+                    else => unreachable,
+                },
+                else => unreachable,
+            }
+        else if (mem.eql(u2, &order, &.{ 2, 3, 1 }) or mem.eql(u2, &order, &.{ 3, 2, 1 }))
+            switch (ty.zigTypeTag()) {
+                .Float => switch (ty.floatBits(self.target.*)) {
+                    32 => .vfmadd231ss,
+                    64 => .vfmadd231sd,
+                    16, 80, 128 => null,
+                    else => unreachable,
+                },
+                .Vector => switch (ty.childType().zigTypeTag()) {
+                    .Float => switch (ty.childType().floatBits(self.target.*)) {
+                        32 => switch (ty.vectorLen()) {
+                            1 => .vfmadd231ss,
+                            2...8 => .vfmadd231ps,
+                            else => null,
+                        },
+                        64 => switch (ty.vectorLen()) {
+                            1 => .vfmadd231sd,
+                            2...4 => .vfmadd231pd,
+                            else => null,
+                        },
+                        16, 80, 128 => null,
+                        else => unreachable,
+                    },
+                    else => unreachable,
+                },
+                else => unreachable,
+            }
+        else
+            unreachable,
+    )) |tag| tag else return self.fail("TODO implement airMulAdd for {}", .{
         ty.fmt(self.bin_file.options.module.?),
     });
 
@@ -9634,14 +9685,14 @@ fn airMulAdd(self: *Self, inst: Air.Inst.Index) !void {
     const mop2_reg = registerAlias(mops[1].getReg().?, abi_size);
     if (mops[2].isRegister())
         try self.asmRegisterRegisterRegister(
-            tag.?,
+            tag,
             mop1_reg,
             mop2_reg,
             registerAlias(mops[2].getReg().?, abi_size),
         )
     else
         try self.asmRegisterRegisterMemory(
-            tag.?,
+            tag,
             mop1_reg,
             mop2_reg,
             mops[2].mem(Memory.PtrSize.fromSize(abi_size)),
