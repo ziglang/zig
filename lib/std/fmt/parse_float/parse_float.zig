@@ -12,8 +12,12 @@ pub const ParseFloatError = error{
 };
 
 pub fn parseFloat(comptime T: type, s: []const u8) ParseFloatError!T {
-    if (T != f16 and T != f32 and T != f64 and T != f128) {
+    if (@typeInfo(T) != .Float) {
         @compileError("Cannot parse a float into a non-floating point type.");
+    }
+
+    if (T == f80) {
+        @compileError("TODO support parsing float to f80");
     }
 
     if (s.len == 0) {
