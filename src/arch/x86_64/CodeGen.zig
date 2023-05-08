@@ -1460,6 +1460,15 @@ fn asmMemoryRegister(self: *Self, tag: Mir.Inst.FixedTag, m: Memory, reg: Regist
 }
 
 fn asmMemoryImmediate(self: *Self, tag: Mir.Inst.FixedTag, m: Memory, imm: Immediate) !void {
+    const payload = try self.addExtra(Mir.Imm32{ .imm = switch (imm) {
+        .signed => |s| @bitCast(u32, s),
+        .unsigned => |u| @intCast(u32, u),
+    } });
+    assert(payload + 1 == switch (m) {
+        .sib => try self.addExtra(Mir.MemorySib.encode(m)),
+        .rip => try self.addExtra(Mir.MemoryRip.encode(m)),
+        else => unreachable,
+    });
     _ = try self.addInst(.{
         .tag = tag[1],
         .ops = switch (m) {
@@ -1475,17 +1484,9 @@ fn asmMemoryImmediate(self: *Self, tag: Mir.Inst.FixedTag, m: Memory, imm: Immed
         },
         .data = .{ .x = .{
             .fixes = tag[0],
-            .payload = try self.addExtra(Mir.Imm32{ .imm = switch (imm) {
-                .signed => |s| @bitCast(u32, s),
-                .unsigned => |u| @intCast(u32, u),
-            } }),
+            .payload = payload,
         } },
     });
-    _ = switch (m) {
-        .sib => try self.addExtra(Mir.MemorySib.encode(m)),
-        .rip => try self.addExtra(Mir.MemoryRip.encode(m)),
-        else => unreachable,
-    };
 }
 
 fn asmMemoryRegisterRegister(
