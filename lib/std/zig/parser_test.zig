@@ -1240,7 +1240,7 @@ test "zig fmt: infix operator and then multiline string literal" {
     );
 }
 
-test "zig fmt: infix operator and then multiline string literal" {
+test "zig fmt: infix operator and then multiline string literal over multiple lines" {
     try testCanonical(
         \\const x = "" ++
         \\    \\ hi0
@@ -4310,7 +4310,7 @@ test "zig fmt: comptime before comptime field" {
     });
 }
 
-test "zig fmt: invalid else branch statement" {
+test "zig fmt: invalid doc comments on comptime and test blocks" {
     try testError(
         \\/// This is a doc comment for a comptime block.
         \\comptime {}
@@ -5191,7 +5191,7 @@ test "zig fmt: preserve container doc comment in container without trailing comm
     );
 }
 
-test "zig fmt: make single-line if no trailing comma" {
+test "zig fmt: make single-line if no trailing comma, fmt: off" {
     try testCanonical(
         \\// Test trailing comma syntax
         \\// zig fmt: off
@@ -5270,7 +5270,7 @@ test "zig fmt: variable initialized with ==" {
     , &.{.wrong_equal_var_decl});
 }
 
-test "zig fmt: missing const/var before local variable" {
+test "zig fmt: missing const/var before local variable in comptime block" {
     try testError(
         \\comptime {
         \\    z: u32;
