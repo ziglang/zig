@@ -2336,6 +2336,14 @@ pub const Value = struct {
         // The value is runtime-known and shouldn't affect the hash.
         if (val.isRuntimeValue()) return;
 
+        if (val.ip_index != .none) {
+            // The InternPool data structure hashes based on Key to make interned objects
+            // unique. An Index can be treated simply as u32 value for the
+            // purpose of Type/Value hashing and equality.
+            std.hash.autoHash(hasher, val.ip_index);
+            return;
+        }
+
         switch (ty.zigTypeTag(mod)) {
             .Opaque => unreachable, // Cannot hash opaque types
             .Void,
