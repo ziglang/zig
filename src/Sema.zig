@@ -12615,7 +12615,7 @@ fn analyzeTupleCat(
     const dest_fields = lhs_len + rhs_len;
 
     if (dest_fields == 0) {
-        return sema.addConstant(Type.initTag(.empty_struct_literal), Value.initTag(.empty_struct_value));
+        return sema.addConstant(Type.empty_struct_literal, Value.empty_struct);
     }
     if (lhs_len == 0) {
         return rhs;
@@ -12943,7 +12943,7 @@ fn analyzeTupleMul(
         return sema.fail(block, rhs_src, "operation results in overflow", .{});
 
     if (final_len_u64 == 0) {
-        return sema.addConstant(Type.initTag(.empty_struct_literal), Value.initTag(.empty_struct_value));
+        return sema.addConstant(Type.empty_struct_literal, Value.empty_struct);
     }
     const final_len = try sema.usizeCast(block, rhs_src, final_len_u64);
 
@@ -21850,7 +21850,7 @@ fn zirBuiltinCall(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
     const args = try sema.resolveInst(extra.args);
 
     const args_ty = sema.typeOf(args);
-    if (!args_ty.isTuple() and args_ty.tag() != .empty_struct_literal) {
+    if (!args_ty.isTuple() and args_ty.ip_index != .empty_struct_type) {
         return sema.fail(block, args_src, "expected a tuple, found '{}'", .{args_ty.fmt(sema.mod)});
     }
 
@@ -24770,37 +24770,41 @@ fn structFieldVal(
     assert(unresolved_struct_ty.zigTypeTag(mod) == .Struct);
 
     const struct_ty = try sema.resolveTypeFields(unresolved_struct_ty);
-    switch (struct_ty.tag()) {
-        .tuple, .empty_struct_literal => return sema.tupleFieldVal(block, src, struct_byval, field_name, field_name_src, struct_ty),
-        .anon_struct => {
-            const field_index = try sema.anonStructFieldIndex(block, struct_ty, field_name, field_name_src);
-            return sema.tupleFieldValByIndex(block, src, struct_byval, field_index, struct_ty);
-        },
-        .@"struct" => {
-            const struct_obj = struct_ty.castTag(.@"struct").?.data;
-            if (struct_obj.is_tuple) return sema.tupleFieldVal(block, src, struct_byval, field_name, field_name_src, struct_ty);
+    switch (struct_ty.ip_index) {
+        .empty_struct_type => return sema.tupleFieldVal(block, src, struct_byval, field_name, field_name_src, struct_ty),
+        .none => switch (struct_ty.tag()) {
+            .tuple => return sema.tupleFieldVal(block, src, struct_byval, field_name, field_name_src, struct_ty),
+            .anon_struct => {
+                const field_index = try sema.anonStructFieldIndex(block, struct_ty, field_name, field_name_src);
+                return sema.tupleFieldValByIndex(block, src, struct_byval, field_index, struct_ty);
+            },
+            .@"struct" => {
+                const struct_obj = struct_ty.castTag(.@"struct").?.data;
+                if (struct_obj.is_tuple) return sema.tupleFieldVal(block, src, struct_byval, field_name, field_name_src, struct_ty);
 
-            const field_index_usize = struct_obj.fields.getIndex(field_name) orelse
-                return sema.failWithBadStructFieldAccess(block, struct_obj, field_name_src, field_name);
-            const field_index = @intCast(u32, field_index_usize);
-            const field = struct_obj.fields.values()[field_index];
+                const field_index_usize = struct_obj.fields.getIndex(field_name) orelse
+                    return sema.failWithBadStructFieldAccess(block, struct_obj, field_name_src, field_name);
+                const field_index = @intCast(u32, field_index_usize);
+                const field = struct_obj.fields.values()[field_index];
 
-            if (field.is_comptime) {
-                return sema.addConstant(field.ty, field.default_val);
-            }
-
-            if (try sema.resolveMaybeUndefVal(struct_byval)) |struct_val| {
-                if (struct_val.isUndef()) return sema.addConstUndef(field.ty);
-                if ((try sema.typeHasOnePossibleValue(field.ty))) |opv| {
-                    return sema.addConstant(field.ty, opv);
+                if (field.is_comptime) {
+                    return sema.addConstant(field.ty, field.default_val);
                 }
 
-                const field_values = struct_val.castTag(.aggregate).?.data;
-                return sema.addConstant(field.ty, field_values[field_index]);
-            }
+                if (try sema.resolveMaybeUndefVal(struct_byval)) |struct_val| {
+                    if (struct_val.isUndef()) return sema.addConstUndef(field.ty);
+                    if ((try sema.typeHasOnePossibleValue(field.ty))) |opv| {
+                        return sema.addConstant(field.ty, opv);
+                    }
 
-            try sema.requireRuntimeBlock(block, src, null);
-            return block.addStructFieldVal(struct_byval, field_index, field.ty);
+                    const field_values = struct_val.castTag(.aggregate).?.data;
+                    return sema.addConstant(field.ty, field_values[field_index]);
+                }
+
+                try sema.requireRuntimeBlock(block, src, null);
+                return block.addStructFieldVal(struct_byval, field_index, field.ty);
+            },
+            else => unreachable,
         },
         else => unreachable,
     }
@@ -27838,6 +27842,19 @@ fn beginComptimePtrMutation(
                             else => unreachable,
                         }
                     },
+                    .empty_struct => {
+                        const duped = try sema.arena.create(Value);
+                        duped.* = Value.initTag(.the_only_possible_value);
+                        return beginComptimePtrMutationInner(
+                            sema,
+                            block,
+                            src,
+                            parent.ty.structFieldType(field_index),
+                            duped,
+                            ptr_elem_ty,
+                            parent.decl_ref_mut,
+                        );
+                    },
                     .none => switch (val_ptr.tag()) {
                         .aggregate => return beginComptimePtrMutationInner(
                             sema,
@@ -27889,20 +27906,6 @@ fn beginComptimePtrMutation(
                             ),
 
                             else => unreachable,
-                        },
-
-                        .empty_struct_value => {
-                            const duped = try sema.arena.create(Value);
-                            duped.* = Value.initTag(.the_only_possible_value);
-                            return beginComptimePtrMutationInner(
-                                sema,
-                                block,
-                                src,
-                                parent.ty.structFieldType(field_index),
-                                duped,
-                                ptr_elem_ty,
-                                parent.decl_ref_mut,
-                            );
                         },
 
                         else => unreachable,
@@ -31488,174 +31491,174 @@ fn resolveUnionLayout(sema: *Sema, ty: Type) CompileError!void {
 pub fn resolveTypeRequiresComptime(sema: *Sema, ty: Type) CompileError!bool {
     const mod = sema.mod;
 
-    if (ty.ip_index != .none) return switch (mod.intern_pool.indexToKey(ty.ip_index)) {
-        .int_type => false,
-        .ptr_type => |ptr_type| {
-            const child_ty = ptr_type.elem_type.toType();
-            if (child_ty.zigTypeTag(mod) == .Fn) {
-                return child_ty.fnInfo().is_generic;
-            } else {
-                return sema.resolveTypeRequiresComptime(child_ty);
-            }
-        },
-        .array_type => |array_type| return sema.resolveTypeRequiresComptime(array_type.child.toType()),
-        .vector_type => |vector_type| return sema.resolveTypeRequiresComptime(vector_type.child.toType()),
-        .opt_type => |child| return sema.resolveTypeRequiresComptime(child.toType()),
-        .error_union_type => |error_union_type| return sema.resolveTypeRequiresComptime(error_union_type.payload_type.toType()),
-        .simple_type => |t| switch (t) {
-            .f16,
-            .f32,
-            .f64,
-            .f80,
-            .f128,
-            .usize,
-            .isize,
-            .c_char,
-            .c_short,
-            .c_ushort,
-            .c_int,
-            .c_uint,
-            .c_long,
-            .c_ulong,
-            .c_longlong,
-            .c_ulonglong,
-            .c_longdouble,
-            .anyopaque,
-            .bool,
-            .void,
-            .anyerror,
-            .@"anyframe",
-            .noreturn,
-            .generic_poison,
-            .atomic_order,
-            .atomic_rmw_op,
-            .calling_convention,
-            .address_space,
-            .float_mode,
-            .reduce_op,
-            .call_modifier,
-            .prefetch_options,
-            .export_options,
-            .extern_options,
+    return switch (ty.ip_index) {
+        .empty_struct_type => false,
+        .none => switch (ty.tag()) {
+            .empty_struct,
+            .error_set,
+            .error_set_single,
+            .error_set_inferred,
+            .error_set_merged,
+            .@"opaque",
+            .enum_simple,
             => false,
 
-            .type,
-            .comptime_int,
-            .comptime_float,
-            .null,
-            .undefined,
-            .enum_literal,
-            .type_info,
-            => true,
+            .function => true,
 
-            .var_args_param => unreachable,
-        },
-        .struct_type => @panic("TODO"),
-        .union_type => @panic("TODO"),
-        .simple_value => unreachable,
-        .extern_func => unreachable,
-        .int => unreachable,
-        .enum_tag => unreachable, // it's a value, not a type
-    };
+            .inferred_alloc_mut => unreachable,
+            .inferred_alloc_const => unreachable,
 
-    return switch (ty.tag()) {
-        .empty_struct_literal,
-        .empty_struct,
-        .error_set,
-        .error_set_single,
-        .error_set_inferred,
-        .error_set_merged,
-        .@"opaque",
-        .enum_simple,
-        => false,
+            .array,
+            .array_sentinel,
+            => return sema.resolveTypeRequiresComptime(ty.childType(mod)),
 
-        .function => true,
-
-        .inferred_alloc_mut => unreachable,
-        .inferred_alloc_const => unreachable,
-
-        .array,
-        .array_sentinel,
-        => return sema.resolveTypeRequiresComptime(ty.childType(mod)),
-
-        .pointer => {
-            const child_ty = ty.childType(mod);
-            if (child_ty.zigTypeTag(mod) == .Fn) {
-                return child_ty.fnInfo().is_generic;
-            } else {
-                return sema.resolveTypeRequiresComptime(child_ty);
-            }
-        },
-
-        .optional => {
-            return sema.resolveTypeRequiresComptime(ty.optionalChild(mod));
-        },
-
-        .tuple, .anon_struct => {
-            const tuple = ty.tupleFields();
-            for (tuple.types, 0..) |field_ty, i| {
-                const have_comptime_val = tuple.values[i].ip_index != .unreachable_value;
-                if (!have_comptime_val and try sema.resolveTypeRequiresComptime(field_ty)) {
-                    return true;
+            .pointer => {
+                const child_ty = ty.childType(mod);
+                if (child_ty.zigTypeTag(mod) == .Fn) {
+                    return child_ty.fnInfo().is_generic;
+                } else {
+                    return sema.resolveTypeRequiresComptime(child_ty);
                 }
-            }
-            return false;
-        },
+            },
 
-        .@"struct" => {
-            const struct_obj = ty.castTag(.@"struct").?.data;
-            switch (struct_obj.requires_comptime) {
-                .no, .wip => return false,
-                .yes => return true,
-                .unknown => {
-                    var requires_comptime = false;
-                    struct_obj.requires_comptime = .wip;
-                    for (struct_obj.fields.values()) |field| {
-                        if (try sema.resolveTypeRequiresComptime(field.ty)) requires_comptime = true;
-                    }
-                    if (requires_comptime) {
-                        struct_obj.requires_comptime = .yes;
-                    } else {
-                        struct_obj.requires_comptime = .no;
-                    }
-                    return requires_comptime;
-                },
-            }
-        },
+            .optional => {
+                return sema.resolveTypeRequiresComptime(ty.optionalChild(mod));
+            },
 
-        .@"union", .union_safety_tagged, .union_tagged => {
-            const union_obj = ty.cast(Type.Payload.Union).?.data;
-            switch (union_obj.requires_comptime) {
-                .no, .wip => return false,
-                .yes => return true,
-                .unknown => {
-                    var requires_comptime = false;
-                    union_obj.requires_comptime = .wip;
-                    for (union_obj.fields.values()) |field| {
-                        if (try sema.resolveTypeRequiresComptime(field.ty)) requires_comptime = true;
+            .tuple, .anon_struct => {
+                const tuple = ty.tupleFields();
+                for (tuple.types, 0..) |field_ty, i| {
+                    const have_comptime_val = tuple.values[i].ip_index != .unreachable_value;
+                    if (!have_comptime_val and try sema.resolveTypeRequiresComptime(field_ty)) {
+                        return true;
                     }
-                    if (requires_comptime) {
-                        union_obj.requires_comptime = .yes;
-                    } else {
-                        union_obj.requires_comptime = .no;
-                    }
-                    return requires_comptime;
-                },
-            }
-        },
+                }
+                return false;
+            },
 
-        .error_union => return sema.resolveTypeRequiresComptime(ty.errorUnionPayload()),
-        .anyframe_T => {
-            const child_ty = ty.castTag(.anyframe_T).?.data;
-            return sema.resolveTypeRequiresComptime(child_ty);
+            .@"struct" => {
+                const struct_obj = ty.castTag(.@"struct").?.data;
+                switch (struct_obj.requires_comptime) {
+                    .no, .wip => return false,
+                    .yes => return true,
+                    .unknown => {
+                        var requires_comptime = false;
+                        struct_obj.requires_comptime = .wip;
+                        for (struct_obj.fields.values()) |field| {
+                            if (try sema.resolveTypeRequiresComptime(field.ty)) requires_comptime = true;
+                        }
+                        if (requires_comptime) {
+                            struct_obj.requires_comptime = .yes;
+                        } else {
+                            struct_obj.requires_comptime = .no;
+                        }
+                        return requires_comptime;
+                    },
+                }
+            },
+
+            .@"union", .union_safety_tagged, .union_tagged => {
+                const union_obj = ty.cast(Type.Payload.Union).?.data;
+                switch (union_obj.requires_comptime) {
+                    .no, .wip => return false,
+                    .yes => return true,
+                    .unknown => {
+                        var requires_comptime = false;
+                        union_obj.requires_comptime = .wip;
+                        for (union_obj.fields.values()) |field| {
+                            if (try sema.resolveTypeRequiresComptime(field.ty)) requires_comptime = true;
+                        }
+                        if (requires_comptime) {
+                            union_obj.requires_comptime = .yes;
+                        } else {
+                            union_obj.requires_comptime = .no;
+                        }
+                        return requires_comptime;
+                    },
+                }
+            },
+
+            .error_union => return sema.resolveTypeRequiresComptime(ty.errorUnionPayload()),
+            .anyframe_T => {
+                const child_ty = ty.castTag(.anyframe_T).?.data;
+                return sema.resolveTypeRequiresComptime(child_ty);
+            },
+            .enum_numbered => {
+                const tag_ty = ty.castTag(.enum_numbered).?.data.tag_ty;
+                return sema.resolveTypeRequiresComptime(tag_ty);
+            },
+            .enum_full, .enum_nonexhaustive => {
+                const tag_ty = ty.cast(Type.Payload.EnumFull).?.data.tag_ty;
+                return sema.resolveTypeRequiresComptime(tag_ty);
+            },
         },
-        .enum_numbered => {
-            const tag_ty = ty.castTag(.enum_numbered).?.data.tag_ty;
-            return sema.resolveTypeRequiresComptime(tag_ty);
-        },
-        .enum_full, .enum_nonexhaustive => {
-            const tag_ty = ty.cast(Type.Payload.EnumFull).?.data.tag_ty;
-            return sema.resolveTypeRequiresComptime(tag_ty);
+        else => switch (mod.intern_pool.indexToKey(ty.ip_index)) {
+            .int_type => false,
+            .ptr_type => |ptr_type| {
+                const child_ty = ptr_type.elem_type.toType();
+                if (child_ty.zigTypeTag(mod) == .Fn) {
+                    return child_ty.fnInfo().is_generic;
+                } else {
+                    return sema.resolveTypeRequiresComptime(child_ty);
+                }
+            },
+            .array_type => |array_type| return sema.resolveTypeRequiresComptime(array_type.child.toType()),
+            .vector_type => |vector_type| return sema.resolveTypeRequiresComptime(vector_type.child.toType()),
+            .opt_type => |child| return sema.resolveTypeRequiresComptime(child.toType()),
+            .error_union_type => |error_union_type| return sema.resolveTypeRequiresComptime(error_union_type.payload_type.toType()),
+            .simple_type => |t| switch (t) {
+                .f16,
+                .f32,
+                .f64,
+                .f80,
+                .f128,
+                .usize,
+                .isize,
+                .c_char,
+                .c_short,
+                .c_ushort,
+                .c_int,
+                .c_uint,
+                .c_long,
+                .c_ulong,
+                .c_longlong,
+                .c_ulonglong,
+                .c_longdouble,
+                .anyopaque,
+                .bool,
+                .void,
+                .anyerror,
+                .@"anyframe",
+                .noreturn,
+                .generic_poison,
+                .var_args_param,
+                .atomic_order,
+                .atomic_rmw_op,
+                .calling_convention,
+                .address_space,
+                .float_mode,
+                .reduce_op,
+                .call_modifier,
+                .prefetch_options,
+                .export_options,
+                .extern_options,
+                => false,
+
+                .type,
+                .comptime_int,
+                .comptime_float,
+                .null,
+                .undefined,
+                .enum_literal,
+                .type_info,
+                => true,
+            },
+            .struct_type => @panic("TODO"),
+            .union_type => @panic("TODO"),
+            .simple_value => unreachable,
+            .extern_func => unreachable,
+            .int => unreachable,
+            .enum_tag => unreachable, // it's a value, not a type
         },
     };
 }
@@ -32943,237 +32946,240 @@ fn getBuiltinType(sema: *Sema, name: []const u8) CompileError!Type {
 pub fn typeHasOnePossibleValue(sema: *Sema, ty: Type) CompileError!?Value {
     const mod = sema.mod;
 
-    if (ty.ip_index != .none) switch (mod.intern_pool.indexToKey(ty.ip_index)) {
-        .int_type => |int_type| {
-            if (int_type.bits == 0) {
-                return try mod.intValue(ty, 0);
-            } else {
-                return null;
-            }
-        },
-        .ptr_type => return null,
-        .array_type => |array_type| {
-            if (array_type.len == 0)
-                return Value.initTag(.empty_array);
-            if ((try sema.typeHasOnePossibleValue(array_type.child.toType())) != null) {
-                return Value.initTag(.the_only_possible_value);
-            }
-            return null;
-        },
-        .vector_type => |vector_type| {
-            if (vector_type.len == 0) return Value.initTag(.empty_array);
-            if (try sema.typeHasOnePossibleValue(vector_type.child.toType())) |v| return v;
-            return null;
-        },
-        .opt_type => |child| {
-            if (child.toType().isNoReturn()) {
-                return Value.null;
-            } else {
-                return null;
-            }
-        },
-        .error_union_type => return null,
-        .simple_type => |t| switch (t) {
-            .f16,
-            .f32,
-            .f64,
-            .f80,
-            .f128,
-            .usize,
-            .isize,
-            .c_char,
-            .c_short,
-            .c_ushort,
-            .c_int,
-            .c_uint,
-            .c_long,
-            .c_ulong,
-            .c_longlong,
-            .c_ulonglong,
-            .c_longdouble,
-            .anyopaque,
-            .bool,
-            .type,
-            .anyerror,
-            .comptime_int,
-            .comptime_float,
-            .@"anyframe",
-            .enum_literal,
-            .atomic_order,
-            .atomic_rmw_op,
-            .calling_convention,
-            .address_space,
-            .float_mode,
-            .reduce_op,
-            .call_modifier,
-            .prefetch_options,
-            .export_options,
-            .extern_options,
-            .type_info,
+    switch (ty.ip_index) {
+        .empty_struct_type => return Value.empty_struct,
+
+        .none => switch (ty.tag()) {
+            .error_set_single,
+            .error_set,
+            .error_set_merged,
+            .error_union,
+            .function,
+            .array_sentinel,
+            .error_set_inferred,
+            .@"opaque",
+            .anyframe_T,
+            .pointer,
             => return null,
 
-            .void => return Value.void,
-            .noreturn => return Value.@"unreachable",
-            .null => return Value.null,
-            .undefined => return Value.undef,
-
-            .generic_poison => return error.GenericPoison,
-            .var_args_param => unreachable,
-        },
-        .struct_type => @panic("TODO"),
-        .union_type => @panic("TODO"),
-        .simple_value => unreachable,
-        .extern_func => unreachable,
-        .int => unreachable,
-        .enum_tag => unreachable, // it's a value, not a type
-    };
-
-    switch (ty.tag()) {
-        .error_set_single,
-        .error_set,
-        .error_set_merged,
-        .error_union,
-        .function,
-        .array_sentinel,
-        .error_set_inferred,
-        .@"opaque",
-        .anyframe_T,
-        .pointer,
-        => return null,
-
-        .optional => {
-            const child_ty = ty.optionalChild(mod);
-            if (child_ty.isNoReturn()) {
-                return Value.null;
-            } else {
-                return null;
-            }
-        },
-
-        .@"struct" => {
-            const resolved_ty = try sema.resolveTypeFields(ty);
-            const s = resolved_ty.castTag(.@"struct").?.data;
-            for (s.fields.values(), 0..) |field, i| {
-                if (field.is_comptime) continue;
-                if (field.ty.eql(resolved_ty, sema.mod)) {
-                    const msg = try Module.ErrorMsg.create(
-                        sema.gpa,
-                        s.srcLoc(sema.mod),
-                        "struct '{}' depends on itself",
-                        .{ty.fmt(sema.mod)},
-                    );
-                    try sema.addFieldErrNote(resolved_ty, i, msg, "while checking this field", .{});
-                    return sema.failWithOwnedErrorMsg(msg);
-                }
-                if ((try sema.typeHasOnePossibleValue(field.ty)) == null) {
+            .optional => {
+                const child_ty = ty.optionalChild(mod);
+                if (child_ty.isNoReturn()) {
+                    return Value.null;
+                } else {
                     return null;
                 }
-            }
-            return Value.initTag(.empty_struct_value);
-        },
+            },
 
-        .tuple, .anon_struct => {
-            const tuple = ty.tupleFields();
-            for (tuple.values, 0..) |val, i| {
-                const is_comptime = val.ip_index != .unreachable_value;
-                if (is_comptime) continue;
-                if ((try sema.typeHasOnePossibleValue(tuple.types[i])) != null) continue;
-                return null;
-            }
-            return Value.initTag(.empty_struct_value);
-        },
-
-        .enum_numbered => {
-            const resolved_ty = try sema.resolveTypeFields(ty);
-            const enum_obj = resolved_ty.castTag(.enum_numbered).?.data;
-            // An explicit tag type is always provided for enum_numbered.
-            if (!(try sema.typeHasRuntimeBits(enum_obj.tag_ty))) {
-                return null;
-            }
-            if (enum_obj.fields.count() == 1) {
-                if (enum_obj.values.count() == 0) {
-                    return try mod.intValue(ty, 0); // auto-numbered
-                } else {
-                    return enum_obj.values.keys()[0];
+            .@"struct" => {
+                const resolved_ty = try sema.resolveTypeFields(ty);
+                const s = resolved_ty.castTag(.@"struct").?.data;
+                for (s.fields.values(), 0..) |field, i| {
+                    if (field.is_comptime) continue;
+                    if (field.ty.eql(resolved_ty, sema.mod)) {
+                        const msg = try Module.ErrorMsg.create(
+                            sema.gpa,
+                            s.srcLoc(sema.mod),
+                            "struct '{}' depends on itself",
+                            .{ty.fmt(sema.mod)},
+                        );
+                        try sema.addFieldErrNote(resolved_ty, i, msg, "while checking this field", .{});
+                        return sema.failWithOwnedErrorMsg(msg);
+                    }
+                    if ((try sema.typeHasOnePossibleValue(field.ty)) == null) {
+                        return null;
+                    }
                 }
-            } else {
-                return null;
-            }
-        },
-        .enum_full => {
-            const resolved_ty = try sema.resolveTypeFields(ty);
-            const enum_obj = resolved_ty.castTag(.enum_full).?.data;
-            if (!(try sema.typeHasRuntimeBits(enum_obj.tag_ty))) {
-                return null;
-            }
-            switch (enum_obj.fields.count()) {
-                0 => return Value.@"unreachable",
-                1 => if (enum_obj.values.count() == 0) {
-                    return try mod.intValue(ty, 0); // auto-numbered
+                return Value.empty_struct;
+            },
+
+            .tuple, .anon_struct => {
+                const tuple = ty.tupleFields();
+                for (tuple.values, 0..) |val, i| {
+                    const is_comptime = val.ip_index != .unreachable_value;
+                    if (is_comptime) continue;
+                    if ((try sema.typeHasOnePossibleValue(tuple.types[i])) != null) continue;
+                    return null;
+                }
+                return Value.empty_struct;
+            },
+
+            .enum_numbered => {
+                const resolved_ty = try sema.resolveTypeFields(ty);
+                const enum_obj = resolved_ty.castTag(.enum_numbered).?.data;
+                // An explicit tag type is always provided for enum_numbered.
+                if (!(try sema.typeHasRuntimeBits(enum_obj.tag_ty))) {
+                    return null;
+                }
+                if (enum_obj.fields.count() == 1) {
+                    if (enum_obj.values.count() == 0) {
+                        return try mod.intValue(ty, 0); // auto-numbered
+                    } else {
+                        return enum_obj.values.keys()[0];
+                    }
                 } else {
-                    return enum_obj.values.keys()[0];
-                },
-                else => return null,
-            }
-        },
-        .enum_simple => {
-            const resolved_ty = try sema.resolveTypeFields(ty);
-            const enum_simple = resolved_ty.castTag(.enum_simple).?.data;
-            switch (enum_simple.fields.count()) {
-                0 => return Value.@"unreachable",
-                1 => return try mod.intValue(ty, 0),
-                else => return null,
-            }
-        },
-        .enum_nonexhaustive => {
-            const tag_ty = ty.castTag(.enum_nonexhaustive).?.data.tag_ty;
-            if (tag_ty.zigTypeTag(mod) != .ComptimeInt and !(try sema.typeHasRuntimeBits(tag_ty))) {
-                return try mod.intValue(ty, 0);
-            } else {
+                    return null;
+                }
+            },
+            .enum_full => {
+                const resolved_ty = try sema.resolveTypeFields(ty);
+                const enum_obj = resolved_ty.castTag(.enum_full).?.data;
+                if (!(try sema.typeHasRuntimeBits(enum_obj.tag_ty))) {
+                    return null;
+                }
+                switch (enum_obj.fields.count()) {
+                    0 => return Value.@"unreachable",
+                    1 => if (enum_obj.values.count() == 0) {
+                        return try mod.intValue(ty, 0); // auto-numbered
+                    } else {
+                        return enum_obj.values.keys()[0];
+                    },
+                    else => return null,
+                }
+            },
+            .enum_simple => {
+                const resolved_ty = try sema.resolveTypeFields(ty);
+                const enum_simple = resolved_ty.castTag(.enum_simple).?.data;
+                switch (enum_simple.fields.count()) {
+                    0 => return Value.@"unreachable",
+                    1 => return try mod.intValue(ty, 0),
+                    else => return null,
+                }
+            },
+            .enum_nonexhaustive => {
+                const tag_ty = ty.castTag(.enum_nonexhaustive).?.data.tag_ty;
+                if (tag_ty.zigTypeTag(mod) != .ComptimeInt and !(try sema.typeHasRuntimeBits(tag_ty))) {
+                    return try mod.intValue(ty, 0);
+                } else {
+                    return null;
+                }
+            },
+            .@"union", .union_safety_tagged, .union_tagged => {
+                const resolved_ty = try sema.resolveTypeFields(ty);
+                const union_obj = resolved_ty.cast(Type.Payload.Union).?.data;
+                const tag_val = (try sema.typeHasOnePossibleValue(union_obj.tag_ty)) orelse
+                    return null;
+                const fields = union_obj.fields.values();
+                if (fields.len == 0) return Value.@"unreachable";
+                const only_field = fields[0];
+                if (only_field.ty.eql(resolved_ty, sema.mod)) {
+                    const msg = try Module.ErrorMsg.create(
+                        sema.gpa,
+                        union_obj.srcLoc(sema.mod),
+                        "union '{}' depends on itself",
+                        .{ty.fmt(sema.mod)},
+                    );
+                    try sema.addFieldErrNote(resolved_ty, 0, msg, "while checking this field", .{});
+                    return sema.failWithOwnedErrorMsg(msg);
+                }
+                const val_val = (try sema.typeHasOnePossibleValue(only_field.ty)) orelse
+                    return null;
+                // TODO make this not allocate.
+                return try Value.Tag.@"union".create(sema.arena, .{
+                    .tag = tag_val,
+                    .val = val_val,
+                });
+            },
+
+            .empty_struct => return Value.empty_struct,
+
+            .array => {
+                if (ty.arrayLen(mod) == 0)
+                    return Value.initTag(.empty_array);
+                if ((try sema.typeHasOnePossibleValue(ty.childType(mod))) != null) {
+                    return Value.initTag(.the_only_possible_value);
+                }
                 return null;
-            }
-        },
-        .@"union", .union_safety_tagged, .union_tagged => {
-            const resolved_ty = try sema.resolveTypeFields(ty);
-            const union_obj = resolved_ty.cast(Type.Payload.Union).?.data;
-            const tag_val = (try sema.typeHasOnePossibleValue(union_obj.tag_ty)) orelse
-                return null;
-            const fields = union_obj.fields.values();
-            if (fields.len == 0) return Value.@"unreachable";
-            const only_field = fields[0];
-            if (only_field.ty.eql(resolved_ty, sema.mod)) {
-                const msg = try Module.ErrorMsg.create(
-                    sema.gpa,
-                    union_obj.srcLoc(sema.mod),
-                    "union '{}' depends on itself",
-                    .{ty.fmt(sema.mod)},
-                );
-                try sema.addFieldErrNote(resolved_ty, 0, msg, "while checking this field", .{});
-                return sema.failWithOwnedErrorMsg(msg);
-            }
-            const val_val = (try sema.typeHasOnePossibleValue(only_field.ty)) orelse
-                return null;
-            // TODO make this not allocate. The function in `Type.onePossibleValue`
-            // currently returns `empty_struct_value` and we should do that here too.
-            return try Value.Tag.@"union".create(sema.arena, .{
-                .tag = tag_val,
-                .val = val_val,
-            });
+            },
+
+            .inferred_alloc_const => unreachable,
+            .inferred_alloc_mut => unreachable,
         },
 
-        .empty_struct, .empty_struct_literal => return Value.initTag(.empty_struct_value),
+        else => switch (mod.intern_pool.indexToKey(ty.ip_index)) {
+            .int_type => |int_type| {
+                if (int_type.bits == 0) {
+                    return try mod.intValue(ty, 0);
+                } else {
+                    return null;
+                }
+            },
+            .ptr_type => return null,
+            .array_type => |array_type| {
+                if (array_type.len == 0)
+                    return Value.initTag(.empty_array);
+                if ((try sema.typeHasOnePossibleValue(array_type.child.toType())) != null) {
+                    return Value.initTag(.the_only_possible_value);
+                }
+                return null;
+            },
+            .vector_type => |vector_type| {
+                if (vector_type.len == 0) return Value.initTag(.empty_array);
+                if (try sema.typeHasOnePossibleValue(vector_type.child.toType())) |v| return v;
+                return null;
+            },
+            .opt_type => |child| {
+                if (child.toType().isNoReturn()) {
+                    return Value.null;
+                } else {
+                    return null;
+                }
+            },
+            .error_union_type => return null,
+            .simple_type => |t| switch (t) {
+                .f16,
+                .f32,
+                .f64,
+                .f80,
+                .f128,
+                .usize,
+                .isize,
+                .c_char,
+                .c_short,
+                .c_ushort,
+                .c_int,
+                .c_uint,
+                .c_long,
+                .c_ulong,
+                .c_longlong,
+                .c_ulonglong,
+                .c_longdouble,
+                .anyopaque,
+                .bool,
+                .type,
+                .anyerror,
+                .comptime_int,
+                .comptime_float,
+                .@"anyframe",
+                .enum_literal,
+                .atomic_order,
+                .atomic_rmw_op,
+                .calling_convention,
+                .address_space,
+                .float_mode,
+                .reduce_op,
+                .call_modifier,
+                .prefetch_options,
+                .export_options,
+                .extern_options,
+                .type_info,
+                => return null,
 
-        .array => {
-            if (ty.arrayLen(mod) == 0)
-                return Value.initTag(.empty_array);
-            if ((try sema.typeHasOnePossibleValue(ty.childType(mod))) != null) {
-                return Value.initTag(.the_only_possible_value);
-            }
-            return null;
+                .void => return Value.void,
+                .noreturn => return Value.@"unreachable",
+                .null => return Value.null,
+                .undefined => return Value.undef,
+
+                .generic_poison => return error.GenericPoison,
+                .var_args_param => unreachable,
+            },
+            .struct_type => @panic("TODO"),
+            .union_type => @panic("TODO"),
+            .simple_value => unreachable,
+            .extern_func => unreachable,
+            .int => unreachable,
+            .enum_tag => unreachable, // it's a value, not a type
         },
-
-        .inferred_alloc_const => unreachable,
-        .inferred_alloc_mut => unreachable,
     }
 }
 
@@ -33553,8 +33559,116 @@ fn typePtrOrOptionalPtrTy(sema: *Sema, ty: Type) !?Type {
 /// elsewhere in value.zig
 pub fn typeRequiresComptime(sema: *Sema, ty: Type) CompileError!bool {
     const mod = sema.mod;
-    if (ty.ip_index != .none) {
-        switch (mod.intern_pool.indexToKey(ty.ip_index)) {
+    return switch (ty.ip_index) {
+        .empty_struct_type => false,
+
+        .none => switch (ty.tag()) {
+            .empty_struct,
+            .error_set,
+            .error_set_single,
+            .error_set_inferred,
+            .error_set_merged,
+            .@"opaque",
+            .enum_simple,
+            => false,
+
+            .function => true,
+
+            .inferred_alloc_mut => unreachable,
+            .inferred_alloc_const => unreachable,
+
+            .array,
+            .array_sentinel,
+            => return sema.typeRequiresComptime(ty.childType(mod)),
+
+            .pointer => {
+                const child_ty = ty.childType(mod);
+                if (child_ty.zigTypeTag(mod) == .Fn) {
+                    return child_ty.fnInfo().is_generic;
+                } else {
+                    return sema.typeRequiresComptime(child_ty);
+                }
+            },
+
+            .optional => {
+                return sema.typeRequiresComptime(ty.optionalChild(mod));
+            },
+
+            .tuple, .anon_struct => {
+                const tuple = ty.tupleFields();
+                for (tuple.types, 0..) |field_ty, i| {
+                    const have_comptime_val = tuple.values[i].ip_index != .unreachable_value;
+                    if (!have_comptime_val and try sema.typeRequiresComptime(field_ty)) {
+                        return true;
+                    }
+                }
+                return false;
+            },
+
+            .@"struct" => {
+                const struct_obj = ty.castTag(.@"struct").?.data;
+                switch (struct_obj.requires_comptime) {
+                    .no, .wip => return false,
+                    .yes => return true,
+                    .unknown => {
+                        if (struct_obj.status == .field_types_wip)
+                            return false;
+
+                        try sema.resolveTypeFieldsStruct(ty, struct_obj);
+
+                        struct_obj.requires_comptime = .wip;
+                        for (struct_obj.fields.values()) |field| {
+                            if (field.is_comptime) continue;
+                            if (try sema.typeRequiresComptime(field.ty)) {
+                                struct_obj.requires_comptime = .yes;
+                                return true;
+                            }
+                        }
+                        struct_obj.requires_comptime = .no;
+                        return false;
+                    },
+                }
+            },
+
+            .@"union", .union_safety_tagged, .union_tagged => {
+                const union_obj = ty.cast(Type.Payload.Union).?.data;
+                switch (union_obj.requires_comptime) {
+                    .no, .wip => return false,
+                    .yes => return true,
+                    .unknown => {
+                        if (union_obj.status == .field_types_wip)
+                            return false;
+
+                        try sema.resolveTypeFieldsUnion(ty, union_obj);
+
+                        union_obj.requires_comptime = .wip;
+                        for (union_obj.fields.values()) |field| {
+                            if (try sema.typeRequiresComptime(field.ty)) {
+                                union_obj.requires_comptime = .yes;
+                                return true;
+                            }
+                        }
+                        union_obj.requires_comptime = .no;
+                        return false;
+                    },
+                }
+            },
+
+            .error_union => return sema.typeRequiresComptime(ty.errorUnionPayload()),
+            .anyframe_T => {
+                const child_ty = ty.castTag(.anyframe_T).?.data;
+                return sema.typeRequiresComptime(child_ty);
+            },
+            .enum_numbered => {
+                const tag_ty = ty.castTag(.enum_numbered).?.data.tag_ty;
+                return sema.typeRequiresComptime(tag_ty);
+            },
+            .enum_full, .enum_nonexhaustive => {
+                const tag_ty = ty.cast(Type.Payload.EnumFull).?.data.tag_ty;
+                return sema.typeRequiresComptime(tag_ty);
+            },
+        },
+        else => switch (mod.intern_pool.indexToKey(ty.ip_index)) {
             .int_type => return false,
             .ptr_type => |ptr_type| {
                 const child_ty = ptr_type.elem_type.toType();
@@ -33624,113 +33738,6 @@ pub fn typeRequiresComptime(sema: *Sema, ty: Type) CompileError!bool {
             .extern_func => unreachable,
             .int => unreachable,
             .enum_tag => unreachable, // it's a value, not a type
-        }
-    }
-    return switch (ty.tag()) {
-        .empty_struct_literal,
-        .empty_struct,
-        .error_set,
-        .error_set_single,
-        .error_set_inferred,
-        .error_set_merged,
-        .@"opaque",
-        .enum_simple,
-        => false,
-
-        .function => true,
-
-        .inferred_alloc_mut => unreachable,
-        .inferred_alloc_const => unreachable,
-
-        .array,
-        .array_sentinel,
-        => return sema.typeRequiresComptime(ty.childType(mod)),
-
-        .pointer => {
-            const child_ty = ty.childType(mod);
-            if (child_ty.zigTypeTag(mod) == .Fn) {
-                return child_ty.fnInfo().is_generic;
-            } else {
-                return sema.typeRequiresComptime(child_ty);
-            }
-        },
-
-        .optional => {
-            return sema.typeRequiresComptime(ty.optionalChild(mod));
-        },
-
-        .tuple, .anon_struct => {
-            const tuple = ty.tupleFields();
-            for (tuple.types, 0..) |field_ty, i| {
-                const have_comptime_val = tuple.values[i].ip_index != .unreachable_value;
-                if (!have_comptime_val and try sema.typeRequiresComptime(field_ty)) {
-                    return true;
-                }
-            }
-            return false;
-        },
-
-        .@"struct" => {
-            const struct_obj = ty.castTag(.@"struct").?.data;
-            switch (struct_obj.requires_comptime) {
-                .no, .wip => return false,
-                .yes => return true,
-                .unknown => {
-                    if (struct_obj.status == .field_types_wip)
-                        return false;
-
-                    try sema.resolveTypeFieldsStruct(ty, struct_obj);
-
-                    struct_obj.requires_comptime = .wip;
-                    for (struct_obj.fields.values()) |field| {
-                        if (field.is_comptime) continue;
-                        if (try sema.typeRequiresComptime(field.ty)) {
-                            struct_obj.requires_comptime = .yes;
-                            return true;
-                        }
-                    }
-                    struct_obj.requires_comptime = .no;
-                    return false;
-                },
-            }
-        },
-
-        .@"union", .union_safety_tagged, .union_tagged => {
-            const union_obj = ty.cast(Type.Payload.Union).?.data;
-            switch (union_obj.requires_comptime) {
-                .no, .wip => return false,
-                .yes => return true,
-                .unknown => {
-                    if (union_obj.status == .field_types_wip)
-                        return false;
-
-                    try sema.resolveTypeFieldsUnion(ty, union_obj);
-
-                    union_obj.requires_comptime = .wip;
-                    for (union_obj.fields.values()) |field| {
-                        if (try sema.typeRequiresComptime(field.ty)) {
-                            union_obj.requires_comptime = .yes;
-                            return true;
-                        }
-                    }
-                    union_obj.requires_comptime = .no;
-                    return false;
-                },
-            }
-        },
-
-        .error_union => return sema.typeRequiresComptime(ty.errorUnionPayload()),
-        .anyframe_T => {
-            const child_ty = ty.castTag(.anyframe_T).?.data;
-            return sema.typeRequiresComptime(child_ty);
-        },
-        .enum_numbered => {
-            const tag_ty = ty.castTag(.enum_numbered).?.data.tag_ty;
-            return sema.typeRequiresComptime(tag_ty);
-        },
-        .enum_full, .enum_nonexhaustive => {
-            const tag_ty = ty.cast(Type.Payload.EnumFull).?.data.tag_ty;
-            return sema.typeRequiresComptime(tag_ty);
         },
     };
 }

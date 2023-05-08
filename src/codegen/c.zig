@@ -1127,8 +1127,19 @@ pub const DeclGen = struct {
                         try writer.writeByte('}');
                         return;
                     },
+                    .empty_struct => {
+                        const ai = ty.arrayInfo(mod);
+                        try writer.writeByte('{');
+                        if (ai.sentinel) |s| {
+                            try dg.renderValue(writer, ai.elem_type, s, initializer_type);
+                        } else {
+                            try writer.writeByte('0');
+                        }
+                        try writer.writeByte('}');
+                        return;
+                    },
                     .none => switch (val.tag()) {
-                        .empty_struct_value, .empty_array => {
+                        .empty_array => {
                             const ai = ty.arrayInfo(mod);
                             try writer.writeByte('{');
                             if (ai.sentinel) |s| {
