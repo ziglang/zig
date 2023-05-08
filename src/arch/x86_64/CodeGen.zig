@@ -10147,9 +10147,46 @@ fn airAggregateInit(self: *Self, inst: Air.Inst.Index) !void {
 fn airUnionInit(self: *Self, inst: Air.Inst.Index) !void {
     const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
     const extra = self.air.extraData(Air.UnionInit, ty_pl.payload).data;
-    _ = extra;
-    return self.fail("TODO implement airUnionInit for x86_64", .{});
-    //return self.finishAir(inst, result, .{ extra.init, .none, .none });
+    const result: MCValue = result: {
+        const union_ty = self.air.typeOfIndex(inst);
+        const layout = union_ty.unionGetLayout(self.target.*);
+
+        const src_ty = self.air.typeOf(extra.init);
+        const src_mcv = try self.resolveInst(extra.init);
+        if (layout.tag_size == 0) {
+            if (self.reuseOperand(inst, extra.init, 0, src_mcv)) break :result src_mcv;
+
+            const dst_mcv = try self.allocRegOrMem(inst, true);
+            try self.genCopy(src_ty, dst_mcv, src_mcv);
+            break :result dst_mcv;
+        }
+
+        const dst_mcv = try self.allocRegOrMem(inst, false);
+
+        const union_obj = union_ty.cast(Type.Payload.Union).?.data;
+        const field_name = union_obj.fields.keys()[extra.field_index];
+        const tag_ty = union_ty.unionTagTypeSafety().?;
+        const field_index = @intCast(u32, tag_ty.enumFieldIndex(field_name).?);
+        var tag_pl = Value.Payload.U32{ .base = .{ .tag = .enum_field_index }, .data = field_index };
+        const tag_val = Value.initPayload(&tag_pl.base);
+        var tag_int_pl: Value.Payload.U64 = undefined;
+        const tag_int_val = tag_val.enumToInt(tag_ty, &tag_int_pl);
+        const tag_int = tag_int_val.toUnsignedInt(self.target.*);
+        const tag_off = if (layout.tag_align < layout.payload_align)
+            @intCast(i32, layout.payload_size)
+        else
+            0;
+        try self.genCopy(tag_ty, dst_mcv.address().offset(tag_off).deref(), .{ .immediate = tag_int });
+
+        const pl_off = if (layout.tag_align < layout.payload_align)
+            0
+        else
+            @intCast(i32, layout.tag_size);
+        try self.genCopy(src_ty, dst_mcv.address().offset(pl_off).deref(), src_mcv);
+
+        break :result dst_mcv;
+    };
+    return self.finishAir(inst, result, .{ extra.init, .none, .none });
 }
 
 fn airPrefetch(self: *Self, inst: Air.Inst.Index) !void {
