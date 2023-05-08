@@ -2983,7 +2983,7 @@ test "using slices for strings" {
     const world: []const u8 = "世界";
 
     var all_together: [100]u8 = undefined;
-    // You can use slice syntax with at least one runtime-know index on an
+    // You can use slice syntax with at least one runtime-known index on an
     // array to convert an array into a slice.
     var start : usize = 0;
     const all_together_slice = all_together[start..];
