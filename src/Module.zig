@@ -5280,6 +5280,9 @@ fn scanDecl(iter: *ScanDeclIter, decl_sub_index: usize, flags: u4) Allocator.Err
             }
         },
     };
+    var must_free_decl_name = true;
+    defer if (must_free_decl_name) gpa.free(decl_name);
+
     const is_exported = export_bit and decl_name_index != 0;
     if (kind == .@"usingnamespace") try namespace.usingnamespace_set.ensureUnusedCapacity(gpa, 1);
 
@@ -5296,6 +5299,7 @@ fn scanDecl(iter: *ScanDeclIter, decl_sub_index: usize, flags: u4) Allocator.Err
         const new_decl = mod.declPtr(new_decl_index);
         new_decl.kind = kind;
         new_decl.name = decl_name;
+        must_free_decl_name = false;
         if (kind == .@"usingnamespace") {
             namespace.usingnamespace_set.putAssumeCapacity(new_decl_index, is_pub);
         }
@@ -5339,9 +5343,29 @@ fn scanDecl(iter: *ScanDeclIter, decl_sub_index: usize, flags: u4) Allocator.Err
         new_decl.alive = true; // This Decl corresponds to an AST node and therefore always alive.
         return;
     }
-    gpa.free(decl_name);
     const decl_index = gop.key_ptr.*;
     const decl = mod.declPtr(decl_index);
+    if (kind == .@"test") {
+        const src_loc = SrcLoc{
+            .file_scope = decl.getFileScope(),
+            .parent_decl_node = decl.src_node,
+            .lazy = .{ .token_offset = 1 },
+        };
+        const msg = try ErrorMsg.create(
+            gpa,
+            src_loc,
+            "found test declaration with duplicate name: {s}",
+            .{decl_name},
+        );
+        errdefer msg.destroy(gpa);
+        try mod.failed_decls.putNoClobber(gpa, decl_index, msg);
+        const other_src_loc = SrcLoc{
+            .file_scope = namespace.file_scope,
+            .parent_decl_node = decl_node,
+            .lazy = .{ .token_offset = 1 },
+        };
+        try mod.errNoteNonLazy(other_src_loc, msg, "other test here", .{});
+    }
     log.debug("scan existing {*} ({s}) of {*}", .{ decl, decl.name, namespace });
     // Update the AST node of the decl; even if its contents are unchanged, it may
     // have been re-ordered.

@@ -2012,15 +2012,10 @@ test "big.int shift-right negative" {
     defer arg2.deinit();
     try a.shiftRight(&arg2, 10);
     try testing.expect((try a.to(i32)) == -1); // -5 >> 10 == -1
-}
 
-test "big.int shift-right negative" {
-    var a = try Managed.init(testing.allocator);
-    defer a.deinit();
-
-    var arg = try Managed.initSet(testing.allocator, -10);
-    defer arg.deinit();
-    try a.shiftRight(&arg, 1232);
+    var arg3 = try Managed.initSet(testing.allocator, -10);
+    defer arg3.deinit();
+    try a.shiftRight(&arg3, 1232);
     try testing.expect((try a.to(i32)) == -1); // -10 >> 1232 == -1
 }
 
@@ -2483,7 +2478,7 @@ test "big.int gcd non-one small" {
     try testing.expect((try r.to(u32)) == 1);
 }
 
-test "big.int gcd non-one small" {
+test "big.int gcd non-one medium" {
     var a = try Managed.initSet(testing.allocator, 4864);
     defer a.deinit();
     var b = try Managed.initSet(testing.allocator, 3458);
