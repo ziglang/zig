@@ -217,13 +217,170 @@ pub const Instruction = union(Opcode) {
             .restore_state => {},
             .def_cfa => |i| {
                 try abi.writeRegisterName(writer, arch, i.operands.register);
-                try writer.print(" +{}", .{ i.operands.offset });
+                try writer.print(" {}", .{ fmtOffset(@intCast(i64, i.operands.offset)) });
             },
             .def_cfa_register => {},
-            .def_cfa_offset => {},
-            .def_cfa_expression => |i| {
-                try writer.print("TODO parse expressions: {x}", .{ std.fmt.fmtSliceHexLower(i.operands.block) });
+            .def_cfa_offset => |i| {
+                try writer.print("{}", .{ fmtOffset(@intCast(i64, i.operands.offset)) });
             },
+            .def_cfa_expression => |i| {
+                try writer.print("TODO(parse expressions data {x})", .{ std.fmt.fmtSliceHexLower(i.operands.block) });
+            },
+            .expression => {},
+            .offset_extended_sf => {},
+            .def_cfa_sf => {},
+            .def_cfa_offset_sf => {},
+            .val_offset => {},
+            .val_offset_sf => {},
+            .val_expression => {},
+        }
+    }
+
+};
+
+
+fn formatOffset(data: i64, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
+    _ = fmt;
+    if (data >= 0) try writer.writeByte('+');
+    return std.fmt.formatInt(data, 10, .lower, options, writer);
+}
+
+fn fmtOffset(offset: i64) std.fmt.Formatter(formatOffset) {
+    return .{ .data = offset };
+}
+
+/// See section 6.4.1 of the DWARF5 specification
+pub const VirtualMachine = struct {
+
+    const RegisterRule = union(enum) {
+        undefined: void,
+        same_value: void,
+        offset: i64,
+        val_offset: i64,
+        register: u8,
+        expression: []const u8,
+        val_expression: []const u8,
+        architectural: void,
+    };
+
+    const Column = struct {
+        register: u8 = undefined,
+        rule: RegisterRule = .{ .undefined = {} },
+
+        pub fn writeRule(self: Column, writer: anytype, is_cfa: bool, arch: ?std.Target.Cpu.Arch) !void {
+            if (is_cfa) {
+                try writer.writeAll("CFA");
+            } else {
+                try abi.writeRegisterName(writer, arch, self.register);
+            }
+
+            try writer.writeByte('=');
+            switch (self.rule) {
+                .undefined => {},
+                .same_value => try writer.writeAll("S"),
+                .offset => |offset| {
+                    if (is_cfa) {
+                        try abi.writeRegisterName(writer, arch, self.register);
+                        try writer.print("{}", .{ fmtOffset(offset) });
+                    } else {
+                        try writer.print("[CFA{}]", .{ fmtOffset(offset) });
+                    }
+                },
+                .val_offset => |offset| {
+                    if (is_cfa) {
+                        try abi.writeRegisterName(writer, arch, self.register);
+                        try writer.print("{}", .{ fmtOffset(offset) });
+                    } else {
+                        try writer.print("CFA{}", .{  fmtOffset(offset) });
+                    }
+                },
+                .register => |register| try abi.writeRegisterName(writer, arch, register),
+                .expression => try writer.writeAll("TODO(expression)"),
+                .val_expression => try writer.writeAll("TODO(val_expression)"),
+                .architectural => try writer.writeAll("TODO(architectural)"),
+            }
+        }
+    };
+
+    pub const Row = struct {
+        /// Offset from pc_begin
+        offset: u64 = 0,
+        cfa: Column = .{},
+        /// Index into `columns` of the first column in this row
+        columns_start: usize = undefined,
+        columns_len: u8 = 0,
+    };
+
+    rows: std.ArrayListUnmanaged(Row) = .{},
+    columns: std.ArrayListUnmanaged(Column) = .{},
+    current_row: Row = .{},
+
+    pub fn reset(self: *VirtualMachine) void {
+        self.rows.clearRetainingCapacity();
+        self.columns.clearRetainingCapacity();
+        self.current_row = .{};
+    }
+
+    pub fn deinit(self: *VirtualMachine, allocator: std.mem.Allocator) void {
+        self.rows.deinit(allocator);
+        self.columns.deinit(allocator);
+        self.* = undefined;
+    }
+
+    pub fn getColumns(self: VirtualMachine, row: Row) []Column {
+        return self.columns.items[row.columns_start..][0..row.columns_len];
+    }
+
+    fn getOrAddColumn(self: *VirtualMachine, allocator: std.mem.Allocator, register: u8) !*Column {
+        for (self.getColumns(self.current_row)) |*c| {
+            if (c.register == register) return c;
+        }
+
+        if (self.current_row.columns_len == 0) {
+            self.current_row.columns_start = self.columns.items.len;
+        }
+        self.current_row.columns_len += 1;
+
+        const column = try self.columns.addOne(allocator);
+        column.* = .{
+            .register = register,
+        };
+
+        return column;
+    }
+
+    pub fn step(self: *VirtualMachine, allocator: std.mem.Allocator, cie: dwarf.CommonInformationEntry, instruction: Instruction) !void {
+        switch (instruction) {
+            inline .advance_loc, .advance_loc1, .advance_loc2, .advance_loc4 => |i| {
+                self.current_row.offset += i.operands.delta;
+            },
+            .offset => |i| {
+                const column = try self.getOrAddColumn(allocator, i.operands.register);
+                column.rule = .{ .offset = @intCast(i64, i.operands.offset) * cie.data_alignment_factor };
+            },
+            .restore => {},
+            .nop => {},
+            .set_loc => {},
+            .offset_extended => {},
+            .restore_extended => {},
+            .undefined => {},
+            .same_value => {},
+            .register => {},
+            .remember_state => {},
+            .restore_state => {},
+            .def_cfa => |i| {
+                self.current_row.cfa = .{
+                    .register = i.operands.register,
+                    .rule = .{ .offset = @intCast(i64, i.operands.offset) },
+                };
+            },
+            .def_cfa_register => {},
+            .def_cfa_offset => |i| {
+                self.current_row.cfa.rule = .{
+                    .offset = @intCast(i64, i.operands.offset)
+                };
+            },
+            .def_cfa_expression => {},
             .expression => {},
             .offset_extended_sf => {},
             .def_cfa_sf => {},
