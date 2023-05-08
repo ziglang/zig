@@ -15615,7 +15615,7 @@ fn zirSizeOf(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.
         => {},
     }
     const val = try ty.lazyAbiSize(mod, sema.arena);
-    if (val.ip_index == .none and val.tag() == .lazy_size) {
+    if (val.isLazySize()) {
         try sema.queueFullTypeResolution(ty);
     }
     return sema.addConstant(Type.comptime_int, val);
@@ -17674,6 +17674,10 @@ fn zirPtrType(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
         if (ty.isGenericPoison()) return error.GenericPoison;
         break :blk ty;
     };
+
+    if (elem_ty.zigTypeTag(mod) == .NoReturn)
+        return sema.fail(block, elem_ty_src, "pointer to noreturn not allowed", .{});
+
     const target = sema.mod.getTarget();
 
     var extra_i = extra.end;
@@ -17681,7 +17685,9 @@ fn zirPtrType(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
     const sentinel = if (inst_data.flags.has_sentinel) blk: {
         const ref = @intToEnum(Zir.Inst.Ref, sema.code.extra[extra_i]);
         extra_i += 1;
-        break :blk (try sema.resolveInstConst(block, sentinel_src, ref, "pointer sentinel value must be comptime-known")).val;
+        const coerced = try sema.coerce(block, elem_ty, try sema.resolveInst(ref), sentinel_src);
+        const val = try sema.resolveConstValue(block, sentinel_src, coerced, "pointer sentinel value must be comptime-known");
+        break :blk val;
     } else null;
 
     const abi_align: u32 = if (inst_data.flags.has_align) blk: {
@@ -17725,9 +17731,7 @@ fn zirPtrType(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
         return sema.fail(block, bitoffset_src, "bit offset starts after end of host integer", .{});
     }
 
-    if (elem_ty.zigTypeTag(mod) == .NoReturn) {
-        return sema.fail(block, elem_ty_src, "pointer to noreturn not allowed", .{});
-    } else if (elem_ty.zigTypeTag(mod) == .Fn) {
+    if (elem_ty.zigTypeTag(mod) == .Fn) {
         if (inst_data.size != .One) {
             return sema.fail(block, elem_ty_src, "function pointers must be single pointers", .{});
         }
@@ -18580,7 +18584,7 @@ fn zirAlignOf(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
         return sema.fail(block, operand_src, "no align available for type '{}'", .{ty.fmt(sema.mod)});
     }
     const val = try ty.lazyAbiAlignment(mod, sema.arena);
-    if (val.tag() == .lazy_align) {
+    if (val.isLazyAlign()) {
         try sema.queueFullTypeResolution(ty);
     }
     return sema.addConstant(Type.comptime_int, val);
@@ -33056,7 +33060,7 @@ pub fn typeHasOnePossibleValue(sema: *Sema, ty: Type) CompileError!?Value {
                 const enum_simple = resolved_ty.castTag(.enum_simple).?.data;
                 switch (enum_simple.fields.count()) {
                     0 => return Value.@"unreachable",
-                    1 => return try mod.intValue(ty, 0),
+                    1 => return try Value.Tag.enum_field_index.create(sema.arena, 0),
                     else => return null,
                 }
             },
