@@ -524,8 +524,9 @@ pub const DeclGen = struct {
 
     fn fail(dg: *DeclGen, comptime format: []const u8, args: anytype) error{ AnalysisFail, OutOfMemory } {
         @setCold(true);
+        const mod = dg.module;
         const src = LazySrcLoc.nodeOffset(0);
-        const src_loc = src.toSrcLoc(dg.decl.?);
+        const src_loc = src.toSrcLoc(dg.decl.?, mod);
         dg.error_msg = try Module.ErrorMsg.create(dg.gpa, src_loc, format, args);
         return error.AnalysisFail;
     }
@@ -6484,6 +6485,7 @@ fn airGetUnionTag(f: *Function, inst: Air.Inst.Index) !CValue {
 }
 
 fn airTagName(f: *Function, inst: Air.Inst.Index) !CValue {
+    const mod = f.object.dg.module;
     const un_op = f.air.instructions.items(.data)[inst].un_op;
 
     const inst_ty = f.typeOfIndex(inst);
@@ -6495,7 +6497,7 @@ fn airTagName(f: *Function, inst: Air.Inst.Index) !CValue {
     const local = try f.allocLocal(inst, inst_ty);
     try f.writeCValue(writer, local, .Other);
     try writer.print(" = {s}(", .{
-        try f.getLazyFnName(.{ .tag_name = enum_ty.getOwnerDecl() }, .{ .tag_name = enum_ty }),
+        try f.getLazyFnName(.{ .tag_name = enum_ty.getOwnerDecl(mod) }, .{ .tag_name = enum_ty }),
     });
     try f.writeCValue(writer, operand, .Other);
     try writer.writeAll(");\n");

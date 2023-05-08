@@ -17,7 +17,8 @@ const BigIntMutable = std.math.big.int.Mutable;
 const Limb = std.math.big.Limb;
 
 const InternPool = @This();
-const DeclIndex = enum(u32) { _ };
+const DeclIndex = @import("Module.zig").Decl.Index;
+const NamespaceIndex = @import("Module.zig").Namespace.Index;
 
 const KeyAdapter = struct {
     intern_pool: *const InternPool,
@@ -48,7 +49,7 @@ pub const Key = union(enum) {
     extern_func: struct {
         ty: Index,
         /// The Decl that corresponds to the function itself.
-        owner_decl: DeclIndex,
+        decl: DeclIndex,
         /// Library name if specified.
         /// For example `extern "c" fn write(...) usize` would have 'c' as library name.
         /// Index into the string table bytes.
@@ -62,6 +63,7 @@ pub const Key = union(enum) {
         tag: BigIntConst,
     },
     struct_type: StructType,
+    opaque_type: OpaqueType,
 
     union_type: struct {
         fields_len: u32,
@@ -114,6 +116,13 @@ pub const Key = union(enum) {
     pub const StructType = struct {
         fields_len: u32,
         // TODO move Module.Struct data to InternPool
+    };
+
+    pub const OpaqueType = struct {
+        /// The Decl that corresponds to the opaque itself.
+        decl: DeclIndex,
+        /// Represents the declarations inside this opaque.
+        namespace: NamespaceIndex,
     };
 
     pub const Int = struct {
@@ -221,6 +230,7 @@ pub const Key = union(enum) {
                 _ = union_type;
                 @panic("TODO");
             },
+            .opaque_type => |opaque_type| std.hash.autoHash(hasher, opaque_type.decl),
         }
     }
 
@@ -338,6 +348,11 @@ pub const Key = union(enum) {
                 _ = b_info;
                 @panic("TODO");
             },
+
+            .opaque_type => |a_info| {
+                const b_info = b.opaque_type;
+                return a_info.decl == b_info.decl;
+            },
         }
     }
 
@@ -352,6 +367,7 @@ pub const Key = union(enum) {
             .simple_type,
             .struct_type,
             .union_type,
+            .opaque_type,
             => return .type_type,
 
             inline .ptr,
@@ -770,10 +786,13 @@ pub const Tag = enum(u8) {
     /// are auto-numbered, and there are no declarations.
     /// data is payload index to `EnumSimple`.
     type_enum_simple,
-
     /// A type that can be represented with only an enum tag.
     /// data is SimpleType enum value.
     simple_type,
+    /// An opaque type.
+    /// data is index of Key.OpaqueType in extra.
+    type_opaque,
+
     /// A value that can be represented with only an enum tag.
     /// data is SimpleValue enum value.
     simple_value,
@@ -986,7 +1005,7 @@ pub const ErrorUnion = struct {
 /// 0. field name: null-terminated string index for each fields_len; declaration order
 pub const EnumSimple = struct {
     /// The Decl that corresponds to the enum itself.
-    owner_decl: DeclIndex,
+    decl: DeclIndex,
     /// An integer type which is used for the numerical value of the enum. This
     /// is inferred by Zig to be the smallest power of two unsigned int that
     /// fits the number of fields. It is stored here to avoid unnecessary
@@ -1146,6 +1165,9 @@ pub fn indexToKey(ip: InternPool, index: Index) Key {
 
         .type_error_union => @panic("TODO"),
         .type_enum_simple => @panic("TODO"),
+
+        .type_opaque => .{ .opaque_type = ip.extraData(Key.OpaqueType, data) },
+
         .simple_internal => switch (@intToEnum(SimpleInternal, data)) {
             .type_empty_struct => .{ .struct_type = .{
                 .fields_len = 0,
@@ -1335,6 +1357,29 @@ pub fn get(ip: *InternPool, gpa: Allocator, key: Key) Allocator.Error!Index {
                 .data = @enumToInt(simple_value),
             });
         },
+
+        .struct_type => |struct_type| {
+            if (struct_type.fields_len != 0) {
+                @panic("TODO"); // handle structs other than empty_struct
+            }
+            ip.items.appendAssumeCapacity(.{
+                .tag = .simple_internal,
+                .data = @enumToInt(SimpleInternal.type_empty_struct),
+            });
+        },
+
+        .union_type => |union_type| {
+            _ = union_type;
+            @panic("TODO");
+        },
+
+        .opaque_type => |opaque_type| {
+            ip.items.appendAssumeCapacity(.{
+                .tag = .type_opaque,
+                .data = try ip.addExtra(gpa, opaque_type),
+            });
+        },
+
         .extern_func => @panic("TODO"),
 
         .ptr => |ptr| switch (ptr.addr) {
@@ -1504,21 +1549,6 @@ pub fn get(ip: *InternPool, gpa: Allocator, key: Key) Allocator.Error!Index {
             const tag: Tag = if (enum_tag.tag.positive) .enum_tag_positive else .enum_tag_negative;
             try addInt(ip, gpa, enum_tag.ty, tag, enum_tag.tag.limbs);
         },
-
-        .struct_type => |struct_type| {
-            if (struct_type.fields_len != 0) {
-                @panic("TODO"); // handle structs other than empty_struct
-            }
-            ip.items.appendAssumeCapacity(.{
-                .tag = .simple_internal,
-                .data = @enumToInt(SimpleInternal.type_empty_struct),
-            });
-        },
-
-        .union_type => |union_type| {
-            _ = union_type;
-            @panic("TODO");
-        },
     }
     return @intToEnum(Index, ip.items.len - 1);
 }
@@ -1548,6 +1578,8 @@ fn addExtraAssumeCapacity(ip: *InternPool, extra: anytype) u32 {
         ip.extra.appendAssumeCapacity(switch (field.type) {
             u32 => @field(extra, field.name),
             Index => @enumToInt(@field(extra, field.name)),
+            DeclIndex => @enumToInt(@field(extra, field.name)),
+            NamespaceIndex => @enumToInt(@field(extra, field.name)),
             i32 => @bitCast(u32, @field(extra, field.name)),
             Pointer.Flags => @bitCast(u32, @field(extra, field.name)),
             Pointer.PackedOffset => @bitCast(u32, @field(extra, field.name)),
@@ -1603,6 +1635,8 @@ fn extraData(ip: InternPool, comptime T: type, index: usize) T {
         @field(result, field.name) = switch (field.type) {
             u32 => int32,
             Index => @intToEnum(Index, int32),
+            DeclIndex => @intToEnum(DeclIndex, int32),
+            NamespaceIndex => @intToEnum(NamespaceIndex, int32),
             i32 => @bitCast(i32, int32),
             Pointer.Flags => @bitCast(Pointer.Flags, int32),
             Pointer.PackedOffset => @bitCast(Pointer.PackedOffset, int32),
@@ -1824,6 +1858,7 @@ fn dumpFallible(ip: InternPool, arena: Allocator) anyerror!void {
             .type_optional => 0,
             .type_error_union => @sizeOf(ErrorUnion),
             .type_enum_simple => @sizeOf(EnumSimple),
+            .type_opaque => @sizeOf(Key.OpaqueType),
             .simple_type => 0,
             .simple_value => 0,
             .simple_internal => 0,

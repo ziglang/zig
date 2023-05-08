@@ -1129,8 +1129,8 @@ pub const File = struct {
                 Type.anyerror };
         }
 
-        pub fn getDecl(self: LazySymbol) Module.Decl.OptionalIndex {
-            return Module.Decl.OptionalIndex.init(self.ty.getOwnerDeclOrNull());
+        pub fn getDecl(self: LazySymbol, mod: *Module) Module.Decl.OptionalIndex {
+            return Module.Decl.OptionalIndex.init(self.ty.getOwnerDeclOrNull(mod));
         }
     };
 

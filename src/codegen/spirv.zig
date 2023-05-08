@@ -218,8 +218,9 @@ pub const DeclGen = struct {
 
     pub fn fail(self: *DeclGen, comptime format: []const u8, args: anytype) Error {
         @setCold(true);
+        const mod = self.module;
         const src = LazySrcLoc.nodeOffset(0);
-        const src_loc = src.toSrcLoc(self.module.declPtr(self.decl_index));
+        const src_loc = src.toSrcLoc(self.module.declPtr(self.decl_index), mod);
         assert(self.error_msg == null);
         self.error_msg = try Module.ErrorMsg.create(self.module.gpa, src_loc, format, args);
         return error.CodegenFail;
@@ -2775,7 +2776,10 @@ pub const DeclGen = struct {
 
     fn airDbgStmt(self: *DeclGen, inst: Air.Inst.Index) !void {
         const dbg_stmt = self.air.instructions.items(.data)[inst].dbg_stmt;
-        const src_fname_id = try self.spv.resolveSourceFileName(self.module.declPtr(self.decl_index));
+        const src_fname_id = try self.spv.resolveSourceFileName(
+            self.module,
+            self.module.declPtr(self.decl_index),
+        );
         try self.func.body.emit(self.spv.gpa, .OpLine, .{
             .file = src_fname_id,
             .line = dbg_stmt.line,
@@ -3192,6 +3196,7 @@ pub const DeclGen = struct {
     }
 
     fn airAssembly(self: *DeclGen, inst: Air.Inst.Index) !?IdRef {
+        const mod = self.module;
         const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
         const extra = self.air.extraData(Air.Asm, ty_pl.payload);
 
@@ -3274,7 +3279,7 @@ pub const DeclGen = struct {
                 assert(as.errors.items.len != 0);
                 assert(self.error_msg == null);
                 const loc = LazySrcLoc.nodeOffset(0);
-                const src_loc = loc.toSrcLoc(self.module.declPtr(self.decl_index));
+                const src_loc = loc.toSrcLoc(self.module.declPtr(self.decl_index), mod);
                 self.error_msg = try Module.ErrorMsg.create(self.module.gpa, src_loc, "failed to assemble SPIR-V inline assembly", .{});
                 const notes = try self.module.gpa.alloc(Module.ErrorMsg, as.errors.items.len);
 

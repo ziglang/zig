@@ -1348,7 +1348,7 @@ pub fn updateFunc(wasm: *Wasm, mod: *Module, func: *Module.Fn, air: Air, livenes
     defer code_writer.deinit();
     // const result = try codegen.generateFunction(
     //     &wasm.base,
-    //     decl.srcLoc(),
+    //     decl.srcLoc(mod),
     //     func,
     //     air,
     //     liveness,
@@ -1357,7 +1357,7 @@ pub fn updateFunc(wasm: *Wasm, mod: *Module, func: *Module.Fn, air: Air, livenes
     // );
     const result = try codegen.generateFunction(
         &wasm.base,
-        decl.srcLoc(),
+        decl.srcLoc(mod),
         func,
         air,
         liveness,
@@ -1425,7 +1425,7 @@ pub fn updateDecl(wasm: *Wasm, mod: *Module, decl_index: Module.Decl.Index) !voi
 
     const res = try codegen.generateSymbol(
         &wasm.base,
-        decl.srcLoc(),
+        decl.srcLoc(mod),
         .{ .ty = decl.ty, .val = val },
         &code_writer,
         .none,
@@ -1554,7 +1554,7 @@ pub fn lowerUnnamedConst(wasm: *Wasm, tv: TypedValue, decl_index: Module.Decl.In
 
         const result = try codegen.generateSymbol(
             &wasm.base,
-            decl.srcLoc(),
+            decl.srcLoc(mod),
             tv,
             &value_bytes,
             .none,
@@ -1693,7 +1693,7 @@ pub fn updateDeclExports(
         if (exp.options.section) |section| {
             try mod.failed_exports.putNoClobber(mod.gpa, exp, try Module.ErrorMsg.create(
                 mod.gpa,
-                decl.srcLoc(),
+                decl.srcLoc(mod),
                 "Unimplemented: ExportOptions.section '{s}'",
                 .{section},
             ));
@@ -1712,7 +1712,7 @@ pub fn updateDeclExports(
             if (!exp_is_weak and !existing_sym.isWeak()) {
                 try mod.failed_exports.put(mod.gpa, exp, try Module.ErrorMsg.create(
                     mod.gpa,
-                    decl.srcLoc(),
+                    decl.srcLoc(mod),
                     \\LinkError: symbol '{s}' defined multiple times
                     \\  first definition in '{s}'
                     \\  next definition in '{s}'
@@ -1745,7 +1745,7 @@ pub fn updateDeclExports(
             .LinkOnce => {
                 try mod.failed_exports.putNoClobber(mod.gpa, exp, try Module.ErrorMsg.create(
                     mod.gpa,
-                    decl.srcLoc(),
+                    decl.srcLoc(mod),
                     "Unimplemented: LinkOnce",
                     .{},
                 ));

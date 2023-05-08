@@ -2597,7 +2597,7 @@ pub fn flushModule(self: *Dwarf, module: *Module) !void {
 
 fn addDIFile(self: *Dwarf, mod: *Module, decl_index: Module.Decl.Index) !u28 {
     const decl = mod.declPtr(decl_index);
-    const file_scope = decl.getFileScope();
+    const file_scope = decl.getFileScope(mod);
     const gop = try self.di_files.getOrPut(self.allocator, file_scope);
     if (!gop.found_existing) {
         switch (self.bin_file.tag) {

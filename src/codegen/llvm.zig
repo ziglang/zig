@@ -1177,7 +1177,7 @@ pub const Object = struct {
         var di_scope: ?*llvm.DIScope = null;
 
         if (dg.object.di_builder) |dib| {
-            di_file = try dg.object.getDIFile(gpa, decl.src_namespace.file_scope);
+            di_file = try dg.object.getDIFile(gpa, mod.namespacePtr(decl.src_namespace).file_scope);
 
             const line_number = decl.src_line + 1;
             const is_internal_linkage = decl.val.tag() != .extern_fn and
@@ -1505,7 +1505,7 @@ pub const Object = struct {
                 return di_type;
             },
             .Enum => {
-                const owner_decl_index = ty.getOwnerDecl();
+                const owner_decl_index = ty.getOwnerDecl(mod);
                 const owner_decl = o.module.declPtr(owner_decl_index);
 
                 if (!ty.hasRuntimeBitsIgnoreComptime(mod)) {
@@ -1558,7 +1558,7 @@ pub const Object = struct {
                     @panic("TODO implement bigint debug enumerators to llvm int for 32-bit compiler builds");
                 }
 
-                const di_file = try o.getDIFile(gpa, owner_decl.src_namespace.file_scope);
+                const di_file = try o.getDIFile(gpa, mod.namespacePtr(owner_decl.src_namespace).file_scope);
                 const di_scope = try o.namespaceToDebugScope(owner_decl.src_namespace);
 
                 const name = try ty.nameAlloc(gpa, o.module);
@@ -1737,13 +1737,13 @@ pub const Object = struct {
                 }
                 const name = try ty.nameAlloc(gpa, o.module);
                 defer gpa.free(name);
-                const owner_decl_index = ty.getOwnerDecl();
+                const owner_decl_index = ty.getOwnerDecl(mod);
                 const owner_decl = o.module.declPtr(owner_decl_index);
                 const opaque_di_ty = dib.createForwardDeclType(
                     DW.TAG.structure_type,
                     name,
                     try o.namespaceToDebugScope(owner_decl.src_namespace),
-                    try o.getDIFile(gpa, owner_decl.src_namespace.file_scope),
+                    try o.getDIFile(gpa, mod.namespacePtr(owner_decl.src_namespace).file_scope),
                     owner_decl.src_node + 1,
                 );
                 // The recursive call to `lowerDebugType` va `namespaceToDebugScope`
@@ -2085,7 +2085,7 @@ pub const Object = struct {
                         // into. Therefore we can satisfy this by making an empty namespace,
                         // rather than changing the frontend to unnecessarily resolve the
                         // struct field types.
-                        const owner_decl_index = ty.getOwnerDecl();
+                        const owner_decl_index = ty.getOwnerDecl(mod);
                         const struct_di_ty = try o.makeEmptyNamespaceDIType(owner_decl_index);
                         dib.replaceTemporary(fwd_decl, struct_di_ty);
                         // The recursive call to `lowerDebugType` via `makeEmptyNamespaceDIType`
@@ -2096,7 +2096,7 @@ pub const Object = struct {
                 }
 
                 if (!ty.hasRuntimeBitsIgnoreComptime(mod)) {
-                    const owner_decl_index = ty.getOwnerDecl();
+                    const owner_decl_index = ty.getOwnerDecl(mod);
                     const struct_di_ty = try o.makeEmptyNamespaceDIType(owner_decl_index);
                     dib.replaceTemporary(fwd_decl, struct_di_ty);
                     // The recursive call to `lowerDebugType` via `makeEmptyNamespaceDIType`
@@ -2162,7 +2162,7 @@ pub const Object = struct {
             },
             .Union => {
                 const compile_unit_scope = o.di_compile_unit.?.toScope();
-                const owner_decl_index = ty.getOwnerDecl();
+                const owner_decl_index = ty.getOwnerDecl(mod);
 
                 const name = try ty.nameAlloc(gpa, o.module);
                 defer gpa.free(name);
@@ -2395,8 +2395,10 @@ pub const Object = struct {
         }
     }
 
-    fn namespaceToDebugScope(o: *Object, namespace: *const Module.Namespace) !*llvm.DIScope {
-        if (namespace.parent == null) {
+    fn namespaceToDebugScope(o: *Object, namespace_index: Module.Namespace.Index) !*llvm.DIScope {
+        const mod = o.module;
+        const namespace = mod.namespacePtr(namespace_index);
+        if (namespace.parent == .none) {
             const di_file = try o.getDIFile(o.gpa, namespace.file_scope);
             return di_file.toScope();
         }
@@ -2408,12 +2410,13 @@ pub const Object = struct {
     /// Assertion `!isa<DIType>(Scope) && "shouldn't make a namespace scope for a type"'
     /// when targeting CodeView (Windows).
     fn makeEmptyNamespaceDIType(o: *Object, decl_index: Module.Decl.Index) !*llvm.DIType {
-        const decl = o.module.declPtr(decl_index);
+        const mod = o.module;
+        const decl = mod.declPtr(decl_index);
         const fields: [0]*llvm.DIType = .{};
         return o.di_builder.?.createStructType(
             try o.namespaceToDebugScope(decl.src_namespace),
             decl.name, // TODO use fully qualified name
-            try o.getDIFile(o.gpa, decl.src_namespace.file_scope),
+            try o.getDIFile(o.gpa, mod.namespacePtr(decl.src_namespace).file_scope),
             decl.src_line + 1,
             0, // size in bits
             0, // align in bits
@@ -2434,14 +2437,14 @@ pub const Object = struct {
         const std_file = (mod.importPkg(std_pkg) catch unreachable).file;
 
         const builtin_str: []const u8 = "builtin";
-        const std_namespace = mod.declPtr(std_file.root_decl.unwrap().?).src_namespace;
+        const std_namespace = mod.namespacePtr(mod.declPtr(std_file.root_decl.unwrap().?).src_namespace);
         const builtin_decl = std_namespace.decls
             .getKeyAdapted(builtin_str, Module.DeclAdapter{ .mod = mod }).?;
 
         const stack_trace_str: []const u8 = "StackTrace";
         // buffer is only used for int_type, `builtin` is a struct.
         const builtin_ty = mod.declPtr(builtin_decl).val.toType();
-        const builtin_namespace = builtin_ty.getNamespace().?;
+        const builtin_namespace = builtin_ty.getNamespace(mod).?;
         const stack_trace_decl_index = builtin_namespace.decls
             .getKeyAdapted(stack_trace_str, Module.DeclAdapter{ .mod = mod }).?;
         const stack_trace_decl = mod.declPtr(stack_trace_decl_index);
@@ -2464,7 +2467,8 @@ pub const DeclGen = struct {
     fn todo(self: *DeclGen, comptime format: []const u8, args: anytype) Error {
         @setCold(true);
         assert(self.err_msg == null);
-        const src_loc = LazySrcLoc.nodeOffset(0).toSrcLoc(self.decl);
+        const mod = self.module;
+        const src_loc = LazySrcLoc.nodeOffset(0).toSrcLoc(self.decl, mod);
         self.err_msg = try Module.ErrorMsg.create(self.gpa, src_loc, "TODO (LLVM): " ++ format, args);
         return error.CodegenFail;
     }
@@ -2536,7 +2540,7 @@ pub const DeclGen = struct {
             }
 
             if (dg.object.di_builder) |dib| {
-                const di_file = try dg.object.getDIFile(dg.gpa, decl.src_namespace.file_scope);
+                const di_file = try dg.object.getDIFile(dg.gpa, mod.namespacePtr(decl.src_namespace).file_scope);
 
                 const line_number = decl.src_line + 1;
                 const is_internal_linkage = !dg.module.decl_exports.contains(decl_index);
@@ -2837,15 +2841,11 @@ pub const DeclGen = struct {
             .Opaque => {
                 if (t.ip_index == .anyopaque_type) return dg.context.intType(8);
 
-                const gop = try dg.object.type_map.getOrPutContext(gpa, t, .{ .mod = dg.module });
+                const gop = try dg.object.type_map.getOrPutContext(gpa, t, .{ .mod = mod });
                 if (gop.found_existing) return gop.value_ptr.*;
 
-                // The Type memory is ephemeral; since we want to store a longer-lived
-                // reference, we need to copy it here.
-                gop.key_ptr.* = try t.copy(dg.object.type_map_arena.allocator());
-
-                const opaque_obj = t.castTag(.@"opaque").?.data;
-                const name = try opaque_obj.getFullyQualifiedName(dg.module);
+                const opaque_type = mod.intern_pool.indexToKey(t.ip_index).opaque_type;
+                const name = try mod.opaqueFullyQualifiedName(opaque_type);
                 defer gpa.free(name);
 
                 const llvm_struct_ty = dg.context.structCreateNamed(name);
@@ -2931,7 +2931,7 @@ pub const DeclGen = struct {
             },
             .ErrorSet => return dg.context.intType(16),
             .Struct => {
-                const gop = try dg.object.type_map.getOrPutContext(gpa, t, .{ .mod = dg.module });
+                const gop = try dg.object.type_map.getOrPutContext(gpa, t, .{ .mod = mod });
                 if (gop.found_existing) return gop.value_ptr.*;
 
                 // The Type memory is ephemeral; since we want to store a longer-lived
@@ -2999,7 +2999,7 @@ pub const DeclGen = struct {
                     return int_llvm_ty;
                 }
 
-                const name = try struct_obj.getFullyQualifiedName(dg.module);
+                const name = try struct_obj.getFullyQualifiedName(mod);
                 defer gpa.free(name);
 
                 const llvm_struct_ty = dg.context.structCreateNamed(name);
@@ -3057,7 +3057,7 @@ pub const DeclGen = struct {
                 return llvm_struct_ty;
             },
             .Union => {
-                const gop = try dg.object.type_map.getOrPutContext(gpa, t, .{ .mod = dg.module });
+                const gop = try dg.object.type_map.getOrPutContext(gpa, t, .{ .mod = mod });
                 if (gop.found_existing) return gop.value_ptr.*;
 
                 // The Type memory is ephemeral; since we want to store a longer-lived
@@ -3080,7 +3080,7 @@ pub const DeclGen = struct {
                     return enum_tag_llvm_ty;
                 }
 
-                const name = try union_obj.getFullyQualifiedName(dg.module);
+                const name = try union_obj.getFullyQualifiedName(mod);
                 defer gpa.free(name);
 
                 const llvm_union_ty = dg.context.structCreateNamed(name);
@@ -6131,7 +6131,7 @@ pub const FuncGen = struct {
         const func = self.air.values[ty_pl.payload].castTag(.function).?.data;
         const decl_index = func.owner_decl;
         const decl = mod.declPtr(decl_index);
-        const di_file = try self.dg.object.getDIFile(self.gpa, decl.src_namespace.file_scope);
+        const di_file = try self.dg.object.getDIFile(self.gpa, mod.namespacePtr(decl.src_namespace).file_scope);
         self.di_file = di_file;
         const line_number = decl.src_line + 1;
         const cur_debug_location = self.builder.getCurrentDebugLocation2();
@@ -6193,7 +6193,7 @@ pub const FuncGen = struct {
         const func = self.air.values[ty_pl.payload].castTag(.function).?.data;
         const mod = self.dg.module;
         const decl = mod.declPtr(func.owner_decl);
-        const di_file = try self.dg.object.getDIFile(self.gpa, decl.src_namespace.file_scope);
+        const di_file = try self.dg.object.getDIFile(self.gpa, mod.namespacePtr(decl.src_namespace).file_scope);
         self.di_file = di_file;
         const old = self.dbg_inlined.pop();
         self.di_scope = old.scope;
@@ -8853,7 +8853,8 @@ pub const FuncGen = struct {
     }
 
     fn getIsNamedEnumValueFunction(self: *FuncGen, enum_ty: Type) !*llvm.Value {
-        const enum_decl = enum_ty.getOwnerDecl();
+        const mod = self.dg.module;
+        const enum_decl = enum_ty.getOwnerDecl(mod);
 
         // TODO: detect when the type changes and re-emit this function.
         const gop = try self.dg.object.named_enum_map.getOrPut(self.dg.gpa, enum_decl);
@@ -8864,7 +8865,6 @@ pub const FuncGen = struct {
         defer arena_allocator.deinit();
         const arena = arena_allocator.allocator();
 
-        const mod = self.dg.module;
         const fqn = try mod.declPtr(enum_decl).getFullyQualifiedName(mod);
         defer self.gpa.free(fqn);
         const llvm_fn_name = try std.fmt.allocPrintZ(arena, "__zig_is_named_enum_value_{s}", .{fqn});
@@ -8931,7 +8931,8 @@ pub const FuncGen = struct {
     }
 
     fn getEnumTagNameFunction(self: *FuncGen, enum_ty: Type) !*llvm.Value {
-        const enum_decl = enum_ty.getOwnerDecl();
+        const mod = self.dg.module;
+        const enum_decl = enum_ty.getOwnerDecl(mod);
 
         // TODO: detect when the type changes and re-emit this function.
         const gop = try self.dg.object.decl_map.getOrPut(self.dg.gpa, enum_decl);
@@ -8942,7 +8943,6 @@ pub const FuncGen = struct {
         defer arena_allocator.deinit();
         const arena = arena_allocator.allocator();
 
-        const mod = self.dg.module;
         const fqn = try mod.declPtr(enum_decl).getFullyQualifiedName(mod);
         defer self.gpa.free(fqn);
         const llvm_fn_name = try std.fmt.allocPrintZ(arena, "__zig_tag_name_{s}", .{fqn});

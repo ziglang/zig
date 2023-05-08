@@ -42,8 +42,6 @@ pub const Type = struct {
                 .error_set_merged,
                 => return .ErrorSet,
 
-                .@"opaque" => return .Opaque,
-
                 .function => return .Fn,
 
                 .array,
@@ -87,6 +85,7 @@ pub const Type = struct {
                 .error_union_type => return .ErrorUnion,
                 .struct_type => return .Struct,
                 .union_type => return .Union,
+                .opaque_type => return .Opaque,
                 .simple_type => |s| switch (s) {
                     .f16,
                     .f32,
@@ -359,12 +358,6 @@ pub const Type = struct {
                     if (!std.mem.eql(u8, a_item, b_item)) return false;
                 }
                 return true;
-            },
-
-            .@"opaque" => {
-                const opaque_obj_a = a.castTag(.@"opaque").?.data;
-                const opaque_obj_b = (b.castTag(.@"opaque") orelse return false).data;
-                return opaque_obj_a == opaque_obj_b;
             },
 
             .function => {
@@ -647,12 +640,6 @@ pub const Type = struct {
                 std.hash.autoHash(hasher, std.builtin.TypeId.ErrorSet);
                 std.hash.autoHash(hasher, Tag.error_set_inferred);
                 std.hash.autoHash(hasher, ies);
-            },
-
-            .@"opaque" => {
-                std.hash.autoHash(hasher, std.builtin.TypeId.Opaque);
-                const opaque_obj = ty.castTag(.@"opaque").?.data;
-                std.hash.autoHash(hasher, opaque_obj);
             },
 
             .function => {
@@ -974,7 +961,6 @@ pub const Type = struct {
             .enum_simple => return self.copyPayloadShallow(allocator, Payload.EnumSimple),
             .enum_numbered => return self.copyPayloadShallow(allocator, Payload.EnumNumbered),
             .enum_full, .enum_nonexhaustive => return self.copyPayloadShallow(allocator, Payload.EnumFull),
-            .@"opaque" => return self.copyPayloadShallow(allocator, Payload.Opaque),
         }
     }
 
@@ -1077,12 +1063,6 @@ pub const Type = struct {
                     const enum_numbered = ty.castTag(.enum_numbered).?.data;
                     return writer.print("({s} decl={d})", .{
                         @tagName(t), enum_numbered.owner_decl,
-                    });
-                },
-                .@"opaque" => {
-                    const opaque_obj = ty.castTag(.@"opaque").?.data;
-                    return writer.print("({s} decl={d})", .{
-                        @tagName(t), opaque_obj.owner_decl,
                     });
                 },
 
@@ -1301,11 +1281,6 @@ pub const Type = struct {
                 .enum_numbered => {
                     const enum_numbered = ty.castTag(.enum_numbered).?.data;
                     const decl = mod.declPtr(enum_numbered.owner_decl);
-                    try decl.renderFullyQualifiedName(mod, writer);
-                },
-                .@"opaque" => {
-                    const opaque_obj = ty.cast(Payload.Opaque).?.data;
-                    const decl = mod.declPtr(opaque_obj.owner_decl);
                     try decl.renderFullyQualifiedName(mod, writer);
                 },
 
@@ -1575,6 +1550,10 @@ pub const Type = struct {
                 .simple_type => |s| return writer.writeAll(@tagName(s)),
                 .struct_type => @panic("TODO"),
                 .union_type => @panic("TODO"),
+                .opaque_type => |opaque_type| {
+                    const decl = mod.declPtr(opaque_type.decl);
+                    try decl.renderFullyQualifiedName(mod, writer);
+                },
 
                 // values, not types
                 .simple_value => unreachable,
@@ -1622,7 +1601,6 @@ pub const Type = struct {
             .none => switch (ty.tag()) {
                 .error_set_inferred,
 
-                .@"opaque",
                 .error_set_single,
                 .error_union,
                 .error_set,
@@ -1759,8 +1737,8 @@ pub const Type = struct {
                 .inferred_alloc_const => unreachable,
                 .inferred_alloc_mut => unreachable,
             },
-            else => switch (mod.intern_pool.indexToKey(ty.ip_index)) {
-                .int_type => |int_type| return int_type.bits != 0,
+            else => return switch (mod.intern_pool.indexToKey(ty.ip_index)) {
+                .int_type => |int_type| int_type.bits != 0,
                 .ptr_type => |ptr_type| {
                     // Pointers to zero-bit types still have a runtime address; however, pointers
                     // to comptime-only types do not, with the exception of function pointers.
@@ -1797,7 +1775,7 @@ pub const Type = struct {
                     }
                 },
                 .error_union_type => @panic("TODO"),
-                .simple_type => |t| return switch (t) {
+                .simple_type => |t| switch (t) {
                     .f16,
                     .f32,
                     .f64,
@@ -1848,6 +1826,7 @@ pub const Type = struct {
                 },
                 .struct_type => @panic("TODO"),
                 .union_type => @panic("TODO"),
+                .opaque_type => true,
 
                 // values, not types
                 .simple_value => unreachable,
@@ -1876,7 +1855,6 @@ pub const Type = struct {
                 .error_set_single,
                 .error_set_inferred,
                 .error_set_merged,
-                .@"opaque",
                 // These are function bodies, not function pointers.
                 .function,
                 .enum_simple,
@@ -1960,6 +1938,7 @@ pub const Type = struct {
                 },
                 .struct_type => @panic("TODO"),
                 .union_type => @panic("TODO"),
+                .opaque_type => false,
 
                 // values, not types
                 .simple_value => unreachable,
@@ -2144,8 +2123,6 @@ pub const Type = struct {
         switch (ty.ip_index) {
             .empty_struct_type => return AbiAlignmentAdvanced{ .scalar = 0 },
             .none => switch (ty.tag()) {
-                .@"opaque" => return AbiAlignmentAdvanced{ .scalar = 1 },
-
                 // represents machine code; not a pointer
                 .function => {
                     const alignment = ty.castTag(.function).?.data.alignment;
@@ -2362,6 +2339,7 @@ pub const Type = struct {
                 },
                 .struct_type => @panic("TODO"),
                 .union_type => @panic("TODO"),
+                .opaque_type => return AbiAlignmentAdvanced{ .scalar = 1 },
 
                 // values, not types
                 .simple_value => unreachable,
@@ -2536,7 +2514,6 @@ pub const Type = struct {
 
             .none => switch (ty.tag()) {
                 .function => unreachable, // represents machine code; not a pointer
-                .@"opaque" => unreachable, // no size available
                 .inferred_alloc_const => unreachable,
                 .inferred_alloc_mut => unreachable,
 
@@ -2777,6 +2754,7 @@ pub const Type = struct {
                 },
                 .struct_type => @panic("TODO"),
                 .union_type => @panic("TODO"),
+                .opaque_type => unreachable, // no size available
 
                 // values, not types
                 .simple_value => unreachable,
@@ -2948,6 +2926,7 @@ pub const Type = struct {
             },
             .struct_type => @panic("TODO"),
             .union_type => @panic("TODO"),
+            .opaque_type => unreachable,
 
             // values, not types
             .simple_value => unreachable,
@@ -2965,7 +2944,6 @@ pub const Type = struct {
             .empty_struct => unreachable,
             .inferred_alloc_const => unreachable,
             .inferred_alloc_mut => unreachable,
-            .@"opaque" => unreachable,
 
             .@"struct" => {
                 const struct_obj = ty.castTag(.@"struct").?.data;
@@ -3806,6 +3784,7 @@ pub const Type = struct {
                 .simple_type => unreachable, // handled via Index enum tag above
                 .struct_type => @panic("TODO"),
                 .union_type => unreachable,
+                .opaque_type => unreachable,
 
                 // values, not types
                 .simple_value => unreachable,
@@ -4004,7 +3983,6 @@ pub const Type = struct {
                 .function,
                 .array_sentinel,
                 .error_set_inferred,
-                .@"opaque",
                 .anyframe_T,
                 .pointer,
                 => return null,
@@ -4182,6 +4160,7 @@ pub const Type = struct {
                 },
                 .struct_type => @panic("TODO"),
                 .union_type => @panic("TODO"),
+                .opaque_type => return null,
 
                 // values, not types
                 .simple_value => unreachable,
@@ -4208,7 +4187,6 @@ pub const Type = struct {
                 .error_set_single,
                 .error_set_inferred,
                 .error_set_merged,
-                .@"opaque",
                 .enum_simple,
                 => false,
 
@@ -4350,6 +4328,7 @@ pub const Type = struct {
                 },
                 .struct_type => @panic("TODO"),
                 .union_type => @panic("TODO"),
+                .opaque_type => false,
 
                 // values, not types
                 .simple_value => unreachable,
@@ -4399,19 +4378,29 @@ pub const Type = struct {
     }
 
     /// Returns null if the type has no namespace.
-    pub fn getNamespace(self: Type) ?*Module.Namespace {
-        return switch (self.tag()) {
-            .@"struct" => &self.castTag(.@"struct").?.data.namespace,
-            .enum_full => &self.castTag(.enum_full).?.data.namespace,
-            .enum_nonexhaustive => &self.castTag(.enum_nonexhaustive).?.data.namespace,
-            .empty_struct => self.castTag(.empty_struct).?.data,
-            .@"opaque" => &self.castTag(.@"opaque").?.data.namespace,
-            .@"union" => &self.castTag(.@"union").?.data.namespace,
-            .union_safety_tagged => &self.castTag(.union_safety_tagged).?.data.namespace,
-            .union_tagged => &self.castTag(.union_tagged).?.data.namespace,
+    pub fn getNamespaceIndex(ty: Type, mod: *Module) Module.Namespace.OptionalIndex {
+        return switch (ty.ip_index) {
+            .none => switch (ty.tag()) {
+                .@"struct" => ty.castTag(.@"struct").?.data.namespace.toOptional(),
+                .enum_full => ty.castTag(.enum_full).?.data.namespace.toOptional(),
+                .enum_nonexhaustive => ty.castTag(.enum_nonexhaustive).?.data.namespace.toOptional(),
+                .empty_struct => @panic("TODO"),
+                .@"union" => ty.castTag(.@"union").?.data.namespace.toOptional(),
+                .union_safety_tagged => ty.castTag(.union_safety_tagged).?.data.namespace.toOptional(),
+                .union_tagged => ty.castTag(.union_tagged).?.data.namespace.toOptional(),
 
-            else => null,
+                else => .none,
+            },
+            else => switch (mod.intern_pool.indexToKey(ty.ip_index)) {
+                .opaque_type => |opaque_type| opaque_type.namespace.toOptional(),
+                else => .none,
+            },
         };
+    }
+
+    /// Returns null if the type has no namespace.
+    pub fn getNamespace(ty: Type, mod: *Module) ?*Module.Namespace {
+        return if (getNamespaceIndex(ty, mod).unwrap()) |i| mod.namespacePtr(i) else null;
     }
 
     // Works for vectors and vectors of integers.
@@ -4911,78 +4900,81 @@ pub const Type = struct {
     }
 
     pub fn declSrcLocOrNull(ty: Type, mod: *Module) ?Module.SrcLoc {
-        if (ty.ip_index != .none) switch (mod.intern_pool.indexToKey(ty.ip_index)) {
-            .struct_type => @panic("TODO"),
-            .union_type => @panic("TODO"),
-            else => return null,
-        };
-        switch (ty.tag()) {
-            .enum_full, .enum_nonexhaustive => {
-                const enum_full = ty.cast(Payload.EnumFull).?.data;
-                return enum_full.srcLoc(mod);
-            },
-            .enum_numbered => {
-                const enum_numbered = ty.castTag(.enum_numbered).?.data;
-                return enum_numbered.srcLoc(mod);
-            },
-            .enum_simple => {
-                const enum_simple = ty.castTag(.enum_simple).?.data;
-                return enum_simple.srcLoc(mod);
-            },
-            .@"struct" => {
-                const struct_obj = ty.castTag(.@"struct").?.data;
-                return struct_obj.srcLoc(mod);
-            },
-            .error_set => {
-                const error_set = ty.castTag(.error_set).?.data;
-                return error_set.srcLoc(mod);
-            },
-            .@"union", .union_safety_tagged, .union_tagged => {
-                const union_obj = ty.cast(Payload.Union).?.data;
-                return union_obj.srcLoc(mod);
-            },
-            .@"opaque" => {
-                const opaque_obj = ty.cast(Payload.Opaque).?.data;
-                return opaque_obj.srcLoc(mod);
-            },
+        switch (ty.ip_index) {
+            .none => switch (ty.tag()) {
+                .enum_full, .enum_nonexhaustive => {
+                    const enum_full = ty.cast(Payload.EnumFull).?.data;
+                    return enum_full.srcLoc(mod);
+                },
+                .enum_numbered => {
+                    const enum_numbered = ty.castTag(.enum_numbered).?.data;
+                    return enum_numbered.srcLoc(mod);
+                },
+                .enum_simple => {
+                    const enum_simple = ty.castTag(.enum_simple).?.data;
+                    return enum_simple.srcLoc(mod);
+                },
+                .@"struct" => {
+                    const struct_obj = ty.castTag(.@"struct").?.data;
+                    return struct_obj.srcLoc(mod);
+                },
+                .error_set => {
+                    const error_set = ty.castTag(.error_set).?.data;
+                    return error_set.srcLoc(mod);
+                },
+                .@"union", .union_safety_tagged, .union_tagged => {
+                    const union_obj = ty.cast(Payload.Union).?.data;
+                    return union_obj.srcLoc(mod);
+                },
 
-            else => return null,
+                else => return null,
+            },
+            else => return switch (mod.intern_pool.indexToKey(ty.ip_index)) {
+                .struct_type => @panic("TODO"),
+                .union_type => @panic("TODO"),
+                .opaque_type => |opaque_type| mod.opaqueSrcLoc(opaque_type),
+                else => null,
+            },
         }
     }
 
-    pub fn getOwnerDecl(ty: Type) Module.Decl.Index {
-        return ty.getOwnerDeclOrNull() orelse unreachable;
+    pub fn getOwnerDecl(ty: Type, mod: *Module) Module.Decl.Index {
+        return ty.getOwnerDeclOrNull(mod) orelse unreachable;
     }
 
-    pub fn getOwnerDeclOrNull(ty: Type) ?Module.Decl.Index {
-        switch (ty.tag()) {
-            .enum_full, .enum_nonexhaustive => {
-                const enum_full = ty.cast(Payload.EnumFull).?.data;
-                return enum_full.owner_decl;
-            },
-            .enum_numbered => return ty.castTag(.enum_numbered).?.data.owner_decl,
-            .enum_simple => {
-                const enum_simple = ty.castTag(.enum_simple).?.data;
-                return enum_simple.owner_decl;
-            },
-            .@"struct" => {
-                const struct_obj = ty.castTag(.@"struct").?.data;
-                return struct_obj.owner_decl;
-            },
-            .error_set => {
-                const error_set = ty.castTag(.error_set).?.data;
-                return error_set.owner_decl;
-            },
-            .@"union", .union_safety_tagged, .union_tagged => {
-                const union_obj = ty.cast(Payload.Union).?.data;
-                return union_obj.owner_decl;
-            },
-            .@"opaque" => {
-                const opaque_obj = ty.cast(Payload.Opaque).?.data;
-                return opaque_obj.owner_decl;
-            },
+    pub fn getOwnerDeclOrNull(ty: Type, mod: *Module) ?Module.Decl.Index {
+        switch (ty.ip_index) {
+            .none => switch (ty.tag()) {
+                .enum_full, .enum_nonexhaustive => {
+                    const enum_full = ty.cast(Payload.EnumFull).?.data;
+                    return enum_full.owner_decl;
+                },
+                .enum_numbered => return ty.castTag(.enum_numbered).?.data.owner_decl,
+                .enum_simple => {
+                    const enum_simple = ty.castTag(.enum_simple).?.data;
+                    return enum_simple.owner_decl;
+                },
+                .@"struct" => {
+                    const struct_obj = ty.castTag(.@"struct").?.data;
+                    return struct_obj.owner_decl;
+                },
+                .error_set => {
+                    const error_set = ty.castTag(.error_set).?.data;
+                    return error_set.owner_decl;
+                },
+                .@"union", .union_safety_tagged, .union_tagged => {
+                    const union_obj = ty.cast(Payload.Union).?.data;
+                    return union_obj.owner_decl;
+                },
 
-            else => return null,
+                else => return null,
+            },
+            else => return switch (mod.intern_pool.indexToKey(ty.ip_index)) {
+                .struct_type => @panic("TODO"),
+                .union_type => @panic("TODO"),
+                .opaque_type => |opaque_type| opaque_type.decl,
+                else => null,
+            },
         }
     }
 
@@ -5022,7 +5014,6 @@ pub const Type = struct {
         error_set_inferred,
         error_set_merged,
         empty_struct,
-        @"opaque",
         @"struct",
         @"union",
         union_safety_tagged,
@@ -5055,7 +5046,6 @@ pub const Type = struct {
                 .function => Payload.Function,
                 .error_union => Payload.ErrorUnion,
                 .error_set_single => Payload.Name,
-                .@"opaque" => Payload.Opaque,
                 .@"struct" => Payload.Struct,
                 .@"union", .union_safety_tagged, .union_tagged => Payload.Union,
                 .enum_full, .enum_nonexhaustive => Payload.EnumFull,
@@ -5334,11 +5324,6 @@ pub const Type = struct {
         pub const ContainerScope = struct {
             base: Payload,
             data: *Module.Namespace,
-        };
-
-        pub const Opaque = struct {
-            base: Payload = .{ .tag = .@"opaque" },
-            data: *Module.Opaque,
         };
 
         pub const Struct = struct {
