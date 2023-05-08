@@ -286,10 +286,10 @@ fn generic(lower: *Lower, inst: Mir.Inst) Error!void {
         .rri_s, .rri_u => inst.data.rri.fixes,
         .ri_s, .ri_u => inst.data.ri.fixes,
         .ri64, .rm_sib, .rm_rip, .mr_sib, .mr_rip => inst.data.rx.fixes,
-        .mi_sib_u, .mi_rip_u, .mi_sib_s, .mi_rip_s => ._,
         .mrr_sib, .mrr_rip, .rrm_sib, .rrm_rip => inst.data.rrx.fixes,
         .rmi_sib, .rmi_rip, .mri_sib, .mri_rip => inst.data.rix.fixes,
         .rrmi_sib, .rrmi_rip => inst.data.rrix.fixes,
+        .mi_sib_u, .mi_rip_u, .mi_sib_s, .mi_rip_s => inst.data.x.fixes,
         .m_sib, .m_rip, .rax_moffs, .moffs_rax => inst.data.x.fixes,
         .extern_fn_reloc, .got_reloc, .direct_reloc, .import_reloc, .tlv_reloc => ._,
         else => return lower.fail("TODO lower .{s}", .{@tagName(inst.ops)}),
@@ -356,8 +356,11 @@ fn generic(lower: *Lower, inst: Mir.Inst) Error!void {
             .{ .mem = lower.mem(inst.ops, inst.data.x.payload) },
         },
         .mi_sib_s, .mi_sib_u, .mi_rip_u, .mi_rip_s => &.{
-            .{ .mem = lower.mem(inst.ops, inst.data.ix.payload) },
-            .{ .imm = lower.imm(inst.ops, inst.data.ix.i) },
+            .{ .mem = lower.mem(inst.ops, inst.data.x.payload + 1) },
+            .{ .imm = lower.imm(
+                inst.ops,
+                lower.mir.extraData(Mir.Imm32, inst.data.x.payload).data.imm,
+            ) },
         },
         .rm_sib, .rm_rip => &.{
             .{ .reg = inst.data.rx.r1 },

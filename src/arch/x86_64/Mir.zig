@@ -36,6 +36,18 @@ pub const Inst = struct {
         /// ___
         @"_",
 
+        /// Integer __
+        i_,
+
+        /// ___ Left
+        _l,
+        /// ___ Left Double
+        _ld,
+        /// ___ Right
+        _r,
+        /// ___ Right Double
+        _rd,
+
         /// ___ Above
         _a,
         /// ___ Above Or Equal
@@ -53,7 +65,7 @@ pub const Inst = struct {
         /// ___ Greater Or Equal
         _ge,
         /// ___ Less
-        _l,
+        //_l,
         /// ___ Less Or Equal
         _le,
         /// ___ Not Above
@@ -96,6 +108,15 @@ pub const Inst = struct {
         _s,
         /// ___ Zero
         _z,
+
+        /// ___ Byte
+        //_b,
+        /// ___ Word
+        _w,
+        /// ___ Doubleword
+        _d,
+        /// ___ QuadWord
+        _q,
 
         /// ___ String
         //_s,
@@ -165,6 +186,18 @@ pub const Inst = struct {
 
         /// Locked ___
         @"lock _",
+        /// ___ And Complement
+        //_c,
+        /// Locked ___ And Complement
+        @"lock _c",
+        /// ___ And Reset
+        //_r,
+        /// Locked ___ And Reset
+        @"lock _r",
+        /// ___ And Set
+        //_s,
+        /// Locked ___ And Set
+        @"lock _s",
         /// ___ 8 Bytes
         _8b,
         /// Locked ___ 8 Bytes
@@ -173,6 +206,11 @@ pub const Inst = struct {
         _16b,
         /// Locked ___ 16 Bytes
         @"lock _16b",
+
+        /// Float ___
+        f_,
+        /// Float ___ Pop
+        f_p,
 
         /// Packed ___
         p_,
@@ -250,13 +288,10 @@ pub const Inst = struct {
         /// Byte swap
         bswap,
         /// Bit test
-        bt,
         /// Bit test and complement
-        btc,
         /// Bit test and reset
-        btr,
         /// Bit test and set
-        bts,
+        bt,
         /// Call
         call,
         /// Convert byte to word
@@ -280,21 +315,18 @@ pub const Inst = struct {
         /// Convert word to doubleword
         cwde,
         /// Unsigned division
-        div,
-        /// Store integer with truncation
-        fisttp,
-        /// Load floating-point value
-        fld,
         /// Signed division
-        idiv,
-        /// Signed multiplication
-        imul,
+        div,
         ///
         int3,
+        /// Store integer with truncation
+        istt,
         /// Conditional jump
         j,
         /// Jump
         jmp,
+        /// Load floating-point value
+        ld,
         /// Load effective address
         lea,
         /// Load string
@@ -307,20 +339,17 @@ pub const Inst = struct {
         mfence,
         /// Move
         /// Move data from string to string
+        /// Move doubleword
+        /// Move quadword
         mov,
         /// Move data after swapping bytes
         movbe,
-        /// Move doubleword
-        movd,
-        /// Move quadword
-        movq,
         /// Move with sign extension
         movsx,
-        /// Move with sign extension
-        movsxd,
         /// Move with zero extension
         movzx,
         /// Multiply
+        /// Signed multiplication
         mul,
         /// Two's complement negation
         neg,
@@ -337,19 +366,16 @@ pub const Inst = struct {
         /// Push
         push,
         /// Rotate left through carry
-        rcl,
         /// Rotate right through carry
-        rcr,
+        rc,
         /// Return
         ret,
         /// Rotate left
-        rol,
         /// Rotate right
-        ror,
+        ro,
         /// Arithmetic shift left
-        sal,
         /// Arithmetic shift right
-        sar,
+        sa,
         /// Integer subtraction with borrow
         sbb,
         /// Scan string
@@ -359,13 +385,10 @@ pub const Inst = struct {
         /// Store fence
         sfence,
         /// Logical shift left
-        shl,
         /// Double precision shift left
-        shld,
         /// Logical shift right
-        shr,
         /// Double precision shift right
-        shrd,
+        sh,
         /// Subtract
         sub,
         /// Store string
@@ -730,6 +753,8 @@ pub const Inst = struct {
         pseudo,
     };
 
+    pub const FixedTag = struct { Fixes, Tag };
+
     pub const Ops = enum(u8) {
         /// No data associated with this instruction (only mnemonic is used).
         none,
@@ -800,16 +825,16 @@ pub const Inst = struct {
         /// Uses `x` with extra data of type `MemoryRip`.
         m_rip,
         /// Memory (SIB), immediate (unsigned) operands.
-        /// Uses `ix` payload with extra data of type `MemorySib`.
+        /// Uses `x` payload with extra data of type `Imm32` followed by `MemorySib`.
         mi_sib_u,
         /// Memory (RIP), immediate (unsigned) operands.
-        /// Uses `ix` payload with extra data of type `MemoryRip`.
+        /// Uses `x` payload with extra data of type `Imm32` followed by `MemoryRip`.
         mi_rip_u,
         /// Memory (SIB), immediate (sign-extend) operands.
-        /// Uses `ix` payload with extra data of type `MemorySib`.
+        /// Uses `x` payload with extra data of type `Imm32` followed by `MemorySib`.
         mi_sib_s,
         /// Memory (RIP), immediate (sign-extend) operands.
-        /// Uses `ix` payload with extra data of type `MemoryRip`.
+        /// Uses `x` payload with extra data of type `Imm32` followed by `MemoryRip`.
         mi_rip_s,
         /// Memory (SIB), register operands.
         /// Uses `rx` payload with extra data of type `MemorySib`.
@@ -974,11 +999,6 @@ pub const Inst = struct {
             r1: Register,
             payload: u32,
         },
-        /// Immediate, followed by Custom payload found in extra.
-        ix: struct {
-            i: u32,
-            payload: u32,
-        },
         /// Register, register, followed by Custom payload found in extra.
         rrx: struct {
             fixes: Fixes = ._,
@@ -1079,6 +1099,10 @@ pub const RegisterList = struct {
     pub fn count(self: Self) u32 {
         return @intCast(u32, self.bitset.count());
     }
+};
+
+pub const Imm32 = struct {
+    imm: u32,
 };
 
 pub const Imm64 = struct {
