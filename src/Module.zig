@@ -6887,16 +6887,22 @@ pub fn singleConstPtrType(mod: *Module, child_type: Type) Allocator.Error!Type {
     return ptrType(mod, .{ .elem_type = child_type.ip_index, .is_const = true });
 }
 
+pub fn ptrIntValue(mod: *Module, ty: Type, x: u64) Allocator.Error!Value {
+    assert(ty.zigTypeTag(mod) == .Pointer);
+    const i = try intern(mod, .{ .ptr = .{
+        .ty = ty.ip_index,
+        .addr = .{ .int = try intern(mod, .{ .int = .{
+            .ty = ty.ip_index,
+            .storage = .{ .u64 = x },
+        } }) },
+    } });
+    return i.toValue();
+}
+
 pub fn intValue(mod: *Module, ty: Type, x: anytype) Allocator.Error!Value {
     if (std.debug.runtime_safety) {
-        // TODO: decide if this also works for ABI int types like enums
         const tag = ty.zigTypeTag(mod);
         assert(tag == .Int or tag == .ComptimeInt);
-    }
-    if (@TypeOf(x) == comptime_int) {
-        if (comptime std.math.cast(u64, x)) |casted| return intValue_u64(mod, ty, casted);
-        if (comptime std.math.cast(i64, x)) |casted| return intValue_i64(mod, ty, casted);
-        @compileError("Out-of-range comptime_int passed to Module.intValue");
     }
     if (std.math.cast(u64, x)) |casted| return intValue_u64(mod, ty, casted);
     if (std.math.cast(i64, x)) |casted| return intValue_i64(mod, ty, casted);
