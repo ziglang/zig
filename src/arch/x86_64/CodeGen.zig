@@ -6345,6 +6345,7 @@ fn genBinOp(
                     switch (air_tag) {
                         .add => .{ .v_ss, .add },
                         .sub => .{ .v_ss, .sub },
+                        .mul => .{ .v_ss, .mul },
                         .div_float, .div_trunc, .div_floor, .div_exact => .{ .v_ss, .div },
                         .max => .{ .v_ss, .max },
                         .min => .{ .v_ss, .max },
@@ -6421,6 +6422,7 @@ fn genBinOp(
                             switch (air_tag) {
                                 .add => .{ .v_ss, .add },
                                 .sub => .{ .v_ss, .sub },
+                                .mul => .{ .v_ss, .mul },
                                 .div_float, .div_trunc, .div_floor, .div_exact => .{ .v_ss, .div },
                                 .max => .{ .v_ss, .max },
                                 .min => .{ .v_ss, .max },
@@ -6468,6 +6470,7 @@ fn genBinOp(
                             switch (air_tag) {
                                 .add => .{ .v_ps, .add },
                                 .sub => .{ .v_ps, .sub },
+                                .mul => .{ .v_ps, .mul },
                                 .div_float, .div_trunc, .div_floor, .div_exact => .{ .v_ps, .div },
                                 .max => .{ .v_ps, .max },
                                 .min => .{ .v_ps, .max },
@@ -6507,6 +6510,7 @@ fn genBinOp(
                             switch (air_tag) {
                                 .add => .{ .v_ps, .add },
                                 .sub => .{ .v_ps, .sub },
+                                .mul => .{ .v_ps, .mul },
                                 .div_float, .div_trunc, .div_floor, .div_exact => .{ .v_ps, .div },
                                 .max => .{ .v_ps, .max },
                                 .min => .{ .v_ps, .max },
@@ -6546,6 +6550,7 @@ fn genBinOp(
                             switch (air_tag) {
                                 .add => .{ .v_ps, .add },
                                 .sub => .{ .v_ps, .sub },
+                                .mul => .{ .v_ps, .mul },
                                 .div_float, .div_trunc, .div_floor, .div_exact => .{ .v_ps, .div },
                                 .max => .{ .v_ps, .max },
                                 .min => .{ .v_ps, .max },
