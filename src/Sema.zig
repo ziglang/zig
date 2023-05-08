@@ -33017,7 +33017,7 @@ pub fn typeHasOnePossibleValue(sema: *Sema, ty: Type) CompileError!?Value {
                 }
                 if (enum_obj.fields.count() == 1) {
                     if (enum_obj.values.count() == 0) {
-                        return try mod.intValue(ty, 0); // auto-numbered
+                        return Value.enum_field_0; // auto-numbered
                     } else {
                         return enum_obj.values.keys()[0];
                     }
@@ -33034,7 +33034,7 @@ pub fn typeHasOnePossibleValue(sema: *Sema, ty: Type) CompileError!?Value {
                 switch (enum_obj.fields.count()) {
                     0 => return Value.@"unreachable",
                     1 => if (enum_obj.values.count() == 0) {
-                        return try mod.intValue(ty, 0); // auto-numbered
+                        return Value.enum_field_0; // auto-numbered
                     } else {
                         return enum_obj.values.keys()[0];
                     },
@@ -33046,14 +33046,14 @@ pub fn typeHasOnePossibleValue(sema: *Sema, ty: Type) CompileError!?Value {
                 const enum_simple = resolved_ty.castTag(.enum_simple).?.data;
                 switch (enum_simple.fields.count()) {
                     0 => return Value.@"unreachable",
-                    1 => return try Value.Tag.enum_field_index.create(sema.arena, 0),
+                    1 => return Value.enum_field_0,
                     else => return null,
                 }
             },
             .enum_nonexhaustive => {
                 const tag_ty = ty.castTag(.enum_nonexhaustive).?.data.tag_ty;
                 if (tag_ty.zigTypeTag(mod) != .ComptimeInt and !(try sema.typeHasRuntimeBits(tag_ty))) {
-                    return try mod.intValue(ty, 0);
+                    return Value.enum_field_0;
                 } else {
                     return null;
                 }
