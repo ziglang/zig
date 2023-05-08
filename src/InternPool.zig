@@ -59,10 +59,8 @@ pub const Key = union(enum) {
         ty: Index,
         tag: BigIntConst,
     },
-    struct_type: struct {
-        fields_len: u32,
-        // TODO move Module.Struct data to InternPool
-    },
+    struct_type: StructType,
+
     union_type: struct {
         fields_len: u32,
         // TODO move Module.Union data to InternPool
@@ -109,6 +107,11 @@ pub const Key = union(enum) {
     pub const VectorType = struct {
         len: u32,
         child: Index,
+    };
+
+    pub const StructType = struct {
+        fields_len: u32,
+        // TODO move Module.Struct data to InternPool
     };
 
     pub const Int = struct {
@@ -1058,7 +1061,11 @@ pub fn indexToKey(ip: InternPool, index: Index) Key {
 
         .type_error_union => @panic("TODO"),
         .type_enum_simple => @panic("TODO"),
-        .simple_internal => @panic("TODO"),
+        .simple_internal => switch (@intToEnum(SimpleInternal, data)) {
+            .type_empty_struct => .{ .struct_type = .{
+                .fields_len = 0,
+            } },
+        },
         .int_u8 => .{ .int = .{
             .ty = .u8_type,
             .storage = .{ .u64 = data },
