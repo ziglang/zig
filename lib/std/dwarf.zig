@@ -14,6 +14,8 @@ pub const LANG = @import("dwarf/LANG.zig");
 pub const FORM = @import("dwarf/FORM.zig");
 pub const ATE = @import("dwarf/ATE.zig");
 pub const EH = @import("dwarf/EH.zig");
+pub const abi = @import("dwarf/abi.zig");
+pub const call_frame = @import("dwarf/call_frame.zig");
 
 pub const LLE = struct {
     pub const end_of_list = 0x00;
@@ -1490,7 +1492,8 @@ pub const DwarfInfo = struct {
                     length = try reader.readInt(u64, di.endian);
                 }
 
-                const entry_bytes = eh_frame[stream.pos..][0..length];
+                const id_len = @as(u8, if (is_64) 8 else 4);
+                const entry_bytes = eh_frame[stream.pos..][0..length - id_len];
                 const id = try reader.readInt(u32, di.endian);
 
                 // TODO: Get section_offset here (pass in from headers)
@@ -1658,7 +1661,8 @@ pub const CommonInformationEntry = struct {
         return false;
     }
 
-    // The returned struct references memory backed by cie_bytes
+    // This function expects to read the CIE starting with the version field.
+    // The returned struct references memory backed by cie_bytes.
     pub fn parse(
         cie_bytes: []const u8,
         section_base: u64,
@@ -1775,6 +1779,7 @@ pub const FrameDescriptionEntry = struct {
     aug_data: []const u8,
     instructions: []const u8,
 
+    // This function expects to read the FDE starting with the PC Begin field
     pub fn parse(
         fde_bytes: []const u8,
         section_base: u64,
