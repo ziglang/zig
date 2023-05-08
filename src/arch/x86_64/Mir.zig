@@ -192,6 +192,8 @@ pub const Inst = struct {
         minss,
         /// Move aligned packed single-precision floating-point values
         movaps,
+        /// Move packed single-precision floating-point values high to low
+        movhlps,
         /// Move scalar single-precision floating-point value
         movss,
         /// Move unaligned packed single-precision floating-point values
@@ -216,6 +218,10 @@ pub const Inst = struct {
         subss,
         /// Unordered compare scalar single-precision floating-point values
         ucomiss,
+        /// Unpack and interleave high packed single-precision floating-point values
+        unpckhps,
+        /// Unpack and interleave low packed single-precision floating-point values
+        unpcklps,
         /// Bitwise logical xor of packed single precision floating-point values
         xorps,
 
@@ -291,6 +297,10 @@ pub const Inst = struct {
         subsd,
         /// Unordered compare scalar double-precision floating-point values
         ucomisd,
+        /// Unpack and interleave high packed double-precision floating-point values
+        unpckhpd,
+        /// Unpack and interleave low packed double-precision floating-point values
+        unpcklpd,
         /// Bitwise logical xor of packed double precision floating-point values
         xorpd,
 
@@ -301,6 +311,18 @@ pub const Inst = struct {
         /// Replicate single floating-point values
         movsldup,
 
+        /// Extract Byte
+        pextrb,
+        /// Extract Doubleword
+        pextrd,
+        /// Extract Quadword
+        pextrq,
+        /// Insert Byte
+        pinsrb,
+        /// Insert Doubleword
+        pinsrd,
+        /// Insert Quadword
+        pinsrq,
         /// Round packed double-precision floating-point values
         roundpd,
         /// Round packed single-precision floating-point values
@@ -354,6 +376,8 @@ pub const Inst = struct {
         vmovapd,
         /// Move aligned packed single-precision floating-point values
         vmovaps,
+        /// Move packed single-precision floating-point values high to low
+        vmovhlps,
         /// Replicate double floating-point values
         vmovddup,
         /// Move or merge scalar double-precision floating-point value
@@ -376,8 +400,20 @@ pub const Inst = struct {
         vmulsd,
         /// Multiply scalar single-precision floating-point values
         vmulss,
+        /// Extract Byte
+        vpextrb,
+        /// Extract Doubleword
+        vpextrd,
+        /// Extract Quadword
+        vpextrq,
         /// Extract word
         vpextrw,
+        /// Insert Byte
+        vpinsrb,
+        /// Insert Doubleword
+        vpinsrd,
+        /// Insert Quadword
+        vpinsrq,
         /// Insert word
         vpinsrw,
         /// Shuffle packed high words
@@ -430,6 +466,14 @@ pub const Inst = struct {
         vsubsd,
         /// Subtract scalar single-precision floating-point values
         vsubss,
+        /// Unpack and interleave high packed double-precision floating-point values
+        vunpckhpd,
+        /// Unpack and interleave high packed single-precision floating-point values
+        vunpckhps,
+        /// Unpack and interleave low packed double-precision floating-point values
+        vunpcklpd,
+        /// Unpack and interleave low packed single-precision floating-point values
+        vunpcklps,
 
         /// Convert 16-bit floating-point values to single-precision floating-point values
         vcvtph2ps,

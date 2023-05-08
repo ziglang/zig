@@ -4497,14 +4497,15 @@ fn airFloatSign(self: *Self, inst: Air.Inst.Index) !void {
     const tag = self.air.instructions.items(.tag)[inst];
     try self.genBinOpMir(switch (ty_bits) {
         // No point using an extra prefix byte for *pd which performs the same operation.
-        32, 64 => switch (tag) {
+        16, 32, 64, 128 => switch (tag) {
             .neg => .xorps,
             .fabs => .andnps,
             else => unreachable,
         },
-        else => return self.fail("TODO implement airFloatSign for {}", .{
+        80 => return self.fail("TODO implement airFloatSign for {}", .{
             ty.fmt(self.bin_file.options.module.?),
         }),
+        else => unreachable,
     }, vec_ty, dst_mcv, sign_mcv);
     return self.finishAir(inst, dst_mcv, .{ un_op, .none, .none });
 }
@@ -6112,9 +6113,53 @@ fn genBinOp(
         return dst_mcv;
     }
 
+    const dst_reg = registerAlias(dst_mcv.getReg().?, abi_size);
     const mir_tag = if (@as(?Mir.Inst.Tag, switch (lhs_ty.zigTypeTag()) {
         else => unreachable,
         .Float => switch (lhs_ty.floatBits(self.target.*)) {
+            16 => if (self.hasFeature(.f16c)) {
+                const tmp_reg = (try self.register_manager.allocReg(null, sse)).to128();
+                const tmp_lock = self.register_manager.lockRegAssumeUnused(tmp_reg);
+                defer self.register_manager.unlockReg(tmp_lock);
+
+                if (src_mcv.isMemory()) try self.asmRegisterRegisterMemoryImmediate(
+                    .vpinsrw,
+                    dst_reg,
+                    dst_reg,
+                    src_mcv.mem(.word),
+                    Immediate.u(1),
+                ) else try self.asmRegisterRegisterRegister(
+                    .vpunpcklwd,
+                    dst_reg,
+                    dst_reg,
+                    (if (src_mcv.isRegister())
+                        src_mcv.getReg().?
+                    else
+                        try self.copyToTmpRegister(rhs_ty, src_mcv)).to128(),
+                );
+                try self.asmRegisterRegister(.vcvtph2ps, dst_reg, dst_reg);
+                try self.asmRegisterRegister(.vmovshdup, tmp_reg, dst_reg);
+                try self.asmRegisterRegisterRegister(
+                    switch (air_tag) {
+                        .add => .vaddss,
+                        .sub => .vsubss,
+                        .div_float, .div_trunc, .div_floor, .div_exact => .vdivss,
+                        .max => .vmaxss,
+                        .min => .vmaxss,
+                        else => unreachable,
+                    },
+                    dst_reg,
+                    dst_reg,
+                    tmp_reg,
+                );
+                try self.asmRegisterRegisterImmediate(
+                    .vcvtps2ph,
+                    dst_reg,
+                    dst_reg,
+                    Immediate.u(0b1_00),
+                );
+                return dst_mcv;
+            } else null,
             32 => switch (air_tag) {
                 .add => if (self.hasFeature(.avx)) .vaddss else .addss,
                 .sub => if (self.hasFeature(.avx)) .vsubss else .subss,
@@ -6141,12 +6186,178 @@ fn genBinOp(
                 .min => if (self.hasFeature(.avx)) .vminsd else .minsd,
                 else => unreachable,
             },
-            16, 80, 128 => null,
+            80, 128 => null,
             else => unreachable,
         },
         .Vector => switch (lhs_ty.childType().zigTypeTag()) {
             else => null,
             .Float => switch (lhs_ty.childType().floatBits(self.target.*)) {
+                16 => if (self.hasFeature(.f16c)) switch (lhs_ty.vectorLen()) {
+                    1 => {
+                        const tmp_reg = (try self.register_manager.allocReg(null, sse)).to128();
+                        const tmp_lock = self.register_manager.lockRegAssumeUnused(tmp_reg);
+                        defer self.register_manager.unlockReg(tmp_lock);
+
+                        if (src_mcv.isMemory()) try self.asmRegisterRegisterMemoryImmediate(
+                            .vpinsrw,
+                            dst_reg,
+                            dst_reg,
+                            src_mcv.mem(.word),
+                            Immediate.u(1),
+                        ) else try self.asmRegisterRegisterRegister(
+                            .vpunpcklwd,
+                            dst_reg,
+                            dst_reg,
+                            (if (src_mcv.isRegister())
+                                src_mcv.getReg().?
+                            else
+                                try self.copyToTmpRegister(rhs_ty, src_mcv)).to128(),
+                        );
+                        try self.asmRegisterRegister(.vcvtph2ps, dst_reg, dst_reg);
+                        try self.asmRegisterRegister(.vmovshdup, tmp_reg, dst_reg);
+                        try self.asmRegisterRegisterRegister(
+                            switch (air_tag) {
+                                .add => .vaddss,
+                                .sub => .vsubss,
+                                .div_float, .div_trunc, .div_floor, .div_exact => .vdivss,
+                                .max => .vmaxss,
+                                .min => .vmaxss,
+                                else => unreachable,
+                            },
+                            dst_reg,
+                            dst_reg,
+                            tmp_reg,
+                        );
+                        try self.asmRegisterRegisterImmediate(
+                            .vcvtps2ph,
+                            dst_reg,
+                            dst_reg,
+                            Immediate.u(0b1_00),
+                        );
+                        return dst_mcv;
+                    },
+                    2 => {
+                        const tmp_reg = (try self.register_manager.allocReg(null, sse)).to128();
+                        const tmp_lock = self.register_manager.lockRegAssumeUnused(tmp_reg);
+                        defer self.register_manager.unlockReg(tmp_lock);
+
+                        if (src_mcv.isMemory()) try self.asmRegisterMemoryImmediate(
+                            .vpinsrd,
+                            dst_reg,
+                            src_mcv.mem(.dword),
+                            Immediate.u(1),
+                        ) else try self.asmRegisterRegisterRegister(
+                            .vunpcklps,
+                            dst_reg,
+                            dst_reg,
+                            (if (src_mcv.isRegister())
+                                src_mcv.getReg().?
+                            else
+                                try self.copyToTmpRegister(rhs_ty, src_mcv)).to128(),
+                        );
+                        try self.asmRegisterRegister(.vcvtph2ps, dst_reg, dst_reg);
+                        try self.asmRegisterRegisterRegister(.vmovhlps, tmp_reg, dst_reg, dst_reg);
+                        try self.asmRegisterRegisterRegister(
+                            switch (air_tag) {
+                                .add => .vaddps,
+                                .sub => .vsubps,
+                                .div_float, .div_trunc, .div_floor, .div_exact => .vdivps,
+                                .max => .vmaxps,
+                                .min => .vmaxps,
+                                else => unreachable,
+                            },
+                            dst_reg,
+                            dst_reg,
+                            tmp_reg,
+                        );
+                        try self.asmRegisterRegisterImmediate(
+                            .vcvtps2ph,
+                            dst_reg,
+                            dst_reg,
+                            Immediate.u(0b1_00),
+                        );
+                        return dst_mcv;
+                    },
+                    3...4 => {
+                        const tmp_reg = (try self.register_manager.allocReg(null, sse)).to128();
+                        const tmp_lock = self.register_manager.lockRegAssumeUnused(tmp_reg);
+                        defer self.register_manager.unlockReg(tmp_lock);
+
+                        try self.asmRegisterRegister(.vcvtph2ps, dst_reg, dst_reg);
+                        if (src_mcv.isMemory()) try self.asmRegisterMemory(
+                            .vcvtph2ps,
+                            tmp_reg,
+                            src_mcv.mem(.qword),
+                        ) else try self.asmRegisterRegister(
+                            .vcvtph2ps,
+                            tmp_reg,
+                            (if (src_mcv.isRegister())
+                                src_mcv.getReg().?
+                            else
+                                try self.copyToTmpRegister(rhs_ty, src_mcv)).to128(),
+                        );
+                        try self.asmRegisterRegisterRegister(
+                            switch (air_tag) {
+                                .add => .vaddps,
+                                .sub => .vsubps,
+                                .div_float, .div_trunc, .div_floor, .div_exact => .vdivps,
+                                .max => .vmaxps,
+                                .min => .vmaxps,
+                                else => unreachable,
+                            },
+                            dst_reg,
+                            dst_reg,
+                            tmp_reg,
+                        );
+                        try self.asmRegisterRegisterImmediate(
+                            .vcvtps2ph,
+                            dst_reg,
+                            dst_reg,
+                            Immediate.u(0b1_00),
+                        );
+                        return dst_mcv;
+                    },
+                    5...8 => {
+                        const tmp_reg = (try self.register_manager.allocReg(null, sse)).to256();
+                        const tmp_lock = self.register_manager.lockRegAssumeUnused(tmp_reg);
+                        defer self.register_manager.unlockReg(tmp_lock);
+
+                        try self.asmRegisterRegister(.vcvtph2ps, dst_reg.to256(), dst_reg);
+                        if (src_mcv.isMemory()) try self.asmRegisterMemory(
+                            .vcvtph2ps,
+                            tmp_reg,
+                            src_mcv.mem(.xword),
+                        ) else try self.asmRegisterRegister(
+                            .vcvtph2ps,
+                            tmp_reg,
+                            (if (src_mcv.isRegister())
+                                src_mcv.getReg().?
+                            else
+                                try self.copyToTmpRegister(rhs_ty, src_mcv)).to128(),
+                        );
+                        try self.asmRegisterRegisterRegister(
+                            switch (air_tag) {
+                                .add => .vaddps,
+                                .sub => .vsubps,
+                                .div_float, .div_trunc, .div_floor, .div_exact => .vdivps,
+                                .max => .vmaxps,
+                                .min => .vmaxps,
+                                else => unreachable,
+                            },
+                            dst_reg.to256(),
+                            dst_reg.to256(),
+                            tmp_reg,
+                        );
+                        try self.asmRegisterRegisterImmediate(
+                            .vcvtps2ph,
+                            dst_reg,
+                            dst_reg.to256(),
+                            Immediate.u(0b1_00),
+                        );
+                        return dst_mcv;
+                    },
+                    else => null,
+                } else null,
                 32 => switch (lhs_ty.vectorLen()) {
                     1 => switch (air_tag) {
                         .add => if (self.hasFeature(.avx)) .vaddss else .addss,
@@ -6223,14 +6434,13 @@ fn genBinOp(
                     } else null,
                     else => null,
                 },
-                16, 80, 128 => null,
+                80, 128 => null,
                 else => unreachable,
             },
         },
     })) |tag| tag else return self.fail("TODO implement genBinOp for {s} {}", .{
         @tagName(air_tag), lhs_ty.fmt(self.bin_file.options.module.?),
     });
-    const dst_reg = registerAlias(dst_mcv.getReg().?, abi_size);
     if (self.hasFeature(.avx)) {
         const src1_alias =
             if (copied_to_dst) dst_reg else registerAlias(lhs_mcv.getReg().?, abi_size);
@@ -7139,21 +7349,21 @@ fn airCmp(self: *Self, inst: Air.Inst.Index, op: math.CompareOperator) !void {
                         const tmp2_lock = self.register_manager.lockRegAssumeUnused(tmp2_reg);
                         defer self.register_manager.unlockReg(tmp2_lock);
 
-                        if (src_mcv.isRegister())
-                            try self.asmRegisterRegisterRegister(
-                                .vpunpcklwd,
-                                tmp1_reg,
-                                dst_reg.to128(),
-                                src_mcv.getReg().?.to128(),
-                            )
-                        else
-                            try self.asmRegisterRegisterMemoryImmediate(
-                                .vpinsrw,
-                                tmp1_reg,
-                                dst_reg.to128(),
-                                src_mcv.mem(.word),
-                                Immediate.u(1),
-                            );
+                        if (src_mcv.isMemory()) try self.asmRegisterRegisterMemoryImmediate(
+                            .vpinsrw,
+                            tmp1_reg,
+                            dst_reg.to128(),
+                            src_mcv.mem(.word),
+                            Immediate.u(1),
+                        ) else try self.asmRegisterRegisterRegister(
+                            .vpunpcklwd,
+                            tmp1_reg,
+                            dst_reg.to128(),
+                            (if (src_mcv.isRegister())
+                                src_mcv.getReg().?
+                            else
+                                try self.copyToTmpRegister(ty, src_mcv)).to128(),
+                        );
                         try self.asmRegisterRegister(.vcvtph2ps, tmp1_reg, tmp1_reg);
                         try self.asmRegisterRegister(.vmovshdup, tmp2_reg, tmp1_reg);
                         try self.genBinOpMir(.ucomiss, ty, tmp1_mcv, tmp2_mcv);
@@ -8139,7 +8349,16 @@ fn movMirTag(self: *Self, ty: Type, aligned: bool) !Mir.Inst.Tag {
         },
         .Vector => switch (ty.childType().zigTypeTag()) {
             .Float => switch (ty.childType().floatBits(self.target.*)) {
-                16 => unreachable, // needs special handling
+                16 => switch (ty.vectorLen()) {
+                    1 => unreachable, // needs special handling
+                    2 => return if (self.hasFeature(.avx)) .vmovss else .movss,
+                    3...4 => return if (self.hasFeature(.avx)) .vmovsd else .movsd,
+                    5...8 => return if (self.hasFeature(.avx))
+                        if (aligned) .vmovaps else .vmovups
+                    else if (aligned) .movaps else .movups,
+                    9...16 => if (self.hasFeature(.avx)) return if (aligned) .vmovaps else .vmovups,
+                    else => {},
+                },
                 32 => switch (ty.vectorLen()) {
                     1 => return if (self.hasFeature(.avx)) .vmovss else .movss,
                     2...4 => return if (self.hasFeature(.avx))
