@@ -935,6 +935,37 @@ test "expectEqualDeep composite type" {
     }
 }
 
+pub const can_panic_test = builtin.is_test and !builtin.single_threaded and std.process.can_spawn;
+
+/// Static storage to support user-generated panic messages
+/// Parent process writes these, returns to the test execution loop and spawns,
+/// child process ignores these.
+const TestFn_iT = if (can_panic_test) ?[std.options.testing_max_panic_msg_size:0]u8 else void;
+pub threadlocal var panic_msg: TestFn_iT = if (can_panic_test) null else {};
+
+/// Distinguishes between parent and child, if panics are tested for.
+/// TODO: is_panic_parentproc and panic_msg feels like it belongs into test api to
+/// allow implementations providing their own way to prevent the necessity to use tls.
+pub var is_panic_parentproc: if (can_panic_test) bool else void = if (can_panic_test) true else {};
+
+/// To be used for panic tests after test block declaration.
+pub fn spawnExpectPanic(msg: []const u8) error{ SpawnZigTest, SkipZigTest }!void {
+    std.debug.assert(can_panic_test); // Caller is responsible to check.
+    if (is_panic_parentproc) {
+        if (panic_msg == null) {
+            panic_msg = .{undefined} ** std.options.testing_max_panic_msg_size;
+            @memcpy(panic_msg.?[0..msg.len], msg); // Message must be persistent, not stack-local.
+            panic_msg.?[msg.len] = 0; // 0-sentinel for the len without separate field
+            return error.SpawnZigTest; // Test will be run in separate process
+        } else {
+            @panic("std.testing.panic_msg must be only used in spawnExpectPanic");
+        }
+    } else {
+        std.debug.assert(panic_msg == null);
+        // panic runner continues running the test block
+    }
+}
+
 fn printIndicatorLine(source: []const u8, indicator_index: usize) void {
     const line_begin_index = if (std.mem.lastIndexOfScalar(u8, source[0..indicator_index], '\n')) |line_begin|
         line_begin + 1

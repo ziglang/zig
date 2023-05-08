@@ -251,6 +251,9 @@ pub const ChildProcess = struct {
     }
 
     /// Blocks until child process terminates and then cleans up all resources.
+    /// In case of error, the caller is responsible to clean up the ressources
+    /// via calling `self.cleanupStreams()`.
+    /// TODO: This describes the current state. Is this intended?
     pub fn wait(self: *ChildProcess) !Term {
         const term = if (builtin.os.tag == .windows)
             try self.waitWindows()
@@ -323,7 +326,7 @@ pub const ChildProcess = struct {
     };
 
     /// Spawns a child process, waits for it, collecting stdout and stderr, and then returns.
-    /// If it succeeds, the caller owns result.stdout and result.stderr memory.
+    /// If spawning succeeds, then the caller owns result.stdout and result.stderr memory.
     pub fn exec(args: struct {
         allocator: mem.Allocator,
         argv: []const []const u8,
@@ -426,7 +429,7 @@ pub const ChildProcess = struct {
         self.term = self.cleanupAfterWait(status);
     }
 
-    fn cleanupStreams(self: *ChildProcess) void {
+    pub fn cleanupStreams(self: *ChildProcess) void {
         if (self.stdin) |*stdin| {
             stdin.close();
             self.stdin = null;

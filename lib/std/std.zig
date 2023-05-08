@@ -292,6 +292,9 @@ pub const options = struct {
         options_override.side_channels_mitigations
     else
         crypto.default_side_channels_mitigations;
+
+    /// Default thread-local storage panic message size used for panic tests.
+    pub const testing_max_panic_msg_size = 100;
 };
 
 // This forces the start.zig file to be imported, and the comptime logic inside that
