@@ -512,7 +512,18 @@ pub fn getrandom(buffer: []u8) GetRandomError!void {
         return;
     }
     switch (builtin.os.tag) {
-        .netbsd, .openbsd, .macos, .ios, .tvos, .watchos => {
+        .macos, .ios => {
+            const rc = darwin.CCRandomGenerateBytes(buffer.ptr, buffer.len);
+            if (rc != darwin.CCRNGStatus.kCCSuccess) {
+                if (rc == darwin.CCRNGStatus.kCCParamError or rc == darwin.CCRNGStatus.kCCBufferTooSmall) {
+                    return error.InvalidHandle;
+                } else {
+                    return error.SystemResources;
+                }
+            }
+            return;
+        },
+        .netbsd, .openbsd, .tvos, .watchos => {
             system.arc4random_buf(buffer.ptr, buffer.len);
             return;
         },
@@ -991,7 +1002,7 @@ pub fn preadv(fd: fd_t, iov: []const iovec, offset: u64) PReadError!usize {
     if (have_pread_but_not_preadv) {
         // We could loop here; but proper usage of `preadv` must handle partial reads anyway.
         // So we simply read into the first vector only.
-        if (iov.len == 0) return @as(usize, 0);
+        if (iov.len == 0) return @intCast(usize, 0);
         const first = iov[0];
         return pread(fd, first.iov_base[0..first.iov_len], offset);
     }

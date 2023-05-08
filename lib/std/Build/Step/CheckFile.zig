@@ -1,8 +1,8 @@
 //! Fail the build step if a file does not match certain checks.
 //! TODO: make this more flexible, supporting more kinds of checks.
 //! TODO: generalize the code in std.testing.expectEqualStrings and make this
-//! CheckFileStep produce those helpful diagnostics when there is not a match.
-const CheckFileStep = @This();
+//! CheckFile step produce those helpful diagnostics when there is not a match.
+const CheckFile = @This();
 const std = @import("std");
 const Step = std.Build.Step;
 const fs = std.fs;
@@ -25,8 +25,8 @@ pub fn create(
     owner: *std.Build,
     source: std.Build.FileSource,
     options: Options,
-) *CheckFileStep {
-    const self = owner.allocator.create(CheckFileStep) catch @panic("OOM");
+) *CheckFile {
+    const self = owner.allocator.create(CheckFile) catch @panic("OOM");
     self.* = .{
         .step = Step.init(.{
             .id = .check_file,
@@ -42,14 +42,14 @@ pub fn create(
     return self;
 }
 
-pub fn setName(self: *CheckFileStep, name: []const u8) void {
+pub fn setName(self: *CheckFile, name: []const u8) void {
     self.step.name = name;
 }
 
 fn make(step: *Step, prog_node: *std.Progress.Node) !void {
     _ = prog_node;
     const b = step.owner;
-    const self = @fieldParentPtr(CheckFileStep, "step", step);
+    const self = @fieldParentPtr(CheckFile, "step", step);
 
     const src_path = self.source.getPath(b);
     const contents = fs.cwd().readFileAlloc(b.allocator, src_path, self.max_bytes) catch |err| {

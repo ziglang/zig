@@ -1979,7 +1979,7 @@ pub const Inst = struct {
         /// `operand` is `src_node: i32`.
         breakpoint,
         /// Implements the `@select` builtin.
-        /// operand` is payload index to `Select`.
+        /// `operand` is payload index to `Select`.
         select,
         /// Implement builtin `@errToInt`.
         /// `operand` is payload index to `UnNode`.
@@ -1999,7 +1999,7 @@ pub const Inst = struct {
         /// `operand` is payload index to `Cmpxchg`.
         cmpxchg,
         /// Implement the builtin `@addrSpaceCast`
-        /// `Operand` is payload index to `BinNode`. `lhs` is dest type, `rhs` is operand.
+        /// `operand` is payload index to `BinNode`. `lhs` is dest type, `rhs` is operand.
         addrspace_cast,
         /// Implement builtin `@cVaArg`.
         /// `operand` is payload index to `BinNode`.
@@ -2031,6 +2031,9 @@ pub const Inst = struct {
         /// Implements the `@inComptime` builtin.
         /// `operand` is `src_node: i32`.
         in_comptime,
+        /// Used as a placeholder for the capture of an `errdefer`.
+        /// This is replaced by Sema with the captured value.
+        errdefer_err_code,
 
         pub const InstData = struct {
             opcode: Extended,

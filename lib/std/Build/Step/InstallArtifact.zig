@@ -1,24 +1,23 @@
 const std = @import("std");
 const Step = std.Build.Step;
-const CompileStep = std.Build.CompileStep;
 const InstallDir = std.Build.InstallDir;
-const InstallArtifactStep = @This();
+const InstallArtifact = @This();
 const fs = std.fs;
 
 pub const base_id = .install_artifact;
 
 step: Step,
-artifact: *CompileStep,
+artifact: *Step.Compile,
 dest_dir: InstallDir,
 pdb_dir: ?InstallDir,
 h_dir: ?InstallDir,
 /// If non-null, adds additional path components relative to dest_dir, and
-/// overrides the basename of the CompileStep.
+/// overrides the basename of the Compile step.
 dest_sub_path: ?[]const u8,
 
-pub fn create(owner: *std.Build, artifact: *CompileStep) *InstallArtifactStep {
-    const self = owner.allocator.create(InstallArtifactStep) catch @panic("OOM");
-    self.* = InstallArtifactStep{
+pub fn create(owner: *std.Build, artifact: *Step.Compile) *InstallArtifact {
+    const self = owner.allocator.create(InstallArtifact) catch @panic("OOM");
+    self.* = InstallArtifact{
         .step = Step.init(.{
             .id = base_id,
             .name = owner.fmt("install {s}", .{artifact.name}),
@@ -66,7 +65,7 @@ pub fn create(owner: *std.Build, artifact: *CompileStep) *InstallArtifactStep {
 
 fn make(step: *Step, prog_node: *std.Progress.Node) !void {
     _ = prog_node;
-    const self = @fieldParentPtr(InstallArtifactStep, "step", step);
+    const self = @fieldParentPtr(InstallArtifact, "step", step);
     const src_builder = self.artifact.step.owner;
     const dest_builder = step.owner;
 
@@ -90,7 +89,7 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
         self.artifact.version != null and
         self.artifact.target.wantSharedLibSymLinks())
     {
-        try CompileStep.doAtomicSymLinks(step, full_dest_path, self.artifact.major_only_filename.?, self.artifact.name_only_filename.?);
+        try Step.Compile.doAtomicSymLinks(step, full_dest_path, self.artifact.major_only_filename.?, self.artifact.name_only_filename.?);
     }
     if (self.artifact.isDynamicLibrary() and
         self.artifact.target.isWindows() and

@@ -1,12 +1,11 @@
 const std = @import("std");
-const ObjCopyStep = @This();
+const ObjCopy = @This();
 
 const Allocator = std.mem.Allocator;
 const ArenaAllocator = std.heap.ArenaAllocator;
 const ArrayListUnmanaged = std.ArrayListUnmanaged;
 const File = std.fs.File;
 const InstallDir = std.Build.InstallDir;
-const CompileStep = std.Build.CompileStep;
 const Step = std.Build.Step;
 const elf = std.elf;
 const fs = std.fs;
@@ -40,9 +39,9 @@ pub fn create(
     owner: *std.Build,
     file_source: std.Build.FileSource,
     options: Options,
-) *ObjCopyStep {
-    const self = owner.allocator.create(ObjCopyStep) catch @panic("OOM");
-    self.* = ObjCopyStep{
+) *ObjCopy {
+    const self = owner.allocator.create(ObjCopy) catch @panic("OOM");
+    self.* = ObjCopy{
         .step = Step.init(.{
             .id = base_id,
             .name = owner.fmt("objcopy {s}", .{file_source.getDisplayName()}),
@@ -61,19 +60,19 @@ pub fn create(
     return self;
 }
 
-pub fn getOutputSource(self: *const ObjCopyStep) std.Build.FileSource {
+pub fn getOutputSource(self: *const ObjCopy) std.Build.FileSource {
     return .{ .generated = &self.output_file };
 }
 
 fn make(step: *Step, prog_node: *std.Progress.Node) !void {
     const b = step.owner;
-    const self = @fieldParentPtr(ObjCopyStep, "step", step);
+    const self = @fieldParentPtr(ObjCopy, "step", step);
 
     var man = b.cache.obtain();
     defer man.deinit();
 
-    // Random bytes to make ObjCopyStep unique. Refresh this with new random
-    // bytes when ObjCopyStep implementation is modified incompatibly.
+    // Random bytes to make ObjCopy unique. Refresh this with new random
+    // bytes when ObjCopy implementation is modified incompatibly.
     man.hash.add(@as(u32, 0xe18b7baf));
 
     const full_src_path = self.file_source.getPath(b);

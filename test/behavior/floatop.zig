@@ -96,7 +96,6 @@ test "negative f128 floatToInt at compile-time" {
 }
 
 test "@sqrt" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
@@ -904,8 +903,6 @@ test "negation f16" {
 }
 
 test "negation f32" {
-    if (builtin.zig_backend == .stage2_x86_64 and
-        comptime !std.Target.x86.featureSetHasAll(builtin.cpu.features, .{ .sse, .sse2, .sse4_1 })) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
@@ -925,8 +922,6 @@ test "negation f32" {
 }
 
 test "negation f64" {
-    if (builtin.zig_backend == .stage2_x86_64 and
-        comptime !std.Target.x86.featureSetHasAll(builtin.cpu.features, .{ .sse, .sse2, .sse4_1 })) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
@@ -1061,8 +1056,6 @@ test "nan negation f16" {
 }
 
 test "nan negation f32" {
-    if (builtin.zig_backend == .stage2_x86_64 and
-        comptime !std.Target.x86.featureSetHasAll(builtin.cpu.features, .{ .sse, .sse2, .sse4_1 })) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
@@ -1082,8 +1075,6 @@ test "nan negation f32" {
 
 test "nan negation f64" {
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_x86_64 and
-        comptime !std.Target.x86.featureSetHasAll(builtin.cpu.features, .{ .sse, .sse2, .sse4_1 })) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
