@@ -764,8 +764,9 @@ pub fn deinit(func: *CodeGen) void {
 
 /// Sets `err_msg` on `CodeGen` and returns `error.CodegenFail` which is caught in link/Wasm.zig
 fn fail(func: *CodeGen, comptime fmt: []const u8, args: anytype) InnerError {
+    const mod = func.bin_file.base.options.module.?;
     const src = LazySrcLoc.nodeOffset(0);
-    const src_loc = src.toSrcLoc(func.decl);
+    const src_loc = src.toSrcLoc(func.decl, mod);
     func.err_msg = try Module.ErrorMsg.create(func.gpa, src_loc, fmt, args);
     return error.CodegenFail;
 }
@@ -6799,7 +6800,7 @@ fn airTagName(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
 
 fn getTagNameFunction(func: *CodeGen, enum_ty: Type) InnerError!u32 {
     const mod = func.bin_file.base.options.module.?;
-    const enum_decl_index = enum_ty.getOwnerDecl();
+    const enum_decl_index = enum_ty.getOwnerDecl(mod);
 
     var arena_allocator = std.heap.ArenaAllocator.init(func.gpa);
     defer arena_allocator.deinit();

@@ -185,6 +185,11 @@ allocated_decls: std.SegmentedList(Decl, 0) = .{},
 /// When a Decl object is freed from `allocated_decls`, it is pushed into this stack.
 decls_free_list: ArrayListUnmanaged(Decl.Index) = .{},
 
+/// Same pattern as with `allocated_decls`.
+allocated_namespaces: std.SegmentedList(Namespace, 0) = .{},
+/// Same pattern as with `decls_free_list`.
+namespaces_free_list: ArrayListUnmanaged(Namespace.Index) = .{},
+
 global_assembly: std.AutoHashMapUnmanaged(Decl.Index, []u8) = .{},
 
 reference_table: std.AutoHashMapUnmanaged(Decl.Index, struct {
@@ -363,7 +368,7 @@ pub const Export = struct {
     pub fn getSrcLoc(exp: Export, mod: *Module) SrcLoc {
         const src_decl = mod.declPtr(exp.src_decl);
         return .{
-            .file_scope = src_decl.getFileScope(),
+            .file_scope = src_decl.getFileScope(mod),
             .parent_decl_node = src_decl.src_node,
             .lazy = exp.src,
         };
@@ -494,7 +499,7 @@ pub const Decl = struct {
     /// Reference to externally owned memory.
     /// In the case of the Decl corresponding to a file, this is
     /// the namespace of the struct, since there is no parent.
-    src_namespace: *Namespace,
+    src_namespace: Namespace.Index,
 
     /// The scope which lexically contains this decl.  A decl must depend
     /// on its lexical parent, in order to ensure that this pointer is valid.
@@ -691,8 +696,8 @@ pub const Decl = struct {
 
     /// This name is relative to the containing namespace of the decl.
     /// The memory is owned by the containing File ZIR.
-    pub fn getName(decl: Decl) ?[:0]const u8 {
-        const zir = decl.getFileScope().zir;
+    pub fn getName(decl: Decl, mod: *Module) ?[:0]const u8 {
+        const zir = decl.getFileScope(mod).zir;
         return decl.getNameZir(zir);
     }
 
@@ -703,8 +708,8 @@ pub const Decl = struct {
         return zir.nullTerminatedString(name_index);
     }
 
-    pub fn contentsHash(decl: Decl) std.zig.SrcHash {
-        const zir = decl.getFileScope().zir;
+    pub fn contentsHash(decl: Decl, mod: *Module) std.zig.SrcHash {
+        const zir = decl.getFileScope(mod).zir;
         return decl.contentsHashZir(zir);
     }
 
@@ -715,31 +720,31 @@ pub const Decl = struct {
         return contents_hash;
     }
 
-    pub fn zirBlockIndex(decl: *const Decl) Zir.Inst.Index {
+    pub fn zirBlockIndex(decl: *const Decl, mod: *Module) Zir.Inst.Index {
         assert(decl.zir_decl_index != 0);
-        const zir = decl.getFileScope().zir;
+        const zir = decl.getFileScope(mod).zir;
         return zir.extra[decl.zir_decl_index + 6];
     }
 
-    pub fn zirAlignRef(decl: Decl) Zir.Inst.Ref {
+    pub fn zirAlignRef(decl: Decl, mod: *Module) Zir.Inst.Ref {
         if (!decl.has_align) return .none;
         assert(decl.zir_decl_index != 0);
-        const zir = decl.getFileScope().zir;
+        const zir = decl.getFileScope(mod).zir;
         return @intToEnum(Zir.Inst.Ref, zir.extra[decl.zir_decl_index + 8]);
     }
 
-    pub fn zirLinksectionRef(decl: Decl) Zir.Inst.Ref {
+    pub fn zirLinksectionRef(decl: Decl, mod: *Module) Zir.Inst.Ref {
         if (!decl.has_linksection_or_addrspace) return .none;
         assert(decl.zir_decl_index != 0);
-        const zir = decl.getFileScope().zir;
+        const zir = decl.getFileScope(mod).zir;
         const extra_index = decl.zir_decl_index + 8 + @boolToInt(decl.has_align);
         return @intToEnum(Zir.Inst.Ref, zir.extra[extra_index]);
     }
 
-    pub fn zirAddrspaceRef(decl: Decl) Zir.Inst.Ref {
+    pub fn zirAddrspaceRef(decl: Decl, mod: *Module) Zir.Inst.Ref {
         if (!decl.has_linksection_or_addrspace) return .none;
         assert(decl.zir_decl_index != 0);
-        const zir = decl.getFileScope().zir;
+        const zir = decl.getFileScope(mod).zir;
         const extra_index = decl.zir_decl_index + 8 + @boolToInt(decl.has_align) + 1;
         return @intToEnum(Zir.Inst.Ref, zir.extra[extra_index]);
     }
@@ -764,25 +769,25 @@ pub const Decl = struct {
         return LazySrcLoc.nodeOffset(decl.nodeIndexToRelative(node_index));
     }
 
-    pub fn srcLoc(decl: Decl) SrcLoc {
-        return decl.nodeOffsetSrcLoc(0);
+    pub fn srcLoc(decl: Decl, mod: *Module) SrcLoc {
+        return decl.nodeOffsetSrcLoc(0, mod);
     }
 
-    pub fn nodeOffsetSrcLoc(decl: Decl, node_offset: i32) SrcLoc {
+    pub fn nodeOffsetSrcLoc(decl: Decl, node_offset: i32, mod: *Module) SrcLoc {
         return .{
-            .file_scope = decl.getFileScope(),
+            .file_scope = decl.getFileScope(mod),
             .parent_decl_node = decl.src_node,
             .lazy = LazySrcLoc.nodeOffset(node_offset),
         };
     }
 
-    pub fn srcToken(decl: Decl) Ast.TokenIndex {
-        const tree = &decl.getFileScope().tree;
+    pub fn srcToken(decl: Decl, mod: *Module) Ast.TokenIndex {
+        const tree = &decl.getFileScope(mod).tree;
         return tree.firstToken(decl.src_node);
     }
 
-    pub fn srcByteOffset(decl: Decl) u32 {
-        const tree = &decl.getFileScope().tree;
+    pub fn srcByteOffset(decl: Decl, mod: *Module) u32 {
+        const tree = &decl.getFileScope(mod).tree;
         return tree.tokens.items(.start)[decl.srcToken()];
     }
 
@@ -791,12 +796,12 @@ pub const Decl = struct {
         if (decl.name_fully_qualified) {
             return writer.writeAll(unqualified_name);
         }
-        return decl.src_namespace.renderFullyQualifiedName(mod, unqualified_name, writer);
+        return mod.namespacePtr(decl.src_namespace).renderFullyQualifiedName(mod, unqualified_name, writer);
     }
 
     pub fn renderFullyQualifiedDebugName(decl: Decl, mod: *Module, writer: anytype) !void {
         const unqualified_name = mem.sliceTo(decl.name, 0);
-        return decl.src_namespace.renderFullyQualifiedDebugName(mod, unqualified_name, writer);
+        return mod.namespacePtr(decl.src_namespace).renderFullyQualifiedDebugName(mod, unqualified_name, writer);
     }
 
     pub fn getFullyQualifiedName(decl: Decl, mod: *Module) ![:0]u8 {
@@ -877,32 +882,39 @@ pub const Decl = struct {
     /// Gets the namespace that this Decl creates by being a struct, union,
     /// enum, or opaque.
     /// Only returns it if the Decl is the owner.
-    pub fn getInnerNamespace(decl: *Decl) ?*Namespace {
-        if (!decl.owns_tv) return null;
-        const ty = (decl.val.castTag(.ty) orelse return null).data;
-        switch (ty.tag()) {
-            .@"struct" => {
-                const struct_obj = ty.castTag(.@"struct").?.data;
-                return &struct_obj.namespace;
-            },
-            .enum_full, .enum_nonexhaustive => {
-                const enum_obj = ty.cast(Type.Payload.EnumFull).?.data;
-                return &enum_obj.namespace;
-            },
-            .empty_struct => {
-                return ty.castTag(.empty_struct).?.data;
-            },
-            .@"opaque" => {
-                const opaque_obj = ty.cast(Type.Payload.Opaque).?.data;
-                return &opaque_obj.namespace;
-            },
-            .@"union", .union_safety_tagged, .union_tagged => {
-                const union_obj = ty.cast(Type.Payload.Union).?.data;
-                return &union_obj.namespace;
-            },
+    pub fn getInnerNamespaceIndex(decl: *Decl, mod: *Module) Namespace.OptionalIndex {
+        if (!decl.owns_tv) return .none;
+        if (decl.val.ip_index == .none) {
+            const ty = (decl.val.castTag(.ty) orelse return .none).data;
+            switch (ty.tag()) {
+                .@"struct" => {
+                    const struct_obj = ty.castTag(.@"struct").?.data;
+                    return struct_obj.namespace.toOptional();
+                },
+                .enum_full, .enum_nonexhaustive => {
+                    const enum_obj = ty.cast(Type.Payload.EnumFull).?.data;
+                    return enum_obj.namespace.toOptional();
+                },
+                .empty_struct => {
+                    @panic("TODO");
+                },
+                .@"union", .union_safety_tagged, .union_tagged => {
+                    const union_obj = ty.cast(Type.Payload.Union).?.data;
+                    return union_obj.namespace.toOptional();
+                },
 
-            else => return null,
+                else => return .none,
+            }
         }
+        return switch (mod.intern_pool.indexToKey(decl.val.ip_index)) {
+            .opaque_type => |opaque_type| opaque_type.namespace.toOptional(),
+            else => .none,
+        };
+    }
+
+    /// Same as `getInnerNamespaceIndex` but additionally obtains the pointer.
+    pub fn getInnerNamespace(decl: *Decl, mod: *Module) ?*Namespace {
+        return if (getInnerNamespaceIndex(decl, mod).unwrap()) |i| mod.namespacePtr(i) else null;
     }
 
     pub fn dump(decl: *Decl) void {
@@ -920,8 +932,8 @@ pub const Decl = struct {
         std.debug.print("\n", .{});
     }
 
-    pub fn getFileScope(decl: Decl) *File {
-        return decl.src_namespace.file_scope;
+    pub fn getFileScope(decl: Decl, mod: *Module) *File {
+        return mod.namespacePtr(decl.src_namespace).file_scope;
     }
 
     pub fn removeDependant(decl: *Decl, other: Decl.Index) void {
@@ -974,7 +986,7 @@ pub const ErrorSet = struct {
     pub fn srcLoc(self: ErrorSet, mod: *Module) SrcLoc {
         const owner_decl = mod.declPtr(self.owner_decl);
         return .{
-            .file_scope = owner_decl.getFileScope(),
+            .file_scope = owner_decl.getFileScope(mod),
             .parent_decl_node = owner_decl.src_node,
             .lazy = LazySrcLoc.nodeOffset(0),
         };
@@ -1000,7 +1012,7 @@ pub const Struct = struct {
     /// Set of field names in declaration order.
     fields: Fields,
     /// Represents the declarations inside this struct.
-    namespace: Namespace,
+    namespace: Namespace.Index,
     /// The Decl that corresponds to the struct itself.
     owner_decl: Decl.Index,
     /// Index of the struct_decl ZIR instruction.
@@ -1101,7 +1113,7 @@ pub const Struct = struct {
     pub fn srcLoc(s: Struct, mod: *Module) SrcLoc {
         const owner_decl = mod.declPtr(s.owner_decl);
         return .{
-            .file_scope = owner_decl.getFileScope(),
+            .file_scope = owner_decl.getFileScope(mod),
             .parent_decl_node = owner_decl.src_node,
             .lazy = LazySrcLoc.nodeOffset(0),
         };
@@ -1110,7 +1122,7 @@ pub const Struct = struct {
     pub fn fieldSrcLoc(s: Struct, mod: *Module, query: FieldSrcQuery) SrcLoc {
         @setCold(true);
         const owner_decl = mod.declPtr(s.owner_decl);
-        const file = owner_decl.getFileScope();
+        const file = owner_decl.getFileScope(mod);
         const tree = file.getTree(mod.gpa) catch |err| {
             // In this case we emit a warning + a less precise source location.
             log.warn("unable to load {s}: {s}", .{
@@ -1224,7 +1236,7 @@ pub const EnumSimple = struct {
     pub fn srcLoc(self: EnumSimple, mod: *Module) SrcLoc {
         const owner_decl = mod.declPtr(self.owner_decl);
         return .{
-            .file_scope = owner_decl.getFileScope(),
+            .file_scope = owner_decl.getFileScope(mod),
             .parent_decl_node = owner_decl.src_node,
             .lazy = LazySrcLoc.nodeOffset(0),
         };
@@ -1253,7 +1265,7 @@ pub const EnumNumbered = struct {
     pub fn srcLoc(self: EnumNumbered, mod: *Module) SrcLoc {
         const owner_decl = mod.declPtr(self.owner_decl);
         return .{
-            .file_scope = owner_decl.getFileScope(),
+            .file_scope = owner_decl.getFileScope(mod),
             .parent_decl_node = owner_decl.src_node,
             .lazy = LazySrcLoc.nodeOffset(0),
         };
@@ -1275,7 +1287,7 @@ pub const EnumFull = struct {
     /// If this hash map is empty, it means the enum tags are auto-numbered.
     values: ValueMap,
     /// Represents the declarations inside this enum.
-    namespace: Namespace,
+    namespace: Namespace.Index,
     /// true if zig inferred this tag type, false if user specified it
     tag_ty_inferred: bool,
 
@@ -1285,7 +1297,7 @@ pub const EnumFull = struct {
     pub fn srcLoc(self: EnumFull, mod: *Module) SrcLoc {
         const owner_decl = mod.declPtr(self.owner_decl);
         return .{
-            .file_scope = owner_decl.getFileScope(),
+            .file_scope = owner_decl.getFileScope(mod),
             .parent_decl_node = owner_decl.src_node,
             .lazy = LazySrcLoc.nodeOffset(0),
         };
@@ -1294,7 +1306,7 @@ pub const EnumFull = struct {
     pub fn fieldSrcLoc(e: EnumFull, mod: *Module, query: FieldSrcQuery) SrcLoc {
         @setCold(true);
         const owner_decl = mod.declPtr(e.owner_decl);
-        const file = owner_decl.getFileScope();
+        const file = owner_decl.getFileScope(mod);
         const tree = file.getTree(mod.gpa) catch |err| {
             // In this case we emit a warning + a less precise source location.
             log.warn("unable to load {s}: {s}", .{
@@ -1323,7 +1335,7 @@ pub const Union = struct {
     /// Set of field names in declaration order.
     fields: Fields,
     /// Represents the declarations inside this union.
-    namespace: Namespace,
+    namespace: Namespace.Index,
     /// The Decl that corresponds to the union itself.
     owner_decl: Decl.Index,
     /// Index of the union_decl ZIR instruction.
@@ -1371,7 +1383,7 @@ pub const Union = struct {
     pub fn srcLoc(self: Union, mod: *Module) SrcLoc {
         const owner_decl = mod.declPtr(self.owner_decl);
         return .{
-            .file_scope = owner_decl.getFileScope(),
+            .file_scope = owner_decl.getFileScope(mod),
             .parent_decl_node = owner_decl.src_node,
             .lazy = LazySrcLoc.nodeOffset(0),
         };
@@ -1380,7 +1392,7 @@ pub const Union = struct {
     pub fn fieldSrcLoc(u: Union, mod: *Module, query: FieldSrcQuery) SrcLoc {
         @setCold(true);
         const owner_decl = mod.declPtr(u.owner_decl);
-        const file = owner_decl.getFileScope();
+        const file = owner_decl.getFileScope(mod);
         const tree = file.getTree(mod.gpa) catch |err| {
             // In this case we emit a warning + a less precise source location.
             log.warn("unable to load {s}: {s}", .{
@@ -1563,26 +1575,6 @@ pub const Union = struct {
     }
 };
 
-pub const Opaque = struct {
-    /// The Decl that corresponds to the opaque itself.
-    owner_decl: Decl.Index,
-    /// Represents the declarations inside this opaque.
-    namespace: Namespace,
-
-    pub fn srcLoc(self: Opaque, mod: *Module) SrcLoc {
-        const owner_decl = mod.declPtr(self.owner_decl);
-        return .{
-            .file_scope = owner_decl.getFileScope(),
-            .parent_decl_node = owner_decl.src_node,
-            .lazy = LazySrcLoc.nodeOffset(0),
-        };
-    }
-
-    pub fn getFullyQualifiedName(s: *Opaque, mod: *Module) ![:0]u8 {
-        return mod.declPtr(s.owner_decl).getFullyQualifiedName(mod);
-    }
-};
-
 /// Some extern function struct memory is owned by the Decl's TypedValue.Managed
 /// arena allocator.
 pub const ExternFn = struct {
@@ -1759,7 +1751,7 @@ pub const Fn = struct {
     }
 
     pub fn isAnytypeParam(func: Fn, mod: *Module, index: u32) bool {
-        const file = mod.declPtr(func.owner_decl).getFileScope();
+        const file = mod.declPtr(func.owner_decl).getFileScope(mod);
 
         const tags = file.zir.instructions.items(.tag);
 
@@ -1774,7 +1766,7 @@ pub const Fn = struct {
     }
 
     pub fn getParamName(func: Fn, mod: *Module, index: u32) [:0]const u8 {
-        const file = mod.declPtr(func.owner_decl).getFileScope();
+        const file = mod.declPtr(func.owner_decl).getFileScope(mod);
 
         const tags = file.zir.instructions.items(.tag);
         const data = file.zir.instructions.items(.data);
@@ -1797,7 +1789,7 @@ pub const Fn = struct {
 
     pub fn hasInferredErrorSet(func: Fn, mod: *Module) bool {
         const owner_decl = mod.declPtr(func.owner_decl);
-        const zir = owner_decl.getFileScope().zir;
+        const zir = owner_decl.getFileScope(mod).zir;
         const zir_tags = zir.instructions.items(.tag);
         switch (zir_tags[func.zir_body_inst]) {
             .func => return false,
@@ -1851,7 +1843,7 @@ pub const DeclAdapter = struct {
 
 /// The container that structs, enums, unions, and opaques have.
 pub const Namespace = struct {
-    parent: ?*Namespace,
+    parent: OptionalIndex,
     file_scope: *File,
     /// Will be a struct, enum, union, or opaque.
     ty: Type,
@@ -1868,6 +1860,28 @@ pub const Namespace = struct {
     /// the Decl Value has to be resolved as a Type which has a Namespace.
     /// Value is whether the usingnamespace decl is marked `pub`.
     usingnamespace_set: std.AutoHashMapUnmanaged(Decl.Index, bool) = .{},
+
+    pub const Index = enum(u32) {
+        _,
+
+        pub fn toOptional(i: Index) OptionalIndex {
+            return @intToEnum(OptionalIndex, @enumToInt(i));
+        }
+    };
+
+    pub const OptionalIndex = enum(u32) {
+        none = std.math.maxInt(u32),
+        _,
+
+        pub fn init(oi: ?Index) OptionalIndex {
+            return @intToEnum(OptionalIndex, @enumToInt(oi orelse return .none));
+        }
+
+        pub fn unwrap(oi: OptionalIndex) ?Index {
+            if (oi == .none) return null;
+            return @intToEnum(Index, @enumToInt(oi));
+        }
+    };
 
     const DeclContext = struct {
         module: *Module,
@@ -1955,10 +1969,10 @@ pub const Namespace = struct {
         name: []const u8,
         writer: anytype,
     ) @TypeOf(writer).Error!void {
-        if (ns.parent) |parent| {
-            const decl_index = ns.getDeclIndex();
+        if (ns.parent.unwrap()) |parent| {
+            const decl_index = ns.getDeclIndex(mod);
             const decl = mod.declPtr(decl_index);
-            try parent.renderFullyQualifiedName(mod, mem.sliceTo(decl.name, 0), writer);
+            try mod.namespacePtr(parent).renderFullyQualifiedName(mod, mem.sliceTo(decl.name, 0), writer);
         } else {
             try ns.file_scope.renderFullyQualifiedName(writer);
         }
@@ -1976,10 +1990,10 @@ pub const Namespace = struct {
         writer: anytype,
     ) @TypeOf(writer).Error!void {
         var separator_char: u8 = '.';
-        if (ns.parent) |parent| {
-            const decl_index = ns.getDeclIndex();
+        if (ns.parent.unwrap()) |parent| {
+            const decl_index = ns.getDeclIndex(mod);
             const decl = mod.declPtr(decl_index);
-            try parent.renderFullyQualifiedDebugName(mod, mem.sliceTo(decl.name, 0), writer);
+            try mod.namespacePtr(parent).renderFullyQualifiedDebugName(mod, mem.sliceTo(decl.name, 0), writer);
         } else {
             try ns.file_scope.renderFullyQualifiedDebugName(writer);
             separator_char = ':';
@@ -1990,8 +2004,8 @@ pub const Namespace = struct {
         }
     }
 
-    pub fn getDeclIndex(ns: Namespace) Decl.Index {
-        return ns.ty.getOwnerDecl();
+    pub fn getDeclIndex(ns: Namespace, mod: *Module) Decl.Index {
+        return ns.ty.getOwnerDecl(mod);
     }
 };
 
@@ -3320,7 +3334,7 @@ pub const LazySrcLoc = union(enum) {
     }
 
     /// Upgrade to a `SrcLoc` based on the `Decl` provided.
-    pub fn toSrcLoc(lazy: LazySrcLoc, decl: *Decl) SrcLoc {
+    pub fn toSrcLoc(lazy: LazySrcLoc, decl: *Decl, mod: *Module) SrcLoc {
         return switch (lazy) {
             .unneeded,
             .entire_file,
@@ -3328,7 +3342,7 @@ pub const LazySrcLoc = union(enum) {
             .token_abs,
             .node_abs,
             => .{
-                .file_scope = decl.getFileScope(),
+                .file_scope = decl.getFileScope(mod),
                 .parent_decl_node = 0,
                 .lazy = lazy,
             },
@@ -3394,7 +3408,7 @@ pub const LazySrcLoc = union(enum) {
             .for_input,
             .for_capture_from_input,
             => .{
-                .file_scope = decl.getFileScope(),
+                .file_scope = decl.getFileScope(mod),
                 .parent_decl_node = decl.src_node,
                 .lazy = lazy,
             },
@@ -3555,6 +3569,9 @@ pub fn deinit(mod: *Module) void {
     mod.global_assembly.deinit(gpa);
     mod.reference_table.deinit(gpa);
 
+    mod.namespaces_free_list.deinit(gpa);
+    mod.allocated_namespaces.deinit(gpa);
+
     mod.string_literal_table.deinit(gpa);
     mod.string_literal_bytes.deinit(gpa);
 
@@ -3575,8 +3592,9 @@ pub fn destroyDecl(mod: *Module, decl_index: Decl.Index) void {
             gpa.free(kv.value);
         }
         if (decl.has_tv) {
-            if (decl.getInnerNamespace()) |namespace| {
-                namespace.destroyDecls(mod);
+            if (decl.getInnerNamespaceIndex(mod).unwrap()) |i| {
+                mod.namespacePtr(i).destroyDecls(mod);
+                mod.destroyNamespace(i);
             }
         }
         decl.clearValues(mod);
@@ -3596,16 +3614,21 @@ pub fn destroyDecl(mod: *Module, decl_index: Decl.Index) void {
     }
 }
 
-pub fn declPtr(mod: *Module, decl_index: Decl.Index) *Decl {
-    return mod.allocated_decls.at(@enumToInt(decl_index));
+pub fn declPtr(mod: *Module, index: Decl.Index) *Decl {
+    return mod.allocated_decls.at(@enumToInt(index));
+}
+
+pub fn namespacePtr(mod: *Module, index: Namespace.Index) *Namespace {
+    return mod.allocated_namespaces.at(@enumToInt(index));
 }
 
 /// Returns true if and only if the Decl is the top level struct associated with a File.
 pub fn declIsRoot(mod: *Module, decl_index: Decl.Index) bool {
     const decl = mod.declPtr(decl_index);
-    if (decl.src_namespace.parent != null)
+    const namespace = mod.namespacePtr(decl.src_namespace);
+    if (namespace.parent != .none)
         return false;
-    return decl_index == decl.src_namespace.getDeclIndex();
+    return decl_index == namespace.getDeclIndex(mod);
 }
 
 fn freeExportList(gpa: Allocator, export_list: *ArrayListUnmanaged(*Export)) void {
@@ -4076,7 +4099,7 @@ fn updateZirRefs(mod: *Module, file: *File, old_zir: Zir) !void {
             };
         }
 
-        if (decl.getInnerNamespace()) |namespace| {
+        if (decl.getInnerNamespace(mod)) |namespace| {
             for (namespace.decls.keys()) |sub_decl| {
                 try decl_stack.append(gpa, sub_decl);
             }
@@ -4306,7 +4329,7 @@ pub fn ensureDeclAnalyzed(mod: *Module, decl_index: Decl.Index) SemaError!void {
                 try mod.failed_decls.ensureUnusedCapacity(mod.gpa, 1);
                 mod.failed_decls.putAssumeCapacityNoClobber(decl_index, try ErrorMsg.create(
                     mod.gpa,
-                    decl.srcLoc(),
+                    decl.srcLoc(mod),
                     "unable to analyze: {s}",
                     .{@errorName(e)},
                 ));
@@ -4437,7 +4460,7 @@ pub fn ensureFuncBodyAnalyzed(mod: *Module, func: *Fn) SemaError!void {
                             decl_index,
                             try Module.ErrorMsg.create(
                                 gpa,
-                                decl.srcLoc(),
+                                decl.srcLoc(mod),
                                 "invalid liveness: {s}",
                                 .{@errorName(err)},
                             ),
@@ -4460,7 +4483,7 @@ pub fn ensureFuncBodyAnalyzed(mod: *Module, func: *Fn) SemaError!void {
                     try mod.failed_decls.ensureUnusedCapacity(gpa, 1);
                     mod.failed_decls.putAssumeCapacityNoClobber(decl_index, try Module.ErrorMsg.create(
                         gpa,
-                        decl.srcLoc(),
+                        decl.srcLoc(mod),
                         "unable to codegen: {s}",
                         .{@errorName(err)},
                     ));
@@ -4586,13 +4609,13 @@ pub fn semaFile(mod: *Module, file: *File) SemaError!void {
         .status = .none,
         .known_non_opv = undefined,
         .is_tuple = undefined, // set below
-        .namespace = .{
-            .parent = null,
+        .namespace = try mod.createNamespace(.{
+            .parent = .none,
             .ty = struct_ty,
             .file_scope = file,
-        },
+        }),
     };
-    const new_decl_index = try mod.allocateNewDecl(&struct_obj.namespace, 0, null);
+    const new_decl_index = try mod.allocateNewDecl(struct_obj.namespace, 0, null);
     const new_decl = mod.declPtr(new_decl_index);
     file.root_decl = new_decl_index.toOptional();
     struct_obj.owner_decl = new_decl_index;
@@ -4688,12 +4711,12 @@ fn semaDecl(mod: *Module, decl_index: Decl.Index) !bool {
 
     const decl = mod.declPtr(decl_index);
 
-    if (decl.getFileScope().status != .success_zir) {
+    if (decl.getFileScope(mod).status != .success_zir) {
         return error.AnalysisFail;
     }
 
     const gpa = mod.gpa;
-    const zir = decl.getFileScope().zir;
+    const zir = decl.getFileScope(mod).zir;
     const zir_datas = zir.instructions.items(.data);
 
     decl.analysis = .in_progress;
@@ -4767,7 +4790,7 @@ fn semaDecl(mod: *Module, decl_index: Decl.Index) !bool {
         block_scope.params.deinit(gpa);
     }
 
-    const zir_block_index = decl.zirBlockIndex();
+    const zir_block_index = decl.zirBlockIndex(mod);
     const inst_data = zir_datas[zir_block_index].pl_node;
     const extra = zir.extraData(Zir.Inst.Block, inst_data.payload_index);
     const body = zir.extra[extra.end..][0..extra.data.body_len];
@@ -4792,7 +4815,7 @@ fn semaDecl(mod: *Module, decl_index: Decl.Index) !bool {
             });
         }
         const ty = try decl_tv.val.toType().copy(decl_arena_allocator);
-        if (ty.getNamespace() == null) {
+        if (ty.getNamespace(mod) == null) {
             return sema.fail(&block_scope, ty_src, "type {} has no namespace", .{ty.fmt(mod)});
         }
 
@@ -4895,12 +4918,12 @@ fn semaDecl(mod: *Module, decl_index: Decl.Index) !bool {
     decl.ty = try decl_tv.ty.copy(decl_arena_allocator);
     decl.val = try decl_tv.val.copy(decl_arena_allocator);
     decl.@"align" = blk: {
-        const align_ref = decl.zirAlignRef();
+        const align_ref = decl.zirAlignRef(mod);
         if (align_ref == .none) break :blk 0;
         break :blk try sema.resolveAlign(&block_scope, align_src, align_ref);
     };
     decl.@"linksection" = blk: {
-        const linksection_ref = decl.zirLinksectionRef();
+        const linksection_ref = decl.zirLinksectionRef(mod);
         if (linksection_ref == .none) break :blk null;
         const bytes = try sema.resolveConstString(&block_scope, section_src, linksection_ref, "linksection must be comptime-known");
         if (mem.indexOfScalar(u8, bytes, 0) != null) {
@@ -4921,7 +4944,7 @@ fn semaDecl(mod: *Module, decl_index: Decl.Index) !bool {
         };
 
         const target = sema.mod.getTarget();
-        break :blk switch (decl.zirAddrspaceRef()) {
+        break :blk switch (decl.zirAddrspaceRef(mod)) {
             .none => switch (addrspace_ctx) {
                 .function => target_util.defaultAddressSpace(target, .function),
                 .variable => target_util.defaultAddressSpace(target, .global_mutable),
@@ -5273,7 +5296,7 @@ pub fn detectEmbedFileUpdate(mod: *Module, embed_file: *EmbedFile) !void {
 
 pub fn scanNamespace(
     mod: *Module,
-    namespace: *Namespace,
+    namespace_index: Namespace.Index,
     extra_start: usize,
     decls_len: u32,
     parent_decl: *Decl,
@@ -5282,6 +5305,7 @@ pub fn scanNamespace(
     defer tracy.end();
 
     const gpa = mod.gpa;
+    const namespace = mod.namespacePtr(namespace_index);
     const zir = namespace.file_scope.zir;
 
     try mod.comp.work_queue.ensureUnusedCapacity(decls_len);
@@ -5294,7 +5318,7 @@ pub fn scanNamespace(
     var decl_i: u32 = 0;
     var scan_decl_iter: ScanDeclIter = .{
         .module = mod,
-        .namespace = namespace,
+        .namespace_index = namespace_index,
         .parent_decl = parent_decl,
     };
     while (decl_i < decls_len) : (decl_i += 1) {
@@ -5317,7 +5341,7 @@ pub fn scanNamespace(
 
 const ScanDeclIter = struct {
     module: *Module,
-    namespace: *Namespace,
+    namespace_index: Namespace.Index,
     parent_decl: *Decl,
     usingnamespace_index: usize = 0,
     comptime_index: usize = 0,
@@ -5329,7 +5353,8 @@ fn scanDecl(iter: *ScanDeclIter, decl_sub_index: usize, flags: u4) Allocator.Err
     defer tracy.end();
 
     const mod = iter.module;
-    const namespace = iter.namespace;
+    const namespace_index = iter.namespace_index;
+    const namespace = mod.namespacePtr(namespace_index);
     const gpa = mod.gpa;
     const zir = namespace.file_scope.zir;
 
@@ -5404,7 +5429,7 @@ fn scanDecl(iter: *ScanDeclIter, decl_sub_index: usize, flags: u4) Allocator.Err
     );
     const comp = mod.comp;
     if (!gop.found_existing) {
-        const new_decl_index = try mod.allocateNewDecl(namespace, decl_node, iter.parent_decl.src_scope);
+        const new_decl_index = try mod.allocateNewDecl(namespace_index, decl_node, iter.parent_decl.src_scope);
         const new_decl = mod.declPtr(new_decl_index);
         new_decl.kind = kind;
         new_decl.name = decl_name;
@@ -5456,7 +5481,7 @@ fn scanDecl(iter: *ScanDeclIter, decl_sub_index: usize, flags: u4) Allocator.Err
     const decl = mod.declPtr(decl_index);
     if (kind == .@"test") {
         const src_loc = SrcLoc{
-            .file_scope = decl.getFileScope(),
+            .file_scope = decl.getFileScope(mod),
             .parent_decl_node = decl.src_node,
             .lazy = .{ .token_offset = 1 },
         };
@@ -5564,7 +5589,7 @@ pub fn clearDecl(
         if (decl.ty.isFnOrHasRuntimeBits(mod)) {
             mod.comp.bin_file.freeDecl(decl_index);
         }
-        if (decl.getInnerNamespace()) |namespace| {
+        if (decl.getInnerNamespace(mod)) |namespace| {
             try namespace.deleteAllDecls(mod, outdated_decls);
         }
     }
@@ -5584,7 +5609,7 @@ pub fn deleteUnusedDecl(mod: *Module, decl_index: Decl.Index) void {
     log.debug("deleteUnusedDecl {d} ({s})", .{ decl_index, decl.name });
 
     assert(!mod.declIsRoot(decl_index));
-    assert(decl.src_namespace.anon_decls.swapRemove(decl_index));
+    assert(mod.namespacePtr(decl.src_namespace).anon_decls.swapRemove(decl_index));
 
     const dependants = decl.dependants.keys();
     for (dependants) |dep| {
@@ -5612,7 +5637,7 @@ pub fn abortAnonDecl(mod: *Module, decl_index: Decl.Index) void {
     log.debug("abortAnonDecl {*} ({s})", .{ decl, decl.name });
 
     assert(!mod.declIsRoot(decl_index));
-    assert(decl.src_namespace.anon_decls.swapRemove(decl_index));
+    assert(mod.namespacePtr(decl.src_namespace).anon_decls.swapRemove(decl_index));
 
     // An aborted decl must not have dependants -- they must have
     // been aborted first and removed from this list.
@@ -5689,7 +5714,7 @@ pub fn analyzeFnBody(mod: *Module, func: *Fn, arena: Allocator) SemaError!Air {
         .gpa = gpa,
         .arena = arena,
         .perm_arena = decl_arena_allocator,
-        .code = decl.getFileScope().zir,
+        .code = decl.getFileScope(mod).zir,
         .owner_decl = decl,
         .owner_decl_index = decl_index,
         .func = func,
@@ -5920,9 +5945,34 @@ fn markOutdatedDecl(mod: *Module, decl_index: Decl.Index) !void {
     decl.analysis = .outdated;
 }
 
+pub const CreateNamespaceOptions = struct {
+    parent: Namespace.OptionalIndex,
+    file_scope: *File,
+    ty: Type,
+};
+
+pub fn createNamespace(mod: *Module, options: CreateNamespaceOptions) !Namespace.Index {
+    if (mod.namespaces_free_list.popOrNull()) |index| return index;
+    const ptr = try mod.allocated_namespaces.addOne(mod.gpa);
+    ptr.* = .{
+        .parent = options.parent,
+        .file_scope = options.file_scope,
+        .ty = options.ty,
+    };
+    return @intToEnum(Namespace.Index, mod.allocated_namespaces.len - 1);
+}
+
+pub fn destroyNamespace(mod: *Module, index: Namespace.Index) void {
+    mod.namespacePtr(index).* = undefined;
+    mod.namespaces_free_list.append(mod.gpa, index) catch {
+        // In order to keep `destroyNamespace` a non-fallible function, we ignore memory
+        // allocation failures here, instead leaking the Namespace until garbage collection.
+    };
+}
+
 pub fn allocateNewDecl(
     mod: *Module,
-    namespace: *Namespace,
+    namespace: Namespace.Index,
     src_node: Ast.Node.Index,
     src_scope: ?*CaptureScope,
 ) !Decl.Index {
@@ -6004,7 +6054,7 @@ pub fn createAnonymousDecl(mod: *Module, block: *Sema.Block, typed_value: TypedV
 pub fn createAnonymousDeclFromDecl(
     mod: *Module,
     src_decl: *Decl,
-    namespace: *Namespace,
+    namespace: Namespace.Index,
     src_scope: ?*CaptureScope,
     tv: TypedValue,
 ) !Decl.Index {
@@ -6022,7 +6072,7 @@ pub fn initNewAnonDecl(
     mod: *Module,
     new_decl_index: Decl.Index,
     src_line: u32,
-    namespace: *Namespace,
+    namespace: Namespace.Index,
     typed_value: TypedValue,
     name: [:0]u8,
 ) !void {
@@ -6040,7 +6090,7 @@ pub fn initNewAnonDecl(
     new_decl.analysis = .complete;
     new_decl.generation = mod.generation;
 
-    try namespace.anon_decls.putNoClobber(mod.gpa, new_decl_index, {});
+    try mod.namespacePtr(namespace).anon_decls.putNoClobber(mod.gpa, new_decl_index, {});
 
     // The Decl starts off with alive=false and the codegen backend will set alive=true
     // if the Decl is referenced by an instruction or another constant. Otherwise,
@@ -6110,16 +6160,17 @@ pub const SwitchProngSrc = union(enum) {
     /// the LazySrcLoc in order to emit a compile error.
     pub fn resolve(
         prong_src: SwitchProngSrc,
-        gpa: Allocator,
+        mod: *Module,
         decl: *Decl,
         switch_node_offset: i32,
         range_expand: RangeExpand,
     ) LazySrcLoc {
         @setCold(true);
-        const tree = decl.getFileScope().getTree(gpa) catch |err| {
+        const gpa = mod.gpa;
+        const tree = decl.getFileScope(mod).getTree(gpa) catch |err| {
             // In this case we emit a warning + a less precise source location.
             log.warn("unable to load {s}: {s}", .{
-                decl.getFileScope().sub_file_path, @errorName(err),
+                decl.getFileScope(mod).sub_file_path, @errorName(err),
             });
             return LazySrcLoc.nodeOffset(0);
         };
@@ -6203,11 +6254,12 @@ pub const PeerTypeCandidateSrc = union(enum) {
 
     pub fn resolve(
         self: PeerTypeCandidateSrc,
-        gpa: Allocator,
+        mod: *Module,
         decl: *Decl,
         candidate_i: usize,
     ) ?LazySrcLoc {
         @setCold(true);
+        const gpa = mod.gpa;
 
         switch (self) {
             .none => {
@@ -6229,10 +6281,10 @@ pub const PeerTypeCandidateSrc = union(enum) {
                     else => {},
                 }
 
-                const tree = decl.getFileScope().getTree(gpa) catch |err| {
+                const tree = decl.getFileScope(mod).getTree(gpa) catch |err| {
                     // In this case we emit a warning + a less precise source location.
                     log.warn("unable to load {s}: {s}", .{
-                        decl.getFileScope().sub_file_path, @errorName(err),
+                        decl.getFileScope(mod).sub_file_path, @errorName(err),
                     });
                     return LazySrcLoc.nodeOffset(0);
                 };
@@ -6291,15 +6343,16 @@ fn queryFieldSrc(
 
 pub fn paramSrc(
     func_node_offset: i32,
-    gpa: Allocator,
+    mod: *Module,
     decl: *Decl,
     param_i: usize,
 ) LazySrcLoc {
     @setCold(true);
-    const tree = decl.getFileScope().getTree(gpa) catch |err| {
+    const gpa = mod.gpa;
+    const tree = decl.getFileScope(mod).getTree(gpa) catch |err| {
         // In this case we emit a warning + a less precise source location.
         log.warn("unable to load {s}: {s}", .{
-            decl.getFileScope().sub_file_path, @errorName(err),
+            decl.getFileScope(mod).sub_file_path, @errorName(err),
         });
         return LazySrcLoc.nodeOffset(0);
     };
@@ -6321,19 +6374,20 @@ pub fn paramSrc(
 }
 
 pub fn argSrc(
+    mod: *Module,
     call_node_offset: i32,
-    gpa: Allocator,
     decl: *Decl,
     start_arg_i: usize,
     bound_arg_src: ?LazySrcLoc,
 ) LazySrcLoc {
+    @setCold(true);
+    const gpa = mod.gpa;
     if (start_arg_i == 0 and bound_arg_src != null) return bound_arg_src.?;
     const arg_i = start_arg_i - @boolToInt(bound_arg_src != null);
-    @setCold(true);
-    const tree = decl.getFileScope().getTree(gpa) catch |err| {
+    const tree = decl.getFileScope(mod).getTree(gpa) catch |err| {
         // In this case we emit a warning + a less precise source location.
         log.warn("unable to load {s}: {s}", .{
-            decl.getFileScope().sub_file_path, @errorName(err),
+            decl.getFileScope(mod).sub_file_path, @errorName(err),
         });
         return LazySrcLoc.nodeOffset(0);
     };
@@ -6347,7 +6401,7 @@ pub fn argSrc(
             const node_datas = tree.nodes.items(.data);
             const call_args_node = tree.extra_data[node_datas[node].rhs - 1];
             const call_args_offset = decl.nodeIndexToRelative(call_args_node);
-            return initSrc(call_args_offset, gpa, decl, arg_i);
+            return mod.initSrc(call_args_offset, decl, arg_i);
         },
         else => unreachable,
     };
@@ -6355,16 +6409,17 @@ pub fn argSrc(
 }
 
 pub fn initSrc(
+    mod: *Module,
     init_node_offset: i32,
-    gpa: Allocator,
     decl: *Decl,
     init_index: usize,
 ) LazySrcLoc {
     @setCold(true);
-    const tree = decl.getFileScope().getTree(gpa) catch |err| {
+    const gpa = mod.gpa;
+    const tree = decl.getFileScope(mod).getTree(gpa) catch |err| {
         // In this case we emit a warning + a less precise source location.
         log.warn("unable to load {s}: {s}", .{
-            decl.getFileScope().sub_file_path, @errorName(err),
+            decl.getFileScope(mod).sub_file_path, @errorName(err),
         });
         return LazySrcLoc.nodeOffset(0);
     };
@@ -6400,12 +6455,13 @@ pub fn initSrc(
     }
 }
 
-pub fn optionsSrc(gpa: Allocator, decl: *Decl, base_src: LazySrcLoc, wanted: []const u8) LazySrcLoc {
+pub fn optionsSrc(mod: *Module, decl: *Decl, base_src: LazySrcLoc, wanted: []const u8) LazySrcLoc {
     @setCold(true);
-    const tree = decl.getFileScope().getTree(gpa) catch |err| {
+    const gpa = mod.gpa;
+    const tree = decl.getFileScope(mod).getTree(gpa) catch |err| {
         // In this case we emit a warning + a less precise source location.
         log.warn("unable to load {s}: {s}", .{
-            decl.getFileScope().sub_file_path, @errorName(err),
+            decl.getFileScope(mod).sub_file_path, @errorName(err),
         });
         return LazySrcLoc.nodeOffset(0);
     };
@@ -6471,7 +6527,10 @@ pub fn processOutdatedAndDeletedDecls(mod: *Module) !void {
 
             // Remove from the namespace it resides in, preserving declaration order.
             assert(decl.zir_decl_index != 0);
-            _ = decl.src_namespace.decls.orderedRemoveAdapted(@as([]const u8, mem.sliceTo(decl.name, 0)), DeclAdapter{ .mod = mod });
+            _ = mod.namespacePtr(decl.src_namespace).decls.orderedRemoveAdapted(
+                @as([]const u8, mem.sliceTo(decl.name, 0)),
+                DeclAdapter{ .mod = mod },
+            );
 
             try mod.clearDecl(decl_index, &outdated_decls);
             mod.destroyDecl(decl_index);
@@ -6541,8 +6600,11 @@ pub fn populateTestFunctions(
     const builtin_pkg = mod.main_pkg.table.get("builtin").?;
     const builtin_file = (mod.importPkg(builtin_pkg) catch unreachable).file;
     const root_decl = mod.declPtr(builtin_file.root_decl.unwrap().?);
-    const builtin_namespace = root_decl.src_namespace;
-    const decl_index = builtin_namespace.decls.getKeyAdapted(@as([]const u8, "test_functions"), DeclAdapter{ .mod = mod }).?;
+    const builtin_namespace = mod.namespacePtr(root_decl.src_namespace);
+    const decl_index = builtin_namespace.decls.getKeyAdapted(
+        @as([]const u8, "test_functions"),
+        DeclAdapter{ .mod = mod },
+    ).?;
     {
         // We have to call `ensureDeclAnalyzed` here in case `builtin.test_functions`
         // was not referenced by start code.
@@ -6673,7 +6735,7 @@ pub fn linkerUpdateDecl(mod: *Module, decl_index: Decl.Index) !void {
             try mod.failed_decls.ensureUnusedCapacity(gpa, 1);
             mod.failed_decls.putAssumeCapacityNoClobber(decl_index, try ErrorMsg.create(
                 gpa,
-                decl.srcLoc(),
+                decl.srcLoc(mod),
                 "unable to codegen: {s}",
                 .{@errorName(err)},
             ));
@@ -7137,4 +7199,25 @@ pub fn atomicPtrAlignment(
     }
 
     return 0;
+}
+
+pub fn opaqueSrcLoc(mod: *Module, opaque_type: InternPool.Key.OpaqueType) SrcLoc {
+    const owner_decl = mod.declPtr(opaque_type.decl);
+    return .{
+        .file_scope = owner_decl.getFileScope(mod),
+        .parent_decl_node = owner_decl.src_node,
+        .lazy = LazySrcLoc.nodeOffset(0),
+    };
+}
+
+pub fn opaqueFullyQualifiedName(mod: *Module, opaque_type: InternPool.Key.OpaqueType) ![:0]u8 {
+    return mod.declPtr(opaque_type.decl).getFullyQualifiedName(mod);
+}
+
+pub fn declFileScope(mod: *Module, decl_index: Decl.Index) *File {
+    return mod.declPtr(decl_index).getFileScope(mod);
+}
+
+pub fn namespaceDeclIndex(mod: *Module, namespace_index: Namespace.Index) Decl.Index {
+    return mod.namespacePtr(namespace_index).getDeclIndex(mod);
 }

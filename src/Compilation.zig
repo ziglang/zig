@@ -2048,7 +2048,7 @@ pub fn update(comp: *Compilation, main_progress_node: *std.Progress.Node) !void 
             assert(decl.deletion_flag);
             assert(decl.dependants.count() == 0);
             const is_anon = if (decl.zir_decl_index == 0) blk: {
-                break :blk decl.src_namespace.anon_decls.swapRemove(decl_index);
+                break :blk module.namespacePtr(decl.src_namespace).anon_decls.swapRemove(decl_index);
             } else false;
 
             try module.clearDecl(decl_index, null);
@@ -2530,8 +2530,7 @@ pub fn totalErrorCount(self: *Compilation) u32 {
         // the previous parse success, including compile errors, but we cannot
         // emit them until the file succeeds parsing.
         for (module.failed_decls.keys()) |key| {
-            const decl = module.declPtr(key);
-            if (decl.getFileScope().okToReportErrors()) {
+            if (module.declFileScope(key).okToReportErrors()) {
                 total += 1;
                 if (module.cimport_errors.get(key)) |errors| {
                     total += errors.len;
@@ -2540,8 +2539,7 @@ pub fn totalErrorCount(self: *Compilation) u32 {
         }
         if (module.emit_h) |emit_h| {
             for (emit_h.failed_decls.keys()) |key| {
-                const decl = module.declPtr(key);
-                if (decl.getFileScope().okToReportErrors()) {
+                if (module.declFileScope(key).okToReportErrors()) {
                     total += 1;
                 }
             }
@@ -2644,10 +2642,10 @@ pub fn getAllErrorsAlloc(self: *Compilation) !ErrorBundle {
         {
             var it = module.failed_decls.iterator();
             while (it.next()) |entry| {
-                const decl = module.declPtr(entry.key_ptr.*);
+                const decl_index = entry.key_ptr.*;
                 // Skip errors for Decls within files that had a parse failure.
                 // We'll try again once parsing succeeds.
-                if (decl.getFileScope().okToReportErrors()) {
+                if (module.declFileScope(decl_index).okToReportErrors()) {
                     try addModuleErrorMsg(&bundle, entry.value_ptr.*.*);
                     if (module.cimport_errors.get(entry.key_ptr.*)) |cimport_errors| for (cimport_errors) |c_error| {
                         try bundle.addRootErrorMessage(.{
@@ -2669,10 +2667,10 @@ pub fn getAllErrorsAlloc(self: *Compilation) !ErrorBundle {
         if (module.emit_h) |emit_h| {
             var it = emit_h.failed_decls.iterator();
             while (it.next()) |entry| {
-                const decl = module.declPtr(entry.key_ptr.*);
+                const decl_index = entry.key_ptr.*;
                 // Skip errors for Decls within files that had a parse failure.
                 // We'll try again once parsing succeeds.
-                if (decl.getFileScope().okToReportErrors()) {
+                if (module.declFileScope(decl_index).okToReportErrors()) {
                     try addModuleErrorMsg(&bundle, entry.value_ptr.*.*);
                 }
             }
@@ -2710,7 +2708,7 @@ pub fn getAllErrorsAlloc(self: *Compilation) !ErrorBundle {
             const values = module.compile_log_decls.values();
             // First one will be the error; subsequent ones will be notes.
             const err_decl = module.declPtr(keys[0]);
-            const src_loc = err_decl.nodeOffsetSrcLoc(values[0]);
+            const src_loc = err_decl.nodeOffsetSrcLoc(values[0], module);
             const err_msg = Module.ErrorMsg{
                 .src_loc = src_loc,
                 .msg = "found compile log statement",
@@ -2721,7 +2719,7 @@ pub fn getAllErrorsAlloc(self: *Compilation) !ErrorBundle {
             for (keys[1..], 0..) |key, i| {
                 const note_decl = module.declPtr(key);
                 err_msg.notes[i] = .{
-                    .src_loc = note_decl.nodeOffsetSrcLoc(values[i + 1]),
+                    .src_loc = note_decl.nodeOffsetSrcLoc(values[i + 1], module),
                     .msg = "also here",
                 };
             }
@@ -3235,7 +3233,7 @@ fn processOneJob(comp: *Compilation, job: Job, prog_node: *std.Progress.Node) !v
                 try module.failed_decls.ensureUnusedCapacity(gpa, 1);
                 module.failed_decls.putAssumeCapacityNoClobber(decl_index, try Module.ErrorMsg.create(
                     gpa,
-                    decl.srcLoc(),
+                    decl.srcLoc(module),
                     "unable to update line number: {s}",
                     .{@errorName(err)},
                 ));
@@ -3848,7 +3846,7 @@ fn reportRetryableEmbedFileError(
     const mod = comp.bin_file.options.module.?;
     const gpa = mod.gpa;
 
-    const src_loc: Module.SrcLoc = mod.declPtr(embed_file.owner_decl).srcLoc();
+    const src_loc: Module.SrcLoc = mod.declPtr(embed_file.owner_decl).srcLoc(mod);
 
     const err_msg = if (embed_file.pkg.root_src_directory.path) |dir_path|
         try Module.ErrorMsg.create(

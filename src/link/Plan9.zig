@@ -213,14 +213,14 @@ fn putFn(self: *Plan9, decl_index: Module.Decl.Index, out: FnDeclOutput) !void {
     const gpa = self.base.allocator;
     const mod = self.base.options.module.?;
     const decl = mod.declPtr(decl_index);
-    const fn_map_res = try self.fn_decl_table.getOrPut(gpa, decl.getFileScope());
+    const fn_map_res = try self.fn_decl_table.getOrPut(gpa, decl.getFileScope(mod));
     if (fn_map_res.found_existing) {
         if (try fn_map_res.value_ptr.functions.fetchPut(gpa, decl_index, out)) |old_entry| {
             gpa.free(old_entry.value.code);
             gpa.free(old_entry.value.lineinfo);
         }
     } else {
-        const file = decl.getFileScope();
+        const file = decl.getFileScope(mod);
         const arena = self.path_arena.allocator();
         // each file gets a symbol
         fn_map_res.value_ptr.* = .{
@@ -276,13 +276,13 @@ fn addPathComponents(self: *Plan9, path: []const u8, a: *std.ArrayList(u8)) !voi
     }
 }
 
-pub fn updateFunc(self: *Plan9, module: *Module, func: *Module.Fn, air: Air, liveness: Liveness) !void {
+pub fn updateFunc(self: *Plan9, mod: *Module, func: *Module.Fn, air: Air, liveness: Liveness) !void {
     if (build_options.skip_non_native and builtin.object_format != .plan9) {
         @panic("Attempted to compile for object format that was disabled by build configuration");
     }
 
     const decl_index = func.owner_decl;
-    const decl = module.declPtr(decl_index);
+    const decl = mod.declPtr(decl_index);
     self.freeUnnamedConsts(decl_index);
 
     _ = try self.seeDecl(decl_index);
@@ -298,7 +298,7 @@ pub fn updateFunc(self: *Plan9, module: *Module, func: *Module.Fn, air: Air, liv
 
     const res = try codegen.generateFunction(
         &self.base,
-        decl.srcLoc(),
+        decl.srcLoc(mod),
         func,
         air,
         liveness,
@@ -316,7 +316,7 @@ pub fn updateFunc(self: *Plan9, module: *Module, func: *Module.Fn, air: Air, liv
         .ok => try code_buffer.toOwnedSlice(),
         .fail => |em| {
             decl.analysis = .codegen_failure;
-            try module.failed_decls.put(module.gpa, decl_index, em);
+            try mod.failed_decls.put(mod.gpa, decl_index, em);
             return;
         },
     };
@@ -366,7 +366,7 @@ pub fn lowerUnnamedConst(self: *Plan9, tv: TypedValue, decl_index: Module.Decl.I
     };
     self.syms.items[info.sym_index.?] = sym;
 
-    const res = try codegen.generateSymbol(&self.base, decl.srcLoc(), tv, &code_buffer, .{
+    const res = try codegen.generateSymbol(&self.base, decl.srcLoc(mod), tv, &code_buffer, .{
         .none = {},
     }, .{
         .parent_atom_index = @enumToInt(decl_index),
@@ -388,8 +388,8 @@ pub fn lowerUnnamedConst(self: *Plan9, tv: TypedValue, decl_index: Module.Decl.I
     return @intCast(u32, info.got_index.?);
 }
 
-pub fn updateDecl(self: *Plan9, module: *Module, decl_index: Module.Decl.Index) !void {
-    const decl = module.declPtr(decl_index);
+pub fn updateDecl(self: *Plan9, mod: *Module, decl_index: Module.Decl.Index) !void {
+    const decl = mod.declPtr(decl_index);
 
     if (decl.val.tag() == .extern_fn) {
         return; // TODO Should we do more when front-end analyzed extern decl?
@@ -409,7 +409,7 @@ pub fn updateDecl(self: *Plan9, module: *Module, decl_index: Module.Decl.Index) 
     defer code_buffer.deinit();
     const decl_val = if (decl.val.castTag(.variable)) |payload| payload.data.init else decl.val;
     // TODO we need the symbol index for symbol in the table of locals for the containing atom
-    const res = try codegen.generateSymbol(&self.base, decl.srcLoc(), .{
+    const res = try codegen.generateSymbol(&self.base, decl.srcLoc(mod), .{
         .ty = decl.ty,
         .val = decl_val,
     }, &code_buffer, .{ .none = {} }, .{
@@ -419,7 +419,7 @@ pub fn updateDecl(self: *Plan9, module: *Module, decl_index: Module.Decl.Index) 
         .ok => code_buffer.items,
         .fail => |em| {
             decl.analysis = .codegen_failure;
-            try module.failed_decls.put(module.gpa, decl_index, em);
+            try mod.failed_decls.put(mod.gpa, decl_index, em);
             return;
         },
     };
@@ -707,7 +707,7 @@ pub fn flushModule(self: *Plan9, comp: *Compilation, prog_node: *std.Progress.No
                 const code = blk: {
                     const is_fn = source_decl.ty.zigTypeTag(mod) == .Fn;
                     if (is_fn) {
-                        const table = self.fn_decl_table.get(source_decl.getFileScope()).?.functions;
+                        const table = self.fn_decl_table.get(source_decl.getFileScope(mod)).?.functions;
                         const output = table.get(source_decl_index).?;
                         break :blk output.code;
                     } else {
@@ -729,7 +729,7 @@ pub fn flushModule(self: *Plan9, comp: *Compilation, prog_node: *std.Progress.No
 }
 fn addDeclExports(
     self: *Plan9,
-    module: *Module,
+    mod: *Module,
     decl_index: Module.Decl.Index,
     exports: []const *Module.Export,
 ) !void {
@@ -740,9 +740,9 @@ fn addDeclExports(
         // plan9 does not support custom sections
         if (exp.options.section) |section_name| {
             if (!mem.eql(u8, section_name, ".text") or !mem.eql(u8, section_name, ".data")) {
-                try module.failed_exports.put(module.gpa, exp, try Module.ErrorMsg.create(
+                try mod.failed_exports.put(mod.gpa, exp, try Module.ErrorMsg.create(
                     self.base.allocator,
-                    module.declPtr(decl_index).srcLoc(),
+                    mod.declPtr(decl_index).srcLoc(mod),
                     "plan9 does not support extra sections",
                     .{},
                 ));
@@ -773,7 +773,7 @@ pub fn freeDecl(self: *Plan9, decl_index: Module.Decl.Index) void {
     const decl = mod.declPtr(decl_index);
     const is_fn = (decl.val.tag() == .function);
     if (is_fn) {
-        var symidx_and_submap = self.fn_decl_table.get(decl.getFileScope()).?;
+        var symidx_and_submap = self.fn_decl_table.get(decl.getFileScope(mod)).?;
         var submap = symidx_and_submap.functions;
         if (submap.fetchSwapRemove(decl_index)) |removed_entry| {
             self.base.allocator.free(removed_entry.value.code);

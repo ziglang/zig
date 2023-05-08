@@ -1538,7 +1538,7 @@ pub const CType = extern union {
                         .forward, .forward_parameter => {
                             self.storage = .{ .fwd = .{
                                 .base = .{ .tag = if (is_struct) .fwd_struct else .fwd_union },
-                                .data = ty.getOwnerDecl(),
+                                .data = ty.getOwnerDecl(mod),
                             } };
                             self.value = .{ .cty = initPayload(&self.storage.fwd) };
                         },
@@ -1985,7 +1985,7 @@ pub const CType = extern union {
                             const unnamed_pl = try arena.create(Payload.Unnamed);
                             unnamed_pl.* = .{ .base = .{ .tag = t }, .data = .{
                                 .fields = fields_pl,
-                                .owner_decl = ty.getOwnerDecl(),
+                                .owner_decl = ty.getOwnerDecl(mod),
                                 .id = if (ty.unionTagTypeSafety()) |_| 0 else unreachable,
                             } };
                             return initPayload(unnamed_pl);
@@ -2124,7 +2124,7 @@ pub const CType = extern union {
                             .forward, .forward_parameter, .complete, .parameter, .global => unreachable,
                             .payload => if (ty.unionTagTypeSafety()) |_| {
                                 const data = cty.cast(Payload.Unnamed).?.data;
-                                return ty.getOwnerDecl() == data.owner_decl and data.id == 0;
+                                return ty.getOwnerDecl(mod) == data.owner_decl and data.id == 0;
                             } else unreachable,
                         },
 
@@ -2242,7 +2242,7 @@ pub const CType = extern union {
                         => switch (self.kind) {
                             .forward, .forward_parameter, .complete, .parameter, .global => unreachable,
                             .payload => if (ty.unionTagTypeSafety()) |_| {
-                                autoHash(hasher, ty.getOwnerDecl());
+                                autoHash(hasher, ty.getOwnerDecl(mod));
                                 autoHash(hasher, @as(u32, 0));
                             } else unreachable,
                         },

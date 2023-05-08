@@ -112,10 +112,10 @@ const Owner = union(enum) {
     mod_fn: *const Module.Fn,
     lazy_sym: link.File.LazySymbol,
 
-    fn getDecl(owner: Owner) Module.Decl.Index {
+    fn getDecl(owner: Owner, mod: *Module) Module.Decl.Index {
         return switch (owner) {
             .mod_fn => |mod_fn| mod_fn.owner_decl,
-            .lazy_sym => |lazy_sym| lazy_sym.ty.getOwnerDecl(),
+            .lazy_sym => |lazy_sym| lazy_sym.ty.getOwnerDecl(mod),
         };
     }
 
@@ -7926,6 +7926,7 @@ fn airArg(self: *Self, inst: Air.Inst.Index) !void {
 }
 
 fn genArgDbgInfo(self: Self, ty: Type, name: [:0]const u8, mcv: MCValue) !void {
+    const mod = self.bin_file.options.module.?;
     switch (self.debug_output) {
         .dwarf => |dw| {
             const loc: link.File.Dwarf.DeclState.DbgInfoLoc = switch (mcv) {
@@ -7944,7 +7945,7 @@ fn genArgDbgInfo(self: Self, ty: Type, name: [:0]const u8, mcv: MCValue) !void {
             // TODO: this might need adjusting like the linkers do.
             // Instead of flattening the owner and passing Decl.Index here we may
             // want to special case LazySymbol in DWARF linker too.
-            try dw.genArgDbgInfo(name, ty, self.owner.getDecl(), loc);
+            try dw.genArgDbgInfo(name, ty, self.owner.getDecl(mod), loc);
         },
         .plan9 => {},
         .none => {},
@@ -7958,6 +7959,7 @@ fn genVarDbgInfo(
     mcv: MCValue,
     name: [:0]const u8,
 ) !void {
+    const mod = self.bin_file.options.module.?;
     const is_ptr = switch (tag) {
         .dbg_var_ptr => true,
         .dbg_var_val => false,
@@ -7988,7 +7990,7 @@ fn genVarDbgInfo(
             // TODO: this might need adjusting like the linkers do.
             // Instead of flattening the owner and passing Decl.Index here we may
             // want to special case LazySymbol in DWARF linker too.
-            try dw.genVarDbgInfo(name, ty, self.owner.getDecl(), is_ptr, loc);
+            try dw.genVarDbgInfo(name, ty, self.owner.getDecl(mod), is_ptr, loc);
         },
         .plan9 => {},
         .none => {},
@@ -10936,7 +10938,7 @@ fn airTagName(self: *Self, inst: Air.Inst.Index) !void {
     try self.genLazySymbolRef(
         .call,
         .rax,
-        link.File.LazySymbol.initDecl(.code, enum_ty.getOwnerDecl(), mod),
+        link.File.LazySymbol.initDecl(.code, enum_ty.getOwnerDecl(mod), mod),
     );
 
     return self.finishAir(inst, dst_mcv, .{ un_op, .none, .none });
@@ -11651,7 +11653,8 @@ fn limitImmediateType(self: *Self, operand: Air.Inst.Ref, comptime T: type) !MCV
 }
 
 fn genTypedValue(self: *Self, arg_tv: TypedValue) InnerError!MCValue {
-    return switch (try codegen.genTypedValue(self.bin_file, self.src_loc, arg_tv, self.owner.getDecl())) {
+    const mod = self.bin_file.options.module.?;
+    return switch (try codegen.genTypedValue(self.bin_file, self.src_loc, arg_tv, self.owner.getDecl(mod))) {
         .mcv => |mcv| switch (mcv) {
             .none => .none,
             .undef => .undef,
