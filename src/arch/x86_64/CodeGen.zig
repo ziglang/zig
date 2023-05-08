@@ -5325,8 +5325,10 @@ fn airStructFieldVal(self: *Self, inst: Air.Inst.Index) !void {
         const index = extra.field_index;
 
         const container_ty = self.air.typeOf(operand);
+        const container_rc = regClassForType(container_ty);
         const field_ty = container_ty.structFieldType(index);
         if (!field_ty.hasRuntimeBitsIgnoreComptime()) break :result .none;
+        const field_rc = regClassForType(field_ty);
 
         const src_mcv = try self.resolveInst(operand);
         const field_off = switch (container_ty.containerLayout()) {
@@ -5410,30 +5412,23 @@ fn airStructFieldVal(self: *Self, inst: Air.Inst.Index) !void {
                 if (field_extra_bits > 0) try self.truncateRegister(field_ty, dst_reg);
 
                 const dst_mcv = MCValue{ .register = dst_reg };
-                const dst_rc = regClassForType(field_ty);
-                if (dst_rc.eql(gp)) break :result dst_mcv;
-
-                const result_reg = try self.register_manager.allocReg(inst, dst_rc);
-                try self.genSetReg(result_reg, field_ty, dst_mcv);
-                break :result .{ .register = result_reg };
+                break :result if (field_rc.supersetOf(gp))
+                    dst_mcv
+                else
+                    try self.copyToRegisterWithInstTracking(inst, field_ty, dst_mcv);
             },
             .register => |reg| {
                 const reg_lock = self.register_manager.lockRegAssumeUnused(reg);
                 defer self.register_manager.unlockReg(reg_lock);
 
-                const dst_mcv = if (self.reuseOperand(inst, operand, 0, src_mcv))
-                    src_mcv
+                const dst_reg = if (src_mcv.isRegister() and field_rc.supersetOf(container_rc) and
+                    self.reuseOperand(inst, operand, 0, src_mcv))
+                    src_mcv.getReg().?
                 else
-                    try self.copyToRegisterWithInstTracking(
-                        inst,
-                        Type.usize,
-                        .{ .register = reg.to64() },
-                    );
-                const dst_mcv_lock: ?RegisterLock = switch (dst_mcv) {
-                    .register => |a_reg| self.register_manager.lockReg(a_reg),
-                    else => null,
-                };
-                defer if (dst_mcv_lock) |lock| self.register_manager.unlockReg(lock);
+                    try self.copyToTmpRegister(Type.usize, .{ .register = reg.to64() });
+                const dst_mcv = MCValue{ .register = dst_reg };
+                const dst_lock = self.register_manager.lockReg(dst_reg);
+                defer if (dst_lock) |lock| self.register_manager.unlockReg(lock);
 
                 // Shift by struct_field_offset.
                 try self.genShiftBinOpMir(
@@ -5460,7 +5455,11 @@ fn airStructFieldVal(self: *Self, inst: Air.Inst.Index) !void {
                         registerAlias(dst_mcv.register, field_byte_size),
                     );
                 }
-                break :result dst_mcv;
+
+                break :result if (field_rc.supersetOf(gp))
+                    dst_mcv
+                else
+                    try self.copyToRegisterWithInstTracking(inst, field_ty, dst_mcv);
             },
             .register_overflow => |ro| {
                 switch (index) {
