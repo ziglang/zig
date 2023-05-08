@@ -5732,6 +5732,62 @@ test "zig fmt: canonicalize symbols (asm)" {
     );
 }
 
+test "zig fmt: don't canonicalize _ in enums" {
+    try testTransform(
+        \\const A = enum {
+        \\    first,
+        \\    second,
+        \\    third,
+        \\    _,
+        \\};
+        \\const B = enum {
+        \\    @"_",
+        \\    @"__",
+        \\    @"___",
+        \\    @"____",
+        \\};
+        \\const C = struct {
+        \\    @"_": u8,
+        \\    @"__": u8,
+        \\    @"___": u8,
+        \\    @"____": u8,
+        \\};
+        \\const D = union {
+        \\    @"_": u8,
+        \\    @"__": u8,
+        \\    @"___": u8,
+        \\    @"____": u8,
+        \\};
+        \\
+    ,
+        \\const A = enum {
+        \\    first,
+        \\    second,
+        \\    third,
+        \\    _,
+        \\};
+        \\const B = enum {
+        \\    @"_",
+        \\    __,
+        \\    ___,
+        \\    ____,
+        \\};
+        \\const C = struct {
+        \\    _: u8,
+        \\    __: u8,
+        \\    ___: u8,
+        \\    ____: u8,
+        \\};
+        \\const D = union {
+        \\    _: u8,
+        \\    __: u8,
+        \\    ___: u8,
+        \\    ____: u8,
+        \\};
+        \\
+    );
+}
+
 test "zig fmt: error for missing sentinel value in sentinel slice" {
     try testError(
         \\const foo = foo[0..:];
