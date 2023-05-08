@@ -29,6 +29,9 @@ const errUnionErrorOffset = codegen.errUnionErrorOffset;
 
 /// Wasm Value, created when generating an instruction
 const WValue = union(enum) {
+    /// `WValue` which has been freed and may no longer hold
+    /// any references.
+    dead: void,
     /// May be referenced but is unused
     none: void,
     /// The value lives on top of the stack
@@ -86,6 +89,7 @@ const WValue = union(enum) {
     fn offset(value: WValue) u32 {
         switch (value) {
             .stack_offset => |stack_offset| return stack_offset.value,
+            .dead => unreachable,
             else => return 0,
         }
     }
@@ -123,7 +127,7 @@ const WValue = union(enum) {
             .f64 => gen.free_locals_f64.append(gen.gpa, local_value) catch return,
             .v128 => gen.free_locals_v128.append(gen.gpa, local_value) catch return,
         }
-        value.* = undefined;
+        value.* = .dead;
     }
 };
 
@@ -832,6 +836,7 @@ const Branch = struct {
 
     fn deinit(branch: *Branch, gpa: Allocator) void {
         branch.values.deinit(gpa);
+        branch.* = undefined;
     }
 };
 
@@ -884,7 +889,7 @@ fn processDeath(func: *CodeGen, ref: Air.Inst.Ref) void {
     if (value.local.value < reserved_indexes) {
         return; // function arguments can never be re-used
     }
-    log.debug("Decreasing reference for ref: %{?d}, using local '{d}'\n", .{ Air.refToIndex(ref), value.local.value });
+    log.debug("Decreasing reference for ref: %{?d}, using local '{d}'", .{ Air.refToIndex(ref), value.local.value });
     value.local.references -= 1; // if this panics, a call to `reuseOperand` was forgotten by the developer
     if (value.local.references == 0) {
         value.free(func);
@@ -1030,6 +1035,7 @@ fn genBlockType(ty: Type, target: std.Target) u8 {
 /// Writes the bytecode depending on the given `WValue` in `val`
 fn emitWValue(func: *CodeGen, value: WValue) InnerError!void {
     switch (value) {
+        .dead => unreachable, // reference to free'd `WValue` (missing reuseOperand?)
         .none, .stack => {}, // no-op
         .local => |idx| try func.addLabel(.local_get, idx.value),
         .imm32 => |val| try func.addImm32(@bitCast(i32, val)),
@@ -1226,6 +1232,7 @@ fn genFunc(func: *CodeGen) InnerError!void {
     defer {
         var outer_branch = func.branches.pop();
         outer_branch.deinit(func.gpa);
+        assert(func.branches.items.len == 0); // missing branch merge
     }
     // Generate MIR for function body
     try func.genBody(func.air.getMainBody());
