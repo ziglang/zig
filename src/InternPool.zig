@@ -55,6 +55,7 @@ pub const Key = union(enum) {
         lib_name: u32,
     },
     int: Key.Int,
+    ptr: Key.Ptr,
     enum_tag: struct {
         ty: Index,
         tag: BigIntConst,
@@ -140,6 +141,16 @@ pub const Key = union(enum) {
         };
     };
 
+    pub const Ptr = struct {
+        ty: Index,
+        addr: Addr,
+
+        pub const Addr = union(enum) {
+            decl: DeclIndex,
+            int: Index,
+        };
+    };
+
     pub fn hash32(key: Key) u32 {
         return @truncate(u32, key.hash64());
     }
@@ -174,6 +185,16 @@ pub const Key = union(enum) {
                 std.hash.autoHash(hasher, int.ty);
                 std.hash.autoHash(hasher, big_int.positive);
                 for (big_int.limbs) |limb| std.hash.autoHash(hasher, limb);
+            },
+
+            .ptr => |ptr| {
+                std.hash.autoHash(hasher, ptr.ty);
+                // Int-to-ptr pointers are hashed separately than decl-referencing pointers.
+                // This is sound due to pointer province rules.
+                switch (ptr.addr) {
+                    .int => |int| std.hash.autoHash(hasher, int),
+                    .decl => @panic("TODO"),
+                }
             },
 
             .enum_tag => |enum_tag| {
@@ -237,8 +258,30 @@ pub const Key = union(enum) {
                 return std.meta.eql(a_info, b_info);
             },
 
+            .ptr => |a_info| {
+                const b_info = b.ptr;
+
+                if (a_info.ty != b_info.ty)
+                    return false;
+
+                return switch (a_info.addr) {
+                    .int => |a_int| switch (b_info.addr) {
+                        .int => |b_int| a_int == b_int,
+                        .decl => false,
+                    },
+                    .decl => |a_decl| switch (b_info.addr) {
+                        .int => false,
+                        .decl => |b_decl| a_decl == b_decl,
+                    },
+                };
+            },
+
             .int => |a_info| {
                 const b_info = b.int;
+
+                if (a_info.ty != b_info.ty)
+                    return false;
+
                 return switch (a_info.storage) {
                     .u64 => |aa| switch (b_info.storage) {
                         .u64 => |bb| aa == bb,
@@ -298,9 +341,11 @@ pub const Key = union(enum) {
             .union_type,
             => return .type_type,
 
-            .int => |x| return x.ty,
-            .extern_func => |x| return x.ty,
-            .enum_tag => |x| return x.ty,
+            inline .ptr,
+            .int,
+            .extern_func,
+            .enum_tag,
+            => |x| return x.ty,
 
             .simple_value => |s| switch (s) {
                 .undefined => return .undefined_type,
@@ -724,6 +769,9 @@ pub const Tag = enum(u8) {
     /// only an enum tag, but will be presented via the API with a different Key.
     /// data is SimpleInternal enum value.
     simple_internal,
+    /// A pointer to an integer value.
+    /// data is extra index of PtrInt, which contains the type and address.
+    ptr_int,
     /// Type: u8
     /// data is integer value
     int_u8,
@@ -897,16 +945,13 @@ pub const Array = struct {
     child: Index,
     sentinel: Index,
 
-    pub const Length = packed struct(u64) {
-        len0: u32,
-        len1: u32,
-    };
+    pub const Length = PackedU64;
 
     pub fn getLength(a: Array) u64 {
-        return @bitCast(u64, Length{
-            .len0 = a.len0,
-            .len1 = a.len1,
-        });
+        return (PackedU64{
+            .a = a.len0,
+            .b = a.len1,
+        }).get();
     }
 };
 
@@ -927,6 +972,24 @@ pub const EnumSimple = struct {
     /// of enums.
     int_tag_ty: Index,
     fields_len: u32,
+};
+
+pub const PackedU64 = packed struct(u64) {
+    a: u32,
+    b: u32,
+
+    pub fn get(x: PackedU64) u64 {
+        return @bitCast(u64, x);
+    }
+
+    pub fn init(x: u64) PackedU64 {
+        return @bitCast(PackedU64, x);
+    }
+};
+
+pub const PtrInt = struct {
+    ty: Index,
+    addr: Index,
 };
 
 /// Trailing: Limb for every limbs_len
@@ -1066,6 +1129,13 @@ pub fn indexToKey(ip: InternPool, index: Index) Key {
                 .fields_len = 0,
             } },
         },
+        .ptr_int => {
+            const info = ip.extraData(PtrInt, data);
+            return .{ .ptr = .{
+                .ty = info.ty,
+                .addr = .{ .int = info.addr },
+            } };
+        },
         .int_u8 => .{ .int = .{
             .ty = .u8_type,
             .storage = .{ .u64 = data },
@@ -1188,12 +1258,12 @@ pub fn get(ip: *InternPool, gpa: Allocator, key: Key) Allocator.Error!Index {
                 }
             }
 
-            const length = @bitCast(Array.Length, array_type.len);
+            const length = Array.Length.init(array_type.len);
             ip.items.appendAssumeCapacity(.{
                 .tag = .type_array_big,
                 .data = try ip.addExtra(gpa, Array{
-                    .len0 = length.len0,
-                    .len1 = length.len1,
+                    .len0 = length.a,
+                    .len1 = length.b,
                     .child = array_type.child,
                     .sentinel = array_type.sentinel,
                 }),
@@ -1236,6 +1306,20 @@ pub fn get(ip: *InternPool, gpa: Allocator, key: Key) Allocator.Error!Index {
             });
         },
         .extern_func => @panic("TODO"),
+
+        .ptr => |ptr| switch (ptr.addr) {
+            .decl => @panic("TODO"),
+            .int => |int| {
+                assert(ptr.ty != .none);
+                ip.items.appendAssumeCapacity(.{
+                    .tag = .ptr_int,
+                    .data = try ip.addExtra(gpa, PtrInt{
+                        .ty = ptr.ty,
+                        .addr = int,
+                    }),
+                });
+            },
+        },
 
         .int => |int| b: {
             switch (int.ty) {
@@ -1620,38 +1704,43 @@ pub fn slicePtrType(ip: InternPool, i: Index) Index {
     }
 }
 
-/// Given an existing integer value, returns the same numerical value but with
-/// the supplied type.
-pub fn getCoercedInt(ip: *InternPool, gpa: Allocator, val: Index, new_ty: Index) Allocator.Error!Index {
-    const key = ip.indexToKey(val);
-    // The key cannot be passed directly to `get`, otherwise in the case of
-    // big_int storage, the limbs would be invalidated before they are read.
-    // Here we pre-reserve the limbs to ensure that the logic in `addInt` will
-    // not use an invalidated limbs pointer.
-    switch (key.int.storage) {
-        .u64 => |x| return ip.get(gpa, .{ .int = .{
-            .ty = new_ty,
-            .storage = .{ .u64 = x },
-        } }),
-        .i64 => |x| return ip.get(gpa, .{ .int = .{
-            .ty = new_ty,
-            .storage = .{ .i64 = x },
-        } }),
+/// Given an existing value, returns the same value but with the supplied type.
+/// Only some combinations are allowed:
+/// * int to int
+pub fn getCoerced(ip: *InternPool, gpa: Allocator, val: Index, new_ty: Index) Allocator.Error!Index {
+    switch (ip.indexToKey(val)) {
+        .int => |int| {
+            // The key cannot be passed directly to `get`, otherwise in the case of
+            // big_int storage, the limbs would be invalidated before they are read.
+            // Here we pre-reserve the limbs to ensure that the logic in `addInt` will
+            // not use an invalidated limbs pointer.
+            switch (int.storage) {
+                .u64 => |x| return ip.get(gpa, .{ .int = .{
+                    .ty = new_ty,
+                    .storage = .{ .u64 = x },
+                } }),
+                .i64 => |x| return ip.get(gpa, .{ .int = .{
+                    .ty = new_ty,
+                    .storage = .{ .i64 = x },
+                } }),
 
-        .big_int => |big_int| {
-            const positive = big_int.positive;
-            const limbs = ip.limbsSliceToIndex(big_int.limbs);
-            // This line invalidates the limbs slice, but the indexes computed in the
-            // previous line are still correct.
-            try reserveLimbs(ip, gpa, @typeInfo(Int).Struct.fields.len + big_int.limbs.len);
-            return ip.get(gpa, .{ .int = .{
-                .ty = new_ty,
-                .storage = .{ .big_int = .{
-                    .limbs = ip.limbsIndexToSlice(limbs),
-                    .positive = positive,
-                } },
-            } });
+                .big_int => |big_int| {
+                    const positive = big_int.positive;
+                    const limbs = ip.limbsSliceToIndex(big_int.limbs);
+                    // This line invalidates the limbs slice, but the indexes computed in the
+                    // previous line are still correct.
+                    try reserveLimbs(ip, gpa, @typeInfo(Int).Struct.fields.len + big_int.limbs.len);
+                    return ip.get(gpa, .{ .int = .{
+                        .ty = new_ty,
+                        .storage = .{ .big_int = .{
+                            .limbs = ip.limbsIndexToSlice(limbs),
+                            .positive = positive,
+                        } },
+                    } });
+                },
+            }
         },
+        else => unreachable,
     }
 }
 
@@ -1708,6 +1797,7 @@ fn dumpFallible(ip: InternPool, arena: Allocator) anyerror!void {
             .simple_type => 0,
             .simple_value => 0,
             .simple_internal => 0,
+            .ptr_int => @sizeOf(PtrInt),
             .int_u8 => 0,
             .int_u16 => 0,
             .int_u32 => 0,

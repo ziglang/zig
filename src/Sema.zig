@@ -15096,7 +15096,7 @@ fn analyzePtrArithmetic(
                         .ptr_sub => addr - elem_size * offset_int,
                         else => unreachable,
                     };
-                    const new_ptr_val = try mod.intValue(new_ptr_ty, new_addr);
+                    const new_ptr_val = try mod.ptrIntValue(new_ptr_ty, new_addr);
                     return sema.addConstant(new_ptr_ty, new_ptr_val);
                 }
                 if (air_tag == .ptr_sub) {
@@ -19921,7 +19921,7 @@ fn zirIntToPtr(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
         if (addr != 0 and ptr_align != 0 and addr % ptr_align != 0)
             return sema.fail(block, operand_src, "pointer type '{}' requires aligned address", .{ptr_ty.fmt(sema.mod)});
 
-        return sema.addConstant(ptr_ty, try mod.intValue(ptr_ty, addr));
+        return sema.addConstant(ptr_ty, try mod.ptrIntValue(ptr_ty, addr));
     }
 
     try sema.requireRuntimeBlock(block, src, operand_src);
@@ -25630,8 +25630,13 @@ fn coerceExtra(
     var in_memory_result = try sema.coerceInMemoryAllowed(block, dest_ty, inst_ty, false, target, dest_ty_src, inst_src);
     if (in_memory_result == .ok) {
         if (maybe_inst_val) |val| {
-            // Keep the comptime Value representation; take the new type.
-            return sema.addConstant(dest_ty, val);
+            if (val.ip_index == .none or val.ip_index == .null_value) {
+                // Keep the comptime Value representation; take the new type.
+                return sema.addConstant(dest_ty, val);
+            } else {
+                const new_val = try mod.intern_pool.getCoerced(mod.gpa, val.ip_index, dest_ty.ip_index);
+                return sema.addConstant(dest_ty, new_val.toValue());
+            }
         }
         try sema.requireRuntimeBlock(block, inst_src, null);
         return block.addBitCast(dest_ty, inst);
@@ -26004,7 +26009,7 @@ fn coerceExtra(
                         if (!opts.report_err) return error.NotCoercible;
                         return sema.fail(block, inst_src, "type '{}' cannot represent integer value '{}'", .{ dest_ty.fmt(sema.mod), val.fmtValue(inst_ty, sema.mod) });
                     }
-                    const new_val = try mod.intern_pool.getCoercedInt(sema.gpa, val.ip_index, dest_ty.ip_index);
+                    const new_val = try mod.intern_pool.getCoerced(sema.gpa, val.ip_index, dest_ty.ip_index);
                     return try sema.addConstant(dest_ty, new_val.toValue());
                 }
                 if (dest_ty.zigTypeTag(mod) == .ComptimeInt) {
@@ -31659,10 +31664,13 @@ pub fn resolveTypeRequiresComptime(sema: *Sema, ty: Type) CompileError!bool {
             },
             .struct_type => @panic("TODO"),
             .union_type => @panic("TODO"),
+
+            // values, not types
             .simple_value => unreachable,
             .extern_func => unreachable,
             .int => unreachable,
-            .enum_tag => unreachable, // it's a value, not a type
+            .ptr => unreachable,
+            .enum_tag => unreachable,
         },
     };
 }
@@ -33179,10 +33187,13 @@ pub fn typeHasOnePossibleValue(sema: *Sema, ty: Type) CompileError!?Value {
             },
             .struct_type => @panic("TODO"),
             .union_type => @panic("TODO"),
+
+            // values, not types
             .simple_value => unreachable,
             .extern_func => unreachable,
             .int => unreachable,
-            .enum_tag => unreachable, // it's a value, not a type
+            .ptr => unreachable,
+            .enum_tag => unreachable,
         },
     }
 }
@@ -33239,7 +33250,14 @@ pub fn addConstant(sema: *Sema, ty: Type, val: Value) SemaError!Air.Inst.Ref {
         const result = Air.indexToRef(@intCast(u32, sema.air_instructions.len - 1));
         // This assertion can be removed when the `ty` parameter is removed from
         // this function thanks to the InternPool transition being complete.
-        assert(Type.eql(sema.typeOf(result), ty, sema.mod));
+        if (std.debug.runtime_safety) {
+            const val_ty = sema.typeOf(result);
+            if (!Type.eql(val_ty, ty, sema.mod)) {
+                std.debug.panic("addConstant type mismatch: '{}' vs '{}'\n", .{
+                    ty.fmt(sema.mod), val_ty.fmt(sema.mod),
+                });
+            }
+        }
         return result;
     }
     const ty_inst = try sema.addType(ty);
@@ -33738,10 +33756,13 @@ pub fn typeRequiresComptime(sema: *Sema, ty: Type) CompileError!bool {
             },
             .struct_type => @panic("TODO"),
             .union_type => @panic("TODO"),
+
+            // values, not types
             .simple_value => unreachable,
             .extern_func => unreachable,
             .int => unreachable,
-            .enum_tag => unreachable, // it's a value, not a type
+            .ptr => unreachable,
+            .enum_tag => unreachable,
         },
     };
 }

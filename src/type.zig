@@ -142,11 +142,12 @@ pub const Type = struct {
                     .var_args_param => unreachable,
                 },
 
-                .extern_func,
-                .int,
-                .enum_tag,
-                .simple_value,
-                => unreachable, // it's a value, not a type
+                // values, not types
+                .extern_func => unreachable,
+                .int => unreachable,
+                .ptr => unreachable,
+                .enum_tag => unreachable,
+                .simple_value => unreachable,
             },
         }
     }
@@ -1576,6 +1577,7 @@ pub const Type = struct {
                 .simple_value => unreachable,
                 .extern_func => unreachable,
                 .int => unreachable,
+                .ptr => unreachable,
                 .enum_tag => unreachable,
             },
         }
@@ -1842,10 +1844,13 @@ pub const Type = struct {
                 },
                 .struct_type => @panic("TODO"),
                 .union_type => @panic("TODO"),
+
+                // values, not types
                 .simple_value => unreachable,
                 .extern_func => unreachable,
                 .int => unreachable,
-                .enum_tag => unreachable, // it's a value, not a type
+                .ptr => unreachable,
+                .enum_tag => unreachable,
             },
         }
     }
@@ -1950,10 +1955,13 @@ pub const Type = struct {
                 },
                 .struct_type => @panic("TODO"),
                 .union_type => @panic("TODO"),
+
+                // values, not types
                 .simple_value => unreachable,
                 .extern_func => unreachable,
                 .int => unreachable,
-                .enum_tag => unreachable, // it's a value, not a type
+                .ptr => unreachable,
+                .enum_tag => unreachable,
             },
         };
     }
@@ -2348,10 +2356,13 @@ pub const Type = struct {
                 },
                 .struct_type => @panic("TODO"),
                 .union_type => @panic("TODO"),
+
+                // values, not types
                 .simple_value => unreachable,
                 .extern_func => unreachable,
                 .int => unreachable,
-                .enum_tag => unreachable, // it's a value, not a type
+                .ptr => unreachable,
+                .enum_tag => unreachable,
             },
         }
     }
@@ -2759,10 +2770,13 @@ pub const Type = struct {
                 },
                 .struct_type => @panic("TODO"),
                 .union_type => @panic("TODO"),
+
+                // values, not types
                 .simple_value => unreachable,
                 .extern_func => unreachable,
                 .int => unreachable,
-                .enum_tag => unreachable, // it's a value, not a type
+                .ptr => unreachable,
+                .enum_tag => unreachable,
             },
         }
     }
@@ -2926,10 +2940,13 @@ pub const Type = struct {
             },
             .struct_type => @panic("TODO"),
             .union_type => @panic("TODO"),
+
+            // values, not types
             .simple_value => unreachable,
             .extern_func => unreachable,
             .int => unreachable,
-            .enum_tag => unreachable, // it's a value, not a type
+            .ptr => unreachable,
+            .enum_tag => unreachable,
         };
 
         const strat: AbiAlignmentAdvancedStrat = if (opt_sema) |sema| .{ .sema = sema } else .eager;
@@ -3780,9 +3797,12 @@ pub const Type = struct {
                 .simple_type => unreachable, // handled via Index enum tag above
                 .struct_type => @panic("TODO"),
                 .union_type => unreachable,
+
+                // values, not types
                 .simple_value => unreachable,
                 .extern_func => unreachable,
                 .int => unreachable,
+                .ptr => unreachable,
                 .enum_tag => unreachable,
             },
         };
@@ -4152,10 +4172,13 @@ pub const Type = struct {
                 },
                 .struct_type => @panic("TODO"),
                 .union_type => @panic("TODO"),
+
+                // values, not types
                 .simple_value => unreachable,
                 .extern_func => unreachable,
                 .int => unreachable,
-                .enum_tag => unreachable, // it's a value, not a type
+                .ptr => unreachable,
+                .enum_tag => unreachable,
             },
         };
     }
@@ -4319,6 +4342,7 @@ pub const Type = struct {
                 .simple_value => unreachable,
                 .extern_func => unreachable,
                 .int => unreachable,
+                .ptr => unreachable,
                 .enum_tag => unreachable, // it's a value, not a type
             },
         };
