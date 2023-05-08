@@ -604,6 +604,7 @@ const DocData = struct {
             pubDecls: []usize = &.{}, // index into decls
             field_types: []Expr = &.{}, // (use src->fields to find names)
             field_defaults: []?Expr = &.{}, // default values is specified
+            backing_int: ?Expr = null, // backing integer if specified
             is_tuple: bool,
             line_number: usize,
             parent_container: ?usize, // index into `types`
@@ -2854,13 +2855,21 @@ fn walkInstruction(
                         break :blk fields_len;
                     } else 0;
 
-                    // TODO: Expose explicit backing integer types in some way.
+                    var backing_int: ?DocData.Expr = null;
                     if (small.has_backing_int) {
                         const backing_int_body_len = file.zir.extra[extra_index];
                         extra_index += 1; // backing_int_body_len
                         if (backing_int_body_len == 0) {
+                            const backing_int_ref = @intToEnum(Ref, file.zir.extra[extra_index]);
+                            const backing_int_res = try self.walkRef(file, &scope, src_info, backing_int_ref, true);
+                            backing_int = backing_int_res.expr;
                             extra_index += 1; // backing_int_ref
                         } else {
+                            const backing_int_body = file.zir.extra[extra_index..][0..backing_int_body_len];
+                            const break_inst = backing_int_body[backing_int_body.len - 1];
+                            const operand = data[break_inst].@"break".operand;
+                            const backing_int_res = try self.walkRef(file, &scope, src_info, operand, true);
+                            backing_int = backing_int_res.expr;
                             extra_index += backing_int_body_len; // backing_int_body_inst
                         }
                     }
@@ -2903,6 +2912,7 @@ fn walkInstruction(
                             .field_types = field_type_refs.items,
                             .field_defaults = field_default_refs.items,
                             .is_tuple = small.is_tuple,
+                            .backing_int = backing_int,
                             .line_number = self.ast_nodes.items[self_ast_node_index].line,
                             .parent_container = parent_scope.enclosing_type,
                         },
