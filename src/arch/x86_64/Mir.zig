@@ -278,8 +278,14 @@ pub const Inst = struct {
         /// Add with carry
         adc,
         /// Add
+        /// Add packed single-precision floating-point values
+        /// Add scalar single-precision floating-point values
+        /// Add packed double-precision floating-point values
+        /// Add scalar double-precision floating-point values
         add,
         /// Logical and
+        /// Bitwise logical and of packed single-precision floating-point values
+        /// Bitwise logical and of packed double-precision floating-point values
         @"and",
         /// Bit scan forward
         bsf,
@@ -304,6 +310,8 @@ pub const Inst = struct {
         cmov,
         /// Logical compare
         /// Compare string
+        /// Compare scalar single-precision floating-point values
+        /// Compare scalar double-precision floating-point values
         cmp,
         /// Compare and exchange
         /// Compare and exchange bytes
@@ -316,6 +324,10 @@ pub const Inst = struct {
         cwde,
         /// Unsigned division
         /// Signed division
+        /// Divide packed single-precision floating-point values
+        /// Divide scalar single-precision floating-point values
+        /// Divide packed double-precision floating-point values
+        /// Divide scalar double-precision floating-point values
         div,
         ///
         int3,
@@ -339,6 +351,8 @@ pub const Inst = struct {
         mfence,
         /// Move
         /// Move data from string to string
+        /// Move scalar single-precision floating-point value
+        /// Move scalar double-precision floating-point value
         /// Move doubleword
         /// Move quadword
         mov,
@@ -350,6 +364,10 @@ pub const Inst = struct {
         movzx,
         /// Multiply
         /// Signed multiplication
+        /// Multiply packed single-precision floating-point values
+        /// Multiply scalar single-precision floating-point values
+        /// Multiply packed double-precision floating-point values
+        /// Multiply scalar double-precision floating-point values
         mul,
         /// Two's complement negation
         neg,
@@ -358,6 +376,8 @@ pub const Inst = struct {
         /// One's complement negation
         not,
         /// Logical or
+        /// Bitwise logical or of packed single-precision floating-point values
+        /// Bitwise logical or of packed double-precision floating-point values
         @"or",
         /// Pop
         pop,
@@ -390,6 +410,10 @@ pub const Inst = struct {
         /// Double precision shift right
         sh,
         /// Subtract
+        /// Subtract packed single-precision floating-point values
+        /// Subtract scalar single-precision floating-point values
+        /// Subtract packed double-precision floating-point values
+        /// Subtract scalar double-precision floating-point values
         sub,
         /// Store string
         sto,
@@ -406,145 +430,88 @@ pub const Inst = struct {
         /// Exchange register/memory with register
         xchg,
         /// Logical exclusive-or
+        /// Bitwise logical xor of packed single-precision floating-point values
+        /// Bitwise logical xor of packed double-precision floating-point values
         xor,
 
-        /// Add packed single-precision floating-point values
-        addps,
-        /// Add scalar single-precision floating-point values
-        addss,
-        /// Bitwise logical and of packed single precision floating-point values
-        andps,
-        /// Bitwise logical and not of packed single precision floating-point values
-        andnps,
-        /// Compare scalar single-precision floating-point values
-        cmpss,
+        /// Bitwise logical and not of packed single-precision floating-point values
+        /// Bitwise logical and not of packed double-precision floating-point values
+        andn,
         /// Convert doubleword integer to scalar single-precision floating-point value
         cvtsi2ss,
-        /// Divide packed single-precision floating-point values
-        divps,
-        /// Divide scalar single-precision floating-point values
-        divss,
         /// Maximum of packed single-precision floating-point values
-        maxps,
         /// Maximum of scalar single-precision floating-point values
-        maxss,
+        /// Maximum of packed double-precision floating-point values
+        /// Maximum of scalar double-precision floating-point values
+        max,
         /// Minimum of packed single-precision floating-point values
-        minps,
         /// Minimum of scalar single-precision floating-point values
-        minss,
+        /// Minimum of packed double-precision floating-point values
+        /// Minimum of scalar double-precision floating-point values
+        min,
         /// Move aligned packed single-precision floating-point values
-        movaps,
+        /// Move aligned packed double-precision floating-point values
+        mova,
         /// Move packed single-precision floating-point values high to low
-        movhlps,
-        /// Move scalar single-precision floating-point value
-        movss,
+        movhl,
         /// Move unaligned packed single-precision floating-point values
-        movups,
-        /// Multiply packed single-precision floating-point values
-        mulps,
-        /// Multiply scalar single-precision floating-point values
-        mulss,
-        /// Bitwise logical or of packed single precision floating-point values
-        orps,
+        /// Move unaligned packed double-precision floating-point values
+        movu,
+        /// Extract byte
         /// Extract word
-        pextrw,
+        /// Extract doubleword
+        /// Extract quadword
+        extr,
+        /// Insert byte
         /// Insert word
-        pinsrw,
+        /// Insert doubleword
+        /// Insert quadword
+        insr,
         /// Square root of packed single-precision floating-point values
-        sqrtps,
         /// Square root of scalar single-precision floating-point value
-        sqrtss,
-        /// Subtract packed single-precision floating-point values
-        subps,
-        /// Subtract scalar single-precision floating-point values
-        subss,
+        /// Square root of packed double-precision floating-point values
+        /// Square root of scalar double-precision floating-point value
+        sqrt,
         /// Unordered compare scalar single-precision floating-point values
-        ucomiss,
+        /// Unordered compare scalar double-precision floating-point values
+        ucomi,
         /// Unpack and interleave high packed single-precision floating-point values
-        unpckhps,
+        /// Unpack and interleave high packed double-precision floating-point values
+        unpckh,
         /// Unpack and interleave low packed single-precision floating-point values
-        unpcklps,
-        /// Bitwise logical xor of packed single precision floating-point values
-        xorps,
+        /// Unpack and interleave low packed double-precision floating-point values
+        unpckl,
 
-        /// Add packed double-precision floating-point values
-        addpd,
-        /// Add scalar double-precision floating-point values
-        addsd,
-        /// Bitwise logical and not of packed double precision floating-point values
-        andnpd,
-        /// Bitwise logical and of packed double precision floating-point values
-        andpd,
-        /// Compare scalar double-precision floating-point values
-        cmpsd,
         /// Convert scalar double-precision floating-point value to scalar single-precision floating-point value
         cvtsd2ss,
         /// Convert doubleword integer to scalar double-precision floating-point value
         cvtsi2sd,
         /// Convert scalar single-precision floating-point value to scalar double-precision floating-point value
         cvtss2sd,
-        /// Divide packed double-precision floating-point values
-        divpd,
-        /// Divide scalar double-precision floating-point values
-        divsd,
-        /// Maximum of packed double-precision floating-point values
-        maxpd,
-        /// Maximum of scalar double-precision floating-point values
-        maxsd,
-        /// Minimum of packed double-precision floating-point values
-        minpd,
-        /// Minimum of scalar double-precision floating-point values
-        minsd,
-        /// Move scalar double-precision floating-point value
-        movsd,
-        /// Multiply packed double-precision floating-point values
-        mulpd,
-        /// Multiply scalar double-precision floating-point values
-        mulsd,
-        /// Bitwise logical or of packed double precision floating-point values
-        orpd,
         /// Shuffle packed high words
-        pshufhw,
+        shufh,
         /// Shuffle packed low words
-        pshuflw,
+        shufl,
         /// Shift packed data right logical
-        psrld,
         /// Shift packed data right logical
-        psrlq,
         /// Shift packed data right logical
-        psrlw,
+        srl,
         /// Unpack high data
-        punpckhbw,
+        unpckhbw,
         /// Unpack high data
-        punpckhdq,
+        unpckhdq,
         /// Unpack high data
-        punpckhqdq,
+        unpckhqdq,
         /// Unpack high data
-        punpckhwd,
+        unpckhwd,
         /// Unpack low data
-        punpcklbw,
+        unpcklbw,
         /// Unpack low data
-        punpckldq,
+        unpckldq,
         /// Unpack low data
-        punpcklqdq,
+        unpcklqdq,
         /// Unpack low data
-        punpcklwd,
-        /// Square root of double precision floating-point values
-        sqrtpd,
-        /// Square root of scalar double precision floating-point value
-        sqrtsd,
-        /// Subtract packed double-precision floating-point values
-        subpd,
-        /// Subtract scalar double-precision floating-point values
-        subsd,
-        /// Unordered compare scalar double-precision floating-point values
-        ucomisd,
-        /// Unpack and interleave high packed double-precision floating-point values
-        unpckhpd,
-        /// Unpack and interleave low packed double-precision floating-point values
-        unpcklpd,
-        /// Bitwise logical xor of packed double precision floating-point values
-        xorpd,
+        unpcklwd,
 
         /// Replicate double floating-point values
         movddup,
@@ -553,199 +520,32 @@ pub const Inst = struct {
         /// Replicate single floating-point values
         movsldup,
 
-        /// Extract Byte
-        pextrb,
-        /// Extract Doubleword
-        pextrd,
-        /// Extract Quadword
-        pextrq,
-        /// Insert Byte
-        pinsrb,
-        /// Insert Doubleword
-        pinsrd,
-        /// Insert Quadword
-        pinsrq,
-        /// Round packed double-precision floating-point values
-        roundpd,
         /// Round packed single-precision floating-point values
-        roundps,
-        /// Round scalar double-precision floating-point value
-        roundsd,
         /// Round scalar single-precision floating-point value
-        roundss,
-
-        /// Add packed double-precision floating-point values
-        vaddpd,
-        /// Add packed single-precision floating-point values
-        vaddps,
-        /// Add scalar double-precision floating-point values
-        vaddsd,
-        /// Add scalar single-precision floating-point values
-        vaddss,
-        /// Convert scalar double-precision floating-point value to scalar single-precision floating-point value
-        vcvtsd2ss,
-        /// Convert doubleword integer to scalar double-precision floating-point value
-        vcvtsi2sd,
-        /// Convert doubleword integer to scalar single-precision floating-point value
-        vcvtsi2ss,
-        /// Convert scalar single-precision floating-point value to scalar double-precision floating-point value
-        vcvtss2sd,
-        /// Divide packed double-precision floating-point values
-        vdivpd,
-        /// Divide packed single-precision floating-point values
-        vdivps,
-        /// Divide scalar double-precision floating-point values
-        vdivsd,
-        /// Divide scalar single-precision floating-point values
-        vdivss,
-        /// Maximum of packed double-precision floating-point values
-        vmaxpd,
-        /// Maximum of packed single-precision floating-point values
-        vmaxps,
-        /// Maximum of scalar double-precision floating-point values
-        vmaxsd,
-        /// Maximum of scalar single-precision floating-point values
-        vmaxss,
-        /// Minimum of packed double-precision floating-point values
-        vminpd,
-        /// Minimum of packed single-precision floating-point values
-        vminps,
-        /// Minimum of scalar double-precision floating-point values
-        vminsd,
-        /// Minimum of scalar single-precision floating-point values
-        vminss,
-        /// Move aligned packed double-precision floating-point values
-        vmovapd,
-        /// Move aligned packed single-precision floating-point values
-        vmovaps,
-        /// Move packed single-precision floating-point values high to low
-        vmovhlps,
-        /// Replicate double floating-point values
-        vmovddup,
-        /// Move or merge scalar double-precision floating-point value
-        vmovsd,
-        /// Replicate single floating-point values
-        vmovshdup,
-        /// Replicate single floating-point values
-        vmovsldup,
-        /// Move or merge scalar single-precision floating-point value
-        vmovss,
-        /// Move unaligned packed double-precision floating-point values
-        vmovupd,
-        /// Move unaligned packed single-precision floating-point values
-        vmovups,
-        /// Multiply packed double-precision floating-point values
-        vmulpd,
-        /// Multiply packed single-precision floating-point values
-        vmulps,
-        /// Multiply scalar double-precision floating-point values
-        vmulsd,
-        /// Multiply scalar single-precision floating-point values
-        vmulss,
-        /// Extract Byte
-        vpextrb,
-        /// Extract Doubleword
-        vpextrd,
-        /// Extract Quadword
-        vpextrq,
-        /// Extract word
-        vpextrw,
-        /// Insert Byte
-        vpinsrb,
-        /// Insert Doubleword
-        vpinsrd,
-        /// Insert Quadword
-        vpinsrq,
-        /// Insert word
-        vpinsrw,
-        /// Shuffle packed high words
-        vpshufhw,
-        /// Shuffle packed low words
-        vpshuflw,
-        /// Shift packed data right logical
-        vpsrld,
-        /// Shift packed data right logical
-        vpsrlq,
-        /// Shift packed data right logical
-        vpsrlw,
-        /// Unpack high data
-        vpunpckhbw,
-        /// Unpack high data
-        vpunpckhdq,
-        /// Unpack high data
-        vpunpckhqdq,
-        /// Unpack high data
-        vpunpckhwd,
-        /// Unpack low data
-        vpunpcklbw,
-        /// Unpack low data
-        vpunpckldq,
-        /// Unpack low data
-        vpunpcklqdq,
-        /// Unpack low data
-        vpunpcklwd,
         /// Round packed double-precision floating-point values
-        vroundpd,
-        /// Round packed single-precision floating-point values
-        vroundps,
         /// Round scalar double-precision floating-point value
-        vroundsd,
-        /// Round scalar single-precision floating-point value
-        vroundss,
-        /// Square root of packed double-precision floating-point value
-        vsqrtpd,
-        /// Square root of packed single-precision floating-point value
-        vsqrtps,
-        /// Square root of scalar double-precision floating-point value
-        vsqrtsd,
-        /// Square root of scalar single-precision floating-point value
-        vsqrtss,
-        /// Subtract packed double-precision floating-point values
-        vsubpd,
-        /// Subtract packed single-precision floating-point values
-        vsubps,
-        /// Subtract scalar double-precision floating-point values
-        vsubsd,
-        /// Subtract scalar single-precision floating-point values
-        vsubss,
-        /// Unpack and interleave high packed double-precision floating-point values
-        vunpckhpd,
-        /// Unpack and interleave high packed single-precision floating-point values
-        vunpckhps,
-        /// Unpack and interleave low packed double-precision floating-point values
-        vunpcklpd,
-        /// Unpack and interleave low packed single-precision floating-point values
-        vunpcklps,
+        round,
 
         /// Convert 16-bit floating-point values to single-precision floating-point values
-        vcvtph2ps,
+        cvtph2ps,
         /// Convert single-precision floating-point values to 16-bit floating-point values
-        vcvtps2ph,
+        cvtps2ph,
 
-        /// Fused multiply-add of packed double-precision floating-point values
-        vfmadd132pd,
-        /// Fused multiply-add of packed double-precision floating-point values
-        vfmadd213pd,
-        /// Fused multiply-add of packed double-precision floating-point values
-        vfmadd231pd,
         /// Fused multiply-add of packed single-precision floating-point values
-        vfmadd132ps,
+        /// Fused multiply-add of scalar single-precision floating-point values
+        /// Fused multiply-add of packed double-precision floating-point values
+        /// Fused multiply-add of scalar double-precision floating-point values
+        fmadd132,
         /// Fused multiply-add of packed single-precision floating-point values
-        vfmadd213ps,
+        /// Fused multiply-add of scalar single-precision floating-point values
+        /// Fused multiply-add of packed double-precision floating-point values
+        /// Fused multiply-add of scalar double-precision floating-point values
+        fmadd213,
         /// Fused multiply-add of packed single-precision floating-point values
-        vfmadd231ps,
-        /// Fused multiply-add of scalar double-precision floating-point values
-        vfmadd132sd,
-        /// Fused multiply-add of scalar double-precision floating-point values
-        vfmadd213sd,
-        /// Fused multiply-add of scalar double-precision floating-point values
-        vfmadd231sd,
         /// Fused multiply-add of scalar single-precision floating-point values
-        vfmadd132ss,
-        /// Fused multiply-add of scalar single-precision floating-point values
-        vfmadd213ss,
-        /// Fused multiply-add of scalar single-precision floating-point values
-        vfmadd231ss,
+        /// Fused multiply-add of packed double-precision floating-point values
+        /// Fused multiply-add of scalar double-precision floating-point values
+        fmadd231,
 
         /// A pseudo instruction that requires special lowering.
         /// This should be the only tag in this enum that doesn't
