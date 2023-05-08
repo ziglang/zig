@@ -5192,6 +5192,16 @@ pub const Value = struct {
     pub const generic_poison_type: Value = .{ .ip_index = .generic_poison_type, .legacy = undefined };
     pub const empty_struct: Value = .{ .ip_index = .empty_struct, .legacy = undefined };
 
+    pub const enum_field_0: Value = .{
+        .ip_index = .none,
+        .legacy = .{ .ptr_otherwise = &enum_field_0_payload.base },
+    };
+
+    var enum_field_0_payload: Payload.U32 = .{
+        .base = .{ .tag = .enum_field_index },
+        .data = 0,
+    };
+
     pub fn makeBool(x: bool) Value {
         return if (x) Value.true else Value.false;
     }
