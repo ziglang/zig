@@ -2905,7 +2905,15 @@ fn deferStmt(
     const sub_scope = if (!have_err_code) &defer_gen.base else blk: {
         try gz.addDbgBlockBegin();
         const ident_name = try gz.astgen.identAsString(payload_token);
-        remapped_err_code = @intCast(u32, try gz.astgen.instructions.addOne(gz.astgen.gpa));
+        remapped_err_code = @intCast(Zir.Inst.Index, gz.astgen.instructions.len);
+        try gz.astgen.instructions.append(gz.astgen.gpa, .{
+            .tag = .extended,
+            .data = .{ .extended = .{
+                .opcode = .errdefer_err_code,
+                .small = undefined,
+                .operand = undefined,
+            } },
+        });
         const remapped_err_code_ref = Zir.indexToRef(remapped_err_code);
         local_val_scope = .{
             .parent = &defer_gen.base,
@@ -7614,14 +7622,16 @@ fn failWithNumberError(astgen: *AstGen, err: std.zig.number_literal.Error, token
         .invalid_digit => |info| return astgen.failOff(token, @intCast(u32, info.i), "invalid digit '{c}' for {s} base", .{ bytes[info.i], @tagName(info.base) }),
         .invalid_digit_exponent => |i| return astgen.failOff(token, @intCast(u32, i), "invalid digit '{c}' in exponent", .{bytes[i]}),
         .duplicate_exponent => |i| return astgen.failOff(token, @intCast(u32, i), "duplicate exponent", .{}),
-        .invalid_hex_exponent => |i| return astgen.failOff(token, @intCast(u32, i), "hex exponent in decimal float", .{}),
         .exponent_after_underscore => |i| return astgen.failOff(token, @intCast(u32, i), "expected digit before exponent", .{}),
         .special_after_underscore => |i| return astgen.failOff(token, @intCast(u32, i), "expected digit before '{c}'", .{bytes[i]}),
         .trailing_special => |i| return astgen.failOff(token, @intCast(u32, i), "expected digit after '{c}'", .{bytes[i - 1]}),
         .trailing_underscore => |i| return astgen.failOff(token, @intCast(u32, i), "trailing digit separator", .{}),
         .duplicate_period => unreachable, // Validated by tokenizer
         .invalid_character => unreachable, // Validated by tokenizer
-        .invalid_exponent_sign => unreachable, // Validated by tokenizer
+        .invalid_exponent_sign => |i| {
+            assert(bytes.len >= 2 and bytes[0] == '0' and bytes[1] == 'x'); // Validated by tokenizer
+            return astgen.failOff(token, @intCast(u32, i), "sign '{c}' cannot follow digit '{c}' in hex base", .{ bytes[i], bytes[i - 1] });
+        },
     }
 }
 

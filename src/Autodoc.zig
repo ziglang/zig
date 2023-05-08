@@ -996,6 +996,12 @@ fn walkInstruction(
                 };
             }
 
+            const maybe_tldoc_comment = try self.getTLDocComment(new_file.file);
+            try self.ast_nodes.append(self.arena, .{
+                .name = path,
+                .docs = maybe_tldoc_comment,
+            });
+
             result.value_ptr.* = self.types.items.len;
 
             var new_scope = Scope{
