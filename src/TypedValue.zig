@@ -80,67 +80,9 @@ pub fn print(
         return writer.writeAll("(variable)");
 
     while (true) switch (val.ip_index) {
+        .empty_struct => return printAggregate(ty, val, writer, level, mod),
         .none => switch (val.tag()) {
-            .empty_struct_value, .aggregate => {
-                if (level == 0) {
-                    return writer.writeAll(".{ ... }");
-                }
-                if (ty.zigTypeTag(mod) == .Struct) {
-                    try writer.writeAll(".{");
-                    const max_len = std.math.min(ty.structFieldCount(), max_aggregate_items);
-
-                    var i: u32 = 0;
-                    while (i < max_len) : (i += 1) {
-                        if (i != 0) try writer.writeAll(", ");
-                        switch (ty.tag()) {
-                            .anon_struct, .@"struct" => try writer.print(".{s} = ", .{ty.structFieldName(i)}),
-                            else => {},
-                        }
-                        try print(.{
-                            .ty = ty.structFieldType(i),
-                            .val = try val.fieldValue(ty, mod, i),
-                        }, writer, level - 1, mod);
-                    }
-                    if (ty.structFieldCount() > max_aggregate_items) {
-                        try writer.writeAll(", ...");
-                    }
-                    return writer.writeAll("}");
-                } else {
-                    const elem_ty = ty.elemType2(mod);
-                    const len = ty.arrayLen(mod);
-
-                    if (elem_ty.eql(Type.u8, mod)) str: {
-                        const max_len = @intCast(usize, std.math.min(len, max_string_len));
-                        var buf: [max_string_len]u8 = undefined;
-
-                        var i: u32 = 0;
-                        while (i < max_len) : (i += 1) {
-                            const elem = try val.fieldValue(ty, mod, i);
-                            if (elem.isUndef()) break :str;
-                            buf[i] = std.math.cast(u8, elem.toUnsignedInt(mod)) orelse break :str;
-                        }
-
-                        const truncated = if (len > max_string_len) " (truncated)" else "";
-                        return writer.print("\"{}{s}\"", .{ std.zig.fmtEscapes(buf[0..max_len]), truncated });
-                    }
-
-                    try writer.writeAll(".{ ");
-
-                    const max_len = std.math.min(len, max_aggregate_items);
-                    var i: u32 = 0;
-                    while (i < max_len) : (i += 1) {
-                        if (i != 0) try writer.writeAll(", ");
-                        try print(.{
-                            .ty = elem_ty,
-                            .val = try val.fieldValue(ty, mod, i),
-                        }, writer, level - 1, mod);
-                    }
-                    if (len > max_aggregate_items) {
-                        try writer.writeAll(", ...");
-                    }
-                    return writer.writeAll(" }");
-                }
-            },
+            .aggregate => return printAggregate(ty, val, writer, level, mod),
             .@"union" => {
                 if (level == 0) {
                     return writer.writeAll(".{ ... }");
@@ -425,4 +367,71 @@ pub fn print(
             }
         },
     };
+}
+
+fn printAggregate(
+    ty: Type,
+    val: Value,
+    writer: anytype,
+    level: u8,
+    mod: *Module,
+) (@TypeOf(writer).Error || Allocator.Error)!void {
+    if (level == 0) {
+        return writer.writeAll(".{ ... }");
+    }
+    if (ty.zigTypeTag(mod) == .Struct) {
+        try writer.writeAll(".{");
+        const max_len = std.math.min(ty.structFieldCount(), max_aggregate_items);
+
+        var i: u32 = 0;
+        while (i < max_len) : (i += 1) {
+            if (i != 0) try writer.writeAll(", ");
+            switch (ty.tag()) {
+                .anon_struct, .@"struct" => try writer.print(".{s} = ", .{ty.structFieldName(i)}),
+                else => {},
+            }
+            try print(.{
+                .ty = ty.structFieldType(i),
+                .val = try val.fieldValue(ty, mod, i),
+            }, writer, level - 1, mod);
+        }
+        if (ty.structFieldCount() > max_aggregate_items) {
+            try writer.writeAll(", ...");
+        }
+        return writer.writeAll("}");
+    } else {
+        const elem_ty = ty.elemType2(mod);
+        const len = ty.arrayLen(mod);
+
+        if (elem_ty.eql(Type.u8, mod)) str: {
+            const max_len = @intCast(usize, std.math.min(len, max_string_len));
+            var buf: [max_string_len]u8 = undefined;
+
+            var i: u32 = 0;
+            while (i < max_len) : (i += 1) {
+                const elem = try val.fieldValue(ty, mod, i);
+                if (elem.isUndef()) break :str;
+                buf[i] = std.math.cast(u8, elem.toUnsignedInt(mod)) orelse break :str;
+            }
+
+            const truncated = if (len > max_string_len) " (truncated)" else "";
+            return writer.print("\"{}{s}\"", .{ std.zig.fmtEscapes(buf[0..max_len]), truncated });
+        }
+
+        try writer.writeAll(".{ ");
+
+        const max_len = std.math.min(len, max_aggregate_items);
+        var i: u32 = 0;
+        while (i < max_len) : (i += 1) {
+            if (i != 0) try writer.writeAll(", ");
+            try print(.{
+                .ty = elem_ty,
+                .val = try val.fieldValue(ty, mod, i),
+            }, writer, level - 1, mod);
+        }
+        if (len > max_aggregate_items) {
+            try writer.writeAll(", ...");
+        }
+        return writer.writeAll(" }");
+    }
 }

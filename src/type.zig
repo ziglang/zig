@@ -34,8 +34,51 @@ pub const Type = struct {
     }
 
     pub fn zigTypeTagOrPoison(ty: Type, mod: *const Module) error{GenericPoison}!std.builtin.TypeId {
-        if (ty.ip_index != .none) {
-            switch (mod.intern_pool.indexToKey(ty.ip_index)) {
+        switch (ty.ip_index) {
+            .none => switch (ty.tag()) {
+                .error_set,
+                .error_set_single,
+                .error_set_inferred,
+                .error_set_merged,
+                => return .ErrorSet,
+
+                .@"opaque" => return .Opaque,
+
+                .function => return .Fn,
+
+                .array,
+                .array_sentinel,
+                => return .Array,
+
+                .pointer,
+                .inferred_alloc_const,
+                .inferred_alloc_mut,
+                => return .Pointer,
+
+                .optional => return .Optional,
+
+                .error_union => return .ErrorUnion,
+
+                .anyframe_T => return .AnyFrame,
+
+                .empty_struct,
+                .@"struct",
+                .tuple,
+                .anon_struct,
+                => return .Struct,
+
+                .enum_full,
+                .enum_nonexhaustive,
+                .enum_simple,
+                .enum_numbered,
+                => return .Enum,
+
+                .@"union",
+                .union_safety_tagged,
+                .union_tagged,
+                => return .Union,
+            },
+            else => switch (mod.intern_pool.indexToKey(ty.ip_index)) {
                 .int_type => return .Int,
                 .ptr_type => return .Pointer,
                 .array_type => return .Array,
@@ -104,51 +147,7 @@ pub const Type = struct {
                 .enum_tag,
                 .simple_value,
                 => unreachable, // it's a value, not a type
-            }
-        }
-        switch (ty.tag()) {
-            .error_set,
-            .error_set_single,
-            .error_set_inferred,
-            .error_set_merged,
-            => return .ErrorSet,
-
-            .@"opaque" => return .Opaque,
-
-            .function => return .Fn,
-
-            .array,
-            .array_sentinel,
-            => return .Array,
-
-            .pointer,
-            .inferred_alloc_const,
-            .inferred_alloc_mut,
-            => return .Pointer,
-
-            .optional => return .Optional,
-
-            .error_union => return .ErrorUnion,
-
-            .anyframe_T => return .AnyFrame,
-
-            .empty_struct,
-            .empty_struct_literal,
-            .@"struct",
-            .tuple,
-            .anon_struct,
-            => return .Struct,
-
-            .enum_full,
-            .enum_nonexhaustive,
-            .enum_simple,
-            .enum_numbered,
-            => return .Enum,
-
-            .@"union",
-            .union_safety_tagged,
-            .union_tagged,
-            => return .Union,
+            },
         }
     }
 
@@ -517,7 +516,7 @@ pub const Type = struct {
                 const b_struct_obj = (b.castTag(.@"struct") orelse return false).data;
                 return a_struct_obj == b_struct_obj;
             },
-            .tuple, .empty_struct_literal => {
+            .tuple => {
                 if (!b.isSimpleTuple()) return false;
 
                 const a_tuple = a.tupleFields();
@@ -741,7 +740,7 @@ pub const Type = struct {
                 const struct_obj: *const Module.Struct = ty.castTag(.@"struct").?.data;
                 std.hash.autoHash(hasher, struct_obj);
             },
-            .tuple, .empty_struct_literal => {
+            .tuple => {
                 std.hash.autoHash(hasher, std.builtin.TypeId.Struct);
 
                 const tuple = ty.tupleFields();
@@ -837,7 +836,6 @@ pub const Type = struct {
         } else switch (self.legacy.ptr_otherwise.tag) {
             .inferred_alloc_const,
             .inferred_alloc_mut,
-            .empty_struct_literal,
             => unreachable,
 
             .optional,
@@ -1047,7 +1045,7 @@ pub const Type = struct {
         while (true) {
             const t = ty.tag();
             switch (t) {
-                .empty_struct, .empty_struct_literal => return writer.writeAll("struct {}"),
+                .empty_struct => return writer.writeAll("struct {}"),
 
                 .@"struct" => {
                     const struct_obj = ty.castTag(.@"struct").?.data;
@@ -1266,318 +1264,319 @@ pub const Type = struct {
 
     /// Prints a name suitable for `@typeName`.
     pub fn print(ty: Type, writer: anytype, mod: *Module) @TypeOf(writer).Error!void {
-        if (ty.ip_index != .none) switch (mod.intern_pool.indexToKey(ty.ip_index)) {
-            .int_type => |int_type| {
-                const sign_char: u8 = switch (int_type.signedness) {
-                    .signed => 'i',
-                    .unsigned => 'u',
-                };
-                return writer.print("{c}{d}", .{ sign_char, int_type.bits });
-            },
-            .ptr_type => {
-                const info = ty.ptrInfo(mod);
+        switch (ty.ip_index) {
+            .empty_struct_type => try writer.writeAll("@TypeOf(.{})"),
 
-                if (info.sentinel) |s| switch (info.size) {
-                    .One, .C => unreachable,
-                    .Many => try writer.print("[*:{}]", .{s.fmtValue(info.pointee_type, mod)}),
-                    .Slice => try writer.print("[:{}]", .{s.fmtValue(info.pointee_type, mod)}),
-                } else switch (info.size) {
-                    .One => try writer.writeAll("*"),
-                    .Many => try writer.writeAll("[*]"),
-                    .C => try writer.writeAll("[*c]"),
-                    .Slice => try writer.writeAll("[]"),
-                }
-                if (info.@"align" != 0 or info.host_size != 0 or info.vector_index != .none) {
-                    if (info.@"align" != 0) {
-                        try writer.print("align({d}", .{info.@"align"});
-                    } else {
-                        const alignment = info.pointee_type.abiAlignment(mod);
-                        try writer.print("align({d}", .{alignment});
-                    }
+            .none => switch (ty.tag()) {
+                .inferred_alloc_const => unreachable,
+                .inferred_alloc_mut => unreachable,
 
-                    if (info.bit_offset != 0 or info.host_size != 0) {
-                        try writer.print(":{d}:{d}", .{ info.bit_offset, info.host_size });
+                .empty_struct => {
+                    const namespace = ty.castTag(.empty_struct).?.data;
+                    try namespace.renderFullyQualifiedName(mod, "", writer);
+                },
+
+                .@"struct" => {
+                    const struct_obj = ty.castTag(.@"struct").?.data;
+                    const decl = mod.declPtr(struct_obj.owner_decl);
+                    try decl.renderFullyQualifiedName(mod, writer);
+                },
+                .@"union", .union_safety_tagged, .union_tagged => {
+                    const union_obj = ty.cast(Payload.Union).?.data;
+                    const decl = mod.declPtr(union_obj.owner_decl);
+                    try decl.renderFullyQualifiedName(mod, writer);
+                },
+                .enum_full, .enum_nonexhaustive => {
+                    const enum_full = ty.cast(Payload.EnumFull).?.data;
+                    const decl = mod.declPtr(enum_full.owner_decl);
+                    try decl.renderFullyQualifiedName(mod, writer);
+                },
+                .enum_simple => {
+                    const enum_simple = ty.castTag(.enum_simple).?.data;
+                    const decl = mod.declPtr(enum_simple.owner_decl);
+                    try decl.renderFullyQualifiedName(mod, writer);
+                },
+                .enum_numbered => {
+                    const enum_numbered = ty.castTag(.enum_numbered).?.data;
+                    const decl = mod.declPtr(enum_numbered.owner_decl);
+                    try decl.renderFullyQualifiedName(mod, writer);
+                },
+                .@"opaque" => {
+                    const opaque_obj = ty.cast(Payload.Opaque).?.data;
+                    const decl = mod.declPtr(opaque_obj.owner_decl);
+                    try decl.renderFullyQualifiedName(mod, writer);
+                },
+
+                .error_set_inferred => {
+                    const func = ty.castTag(.error_set_inferred).?.data.func;
+
+                    try writer.writeAll("@typeInfo(@typeInfo(@TypeOf(");
+                    const owner_decl = mod.declPtr(func.owner_decl);
+                    try owner_decl.renderFullyQualifiedName(mod, writer);
+                    try writer.writeAll(")).Fn.return_type.?).ErrorUnion.error_set");
+                },
+
+                .function => {
+                    const fn_info = ty.fnInfo();
+                    if (fn_info.is_noinline) {
+                        try writer.writeAll("noinline ");
                     }
-                    if (info.vector_index == .runtime) {
-                        try writer.writeAll(":?");
-                    } else if (info.vector_index != .none) {
-                        try writer.print(":{d}", .{@enumToInt(info.vector_index)});
+                    try writer.writeAll("fn(");
+                    for (fn_info.param_types, 0..) |param_ty, i| {
+                        if (i != 0) try writer.writeAll(", ");
+                        if (fn_info.paramIsComptime(i)) {
+                            try writer.writeAll("comptime ");
+                        }
+                        if (std.math.cast(u5, i)) |index| if (@truncate(u1, fn_info.noalias_bits >> index) != 0) {
+                            try writer.writeAll("noalias ");
+                        };
+                        if (param_ty.isGenericPoison()) {
+                            try writer.writeAll("anytype");
+                        } else {
+                            try print(param_ty, writer, mod);
+                        }
+                    }
+                    if (fn_info.is_var_args) {
+                        if (fn_info.param_types.len != 0) {
+                            try writer.writeAll(", ");
+                        }
+                        try writer.writeAll("...");
                     }
                     try writer.writeAll(") ");
-                }
-                if (info.@"addrspace" != .generic) {
-                    try writer.print("addrspace(.{s}) ", .{@tagName(info.@"addrspace")});
-                }
-                if (!info.mutable) try writer.writeAll("const ");
-                if (info.@"volatile") try writer.writeAll("volatile ");
-                if (info.@"allowzero" and info.size != .C) try writer.writeAll("allowzero ");
-
-                try print(info.pointee_type, writer, mod);
-                return;
-            },
-            .array_type => |array_type| {
-                if (array_type.sentinel == .none) {
-                    try writer.print("[{d}]", .{array_type.len});
-                    try print(array_type.child.toType(), writer, mod);
-                } else {
-                    try writer.print("[{d}:{}]", .{
-                        array_type.len,
-                        array_type.sentinel.toValue().fmtValue(array_type.child.toType(), mod),
-                    });
-                    try print(array_type.child.toType(), writer, mod);
-                }
-                return;
-            },
-            .vector_type => |vector_type| {
-                try writer.print("@Vector({d}, ", .{vector_type.len});
-                try print(vector_type.child.toType(), writer, mod);
-                try writer.writeAll(")");
-                return;
-            },
-            .opt_type => |child| {
-                try writer.writeByte('?');
-                try print(child.toType(), writer, mod);
-                return;
-            },
-            .error_union_type => |error_union_type| {
-                try print(error_union_type.error_set_type.toType(), writer, mod);
-                try writer.writeByte('!');
-                try print(error_union_type.payload_type.toType(), writer, mod);
-                return;
-            },
-            .simple_type => |s| return writer.writeAll(@tagName(s)),
-            .struct_type => @panic("TODO"),
-            .union_type => @panic("TODO"),
-            .simple_value => unreachable,
-            .extern_func => unreachable,
-            .int => unreachable,
-            .enum_tag => unreachable,
-        };
-        const t = ty.tag();
-        switch (t) {
-            .inferred_alloc_const => unreachable,
-            .inferred_alloc_mut => unreachable,
-
-            .empty_struct_literal => try writer.writeAll("@TypeOf(.{})"),
-
-            .empty_struct => {
-                const namespace = ty.castTag(.empty_struct).?.data;
-                try namespace.renderFullyQualifiedName(mod, "", writer);
-            },
-
-            .@"struct" => {
-                const struct_obj = ty.castTag(.@"struct").?.data;
-                const decl = mod.declPtr(struct_obj.owner_decl);
-                try decl.renderFullyQualifiedName(mod, writer);
-            },
-            .@"union", .union_safety_tagged, .union_tagged => {
-                const union_obj = ty.cast(Payload.Union).?.data;
-                const decl = mod.declPtr(union_obj.owner_decl);
-                try decl.renderFullyQualifiedName(mod, writer);
-            },
-            .enum_full, .enum_nonexhaustive => {
-                const enum_full = ty.cast(Payload.EnumFull).?.data;
-                const decl = mod.declPtr(enum_full.owner_decl);
-                try decl.renderFullyQualifiedName(mod, writer);
-            },
-            .enum_simple => {
-                const enum_simple = ty.castTag(.enum_simple).?.data;
-                const decl = mod.declPtr(enum_simple.owner_decl);
-                try decl.renderFullyQualifiedName(mod, writer);
-            },
-            .enum_numbered => {
-                const enum_numbered = ty.castTag(.enum_numbered).?.data;
-                const decl = mod.declPtr(enum_numbered.owner_decl);
-                try decl.renderFullyQualifiedName(mod, writer);
-            },
-            .@"opaque" => {
-                const opaque_obj = ty.cast(Payload.Opaque).?.data;
-                const decl = mod.declPtr(opaque_obj.owner_decl);
-                try decl.renderFullyQualifiedName(mod, writer);
-            },
-
-            .error_set_inferred => {
-                const func = ty.castTag(.error_set_inferred).?.data.func;
-
-                try writer.writeAll("@typeInfo(@typeInfo(@TypeOf(");
-                const owner_decl = mod.declPtr(func.owner_decl);
-                try owner_decl.renderFullyQualifiedName(mod, writer);
-                try writer.writeAll(")).Fn.return_type.?).ErrorUnion.error_set");
-            },
-
-            .function => {
-                const fn_info = ty.fnInfo();
-                if (fn_info.is_noinline) {
-                    try writer.writeAll("noinline ");
-                }
-                try writer.writeAll("fn(");
-                for (fn_info.param_types, 0..) |param_ty, i| {
-                    if (i != 0) try writer.writeAll(", ");
-                    if (fn_info.paramIsComptime(i)) {
-                        try writer.writeAll("comptime ");
+                    if (fn_info.alignment != 0) {
+                        try writer.print("align({d}) ", .{fn_info.alignment});
                     }
-                    if (std.math.cast(u5, i)) |index| if (@truncate(u1, fn_info.noalias_bits >> index) != 0) {
-                        try writer.writeAll("noalias ");
-                    };
-                    if (param_ty.isGenericPoison()) {
+                    if (fn_info.cc != .Unspecified) {
+                        try writer.writeAll("callconv(.");
+                        try writer.writeAll(@tagName(fn_info.cc));
+                        try writer.writeAll(") ");
+                    }
+                    if (fn_info.return_type.isGenericPoison()) {
                         try writer.writeAll("anytype");
                     } else {
-                        try print(param_ty, writer, mod);
+                        try print(fn_info.return_type, writer, mod);
                     }
-                }
-                if (fn_info.is_var_args) {
-                    if (fn_info.param_types.len != 0) {
-                        try writer.writeAll(", ");
+                },
+
+                .error_union => {
+                    const error_union = ty.castTag(.error_union).?.data;
+                    try print(error_union.error_set, writer, mod);
+                    try writer.writeAll("!");
+                    try print(error_union.payload, writer, mod);
+                },
+
+                .array => {
+                    const payload = ty.castTag(.array).?.data;
+                    try writer.print("[{d}]", .{payload.len});
+                    try print(payload.elem_type, writer, mod);
+                },
+                .array_sentinel => {
+                    const payload = ty.castTag(.array_sentinel).?.data;
+                    try writer.print("[{d}:{}]", .{
+                        payload.len,
+                        payload.sentinel.fmtValue(payload.elem_type, mod),
+                    });
+                    try print(payload.elem_type, writer, mod);
+                },
+                .tuple => {
+                    const tuple = ty.castTag(.tuple).?.data;
+
+                    try writer.writeAll("tuple{");
+                    for (tuple.types, 0..) |field_ty, i| {
+                        if (i != 0) try writer.writeAll(", ");
+                        const val = tuple.values[i];
+                        if (val.ip_index != .unreachable_value) {
+                            try writer.writeAll("comptime ");
+                        }
+                        try print(field_ty, writer, mod);
+                        if (val.ip_index != .unreachable_value) {
+                            try writer.print(" = {}", .{val.fmtValue(field_ty, mod)});
+                        }
                     }
-                    try writer.writeAll("...");
-                }
-                try writer.writeAll(") ");
-                if (fn_info.alignment != 0) {
-                    try writer.print("align({d}) ", .{fn_info.alignment});
-                }
-                if (fn_info.cc != .Unspecified) {
-                    try writer.writeAll("callconv(.");
-                    try writer.writeAll(@tagName(fn_info.cc));
-                    try writer.writeAll(") ");
-                }
-                if (fn_info.return_type.isGenericPoison()) {
-                    try writer.writeAll("anytype");
-                } else {
-                    try print(fn_info.return_type, writer, mod);
-                }
-            },
+                    try writer.writeAll("}");
+                },
+                .anon_struct => {
+                    const anon_struct = ty.castTag(.anon_struct).?.data;
 
-            .error_union => {
-                const error_union = ty.castTag(.error_union).?.data;
-                try print(error_union.error_set, writer, mod);
-                try writer.writeAll("!");
-                try print(error_union.payload, writer, mod);
-            },
+                    try writer.writeAll("struct{");
+                    for (anon_struct.types, 0..) |field_ty, i| {
+                        if (i != 0) try writer.writeAll(", ");
+                        const val = anon_struct.values[i];
+                        if (val.ip_index != .unreachable_value) {
+                            try writer.writeAll("comptime ");
+                        }
+                        try writer.writeAll(anon_struct.names[i]);
+                        try writer.writeAll(": ");
 
-            .array => {
-                const payload = ty.castTag(.array).?.data;
-                try writer.print("[{d}]", .{payload.len});
-                try print(payload.elem_type, writer, mod);
-            },
-            .array_sentinel => {
-                const payload = ty.castTag(.array_sentinel).?.data;
-                try writer.print("[{d}:{}]", .{
-                    payload.len,
-                    payload.sentinel.fmtValue(payload.elem_type, mod),
-                });
-                try print(payload.elem_type, writer, mod);
-            },
-            .tuple => {
-                const tuple = ty.castTag(.tuple).?.data;
+                        try print(field_ty, writer, mod);
 
-                try writer.writeAll("tuple{");
-                for (tuple.types, 0..) |field_ty, i| {
-                    if (i != 0) try writer.writeAll(", ");
-                    const val = tuple.values[i];
-                    if (val.ip_index != .unreachable_value) {
-                        try writer.writeAll("comptime ");
+                        if (val.ip_index != .unreachable_value) {
+                            try writer.print(" = {}", .{val.fmtValue(field_ty, mod)});
+                        }
                     }
-                    try print(field_ty, writer, mod);
-                    if (val.ip_index != .unreachable_value) {
-                        try writer.print(" = {}", .{val.fmtValue(field_ty, mod)});
+                    try writer.writeAll("}");
+                },
+
+                .pointer => {
+                    const info = ty.ptrInfo(mod);
+
+                    if (info.sentinel) |s| switch (info.size) {
+                        .One, .C => unreachable,
+                        .Many => try writer.print("[*:{}]", .{s.fmtValue(info.pointee_type, mod)}),
+                        .Slice => try writer.print("[:{}]", .{s.fmtValue(info.pointee_type, mod)}),
+                    } else switch (info.size) {
+                        .One => try writer.writeAll("*"),
+                        .Many => try writer.writeAll("[*]"),
+                        .C => try writer.writeAll("[*c]"),
+                        .Slice => try writer.writeAll("[]"),
                     }
-                }
-                try writer.writeAll("}");
+                    if (info.@"align" != 0 or info.host_size != 0 or info.vector_index != .none) {
+                        if (info.@"align" != 0) {
+                            try writer.print("align({d}", .{info.@"align"});
+                        } else {
+                            const alignment = info.pointee_type.abiAlignment(mod);
+                            try writer.print("align({d}", .{alignment});
+                        }
+
+                        if (info.bit_offset != 0 or info.host_size != 0) {
+                            try writer.print(":{d}:{d}", .{ info.bit_offset, info.host_size });
+                        }
+                        if (info.vector_index == .runtime) {
+                            try writer.writeAll(":?");
+                        } else if (info.vector_index != .none) {
+                            try writer.print(":{d}", .{@enumToInt(info.vector_index)});
+                        }
+                        try writer.writeAll(") ");
+                    }
+                    if (info.@"addrspace" != .generic) {
+                        try writer.print("addrspace(.{s}) ", .{@tagName(info.@"addrspace")});
+                    }
+                    if (!info.mutable) try writer.writeAll("const ");
+                    if (info.@"volatile") try writer.writeAll("volatile ");
+                    if (info.@"allowzero" and info.size != .C) try writer.writeAll("allowzero ");
+
+                    try print(info.pointee_type, writer, mod);
+                },
+
+                .optional => {
+                    const child_type = ty.castTag(.optional).?.data;
+                    try writer.writeByte('?');
+                    try print(child_type, writer, mod);
+                },
+                .anyframe_T => {
+                    const return_type = ty.castTag(.anyframe_T).?.data;
+                    try writer.print("anyframe->", .{});
+                    try print(return_type, writer, mod);
+                },
+                .error_set => {
+                    const names = ty.castTag(.error_set).?.data.names.keys();
+                    try writer.writeAll("error{");
+                    for (names, 0..) |name, i| {
+                        if (i != 0) try writer.writeByte(',');
+                        try writer.writeAll(name);
+                    }
+                    try writer.writeAll("}");
+                },
+                .error_set_single => {
+                    const name = ty.castTag(.error_set_single).?.data;
+                    return writer.print("error{{{s}}}", .{name});
+                },
+                .error_set_merged => {
+                    const names = ty.castTag(.error_set_merged).?.data.keys();
+                    try writer.writeAll("error{");
+                    for (names, 0..) |name, i| {
+                        if (i != 0) try writer.writeByte(',');
+                        try writer.writeAll(name);
+                    }
+                    try writer.writeAll("}");
+                },
             },
-            .anon_struct => {
-                const anon_struct = ty.castTag(.anon_struct).?.data;
+            else => switch (mod.intern_pool.indexToKey(ty.ip_index)) {
+                .int_type => |int_type| {
+                    const sign_char: u8 = switch (int_type.signedness) {
+                        .signed => 'i',
+                        .unsigned => 'u',
+                    };
+                    return writer.print("{c}{d}", .{ sign_char, int_type.bits });
+                },
+                .ptr_type => {
+                    const info = ty.ptrInfo(mod);
 
-                try writer.writeAll("struct{");
-                for (anon_struct.types, 0..) |field_ty, i| {
-                    if (i != 0) try writer.writeAll(", ");
-                    const val = anon_struct.values[i];
-                    if (val.ip_index != .unreachable_value) {
-                        try writer.writeAll("comptime ");
+                    if (info.sentinel) |s| switch (info.size) {
+                        .One, .C => unreachable,
+                        .Many => try writer.print("[*:{}]", .{s.fmtValue(info.pointee_type, mod)}),
+                        .Slice => try writer.print("[:{}]", .{s.fmtValue(info.pointee_type, mod)}),
+                    } else switch (info.size) {
+                        .One => try writer.writeAll("*"),
+                        .Many => try writer.writeAll("[*]"),
+                        .C => try writer.writeAll("[*c]"),
+                        .Slice => try writer.writeAll("[]"),
                     }
-                    try writer.writeAll(anon_struct.names[i]);
-                    try writer.writeAll(": ");
+                    if (info.@"align" != 0 or info.host_size != 0 or info.vector_index != .none) {
+                        if (info.@"align" != 0) {
+                            try writer.print("align({d}", .{info.@"align"});
+                        } else {
+                            const alignment = info.pointee_type.abiAlignment(mod);
+                            try writer.print("align({d}", .{alignment});
+                        }
 
-                    try print(field_ty, writer, mod);
-
-                    if (val.ip_index != .unreachable_value) {
-                        try writer.print(" = {}", .{val.fmtValue(field_ty, mod)});
+                        if (info.bit_offset != 0 or info.host_size != 0) {
+                            try writer.print(":{d}:{d}", .{ info.bit_offset, info.host_size });
+                        }
+                        if (info.vector_index == .runtime) {
+                            try writer.writeAll(":?");
+                        } else if (info.vector_index != .none) {
+                            try writer.print(":{d}", .{@enumToInt(info.vector_index)});
+                        }
+                        try writer.writeAll(") ");
                     }
-                }
-                try writer.writeAll("}");
-            },
+                    if (info.@"addrspace" != .generic) {
+                        try writer.print("addrspace(.{s}) ", .{@tagName(info.@"addrspace")});
+                    }
+                    if (!info.mutable) try writer.writeAll("const ");
+                    if (info.@"volatile") try writer.writeAll("volatile ");
+                    if (info.@"allowzero" and info.size != .C) try writer.writeAll("allowzero ");
 
-            .pointer => {
-                const info = ty.ptrInfo(mod);
-
-                if (info.sentinel) |s| switch (info.size) {
-                    .One, .C => unreachable,
-                    .Many => try writer.print("[*:{}]", .{s.fmtValue(info.pointee_type, mod)}),
-                    .Slice => try writer.print("[:{}]", .{s.fmtValue(info.pointee_type, mod)}),
-                } else switch (info.size) {
-                    .One => try writer.writeAll("*"),
-                    .Many => try writer.writeAll("[*]"),
-                    .C => try writer.writeAll("[*c]"),
-                    .Slice => try writer.writeAll("[]"),
-                }
-                if (info.@"align" != 0 or info.host_size != 0 or info.vector_index != .none) {
-                    if (info.@"align" != 0) {
-                        try writer.print("align({d}", .{info.@"align"});
+                    try print(info.pointee_type, writer, mod);
+                    return;
+                },
+                .array_type => |array_type| {
+                    if (array_type.sentinel == .none) {
+                        try writer.print("[{d}]", .{array_type.len});
+                        try print(array_type.child.toType(), writer, mod);
                     } else {
-                        const alignment = info.pointee_type.abiAlignment(mod);
-                        try writer.print("align({d}", .{alignment});
+                        try writer.print("[{d}:{}]", .{
+                            array_type.len,
+                            array_type.sentinel.toValue().fmtValue(array_type.child.toType(), mod),
+                        });
+                        try print(array_type.child.toType(), writer, mod);
                     }
-
-                    if (info.bit_offset != 0 or info.host_size != 0) {
-                        try writer.print(":{d}:{d}", .{ info.bit_offset, info.host_size });
-                    }
-                    if (info.vector_index == .runtime) {
-                        try writer.writeAll(":?");
-                    } else if (info.vector_index != .none) {
-                        try writer.print(":{d}", .{@enumToInt(info.vector_index)});
-                    }
-                    try writer.writeAll(") ");
-                }
-                if (info.@"addrspace" != .generic) {
-                    try writer.print("addrspace(.{s}) ", .{@tagName(info.@"addrspace")});
-                }
-                if (!info.mutable) try writer.writeAll("const ");
-                if (info.@"volatile") try writer.writeAll("volatile ");
-                if (info.@"allowzero" and info.size != .C) try writer.writeAll("allowzero ");
-
-                try print(info.pointee_type, writer, mod);
-            },
-
-            .optional => {
-                const child_type = ty.castTag(.optional).?.data;
-                try writer.writeByte('?');
-                try print(child_type, writer, mod);
-            },
-            .anyframe_T => {
-                const return_type = ty.castTag(.anyframe_T).?.data;
-                try writer.print("anyframe->", .{});
-                try print(return_type, writer, mod);
-            },
-            .error_set => {
-                const names = ty.castTag(.error_set).?.data.names.keys();
-                try writer.writeAll("error{");
-                for (names, 0..) |name, i| {
-                    if (i != 0) try writer.writeByte(',');
-                    try writer.writeAll(name);
-                }
-                try writer.writeAll("}");
-            },
-            .error_set_single => {
-                const name = ty.castTag(.error_set_single).?.data;
-                return writer.print("error{{{s}}}", .{name});
-            },
-            .error_set_merged => {
-                const names = ty.castTag(.error_set_merged).?.data.keys();
-                try writer.writeAll("error{");
-                for (names, 0..) |name, i| {
-                    if (i != 0) try writer.writeByte(',');
-                    try writer.writeAll(name);
-                }
-                try writer.writeAll("}");
+                    return;
+                },
+                .vector_type => |vector_type| {
+                    try writer.print("@Vector({d}, ", .{vector_type.len});
+                    try print(vector_type.child.toType(), writer, mod);
+                    try writer.writeAll(")");
+                    return;
+                },
+                .opt_type => |child| {
+                    try writer.writeByte('?');
+                    try print(child.toType(), writer, mod);
+                    return;
+                },
+                .error_union_type => |error_union_type| {
+                    try print(error_union_type.error_set_type.toType(), writer, mod);
+                    try writer.writeByte('!');
+                    try print(error_union_type.payload_type.toType(), writer, mod);
+                    return;
+                },
+                .simple_type => |s| return writer.writeAll(@tagName(s)),
+                .struct_type => @panic("TODO"),
+                .union_type => @panic("TODO"),
+                .simple_value => unreachable,
+                .extern_func => unreachable,
+                .int => unreachable,
+                .enum_tag => unreachable,
             },
         }
     }
@@ -1610,240 +1609,244 @@ pub const Type = struct {
         ignore_comptime_only: bool,
         strat: AbiAlignmentAdvancedStrat,
     ) RuntimeBitsError!bool {
-        if (ty.ip_index != .none) switch (mod.intern_pool.indexToKey(ty.ip_index)) {
-            .int_type => |int_type| return int_type.bits != 0,
-            .ptr_type => |ptr_type| {
+        switch (ty.ip_index) {
+            // False because it is a comptime-only type.
+            .empty_struct_type => return false,
+
+            .none => switch (ty.tag()) {
+                .error_set_inferred,
+
+                .@"opaque",
+                .error_set_single,
+                .error_union,
+                .error_set,
+                .error_set_merged,
+                => return true,
+
                 // Pointers to zero-bit types still have a runtime address; however, pointers
                 // to comptime-only types do not, with the exception of function pointers.
-                if (ignore_comptime_only) return true;
-                const child_ty = ptr_type.elem_type.toType();
-                if (child_ty.zigTypeTag(mod) == .Fn) return !child_ty.fnInfo().is_generic;
-                if (strat == .sema) return !(try strat.sema.typeRequiresComptime(ty));
-                return !comptimeOnly(ty, mod);
-            },
-            .array_type => |array_type| {
-                if (array_type.sentinel != .none) {
-                    return array_type.child.toType().hasRuntimeBitsAdvanced(mod, ignore_comptime_only, strat);
-                } else {
-                    return array_type.len > 0 and
-                        try array_type.child.toType().hasRuntimeBitsAdvanced(mod, ignore_comptime_only, strat);
-                }
-            },
-            .vector_type => |vector_type| {
-                return vector_type.len > 0 and
-                    try vector_type.child.toType().hasRuntimeBitsAdvanced(mod, ignore_comptime_only, strat);
-            },
-            .opt_type => |child| {
-                const child_ty = child.toType();
-                if (child_ty.isNoReturn()) {
-                    // Then the optional is comptime-known to be null.
-                    return false;
-                }
-                if (ignore_comptime_only) {
-                    return true;
-                } else if (strat == .sema) {
-                    return !(try strat.sema.typeRequiresComptime(child_ty));
-                } else {
-                    return !comptimeOnly(child_ty, mod);
-                }
-            },
-            .error_union_type => @panic("TODO"),
-            .simple_type => |t| return switch (t) {
-                .f16,
-                .f32,
-                .f64,
-                .f80,
-                .f128,
-                .usize,
-                .isize,
-                .c_char,
-                .c_short,
-                .c_ushort,
-                .c_int,
-                .c_uint,
-                .c_long,
-                .c_ulong,
-                .c_longlong,
-                .c_ulonglong,
-                .c_longdouble,
-                .bool,
-                .anyerror,
-                .@"anyframe",
-                .anyopaque,
-                .atomic_order,
-                .atomic_rmw_op,
-                .calling_convention,
-                .address_space,
-                .float_mode,
-                .reduce_op,
-                .call_modifier,
-                .prefetch_options,
-                .export_options,
-                .extern_options,
-                => true,
+                .anyframe_T,
+                .pointer,
+                => {
+                    if (ignore_comptime_only) {
+                        return true;
+                    } else if (ty.childType(mod).zigTypeTag(mod) == .Fn) {
+                        return !ty.childType(mod).fnInfo().is_generic;
+                    } else if (strat == .sema) {
+                        return !(try strat.sema.typeRequiresComptime(ty));
+                    } else {
+                        return !comptimeOnly(ty, mod);
+                    }
+                },
 
                 // These are false because they are comptime-only types.
-                .void,
-                .type,
-                .comptime_int,
-                .comptime_float,
-                .noreturn,
-                .null,
-                .undefined,
-                .enum_literal,
-                .type_info,
-                => false,
+                .empty_struct,
+                // These are function *bodies*, not pointers.
+                // Special exceptions have to be made when emitting functions due to
+                // this returning false.
+                .function,
+                => return false,
 
-                .generic_poison => unreachable,
-                .var_args_param => unreachable,
+                .optional => {
+                    const child_ty = ty.optionalChild(mod);
+                    if (child_ty.isNoReturn()) {
+                        // Then the optional is comptime-known to be null.
+                        return false;
+                    }
+                    if (ignore_comptime_only) {
+                        return true;
+                    } else if (strat == .sema) {
+                        return !(try strat.sema.typeRequiresComptime(child_ty));
+                    } else {
+                        return !comptimeOnly(child_ty, mod);
+                    }
+                },
+
+                .@"struct" => {
+                    const struct_obj = ty.castTag(.@"struct").?.data;
+                    if (struct_obj.status == .field_types_wip) {
+                        // In this case, we guess that hasRuntimeBits() for this type is true,
+                        // and then later if our guess was incorrect, we emit a compile error.
+                        struct_obj.assumed_runtime_bits = true;
+                        return true;
+                    }
+                    switch (strat) {
+                        .sema => |sema| _ = try sema.resolveTypeFields(ty),
+                        .eager => assert(struct_obj.haveFieldTypes()),
+                        .lazy => if (!struct_obj.haveFieldTypes()) return error.NeedLazy,
+                    }
+                    for (struct_obj.fields.values()) |field| {
+                        if (field.is_comptime) continue;
+                        if (try field.ty.hasRuntimeBitsAdvanced(mod, ignore_comptime_only, strat))
+                            return true;
+                    } else {
+                        return false;
+                    }
+                },
+
+                .enum_full => {
+                    const enum_full = ty.castTag(.enum_full).?.data;
+                    return enum_full.tag_ty.hasRuntimeBitsAdvanced(mod, ignore_comptime_only, strat);
+                },
+                .enum_simple => {
+                    const enum_simple = ty.castTag(.enum_simple).?.data;
+                    return enum_simple.fields.count() >= 2;
+                },
+                .enum_numbered, .enum_nonexhaustive => {
+                    const int_tag_ty = try ty.intTagType(mod);
+                    return int_tag_ty.hasRuntimeBitsAdvanced(mod, ignore_comptime_only, strat);
+                },
+
+                .@"union" => {
+                    const union_obj = ty.castTag(.@"union").?.data;
+                    if (union_obj.status == .field_types_wip) {
+                        // In this case, we guess that hasRuntimeBits() for this type is true,
+                        // and then later if our guess was incorrect, we emit a compile error.
+                        union_obj.assumed_runtime_bits = true;
+                        return true;
+                    }
+                    switch (strat) {
+                        .sema => |sema| _ = try sema.resolveTypeFields(ty),
+                        .eager => assert(union_obj.haveFieldTypes()),
+                        .lazy => if (!union_obj.haveFieldTypes()) return error.NeedLazy,
+                    }
+                    for (union_obj.fields.values()) |value| {
+                        if (try value.ty.hasRuntimeBitsAdvanced(mod, ignore_comptime_only, strat))
+                            return true;
+                    } else {
+                        return false;
+                    }
+                },
+                .union_safety_tagged, .union_tagged => {
+                    const union_obj = ty.cast(Payload.Union).?.data;
+                    if (try union_obj.tag_ty.hasRuntimeBitsAdvanced(mod, ignore_comptime_only, strat)) {
+                        return true;
+                    }
+
+                    switch (strat) {
+                        .sema => |sema| _ = try sema.resolveTypeFields(ty),
+                        .eager => assert(union_obj.haveFieldTypes()),
+                        .lazy => if (!union_obj.haveFieldTypes()) return error.NeedLazy,
+                    }
+                    for (union_obj.fields.values()) |value| {
+                        if (try value.ty.hasRuntimeBitsAdvanced(mod, ignore_comptime_only, strat))
+                            return true;
+                    } else {
+                        return false;
+                    }
+                },
+
+                .array => return ty.arrayLen(mod) != 0 and
+                    try ty.childType(mod).hasRuntimeBitsAdvanced(mod, ignore_comptime_only, strat),
+                .array_sentinel => return ty.childType(mod).hasRuntimeBitsAdvanced(mod, ignore_comptime_only, strat),
+
+                .tuple, .anon_struct => {
+                    const tuple = ty.tupleFields();
+                    for (tuple.types, 0..) |field_ty, i| {
+                        const val = tuple.values[i];
+                        if (val.ip_index != .unreachable_value) continue; // comptime field
+                        if (try field_ty.hasRuntimeBitsAdvanced(mod, ignore_comptime_only, strat)) return true;
+                    }
+                    return false;
+                },
+
+                .inferred_alloc_const => unreachable,
+                .inferred_alloc_mut => unreachable,
             },
-            .struct_type => @panic("TODO"),
-            .union_type => @panic("TODO"),
-            .simple_value => unreachable,
-            .extern_func => unreachable,
-            .int => unreachable,
-            .enum_tag => unreachable, // it's a value, not a type
-        };
-        switch (ty.tag()) {
-            .error_set_inferred,
-
-            .@"opaque",
-            .error_set_single,
-            .error_union,
-            .error_set,
-            .error_set_merged,
-            => return true,
-
-            // Pointers to zero-bit types still have a runtime address; however, pointers
-            // to comptime-only types do not, with the exception of function pointers.
-            .anyframe_T,
-            .pointer,
-            => {
-                if (ignore_comptime_only) {
-                    return true;
-                } else if (ty.childType(mod).zigTypeTag(mod) == .Fn) {
-                    return !ty.childType(mod).fnInfo().is_generic;
-                } else if (strat == .sema) {
-                    return !(try strat.sema.typeRequiresComptime(ty));
-                } else {
+            else => switch (mod.intern_pool.indexToKey(ty.ip_index)) {
+                .int_type => |int_type| return int_type.bits != 0,
+                .ptr_type => |ptr_type| {
+                    // Pointers to zero-bit types still have a runtime address; however, pointers
+                    // to comptime-only types do not, with the exception of function pointers.
+                    if (ignore_comptime_only) return true;
+                    const child_ty = ptr_type.elem_type.toType();
+                    if (child_ty.zigTypeTag(mod) == .Fn) return !child_ty.fnInfo().is_generic;
+                    if (strat == .sema) return !(try strat.sema.typeRequiresComptime(ty));
                     return !comptimeOnly(ty, mod);
-                }
-            },
-
-            // These are false because they are comptime-only types.
-            .empty_struct,
-            .empty_struct_literal,
-            // These are function *bodies*, not pointers.
-            // Special exceptions have to be made when emitting functions due to
-            // this returning false.
-            .function,
-            => return false,
-
-            .optional => {
-                const child_ty = ty.optionalChild(mod);
-                if (child_ty.isNoReturn()) {
-                    // Then the optional is comptime-known to be null.
-                    return false;
-                }
-                if (ignore_comptime_only) {
-                    return true;
-                } else if (strat == .sema) {
-                    return !(try strat.sema.typeRequiresComptime(child_ty));
-                } else {
-                    return !comptimeOnly(child_ty, mod);
-                }
-            },
-
-            .@"struct" => {
-                const struct_obj = ty.castTag(.@"struct").?.data;
-                if (struct_obj.status == .field_types_wip) {
-                    // In this case, we guess that hasRuntimeBits() for this type is true,
-                    // and then later if our guess was incorrect, we emit a compile error.
-                    struct_obj.assumed_runtime_bits = true;
-                    return true;
-                }
-                switch (strat) {
-                    .sema => |sema| _ = try sema.resolveTypeFields(ty),
-                    .eager => assert(struct_obj.haveFieldTypes()),
-                    .lazy => if (!struct_obj.haveFieldTypes()) return error.NeedLazy,
-                }
-                for (struct_obj.fields.values()) |field| {
-                    if (field.is_comptime) continue;
-                    if (try field.ty.hasRuntimeBitsAdvanced(mod, ignore_comptime_only, strat))
+                },
+                .array_type => |array_type| {
+                    if (array_type.sentinel != .none) {
+                        return array_type.child.toType().hasRuntimeBitsAdvanced(mod, ignore_comptime_only, strat);
+                    } else {
+                        return array_type.len > 0 and
+                            try array_type.child.toType().hasRuntimeBitsAdvanced(mod, ignore_comptime_only, strat);
+                    }
+                },
+                .vector_type => |vector_type| {
+                    return vector_type.len > 0 and
+                        try vector_type.child.toType().hasRuntimeBitsAdvanced(mod, ignore_comptime_only, strat);
+                },
+                .opt_type => |child| {
+                    const child_ty = child.toType();
+                    if (child_ty.isNoReturn()) {
+                        // Then the optional is comptime-known to be null.
+                        return false;
+                    }
+                    if (ignore_comptime_only) {
                         return true;
-                } else {
-                    return false;
-                }
-            },
+                    } else if (strat == .sema) {
+                        return !(try strat.sema.typeRequiresComptime(child_ty));
+                    } else {
+                        return !comptimeOnly(child_ty, mod);
+                    }
+                },
+                .error_union_type => @panic("TODO"),
+                .simple_type => |t| return switch (t) {
+                    .f16,
+                    .f32,
+                    .f64,
+                    .f80,
+                    .f128,
+                    .usize,
+                    .isize,
+                    .c_char,
+                    .c_short,
+                    .c_ushort,
+                    .c_int,
+                    .c_uint,
+                    .c_long,
+                    .c_ulong,
+                    .c_longlong,
+                    .c_ulonglong,
+                    .c_longdouble,
+                    .bool,
+                    .anyerror,
+                    .@"anyframe",
+                    .anyopaque,
+                    .atomic_order,
+                    .atomic_rmw_op,
+                    .calling_convention,
+                    .address_space,
+                    .float_mode,
+                    .reduce_op,
+                    .call_modifier,
+                    .prefetch_options,
+                    .export_options,
+                    .extern_options,
+                    => true,
 
-            .enum_full => {
-                const enum_full = ty.castTag(.enum_full).?.data;
-                return enum_full.tag_ty.hasRuntimeBitsAdvanced(mod, ignore_comptime_only, strat);
-            },
-            .enum_simple => {
-                const enum_simple = ty.castTag(.enum_simple).?.data;
-                return enum_simple.fields.count() >= 2;
-            },
-            .enum_numbered, .enum_nonexhaustive => {
-                const int_tag_ty = try ty.intTagType(mod);
-                return int_tag_ty.hasRuntimeBitsAdvanced(mod, ignore_comptime_only, strat);
-            },
+                    // These are false because they are comptime-only types.
+                    .void,
+                    .type,
+                    .comptime_int,
+                    .comptime_float,
+                    .noreturn,
+                    .null,
+                    .undefined,
+                    .enum_literal,
+                    .type_info,
+                    => false,
 
-            .@"union" => {
-                const union_obj = ty.castTag(.@"union").?.data;
-                if (union_obj.status == .field_types_wip) {
-                    // In this case, we guess that hasRuntimeBits() for this type is true,
-                    // and then later if our guess was incorrect, we emit a compile error.
-                    union_obj.assumed_runtime_bits = true;
-                    return true;
-                }
-                switch (strat) {
-                    .sema => |sema| _ = try sema.resolveTypeFields(ty),
-                    .eager => assert(union_obj.haveFieldTypes()),
-                    .lazy => if (!union_obj.haveFieldTypes()) return error.NeedLazy,
-                }
-                for (union_obj.fields.values()) |value| {
-                    if (try value.ty.hasRuntimeBitsAdvanced(mod, ignore_comptime_only, strat))
-                        return true;
-                } else {
-                    return false;
-                }
+                    .generic_poison => unreachable,
+                    .var_args_param => unreachable,
+                },
+                .struct_type => @panic("TODO"),
+                .union_type => @panic("TODO"),
+                .simple_value => unreachable,
+                .extern_func => unreachable,
+                .int => unreachable,
+                .enum_tag => unreachable, // it's a value, not a type
             },
-            .union_safety_tagged, .union_tagged => {
-                const union_obj = ty.cast(Payload.Union).?.data;
-                if (try union_obj.tag_ty.hasRuntimeBitsAdvanced(mod, ignore_comptime_only, strat)) {
-                    return true;
-                }
-
-                switch (strat) {
-                    .sema => |sema| _ = try sema.resolveTypeFields(ty),
-                    .eager => assert(union_obj.haveFieldTypes()),
-                    .lazy => if (!union_obj.haveFieldTypes()) return error.NeedLazy,
-                }
-                for (union_obj.fields.values()) |value| {
-                    if (try value.ty.hasRuntimeBitsAdvanced(mod, ignore_comptime_only, strat))
-                        return true;
-                } else {
-                    return false;
-                }
-            },
-
-            .array => return ty.arrayLen(mod) != 0 and
-                try ty.childType(mod).hasRuntimeBitsAdvanced(mod, ignore_comptime_only, strat),
-            .array_sentinel => return ty.childType(mod).hasRuntimeBitsAdvanced(mod, ignore_comptime_only, strat),
-
-            .tuple, .anon_struct => {
-                const tuple = ty.tupleFields();
-                for (tuple.types, 0..) |field_ty, i| {
-                    const val = tuple.values[i];
-                    if (val.ip_index != .unreachable_value) continue; // comptime field
-                    if (try field_ty.hasRuntimeBitsAdvanced(mod, ignore_comptime_only, strat)) return true;
-                }
-                return false;
-            },
-
-            .inferred_alloc_const => unreachable,
-            .inferred_alloc_mut => unreachable,
         }
     }
 
@@ -1851,104 +1854,107 @@ pub const Type = struct {
     /// readFrom/writeToMemory are supported only for types with a well-
     /// defined memory layout
     pub fn hasWellDefinedLayout(ty: Type, mod: *Module) bool {
-        if (ty.ip_index != .none) return switch (mod.intern_pool.indexToKey(ty.ip_index)) {
-            .int_type => true,
-            .ptr_type => true,
-            .array_type => |array_type| array_type.child.toType().hasWellDefinedLayout(mod),
-            .vector_type => true,
-            .opt_type => |child| child.toType().isPtrLikeOptional(mod),
-            .error_union_type => false,
-            .simple_type => |t| switch (t) {
-                .f16,
-                .f32,
-                .f64,
-                .f80,
-                .f128,
-                .usize,
-                .isize,
-                .c_char,
-                .c_short,
-                .c_ushort,
-                .c_int,
-                .c_uint,
-                .c_long,
-                .c_ulong,
-                .c_longlong,
-                .c_ulonglong,
-                .c_longdouble,
-                .bool,
-                .void,
+        return switch (ty.ip_index) {
+            .empty_struct_type => false,
+
+            .none => switch (ty.tag()) {
+                .pointer,
+                .enum_numbered,
                 => true,
 
-                .anyerror,
-                .@"anyframe",
-                .anyopaque,
-                .atomic_order,
-                .atomic_rmw_op,
-                .calling_convention,
-                .address_space,
-                .float_mode,
-                .reduce_op,
-                .call_modifier,
-                .prefetch_options,
-                .export_options,
-                .extern_options,
-                .type,
-                .comptime_int,
-                .comptime_float,
-                .noreturn,
-                .null,
-                .undefined,
-                .enum_literal,
-                .type_info,
-                .generic_poison,
+                .error_set,
+                .error_set_single,
+                .error_set_inferred,
+                .error_set_merged,
+                .@"opaque",
+                // These are function bodies, not function pointers.
+                .function,
+                .enum_simple,
+                .error_union,
+                .anyframe_T,
+                .tuple,
+                .anon_struct,
+                .empty_struct,
                 => false,
 
-                .var_args_param => unreachable,
+                .enum_full,
+                .enum_nonexhaustive,
+                => !ty.cast(Payload.EnumFull).?.data.tag_ty_inferred,
+
+                .inferred_alloc_mut => unreachable,
+                .inferred_alloc_const => unreachable,
+
+                .array,
+                .array_sentinel,
+                => ty.childType(mod).hasWellDefinedLayout(mod),
+
+                .optional => ty.isPtrLikeOptional(mod),
+                .@"struct" => ty.castTag(.@"struct").?.data.layout != .Auto,
+                .@"union", .union_safety_tagged => ty.cast(Payload.Union).?.data.layout != .Auto,
+                .union_tagged => false,
             },
-            .struct_type => @panic("TODO"),
-            .union_type => @panic("TODO"),
-            .simple_value => unreachable,
-            .extern_func => unreachable,
-            .int => unreachable,
-            .enum_tag => unreachable, // it's a value, not a type
-        };
-        return switch (ty.tag()) {
-            .pointer,
-            .enum_numbered,
-            => true,
+            else => switch (mod.intern_pool.indexToKey(ty.ip_index)) {
+                .int_type => true,
+                .ptr_type => true,
+                .array_type => |array_type| array_type.child.toType().hasWellDefinedLayout(mod),
+                .vector_type => true,
+                .opt_type => |child| child.toType().isPtrLikeOptional(mod),
+                .error_union_type => false,
+                .simple_type => |t| switch (t) {
+                    .f16,
+                    .f32,
+                    .f64,
+                    .f80,
+                    .f128,
+                    .usize,
+                    .isize,
+                    .c_char,
+                    .c_short,
+                    .c_ushort,
+                    .c_int,
+                    .c_uint,
+                    .c_long,
+                    .c_ulong,
+                    .c_longlong,
+                    .c_ulonglong,
+                    .c_longdouble,
+                    .bool,
+                    .void,
+                    => true,
 
-            .error_set,
-            .error_set_single,
-            .error_set_inferred,
-            .error_set_merged,
-            .@"opaque",
-            // These are function bodies, not function pointers.
-            .function,
-            .enum_simple,
-            .error_union,
-            .anyframe_T,
-            .tuple,
-            .anon_struct,
-            .empty_struct_literal,
-            .empty_struct,
-            => false,
+                    .anyerror,
+                    .@"anyframe",
+                    .anyopaque,
+                    .atomic_order,
+                    .atomic_rmw_op,
+                    .calling_convention,
+                    .address_space,
+                    .float_mode,
+                    .reduce_op,
+                    .call_modifier,
+                    .prefetch_options,
+                    .export_options,
+                    .extern_options,
+                    .type,
+                    .comptime_int,
+                    .comptime_float,
+                    .noreturn,
+                    .null,
+                    .undefined,
+                    .enum_literal,
+                    .type_info,
+                    .generic_poison,
+                    => false,
 
-            .enum_full,
-            .enum_nonexhaustive,
-            => !ty.cast(Payload.EnumFull).?.data.tag_ty_inferred,
-
-            .inferred_alloc_mut => unreachable,
-            .inferred_alloc_const => unreachable,
-
-            .array,
-            .array_sentinel,
-            => ty.childType(mod).hasWellDefinedLayout(mod),
-
-            .optional => ty.isPtrLikeOptional(mod),
-            .@"struct" => ty.castTag(.@"struct").?.data.layout != .Auto,
-            .@"union", .union_safety_tagged => ty.cast(Payload.Union).?.data.layout != .Auto,
-            .union_tagged => false,
+                    .var_args_param => unreachable,
+                },
+                .struct_type => @panic("TODO"),
+                .union_type => @panic("TODO"),
+                .simple_value => unreachable,
+                .extern_func => unreachable,
+                .int => unreachable,
+                .enum_tag => unreachable, // it's a value, not a type
+            },
         };
     }
 
@@ -2120,232 +2126,232 @@ pub const Type = struct {
             else => null,
         };
 
-        if (ty.ip_index != .none) switch (mod.intern_pool.indexToKey(ty.ip_index)) {
-            .int_type => |int_type| {
-                if (int_type.bits == 0) return AbiAlignmentAdvanced{ .scalar = 0 };
-                return AbiAlignmentAdvanced{ .scalar = intAbiAlignment(int_type.bits, target) };
-            },
-            .ptr_type => {
-                return AbiAlignmentAdvanced{ .scalar = @divExact(target.ptrBitWidth(), 8) };
-            },
-            .array_type => |array_type| {
-                return array_type.child.toType().abiAlignmentAdvanced(mod, strat);
-            },
-            .vector_type => |vector_type| {
-                const bits_u64 = try bitSizeAdvanced(vector_type.child.toType(), mod, opt_sema);
-                const bits = @intCast(u32, bits_u64);
-                const bytes = ((bits * vector_type.len) + 7) / 8;
-                const alignment = std.math.ceilPowerOfTwoAssert(u32, bytes);
-                return AbiAlignmentAdvanced{ .scalar = alignment };
-            },
+        switch (ty.ip_index) {
+            .empty_struct_type => return AbiAlignmentAdvanced{ .scalar = 0 },
+            .none => switch (ty.tag()) {
+                .@"opaque" => return AbiAlignmentAdvanced{ .scalar = 1 },
 
-            .opt_type => return abiAlignmentAdvancedOptional(ty, mod, strat),
-            .error_union_type => return abiAlignmentAdvancedErrorUnion(ty, mod, strat),
-            .simple_type => |t| switch (t) {
-                .bool,
-                .atomic_order,
-                .atomic_rmw_op,
-                .calling_convention,
-                .address_space,
-                .float_mode,
-                .reduce_op,
-                .call_modifier,
-                .prefetch_options,
-                .anyopaque,
-                => return AbiAlignmentAdvanced{ .scalar = 1 },
+                // represents machine code; not a pointer
+                .function => {
+                    const alignment = ty.castTag(.function).?.data.alignment;
+                    if (alignment != 0) return AbiAlignmentAdvanced{ .scalar = alignment };
+                    return AbiAlignmentAdvanced{ .scalar = target_util.defaultFunctionAlignment(target) };
+                },
 
-                .usize,
-                .isize,
-                .export_options,
-                .extern_options,
-                .@"anyframe",
+                .pointer,
+                .anyframe_T,
                 => return AbiAlignmentAdvanced{ .scalar = @divExact(target.ptrBitWidth(), 8) },
 
-                .c_char => return AbiAlignmentAdvanced{ .scalar = target.c_type_alignment(.char) },
-                .c_short => return AbiAlignmentAdvanced{ .scalar = target.c_type_alignment(.short) },
-                .c_ushort => return AbiAlignmentAdvanced{ .scalar = target.c_type_alignment(.ushort) },
-                .c_int => return AbiAlignmentAdvanced{ .scalar = target.c_type_alignment(.int) },
-                .c_uint => return AbiAlignmentAdvanced{ .scalar = target.c_type_alignment(.uint) },
-                .c_long => return AbiAlignmentAdvanced{ .scalar = target.c_type_alignment(.long) },
-                .c_ulong => return AbiAlignmentAdvanced{ .scalar = target.c_type_alignment(.ulong) },
-                .c_longlong => return AbiAlignmentAdvanced{ .scalar = target.c_type_alignment(.longlong) },
-                .c_ulonglong => return AbiAlignmentAdvanced{ .scalar = target.c_type_alignment(.ulonglong) },
-                .c_longdouble => return AbiAlignmentAdvanced{ .scalar = target.c_type_alignment(.longdouble) },
-
-                .f16 => return AbiAlignmentAdvanced{ .scalar = 2 },
-                .f32 => return AbiAlignmentAdvanced{ .scalar = target.c_type_alignment(.float) },
-                .f64 => switch (target.c_type_bit_size(.double)) {
-                    64 => return AbiAlignmentAdvanced{ .scalar = target.c_type_alignment(.double) },
-                    else => return AbiAlignmentAdvanced{ .scalar = 8 },
-                },
-                .f80 => switch (target.c_type_bit_size(.longdouble)) {
-                    80 => return AbiAlignmentAdvanced{ .scalar = target.c_type_alignment(.longdouble) },
-                    else => {
-                        const u80_ty: Type = .{
-                            .ip_index = .u80_type,
-                            .legacy = undefined,
-                        };
-                        return AbiAlignmentAdvanced{ .scalar = abiAlignment(u80_ty, mod) };
-                    },
-                },
-                .f128 => switch (target.c_type_bit_size(.longdouble)) {
-                    128 => return AbiAlignmentAdvanced{ .scalar = target.c_type_alignment(.longdouble) },
-                    else => return AbiAlignmentAdvanced{ .scalar = 16 },
-                },
-
                 // TODO revisit this when we have the concept of the error tag type
-                .anyerror => return AbiAlignmentAdvanced{ .scalar = 2 },
+                .error_set_inferred,
+                .error_set_single,
+                .error_set,
+                .error_set_merged,
+                => return AbiAlignmentAdvanced{ .scalar = 2 },
 
-                .void,
-                .type,
-                .comptime_int,
-                .comptime_float,
-                .null,
-                .undefined,
-                .enum_literal,
-                .type_info,
-                => return AbiAlignmentAdvanced{ .scalar = 0 },
+                .array, .array_sentinel => return ty.childType(mod).abiAlignmentAdvanced(mod, strat),
 
-                .noreturn => unreachable,
-                .generic_poison => unreachable,
-                .var_args_param => unreachable,
-            },
-            .struct_type => @panic("TODO"),
-            .union_type => @panic("TODO"),
-            .simple_value => unreachable,
-            .extern_func => unreachable,
-            .int => unreachable,
-            .enum_tag => unreachable, // it's a value, not a type
-        };
+                .optional => return abiAlignmentAdvancedOptional(ty, mod, strat),
+                .error_union => return abiAlignmentAdvancedErrorUnion(ty, mod, strat),
 
-        switch (ty.tag()) {
-            .@"opaque" => return AbiAlignmentAdvanced{ .scalar = 1 },
-
-            // represents machine code; not a pointer
-            .function => {
-                const alignment = ty.castTag(.function).?.data.alignment;
-                if (alignment != 0) return AbiAlignmentAdvanced{ .scalar = alignment };
-                return AbiAlignmentAdvanced{ .scalar = target_util.defaultFunctionAlignment(target) };
-            },
-
-            .pointer,
-            .anyframe_T,
-            => return AbiAlignmentAdvanced{ .scalar = @divExact(target.ptrBitWidth(), 8) },
-
-            // TODO revisit this when we have the concept of the error tag type
-            .error_set_inferred,
-            .error_set_single,
-            .error_set,
-            .error_set_merged,
-            => return AbiAlignmentAdvanced{ .scalar = 2 },
-
-            .array, .array_sentinel => return ty.childType(mod).abiAlignmentAdvanced(mod, strat),
-
-            .optional => return abiAlignmentAdvancedOptional(ty, mod, strat),
-            .error_union => return abiAlignmentAdvancedErrorUnion(ty, mod, strat),
-
-            .@"struct" => {
-                const struct_obj = ty.castTag(.@"struct").?.data;
-                if (opt_sema) |sema| {
-                    if (struct_obj.status == .field_types_wip) {
-                        // We'll guess "pointer-aligned", if the struct has an
-                        // underaligned pointer field then some allocations
-                        // might require explicit alignment.
-                        return AbiAlignmentAdvanced{ .scalar = @divExact(target.ptrBitWidth(), 8) };
+                .@"struct" => {
+                    const struct_obj = ty.castTag(.@"struct").?.data;
+                    if (opt_sema) |sema| {
+                        if (struct_obj.status == .field_types_wip) {
+                            // We'll guess "pointer-aligned", if the struct has an
+                            // underaligned pointer field then some allocations
+                            // might require explicit alignment.
+                            return AbiAlignmentAdvanced{ .scalar = @divExact(target.ptrBitWidth(), 8) };
+                        }
+                        _ = try sema.resolveTypeFields(ty);
                     }
-                    _ = try sema.resolveTypeFields(ty);
-                }
-                if (!struct_obj.haveFieldTypes()) switch (strat) {
-                    .eager => unreachable, // struct layout not resolved
-                    .sema => unreachable, // handled above
-                    .lazy => |arena| return AbiAlignmentAdvanced{ .val = try Value.Tag.lazy_align.create(arena, ty) },
-                };
-                if (struct_obj.layout == .Packed) {
-                    switch (strat) {
-                        .sema => |sema| try sema.resolveTypeLayout(ty),
-                        .lazy => |arena| {
-                            if (!struct_obj.haveLayout()) {
-                                return AbiAlignmentAdvanced{ .val = try Value.Tag.lazy_align.create(arena, ty) };
-                            }
-                        },
-                        .eager => {},
-                    }
-                    assert(struct_obj.haveLayout());
-                    return AbiAlignmentAdvanced{ .scalar = struct_obj.backing_int_ty.abiAlignment(mod) };
-                }
-
-                const fields = ty.structFields();
-                var big_align: u32 = 0;
-                for (fields.values()) |field| {
-                    if (!(field.ty.hasRuntimeBitsAdvanced(mod, false, strat) catch |err| switch (err) {
-                        error.NeedLazy => return AbiAlignmentAdvanced{ .val = try Value.Tag.lazy_align.create(strat.lazy, ty) },
-                        else => |e| return e,
-                    })) continue;
-
-                    const field_align = if (field.abi_align != 0)
-                        field.abi_align
-                    else switch (try field.ty.abiAlignmentAdvanced(mod, strat)) {
-                        .scalar => |a| a,
-                        .val => switch (strat) {
-                            .eager => unreachable, // struct layout not resolved
-                            .sema => unreachable, // handled above
-                            .lazy => |arena| return AbiAlignmentAdvanced{ .val = try Value.Tag.lazy_align.create(arena, ty) },
-                        },
+                    if (!struct_obj.haveFieldTypes()) switch (strat) {
+                        .eager => unreachable, // struct layout not resolved
+                        .sema => unreachable, // handled above
+                        .lazy => |arena| return AbiAlignmentAdvanced{ .val = try Value.Tag.lazy_align.create(arena, ty) },
                     };
-                    big_align = @max(big_align, field_align);
+                    if (struct_obj.layout == .Packed) {
+                        switch (strat) {
+                            .sema => |sema| try sema.resolveTypeLayout(ty),
+                            .lazy => |arena| {
+                                if (!struct_obj.haveLayout()) {
+                                    return AbiAlignmentAdvanced{ .val = try Value.Tag.lazy_align.create(arena, ty) };
+                                }
+                            },
+                            .eager => {},
+                        }
+                        assert(struct_obj.haveLayout());
+                        return AbiAlignmentAdvanced{ .scalar = struct_obj.backing_int_ty.abiAlignment(mod) };
+                    }
 
-                    // This logic is duplicated in Module.Struct.Field.alignment.
-                    if (struct_obj.layout == .Extern or target.ofmt == .c) {
-                        if (field.ty.isAbiInt(mod) and field.ty.intInfo(mod).bits >= 128) {
-                            // The C ABI requires 128 bit integer fields of structs
-                            // to be 16-bytes aligned.
-                            big_align = @max(big_align, 16);
+                    const fields = ty.structFields();
+                    var big_align: u32 = 0;
+                    for (fields.values()) |field| {
+                        if (!(field.ty.hasRuntimeBitsAdvanced(mod, false, strat) catch |err| switch (err) {
+                            error.NeedLazy => return AbiAlignmentAdvanced{ .val = try Value.Tag.lazy_align.create(strat.lazy, ty) },
+                            else => |e| return e,
+                        })) continue;
+
+                        const field_align = if (field.abi_align != 0)
+                            field.abi_align
+                        else switch (try field.ty.abiAlignmentAdvanced(mod, strat)) {
+                            .scalar => |a| a,
+                            .val => switch (strat) {
+                                .eager => unreachable, // struct layout not resolved
+                                .sema => unreachable, // handled above
+                                .lazy => |arena| return AbiAlignmentAdvanced{ .val = try Value.Tag.lazy_align.create(arena, ty) },
+                            },
+                        };
+                        big_align = @max(big_align, field_align);
+
+                        // This logic is duplicated in Module.Struct.Field.alignment.
+                        if (struct_obj.layout == .Extern or target.ofmt == .c) {
+                            if (field.ty.isAbiInt(mod) and field.ty.intInfo(mod).bits >= 128) {
+                                // The C ABI requires 128 bit integer fields of structs
+                                // to be 16-bytes aligned.
+                                big_align = @max(big_align, 16);
+                            }
                         }
                     }
-                }
-                return AbiAlignmentAdvanced{ .scalar = big_align };
-            },
+                    return AbiAlignmentAdvanced{ .scalar = big_align };
+                },
 
-            .tuple, .anon_struct => {
-                const tuple = ty.tupleFields();
-                var big_align: u32 = 0;
-                for (tuple.types, 0..) |field_ty, i| {
-                    const val = tuple.values[i];
-                    if (val.ip_index != .unreachable_value) continue; // comptime field
-                    if (!(field_ty.hasRuntimeBits(mod))) continue;
+                .tuple, .anon_struct => {
+                    const tuple = ty.tupleFields();
+                    var big_align: u32 = 0;
+                    for (tuple.types, 0..) |field_ty, i| {
+                        const val = tuple.values[i];
+                        if (val.ip_index != .unreachable_value) continue; // comptime field
+                        if (!(field_ty.hasRuntimeBits(mod))) continue;
 
-                    switch (try field_ty.abiAlignmentAdvanced(mod, strat)) {
-                        .scalar => |field_align| big_align = @max(big_align, field_align),
-                        .val => switch (strat) {
-                            .eager => unreachable, // field type alignment not resolved
-                            .sema => unreachable, // passed to abiAlignmentAdvanced above
-                            .lazy => |arena| return AbiAlignmentAdvanced{ .val = try Value.Tag.lazy_align.create(arena, ty) },
-                        },
+                        switch (try field_ty.abiAlignmentAdvanced(mod, strat)) {
+                            .scalar => |field_align| big_align = @max(big_align, field_align),
+                            .val => switch (strat) {
+                                .eager => unreachable, // field type alignment not resolved
+                                .sema => unreachable, // passed to abiAlignmentAdvanced above
+                                .lazy => |arena| return AbiAlignmentAdvanced{ .val = try Value.Tag.lazy_align.create(arena, ty) },
+                            },
+                        }
                     }
-                }
-                return AbiAlignmentAdvanced{ .scalar = big_align };
-            },
+                    return AbiAlignmentAdvanced{ .scalar = big_align };
+                },
 
-            .enum_full, .enum_nonexhaustive, .enum_simple, .enum_numbered => {
-                const int_tag_ty = try ty.intTagType(mod);
-                return AbiAlignmentAdvanced{ .scalar = int_tag_ty.abiAlignment(mod) };
-            },
-            .@"union" => {
-                const union_obj = ty.castTag(.@"union").?.data;
-                return abiAlignmentAdvancedUnion(ty, mod, strat, union_obj, false);
-            },
-            .union_safety_tagged, .union_tagged => {
-                const union_obj = ty.cast(Payload.Union).?.data;
-                return abiAlignmentAdvancedUnion(ty, mod, strat, union_obj, true);
-            },
+                .enum_full, .enum_nonexhaustive, .enum_simple, .enum_numbered => {
+                    const int_tag_ty = try ty.intTagType(mod);
+                    return AbiAlignmentAdvanced{ .scalar = int_tag_ty.abiAlignment(mod) };
+                },
+                .@"union" => {
+                    const union_obj = ty.castTag(.@"union").?.data;
+                    return abiAlignmentAdvancedUnion(ty, mod, strat, union_obj, false);
+                },
+                .union_safety_tagged, .union_tagged => {
+                    const union_obj = ty.cast(Payload.Union).?.data;
+                    return abiAlignmentAdvancedUnion(ty, mod, strat, union_obj, true);
+                },
 
-            .empty_struct,
-            .empty_struct_literal,
-            => return AbiAlignmentAdvanced{ .scalar = 0 },
+                .empty_struct => return AbiAlignmentAdvanced{ .scalar = 0 },
 
-            .inferred_alloc_const,
-            .inferred_alloc_mut,
-            => unreachable,
+                .inferred_alloc_const,
+                .inferred_alloc_mut,
+                => unreachable,
+            },
+            else => switch (mod.intern_pool.indexToKey(ty.ip_index)) {
+                .int_type => |int_type| {
+                    if (int_type.bits == 0) return AbiAlignmentAdvanced{ .scalar = 0 };
+                    return AbiAlignmentAdvanced{ .scalar = intAbiAlignment(int_type.bits, target) };
+                },
+                .ptr_type => {
+                    return AbiAlignmentAdvanced{ .scalar = @divExact(target.ptrBitWidth(), 8) };
+                },
+                .array_type => |array_type| {
+                    return array_type.child.toType().abiAlignmentAdvanced(mod, strat);
+                },
+                .vector_type => |vector_type| {
+                    const bits_u64 = try bitSizeAdvanced(vector_type.child.toType(), mod, opt_sema);
+                    const bits = @intCast(u32, bits_u64);
+                    const bytes = ((bits * vector_type.len) + 7) / 8;
+                    const alignment = std.math.ceilPowerOfTwoAssert(u32, bytes);
+                    return AbiAlignmentAdvanced{ .scalar = alignment };
+                },
+
+                .opt_type => return abiAlignmentAdvancedOptional(ty, mod, strat),
+                .error_union_type => return abiAlignmentAdvancedErrorUnion(ty, mod, strat),
+                .simple_type => |t| switch (t) {
+                    .bool,
+                    .atomic_order,
+                    .atomic_rmw_op,
+                    .calling_convention,
+                    .address_space,
+                    .float_mode,
+                    .reduce_op,
+                    .call_modifier,
+                    .prefetch_options,
+                    .anyopaque,
+                    => return AbiAlignmentAdvanced{ .scalar = 1 },
+
+                    .usize,
+                    .isize,
+                    .export_options,
+                    .extern_options,
+                    .@"anyframe",
+                    => return AbiAlignmentAdvanced{ .scalar = @divExact(target.ptrBitWidth(), 8) },
+
+                    .c_char => return AbiAlignmentAdvanced{ .scalar = target.c_type_alignment(.char) },
+                    .c_short => return AbiAlignmentAdvanced{ .scalar = target.c_type_alignment(.short) },
+                    .c_ushort => return AbiAlignmentAdvanced{ .scalar = target.c_type_alignment(.ushort) },
+                    .c_int => return AbiAlignmentAdvanced{ .scalar = target.c_type_alignment(.int) },
+                    .c_uint => return AbiAlignmentAdvanced{ .scalar = target.c_type_alignment(.uint) },
+                    .c_long => return AbiAlignmentAdvanced{ .scalar = target.c_type_alignment(.long) },
+                    .c_ulong => return AbiAlignmentAdvanced{ .scalar = target.c_type_alignment(.ulong) },
+                    .c_longlong => return AbiAlignmentAdvanced{ .scalar = target.c_type_alignment(.longlong) },
+                    .c_ulonglong => return AbiAlignmentAdvanced{ .scalar = target.c_type_alignment(.ulonglong) },
+                    .c_longdouble => return AbiAlignmentAdvanced{ .scalar = target.c_type_alignment(.longdouble) },
+
+                    .f16 => return AbiAlignmentAdvanced{ .scalar = 2 },
+                    .f32 => return AbiAlignmentAdvanced{ .scalar = target.c_type_alignment(.float) },
+                    .f64 => switch (target.c_type_bit_size(.double)) {
+                        64 => return AbiAlignmentAdvanced{ .scalar = target.c_type_alignment(.double) },
+                        else => return AbiAlignmentAdvanced{ .scalar = 8 },
+                    },
+                    .f80 => switch (target.c_type_bit_size(.longdouble)) {
+                        80 => return AbiAlignmentAdvanced{ .scalar = target.c_type_alignment(.longdouble) },
+                        else => {
+                            const u80_ty: Type = .{
+                                .ip_index = .u80_type,
+                                .legacy = undefined,
+                            };
+                            return AbiAlignmentAdvanced{ .scalar = abiAlignment(u80_ty, mod) };
+                        },
+                    },
+                    .f128 => switch (target.c_type_bit_size(.longdouble)) {
+                        128 => return AbiAlignmentAdvanced{ .scalar = target.c_type_alignment(.longdouble) },
+                        else => return AbiAlignmentAdvanced{ .scalar = 16 },
+                    },
+
+                    // TODO revisit this when we have the concept of the error tag type
+                    .anyerror => return AbiAlignmentAdvanced{ .scalar = 2 },
+
+                    .void,
+                    .type,
+                    .comptime_int,
+                    .comptime_float,
+                    .null,
+                    .undefined,
+                    .enum_literal,
+                    .type_info,
+                    => return AbiAlignmentAdvanced{ .scalar = 0 },
+
+                    .noreturn => unreachable,
+                    .generic_poison => unreachable,
+                    .var_args_param => unreachable,
+                },
+                .struct_type => @panic("TODO"),
+                .union_type => @panic("TODO"),
+                .simple_value => unreachable,
+                .extern_func => unreachable,
+                .int => unreachable,
+                .enum_tag => unreachable, // it's a value, not a type
+            },
         }
     }
 
@@ -2506,255 +2512,256 @@ pub const Type = struct {
     ) Module.CompileError!AbiSizeAdvanced {
         const target = mod.getTarget();
 
-        if (ty.ip_index != .none) switch (mod.intern_pool.indexToKey(ty.ip_index)) {
-            .int_type => |int_type| {
-                if (int_type.bits == 0) return AbiSizeAdvanced{ .scalar = 0 };
-                return AbiSizeAdvanced{ .scalar = intAbiSize(int_type.bits, target) };
-            },
-            .ptr_type => |ptr_type| switch (ptr_type.size) {
-                .Slice => return .{ .scalar = @divExact(target.ptrBitWidth(), 8) * 2 },
-                else => return .{ .scalar = @divExact(target.ptrBitWidth(), 8) },
-            },
-            .array_type => |array_type| {
-                const len = array_type.len + @boolToInt(array_type.sentinel != .none);
-                switch (try array_type.child.toType().abiSizeAdvanced(mod, strat)) {
-                    .scalar => |elem_size| return .{ .scalar = len * elem_size },
-                    .val => switch (strat) {
-                        .sema, .eager => unreachable,
-                        .lazy => |arena| return .{ .val = try Value.Tag.lazy_size.create(arena, ty) },
-                    },
-                }
-            },
-            .vector_type => |vector_type| {
-                const opt_sema = switch (strat) {
-                    .sema => |sema| sema,
-                    .eager => null,
-                    .lazy => |arena| return AbiSizeAdvanced{
-                        .val = try Value.Tag.lazy_size.create(arena, ty),
-                    },
-                };
-                const elem_bits_u64 = try vector_type.child.toType().bitSizeAdvanced(mod, opt_sema);
-                const elem_bits = @intCast(u32, elem_bits_u64);
-                const total_bits = elem_bits * vector_type.len;
-                const total_bytes = (total_bits + 7) / 8;
-                const alignment = switch (try ty.abiAlignmentAdvanced(mod, strat)) {
-                    .scalar => |x| x,
-                    .val => return AbiSizeAdvanced{
-                        .val = try Value.Tag.lazy_size.create(strat.lazy, ty),
-                    },
-                };
-                const result = std.mem.alignForwardGeneric(u32, total_bytes, alignment);
-                return AbiSizeAdvanced{ .scalar = result };
-            },
+        switch (ty.ip_index) {
+            .empty_struct_type => return AbiSizeAdvanced{ .scalar = 0 },
 
-            .opt_type => return ty.abiSizeAdvancedOptional(mod, strat),
-            .error_union_type => @panic("TODO"),
-            .simple_type => |t| switch (t) {
-                .bool,
-                .atomic_order,
-                .atomic_rmw_op,
-                .calling_convention,
-                .address_space,
-                .float_mode,
-                .reduce_op,
-                .call_modifier,
-                => return AbiSizeAdvanced{ .scalar = 1 },
+            .none => switch (ty.tag()) {
+                .function => unreachable, // represents machine code; not a pointer
+                .@"opaque" => unreachable, // no size available
+                .inferred_alloc_const => unreachable,
+                .inferred_alloc_mut => unreachable,
 
-                .f16 => return AbiSizeAdvanced{ .scalar = 2 },
-                .f32 => return AbiSizeAdvanced{ .scalar = 4 },
-                .f64 => return AbiSizeAdvanced{ .scalar = 8 },
-                .f128 => return AbiSizeAdvanced{ .scalar = 16 },
-                .f80 => switch (target.c_type_bit_size(.longdouble)) {
-                    80 => return AbiSizeAdvanced{ .scalar = target.c_type_byte_size(.longdouble) },
-                    else => {
-                        const u80_ty: Type = .{
-                            .ip_index = .u80_type,
-                            .legacy = undefined,
-                        };
-                        return AbiSizeAdvanced{ .scalar = abiSize(u80_ty, mod) };
-                    },
-                },
+                .empty_struct => return AbiSizeAdvanced{ .scalar = 0 },
 
-                .usize,
-                .isize,
-                .@"anyframe",
-                => return AbiSizeAdvanced{ .scalar = @divExact(target.ptrBitWidth(), 8) },
-
-                .c_char => return AbiSizeAdvanced{ .scalar = target.c_type_byte_size(.char) },
-                .c_short => return AbiSizeAdvanced{ .scalar = target.c_type_byte_size(.short) },
-                .c_ushort => return AbiSizeAdvanced{ .scalar = target.c_type_byte_size(.ushort) },
-                .c_int => return AbiSizeAdvanced{ .scalar = target.c_type_byte_size(.int) },
-                .c_uint => return AbiSizeAdvanced{ .scalar = target.c_type_byte_size(.uint) },
-                .c_long => return AbiSizeAdvanced{ .scalar = target.c_type_byte_size(.long) },
-                .c_ulong => return AbiSizeAdvanced{ .scalar = target.c_type_byte_size(.ulong) },
-                .c_longlong => return AbiSizeAdvanced{ .scalar = target.c_type_byte_size(.longlong) },
-                .c_ulonglong => return AbiSizeAdvanced{ .scalar = target.c_type_byte_size(.ulonglong) },
-                .c_longdouble => return AbiSizeAdvanced{ .scalar = target.c_type_byte_size(.longdouble) },
-
-                .anyopaque,
-                .void,
-                .type,
-                .comptime_int,
-                .comptime_float,
-                .null,
-                .undefined,
-                .enum_literal,
-                => return AbiSizeAdvanced{ .scalar = 0 },
-
-                // TODO revisit this when we have the concept of the error tag type
-                .anyerror => return AbiSizeAdvanced{ .scalar = 2 },
-
-                .prefetch_options => unreachable, // missing call to resolveTypeFields
-                .export_options => unreachable, // missing call to resolveTypeFields
-                .extern_options => unreachable, // missing call to resolveTypeFields
-
-                .type_info => unreachable,
-                .noreturn => unreachable,
-                .generic_poison => unreachable,
-                .var_args_param => unreachable,
-            },
-            .struct_type => @panic("TODO"),
-            .union_type => @panic("TODO"),
-            .simple_value => unreachable,
-            .extern_func => unreachable,
-            .int => unreachable,
-            .enum_tag => unreachable, // it's a value, not a type
-        };
-
-        switch (ty.tag()) {
-            .function => unreachable, // represents machine code; not a pointer
-            .@"opaque" => unreachable, // no size available
-            .inferred_alloc_const => unreachable,
-            .inferred_alloc_mut => unreachable,
-
-            .empty_struct_literal,
-            .empty_struct,
-            => return AbiSizeAdvanced{ .scalar = 0 },
-
-            .@"struct", .tuple, .anon_struct => switch (ty.containerLayout()) {
-                .Packed => {
-                    const struct_obj = ty.castTag(.@"struct").?.data;
-                    switch (strat) {
-                        .sema => |sema| try sema.resolveTypeLayout(ty),
-                        .lazy => |arena| {
-                            if (!struct_obj.haveLayout()) {
-                                return AbiSizeAdvanced{ .val = try Value.Tag.lazy_size.create(arena, ty) };
-                            }
-                        },
-                        .eager => {},
-                    }
-                    assert(struct_obj.haveLayout());
-                    return AbiSizeAdvanced{ .scalar = struct_obj.backing_int_ty.abiSize(mod) };
-                },
-                else => {
-                    switch (strat) {
-                        .sema => |sema| try sema.resolveTypeLayout(ty),
-                        .lazy => |arena| {
-                            if (ty.castTag(.@"struct")) |payload| {
-                                const struct_obj = payload.data;
+                .@"struct", .tuple, .anon_struct => switch (ty.containerLayout()) {
+                    .Packed => {
+                        const struct_obj = ty.castTag(.@"struct").?.data;
+                        switch (strat) {
+                            .sema => |sema| try sema.resolveTypeLayout(ty),
+                            .lazy => |arena| {
                                 if (!struct_obj.haveLayout()) {
                                     return AbiSizeAdvanced{ .val = try Value.Tag.lazy_size.create(arena, ty) };
                                 }
-                            }
+                            },
+                            .eager => {},
+                        }
+                        assert(struct_obj.haveLayout());
+                        return AbiSizeAdvanced{ .scalar = struct_obj.backing_int_ty.abiSize(mod) };
+                    },
+                    else => {
+                        switch (strat) {
+                            .sema => |sema| try sema.resolveTypeLayout(ty),
+                            .lazy => |arena| {
+                                if (ty.castTag(.@"struct")) |payload| {
+                                    const struct_obj = payload.data;
+                                    if (!struct_obj.haveLayout()) {
+                                        return AbiSizeAdvanced{ .val = try Value.Tag.lazy_size.create(arena, ty) };
+                                    }
+                                }
+                            },
+                            .eager => {},
+                        }
+                        const field_count = ty.structFieldCount();
+                        if (field_count == 0) {
+                            return AbiSizeAdvanced{ .scalar = 0 };
+                        }
+                        return AbiSizeAdvanced{ .scalar = ty.structFieldOffset(field_count, mod) };
+                    },
+                },
+
+                .enum_simple, .enum_full, .enum_nonexhaustive, .enum_numbered => {
+                    const int_tag_ty = try ty.intTagType(mod);
+                    return AbiSizeAdvanced{ .scalar = int_tag_ty.abiSize(mod) };
+                },
+                .@"union" => {
+                    const union_obj = ty.castTag(.@"union").?.data;
+                    return abiSizeAdvancedUnion(ty, mod, strat, union_obj, false);
+                },
+                .union_safety_tagged, .union_tagged => {
+                    const union_obj = ty.cast(Payload.Union).?.data;
+                    return abiSizeAdvancedUnion(ty, mod, strat, union_obj, true);
+                },
+
+                .array => {
+                    const payload = ty.castTag(.array).?.data;
+                    switch (try payload.elem_type.abiSizeAdvanced(mod, strat)) {
+                        .scalar => |elem_size| return AbiSizeAdvanced{ .scalar = payload.len * elem_size },
+                        .val => switch (strat) {
+                            .sema => unreachable,
+                            .eager => unreachable,
+                            .lazy => |arena| return AbiSizeAdvanced{ .val = try Value.Tag.lazy_size.create(arena, ty) },
                         },
-                        .eager => {},
                     }
-                    const field_count = ty.structFieldCount();
-                    if (field_count == 0) {
-                        return AbiSizeAdvanced{ .scalar = 0 };
+                },
+                .array_sentinel => {
+                    const payload = ty.castTag(.array_sentinel).?.data;
+                    switch (try payload.elem_type.abiSizeAdvanced(mod, strat)) {
+                        .scalar => |elem_size| return AbiSizeAdvanced{ .scalar = (payload.len + 1) * elem_size },
+                        .val => switch (strat) {
+                            .sema => unreachable,
+                            .eager => unreachable,
+                            .lazy => |arena| return AbiSizeAdvanced{ .val = try Value.Tag.lazy_size.create(arena, ty) },
+                        },
                     }
-                    return AbiSizeAdvanced{ .scalar = ty.structFieldOffset(field_count, mod) };
+                },
+
+                .anyframe_T => return AbiSizeAdvanced{ .scalar = @divExact(target.ptrBitWidth(), 8) },
+
+                .pointer => switch (ty.castTag(.pointer).?.data.size) {
+                    .Slice => return AbiSizeAdvanced{ .scalar = @divExact(target.ptrBitWidth(), 8) * 2 },
+                    else => return AbiSizeAdvanced{ .scalar = @divExact(target.ptrBitWidth(), 8) },
+                },
+
+                // TODO revisit this when we have the concept of the error tag type
+                .error_set_inferred,
+                .error_set,
+                .error_set_merged,
+                .error_set_single,
+                => return AbiSizeAdvanced{ .scalar = 2 },
+
+                .optional => return ty.abiSizeAdvancedOptional(mod, strat),
+
+                .error_union => {
+                    // This code needs to be kept in sync with the equivalent switch prong
+                    // in abiAlignmentAdvanced.
+                    const data = ty.castTag(.error_union).?.data;
+                    const code_size = abiSize(Type.anyerror, mod);
+                    if (!(data.payload.hasRuntimeBitsAdvanced(mod, false, strat) catch |err| switch (err) {
+                        error.NeedLazy => return AbiSizeAdvanced{ .val = try Value.Tag.lazy_size.create(strat.lazy, ty) },
+                        else => |e| return e,
+                    })) {
+                        // Same as anyerror.
+                        return AbiSizeAdvanced{ .scalar = code_size };
+                    }
+                    const code_align = abiAlignment(Type.anyerror, mod);
+                    const payload_align = abiAlignment(data.payload, mod);
+                    const payload_size = switch (try data.payload.abiSizeAdvanced(mod, strat)) {
+                        .scalar => |elem_size| elem_size,
+                        .val => switch (strat) {
+                            .sema => unreachable,
+                            .eager => unreachable,
+                            .lazy => |arena| return AbiSizeAdvanced{ .val = try Value.Tag.lazy_size.create(arena, ty) },
+                        },
+                    };
+
+                    var size: u64 = 0;
+                    if (code_align > payload_align) {
+                        size += code_size;
+                        size = std.mem.alignForwardGeneric(u64, size, payload_align);
+                        size += payload_size;
+                        size = std.mem.alignForwardGeneric(u64, size, code_align);
+                    } else {
+                        size += payload_size;
+                        size = std.mem.alignForwardGeneric(u64, size, code_align);
+                        size += code_size;
+                        size = std.mem.alignForwardGeneric(u64, size, payload_align);
+                    }
+                    return AbiSizeAdvanced{ .scalar = size };
                 },
             },
+            else => switch (mod.intern_pool.indexToKey(ty.ip_index)) {
+                .int_type => |int_type| {
+                    if (int_type.bits == 0) return AbiSizeAdvanced{ .scalar = 0 };
+                    return AbiSizeAdvanced{ .scalar = intAbiSize(int_type.bits, target) };
+                },
+                .ptr_type => |ptr_type| switch (ptr_type.size) {
+                    .Slice => return .{ .scalar = @divExact(target.ptrBitWidth(), 8) * 2 },
+                    else => return .{ .scalar = @divExact(target.ptrBitWidth(), 8) },
+                },
+                .array_type => |array_type| {
+                    const len = array_type.len + @boolToInt(array_type.sentinel != .none);
+                    switch (try array_type.child.toType().abiSizeAdvanced(mod, strat)) {
+                        .scalar => |elem_size| return .{ .scalar = len * elem_size },
+                        .val => switch (strat) {
+                            .sema, .eager => unreachable,
+                            .lazy => |arena| return .{ .val = try Value.Tag.lazy_size.create(arena, ty) },
+                        },
+                    }
+                },
+                .vector_type => |vector_type| {
+                    const opt_sema = switch (strat) {
+                        .sema => |sema| sema,
+                        .eager => null,
+                        .lazy => |arena| return AbiSizeAdvanced{
+                            .val = try Value.Tag.lazy_size.create(arena, ty),
+                        },
+                    };
+                    const elem_bits_u64 = try vector_type.child.toType().bitSizeAdvanced(mod, opt_sema);
+                    const elem_bits = @intCast(u32, elem_bits_u64);
+                    const total_bits = elem_bits * vector_type.len;
+                    const total_bytes = (total_bits + 7) / 8;
+                    const alignment = switch (try ty.abiAlignmentAdvanced(mod, strat)) {
+                        .scalar => |x| x,
+                        .val => return AbiSizeAdvanced{
+                            .val = try Value.Tag.lazy_size.create(strat.lazy, ty),
+                        },
+                    };
+                    const result = std.mem.alignForwardGeneric(u32, total_bytes, alignment);
+                    return AbiSizeAdvanced{ .scalar = result };
+                },
 
-            .enum_simple, .enum_full, .enum_nonexhaustive, .enum_numbered => {
-                const int_tag_ty = try ty.intTagType(mod);
-                return AbiSizeAdvanced{ .scalar = int_tag_ty.abiSize(mod) };
-            },
-            .@"union" => {
-                const union_obj = ty.castTag(.@"union").?.data;
-                return abiSizeAdvancedUnion(ty, mod, strat, union_obj, false);
-            },
-            .union_safety_tagged, .union_tagged => {
-                const union_obj = ty.cast(Payload.Union).?.data;
-                return abiSizeAdvancedUnion(ty, mod, strat, union_obj, true);
-            },
+                .opt_type => return ty.abiSizeAdvancedOptional(mod, strat),
+                .error_union_type => @panic("TODO"),
+                .simple_type => |t| switch (t) {
+                    .bool,
+                    .atomic_order,
+                    .atomic_rmw_op,
+                    .calling_convention,
+                    .address_space,
+                    .float_mode,
+                    .reduce_op,
+                    .call_modifier,
+                    => return AbiSizeAdvanced{ .scalar = 1 },
 
-            .array => {
-                const payload = ty.castTag(.array).?.data;
-                switch (try payload.elem_type.abiSizeAdvanced(mod, strat)) {
-                    .scalar => |elem_size| return AbiSizeAdvanced{ .scalar = payload.len * elem_size },
-                    .val => switch (strat) {
-                        .sema => unreachable,
-                        .eager => unreachable,
-                        .lazy => |arena| return AbiSizeAdvanced{ .val = try Value.Tag.lazy_size.create(arena, ty) },
+                    .f16 => return AbiSizeAdvanced{ .scalar = 2 },
+                    .f32 => return AbiSizeAdvanced{ .scalar = 4 },
+                    .f64 => return AbiSizeAdvanced{ .scalar = 8 },
+                    .f128 => return AbiSizeAdvanced{ .scalar = 16 },
+                    .f80 => switch (target.c_type_bit_size(.longdouble)) {
+                        80 => return AbiSizeAdvanced{ .scalar = target.c_type_byte_size(.longdouble) },
+                        else => {
+                            const u80_ty: Type = .{
+                                .ip_index = .u80_type,
+                                .legacy = undefined,
+                            };
+                            return AbiSizeAdvanced{ .scalar = abiSize(u80_ty, mod) };
+                        },
                     },
-                }
-            },
-            .array_sentinel => {
-                const payload = ty.castTag(.array_sentinel).?.data;
-                switch (try payload.elem_type.abiSizeAdvanced(mod, strat)) {
-                    .scalar => |elem_size| return AbiSizeAdvanced{ .scalar = (payload.len + 1) * elem_size },
-                    .val => switch (strat) {
-                        .sema => unreachable,
-                        .eager => unreachable,
-                        .lazy => |arena| return AbiSizeAdvanced{ .val = try Value.Tag.lazy_size.create(arena, ty) },
-                    },
-                }
-            },
 
-            .anyframe_T => return AbiSizeAdvanced{ .scalar = @divExact(target.ptrBitWidth(), 8) },
+                    .usize,
+                    .isize,
+                    .@"anyframe",
+                    => return AbiSizeAdvanced{ .scalar = @divExact(target.ptrBitWidth(), 8) },
 
-            .pointer => switch (ty.castTag(.pointer).?.data.size) {
-                .Slice => return AbiSizeAdvanced{ .scalar = @divExact(target.ptrBitWidth(), 8) * 2 },
-                else => return AbiSizeAdvanced{ .scalar = @divExact(target.ptrBitWidth(), 8) },
-            },
+                    .c_char => return AbiSizeAdvanced{ .scalar = target.c_type_byte_size(.char) },
+                    .c_short => return AbiSizeAdvanced{ .scalar = target.c_type_byte_size(.short) },
+                    .c_ushort => return AbiSizeAdvanced{ .scalar = target.c_type_byte_size(.ushort) },
+                    .c_int => return AbiSizeAdvanced{ .scalar = target.c_type_byte_size(.int) },
+                    .c_uint => return AbiSizeAdvanced{ .scalar = target.c_type_byte_size(.uint) },
+                    .c_long => return AbiSizeAdvanced{ .scalar = target.c_type_byte_size(.long) },
+                    .c_ulong => return AbiSizeAdvanced{ .scalar = target.c_type_byte_size(.ulong) },
+                    .c_longlong => return AbiSizeAdvanced{ .scalar = target.c_type_byte_size(.longlong) },
+                    .c_ulonglong => return AbiSizeAdvanced{ .scalar = target.c_type_byte_size(.ulonglong) },
+                    .c_longdouble => return AbiSizeAdvanced{ .scalar = target.c_type_byte_size(.longdouble) },
 
-            // TODO revisit this when we have the concept of the error tag type
-            .error_set_inferred,
-            .error_set,
-            .error_set_merged,
-            .error_set_single,
-            => return AbiSizeAdvanced{ .scalar = 2 },
+                    .anyopaque,
+                    .void,
+                    .type,
+                    .comptime_int,
+                    .comptime_float,
+                    .null,
+                    .undefined,
+                    .enum_literal,
+                    => return AbiSizeAdvanced{ .scalar = 0 },
 
-            .optional => return ty.abiSizeAdvancedOptional(mod, strat),
+                    // TODO revisit this when we have the concept of the error tag type
+                    .anyerror => return AbiSizeAdvanced{ .scalar = 2 },
 
-            .error_union => {
-                // This code needs to be kept in sync with the equivalent switch prong
-                // in abiAlignmentAdvanced.
-                const data = ty.castTag(.error_union).?.data;
-                const code_size = abiSize(Type.anyerror, mod);
-                if (!(data.payload.hasRuntimeBitsAdvanced(mod, false, strat) catch |err| switch (err) {
-                    error.NeedLazy => return AbiSizeAdvanced{ .val = try Value.Tag.lazy_size.create(strat.lazy, ty) },
-                    else => |e| return e,
-                })) {
-                    // Same as anyerror.
-                    return AbiSizeAdvanced{ .scalar = code_size };
-                }
-                const code_align = abiAlignment(Type.anyerror, mod);
-                const payload_align = abiAlignment(data.payload, mod);
-                const payload_size = switch (try data.payload.abiSizeAdvanced(mod, strat)) {
-                    .scalar => |elem_size| elem_size,
-                    .val => switch (strat) {
-                        .sema => unreachable,
-                        .eager => unreachable,
-                        .lazy => |arena| return AbiSizeAdvanced{ .val = try Value.Tag.lazy_size.create(arena, ty) },
-                    },
-                };
+                    .prefetch_options => unreachable, // missing call to resolveTypeFields
+                    .export_options => unreachable, // missing call to resolveTypeFields
+                    .extern_options => unreachable, // missing call to resolveTypeFields
 
-                var size: u64 = 0;
-                if (code_align > payload_align) {
-                    size += code_size;
-                    size = std.mem.alignForwardGeneric(u64, size, payload_align);
-                    size += payload_size;
-                    size = std.mem.alignForwardGeneric(u64, size, code_align);
-                } else {
-                    size += payload_size;
-                    size = std.mem.alignForwardGeneric(u64, size, code_align);
-                    size += code_size;
-                    size = std.mem.alignForwardGeneric(u64, size, payload_align);
-                }
-                return AbiSizeAdvanced{ .scalar = size };
+                    .type_info => unreachable,
+                    .noreturn => unreachable,
+                    .generic_poison => unreachable,
+                    .var_args_param => unreachable,
+                },
+                .struct_type => @panic("TODO"),
+                .union_type => @panic("TODO"),
+                .simple_value => unreachable,
+                .extern_func => unreachable,
+                .int => unreachable,
+                .enum_tag => unreachable, // it's a value, not a type
             },
         }
     }
@@ -2929,7 +2936,6 @@ pub const Type = struct {
         switch (ty.tag()) {
             .function => unreachable, // represents machine code; not a pointer
             .empty_struct => unreachable,
-            .empty_struct_literal => unreachable,
             .inferred_alloc_const => unreachable,
             .inferred_alloc_mut => unreachable,
             .@"opaque" => unreachable,
@@ -3490,12 +3496,16 @@ pub const Type = struct {
     }
 
     pub fn containerLayout(ty: Type) std.builtin.Type.ContainerLayout {
-        return switch (ty.tag()) {
-            .tuple, .empty_struct_literal, .anon_struct => .Auto,
-            .@"struct" => ty.castTag(.@"struct").?.data.layout,
-            .@"union" => ty.castTag(.@"union").?.data.layout,
-            .union_safety_tagged => ty.castTag(.union_safety_tagged).?.data.layout,
-            .union_tagged => ty.castTag(.union_tagged).?.data.layout,
+        return switch (ty.ip_index) {
+            .empty_struct_type => .Auto,
+            .none => switch (ty.tag()) {
+                .tuple, .anon_struct => .Auto,
+                .@"struct" => ty.castTag(.@"struct").?.data.layout,
+                .@"union" => ty.castTag(.@"union").?.data.layout,
+                .union_safety_tagged => ty.castTag(.union_safety_tagged).?.data.layout,
+                .union_tagged => ty.castTag(.union_tagged).?.data.layout,
+                else => unreachable,
+            },
             else => unreachable,
         };
     }
@@ -3610,13 +3620,14 @@ pub const Type = struct {
 
     pub fn arrayLenIp(ty: Type, ip: InternPool) u64 {
         return switch (ty.ip_index) {
+            .empty_struct_type => 0,
             .none => switch (ty.tag()) {
                 .array => ty.castTag(.array).?.data.len,
                 .array_sentinel => ty.castTag(.array_sentinel).?.data.len,
                 .tuple => ty.castTag(.tuple).?.data.types.len,
                 .anon_struct => ty.castTag(.anon_struct).?.data.types.len,
                 .@"struct" => ty.castTag(.@"struct").?.data.fields.count(),
-                .empty_struct, .empty_struct_literal => 0,
+                .empty_struct => 0,
 
                 else => unreachable,
             },
@@ -3649,10 +3660,10 @@ pub const Type = struct {
     /// Asserts the type is an array, pointer or vector.
     pub fn sentinel(ty: Type, mod: *const Module) ?Value {
         return switch (ty.ip_index) {
+            .empty_struct_type => null,
             .none => switch (ty.tag()) {
                 .array,
                 .tuple,
-                .empty_struct_literal,
                 .@"struct",
                 => null,
 
@@ -3951,197 +3962,200 @@ pub const Type = struct {
     pub fn onePossibleValue(starting_type: Type, mod: *Module) !?Value {
         var ty = starting_type;
 
-        if (ty.ip_index != .none) switch (mod.intern_pool.indexToKey(ty.ip_index)) {
-            .int_type => |int_type| {
-                if (int_type.bits == 0) {
-                    return try mod.intValue(ty, 0);
-                } else {
-                    return null;
-                }
-            },
-            .ptr_type => return null,
-            .array_type => |array_type| {
-                if (array_type.len == 0)
-                    return Value.initTag(.empty_array);
-                if ((try array_type.child.toType().onePossibleValue(mod)) != null)
-                    return Value.initTag(.the_only_possible_value);
-                return null;
-            },
-            .vector_type => |vector_type| {
-                if (vector_type.len == 0) return Value.initTag(.empty_array);
-                if (try vector_type.child.toType().onePossibleValue(mod)) |v| return v;
-                return null;
-            },
-            .opt_type => |child| {
-                if (child.toType().isNoReturn()) {
-                    return Value.null;
-                } else {
-                    return null;
-                }
-            },
-            .error_union_type => return null,
-            .simple_type => |t| switch (t) {
-                .f16,
-                .f32,
-                .f64,
-                .f80,
-                .f128,
-                .usize,
-                .isize,
-                .c_char,
-                .c_short,
-                .c_ushort,
-                .c_int,
-                .c_uint,
-                .c_long,
-                .c_ulong,
-                .c_longlong,
-                .c_ulonglong,
-                .c_longdouble,
-                .anyopaque,
-                .bool,
-                .type,
-                .anyerror,
-                .comptime_int,
-                .comptime_float,
-                .@"anyframe",
-                .enum_literal,
-                .atomic_order,
-                .atomic_rmw_op,
-                .calling_convention,
-                .address_space,
-                .float_mode,
-                .reduce_op,
-                .call_modifier,
-                .prefetch_options,
-                .export_options,
-                .extern_options,
-                .type_info,
+        while (true) switch (ty.ip_index) {
+            .empty_struct_type => return Value.empty_struct,
+
+            .none => switch (ty.tag()) {
+                .error_union,
+                .error_set_single,
+                .error_set,
+                .error_set_merged,
+                .function,
+                .array_sentinel,
+                .error_set_inferred,
+                .@"opaque",
+                .anyframe_T,
+                .pointer,
                 => return null,
 
-                .void => return Value.void,
-                .noreturn => return Value.@"unreachable",
-                .null => return Value.null,
-                .undefined => return Value.undef,
-
-                .generic_poison => unreachable,
-                .var_args_param => unreachable,
-            },
-            .struct_type => @panic("TODO"),
-            .union_type => @panic("TODO"),
-            .simple_value => unreachable,
-            .extern_func => unreachable,
-            .int => unreachable,
-            .enum_tag => unreachable, // it's a value, not a type
-        };
-
-        while (true) switch (ty.tag()) {
-            .error_union,
-            .error_set_single,
-            .error_set,
-            .error_set_merged,
-            .function,
-            .array_sentinel,
-            .error_set_inferred,
-            .@"opaque",
-            .anyframe_T,
-            .pointer,
-            => return null,
-
-            .optional => {
-                const child_ty = ty.optionalChild(mod);
-                if (child_ty.isNoReturn()) {
-                    return Value.null;
-                } else {
-                    return null;
-                }
-            },
-
-            .@"struct" => {
-                const s = ty.castTag(.@"struct").?.data;
-                assert(s.haveFieldTypes());
-                for (s.fields.values()) |field| {
-                    if (field.is_comptime) continue;
-                    if ((try field.ty.onePossibleValue(mod)) != null) continue;
-                    return null;
-                }
-                return Value.initTag(.empty_struct_value);
-            },
-
-            .tuple, .anon_struct => {
-                const tuple = ty.tupleFields();
-                for (tuple.values, 0..) |val, i| {
-                    const is_comptime = val.ip_index != .unreachable_value;
-                    if (is_comptime) continue;
-                    if ((try tuple.types[i].onePossibleValue(mod)) != null) continue;
-                    return null;
-                }
-                return Value.initTag(.empty_struct_value);
-            },
-
-            .enum_numbered => {
-                const enum_numbered = ty.castTag(.enum_numbered).?.data;
-                // An explicit tag type is always provided for enum_numbered.
-                if (enum_numbered.tag_ty.hasRuntimeBits(mod)) {
-                    return null;
-                }
-                assert(enum_numbered.fields.count() == 1);
-                return enum_numbered.values.keys()[0];
-            },
-            .enum_full => {
-                const enum_full = ty.castTag(.enum_full).?.data;
-                if (enum_full.tag_ty.hasRuntimeBits(mod)) {
-                    return null;
-                }
-                switch (enum_full.fields.count()) {
-                    0 => return Value.@"unreachable",
-                    1 => if (enum_full.values.count() == 0) {
-                        return try mod.intValue(ty, 0); // auto-numbered
+                .optional => {
+                    const child_ty = ty.optionalChild(mod);
+                    if (child_ty.isNoReturn()) {
+                        return Value.null;
                     } else {
-                        return enum_full.values.keys()[0];
-                    },
-                    else => return null,
-                }
-            },
-            .enum_simple => {
-                const enum_simple = ty.castTag(.enum_simple).?.data;
-                switch (enum_simple.fields.count()) {
-                    0 => return Value.@"unreachable",
-                    1 => return try mod.intValue(ty, 0),
-                    else => return null,
-                }
-            },
-            .enum_nonexhaustive => {
-                const tag_ty = ty.castTag(.enum_nonexhaustive).?.data.tag_ty;
-                if (!tag_ty.hasRuntimeBits(mod)) {
-                    return try mod.intValue(ty, 0);
-                } else {
+                        return null;
+                    }
+                },
+
+                .@"struct" => {
+                    const s = ty.castTag(.@"struct").?.data;
+                    assert(s.haveFieldTypes());
+                    for (s.fields.values()) |field| {
+                        if (field.is_comptime) continue;
+                        if ((try field.ty.onePossibleValue(mod)) != null) continue;
+                        return null;
+                    }
+                    return Value.empty_struct;
+                },
+
+                .tuple, .anon_struct => {
+                    const tuple = ty.tupleFields();
+                    for (tuple.values, 0..) |val, i| {
+                        const is_comptime = val.ip_index != .unreachable_value;
+                        if (is_comptime) continue;
+                        if ((try tuple.types[i].onePossibleValue(mod)) != null) continue;
+                        return null;
+                    }
+                    return Value.empty_struct;
+                },
+
+                .enum_numbered => {
+                    const enum_numbered = ty.castTag(.enum_numbered).?.data;
+                    // An explicit tag type is always provided for enum_numbered.
+                    if (enum_numbered.tag_ty.hasRuntimeBits(mod)) {
+                        return null;
+                    }
+                    assert(enum_numbered.fields.count() == 1);
+                    return enum_numbered.values.keys()[0];
+                },
+                .enum_full => {
+                    const enum_full = ty.castTag(.enum_full).?.data;
+                    if (enum_full.tag_ty.hasRuntimeBits(mod)) {
+                        return null;
+                    }
+                    switch (enum_full.fields.count()) {
+                        0 => return Value.@"unreachable",
+                        1 => if (enum_full.values.count() == 0) {
+                            return try mod.intValue(ty, 0); // auto-numbered
+                        } else {
+                            return enum_full.values.keys()[0];
+                        },
+                        else => return null,
+                    }
+                },
+                .enum_simple => {
+                    const enum_simple = ty.castTag(.enum_simple).?.data;
+                    switch (enum_simple.fields.count()) {
+                        0 => return Value.@"unreachable",
+                        1 => return try mod.intValue(ty, 0),
+                        else => return null,
+                    }
+                },
+                .enum_nonexhaustive => {
+                    const tag_ty = ty.castTag(.enum_nonexhaustive).?.data.tag_ty;
+                    if (!tag_ty.hasRuntimeBits(mod)) {
+                        return try mod.intValue(ty, 0);
+                    } else {
+                        return null;
+                    }
+                },
+                .@"union", .union_safety_tagged, .union_tagged => {
+                    const union_obj = ty.cast(Payload.Union).?.data;
+                    const tag_val = (try union_obj.tag_ty.onePossibleValue(mod)) orelse return null;
+                    if (union_obj.fields.count() == 0) return Value.@"unreachable";
+                    const only_field = union_obj.fields.values()[0];
+                    const val_val = (try only_field.ty.onePossibleValue(mod)) orelse return null;
+                    _ = tag_val;
+                    _ = val_val;
+                    return Value.empty_struct;
+                },
+
+                .empty_struct => return Value.empty_struct,
+
+                .array => {
+                    if (ty.arrayLen(mod) == 0)
+                        return Value.initTag(.empty_array);
+                    if ((try ty.childType(mod).onePossibleValue(mod)) != null)
+                        return Value.initTag(.the_only_possible_value);
                     return null;
-                }
-            },
-            .@"union", .union_safety_tagged, .union_tagged => {
-                const union_obj = ty.cast(Payload.Union).?.data;
-                const tag_val = (try union_obj.tag_ty.onePossibleValue(mod)) orelse return null;
-                if (union_obj.fields.count() == 0) return Value.@"unreachable";
-                const only_field = union_obj.fields.values()[0];
-                const val_val = (try only_field.ty.onePossibleValue(mod)) orelse return null;
-                _ = tag_val;
-                _ = val_val;
-                return Value.initTag(.empty_struct_value);
-            },
+                },
 
-            .empty_struct, .empty_struct_literal => return Value.initTag(.empty_struct_value),
-
-            .array => {
-                if (ty.arrayLen(mod) == 0)
-                    return Value.initTag(.empty_array);
-                if ((try ty.childType(mod).onePossibleValue(mod)) != null)
-                    return Value.initTag(.the_only_possible_value);
-                return null;
+                .inferred_alloc_const => unreachable,
+                .inferred_alloc_mut => unreachable,
             },
+            else => switch (mod.intern_pool.indexToKey(ty.ip_index)) {
+                .int_type => |int_type| {
+                    if (int_type.bits == 0) {
+                        return try mod.intValue(ty, 0);
+                    } else {
+                        return null;
+                    }
+                },
+                .ptr_type => return null,
+                .array_type => |array_type| {
+                    if (array_type.len == 0)
+                        return Value.initTag(.empty_array);
+                    if ((try array_type.child.toType().onePossibleValue(mod)) != null)
+                        return Value.initTag(.the_only_possible_value);
+                    return null;
+                },
+                .vector_type => |vector_type| {
+                    if (vector_type.len == 0) return Value.initTag(.empty_array);
+                    if (try vector_type.child.toType().onePossibleValue(mod)) |v| return v;
+                    return null;
+                },
+                .opt_type => |child| {
+                    if (child.toType().isNoReturn()) {
+                        return Value.null;
+                    } else {
+                        return null;
+                    }
+                },
+                .error_union_type => return null,
+                .simple_type => |t| switch (t) {
+                    .f16,
+                    .f32,
+                    .f64,
+                    .f80,
+                    .f128,
+                    .usize,
+                    .isize,
+                    .c_char,
+                    .c_short,
+                    .c_ushort,
+                    .c_int,
+                    .c_uint,
+                    .c_long,
+                    .c_ulong,
+                    .c_longlong,
+                    .c_ulonglong,
+                    .c_longdouble,
+                    .anyopaque,
+                    .bool,
+                    .type,
+                    .anyerror,
+                    .comptime_int,
+                    .comptime_float,
+                    .@"anyframe",
+                    .enum_literal,
+                    .atomic_order,
+                    .atomic_rmw_op,
+                    .calling_convention,
+                    .address_space,
+                    .float_mode,
+                    .reduce_op,
+                    .call_modifier,
+                    .prefetch_options,
+                    .export_options,
+                    .extern_options,
+                    .type_info,
+                    => return null,
 
-            .inferred_alloc_const => unreachable,
-            .inferred_alloc_mut => unreachable,
+                    .void => return Value.void,
+                    .noreturn => return Value.@"unreachable",
+                    .null => return Value.null,
+                    .undefined => return Value.undef,
+
+                    .generic_poison => unreachable,
+                    .var_args_param => unreachable,
+                },
+                .struct_type => @panic("TODO"),
+                .union_type => @panic("TODO"),
+                .simple_value => unreachable,
+                .extern_func => unreachable,
+                .int => unreachable,
+                .enum_tag => unreachable, // it's a value, not a type
+            },
         };
     }
 
@@ -4150,159 +4164,161 @@ pub const Type = struct {
     /// TODO merge these implementations together with the "advanced" pattern seen
     /// elsewhere in this file.
     pub fn comptimeOnly(ty: Type, mod: *const Module) bool {
-        if (ty.ip_index != .none) return switch (mod.intern_pool.indexToKey(ty.ip_index)) {
-            .int_type => false,
-            .ptr_type => |ptr_type| {
-                const child_ty = ptr_type.elem_type.toType();
-                if (child_ty.zigTypeTag(mod) == .Fn) {
-                    return false;
-                } else {
-                    return child_ty.comptimeOnly(mod);
-                }
-            },
-            .array_type => |array_type| array_type.child.toType().comptimeOnly(mod),
-            .vector_type => |vector_type| vector_type.child.toType().comptimeOnly(mod),
-            .opt_type => |child| child.toType().comptimeOnly(mod),
-            .error_union_type => |error_union_type| error_union_type.payload_type.toType().comptimeOnly(mod),
-            .simple_type => |t| switch (t) {
-                .f16,
-                .f32,
-                .f64,
-                .f80,
-                .f128,
-                .usize,
-                .isize,
-                .c_char,
-                .c_short,
-                .c_ushort,
-                .c_int,
-                .c_uint,
-                .c_long,
-                .c_ulong,
-                .c_longlong,
-                .c_ulonglong,
-                .c_longdouble,
-                .anyopaque,
-                .bool,
-                .void,
-                .anyerror,
-                .@"anyframe",
-                .noreturn,
-                .generic_poison,
-                .atomic_order,
-                .atomic_rmw_op,
-                .calling_convention,
-                .address_space,
-                .float_mode,
-                .reduce_op,
-                .call_modifier,
-                .prefetch_options,
-                .export_options,
-                .extern_options,
+        return switch (ty.ip_index) {
+            .empty_struct_type => false,
+
+            .none => switch (ty.tag()) {
+                .empty_struct,
+                .error_set,
+                .error_set_single,
+                .error_set_inferred,
+                .error_set_merged,
+                .@"opaque",
+                .enum_simple,
                 => false,
 
-                .type,
-                .comptime_int,
-                .comptime_float,
-                .null,
-                .undefined,
-                .enum_literal,
-                .type_info,
-                => true,
+                // These are function bodies, not function pointers.
+                .function => true,
 
-                .var_args_param => unreachable,
-            },
-            .struct_type => @panic("TODO"),
-            .union_type => @panic("TODO"),
-            .simple_value => unreachable,
-            .extern_func => unreachable,
-            .int => unreachable,
-            .enum_tag => unreachable, // it's a value, not a type
-        };
+                .inferred_alloc_mut => unreachable,
+                .inferred_alloc_const => unreachable,
 
-        return switch (ty.tag()) {
-            .empty_struct_literal,
-            .empty_struct,
-            .error_set,
-            .error_set_single,
-            .error_set_inferred,
-            .error_set_merged,
-            .@"opaque",
-            .enum_simple,
-            => false,
+                .array,
+                .array_sentinel,
+                => return ty.childType(mod).comptimeOnly(mod),
 
-            // These are function bodies, not function pointers.
-            .function => true,
+                .pointer => {
+                    const child_ty = ty.childType(mod);
+                    if (child_ty.zigTypeTag(mod) == .Fn) {
+                        return false;
+                    } else {
+                        return child_ty.comptimeOnly(mod);
+                    }
+                },
 
-            .inferred_alloc_mut => unreachable,
-            .inferred_alloc_const => unreachable,
+                .optional => {
+                    return ty.optionalChild(mod).comptimeOnly(mod);
+                },
 
-            .array,
-            .array_sentinel,
-            => return ty.childType(mod).comptimeOnly(mod),
-
-            .pointer => {
-                const child_ty = ty.childType(mod);
-                if (child_ty.zigTypeTag(mod) == .Fn) {
+                .tuple, .anon_struct => {
+                    const tuple = ty.tupleFields();
+                    for (tuple.types, 0..) |field_ty, i| {
+                        const have_comptime_val = tuple.values[i].ip_index != .unreachable_value;
+                        if (!have_comptime_val and field_ty.comptimeOnly(mod)) return true;
+                    }
                     return false;
-                } else {
+                },
+
+                .@"struct" => {
+                    const struct_obj = ty.castTag(.@"struct").?.data;
+                    switch (struct_obj.requires_comptime) {
+                        .wip, .unknown => {
+                            // Return false to avoid incorrect dependency loops.
+                            // This will be handled correctly once merged with
+                            // `Sema.typeRequiresComptime`.
+                            return false;
+                        },
+                        .no => return false,
+                        .yes => return true,
+                    }
+                },
+
+                .@"union", .union_safety_tagged, .union_tagged => {
+                    const union_obj = ty.cast(Type.Payload.Union).?.data;
+                    switch (union_obj.requires_comptime) {
+                        .wip, .unknown => {
+                            // Return false to avoid incorrect dependency loops.
+                            // This will be handled correctly once merged with
+                            // `Sema.typeRequiresComptime`.
+                            return false;
+                        },
+                        .no => return false,
+                        .yes => return true,
+                    }
+                },
+
+                .error_union => return ty.errorUnionPayload().comptimeOnly(mod),
+                .anyframe_T => {
+                    const child_ty = ty.castTag(.anyframe_T).?.data;
                     return child_ty.comptimeOnly(mod);
-                }
+                },
+                .enum_numbered => {
+                    const tag_ty = ty.castTag(.enum_numbered).?.data.tag_ty;
+                    return tag_ty.comptimeOnly(mod);
+                },
+                .enum_full, .enum_nonexhaustive => {
+                    const tag_ty = ty.cast(Type.Payload.EnumFull).?.data.tag_ty;
+                    return tag_ty.comptimeOnly(mod);
+                },
             },
-
-            .optional => {
-                return ty.optionalChild(mod).comptimeOnly(mod);
-            },
-
-            .tuple, .anon_struct => {
-                const tuple = ty.tupleFields();
-                for (tuple.types, 0..) |field_ty, i| {
-                    const have_comptime_val = tuple.values[i].ip_index != .unreachable_value;
-                    if (!have_comptime_val and field_ty.comptimeOnly(mod)) return true;
-                }
-                return false;
-            },
-
-            .@"struct" => {
-                const struct_obj = ty.castTag(.@"struct").?.data;
-                switch (struct_obj.requires_comptime) {
-                    .wip, .unknown => {
-                        // Return false to avoid incorrect dependency loops.
-                        // This will be handled correctly once merged with
-                        // `Sema.typeRequiresComptime`.
+            else => switch (mod.intern_pool.indexToKey(ty.ip_index)) {
+                .int_type => false,
+                .ptr_type => |ptr_type| {
+                    const child_ty = ptr_type.elem_type.toType();
+                    if (child_ty.zigTypeTag(mod) == .Fn) {
                         return false;
-                    },
-                    .no => return false,
-                    .yes => return true,
-                }
-            },
+                    } else {
+                        return child_ty.comptimeOnly(mod);
+                    }
+                },
+                .array_type => |array_type| array_type.child.toType().comptimeOnly(mod),
+                .vector_type => |vector_type| vector_type.child.toType().comptimeOnly(mod),
+                .opt_type => |child| child.toType().comptimeOnly(mod),
+                .error_union_type => |error_union_type| error_union_type.payload_type.toType().comptimeOnly(mod),
+                .simple_type => |t| switch (t) {
+                    .f16,
+                    .f32,
+                    .f64,
+                    .f80,
+                    .f128,
+                    .usize,
+                    .isize,
+                    .c_char,
+                    .c_short,
+                    .c_ushort,
+                    .c_int,
+                    .c_uint,
+                    .c_long,
+                    .c_ulong,
+                    .c_longlong,
+                    .c_ulonglong,
+                    .c_longdouble,
+                    .anyopaque,
+                    .bool,
+                    .void,
+                    .anyerror,
+                    .@"anyframe",
+                    .noreturn,
+                    .generic_poison,
+                    .atomic_order,
+                    .atomic_rmw_op,
+                    .calling_convention,
+                    .address_space,
+                    .float_mode,
+                    .reduce_op,
+                    .call_modifier,
+                    .prefetch_options,
+                    .export_options,
+                    .extern_options,
+                    => false,
 
-            .@"union", .union_safety_tagged, .union_tagged => {
-                const union_obj = ty.cast(Type.Payload.Union).?.data;
-                switch (union_obj.requires_comptime) {
-                    .wip, .unknown => {
-                        // Return false to avoid incorrect dependency loops.
-                        // This will be handled correctly once merged with
-                        // `Sema.typeRequiresComptime`.
-                        return false;
-                    },
-                    .no => return false,
-                    .yes => return true,
-                }
-            },
+                    .type,
+                    .comptime_int,
+                    .comptime_float,
+                    .null,
+                    .undefined,
+                    .enum_literal,
+                    .type_info,
+                    => true,
 
-            .error_union => return ty.errorUnionPayload().comptimeOnly(mod),
-            .anyframe_T => {
-                const child_ty = ty.castTag(.anyframe_T).?.data;
-                return child_ty.comptimeOnly(mod);
-            },
-            .enum_numbered => {
-                const tag_ty = ty.castTag(.enum_numbered).?.data.tag_ty;
-                return tag_ty.comptimeOnly(mod);
-            },
-            .enum_full, .enum_nonexhaustive => {
-                const tag_ty = ty.cast(Type.Payload.EnumFull).?.data.tag_ty;
-                return tag_ty.comptimeOnly(mod);
+                    .var_args_param => unreachable,
+                },
+                .struct_type => @panic("TODO"),
+                .union_type => @panic("TODO"),
+                .simple_value => unreachable,
+                .extern_func => unreachable,
+                .int => unreachable,
+                .enum_tag => unreachable, // it's a value, not a type
             },
         };
     }
@@ -4575,15 +4591,19 @@ pub const Type = struct {
     }
 
     pub fn structFields(ty: Type) Module.Struct.Fields {
-        switch (ty.tag()) {
-            .empty_struct, .empty_struct_literal => return .{},
-            .@"struct" => {
-                const struct_obj = ty.castTag(.@"struct").?.data;
-                assert(struct_obj.haveFieldTypes());
-                return struct_obj.fields;
+        return switch (ty.ip_index) {
+            .empty_struct_type => .{},
+            .none => switch (ty.tag()) {
+                .empty_struct => .{},
+                .@"struct" => {
+                    const struct_obj = ty.castTag(.@"struct").?.data;
+                    assert(struct_obj.haveFieldTypes());
+                    return struct_obj.fields;
+                },
+                else => unreachable,
             },
             else => unreachable,
-        }
+        };
     }
 
     pub fn structFieldName(ty: Type, field_index: usize) []const u8 {
@@ -4599,17 +4619,21 @@ pub const Type = struct {
     }
 
     pub fn structFieldCount(ty: Type) usize {
-        switch (ty.tag()) {
-            .@"struct" => {
-                const struct_obj = ty.castTag(.@"struct").?.data;
-                assert(struct_obj.haveFieldTypes());
-                return struct_obj.fields.count();
+        return switch (ty.ip_index) {
+            .empty_struct_type => 0,
+            .none => switch (ty.tag()) {
+                .@"struct" => {
+                    const struct_obj = ty.castTag(.@"struct").?.data;
+                    assert(struct_obj.haveFieldTypes());
+                    return struct_obj.fields.count();
+                },
+                .empty_struct => 0,
+                .tuple => ty.castTag(.tuple).?.data.types.len,
+                .anon_struct => ty.castTag(.anon_struct).?.data.types.len,
+                else => unreachable,
             },
-            .empty_struct, .empty_struct_literal => return 0,
-            .tuple => return ty.castTag(.tuple).?.data.types.len,
-            .anon_struct => return ty.castTag(.anon_struct).?.data.types.len,
             else => unreachable,
-        }
+        };
     }
 
     /// Supports structs and unions.
@@ -4927,10 +4951,6 @@ pub const Type = struct {
         return ty.ip_index == .generic_poison_type;
     }
 
-    pub fn isVarArgsParam(ty: Type) bool {
-        return ty.ip_index == .none and ty.tag() == .var_args_param;
-    }
-
     /// This enum does not directly correspond to `std.builtin.TypeId` because
     /// it has extra enum tags in it, as a way of using less memory. For example,
     /// even though Zig recognizes `*align(10) i32` and `*i32` both as Pointer types
@@ -4938,8 +4958,6 @@ pub const Type = struct {
     /// with different enum tags, because the the former requires more payload data than the latter.
     /// See `zigTypeTag` for the function that corresponds to `std.builtin.TypeId`.
     pub const Tag = enum(usize) {
-        /// Same as `empty_struct` except it has an empty namespace.
-        empty_struct_literal,
         /// This is a special value that tracks a set of types that have been stored
         /// to an inferred allocation. It does not support most of the normal type queries.
         /// However it does respond to `isConstPtr`, `ptrSize`, `zigTypeTag`, etc.
@@ -4982,7 +5000,6 @@ pub const Type = struct {
             return switch (t) {
                 .inferred_alloc_const,
                 .inferred_alloc_mut,
-                .empty_struct_literal,
                 => @compileError("Type Tag " ++ @tagName(t) ++ " has no payload"),
 
                 .optional,
@@ -5038,33 +5055,36 @@ pub const Type = struct {
 
     pub fn isTuple(ty: Type) bool {
         return switch (ty.ip_index) {
+            .empty_struct_type => true,
             .none => switch (ty.tag()) {
-                .tuple, .empty_struct_literal => true,
+                .tuple => true,
                 .@"struct" => ty.castTag(.@"struct").?.data.is_tuple,
                 else => false,
             },
-            else => false, // TODO
+            else => false, // TODO struct
         };
     }
 
     pub fn isAnonStruct(ty: Type) bool {
         return switch (ty.ip_index) {
+            .empty_struct_type => true,
             .none => switch (ty.tag()) {
-                .anon_struct, .empty_struct_literal => true,
+                .anon_struct => true,
                 else => false,
             },
-            else => false, // TODO
+            else => false, // TODO struct
         };
     }
 
     pub fn isTupleOrAnonStruct(ty: Type) bool {
         return switch (ty.ip_index) {
+            .empty_struct_type => true,
             .none => switch (ty.tag()) {
-                .tuple, .empty_struct_literal, .anon_struct => true,
+                .tuple, .anon_struct => true,
                 .@"struct" => ty.castTag(.@"struct").?.data.is_tuple,
                 else => false,
             },
-            else => false, // TODO
+            else => false, // TODO struct
         };
     }
 
@@ -5072,7 +5092,7 @@ pub const Type = struct {
         return switch (ty.ip_index) {
             .empty_struct => true,
             .none => switch (ty.tag()) {
-                .tuple, .empty_struct_literal => true,
+                .tuple => true,
                 else => false,
             },
             else => false, // TODO
@@ -5083,7 +5103,7 @@ pub const Type = struct {
         return switch (ty.ip_index) {
             .empty_struct => true,
             .none => switch (ty.tag()) {
-                .tuple, .empty_struct_literal, .anon_struct => true,
+                .tuple, .anon_struct => true,
                 else => false,
             },
             else => false,
@@ -5100,7 +5120,6 @@ pub const Type = struct {
                     .types = ty.castTag(.anon_struct).?.data.types,
                     .values = ty.castTag(.anon_struct).?.data.values,
                 },
-                .empty_struct_literal => .{ .types = &.{}, .values = &.{} },
                 else => unreachable,
             },
             else => unreachable,
@@ -5387,6 +5406,7 @@ pub const Type = struct {
         .ip_index = .const_slice_u8_sentinel_0_type,
         .legacy = undefined,
     };
+    pub const empty_struct_literal: Type = .{ .ip_index = .empty_struct_type, .legacy = undefined };
 
     pub const generic_poison: Type = .{ .ip_index = .generic_poison_type, .legacy = undefined };
 

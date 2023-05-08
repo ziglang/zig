@@ -36,7 +36,6 @@ pub const Value = struct {
         /// The only possible value for a particular type, which is stored externally.
         the_only_possible_value,
 
-        empty_struct_value,
         empty_array, // See last_no_payload_tag below.
         // After this, the tag requires a payload.
 
@@ -124,7 +123,6 @@ pub const Value = struct {
         pub fn Type(comptime t: Tag) type {
             return switch (t) {
                 .the_only_possible_value,
-                .empty_struct_value,
                 .empty_array,
                 => @compileError("Value Tag " ++ @tagName(t) ++ " has no payload"),
 
@@ -269,7 +267,6 @@ pub const Value = struct {
         } else switch (self.legacy.ptr_otherwise.tag) {
             .the_only_possible_value,
             .empty_array,
-            .empty_struct_value,
             => unreachable,
 
             .ty, .lazy_align, .lazy_size => {
@@ -488,7 +485,6 @@ pub const Value = struct {
         }
         var val = start_val;
         while (true) switch (val.tag()) {
-            .empty_struct_value => return out_stream.writeAll("struct {}{}"),
             .aggregate => {
                 return out_stream.writeAll("(aggregate)");
             },
@@ -1914,7 +1910,7 @@ pub const Value = struct {
         const a_tag = a.tag();
         const b_tag = b.tag();
         if (a_tag == b_tag) switch (a_tag) {
-            .the_only_possible_value, .empty_struct_value => return true,
+            .the_only_possible_value => return true,
             .enum_literal => {
                 const a_name = a.castTag(.enum_literal).?.data;
                 const b_name = b.castTag(.enum_literal).?.data;
@@ -2106,7 +2102,6 @@ pub const Value = struct {
             },
             .Struct => {
                 // A struct can be represented with one of:
-                //   .empty_struct_value,
                 //   .the_one_possible_value,
                 //   .aggregate,
                 // Note that we already checked above for matching tags, e.g. both .aggregate.
@@ -2254,7 +2249,6 @@ pub const Value = struct {
             },
             .Struct => {
                 switch (val.tag()) {
-                    .empty_struct_value => {},
                     .aggregate => {
                         const field_values = val.castTag(.aggregate).?.data;
                         for (field_values, 0..) |field_val, i| {
@@ -2587,7 +2581,6 @@ pub const Value = struct {
             .none => switch (val.tag()) {
                 // This is the case of accessing an element of an undef array.
                 .empty_array => unreachable, // out of bounds array index
-                .empty_struct_value => unreachable, // out of bounds array index
 
                 .empty_array_sentinel => {
                     assert(index == 0); // The only valid index for an empty array with sentinel.
@@ -2749,6 +2742,17 @@ pub const Value = struct {
     pub fn fieldValue(val: Value, ty: Type, mod: *Module, index: usize) !Value {
         switch (val.ip_index) {
             .undef => return Value.undef,
+            .empty_struct => {
+                if (ty.isSimpleTupleOrAnonStruct()) {
+                    const tuple = ty.tupleFields();
+                    return tuple.values[index];
+                }
+                if (try ty.structFieldValueComptime(mod, index)) |some| {
+                    return some;
+                }
+                unreachable;
+            },
+
             .none => switch (val.tag()) {
                 .aggregate => {
                     const field_values = val.castTag(.aggregate).?.data;
@@ -2761,17 +2765,6 @@ pub const Value = struct {
                 },
 
                 .the_only_possible_value => return (try ty.onePossibleValue(mod)).?,
-
-                .empty_struct_value => {
-                    if (ty.isSimpleTupleOrAnonStruct()) {
-                        const tuple = ty.tupleFields();
-                        return tuple.values[index];
-                    }
-                    if (try ty.structFieldValueComptime(mod, index)) |some| {
-                        return some;
-                    }
-                    unreachable;
-                },
 
                 else => unreachable,
             },
@@ -5189,6 +5182,7 @@ pub const Value = struct {
 
     pub const generic_poison: Value = .{ .ip_index = .generic_poison, .legacy = undefined };
     pub const generic_poison_type: Value = .{ .ip_index = .generic_poison_type, .legacy = undefined };
+    pub const empty_struct: Value = .{ .ip_index = .empty_struct, .legacy = undefined };
 
     pub fn makeBool(x: bool) Value {
         return if (x) Value.true else Value.false;
