@@ -55,7 +55,8 @@ pub const Key = union(enum) {
         lib_name: u32,
     },
     int: Key.Int,
-    ptr: Key.Ptr,
+    ptr: Ptr,
+    opt: Opt,
     enum_tag: struct {
         ty: Index,
         tag: BigIntConst,
@@ -151,6 +152,13 @@ pub const Key = union(enum) {
         };
     };
 
+    /// `null` is represented by the `val` field being `none`.
+    pub const Opt = struct {
+        ty: Index,
+        /// This could be `none`, indicating the optional is `null`.
+        val: Index,
+    };
+
     pub fn hash32(key: Key) u32 {
         return @truncate(u32, key.hash64());
     }
@@ -175,6 +183,7 @@ pub const Key = union(enum) {
             .simple_type,
             .simple_value,
             .extern_func,
+            .opt,
             => |info| std.hash.autoHash(hasher, info),
 
             .int => |int| {
@@ -255,6 +264,10 @@ pub const Key = union(enum) {
             },
             .extern_func => |a_info| {
                 const b_info = b.extern_func;
+                return std.meta.eql(a_info, b_info);
+            },
+            .opt => |a_info| {
+                const b_info = b.opt;
                 return std.meta.eql(a_info, b_info);
             },
 
@@ -343,6 +356,7 @@ pub const Key = union(enum) {
 
             inline .ptr,
             .int,
+            .opt,
             .extern_func,
             .enum_tag,
             => |x| return x.ty,
@@ -771,7 +785,15 @@ pub const Tag = enum(u8) {
     simple_internal,
     /// A pointer to an integer value.
     /// data is extra index of PtrInt, which contains the type and address.
+    /// Only pointer types are allowed to have this encoding. Optional types must use
+    /// `opt_payload` or `opt_null`.
     ptr_int,
+    /// An optional value that is non-null.
+    /// data is Index of the payload value.
+    opt_payload,
+    /// An optional value that is null.
+    /// data is Index of the payload type.
+    opt_null,
     /// Type: u8
     /// data is integer value
     int_u8,
@@ -1129,6 +1151,14 @@ pub fn indexToKey(ip: InternPool, index: Index) Key {
                 .fields_len = 0,
             } },
         },
+        .opt_null => .{ .opt = .{
+            .ty = @intToEnum(Index, data),
+            .val = .none,
+        } },
+        .opt_payload => .{ .opt = .{
+            .ty = indexToKey(ip, @intToEnum(Index, data)).typeOf(),
+            .val = @intToEnum(Index, data),
+        } },
         .ptr_int => {
             const info = ip.extraData(PtrInt, data);
             return .{ .ptr = .{
@@ -1321,6 +1351,17 @@ pub fn get(ip: *InternPool, gpa: Allocator, key: Key) Allocator.Error!Index {
             },
         },
 
+        .opt => |opt| {
+            assert(opt.ty != .none);
+            ip.items.appendAssumeCapacity(if (opt.val == .none) .{
+                .tag = .opt_null,
+                .data = @enumToInt(opt.ty),
+            } else .{
+                .tag = .opt_payload,
+                .data = @enumToInt(opt.val),
+            });
+        },
+
         .int => |int| b: {
             switch (int.ty) {
                 .none => unreachable,
@@ -1342,62 +1383,51 @@ pub fn get(ip: *InternPool, gpa: Allocator, key: Key) Allocator.Error!Index {
                 },
                 .u16_type => switch (int.storage) {
                     .big_int => |big_int| {
-                        if (big_int.to(u32)) |casted| {
-                            ip.items.appendAssumeCapacity(.{
-                                .tag = .int_u16,
-                                .data = casted,
-                            });
-                            break :b;
-                        } else |_| {}
+                        ip.items.appendAssumeCapacity(.{
+                            .tag = .int_u16,
+                            .data = big_int.to(u16) catch unreachable,
+                        });
+                        break :b;
                     },
                     inline .u64, .i64 => |x| {
-                        if (std.math.cast(u32, x)) |casted| {
-                            ip.items.appendAssumeCapacity(.{
-                                .tag = .int_u16,
-                                .data = casted,
-                            });
-                            break :b;
-                        }
+                        ip.items.appendAssumeCapacity(.{
+                            .tag = .int_u16,
+                            .data = @intCast(u16, x),
+                        });
+                        break :b;
                     },
                 },
                 .u32_type => switch (int.storage) {
                     .big_int => |big_int| {
-                        if (big_int.to(u32)) |casted| {
-                            ip.items.appendAssumeCapacity(.{
-                                .tag = .int_u32,
-                                .data = casted,
-                            });
-                            break :b;
-                        } else |_| {}
+                        ip.items.appendAssumeCapacity(.{
+                            .tag = .int_u32,
+                            .data = big_int.to(u32) catch unreachable,
+                        });
+                        break :b;
                     },
                     inline .u64, .i64 => |x| {
-                        if (std.math.cast(u32, x)) |casted| {
-                            ip.items.appendAssumeCapacity(.{
-                                .tag = .int_u32,
-                                .data = casted,
-                            });
-                            break :b;
-                        }
+                        ip.items.appendAssumeCapacity(.{
+                            .tag = .int_u32,
+                            .data = @intCast(u32, x),
+                        });
+                        break :b;
                     },
                 },
                 .i32_type => switch (int.storage) {
                     .big_int => |big_int| {
-                        if (big_int.to(i32)) |casted| {
-                            ip.items.appendAssumeCapacity(.{
-                                .tag = .int_i32,
-                                .data = @bitCast(u32, casted),
-                            });
-                            break :b;
-                        } else |_| {}
+                        const casted = big_int.to(i32) catch unreachable;
+                        ip.items.appendAssumeCapacity(.{
+                            .tag = .int_i32,
+                            .data = @bitCast(u32, casted),
+                        });
+                        break :b;
                     },
                     inline .u64, .i64 => |x| {
-                        if (std.math.cast(i32, x)) |casted| {
-                            ip.items.appendAssumeCapacity(.{
-                                .tag = .int_i32,
-                                .data = @bitCast(u32, casted),
-                            });
-                            break :b;
-                        }
+                        ip.items.appendAssumeCapacity(.{
+                            .tag = .int_i32,
+                            .data = @bitCast(u32, @intCast(i32, x)),
+                        });
+                        break :b;
                     },
                 },
                 .usize_type => switch (int.storage) {
@@ -1798,6 +1828,8 @@ fn dumpFallible(ip: InternPool, arena: Allocator) anyerror!void {
             .simple_value => 0,
             .simple_internal => 0,
             .ptr_int => @sizeOf(PtrInt),
+            .opt_null => 0,
+            .opt_payload => 0,
             .int_u8 => 0,
             .int_u16 => 0,
             .int_u32 => 0,

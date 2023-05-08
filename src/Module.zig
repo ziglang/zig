@@ -6887,12 +6887,32 @@ pub fn singleConstPtrType(mod: *Module, child_type: Type) Allocator.Error!Type {
     return ptrType(mod, .{ .elem_type = child_type.ip_index, .is_const = true });
 }
 
+/// Supports optionals in addition to pointers.
 pub fn ptrIntValue(mod: *Module, ty: Type, x: u64) Allocator.Error!Value {
+    if (ty.isPtrLikeOptional(mod)) {
+        const i = try intern(mod, .{ .opt = .{
+            .ty = ty.ip_index,
+            .val = try intern(mod, .{ .ptr = .{
+                .ty = ty.childType(mod).ip_index,
+                .addr = .{ .int = try intern(mod, .{ .int = .{
+                    .ty = .usize_type,
+                    .storage = .{ .u64 = x },
+                } }) },
+            } }),
+        } });
+        return i.toValue();
+    } else {
+        return ptrIntValue_ptronly(mod, ty, x);
+    }
+}
+
+/// Supports only pointers. See `ptrIntValue` for pointer-like optional support.
+pub fn ptrIntValue_ptronly(mod: *Module, ty: Type, x: u64) Allocator.Error!Value {
     assert(ty.zigTypeTag(mod) == .Pointer);
     const i = try intern(mod, .{ .ptr = .{
         .ty = ty.ip_index,
         .addr = .{ .int = try intern(mod, .{ .int = .{
-            .ty = ty.ip_index,
+            .ty = .usize_type,
             .storage = .{ .u64 = x },
         } }) },
     } });
