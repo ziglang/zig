@@ -32,6 +32,210 @@ pub const Inst = struct {
 
     pub const Index = u32;
 
+    pub const Fixes = enum(u8) {
+        /// ___
+        @"_",
+
+        /// ___ Above
+        _a,
+        /// ___ Above Or Equal
+        _ae,
+        /// ___ Below
+        _b,
+        /// ___ Below Or Equal
+        _be,
+        /// ___ Carry
+        _c,
+        /// ___ Equal
+        _e,
+        /// ___ Greater
+        _g,
+        /// ___ Greater Or Equal
+        _ge,
+        /// ___ Less
+        _l,
+        /// ___ Less Or Equal
+        _le,
+        /// ___ Not Above
+        _na,
+        /// ___ Not Above Or Equal
+        _nae,
+        /// ___ Not Below
+        _nb,
+        /// ___ Not Below Or Equal
+        _nbe,
+        /// ___ Not Carry
+        _nc,
+        /// ___ Not Equal
+        _ne,
+        /// ___ Not Greater
+        _ng,
+        /// ___ Not Greater Or Equal
+        _nge,
+        /// ___ Not Less
+        _nl,
+        /// ___ Not Less Or Equal
+        _nle,
+        /// ___ Not Overflow
+        _no,
+        /// ___ Not Parity
+        _np,
+        /// ___ Not Sign
+        _ns,
+        /// ___ Not Zero
+        _nz,
+        /// ___ Overflow
+        _o,
+        /// ___ Parity
+        _p,
+        /// ___ Parity Even
+        _pe,
+        /// ___ Parity Odd
+        _po,
+        /// ___ Sign
+        _s,
+        /// ___ Zero
+        _z,
+
+        /// ___ String
+        //_s,
+        /// ___ String Byte
+        _sb,
+        /// ___ String Word
+        _sw,
+        /// ___ String Doubleword
+        _sd,
+        /// ___ String Quadword
+        _sq,
+
+        /// Repeat ___ String
+        @"rep _s",
+        /// Repeat ___ String Byte
+        @"rep _sb",
+        /// Repeat ___ String Word
+        @"rep _sw",
+        /// Repeat ___ String Doubleword
+        @"rep _sd",
+        /// Repeat ___ String Quadword
+        @"rep _sq",
+
+        /// Repeat Equal ___ String
+        @"repe _s",
+        /// Repeat Equal ___ String Byte
+        @"repe _sb",
+        /// Repeat Equal ___ String Word
+        @"repe _sw",
+        /// Repeat Equal ___ String Doubleword
+        @"repe _sd",
+        /// Repeat Equal ___ String Quadword
+        @"repe _sq",
+
+        /// Repeat Not Equal ___ String
+        @"repne _s",
+        /// Repeat Not Equal ___ String Byte
+        @"repne _sb",
+        /// Repeat Not Equal ___ String Word
+        @"repne _sw",
+        /// Repeat Not Equal ___ String Doubleword
+        @"repne _sd",
+        /// Repeat Not Equal ___ String Quadword
+        @"repne _sq",
+
+        /// Repeat Not Zero ___ String
+        @"repnz _s",
+        /// Repeat Not Zero ___ String Byte
+        @"repnz _sb",
+        /// Repeat Not Zero ___ String Word
+        @"repnz _sw",
+        /// Repeat Not Zero ___ String Doubleword
+        @"repnz _sd",
+        /// Repeat Not Zero ___ String Quadword
+        @"repnz _sq",
+
+        /// Repeat Zero ___ String
+        @"repz _s",
+        /// Repeat Zero ___ String Byte
+        @"repz _sb",
+        /// Repeat Zero ___ String Word
+        @"repz _sw",
+        /// Repeat Zero ___ String Doubleword
+        @"repz _sd",
+        /// Repeat Zero ___ String Quadword
+        @"repz _sq",
+
+        /// Locked ___
+        @"lock _",
+        /// ___ 8 Bytes
+        _8b,
+        /// Locked ___ 8 Bytes
+        @"lock _8b",
+        /// ___ 16 Bytes
+        _16b,
+        /// Locked ___ 16 Bytes
+        @"lock _16b",
+
+        /// Packed ___
+        p_,
+        /// Packed ___ Byte
+        p_b,
+        /// Packed ___ Word
+        p_w,
+        /// Packed ___ Doubleword
+        p_d,
+        /// Packed ___ Quadword
+        p_q,
+        /// Packed ___ Double Quadword
+        p_dq,
+
+        /// ___ Scalar Single-Precision Values
+        _ss,
+        /// ___ Packed Single-Precision Values
+        _ps,
+        /// ___ Scalar Double-Precision Values
+        //_sd,
+        /// ___ Packed Double-Precision Values
+        _pd,
+
+        /// VEX-Encoded ___
+        v_,
+        /// VEX-Encoded Packed ___
+        vp_,
+        /// VEX-Encoded Packed ___ Byte
+        vp_b,
+        /// VEX-Encoded Packed ___ Word
+        vp_w,
+        /// VEX-Encoded Packed ___ Doubleword
+        vp_d,
+        /// VEX-Encoded Packed ___ Quadword
+        vp_q,
+        /// VEX-Encoded Packed ___ Double Quadword
+        vp_dq,
+        /// VEX-Encoded ___ Scalar Single-Precision Values
+        v_ss,
+        /// VEX-Encoded ___ Packed Single-Precision Values
+        v_ps,
+        /// VEX-Encoded ___ Scalar Double-Precision Values
+        v_sd,
+        /// VEX-Encoded ___ Packed Double-Precision Values
+        v_pd,
+
+        /// Mask ___ Byte
+        k_b,
+        /// Mask ___ Word
+        k_w,
+        /// Mask ___ Doubleword
+        k_d,
+        /// Mask ___ Quadword
+        k_q,
+
+        pub fn fromCondition(cc: bits.Condition) Fixes {
+            return switch (cc) {
+                inline else => |cc_tag| @field(Fixes, "_" ++ @tagName(cc_tag)),
+                .z_and_np, .nz_or_p => unreachable,
+            };
+        }
+    };
+
     pub const Tag = enum(u8) {
         /// Add with carry
         adc,
@@ -57,22 +261,24 @@ pub const Inst = struct {
         call,
         /// Convert byte to word
         cbw,
-        /// Convert word to doubleword
-        cwde,
-        /// Convert doubleword to quadword
-        cdqe,
-        /// Convert word to doubleword
-        cwd,
         /// Convert doubleword to quadword
         cdq,
         /// Convert doubleword to quadword
-        cqo,
+        cdqe,
+        /// Conditional move
+        cmov,
         /// Logical compare
+        /// Compare string
         cmp,
         /// Compare and exchange
-        cmpxchg,
         /// Compare and exchange bytes
-        cmpxchgb,
+        cmpxchg,
+        /// Convert doubleword to quadword
+        cqo,
+        /// Convert word to doubleword
+        cwd,
+        /// Convert word to doubleword
+        cwde,
         /// Unsigned division
         div,
         /// Store integer with truncation
@@ -85,10 +291,14 @@ pub const Inst = struct {
         imul,
         ///
         int3,
+        /// Conditional jump
+        j,
         /// Jump
         jmp,
         /// Load effective address
         lea,
+        /// Load string
+        lod,
         /// Load fence
         lfence,
         /// Count the number of leading zero bits
@@ -96,6 +306,7 @@ pub const Inst = struct {
         /// Memory fence
         mfence,
         /// Move
+        /// Move data from string to string
         mov,
         /// Move data after swapping bytes
         movbe,
@@ -105,6 +316,8 @@ pub const Inst = struct {
         movq,
         /// Move with sign extension
         movsx,
+        /// Move with sign extension
+        movsxd,
         /// Move with zero extension
         movzx,
         /// Multiply
@@ -139,6 +352,10 @@ pub const Inst = struct {
         sar,
         /// Integer subtraction with borrow
         sbb,
+        /// Scan string
+        sca,
+        /// Set byte on condition
+        set,
         /// Store fence
         sfence,
         /// Logical shift left
@@ -151,6 +368,8 @@ pub const Inst = struct {
         shrd,
         /// Subtract
         sub,
+        /// Store string
+        sto,
         /// Syscall
         syscall,
         /// Test condition
@@ -505,57 +724,10 @@ pub const Inst = struct {
         /// Fused multiply-add of scalar single-precision floating-point values
         vfmadd231ss,
 
-        /// Compare string operands
-        cmps,
-        /// Load string
-        lods,
-        /// Move data from string to string
-        movs,
-        /// Scan string
-        scas,
-        /// Store string
-        stos,
-
-        /// Conditional move
-        cmovcc,
-        /// Conditional jump
-        jcc,
-        /// Set byte on condition
-        setcc,
-
-        /// Mov absolute to/from memory wrt segment register to/from rax
-        mov_moffs,
-
-        /// Jump with relocation to another local MIR instruction
-        /// Uses `inst` payload.
-        jmp_reloc,
-
-        /// Call to an extern symbol via linker relocation.
-        /// Uses `relocation` payload.
-        call_extern,
-
-        /// Load effective address of a symbol not yet allocated in VM.
-        lea_linker,
-        /// Move address of a symbol not yet allocated in VM.
-        mov_linker,
-
-        /// End of prologue
-        dbg_prologue_end,
-        /// Start of epilogue
-        dbg_epilogue_begin,
-        /// Update debug line
-        /// Uses `line_column` payload containing the line and column.
-        dbg_line,
-        /// Push registers
-        /// Uses `payload` payload containing `RegisterList.asInt` directly.
-        push_regs,
-        /// Pop registers
-        /// Uses `payload` payload containing `RegisterList.asInt` directly.
-        pop_regs,
-
-        /// Tombstone
-        /// Emitter should skip this instruction.
-        dead,
+        /// A pseudo instruction that requires special lowering.
+        /// This should be the only tag in this enum that doesn't
+        /// directly correspond to one or more instruction mnemonics.
+        pseudo,
     };
 
     pub const Ops = enum(u8) {
@@ -579,12 +751,6 @@ pub const Inst = struct {
         /// Register, register, immediate (unsigned) operands.
         /// Uses `rri`  payload.
         rri_u,
-        /// Register with condition code (CC).
-        /// Uses `r_cc` payload.
-        r_cc,
-        /// Register, register with condition code (CC).
-        /// Uses `rr_cc` payload.
-        rr_cc,
         /// Register, immediate (sign-extended) operands.
         /// Uses `ri` payload.
         ri_s,
@@ -609,12 +775,6 @@ pub const Inst = struct {
         /// Register, memory (RIP) operands.
         /// Uses `rx` payload.
         rm_rip,
-        /// Register, memory (SIB) operands with condition code (CC).
-        /// Uses `rx_cc` payload.
-        rm_sib_cc,
-        /// Register, memory (RIP) operands with condition code (CC).
-        /// Uses `rx_cc` payload.
-        rm_rip_cc,
         /// Register, memory (SIB), immediate (byte) operands.
         /// Uses `rix` payload with extra data of type `MemorySib`.
         rmi_sib,
@@ -634,17 +794,11 @@ pub const Inst = struct {
         /// Uses `rix` payload with extra data of type `MemoryRip`.
         rmi_rip,
         /// Single memory (SIB) operand.
-        /// Uses `payload` with extra data of type `MemorySib`.
+        /// Uses `x` with extra data of type `MemorySib`.
         m_sib,
         /// Single memory (RIP) operand.
-        /// Uses `payload` with extra data of type `MemoryRip`.
+        /// Uses `x` with extra data of type `MemoryRip`.
         m_rip,
-        /// Single memory (SIB) operand with condition code (CC).
-        /// Uses `x_cc` with extra data of type `MemorySib`.
-        m_sib_cc,
-        /// Single memory (RIP) operand with condition code (CC).
-        /// Uses `x_cc` with extra data of type `MemoryRip`.
-        m_rip_cc,
         /// Memory (SIB), immediate (unsigned) operands.
         /// Uses `ix` payload with extra data of type `MemorySib`.
         mi_sib_u,
@@ -676,49 +830,17 @@ pub const Inst = struct {
         /// Uses `rix` payload with extra data of type `MemoryRip`.
         mri_rip,
         /// Rax, Memory moffs.
-        /// Uses `payload` with extra data of type `MemoryMoffs`.
+        /// Uses `x` with extra data of type `MemoryMoffs`.
         rax_moffs,
         /// Memory moffs, rax.
-        /// Uses `payload` with extra data of type `MemoryMoffs`.
+        /// Uses `x` with extra data of type `MemoryMoffs`.
         moffs_rax,
-        /// Single memory (SIB) operand with lock prefix.
-        /// Uses `payload` with extra data of type `MemorySib`.
-        lock_m_sib,
-        /// Single memory (RIP) operand with lock prefix.
-        /// Uses `payload` with extra data of type `MemoryRip`.
-        lock_m_rip,
-        /// Memory (SIB), immediate (unsigned) operands with lock prefix.
-        /// Uses `xi` payload with extra data of type `MemorySib`.
-        lock_mi_sib_u,
-        /// Memory (RIP), immediate (unsigned) operands with lock prefix.
-        /// Uses `xi` payload with extra data of type `MemoryRip`.
-        lock_mi_rip_u,
-        /// Memory (SIB), immediate (sign-extend) operands with lock prefix.
-        /// Uses `xi` payload with extra data of type `MemorySib`.
-        lock_mi_sib_s,
-        /// Memory (RIP), immediate (sign-extend) operands with lock prefix.
-        /// Uses `xi` payload with extra data of type `MemoryRip`.
-        lock_mi_rip_s,
-        /// Memory (SIB), register operands with lock prefix.
-        /// Uses `rx` payload with extra data of type `MemorySib`.
-        lock_mr_sib,
-        /// Memory (RIP), register operands with lock prefix.
-        /// Uses `rx` payload with extra data of type `MemoryRip`.
-        lock_mr_rip,
-        /// Memory moffs, rax with lock prefix.
-        /// Uses `payload` with extra data of type `MemoryMoffs`.
-        lock_moffs_rax,
         /// References another Mir instruction directly.
         /// Uses `inst` payload.
         inst,
-        /// References another Mir instruction directly with condition code (CC).
-        /// Uses `inst_cc` payload.
-        inst_cc,
-        /// String repeat and width
-        /// Uses `string` payload.
-        string,
+        /// Linker relocation - external function.
         /// Uses `reloc` payload.
-        reloc,
+        extern_fn_reloc,
         /// Linker relocation - GOT indirection.
         /// Uses `rx` payload with extra data of type `Reloc`.
         got_reloc,
@@ -731,74 +853,125 @@ pub const Inst = struct {
         /// Linker relocation - threadlocal variable via GOT indirection.
         /// Uses `rx` payload with extra data of type `Reloc`.
         tlv_reloc,
+
+        // Pseudo instructions:
+
+        /// Conditional move if zero flag set and parity flag not set
+        /// Clobbers the source operand!
+        /// Uses `rr` payload.
+        pseudo_cmov_z_and_np_rr,
+        /// Conditional move if zero flag not set or parity flag set
+        /// Uses `rr` payload.
+        pseudo_cmov_nz_or_p_rr,
+        /// Conditional move if zero flag not set or parity flag set
+        /// Uses `rx` payload.
+        pseudo_cmov_nz_or_p_rm_sib,
+        /// Conditional move if zero flag not set or parity flag set
+        /// Uses `rx` payload.
+        pseudo_cmov_nz_or_p_rm_rip,
+        /// Set byte if zero flag set and parity flag not set
+        /// Requires a scratch register!
+        /// Uses `r_scratch` payload.
+        pseudo_set_z_and_np_r,
+        /// Set byte if zero flag set and parity flag not set
+        /// Requires a scratch register!
+        /// Uses `x_scratch` payload.
+        pseudo_set_z_and_np_m_sib,
+        /// Set byte if zero flag set and parity flag not set
+        /// Requires a scratch register!
+        /// Uses `x_scratch` payload.
+        pseudo_set_z_and_np_m_rip,
+        /// Set byte if zero flag not set or parity flag set
+        /// Requires a scratch register!
+        /// Uses `r_scratch` payload.
+        pseudo_set_nz_or_p_r,
+        /// Set byte if zero flag not set or parity flag set
+        /// Requires a scratch register!
+        /// Uses `x_scratch` payload.
+        pseudo_set_nz_or_p_m_sib,
+        /// Set byte if zero flag not set or parity flag set
+        /// Requires a scratch register!
+        /// Uses `x_scratch` payload.
+        pseudo_set_nz_or_p_m_rip,
+        /// Jump if zero flag set and parity flag not set
+        /// Uses `inst` payload.
+        pseudo_j_z_and_np_inst,
+        /// Jump if zero flag not set or parity flag set
+        /// Uses `inst` payload.
+        pseudo_j_nz_or_p_inst,
+
+        /// Push registers
+        /// Uses `reg_list` payload.
+        pseudo_push_reg_list,
+        /// Pop registers
+        /// Uses `reg_list` payload.
+        pseudo_pop_reg_list,
+
+        /// End of prologue
+        pseudo_dbg_prologue_end_none,
+        /// Update debug line
+        /// Uses `line_column` payload.
+        pseudo_dbg_line_line_column,
+        /// Start of epilogue
+        pseudo_dbg_epilogue_begin_none,
+
+        /// Tombstone
+        /// Emitter should skip this instruction.
+        pseudo_dead_none,
     };
 
     pub const Data = union {
+        none: struct {
+            fixes: Fixes = ._,
+        },
         /// References another Mir instruction.
-        inst: Index,
-        /// Another instruction with condition code (CC).
-        /// Used by `jcc`.
-        inst_cc: struct {
-            /// Another instruction.
+        inst: struct {
+            fixes: Fixes = ._,
             inst: Index,
-            /// A condition code for use with EFLAGS register.
-            cc: bits.Condition,
         },
         /// A 32-bit immediate value.
-        i: u32,
-        r: Register,
+        i: struct {
+            fixes: Fixes = ._,
+            i: u32,
+        },
+        r: struct {
+            fixes: Fixes = ._,
+            r1: Register,
+        },
         rr: struct {
+            fixes: Fixes = ._,
             r1: Register,
             r2: Register,
         },
         rrr: struct {
+            fixes: Fixes = ._,
             r1: Register,
             r2: Register,
             r3: Register,
         },
         rrri: struct {
+            fixes: Fixes = ._,
             r1: Register,
             r2: Register,
             r3: Register,
             i: u8,
         },
         rri: struct {
+            fixes: Fixes = ._,
             r1: Register,
             r2: Register,
             i: u32,
         },
-        /// Condition code (CC), followed by custom payload found in extra.
-        x_cc: struct {
-            scratch: Register,
-            cc: bits.Condition,
-            payload: u32,
-        },
-        /// Register with condition code (CC).
-        r_cc: struct {
-            r: Register,
-            scratch: Register,
-            cc: bits.Condition,
-        },
-        /// Register, register with condition code (CC).
-        rr_cc: struct {
-            r1: Register,
-            r2: Register,
-            cc: bits.Condition,
-        },
         /// Register, immediate.
         ri: struct {
-            r: Register,
+            fixes: Fixes = ._,
+            r1: Register,
             i: u32,
         },
         /// Register, followed by custom payload found in extra.
         rx: struct {
-            r: Register,
-            payload: u32,
-        },
-        /// Register with condition code (CC), followed by custom payload found in extra.
-        rx_cc: struct {
-            r: Register,
-            cc: bits.Condition,
+            fixes: Fixes = ._,
+            r1: Register,
             payload: u32,
         },
         /// Immediate, followed by Custom payload found in extra.
@@ -808,39 +981,54 @@ pub const Inst = struct {
         },
         /// Register, register, followed by Custom payload found in extra.
         rrx: struct {
+            fixes: Fixes = ._,
             r1: Register,
             r2: Register,
             payload: u32,
         },
         /// Register, byte immediate, followed by Custom payload found in extra.
         rix: struct {
-            r: Register,
+            fixes: Fixes = ._,
+            r1: Register,
             i: u8,
             payload: u32,
         },
         /// Register, register, byte immediate, followed by Custom payload found in extra.
         rrix: struct {
+            fixes: Fixes = ._,
             r1: Register,
             r2: Register,
             i: u8,
             payload: u32,
         },
-        /// String instruction prefix and width.
-        string: struct {
-            repeat: bits.StringRepeat,
-            width: bits.StringWidth,
+        /// Register, scratch register
+        r_scratch: struct {
+            fixes: Fixes = ._,
+            r1: Register,
+            scratch_reg: Register,
+        },
+        /// Scratch register, followed by Custom payload found in extra.
+        x_scratch: struct {
+            fixes: Fixes = ._,
+            scratch_reg: Register,
+            payload: u32,
+        },
+        /// Custom payload found in extra.
+        x: struct {
+            fixes: Fixes = ._,
+            payload: u32,
         },
         /// Relocation for the linker where:
         /// * `atom_index` is the index of the source
         /// * `sym_index` is the index of the target
-        relocation: Reloc,
+        reloc: Reloc,
         /// Debug line and column position
         line_column: struct {
             line: u32,
             column: u32,
         },
-        /// Index into `extra`. Meaning of what can be found there is context-dependent.
-        payload: u32,
+        /// Register list
+        reg_list: RegisterList,
     };
 
     // Make sure we don't accidentally make instructions bigger than expected.
@@ -852,6 +1040,7 @@ pub const Inst = struct {
     }
 };
 
+/// A linker symbol not yet allocated in VM.
 pub const Reloc = struct {
     /// Index of the containing atom.
     atom_index: u32,
@@ -885,16 +1074,6 @@ pub const RegisterList = struct {
 
     pub fn iterator(self: Self, comptime options: std.bit_set.IteratorOptions) BitSet.Iterator(options) {
         return self.bitset.iterator(options);
-    }
-
-    pub fn asInt(self: Self) u32 {
-        return self.bitset.mask;
-    }
-
-    pub fn fromInt(mask: u32) Self {
-        return .{
-            .bitset = BitSet{ .mask = @intCast(BitSet.MaskInt, mask) },
-        };
     }
 
     pub fn count(self: Self) u32 {

@@ -6,9 +6,6 @@ const Allocator = std.mem.Allocator;
 const ArrayList = std.ArrayList;
 const DW = std.dwarf;
 
-pub const StringRepeat = enum(u3) { none, rep, repe, repz, repne, repnz };
-pub const StringWidth = enum(u2) { b, w, d, q };
-
 /// EFLAGS condition codes
 pub const Condition = enum(u5) {
     /// above

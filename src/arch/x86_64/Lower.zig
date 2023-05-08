@@ -35,7 +35,7 @@ pub const Reloc = struct {
 
     const Target = union(enum) {
         inst: Mir.Inst.Index,
-        @"extern": Mir.Reloc,
+        linker_extern_fn: Mir.Reloc,
         linker_got: Mir.Reloc,
         linker_direct: Mir.Reloc,
         linker_import: Mir.Reloc,
@@ -59,280 +59,119 @@ pub fn lowerMir(lower: *Lower, index: Mir.Inst.Index) Error!struct {
 
     const inst = lower.mir.instructions.get(index);
     switch (inst.tag) {
-        .adc,
-        .add,
-        .@"and",
-        .bsf,
-        .bsr,
-        .bswap,
-        .bt,
-        .btc,
-        .btr,
-        .bts,
-        .call,
-        .cbw,
-        .cwde,
-        .cdqe,
-        .cwd,
-        .cdq,
-        .cqo,
-        .cmp,
-        .cmpxchg,
-        .div,
-        .fisttp,
-        .fld,
-        .idiv,
-        .imul,
-        .int3,
-        .jmp,
-        .lea,
-        .lfence,
-        .lzcnt,
-        .mfence,
-        .mov,
-        .movbe,
-        .movd,
-        .movq,
-        .movzx,
-        .mul,
-        .neg,
-        .nop,
-        .not,
-        .@"or",
-        .pop,
-        .popcnt,
-        .push,
-        .rcl,
-        .rcr,
-        .ret,
-        .rol,
-        .ror,
-        .sal,
-        .sar,
-        .sbb,
-        .sfence,
-        .shl,
-        .shld,
-        .shr,
-        .shrd,
-        .sub,
-        .syscall,
-        .@"test",
-        .tzcnt,
-        .ud2,
-        .xadd,
-        .xchg,
-        .xor,
+        else => try lower.generic(inst),
+        .pseudo => switch (inst.ops) {
+            .pseudo_cmov_z_and_np_rr => {
+                try lower.emit(.none, .cmovnz, &.{
+                    .{ .reg = inst.data.rr.r2 },
+                    .{ .reg = inst.data.rr.r1 },
+                });
+                try lower.emit(.none, .cmovnp, &.{
+                    .{ .reg = inst.data.rr.r1 },
+                    .{ .reg = inst.data.rr.r2 },
+                });
+            },
+            .pseudo_cmov_nz_or_p_rr => {
+                try lower.emit(.none, .cmovnz, &.{
+                    .{ .reg = inst.data.rr.r1 },
+                    .{ .reg = inst.data.rr.r2 },
+                });
+                try lower.emit(.none, .cmovp, &.{
+                    .{ .reg = inst.data.rr.r1 },
+                    .{ .reg = inst.data.rr.r2 },
+                });
+            },
+            .pseudo_cmov_nz_or_p_rm_sib,
+            .pseudo_cmov_nz_or_p_rm_rip,
+            => {
+                try lower.emit(.none, .cmovnz, &.{
+                    .{ .reg = inst.data.rx.r1 },
+                    .{ .mem = lower.mem(inst.ops, inst.data.rx.payload) },
+                });
+                try lower.emit(.none, .cmovp, &.{
+                    .{ .reg = inst.data.rx.r1 },
+                    .{ .mem = lower.mem(inst.ops, inst.data.rx.payload) },
+                });
+            },
+            .pseudo_set_z_and_np_r => {
+                try lower.emit(.none, .setz, &.{
+                    .{ .reg = inst.data.r_scratch.r1 },
+                });
+                try lower.emit(.none, .setnp, &.{
+                    .{ .reg = inst.data.r_scratch.scratch_reg },
+                });
+                try lower.emit(.none, .@"and", &.{
+                    .{ .reg = inst.data.r_scratch.r1 },
+                    .{ .reg = inst.data.r_scratch.scratch_reg },
+                });
+            },
+            .pseudo_set_z_and_np_m_sib,
+            .pseudo_set_z_and_np_m_rip,
+            => {
+                try lower.emit(.none, .setz, &.{
+                    .{ .mem = lower.mem(inst.ops, inst.data.x_scratch.payload) },
+                });
+                try lower.emit(.none, .setnp, &.{
+                    .{ .reg = inst.data.x_scratch.scratch_reg },
+                });
+                try lower.emit(.none, .@"and", &.{
+                    .{ .mem = lower.mem(inst.ops, inst.data.x_scratch.payload) },
+                    .{ .reg = inst.data.x_scratch.scratch_reg },
+                });
+            },
+            .pseudo_set_nz_or_p_r => {
+                try lower.emit(.none, .setnz, &.{
+                    .{ .reg = inst.data.r_scratch.r1 },
+                });
+                try lower.emit(.none, .setp, &.{
+                    .{ .reg = inst.data.r_scratch.scratch_reg },
+                });
+                try lower.emit(.none, .@"or", &.{
+                    .{ .reg = inst.data.r_scratch.r1 },
+                    .{ .reg = inst.data.r_scratch.scratch_reg },
+                });
+            },
+            .pseudo_set_nz_or_p_m_sib,
+            .pseudo_set_nz_or_p_m_rip,
+            => {
+                try lower.emit(.none, .setnz, &.{
+                    .{ .mem = lower.mem(inst.ops, inst.data.x_scratch.payload) },
+                });
+                try lower.emit(.none, .setp, &.{
+                    .{ .reg = inst.data.x_scratch.scratch_reg },
+                });
+                try lower.emit(.none, .@"or", &.{
+                    .{ .mem = lower.mem(inst.ops, inst.data.x_scratch.payload) },
+                    .{ .reg = inst.data.x_scratch.scratch_reg },
+                });
+            },
+            .pseudo_j_z_and_np_inst => {
+                try lower.emit(.none, .jnz, &.{
+                    .{ .imm = lower.reloc(.{ .inst = index + 1 }) },
+                });
+                try lower.emit(.none, .jnp, &.{
+                    .{ .imm = lower.reloc(.{ .inst = inst.data.inst.inst }) },
+                });
+            },
+            .pseudo_j_nz_or_p_inst => {
+                try lower.emit(.none, .jnz, &.{
+                    .{ .imm = lower.reloc(.{ .inst = inst.data.inst.inst }) },
+                });
+                try lower.emit(.none, .jp, &.{
+                    .{ .imm = lower.reloc(.{ .inst = inst.data.inst.inst }) },
+                });
+            },
 
-        .addps,
-        .addss,
-        .andnps,
-        .andps,
-        .cmpss,
-        .cvtsi2ss,
-        .divps,
-        .divss,
-        .maxps,
-        .maxss,
-        .minps,
-        .minss,
-        .movaps,
-        .movhlps,
-        .movss,
-        .movups,
-        .mulps,
-        .mulss,
-        .orps,
-        .pextrw,
-        .pinsrw,
-        .sqrtps,
-        .sqrtss,
-        .subps,
-        .subss,
-        .ucomiss,
-        .unpckhps,
-        .unpcklps,
-        .xorps,
+            .pseudo_push_reg_list => try lower.pushPopRegList(.push, inst),
+            .pseudo_pop_reg_list => try lower.pushPopRegList(.pop, inst),
 
-        .addpd,
-        .addsd,
-        .andnpd,
-        .andpd,
-        .cmpsd,
-        .cvtsd2ss,
-        .cvtsi2sd,
-        .cvtss2sd,
-        .divpd,
-        .divsd,
-        .maxpd,
-        .maxsd,
-        .minpd,
-        .minsd,
-        .movsd,
-        .mulpd,
-        .mulsd,
-        .orpd,
-        .pshufhw,
-        .pshuflw,
-        .psrld,
-        .psrlq,
-        .psrlw,
-        .punpckhbw,
-        .punpckhdq,
-        .punpckhqdq,
-        .punpckhwd,
-        .punpcklbw,
-        .punpckldq,
-        .punpcklqdq,
-        .punpcklwd,
-        .sqrtpd,
-        .sqrtsd,
-        .subpd,
-        .subsd,
-        .ucomisd,
-        .unpckhpd,
-        .unpcklpd,
-        .xorpd,
-
-        .movddup,
-        .movshdup,
-        .movsldup,
-
-        .pextrb,
-        .pextrd,
-        .pextrq,
-        .pinsrb,
-        .pinsrd,
-        .pinsrq,
-        .roundpd,
-        .roundps,
-        .roundsd,
-        .roundss,
-
-        .vaddpd,
-        .vaddps,
-        .vaddsd,
-        .vaddss,
-        .vcvtsd2ss,
-        .vcvtsi2sd,
-        .vcvtsi2ss,
-        .vcvtss2sd,
-        .vdivpd,
-        .vdivps,
-        .vdivsd,
-        .vdivss,
-        .vmaxpd,
-        .vmaxps,
-        .vmaxsd,
-        .vmaxss,
-        .vminpd,
-        .vminps,
-        .vminsd,
-        .vminss,
-        .vmovapd,
-        .vmovaps,
-        .vmovddup,
-        .vmovhlps,
-        .vmovsd,
-        .vmovshdup,
-        .vmovsldup,
-        .vmovss,
-        .vmovupd,
-        .vmovups,
-        .vmulpd,
-        .vmulps,
-        .vmulsd,
-        .vmulss,
-        .vpextrb,
-        .vpextrd,
-        .vpextrq,
-        .vpextrw,
-        .vpinsrb,
-        .vpinsrd,
-        .vpinsrq,
-        .vpinsrw,
-        .vpshufhw,
-        .vpshuflw,
-        .vpsrld,
-        .vpsrlq,
-        .vpsrlw,
-        .vpunpckhbw,
-        .vpunpckhdq,
-        .vpunpckhqdq,
-        .vpunpckhwd,
-        .vpunpcklbw,
-        .vpunpckldq,
-        .vpunpcklqdq,
-        .vpunpcklwd,
-        .vroundpd,
-        .vroundps,
-        .vroundsd,
-        .vroundss,
-        .vsqrtpd,
-        .vsqrtps,
-        .vsqrtsd,
-        .vsqrtss,
-        .vsubpd,
-        .vsubps,
-        .vsubsd,
-        .vsubss,
-        .vunpckhpd,
-        .vunpckhps,
-        .vunpcklpd,
-        .vunpcklps,
-
-        .vcvtph2ps,
-        .vcvtps2ph,
-
-        .vfmadd132pd,
-        .vfmadd213pd,
-        .vfmadd231pd,
-        .vfmadd132ps,
-        .vfmadd213ps,
-        .vfmadd231ps,
-        .vfmadd132sd,
-        .vfmadd213sd,
-        .vfmadd231sd,
-        .vfmadd132ss,
-        .vfmadd213ss,
-        .vfmadd231ss,
-        => try lower.mirGeneric(inst),
-
-        .cmps,
-        .lods,
-        .movs,
-        .scas,
-        .stos,
-        => try lower.mirString(inst),
-
-        .cmpxchgb => try lower.mirCmpxchgBytes(inst),
-
-        .jmp_reloc => try lower.emitInstWithReloc(.none, .jmp, &.{
-            .{ .imm = Immediate.s(0) },
-        }, .{ .inst = inst.data.inst }),
-
-        .call_extern => try lower.emitInstWithReloc(.none, .call, &.{
-            .{ .imm = Immediate.s(0) },
-        }, .{ .@"extern" = inst.data.relocation }),
-
-        .lea_linker => try lower.mirLinker(.lea, inst),
-        .mov_linker => try lower.mirLinker(.mov, inst),
-
-        .mov_moffs => try lower.mirMovMoffs(inst),
-
-        .movsx => try lower.mirMovsx(inst),
-        .cmovcc => try lower.mirCmovcc(inst),
-        .setcc => try lower.mirSetcc(inst),
-        .jcc => try lower.mirJcc(index, inst),
-
-        .push_regs => try lower.mirRegisterList(.push, inst),
-        .pop_regs => try lower.mirRegisterList(.pop, inst),
-
-        .dbg_line,
-        .dbg_prologue_end,
-        .dbg_epilogue_begin,
-        .dead,
-        => {},
+            .pseudo_dbg_prologue_end_none,
+            .pseudo_dbg_line_line_column,
+            .pseudo_dbg_epilogue_begin_none,
+            .pseudo_dead_none,
+            => {},
+            else => unreachable,
+        },
     }
 
     return .{
@@ -348,15 +187,6 @@ pub fn fail(lower: *Lower, comptime format: []const u8, args: anytype) Error {
     return error.LowerFail;
 }
 
-fn mnem_cc(comptime base: @Type(.EnumLiteral), cc: bits.Condition) Mnemonic {
-    return switch (cc) {
-        inline else => |c| if (@hasField(Mnemonic, @tagName(base) ++ @tagName(c)))
-            @field(Mnemonic, @tagName(base) ++ @tagName(c))
-        else
-            unreachable,
-    };
-}
-
 fn imm(lower: Lower, ops: Mir.Inst.Ops, i: u32) Immediate {
     return switch (ops) {
         .rri_s,
@@ -364,8 +194,6 @@ fn imm(lower: Lower, ops: Mir.Inst.Ops, i: u32) Immediate {
         .i_s,
         .mi_sib_s,
         .mi_rip_s,
-        .lock_mi_sib_s,
-        .lock_mi_rip_s,
         => Immediate.s(@bitCast(i32, i)),
 
         .rrri,
@@ -374,8 +202,6 @@ fn imm(lower: Lower, ops: Mir.Inst.Ops, i: u32) Immediate {
         .i_u,
         .mi_sib_u,
         .mi_rip_u,
-        .lock_mi_sib_u,
-        .lock_mi_rip_u,
         .rmi_sib,
         .rmi_rip,
         .mri_sib,
@@ -395,10 +221,8 @@ fn imm(lower: Lower, ops: Mir.Inst.Ops, i: u32) Immediate {
 fn mem(lower: Lower, ops: Mir.Inst.Ops, payload: u32) Memory {
     return lower.mir.resolveFrameLoc(switch (ops) {
         .rm_sib,
-        .rm_sib_cc,
         .rmi_sib,
         .m_sib,
-        .m_sib_cc,
         .mi_sib_u,
         .mi_sib_s,
         .mr_sib,
@@ -406,17 +230,15 @@ fn mem(lower: Lower, ops: Mir.Inst.Ops, payload: u32) Memory {
         .mri_sib,
         .rrm_sib,
         .rrmi_sib,
-        .lock_m_sib,
-        .lock_mi_sib_u,
-        .lock_mi_sib_s,
-        .lock_mr_sib,
+
+        .pseudo_cmov_nz_or_p_rm_sib,
+        .pseudo_set_z_and_np_m_sib,
+        .pseudo_set_nz_or_p_m_sib,
         => lower.mir.extraData(Mir.MemorySib, payload).data.decode(),
 
         .rm_rip,
-        .rm_rip_cc,
         .rmi_rip,
         .m_rip,
-        .m_rip_cc,
         .mi_rip_u,
         .mi_rip_s,
         .mr_rip,
@@ -424,66 +246,83 @@ fn mem(lower: Lower, ops: Mir.Inst.Ops, payload: u32) Memory {
         .mri_rip,
         .rrm_rip,
         .rrmi_rip,
-        .lock_m_rip,
-        .lock_mi_rip_u,
-        .lock_mi_rip_s,
-        .lock_mr_rip,
+
+        .pseudo_cmov_nz_or_p_rm_rip,
+        .pseudo_set_z_and_np_m_rip,
+        .pseudo_set_nz_or_p_m_rip,
         => lower.mir.extraData(Mir.MemoryRip, payload).data.decode(),
 
         .rax_moffs,
         .moffs_rax,
-        .lock_moffs_rax,
         => lower.mir.extraData(Mir.MemoryMoffs, payload).data.decode(),
 
         else => unreachable,
     });
 }
 
-fn emitInst(lower: *Lower, prefix: Prefix, mnemonic: Mnemonic, ops: []const Operand) Error!void {
-    lower.result_insts[lower.result_insts_len] = try Instruction.new(prefix, mnemonic, ops);
-    lower.result_insts_len += 1;
-}
-
-fn emitInstWithReloc(
-    lower: *Lower,
-    prefix: Prefix,
-    mnemonic: Mnemonic,
-    ops: []const Operand,
-    target: Reloc.Target,
-) Error!void {
+fn reloc(lower: *Lower, target: Reloc.Target) Immediate {
     lower.result_relocs[lower.result_relocs_len] = .{
         .lowered_inst_index = lower.result_insts_len,
         .target = target,
     };
     lower.result_relocs_len += 1;
-    try lower.emitInst(prefix, mnemonic, ops);
+    return Immediate.s(0);
 }
 
-fn mirGeneric(lower: *Lower, inst: Mir.Inst) Error!void {
-    try lower.emitInst(switch (inst.ops) {
-        else => .none,
-        .lock_m_sib,
-        .lock_m_rip,
-        .lock_mi_sib_u,
-        .lock_mi_rip_u,
-        .lock_mi_sib_s,
-        .lock_mi_rip_s,
-        .lock_mr_sib,
-        .lock_mr_rip,
-        .lock_moffs_rax,
-        => .lock,
-    }, switch (inst.tag) {
-        inline else => |tag| if (@hasField(Mnemonic, @tagName(tag)))
-            @field(Mnemonic, @tagName(tag))
+fn emit(lower: *Lower, prefix: Prefix, mnemonic: Mnemonic, ops: []const Operand) Error!void {
+    lower.result_insts[lower.result_insts_len] = try Instruction.new(prefix, mnemonic, ops);
+    lower.result_insts_len += 1;
+}
+
+fn generic(lower: *Lower, inst: Mir.Inst) Error!void {
+    const fixes = switch (inst.ops) {
+        .none => inst.data.none.fixes,
+        .inst => inst.data.inst.fixes,
+        .i_s, .i_u => inst.data.i.fixes,
+        .r => inst.data.r.fixes,
+        .rr => inst.data.rr.fixes,
+        .rrr => inst.data.rrr.fixes,
+        .rrri => inst.data.rrri.fixes,
+        .rri_s, .rri_u => inst.data.rri.fixes,
+        .ri_s, .ri_u => inst.data.ri.fixes,
+        .ri64, .rm_sib, .rm_rip, .mr_sib, .mr_rip => inst.data.rx.fixes,
+        .mi_sib_u, .mi_rip_u, .mi_sib_s, .mi_rip_s => ._,
+        .mrr_sib, .mrr_rip, .rrm_sib, .rrm_rip => inst.data.rrx.fixes,
+        .rmi_sib, .rmi_rip, .mri_sib, .mri_rip => inst.data.rix.fixes,
+        .rrmi_sib, .rrmi_rip => inst.data.rrix.fixes,
+        .m_sib, .m_rip, .rax_moffs, .moffs_rax => inst.data.x.fixes,
+        .extern_fn_reloc, .got_reloc, .direct_reloc, .import_reloc, .tlv_reloc => ._,
+        else => return lower.fail("TODO lower .{s}", .{@tagName(inst.ops)}),
+    };
+    try lower.emit(switch (fixes) {
+        inline else => |tag| comptime if (std.mem.indexOfScalar(u8, @tagName(tag), ' ')) |space|
+            @field(Prefix, @tagName(tag)[0..space])
         else
-            unreachable,
+            .none,
+    }, mnemonic: {
+        comptime var max_len = 0;
+        inline for (@typeInfo(Mnemonic).Enum.fields) |field| max_len = @max(field.name.len, max_len);
+        var buf: [max_len]u8 = undefined;
+
+        const fixes_name = @tagName(fixes);
+        const pattern = fixes_name[if (std.mem.indexOfScalar(u8, fixes_name, ' ')) |i| i + 1 else 0..];
+        const wildcard_i = std.mem.indexOfScalar(u8, pattern, '_').?;
+        const parts = .{ pattern[0..wildcard_i], @tagName(inst.tag), pattern[wildcard_i + 1 ..] };
+        const err_msg = "unsupported mnemonic: ";
+        const mnemonic = std.fmt.bufPrint(&buf, "{s}{s}{s}", parts) catch
+            return lower.fail(err_msg ++ "'{s}{s}{s}'", parts);
+        break :mnemonic std.meta.stringToEnum(Mnemonic, mnemonic) orelse
+            return lower.fail(err_msg ++ "'{s}'", .{mnemonic});
     }, switch (inst.ops) {
         .none => &.{},
+        .inst => &.{
+            .{ .imm = lower.reloc(.{ .inst = inst.data.inst.inst }) },
+        },
         .i_s, .i_u => &.{
-            .{ .imm = lower.imm(inst.ops, inst.data.i) },
+            .{ .imm = lower.imm(inst.ops, inst.data.i.i) },
         },
         .r => &.{
-            .{ .reg = inst.data.r },
+            .{ .reg = inst.data.r.r1 },
         },
         .rr => &.{
             .{ .reg = inst.data.rr.r1 },
@@ -501,11 +340,11 @@ fn mirGeneric(lower: *Lower, inst: Mir.Inst) Error!void {
             .{ .imm = lower.imm(inst.ops, inst.data.rrri.i) },
         },
         .ri_s, .ri_u => &.{
-            .{ .reg = inst.data.ri.r },
+            .{ .reg = inst.data.ri.r1 },
             .{ .imm = lower.imm(inst.ops, inst.data.ri.i) },
         },
         .ri64 => &.{
-            .{ .reg = inst.data.rx.r },
+            .{ .reg = inst.data.rx.r1 },
             .{ .imm = lower.imm(inst.ops, inst.data.rx.payload) },
         },
         .rri_s, .rri_u => &.{
@@ -513,33 +352,25 @@ fn mirGeneric(lower: *Lower, inst: Mir.Inst) Error!void {
             .{ .reg = inst.data.rri.r2 },
             .{ .imm = lower.imm(inst.ops, inst.data.rri.i) },
         },
-        .m_sib, .lock_m_sib, .m_rip, .lock_m_rip => &.{
-            .{ .mem = lower.mem(inst.ops, inst.data.payload) },
+        .m_sib, .m_rip => &.{
+            .{ .mem = lower.mem(inst.ops, inst.data.x.payload) },
         },
-        .mi_sib_s,
-        .lock_mi_sib_s,
-        .mi_sib_u,
-        .lock_mi_sib_u,
-        .mi_rip_u,
-        .lock_mi_rip_u,
-        .mi_rip_s,
-        .lock_mi_rip_s,
-        => &.{
+        .mi_sib_s, .mi_sib_u, .mi_rip_u, .mi_rip_s => &.{
             .{ .mem = lower.mem(inst.ops, inst.data.ix.payload) },
             .{ .imm = lower.imm(inst.ops, inst.data.ix.i) },
         },
         .rm_sib, .rm_rip => &.{
-            .{ .reg = inst.data.rx.r },
+            .{ .reg = inst.data.rx.r1 },
             .{ .mem = lower.mem(inst.ops, inst.data.rx.payload) },
         },
         .rmi_sib, .rmi_rip => &.{
-            .{ .reg = inst.data.rix.r },
+            .{ .reg = inst.data.rix.r1 },
             .{ .mem = lower.mem(inst.ops, inst.data.rix.payload) },
             .{ .imm = lower.imm(inst.ops, inst.data.rix.i) },
         },
-        .mr_sib, .lock_mr_sib, .mr_rip, .lock_mr_rip => &.{
+        .mr_sib, .mr_rip => &.{
             .{ .mem = lower.mem(inst.ops, inst.data.rx.payload) },
-            .{ .reg = inst.data.rx.r },
+            .{ .reg = inst.data.rx.r1 },
         },
         .mrr_sib, .mrr_rip => &.{
             .{ .mem = lower.mem(inst.ops, inst.data.rrx.payload) },
@@ -548,7 +379,7 @@ fn mirGeneric(lower: *Lower, inst: Mir.Inst) Error!void {
         },
         .mri_sib, .mri_rip => &.{
             .{ .mem = lower.mem(inst.ops, inst.data.rix.payload) },
-            .{ .reg = inst.data.rix.r },
+            .{ .reg = inst.data.rix.r1 },
             .{ .imm = lower.imm(inst.ops, inst.data.rix.i) },
         },
         .rrm_sib, .rrm_rip => &.{
@@ -562,180 +393,46 @@ fn mirGeneric(lower: *Lower, inst: Mir.Inst) Error!void {
             .{ .mem = lower.mem(inst.ops, inst.data.rrix.payload) },
             .{ .imm = lower.imm(inst.ops, inst.data.rrix.i) },
         },
-        else => return lower.fail("TODO lower {s} {s}", .{ @tagName(inst.tag), @tagName(inst.ops) }),
-    });
-}
-
-fn mirString(lower: *Lower, inst: Mir.Inst) Error!void {
-    switch (inst.ops) {
-        .string => try lower.emitInst(switch (inst.data.string.repeat) {
-            inline else => |repeat| @field(Prefix, @tagName(repeat)),
-        }, switch (inst.tag) {
-            inline .cmps, .lods, .movs, .scas, .stos => |tag| switch (inst.data.string.width) {
-                inline else => |width| @field(Mnemonic, @tagName(tag) ++ @tagName(width)),
-            },
-            else => unreachable,
-        }, &.{}),
-        else => return lower.fail("TODO lower {s} {s}", .{ @tagName(inst.tag), @tagName(inst.ops) }),
-    }
-}
-
-fn mirCmpxchgBytes(lower: *Lower, inst: Mir.Inst) Error!void {
-    const ops: [1]Operand = switch (inst.ops) {
-        .m_sib, .lock_m_sib, .m_rip, .lock_m_rip => .{
-            .{ .mem = lower.mem(inst.ops, inst.data.payload) },
-        },
-        else => return lower.fail("TODO lower {s} {s}", .{ @tagName(inst.tag), @tagName(inst.ops) }),
-    };
-    try lower.emitInst(switch (inst.ops) {
-        .m_sib, .m_rip => .none,
-        .lock_m_sib, .lock_m_rip => .lock,
-        else => unreachable,
-    }, switch (@divExact(ops[0].bitSize(), 8)) {
-        8 => .cmpxchg8b,
-        16 => .cmpxchg16b,
-        else => return lower.fail("invalid operand for {s}", .{@tagName(inst.tag)}),
-    }, &ops);
-}
-
-fn mirMovMoffs(lower: *Lower, inst: Mir.Inst) Error!void {
-    try lower.emitInst(switch (inst.ops) {
-        .rax_moffs, .moffs_rax => .none,
-        .lock_moffs_rax => .lock,
-        else => return lower.fail("TODO lower {s} {s}", .{ @tagName(inst.tag), @tagName(inst.ops) }),
-    }, .mov, switch (inst.ops) {
         .rax_moffs => &.{
             .{ .reg = .rax },
-            .{ .mem = lower.mem(inst.ops, inst.data.payload) },
+            .{ .mem = lower.mem(inst.ops, inst.data.x.payload) },
         },
-        .moffs_rax, .lock_moffs_rax => &.{
-            .{ .mem = lower.mem(inst.ops, inst.data.payload) },
+        .moffs_rax => &.{
+            .{ .mem = lower.mem(inst.ops, inst.data.x.payload) },
             .{ .reg = .rax },
         },
-        else => unreachable,
+        .extern_fn_reloc => &.{
+            .{ .imm = lower.reloc(.{ .linker_extern_fn = inst.data.reloc }) },
+        },
+        .got_reloc, .direct_reloc, .import_reloc, .tlv_reloc => ops: {
+            const reg = inst.data.rx.r1;
+            const extra = lower.mir.extraData(Mir.Reloc, inst.data.rx.payload).data;
+            _ = lower.reloc(switch (inst.ops) {
+                .got_reloc => .{ .linker_got = extra },
+                .direct_reloc => .{ .linker_direct = extra },
+                .import_reloc => .{ .linker_import = extra },
+                .tlv_reloc => .{ .linker_tlv = extra },
+                else => unreachable,
+            });
+            break :ops &.{
+                .{ .reg = reg },
+                .{ .mem = Memory.rip(Memory.PtrSize.fromBitSize(reg.bitSize()), 0) },
+            };
+        },
+        else => return lower.fail("TODO lower {s} {s}", .{ @tagName(inst.tag), @tagName(inst.ops) }),
     });
 }
 
-fn mirMovsx(lower: *Lower, inst: Mir.Inst) Error!void {
-    const ops: [2]Operand = switch (inst.ops) {
-        .rr => .{
-            .{ .reg = inst.data.rr.r1 },
-            .{ .reg = inst.data.rr.r2 },
-        },
-        .rm_sib, .rm_rip => .{
-            .{ .reg = inst.data.rx.r },
-            .{ .mem = lower.mem(inst.ops, inst.data.rx.payload) },
-        },
-        else => return lower.fail("TODO lower {s} {s}", .{ @tagName(inst.tag), @tagName(inst.ops) }),
-    };
-    try lower.emitInst(.none, switch (ops[0].bitSize()) {
-        32, 64 => switch (ops[1].bitSize()) {
-            32 => .movsxd,
-            else => .movsx,
-        },
-        else => .movsx,
-    }, &ops);
-}
-
-fn mirCmovcc(lower: *Lower, inst: Mir.Inst) Error!void {
-    const data: struct { cc: bits.Condition, ops: [2]Operand } = switch (inst.ops) {
-        .rr_cc => .{ .cc = inst.data.rr_cc.cc, .ops = .{
-            .{ .reg = inst.data.rr_cc.r1 },
-            .{ .reg = inst.data.rr_cc.r2 },
-        } },
-        .rm_sib_cc, .rm_rip_cc => .{ .cc = inst.data.rx_cc.cc, .ops = .{
-            .{ .reg = inst.data.rx_cc.r },
-            .{ .mem = lower.mem(inst.ops, inst.data.rx_cc.payload) },
-        } },
-        else => return lower.fail("TODO lower {s} {s}", .{ @tagName(inst.tag), @tagName(inst.ops) }),
-    };
-    switch (data.cc) {
-        else => |cc| try lower.emitInst(.none, mnem_cc(.cmov, cc), &data.ops),
-        .z_and_np => {
-            try lower.emitInst(.none, mnem_cc(.cmov, .nz), &.{ data.ops[1], data.ops[0] });
-            try lower.emitInst(.none, mnem_cc(.cmov, .np), &data.ops);
-        },
-        .nz_or_p => {
-            try lower.emitInst(.none, mnem_cc(.cmov, .nz), &data.ops);
-            try lower.emitInst(.none, mnem_cc(.cmov, .p), &data.ops);
-        },
-    }
-}
-
-fn mirSetcc(lower: *Lower, inst: Mir.Inst) Error!void {
-    const data: struct { cc: bits.Condition, ops: [2]Operand } = switch (inst.ops) {
-        .r_cc => .{ .cc = inst.data.r_cc.cc, .ops = .{
-            .{ .reg = inst.data.r_cc.r },
-            .{ .reg = inst.data.r_cc.scratch },
-        } },
-        .m_sib_cc, .m_rip_cc => .{ .cc = inst.data.x_cc.cc, .ops = .{
-            .{ .mem = lower.mem(inst.ops, inst.data.x_cc.payload) },
-            .{ .reg = inst.data.x_cc.scratch },
-        } },
-        else => return lower.fail("TODO lower {s} {s}", .{ @tagName(inst.tag), @tagName(inst.ops) }),
-    };
-    switch (data.cc) {
-        else => |cc| try lower.emitInst(.none, mnem_cc(.set, cc), data.ops[0..1]),
-        .z_and_np => {
-            try lower.emitInst(.none, mnem_cc(.set, .z), data.ops[0..1]);
-            try lower.emitInst(.none, mnem_cc(.set, .np), data.ops[1..2]);
-            try lower.emitInst(.none, .@"and", data.ops[0..2]);
-        },
-        .nz_or_p => {
-            try lower.emitInst(.none, mnem_cc(.set, .nz), data.ops[0..1]);
-            try lower.emitInst(.none, mnem_cc(.set, .p), data.ops[1..2]);
-            try lower.emitInst(.none, .@"or", data.ops[0..2]);
-        },
-    }
-}
-
-fn mirJcc(lower: *Lower, index: Mir.Inst.Index, inst: Mir.Inst) Error!void {
-    switch (inst.data.inst_cc.cc) {
-        else => |cc| try lower.emitInstWithReloc(.none, mnem_cc(.j, cc), &.{
-            .{ .imm = Immediate.s(0) },
-        }, .{ .inst = inst.data.inst_cc.inst }),
-        .z_and_np => {
-            try lower.emitInstWithReloc(.none, mnem_cc(.j, .nz), &.{
-                .{ .imm = Immediate.s(0) },
-            }, .{ .inst = index + 1 });
-            try lower.emitInstWithReloc(.none, mnem_cc(.j, .np), &.{
-                .{ .imm = Immediate.s(0) },
-            }, .{ .inst = inst.data.inst_cc.inst });
-        },
-        .nz_or_p => {
-            try lower.emitInstWithReloc(.none, mnem_cc(.j, .nz), &.{
-                .{ .imm = Immediate.s(0) },
-            }, .{ .inst = inst.data.inst_cc.inst });
-            try lower.emitInstWithReloc(.none, mnem_cc(.j, .p), &.{
-                .{ .imm = Immediate.s(0) },
-            }, .{ .inst = inst.data.inst_cc.inst });
-        },
-    }
-}
-
-fn mirRegisterList(lower: *Lower, comptime mnemonic: Mnemonic, inst: Mir.Inst) Error!void {
-    const reg_list = Mir.RegisterList.fromInt(inst.data.payload);
+fn pushPopRegList(lower: *Lower, comptime mnemonic: Mnemonic, inst: Mir.Inst) Error!void {
     const callee_preserved_regs = abi.getCalleePreservedRegs(lower.target.*);
-    var it = reg_list.iterator(.{ .direction = switch (mnemonic) {
+    var it = inst.data.reg_list.iterator(.{ .direction = switch (mnemonic) {
         .push => .reverse,
         .pop => .forward,
         else => unreachable,
     } });
-    while (it.next()) |i| try lower.emitInst(.none, mnemonic, &.{.{ .reg = callee_preserved_regs[i] }});
-}
-
-fn mirLinker(lower: *Lower, mnemonic: Mnemonic, inst: Mir.Inst) Error!void {
-    const reloc = lower.mir.extraData(Mir.Reloc, inst.data.rx.payload).data;
-    try lower.emitInstWithReloc(.none, mnemonic, &.{
-        .{ .reg = inst.data.rx.r },
-        .{ .mem = Memory.rip(Memory.PtrSize.fromBitSize(inst.data.rx.r.bitSize()), 0) },
-    }, switch (inst.ops) {
-        .got_reloc => .{ .linker_got = reloc },
-        .direct_reloc => .{ .linker_direct = reloc },
-        .import_reloc => .{ .linker_import = reloc },
-        .tlv_reloc => .{ .linker_tlv = reloc },
-        else => unreachable,
-    });
+    while (it.next()) |i| try lower.emit(.none, mnemonic, &.{.{
+        .reg = callee_preserved_regs[i],
+    }});
 }
 
 const abi = @import("abi.zig");

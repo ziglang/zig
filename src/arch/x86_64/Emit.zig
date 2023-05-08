@@ -41,7 +41,7 @@ pub fn emitMir(emit: *Emit) Error!void {
                     .offset = end_offset - 4,
                     .length = @intCast(u5, end_offset - start_offset),
                 }),
-                .@"extern" => |symbol| if (emit.bin_file.cast(link.File.MachO)) |macho_file| {
+                .linker_extern_fn => |symbol| if (emit.bin_file.cast(link.File.MachO)) |macho_file| {
                     // Add relocation to the decl.
                     const atom_index = macho_file.getAtomIndexForSymbol(
                         .{ .sym_index = symbol.atom_index, .file = null },
@@ -129,36 +129,39 @@ pub fn emitMir(emit: *Emit) Error!void {
             const mir_inst = emit.lower.mir.instructions.get(mir_index);
             switch (mir_inst.tag) {
                 else => unreachable,
-                .dead => {},
-                .dbg_line => try emit.dbgAdvancePCAndLine(
-                    mir_inst.data.line_column.line,
-                    mir_inst.data.line_column.column,
-                ),
-                .dbg_prologue_end => {
-                    switch (emit.debug_output) {
-                        .dwarf => |dw| {
-                            try dw.setPrologueEnd();
-                            log.debug("mirDbgPrologueEnd (line={d}, col={d})", .{
-                                emit.prev_di_line, emit.prev_di_column,
-                            });
-                            try emit.dbgAdvancePCAndLine(emit.prev_di_line, emit.prev_di_column);
-                        },
-                        .plan9 => {},
-                        .none => {},
-                    }
-                },
-                .dbg_epilogue_begin => {
-                    switch (emit.debug_output) {
-                        .dwarf => |dw| {
-                            try dw.setEpilogueBegin();
-                            log.debug("mirDbgEpilogueBegin (line={d}, col={d})", .{
-                                emit.prev_di_line, emit.prev_di_column,
-                            });
-                            try emit.dbgAdvancePCAndLine(emit.prev_di_line, emit.prev_di_column);
-                        },
-                        .plan9 => {},
-                        .none => {},
-                    }
+                .pseudo => switch (mir_inst.ops) {
+                    else => unreachable,
+                    .pseudo_dbg_prologue_end_none => {
+                        switch (emit.debug_output) {
+                            .dwarf => |dw| {
+                                try dw.setPrologueEnd();
+                                log.debug("mirDbgPrologueEnd (line={d}, col={d})", .{
+                                    emit.prev_di_line, emit.prev_di_column,
+                                });
+                                try emit.dbgAdvancePCAndLine(emit.prev_di_line, emit.prev_di_column);
+                            },
+                            .plan9 => {},
+                            .none => {},
+                        }
+                    },
+                    .pseudo_dbg_line_line_column => try emit.dbgAdvancePCAndLine(
+                        mir_inst.data.line_column.line,
+                        mir_inst.data.line_column.column,
+                    ),
+                    .pseudo_dbg_epilogue_begin_none => {
+                        switch (emit.debug_output) {
+                            .dwarf => |dw| {
+                                try dw.setEpilogueBegin();
+                                log.debug("mirDbgEpilogueBegin (line={d}, col={d})", .{
+                                    emit.prev_di_line, emit.prev_di_column,
+                                });
+                                try emit.dbgAdvancePCAndLine(emit.prev_di_line, emit.prev_di_column);
+                            },
+                            .plan9 => {},
+                            .none => {},
+                        }
+                    },
+                    .pseudo_dead_none => {},
                 },
             }
         }

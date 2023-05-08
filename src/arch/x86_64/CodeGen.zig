@@ -973,14 +973,14 @@ fn addInst(self: *Self, inst: Mir.Inst) error{OutOfMemory}!Mir.Inst.Index {
     try self.mir_instructions.ensureUnusedCapacity(gpa, 1);
     const result_index = @intCast(Mir.Inst.Index, self.mir_instructions.len);
     self.mir_instructions.appendAssumeCapacity(inst);
-    switch (inst.tag) {
-        else => wip_mir_log.debug("{}", .{self.fmtWipMir(result_index)}),
-        .dbg_line,
-        .dbg_prologue_end,
-        .dbg_epilogue_begin,
-        .dead,
-        => {},
-    }
+    if (inst.tag != .pseudo or switch (inst.ops) {
+        else => true,
+        .pseudo_dbg_prologue_end_none,
+        .pseudo_dbg_line_line_column,
+        .pseudo_dbg_epilogue_begin_none,
+        .pseudo_dead_none,
+        => false,
+    }) wip_mir_log.debug("{}", .{self.fmtWipMir(result_index)});
     return result_index;
 }
 
@@ -1003,98 +1003,166 @@ fn addExtraAssumeCapacity(self: *Self, extra: anytype) u32 {
     return result;
 }
 
+/// A `cc` of `.z_and_np` clobbers `reg2`!
+fn asmCmovccRegisterRegister(self: *Self, reg1: Register, reg2: Register, cc: bits.Condition) !void {
+    _ = try self.addInst(.{
+        .tag = switch (cc) {
+            else => .cmov,
+            .z_and_np, .nz_or_p => .pseudo,
+        },
+        .ops = switch (cc) {
+            else => .rr,
+            .z_and_np => .pseudo_cmov_z_and_np_rr,
+            .nz_or_p => .pseudo_cmov_nz_or_p_rr,
+        },
+        .data = .{ .rr = .{
+            .fixes = switch (cc) {
+                else => Mir.Inst.Fixes.fromCondition(cc),
+                .z_and_np, .nz_or_p => ._,
+            },
+            .r1 = reg1,
+            .r2 = reg2,
+        } },
+    });
+}
+
+/// A `cc` of `.z_and_np` is not supported by this encoding!
+fn asmCmovccRegisterMemory(self: *Self, reg: Register, m: Memory, cc: bits.Condition) !void {
+    _ = try self.addInst(.{
+        .tag = switch (cc) {
+            else => .cmov,
+            .z_and_np => unreachable,
+            .nz_or_p => .pseudo,
+        },
+        .ops = switch (cc) {
+            else => switch (m) {
+                .sib => .rm_sib,
+                .rip => .rm_rip,
+                else => unreachable,
+            },
+            .z_and_np => unreachable,
+            .nz_or_p => switch (m) {
+                .sib => .pseudo_cmov_nz_or_p_rm_sib,
+                .rip => .pseudo_cmov_nz_or_p_rm_rip,
+                else => unreachable,
+            },
+        },
+        .data = .{ .rx = .{
+            .fixes = switch (cc) {
+                else => Mir.Inst.Fixes.fromCondition(cc),
+                .z_and_np => unreachable,
+                .nz_or_p => ._,
+            },
+            .r1 = reg,
+            .payload = switch (m) {
+                .sib => try self.addExtra(Mir.MemorySib.encode(m)),
+                .rip => try self.addExtra(Mir.MemoryRip.encode(m)),
+                else => unreachable,
+            },
+        } },
+    });
+}
+
 fn asmSetccRegister(self: *Self, reg: Register, cc: bits.Condition) !void {
     _ = try self.addInst(.{
-        .tag = .setcc,
-        .ops = .r_cc,
-        .data = .{ .r_cc = .{
-            .r = reg,
-            .scratch = if (cc == .z_and_np or cc == .nz_or_p)
-                (try self.register_manager.allocReg(null, gp)).to8()
-            else
-                .none,
-            .cc = cc,
-        } },
+        .tag = switch (cc) {
+            else => .set,
+            .z_and_np, .nz_or_p => .pseudo,
+        },
+        .ops = switch (cc) {
+            else => .r,
+            .z_and_np => .pseudo_set_z_and_np_r,
+            .nz_or_p => .pseudo_set_nz_or_p_r,
+        },
+        .data = switch (cc) {
+            else => .{ .r = .{
+                .fixes = Mir.Inst.Fixes.fromCondition(cc),
+                .r1 = reg,
+            } },
+            .z_and_np, .nz_or_p => .{ .r_scratch = .{
+                .r1 = reg,
+                .scratch_reg = (try self.register_manager.allocReg(null, gp)).to8(),
+            } },
+        },
     });
 }
 
 fn asmSetccMemory(self: *Self, m: Memory, cc: bits.Condition) !void {
+    const payload = switch (m) {
+        .sib => try self.addExtra(Mir.MemorySib.encode(m)),
+        .rip => try self.addExtra(Mir.MemoryRip.encode(m)),
+        else => unreachable,
+    };
     _ = try self.addInst(.{
-        .tag = .setcc,
-        .ops = switch (m) {
-            .sib => .m_sib_cc,
-            .rip => .m_rip_cc,
-            else => unreachable,
+        .tag = switch (cc) {
+            else => .set,
+            .z_and_np, .nz_or_p => .pseudo,
         },
-        .data = .{ .x_cc = .{
-            .scratch = if (cc == .z_and_np or cc == .nz_or_p)
-                (try self.register_manager.allocReg(null, gp)).to8()
-            else
-                .none,
-            .cc = cc,
-            .payload = switch (m) {
-                .sib => try self.addExtra(Mir.MemorySib.encode(m)),
-                .rip => try self.addExtra(Mir.MemoryRip.encode(m)),
+        .ops = switch (cc) {
+            else => switch (m) {
+                .sib => .m_sib,
+                .rip => .m_rip,
                 else => unreachable,
             },
-        } },
-    });
-}
-
-/// A `cc` of `.z_and_np` clobbers `reg2`!
-fn asmCmovccRegisterRegister(self: *Self, reg1: Register, reg2: Register, cc: bits.Condition) !void {
-    _ = try self.addInst(.{
-        .tag = .cmovcc,
-        .ops = .rr_cc,
-        .data = .{ .rr_cc = .{
-            .r1 = reg1,
-            .r2 = reg2,
-            .cc = cc,
-        } },
-    });
-}
-
-fn asmCmovccRegisterMemory(self: *Self, reg: Register, m: Memory, cc: bits.Condition) !void {
-    assert(cc != .z_and_np); // not supported
-    _ = try self.addInst(.{
-        .tag = .cmovcc,
-        .ops = switch (m) {
-            .sib => .rm_sib_cc,
-            .rip => .rm_rip_cc,
-            else => unreachable,
-        },
-        .data = .{ .rx_cc = .{
-            .r = reg,
-            .cc = cc,
-            .payload = switch (m) {
-                .sib => try self.addExtra(Mir.MemorySib.encode(m)),
-                .rip => try self.addExtra(Mir.MemoryRip.encode(m)),
+            .z_and_np => switch (m) {
+                .sib => .pseudo_set_z_and_np_m_sib,
+                .rip => .pseudo_set_z_and_np_m_rip,
                 else => unreachable,
             },
-        } },
+            .nz_or_p => switch (m) {
+                .sib => .pseudo_set_nz_or_p_m_sib,
+                .rip => .pseudo_set_nz_or_p_m_rip,
+                else => unreachable,
+            },
+        },
+        .data = switch (cc) {
+            else => .{ .x = .{
+                .fixes = Mir.Inst.Fixes.fromCondition(cc),
+                .payload = payload,
+            } },
+            .z_and_np, .nz_or_p => .{ .x_scratch = .{
+                .scratch_reg = (try self.register_manager.allocReg(null, gp)).to8(),
+                .payload = payload,
+            } },
+        },
     });
 }
 
 fn asmJmpReloc(self: *Self, target: Mir.Inst.Index) !Mir.Inst.Index {
     return self.addInst(.{
-        .tag = .jmp_reloc,
-        .ops = undefined,
-        .data = .{ .inst = target },
+        .tag = .jmp,
+        .ops = .inst,
+        .data = .{ .inst = .{
+            .inst = target,
+        } },
     });
 }
 
 fn asmJccReloc(self: *Self, target: Mir.Inst.Index, cc: bits.Condition) !Mir.Inst.Index {
     return self.addInst(.{
-        .tag = .jcc,
-        .ops = .inst_cc,
-        .data = .{ .inst_cc = .{ .inst = target, .cc = cc } },
+        .tag = switch (cc) {
+            else => .j,
+            .z_and_np, .nz_or_p => .pseudo,
+        },
+        .ops = switch (cc) {
+            else => .inst,
+            .z_and_np => .pseudo_j_z_and_np_inst,
+            .nz_or_p => .pseudo_j_nz_or_p_inst,
+        },
+        .data = .{ .inst = .{
+            .fixes = switch (cc) {
+                else => Mir.Inst.Fixes.fromCondition(cc),
+                .z_and_np, .nz_or_p => ._,
+            },
+            .inst = target,
+        } },
     });
 }
 
 fn asmPlaceholder(self: *Self) !Mir.Inst.Index {
     return self.addInst(.{
-        .tag = .dead,
-        .ops = undefined,
+        .tag = .pseudo,
+        .ops = .pseudo_dead_none,
         .data = undefined,
     });
 }
@@ -1107,11 +1175,19 @@ fn asmOpOnly(self: *Self, tag: Mir.Inst.Tag) !void {
     });
 }
 
+fn asmPseudo(self: *Self, ops: Mir.Inst.Ops) !void {
+    _ = try self.addInst(.{
+        .tag = .pseudo,
+        .ops = ops,
+        .data = undefined,
+    });
+}
+
 fn asmRegister(self: *Self, tag: Mir.Inst.Tag, reg: Register) !void {
     _ = try self.addInst(.{
         .tag = tag,
         .ops = .r,
-        .data = .{ .r = reg },
+        .data = .{ .r = .{ .r1 = reg } },
     });
 }
 
@@ -1122,9 +1198,11 @@ fn asmImmediate(self: *Self, tag: Mir.Inst.Tag, imm: Immediate) !void {
             .signed => .i_s,
             .unsigned => .i_u,
         },
-        .data = .{ .i = switch (imm) {
-            .signed => |s| @bitCast(u32, s),
-            .unsigned => |u| @intCast(u32, u),
+        .data = .{ .i = .{
+            .i = switch (imm) {
+                .signed => |s| @bitCast(u32, s),
+                .unsigned => |u| @intCast(u32, u),
+            },
         } },
     });
 }
@@ -1147,14 +1225,14 @@ fn asmRegisterImmediate(self: *Self, tag: Mir.Inst.Tag, reg: Register, imm: Imme
         .ops = ops,
         .data = switch (ops) {
             .ri_s, .ri_u => .{ .ri = .{
-                .r = reg,
+                .r1 = reg,
                 .i = switch (imm) {
                     .signed => |s| @bitCast(u32, s),
                     .unsigned => |u| @intCast(u32, u),
                 },
             } },
             .ri64 => .{ .rx = .{
-                .r = reg,
+                .r1 = reg,
                 .payload = try self.addExtra(Mir.Imm64.encode(imm.unsigned)),
             } },
             else => unreachable,
@@ -1249,10 +1327,12 @@ fn asmMemory(self: *Self, tag: Mir.Inst.Tag, m: Memory) !void {
             .rip => .m_rip,
             else => unreachable,
         },
-        .data = .{ .payload = switch (m) {
-            .sib => try self.addExtra(Mir.MemorySib.encode(m)),
-            .rip => try self.addExtra(Mir.MemoryRip.encode(m)),
-            else => unreachable,
+        .data = .{ .x = .{
+            .payload = switch (m) {
+                .sib => try self.addExtra(Mir.MemorySib.encode(m)),
+                .rip => try self.addExtra(Mir.MemoryRip.encode(m)),
+                else => unreachable,
+            },
         } },
     });
 }
@@ -1266,7 +1346,7 @@ fn asmRegisterMemory(self: *Self, tag: Mir.Inst.Tag, reg: Register, m: Memory) !
             else => unreachable,
         },
         .data = .{ .rx = .{
-            .r = reg,
+            .r1 = reg,
             .payload = switch (m) {
                 .sib => try self.addExtra(Mir.MemorySib.encode(m)),
                 .rip => try self.addExtra(Mir.MemoryRip.encode(m)),
@@ -1291,7 +1371,7 @@ fn asmRegisterMemoryImmediate(
             else => unreachable,
         },
         .data = .{ .rix = .{
-            .r = reg,
+            .r1 = reg,
             .i = @intCast(u8, imm.unsigned),
             .payload = switch (m) {
                 .sib => try self.addExtra(Mir.MemorySib.encode(m)),
@@ -1339,7 +1419,7 @@ fn asmMemoryRegister(self: *Self, tag: Mir.Inst.Tag, m: Memory, reg: Register) !
             else => unreachable,
         },
         .data = .{ .rx = .{
-            .r = reg,
+            .r1 = reg,
             .payload = switch (m) {
                 .sib => try self.addExtra(Mir.MemorySib.encode(m)),
                 .rip => try self.addExtra(Mir.MemoryRip.encode(m)),
@@ -1413,11 +1493,15 @@ fn asmMemoryRegisterImmediate(
             .rip => .mri_rip,
             else => unreachable,
         },
-        .data = .{ .rix = .{ .r = reg, .i = @intCast(u8, imm.unsigned), .payload = switch (m) {
-            .sib => try self.addExtra(Mir.MemorySib.encode(m)),
-            .rip => try self.addExtra(Mir.MemoryRip.encode(m)),
-            else => unreachable,
-        } } },
+        .data = .{ .rix = .{
+            .r1 = reg,
+            .i = @intCast(u8, imm.unsigned),
+            .payload = switch (m) {
+                .sib => try self.addExtra(Mir.MemorySib.encode(m)),
+                .rip => try self.addExtra(Mir.MemoryRip.encode(m)),
+                else => unreachable,
+            },
+        } },
     });
 }
 
@@ -1450,7 +1534,7 @@ fn gen(self: *Self) InnerError!void {
             else => unreachable,
         }
 
-        try self.asmOpOnly(.dbg_prologue_end);
+        try self.asmPseudo(.pseudo_dbg_prologue_end_none);
 
         try self.genBody(self.air.getMainBody());
 
@@ -1462,11 +1546,11 @@ fn gen(self: *Self) InnerError!void {
         // }
         // Eliding the reloc will cause a miscompilation in this case.
         for (self.exitlude_jump_relocs.items) |jmp_reloc| {
-            self.mir_instructions.items(.data)[jmp_reloc].inst =
+            self.mir_instructions.items(.data)[jmp_reloc].inst.inst =
                 @intCast(u32, self.mir_instructions.len);
         }
 
-        try self.asmOpOnly(.dbg_epilogue_begin);
+        try self.asmPseudo(.pseudo_dbg_epilogue_begin_none);
         const backpatch_stack_dealloc = try self.asmPlaceholder();
         const backpatch_pop_callee_preserved_regs = try self.asmPlaceholder();
         try self.asmRegister(.pop, .rbp);
@@ -1480,46 +1564,54 @@ fn gen(self: *Self) InnerError!void {
             self.mir_instructions.set(backpatch_frame_align, .{
                 .tag = .@"and",
                 .ops = .ri_s,
-                .data = .{ .ri = .{ .r = .rsp, .i = frame_layout.stack_mask } },
+                .data = .{ .ri = .{
+                    .r1 = .rsp,
+                    .i = frame_layout.stack_mask,
+                } },
             });
         }
         if (need_stack_adjust) {
             self.mir_instructions.set(backpatch_stack_alloc, .{
                 .tag = .sub,
                 .ops = .ri_s,
-                .data = .{ .ri = .{ .r = .rsp, .i = frame_layout.stack_adjust } },
+                .data = .{ .ri = .{
+                    .r1 = .rsp,
+                    .i = frame_layout.stack_adjust,
+                } },
             });
         }
         if (need_frame_align or need_stack_adjust) {
             self.mir_instructions.set(backpatch_stack_dealloc, .{
                 .tag = .mov,
                 .ops = .rr,
-                .data = .{ .rr = .{ .r1 = .rsp, .r2 = .rbp } },
+                .data = .{ .rr = .{
+                    .r1 = .rsp,
+                    .r2 = .rbp,
+                } },
             });
         }
         if (need_save_reg) {
-            const save_reg_list = frame_layout.save_reg_list.asInt();
             self.mir_instructions.set(backpatch_push_callee_preserved_regs, .{
-                .tag = .push_regs,
-                .ops = undefined,
-                .data = .{ .payload = save_reg_list },
+                .tag = .pseudo,
+                .ops = .pseudo_push_reg_list,
+                .data = .{ .reg_list = frame_layout.save_reg_list },
             });
             self.mir_instructions.set(backpatch_pop_callee_preserved_regs, .{
-                .tag = .pop_regs,
-                .ops = undefined,
-                .data = .{ .payload = save_reg_list },
+                .tag = .pseudo,
+                .ops = .pseudo_pop_reg_list,
+                .data = .{ .reg_list = frame_layout.save_reg_list },
             });
         }
     } else {
-        try self.asmOpOnly(.dbg_prologue_end);
+        try self.asmPseudo(.pseudo_dbg_prologue_end_none);
         try self.genBody(self.air.getMainBody());
-        try self.asmOpOnly(.dbg_epilogue_begin);
+        try self.asmPseudo(.pseudo_dbg_epilogue_begin_none);
     }
 
     // Drop them off at the rbrace.
     _ = try self.addInst(.{
-        .tag = .dbg_line,
-        .ops = undefined,
+        .tag = .pseudo,
+        .ops = .pseudo_dbg_line_line_column,
         .data = .{ .line_column = .{
             .line = self.end_di_line,
             .column = self.end_di_column,
@@ -2446,11 +2538,11 @@ fn airIntCast(self: *Self, inst: Air.Inst.Index) !void {
         .register => |dst_reg| {
             const min_abi_size = @min(dst_abi_size, src_abi_size);
             const tag: Mir.Inst.Tag = switch (signedness) {
-                .signed => .movsx,
-                .unsigned => if (min_abi_size > 2) .mov else .movzx,
+                .signed => if (min_abi_size >= 4) .movsxd else .movsx,
+                .unsigned => if (min_abi_size >= 4) .mov else .movzx,
             };
             const dst_alias = switch (tag) {
-                .movsx => dst_reg.to64(),
+                .movsx, .movsxd => dst_reg.to64(),
                 .mov, .movzx => if (min_abi_size > 4) dst_reg.to64() else dst_reg.to32(),
                 else => unreachable,
             };
@@ -5247,7 +5339,7 @@ fn airStructFieldVal(self: *Self, inst: Air.Inst.Index) !void {
                 const field_byte_size = @intCast(u32, field_ty.abiSize(self.target.*));
                 if (signedness == .signed and field_byte_size < 8) {
                     try self.asmRegisterRegister(
-                        .movsx,
+                        if (field_byte_size >= 4) .movsxd else .movsx,
                         dst_mcv.register,
                         registerAlias(dst_mcv.register, field_byte_size),
                     );
@@ -7194,10 +7286,10 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallModifier
                 const atom_index = try self.owner.getSymbolIndex(self);
                 const sym_index = try coff_file.getGlobalSymbol(decl_name, lib_name);
                 _ = try self.addInst(.{
-                    .tag = .mov_linker,
+                    .tag = .mov,
                     .ops = .import_reloc,
                     .data = .{ .rx = .{
-                        .r = .rax,
+                        .r1 = .rax,
                         .payload = try self.addExtra(Mir.Reloc{
                             .atom_index = atom_index,
                             .sym_index = sym_index,
@@ -7209,9 +7301,9 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallModifier
                 const atom_index = try self.owner.getSymbolIndex(self);
                 const sym_index = try macho_file.getGlobalSymbol(decl_name, lib_name);
                 _ = try self.addInst(.{
-                    .tag = .call_extern,
-                    .ops = undefined,
-                    .data = .{ .relocation = .{
+                    .tag = .call,
+                    .ops = .extern_fn_reloc,
+                    .data = .{ .reloc = .{
                         .atom_index = atom_index,
                         .sym_index = sym_index,
                     } },
@@ -7489,8 +7581,8 @@ fn genTry(
 fn airDbgStmt(self: *Self, inst: Air.Inst.Index) !void {
     const dbg_stmt = self.air.instructions.items(.data)[inst].dbg_stmt;
     _ = try self.addInst(.{
-        .tag = .dbg_line,
-        .ops = undefined,
+        .tag = .pseudo,
+        .ops = .pseudo_dbg_line_line_column,
         .data = .{ .line_column = .{
             .line = dbg_stmt.line,
             .column = dbg_stmt.column,
@@ -8021,14 +8113,14 @@ fn airSwitchBr(self: *Self, inst: Air.Inst.Index) !void {
 fn performReloc(self: *Self, reloc: Mir.Inst.Index) !void {
     const next_inst = @intCast(u32, self.mir_instructions.len);
     switch (self.mir_instructions.items(.tag)[reloc]) {
-        .jcc => {
-            self.mir_instructions.items(.data)[reloc].inst_cc.inst = next_inst;
-        },
-        .jmp_reloc => {
-            self.mir_instructions.items(.data)[reloc].inst = next_inst;
+        .j, .jmp => {},
+        .pseudo => switch (self.mir_instructions.items(.ops)[reloc]) {
+            .pseudo_j_z_and_np_inst, .pseudo_j_nz_or_p_inst => {},
+            else => unreachable,
         },
         else => unreachable,
     }
+    self.mir_instructions.items(.data)[reloc].inst.inst = next_inst;
 }
 
 fn airBr(self: *Self, inst: Air.Inst.Index) !void {
@@ -8577,10 +8669,10 @@ fn genSetReg(self: *Self, dst_reg: Register, ty: Type, src_mcv: MCValue) InnerEr
                 .load_direct => |sym_index| if (!ty.isRuntimeFloat()) {
                     const atom_index = try self.owner.getSymbolIndex(self);
                     _ = try self.addInst(.{
-                        .tag = .mov_linker,
+                        .tag = .mov,
                         .ops = .direct_reloc,
                         .data = .{ .rx = .{
-                            .r = dst_reg.to64(),
+                            .r1 = dst_reg.to64(),
                             .payload = try self.addExtra(Mir.Reloc{
                                 .atom_index = atom_index,
                                 .sym_index = sym_index,
@@ -8618,8 +8710,8 @@ fn genSetReg(self: *Self, dst_reg: Register, ty: Type, src_mcv: MCValue) InnerEr
             const atom_index = try self.owner.getSymbolIndex(self);
             _ = try self.addInst(.{
                 .tag = switch (src_mcv) {
-                    .lea_direct => .lea_linker,
-                    .lea_got => .mov_linker,
+                    .lea_direct => .lea,
+                    .lea_got => .mov,
                     else => unreachable,
                 },
                 .ops = switch (src_mcv) {
@@ -8628,7 +8720,7 @@ fn genSetReg(self: *Self, dst_reg: Register, ty: Type, src_mcv: MCValue) InnerEr
                     else => unreachable,
                 },
                 .data = .{ .rx = .{
-                    .r = dst_reg.to64(),
+                    .r1 = dst_reg.to64(),
                     .payload = try self.addExtra(Mir.Reloc{
                         .atom_index = atom_index,
                         .sym_index = sym_index,
@@ -8640,10 +8732,10 @@ fn genSetReg(self: *Self, dst_reg: Register, ty: Type, src_mcv: MCValue) InnerEr
             const atom_index = try self.owner.getSymbolIndex(self);
             if (self.bin_file.cast(link.File.MachO)) |_| {
                 _ = try self.addInst(.{
-                    .tag = .lea_linker,
+                    .tag = .lea,
                     .ops = .tlv_reloc,
                     .data = .{ .rx = .{
-                        .r = .rdi,
+                        .r1 = .rdi,
                         .payload = try self.addExtra(Mir.Reloc{
                             .atom_index = atom_index,
                             .sym_index = sym_index,
@@ -8847,9 +8939,9 @@ fn genInlineMemcpy(self: *Self, dst_ptr: MCValue, src_ptr: MCValue, len: MCValue
     try self.genSetReg(.rsi, Type.usize, src_ptr);
     try self.genSetReg(.rcx, Type.usize, len);
     _ = try self.addInst(.{
-        .tag = .movs,
-        .ops = .string,
-        .data = .{ .string = .{ .repeat = .rep, .width = .b } },
+        .tag = .mov,
+        .ops = .none,
+        .data = .{ .none = .{ .fixes = .@"rep _sb" } },
     });
 }
 
@@ -8859,9 +8951,9 @@ fn genInlineMemset(self: *Self, dst_ptr: MCValue, value: MCValue, len: MCValue) 
     try self.genSetReg(.al, Type.u8, value);
     try self.genSetReg(.rcx, Type.usize, len);
     _ = try self.addInst(.{
-        .tag = .stos,
-        .ops = .string,
-        .data = .{ .string = .{ .repeat = .rep, .width = .b } },
+        .tag = .sto,
+        .ops = .none,
+        .data = .{ .none = .{ .fixes = .@"rep _sb" } },
     });
 }
 
@@ -9135,22 +9227,22 @@ fn airCmpxchg(self: *Self, inst: Air.Inst.Index) !void {
     defer if (ptr_lock) |lock| self.register_manager.unlockReg(lock);
 
     try self.spillEflagsIfOccupied();
-    if (val_abi_size <= 8) {
-        _ = try self.addInst(.{
-            .tag = .cmpxchg,
-            .ops = .lock_mr_sib,
-            .data = .{ .rx = .{
-                .r = registerAlias(new_reg.?, val_abi_size),
-                .payload = try self.addExtra(Mir.MemorySib.encode(ptr_mem)),
-            } },
-        });
-    } else {
-        _ = try self.addInst(.{
-            .tag = .cmpxchgb,
-            .ops = .lock_m_sib,
-            .data = .{ .payload = try self.addExtra(Mir.MemorySib.encode(ptr_mem)) },
-        });
-    }
+    _ = try self.addInst(if (val_abi_size <= 8) .{
+        .tag = .cmpxchg,
+        .ops = .mr_sib,
+        .data = .{ .rx = .{
+            .fixes = .@"lock _",
+            .r1 = registerAlias(new_reg.?, val_abi_size),
+            .payload = try self.addExtra(Mir.MemorySib.encode(ptr_mem)),
+        } },
+    } else .{
+        .tag = .cmpxchg,
+        .ops = .m_sib,
+        .data = .{ .x = .{
+            .fixes = .@"lock _16b",
+            .payload = try self.addExtra(Mir.MemorySib.encode(ptr_mem)),
+        } },
+    });
 
     const result: MCValue = result: {
         if (self.liveness.isUnused(inst)) break :result .unreach;
@@ -9252,13 +9344,14 @@ fn atomicOp(
             }
             _ = try self.addInst(.{
                 .tag = tag,
-                .ops = switch (tag) {
-                    .mov, .xchg => .mr_sib,
-                    .xadd, .add, .sub, .@"and", .@"or", .xor => .lock_mr_sib,
-                    else => unreachable,
-                },
+                .ops = .mr_sib,
                 .data = .{ .rx = .{
-                    .r = registerAlias(dst_reg, val_abi_size),
+                    .fixes = switch (tag) {
+                        .mov, .xchg => ._,
+                        .xadd, .add, .sub, .@"and", .@"or", .xor => .@"lock _",
+                        else => unreachable,
+                    },
+                    .r1 = registerAlias(dst_reg, val_abi_size),
                     .payload = try self.addExtra(Mir.MemorySib.encode(ptr_mem)),
                 } },
             });
@@ -9330,9 +9423,10 @@ fn atomicOp(
             };
             _ = try self.addInst(.{
                 .tag = .cmpxchg,
-                .ops = .lock_mr_sib,
+                .ops = .mr_sib,
                 .data = .{ .rx = .{
-                    .r = registerAlias(tmp_reg, val_abi_size),
+                    .fixes = .@"lock _",
+                    .r1 = registerAlias(tmp_reg, val_abi_size),
                     .payload = try self.addExtra(Mir.MemorySib.encode(ptr_mem)),
                 } },
             });
@@ -9397,9 +9491,14 @@ fn atomicOp(
                     val_ty.fmt(self.bin_file.options.module.?), @tagName(op),
                 }),
             };
-            _ = try self.addInst(.{ .tag = .cmpxchgb, .ops = .lock_m_sib, .data = .{
-                .payload = try self.addExtra(Mir.MemorySib.encode(ptr_mem)),
-            } });
+            _ = try self.addInst(.{
+                .tag = .cmpxchg,
+                .ops = .m_sib,
+                .data = .{ .x = .{
+                    .fixes = .@"lock _16b",
+                    .payload = try self.addExtra(Mir.MemorySib.encode(ptr_mem)),
+                } },
+            });
             _ = try self.asmJccReloc(loop, .ne);
 
             if (unused) return .unreach;
