@@ -5257,64 +5257,24 @@ fn airStructFieldPtrIndex(self: *Self, inst: Air.Inst.Index, index: u8) !void {
 
 fn fieldPtr(self: *Self, inst: Air.Inst.Index, operand: Air.Inst.Ref, index: u32) !MCValue {
     const ptr_field_ty = self.air.typeOfIndex(inst);
-    const mcv = try self.resolveInst(operand);
     const ptr_container_ty = self.air.typeOf(operand);
     const container_ty = ptr_container_ty.childType();
-    const field_offset = switch (container_ty.containerLayout()) {
-        .Auto, .Extern => @intCast(u32, container_ty.structFieldOffset(index, self.target.*)),
+    const field_offset = @intCast(i32, switch (container_ty.containerLayout()) {
+        .Auto, .Extern => container_ty.structFieldOffset(index, self.target.*),
         .Packed => if (container_ty.zigTypeTag() == .Struct and
             ptr_field_ty.ptrInfo().data.host_size == 0)
             container_ty.packedStructFieldByteOffset(index, self.target.*)
         else
             0,
-    };
+    });
 
-    const result: MCValue = result: {
-        switch (mcv) {
-            .load_frame, .lea_tlv, .load_tlv => {
-                const offset_reg = try self.copyToTmpRegister(Type.usize, .{
-                    .immediate = field_offset,
-                });
-                const offset_reg_lock = self.register_manager.lockRegAssumeUnused(offset_reg);
-                defer self.register_manager.unlockReg(offset_reg_lock);
-
-                const dst_mcv = try self.copyToRegisterWithInstTracking(inst, Type.usize, switch (mcv) {
-                    .load_tlv => |sym_index| .{ .lea_tlv = sym_index },
-                    else => mcv,
-                });
-                try self.genBinOpMir(.{ ._, .add }, Type.usize, dst_mcv, .{ .register = offset_reg });
-                break :result dst_mcv;
-            },
-            .indirect => |reg_off| break :result .{ .indirect = .{
-                .reg = reg_off.reg,
-                .off = reg_off.off + @intCast(i32, field_offset),
-            } },
-            .lea_frame => |frame_addr| break :result .{ .lea_frame = .{
-                .index = frame_addr.index,
-                .off = frame_addr.off + @intCast(i32, field_offset),
-            } },
-            .register, .register_offset => {
-                const src_reg = mcv.getReg().?;
-                const src_lock = self.register_manager.lockRegAssumeUnused(src_reg);
-                defer self.register_manager.unlockReg(src_lock);
-
-                const dst_mcv: MCValue = if (self.reuseOperand(inst, operand, 0, mcv))
-                    mcv
-                else
-                    .{ .register = try self.copyToTmpRegister(ptr_field_ty, mcv) };
-                break :result .{ .register_offset = .{
-                    .reg = dst_mcv.getReg().?,
-                    .off = switch (dst_mcv) {
-                        .register => 0,
-                        .register_offset => |reg_off| reg_off.off,
-                        else => unreachable,
-                    } + @intCast(i32, field_offset),
-                } };
-            },
-            else => return self.fail("TODO implement fieldPtr for {}", .{mcv}),
-        }
-    };
-    return result;
+    const src_mcv = try self.resolveInst(operand);
+    const dst_mcv = if (switch (src_mcv) {
+        .immediate, .lea_frame => true,
+        .register, .register_offset => self.reuseOperand(inst, operand, 0, src_mcv),
+        else => false,
+    }) src_mcv else try self.copyToRegisterWithInstTracking(inst, ptr_field_ty, src_mcv);
+    return dst_mcv.offset(field_offset);
 }
 
 fn airStructFieldVal(self: *Self, inst: Air.Inst.Index) !void {
@@ -6717,7 +6677,6 @@ fn genBinOpMir(
         .dead,
         .undef,
         .immediate,
-        .register_offset,
         .eflags,
         .register_overflow,
         .lea_direct,
@@ -6726,7 +6685,9 @@ fn genBinOpMir(
         .lea_frame,
         .reserved_frame,
         => unreachable, // unmodifiable destination
-        .register => |dst_reg| {
+        .register, .register_offset => {
+            assert(dst_mcv.isRegister());
+            const dst_reg = dst_mcv.getReg().?;
             const dst_alias = registerAlias(dst_reg, abi_size);
             switch (src_mcv) {
                 .none,
@@ -8625,11 +8586,7 @@ fn movMirTag(self: *Self, ty: Type, aligned: bool) !Mir.Inst.FixedTag {
 }
 
 fn genCopy(self: *Self, ty: Type, dst_mcv: MCValue, src_mcv: MCValue) InnerError!void {
-    const src_lock = switch (src_mcv) {
-        .register => |reg| self.register_manager.lockReg(reg),
-        .register_overflow => |ro| self.register_manager.lockReg(ro.reg),
-        else => null,
-    };
+    const src_lock = if (src_mcv.getReg()) |reg| self.register_manager.lockReg(reg) else null;
     defer if (src_lock) |lock| self.register_manager.unlockReg(lock);
 
     switch (dst_mcv) {
