@@ -233,17 +233,10 @@ pub const Instruction = union(Opcode) {
             .register => {},
             .remember_state => {},
             .restore_state => {},
-            .def_cfa => |i| {
-                try abi.writeRegisterName(writer, arch, i.operands.register);
-                try writer.print(" {d:<1}", .{@intCast(i64, i.operands.offset)});
-            },
-            .def_cfa_register => {},
-            .def_cfa_offset => |i| {
-                try writer.print("{d:<1}", .{@intCast(i64, i.operands.offset)});
-            },
-            .def_cfa_expression => |i| {
-                try writeExpression(writer, i.operands.block, arch, addr_size_bytes, endian);
-            },
+            .def_cfa => |i| try writer.print("{} {d:<1}", .{ abi.fmtRegister(i.operands.register, arch), @intCast(i64, i.operands.offset)}),
+            .def_cfa_register => |i| try abi.writeRegisterName(writer, arch, i.operands.register),
+            .def_cfa_offset => |i| try writer.print("{d:<1}", .{@intCast(i64, i.operands.offset)}),
+            .def_cfa_expression => |i| try writeExpression(writer, i.operands.block, arch, addr_size_bytes, endian),
             .expression => {},
             .offset_extended_sf => {},
             .def_cfa_sf => {},
@@ -318,16 +311,6 @@ fn writeExpression(
     }
 }
 
-// fn formatOffset(data: i64, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
-//     _ = fmt;
-//     if (data >= 0) try writer.writeByte('+');
-//     return std.fmt.formatInt(data, 10, .lower, options, writer);
-// }
-
-// fn fmtOffset(offset: i64) std.fmt.Formatter(formatOffset) {
-//     return .{ .data = offset };
-// }
-
 /// See section 6.4.1 of the DWARF5 specification
 pub const VirtualMachine = struct {
     const RegisterRule = union(enum) {
@@ -387,7 +370,7 @@ pub const VirtualMachine = struct {
         }
     };
 
-    /// Each row contains unwinding rules for a set of registers at a specific location in the program.
+    /// Each row contains unwinding rules for a set of registers at a specific location in the
     pub const Row = struct {
         /// Offset from pc_begin
         offset: u64 = 0,
@@ -395,31 +378,33 @@ pub const VirtualMachine = struct {
         /// The register field of this column defines the register that CFA is derived
         /// from, while other columns define registers in terms of the CFA.
         cfa: Column = .{},
+        columns: ColumnRange = .{},
+    };
+
+    const ColumnRange = struct {
         /// Index into `columns` of the first column in this row.
-        columns_start: usize = undefined,
-        columns_len: u8 = 0,
+        start: usize = undefined,
+        len: u8 = 0,
     };
 
     columns: std.ArrayListUnmanaged(Column) = .{},
-    row_stack: std.ArrayListUnmanaged(Row) = .{},
+    stack: std.ArrayListUnmanaged(ColumnRange) = .{},
     current_row: Row = .{},
 
-    // TODO: Add stack machine stack
-
     pub fn reset(self: *VirtualMachine) void {
-        self.row_stack.clearRetainingCapacity();
+        self.stack.clearRetainingCapacity();
         self.columns.clearRetainingCapacity();
         self.current_row = .{};
     }
 
     pub fn deinit(self: *VirtualMachine, allocator: std.mem.Allocator) void {
-        self.row_stack.deinit(allocator);
+        self.stack.deinit(allocator);
         self.columns.deinit(allocator);
         self.* = undefined;
     }
 
     pub fn getColumns(self: VirtualMachine, row: Row) []Column {
-        return self.columns.items[row.columns_start..][0..row.columns_len];
+        return self.columns.items[row.columns.start..][0..row.columns.len];
     }
 
     fn getOrAddColumn(self: *VirtualMachine, allocator: std.mem.Allocator, register: u8) !*Column {
@@ -427,10 +412,10 @@ pub const VirtualMachine = struct {
             if (c.register == register) return c;
         }
 
-        if (self.current_row.columns_len == 0) {
-            self.current_row.columns_start = self.columns.items.len;
+        if (self.current_row.columns.len == 0) {
+            self.current_row.columns.start = self.columns.items.len;
         }
-        self.current_row.columns_len += 1;
+        self.current_row.columns.len += 1;
 
         const column = try self.columns.addOne(allocator);
         column.* = .{
@@ -443,7 +428,7 @@ pub const VirtualMachine = struct {
     pub fn step(self: *VirtualMachine, allocator: std.mem.Allocator, cie: dwarf.CommonInformationEntry, instruction: Instruction) !void {
         switch (instruction) {
             inline .advance_loc, .advance_loc1, .advance_loc2, .advance_loc4 => |i| {
-                self.current_row.offset += i.operands.delta;
+                self.current_row.offset += i.operands.delta * cie.code_alignment_factor;
             },
             .offset => |i| {
                 const column = try self.getOrAddColumn(allocator, i.operands.register);
@@ -458,18 +443,22 @@ pub const VirtualMachine = struct {
             .same_value => {},
             .register => {},
             .remember_state => {
+                try self.stack.append(allocator, self.current_row.columns);
+                errdefer _ = self.stack.pop();
 
-                // TODO: The row stack only actually needs the column information
-                // TODO: Also it needs to copy the columns because changes can edit the referenced columns
-                // TODO: This function could push the column range onto the stack, the copy the columns and update current row
-
-                try self.row_stack.append(allocator, self.current_row);
+                const new_start = self.columns.items.len;
+                if (self.current_row.columns.len > 0) {
+                    // Since we're copying from the same backing array, ensure it won't be reallocated
+                    try self.columns.ensureUnusedCapacity(allocator, self.current_row.columns.len);
+                    self.columns.appendSliceAssumeCapacity(self.getColumns(self.current_row));
+                    self.current_row.columns.start = new_start;
+                }
             },
             .restore_state => {
-                if (self.row_stack.items.len == 0) return error.InvalidOperation;
-                const row = self.row_stack.pop();
-                self.current_row.columns_len = row.columns_len;
-                self.current_row.columns_start = row.columns_start;
+                // TODO: Is it possible to remove the duplicate from above? Other instructions may have added columns since then though
+                const columns = self.stack.popOrNull() orelse return error.InvalidOperation;
+                self.current_row.columns.len = columns.len;
+                self.current_row.columns.start = columns.start;
             },
             .def_cfa => |i| {
                 self.current_row.cfa = .{
@@ -477,8 +466,12 @@ pub const VirtualMachine = struct {
                     .rule = .{ .offset = @intCast(i64, i.operands.offset) },
                 };
             },
-            .def_cfa_register => {},
+            .def_cfa_register => |i| {
+                // TODO: Verify the the current row is using a register and offset (validation)
+                self.current_row.cfa.register = i.operands.register;
+            },
             .def_cfa_offset => |i| {
+                // TODO: Verify the the current row is using a register and offset (validation)
                 self.current_row.cfa.rule = .{ .offset = @intCast(i64, i.operands.offset) };
             },
             .def_cfa_expression => |i| {
