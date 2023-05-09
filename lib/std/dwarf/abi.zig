@@ -1,7 +1,7 @@
 const std = @import("../std.zig");
 
 fn writeUnknownReg(writer: anytype, reg_number: u8) !void {
-    try writer.print("reg{}", .{ reg_number });
+    try writer.print("reg{}", .{reg_number});
 }
 
 pub fn writeRegisterName(writer: anytype, arch: ?std.Target.Cpu.Arch, reg_number: u8) !void {
@@ -17,11 +17,11 @@ pub fn writeRegisterName(writer: anytype, arch: ?std.Target.Cpu.Arch, reg_number
                     5 => try writer.writeAll("RDI"),
                     6 => try writer.writeAll("RBP"),
                     7 => try writer.writeAll("RSP"),
-                    8...15 => try writer.print("R{}", .{ reg_number }),
+                    8...15 => try writer.print("R{}", .{reg_number}),
                     16 => try writer.writeAll("RIP"),
-                    17...32 => try writer.print("XMM{}", .{ reg_number - 17 }),
-                    33...40 => try writer.print("ST{}", .{ reg_number - 33 }),
-                    41...48 => try writer.print("MM{}", .{ reg_number - 41 }),
+                    17...32 => try writer.print("XMM{}", .{reg_number - 17}),
+                    33...40 => try writer.print("ST{}", .{reg_number - 33}),
+                    41...48 => try writer.print("MM{}", .{reg_number - 41}),
                     49 => try writer.writeAll("RFLAGS"),
                     50 => try writer.writeAll("ES"),
                     51 => try writer.writeAll("CS"),
@@ -38,9 +38,9 @@ pub fn writeRegisterName(writer: anytype, arch: ?std.Target.Cpu.Arch, reg_number
                     64 => try writer.writeAll("MXCSR"),
                     65 => try writer.writeAll("FCW"),
                     66 => try writer.writeAll("FSW"),
-                    67...82 => try writer.print("XMM{}", .{ reg_number - 51 }),
+                    67...82 => try writer.print("XMM{}", .{reg_number - 51}),
                     // 83-117 Reserved
-                    118...125 => try writer.print("K{}", .{ reg_number - 118 }),
+                    118...125 => try writer.print("K{}", .{reg_number - 118}),
                     // 126-129 Reserved
                     else => try writeUnknownReg(writer, reg_number),
                 }
@@ -51,4 +51,24 @@ pub fn writeRegisterName(writer: anytype, arch: ?std.Target.Cpu.Arch, reg_number
             else => try writeUnknownReg(writer, reg_number),
         }
     } else try writeUnknownReg(writer, reg_number);
+}
+
+const FormatRegisterData = struct {
+    reg_number: u8,
+    arch: ?std.Target.Cpu.Arch,
+};
+
+pub fn formatRegister(
+    data: FormatRegisterData,
+    comptime fmt: []const u8,
+    options: std.fmt.FormatOptions,
+    writer: anytype,
+) !void {
+    _ = fmt;
+    _ = options;
+    try writeRegisterName(writer, data.arch, data.reg_number);
+}
+
+pub fn fmtRegister(reg_number: u8, arch: ?std.Target.Cpu.Arch) std.fmt.Formatter(formatRegister) {
+    return .{ .data = .{ .reg_number = reg_number, .arch = arch } };
 }
