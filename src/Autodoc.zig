@@ -604,6 +604,7 @@ const DocData = struct {
             pubDecls: []usize = &.{}, // index into decls
             field_types: []Expr = &.{}, // (use src->fields to find names)
             field_defaults: []?Expr = &.{}, // default values is specified
+            backing_int: ?Expr = null, // backing integer if specified
             is_tuple: bool,
             line_number: usize,
             parent_container: ?usize, // index into `types`
@@ -2593,12 +2594,12 @@ fn walkInstruction(
 
                     // We delay analysis because union tags can refer to
                     // decls defined inside the union itself.
-                    const tag_type_ref: Ref = if (small.has_tag_type) blk: {
+                    const tag_type_ref: ?Ref = if (small.has_tag_type) blk: {
                         const tag_type = file.zir.extra[extra_index];
                         extra_index += 1;
                         const tag_ref = @intToEnum(Ref, tag_type);
                         break :blk tag_ref;
-                    } else .none;
+                    } else null;
 
                     const body_len = if (small.has_body_len) blk: {
                         const body_len = file.zir.extra[extra_index];
@@ -2625,13 +2626,13 @@ fn walkInstruction(
                     );
 
                     // Analyze the tag once all decls have been analyzed
-                    const tag_type = try self.walkRef(
+                    const tag_type = if (tag_type_ref) |tt_ref| (try self.walkRef(
                         file,
                         &scope,
                         parent_src,
-                        tag_type_ref,
+                        tt_ref,
                         false,
-                    );
+                    )).expr else null;
 
                     // Fields
                     extra_index += body_len;
@@ -2663,7 +2664,7 @@ fn walkInstruction(
                             .privDecls = priv_decl_indexes.items,
                             .pubDecls = decl_indexes.items,
                             .fields = field_type_refs.items,
-                            .tag = tag_type.expr,
+                            .tag = tag_type,
                             .auto_enum = small.auto_enum_tag,
                             .parent_container = parent_scope.enclosing_type,
                         },
@@ -2854,13 +2855,24 @@ fn walkInstruction(
                         break :blk fields_len;
                     } else 0;
 
-                    // TODO: Expose explicit backing integer types in some way.
+                    // We don't care about decls yet
+                    if (small.has_decls_len) extra_index += 1;
+
+                    var backing_int: ?DocData.Expr = null;
                     if (small.has_backing_int) {
                         const backing_int_body_len = file.zir.extra[extra_index];
                         extra_index += 1; // backing_int_body_len
                         if (backing_int_body_len == 0) {
+                            const backing_int_ref = @intToEnum(Ref, file.zir.extra[extra_index]);
+                            const backing_int_res = try self.walkRef(file, &scope, src_info, backing_int_ref, true);
+                            backing_int = backing_int_res.expr;
                             extra_index += 1; // backing_int_ref
                         } else {
+                            const backing_int_body = file.zir.extra[extra_index..][0..backing_int_body_len];
+                            const break_inst = backing_int_body[backing_int_body.len - 1];
+                            const operand = data[break_inst].@"break".operand;
+                            const backing_int_res = try self.walkRef(file, &scope, src_info, operand, true);
+                            backing_int = backing_int_res.expr;
                             extra_index += backing_int_body_len; // backing_int_body_inst
                         }
                     }
@@ -2903,6 +2915,7 @@ fn walkInstruction(
                             .field_types = field_type_refs.items,
                             .field_defaults = field_default_refs.items,
                             .is_tuple = small.is_tuple,
+                            .backing_int = backing_int,
                             .line_number = self.ast_nodes.items[self_ast_node_index].line,
                             .parent_container = parent_scope.enclosing_type,
                         },
