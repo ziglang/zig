@@ -252,7 +252,6 @@ pub const Block = struct {
     // TODO is_comptime and comptime_reason should probably be merged together.
     is_comptime: bool,
     is_typeof: bool = false,
-    is_coerce_result_ptr: bool = false,
 
     /// Keep track of the active error return trace index around blocks so that we can correctly
     /// pop the error trace upon block exit.
@@ -2469,7 +2468,6 @@ fn zirCoerceResultPtr(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileE
     // kind of transformations to make on the result pointer.
     var trash_block = block.makeSubBlock();
     trash_block.is_comptime = false;
-    trash_block.is_coerce_result_ptr = true;
     defer trash_block.instructions.deinit(sema.gpa);
 
     const dummy_ptr = try trash_block.addTy(.alloc, sema.typeOf(ptr));
@@ -2578,6 +2576,9 @@ fn coerceResultPtr(
             },
             .array_to_slice => {
                 return sema.fail(block, src, "TODO coerce_result_ptr array_to_slice", .{});
+            },
+            .get_union_tag => {
+                return sema.fail(block, src, "TODO coerce_result_ptr get_union_tag", .{});
             },
             else => {
                 if (std.debug.runtime_safety) {
@@ -3563,6 +3564,13 @@ fn zirMakePtrConst(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileErro
         ));
     }
 
+    return sema.makePtrConst(block, alloc);
+}
+
+fn makePtrConst(sema: *Sema, block: *Block, alloc: Air.Inst.Ref) CompileError!Air.Inst.Ref {
+    const alloc_ty = sema.typeOf(alloc);
+
+    var ptr_info = alloc_ty.ptrInfo().data;
     ptr_info.mutable = false;
     const const_ptr_ty = try Type.ptr(sema.arena, sema.mod, ptr_info);
 
@@ -3831,7 +3839,6 @@ fn zirResolveInferredAlloc(sema: *Sema, block: *Block, inst: Zir.Inst.Index) Com
 
             var trash_block = block.makeSubBlock();
             trash_block.is_comptime = false;
-            trash_block.is_coerce_result_ptr = true;
             defer trash_block.instructions.deinit(gpa);
 
             const mut_final_ptr_ty = try Type.ptr(sema.arena, sema.mod, .{
@@ -17773,7 +17780,7 @@ fn zirStructInit(
             try sema.storePtr(block, src, field_ptr, init_inst);
             const new_tag = try sema.addConstant(resolved_ty.unionTagTypeHypothetical(), tag_val);
             _ = try block.addBinOp(.set_union_tag, alloc, new_tag);
-            return alloc;
+            return sema.makePtrConst(block, alloc);
         }
 
         try sema.requireRuntimeBlock(block, src, null);
@@ -17900,7 +17907,7 @@ fn finishStructInit(
             try sema.storePtr(block, dest_src, field_ptr, field_init);
         }
 
-        return alloc;
+        return sema.makePtrConst(block, alloc);
     }
 
     try sema.requireRuntimeBlock(block, dest_src, null);
@@ -18017,7 +18024,7 @@ fn zirStructInitAnon(
             }
         }
 
-        return alloc;
+        return sema.makePtrConst(block, alloc);
     }
 
     const element_refs = try sema.arena.alloc(Air.Inst.Ref, types.len);
@@ -18120,7 +18127,7 @@ fn zirArrayInit(
                 const elem_ptr = try block.addPtrElemPtrTypeRef(alloc, index, elem_ptr_ty_ref);
                 _ = try block.addBinOp(.store, elem_ptr, arg);
             }
-            return alloc;
+            return sema.makePtrConst(block, alloc);
         }
 
         const elem_ptr_ty = try Type.ptr(sema.arena, sema.mod, .{
@@ -18135,7 +18142,7 @@ fn zirArrayInit(
             const elem_ptr = try block.addPtrElemPtrTypeRef(alloc, index, elem_ptr_ty_ref);
             _ = try block.addBinOp(.store, elem_ptr, arg);
         }
-        return alloc;
+        return sema.makePtrConst(block, alloc);
     }
 
     return block.addAggregateInit(array_ty, resolved_args);
@@ -18213,7 +18220,7 @@ fn zirArrayInitAnon(
             }
         }
 
-        return alloc;
+        return sema.makePtrConst(block, alloc);
     }
 
     const element_refs = try sema.arena.alloc(Air.Inst.Ref, operands.len);
