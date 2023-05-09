@@ -3259,8 +3259,12 @@ fn airBlock(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         .label = func.block_depth,
         .value = block_result,
     });
+
     try func.genBody(body);
     try func.endBlock();
+
+    const liveness = func.liveness.getBlock(inst);
+    try func.currentBranch().values.ensureUnusedCapacity(func.gpa, liveness.deaths.len);
 
     func.finishAir(inst, block_result, &.{});
 }
@@ -3316,39 +3320,25 @@ fn airCondBr(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     try func.addLabel(.br_if, 0);
 
     try func.branches.ensureUnusedCapacity(func.gpa, 2);
-
-    func.branches.appendAssumeCapacity(.{});
-    try func.currentBranch().values.ensureUnusedCapacity(func.gpa, @intCast(u32, liveness_condbr.else_deaths.len));
-    try func.genBody(else_body);
-    try func.endBlock();
-    var else_stack = func.branches.pop();
-    defer else_stack.deinit(func.gpa);
+    {
+        func.branches.appendAssumeCapacity(.{});
+        try func.currentBranch().values.ensureUnusedCapacity(func.gpa, @intCast(u32, liveness_condbr.else_deaths.len));
+        try func.genBody(else_body);
+        try func.endBlock();
+        var else_stack = func.branches.pop();
+        else_stack.deinit(func.gpa);
+    }
 
     // Outer block that matches the condition
-    func.branches.appendAssumeCapacity(.{});
-    try func.currentBranch().values.ensureUnusedCapacity(func.gpa, @intCast(u32, liveness_condbr.then_deaths.len));
-    try func.genBody(then_body);
-    var then_stack = func.branches.pop();
-    defer then_stack.deinit(func.gpa);
-
-    try func.mergeBranch(&else_stack);
-    try func.mergeBranch(&then_stack);
+    {
+        func.branches.appendAssumeCapacity(.{});
+        try func.currentBranch().values.ensureUnusedCapacity(func.gpa, @intCast(u32, liveness_condbr.then_deaths.len));
+        try func.genBody(then_body);
+        var then_stack = func.branches.pop();
+        then_stack.deinit(func.gpa);
+    }
 
     func.finishAir(inst, .none, &.{});
-}
-
-fn mergeBranch(func: *CodeGen, branch: *const Branch) !void {
-    const parent = func.currentBranch();
-
-    const target_slice = branch.values.entries.slice();
-    const target_keys = target_slice.items(.key);
-    const target_values = target_slice.items(.value);
-
-    try parent.values.ensureTotalCapacity(func.gpa, parent.values.capacity() + branch.values.count());
-    for (target_keys, 0..) |key, index| {
-        // TODO: process deaths from branches
-        parent.values.putAssumeCapacity(key, target_values[index]);
-    }
 }
 
 fn airCmp(func: *CodeGen, inst: Air.Inst.Index, op: std.math.CompareOperator) InnerError!void {
@@ -3860,30 +3850,21 @@ fn airSwitchBr(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
             }
         }
         func.branches.appendAssumeCapacity(.{});
-
         try func.currentBranch().values.ensureUnusedCapacity(func.gpa, liveness.deaths[index].len);
-        for (liveness.deaths[index]) |operand| {
-            func.processDeath(Air.indexToRef(operand));
-        }
         try func.genBody(case.body);
         try func.endBlock();
         var case_branch = func.branches.pop();
-        defer case_branch.deinit(func.gpa);
-        try func.mergeBranch(&case_branch);
+        case_branch.deinit(func.gpa);
     }
 
     if (has_else_body) {
         func.branches.appendAssumeCapacity(.{});
         const else_deaths = liveness.deaths.len - 1;
         try func.currentBranch().values.ensureUnusedCapacity(func.gpa, liveness.deaths[else_deaths].len);
-        for (liveness.deaths[else_deaths]) |operand| {
-            func.processDeath(Air.indexToRef(operand));
-        }
         try func.genBody(else_body);
         try func.endBlock();
         var else_branch = func.branches.pop();
-        defer else_branch.deinit(func.gpa);
-        try func.mergeBranch(&else_branch);
+        else_branch.deinit(func.gpa);
     }
     func.finishAir(inst, .none, &.{});
 }
@@ -5992,7 +5973,7 @@ fn airTry(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     const extra = func.air.extraData(Air.Try, pl_op.payload);
     const body = func.air.extra[extra.end..][0..extra.data.body_len];
     const err_union_ty = func.air.typeOf(pl_op.operand);
-    const result = try lowerTry(func, err_union, body, err_union_ty, false);
+    const result = try lowerTry(func, inst, err_union, body, err_union_ty, false);
     func.finishAir(inst, result, &.{pl_op.operand});
 }
 
@@ -6002,12 +5983,13 @@ fn airTryPtr(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     const err_union_ptr = try func.resolveInst(extra.data.ptr);
     const body = func.air.extra[extra.end..][0..extra.data.body_len];
     const err_union_ty = func.air.typeOf(extra.data.ptr).childType();
-    const result = try lowerTry(func, err_union_ptr, body, err_union_ty, true);
+    const result = try lowerTry(func, inst, err_union_ptr, body, err_union_ty, true);
     func.finishAir(inst, result, &.{extra.data.ptr});
 }
 
 fn lowerTry(
     func: *CodeGen,
+    inst: Air.Inst.Index,
     err_union: WValue,
     body: []const Air.Inst.Index,
     err_union_ty: Type,
@@ -6035,8 +6017,14 @@ fn lowerTry(
         }
         try func.addTag(.i32_eqz);
         try func.addLabel(.br_if, 0); // jump out of block when error is '0'
+
+        const liveness = func.liveness.getCondBr(inst);
+        try func.branches.append(func.gpa, .{});
+        try func.currentBranch().values.ensureUnusedCapacity(func.gpa, liveness.else_deaths.len + liveness.then_deaths.len);
         try func.genBody(body);
         try func.endBlock();
+        var branch = func.branches.pop();
+        branch.deinit(func.gpa);
     }
 
     // if we reach here it means error was not set, and we want the payload
