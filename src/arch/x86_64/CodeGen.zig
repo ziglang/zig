@@ -8561,7 +8561,8 @@ fn movMirTag(self: *Self, ty: Type, aligned: bool) !Mir.Inst.FixedTag {
                 },
                 32 => switch (ty.vectorLen()) {
                     1 => return if (self.hasFeature(.avx)) .{ .v_ss, .mov } else .{ ._ss, .mov },
-                    2...4 => return if (self.hasFeature(.avx))
+                    2 => return if (self.hasFeature(.avx)) .{ .v_sd, .mov } else .{ ._sd, .mov },
+                    3...4 => return if (self.hasFeature(.avx))
                         if (aligned) .{ .v_ps, .mova } else .{ .v_ps, .movu }
                     else if (aligned) .{ ._ps, .mova } else .{ ._ps, .movu },
                     5...8 => if (self.hasFeature(.avx))
@@ -8574,6 +8575,14 @@ fn movMirTag(self: *Self, ty: Type, aligned: bool) !Mir.Inst.FixedTag {
                         if (aligned) .{ .v_ps, .mova } else .{ .v_ps, .movu }
                     else if (aligned) .{ ._ps, .mova } else .{ ._ps, .movu },
                     3...4 => if (self.hasFeature(.avx))
+                        return if (aligned) .{ .v_ps, .mova } else .{ .v_ps, .movu },
+                    else => {},
+                },
+                128 => switch (ty.vectorLen()) {
+                    1 => return if (self.hasFeature(.avx))
+                        if (aligned) .{ .v_ps, .mova } else .{ .v_ps, .movu }
+                    else if (aligned) .{ ._ps, .mova } else .{ ._ps, .movu },
+                    2 => if (self.hasFeature(.avx))
                         return if (aligned) .{ .v_ps, .mova } else .{ .v_ps, .movu },
                     else => {},
                 },
@@ -9939,9 +9948,200 @@ fn airErrorName(self: *Self, inst: Air.Inst.Index) !void {
 
 fn airSplat(self: *Self, inst: Air.Inst.Index) !void {
     const ty_op = self.air.instructions.items(.data)[inst].ty_op;
-    _ = ty_op;
-    return self.fail("TODO implement airSplat for x86_64", .{});
-    //return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
+    const vector_ty = self.air.typeOfIndex(inst);
+    const dst_rc = regClassForType(vector_ty);
+    const scalar_ty = vector_ty.scalarType();
+
+    const src_mcv = try self.resolveInst(ty_op.operand);
+    const result: MCValue = result: {
+        switch (scalar_ty.zigTypeTag()) {
+            else => {},
+            .Float => switch (scalar_ty.floatBits(self.target.*)) {
+                32 => switch (vector_ty.vectorLen()) {
+                    1 => {
+                        if (self.reuseOperand(inst, ty_op.operand, 0, src_mcv)) break :result src_mcv;
+                        const dst_reg = try self.register_manager.allocReg(inst, dst_rc);
+                        try self.genSetReg(dst_reg, scalar_ty, src_mcv);
+                        break :result .{ .register = dst_reg };
+                    },
+                    2...4 => {
+                        if (self.hasFeature(.avx)) {
+                            const dst_reg = try self.register_manager.allocReg(inst, dst_rc);
+                            if (src_mcv.isMemory()) try self.asmRegisterMemory(
+                                .{ .v_ss, .broadcast },
+                                dst_reg.to128(),
+                                src_mcv.mem(.dword),
+                            ) else {
+                                const src_reg = if (src_mcv.isRegister())
+                                    src_mcv.getReg().?
+                                else
+                                    try self.copyToTmpRegister(scalar_ty, src_mcv);
+                                try self.asmRegisterRegisterRegisterImmediate(
+                                    .{ .v_ps, .shuf },
+                                    dst_reg.to128(),
+                                    src_reg.to128(),
+                                    src_reg.to128(),
+                                    Immediate.u(0),
+                                );
+                            }
+                            break :result .{ .register = dst_reg };
+                        } else {
+                            const dst_mcv = if (src_mcv.isRegister() and
+                                self.reuseOperand(inst, ty_op.operand, 0, src_mcv))
+                                src_mcv
+                            else
+                                try self.copyToRegisterWithInstTracking(inst, scalar_ty, src_mcv);
+                            const dst_reg = dst_mcv.getReg().?;
+                            try self.asmRegisterRegisterImmediate(
+                                .{ ._ps, .shuf },
+                                dst_reg.to128(),
+                                dst_reg.to128(),
+                                Immediate.u(0),
+                            );
+                            break :result dst_mcv;
+                        }
+                    },
+                    5...8 => if (self.hasFeature(.avx)) {
+                        const dst_reg = try self.register_manager.allocReg(inst, dst_rc);
+                        if (src_mcv.isMemory()) try self.asmRegisterMemory(
+                            .{ .v_ss, .broadcast },
+                            dst_reg.to256(),
+                            src_mcv.mem(.dword),
+                        ) else {
+                            const src_reg = if (src_mcv.isRegister())
+                                src_mcv.getReg().?
+                            else
+                                try self.copyToTmpRegister(scalar_ty, src_mcv);
+                            if (self.hasFeature(.avx2)) try self.asmRegisterRegister(
+                                .{ .v_ss, .broadcast },
+                                dst_reg.to256(),
+                                src_reg.to128(),
+                            ) else {
+                                try self.asmRegisterRegisterRegisterImmediate(
+                                    .{ .v_ps, .shuf },
+                                    dst_reg.to128(),
+                                    src_reg.to128(),
+                                    src_reg.to128(),
+                                    Immediate.u(0),
+                                );
+                                try self.asmRegisterRegisterRegisterImmediate(
+                                    .{ .v_f128, .insert },
+                                    dst_reg.to256(),
+                                    dst_reg.to256(),
+                                    dst_reg.to128(),
+                                    Immediate.u(1),
+                                );
+                            }
+                        }
+                        break :result .{ .register = dst_reg };
+                    },
+                    else => {},
+                },
+                64 => switch (vector_ty.vectorLen()) {
+                    1 => {
+                        if (self.reuseOperand(inst, ty_op.operand, 0, src_mcv)) break :result src_mcv;
+                        const dst_reg = try self.register_manager.allocReg(inst, dst_rc);
+                        try self.genSetReg(dst_reg, scalar_ty, src_mcv);
+                        break :result .{ .register = dst_reg };
+                    },
+                    2 => {
+                        const dst_reg = try self.register_manager.allocReg(inst, dst_rc);
+                        if (self.hasFeature(.sse3)) {
+                            if (src_mcv.isMemory()) try self.asmRegisterMemory(
+                                if (self.hasFeature(.avx)) .{ .v_, .movddup } else .{ ._, .movddup },
+                                dst_reg.to128(),
+                                src_mcv.mem(.qword),
+                            ) else try self.asmRegisterRegister(
+                                if (self.hasFeature(.avx)) .{ .v_, .movddup } else .{ ._, .movddup },
+                                dst_reg.to128(),
+                                (if (src_mcv.isRegister())
+                                    src_mcv.getReg().?
+                                else
+                                    try self.copyToTmpRegister(scalar_ty, src_mcv)).to128(),
+                            );
+                            break :result .{ .register = dst_reg };
+                        } else try self.asmRegisterRegister(
+                            .{ ._ps, .movlh },
+                            dst_reg.to128(),
+                            (if (src_mcv.isRegister())
+                                src_mcv.getReg().?
+                            else
+                                try self.copyToTmpRegister(scalar_ty, src_mcv)).to128(),
+                        );
+                    },
+                    3...4 => if (self.hasFeature(.avx)) {
+                        const dst_reg = try self.register_manager.allocReg(inst, dst_rc);
+                        if (src_mcv.isMemory()) try self.asmRegisterMemory(
+                            .{ .v_sd, .broadcast },
+                            dst_reg.to256(),
+                            src_mcv.mem(.qword),
+                        ) else {
+                            const src_reg = if (src_mcv.isRegister())
+                                src_mcv.getReg().?
+                            else
+                                try self.copyToTmpRegister(scalar_ty, src_mcv);
+                            if (self.hasFeature(.avx2)) try self.asmRegisterRegister(
+                                .{ .v_sd, .broadcast },
+                                dst_reg.to256(),
+                                src_reg.to128(),
+                            ) else {
+                                try self.asmRegisterRegister(
+                                    .{ .v_, .movddup },
+                                    dst_reg.to128(),
+                                    src_reg.to128(),
+                                );
+                                try self.asmRegisterRegisterRegisterImmediate(
+                                    .{ .v_f128, .insert },
+                                    dst_reg.to256(),
+                                    dst_reg.to256(),
+                                    dst_reg.to128(),
+                                    Immediate.u(1),
+                                );
+                            }
+                        }
+                        break :result .{ .register = dst_reg };
+                    },
+                    else => {},
+                },
+                128 => switch (vector_ty.vectorLen()) {
+                    1 => {
+                        if (self.reuseOperand(inst, ty_op.operand, 0, src_mcv)) break :result src_mcv;
+                        const dst_reg = try self.register_manager.allocReg(inst, dst_rc);
+                        try self.genSetReg(dst_reg, scalar_ty, src_mcv);
+                        break :result .{ .register = dst_reg };
+                    },
+                    2 => if (self.hasFeature(.avx)) {
+                        const dst_reg = try self.register_manager.allocReg(inst, dst_rc);
+                        if (src_mcv.isMemory()) try self.asmRegisterMemory(
+                            .{ .v_f128, .broadcast },
+                            dst_reg.to256(),
+                            src_mcv.mem(.xword),
+                        ) else {
+                            const src_reg = if (src_mcv.isRegister())
+                                src_mcv.getReg().?
+                            else
+                                try self.copyToTmpRegister(scalar_ty, src_mcv);
+                            try self.asmRegisterRegisterRegisterImmediate(
+                                .{ .v_f128, .insert },
+                                dst_reg.to256(),
+                                src_reg.to256(),
+                                src_reg.to128(),
+                                Immediate.u(1),
+                            );
+                        }
+                        break :result .{ .register = dst_reg };
+                    },
+                    else => {},
+                },
+                16, 80 => {},
+                else => unreachable,
+            },
+        }
+        return self.fail("TODO implement airSplat for {}", .{
+            vector_ty.fmt(self.bin_file.options.module.?),
+        });
+    };
+    return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
 }
 
 fn airSelect(self: *Self, inst: Air.Inst.Index) !void {

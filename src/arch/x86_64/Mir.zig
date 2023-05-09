@@ -256,6 +256,8 @@ pub const Inst = struct {
         v_sd,
         /// VEX-Encoded ___ Packed Double-Precision Values
         v_pd,
+        /// VEX-Encoded ___ 128-Bits Of Floating-Point Data
+        v_f128,
 
         /// Mask ___ Byte
         k_b,
@@ -454,6 +456,8 @@ pub const Inst = struct {
         mova,
         /// Move packed single-precision floating-point values high to low
         movhl,
+        /// Move packed single-precision floating-point values low to high
+        movlh,
         /// Move unaligned packed single-precision floating-point values
         /// Move unaligned packed double-precision floating-point values
         movu,
@@ -488,6 +492,9 @@ pub const Inst = struct {
         cvtsi2sd,
         /// Convert scalar single-precision floating-point value to scalar double-precision floating-point value
         cvtss2sd,
+        /// Packed interleave shuffle of quadruplets of single-precision floating-point values
+        /// Packed interleave shuffle of pairs of double-precision floating-point values
+        shuf,
         /// Shuffle packed high words
         shufh,
         /// Shuffle packed low words
@@ -520,11 +527,19 @@ pub const Inst = struct {
         /// Replicate single floating-point values
         movsldup,
 
+        /// Extract packed floating-point values
+        extract,
+        /// Insert scalar single-precision floating-point value
+        /// Insert packed floating-point values
+        insert,
         /// Round packed single-precision floating-point values
         /// Round scalar single-precision floating-point value
         /// Round packed double-precision floating-point values
         /// Round scalar double-precision floating-point value
         round,
+
+        /// Load with broadcast floating-point data
+        broadcast,
 
         /// Convert 16-bit floating-point values to single-precision floating-point values
         cvtph2ps,
