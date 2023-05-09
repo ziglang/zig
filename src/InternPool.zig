@@ -155,6 +155,7 @@ pub const Key = union(enum) {
         lib_name: u32,
     },
     int: Key.Int,
+    float: Key.Float,
     ptr: Ptr,
     opt: Opt,
     enum_tag: struct {
@@ -361,6 +362,20 @@ pub const Key = union(enum) {
         };
     };
 
+    pub const Float = struct {
+        ty: Index,
+        /// The storage used must match the size of the float type being represented.
+        storage: Storage,
+
+        pub const Storage = union(enum) {
+            f16: f16,
+            f32: f32,
+            f64: f64,
+            f80: f80,
+            f128: f128,
+        };
+    };
+
     pub const Ptr = struct {
         ty: Index,
         addr: Addr,
@@ -434,6 +449,16 @@ pub const Key = union(enum) {
                 std.hash.autoHash(hasher, int.ty);
                 std.hash.autoHash(hasher, big_int.positive);
                 for (big_int.limbs) |limb| std.hash.autoHash(hasher, limb);
+            },
+
+            .float => |float| {
+                std.hash.autoHash(hasher, float.ty);
+                switch (float.storage) {
+                    inline else => |val| std.hash.autoHash(
+                        hasher,
+                        @bitCast(std.meta.Int(.unsigned, @bitSizeOf(@TypeOf(val))), val),
+                    ),
+                }
             },
 
             .ptr => |ptr| {
@@ -561,6 +586,32 @@ pub const Key = union(enum) {
                 };
             },
 
+            .float => |a_info| {
+                const b_info = b.float;
+
+                if (a_info.ty != b_info.ty)
+                    return false;
+
+                if (a_info.ty == .c_longdouble_type and a_info.storage != .f80) {
+                    // These are strange: we'll sometimes represent them as f128, even if the
+                    // underlying type is smaller. f80 is an exception: see float_c_longdouble_f80.
+                    const a_val = switch (a_info.storage) {
+                        inline else => |val| @floatCast(f128, val),
+                    };
+                    const b_val = switch (b_info.storage) {
+                        inline else => |val| @floatCast(f128, val),
+                    };
+                    return a_val == b_val;
+                }
+
+                const StorageTag = @typeInfo(Key.Float.Storage).Union.tag_type.?;
+                assert(@as(StorageTag, a_info.storage) == @as(StorageTag, b_info.storage));
+
+                return switch (a_info.storage) {
+                    inline else => |val, tag| val == @field(b_info.storage, @tagName(tag)),
+                };
+            },
+
             .enum_tag => |a_info| {
                 const b_info = b.enum_tag;
                 _ = a_info;
@@ -601,6 +652,7 @@ pub const Key = union(enum) {
 
             inline .ptr,
             .int,
+            .float,
             .opt,
             .extern_func,
             .enum_tag,
@@ -1115,15 +1167,35 @@ pub const Tag = enum(u8) {
     /// An enum tag identified by a negative integer value.
     /// data is a limbs index to Int.
     enum_tag_negative,
+    /// An f16 value.
+    /// data is float value bitcasted to u16 and zero-extended.
+    float_f16,
     /// An f32 value.
     /// data is float value bitcasted to u32.
     float_f32,
     /// An f64 value.
     /// data is extra index to Float64.
     float_f64,
+    /// An f80 value.
+    /// data is extra index to Float80.
+    float_f80,
     /// An f128 value.
     /// data is extra index to Float128.
     float_f128,
+    /// A c_longdouble value of 80 bits.
+    /// data is extra index to Float80.
+    /// This is used when a c_longdouble value is provided as an f80, because f80 has unnormalized
+    /// values which cannot be losslessly represented as f128. It should only be used when the type
+    /// underlying c_longdouble for the target is 80 bits.
+    float_c_longdouble_f80,
+    /// A c_longdouble value of 128 bits.
+    /// data is extra index to Float128.
+    /// This is used when a c_longdouble value is provided as any type other than an f80, since all
+    /// other float types can be losslessly converted to and from f128.
+    float_c_longdouble_f128,
+    /// A comptime_float value.
+    /// data is extra index to Float128.
+    float_comptime_float,
     /// An extern function.
     extern_func,
     /// A regular function.
@@ -1339,7 +1411,38 @@ pub const Float64 = struct {
 
     pub fn get(self: Float64) f64 {
         const int_bits = @as(u64, self.piece0) | (@as(u64, self.piece1) << 32);
-        return @bitCast(u64, int_bits);
+        return @bitCast(f64, int_bits);
+    }
+
+    fn pack(val: f64) Float64 {
+        const bits = @bitCast(u64, val);
+        return .{
+            .piece0 = @truncate(u32, bits),
+            .piece1 = @truncate(u32, bits >> 32),
+        };
+    }
+};
+
+/// A f80 value, broken up into 2 u32 parts and a u16 part zero-padded to a u32.
+pub const Float80 = struct {
+    piece0: u32,
+    piece1: u32,
+    piece2: u32, // u16 part, top bits
+
+    pub fn get(self: Float80) f80 {
+        const int_bits = @as(u80, self.piece0) |
+            (@as(u80, self.piece1) << 32) |
+            (@as(u80, self.piece2) << 64);
+        return @bitCast(f80, int_bits);
+    }
+
+    fn pack(val: f80) Float80 {
+        const bits = @bitCast(u80, val);
+        return .{
+            .piece0 = @truncate(u32, bits),
+            .piece1 = @truncate(u32, bits >> 32),
+            .piece2 = @truncate(u16, bits >> 64),
+        };
     }
 };
 
@@ -1356,6 +1459,16 @@ pub const Float128 = struct {
             (@as(u128, self.piece2) << 64) |
             (@as(u128, self.piece3) << 96);
         return @bitCast(f128, int_bits);
+    }
+
+    fn pack(val: f128) Float128 {
+        const bits = @bitCast(u128, val);
+        return .{
+            .piece0 = @truncate(u32, bits),
+            .piece1 = @truncate(u32, bits >> 32),
+            .piece2 = @truncate(u32, bits >> 64),
+            .piece3 = @truncate(u32, bits >> 96),
+        };
     }
 };
 
@@ -1576,9 +1689,38 @@ pub fn indexToKey(ip: InternPool, index: Index) Key {
         .int_negative => indexToKeyBigInt(ip, data, false),
         .enum_tag_positive => @panic("TODO"),
         .enum_tag_negative => @panic("TODO"),
-        .float_f32 => @panic("TODO"),
-        .float_f64 => @panic("TODO"),
-        .float_f128 => @panic("TODO"),
+        .float_f16 => .{ .float = .{
+            .ty = .f16_type,
+            .storage = .{ .f16 = @bitCast(f16, @intCast(u16, data)) },
+        } },
+        .float_f32 => .{ .float = .{
+            .ty = .f32_type,
+            .storage = .{ .f32 = @bitCast(f32, data) },
+        } },
+        .float_f64 => .{ .float = .{
+            .ty = .f64_type,
+            .storage = .{ .f64 = ip.extraData(Float64, data).get() },
+        } },
+        .float_f80 => .{ .float = .{
+            .ty = .f80_type,
+            .storage = .{ .f80 = ip.extraData(Float80, data).get() },
+        } },
+        .float_f128 => .{ .float = .{
+            .ty = .f128_type,
+            .storage = .{ .f128 = ip.extraData(Float128, data).get() },
+        } },
+        .float_c_longdouble_f80 => .{ .float = .{
+            .ty = .c_longdouble_type,
+            .storage = .{ .f80 = ip.extraData(Float80, data).get() },
+        } },
+        .float_c_longdouble_f128 => .{ .float = .{
+            .ty = .c_longdouble_type,
+            .storage = .{ .f128 = ip.extraData(Float128, data).get() },
+        } },
+        .float_comptime_float => .{ .float = .{
+            .ty = .comptime_float_type,
+            .storage = .{ .f128 = ip.extraData(Float128, data).get() },
+        } },
         .extern_func => @panic("TODO"),
         .func => @panic("TODO"),
         .only_possible_value => {
@@ -1979,6 +2121,46 @@ pub fn get(ip: *InternPool, gpa: Allocator, key: Key) Allocator.Error!Index {
                     const tag: Tag = if (big_int.positive) .int_positive else .int_negative;
                     try addInt(ip, gpa, int.ty, tag, big_int.limbs);
                 },
+            }
+        },
+
+        .float => |float| {
+            switch (float.ty) {
+                .f16_type => ip.items.appendAssumeCapacity(.{
+                    .tag = .float_f16,
+                    .data = @bitCast(u16, float.storage.f16),
+                }),
+                .f32_type => ip.items.appendAssumeCapacity(.{
+                    .tag = .float_f32,
+                    .data = @bitCast(u32, float.storage.f32),
+                }),
+                .f64_type => ip.items.appendAssumeCapacity(.{
+                    .tag = .float_f64,
+                    .data = try ip.addExtra(gpa, Float64.pack(float.storage.f64)),
+                }),
+                .f80_type => ip.items.appendAssumeCapacity(.{
+                    .tag = .float_f80,
+                    .data = try ip.addExtra(gpa, Float80.pack(float.storage.f80)),
+                }),
+                .f128_type => ip.items.appendAssumeCapacity(.{
+                    .tag = .float_f128,
+                    .data = try ip.addExtra(gpa, Float128.pack(float.storage.f128)),
+                }),
+                .c_longdouble_type => switch (float.storage) {
+                    .f80 => |x| ip.items.appendAssumeCapacity(.{
+                        .tag = .float_c_longdouble_f80,
+                        .data = try ip.addExtra(gpa, Float80.pack(x)),
+                    }),
+                    inline .f16, .f32, .f64, .f128 => |x| ip.items.appendAssumeCapacity(.{
+                        .tag = .float_c_longdouble_f128,
+                        .data = try ip.addExtra(gpa, Float128.pack(x)),
+                    }),
+                },
+                .comptime_float_type => ip.items.appendAssumeCapacity(.{
+                    .tag = .float_comptime_float,
+                    .data = try ip.addExtra(gpa, Float128.pack(float.storage.f128)),
+                }),
+                else => unreachable,
             }
         },
 
@@ -2645,9 +2827,14 @@ fn dumpFallible(ip: InternPool, arena: Allocator) anyerror!void {
                 break :b @sizeOf(Int) + int.limbs_len * 8;
             },
 
+            .float_f16 => 0,
             .float_f32 => 0,
             .float_f64 => @sizeOf(Float64),
+            .float_f80 => @sizeOf(Float80),
             .float_f128 => @sizeOf(Float128),
+            .float_c_longdouble_f80 => @sizeOf(Float80),
+            .float_c_longdouble_f128 => @sizeOf(Float128),
+            .float_comptime_float => @sizeOf(Float128),
             .extern_func => @panic("TODO"),
             .func => @panic("TODO"),
             .only_possible_value => 0,

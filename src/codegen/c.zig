@@ -6612,7 +6612,6 @@ fn airReduce(f: *Function, inst: Air.Inst.Index) !CValue {
     const mod = f.object.dg.module;
     const reduce = f.air.instructions.items(.data)[inst].reduce;
 
-    const target = mod.getTarget();
     const scalar_ty = f.typeOfIndex(inst);
     const operand = try f.resolveInst(reduce.operand);
     try reap(f, inst, &.{reduce.operand});
@@ -6679,16 +6678,6 @@ fn airReduce(f: *Function, inst: Air.Inst.Index) !CValue {
     var arena = std.heap.ArenaAllocator.init(f.object.dg.gpa);
     defer arena.deinit();
 
-    const ExpectedContents = union {
-        f16: Value.Payload.Float_16,
-        f32: Value.Payload.Float_32,
-        f64: Value.Payload.Float_64,
-        f80: Value.Payload.Float_80,
-        f128: Value.Payload.Float_128,
-    };
-    var stack align(@alignOf(ExpectedContents)) =
-        std.heap.stackFallback(@sizeOf(ExpectedContents), arena.allocator());
-
     try f.object.dg.renderValue(writer, scalar_ty, switch (reduce.operation) {
         .Or, .Xor, .Add => try mod.intValue(scalar_ty, 0),
         .And => switch (scalar_ty.zigTypeTag(mod)) {
@@ -6701,13 +6690,13 @@ fn airReduce(f: *Function, inst: Air.Inst.Index) !CValue {
         .Min => switch (scalar_ty.zigTypeTag(mod)) {
             .Bool => Value.one_comptime_int,
             .Int => try scalar_ty.maxIntScalar(mod, scalar_ty),
-            .Float => try Value.floatToValue(std.math.nan(f128), stack.get(), scalar_ty, target),
+            .Float => try mod.floatValue(scalar_ty, std.math.nan_f128),
             else => unreachable,
         },
         .Max => switch (scalar_ty.zigTypeTag(mod)) {
             .Bool => try mod.intValue(scalar_ty, 0),
-            .Int => try scalar_ty.minInt(stack.get(), mod),
-            .Float => try Value.floatToValue(std.math.nan(f128), stack.get(), scalar_ty, target),
+            .Int => try scalar_ty.minInt(arena.allocator(), mod),
+            .Float => try mod.floatValue(scalar_ty, std.math.nan_f128),
             else => unreachable,
         },
         .Mul => try mod.intValue(Type.comptime_int, 1),
