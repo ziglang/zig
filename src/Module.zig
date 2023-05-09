@@ -6940,6 +6940,24 @@ pub fn unionValue(mod: *Module, union_ty: Type, tag: Value, val: Value) Allocato
     return i.toValue();
 }
 
+/// This function casts the float representation down to the representation of the type, potentially
+/// losing data if the representation wasn't correct.
+pub fn floatValue(mod: *Module, ty: Type, x: anytype) Allocator.Error!Value {
+    const storage: InternPool.Key.Float.Storage = switch (ty.floatBits(mod.getTarget())) {
+        16 => .{ .f16 = @floatCast(f16, x) },
+        32 => .{ .f32 = @floatCast(f32, x) },
+        64 => .{ .f64 = @floatCast(f64, x) },
+        80 => .{ .f80 = @floatCast(f80, x) },
+        128 => .{ .f128 = @floatCast(f128, x) },
+        else => unreachable,
+    };
+    const i = try intern(mod, .{ .float = .{
+        .ty = ty.ip_index,
+        .storage = storage,
+    } });
+    return i.toValue();
+}
+
 pub fn smallestUnsignedInt(mod: *Module, max: u64) Allocator.Error!Type {
     return intType(mod, .unsigned, Type.smallestUnsignedBits(max));
 }

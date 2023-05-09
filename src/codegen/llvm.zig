@@ -9238,22 +9238,19 @@ pub const FuncGen = struct {
             }) catch unreachable,
             else => unreachable,
         };
-        var init_value_payload = Value.Payload.Float_32{
-            .data = switch (reduce.operation) {
-                .Min => std.math.nan(f32),
-                .Max => std.math.nan(f32),
-                .Add => -0.0,
-                .Mul => 1.0,
-                else => unreachable,
-            },
-        };
 
         const param_llvm_ty = try self.dg.lowerType(scalar_ty);
         const param_types = [2]*llvm.Type{ param_llvm_ty, param_llvm_ty };
         const libc_fn = self.getLibcFunction(fn_name, &param_types, param_llvm_ty);
         const init_value = try self.dg.lowerValue(.{
             .ty = scalar_ty,
-            .val = Value.initPayload(&init_value_payload.base),
+            .val = try mod.floatValue(scalar_ty, switch (reduce.operation) {
+                .Min => std.math.nan(f32),
+                .Max => std.math.nan(f32),
+                .Add => -0.0,
+                .Mul => 1.0,
+                else => unreachable,
+            }),
         });
         return self.buildReducedCall(libc_fn, operand, operand_ty.vectorLen(mod), init_value);
     }

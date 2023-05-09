@@ -72,11 +72,6 @@ pub const Value = struct {
         empty_array_sentinel,
         /// Pointer and length as sub `Value` objects.
         slice,
-        float_16,
-        float_32,
-        float_64,
-        float_80,
-        float_128,
         enum_literal,
         /// A specific enum tag, indicated by the field index (declaration order).
         enum_field_index,
@@ -160,11 +155,6 @@ pub const Value = struct {
                 .decl_ref_mut => Payload.DeclRefMut,
                 .elem_ptr => Payload.ElemPtr,
                 .field_ptr => Payload.FieldPtr,
-                .float_16 => Payload.Float_16,
-                .float_32 => Payload.Float_32,
-                .float_64 => Payload.Float_64,
-                .float_80 => Payload.Float_80,
-                .float_128 => Payload.Float_128,
                 .@"error" => Payload.Error,
                 .inferred_alloc => Payload.InferredAlloc,
                 .inferred_alloc_comptime => Payload.InferredAllocComptime,
@@ -395,11 +385,6 @@ pub const Value = struct {
                     .legacy = .{ .ptr_otherwise = &new_payload.base },
                 };
             },
-            .float_16 => return self.copyPayloadShallow(arena, Payload.Float_16),
-            .float_32 => return self.copyPayloadShallow(arena, Payload.Float_32),
-            .float_64 => return self.copyPayloadShallow(arena, Payload.Float_64),
-            .float_80 => return self.copyPayloadShallow(arena, Payload.Float_80),
-            .float_128 => return self.copyPayloadShallow(arena, Payload.Float_128),
             .enum_literal => {
                 const payload = self.castTag(.enum_literal).?;
                 const new_payload = try arena.create(Payload.Bytes);
@@ -544,11 +529,6 @@ pub const Value = struct {
             },
             .empty_array_sentinel => return out_stream.writeAll("(empty array with sentinel)"),
             .slice => return out_stream.writeAll("(slice)"),
-            .float_16 => return out_stream.print("{}", .{val.castTag(.float_16).?.data}),
-            .float_32 => return out_stream.print("{}", .{val.castTag(.float_32).?.data}),
-            .float_64 => return out_stream.print("{}", .{val.castTag(.float_64).?.data}),
-            .float_80 => return out_stream.print("{}", .{val.castTag(.float_80).?.data}),
-            .float_128 => return out_stream.print("{}", .{val.castTag(.float_128).?.data}),
             .@"error" => return out_stream.print("error.{s}", .{val.castTag(.@"error").?.data.name}),
             .eu_payload => {
                 try out_stream.writeAll("(eu_payload) ");
@@ -1181,14 +1161,17 @@ pub const Value = struct {
                     return mod.intValue_big(ty, bigint.toConst());
                 }
             },
-            .Float => switch (ty.floatBits(target)) {
-                16 => return Value.Tag.float_16.create(arena, @bitCast(f16, std.mem.readInt(u16, buffer[0..2], endian))),
-                32 => return Value.Tag.float_32.create(arena, @bitCast(f32, std.mem.readInt(u32, buffer[0..4], endian))),
-                64 => return Value.Tag.float_64.create(arena, @bitCast(f64, std.mem.readInt(u64, buffer[0..8], endian))),
-                80 => return Value.Tag.float_80.create(arena, @bitCast(f80, std.mem.readInt(u80, buffer[0..10], endian))),
-                128 => return Value.Tag.float_128.create(arena, @bitCast(f128, std.mem.readInt(u128, buffer[0..16], endian))),
-                else => unreachable,
-            },
+            .Float => return (try mod.intern(.{ .float = .{
+                .ty = ty.ip_index,
+                .storage = switch (ty.floatBits(target)) {
+                    16 => .{ .f16 = @bitCast(f16, std.mem.readInt(u16, buffer[0..2], endian)) },
+                    32 => .{ .f32 = @bitCast(f32, std.mem.readInt(u32, buffer[0..4], endian)) },
+                    64 => .{ .f64 = @bitCast(f64, std.mem.readInt(u64, buffer[0..8], endian)) },
+                    80 => .{ .f80 = @bitCast(f80, std.mem.readInt(u80, buffer[0..10], endian)) },
+                    128 => .{ .f128 = @bitCast(f128, std.mem.readInt(u128, buffer[0..16], endian)) },
+                    else => unreachable,
+                },
+            } })).toValue(),
             .Array => {
                 const elem_ty = ty.childType(mod);
                 const elem_size = elem_ty.abiSize(mod);
@@ -1294,14 +1277,17 @@ pub const Value = struct {
                     return mod.intValue_big(ty, bigint.toConst());
                 }
             },
-            .Float => switch (ty.floatBits(target)) {
-                16 => return Value.Tag.float_16.create(arena, @bitCast(f16, std.mem.readPackedInt(u16, buffer, bit_offset, endian))),
-                32 => return Value.Tag.float_32.create(arena, @bitCast(f32, std.mem.readPackedInt(u32, buffer, bit_offset, endian))),
-                64 => return Value.Tag.float_64.create(arena, @bitCast(f64, std.mem.readPackedInt(u64, buffer, bit_offset, endian))),
-                80 => return Value.Tag.float_80.create(arena, @bitCast(f80, std.mem.readPackedInt(u80, buffer, bit_offset, endian))),
-                128 => return Value.Tag.float_128.create(arena, @bitCast(f128, std.mem.readPackedInt(u128, buffer, bit_offset, endian))),
-                else => unreachable,
-            },
+            .Float => return (try mod.intern(.{ .float = .{
+                .ty = ty.ip_index,
+                .storage = switch (ty.floatBits(target)) {
+                    16 => .{ .f16 = @bitCast(f16, std.mem.readPackedInt(u16, buffer, bit_offset, endian)) },
+                    32 => .{ .f32 = @bitCast(f32, std.mem.readPackedInt(u32, buffer, bit_offset, endian)) },
+                    64 => .{ .f64 = @bitCast(f64, std.mem.readPackedInt(u64, buffer, bit_offset, endian)) },
+                    80 => .{ .f80 = @bitCast(f80, std.mem.readPackedInt(u80, buffer, bit_offset, endian)) },
+                    128 => .{ .f128 = @bitCast(f128, std.mem.readPackedInt(u128, buffer, bit_offset, endian)) },
+                    else => unreachable,
+                },
+            } })).toValue(),
             .Vector => {
                 const elem_ty = ty.childType(mod);
                 const elems = try arena.alloc(Value, @intCast(usize, ty.arrayLen(mod)));
@@ -1346,28 +1332,20 @@ pub const Value = struct {
 
     /// Asserts that the value is a float or an integer.
     pub fn toFloat(val: Value, comptime T: type, mod: *const Module) T {
-        return switch (val.ip_index) {
-            .none => switch (val.tag()) {
-                .float_16 => @floatCast(T, val.castTag(.float_16).?.data),
-                .float_32 => @floatCast(T, val.castTag(.float_32).?.data),
-                .float_64 => @floatCast(T, val.castTag(.float_64).?.data),
-                .float_80 => @floatCast(T, val.castTag(.float_80).?.data),
-                .float_128 => @floatCast(T, val.castTag(.float_128).?.data),
-
-                else => unreachable,
-            },
-            else => switch (mod.intern_pool.indexToKey(val.ip_index)) {
-                .int => |int| switch (int.storage) {
-                    .big_int => |big_int| @floatCast(T, bigIntToFloat(big_int.limbs, big_int.positive)),
-                    inline .u64, .i64 => |x| {
-                        if (T == f80) {
-                            @panic("TODO we can't lower this properly on non-x86 llvm backend yet");
-                        }
-                        return @intToFloat(T, x);
-                    },
+        return switch (mod.intern_pool.indexToKey(val.ip_index)) {
+            .int => |int| switch (int.storage) {
+                .big_int => |big_int| @floatCast(T, bigIntToFloat(big_int.limbs, big_int.positive)),
+                inline .u64, .i64 => |x| {
+                    if (T == f80) {
+                        @panic("TODO we can't lower this properly on non-x86 llvm backend yet");
+                    }
+                    return @intToFloat(T, x);
                 },
-                else => unreachable,
             },
+            .float => |float| switch (float.storage) {
+                inline else => |x| @floatCast(T, x),
+            },
+            else => unreachable,
         };
     }
 
@@ -1552,28 +1530,27 @@ pub const Value = struct {
 
     /// Converts an integer or a float to a float. May result in a loss of information.
     /// Caller can find out by equality checking the result against the operand.
-    pub fn floatCast(self: Value, arena: Allocator, dest_ty: Type, mod: *const Module) !Value {
+    pub fn floatCast(self: Value, dest_ty: Type, mod: *Module) !Value {
         const target = mod.getTarget();
-        switch (dest_ty.floatBits(target)) {
-            16 => return Value.Tag.float_16.create(arena, self.toFloat(f16, mod)),
-            32 => return Value.Tag.float_32.create(arena, self.toFloat(f32, mod)),
-            64 => return Value.Tag.float_64.create(arena, self.toFloat(f64, mod)),
-            80 => return Value.Tag.float_80.create(arena, self.toFloat(f80, mod)),
-            128 => return Value.Tag.float_128.create(arena, self.toFloat(f128, mod)),
-            else => unreachable,
-        }
+        return (try mod.intern(.{ .float = .{
+            .ty = dest_ty.ip_index,
+            .storage = switch (dest_ty.floatBits(target)) {
+                16 => .{ .f16 = self.toFloat(f16, mod) },
+                32 => .{ .f32 = self.toFloat(f32, mod) },
+                64 => .{ .f64 = self.toFloat(f64, mod) },
+                80 => .{ .f80 = self.toFloat(f80, mod) },
+                128 => .{ .f128 = self.toFloat(f128, mod) },
+                else => unreachable,
+            },
+        } })).toValue();
     }
 
     /// Asserts the value is a float
-    pub fn floatHasFraction(self: Value) bool {
-        return switch (self.tag()) {
-            .float_16 => @rem(self.castTag(.float_16).?.data, 1) != 0,
-            .float_32 => @rem(self.castTag(.float_32).?.data, 1) != 0,
-            .float_64 => @rem(self.castTag(.float_64).?.data, 1) != 0,
-            //.float_80 => @rem(self.castTag(.float_80).?.data, 1) != 0,
-            .float_80 => @panic("TODO implement __remx in compiler-rt"),
-            .float_128 => @rem(self.castTag(.float_128).?.data, 1) != 0,
-
+    pub fn floatHasFraction(self: Value, mod: *const Module) bool {
+        return switch (mod.intern_pool.indexToKey(self.ip_index)) {
+            .float => |float| switch (float.storage) {
+                inline else => |x| @rem(x, 1) != 0,
+            },
             else => unreachable,
         };
     }
@@ -1634,12 +1611,6 @@ pub const Value = struct {
                     }
                 },
 
-                .float_16 => std.math.order(lhs.castTag(.float_16).?.data, 0),
-                .float_32 => std.math.order(lhs.castTag(.float_32).?.data, 0),
-                .float_64 => std.math.order(lhs.castTag(.float_64).?.data, 0),
-                .float_80 => std.math.order(lhs.castTag(.float_80).?.data, 0),
-                .float_128 => std.math.order(lhs.castTag(.float_128).?.data, 0),
-
                 .elem_ptr => {
                     const elem_ptr = lhs.castTag(.elem_ptr).?.data;
                     switch (try elem_ptr.array_ptr.orderAgainstZeroAdvanced(mod, opt_sema)) {
@@ -1661,6 +1632,9 @@ pub const Value = struct {
                 .int => |int| switch (int.storage) {
                     .big_int => |big_int| big_int.orderAgainstScalar(0),
                     inline .u64, .i64 => |x| std.math.order(x, 0),
+                },
+                .float => |float| switch (float.storage) {
+                    inline else => |x| std.math.order(x, 0),
                 },
                 else => unreachable,
             },
@@ -1688,20 +1662,21 @@ pub const Value = struct {
             .gt => {},
         }
 
-        const lhs_float = lhs.isFloat();
-        const rhs_float = rhs.isFloat();
+        const lhs_float = lhs.isFloat(mod);
+        const rhs_float = rhs.isFloat(mod);
         if (lhs_float and rhs_float) {
             const lhs_tag = lhs.tag();
             const rhs_tag = rhs.tag();
             if (lhs_tag == rhs_tag) {
-                return switch (lhs.tag()) {
-                    .float_16 => return std.math.order(lhs.castTag(.float_16).?.data, rhs.castTag(.float_16).?.data),
-                    .float_32 => return std.math.order(lhs.castTag(.float_32).?.data, rhs.castTag(.float_32).?.data),
-                    .float_64 => return std.math.order(lhs.castTag(.float_64).?.data, rhs.castTag(.float_64).?.data),
-                    .float_80 => return std.math.order(lhs.castTag(.float_80).?.data, rhs.castTag(.float_80).?.data),
-                    .float_128 => return std.math.order(lhs.castTag(.float_128).?.data, rhs.castTag(.float_128).?.data),
-                    else => unreachable,
+                const lhs_storage = mod.intern_pool.indexToKey(lhs.ip_index).float.storage;
+                const rhs_storage = mod.intern_pool.indexToKey(rhs.ip_index).float.storage;
+                const lhs128: f128 = switch (lhs_storage) {
+                    inline else => |x| x,
                 };
+                const rhs128: f128 = switch (rhs_storage) {
+                    inline else => |x| x,
+                };
+                return std.math.order(lhs128, rhs128);
             }
         }
         if (lhs_float or rhs_float) {
@@ -1808,12 +1783,12 @@ pub const Value = struct {
         mod: *Module,
         opt_sema: ?*Sema,
     ) Module.CompileError!bool {
-        if (lhs.isInf()) {
+        if (lhs.isInf(mod)) {
             switch (op) {
                 .neq => return true,
                 .eq => return false,
-                .gt, .gte => return !lhs.isNegativeInf(),
-                .lt, .lte => return lhs.isNegativeInf(),
+                .gt, .gte => return !lhs.isNegativeInf(mod),
+                .lt, .lte => return lhs.isNegativeInf(mod),
             }
         }
 
@@ -1841,14 +1816,14 @@ pub const Value = struct {
                     }
                     return true;
                 },
-                .float_16 => if (std.math.isNan(lhs.castTag(.float_16).?.data)) return op == .neq,
-                .float_32 => if (std.math.isNan(lhs.castTag(.float_32).?.data)) return op == .neq,
-                .float_64 => if (std.math.isNan(lhs.castTag(.float_64).?.data)) return op == .neq,
-                .float_80 => if (std.math.isNan(lhs.castTag(.float_80).?.data)) return op == .neq,
-                .float_128 => if (std.math.isNan(lhs.castTag(.float_128).?.data)) return op == .neq,
                 else => {},
             },
-            else => {},
+            else => switch (mod.intern_pool.indexToKey(lhs.ip_index)) {
+                .float => |float| switch (float.storage) {
+                    inline else => |x| if (std.math.isNan(x)) return op == .neq,
+                },
+                else => {},
+            },
         }
         return (try orderAgainstZeroAdvanced(lhs, mod, opt_sema)).compare(op);
     }
@@ -2919,22 +2894,18 @@ pub const Value = struct {
     }
 
     /// Valid for all types. Asserts the value is not undefined.
-    pub fn isFloat(self: Value) bool {
+    pub fn isFloat(self: Value, mod: *const Module) bool {
         return switch (self.ip_index) {
             .undef => unreachable,
             .none => switch (self.tag()) {
                 .inferred_alloc => unreachable,
                 .inferred_alloc_comptime => unreachable,
-
-                .float_16,
-                .float_32,
-                .float_64,
-                .float_80,
-                .float_128,
-                => true,
                 else => false,
             },
-            else => false,
+            else => switch (mod.intern_pool.indexToKey(self.ip_index)) {
+                .float => true,
+                else => false,
+            },
         };
     }
 
@@ -2951,33 +2922,32 @@ pub const Value = struct {
             const scalar_ty = float_ty.scalarType(mod);
             for (result_data, 0..) |*scalar, i| {
                 const elem_val = try val.elemValue(mod, i);
-                scalar.* = try intToFloatScalar(elem_val, arena, scalar_ty, mod, opt_sema);
+                scalar.* = try intToFloatScalar(elem_val, scalar_ty, mod, opt_sema);
             }
             return Value.Tag.aggregate.create(arena, result_data);
         }
-        return intToFloatScalar(val, arena, float_ty, mod, opt_sema);
+        return intToFloatScalar(val, float_ty, mod, opt_sema);
     }
 
-    pub fn intToFloatScalar(val: Value, arena: Allocator, float_ty: Type, mod: *Module, opt_sema: ?*Sema) !Value {
-        const target = mod.getTarget();
+    pub fn intToFloatScalar(val: Value, float_ty: Type, mod: *Module, opt_sema: ?*Sema) !Value {
         switch (val.ip_index) {
             .undef => return val,
             .none => switch (val.tag()) {
-                .the_only_possible_value => return Value.float_zero, // for i0, u0
+                .the_only_possible_value => return mod.floatValue(float_ty, 0), // for i0, u0
                 .lazy_align => {
                     const ty = val.castTag(.lazy_align).?.data;
                     if (opt_sema) |sema| {
-                        return intToFloatInner((try ty.abiAlignmentAdvanced(mod, .{ .sema = sema })).scalar, arena, float_ty, target);
+                        return intToFloatInner((try ty.abiAlignmentAdvanced(mod, .{ .sema = sema })).scalar, float_ty, mod);
                     } else {
-                        return intToFloatInner(ty.abiAlignment(mod), arena, float_ty, target);
+                        return intToFloatInner(ty.abiAlignment(mod), float_ty, mod);
                     }
                 },
                 .lazy_size => {
                     const ty = val.castTag(.lazy_size).?.data;
                     if (opt_sema) |sema| {
-                        return intToFloatInner((try ty.abiSizeAdvanced(mod, .{ .sema = sema })).scalar, arena, float_ty, target);
+                        return intToFloatInner((try ty.abiSizeAdvanced(mod, .{ .sema = sema })).scalar, float_ty, mod);
                     } else {
-                        return intToFloatInner(ty.abiSize(mod), arena, float_ty, target);
+                        return intToFloatInner(ty.abiSize(mod), float_ty, mod);
                     }
                 },
                 else => unreachable,
@@ -2986,35 +2956,29 @@ pub const Value = struct {
                 .int => |int| switch (int.storage) {
                     .big_int => |big_int| {
                         const float = bigIntToFloat(big_int.limbs, big_int.positive);
-                        return floatToValue(float, arena, float_ty, target);
+                        return mod.floatValue(float_ty, float);
                     },
-                    inline .u64, .i64 => |x| intToFloatInner(x, arena, float_ty, target),
+                    inline .u64, .i64 => |x| intToFloatInner(x, float_ty, mod),
                 },
                 else => unreachable,
             },
         }
     }
 
-    fn intToFloatInner(x: anytype, arena: Allocator, dest_ty: Type, target: Target) !Value {
-        switch (dest_ty.floatBits(target)) {
-            16 => return Value.Tag.float_16.create(arena, @intToFloat(f16, x)),
-            32 => return Value.Tag.float_32.create(arena, @intToFloat(f32, x)),
-            64 => return Value.Tag.float_64.create(arena, @intToFloat(f64, x)),
-            80 => return Value.Tag.float_80.create(arena, @intToFloat(f80, x)),
-            128 => return Value.Tag.float_128.create(arena, @intToFloat(f128, x)),
+    fn intToFloatInner(x: anytype, dest_ty: Type, mod: *Module) !Value {
+        const target = mod.getTarget();
+        const storage: InternPool.Key.Float.Storage = switch (dest_ty.floatBits(target)) {
+            16 => .{ .f16 = @intToFloat(f16, x) },
+            32 => .{ .f32 = @intToFloat(f32, x) },
+            64 => .{ .f64 = @intToFloat(f64, x) },
+            80 => .{ .f80 = @intToFloat(f80, x) },
+            128 => .{ .f128 = @intToFloat(f128, x) },
             else => unreachable,
-        }
-    }
-
-    pub fn floatToValue(float: f128, arena: Allocator, dest_ty: Type, target: Target) !Value {
-        switch (dest_ty.floatBits(target)) {
-            16 => return Value.Tag.float_16.create(arena, @floatCast(f16, float)),
-            32 => return Value.Tag.float_32.create(arena, @floatCast(f32, float)),
-            64 => return Value.Tag.float_64.create(arena, @floatCast(f64, float)),
-            80 => return Value.Tag.float_80.create(arena, @floatCast(f80, float)),
-            128 => return Value.Tag.float_128.create(arena, float),
-            else => unreachable,
-        }
+        };
+        return (try mod.intern(.{ .float = .{
+            .ty = dest_ty.ip_index,
+            .storage = storage,
+        } })).toValue();
     }
 
     fn calcLimbLenFloat(scalar: anytype) usize {
@@ -3286,8 +3250,8 @@ pub const Value = struct {
     /// Supports both floats and ints; handles undefined.
     pub fn numberMax(lhs: Value, rhs: Value, mod: *Module) Value {
         if (lhs.isUndef() or rhs.isUndef()) return undef;
-        if (lhs.isNan()) return rhs;
-        if (rhs.isNan()) return lhs;
+        if (lhs.isNan(mod)) return rhs;
+        if (rhs.isNan(mod)) return lhs;
 
         return switch (order(lhs, rhs, mod)) {
             .lt => rhs,
@@ -3298,8 +3262,8 @@ pub const Value = struct {
     /// Supports both floats and ints; handles undefined.
     pub fn numberMin(lhs: Value, rhs: Value, mod: *Module) Value {
         if (lhs.isUndef() or rhs.isUndef()) return undef;
-        if (lhs.isNan()) return rhs;
-        if (rhs.isNan()) return lhs;
+        if (lhs.isNan(mod)) return rhs;
+        if (rhs.isNan(mod)) return lhs;
 
         return switch (order(lhs, rhs, mod)) {
             .lt => lhs,
@@ -3587,44 +3551,32 @@ pub const Value = struct {
     }
 
     /// Returns true if the value is a floating point type and is NaN. Returns false otherwise.
-    pub fn isNan(val: Value) bool {
-        return switch (val.ip_index) {
-            .none => switch (val.tag()) {
-                .float_16 => std.math.isNan(val.castTag(.float_16).?.data),
-                .float_32 => std.math.isNan(val.castTag(.float_32).?.data),
-                .float_64 => std.math.isNan(val.castTag(.float_64).?.data),
-                .float_80 => std.math.isNan(val.castTag(.float_80).?.data),
-                .float_128 => std.math.isNan(val.castTag(.float_128).?.data),
-                else => false,
+    pub fn isNan(val: Value, mod: *const Module) bool {
+        if (val.ip_index == .none) return false;
+        return switch (mod.intern_pool.indexToKey(val.ip_index)) {
+            .float => |float| switch (float.storage) {
+                inline else => |x| std.math.isNan(x),
             },
             else => false,
         };
     }
 
     /// Returns true if the value is a floating point type and is infinite. Returns false otherwise.
-    pub fn isInf(val: Value) bool {
-        return switch (val.ip_index) {
-            .none => switch (val.tag()) {
-                .float_16 => std.math.isInf(val.castTag(.float_16).?.data),
-                .float_32 => std.math.isInf(val.castTag(.float_32).?.data),
-                .float_64 => std.math.isInf(val.castTag(.float_64).?.data),
-                .float_80 => std.math.isInf(val.castTag(.float_80).?.data),
-                .float_128 => std.math.isInf(val.castTag(.float_128).?.data),
-                else => false,
+    pub fn isInf(val: Value, mod: *const Module) bool {
+        if (val.ip_index == .none) return false;
+        return switch (mod.intern_pool.indexToKey(val.ip_index)) {
+            .float => |float| switch (float.storage) {
+                inline else => |x| std.math.isInf(x),
             },
             else => false,
         };
     }
 
-    pub fn isNegativeInf(val: Value) bool {
-        return switch (val.ip_index) {
-            .none => switch (val.tag()) {
-                .float_16 => std.math.isNegativeInf(val.castTag(.float_16).?.data),
-                .float_32 => std.math.isNegativeInf(val.castTag(.float_32).?.data),
-                .float_64 => std.math.isNegativeInf(val.castTag(.float_64).?.data),
-                .float_80 => std.math.isNegativeInf(val.castTag(.float_80).?.data),
-                .float_128 => std.math.isNegativeInf(val.castTag(.float_128).?.data),
-                else => false,
+    pub fn isNegativeInf(val: Value, mod: *const Module) bool {
+        if (val.ip_index == .none) return false;
+        return switch (mod.intern_pool.indexToKey(val.ip_index)) {
+            .float => |float| switch (float.storage) {
+                inline else => |x| std.math.isNegativeInf(x),
             },
             else => false,
         };
@@ -3636,43 +3588,27 @@ pub const Value = struct {
             for (result_data, 0..) |*scalar, i| {
                 const lhs_elem = try lhs.elemValue(mod, i);
                 const rhs_elem = try rhs.elemValue(mod, i);
-                scalar.* = try floatRemScalar(lhs_elem, rhs_elem, float_type.scalarType(mod), arena, mod);
+                scalar.* = try floatRemScalar(lhs_elem, rhs_elem, float_type.scalarType(mod), mod);
             }
             return Value.Tag.aggregate.create(arena, result_data);
         }
-        return floatRemScalar(lhs, rhs, float_type, arena, mod);
+        return floatRemScalar(lhs, rhs, float_type, mod);
     }
 
-    pub fn floatRemScalar(lhs: Value, rhs: Value, float_type: Type, arena: Allocator, mod: *const Module) !Value {
+    pub fn floatRemScalar(lhs: Value, rhs: Value, float_type: Type, mod: *Module) !Value {
         const target = mod.getTarget();
-        switch (float_type.floatBits(target)) {
-            16 => {
-                const lhs_val = lhs.toFloat(f16, mod);
-                const rhs_val = rhs.toFloat(f16, mod);
-                return Value.Tag.float_16.create(arena, @rem(lhs_val, rhs_val));
-            },
-            32 => {
-                const lhs_val = lhs.toFloat(f32, mod);
-                const rhs_val = rhs.toFloat(f32, mod);
-                return Value.Tag.float_32.create(arena, @rem(lhs_val, rhs_val));
-            },
-            64 => {
-                const lhs_val = lhs.toFloat(f64, mod);
-                const rhs_val = rhs.toFloat(f64, mod);
-                return Value.Tag.float_64.create(arena, @rem(lhs_val, rhs_val));
-            },
-            80 => {
-                const lhs_val = lhs.toFloat(f80, mod);
-                const rhs_val = rhs.toFloat(f80, mod);
-                return Value.Tag.float_80.create(arena, @rem(lhs_val, rhs_val));
-            },
-            128 => {
-                const lhs_val = lhs.toFloat(f128, mod);
-                const rhs_val = rhs.toFloat(f128, mod);
-                return Value.Tag.float_128.create(arena, @rem(lhs_val, rhs_val));
-            },
+        const storage: InternPool.Key.Float.Storage = switch (float_type.floatBits(target)) {
+            16 => .{ .f16 = @rem(lhs.toFloat(f16, mod), rhs.toFloat(f16, mod)) },
+            32 => .{ .f32 = @rem(lhs.toFloat(f32, mod), rhs.toFloat(f32, mod)) },
+            64 => .{ .f64 = @rem(lhs.toFloat(f64, mod), rhs.toFloat(f64, mod)) },
+            80 => .{ .f80 = @rem(lhs.toFloat(f80, mod), rhs.toFloat(f80, mod)) },
+            128 => .{ .f128 = @rem(lhs.toFloat(f128, mod), rhs.toFloat(f128, mod)) },
             else => unreachable,
-        }
+        };
+        return (try mod.intern(.{ .float = .{
+            .ty = float_type.ip_index,
+            .storage = storage,
+        } })).toValue();
     }
 
     pub fn floatMod(lhs: Value, rhs: Value, float_type: Type, arena: Allocator, mod: *Module) !Value {
@@ -3681,43 +3617,27 @@ pub const Value = struct {
             for (result_data, 0..) |*scalar, i| {
                 const lhs_elem = try lhs.elemValue(mod, i);
                 const rhs_elem = try rhs.elemValue(mod, i);
-                scalar.* = try floatModScalar(lhs_elem, rhs_elem, float_type.scalarType(mod), arena, mod);
+                scalar.* = try floatModScalar(lhs_elem, rhs_elem, float_type.scalarType(mod), mod);
             }
             return Value.Tag.aggregate.create(arena, result_data);
         }
-        return floatModScalar(lhs, rhs, float_type, arena, mod);
+        return floatModScalar(lhs, rhs, float_type, mod);
     }
 
-    pub fn floatModScalar(lhs: Value, rhs: Value, float_type: Type, arena: Allocator, mod: *const Module) !Value {
+    pub fn floatModScalar(lhs: Value, rhs: Value, float_type: Type, mod: *Module) !Value {
         const target = mod.getTarget();
-        switch (float_type.floatBits(target)) {
-            16 => {
-                const lhs_val = lhs.toFloat(f16, mod);
-                const rhs_val = rhs.toFloat(f16, mod);
-                return Value.Tag.float_16.create(arena, @mod(lhs_val, rhs_val));
-            },
-            32 => {
-                const lhs_val = lhs.toFloat(f32, mod);
-                const rhs_val = rhs.toFloat(f32, mod);
-                return Value.Tag.float_32.create(arena, @mod(lhs_val, rhs_val));
-            },
-            64 => {
-                const lhs_val = lhs.toFloat(f64, mod);
-                const rhs_val = rhs.toFloat(f64, mod);
-                return Value.Tag.float_64.create(arena, @mod(lhs_val, rhs_val));
-            },
-            80 => {
-                const lhs_val = lhs.toFloat(f80, mod);
-                const rhs_val = rhs.toFloat(f80, mod);
-                return Value.Tag.float_80.create(arena, @mod(lhs_val, rhs_val));
-            },
-            128 => {
-                const lhs_val = lhs.toFloat(f128, mod);
-                const rhs_val = rhs.toFloat(f128, mod);
-                return Value.Tag.float_128.create(arena, @mod(lhs_val, rhs_val));
-            },
+        const storage: InternPool.Key.Float.Storage = switch (float_type.floatBits(target)) {
+            16 => .{ .f16 = @mod(lhs.toFloat(f16, mod), rhs.toFloat(f16, mod)) },
+            32 => .{ .f32 = @mod(lhs.toFloat(f32, mod), rhs.toFloat(f32, mod)) },
+            64 => .{ .f64 = @mod(lhs.toFloat(f64, mod), rhs.toFloat(f64, mod)) },
+            80 => .{ .f80 = @mod(lhs.toFloat(f80, mod), rhs.toFloat(f80, mod)) },
+            128 => .{ .f128 = @mod(lhs.toFloat(f128, mod), rhs.toFloat(f128, mod)) },
             else => unreachable,
-        }
+        };
+        return (try mod.intern(.{ .float = .{
+            .ty = float_type.ip_index,
+            .storage = storage,
+        } })).toValue();
     }
 
     pub fn intMul(lhs: Value, rhs: Value, ty: Type, allocator: Allocator, mod: *Module) !Value {
@@ -4035,28 +3955,111 @@ pub const Value = struct {
             const result_data = try arena.alloc(Value, float_type.vectorLen(mod));
             for (result_data, 0..) |*scalar, i| {
                 const elem_val = try val.elemValue(mod, i);
-                scalar.* = try floatNegScalar(elem_val, float_type.scalarType(mod), arena, mod);
+                scalar.* = try floatNegScalar(elem_val, float_type.scalarType(mod), mod);
             }
             return Value.Tag.aggregate.create(arena, result_data);
         }
-        return floatNegScalar(val, float_type, arena, mod);
+        return floatNegScalar(val, float_type, mod);
     }
 
     pub fn floatNegScalar(
         val: Value,
         float_type: Type,
-        arena: Allocator,
-        mod: *const Module,
+        mod: *Module,
     ) !Value {
         const target = mod.getTarget();
-        switch (float_type.floatBits(target)) {
-            16 => return Value.Tag.float_16.create(arena, -val.toFloat(f16, mod)),
-            32 => return Value.Tag.float_32.create(arena, -val.toFloat(f32, mod)),
-            64 => return Value.Tag.float_64.create(arena, -val.toFloat(f64, mod)),
-            80 => return Value.Tag.float_80.create(arena, -val.toFloat(f80, mod)),
-            128 => return Value.Tag.float_128.create(arena, -val.toFloat(f128, mod)),
+        const storage: InternPool.Key.Float.Storage = switch (float_type.floatBits(target)) {
+            16 => .{ .f16 = -val.toFloat(f16, mod) },
+            32 => .{ .f32 = -val.toFloat(f32, mod) },
+            64 => .{ .f64 = -val.toFloat(f64, mod) },
+            80 => .{ .f80 = -val.toFloat(f80, mod) },
+            128 => .{ .f128 = -val.toFloat(f128, mod) },
             else => unreachable,
+        };
+        return (try mod.intern(.{ .float = .{
+            .ty = float_type.ip_index,
+            .storage = storage,
+        } })).toValue();
+    }
+
+    pub fn floatAdd(
+        lhs: Value,
+        rhs: Value,
+        float_type: Type,
+        arena: Allocator,
+        mod: *Module,
+    ) !Value {
+        if (float_type.zigTypeTag(mod) == .Vector) {
+            const result_data = try arena.alloc(Value, float_type.vectorLen(mod));
+            for (result_data, 0..) |*scalar, i| {
+                const lhs_elem = try lhs.elemValue(mod, i);
+                const rhs_elem = try rhs.elemValue(mod, i);
+                scalar.* = try floatAddScalar(lhs_elem, rhs_elem, float_type.scalarType(mod), mod);
+            }
+            return Value.Tag.aggregate.create(arena, result_data);
         }
+        return floatAddScalar(lhs, rhs, float_type, mod);
+    }
+
+    pub fn floatAddScalar(
+        lhs: Value,
+        rhs: Value,
+        float_type: Type,
+        mod: *Module,
+    ) !Value {
+        const target = mod.getTarget();
+        const storage: InternPool.Key.Float.Storage = switch (float_type.floatBits(target)) {
+            16 => .{ .f16 = lhs.toFloat(f16, mod) + rhs.toFloat(f16, mod) },
+            32 => .{ .f32 = lhs.toFloat(f32, mod) + rhs.toFloat(f32, mod) },
+            64 => .{ .f64 = lhs.toFloat(f64, mod) + rhs.toFloat(f64, mod) },
+            80 => .{ .f80 = lhs.toFloat(f80, mod) + rhs.toFloat(f80, mod) },
+            128 => .{ .f128 = lhs.toFloat(f128, mod) + rhs.toFloat(f128, mod) },
+            else => unreachable,
+        };
+        return (try mod.intern(.{ .float = .{
+            .ty = float_type.ip_index,
+            .storage = storage,
+        } })).toValue();
+    }
+
+    pub fn floatSub(
+        lhs: Value,
+        rhs: Value,
+        float_type: Type,
+        arena: Allocator,
+        mod: *Module,
+    ) !Value {
+        if (float_type.zigTypeTag(mod) == .Vector) {
+            const result_data = try arena.alloc(Value, float_type.vectorLen(mod));
+            for (result_data, 0..) |*scalar, i| {
+                const lhs_elem = try lhs.elemValue(mod, i);
+                const rhs_elem = try rhs.elemValue(mod, i);
+                scalar.* = try floatSubScalar(lhs_elem, rhs_elem, float_type.scalarType(mod), mod);
+            }
+            return Value.Tag.aggregate.create(arena, result_data);
+        }
+        return floatSubScalar(lhs, rhs, float_type, mod);
+    }
+
+    pub fn floatSubScalar(
+        lhs: Value,
+        rhs: Value,
+        float_type: Type,
+        mod: *Module,
+    ) !Value {
+        const target = mod.getTarget();
+        const storage: InternPool.Key.Float.Storage = switch (float_type.floatBits(target)) {
+            16 => .{ .f16 = lhs.toFloat(f16, mod) - rhs.toFloat(f16, mod) },
+            32 => .{ .f32 = lhs.toFloat(f32, mod) - rhs.toFloat(f32, mod) },
+            64 => .{ .f64 = lhs.toFloat(f64, mod) - rhs.toFloat(f64, mod) },
+            80 => .{ .f80 = lhs.toFloat(f80, mod) - rhs.toFloat(f80, mod) },
+            128 => .{ .f128 = lhs.toFloat(f128, mod) - rhs.toFloat(f128, mod) },
+            else => unreachable,
+        };
+        return (try mod.intern(.{ .float = .{
+            .ty = float_type.ip_index,
+            .storage = storage,
+        } })).toValue();
     }
 
     pub fn floatDiv(
@@ -4071,49 +4074,32 @@ pub const Value = struct {
             for (result_data, 0..) |*scalar, i| {
                 const lhs_elem = try lhs.elemValue(mod, i);
                 const rhs_elem = try rhs.elemValue(mod, i);
-                scalar.* = try floatDivScalar(lhs_elem, rhs_elem, float_type.scalarType(mod), arena, mod);
+                scalar.* = try floatDivScalar(lhs_elem, rhs_elem, float_type.scalarType(mod), mod);
             }
             return Value.Tag.aggregate.create(arena, result_data);
         }
-        return floatDivScalar(lhs, rhs, float_type, arena, mod);
+        return floatDivScalar(lhs, rhs, float_type, mod);
     }
 
     pub fn floatDivScalar(
         lhs: Value,
         rhs: Value,
         float_type: Type,
-        arena: Allocator,
-        mod: *const Module,
+        mod: *Module,
     ) !Value {
         const target = mod.getTarget();
-        switch (float_type.floatBits(target)) {
-            16 => {
-                const lhs_val = lhs.toFloat(f16, mod);
-                const rhs_val = rhs.toFloat(f16, mod);
-                return Value.Tag.float_16.create(arena, lhs_val / rhs_val);
-            },
-            32 => {
-                const lhs_val = lhs.toFloat(f32, mod);
-                const rhs_val = rhs.toFloat(f32, mod);
-                return Value.Tag.float_32.create(arena, lhs_val / rhs_val);
-            },
-            64 => {
-                const lhs_val = lhs.toFloat(f64, mod);
-                const rhs_val = rhs.toFloat(f64, mod);
-                return Value.Tag.float_64.create(arena, lhs_val / rhs_val);
-            },
-            80 => {
-                const lhs_val = lhs.toFloat(f80, mod);
-                const rhs_val = rhs.toFloat(f80, mod);
-                return Value.Tag.float_80.create(arena, lhs_val / rhs_val);
-            },
-            128 => {
-                const lhs_val = lhs.toFloat(f128, mod);
-                const rhs_val = rhs.toFloat(f128, mod);
-                return Value.Tag.float_128.create(arena, lhs_val / rhs_val);
-            },
+        const storage: InternPool.Key.Float.Storage = switch (float_type.floatBits(target)) {
+            16 => .{ .f16 = lhs.toFloat(f16, mod) / rhs.toFloat(f16, mod) },
+            32 => .{ .f32 = lhs.toFloat(f32, mod) / rhs.toFloat(f32, mod) },
+            64 => .{ .f64 = lhs.toFloat(f64, mod) / rhs.toFloat(f64, mod) },
+            80 => .{ .f80 = lhs.toFloat(f80, mod) / rhs.toFloat(f80, mod) },
+            128 => .{ .f128 = lhs.toFloat(f128, mod) / rhs.toFloat(f128, mod) },
             else => unreachable,
-        }
+        };
+        return (try mod.intern(.{ .float = .{
+            .ty = float_type.ip_index,
+            .storage = storage,
+        } })).toValue();
     }
 
     pub fn floatDivFloor(
@@ -4128,49 +4114,32 @@ pub const Value = struct {
             for (result_data, 0..) |*scalar, i| {
                 const lhs_elem = try lhs.elemValue(mod, i);
                 const rhs_elem = try rhs.elemValue(mod, i);
-                scalar.* = try floatDivFloorScalar(lhs_elem, rhs_elem, float_type.scalarType(mod), arena, mod);
+                scalar.* = try floatDivFloorScalar(lhs_elem, rhs_elem, float_type.scalarType(mod), mod);
             }
             return Value.Tag.aggregate.create(arena, result_data);
         }
-        return floatDivFloorScalar(lhs, rhs, float_type, arena, mod);
+        return floatDivFloorScalar(lhs, rhs, float_type, mod);
     }
 
     pub fn floatDivFloorScalar(
         lhs: Value,
         rhs: Value,
         float_type: Type,
-        arena: Allocator,
-        mod: *const Module,
+        mod: *Module,
     ) !Value {
         const target = mod.getTarget();
-        switch (float_type.floatBits(target)) {
-            16 => {
-                const lhs_val = lhs.toFloat(f16, mod);
-                const rhs_val = rhs.toFloat(f16, mod);
-                return Value.Tag.float_16.create(arena, @divFloor(lhs_val, rhs_val));
-            },
-            32 => {
-                const lhs_val = lhs.toFloat(f32, mod);
-                const rhs_val = rhs.toFloat(f32, mod);
-                return Value.Tag.float_32.create(arena, @divFloor(lhs_val, rhs_val));
-            },
-            64 => {
-                const lhs_val = lhs.toFloat(f64, mod);
-                const rhs_val = rhs.toFloat(f64, mod);
-                return Value.Tag.float_64.create(arena, @divFloor(lhs_val, rhs_val));
-            },
-            80 => {
-                const lhs_val = lhs.toFloat(f80, mod);
-                const rhs_val = rhs.toFloat(f80, mod);
-                return Value.Tag.float_80.create(arena, @divFloor(lhs_val, rhs_val));
-            },
-            128 => {
-                const lhs_val = lhs.toFloat(f128, mod);
-                const rhs_val = rhs.toFloat(f128, mod);
-                return Value.Tag.float_128.create(arena, @divFloor(lhs_val, rhs_val));
-            },
+        const storage: InternPool.Key.Float.Storage = switch (float_type.floatBits(target)) {
+            16 => .{ .f16 = @divFloor(lhs.toFloat(f16, mod), rhs.toFloat(f16, mod)) },
+            32 => .{ .f32 = @divFloor(lhs.toFloat(f32, mod), rhs.toFloat(f32, mod)) },
+            64 => .{ .f64 = @divFloor(lhs.toFloat(f64, mod), rhs.toFloat(f64, mod)) },
+            80 => .{ .f80 = @divFloor(lhs.toFloat(f80, mod), rhs.toFloat(f80, mod)) },
+            128 => .{ .f128 = @divFloor(lhs.toFloat(f128, mod), rhs.toFloat(f128, mod)) },
             else => unreachable,
-        }
+        };
+        return (try mod.intern(.{ .float = .{
+            .ty = float_type.ip_index,
+            .storage = storage,
+        } })).toValue();
     }
 
     pub fn floatDivTrunc(
@@ -4185,49 +4154,32 @@ pub const Value = struct {
             for (result_data, 0..) |*scalar, i| {
                 const lhs_elem = try lhs.elemValue(mod, i);
                 const rhs_elem = try rhs.elemValue(mod, i);
-                scalar.* = try floatDivTruncScalar(lhs_elem, rhs_elem, float_type.scalarType(mod), arena, mod);
+                scalar.* = try floatDivTruncScalar(lhs_elem, rhs_elem, float_type.scalarType(mod), mod);
             }
             return Value.Tag.aggregate.create(arena, result_data);
         }
-        return floatDivTruncScalar(lhs, rhs, float_type, arena, mod);
+        return floatDivTruncScalar(lhs, rhs, float_type, mod);
     }
 
     pub fn floatDivTruncScalar(
         lhs: Value,
         rhs: Value,
         float_type: Type,
-        arena: Allocator,
-        mod: *const Module,
+        mod: *Module,
     ) !Value {
         const target = mod.getTarget();
-        switch (float_type.floatBits(target)) {
-            16 => {
-                const lhs_val = lhs.toFloat(f16, mod);
-                const rhs_val = rhs.toFloat(f16, mod);
-                return Value.Tag.float_16.create(arena, @divTrunc(lhs_val, rhs_val));
-            },
-            32 => {
-                const lhs_val = lhs.toFloat(f32, mod);
-                const rhs_val = rhs.toFloat(f32, mod);
-                return Value.Tag.float_32.create(arena, @divTrunc(lhs_val, rhs_val));
-            },
-            64 => {
-                const lhs_val = lhs.toFloat(f64, mod);
-                const rhs_val = rhs.toFloat(f64, mod);
-                return Value.Tag.float_64.create(arena, @divTrunc(lhs_val, rhs_val));
-            },
-            80 => {
-                const lhs_val = lhs.toFloat(f80, mod);
-                const rhs_val = rhs.toFloat(f80, mod);
-                return Value.Tag.float_80.create(arena, @divTrunc(lhs_val, rhs_val));
-            },
-            128 => {
-                const lhs_val = lhs.toFloat(f128, mod);
-                const rhs_val = rhs.toFloat(f128, mod);
-                return Value.Tag.float_128.create(arena, @divTrunc(lhs_val, rhs_val));
-            },
+        const storage: InternPool.Key.Float.Storage = switch (float_type.floatBits(target)) {
+            16 => .{ .f16 = @divTrunc(lhs.toFloat(f16, mod), rhs.toFloat(f16, mod)) },
+            32 => .{ .f32 = @divTrunc(lhs.toFloat(f32, mod), rhs.toFloat(f32, mod)) },
+            64 => .{ .f64 = @divTrunc(lhs.toFloat(f64, mod), rhs.toFloat(f64, mod)) },
+            80 => .{ .f80 = @divTrunc(lhs.toFloat(f80, mod), rhs.toFloat(f80, mod)) },
+            128 => .{ .f128 = @divTrunc(lhs.toFloat(f128, mod), rhs.toFloat(f128, mod)) },
             else => unreachable,
-        }
+        };
+        return (try mod.intern(.{ .float = .{
+            .ty = float_type.ip_index,
+            .storage = storage,
+        } })).toValue();
     }
 
     pub fn floatMul(
@@ -4242,49 +4194,32 @@ pub const Value = struct {
             for (result_data, 0..) |*scalar, i| {
                 const lhs_elem = try lhs.elemValue(mod, i);
                 const rhs_elem = try rhs.elemValue(mod, i);
-                scalar.* = try floatMulScalar(lhs_elem, rhs_elem, float_type.scalarType(mod), arena, mod);
+                scalar.* = try floatMulScalar(lhs_elem, rhs_elem, float_type.scalarType(mod), mod);
             }
             return Value.Tag.aggregate.create(arena, result_data);
         }
-        return floatMulScalar(lhs, rhs, float_type, arena, mod);
+        return floatMulScalar(lhs, rhs, float_type, mod);
     }
 
     pub fn floatMulScalar(
         lhs: Value,
         rhs: Value,
         float_type: Type,
-        arena: Allocator,
-        mod: *const Module,
+        mod: *Module,
     ) !Value {
         const target = mod.getTarget();
-        switch (float_type.floatBits(target)) {
-            16 => {
-                const lhs_val = lhs.toFloat(f16, mod);
-                const rhs_val = rhs.toFloat(f16, mod);
-                return Value.Tag.float_16.create(arena, lhs_val * rhs_val);
-            },
-            32 => {
-                const lhs_val = lhs.toFloat(f32, mod);
-                const rhs_val = rhs.toFloat(f32, mod);
-                return Value.Tag.float_32.create(arena, lhs_val * rhs_val);
-            },
-            64 => {
-                const lhs_val = lhs.toFloat(f64, mod);
-                const rhs_val = rhs.toFloat(f64, mod);
-                return Value.Tag.float_64.create(arena, lhs_val * rhs_val);
-            },
-            80 => {
-                const lhs_val = lhs.toFloat(f80, mod);
-                const rhs_val = rhs.toFloat(f80, mod);
-                return Value.Tag.float_80.create(arena, lhs_val * rhs_val);
-            },
-            128 => {
-                const lhs_val = lhs.toFloat(f128, mod);
-                const rhs_val = rhs.toFloat(f128, mod);
-                return Value.Tag.float_128.create(arena, lhs_val * rhs_val);
-            },
+        const storage: InternPool.Key.Float.Storage = switch (float_type.floatBits(target)) {
+            16 => .{ .f16 = lhs.toFloat(f16, mod) * rhs.toFloat(f16, mod) },
+            32 => .{ .f32 = lhs.toFloat(f32, mod) * rhs.toFloat(f32, mod) },
+            64 => .{ .f64 = lhs.toFloat(f64, mod) * rhs.toFloat(f64, mod) },
+            80 => .{ .f80 = lhs.toFloat(f80, mod) * rhs.toFloat(f80, mod) },
+            128 => .{ .f128 = lhs.toFloat(f128, mod) * rhs.toFloat(f128, mod) },
             else => unreachable,
-        }
+        };
+        return (try mod.intern(.{ .float = .{
+            .ty = float_type.ip_index,
+            .storage = storage,
+        } })).toValue();
     }
 
     pub fn sqrt(val: Value, float_type: Type, arena: Allocator, mod: *Module) !Value {
@@ -4292,38 +4227,27 @@ pub const Value = struct {
             const result_data = try arena.alloc(Value, float_type.vectorLen(mod));
             for (result_data, 0..) |*scalar, i| {
                 const elem_val = try val.elemValue(mod, i);
-                scalar.* = try sqrtScalar(elem_val, float_type.scalarType(mod), arena, mod);
+                scalar.* = try sqrtScalar(elem_val, float_type.scalarType(mod), mod);
             }
             return Value.Tag.aggregate.create(arena, result_data);
         }
-        return sqrtScalar(val, float_type, arena, mod);
+        return sqrtScalar(val, float_type, mod);
     }
 
-    pub fn sqrtScalar(val: Value, float_type: Type, arena: Allocator, mod: *const Module) Allocator.Error!Value {
+    pub fn sqrtScalar(val: Value, float_type: Type, mod: *Module) Allocator.Error!Value {
         const target = mod.getTarget();
-        switch (float_type.floatBits(target)) {
-            16 => {
-                const f = val.toFloat(f16, mod);
-                return Value.Tag.float_16.create(arena, @sqrt(f));
-            },
-            32 => {
-                const f = val.toFloat(f32, mod);
-                return Value.Tag.float_32.create(arena, @sqrt(f));
-            },
-            64 => {
-                const f = val.toFloat(f64, mod);
-                return Value.Tag.float_64.create(arena, @sqrt(f));
-            },
-            80 => {
-                const f = val.toFloat(f80, mod);
-                return Value.Tag.float_80.create(arena, @sqrt(f));
-            },
-            128 => {
-                const f = val.toFloat(f128, mod);
-                return Value.Tag.float_128.create(arena, @sqrt(f));
-            },
+        const storage: InternPool.Key.Float.Storage = switch (float_type.floatBits(target)) {
+            16 => .{ .f16 = @sqrt(val.toFloat(f16, mod)) },
+            32 => .{ .f32 = @sqrt(val.toFloat(f32, mod)) },
+            64 => .{ .f64 = @sqrt(val.toFloat(f64, mod)) },
+            80 => .{ .f80 = @sqrt(val.toFloat(f80, mod)) },
+            128 => .{ .f128 = @sqrt(val.toFloat(f128, mod)) },
             else => unreachable,
-        }
+        };
+        return (try mod.intern(.{ .float = .{
+            .ty = float_type.ip_index,
+            .storage = storage,
+        } })).toValue();
     }
 
     pub fn sin(val: Value, float_type: Type, arena: Allocator, mod: *Module) !Value {
@@ -4331,38 +4255,27 @@ pub const Value = struct {
             const result_data = try arena.alloc(Value, float_type.vectorLen(mod));
             for (result_data, 0..) |*scalar, i| {
                 const elem_val = try val.elemValue(mod, i);
-                scalar.* = try sinScalar(elem_val, float_type.scalarType(mod), arena, mod);
+                scalar.* = try sinScalar(elem_val, float_type.scalarType(mod), mod);
             }
             return Value.Tag.aggregate.create(arena, result_data);
         }
-        return sinScalar(val, float_type, arena, mod);
+        return sinScalar(val, float_type, mod);
     }
 
-    pub fn sinScalar(val: Value, float_type: Type, arena: Allocator, mod: *const Module) Allocator.Error!Value {
+    pub fn sinScalar(val: Value, float_type: Type, mod: *Module) Allocator.Error!Value {
         const target = mod.getTarget();
-        switch (float_type.floatBits(target)) {
-            16 => {
-                const f = val.toFloat(f16, mod);
-                return Value.Tag.float_16.create(arena, @sin(f));
-            },
-            32 => {
-                const f = val.toFloat(f32, mod);
-                return Value.Tag.float_32.create(arena, @sin(f));
-            },
-            64 => {
-                const f = val.toFloat(f64, mod);
-                return Value.Tag.float_64.create(arena, @sin(f));
-            },
-            80 => {
-                const f = val.toFloat(f80, mod);
-                return Value.Tag.float_80.create(arena, @sin(f));
-            },
-            128 => {
-                const f = val.toFloat(f128, mod);
-                return Value.Tag.float_128.create(arena, @sin(f));
-            },
+        const storage: InternPool.Key.Float.Storage = switch (float_type.floatBits(target)) {
+            16 => .{ .f16 = @sin(val.toFloat(f16, mod)) },
+            32 => .{ .f32 = @sin(val.toFloat(f32, mod)) },
+            64 => .{ .f64 = @sin(val.toFloat(f64, mod)) },
+            80 => .{ .f80 = @sin(val.toFloat(f80, mod)) },
+            128 => .{ .f128 = @sin(val.toFloat(f128, mod)) },
             else => unreachable,
-        }
+        };
+        return (try mod.intern(.{ .float = .{
+            .ty = float_type.ip_index,
+            .storage = storage,
+        } })).toValue();
     }
 
     pub fn cos(val: Value, float_type: Type, arena: Allocator, mod: *Module) !Value {
@@ -4370,38 +4283,27 @@ pub const Value = struct {
             const result_data = try arena.alloc(Value, float_type.vectorLen(mod));
             for (result_data, 0..) |*scalar, i| {
                 const elem_val = try val.elemValue(mod, i);
-                scalar.* = try cosScalar(elem_val, float_type.scalarType(mod), arena, mod);
+                scalar.* = try cosScalar(elem_val, float_type.scalarType(mod), mod);
             }
             return Value.Tag.aggregate.create(arena, result_data);
         }
-        return cosScalar(val, float_type, arena, mod);
+        return cosScalar(val, float_type, mod);
     }
 
-    pub fn cosScalar(val: Value, float_type: Type, arena: Allocator, mod: *const Module) Allocator.Error!Value {
+    pub fn cosScalar(val: Value, float_type: Type, mod: *Module) Allocator.Error!Value {
         const target = mod.getTarget();
-        switch (float_type.floatBits(target)) {
-            16 => {
-                const f = val.toFloat(f16, mod);
-                return Value.Tag.float_16.create(arena, @cos(f));
-            },
-            32 => {
-                const f = val.toFloat(f32, mod);
-                return Value.Tag.float_32.create(arena, @cos(f));
-            },
-            64 => {
-                const f = val.toFloat(f64, mod);
-                return Value.Tag.float_64.create(arena, @cos(f));
-            },
-            80 => {
-                const f = val.toFloat(f80, mod);
-                return Value.Tag.float_80.create(arena, @cos(f));
-            },
-            128 => {
-                const f = val.toFloat(f128, mod);
-                return Value.Tag.float_128.create(arena, @cos(f));
-            },
+        const storage: InternPool.Key.Float.Storage = switch (float_type.floatBits(target)) {
+            16 => .{ .f16 = @cos(val.toFloat(f16, mod)) },
+            32 => .{ .f32 = @cos(val.toFloat(f32, mod)) },
+            64 => .{ .f64 = @cos(val.toFloat(f64, mod)) },
+            80 => .{ .f80 = @cos(val.toFloat(f80, mod)) },
+            128 => .{ .f128 = @cos(val.toFloat(f128, mod)) },
             else => unreachable,
-        }
+        };
+        return (try mod.intern(.{ .float = .{
+            .ty = float_type.ip_index,
+            .storage = storage,
+        } })).toValue();
     }
 
     pub fn tan(val: Value, float_type: Type, arena: Allocator, mod: *Module) !Value {
@@ -4409,38 +4311,27 @@ pub const Value = struct {
             const result_data = try arena.alloc(Value, float_type.vectorLen(mod));
             for (result_data, 0..) |*scalar, i| {
                 const elem_val = try val.elemValue(mod, i);
-                scalar.* = try tanScalar(elem_val, float_type.scalarType(mod), arena, mod);
+                scalar.* = try tanScalar(elem_val, float_type.scalarType(mod), mod);
             }
             return Value.Tag.aggregate.create(arena, result_data);
         }
-        return tanScalar(val, float_type, arena, mod);
+        return tanScalar(val, float_type, mod);
     }
 
-    pub fn tanScalar(val: Value, float_type: Type, arena: Allocator, mod: *const Module) Allocator.Error!Value {
+    pub fn tanScalar(val: Value, float_type: Type, mod: *Module) Allocator.Error!Value {
         const target = mod.getTarget();
-        switch (float_type.floatBits(target)) {
-            16 => {
-                const f = val.toFloat(f16, mod);
-                return Value.Tag.float_16.create(arena, @tan(f));
-            },
-            32 => {
-                const f = val.toFloat(f32, mod);
-                return Value.Tag.float_32.create(arena, @tan(f));
-            },
-            64 => {
-                const f = val.toFloat(f64, mod);
-                return Value.Tag.float_64.create(arena, @tan(f));
-            },
-            80 => {
-                const f = val.toFloat(f80, mod);
-                return Value.Tag.float_80.create(arena, @tan(f));
-            },
-            128 => {
-                const f = val.toFloat(f128, mod);
-                return Value.Tag.float_128.create(arena, @tan(f));
-            },
+        const storage: InternPool.Key.Float.Storage = switch (float_type.floatBits(target)) {
+            16 => .{ .f16 = @tan(val.toFloat(f16, mod)) },
+            32 => .{ .f32 = @tan(val.toFloat(f32, mod)) },
+            64 => .{ .f64 = @tan(val.toFloat(f64, mod)) },
+            80 => .{ .f80 = @tan(val.toFloat(f80, mod)) },
+            128 => .{ .f128 = @tan(val.toFloat(f128, mod)) },
             else => unreachable,
-        }
+        };
+        return (try mod.intern(.{ .float = .{
+            .ty = float_type.ip_index,
+            .storage = storage,
+        } })).toValue();
     }
 
     pub fn exp(val: Value, float_type: Type, arena: Allocator, mod: *Module) !Value {
@@ -4448,38 +4339,27 @@ pub const Value = struct {
             const result_data = try arena.alloc(Value, float_type.vectorLen(mod));
             for (result_data, 0..) |*scalar, i| {
                 const elem_val = try val.elemValue(mod, i);
-                scalar.* = try expScalar(elem_val, float_type.scalarType(mod), arena, mod);
+                scalar.* = try expScalar(elem_val, float_type.scalarType(mod), mod);
             }
             return Value.Tag.aggregate.create(arena, result_data);
         }
-        return expScalar(val, float_type, arena, mod);
+        return expScalar(val, float_type, mod);
     }
 
-    pub fn expScalar(val: Value, float_type: Type, arena: Allocator, mod: *const Module) Allocator.Error!Value {
+    pub fn expScalar(val: Value, float_type: Type, mod: *Module) Allocator.Error!Value {
         const target = mod.getTarget();
-        switch (float_type.floatBits(target)) {
-            16 => {
-                const f = val.toFloat(f16, mod);
-                return Value.Tag.float_16.create(arena, @exp(f));
-            },
-            32 => {
-                const f = val.toFloat(f32, mod);
-                return Value.Tag.float_32.create(arena, @exp(f));
-            },
-            64 => {
-                const f = val.toFloat(f64, mod);
-                return Value.Tag.float_64.create(arena, @exp(f));
-            },
-            80 => {
-                const f = val.toFloat(f80, mod);
-                return Value.Tag.float_80.create(arena, @exp(f));
-            },
-            128 => {
-                const f = val.toFloat(f128, mod);
-                return Value.Tag.float_128.create(arena, @exp(f));
-            },
+        const storage: InternPool.Key.Float.Storage = switch (float_type.floatBits(target)) {
+            16 => .{ .f16 = @exp(val.toFloat(f16, mod)) },
+            32 => .{ .f32 = @exp(val.toFloat(f32, mod)) },
+            64 => .{ .f64 = @exp(val.toFloat(f64, mod)) },
+            80 => .{ .f80 = @exp(val.toFloat(f80, mod)) },
+            128 => .{ .f128 = @exp(val.toFloat(f128, mod)) },
             else => unreachable,
-        }
+        };
+        return (try mod.intern(.{ .float = .{
+            .ty = float_type.ip_index,
+            .storage = storage,
+        } })).toValue();
     }
 
     pub fn exp2(val: Value, float_type: Type, arena: Allocator, mod: *Module) !Value {
@@ -4487,38 +4367,27 @@ pub const Value = struct {
             const result_data = try arena.alloc(Value, float_type.vectorLen(mod));
             for (result_data, 0..) |*scalar, i| {
                 const elem_val = try val.elemValue(mod, i);
-                scalar.* = try exp2Scalar(elem_val, float_type.scalarType(mod), arena, mod);
+                scalar.* = try exp2Scalar(elem_val, float_type.scalarType(mod), mod);
             }
             return Value.Tag.aggregate.create(arena, result_data);
         }
-        return exp2Scalar(val, float_type, arena, mod);
+        return exp2Scalar(val, float_type, mod);
     }
 
-    pub fn exp2Scalar(val: Value, float_type: Type, arena: Allocator, mod: *const Module) Allocator.Error!Value {
+    pub fn exp2Scalar(val: Value, float_type: Type, mod: *Module) Allocator.Error!Value {
         const target = mod.getTarget();
-        switch (float_type.floatBits(target)) {
-            16 => {
-                const f = val.toFloat(f16, mod);
-                return Value.Tag.float_16.create(arena, @exp2(f));
-            },
-            32 => {
-                const f = val.toFloat(f32, mod);
-                return Value.Tag.float_32.create(arena, @exp2(f));
-            },
-            64 => {
-                const f = val.toFloat(f64, mod);
-                return Value.Tag.float_64.create(arena, @exp2(f));
-            },
-            80 => {
-                const f = val.toFloat(f80, mod);
-                return Value.Tag.float_80.create(arena, @exp2(f));
-            },
-            128 => {
-                const f = val.toFloat(f128, mod);
-                return Value.Tag.float_128.create(arena, @exp2(f));
-            },
+        const storage: InternPool.Key.Float.Storage = switch (float_type.floatBits(target)) {
+            16 => .{ .f16 = @exp2(val.toFloat(f16, mod)) },
+            32 => .{ .f32 = @exp2(val.toFloat(f32, mod)) },
+            64 => .{ .f64 = @exp2(val.toFloat(f64, mod)) },
+            80 => .{ .f80 = @exp2(val.toFloat(f80, mod)) },
+            128 => .{ .f128 = @exp2(val.toFloat(f128, mod)) },
             else => unreachable,
-        }
+        };
+        return (try mod.intern(.{ .float = .{
+            .ty = float_type.ip_index,
+            .storage = storage,
+        } })).toValue();
     }
 
     pub fn log(val: Value, float_type: Type, arena: Allocator, mod: *Module) !Value {
@@ -4526,38 +4395,27 @@ pub const Value = struct {
             const result_data = try arena.alloc(Value, float_type.vectorLen(mod));
             for (result_data, 0..) |*scalar, i| {
                 const elem_val = try val.elemValue(mod, i);
-                scalar.* = try logScalar(elem_val, float_type.scalarType(mod), arena, mod);
+                scalar.* = try logScalar(elem_val, float_type.scalarType(mod), mod);
             }
             return Value.Tag.aggregate.create(arena, result_data);
         }
-        return logScalar(val, float_type, arena, mod);
+        return logScalar(val, float_type, mod);
     }
 
-    pub fn logScalar(val: Value, float_type: Type, arena: Allocator, mod: *const Module) Allocator.Error!Value {
+    pub fn logScalar(val: Value, float_type: Type, mod: *Module) Allocator.Error!Value {
         const target = mod.getTarget();
-        switch (float_type.floatBits(target)) {
-            16 => {
-                const f = val.toFloat(f16, mod);
-                return Value.Tag.float_16.create(arena, @log(f));
-            },
-            32 => {
-                const f = val.toFloat(f32, mod);
-                return Value.Tag.float_32.create(arena, @log(f));
-            },
-            64 => {
-                const f = val.toFloat(f64, mod);
-                return Value.Tag.float_64.create(arena, @log(f));
-            },
-            80 => {
-                const f = val.toFloat(f80, mod);
-                return Value.Tag.float_80.create(arena, @log(f));
-            },
-            128 => {
-                const f = val.toFloat(f128, mod);
-                return Value.Tag.float_128.create(arena, @log(f));
-            },
+        const storage: InternPool.Key.Float.Storage = switch (float_type.floatBits(target)) {
+            16 => .{ .f16 = @log(val.toFloat(f16, mod)) },
+            32 => .{ .f32 = @log(val.toFloat(f32, mod)) },
+            64 => .{ .f64 = @log(val.toFloat(f64, mod)) },
+            80 => .{ .f80 = @log(val.toFloat(f80, mod)) },
+            128 => .{ .f128 = @log(val.toFloat(f128, mod)) },
             else => unreachable,
-        }
+        };
+        return (try mod.intern(.{ .float = .{
+            .ty = float_type.ip_index,
+            .storage = storage,
+        } })).toValue();
     }
 
     pub fn log2(val: Value, float_type: Type, arena: Allocator, mod: *Module) !Value {
@@ -4565,38 +4423,27 @@ pub const Value = struct {
             const result_data = try arena.alloc(Value, float_type.vectorLen(mod));
             for (result_data, 0..) |*scalar, i| {
                 const elem_val = try val.elemValue(mod, i);
-                scalar.* = try log2Scalar(elem_val, float_type.scalarType(mod), arena, mod);
+                scalar.* = try log2Scalar(elem_val, float_type.scalarType(mod), mod);
             }
             return Value.Tag.aggregate.create(arena, result_data);
         }
-        return log2Scalar(val, float_type, arena, mod);
+        return log2Scalar(val, float_type, mod);
     }
 
-    pub fn log2Scalar(val: Value, float_type: Type, arena: Allocator, mod: *const Module) Allocator.Error!Value {
+    pub fn log2Scalar(val: Value, float_type: Type, mod: *Module) Allocator.Error!Value {
         const target = mod.getTarget();
-        switch (float_type.floatBits(target)) {
-            16 => {
-                const f = val.toFloat(f16, mod);
-                return Value.Tag.float_16.create(arena, @log2(f));
-            },
-            32 => {
-                const f = val.toFloat(f32, mod);
-                return Value.Tag.float_32.create(arena, @log2(f));
-            },
-            64 => {
-                const f = val.toFloat(f64, mod);
-                return Value.Tag.float_64.create(arena, @log2(f));
-            },
-            80 => {
-                const f = val.toFloat(f80, mod);
-                return Value.Tag.float_80.create(arena, @log2(f));
-            },
-            128 => {
-                const f = val.toFloat(f128, mod);
-                return Value.Tag.float_128.create(arena, @log2(f));
-            },
+        const storage: InternPool.Key.Float.Storage = switch (float_type.floatBits(target)) {
+            16 => .{ .f16 = @log2(val.toFloat(f16, mod)) },
+            32 => .{ .f32 = @log2(val.toFloat(f32, mod)) },
+            64 => .{ .f64 = @log2(val.toFloat(f64, mod)) },
+            80 => .{ .f80 = @log2(val.toFloat(f80, mod)) },
+            128 => .{ .f128 = @log2(val.toFloat(f128, mod)) },
             else => unreachable,
-        }
+        };
+        return (try mod.intern(.{ .float = .{
+            .ty = float_type.ip_index,
+            .storage = storage,
+        } })).toValue();
     }
 
     pub fn log10(val: Value, float_type: Type, arena: Allocator, mod: *Module) !Value {
@@ -4604,38 +4451,27 @@ pub const Value = struct {
             const result_data = try arena.alloc(Value, float_type.vectorLen(mod));
             for (result_data, 0..) |*scalar, i| {
                 const elem_val = try val.elemValue(mod, i);
-                scalar.* = try log10Scalar(elem_val, float_type.scalarType(mod), arena, mod);
+                scalar.* = try log10Scalar(elem_val, float_type.scalarType(mod), mod);
             }
             return Value.Tag.aggregate.create(arena, result_data);
         }
-        return log10Scalar(val, float_type, arena, mod);
+        return log10Scalar(val, float_type, mod);
     }
 
-    pub fn log10Scalar(val: Value, float_type: Type, arena: Allocator, mod: *const Module) Allocator.Error!Value {
+    pub fn log10Scalar(val: Value, float_type: Type, mod: *Module) Allocator.Error!Value {
         const target = mod.getTarget();
-        switch (float_type.floatBits(target)) {
-            16 => {
-                const f = val.toFloat(f16, mod);
-                return Value.Tag.float_16.create(arena, @log10(f));
-            },
-            32 => {
-                const f = val.toFloat(f32, mod);
-                return Value.Tag.float_32.create(arena, @log10(f));
-            },
-            64 => {
-                const f = val.toFloat(f64, mod);
-                return Value.Tag.float_64.create(arena, @log10(f));
-            },
-            80 => {
-                const f = val.toFloat(f80, mod);
-                return Value.Tag.float_80.create(arena, @log10(f));
-            },
-            128 => {
-                const f = val.toFloat(f128, mod);
-                return Value.Tag.float_128.create(arena, @log10(f));
-            },
+        const storage: InternPool.Key.Float.Storage = switch (float_type.floatBits(target)) {
+            16 => .{ .f16 = @log10(val.toFloat(f16, mod)) },
+            32 => .{ .f32 = @log10(val.toFloat(f32, mod)) },
+            64 => .{ .f64 = @log10(val.toFloat(f64, mod)) },
+            80 => .{ .f80 = @log10(val.toFloat(f80, mod)) },
+            128 => .{ .f128 = @log10(val.toFloat(f128, mod)) },
             else => unreachable,
-        }
+        };
+        return (try mod.intern(.{ .float = .{
+            .ty = float_type.ip_index,
+            .storage = storage,
+        } })).toValue();
     }
 
     pub fn fabs(val: Value, float_type: Type, arena: Allocator, mod: *Module) !Value {
@@ -4643,38 +4479,27 @@ pub const Value = struct {
             const result_data = try arena.alloc(Value, float_type.vectorLen(mod));
             for (result_data, 0..) |*scalar, i| {
                 const elem_val = try val.elemValue(mod, i);
-                scalar.* = try fabsScalar(elem_val, float_type.scalarType(mod), arena, mod);
+                scalar.* = try fabsScalar(elem_val, float_type.scalarType(mod), mod);
             }
             return Value.Tag.aggregate.create(arena, result_data);
         }
-        return fabsScalar(val, float_type, arena, mod);
+        return fabsScalar(val, float_type, mod);
     }
 
-    pub fn fabsScalar(val: Value, float_type: Type, arena: Allocator, mod: *const Module) Allocator.Error!Value {
+    pub fn fabsScalar(val: Value, float_type: Type, mod: *Module) Allocator.Error!Value {
         const target = mod.getTarget();
-        switch (float_type.floatBits(target)) {
-            16 => {
-                const f = val.toFloat(f16, mod);
-                return Value.Tag.float_16.create(arena, @fabs(f));
-            },
-            32 => {
-                const f = val.toFloat(f32, mod);
-                return Value.Tag.float_32.create(arena, @fabs(f));
-            },
-            64 => {
-                const f = val.toFloat(f64, mod);
-                return Value.Tag.float_64.create(arena, @fabs(f));
-            },
-            80 => {
-                const f = val.toFloat(f80, mod);
-                return Value.Tag.float_80.create(arena, @fabs(f));
-            },
-            128 => {
-                const f = val.toFloat(f128, mod);
-                return Value.Tag.float_128.create(arena, @fabs(f));
-            },
+        const storage: InternPool.Key.Float.Storage = switch (float_type.floatBits(target)) {
+            16 => .{ .f16 = @fabs(val.toFloat(f16, mod)) },
+            32 => .{ .f32 = @fabs(val.toFloat(f32, mod)) },
+            64 => .{ .f64 = @fabs(val.toFloat(f64, mod)) },
+            80 => .{ .f80 = @fabs(val.toFloat(f80, mod)) },
+            128 => .{ .f128 = @fabs(val.toFloat(f128, mod)) },
             else => unreachable,
-        }
+        };
+        return (try mod.intern(.{ .float = .{
+            .ty = float_type.ip_index,
+            .storage = storage,
+        } })).toValue();
     }
 
     pub fn floor(val: Value, float_type: Type, arena: Allocator, mod: *Module) !Value {
@@ -4682,38 +4507,27 @@ pub const Value = struct {
             const result_data = try arena.alloc(Value, float_type.vectorLen(mod));
             for (result_data, 0..) |*scalar, i| {
                 const elem_val = try val.elemValue(mod, i);
-                scalar.* = try floorScalar(elem_val, float_type.scalarType(mod), arena, mod);
+                scalar.* = try floorScalar(elem_val, float_type.scalarType(mod), mod);
             }
             return Value.Tag.aggregate.create(arena, result_data);
         }
-        return floorScalar(val, float_type, arena, mod);
+        return floorScalar(val, float_type, mod);
     }
 
-    pub fn floorScalar(val: Value, float_type: Type, arena: Allocator, mod: *const Module) Allocator.Error!Value {
+    pub fn floorScalar(val: Value, float_type: Type, mod: *Module) Allocator.Error!Value {
         const target = mod.getTarget();
-        switch (float_type.floatBits(target)) {
-            16 => {
-                const f = val.toFloat(f16, mod);
-                return Value.Tag.float_16.create(arena, @floor(f));
-            },
-            32 => {
-                const f = val.toFloat(f32, mod);
-                return Value.Tag.float_32.create(arena, @floor(f));
-            },
-            64 => {
-                const f = val.toFloat(f64, mod);
-                return Value.Tag.float_64.create(arena, @floor(f));
-            },
-            80 => {
-                const f = val.toFloat(f80, mod);
-                return Value.Tag.float_80.create(arena, @floor(f));
-            },
-            128 => {
-                const f = val.toFloat(f128, mod);
-                return Value.Tag.float_128.create(arena, @floor(f));
-            },
+        const storage: InternPool.Key.Float.Storage = switch (float_type.floatBits(target)) {
+            16 => .{ .f16 = @floor(val.toFloat(f16, mod)) },
+            32 => .{ .f32 = @floor(val.toFloat(f32, mod)) },
+            64 => .{ .f64 = @floor(val.toFloat(f64, mod)) },
+            80 => .{ .f80 = @floor(val.toFloat(f80, mod)) },
+            128 => .{ .f128 = @floor(val.toFloat(f128, mod)) },
             else => unreachable,
-        }
+        };
+        return (try mod.intern(.{ .float = .{
+            .ty = float_type.ip_index,
+            .storage = storage,
+        } })).toValue();
     }
 
     pub fn ceil(val: Value, float_type: Type, arena: Allocator, mod: *Module) !Value {
@@ -4721,38 +4535,27 @@ pub const Value = struct {
             const result_data = try arena.alloc(Value, float_type.vectorLen(mod));
             for (result_data, 0..) |*scalar, i| {
                 const elem_val = try val.elemValue(mod, i);
-                scalar.* = try ceilScalar(elem_val, float_type.scalarType(mod), arena, mod);
+                scalar.* = try ceilScalar(elem_val, float_type.scalarType(mod), mod);
             }
             return Value.Tag.aggregate.create(arena, result_data);
         }
-        return ceilScalar(val, float_type, arena, mod);
+        return ceilScalar(val, float_type, mod);
     }
 
-    pub fn ceilScalar(val: Value, float_type: Type, arena: Allocator, mod: *const Module) Allocator.Error!Value {
+    pub fn ceilScalar(val: Value, float_type: Type, mod: *Module) Allocator.Error!Value {
         const target = mod.getTarget();
-        switch (float_type.floatBits(target)) {
-            16 => {
-                const f = val.toFloat(f16, mod);
-                return Value.Tag.float_16.create(arena, @ceil(f));
-            },
-            32 => {
-                const f = val.toFloat(f32, mod);
-                return Value.Tag.float_32.create(arena, @ceil(f));
-            },
-            64 => {
-                const f = val.toFloat(f64, mod);
-                return Value.Tag.float_64.create(arena, @ceil(f));
-            },
-            80 => {
-                const f = val.toFloat(f80, mod);
-                return Value.Tag.float_80.create(arena, @ceil(f));
-            },
-            128 => {
-                const f = val.toFloat(f128, mod);
-                return Value.Tag.float_128.create(arena, @ceil(f));
-            },
+        const storage: InternPool.Key.Float.Storage = switch (float_type.floatBits(target)) {
+            16 => .{ .f16 = @ceil(val.toFloat(f16, mod)) },
+            32 => .{ .f32 = @ceil(val.toFloat(f32, mod)) },
+            64 => .{ .f64 = @ceil(val.toFloat(f64, mod)) },
+            80 => .{ .f80 = @ceil(val.toFloat(f80, mod)) },
+            128 => .{ .f128 = @ceil(val.toFloat(f128, mod)) },
             else => unreachable,
-        }
+        };
+        return (try mod.intern(.{ .float = .{
+            .ty = float_type.ip_index,
+            .storage = storage,
+        } })).toValue();
     }
 
     pub fn round(val: Value, float_type: Type, arena: Allocator, mod: *Module) !Value {
@@ -4760,38 +4563,27 @@ pub const Value = struct {
             const result_data = try arena.alloc(Value, float_type.vectorLen(mod));
             for (result_data, 0..) |*scalar, i| {
                 const elem_val = try val.elemValue(mod, i);
-                scalar.* = try roundScalar(elem_val, float_type.scalarType(mod), arena, mod);
+                scalar.* = try roundScalar(elem_val, float_type.scalarType(mod), mod);
             }
             return Value.Tag.aggregate.create(arena, result_data);
         }
-        return roundScalar(val, float_type, arena, mod);
+        return roundScalar(val, float_type, mod);
     }
 
-    pub fn roundScalar(val: Value, float_type: Type, arena: Allocator, mod: *const Module) Allocator.Error!Value {
+    pub fn roundScalar(val: Value, float_type: Type, mod: *Module) Allocator.Error!Value {
         const target = mod.getTarget();
-        switch (float_type.floatBits(target)) {
-            16 => {
-                const f = val.toFloat(f16, mod);
-                return Value.Tag.float_16.create(arena, @round(f));
-            },
-            32 => {
-                const f = val.toFloat(f32, mod);
-                return Value.Tag.float_32.create(arena, @round(f));
-            },
-            64 => {
-                const f = val.toFloat(f64, mod);
-                return Value.Tag.float_64.create(arena, @round(f));
-            },
-            80 => {
-                const f = val.toFloat(f80, mod);
-                return Value.Tag.float_80.create(arena, @round(f));
-            },
-            128 => {
-                const f = val.toFloat(f128, mod);
-                return Value.Tag.float_128.create(arena, @round(f));
-            },
+        const storage: InternPool.Key.Float.Storage = switch (float_type.floatBits(target)) {
+            16 => .{ .f16 = @round(val.toFloat(f16, mod)) },
+            32 => .{ .f32 = @round(val.toFloat(f32, mod)) },
+            64 => .{ .f64 = @round(val.toFloat(f64, mod)) },
+            80 => .{ .f80 = @round(val.toFloat(f80, mod)) },
+            128 => .{ .f128 = @round(val.toFloat(f128, mod)) },
             else => unreachable,
-        }
+        };
+        return (try mod.intern(.{ .float = .{
+            .ty = float_type.ip_index,
+            .storage = storage,
+        } })).toValue();
     }
 
     pub fn trunc(val: Value, float_type: Type, arena: Allocator, mod: *Module) !Value {
@@ -4799,38 +4591,27 @@ pub const Value = struct {
             const result_data = try arena.alloc(Value, float_type.vectorLen(mod));
             for (result_data, 0..) |*scalar, i| {
                 const elem_val = try val.elemValue(mod, i);
-                scalar.* = try truncScalar(elem_val, float_type.scalarType(mod), arena, mod);
+                scalar.* = try truncScalar(elem_val, float_type.scalarType(mod), mod);
             }
             return Value.Tag.aggregate.create(arena, result_data);
         }
-        return truncScalar(val, float_type, arena, mod);
+        return truncScalar(val, float_type, mod);
     }
 
-    pub fn truncScalar(val: Value, float_type: Type, arena: Allocator, mod: *const Module) Allocator.Error!Value {
+    pub fn truncScalar(val: Value, float_type: Type, mod: *Module) Allocator.Error!Value {
         const target = mod.getTarget();
-        switch (float_type.floatBits(target)) {
-            16 => {
-                const f = val.toFloat(f16, mod);
-                return Value.Tag.float_16.create(arena, @trunc(f));
-            },
-            32 => {
-                const f = val.toFloat(f32, mod);
-                return Value.Tag.float_32.create(arena, @trunc(f));
-            },
-            64 => {
-                const f = val.toFloat(f64, mod);
-                return Value.Tag.float_64.create(arena, @trunc(f));
-            },
-            80 => {
-                const f = val.toFloat(f80, mod);
-                return Value.Tag.float_80.create(arena, @trunc(f));
-            },
-            128 => {
-                const f = val.toFloat(f128, mod);
-                return Value.Tag.float_128.create(arena, @trunc(f));
-            },
+        const storage: InternPool.Key.Float.Storage = switch (float_type.floatBits(target)) {
+            16 => .{ .f16 = @trunc(val.toFloat(f16, mod)) },
+            32 => .{ .f32 = @trunc(val.toFloat(f32, mod)) },
+            64 => .{ .f64 = @trunc(val.toFloat(f64, mod)) },
+            80 => .{ .f80 = @trunc(val.toFloat(f80, mod)) },
+            128 => .{ .f128 = @trunc(val.toFloat(f128, mod)) },
             else => unreachable,
-        }
+        };
+        return (try mod.intern(.{ .float = .{
+            .ty = float_type.ip_index,
+            .storage = storage,
+        } })).toValue();
     }
 
     pub fn mulAdd(
@@ -4852,13 +4633,12 @@ pub const Value = struct {
                     mulend1_elem,
                     mulend2_elem,
                     addend_elem,
-                    arena,
                     mod,
                 );
             }
             return Value.Tag.aggregate.create(arena, result_data);
         }
-        return mulAddScalar(float_type, mulend1, mulend2, addend, arena, mod);
+        return mulAddScalar(float_type, mulend1, mulend2, addend, mod);
     }
 
     pub fn mulAddScalar(
@@ -4866,43 +4646,21 @@ pub const Value = struct {
         mulend1: Value,
         mulend2: Value,
         addend: Value,
-        arena: Allocator,
-        mod: *const Module,
+        mod: *Module,
     ) Allocator.Error!Value {
         const target = mod.getTarget();
-        switch (float_type.floatBits(target)) {
-            16 => {
-                const m1 = mulend1.toFloat(f16, mod);
-                const m2 = mulend2.toFloat(f16, mod);
-                const a = addend.toFloat(f16, mod);
-                return Value.Tag.float_16.create(arena, @mulAdd(f16, m1, m2, a));
-            },
-            32 => {
-                const m1 = mulend1.toFloat(f32, mod);
-                const m2 = mulend2.toFloat(f32, mod);
-                const a = addend.toFloat(f32, mod);
-                return Value.Tag.float_32.create(arena, @mulAdd(f32, m1, m2, a));
-            },
-            64 => {
-                const m1 = mulend1.toFloat(f64, mod);
-                const m2 = mulend2.toFloat(f64, mod);
-                const a = addend.toFloat(f64, mod);
-                return Value.Tag.float_64.create(arena, @mulAdd(f64, m1, m2, a));
-            },
-            80 => {
-                const m1 = mulend1.toFloat(f80, mod);
-                const m2 = mulend2.toFloat(f80, mod);
-                const a = addend.toFloat(f80, mod);
-                return Value.Tag.float_80.create(arena, @mulAdd(f80, m1, m2, a));
-            },
-            128 => {
-                const m1 = mulend1.toFloat(f128, mod);
-                const m2 = mulend2.toFloat(f128, mod);
-                const a = addend.toFloat(f128, mod);
-                return Value.Tag.float_128.create(arena, @mulAdd(f128, m1, m2, a));
-            },
+        const storage: InternPool.Key.Float.Storage = switch (float_type.floatBits(target)) {
+            16 => .{ .f16 = @mulAdd(f16, mulend1.toFloat(f16, mod), mulend2.toFloat(f16, mod), addend.toFloat(f16, mod)) },
+            32 => .{ .f32 = @mulAdd(f32, mulend1.toFloat(f32, mod), mulend2.toFloat(f32, mod), addend.toFloat(f32, mod)) },
+            64 => .{ .f64 = @mulAdd(f64, mulend1.toFloat(f64, mod), mulend2.toFloat(f64, mod), addend.toFloat(f64, mod)) },
+            80 => .{ .f80 = @mulAdd(f80, mulend1.toFloat(f80, mod), mulend2.toFloat(f80, mod), addend.toFloat(f80, mod)) },
+            128 => .{ .f128 = @mulAdd(f128, mulend1.toFloat(f128, mod), mulend2.toFloat(f128, mod), addend.toFloat(f128, mod)) },
             else => unreachable,
-        }
+        };
+        return (try mod.intern(.{ .float = .{
+            .ty = float_type.ip_index,
+            .storage = storage,
+        } })).toValue();
     }
 
     /// If the value is represented in-memory as a series of bytes that all
@@ -5053,41 +4811,6 @@ pub const Value = struct {
             data: Type,
         };
 
-        pub const Float_16 = struct {
-            pub const base_tag = Tag.float_16;
-
-            base: Payload = .{ .tag = base_tag },
-            data: f16,
-        };
-
-        pub const Float_32 = struct {
-            pub const base_tag = Tag.float_32;
-
-            base: Payload = .{ .tag = base_tag },
-            data: f32,
-        };
-
-        pub const Float_64 = struct {
-            pub const base_tag = Tag.float_64;
-
-            base: Payload = .{ .tag = base_tag },
-            data: f64,
-        };
-
-        pub const Float_80 = struct {
-            pub const base_tag = Tag.float_80;
-
-            base: Payload = .{ .tag = base_tag },
-            data: f80,
-        };
-
-        pub const Float_128 = struct {
-            pub const base_tag = Tag.float_128;
-
-            base: Payload = .{ .tag = base_tag },
-            data: f128,
-        };
-
         pub const Error = struct {
             base: Payload = .{ .tag = .@"error" },
             data: struct {
@@ -5152,7 +4875,6 @@ pub const Value = struct {
     pub const one_comptime_int: Value = .{ .ip_index = .one, .legacy = undefined };
     pub const negative_one_comptime_int: Value = .{ .ip_index = .negative_one, .legacy = undefined };
     pub const undef: Value = .{ .ip_index = .undef, .legacy = undefined };
-    pub const float_zero: Value = .{ .ip_index = .zero, .legacy = undefined }; // TODO: replace this!
     pub const @"void": Value = .{ .ip_index = .void_value, .legacy = undefined };
     pub const @"null": Value = .{ .ip_index = .null_value, .legacy = undefined };
     pub const @"false": Value = .{ .ip_index = .bool_false, .legacy = undefined };
