@@ -89,7 +89,14 @@ pub fn calcSetStringLimbCount(base: u8, string_len: usize) usize {
         }
         break :blk ar;
     }; // size of a digit of each base in bits
+    // https://blog.demofox.org/2017/11/21/floating-point-precision/
+    // f32 can store exactly integers up to: 2^24
+    // so if we want that product to be accurate, `string_len` must be below
+    // or equal to 2^24 / log2(base) (floored)
+    assert(string_len <= @floatToInt(usize, @divFloor(math.pow(f32, 2.0, 23.0), math.log2(@intToFloat(f32, base)))));
+
     const bits = @floatToInt(usize, logs2[base] * @intToFloat(f32, string_len)) + 1;
+
     const n_limb = @divFloor(bits, limb_bits) + 1;
     return n_limb;
 }
