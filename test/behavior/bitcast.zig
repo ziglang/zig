@@ -509,3 +509,83 @@ test "bitcasting extern unions" {
     var c = @bitCast(u64, extern union { a: u16, b: u64 }{ .b = 0xf3f3 });
     try expectEqual(@as(u64, 0xf3f3), c);
 }
+
+test "bitcasting value to packed union" {
+    const A = packed union {
+        a: u16,
+        b: u8,
+    };
+
+    const a = @bitCast(A, @as(u16, 64));
+    const a_back = @bitCast(u16, a);
+    try expectEqual(@as(u16, 64), a_back);
+}
+
+test "bitcasting value to extern union" {
+    // TODO: https://github.com/ziglang/zig/issues/15621
+    if (true) return error.SkipZigTest;
+
+    const A = extern union {
+        a: u16,
+        b: u8,
+    };
+
+    const a = @bitCast(A, @as(u16, 64));
+    const a_back = @bitCast(u16, a);
+    try expectEqual(@as(u16, 64), a_back);
+}
+
+test "bitcasting value to packed struct with packed union" {
+    const Val = packed struct {
+        isTagged: bool,
+        body: packed union {
+            u63: u63,
+            tagged: packed union {
+                tags: enum(u3) {
+                    hello = 0,
+                    world = 1,
+                },
+                body: packed union {
+                    static: enum(u60) {
+                        void = 0,
+                        true = 1,
+                        false = 2,
+                    },
+                },
+            },
+        },
+    };
+
+    const v = @bitCast(Val, @as(u64, 2));
+    const v_back = @bitCast(u64, v);
+    try expectEqual(@as(u64, 2), v_back);
+}
+
+test "bitcasting value to extern struct with extern union" {
+    // TODO: https://github.com/ziglang/zig/issues/15621
+    if (true) return error.SkipZigTest;
+
+    const Val = extern struct {
+        isTagged: bool,
+        body: extern union {
+            u32: u32,
+            tagged: extern union {
+                tags: enum(u8) {
+                    hello = 0,
+                    world = 1,
+                },
+                body: extern union {
+                    static: enum(u32) {
+                        void = 0,
+                        true = 1,
+                        false = 2,
+                    },
+                },
+            },
+        },
+    };
+
+    const v = @bitCast(Val, @as(u64, 2));
+    const v_back = @bitCast(u64, v);
+    try expectEqual(@as(u64, 2), v_back);
+}

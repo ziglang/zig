@@ -1632,6 +1632,16 @@ pub const Value = extern union {
                 };
                 return Value.initPayload(&payload.base);
             },
+            .Union => switch (ty.containerLayout()) {
+                .Auto => unreachable, // Sema is supposed to have emitted a compile error already
+                .Extern => {
+                    @panic("TODO implement readFromMemory for extern union");
+                },
+                .Packed => {
+                    const byte_count = (@intCast(usize, ty.bitSize(target)) + 7) / 8;
+                    return readFromPackedMemory(ty, mod, buffer[0..byte_count], 0, arena);
+                },
+            },
             .Pointer => {
                 assert(!ty.isSlice()); // No well defined layout.
                 return readFromMemory(Type.usize, mod, buffer, arena);
@@ -1727,6 +1737,18 @@ pub const Value = extern union {
                         bits += field_bits;
                     }
                     return Tag.aggregate.create(arena, field_vals);
+                },
+            },
+            .Union => switch (ty.containerLayout()) {
+                .Auto => unreachable, // Sema is supposed to have emitted a compile error already
+                .Extern => unreachable, // Handled by non-packed readFromMemory
+                .Packed => {
+                    const union_field = ty.unionFields().values()[0];
+                    const tag_val = try Value.Tag.enum_field_index.create(arena, 0);
+                    return Tag.@"union".create(arena, .{
+                        .tag = tag_val,
+                        .val = try readFromPackedMemory(union_field.ty, mod, buffer, bit_offset, arena),
+                    });
                 },
             },
             .Pointer => {

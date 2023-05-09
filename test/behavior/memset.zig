@@ -144,3 +144,25 @@ test "memset with large array element, comptime known" {
     for (buf[3]) |elem| try expect(elem == 0);
     for (buf[4]) |elem| try expect(elem == 0);
 }
+
+test "@memset at comptime of extern union inside extern struct" {
+    // TODO: https://github.com/ziglang/zig/issues/15621
+    if (true) return error.SkipZigTest;
+
+    const bar_union = extern union {
+        a: u8,
+        b: u16,
+    };
+
+    const baz_struct = extern struct {
+        t: bar_union,
+    };
+
+    const foo: baz_struct = comptime foo: {
+        var item: baz_struct = undefined;
+        @memset(std.mem.asBytes(&item), 0);
+        break :foo item;
+    };
+
+    try expect(@bitCast(u16, foo.t) == 0);
+}

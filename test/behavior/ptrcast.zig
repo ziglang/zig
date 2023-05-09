@@ -290,3 +290,19 @@ test "@ptrCast undefined value at comptime" {
         _ = x;
     }
 }
+
+test "@ptrCast at comptime of extern union to [*]u8" {
+    // TODO: https://github.com/ziglang/zig/issues/15621
+    if (true) return error.SkipZigTest;
+
+    const bar_union = extern union {
+        a: u8,
+        b: u16,
+    };
+
+    comptime var foo: bar_union = undefined;
+    comptime for (@ptrCast([*]u8, &foo)[0..@sizeOf(bar_union)]) |*b| {
+        b.* = 0;
+    };
+    try expect(@bitCast(u16, foo) == 0);
+}
