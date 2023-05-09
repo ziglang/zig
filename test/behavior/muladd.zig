@@ -1,8 +1,12 @@
+const std = @import("std");
 const builtin = @import("builtin");
-const expect = @import("std").testing.expect;
+const expect = std.testing.expect;
+
+const no_x86_64_hardware_fma_support = builtin.zig_backend == .stage2_x86_64 and
+    !std.Target.x86.featureSetHas(builtin.cpu.features, .fma);
 
 test "@mulAdd" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (no_x86_64_hardware_fma_support) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
@@ -116,7 +120,7 @@ fn vector32() !void {
 
 test "vector f32" {
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (no_x86_64_hardware_fma_support) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
@@ -139,7 +143,7 @@ fn vector64() !void {
 
 test "vector f64" {
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (no_x86_64_hardware_fma_support) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO

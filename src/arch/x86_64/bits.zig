@@ -6,9 +6,6 @@ const Allocator = std.mem.Allocator;
 const ArrayList = std.ArrayList;
 const DW = std.dwarf;
 
-pub const StringRepeat = enum(u3) { none, rep, repe, repz, repne, repnz };
-pub const StringWidth = enum(u2) { b, w, d, q };
-
 /// EFLAGS condition codes
 pub const Condition = enum(u5) {
     /// above
@@ -71,6 +68,12 @@ pub const Condition = enum(u5) {
     s,
     /// zero
     z,
+
+    // Pseudo conditions
+    /// zero and not parity
+    z_and_np,
+    /// not zero or parity
+    nz_or_p,
 
     /// Converts a std.math.CompareOperator into a condition flag,
     /// i.e. returns the condition that is true iff the result of the
@@ -143,6 +146,9 @@ pub const Condition = enum(u5) {
             .po => .pe,
             .s => .ns,
             .z => .nz,
+
+            .z_and_np => .nz_or_p,
+            .nz_or_p => .z_and_np,
         };
     }
 };
@@ -476,7 +482,9 @@ pub const Memory = union(enum) {
         dword,
         qword,
         tbyte,
-        dqword,
+        xword,
+        yword,
+        zword,
 
         pub fn fromSize(size: u32) PtrSize {
             return switch (size) {
@@ -484,7 +492,9 @@ pub const Memory = union(enum) {
                 2...2 => .word,
                 3...4 => .dword,
                 5...8 => .qword,
-                9...16 => .dqword,
+                9...16 => .xword,
+                17...32 => .yword,
+                33...64 => .zword,
                 else => unreachable,
             };
         }
@@ -496,7 +506,9 @@ pub const Memory = union(enum) {
                 32 => .dword,
                 64 => .qword,
                 80 => .tbyte,
-                128 => .dqword,
+                128 => .xword,
+                256 => .yword,
+                512 => .zword,
                 else => unreachable,
             };
         }
@@ -508,7 +520,9 @@ pub const Memory = union(enum) {
                 .dword => 32,
                 .qword => 64,
                 .tbyte => 80,
-                .dqword => 128,
+                .xword => 128,
+                .yword => 256,
+                .zword => 512,
             };
         }
     };
