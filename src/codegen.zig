@@ -1189,12 +1189,16 @@ pub fn genTypedValue(
                     .enum_simple => {
                         return GenResult.mcv(.{ .immediate = field_index.data });
                     },
-                    .enum_full, .enum_nonexhaustive => {
-                        const enum_full = typed_value.ty.cast(Type.Payload.EnumFull).?.data;
-                        if (enum_full.values.count() != 0) {
-                            const tag_val = enum_full.values.keys()[field_index.data];
+                    .enum_numbered, .enum_full, .enum_nonexhaustive => {
+                        const enum_values = if (typed_value.ty.castTag(.enum_numbered)) |pl|
+                            pl.data.values
+                        else
+                            typed_value.ty.cast(Type.Payload.EnumFull).?.data.values;
+                        if (enum_values.count() != 0) {
+                            const tag_val = enum_values.keys()[field_index.data];
+                            var buf: Type.Payload.Bits = undefined;
                             return genTypedValue(bin_file, src_loc, .{
-                                .ty = enum_full.tag_ty,
+                                .ty = typed_value.ty.intTagType(&buf),
                                 .val = tag_val,
                             }, owner_decl_index);
                         } else {
