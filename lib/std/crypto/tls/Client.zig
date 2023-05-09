@@ -7,6 +7,7 @@ const crypto = std.crypto;
 const assert = std.debug.assert;
 const Certificate = std.crypto.Certificate;
 
+const max_plaintext_len = 16384;
 const max_ciphertext_len = tls.max_ciphertext_len;
 const hkdfExpandLabel = tls.hkdfExpandLabel;
 const int2 = tls.int2;
@@ -733,9 +734,12 @@ pub fn writeAllEnd(c: *Client, stream: anytype, bytes: []const u8, end: bool) !v
 /// which is necessary for the server to distinguish between a properly finished
 /// TLS session, or a truncation attack.
 pub fn writeEnd(c: *Client, stream: anytype, bytes: []const u8, end: bool) !usize {
+    // https://www.wolfssl.com/tls-1-3-performance-part-6-throughput/
+    // Use maximum plaintext length - 1
+    const buffered_bytes = bytes[0..@min(bytes.len, max_plaintext_len - 1)];
     var ciphertext_buf: [tls.max_ciphertext_record_len * 4]u8 = undefined;
     var iovecs_buf: [6]std.os.iovec_const = undefined;
-    var prepared = prepareCiphertextRecord(c, &iovecs_buf, &ciphertext_buf, bytes, .application_data);
+    var prepared = prepareCiphertextRecord(c, &iovecs_buf, &ciphertext_buf, buffered_bytes, .application_data);
     if (end) {
         prepared.iovec_end += prepareCiphertextRecord(
             c,
