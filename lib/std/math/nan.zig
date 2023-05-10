@@ -2,13 +2,13 @@ const math = @import("../math.zig");
 
 /// Returns the nan representation for type T.
 pub inline fn nan(comptime T: type) T {
-    return switch (math.floatBits(T)) {
+    return switch (@typeInfo(T).Float.bits) {
         16 => math.nan_f16,
         32 => math.nan_f32,
         64 => math.nan_f64,
         80 => math.nan_f80,
         128 => math.nan_f128,
-        else => @compileError("unknown floating point type " ++ @typeName(T)),
+        else => @compileError("unreachable"),
     };
 }
 
