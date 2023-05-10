@@ -302,6 +302,7 @@ pub fn build(b: *std.Build) !void {
                 artifact.linkSystemLibrary("version");
                 artifact.linkSystemLibrary("uuid");
                 artifact.linkSystemLibrary("ole32");
+                artifact.linkSystemLibrary("ws2_32");
             }
         }
     }
