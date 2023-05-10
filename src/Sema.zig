@@ -22209,7 +22209,7 @@ fn zirMemset(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!void
                 block,
                 src,
                 msg,
-                "mutable slice or a mutable pointer to an array. It may have any alignment, and it may have any element type.",
+                "dest must be a mutable slice or a mutable pointer to an array",
                 .{},
             );
             break :msg msg;
