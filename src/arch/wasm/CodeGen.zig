@@ -2122,16 +2122,13 @@ fn airRetLoad(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     const un_op = func.air.instructions.items(.data)[inst].un_op;
     const operand = try func.resolveInst(un_op);
     const ret_ty = func.air.typeOf(un_op).childType();
+
+    const fn_info = func.decl.ty.fnInfo();
     if (!ret_ty.hasRuntimeBitsIgnoreComptime()) {
         if (ret_ty.isError()) {
             try func.addImm32(0);
-        } else {
-            return func.finishAir(inst, .none, &.{});
         }
-    }
-
-    const fn_info = func.decl.ty.fnInfo();
-    if (!firstParamSRet(fn_info.cc, fn_info.return_type, func.target)) {
+    } else if (!firstParamSRet(fn_info.cc, fn_info.return_type, func.target)) {
         // leave on the stack
         _ = try func.load(operand, ret_ty, 0);
     }
