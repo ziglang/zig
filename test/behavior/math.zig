@@ -449,6 +449,9 @@ fn testDivision() !void {
     try expect(mod(i32, 10, 12) == 10);
     try expect(mod(i32, -14, 12) == 10);
     try expect(mod(i32, -2, 12) == 10);
+    try expect(mod(i32, 10, -12) == -2);
+    try expect(mod(i32, -14, -12) == -2);
+    try expect(mod(i32, -2, -12) == -2);
 
     comptime {
         try expect(
