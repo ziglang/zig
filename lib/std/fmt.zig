@@ -1925,6 +1925,8 @@ pub fn parseIntSizeSuffix(buf: []const u8, radix: u8) ParseIntError!usize {
         'E' => 6,
         'Z' => 7,
         'Y' => 8,
+        'R' => 9,
+        'Q' => 10,
         else => 0,
     };
     var without_suffix = without_i;
