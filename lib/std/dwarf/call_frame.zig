@@ -171,7 +171,7 @@ pub const Instruction = union(Opcode) {
     advance_loc4: InstructionType(.{ .delta = .u32_delta }),
     undefined: InstructionType(.{ .register = .uleb128_register }),
     same_value: InstructionType(.{ .register = .uleb128_register }),
-    register: InstructionType(.{ .register = .uleb128_register, .offset = .uleb128_offset }),
+    register: InstructionType(.{ .register = .uleb128_register, .target_register = .uleb128_register }),
     remember_state: InstructionType(.{}),
     restore_state: InstructionType(.{}),
     def_cfa: InstructionType(.{ .register = .uleb128_register, .offset = .uleb128_offset }),
@@ -229,15 +229,20 @@ pub const VirtualMachine = struct {
         architectural: void,
     };
 
-    /// Each row contains unwinding rules for a set of registers at a specific location in the
+    /// Each row contains unwinding rules for a set of registers.
     pub const Row = struct {
-        /// Offset from pc_begin
+        /// Offset from `FrameDescriptionEntry.pc_begin`
         offset: u64 = 0,
+
         /// Special-case column that defines the CFA (Canonical Frame Address) rule.
         /// The register field of this column defines the register that CFA is derived
-        /// from, while other columns define registers in terms of the CFA.
+        /// from, while other columns define register rules in terms of the CFA.
         cfa: Column = .{},
         columns: ColumnRange = .{},
+
+        /// Indicates that the next write to any column in this row needs to copy
+        /// the backing column storage first.
+        copy_on_write: bool = false,
     };
 
     pub const Column = struct {
@@ -339,6 +344,17 @@ pub const VirtualMachine = struct {
         self.stepTo(allocator, pc, cie, fde, @sizeOf(usize), builtin.target.cpu.arch.endian());
     }
 
+    fn resolveCopyOnWrite(self: *VirtualMachine, allocator: std.mem.Allocator) !void {
+        if (!self.current_row.copy_on_write) return;
+
+        const new_start = self.columns.items.len;
+        if (self.current_row.columns.len > 0) {
+            try self.columns.ensureUnusedCapacity(allocator, self.current_row.columns.len);
+            self.columns.appendSliceAssumeCapacity(self.rowColumns(self.current_row));
+            self.current_row.columns.start = new_start;
+        }
+    }
+
     /// Executes a single instruction.
     /// If this instruction is from the CIE, `is_initial` should be set.
     /// Returns the value of `current_row` before executing this instruction
@@ -355,14 +371,36 @@ pub const VirtualMachine = struct {
 
         const prev_row = self.current_row;
         switch (instruction) {
-            inline .advance_loc, .advance_loc1, .advance_loc2, .advance_loc4 => |i| {
-                self.current_row.offset += i.operands.delta * cie.code_alignment_factor;
+            .set_loc => |i| {
+                if (i.operands.address <= self.current_row.offset) return error.InvalidOperation;
+                // TODO: Check cie.segment_selector_size != for DWARFV4
+                self.current_row.offset = i.operands.address;
             },
-            inline .offset, .offset_extended => |i| {
+            inline .advance_loc,
+            .advance_loc1,
+            .advance_loc2,
+            .advance_loc4,
+            => |i| {
+                self.current_row.offset += i.operands.delta * cie.code_alignment_factor;
+                self.current_row.copy_on_write = true;
+            },
+            inline .offset,
+            .offset_extended,
+            .offset_extended_sf,
+            => |i| {
+                try self.resolveCopyOnWrite(allocator);
                 const column = try self.getOrAddColumn(allocator, i.operands.register);
                 column.rule = .{ .offset = @intCast(i64, i.operands.offset) * cie.data_alignment_factor };
             },
-            inline .restore, .restore_extended => |i| {
+            // .offset_extended_sf => |i| {
+            //     try self.resolveCopyOnWrite(allocator);
+            //     const column = try self.getOrAddColumn(allocator, i.operands.register);
+            //     column.rule = .{ .offset = i.operands.offset * cie.data_alignment_factor };
+            // },
+            inline .restore,
+            .restore_extended,
+            => |i| {
+                try self.resolveCopyOnWrite(allocator);
                 if (self.cie_row) |cie_row| {
                     const column = try self.getOrAddColumn(allocator, i.operands.register);
                     column.rule = for (self.rowColumns(cie_row)) |cie_column| {
@@ -371,20 +409,31 @@ pub const VirtualMachine = struct {
                 } else return error.InvalidOperation;
             },
             .nop => {},
-            .set_loc => {},
-            .undefined => {},
-            .same_value => {},
-            .register => {},
+            .undefined => |i| {
+                try self.resolveCopyOnWrite(allocator);
+                const column = try self.getOrAddColumn(allocator, i.operands.register);
+                column.rule = .{ .undefined = {} };
+            },
+            .same_value => |i| {
+                try self.resolveCopyOnWrite(allocator);
+                const column = try self.getOrAddColumn(allocator, i.operands.register);
+                column.rule = .{ .same_value = {} };
+            },
+            .register => |i| {
+                try self.resolveCopyOnWrite(allocator);
+                const column = try self.getOrAddColumn(allocator, i.operands.register);
+                column.rule = .{ .register = i.operands.target_register };
+            },
             .remember_state => {
                 try self.stack.append(allocator, self.current_row.columns);
-                errdefer _ = self.stack.pop();
+                self.current_row.copy_on_write = true;
 
-                const new_start = self.columns.items.len;
-                if (self.current_row.columns.len > 0) {
-                    try self.columns.ensureUnusedCapacity(allocator, self.current_row.columns.len);
-                    self.columns.appendSliceAssumeCapacity(self.rowColumns(self.current_row));
-                    self.current_row.columns.start = new_start;
-                }
+                // const new_start = self.columns.items.len;
+                // if (self.current_row.columns.len > 0) {
+                //     try self.columns.ensureUnusedCapacity(allocator, self.current_row.columns.len);
+                //     self.columns.appendSliceAssumeCapacity(self.rowColumns(self.current_row));
+                //     self.current_row.columns.start = new_start;
+                // }
             },
             .restore_state => {
                 const restored_columns = self.stack.popOrNull() orelse return error.InvalidOperation;
@@ -396,29 +445,48 @@ pub const VirtualMachine = struct {
                 self.columns.appendSliceAssumeCapacity(self.columns.items[restored_columns.start..][0..restored_columns.len]);
             },
             .def_cfa => |i| {
+                try self.resolveCopyOnWrite(allocator);
                 self.current_row.cfa = .{
                     .register = i.operands.register,
                     .rule = .{ .offset = @intCast(i64, i.operands.offset) },
                 };
             },
+            .def_cfa_sf => |i| {
+                try self.resolveCopyOnWrite(allocator);
+                self.current_row.cfa = .{
+                    .register = i.operands.register,
+                    .rule = .{ .offset = i.operands.offset * cie.data_alignment_factor },
+                };
+            },
             .def_cfa_register => |i| {
-                // TODO: Verify the the current row is using a register and offset (validation)
+                try self.resolveCopyOnWrite(allocator);
+                if (self.current_row.cfa.register == null or self.current_row.cfa.rule != .offset) return error.InvalidOperation;
                 self.current_row.cfa.register = i.operands.register;
             },
             .def_cfa_offset => |i| {
-                // TODO: Verify the the current row is using a register and offset (validation)
+                try self.resolveCopyOnWrite(allocator);
+                if (self.current_row.cfa.register == null or self.current_row.cfa.rule != .offset) return error.InvalidOperation;
                 self.current_row.cfa.rule = .{ .offset = @intCast(i64, i.operands.offset) };
             },
+            .def_cfa_offset_sf => |i| {
+                try self.resolveCopyOnWrite(allocator);
+                if (self.current_row.cfa.register == null or self.current_row.cfa.rule != .offset) return error.InvalidOperation;
+                self.current_row.cfa.rule = .{ .offset = i.operands.offset * cie.data_alignment_factor };
+            },
             .def_cfa_expression => |i| {
+                try self.resolveCopyOnWrite(allocator);
                 self.current_row.cfa.register = undefined;
                 self.current_row.cfa.rule = .{
                     .expression = i.operands.block,
                 };
             },
-            .expression => {},
-            .offset_extended_sf => {},
-            .def_cfa_sf => {},
-            .def_cfa_offset_sf => {},
+            .expression => |i| {
+                try self.resolveCopyOnWrite(allocator);
+                const column = try self.getOrAddColumn(allocator, i.operands.register);
+                column.rule = .{
+                    .expression = i.operands.block,
+                };
+            },
             .val_offset => {},
             .val_offset_sf => {},
             .val_expression => {},
