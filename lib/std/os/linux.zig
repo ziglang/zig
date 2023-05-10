@@ -1631,6 +1631,14 @@ pub fn tcsetattr(fd: fd_t, optional_action: TCSA, termios_p: *const termios) usi
     return syscall3(.ioctl, @bitCast(usize, @as(isize, fd)), T.CSETS + @enumToInt(optional_action), @ptrToInt(termios_p));
 }
 
+pub fn tcgetpgrp(fd: fd_t, pgrp: *pid_t) usize {
+    return syscall3(.ioctl, @bitCast(usize, @as(isize, fd)), T.IOCGPGRP, @ptrToInt(pgrp));
+}
+
+pub fn tcsetpgrp(fd: fd_t, pgrp: *const pid_t) usize {
+    return syscall3(.ioctl, @bitCast(usize, @as(isize, fd)), T.IOCSPGRP, @ptrToInt(pgrp));
+}
+
 pub fn tcdrain(fd: fd_t) usize {
     return syscall3(.ioctl, @bitCast(usize, @as(isize, fd)), T.CSBRK, 1);
 }

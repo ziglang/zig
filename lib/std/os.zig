@@ -6791,7 +6791,9 @@ pub fn getrusage(who: i32) rusage {
     }
 }
 
-pub const TermiosGetError = error{NotATerminal} || UnexpectedError;
+pub const TIOCError = error{NotATerminal};
+
+pub const TermiosGetError = TIOCError || UnexpectedError;
 
 pub fn tcgetattr(handle: fd_t) TermiosGetError!termios {
     while (true) {
@@ -6817,6 +6819,41 @@ pub fn tcsetattr(handle: fd_t, optional_action: TCSA, termios_p: termios) Termio
             .INVAL => unreachable,
             .NOTTY => return error.NotATerminal,
             .IO => return error.ProcessOrphaned,
+            else => |err| return unexpectedErrno(err),
+        }
+    }
+}
+
+pub const TermioGetPgrpError = TIOCError || UnexpectedError;
+
+/// Returns the process group ID for the TTY associated with the given handle.
+pub fn tcgetpgrp(handle: fd_t) TermioGetPgrpError!pid_t {
+    while (true) {
+        var pgrp: pid_t = undefined;
+        switch (errno(system.tcgetpgrp(handle, &pgrp))) {
+            .SUCCESS => return pgrp,
+            .BADF => unreachable,
+            .INVAL => unreachable,
+            .NOTTY => return error.NotATerminal,
+            else => |err| return unexpectedErrno(err),
+        }
+    }
+}
+
+pub const TermioSetPgrpError = TermioGetPgrpError || error{NotAPgrpMember};
+
+/// Sets the controlling process group ID for given TTY.
+/// handle must be valid fd_t to a TTY associated with calling process.
+/// pgrp must be a valid process group, and the calling process must be a member
+/// of that group.
+pub fn tcsetpgrp(handle: fd_t, pgrp: pid_t) TermioSetPgrpError!void {
+    while (true) {
+        switch (errno(system.tcsetpgrp(handle, &pgrp))) {
+            .SUCCESS => return,
+            .BADF => unreachable,
+            .INVAL => unreachable,
+            .NOTTY => return error.NotATerminal,
+            .PERM => return TermioSetPgrpError.NotAPgrpMember,
             else => |err| return unexpectedErrno(err),
         }
     }
