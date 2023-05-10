@@ -145,6 +145,8 @@ pub const bin_digest_len = 16;
 pub const hex_digest_len = bin_digest_len * 2;
 pub const BinDigest = [bin_digest_len]u8;
 
+/// This is currently just an arbitrary non-empty string that can't match another manifest line.
+const manifest_header = "0";
 const manifest_file_size_max = 50 * 1024 * 1024;
 
 /// The type used for hashing file contents. Currently, this is SipHash128(1, 3), because it
@@ -152,8 +154,15 @@ const manifest_file_size_max = 50 * 1024 * 1024;
 /// fastest options right now.
 pub const Hasher = crypto.auth.siphash.SipHash128(1, 3);
 
-/// Initial state, that can be copied.
-pub const hasher_init: Hasher = Hasher.init(&[_]u8{0} ** Hasher.key_length);
+/// Initial state with random bytes, that can be copied.
+/// Refresh this with new random bytes when the manifest
+/// format is modified in a non-backwards-compatible way.
+pub const hasher_init: Hasher = Hasher.init(&[_]u8{
+    0x33, 0x52, 0xa2, 0x84,
+    0xcf, 0x17, 0x56, 0x57,
+    0x01, 0xbb, 0xcd, 0xe4,
+    0x77, 0xd6, 0xf0, 0x60,
+});
 
 pub const File = struct {
     prefixed_path: ?PrefixedPath,
@@ -391,72 +400,29 @@ pub const Manifest = struct {
         @memcpy(manifest_file_path[0..self.hex_digest.len], &self.hex_digest);
         manifest_file_path[hex_digest_len..][0..ext.len].* = ext.*;
 
-        if (self.files.items.len == 0) {
-            // If there are no file inputs, we check if the manifest file exists instead of
-            // comparing the hashes on the files used for the cached item
-            while (true) {
-                if (self.cache.manifest_dir.openFile(&manifest_file_path, .{
-                    .mode = .read_write,
-                    .lock = .Exclusive,
-                    .lock_nonblocking = self.want_shared_lock,
-                })) |manifest_file| {
-                    self.manifest_file = manifest_file;
-                    self.have_exclusive_lock = true;
+        while (true) {
+            if (self.cache.manifest_dir.createFile(&manifest_file_path, .{
+                .read = true,
+                .truncate = false,
+                .lock = .Exclusive,
+                .lock_nonblocking = self.want_shared_lock,
+            })) |manifest_file| {
+                self.manifest_file = manifest_file;
+                self.have_exclusive_lock = true;
+                break;
+            } else |err| switch (err) {
+                error.WouldBlock => {
+                    self.manifest_file = try self.cache.manifest_dir.openFile(&manifest_file_path, .{
+                        .mode = .read_write,
+                        .lock = .Shared,
+                    });
                     break;
-                } else |open_err| switch (open_err) {
-                    error.WouldBlock => {
-                        self.manifest_file = try self.cache.manifest_dir.openFile(&manifest_file_path, .{
-                            .lock = .Shared,
-                        });
-                        break;
-                    },
-                    error.FileNotFound => {
-                        if (self.cache.manifest_dir.createFile(&manifest_file_path, .{
-                            .read = true,
-                            .truncate = false,
-                            .lock = .Exclusive,
-                            .lock_nonblocking = self.want_shared_lock,
-                        })) |manifest_file| {
-                            self.manifest_file = manifest_file;
-                            self.manifest_dirty = true;
-                            self.have_exclusive_lock = true;
-                            return false; // cache miss; exclusive lock already held
-                        } else |err| switch (err) {
-                            // There are no dir components, so you would think
-                            // that this was unreachable, however we have
-                            // observed on macOS two processes racing to do
-                            // openat() with O_CREAT manifest in ENOENT.
-                            error.WouldBlock, error.FileNotFound => continue,
-                            else => |e| return e,
-                        }
-                    },
-                    else => |e| return e,
-                }
-            }
-        } else {
-            while (true) {
-                if (self.cache.manifest_dir.createFile(&manifest_file_path, .{
-                    .read = true,
-                    .truncate = false,
-                    .lock = .Exclusive,
-                    .lock_nonblocking = self.want_shared_lock,
-                })) |manifest_file| {
-                    self.manifest_file = manifest_file;
-                    self.have_exclusive_lock = true;
-                    break;
-                } else |err| switch (err) {
-                    error.WouldBlock => {
-                        self.manifest_file = try self.cache.manifest_dir.openFile(&manifest_file_path, .{
-                            .lock = .Shared,
-                        });
-                        break;
-                    },
-                    // There are no dir components, so you would think that this was
-                    // unreachable, however we have observed on macOS two processes racing
-                    // to do openat() with O_CREAT manifest in ENOENT.
-                    error.FileNotFound => continue,
-                    else => |e| return e,
-                }
+                },
+                // There are no dir components, so you would think that this was
+                // unreachable, however we have observed on macOS two processes racing
+                // to do openat() with O_CREAT manifest in ENOENT.
+                error.FileNotFound => continue,
+                else => |e| return e,
             }
         }
 
@@ -469,6 +435,18 @@ pub const Manifest = struct {
         var any_file_changed = false;
         var line_iter = mem.tokenize(u8, file_contents, "\n");
         var idx: usize = 0;
+        if (if (line_iter.next()) |line| !std.mem.eql(u8, line, manifest_header) else true) {
+            self.manifest_dirty = true;
+            while (idx < input_file_count) : (idx += 1) {
+                const ch_file = &self.files.items[idx];
+                self.populateFileHash(ch_file) catch |err| {
+                    self.failed_file_index = idx;
+                    return err;
+                };
+            }
+            try self.upgradeToExclusiveLock();
+            return false;
+        }
         while (line_iter.next()) |line| {
             defer idx += 1;
 
@@ -854,19 +832,13 @@ pub const Manifest = struct {
             defer contents.deinit();
 
             const writer = contents.writer();
-            var encoded_digest: [hex_digest_len]u8 = undefined;
-
+            try writer.writeAll(manifest_header ++ "\n");
             for (self.files.items) |file| {
-                _ = fmt.bufPrint(
-                    &encoded_digest,
-                    "{s}",
-                    .{fmt.fmtSliceHexLower(&file.bin_digest)},
-                ) catch unreachable;
-                try writer.print("{d} {d} {d} {s} {d} {s}\n", .{
+                try writer.print("{d} {d} {d} {} {d} {s}\n", .{
                     file.stat.size,
                     file.stat.inode,
                     file.stat.mtime,
-                    &encoded_digest,
+                    fmt.fmtSliceHexLower(&file.bin_digest),
                     file.prefixed_path.?.prefix,
                     file.prefixed_path.?.sub_path,
                 });
