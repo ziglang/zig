@@ -3401,8 +3401,8 @@ fn indexablePtrLen(
 ) CompileError!Air.Inst.Ref {
     const object_ty = sema.typeOf(object);
     const is_pointer_to = object_ty.isSinglePointer();
-    const array_ty = if (is_pointer_to) object_ty.childType() else object_ty;
-    try checkIndexable(sema, block, src, array_ty);
+    const indexable_ty = if (is_pointer_to) object_ty.childType() else object_ty;
+    try checkIndexable(sema, block, src, indexable_ty);
     return sema.fieldVal(block, src, object, "len", src);
 }
 
@@ -3413,7 +3413,7 @@ fn indexablePtrLenOrNone(
     object: Air.Inst.Ref,
 ) CompileError!Air.Inst.Ref {
     const object_ty = sema.typeOf(object);
-    const array_ty = t: {
+    const indexable_ty = t: {
         const ptr_size = object_ty.ptrSizeOrNull() orelse break :t object_ty;
         break :t switch (ptr_size) {
             .Many => return .none,
@@ -3421,7 +3421,7 @@ fn indexablePtrLenOrNone(
             else => object_ty,
         };
     };
-    try checkIndexable(sema, block, src, array_ty);
+    try checkIndexable(sema, block, src, indexable_ty);
     return sema.fieldVal(block, src, object, "len", src);
 }
 
@@ -3991,7 +3991,16 @@ fn zirForLen(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.
             .input_index = i,
         } };
         const arg_len_uncoerced = if (is_int) object else l: {
-            try checkIndexable(sema, block, arg_src, object_ty);
+            if (!object_ty.isIndexable()) {
+                // Instead of using checkIndexable we customize this error.
+                const msg = msg: {
+                    const msg = try sema.errMsg(block, arg_src, "type '{}' is not indexable and not a range", .{object_ty.fmt(sema.mod)});
+                    errdefer msg.destroy(sema.gpa);
+                    try sema.errNote(block, arg_src, msg, "for loop operand must be a range, array, slice, tuple, or vector", .{});
+                    break :msg msg;
+                };
+                return sema.failWithOwnedErrorMsg(msg);
+            }
             if (!object_ty.indexableHasLen()) continue;
 
             break :l try sema.fieldVal(block, arg_src, object, "len", arg_src);
@@ -19910,7 +19919,7 @@ fn zirPtrCast(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
             return sema.failWithUseOfUndef(block, operand_src);
         }
         if (!dest_ty.ptrAllowsZero() and operand_val.isNull()) {
-            return sema.fail(block, operand_src, "null pointer casted to type {}", .{dest_ty.fmt(sema.mod)});
+            return sema.fail(block, operand_src, "null pointer casted to type '{}'", .{dest_ty.fmt(sema.mod)});
         }
         if (dest_ty.zigTypeTag() == .Optional and sema.typeOf(ptr).zigTypeTag() != .Optional) {
             return sema.addConstant(dest_ty, try Value.Tag.opt_payload.create(sema.arena, operand_val));
@@ -22013,10 +22022,10 @@ fn zirMemcpy(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!void
         const msg = msg: {
             const msg = try sema.errMsg(block, src, "unknown @memcpy length", .{});
             errdefer msg.destroy(sema.gpa);
-            try sema.errNote(block, dest_src, msg, "destination type {} provides no length", .{
+            try sema.errNote(block, dest_src, msg, "destination type '{}' provides no length", .{
                 sema.typeOf(dest_ptr).fmt(sema.mod),
             });
-            try sema.errNote(block, src_src, msg, "source type {} provides no length", .{
+            try sema.errNote(block, src_src, msg, "source type '{}' provides no length", .{
                 sema.typeOf(src_ptr).fmt(sema.mod),
             });
             break :msg msg;
@@ -22746,7 +22755,7 @@ fn resolveExternOptions(
         const payload = library_name_val.castTag(.opt_payload).?.data;
         const library_name = try payload.toAllocatedBytes(Type.initTag(.const_slice_u8), sema.arena, mod);
         if (library_name.len == 0) {
-            return sema.fail(block, library_src, "library name name cannot be empty", .{});
+            return sema.fail(block, library_src, "library name cannot be empty", .{});
         }
         break :blk try sema.handleExternLibName(block, library_src, library_name);
     } else null;
@@ -24767,9 +24776,7 @@ fn elemPtr(
         .Pointer => indexable_ptr_ty.elemType(),
         else => return sema.fail(block, indexable_ptr_src, "expected pointer, found '{}'", .{indexable_ptr_ty.fmt(sema.mod)}),
     };
-    if (!indexable_ty.isIndexable()) {
-        return sema.fail(block, src, "element access of non-indexable type '{}'", .{indexable_ty.fmt(sema.mod)});
-    }
+    try checkIndexable(sema, block, src, indexable_ty);
 
     switch (indexable_ty.zigTypeTag()) {
         .Array, .Vector => return sema.elemPtrArray(block, src, indexable_ptr_src, indexable_ptr, elem_index_src, elem_index, init, oob_safety),
@@ -24801,9 +24808,7 @@ fn elemPtrOneLayerOnly(
     const indexable_ty = sema.typeOf(indexable);
     const target = sema.mod.getTarget();
 
-    if (!indexable_ty.isIndexable()) {
-        return sema.fail(block, src, "element access of non-indexable type '{}'", .{indexable_ty.fmt(sema.mod)});
-    }
+    try checkIndexable(sema, block, src, indexable_ty);
 
     switch (indexable_ty.ptrSize()) {
         .Slice => return sema.elemPtrSlice(block, src, indexable_src, indexable, elem_index_src, elem_index, oob_safety),
@@ -24824,7 +24829,7 @@ fn elemPtrOneLayerOnly(
             return block.addPtrElemPtr(indexable, elem_index, result_ty);
         },
         .One => {
-            assert(indexable_ty.childType().zigTypeTag() == .Array); // Guaranteed by isIndexable
+            assert(indexable_ty.childType().zigTypeTag() == .Array); // Guaranteed by checkIndexable
             return sema.elemPtrArray(block, src, indexable_src, indexable, elem_index_src, elem_index, init, oob_safety);
         },
     }
@@ -24843,9 +24848,7 @@ fn elemVal(
     const indexable_ty = sema.typeOf(indexable);
     const target = sema.mod.getTarget();
 
-    if (!indexable_ty.isIndexable()) {
-        return sema.fail(block, src, "element access of non-indexable type '{}'", .{indexable_ty.fmt(sema.mod)});
-    }
+    try checkIndexable(sema, block, src, indexable_ty);
 
     // TODO in case of a vector of pointers, we need to detect whether the element
     // index is a scalar or vector instead of unconditionally casting to usize.
@@ -24873,7 +24876,7 @@ fn elemVal(
                 return block.addBinOp(.ptr_elem_val, indexable, elem_index);
             },
             .One => {
-                assert(indexable_ty.childType().zigTypeTag() == .Array); // Guaranteed by isIndexable
+                assert(indexable_ty.childType().zigTypeTag() == .Array); // Guaranteed by checkIndexable
                 const elem_ptr = try sema.elemPtr(block, indexable_src, indexable, elem_index, elem_index_src, false, oob_safety);
                 return sema.analyzeLoad(block, indexable_src, elem_ptr, elem_index_src);
             },
@@ -30997,23 +31000,12 @@ fn checkBackingIntType(sema: *Sema, block: *Block, src: LazySrcLoc, backing_int_
     }
 }
 
-fn checkIndexable(sema: *Sema, block: *Block, src: LazySrcLoc, array_ty: Type) !void {
-    if (!array_ty.isIndexable()) {
+fn checkIndexable(sema: *Sema, block: *Block, src: LazySrcLoc, ty: Type) !void {
+    if (!ty.isIndexable()) {
         const msg = msg: {
-            const msg = try sema.errMsg(
-                block,
-                src,
-                "type '{}' does not support indexing",
-                .{array_ty.fmt(sema.mod)},
-            );
+            const msg = try sema.errMsg(block, src, "type '{}' does not support indexing", .{ty.fmt(sema.mod)});
             errdefer msg.destroy(sema.gpa);
-            try sema.errNote(
-                block,
-                src,
-                msg,
-                "for loop operand must be an array, slice, tuple, or vector",
-                .{},
-            );
+            try sema.errNote(block, src, msg, "operand must be an array, slice, tuple, or vector", .{});
             break :msg msg;
         };
         return sema.failWithOwnedErrorMsg(msg);

@@ -6,4 +6,5 @@ export fn entry(ptr: *i32) i32 {
 // backend=stage2
 // target=native
 //
-// :2:15: error: element access of non-indexable type '*i32'
+// :2:15: error: type '*i32' does not support indexing
+// :2:15: note: operand must be an array, slice, tuple, or vector
