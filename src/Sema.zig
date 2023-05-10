@@ -22187,7 +22187,35 @@ fn zirMemset(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!void
     const dest_ptr = try sema.resolveInst(extra.lhs);
     const uncoerced_elem = try sema.resolveInst(extra.rhs);
     const dest_ptr_ty = sema.typeOf(dest_ptr);
-    try checkIndexable(sema, block, dest_src, dest_ptr_ty);
+
+    const is_memsetable = switch (dest_ptr_ty.zigTypeTag()) {
+        .Pointer => switch (dest_ptr_ty.ptrSize()) {
+            .Slice, .Many, .C => true,
+            .One => dest_ptr_ty.elemType().zigTypeTag() == .Array,
+        },
+        else => false,
+    };
+
+    if (!is_memsetable) {
+        const msg = msg: {
+            const msg = try sema.errMsg(
+                block,
+                src,
+                "type '{}' could not be memset'ed",
+                .{dest_ptr_ty.fmt(sema.mod)},
+            );
+            errdefer msg.destroy(sema.gpa);
+            try sema.errNote(
+                block,
+                src,
+                msg,
+                "mutable slice or a mutable pointer to an array. It may have any alignment, and it may have any element type.",
+                .{},
+            );
+            break :msg msg;
+        };
+        return sema.failWithOwnedErrorMsg(msg);
+    }
 
     const dest_elem_ty = dest_ptr_ty.elemType2();
     const target = sema.mod.getTarget();
