@@ -16,6 +16,7 @@ pub const ATE = @import("dwarf/ATE.zig");
 pub const EH = @import("dwarf/EH.zig");
 pub const abi = @import("dwarf/abi.zig");
 pub const call_frame = @import("dwarf/call_frame.zig");
+pub const expressions = @import("dwarf/expressions.zig");
 
 pub const LLE = struct {
     pub const end_of_list = 0x00;

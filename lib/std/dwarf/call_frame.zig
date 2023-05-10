@@ -1,9 +1,11 @@
+const builtin = @import("builtin");
 const std = @import("../std.zig");
 const debug = std.debug;
 const leb = @import("../leb128.zig");
 const abi = @import("abi.zig");
 const dwarf = @import("../dwarf.zig");
 const expressions = @import("expressions.zig");
+const assert = std.debug.assert;
 
 const Opcode = enum(u8) {
     advance_loc = 0x1 << 6,
@@ -36,7 +38,7 @@ const Opcode = enum(u8) {
 
     // These opcodes encode an operand in the lower 6 bits of the opcode itself
     pub const lo_inline = Opcode.advance_loc;
-    pub const hi_inline = Opcode.restore;
+    pub const hi_inline = @enumToInt(Opcode.restore) | 0b111111;
 
     // These opcodes are trailed by zero or more operands
     pub const lo_reserved = Opcode.nop;
@@ -61,7 +63,7 @@ const Operand = enum {
 
     fn Storage(comptime self: Operand) type {
         return switch (self) {
-            .opcode_delta, .opcode_register => u6,
+            .opcode_delta, .opcode_register => u8,
             .uleb128_register => u8,
             .uleb128_offset => u64,
             .sleb128_offset => i64,
@@ -110,7 +112,7 @@ const Operand = enum {
 
 fn InstructionType(comptime definition: anytype) type {
     const definition_type = @typeInfo(@TypeOf(definition));
-    debug.assert(definition_type == .Struct);
+    assert(definition_type == .Struct);
 
     const definition_len = definition_type.Struct.fields.len;
     comptime var fields: [definition_len]std.builtin.Type.StructField = undefined;
@@ -159,14 +161,14 @@ fn InstructionType(comptime definition: anytype) type {
 pub const Instruction = union(Opcode) {
     advance_loc: InstructionType(.{ .delta = .opcode_delta }),
     offset: InstructionType(.{ .register = .opcode_register, .offset = .uleb128_offset }),
+    offset_extended: InstructionType(.{ .register = .uleb128_register, .offset = .uleb128_offset }),
     restore: InstructionType(.{ .register = .opcode_register }),
+    restore_extended: InstructionType(.{ .register = .uleb128_register }),
     nop: InstructionType(.{}),
     set_loc: InstructionType(.{ .address = .address }),
     advance_loc1: InstructionType(.{ .delta = .u8_delta }),
     advance_loc2: InstructionType(.{ .delta = .u16_delta }),
     advance_loc4: InstructionType(.{ .delta = .u32_delta }),
-    offset_extended: InstructionType(.{ .register = .uleb128_register, .offset = .uleb128_offset }),
-    restore_extended: InstructionType(.{ .register = .uleb128_register }),
     undefined: InstructionType(.{ .register = .uleb128_register }),
     same_value: InstructionType(.{ .register = .uleb128_register }),
     register: InstructionType(.{ .register = .uleb128_register, .offset = .uleb128_offset }),
@@ -192,7 +194,7 @@ pub const Instruction = union(Opcode) {
         @setEvalBranchQuota(1800);
 
         return switch (try stream.reader().readByte()) {
-            inline @enumToInt(Opcode.lo_inline)...@enumToInt(Opcode.hi_inline) => |opcode| blk: {
+            inline @enumToInt(Opcode.lo_inline)...Opcode.hi_inline => |opcode| blk: {
                 const e = @intToEnum(Opcode, opcode & 0b11000000);
                 const payload_type = std.meta.TagPayload(Instruction, e);
                 const value = try payload_type.read(stream, @intCast(u6, opcode & 0b111111), addr_size_bytes, endian);
@@ -205,111 +207,14 @@ pub const Instruction = union(Opcode) {
                 break :blk @unionInit(Instruction, @tagName(e), value);
             },
             Opcode.lo_user...Opcode.hi_user => error.UnimplementedUserOpcode,
-            else => error.InvalidOpcode,
+            else => |opcode| blk: {
+                std.debug.print("Opcode {x}\n", .{opcode});
+
+                break :blk error.InvalidOpcode;
+            },
         };
     }
-
-    pub fn writeOperands(
-        self: Instruction,
-        writer: anytype,
-        cie: dwarf.CommonInformationEntry,
-        arch: ?std.Target.Cpu.Arch,
-        addr_size_bytes: u8,
-        endian: std.builtin.Endian,
-    ) !void {
-        switch (self) {
-            inline .advance_loc, .advance_loc1, .advance_loc2, .advance_loc4 => |i| try writer.print("{}", .{i.operands.delta * cie.code_alignment_factor}),
-            .offset => |i| {
-                try abi.writeRegisterName(writer, arch, i.operands.register);
-                try writer.print(" {}", .{@intCast(i64, i.operands.offset) * cie.data_alignment_factor});
-            },
-            .restore => {},
-            .nop => {},
-            .set_loc => {},
-            .offset_extended => {},
-            .restore_extended => {},
-            .undefined => {},
-            .same_value => {},
-            .register => {},
-            .remember_state => {},
-            .restore_state => {},
-            .def_cfa => |i| try writer.print("{} {d:<1}", .{ abi.fmtRegister(i.operands.register, arch), @intCast(i64, i.operands.offset)}),
-            .def_cfa_register => |i| try abi.writeRegisterName(writer, arch, i.operands.register),
-            .def_cfa_offset => |i| try writer.print("{d:<1}", .{@intCast(i64, i.operands.offset)}),
-            .def_cfa_expression => |i| try writeExpression(writer, i.operands.block, arch, addr_size_bytes, endian),
-            .expression => {},
-            .offset_extended_sf => {},
-            .def_cfa_sf => {},
-            .def_cfa_offset_sf => {},
-            .val_offset => {},
-            .val_offset_sf => {},
-            .val_expression => {},
-        }
-    }
 };
-
-fn writeExpression(
-    writer: anytype,
-    block: []const u8,
-    arch: ?std.Target.Cpu.Arch,
-    addr_size_bytes: u8,
-    endian: std.builtin.Endian,
-) !void {
-    var stream = std.io.fixedBufferStream(block);
-
-    // Generate a lookup table from opcode value to name
-    const opcode_lut_len = 256;
-    const opcode_lut: [opcode_lut_len]?[]const u8 = comptime blk: {
-        var lut: [opcode_lut_len]?[]const u8 = [_]?[]const u8{null} ** opcode_lut_len;
-        for (@typeInfo(dwarf.OP).Struct.decls) |decl| {
-            lut[@as(u8, @field(dwarf.OP, decl.name))] = decl.name;
-        }
-
-        break :blk lut;
-    };
-
-    switch (endian) {
-        inline .Little, .Big => |e| {
-            switch (addr_size_bytes) {
-                inline 2, 4, 8 => |size| {
-                    const StackMachine = expressions.StackMachine(.{
-                        .addr_size = size,
-                        .endian = e,
-                        .call_frame_mode = true,
-                    });
-
-                    const reader = stream.reader();
-                    while (stream.pos < stream.buffer.len) {
-                        if (stream.pos > 0) try writer.writeAll(", ");
-
-                        const opcode = try reader.readByte();
-                        if (opcode_lut[opcode]) |opcode_name| {
-                            try writer.print("DW_OP_{s}", .{opcode_name});
-                        } else {
-                            // TODO: See how llvm-dwarfdump prints these?
-                            if (opcode >= dwarf.OP.lo_user and opcode <= dwarf.OP.lo_user) {
-                                try writer.print("<unknown vendor opcode: 0x{x}>", .{opcode});
-                            } else {
-                                try writer.print("<invalid opcode: 0x{x}>", .{opcode});
-                            }
-                        }
-
-                        if (try StackMachine.readOperand(&stream, opcode)) |value| {
-                            switch (value) {
-                                //.generic => |v| try writer.print("{d}", .{v}),
-                                .generic => {}, // Constant values are implied by the opcode name
-                                .register => |v| try writer.print(" {}", .{ abi.fmtRegister(v, arch) }),
-                                .base_register => |v| try writer.print(" {}{d:<1}", .{ abi.fmtRegister(v.base_register, arch), v.offset }),
-                                else => try writer.print(" TODO({s})", .{@tagName(value)}),
-                            }
-                        }
-                    }
-                },
-                else => return error.InvalidAddrSize,
-            }
-        },
-    }
-}
 
 /// See section 6.4.1 of the DWARF5 specification
 pub const VirtualMachine = struct {
@@ -324,52 +229,6 @@ pub const VirtualMachine = struct {
         architectural: void,
     };
 
-    pub const Column = struct {
-        register: u8 = undefined,
-        rule: RegisterRule = .{ .undefined = {} },
-
-        pub fn writeRule(
-            self: Column,
-            writer: anytype,
-            is_cfa: bool,
-            arch: ?std.Target.Cpu.Arch,
-            addr_size_bytes: u8,
-            endian: std.builtin.Endian,
-        ) !void {
-            if (is_cfa) {
-                try writer.writeAll("CFA");
-            } else {
-                try abi.writeRegisterName(writer, arch, self.register);
-            }
-
-            try writer.writeByte('=');
-            switch (self.rule) {
-                .undefined => {},
-                .same_value => try writer.writeAll("S"),
-                .offset => |offset| {
-                    if (is_cfa) {
-                        try abi.writeRegisterName(writer, arch, self.register);
-                        try writer.print("{d:<1}", .{offset});
-                    } else {
-                        try writer.print("[CFA{d:<1}]", .{offset});
-                    }
-                },
-                .val_offset => |offset| {
-                    if (is_cfa) {
-                        try abi.writeRegisterName(writer, arch, self.register);
-                        try writer.print("{d:<1}", .{offset});
-                    } else {
-                        try writer.print("CFA{d:<1}", .{offset});
-                    }
-                },
-                .register => |register| try abi.writeRegisterName(writer, arch, register),
-                .expression => |expression| try writeExpression(writer, expression, arch, addr_size_bytes, endian),
-                .val_expression => try writer.writeAll("TODO(val_expression)"),
-                .architectural => try writer.writeAll("TODO(architectural)"),
-            }
-        }
-    };
-
     /// Each row contains unwinding rules for a set of registers at a specific location in the
     pub const Row = struct {
         /// Offset from pc_begin
@@ -379,6 +238,12 @@ pub const VirtualMachine = struct {
         /// from, while other columns define registers in terms of the CFA.
         cfa: Column = .{},
         columns: ColumnRange = .{},
+    };
+
+    pub const Column = struct {
+        /// Register can only null in the case of the CFA column
+        register: ?u8 = null,
+        rule: RegisterRule = .{ .undefined = {} },
     };
 
     const ColumnRange = struct {
@@ -391,10 +256,14 @@ pub const VirtualMachine = struct {
     stack: std.ArrayListUnmanaged(ColumnRange) = .{},
     current_row: Row = .{},
 
+    /// The result of executing the CIE's initial_instructions
+    cie_row: ?Row = null,
+
     pub fn reset(self: *VirtualMachine) void {
         self.stack.clearRetainingCapacity();
         self.columns.clearRetainingCapacity();
         self.current_row = .{};
+        self.cie_row = null;
     }
 
     pub fn deinit(self: *VirtualMachine, allocator: std.mem.Allocator) void {
@@ -403,12 +272,14 @@ pub const VirtualMachine = struct {
         self.* = undefined;
     }
 
-    pub fn getColumns(self: VirtualMachine, row: Row) []Column {
+    /// Return a slice backed by the row's non-CFA columns
+    pub fn rowColumns(self: VirtualMachine, row: Row) []Column {
         return self.columns.items[row.columns.start..][0..row.columns.len];
     }
 
+    /// Either retrieves or adds a column for `register` (non-CFA) in the current row
     fn getOrAddColumn(self: *VirtualMachine, allocator: std.mem.Allocator, register: u8) !*Column {
-        for (self.getColumns(self.current_row)) |*c| {
+        for (self.rowColumns(self.current_row)) |*c| {
             if (c.register == register) return c;
         }
 
@@ -425,20 +296,82 @@ pub const VirtualMachine = struct {
         return column;
     }
 
-    pub fn step(self: *VirtualMachine, allocator: std.mem.Allocator, cie: dwarf.CommonInformationEntry, instruction: Instruction) !void {
+    /// Runs the CIE instructions, then the FDE instructions. Execution halts
+    /// once the row that corresponds to `pc` is known, and it is returned.
+    pub fn unwindTo(
+        self: *VirtualMachine,
+        allocator: std.mem.Allocator,
+        pc: u64,
+        cie: dwarf.CommonInformationEntry,
+        fde: dwarf.FrameDescriptionEntry,
+        addr_size_bytes: u8,
+        endian: std.builtin.Endian,
+    ) !Row {
+        assert(self.cie_row == null);
+        if (pc < fde.pc_begin or pc >= fde.pc_begin + fde.pc_range) return error.AddressOutOfRange;
+
+        var prev_row: Row = self.current_row;
+        const streams = .{
+            std.io.fixedBufferStream(cie.initial_instructions),
+            std.io.fixedBufferStream(fde.instructions),
+        };
+
+        outer: for (streams, 0..) |*stream, i| {
+            while (stream.pos < stream.buffer.len) {
+                const instruction = try dwarf.call_frame.Instruction.read(stream, addr_size_bytes, endian);
+                prev_row = try self.step(allocator, cie, i == 0, instruction);
+                if (pc < fde.pc_begin + self.current_row.offset) {
+                    break :outer;
+                }
+            }
+        }
+
+        return prev_row;
+    }
+
+    pub fn unwindToNative(
+        self: *VirtualMachine,
+        allocator: std.mem.Allocator,
+        pc: u64,
+        cie: dwarf.CommonInformationEntry,
+        fde: dwarf.FrameDescriptionEntry,
+    ) void {
+        self.stepTo(allocator, pc, cie, fde, @sizeOf(usize), builtin.target.cpu.arch.endian());
+    }
+
+    /// Executes a single instruction.
+    /// If this instruction is from the CIE, `is_initial` should be set.
+    /// Returns the value of `current_row` before executing this instruction
+    pub fn step(
+        self: *VirtualMachine,
+        allocator: std.mem.Allocator,
+        cie: dwarf.CommonInformationEntry,
+        is_initial: bool,
+        instruction: Instruction,
+    ) !Row {
+        // CIE instructions must be run before FDE instructions
+        assert(!is_initial or self.cie_row == null);
+        if (!is_initial and self.cie_row == null) self.cie_row = self.current_row;
+
+        const prev_row = self.current_row;
         switch (instruction) {
             inline .advance_loc, .advance_loc1, .advance_loc2, .advance_loc4 => |i| {
                 self.current_row.offset += i.operands.delta * cie.code_alignment_factor;
             },
-            .offset => |i| {
+            inline .offset, .offset_extended => |i| {
                 const column = try self.getOrAddColumn(allocator, i.operands.register);
                 column.rule = .{ .offset = @intCast(i64, i.operands.offset) * cie.data_alignment_factor };
             },
-            .restore => {},
+            inline .restore, .restore_extended => |i| {
+                if (self.cie_row) |cie_row| {
+                    const column = try self.getOrAddColumn(allocator, i.operands.register);
+                    column.rule = for (self.rowColumns(cie_row)) |cie_column| {
+                        if (cie_column.register == i.operands.register) break cie_column.rule;
+                    } else .{ .undefined = {} };
+                } else return error.InvalidOperation;
+            },
             .nop => {},
             .set_loc => {},
-            .offset_extended => {},
-            .restore_extended => {},
             .undefined => {},
             .same_value => {},
             .register => {},
@@ -448,17 +381,19 @@ pub const VirtualMachine = struct {
 
                 const new_start = self.columns.items.len;
                 if (self.current_row.columns.len > 0) {
-                    // Since we're copying from the same backing array, ensure it won't be reallocated
                     try self.columns.ensureUnusedCapacity(allocator, self.current_row.columns.len);
-                    self.columns.appendSliceAssumeCapacity(self.getColumns(self.current_row));
+                    self.columns.appendSliceAssumeCapacity(self.rowColumns(self.current_row));
                     self.current_row.columns.start = new_start;
                 }
             },
             .restore_state => {
-                // TODO: Is it possible to remove the duplicate from above? Other instructions may have added columns since then though
-                const columns = self.stack.popOrNull() orelse return error.InvalidOperation;
-                self.current_row.columns.len = columns.len;
-                self.current_row.columns.start = columns.start;
+                const restored_columns = self.stack.popOrNull() orelse return error.InvalidOperation;
+                self.columns.shrinkRetainingCapacity(self.columns.items.len - self.current_row.columns.len);
+                try self.columns.ensureUnusedCapacity(allocator, restored_columns.len);
+
+                self.current_row.columns.start = self.columns.items.len;
+                self.current_row.columns.len = restored_columns.len;
+                self.columns.appendSliceAssumeCapacity(self.columns.items[restored_columns.start..][0..restored_columns.len]);
             },
             .def_cfa => |i| {
                 self.current_row.cfa = .{
@@ -488,5 +423,7 @@ pub const VirtualMachine = struct {
             .val_offset_sf => {},
             .val_expression => {},
         }
+
+        return prev_row;
     }
 };
