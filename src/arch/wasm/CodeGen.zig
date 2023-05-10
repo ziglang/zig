@@ -127,6 +127,7 @@ const WValue = union(enum) {
             .f64 => gen.free_locals_f64.append(gen.gpa, local_value) catch return,
             .v128 => gen.free_locals_v128.append(gen.gpa, local_value) catch return,
         }
+        log.debug("freed local ({d}) of type {}", .{ local_value, valtype });
         value.* = .dead;
     }
 };
@@ -1092,27 +1093,27 @@ fn allocLocal(func: *CodeGen, ty: Type) InnerError!WValue {
     const valtype = typeToValtype(ty, func.target);
     switch (valtype) {
         .i32 => if (func.free_locals_i32.popOrNull()) |index| {
-            log.debug("reusing local ({d}) of type {}\n", .{ index, valtype });
+            log.debug("reusing local ({d}) of type {}", .{ index, valtype });
             return WValue{ .local = .{ .value = index, .references = 1 } };
         },
         .i64 => if (func.free_locals_i64.popOrNull()) |index| {
-            log.debug("reusing local ({d}) of type {}\n", .{ index, valtype });
+            log.debug("reusing local ({d}) of type {}", .{ index, valtype });
             return WValue{ .local = .{ .value = index, .references = 1 } };
         },
         .f32 => if (func.free_locals_f32.popOrNull()) |index| {
-            log.debug("reusing local ({d}) of type {}\n", .{ index, valtype });
+            log.debug("reusing local ({d}) of type {}", .{ index, valtype });
             return WValue{ .local = .{ .value = index, .references = 1 } };
         },
         .f64 => if (func.free_locals_f64.popOrNull()) |index| {
-            log.debug("reusing local ({d}) of type {}\n", .{ index, valtype });
+            log.debug("reusing local ({d}) of type {}", .{ index, valtype });
             return WValue{ .local = .{ .value = index, .references = 1 } };
         },
         .v128 => if (func.free_locals_v128.popOrNull()) |index| {
-            log.debug("reusing local ({d}) of type {}\n", .{ index, valtype });
+            log.debug("reusing local ({d}) of type {}", .{ index, valtype });
             return WValue{ .local = .{ .value = index, .references = 1 } };
         },
     }
-    log.debug("new local of type {}\n", .{valtype});
+    log.debug("new local of type {}", .{valtype});
     // no local was free to be re-used, so allocate a new local instead
     return func.ensureAllocLocal(ty);
 }
@@ -4948,8 +4949,15 @@ fn airAggregateInit(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
             else => unreachable,
         }
     };
-    // TODO: this is incorrect Liveness handling code
-    func.finishAir(inst, result, &.{});
+
+    if (elements.len <= Liveness.bpi - 1) {
+        var buf = [1]Air.Inst.Ref{.none} ** (Liveness.bpi - 1);
+        @memcpy(buf[0..elements.len], elements);
+        return func.finishAir(inst, result, &buf);
+    }
+    var bt = try func.iterateBigTomb(inst, elements.len);
+    for (elements) |arg| bt.feed(arg);
+    return bt.finishAir(result);
 }
 
 fn airUnionInit(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
@@ -5436,11 +5444,10 @@ fn airAddSubWithOverflow(func: *CodeGen, inst: Air.Inst.Index, op: Op) InnerErro
     };
 
     var bin_op = try (try func.binOp(lhs, rhs, lhs_ty, op)).toLocal(func, lhs_ty);
-    defer bin_op.free(func);
     var result = if (wasm_bits != int_info.bits) blk: {
         break :blk try (try func.wrapOperand(bin_op, lhs_ty)).toLocal(func, lhs_ty);
     } else bin_op;
-    defer result.free(func); // no-op when wasm_bits == int_info.bits
+    defer result.free(func);
 
     const cmp_op: std.math.CompareOperator = if (op == .sub) .gt else .lt;
     const overflow_bit: WValue = if (is_signed) blk: {
