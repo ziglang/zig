@@ -2396,7 +2396,19 @@ fn walkInstruction(
 
             return DocData.WalkResult{
                 .typeRef = if (callee.typeRef) |tr| switch (tr) {
-                    .type => |func_type_idx| self.types.items[func_type_idx].Fn.ret,
+                    .type => |func_type_idx| switch (self.types.items[func_type_idx]) {
+                        .Fn => |func| func.ret,
+                        else => blk: {
+                            printWithContext(
+                                file,
+                                inst_index,
+                                "unexpected callee type in walkInstruction.call: `{s}`\n",
+                                .{@tagName(self.types.items[func_type_idx])},
+                            );
+
+                            break :blk null;
+                        },
+                    },
                     else => null,
                 } else null,
                 .expr = .{ .call = call_slot_index },
