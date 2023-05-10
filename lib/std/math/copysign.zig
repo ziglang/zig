@@ -4,16 +4,17 @@ const expect = std.testing.expect;
 
 /// Returns a value with the magnitude of `magnitude` and the sign of `sign`.
 pub fn copysign(magnitude: anytype, sign: @TypeOf(magnitude)) @TypeOf(magnitude) {
-    const T = @TypeOf(magnitude);
-    const TBits = std.meta.Int(.unsigned, @typeInfo(T).Float.bits);
-    const sign_bit_mask = @as(TBits, 1) << (@bitSizeOf(T) - 1);
-    const mag = @bitCast(TBits, magnitude) & ~sign_bit_mask;
-    const sgn = @bitCast(TBits, sign) & sign_bit_mask;
-    return @bitCast(T, mag | sgn);
+    const bits = math.floatBits(@TypeOf(magnitude));
+    const FBits = @Type(.{ .Float = .{ .bits = bits } });
+    const TBits = @Type(.{ .Int = .{ .signedness = .unsigned, .bits = bits } });
+    const sign_bit_mask = @as(TBits, 1) << (bits - 1);
+    const mag = @bitCast(TBits, @as(FBits, magnitude)) & ~sign_bit_mask;
+    const sgn = @bitCast(TBits, @as(FBits, sign)) & sign_bit_mask;
+    return @bitCast(FBits, mag | sgn);
 }
 
 test "math.copysign" {
-    inline for ([_]type{ f16, f32, f64, f80, f128 }) |T| {
+    inline for ([_]type{ f16, f32, f64, f80, f128, c_longdouble, comptime_float }) |T| {
         try expect(copysign(@as(T, 1.0), @as(T, 1.0)) == 1.0);
         try expect(copysign(@as(T, 2.0), @as(T, -2.0)) == -2.0);
         try expect(copysign(@as(T, -3.0), @as(T, 3.0)) == 3.0);

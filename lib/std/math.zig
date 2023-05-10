@@ -37,6 +37,7 @@ pub const sqrt2 = 1.414213562373095048801688724209698079;
 /// 1/sqrt(2)
 pub const sqrt1_2 = 0.707106781186547524400844362104849039;
 
+pub const floatBits = @import("math/float.zig").floatBits;
 pub const floatExponentBits = @import("math/float.zig").floatExponentBits;
 pub const floatMantissaBits = @import("math/float.zig").floatMantissaBits;
 pub const floatFractionalBits = @import("math/float.zig").floatFractionalBits;

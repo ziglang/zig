@@ -4,21 +4,29 @@ const expect = std.testing.expect;
 
 /// Creates a raw "1.0" mantissa for floating point type T. Used to dedupe f80 logic.
 inline fn mantissaOne(comptime T: type) comptime_int {
-    return if (@typeInfo(T).Float.bits == 80) 1 << floatFractionalBits(T) else 0;
+    return 1 << floatFractionalBits(T) & ((1 << floatMantissaBits(T)) - 1);
 }
 
 /// Creates floating point type T from an unbiased exponent and raw mantissa.
 inline fn reconstructFloat(comptime T: type, comptime exponent: comptime_int, comptime mantissa: comptime_int) T {
-    const TBits = @Type(.{ .Int = .{ .signedness = .unsigned, .bits = @bitSizeOf(T) } });
+    const FBits = @Type(.{ .Float = .{ .bits = floatBits(T) } });
+    const TBits = @Type(.{ .Int = .{ .signedness = .unsigned, .bits = floatBits(T) } });
     const biased_exponent = @as(TBits, exponent + floatExponentMax(T));
-    return @bitCast(T, (biased_exponent << floatMantissaBits(T)) | @as(TBits, mantissa));
+    return @bitCast(FBits, (biased_exponent << floatMantissaBits(T)) | @as(TBits, mantissa));
+}
+
+/// Returns the number of bits in floating point type T.
+pub inline fn floatBits(comptime T: type) comptime_int {
+    return switch (@typeInfo(T)) {
+        .Float => |info| info.bits,
+        .ComptimeFloat => 128,
+        else => @compileError(@typeName(T) ++ " is not a floating point type"),
+    };
 }
 
 /// Returns the number of bits in the exponent of floating point type T.
 pub inline fn floatExponentBits(comptime T: type) comptime_int {
-    comptime assert(@typeInfo(T) == .Float);
-
-    return switch (@typeInfo(T).Float.bits) {
+    return switch (floatBits(T)) {
         16 => 5,
         32 => 8,
         64 => 11,
@@ -30,9 +38,7 @@ pub inline fn floatExponentBits(comptime T: type) comptime_int {
 
 /// Returns the number of bits in the mantissa of floating point type T.
 pub inline fn floatMantissaBits(comptime T: type) comptime_int {
-    comptime assert(@typeInfo(T) == .Float);
-
-    return switch (@typeInfo(T).Float.bits) {
+    return switch (floatBits(T)) {
         16 => 10,
         32 => 23,
         64 => 52,
@@ -44,12 +50,10 @@ pub inline fn floatMantissaBits(comptime T: type) comptime_int {
 
 /// Returns the number of fractional bits in the mantissa of floating point type T.
 pub inline fn floatFractionalBits(comptime T: type) comptime_int {
-    comptime assert(@typeInfo(T) == .Float);
-
     // standard IEEE floats have an implicit 0.m or 1.m integer part
     // f80 is special and has an explicitly stored bit in the MSB
     // this function corresponds to `MANT_DIG - 1' from C
-    return switch (@typeInfo(T).Float.bits) {
+    return switch (floatBits(T)) {
         16 => 10,
         32 => 23,
         64 => 52,
@@ -101,6 +105,7 @@ test "float bits" {
     inline for ([_]type{ f16, f32, f64, f80, f128, c_longdouble }) |T| {
         // (1 +) for the sign bit, since it is separate from the other bits
         const size = 1 + floatExponentBits(T) + floatMantissaBits(T);
+        try expect(floatBits(T) == size);
         try expect(@bitSizeOf(T) == size);
 
         // for machine epsilon, assert expmin <= -prec <= expmax

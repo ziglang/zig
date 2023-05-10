@@ -96,6 +96,31 @@ test "@min for vectors" {
     comptime try S.doTheTest();
 }
 
+test "@min/max for floats" {
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+
+    const S = struct {
+        fn doTheTest(comptime T: type) !void {
+            var x: T = -3.14;
+            var y: T = 5.27;
+            try expectEqual(x, @min(x, y));
+            try expectEqual(x, @min(y, x));
+            try expectEqual(y, @max(x, y));
+            try expectEqual(y, @max(y, x));
+        }
+    };
+
+    inline for (.{ f16, f32, f64, f80, f128, c_longdouble }) |T| {
+        try S.doTheTest(T);
+        comptime try S.doTheTest(T);
+    }
+    comptime try S.doTheTest(comptime_float);
+}
+
 test "@min/@max on lazy values" {
     const A = extern struct { u8_4: [4]u8 };
     const B = extern struct { u8_16: [16]u8 };
