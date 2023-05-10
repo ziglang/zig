@@ -31523,6 +31523,16 @@ fn resolveInferredErrorSet(
     if (ies_func_info.return_type.tag() == .generic_poison) {
         assert(ies_func_info.cc == .Inline);
     } else if (ies_func_info.return_type.errorUnionSet().castTag(.error_set_inferred).?.data == ies) {
+        if (ies_func_info.is_generic) {
+            const msg = msg: {
+                const msg = try sema.errMsg(block, src, "unable to resolve inferred error set of generic function", .{});
+                errdefer msg.destroy(sema.gpa);
+
+                try sema.mod.errNoteNonLazy(ies_func_owner_decl.srcLoc(), msg, "generic function declared here", .{});
+                break :msg msg;
+            };
+            return sema.failWithOwnedErrorMsg(msg);
+        }
         // In this case we are dealing with the actual InferredErrorSet object that
         // corresponds to the function, not one created to track an inline/comptime call.
         try sema.ensureFuncBodyAnalyzed(ies.func);
