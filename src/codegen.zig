@@ -503,8 +503,8 @@ pub fn generateSymbol(
             return Result.ok;
         },
         .Struct => {
-            if (typed_value.ty.containerLayout() == .Packed) {
-                const struct_obj = typed_value.ty.castTag(.@"struct").?.data;
+            if (typed_value.ty.containerLayout(mod) == .Packed) {
+                const struct_obj = mod.typeToStruct(typed_value.ty).?;
                 const fields = struct_obj.fields.values();
                 const field_vals = typed_value.val.castTag(.aggregate).?.data;
                 const abi_size = math.cast(usize, typed_value.ty.abiSize(mod)) orelse return error.Overflow;
@@ -539,7 +539,7 @@ pub fn generateSymbol(
             const struct_begin = code.items.len;
             const field_vals = typed_value.val.castTag(.aggregate).?.data;
             for (field_vals, 0..) |field_val, index| {
-                const field_ty = typed_value.ty.structFieldType(index);
+                const field_ty = typed_value.ty.structFieldType(index, mod);
                 if (!field_ty.hasRuntimeBits(mod)) continue;
 
                 switch (try generateSymbol(bin_file, src_loc, .{

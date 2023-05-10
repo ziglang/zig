@@ -3993,10 +3993,10 @@ fn genSetStack(self: *Self, ty: Type, stack_offset: u32, mcv: MCValue) InnerErro
             const reg_lock = self.register_manager.lockReg(rwo.reg);
             defer if (reg_lock) |locked_reg| self.register_manager.unlockReg(locked_reg);
 
-            const wrapped_ty = ty.structFieldType(0);
+            const wrapped_ty = ty.structFieldType(0, mod);
             try self.genSetStack(wrapped_ty, stack_offset, .{ .register = rwo.reg });
 
-            const overflow_bit_ty = ty.structFieldType(1);
+            const overflow_bit_ty = ty.structFieldType(1, mod);
             const overflow_bit_offset = @intCast(u32, ty.structFieldOffset(1, mod));
             const cond_reg = try self.register_manager.allocReg(null, gp);
 

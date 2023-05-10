@@ -32,7 +32,7 @@ pub fn classifyType(ty: Type, mod: *Module, ctx: Context) Class {
     switch (ty.zigTypeTag(mod)) {
         .Struct => {
             const bit_size = ty.bitSize(mod);
-            if (ty.containerLayout() == .Packed) {
+            if (ty.containerLayout(mod) == .Packed) {
                 if (bit_size > 64) return .memory;
                 return .byval;
             }
@@ -40,10 +40,10 @@ pub fn classifyType(ty: Type, mod: *Module, ctx: Context) Class {
             const float_count = countFloats(ty, mod, &maybe_float_bits);
             if (float_count <= byval_float_count) return .byval;
 
-            const fields = ty.structFieldCount();
+            const fields = ty.structFieldCount(mod);
             var i: u32 = 0;
             while (i < fields) : (i += 1) {
-                const field_ty = ty.structFieldType(i);
+                const field_ty = ty.structFieldType(i, mod);
                 const field_alignment = ty.structFieldAlign(i, mod);
                 const field_size = field_ty.bitSize(mod);
                 if (field_size > 32 or field_alignment > 32) {
@@ -54,7 +54,7 @@ pub fn classifyType(ty: Type, mod: *Module, ctx: Context) Class {
         },
         .Union => {
             const bit_size = ty.bitSize(mod);
-            if (ty.containerLayout() == .Packed) {
+            if (ty.containerLayout(mod) == .Packed) {
                 if (bit_size > 64) return .memory;
                 return .byval;
             }
@@ -132,11 +132,11 @@ fn countFloats(ty: Type, mod: *Module, maybe_float_bits: *?u16) u32 {
             return max_count;
         },
         .Struct => {
-            const fields_len = ty.structFieldCount();
+            const fields_len = ty.structFieldCount(mod);
             var count: u32 = 0;
             var i: u32 = 0;
             while (i < fields_len) : (i += 1) {
-                const field_ty = ty.structFieldType(i);
+                const field_ty = ty.structFieldType(i, mod);
                 const field_count = countFloats(field_ty, mod, maybe_float_bits);
                 if (field_count == invalid) return invalid;
                 count += field_count;

@@ -685,7 +685,7 @@ pub const DeclGen = struct {
                     if (ty.isSimpleTupleOrAnonStruct()) {
                         unreachable; // TODO
                     } else {
-                        const struct_ty = ty.castTag(.@"struct").?.data;
+                        const struct_ty = mod.typeToStruct(ty).?;
 
                         if (struct_ty.layout == .Packed) {
                             return dg.todo("packed struct constants", .{});
@@ -1306,7 +1306,7 @@ pub const DeclGen = struct {
                     } });
                 }
 
-                const struct_ty = ty.castTag(.@"struct").?.data;
+                const struct_ty = mod.typeToStruct(ty).?;
 
                 if (struct_ty.layout == .Packed) {
                     return try self.resolveType(struct_ty.backing_int_ty, .direct);
@@ -2576,7 +2576,7 @@ pub const DeclGen = struct {
         const struct_ty = self.typeOf(struct_field.struct_operand);
         const object_id = try self.resolve(struct_field.struct_operand);
         const field_index = struct_field.field_index;
-        const field_ty = struct_ty.structFieldType(field_index);
+        const field_ty = struct_ty.structFieldType(field_index, mod);
 
         if (!field_ty.hasRuntimeBitsIgnoreComptime(mod)) return null;
 
@@ -2595,7 +2595,7 @@ pub const DeclGen = struct {
         const mod = self.module;
         const object_ty = object_ptr_ty.childType(mod);
         switch (object_ty.zigTypeTag(mod)) {
-            .Struct => switch (object_ty.containerLayout()) {
+            .Struct => switch (object_ty.containerLayout(mod)) {
                 .Packed => unreachable, // TODO
                 else => {
                     const field_index_ty_ref = try self.intType(.unsigned, 32);

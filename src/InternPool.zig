@@ -1,5 +1,10 @@
 //! All interned objects have both a value and a type.
+//! This data structure is self-contained, with the following exceptions:
+//! * type_struct via Module.Struct.Index
+//! * type_opaque via Module.Namespace.Index and Module.Decl.Index
 
+/// Maps `Key` to `Index`. `Key` objects are not stored anywhere; they are
+/// constructed lazily.
 map: std.AutoArrayHashMapUnmanaged(void, void) = .{},
 items: std.MultiArrayList(Item) = .{},
 extra: std.ArrayListUnmanaged(u32) = .{},
@@ -9,6 +14,13 @@ extra: std.ArrayListUnmanaged(u32) = .{},
 /// violate the above mechanism.
 limbs: std.ArrayListUnmanaged(u64) = .{},
 
+/// Struct objects are stored in this data structure because:
+/// * They contain pointers such as the field maps.
+/// * They need to be mutated after creation.
+allocated_structs: std.SegmentedList(Module.Struct, 0) = .{},
+/// When a Struct object is freed from `allocated_structs`, it is pushed into this stack.
+structs_free_list: std.ArrayListUnmanaged(Module.Struct.Index) = .{},
+
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
@@ -17,8 +29,7 @@ const BigIntMutable = std.math.big.int.Mutable;
 const Limb = std.math.big.Limb;
 
 const InternPool = @This();
-const DeclIndex = @import("Module.zig").Decl.Index;
-const NamespaceIndex = @import("Module.zig").Namespace.Index;
+const Module = @import("Module.zig");
 
 const KeyAdapter = struct {
     intern_pool: *const InternPool,
@@ -45,11 +56,20 @@ pub const Key = union(enum) {
         payload_type: Index,
     },
     simple_type: SimpleType,
+    /// If `empty_struct_type` is handled separately, then this value may be
+    /// safely assumed to never be `none`.
+    struct_type: StructType,
+    union_type: struct {
+        fields_len: u32,
+        // TODO move Module.Union data to InternPool
+    },
+    opaque_type: OpaqueType,
+
     simple_value: SimpleValue,
     extern_func: struct {
         ty: Index,
         /// The Decl that corresponds to the function itself.
-        decl: DeclIndex,
+        decl: Module.Decl.Index,
         /// Library name if specified.
         /// For example `extern "c" fn write(...) usize` would have 'c' as library name.
         /// Index into the string table bytes.
@@ -62,13 +82,11 @@ pub const Key = union(enum) {
         ty: Index,
         tag: BigIntConst,
     },
-    struct_type: StructType,
-    opaque_type: OpaqueType,
-
-    union_type: struct {
-        fields_len: u32,
-        // TODO move Module.Union data to InternPool
-    },
+    /// An instance of a struct, array, or vector.
+    /// Each element/field stored as an `Index`.
+    /// In the case of sentinel-terminated arrays, the sentinel value *is* stored,
+    /// so the slice length will be one more than the type's array length.
+    aggregate: Aggregate,
 
     pub const IntType = std.builtin.Type.Int;
 
@@ -113,16 +131,27 @@ pub const Key = union(enum) {
         child: Index,
     };
 
-    pub const StructType = struct {
-        fields_len: u32,
-        // TODO move Module.Struct data to InternPool
-    };
-
     pub const OpaqueType = struct {
         /// The Decl that corresponds to the opaque itself.
-        decl: DeclIndex,
+        decl: Module.Decl.Index,
         /// Represents the declarations inside this opaque.
-        namespace: NamespaceIndex,
+        namespace: Module.Namespace.Index,
+    };
+
+    /// There are three possibilities here:
+    /// * `@TypeOf(.{})` (untyped empty struct literal)
+    ///   - namespace == .none, index == .none
+    /// * A struct which has a namepace, but no fields.
+    ///   - index == .none
+    /// * A struct which has fields as well as a namepace.
+    pub const StructType = struct {
+        /// This will be `none` only in the case of `@TypeOf(.{})`
+        /// (`Index.empty_struct_type`).
+        namespace: Module.Namespace.OptionalIndex,
+        /// The `none` tag is used to represent two cases:
+        /// * `@TypeOf(.{})`, in which case `namespace` will also be `none`.
+        /// * A struct with no fields, in which case `namespace` will be populated.
+        index: Module.Struct.OptionalIndex,
     };
 
     pub const Int = struct {
@@ -156,16 +185,22 @@ pub const Key = union(enum) {
         addr: Addr,
 
         pub const Addr = union(enum) {
-            decl: DeclIndex,
+            decl: Module.Decl.Index,
             int: Index,
         };
     };
 
     /// `null` is represented by the `val` field being `none`.
     pub const Opt = struct {
+        /// This is the optional type; not the payload type.
         ty: Index,
         /// This could be `none`, indicating the optional is `null`.
         val: Index,
+    };
+
+    pub const Aggregate = struct {
+        ty: Index,
+        fields: []const Index,
     };
 
     pub fn hash32(key: Key) u32 {
@@ -193,7 +228,14 @@ pub const Key = union(enum) {
             .simple_value,
             .extern_func,
             .opt,
+            .struct_type,
             => |info| std.hash.autoHash(hasher, info),
+
+            .union_type => |union_type| {
+                _ = union_type;
+                @panic("TODO");
+            },
+            .opaque_type => |opaque_type| std.hash.autoHash(hasher, opaque_type.decl),
 
             .int => |int| {
                 // Canonicalize all integers by converting them to BigIntConst.
@@ -221,16 +263,10 @@ pub const Key = union(enum) {
                 for (enum_tag.tag.limbs) |limb| std.hash.autoHash(hasher, limb);
             },
 
-            .struct_type => |struct_type| {
-                if (struct_type.fields_len != 0) {
-                    @panic("TODO");
-                }
+            .aggregate => |aggregate| {
+                std.hash.autoHash(hasher, aggregate.ty);
+                for (aggregate.fields) |field| std.hash.autoHash(hasher, field);
             },
-            .union_type => |union_type| {
-                _ = union_type;
-                @panic("TODO");
-            },
-            .opaque_type => |opaque_type| std.hash.autoHash(hasher, opaque_type.decl),
         }
     }
 
@@ -278,6 +314,10 @@ pub const Key = union(enum) {
             },
             .opt => |a_info| {
                 const b_info = b.opt;
+                return std.meta.eql(a_info, b_info);
+            },
+            .struct_type => |a_info| {
+                const b_info = b.struct_type;
                 return std.meta.eql(a_info, b_info);
             },
 
@@ -331,16 +371,6 @@ pub const Key = union(enum) {
                 @panic("TODO");
             },
 
-            .struct_type => |a_info| {
-                const b_info = b.struct_type;
-
-                // TODO: remove this special case for empty_struct
-                if (a_info.fields_len == 0 and b_info.fields_len == 0)
-                    return true;
-
-                @panic("TODO");
-            },
-
             .union_type => |a_info| {
                 const b_info = b.union_type;
 
@@ -352,6 +382,11 @@ pub const Key = union(enum) {
             .opaque_type => |a_info| {
                 const b_info = b.opaque_type;
                 return a_info.decl == b_info.decl;
+            },
+            .aggregate => |a_info| {
+                const b_info = b.aggregate;
+                if (a_info.ty != b_info.ty) return false;
+                return std.mem.eql(Index, a_info.fields, b_info.fields);
             },
         }
     }
@@ -375,6 +410,7 @@ pub const Key = union(enum) {
             .opt,
             .extern_func,
             .enum_tag,
+            .aggregate,
             => |x| return x.ty,
 
             .simple_value => |s| switch (s) {
@@ -471,6 +507,7 @@ pub const Index = enum(u32) {
     anyerror_void_error_union_type,
     generic_poison_type,
     var_args_param_type,
+    /// `@TypeOf(.{})`
     empty_struct_type,
 
     /// `undefined` (untyped)
@@ -691,7 +728,8 @@ pub const static_keys = [_]Key{
 
     // empty_struct_type
     .{ .struct_type = .{
-        .fields_len = 0,
+        .namespace = .none,
+        .index = .none,
     } },
 
     .{ .simple_value = .undefined },
@@ -792,16 +830,18 @@ pub const Tag = enum(u8) {
     /// An opaque type.
     /// data is index of Key.OpaqueType in extra.
     type_opaque,
+    /// A struct type.
+    /// data is Module.Struct.OptionalIndex
+    /// The `none` tag is used to represent `@TypeOf(.{})`.
+    type_struct,
+    /// A struct type that has only a namespace; no fields, and there is no
+    /// Module.Struct object allocated for it.
+    /// data is Module.Namespace.Index.
+    type_struct_ns,
 
     /// A value that can be represented with only an enum tag.
     /// data is SimpleValue enum value.
     simple_value,
-    /// The SimpleType and SimpleValue enums are exposed via the InternPool API using
-    /// SimpleType and SimpleValue as the Key data themselves.
-    /// This tag is for miscellaneous types and values that can be represented with
-    /// only an enum tag, but will be presented via the API with a different Key.
-    /// data is SimpleInternal enum value.
-    simple_internal,
     /// A pointer to an integer value.
     /// data is extra index of PtrInt, which contains the type and address.
     /// Only pointer types are allowed to have this encoding. Optional types must use
@@ -809,6 +849,8 @@ pub const Tag = enum(u8) {
     ptr_int,
     /// An optional value that is non-null.
     /// data is Index of the payload value.
+    /// In order to use this encoding, one must ensure that the `InternPool`
+    /// already contains the optional type corresponding to this payload.
     opt_payload,
     /// An optional value that is null.
     /// data is Index of the payload type.
@@ -859,6 +901,13 @@ pub const Tag = enum(u8) {
     extern_func,
     /// A regular function.
     func,
+    /// This represents the only possible value for *some* types which have
+    /// only one possible value. Not all only-possible-values are encoded this way;
+    /// for example structs which have all comptime fields are not encoded this way.
+    /// The set of values that are encoded this way is:
+    /// * A struct which has 0 fields.
+    /// data is Index of the type, which is known to be zero bits at runtime.
+    only_possible_value,
 };
 
 /// Having `SimpleType` and `SimpleValue` in separate enums makes it easier to
@@ -912,21 +961,18 @@ pub const SimpleType = enum(u32) {
 };
 
 pub const SimpleValue = enum(u32) {
+    /// This is untyped `undefined`.
     undefined,
     void,
+    /// This is untyped `null`.
     null,
+    /// This is the untyped empty struct literal: `.{}`
     empty_struct,
     true,
     false,
     @"unreachable",
 
     generic_poison,
-};
-
-pub const SimpleInternal = enum(u32) {
-    /// This is the empty struct type. Note that empty_struct value is exposed
-    /// via SimpleValue.
-    type_empty_struct,
 };
 
 pub const Pointer = struct {
@@ -1005,7 +1051,7 @@ pub const ErrorUnion = struct {
 /// 0. field name: null-terminated string index for each fields_len; declaration order
 pub const EnumSimple = struct {
     /// The Decl that corresponds to the enum itself.
-    decl: DeclIndex,
+    decl: Module.Decl.Index,
     /// An integer type which is used for the numerical value of the enum. This
     /// is inferred by Zig to be the smallest power of two unsigned int that
     /// fits the number of fields. It is stored here to avoid unnecessary
@@ -1091,6 +1137,10 @@ pub fn deinit(ip: *InternPool, gpa: Allocator) void {
     ip.items.deinit(gpa);
     ip.extra.deinit(gpa);
     ip.limbs.deinit(gpa);
+
+    ip.structs_free_list.deinit(gpa);
+    ip.allocated_structs.deinit(gpa);
+
     ip.* = undefined;
 }
 
@@ -1167,20 +1217,38 @@ pub fn indexToKey(ip: InternPool, index: Index) Key {
         .type_enum_simple => @panic("TODO"),
 
         .type_opaque => .{ .opaque_type = ip.extraData(Key.OpaqueType, data) },
-
-        .simple_internal => switch (@intToEnum(SimpleInternal, data)) {
-            .type_empty_struct => .{ .struct_type = .{
-                .fields_len = 0,
-            } },
+        .type_struct => {
+            const struct_index = @intToEnum(Module.Struct.OptionalIndex, data);
+            const namespace = if (struct_index.unwrap()) |i|
+                ip.structPtrConst(i).namespace.toOptional()
+            else
+                .none;
+            return .{ .struct_type = .{
+                .index = struct_index,
+                .namespace = namespace,
+            } };
         },
+        .type_struct_ns => .{ .struct_type = .{
+            .index = .none,
+            .namespace = @intToEnum(Module.Namespace.Index, data).toOptional(),
+        } },
+
         .opt_null => .{ .opt = .{
             .ty = @intToEnum(Index, data),
             .val = .none,
         } },
-        .opt_payload => .{ .opt = .{
-            .ty = indexToKey(ip, @intToEnum(Index, data)).typeOf(),
-            .val = @intToEnum(Index, data),
-        } },
+        .opt_payload => {
+            const payload_val = @intToEnum(Index, data);
+            // The existence of `opt_payload` guarantees that the optional type will be
+            // stored in the `InternPool`.
+            const opt_ty = ip.getAssumeExists(.{
+                .opt_type = indexToKey(ip, payload_val).typeOf(),
+            });
+            return .{ .opt = .{
+                .ty = opt_ty,
+                .val = payload_val,
+            } };
+        },
         .ptr_int => {
             const info = ip.extraData(PtrInt, data);
             return .{ .ptr = .{
@@ -1225,6 +1293,16 @@ pub fn indexToKey(ip: InternPool, index: Index) Key {
         .float_f128 => @panic("TODO"),
         .extern_func => @panic("TODO"),
         .func => @panic("TODO"),
+        .only_possible_value => {
+            const ty = @intToEnum(Index, data);
+            return switch (ip.indexToKey(ty)) {
+                .struct_type => .{ .aggregate = .{
+                    .ty = ty,
+                    .fields = &.{},
+                } },
+                else => unreachable,
+            };
+        },
     };
 }
 
@@ -1359,12 +1437,15 @@ pub fn get(ip: *InternPool, gpa: Allocator, key: Key) Allocator.Error!Index {
         },
 
         .struct_type => |struct_type| {
-            if (struct_type.fields_len != 0) {
-                @panic("TODO"); // handle structs other than empty_struct
-            }
-            ip.items.appendAssumeCapacity(.{
-                .tag = .simple_internal,
-                .data = @enumToInt(SimpleInternal.type_empty_struct),
+            ip.items.appendAssumeCapacity(if (struct_type.index.unwrap()) |i| .{
+                .tag = .type_struct,
+                .data = @enumToInt(i),
+            } else if (struct_type.namespace.unwrap()) |i| .{
+                .tag = .type_struct_ns,
+                .data = @enumToInt(i),
+            } else .{
+                .tag = .type_struct,
+                .data = @enumToInt(Module.Struct.OptionalIndex.none),
             });
         },
 
@@ -1398,6 +1479,7 @@ pub fn get(ip: *InternPool, gpa: Allocator, key: Key) Allocator.Error!Index {
 
         .opt => |opt| {
             assert(opt.ty != .none);
+            assert(ip.isOptionalType(opt.ty));
             ip.items.appendAssumeCapacity(if (opt.val == .none) .{
                 .tag = .opt_null,
                 .data = @enumToInt(opt.ty),
@@ -1549,8 +1631,33 @@ pub fn get(ip: *InternPool, gpa: Allocator, key: Key) Allocator.Error!Index {
             const tag: Tag = if (enum_tag.tag.positive) .enum_tag_positive else .enum_tag_negative;
             try addInt(ip, gpa, enum_tag.ty, tag, enum_tag.tag.limbs);
         },
+
+        .aggregate => |aggregate| {
+            if (aggregate.fields.len == 0) {
+                ip.items.appendAssumeCapacity(.{
+                    .tag = .only_possible_value,
+                    .data = @enumToInt(aggregate.ty),
+                });
+                return @intToEnum(Index, ip.items.len - 1);
+            }
+            @panic("TODO");
+        },
     }
     return @intToEnum(Index, ip.items.len - 1);
+}
+
+pub fn getAssumeExists(ip: InternPool, key: Key) Index {
+    const adapter: KeyAdapter = .{ .intern_pool = &ip };
+    const index = ip.map.getIndexAdapted(key, adapter).?;
+    return @intToEnum(Index, index);
+}
+
+/// This operation only happens under compile error conditions.
+/// Leak the index until the next garbage collection.
+pub fn remove(ip: *InternPool, index: Index) void {
+    _ = ip;
+    _ = index;
+    @panic("TODO this is a bit problematic to implement, could we maybe just never support a remove() operation on InternPool?");
 }
 
 fn addInt(ip: *InternPool, gpa: Allocator, ty: Index, tag: Tag, limbs: []const Limb) !void {
@@ -1578,8 +1685,8 @@ fn addExtraAssumeCapacity(ip: *InternPool, extra: anytype) u32 {
         ip.extra.appendAssumeCapacity(switch (field.type) {
             u32 => @field(extra, field.name),
             Index => @enumToInt(@field(extra, field.name)),
-            DeclIndex => @enumToInt(@field(extra, field.name)),
-            NamespaceIndex => @enumToInt(@field(extra, field.name)),
+            Module.Decl.Index => @enumToInt(@field(extra, field.name)),
+            Module.Namespace.Index => @enumToInt(@field(extra, field.name)),
             i32 => @bitCast(u32, @field(extra, field.name)),
             Pointer.Flags => @bitCast(u32, @field(extra, field.name)),
             Pointer.PackedOffset => @bitCast(u32, @field(extra, field.name)),
@@ -1635,8 +1742,8 @@ fn extraData(ip: InternPool, comptime T: type, index: usize) T {
         @field(result, field.name) = switch (field.type) {
             u32 => int32,
             Index => @intToEnum(Index, int32),
-            DeclIndex => @intToEnum(DeclIndex, int32),
-            NamespaceIndex => @intToEnum(NamespaceIndex, int32),
+            Module.Decl.Index => @intToEnum(Module.Decl.Index, int32),
+            Module.Namespace.Index => @intToEnum(Module.Namespace.Index, int32),
             i32 => @bitCast(i32, int32),
             Pointer.Flags => @bitCast(Pointer.Flags, int32),
             Pointer.PackedOffset => @bitCast(Pointer.PackedOffset, int32),
@@ -1808,6 +1915,20 @@ pub fn getCoerced(ip: *InternPool, gpa: Allocator, val: Index, new_ty: Index) Al
     }
 }
 
+pub fn indexToStruct(ip: *InternPool, val: Index) Module.Struct.OptionalIndex {
+    const tags = ip.items.items(.tag);
+    if (val == .none) return .none;
+    if (tags[@enumToInt(val)] != .type_struct) return .none;
+    const datas = ip.items.items(.data);
+    return @intToEnum(Module.Struct.Index, datas[@enumToInt(val)]).toOptional();
+}
+
+pub fn isOptionalType(ip: InternPool, ty: Index) bool {
+    const tags = ip.items.items(.tag);
+    if (ty == .none) return false;
+    return tags[@enumToInt(ty)] == .type_optional;
+}
+
 pub fn dump(ip: InternPool) void {
     dumpFallible(ip, std.heap.page_allocator) catch return;
 }
@@ -1859,9 +1980,10 @@ fn dumpFallible(ip: InternPool, arena: Allocator) anyerror!void {
             .type_error_union => @sizeOf(ErrorUnion),
             .type_enum_simple => @sizeOf(EnumSimple),
             .type_opaque => @sizeOf(Key.OpaqueType),
+            .type_struct => 0,
+            .type_struct_ns => 0,
             .simple_type => 0,
             .simple_value => 0,
-            .simple_internal => 0,
             .ptr_int => @sizeOf(PtrInt),
             .opt_null => 0,
             .opt_payload => 0,
@@ -1887,6 +2009,7 @@ fn dumpFallible(ip: InternPool, arena: Allocator) anyerror!void {
             .float_f128 => @sizeOf(Float128),
             .extern_func => @panic("TODO"),
             .func => @panic("TODO"),
+            .only_possible_value => 0,
         });
     }
     const SortContext = struct {
@@ -1904,4 +2027,35 @@ fn dumpFallible(ip: InternPool, arena: Allocator) anyerror!void {
             @tagName(tag), stats.count, stats.bytes,
         });
     }
+}
+
+pub fn structPtr(ip: *InternPool, index: Module.Struct.Index) *Module.Struct {
+    return ip.allocated_structs.at(@enumToInt(index));
+}
+
+pub fn structPtrConst(ip: InternPool, index: Module.Struct.Index) *const Module.Struct {
+    return ip.allocated_structs.at(@enumToInt(index));
+}
+
+pub fn structPtrUnwrapConst(ip: InternPool, index: Module.Struct.OptionalIndex) ?*const Module.Struct {
+    return structPtrConst(ip, index.unwrap() orelse return null);
+}
+
+pub fn createStruct(
+    ip: *InternPool,
+    gpa: Allocator,
+    initialization: Module.Struct,
+) Allocator.Error!Module.Struct.Index {
+    if (ip.structs_free_list.popOrNull()) |index| return index;
+    const ptr = try ip.allocated_structs.addOne(gpa);
+    ptr.* = initialization;
+    return @intToEnum(Module.Struct.Index, ip.allocated_structs.len - 1);
+}
+
+pub fn destroyStruct(ip: *InternPool, gpa: Allocator, index: Module.Struct.Index) void {
+    ip.structPtr(index).* = undefined;
+    ip.structs_free_list.append(gpa, index) catch {
+        // In order to keep `destroyStruct` a non-fallible function, we ignore memory
+        // allocation failures here, instead leaking the Struct until garbage collection.
+    };
 }

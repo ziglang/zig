@@ -299,7 +299,7 @@ pub const CType = extern union {
         pub fn fieldAlign(struct_ty: Type, field_i: usize, mod: *Module) AlignAs {
             return init(
                 struct_ty.structFieldAlign(field_i, mod),
-                struct_ty.structFieldType(field_i).abiAlignment(mod),
+                struct_ty.structFieldType(field_i, mod).abiAlignment(mod),
             );
         }
         pub fn unionPayloadAlign(union_ty: Type, mod: *Module) AlignAs {
@@ -1486,23 +1486,23 @@ pub const CType = extern union {
                     }
                 },
 
-                .Struct, .Union => |zig_ty_tag| if (ty.containerLayout() == .Packed) {
-                    if (ty.castTag(.@"struct")) |struct_obj| {
-                        try self.initType(struct_obj.data.backing_int_ty, kind, lookup);
+                .Struct, .Union => |zig_ty_tag| if (ty.containerLayout(mod) == .Packed) {
+                    if (mod.typeToStruct(ty)) |struct_obj| {
+                        try self.initType(struct_obj.backing_int_ty, kind, lookup);
                     } else {
                         const bits = @intCast(u16, ty.bitSize(mod));
                         const int_ty = try mod.intType(.unsigned, bits);
                         try self.initType(int_ty, kind, lookup);
                     }
-                } else if (ty.isTupleOrAnonStruct()) {
+                } else if (ty.isTupleOrAnonStruct(mod)) {
                     if (lookup.isMutable()) {
                         for (0..switch (zig_ty_tag) {
-                            .Struct => ty.structFieldCount(),
+                            .Struct => ty.structFieldCount(mod),
                             .Union => ty.unionFields().count(),
                             else => unreachable,
                         }) |field_i| {
-                            const field_ty = ty.structFieldType(field_i);
-                            if ((zig_ty_tag == .Struct and ty.structFieldIsComptime(field_i)) or
+                            const field_ty = ty.structFieldType(field_i, mod);
+                            if ((zig_ty_tag == .Struct and ty.structFieldIsComptime(field_i, mod)) or
                                 !field_ty.hasRuntimeBitsIgnoreComptime(mod)) continue;
                             _ = try lookup.typeToIndex(field_ty, switch (kind) {
                                 .forward, .forward_parameter => .forward,
@@ -1579,11 +1579,11 @@ pub const CType = extern union {
                         } else {
                             var is_packed = false;
                             for (0..switch (zig_ty_tag) {
-                                .Struct => ty.structFieldCount(),
+                                .Struct => ty.structFieldCount(mod),
                                 .Union => ty.unionFields().count(),
                                 else => unreachable,
                             }) |field_i| {
-                                const field_ty = ty.structFieldType(field_i);
+                                const field_ty = ty.structFieldType(field_i, mod);
                                 if (!field_ty.hasRuntimeBitsIgnoreComptime(mod)) continue;
 
                                 const field_align = AlignAs.fieldAlign(ty, field_i, mod);
@@ -1929,15 +1929,15 @@ pub const CType = extern union {
                 => {
                     const zig_ty_tag = ty.zigTypeTag(mod);
                     const fields_len = switch (zig_ty_tag) {
-                        .Struct => ty.structFieldCount(),
+                        .Struct => ty.structFieldCount(mod),
                         .Union => ty.unionFields().count(),
                         else => unreachable,
                     };
 
                     var c_fields_len: usize = 0;
                     for (0..fields_len) |field_i| {
-                        const field_ty = ty.structFieldType(field_i);
-                        if ((zig_ty_tag == .Struct and ty.structFieldIsComptime(field_i)) or
+                        const field_ty = ty.structFieldType(field_i, mod);
+                        if ((zig_ty_tag == .Struct and ty.structFieldIsComptime(field_i, mod)) or
                             !field_ty.hasRuntimeBitsIgnoreComptime(mod)) continue;
                         c_fields_len += 1;
                     }
@@ -1945,8 +1945,8 @@ pub const CType = extern union {
                     const fields_pl = try arena.alloc(Payload.Fields.Field, c_fields_len);
                     var c_field_i: usize = 0;
                     for (0..fields_len) |field_i| {
-                        const field_ty = ty.structFieldType(field_i);
-                        if ((zig_ty_tag == .Struct and ty.structFieldIsComptime(field_i)) or
+                        const field_ty = ty.structFieldType(field_i, mod);
+                        if ((zig_ty_tag == .Struct and ty.structFieldIsComptime(field_i, mod)) or
                             !field_ty.hasRuntimeBitsIgnoreComptime(mod)) continue;
 
                         defer c_field_i += 1;
@@ -1955,7 +1955,7 @@ pub const CType = extern union {
                                 std.fmt.allocPrintZ(arena, "f{}", .{field_i})
                             else
                                 arena.dupeZ(u8, switch (zig_ty_tag) {
-                                    .Struct => ty.structFieldName(field_i),
+                                    .Struct => ty.structFieldName(field_i, mod),
                                     .Union => ty.unionFields().keys()[field_i],
                                     else => unreachable,
                                 }),
@@ -2074,7 +2074,7 @@ pub const CType = extern union {
                         .fwd_anon_struct,
                         .fwd_anon_union,
                         => {
-                            if (!ty.isTupleOrAnonStruct()) return false;
+                            if (!ty.isTupleOrAnonStruct(mod)) return false;
 
                             var name_buf: [
                                 std.fmt.count("f{}", .{std.math.maxInt(usize)})
@@ -2084,12 +2084,12 @@ pub const CType = extern union {
                             const zig_ty_tag = ty.zigTypeTag(mod);
                             var c_field_i: usize = 0;
                             for (0..switch (zig_ty_tag) {
-                                .Struct => ty.structFieldCount(),
+                                .Struct => ty.structFieldCount(mod),
                                 .Union => ty.unionFields().count(),
                                 else => unreachable,
                             }) |field_i| {
-                                const field_ty = ty.structFieldType(field_i);
-                                if ((zig_ty_tag == .Struct and ty.structFieldIsComptime(field_i)) or
+                                const field_ty = ty.structFieldType(field_i, mod);
+                                if ((zig_ty_tag == .Struct and ty.structFieldIsComptime(field_i, mod)) or
                                     !field_ty.hasRuntimeBitsIgnoreComptime(mod)) continue;
 
                                 defer c_field_i += 1;
@@ -2105,7 +2105,7 @@ pub const CType = extern union {
                                     if (ty.isSimpleTuple())
                                         std.fmt.bufPrint(&name_buf, "f{}", .{field_i}) catch unreachable
                                     else switch (zig_ty_tag) {
-                                        .Struct => ty.structFieldName(field_i),
+                                        .Struct => ty.structFieldName(field_i, mod),
                                         .Union => ty.unionFields().keys()[field_i],
                                         else => unreachable,
                                     },
@@ -2210,12 +2210,12 @@ pub const CType = extern union {
 
                             const zig_ty_tag = ty.zigTypeTag(mod);
                             for (0..switch (ty.zigTypeTag(mod)) {
-                                .Struct => ty.structFieldCount(),
+                                .Struct => ty.structFieldCount(mod),
                                 .Union => ty.unionFields().count(),
                                 else => unreachable,
                             }) |field_i| {
-                                const field_ty = ty.structFieldType(field_i);
-                                if ((zig_ty_tag == .Struct and ty.structFieldIsComptime(field_i)) or
+                                const field_ty = ty.structFieldType(field_i, mod);
+                                if ((zig_ty_tag == .Struct and ty.structFieldIsComptime(field_i, mod)) or
                                     !field_ty.hasRuntimeBitsIgnoreComptime(mod)) continue;
 
                                 self.updateHasherRecurse(hasher, field_ty, switch (self.kind) {
@@ -2227,7 +2227,7 @@ pub const CType = extern union {
                                 hasher.update(if (ty.isSimpleTuple())
                                     std.fmt.bufPrint(&name_buf, "f{}", .{field_i}) catch unreachable
                                 else switch (zig_ty_tag) {
-                                    .Struct => ty.structFieldName(field_i),
+                                    .Struct => ty.structFieldName(field_i, mod),
                                     .Union => ty.unionFields().keys()[field_i],
                                     else => unreachable,
                                 });

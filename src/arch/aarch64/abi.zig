@@ -21,7 +21,7 @@ pub fn classifyType(ty: Type, mod: *Module) Class {
     var maybe_float_bits: ?u16 = null;
     switch (ty.zigTypeTag(mod)) {
         .Struct => {
-            if (ty.containerLayout() == .Packed) return .byval;
+            if (ty.containerLayout(mod) == .Packed) return .byval;
             const float_count = countFloats(ty, mod, &maybe_float_bits);
             if (float_count <= sret_float_count) return .{ .float_array = float_count };
 
@@ -31,7 +31,7 @@ pub fn classifyType(ty: Type, mod: *Module) Class {
             return .integer;
         },
         .Union => {
-            if (ty.containerLayout() == .Packed) return .byval;
+            if (ty.containerLayout(mod) == .Packed) return .byval;
             const float_count = countFloats(ty, mod, &maybe_float_bits);
             if (float_count <= sret_float_count) return .{ .float_array = float_count };
 
@@ -90,11 +90,11 @@ fn countFloats(ty: Type, mod: *Module, maybe_float_bits: *?u16) u8 {
             return max_count;
         },
         .Struct => {
-            const fields_len = ty.structFieldCount();
+            const fields_len = ty.structFieldCount(mod);
             var count: u8 = 0;
             var i: u32 = 0;
             while (i < fields_len) : (i += 1) {
-                const field_ty = ty.structFieldType(i);
+                const field_ty = ty.structFieldType(i, mod);
                 const field_count = countFloats(field_ty, mod, maybe_float_bits);
                 if (field_count == invalid) return invalid;
                 count += field_count;
@@ -125,10 +125,10 @@ pub fn getFloatArrayType(ty: Type, mod: *Module) ?Type {
             return null;
         },
         .Struct => {
-            const fields_len = ty.structFieldCount();
+            const fields_len = ty.structFieldCount(mod);
             var i: u32 = 0;
             while (i < fields_len) : (i += 1) {
-                const field_ty = ty.structFieldType(i);
+                const field_ty = ty.structFieldType(i, mod);
                 if (getFloatArrayType(field_ty, mod)) |some| return some;
             }
             return null;

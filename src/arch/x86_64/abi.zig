@@ -41,7 +41,7 @@ pub fn classifyWindows(ty: Type, mod: *Module) Class {
             1, 2, 4, 8 => return .integer,
             else => switch (ty.zigTypeTag(mod)) {
                 .Int => return .win_i128,
-                .Struct, .Union => if (ty.containerLayout() == .Packed) {
+                .Struct, .Union => if (ty.containerLayout(mod) == .Packed) {
                     return .win_i128;
                 } else {
                     return .memory;
@@ -210,7 +210,7 @@ pub fn classifySystemV(ty: Type, mod: *Module, ctx: Context) [8]Class {
             // "If the size of the aggregate exceeds a single eightbyte, each is classified
             // separately.".
             const ty_size = ty.abiSize(mod);
-            if (ty.containerLayout() == .Packed) {
+            if (ty.containerLayout(mod) == .Packed) {
                 assert(ty_size <= 128);
                 result[0] = .integer;
                 if (ty_size > 64) result[1] = .integer;
@@ -221,7 +221,7 @@ pub fn classifySystemV(ty: Type, mod: *Module, ctx: Context) [8]Class {
 
             var result_i: usize = 0; // out of 8
             var byte_i: usize = 0; // out of 8
-            const fields = ty.structFields();
+            const fields = ty.structFields(mod);
             for (fields.values()) |field| {
                 if (field.abi_align != 0) {
                     if (field.abi_align < field.ty.abiAlignment(mod)) {
@@ -329,7 +329,7 @@ pub fn classifySystemV(ty: Type, mod: *Module, ctx: Context) [8]Class {
             // "If the size of the aggregate exceeds a single eightbyte, each is classified
             // separately.".
             const ty_size = ty.abiSize(mod);
-            if (ty.containerLayout() == .Packed) {
+            if (ty.containerLayout(mod) == .Packed) {
                 assert(ty_size <= 128);
                 result[0] = .integer;
                 if (ty_size > 64) result[1] = .integer;

@@ -360,13 +360,13 @@ pub const DeclState = struct {
                         dbg_info_buffer.appendSliceAssumeCapacity(struct_name);
                         dbg_info_buffer.appendAssumeCapacity(0);
 
-                        const struct_obj = ty.castTag(.@"struct").?.data;
+                        const struct_obj = mod.typeToStruct(ty).?;
                         if (struct_obj.layout == .Packed) {
                             log.debug("TODO implement .debug_info for packed structs", .{});
                             break :blk;
                         }
 
-                        const fields = ty.structFields();
+                        const fields = ty.structFields(mod);
                         for (fields.keys(), 0..) |field_name, field_index| {
                             const field = fields.get(field_name).?;
                             if (!field.ty.hasRuntimeBits(mod)) continue;

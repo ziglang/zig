@@ -820,7 +820,7 @@ pub const DeclGen = struct {
                     try dg.renderValue(writer, Type.bool, val, initializer_type);
                     return writer.writeAll(" }");
                 },
-                .Struct => switch (ty.containerLayout()) {
+                .Struct => switch (ty.containerLayout(mod)) {
                     .Auto, .Extern => {
                         if (!location.isInitializer()) {
                             try writer.writeByte('(');
@@ -830,9 +830,9 @@ pub const DeclGen = struct {
 
                         try writer.writeByte('{');
                         var empty = true;
-                        for (0..ty.structFieldCount()) |field_i| {
-                            if (ty.structFieldIsComptime(field_i)) continue;
-                            const field_ty = ty.structFieldType(field_i);
+                        for (0..ty.structFieldCount(mod)) |field_i| {
+                            if (ty.structFieldIsComptime(field_i, mod)) continue;
+                            const field_ty = ty.structFieldType(field_i, mod);
                             if (!field_ty.hasRuntimeBits(mod)) continue;
 
                             if (!empty) try writer.writeByte(',');
@@ -1328,7 +1328,7 @@ pub const DeclGen = struct {
                 },
                 else => unreachable,
             },
-            .Struct => switch (ty.containerLayout()) {
+            .Struct => switch (ty.containerLayout(mod)) {
                 .Auto, .Extern => {
                     const field_vals = val.castTag(.aggregate).?.data;
 
@@ -1341,8 +1341,8 @@ pub const DeclGen = struct {
                     try writer.writeByte('{');
                     var empty = true;
                     for (field_vals, 0..) |field_val, field_i| {
-                        if (ty.structFieldIsComptime(field_i)) continue;
-                        const field_ty = ty.structFieldType(field_i);
+                        if (ty.structFieldIsComptime(field_i, mod)) continue;
+                        const field_ty = ty.structFieldType(field_i, mod);
                         if (!field_ty.hasRuntimeBitsIgnoreComptime(mod)) continue;
 
                         if (!empty) try writer.writeByte(',');
@@ -1363,8 +1363,8 @@ pub const DeclGen = struct {
 
                     var eff_num_fields: usize = 0;
                     for (0..field_vals.len) |field_i| {
-                        if (ty.structFieldIsComptime(field_i)) continue;
-                        const field_ty = ty.structFieldType(field_i);
+                        if (ty.structFieldIsComptime(field_i, mod)) continue;
+                        const field_ty = ty.structFieldType(field_i, mod);
                         if (!field_ty.hasRuntimeBitsIgnoreComptime(mod)) continue;
 
                         eff_num_fields += 1;
@@ -1386,8 +1386,8 @@ pub const DeclGen = struct {
                         var eff_index: usize = 0;
                         var needs_closing_paren = false;
                         for (field_vals, 0..) |field_val, field_i| {
-                            if (ty.structFieldIsComptime(field_i)) continue;
-                            const field_ty = ty.structFieldType(field_i);
+                            if (ty.structFieldIsComptime(field_i, mod)) continue;
+                            const field_ty = ty.structFieldType(field_i, mod);
                             if (!field_ty.hasRuntimeBitsIgnoreComptime(mod)) continue;
 
                             const cast_context = IntCastContext{ .value = .{ .value = field_val } };
@@ -1416,8 +1416,8 @@ pub const DeclGen = struct {
                         // a << a_off | b << b_off | c << c_off
                         var empty = true;
                         for (field_vals, 0..) |field_val, field_i| {
-                            if (ty.structFieldIsComptime(field_i)) continue;
-                            const field_ty = ty.structFieldType(field_i);
+                            if (ty.structFieldIsComptime(field_i, mod)) continue;
+                            const field_ty = ty.structFieldType(field_i, mod);
                             if (!field_ty.hasRuntimeBitsIgnoreComptime(mod)) continue;
 
                             if (!empty) try writer.writeAll(" | ");
@@ -1453,7 +1453,7 @@ pub const DeclGen = struct {
                 const field_i = ty.unionTagFieldIndex(union_obj.tag, mod).?;
                 const field_ty = ty.unionFields().values()[field_i].ty;
                 const field_name = ty.unionFields().keys()[field_i];
-                if (ty.containerLayout() == .Packed) {
+                if (ty.containerLayout(mod) == .Packed) {
                     if (field_ty.hasRuntimeBits(mod)) {
                         if (field_ty.isPtrAtRuntime(mod)) {
                             try writer.writeByte('(');
@@ -5218,25 +5218,25 @@ fn fieldLocation(
     end: void,
 } {
     return switch (container_ty.zigTypeTag(mod)) {
-        .Struct => switch (container_ty.containerLayout()) {
-            .Auto, .Extern => for (field_index..container_ty.structFieldCount()) |next_field_index| {
-                if (container_ty.structFieldIsComptime(next_field_index)) continue;
-                const field_ty = container_ty.structFieldType(next_field_index);
+        .Struct => switch (container_ty.containerLayout(mod)) {
+            .Auto, .Extern => for (field_index..container_ty.structFieldCount(mod)) |next_field_index| {
+                if (container_ty.structFieldIsComptime(next_field_index, mod)) continue;
+                const field_ty = container_ty.structFieldType(next_field_index, mod);
                 if (!field_ty.hasRuntimeBitsIgnoreComptime(mod)) continue;
 
                 break .{ .field = if (container_ty.isSimpleTuple())
                     .{ .field = next_field_index }
                 else
-                    .{ .identifier = container_ty.structFieldName(next_field_index) } };
+                    .{ .identifier = container_ty.structFieldName(next_field_index, mod) } };
             } else if (container_ty.hasRuntimeBitsIgnoreComptime(mod)) .end else .begin,
             .Packed => if (field_ptr_ty.ptrInfo(mod).host_size == 0)
                 .{ .byte_offset = container_ty.packedStructFieldByteOffset(field_index, mod) }
             else
                 .begin,
         },
-        .Union => switch (container_ty.containerLayout()) {
+        .Union => switch (container_ty.containerLayout(mod)) {
             .Auto, .Extern => {
-                const field_ty = container_ty.structFieldType(field_index);
+                const field_ty = container_ty.structFieldType(field_index, mod);
                 if (!field_ty.hasRuntimeBitsIgnoreComptime(mod))
                     return if (container_ty.unionTagTypeSafety() != null and
                         !container_ty.unionHasAllZeroBitFieldTypes(mod))
@@ -5417,101 +5417,111 @@ fn airStructFieldVal(f: *Function, inst: Air.Inst.Index) !CValue {
     // Ensure complete type definition is visible before accessing fields.
     _ = try f.typeToIndex(struct_ty, .complete);
 
-    const field_name: CValue = switch (struct_ty.tag()) {
-        .tuple, .anon_struct, .@"struct" => switch (struct_ty.containerLayout()) {
-            .Auto, .Extern => if (struct_ty.isSimpleTuple())
+    const field_name: CValue = switch (struct_ty.ip_index) {
+        .none => switch (struct_ty.tag()) {
+            .tuple, .anon_struct => if (struct_ty.isSimpleTuple())
                 .{ .field = extra.field_index }
             else
-                .{ .identifier = struct_ty.structFieldName(extra.field_index) },
-            .Packed => {
-                const struct_obj = struct_ty.castTag(.@"struct").?.data;
-                const int_info = struct_ty.intInfo(mod);
+                .{ .identifier = struct_ty.structFieldName(extra.field_index, mod) },
 
-                const bit_offset_ty = try mod.intType(.unsigned, Type.smallestUnsignedBits(int_info.bits - 1));
-
-                const bit_offset = struct_obj.packedFieldBitOffset(mod, extra.field_index);
-                const bit_offset_val = try mod.intValue(bit_offset_ty, bit_offset);
-
-                const field_int_signedness = if (inst_ty.isAbiInt(mod))
-                    inst_ty.intInfo(mod).signedness
-                else
-                    .unsigned;
-                const field_int_ty = try mod.intType(field_int_signedness, @intCast(u16, inst_ty.bitSize(mod)));
-
-                const temp_local = try f.allocLocal(inst, field_int_ty);
-                try f.writeCValue(writer, temp_local, .Other);
-                try writer.writeAll(" = zig_wrap_");
-                try f.object.dg.renderTypeForBuiltinFnName(writer, field_int_ty);
-                try writer.writeAll("((");
-                try f.renderType(writer, field_int_ty);
-                try writer.writeByte(')');
-                const cant_cast = int_info.bits > 64;
-                if (cant_cast) {
-                    if (field_int_ty.bitSize(mod) > 64) return f.fail("TODO: C backend: implement casting between types > 64 bits", .{});
-                    try writer.writeAll("zig_lo_");
-                    try f.object.dg.renderTypeForBuiltinFnName(writer, struct_ty);
-                    try writer.writeByte('(');
-                }
-                if (bit_offset > 0) {
-                    try writer.writeAll("zig_shr_");
-                    try f.object.dg.renderTypeForBuiltinFnName(writer, struct_ty);
-                    try writer.writeByte('(');
-                }
-                try f.writeCValue(writer, struct_byval, .Other);
-                if (bit_offset > 0) {
-                    try writer.writeAll(", ");
-                    try f.object.dg.renderValue(writer, bit_offset_ty, bit_offset_val, .FunctionArgument);
-                    try writer.writeByte(')');
-                }
-                if (cant_cast) try writer.writeByte(')');
-                try f.object.dg.renderBuiltinInfo(writer, field_int_ty, .bits);
-                try writer.writeAll(");\n");
-                if (inst_ty.eql(field_int_ty, f.object.dg.module)) return temp_local;
+            .@"union", .union_safety_tagged, .union_tagged => if (struct_ty.containerLayout(mod) == .Packed) {
+                const operand_lval = if (struct_byval == .constant) blk: {
+                    const operand_local = try f.allocLocal(inst, struct_ty);
+                    try f.writeCValue(writer, operand_local, .Other);
+                    try writer.writeAll(" = ");
+                    try f.writeCValue(writer, struct_byval, .Initializer);
+                    try writer.writeAll(";\n");
+                    break :blk operand_local;
+                } else struct_byval;
 
                 const local = try f.allocLocal(inst, inst_ty);
-                try writer.writeAll("memcpy(");
-                try f.writeCValue(writer, .{ .local_ref = local.new_local }, .FunctionArgument);
-                try writer.writeAll(", ");
-                try f.writeCValue(writer, .{ .local_ref = temp_local.new_local }, .FunctionArgument);
+                try writer.writeAll("memcpy(&");
+                try f.writeCValue(writer, local, .Other);
+                try writer.writeAll(", &");
+                try f.writeCValue(writer, operand_lval, .Other);
                 try writer.writeAll(", sizeof(");
                 try f.renderType(writer, inst_ty);
                 try writer.writeAll("));\n");
-                try freeLocal(f, inst, temp_local.new_local, 0);
+
+                if (struct_byval == .constant) {
+                    try freeLocal(f, inst, operand_lval.new_local, 0);
+                }
+
                 return local;
+            } else field_name: {
+                const name = struct_ty.unionFields().keys()[extra.field_index];
+                break :field_name if (struct_ty.unionTagTypeSafety()) |_|
+                    .{ .payload_identifier = name }
+                else
+                    .{ .identifier = name };
             },
+            else => unreachable,
         },
-        .@"union", .union_safety_tagged, .union_tagged => if (struct_ty.containerLayout() == .Packed) {
-            const operand_lval = if (struct_byval == .constant) blk: {
-                const operand_local = try f.allocLocal(inst, struct_ty);
-                try f.writeCValue(writer, operand_local, .Other);
-                try writer.writeAll(" = ");
-                try f.writeCValue(writer, struct_byval, .Initializer);
-                try writer.writeAll(";\n");
-                break :blk operand_local;
-            } else struct_byval;
+        else => switch (mod.intern_pool.indexToKey(struct_ty.ip_index)) {
+            .struct_type => switch (struct_ty.containerLayout(mod)) {
+                .Auto, .Extern => if (struct_ty.isSimpleTuple())
+                    .{ .field = extra.field_index }
+                else
+                    .{ .identifier = struct_ty.structFieldName(extra.field_index, mod) },
+                .Packed => {
+                    const struct_obj = mod.typeToStruct(struct_ty).?;
+                    const int_info = struct_ty.intInfo(mod);
 
-            const local = try f.allocLocal(inst, inst_ty);
-            try writer.writeAll("memcpy(&");
-            try f.writeCValue(writer, local, .Other);
-            try writer.writeAll(", &");
-            try f.writeCValue(writer, operand_lval, .Other);
-            try writer.writeAll(", sizeof(");
-            try f.renderType(writer, inst_ty);
-            try writer.writeAll("));\n");
+                    const bit_offset_ty = try mod.intType(.unsigned, Type.smallestUnsignedBits(int_info.bits - 1));
 
-            if (struct_byval == .constant) {
-                try freeLocal(f, inst, operand_lval.new_local, 0);
-            }
+                    const bit_offset = struct_obj.packedFieldBitOffset(mod, extra.field_index);
+                    const bit_offset_val = try mod.intValue(bit_offset_ty, bit_offset);
 
-            return local;
-        } else field_name: {
-            const name = struct_ty.unionFields().keys()[extra.field_index];
-            break :field_name if (struct_ty.unionTagTypeSafety()) |_|
-                .{ .payload_identifier = name }
-            else
-                .{ .identifier = name };
+                    const field_int_signedness = if (inst_ty.isAbiInt(mod))
+                        inst_ty.intInfo(mod).signedness
+                    else
+                        .unsigned;
+                    const field_int_ty = try mod.intType(field_int_signedness, @intCast(u16, inst_ty.bitSize(mod)));
+
+                    const temp_local = try f.allocLocal(inst, field_int_ty);
+                    try f.writeCValue(writer, temp_local, .Other);
+                    try writer.writeAll(" = zig_wrap_");
+                    try f.object.dg.renderTypeForBuiltinFnName(writer, field_int_ty);
+                    try writer.writeAll("((");
+                    try f.renderType(writer, field_int_ty);
+                    try writer.writeByte(')');
+                    const cant_cast = int_info.bits > 64;
+                    if (cant_cast) {
+                        if (field_int_ty.bitSize(mod) > 64) return f.fail("TODO: C backend: implement casting between types > 64 bits", .{});
+                        try writer.writeAll("zig_lo_");
+                        try f.object.dg.renderTypeForBuiltinFnName(writer, struct_ty);
+                        try writer.writeByte('(');
+                    }
+                    if (bit_offset > 0) {
+                        try writer.writeAll("zig_shr_");
+                        try f.object.dg.renderTypeForBuiltinFnName(writer, struct_ty);
+                        try writer.writeByte('(');
+                    }
+                    try f.writeCValue(writer, struct_byval, .Other);
+                    if (bit_offset > 0) {
+                        try writer.writeAll(", ");
+                        try f.object.dg.renderValue(writer, bit_offset_ty, bit_offset_val, .FunctionArgument);
+                        try writer.writeByte(')');
+                    }
+                    if (cant_cast) try writer.writeByte(')');
+                    try f.object.dg.renderBuiltinInfo(writer, field_int_ty, .bits);
+                    try writer.writeAll(");\n");
+                    if (inst_ty.eql(field_int_ty, f.object.dg.module)) return temp_local;
+
+                    const local = try f.allocLocal(inst, inst_ty);
+                    try writer.writeAll("memcpy(");
+                    try f.writeCValue(writer, .{ .local_ref = local.new_local }, .FunctionArgument);
+                    try writer.writeAll(", ");
+                    try f.writeCValue(writer, .{ .local_ref = temp_local.new_local }, .FunctionArgument);
+                    try writer.writeAll(", sizeof(");
+                    try f.renderType(writer, inst_ty);
+                    try writer.writeAll("));\n");
+                    try freeLocal(f, inst, temp_local.new_local, 0);
+                    return local;
+                },
+            },
+            else => unreachable,
         },
-        else => unreachable,
     };
 
     const local = try f.allocLocal(inst, inst_ty);
@@ -6805,17 +6815,17 @@ fn airAggregateInit(f: *Function, inst: Air.Inst.Index) !CValue {
                 try a.end(f, writer);
             }
         },
-        .Struct => switch (inst_ty.containerLayout()) {
+        .Struct => switch (inst_ty.containerLayout(mod)) {
             .Auto, .Extern => for (resolved_elements, 0..) |element, field_i| {
-                if (inst_ty.structFieldIsComptime(field_i)) continue;
-                const field_ty = inst_ty.structFieldType(field_i);
+                if (inst_ty.structFieldIsComptime(field_i, mod)) continue;
+                const field_ty = inst_ty.structFieldType(field_i, mod);
                 if (!field_ty.hasRuntimeBitsIgnoreComptime(mod)) continue;
 
                 const a = try Assignment.start(f, writer, field_ty);
                 try f.writeCValueMember(writer, local, if (inst_ty.isSimpleTuple())
                     .{ .field = field_i }
                 else
-                    .{ .identifier = inst_ty.structFieldName(field_i) });
+                    .{ .identifier = inst_ty.structFieldName(field_i, mod) });
                 try a.assign(f, writer);
                 try f.writeCValue(writer, element, .Other);
                 try a.end(f, writer);
@@ -6831,8 +6841,8 @@ fn airAggregateInit(f: *Function, inst: Air.Inst.Index) !CValue {
 
                 var empty = true;
                 for (0..elements.len) |field_i| {
-                    if (inst_ty.structFieldIsComptime(field_i)) continue;
-                    const field_ty = inst_ty.structFieldType(field_i);
+                    if (inst_ty.structFieldIsComptime(field_i, mod)) continue;
+                    const field_ty = inst_ty.structFieldType(field_i, mod);
                     if (!field_ty.hasRuntimeBitsIgnoreComptime(mod)) continue;
 
                     if (!empty) {
@@ -6844,8 +6854,8 @@ fn airAggregateInit(f: *Function, inst: Air.Inst.Index) !CValue {
                 }
                 empty = true;
                 for (resolved_elements, 0..) |element, field_i| {
-                    if (inst_ty.structFieldIsComptime(field_i)) continue;
-                    const field_ty = inst_ty.structFieldType(field_i);
+                    if (inst_ty.structFieldIsComptime(field_i, mod)) continue;
+                    const field_ty = inst_ty.structFieldType(field_i, mod);
                     if (!field_ty.hasRuntimeBitsIgnoreComptime(mod)) continue;
 
                     if (!empty) try writer.writeAll(", ");
