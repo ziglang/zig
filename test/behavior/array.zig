@@ -667,7 +667,7 @@ test "array init of container level array variable" {
 test "runtime initialized sentinel-terminated array literal" {
     var c: u16 = 300;
     const f = &[_:0x9999]u16{c};
-    const g = @ptrCast(*[4]u8, f);
+    const g = @ptrCast(*const [4]u8, f);
     try std.testing.expect(g[2] == 0x99);
     try std.testing.expect(g[3] == 0x99);
 }
