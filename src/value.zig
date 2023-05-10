@@ -996,10 +996,10 @@ pub const Value = struct {
                 const byte_count = (@intCast(usize, ty.bitSize(mod)) + 7) / 8;
                 return writeToPackedMemory(val, ty, mod, buffer[0..byte_count], 0);
             },
-            .Struct => switch (ty.containerLayout()) {
+            .Struct => switch (ty.containerLayout(mod)) {
                 .Auto => return error.IllDefinedMemoryLayout,
                 .Extern => {
-                    const fields = ty.structFields().values();
+                    const fields = ty.structFields(mod).values();
                     const field_vals = val.castTag(.aggregate).?.data;
                     for (fields, 0..) |field, i| {
                         const off = @intCast(usize, ty.structFieldOffset(i, mod));
@@ -1017,7 +1017,7 @@ pub const Value = struct {
                 const int = mod.global_error_set.get(val.castTag(.@"error").?.data.name).?;
                 std.mem.writeInt(Int, buffer[0..@sizeOf(Int)], @intCast(Int, int), endian);
             },
-            .Union => switch (ty.containerLayout()) {
+            .Union => switch (ty.containerLayout(mod)) {
                 .Auto => return error.IllDefinedMemoryLayout,
                 .Extern => return error.Unimplemented,
                 .Packed => {
@@ -1119,12 +1119,12 @@ pub const Value = struct {
                     bits += elem_bit_size;
                 }
             },
-            .Struct => switch (ty.containerLayout()) {
+            .Struct => switch (ty.containerLayout(mod)) {
                 .Auto => unreachable, // Sema is supposed to have emitted a compile error already
                 .Extern => unreachable, // Handled in non-packed writeToMemory
                 .Packed => {
                     var bits: u16 = 0;
-                    const fields = ty.structFields().values();
+                    const fields = ty.structFields(mod).values();
                     const field_vals = val.castTag(.aggregate).?.data;
                     for (fields, 0..) |field, i| {
                         const field_bits = @intCast(u16, field.ty.bitSize(mod));
@@ -1133,7 +1133,7 @@ pub const Value = struct {
                     }
                 },
             },
-            .Union => switch (ty.containerLayout()) {
+            .Union => switch (ty.containerLayout(mod)) {
                 .Auto => unreachable, // Sema is supposed to have emitted a compile error already
                 .Extern => unreachable, // Handled in non-packed writeToMemory
                 .Packed => {
@@ -1236,14 +1236,14 @@ pub const Value = struct {
                 const byte_count = (@intCast(usize, ty.bitSize(mod)) + 7) / 8;
                 return readFromPackedMemory(ty, mod, buffer[0..byte_count], 0, arena);
             },
-            .Struct => switch (ty.containerLayout()) {
+            .Struct => switch (ty.containerLayout(mod)) {
                 .Auto => unreachable, // Sema is supposed to have emitted a compile error already
                 .Extern => {
-                    const fields = ty.structFields().values();
+                    const fields = ty.structFields(mod).values();
                     const field_vals = try arena.alloc(Value, fields.len);
                     for (fields, 0..) |field, i| {
                         const off = @intCast(usize, ty.structFieldOffset(i, mod));
-                        const sz = @intCast(usize, ty.structFieldType(i).abiSize(mod));
+                        const sz = @intCast(usize, ty.structFieldType(i, mod).abiSize(mod));
                         field_vals[i] = try readFromMemory(field.ty, mod, buffer[off..(off + sz)], arena);
                     }
                     return Tag.aggregate.create(arena, field_vals);
@@ -1346,12 +1346,12 @@ pub const Value = struct {
                 }
                 return Tag.aggregate.create(arena, elems);
             },
-            .Struct => switch (ty.containerLayout()) {
+            .Struct => switch (ty.containerLayout(mod)) {
                 .Auto => unreachable, // Sema is supposed to have emitted a compile error already
                 .Extern => unreachable, // Handled by non-packed readFromMemory
                 .Packed => {
                     var bits: u16 = 0;
-                    const fields = ty.structFields().values();
+                    const fields = ty.structFields(mod).values();
                     const field_vals = try arena.alloc(Value, fields.len);
                     for (fields, 0..) |field, i| {
                         const field_bits = @intCast(u16, field.ty.bitSize(mod));
@@ -1996,7 +1996,7 @@ pub const Value = struct {
                 }
 
                 if (ty.zigTypeTag(mod) == .Struct) {
-                    const fields = ty.structFields().values();
+                    const fields = ty.structFields(mod).values();
                     assert(fields.len == a_field_vals.len);
                     for (fields, 0..) |field, i| {
                         if (!(try eqlAdvanced(a_field_vals[i], field.ty, b_field_vals[i], field.ty, mod, opt_sema))) {
@@ -2019,7 +2019,7 @@ pub const Value = struct {
             .@"union" => {
                 const a_union = a.castTag(.@"union").?.data;
                 const b_union = b.castTag(.@"union").?.data;
-                switch (ty.containerLayout()) {
+                switch (ty.containerLayout(mod)) {
                     .Packed, .Extern => {
                         const tag_ty = ty.unionTagTypeHypothetical();
                         if (!(try eqlAdvanced(a_union.tag, tag_ty, b_union.tag, tag_ty, mod, opt_sema))) {
@@ -2252,7 +2252,7 @@ pub const Value = struct {
                     .aggregate => {
                         const field_values = val.castTag(.aggregate).?.data;
                         for (field_values, 0..) |field_val, i| {
-                            const field_ty = ty.structFieldType(i);
+                            const field_ty = ty.structFieldType(i, mod);
                             field_val.hash(field_ty, hasher, mod);
                         }
                     },
@@ -2623,7 +2623,7 @@ pub const Value = struct {
                     const data = val.castTag(.field_ptr).?.data;
                     if (data.container_ptr.pointerDecl()) |decl_index| {
                         const container_decl = mod.declPtr(decl_index);
-                        const field_type = data.container_ty.structFieldType(data.field_index);
+                        const field_type = data.container_ty.structFieldType(data.field_index, mod);
                         const field_val = try container_decl.val.fieldValue(field_type, mod, data.field_index);
                         return field_val.elemValue(mod, index);
                     } else unreachable;
@@ -2758,16 +2758,6 @@ pub const Value = struct {
     pub fn fieldValue(val: Value, ty: Type, mod: *Module, index: usize) !Value {
         switch (val.ip_index) {
             .undef => return Value.undef,
-            .empty_struct => {
-                if (ty.isSimpleTupleOrAnonStruct()) {
-                    const tuple = ty.tupleFields();
-                    return tuple.values[index];
-                }
-                if (try ty.structFieldValueComptime(mod, index)) |some| {
-                    return some;
-                }
-                unreachable;
-            },
 
             .none => switch (val.tag()) {
                 .aggregate => {
@@ -2784,7 +2774,10 @@ pub const Value = struct {
 
                 else => unreachable,
             },
-            else => unreachable,
+            else => return switch (mod.intern_pool.indexToKey(val.ip_index)) {
+                .aggregate => |aggregate| aggregate.fields[index].toValue(),
+                else => unreachable,
+            },
         }
     }
 

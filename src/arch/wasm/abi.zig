@@ -26,14 +26,14 @@ pub fn classifyType(ty: Type, mod: *Module) [2]Class {
     if (!ty.hasRuntimeBitsIgnoreComptime(mod)) return none;
     switch (ty.zigTypeTag(mod)) {
         .Struct => {
-            if (ty.containerLayout() == .Packed) {
+            if (ty.containerLayout(mod) == .Packed) {
                 if (ty.bitSize(mod) <= 64) return direct;
                 return .{ .direct, .direct };
             }
             // When the struct type is non-scalar
-            if (ty.structFieldCount() > 1) return memory;
+            if (ty.structFieldCount(mod) > 1) return memory;
             // When the struct's alignment is non-natural
-            const field = ty.structFields().values()[0];
+            const field = ty.structFields(mod).values()[0];
             if (field.abi_align != 0) {
                 if (field.abi_align > field.ty.abiAlignment(mod)) {
                     return memory;
@@ -64,7 +64,7 @@ pub fn classifyType(ty: Type, mod: *Module) [2]Class {
             return direct;
         },
         .Union => {
-            if (ty.containerLayout() == .Packed) {
+            if (ty.containerLayout(mod) == .Packed) {
                 if (ty.bitSize(mod) <= 64) return direct;
                 return .{ .direct, .direct };
             }
@@ -96,19 +96,19 @@ pub fn classifyType(ty: Type, mod: *Module) [2]Class {
 pub fn scalarType(ty: Type, mod: *Module) Type {
     switch (ty.zigTypeTag(mod)) {
         .Struct => {
-            switch (ty.containerLayout()) {
+            switch (ty.containerLayout(mod)) {
                 .Packed => {
-                    const struct_obj = ty.castTag(.@"struct").?.data;
+                    const struct_obj = mod.typeToStruct(ty).?;
                     return scalarType(struct_obj.backing_int_ty, mod);
                 },
                 else => {
-                    std.debug.assert(ty.structFieldCount() == 1);
-                    return scalarType(ty.structFieldType(0), mod);
+                    std.debug.assert(ty.structFieldCount(mod) == 1);
+                    return scalarType(ty.structFieldType(0, mod), mod);
                 },
             }
         },
         .Union => {
-            if (ty.containerLayout() != .Packed) {
+            if (ty.containerLayout(mod) != .Packed) {
                 const layout = ty.unionGetLayout(mod);
                 if (layout.payload_size == 0 and layout.tag_size != 0) {
                     return scalarType(ty.unionTagTypeSafety().?, mod);

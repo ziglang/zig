@@ -839,11 +839,14 @@ pub const Decl = struct {
 
     /// If the Decl has a value and it is a struct, return it,
     /// otherwise null.
-    pub fn getStruct(decl: *Decl) ?*Struct {
-        if (!decl.owns_tv) return null;
-        const ty = (decl.val.castTag(.ty) orelse return null).data;
-        const struct_obj = (ty.castTag(.@"struct") orelse return null).data;
-        return struct_obj;
+    pub fn getStruct(decl: *Decl, mod: *Module) ?*Struct {
+        return mod.structPtrUnwrap(getStructIndex(decl, mod));
+    }
+
+    pub fn getStructIndex(decl: *Decl, mod: *Module) Struct.OptionalIndex {
+        if (!decl.owns_tv) return .none;
+        const ty = (decl.val.castTag(.ty) orelse return .none).data;
+        return mod.intern_pool.indexToStruct(ty.ip_index);
     }
 
     /// If the Decl has a value and it is a union, return it,
@@ -884,32 +887,29 @@ pub const Decl = struct {
     /// Only returns it if the Decl is the owner.
     pub fn getInnerNamespaceIndex(decl: *Decl, mod: *Module) Namespace.OptionalIndex {
         if (!decl.owns_tv) return .none;
-        if (decl.val.ip_index == .none) {
-            const ty = (decl.val.castTag(.ty) orelse return .none).data;
-            switch (ty.tag()) {
-                .@"struct" => {
-                    const struct_obj = ty.castTag(.@"struct").?.data;
-                    return struct_obj.namespace.toOptional();
-                },
-                .enum_full, .enum_nonexhaustive => {
-                    const enum_obj = ty.cast(Type.Payload.EnumFull).?.data;
-                    return enum_obj.namespace.toOptional();
-                },
-                .empty_struct => {
-                    @panic("TODO");
-                },
-                .@"union", .union_safety_tagged, .union_tagged => {
-                    const union_obj = ty.cast(Type.Payload.Union).?.data;
-                    return union_obj.namespace.toOptional();
-                },
+        switch (decl.val.ip_index) {
+            .empty_struct_type => return .none,
+            .none => {
+                const ty = (decl.val.castTag(.ty) orelse return .none).data;
+                switch (ty.tag()) {
+                    .enum_full, .enum_nonexhaustive => {
+                        const enum_obj = ty.cast(Type.Payload.EnumFull).?.data;
+                        return enum_obj.namespace.toOptional();
+                    },
+                    .@"union", .union_safety_tagged, .union_tagged => {
+                        const union_obj = ty.cast(Type.Payload.Union).?.data;
+                        return union_obj.namespace.toOptional();
+                    },
 
-                else => return .none,
-            }
+                    else => return .none,
+                }
+            },
+            else => return switch (mod.intern_pool.indexToKey(decl.val.ip_index)) {
+                .opaque_type => |opaque_type| opaque_type.namespace.toOptional(),
+                .struct_type => |struct_type| struct_type.namespace,
+                else => .none,
+            },
         }
-        return switch (mod.intern_pool.indexToKey(decl.val.ip_index)) {
-            .opaque_type => |opaque_type| opaque_type.namespace.toOptional(),
-            else => .none,
-        };
     }
 
     /// Same as `getInnerNamespaceIndex` but additionally obtains the pointer.
@@ -1046,6 +1046,28 @@ pub const Struct = struct {
     is_tuple: bool,
     assumed_runtime_bits: bool = false,
 
+    pub const Index = enum(u32) {
+        _,
+
+        pub fn toOptional(i: Index) OptionalIndex {
+            return @intToEnum(OptionalIndex, @enumToInt(i));
+        }
+    };
+
+    pub const OptionalIndex = enum(u32) {
+        none = std.math.maxInt(u32),
+        _,
+
+        pub fn init(oi: ?Index) OptionalIndex {
+            return @intToEnum(OptionalIndex, @enumToInt(oi orelse return .none));
+        }
+
+        pub fn unwrap(oi: OptionalIndex) ?Index {
+            if (oi == .none) return null;
+            return @intToEnum(Index, @enumToInt(oi));
+        }
+    };
+
     pub const Fields = std.StringArrayHashMapUnmanaged(Field);
 
     /// The `Type` and `Value` memory is owned by the arena of the Struct's owner_decl.
@@ -1111,12 +1133,7 @@ pub const Struct = struct {
     }
 
     pub fn srcLoc(s: Struct, mod: *Module) SrcLoc {
-        const owner_decl = mod.declPtr(s.owner_decl);
-        return .{
-            .file_scope = owner_decl.getFileScope(mod),
-            .parent_decl_node = owner_decl.src_node,
-            .lazy = LazySrcLoc.nodeOffset(0),
-        };
+        return mod.declPtr(s.owner_decl).srcLoc(mod);
     }
 
     pub fn fieldSrcLoc(s: Struct, mod: *Module, query: FieldSrcQuery) SrcLoc {
@@ -3622,6 +3639,16 @@ pub fn namespacePtr(mod: *Module, index: Namespace.Index) *Namespace {
     return mod.allocated_namespaces.at(@enumToInt(index));
 }
 
+pub fn structPtr(mod: *Module, index: Struct.Index) *Struct {
+    return mod.intern_pool.structPtr(index);
+}
+
+/// This one accepts an index from the InternPool and asserts that it is not
+/// the anonymous empty struct type.
+pub fn structPtrUnwrap(mod: *Module, index: Struct.OptionalIndex) ?*Struct {
+    return structPtr(mod, index.unwrap() orelse return null);
+}
+
 /// Returns true if and only if the Decl is the top level struct associated with a File.
 pub fn declIsRoot(mod: *Module, decl_index: Decl.Index) bool {
     const decl = mod.declPtr(decl_index);
@@ -4078,7 +4105,7 @@ fn updateZirRefs(mod: *Module, file: *File, old_zir: Zir) !void {
 
         if (!decl.owns_tv) continue;
 
-        if (decl.getStruct()) |struct_obj| {
+        if (decl.getStruct(mod)) |struct_obj| {
             struct_obj.zir_index = inst_map.get(struct_obj.zir_index) orelse {
                 try file.deleted_decls.append(gpa, decl_index);
                 continue;
@@ -4597,36 +4624,50 @@ pub fn semaFile(mod: *Module, file: *File) SemaError!void {
     errdefer new_decl_arena.deinit();
     const new_decl_arena_allocator = new_decl_arena.allocator();
 
-    const struct_obj = try new_decl_arena_allocator.create(Module.Struct);
-    const struct_ty = try Type.Tag.@"struct".create(new_decl_arena_allocator, struct_obj);
-    const struct_val = try Value.Tag.ty.create(new_decl_arena_allocator, struct_ty);
-    const ty_ty = comptime Type.type;
-    struct_obj.* = .{
-        .owner_decl = undefined, // set below
+    // Because these three things each reference each other, `undefined`
+    // placeholders are used before being set after the struct type gains an
+    // InternPool index.
+    const new_namespace_index = try mod.createNamespace(.{
+        .parent = .none,
+        .ty = undefined,
+        .file_scope = file,
+    });
+    const new_namespace = mod.namespacePtr(new_namespace_index);
+    errdefer mod.destroyNamespace(new_namespace_index);
+
+    const new_decl_index = try mod.allocateNewDecl(new_namespace_index, 0, null);
+    const new_decl = mod.declPtr(new_decl_index);
+    errdefer @panic("TODO error handling");
+
+    const struct_index = try mod.createStruct(.{
+        .owner_decl = new_decl_index,
         .fields = .{},
         .zir_index = undefined, // set below
         .layout = .Auto,
         .status = .none,
         .known_non_opv = undefined,
         .is_tuple = undefined, // set below
-        .namespace = try mod.createNamespace(.{
-            .parent = .none,
-            .ty = struct_ty,
-            .file_scope = file,
-        }),
-    };
-    const new_decl_index = try mod.allocateNewDecl(struct_obj.namespace, 0, null);
-    const new_decl = mod.declPtr(new_decl_index);
+        .namespace = new_namespace_index,
+    });
+    errdefer mod.destroyStruct(struct_index);
+
+    const struct_ty = try mod.intern_pool.get(gpa, .{ .struct_type = .{
+        .index = struct_index.toOptional(),
+        .namespace = new_namespace_index.toOptional(),
+    } });
+    errdefer mod.intern_pool.remove(struct_ty);
+
+    new_namespace.ty = struct_ty.toType();
     file.root_decl = new_decl_index.toOptional();
-    struct_obj.owner_decl = new_decl_index;
+
     new_decl.name = try file.fullyQualifiedNameZ(gpa);
     new_decl.src_line = 0;
     new_decl.is_pub = true;
     new_decl.is_exported = false;
     new_decl.has_align = false;
     new_decl.has_linksection_or_addrspace = false;
-    new_decl.ty = ty_ty;
-    new_decl.val = struct_val;
+    new_decl.ty = Type.type;
+    new_decl.val = struct_ty.toValue();
     new_decl.@"align" = 0;
     new_decl.@"linksection" = null;
     new_decl.has_tv = true;
@@ -4639,6 +4680,7 @@ pub fn semaFile(mod: *Module, file: *File) SemaError!void {
     if (file.status == .success_zir) {
         assert(file.zir_loaded);
         const main_struct_inst = Zir.main_struct_inst;
+        const struct_obj = mod.structPtr(struct_index);
         struct_obj.zir_index = main_struct_inst;
         const extended = file.zir.instructions.items(.data)[main_struct_inst].extended;
         const small = @bitCast(Zir.Inst.StructDecl.Small, extended.small);
@@ -4665,7 +4707,7 @@ pub fn semaFile(mod: *Module, file: *File) SemaError!void {
         var wip_captures = try WipCaptureScope.init(gpa, new_decl_arena_allocator, null);
         defer wip_captures.deinit();
 
-        if (sema.analyzeStructDecl(new_decl, main_struct_inst, struct_obj)) |_| {
+        if (sema.analyzeStructDecl(new_decl, main_struct_inst, struct_index)) |_| {
             try wip_captures.finalize();
             new_decl.analysis = .complete;
         } else |err| switch (err) {
@@ -4761,11 +4803,12 @@ fn semaDecl(mod: *Module, decl_index: Decl.Index) !bool {
     if (mod.declIsRoot(decl_index)) {
         log.debug("semaDecl root {*} ({s})", .{ decl, decl.name });
         const main_struct_inst = Zir.main_struct_inst;
-        const struct_obj = decl.getStruct().?;
+        const struct_index = decl.getStructIndex(mod).unwrap().?;
+        const struct_obj = mod.structPtr(struct_index);
         // This might not have gotten set in `semaFile` if the first time had
         // a ZIR failure, so we set it here in case.
         struct_obj.zir_index = main_struct_inst;
-        try sema.analyzeStructDecl(decl, main_struct_inst, struct_obj);
+        try sema.analyzeStructDecl(decl, main_struct_inst, struct_index);
         decl.analysis = .complete;
         decl.generation = mod.generation;
         return false;
@@ -5968,6 +6011,14 @@ pub fn destroyNamespace(mod: *Module, index: Namespace.Index) void {
         // In order to keep `destroyNamespace` a non-fallible function, we ignore memory
         // allocation failures here, instead leaking the Namespace until garbage collection.
     };
+}
+
+pub fn createStruct(mod: *Module, initialization: Struct) Allocator.Error!Struct.Index {
+    return mod.intern_pool.createStruct(mod.gpa, initialization);
+}
+
+pub fn destroyStruct(mod: *Module, index: Struct.Index) void {
+    return mod.intern_pool.destroyStruct(mod.gpa, index);
 }
 
 pub fn allocateNewDecl(
@@ -7202,12 +7253,7 @@ pub fn atomicPtrAlignment(
 }
 
 pub fn opaqueSrcLoc(mod: *Module, opaque_type: InternPool.Key.OpaqueType) SrcLoc {
-    const owner_decl = mod.declPtr(opaque_type.decl);
-    return .{
-        .file_scope = owner_decl.getFileScope(mod),
-        .parent_decl_node = owner_decl.src_node,
-        .lazy = LazySrcLoc.nodeOffset(0),
-    };
+    return mod.declPtr(opaque_type.decl).srcLoc(mod);
 }
 
 pub fn opaqueFullyQualifiedName(mod: *Module, opaque_type: InternPool.Key.OpaqueType) ![:0]u8 {
@@ -7220,4 +7266,13 @@ pub fn declFileScope(mod: *Module, decl_index: Decl.Index) *File {
 
 pub fn namespaceDeclIndex(mod: *Module, namespace_index: Namespace.Index) Decl.Index {
     return mod.namespacePtr(namespace_index).getDeclIndex(mod);
+}
+
+/// Returns null in the following cases:
+/// * `@TypeOf(.{})`
+/// * A struct which has no fields (`struct {}`).
+/// * Not a struct.
+pub fn typeToStruct(mod: *Module, ty: Type) ?*Struct {
+    const struct_index = mod.intern_pool.indexToStruct(ty.ip_index).unwrap() orelse return null;
+    return mod.structPtr(struct_index);
 }

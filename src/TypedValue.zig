@@ -180,7 +180,7 @@ pub fn print(
                     switch (field_ptr.container_ty.tag()) {
                         .tuple => return writer.print(".@\"{d}\"", .{field_ptr.field_index}),
                         else => {
-                            const field_name = field_ptr.container_ty.structFieldName(field_ptr.field_index);
+                            const field_name = field_ptr.container_ty.structFieldName(field_ptr.field_index, mod);
                             return writer.print(".{s}", .{field_name});
                         },
                     }
@@ -381,21 +381,27 @@ fn printAggregate(
     }
     if (ty.zigTypeTag(mod) == .Struct) {
         try writer.writeAll(".{");
-        const max_len = std.math.min(ty.structFieldCount(), max_aggregate_items);
+        const max_len = std.math.min(ty.structFieldCount(mod), max_aggregate_items);
 
         var i: u32 = 0;
         while (i < max_len) : (i += 1) {
             if (i != 0) try writer.writeAll(", ");
-            switch (ty.tag()) {
-                .anon_struct, .@"struct" => try writer.print(".{s} = ", .{ty.structFieldName(i)}),
-                else => {},
+            switch (ty.ip_index) {
+                .none => switch (ty.tag()) {
+                    .anon_struct => try writer.print(".{s} = ", .{ty.structFieldName(i, mod)}),
+                    else => {},
+                },
+                else => switch (mod.intern_pool.indexToKey(ty.ip_index)) {
+                    .struct_type => try writer.print(".{s} = ", .{ty.structFieldName(i, mod)}),
+                    else => {},
+                },
             }
             try print(.{
-                .ty = ty.structFieldType(i),
+                .ty = ty.structFieldType(i, mod),
                 .val = try val.fieldValue(ty, mod, i),
             }, writer, level - 1, mod);
         }
-        if (ty.structFieldCount() > max_aggregate_items) {
+        if (ty.structFieldCount(mod) > max_aggregate_items) {
             try writer.writeAll(", ...");
         }
         return writer.writeAll("}");

@@ -1986,8 +1986,7 @@ pub const Object = struct {
                 const name = try ty.nameAlloc(gpa, o.module);
                 defer gpa.free(name);
 
-                if (ty.castTag(.@"struct")) |payload| {
-                    const struct_obj = payload.data;
+                if (mod.typeToStruct(ty)) |struct_obj| {
                     if (struct_obj.layout == .Packed and struct_obj.haveFieldTypes()) {
                         assert(struct_obj.haveLayout());
                         const info = struct_obj.backing_int_ty.intInfo(mod);
@@ -2075,8 +2074,7 @@ pub const Object = struct {
                     return full_di_ty;
                 }
 
-                if (ty.castTag(.@"struct")) |payload| {
-                    const struct_obj = payload.data;
+                if (mod.typeToStruct(ty)) |struct_obj| {
                     if (!struct_obj.haveFieldTypes()) {
                         // This can happen if a struct type makes it all the way to
                         // flush() without ever being instantiated or referenced (even
@@ -2105,8 +2103,8 @@ pub const Object = struct {
                     return struct_di_ty;
                 }
 
-                const fields = ty.structFields();
-                const layout = ty.containerLayout();
+                const fields = ty.structFields(mod);
+                const layout = ty.containerLayout(mod);
 
                 var di_fields: std.ArrayListUnmanaged(*llvm.DIType) = .{};
                 defer di_fields.deinit(gpa);
@@ -2116,7 +2114,7 @@ pub const Object = struct {
                 comptime assert(struct_layout_version == 2);
                 var offset: u64 = 0;
 
-                var it = ty.castTag(.@"struct").?.data.runtimeFieldIterator(mod);
+                var it = mod.typeToStruct(ty).?.runtimeFieldIterator(mod);
                 while (it.next()) |field_and_index| {
                     const field = field_and_index.field;
                     const field_size = field.ty.abiSize(mod);
@@ -2990,7 +2988,7 @@ pub const DeclGen = struct {
                     return llvm_struct_ty;
                 }
 
-                const struct_obj = t.castTag(.@"struct").?.data;
+                const struct_obj = mod.typeToStruct(t).?;
 
                 if (struct_obj.layout == .Packed) {
                     assert(struct_obj.haveLayout());
@@ -3696,7 +3694,7 @@ pub const DeclGen = struct {
                     }
                 }
 
-                const struct_obj = tv.ty.castTag(.@"struct").?.data;
+                const struct_obj = mod.typeToStruct(tv.ty).?;
 
                 if (struct_obj.layout == .Packed) {
                     assert(struct_obj.haveLayout());
@@ -4043,7 +4041,7 @@ pub const DeclGen = struct {
                 const llvm_u32 = dg.context.intType(32);
                 switch (parent_ty.zigTypeTag(mod)) {
                     .Union => {
-                        if (parent_ty.containerLayout() == .Packed) {
+                        if (parent_ty.containerLayout(mod) == .Packed) {
                             return parent_llvm_ptr;
                         }
 
@@ -4065,14 +4063,14 @@ pub const DeclGen = struct {
                         return parent_llvm_ty.constInBoundsGEP(parent_llvm_ptr, &indices, indices.len);
                     },
                     .Struct => {
-                        if (parent_ty.containerLayout() == .Packed) {
+                        if (parent_ty.containerLayout(mod) == .Packed) {
                             if (!byte_aligned) return parent_llvm_ptr;
                             const llvm_usize = dg.context.intType(target.ptrBitWidth());
                             const base_addr = parent_llvm_ptr.constPtrToInt(llvm_usize);
                             // count bits of fields before this one
                             const prev_bits = b: {
                                 var b: usize = 0;
-                                for (parent_ty.structFields().values()[0..field_index]) |field| {
+                                for (parent_ty.structFields(mod).values()[0..field_index]) |field| {
                                     if (field.is_comptime or !field.ty.hasRuntimeBitsIgnoreComptime(mod)) continue;
                                     b += @intCast(usize, field.ty.bitSize(mod));
                                 }
@@ -5983,7 +5981,7 @@ pub const FuncGen = struct {
         const struct_ty = self.typeOf(struct_field.struct_operand);
         const struct_llvm_val = try self.resolveInst(struct_field.struct_operand);
         const field_index = struct_field.field_index;
-        const field_ty = struct_ty.structFieldType(field_index);
+        const field_ty = struct_ty.structFieldType(field_index, mod);
         if (!field_ty.hasRuntimeBitsIgnoreComptime(mod)) {
             return null;
         }
@@ -5991,9 +5989,9 @@ pub const FuncGen = struct {
         if (!isByRef(struct_ty, mod)) {
             assert(!isByRef(field_ty, mod));
             switch (struct_ty.zigTypeTag(mod)) {
-                .Struct => switch (struct_ty.containerLayout()) {
+                .Struct => switch (struct_ty.containerLayout(mod)) {
                     .Packed => {
-                        const struct_obj = struct_ty.castTag(.@"struct").?.data;
+                        const struct_obj = mod.typeToStruct(struct_ty).?;
                         const bit_offset = struct_obj.packedFieldBitOffset(mod, field_index);
                         const containing_int = struct_llvm_val;
                         const shift_amt = containing_int.typeOf().constInt(bit_offset, .False);
@@ -6019,7 +6017,7 @@ pub const FuncGen = struct {
                     },
                 },
                 .Union => {
-                    assert(struct_ty.containerLayout() == .Packed);
+                    assert(struct_ty.containerLayout(mod) == .Packed);
                     const containing_int = struct_llvm_val;
                     const elem_llvm_ty = try self.dg.lowerType(field_ty);
                     if (field_ty.zigTypeTag(mod) == .Float or field_ty.zigTypeTag(mod) == .Vector) {
@@ -6041,7 +6039,7 @@ pub const FuncGen = struct {
 
         switch (struct_ty.zigTypeTag(mod)) {
             .Struct => {
-                assert(struct_ty.containerLayout() != .Packed);
+                assert(struct_ty.containerLayout(mod) != .Packed);
                 var ptr_ty_buf: Type.Payload.Pointer = undefined;
                 const llvm_field_index = llvmFieldIndex(struct_ty, field_index, mod, &ptr_ty_buf).?;
                 const struct_llvm_ty = try self.dg.lowerType(struct_ty);
@@ -9289,8 +9287,8 @@ pub const FuncGen = struct {
                 return vector;
             },
             .Struct => {
-                if (result_ty.containerLayout() == .Packed) {
-                    const struct_obj = result_ty.castTag(.@"struct").?.data;
+                if (result_ty.containerLayout(mod) == .Packed) {
+                    const struct_obj = mod.typeToStruct(result_ty).?;
                     assert(struct_obj.haveLayout());
                     const big_bits = struct_obj.backing_int_ty.bitSize(mod);
                     const int_llvm_ty = self.context.intType(@intCast(c_uint, big_bits));
@@ -9795,7 +9793,7 @@ pub const FuncGen = struct {
         const mod = self.dg.module;
         const struct_ty = struct_ptr_ty.childType(mod);
         switch (struct_ty.zigTypeTag(mod)) {
-            .Struct => switch (struct_ty.containerLayout()) {
+            .Struct => switch (struct_ty.containerLayout(mod)) {
                 .Packed => {
                     const result_ty = self.typeOfIndex(inst);
                     const result_ty_info = result_ty.ptrInfo(mod);
@@ -9838,7 +9836,7 @@ pub const FuncGen = struct {
             },
             .Union => {
                 const layout = struct_ty.unionGetLayout(mod);
-                if (layout.payload_size == 0 or struct_ty.containerLayout() == .Packed) return struct_ptr;
+                if (layout.payload_size == 0 or struct_ty.containerLayout(mod) == .Packed) return struct_ptr;
                 const payload_index = @boolToInt(layout.tag_align >= layout.payload_align);
                 const union_llvm_ty = try self.dg.lowerType(struct_ty);
                 const union_field_ptr = self.builder.buildStructGEP(union_llvm_ty, struct_ptr, payload_index, "");
@@ -10530,11 +10528,11 @@ fn llvmFieldIndex(
         }
         return null;
     }
-    const layout = ty.containerLayout();
+    const layout = ty.containerLayout(mod);
     assert(layout != .Packed);
 
     var llvm_field_index: c_uint = 0;
-    var it = ty.castTag(.@"struct").?.data.runtimeFieldIterator(mod);
+    var it = mod.typeToStruct(ty).?.runtimeFieldIterator(mod);
     while (it.next()) |field_and_index| {
         const field = field_and_index.field;
         const field_align = field.alignment(mod, layout);
@@ -11113,7 +11111,7 @@ fn isByRef(ty: Type, mod: *Module) bool {
         .Array, .Frame => return ty.hasRuntimeBits(mod),
         .Struct => {
             // Packed structs are represented to LLVM as integers.
-            if (ty.containerLayout() == .Packed) return false;
+            if (ty.containerLayout(mod) == .Packed) return false;
             if (ty.isSimpleTupleOrAnonStruct()) {
                 const tuple = ty.tupleFields();
                 var count: usize = 0;
@@ -11127,7 +11125,7 @@ fn isByRef(ty: Type, mod: *Module) bool {
                 return false;
             }
             var count: usize = 0;
-            const fields = ty.structFields();
+            const fields = ty.structFields(mod);
             for (fields.values()) |field| {
                 if (field.is_comptime or !field.ty.hasRuntimeBits(mod)) continue;
 
@@ -11137,7 +11135,7 @@ fn isByRef(ty: Type, mod: *Module) bool {
             }
             return false;
         },
-        .Union => switch (ty.containerLayout()) {
+        .Union => switch (ty.containerLayout(mod)) {
             .Packed => return false,
             else => return ty.hasRuntimeBits(mod),
         },
@@ -11176,8 +11174,8 @@ fn isScalar(mod: *Module, ty: Type) bool {
         .Vector,
         => true,
 
-        .Struct => ty.containerLayout() == .Packed,
-        .Union => ty.containerLayout() == .Packed,
+        .Struct => ty.containerLayout(mod) == .Packed,
+        .Union => ty.containerLayout(mod) == .Packed,
         else => false,
     };
 }

@@ -2910,7 +2910,7 @@ fn airStructFieldVal(self: *Self, inst: Air.Inst.Index) !void {
         const mcv = try self.resolveInst(operand);
         const struct_ty = self.typeOf(operand);
         const struct_field_offset = @intCast(u32, struct_ty.structFieldOffset(index, mod));
-        const struct_field_ty = struct_ty.structFieldType(index);
+        const struct_field_ty = struct_ty.structFieldType(index, mod);
 
         switch (mcv) {
             .dead, .unreach => unreachable,
@@ -5404,10 +5404,10 @@ fn genSetStack(self: *Self, ty: Type, stack_offset: u32, mcv: MCValue) InnerErro
             const reg_lock = self.register_manager.lockReg(reg);
             defer if (reg_lock) |locked_reg| self.register_manager.unlockReg(locked_reg);
 
-            const wrapped_ty = ty.structFieldType(0);
+            const wrapped_ty = ty.structFieldType(0, mod);
             try self.genSetStack(wrapped_ty, stack_offset, .{ .register = reg });
 
-            const overflow_bit_ty = ty.structFieldType(1);
+            const overflow_bit_ty = ty.structFieldType(1, mod);
             const overflow_bit_offset = @intCast(u32, ty.structFieldOffset(1, mod));
             const cond_reg = try self.register_manager.allocReg(null, gp);
 

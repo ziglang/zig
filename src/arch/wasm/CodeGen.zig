@@ -1006,9 +1006,9 @@ fn typeToValtype(ty: Type, mod: *Module) wasm.Valtype {
             if (info.bits > 32 and info.bits <= 128) break :blk wasm.Valtype.i64;
             break :blk wasm.Valtype.i32; // represented as pointer to stack
         },
-        .Struct => switch (ty.containerLayout()) {
+        .Struct => switch (ty.containerLayout(mod)) {
             .Packed => {
-                const struct_obj = ty.castTag(.@"struct").?.data;
+                const struct_obj = mod.typeToStruct(ty).?;
                 return typeToValtype(struct_obj.backing_int_ty, mod);
             },
             else => wasm.Valtype.i32,
@@ -1017,7 +1017,7 @@ fn typeToValtype(ty: Type, mod: *Module) wasm.Valtype {
             .direct => wasm.Valtype.v128,
             .unrolled => wasm.Valtype.i32,
         },
-        .Union => switch (ty.containerLayout()) {
+        .Union => switch (ty.containerLayout(mod)) {
             .Packed => {
                 const int_ty = mod.intType(.unsigned, @intCast(u16, ty.bitSize(mod))) catch @panic("out of memory");
                 return typeToValtype(int_ty, mod);
@@ -1747,8 +1747,7 @@ fn isByRef(ty: Type, mod: *Module) bool {
             return ty.hasRuntimeBitsIgnoreComptime(mod);
         },
         .Struct => {
-            if (ty.castTag(.@"struct")) |struct_ty| {
-                const struct_obj = struct_ty.data;
+            if (mod.typeToStruct(ty)) |struct_obj| {
                 if (struct_obj.layout == .Packed and struct_obj.haveFieldTypes()) {
                     return isByRef(struct_obj.backing_int_ty, mod);
                 }
@@ -2954,11 +2953,11 @@ fn lowerParentPtr(func: *CodeGen, ptr_val: Value, offset: u32) InnerError!WValue
             const parent_ty = field_ptr.container_ty;
 
             const field_offset = switch (parent_ty.zigTypeTag(mod)) {
-                .Struct => switch (parent_ty.containerLayout()) {
+                .Struct => switch (parent_ty.containerLayout(mod)) {
                     .Packed => parent_ty.packedStructFieldByteOffset(field_ptr.field_index, mod),
                     else => parent_ty.structFieldOffset(field_ptr.field_index, mod),
                 },
-                .Union => switch (parent_ty.containerLayout()) {
+                .Union => switch (parent_ty.containerLayout(mod)) {
                     .Packed => 0,
                     else => blk: {
                         const layout: Module.Union.Layout = parent_ty.unionGetLayout(mod);
@@ -3158,7 +3157,7 @@ fn lowerConstant(func: *CodeGen, arg_val: Value, ty: Type) InnerError!WValue {
             return WValue{ .imm32 = @boolToInt(is_pl) };
         },
         .Struct => {
-            const struct_obj = ty.castTag(.@"struct").?.data;
+            const struct_obj = mod.typeToStruct(ty).?;
             assert(struct_obj.layout == .Packed);
             var buf: [8]u8 = .{0} ** 8; // zero the buffer so we do not read 0xaa as integer
             val.writeToPackedMemory(ty, func.bin_file.base.options.module.?, &buf, 0) catch unreachable;
@@ -3225,7 +3224,7 @@ fn emitUndefined(func: *CodeGen, ty: Type) InnerError!WValue {
             return WValue{ .imm32 = 0xaaaaaaaa };
         },
         .Struct => {
-            const struct_obj = ty.castTag(.@"struct").?.data;
+            const struct_obj = mod.typeToStruct(ty).?;
             assert(struct_obj.layout == .Packed);
             return func.emitUndefined(struct_obj.backing_int_ty);
         },
@@ -3635,7 +3634,7 @@ fn structFieldPtr(
 ) InnerError!WValue {
     const mod = func.bin_file.base.options.module.?;
     const result_ty = func.typeOfIndex(inst);
-    const offset = switch (struct_ty.containerLayout()) {
+    const offset = switch (struct_ty.containerLayout(mod)) {
         .Packed => switch (struct_ty.zigTypeTag(mod)) {
             .Struct => offset: {
                 if (result_ty.ptrInfo(mod).host_size != 0) {
@@ -3668,13 +3667,13 @@ fn airStructFieldVal(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     const struct_ty = func.typeOf(struct_field.struct_operand);
     const operand = try func.resolveInst(struct_field.struct_operand);
     const field_index = struct_field.field_index;
-    const field_ty = struct_ty.structFieldType(field_index);
+    const field_ty = struct_ty.structFieldType(field_index, mod);
     if (!field_ty.hasRuntimeBitsIgnoreComptime(mod)) return func.finishAir(inst, .none, &.{struct_field.struct_operand});
 
-    const result = switch (struct_ty.containerLayout()) {
+    const result = switch (struct_ty.containerLayout(mod)) {
         .Packed => switch (struct_ty.zigTypeTag(mod)) {
             .Struct => result: {
-                const struct_obj = struct_ty.castTag(.@"struct").?.data;
+                const struct_obj = mod.typeToStruct(struct_ty).?;
                 const offset = struct_obj.packedFieldBitOffset(mod, field_index);
                 const backing_ty = struct_obj.backing_int_ty;
                 const wasm_bits = toWasmBits(backing_ty.intInfo(mod).bits) orelse {
@@ -4998,12 +4997,12 @@ fn airAggregateInit(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
                 }
                 break :result_value result;
             },
-            .Struct => switch (result_ty.containerLayout()) {
+            .Struct => switch (result_ty.containerLayout(mod)) {
                 .Packed => {
                     if (isByRef(result_ty, mod)) {
                         return func.fail("TODO: airAggregateInit for packed structs larger than 64 bits", .{});
                     }
-                    const struct_obj = result_ty.castTag(.@"struct").?.data;
+                    const struct_obj = mod.typeToStruct(result_ty).?;
                     const fields = struct_obj.fields.values();
                     const backing_type = struct_obj.backing_int_ty;
 
@@ -5051,7 +5050,7 @@ fn airAggregateInit(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
                     for (elements, 0..) |elem, elem_index| {
                         if ((try result_ty.structFieldValueComptime(mod, elem_index)) != null) continue;
 
-                        const elem_ty = result_ty.structFieldType(elem_index);
+                        const elem_ty = result_ty.structFieldType(elem_index, mod);
                         const elem_size = @intCast(u32, elem_ty.abiSize(mod));
                         const value = try func.resolveInst(elem);
                         try func.store(offset, value, elem_ty, 0);

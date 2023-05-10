@@ -3252,13 +3252,13 @@ fn airShlWithOverflow(self: *Self, inst: Air.Inst.Index) !void {
                     try self.genSetMem(
                         .{ .frame = frame_index },
                         @intCast(i32, tuple_ty.structFieldOffset(1, mod)),
-                        tuple_ty.structFieldType(1),
+                        tuple_ty.structFieldType(1, mod),
                         .{ .eflags = cc },
                     );
                     try self.genSetMem(
                         .{ .frame = frame_index },
                         @intCast(i32, tuple_ty.structFieldOffset(0, mod)),
-                        tuple_ty.structFieldType(0),
+                        tuple_ty.structFieldType(0, mod),
                         partial_mcv,
                     );
                     break :result .{ .load_frame = .{ .index = frame_index } };
@@ -3289,7 +3289,7 @@ fn genSetFrameTruncatedOverflowCompare(
     };
     defer if (src_lock) |lock| self.register_manager.unlockReg(lock);
 
-    const ty = tuple_ty.structFieldType(0);
+    const ty = tuple_ty.structFieldType(0, mod);
     const int_info = ty.intInfo(mod);
 
     const hi_limb_bits = (int_info.bits - 1) % 64 + 1;
@@ -3336,7 +3336,7 @@ fn genSetFrameTruncatedOverflowCompare(
     try self.genSetMem(
         .{ .frame = frame_index },
         @intCast(i32, tuple_ty.structFieldOffset(1, mod)),
-        tuple_ty.structFieldType(1),
+        tuple_ty.structFieldType(1, mod),
         if (overflow_cc) |_| .{ .register = overflow_reg.to8() } else .{ .eflags = .ne },
     );
 }
@@ -3393,13 +3393,13 @@ fn airMulWithOverflow(self: *Self, inst: Air.Inst.Index) !void {
                         try self.genSetMem(
                             .{ .frame = frame_index },
                             @intCast(i32, tuple_ty.structFieldOffset(0, mod)),
-                            tuple_ty.structFieldType(0),
+                            tuple_ty.structFieldType(0, mod),
                             partial_mcv,
                         );
                         try self.genSetMem(
                             .{ .frame = frame_index },
                             @intCast(i32, tuple_ty.structFieldOffset(1, mod)),
-                            tuple_ty.structFieldType(1),
+                            tuple_ty.structFieldType(1, mod),
                             .{ .immediate = 0 }, // cc being set is impossible
                         );
                     } else try self.genSetFrameTruncatedOverflowCompare(
@@ -5563,7 +5563,7 @@ fn fieldPtr(self: *Self, inst: Air.Inst.Index, operand: Air.Inst.Ref, index: u32
     const ptr_field_ty = self.typeOfIndex(inst);
     const ptr_container_ty = self.typeOf(operand);
     const container_ty = ptr_container_ty.childType(mod);
-    const field_offset = @intCast(i32, switch (container_ty.containerLayout()) {
+    const field_offset = @intCast(i32, switch (container_ty.containerLayout(mod)) {
         .Auto, .Extern => container_ty.structFieldOffset(index, mod),
         .Packed => if (container_ty.zigTypeTag(mod) == .Struct and
             ptr_field_ty.ptrInfo(mod).host_size == 0)
@@ -5591,16 +5591,16 @@ fn airStructFieldVal(self: *Self, inst: Air.Inst.Index) !void {
 
         const container_ty = self.typeOf(operand);
         const container_rc = regClassForType(container_ty, mod);
-        const field_ty = container_ty.structFieldType(index);
+        const field_ty = container_ty.structFieldType(index, mod);
         if (!field_ty.hasRuntimeBitsIgnoreComptime(mod)) break :result .none;
         const field_rc = regClassForType(field_ty, mod);
         const field_is_gp = field_rc.supersetOf(gp);
 
         const src_mcv = try self.resolveInst(operand);
-        const field_off = switch (container_ty.containerLayout()) {
+        const field_off = switch (container_ty.containerLayout(mod)) {
             .Auto, .Extern => @intCast(u32, container_ty.structFieldOffset(index, mod) * 8),
-            .Packed => if (container_ty.castTag(.@"struct")) |struct_obj|
-                struct_obj.data.packedFieldBitOffset(mod, index)
+            .Packed => if (mod.typeToStruct(container_ty)) |struct_obj|
+                struct_obj.packedFieldBitOffset(mod, index)
             else
                 0,
         };
@@ -10036,13 +10036,13 @@ fn genSetMem(self: *Self, base: Memory.Base, disp: i32, ty: Type, src_mcv: MCVal
             try self.genSetMem(
                 base,
                 disp + @intCast(i32, ty.structFieldOffset(0, mod)),
-                ty.structFieldType(0),
+                ty.structFieldType(0, mod),
                 .{ .register = ro.reg },
             );
             try self.genSetMem(
                 base,
                 disp + @intCast(i32, ty.structFieldOffset(1, mod)),
-                ty.structFieldType(1),
+                ty.structFieldType(1, mod),
                 .{ .eflags = ro.eflags },
             );
         },
@@ -11259,8 +11259,8 @@ fn airAggregateInit(self: *Self, inst: Air.Inst.Index) !void {
             .Struct => {
                 const frame_index =
                     try self.allocFrameIndex(FrameAlloc.initType(result_ty, mod));
-                if (result_ty.containerLayout() == .Packed) {
-                    const struct_obj = result_ty.castTag(.@"struct").?.data;
+                if (result_ty.containerLayout(mod) == .Packed) {
+                    const struct_obj = mod.typeToStruct(result_ty).?;
                     try self.genInlineMemset(
                         .{ .lea_frame = .{ .index = frame_index } },
                         .{ .immediate = 0 },
@@ -11269,7 +11269,7 @@ fn airAggregateInit(self: *Self, inst: Air.Inst.Index) !void {
                     for (elements, 0..) |elem, elem_i| {
                         if ((try result_ty.structFieldValueComptime(mod, elem_i)) != null) continue;
 
-                        const elem_ty = result_ty.structFieldType(elem_i);
+                        const elem_ty = result_ty.structFieldType(elem_i, mod);
                         const elem_bit_size = @intCast(u32, elem_ty.bitSize(mod));
                         if (elem_bit_size > 64) {
                             return self.fail(
@@ -11341,7 +11341,7 @@ fn airAggregateInit(self: *Self, inst: Air.Inst.Index) !void {
                 } else for (elements, 0..) |elem, elem_i| {
                     if ((try result_ty.structFieldValueComptime(mod, elem_i)) != null) continue;
 
-                    const elem_ty = result_ty.structFieldType(elem_i);
+                    const elem_ty = result_ty.structFieldType(elem_i, mod);
                     const elem_off = @intCast(i32, result_ty.structFieldOffset(elem_i, mod));
                     const elem_mcv = try self.resolveInst(elem);
                     const mat_elem_mcv = switch (elem_mcv) {

@@ -59,8 +59,6 @@ pub const Type = struct {
 
                 .anyframe_T => return .AnyFrame,
 
-                .empty_struct,
-                .@"struct",
                 .tuple,
                 .anon_struct,
                 => return .Struct,
@@ -148,6 +146,7 @@ pub const Type = struct {
                 .opt => unreachable,
                 .enum_tag => unreachable,
                 .simple_value => unreachable,
+                .aggregate => unreachable,
             },
         }
     }
@@ -501,16 +500,6 @@ pub const Type = struct {
                 return a.elemType2(mod).eql(b.elemType2(mod), mod);
             },
 
-            .empty_struct => {
-                const a_namespace = a.castTag(.empty_struct).?.data;
-                const b_namespace = (b.castTag(.empty_struct) orelse return false).data;
-                return a_namespace == b_namespace;
-            },
-            .@"struct" => {
-                const a_struct_obj = a.castTag(.@"struct").?.data;
-                const b_struct_obj = (b.castTag(.@"struct") orelse return false).data;
-                return a_struct_obj == b_struct_obj;
-            },
             .tuple => {
                 if (!b.isSimpleTuple()) return false;
 
@@ -720,15 +709,6 @@ pub const Type = struct {
                 hashWithHasher(ty.childType(mod), hasher, mod);
             },
 
-            .empty_struct => {
-                std.hash.autoHash(hasher, std.builtin.TypeId.Struct);
-                const namespace: *const Module.Namespace = ty.castTag(.empty_struct).?.data;
-                std.hash.autoHash(hasher, namespace);
-            },
-            .@"struct" => {
-                const struct_obj: *const Module.Struct = ty.castTag(.@"struct").?.data;
-                std.hash.autoHash(hasher, struct_obj);
-            },
             .tuple => {
                 std.hash.autoHash(hasher, std.builtin.TypeId.Struct);
 
@@ -955,8 +935,6 @@ pub const Type = struct {
             .error_set => return self.copyPayloadShallow(allocator, Payload.ErrorSet),
             .error_set_inferred => return self.copyPayloadShallow(allocator, Payload.ErrorSetInferred),
             .error_set_single => return self.copyPayloadShallow(allocator, Payload.Name),
-            .empty_struct => return self.copyPayloadShallow(allocator, Payload.ContainerScope),
-            .@"struct" => return self.copyPayloadShallow(allocator, Payload.Struct),
             .@"union", .union_safety_tagged, .union_tagged => return self.copyPayloadShallow(allocator, Payload.Union),
             .enum_simple => return self.copyPayloadShallow(allocator, Payload.EnumSimple),
             .enum_numbered => return self.copyPayloadShallow(allocator, Payload.EnumNumbered),
@@ -1033,14 +1011,6 @@ pub const Type = struct {
         while (true) {
             const t = ty.tag();
             switch (t) {
-                .empty_struct => return writer.writeAll("struct {}"),
-
-                .@"struct" => {
-                    const struct_obj = ty.castTag(.@"struct").?.data;
-                    return writer.print("({s} decl={d})", .{
-                        @tagName(t), struct_obj.owner_decl,
-                    });
-                },
                 .@"union", .union_safety_tagged, .union_tagged => {
                     const union_obj = ty.cast(Payload.Union).?.data;
                     return writer.print("({s} decl={d})", .{
@@ -1247,22 +1217,10 @@ pub const Type = struct {
     /// Prints a name suitable for `@typeName`.
     pub fn print(ty: Type, writer: anytype, mod: *Module) @TypeOf(writer).Error!void {
         switch (ty.ip_index) {
-            .empty_struct_type => try writer.writeAll("@TypeOf(.{})"),
-
             .none => switch (ty.tag()) {
                 .inferred_alloc_const => unreachable,
                 .inferred_alloc_mut => unreachable,
 
-                .empty_struct => {
-                    const namespace = ty.castTag(.empty_struct).?.data;
-                    try namespace.renderFullyQualifiedName(mod, "", writer);
-                },
-
-                .@"struct" => {
-                    const struct_obj = ty.castTag(.@"struct").?.data;
-                    const decl = mod.declPtr(struct_obj.owner_decl);
-                    try decl.renderFullyQualifiedName(mod, writer);
-                },
                 .@"union", .union_safety_tagged, .union_tagged => {
                     const union_obj = ty.cast(Payload.Union).?.data;
                     const decl = mod.declPtr(union_obj.owner_decl);
@@ -1548,7 +1506,18 @@ pub const Type = struct {
                     return;
                 },
                 .simple_type => |s| return writer.writeAll(@tagName(s)),
-                .struct_type => @panic("TODO"),
+                .struct_type => |struct_type| {
+                    if (mod.structPtrUnwrap(struct_type.index)) |struct_obj| {
+                        const decl = mod.declPtr(struct_obj.owner_decl);
+                        try decl.renderFullyQualifiedName(mod, writer);
+                    } else if (struct_type.namespace.unwrap()) |namespace_index| {
+                        const namespace = mod.namespacePtr(namespace_index);
+                        try namespace.renderFullyQualifiedName(mod, "", writer);
+                    } else {
+                        try writer.writeAll("@TypeOf(.{})");
+                    }
+                },
+
                 .union_type => @panic("TODO"),
                 .opaque_type => |opaque_type| {
                     const decl = mod.declPtr(opaque_type.decl);
@@ -1562,6 +1531,7 @@ pub const Type = struct {
                 .ptr => unreachable,
                 .opt => unreachable,
                 .enum_tag => unreachable,
+                .aggregate => unreachable,
             },
         }
     }
@@ -1624,12 +1594,10 @@ pub const Type = struct {
                 },
 
                 // These are false because they are comptime-only types.
-                .empty_struct,
                 // These are function *bodies*, not pointers.
                 // Special exceptions have to be made when emitting functions due to
                 // this returning false.
-                .function,
-                => return false,
+                .function => return false,
 
                 .optional => {
                     const child_ty = ty.optionalChild(mod);
@@ -1643,28 +1611,6 @@ pub const Type = struct {
                         return !(try strat.sema.typeRequiresComptime(child_ty));
                     } else {
                         return !comptimeOnly(child_ty, mod);
-                    }
-                },
-
-                .@"struct" => {
-                    const struct_obj = ty.castTag(.@"struct").?.data;
-                    if (struct_obj.status == .field_types_wip) {
-                        // In this case, we guess that hasRuntimeBits() for this type is true,
-                        // and then later if our guess was incorrect, we emit a compile error.
-                        struct_obj.assumed_runtime_bits = true;
-                        return true;
-                    }
-                    switch (strat) {
-                        .sema => |sema| _ = try sema.resolveTypeFields(ty),
-                        .eager => assert(struct_obj.haveFieldTypes()),
-                        .lazy => if (!struct_obj.haveFieldTypes()) return error.NeedLazy,
-                    }
-                    for (struct_obj.fields.values()) |field| {
-                        if (field.is_comptime) continue;
-                        if (try field.ty.hasRuntimeBitsAdvanced(mod, ignore_comptime_only, strat))
-                            return true;
-                    } else {
-                        return false;
                     }
                 },
 
@@ -1824,7 +1770,31 @@ pub const Type = struct {
                     .generic_poison => unreachable,
                     .var_args_param => unreachable,
                 },
-                .struct_type => @panic("TODO"),
+                .struct_type => |struct_type| {
+                    const struct_obj = mod.structPtrUnwrap(struct_type.index) orelse {
+                        // This struct has no fields.
+                        return false;
+                    };
+                    if (struct_obj.status == .field_types_wip) {
+                        // In this case, we guess that hasRuntimeBits() for this type is true,
+                        // and then later if our guess was incorrect, we emit a compile error.
+                        struct_obj.assumed_runtime_bits = true;
+                        return true;
+                    }
+                    switch (strat) {
+                        .sema => |sema| _ = try sema.resolveTypeFields(ty),
+                        .eager => assert(struct_obj.haveFieldTypes()),
+                        .lazy => if (!struct_obj.haveFieldTypes()) return error.NeedLazy,
+                    }
+                    for (struct_obj.fields.values()) |field| {
+                        if (field.is_comptime) continue;
+                        if (try field.ty.hasRuntimeBitsAdvanced(mod, ignore_comptime_only, strat))
+                            return true;
+                    } else {
+                        return false;
+                    }
+                },
+
                 .union_type => @panic("TODO"),
                 .opaque_type => true,
 
@@ -1835,6 +1805,7 @@ pub const Type = struct {
                 .ptr => unreachable,
                 .opt => unreachable,
                 .enum_tag => unreachable,
+                .aggregate => unreachable,
             },
         }
     }
@@ -1862,7 +1833,6 @@ pub const Type = struct {
                 .anyframe_T,
                 .tuple,
                 .anon_struct,
-                .empty_struct,
                 => false,
 
                 .enum_full,
@@ -1877,7 +1847,6 @@ pub const Type = struct {
                 => ty.childType(mod).hasWellDefinedLayout(mod),
 
                 .optional => ty.isPtrLikeOptional(mod),
-                .@"struct" => ty.castTag(.@"struct").?.data.layout != .Auto,
                 .@"union", .union_safety_tagged => ty.cast(Payload.Union).?.data.layout != .Auto,
                 .union_tagged => false,
             },
@@ -1936,7 +1905,13 @@ pub const Type = struct {
 
                     .var_args_param => unreachable,
                 },
-                .struct_type => @panic("TODO"),
+                .struct_type => |struct_type| {
+                    const struct_obj = mod.structPtrUnwrap(struct_type.index) orelse {
+                        // Struct with no fields has a well-defined layout of no bits.
+                        return true;
+                    };
+                    return struct_obj.layout != .Auto;
+                },
                 .union_type => @panic("TODO"),
                 .opaque_type => false,
 
@@ -1947,6 +1922,7 @@ pub const Type = struct {
                 .ptr => unreachable,
                 .opt => unreachable,
                 .enum_tag => unreachable,
+                .aggregate => unreachable,
             },
         };
     }
@@ -2146,68 +2122,6 @@ pub const Type = struct {
                 .optional => return abiAlignmentAdvancedOptional(ty, mod, strat),
                 .error_union => return abiAlignmentAdvancedErrorUnion(ty, mod, strat),
 
-                .@"struct" => {
-                    const struct_obj = ty.castTag(.@"struct").?.data;
-                    if (opt_sema) |sema| {
-                        if (struct_obj.status == .field_types_wip) {
-                            // We'll guess "pointer-aligned", if the struct has an
-                            // underaligned pointer field then some allocations
-                            // might require explicit alignment.
-                            return AbiAlignmentAdvanced{ .scalar = @divExact(target.ptrBitWidth(), 8) };
-                        }
-                        _ = try sema.resolveTypeFields(ty);
-                    }
-                    if (!struct_obj.haveFieldTypes()) switch (strat) {
-                        .eager => unreachable, // struct layout not resolved
-                        .sema => unreachable, // handled above
-                        .lazy => |arena| return AbiAlignmentAdvanced{ .val = try Value.Tag.lazy_align.create(arena, ty) },
-                    };
-                    if (struct_obj.layout == .Packed) {
-                        switch (strat) {
-                            .sema => |sema| try sema.resolveTypeLayout(ty),
-                            .lazy => |arena| {
-                                if (!struct_obj.haveLayout()) {
-                                    return AbiAlignmentAdvanced{ .val = try Value.Tag.lazy_align.create(arena, ty) };
-                                }
-                            },
-                            .eager => {},
-                        }
-                        assert(struct_obj.haveLayout());
-                        return AbiAlignmentAdvanced{ .scalar = struct_obj.backing_int_ty.abiAlignment(mod) };
-                    }
-
-                    const fields = ty.structFields();
-                    var big_align: u32 = 0;
-                    for (fields.values()) |field| {
-                        if (!(field.ty.hasRuntimeBitsAdvanced(mod, false, strat) catch |err| switch (err) {
-                            error.NeedLazy => return AbiAlignmentAdvanced{ .val = try Value.Tag.lazy_align.create(strat.lazy, ty) },
-                            else => |e| return e,
-                        })) continue;
-
-                        const field_align = if (field.abi_align != 0)
-                            field.abi_align
-                        else switch (try field.ty.abiAlignmentAdvanced(mod, strat)) {
-                            .scalar => |a| a,
-                            .val => switch (strat) {
-                                .eager => unreachable, // struct layout not resolved
-                                .sema => unreachable, // handled above
-                                .lazy => |arena| return AbiAlignmentAdvanced{ .val = try Value.Tag.lazy_align.create(arena, ty) },
-                            },
-                        };
-                        big_align = @max(big_align, field_align);
-
-                        // This logic is duplicated in Module.Struct.Field.alignment.
-                        if (struct_obj.layout == .Extern or target.ofmt == .c) {
-                            if (field.ty.isAbiInt(mod) and field.ty.intInfo(mod).bits >= 128) {
-                                // The C ABI requires 128 bit integer fields of structs
-                                // to be 16-bytes aligned.
-                                big_align = @max(big_align, 16);
-                            }
-                        }
-                    }
-                    return AbiAlignmentAdvanced{ .scalar = big_align };
-                },
-
                 .tuple, .anon_struct => {
                     const tuple = ty.tupleFields();
                     var big_align: u32 = 0;
@@ -2240,8 +2154,6 @@ pub const Type = struct {
                     const union_obj = ty.cast(Payload.Union).?.data;
                     return abiAlignmentAdvancedUnion(ty, mod, strat, union_obj, true);
                 },
-
-                .empty_struct => return AbiAlignmentAdvanced{ .scalar = 0 },
 
                 .inferred_alloc_const,
                 .inferred_alloc_mut,
@@ -2337,7 +2249,69 @@ pub const Type = struct {
                     .generic_poison => unreachable,
                     .var_args_param => unreachable,
                 },
-                .struct_type => @panic("TODO"),
+                .struct_type => |struct_type| {
+                    const struct_obj = mod.structPtrUnwrap(struct_type.index) orelse
+                        return AbiAlignmentAdvanced{ .scalar = 0 };
+
+                    if (opt_sema) |sema| {
+                        if (struct_obj.status == .field_types_wip) {
+                            // We'll guess "pointer-aligned", if the struct has an
+                            // underaligned pointer field then some allocations
+                            // might require explicit alignment.
+                            return AbiAlignmentAdvanced{ .scalar = @divExact(target.ptrBitWidth(), 8) };
+                        }
+                        _ = try sema.resolveTypeFields(ty);
+                    }
+                    if (!struct_obj.haveFieldTypes()) switch (strat) {
+                        .eager => unreachable, // struct layout not resolved
+                        .sema => unreachable, // handled above
+                        .lazy => |arena| return AbiAlignmentAdvanced{ .val = try Value.Tag.lazy_align.create(arena, ty) },
+                    };
+                    if (struct_obj.layout == .Packed) {
+                        switch (strat) {
+                            .sema => |sema| try sema.resolveTypeLayout(ty),
+                            .lazy => |arena| {
+                                if (!struct_obj.haveLayout()) {
+                                    return AbiAlignmentAdvanced{ .val = try Value.Tag.lazy_align.create(arena, ty) };
+                                }
+                            },
+                            .eager => {},
+                        }
+                        assert(struct_obj.haveLayout());
+                        return AbiAlignmentAdvanced{ .scalar = struct_obj.backing_int_ty.abiAlignment(mod) };
+                    }
+
+                    const fields = ty.structFields(mod);
+                    var big_align: u32 = 0;
+                    for (fields.values()) |field| {
+                        if (!(field.ty.hasRuntimeBitsAdvanced(mod, false, strat) catch |err| switch (err) {
+                            error.NeedLazy => return AbiAlignmentAdvanced{ .val = try Value.Tag.lazy_align.create(strat.lazy, ty) },
+                            else => |e| return e,
+                        })) continue;
+
+                        const field_align = if (field.abi_align != 0)
+                            field.abi_align
+                        else switch (try field.ty.abiAlignmentAdvanced(mod, strat)) {
+                            .scalar => |a| a,
+                            .val => switch (strat) {
+                                .eager => unreachable, // struct layout not resolved
+                                .sema => unreachable, // handled above
+                                .lazy => |arena| return AbiAlignmentAdvanced{ .val = try Value.Tag.lazy_align.create(arena, ty) },
+                            },
+                        };
+                        big_align = @max(big_align, field_align);
+
+                        // This logic is duplicated in Module.Struct.Field.alignment.
+                        if (struct_obj.layout == .Extern or target.ofmt == .c) {
+                            if (field.ty.isAbiInt(mod) and field.ty.intInfo(mod).bits >= 128) {
+                                // The C ABI requires 128 bit integer fields of structs
+                                // to be 16-bytes aligned.
+                                big_align = @max(big_align, 16);
+                            }
+                        }
+                    }
+                    return AbiAlignmentAdvanced{ .scalar = big_align };
+                },
                 .union_type => @panic("TODO"),
                 .opaque_type => return AbiAlignmentAdvanced{ .scalar = 1 },
 
@@ -2348,6 +2322,7 @@ pub const Type = struct {
                 .ptr => unreachable,
                 .opt => unreachable,
                 .enum_tag => unreachable,
+                .aggregate => unreachable,
             },
         }
     }
@@ -2517,42 +2492,16 @@ pub const Type = struct {
                 .inferred_alloc_const => unreachable,
                 .inferred_alloc_mut => unreachable,
 
-                .empty_struct => return AbiSizeAdvanced{ .scalar = 0 },
-
-                .@"struct", .tuple, .anon_struct => switch (ty.containerLayout()) {
-                    .Packed => {
-                        const struct_obj = ty.castTag(.@"struct").?.data;
-                        switch (strat) {
-                            .sema => |sema| try sema.resolveTypeLayout(ty),
-                            .lazy => |arena| {
-                                if (!struct_obj.haveLayout()) {
-                                    return AbiSizeAdvanced{ .val = try Value.Tag.lazy_size.create(arena, ty) };
-                                }
-                            },
-                            .eager => {},
-                        }
-                        assert(struct_obj.haveLayout());
-                        return AbiSizeAdvanced{ .scalar = struct_obj.backing_int_ty.abiSize(mod) };
-                    },
-                    else => {
-                        switch (strat) {
-                            .sema => |sema| try sema.resolveTypeLayout(ty),
-                            .lazy => |arena| {
-                                if (ty.castTag(.@"struct")) |payload| {
-                                    const struct_obj = payload.data;
-                                    if (!struct_obj.haveLayout()) {
-                                        return AbiSizeAdvanced{ .val = try Value.Tag.lazy_size.create(arena, ty) };
-                                    }
-                                }
-                            },
-                            .eager => {},
-                        }
-                        const field_count = ty.structFieldCount();
-                        if (field_count == 0) {
-                            return AbiSizeAdvanced{ .scalar = 0 };
-                        }
-                        return AbiSizeAdvanced{ .scalar = ty.structFieldOffset(field_count, mod) };
-                    },
+                .tuple, .anon_struct => {
+                    switch (strat) {
+                        .sema => |sema| try sema.resolveTypeLayout(ty),
+                        .lazy, .eager => {},
+                    }
+                    const field_count = ty.structFieldCount(mod);
+                    if (field_count == 0) {
+                        return AbiSizeAdvanced{ .scalar = 0 };
+                    }
+                    return AbiSizeAdvanced{ .scalar = ty.structFieldOffset(field_count, mod) };
                 },
 
                 .enum_simple, .enum_full, .enum_nonexhaustive, .enum_numbered => {
@@ -2752,7 +2701,42 @@ pub const Type = struct {
                     .generic_poison => unreachable,
                     .var_args_param => unreachable,
                 },
-                .struct_type => @panic("TODO"),
+                .struct_type => |struct_type| switch (ty.containerLayout(mod)) {
+                    .Packed => {
+                        const struct_obj = mod.structPtrUnwrap(struct_type.index) orelse
+                            return AbiSizeAdvanced{ .scalar = 0 };
+
+                        switch (strat) {
+                            .sema => |sema| try sema.resolveTypeLayout(ty),
+                            .lazy => |arena| {
+                                if (!struct_obj.haveLayout()) {
+                                    return AbiSizeAdvanced{ .val = try Value.Tag.lazy_size.create(arena, ty) };
+                                }
+                            },
+                            .eager => {},
+                        }
+                        assert(struct_obj.haveLayout());
+                        return AbiSizeAdvanced{ .scalar = struct_obj.backing_int_ty.abiSize(mod) };
+                    },
+                    else => {
+                        switch (strat) {
+                            .sema => |sema| try sema.resolveTypeLayout(ty),
+                            .lazy => |arena| {
+                                const struct_obj = mod.structPtrUnwrap(struct_type.index) orelse
+                                    return AbiSizeAdvanced{ .scalar = 0 };
+                                if (!struct_obj.haveLayout()) {
+                                    return AbiSizeAdvanced{ .val = try Value.Tag.lazy_size.create(arena, ty) };
+                                }
+                            },
+                            .eager => {},
+                        }
+                        const field_count = ty.structFieldCount(mod);
+                        if (field_count == 0) {
+                            return AbiSizeAdvanced{ .scalar = 0 };
+                        }
+                        return AbiSizeAdvanced{ .scalar = ty.structFieldOffset(field_count, mod) };
+                    },
+                },
                 .union_type => @panic("TODO"),
                 .opaque_type => unreachable, // no size available
 
@@ -2763,6 +2747,7 @@ pub const Type = struct {
                 .ptr => unreachable,
                 .opt => unreachable,
                 .enum_tag => unreachable,
+                .aggregate => unreachable,
             },
         }
     }
@@ -2850,189 +2835,189 @@ pub const Type = struct {
     ) Module.CompileError!u64 {
         const target = mod.getTarget();
 
-        if (ty.ip_index != .none) switch (mod.intern_pool.indexToKey(ty.ip_index)) {
-            .int_type => |int_type| return int_type.bits,
-            .ptr_type => |ptr_type| switch (ptr_type.size) {
-                .Slice => return target.ptrBitWidth() * 2,
-                else => return target.ptrBitWidth() * 2,
-            },
-            .array_type => |array_type| {
-                const len = array_type.len + @boolToInt(array_type.sentinel != .none);
-                if (len == 0) return 0;
-                const elem_ty = array_type.child.toType();
-                const elem_size = std.math.max(elem_ty.abiAlignment(mod), elem_ty.abiSize(mod));
-                if (elem_size == 0) return 0;
-                const elem_bit_size = try bitSizeAdvanced(elem_ty, mod, opt_sema);
-                return (len - 1) * 8 * elem_size + elem_bit_size;
-            },
-            .vector_type => |vector_type| {
-                const child_ty = vector_type.child.toType();
-                const elem_bit_size = try bitSizeAdvanced(child_ty, mod, opt_sema);
-                return elem_bit_size * vector_type.len;
-            },
-            .opt_type => @panic("TODO"),
-            .error_union_type => @panic("TODO"),
-            .simple_type => |t| switch (t) {
-                .f16 => return 16,
-                .f32 => return 32,
-                .f64 => return 64,
-                .f80 => return 80,
-                .f128 => return 128,
-
-                .usize,
-                .isize,
-                .@"anyframe",
-                => return target.ptrBitWidth(),
-
-                .c_char => return target.c_type_bit_size(.char),
-                .c_short => return target.c_type_bit_size(.short),
-                .c_ushort => return target.c_type_bit_size(.ushort),
-                .c_int => return target.c_type_bit_size(.int),
-                .c_uint => return target.c_type_bit_size(.uint),
-                .c_long => return target.c_type_bit_size(.long),
-                .c_ulong => return target.c_type_bit_size(.ulong),
-                .c_longlong => return target.c_type_bit_size(.longlong),
-                .c_ulonglong => return target.c_type_bit_size(.ulonglong),
-                .c_longdouble => return target.c_type_bit_size(.longdouble),
-
-                .bool => return 1,
-                .void => return 0,
-
-                // TODO revisit this when we have the concept of the error tag type
-                .anyerror => return 16,
-
-                .anyopaque => unreachable,
-                .type => unreachable,
-                .comptime_int => unreachable,
-                .comptime_float => unreachable,
-                .noreturn => unreachable,
-                .null => unreachable,
-                .undefined => unreachable,
-                .enum_literal => unreachable,
-                .generic_poison => unreachable,
-                .var_args_param => unreachable,
-
-                .atomic_order => unreachable, // missing call to resolveTypeFields
-                .atomic_rmw_op => unreachable, // missing call to resolveTypeFields
-                .calling_convention => unreachable, // missing call to resolveTypeFields
-                .address_space => unreachable, // missing call to resolveTypeFields
-                .float_mode => unreachable, // missing call to resolveTypeFields
-                .reduce_op => unreachable, // missing call to resolveTypeFields
-                .call_modifier => unreachable, // missing call to resolveTypeFields
-                .prefetch_options => unreachable, // missing call to resolveTypeFields
-                .export_options => unreachable, // missing call to resolveTypeFields
-                .extern_options => unreachable, // missing call to resolveTypeFields
-                .type_info => unreachable, // missing call to resolveTypeFields
-            },
-            .struct_type => @panic("TODO"),
-            .union_type => @panic("TODO"),
-            .opaque_type => unreachable,
-
-            // values, not types
-            .simple_value => unreachable,
-            .extern_func => unreachable,
-            .int => unreachable,
-            .ptr => unreachable,
-            .opt => unreachable,
-            .enum_tag => unreachable,
-        };
-
         const strat: AbiAlignmentAdvancedStrat = if (opt_sema) |sema| .{ .sema = sema } else .eager;
 
-        switch (ty.tag()) {
-            .function => unreachable, // represents machine code; not a pointer
-            .empty_struct => unreachable,
-            .inferred_alloc_const => unreachable,
-            .inferred_alloc_mut => unreachable,
+        switch (ty.ip_index) {
+            .none => switch (ty.tag()) {
+                .function => unreachable, // represents machine code; not a pointer
+                .inferred_alloc_const => unreachable,
+                .inferred_alloc_mut => unreachable,
 
-            .@"struct" => {
-                const struct_obj = ty.castTag(.@"struct").?.data;
-                if (struct_obj.layout != .Packed) {
-                    return (try ty.abiSizeAdvanced(mod, strat)).scalar * 8;
-                }
-                if (opt_sema) |sema| _ = try sema.resolveTypeLayout(ty);
-                assert(struct_obj.haveLayout());
-                return try struct_obj.backing_int_ty.bitSizeAdvanced(mod, opt_sema);
+                .tuple, .anon_struct => {
+                    if (opt_sema) |sema| _ = try sema.resolveTypeFields(ty);
+                    if (ty.containerLayout(mod) != .Packed) {
+                        return (try ty.abiSizeAdvanced(mod, strat)).scalar * 8;
+                    }
+                    var total: u64 = 0;
+                    for (ty.tupleFields().types) |field_ty| {
+                        total += try bitSizeAdvanced(field_ty, mod, opt_sema);
+                    }
+                    return total;
+                },
+
+                .enum_simple, .enum_full, .enum_nonexhaustive, .enum_numbered => {
+                    const int_tag_ty = try ty.intTagType(mod);
+                    return try bitSizeAdvanced(int_tag_ty, mod, opt_sema);
+                },
+
+                .@"union", .union_safety_tagged, .union_tagged => {
+                    if (opt_sema) |sema| _ = try sema.resolveTypeFields(ty);
+                    if (ty.containerLayout(mod) != .Packed) {
+                        return (try ty.abiSizeAdvanced(mod, strat)).scalar * 8;
+                    }
+                    const union_obj = ty.cast(Payload.Union).?.data;
+                    assert(union_obj.haveFieldTypes());
+
+                    var size: u64 = 0;
+                    for (union_obj.fields.values()) |field| {
+                        size = @max(size, try bitSizeAdvanced(field.ty, mod, opt_sema));
+                    }
+                    return size;
+                },
+
+                .array => {
+                    const payload = ty.castTag(.array).?.data;
+                    const elem_size = std.math.max(payload.elem_type.abiAlignment(mod), payload.elem_type.abiSize(mod));
+                    if (elem_size == 0 or payload.len == 0)
+                        return @as(u64, 0);
+                    const elem_bit_size = try bitSizeAdvanced(payload.elem_type, mod, opt_sema);
+                    return (payload.len - 1) * 8 * elem_size + elem_bit_size;
+                },
+                .array_sentinel => {
+                    const payload = ty.castTag(.array_sentinel).?.data;
+                    const elem_size = std.math.max(
+                        payload.elem_type.abiAlignment(mod),
+                        payload.elem_type.abiSize(mod),
+                    );
+                    const elem_bit_size = try bitSizeAdvanced(payload.elem_type, mod, opt_sema);
+                    return payload.len * 8 * elem_size + elem_bit_size;
+                },
+
+                .anyframe_T => return target.ptrBitWidth(),
+
+                .pointer => switch (ty.castTag(.pointer).?.data.size) {
+                    .Slice => return target.ptrBitWidth() * 2,
+                    else => return target.ptrBitWidth(),
+                },
+
+                .error_set,
+                .error_set_single,
+                .error_set_inferred,
+                .error_set_merged,
+                => return 16, // TODO revisit this when we have the concept of the error tag type
+
+                .optional, .error_union => {
+                    // Optionals and error unions are not packed so their bitsize
+                    // includes padding bits.
+                    return (try abiSizeAdvanced(ty, mod, strat)).scalar * 8;
+                },
             },
+            else => switch (mod.intern_pool.indexToKey(ty.ip_index)) {
+                .int_type => |int_type| return int_type.bits,
+                .ptr_type => |ptr_type| switch (ptr_type.size) {
+                    .Slice => return target.ptrBitWidth() * 2,
+                    else => return target.ptrBitWidth() * 2,
+                },
+                .array_type => |array_type| {
+                    const len = array_type.len + @boolToInt(array_type.sentinel != .none);
+                    if (len == 0) return 0;
+                    const elem_ty = array_type.child.toType();
+                    const elem_size = std.math.max(elem_ty.abiAlignment(mod), elem_ty.abiSize(mod));
+                    if (elem_size == 0) return 0;
+                    const elem_bit_size = try bitSizeAdvanced(elem_ty, mod, opt_sema);
+                    return (len - 1) * 8 * elem_size + elem_bit_size;
+                },
+                .vector_type => |vector_type| {
+                    const child_ty = vector_type.child.toType();
+                    const elem_bit_size = try bitSizeAdvanced(child_ty, mod, opt_sema);
+                    return elem_bit_size * vector_type.len;
+                },
+                .opt_type => @panic("TODO"),
+                .error_union_type => @panic("TODO"),
+                .simple_type => |t| switch (t) {
+                    .f16 => return 16,
+                    .f32 => return 32,
+                    .f64 => return 64,
+                    .f80 => return 80,
+                    .f128 => return 128,
 
-            .tuple, .anon_struct => {
-                if (opt_sema) |sema| _ = try sema.resolveTypeFields(ty);
-                if (ty.containerLayout() != .Packed) {
-                    return (try ty.abiSizeAdvanced(mod, strat)).scalar * 8;
-                }
-                var total: u64 = 0;
-                for (ty.tupleFields().types) |field_ty| {
-                    total += try bitSizeAdvanced(field_ty, mod, opt_sema);
-                }
-                return total;
-            },
+                    .usize,
+                    .isize,
+                    .@"anyframe",
+                    => return target.ptrBitWidth(),
 
-            .enum_simple, .enum_full, .enum_nonexhaustive, .enum_numbered => {
-                const int_tag_ty = try ty.intTagType(mod);
-                return try bitSizeAdvanced(int_tag_ty, mod, opt_sema);
-            },
+                    .c_char => return target.c_type_bit_size(.char),
+                    .c_short => return target.c_type_bit_size(.short),
+                    .c_ushort => return target.c_type_bit_size(.ushort),
+                    .c_int => return target.c_type_bit_size(.int),
+                    .c_uint => return target.c_type_bit_size(.uint),
+                    .c_long => return target.c_type_bit_size(.long),
+                    .c_ulong => return target.c_type_bit_size(.ulong),
+                    .c_longlong => return target.c_type_bit_size(.longlong),
+                    .c_ulonglong => return target.c_type_bit_size(.ulonglong),
+                    .c_longdouble => return target.c_type_bit_size(.longdouble),
 
-            .@"union", .union_safety_tagged, .union_tagged => {
-                if (opt_sema) |sema| _ = try sema.resolveTypeFields(ty);
-                if (ty.containerLayout() != .Packed) {
-                    return (try ty.abiSizeAdvanced(mod, strat)).scalar * 8;
-                }
-                const union_obj = ty.cast(Payload.Union).?.data;
-                assert(union_obj.haveFieldTypes());
+                    .bool => return 1,
+                    .void => return 0,
 
-                var size: u64 = 0;
-                for (union_obj.fields.values()) |field| {
-                    size = @max(size, try bitSizeAdvanced(field.ty, mod, opt_sema));
-                }
-                return size;
-            },
+                    // TODO revisit this when we have the concept of the error tag type
+                    .anyerror => return 16,
 
-            .array => {
-                const payload = ty.castTag(.array).?.data;
-                const elem_size = std.math.max(payload.elem_type.abiAlignment(mod), payload.elem_type.abiSize(mod));
-                if (elem_size == 0 or payload.len == 0)
-                    return @as(u64, 0);
-                const elem_bit_size = try bitSizeAdvanced(payload.elem_type, mod, opt_sema);
-                return (payload.len - 1) * 8 * elem_size + elem_bit_size;
-            },
-            .array_sentinel => {
-                const payload = ty.castTag(.array_sentinel).?.data;
-                const elem_size = std.math.max(
-                    payload.elem_type.abiAlignment(mod),
-                    payload.elem_type.abiSize(mod),
-                );
-                const elem_bit_size = try bitSizeAdvanced(payload.elem_type, mod, opt_sema);
-                return payload.len * 8 * elem_size + elem_bit_size;
-            },
+                    .anyopaque => unreachable,
+                    .type => unreachable,
+                    .comptime_int => unreachable,
+                    .comptime_float => unreachable,
+                    .noreturn => unreachable,
+                    .null => unreachable,
+                    .undefined => unreachable,
+                    .enum_literal => unreachable,
+                    .generic_poison => unreachable,
+                    .var_args_param => unreachable,
 
-            .anyframe_T => return target.ptrBitWidth(),
+                    .atomic_order => unreachable, // missing call to resolveTypeFields
+                    .atomic_rmw_op => unreachable, // missing call to resolveTypeFields
+                    .calling_convention => unreachable, // missing call to resolveTypeFields
+                    .address_space => unreachable, // missing call to resolveTypeFields
+                    .float_mode => unreachable, // missing call to resolveTypeFields
+                    .reduce_op => unreachable, // missing call to resolveTypeFields
+                    .call_modifier => unreachable, // missing call to resolveTypeFields
+                    .prefetch_options => unreachable, // missing call to resolveTypeFields
+                    .export_options => unreachable, // missing call to resolveTypeFields
+                    .extern_options => unreachable, // missing call to resolveTypeFields
+                    .type_info => unreachable, // missing call to resolveTypeFields
+                },
+                .struct_type => |struct_type| {
+                    const struct_obj = mod.structPtrUnwrap(struct_type.index) orelse return 0;
+                    if (struct_obj.layout != .Packed) {
+                        return (try ty.abiSizeAdvanced(mod, strat)).scalar * 8;
+                    }
+                    if (opt_sema) |sema| _ = try sema.resolveTypeLayout(ty);
+                    assert(struct_obj.haveLayout());
+                    return try struct_obj.backing_int_ty.bitSizeAdvanced(mod, opt_sema);
+                },
 
-            .pointer => switch (ty.castTag(.pointer).?.data.size) {
-                .Slice => return target.ptrBitWidth() * 2,
-                else => return target.ptrBitWidth(),
-            },
+                .union_type => @panic("TODO"),
+                .opaque_type => unreachable,
 
-            .error_set,
-            .error_set_single,
-            .error_set_inferred,
-            .error_set_merged,
-            => return 16, // TODO revisit this when we have the concept of the error tag type
-
-            .optional, .error_union => {
-                // Optionals and error unions are not packed so their bitsize
-                // includes padding bits.
-                return (try abiSizeAdvanced(ty, mod, strat)).scalar * 8;
+                // values, not types
+                .simple_value => unreachable,
+                .extern_func => unreachable,
+                .int => unreachable,
+                .ptr => unreachable,
+                .opt => unreachable,
+                .enum_tag => unreachable,
+                .aggregate => unreachable,
             },
         }
     }
 
     /// Returns true if the type's layout is already resolved and it is safe
     /// to use `abiSize`, `abiAlignment` and `bitSize` on it.
-    pub fn layoutIsResolved(ty: Type, mod: *const Module) bool {
+    pub fn layoutIsResolved(ty: Type, mod: *Module) bool {
         switch (ty.zigTypeTag(mod)) {
             .Struct => {
-                if (ty.castTag(.@"struct")) |struct_ty| {
-                    return struct_ty.data.haveLayout();
+                if (mod.typeToStruct(ty)) |struct_obj| {
+                    return struct_obj.haveLayout();
                 }
                 return true;
             },
@@ -3500,18 +3485,23 @@ pub const Type = struct {
         }
     }
 
-    pub fn containerLayout(ty: Type) std.builtin.Type.ContainerLayout {
+    pub fn containerLayout(ty: Type, mod: *Module) std.builtin.Type.ContainerLayout {
         return switch (ty.ip_index) {
             .empty_struct_type => .Auto,
             .none => switch (ty.tag()) {
                 .tuple, .anon_struct => .Auto,
-                .@"struct" => ty.castTag(.@"struct").?.data.layout,
                 .@"union" => ty.castTag(.@"union").?.data.layout,
                 .union_safety_tagged => ty.castTag(.union_safety_tagged).?.data.layout,
                 .union_tagged => ty.castTag(.union_tagged).?.data.layout,
                 else => unreachable,
             },
-            else => unreachable,
+            else => switch (mod.intern_pool.indexToKey(ty.ip_index)) {
+                .struct_type => |struct_type| {
+                    const struct_obj = mod.structPtrUnwrap(struct_type.index) orelse return .Auto;
+                    return struct_obj.layout;
+                },
+                else => unreachable,
+            },
         };
     }
 
@@ -3631,14 +3621,16 @@ pub const Type = struct {
                 .array_sentinel => ty.castTag(.array_sentinel).?.data.len,
                 .tuple => ty.castTag(.tuple).?.data.types.len,
                 .anon_struct => ty.castTag(.anon_struct).?.data.types.len,
-                .@"struct" => ty.castTag(.@"struct").?.data.fields.count(),
-                .empty_struct => 0,
 
                 else => unreachable,
             },
             else => switch (ip.indexToKey(ty.ip_index)) {
                 .vector_type => |vector_type| vector_type.len,
                 .array_type => |array_type| array_type.len,
+                .struct_type => |struct_type| {
+                    const struct_obj = ip.structPtrUnwrapConst(struct_type.index) orelse return 0;
+                    return struct_obj.fields.count();
+                },
                 else => unreachable,
             },
         };
@@ -3665,11 +3657,9 @@ pub const Type = struct {
     /// Asserts the type is an array, pointer or vector.
     pub fn sentinel(ty: Type, mod: *const Module) ?Value {
         return switch (ty.ip_index) {
-            .empty_struct_type => null,
             .none => switch (ty.tag()) {
                 .array,
                 .tuple,
-                .@"struct",
                 => null,
 
                 .pointer => ty.castTag(.pointer).?.data.sentinel,
@@ -3721,16 +3711,16 @@ pub const Type = struct {
 
     /// Returns true for integers, enums, error sets, and packed structs.
     /// If this function returns true, then intInfo() can be called on the type.
-    pub fn isAbiInt(ty: Type, mod: *const Module) bool {
+    pub fn isAbiInt(ty: Type, mod: *Module) bool {
         return switch (ty.zigTypeTag(mod)) {
             .Int, .Enum, .ErrorSet => true,
-            .Struct => ty.containerLayout() == .Packed,
+            .Struct => ty.containerLayout(mod) == .Packed,
             else => false,
         };
     }
 
     /// Asserts the type is an integer, enum, error set, or vector of one of them.
-    pub fn intInfo(starting_ty: Type, mod: *const Module) InternPool.Key.IntType {
+    pub fn intInfo(starting_ty: Type, mod: *Module) InternPool.Key.IntType {
         const target = mod.getTarget();
         var ty = starting_ty;
 
@@ -3748,12 +3738,6 @@ pub const Type = struct {
                 .error_set, .error_set_single, .error_set_inferred, .error_set_merged => {
                     // TODO revisit this when error sets support custom int types
                     return .{ .signedness = .unsigned, .bits = 16 };
-                },
-
-                .@"struct" => {
-                    const struct_obj = ty.castTag(.@"struct").?.data;
-                    assert(struct_obj.layout == .Packed);
-                    ty = struct_obj.backing_int_ty;
                 },
 
                 else => unreachable,
@@ -3775,6 +3759,12 @@ pub const Type = struct {
             .c_ulonglong_type => return .{ .signedness = .unsigned, .bits = target.c_type_bit_size(.ulonglong) },
             else => switch (mod.intern_pool.indexToKey(ty.ip_index)) {
                 .int_type => |int_type| return int_type,
+                .struct_type => |struct_type| {
+                    const struct_obj = mod.structPtrUnwrap(struct_type.index).?;
+                    assert(struct_obj.layout == .Packed);
+                    ty = struct_obj.backing_int_ty;
+                },
+
                 .ptr_type => unreachable,
                 .array_type => unreachable,
                 .vector_type => |vector_type| ty = vector_type.child.toType(),
@@ -3782,7 +3772,7 @@ pub const Type = struct {
                 .opt_type => unreachable,
                 .error_union_type => unreachable,
                 .simple_type => unreachable, // handled via Index enum tag above
-                .struct_type => @panic("TODO"),
+
                 .union_type => unreachable,
                 .opaque_type => unreachable,
 
@@ -3793,6 +3783,7 @@ pub const Type = struct {
                 .ptr => unreachable,
                 .opt => unreachable,
                 .enum_tag => unreachable,
+                .aggregate => unreachable,
             },
         };
     }
@@ -3996,17 +3987,6 @@ pub const Type = struct {
                     }
                 },
 
-                .@"struct" => {
-                    const s = ty.castTag(.@"struct").?.data;
-                    assert(s.haveFieldTypes());
-                    for (s.fields.values()) |field| {
-                        if (field.is_comptime) continue;
-                        if ((try field.ty.onePossibleValue(mod)) != null) continue;
-                        return null;
-                    }
-                    return Value.empty_struct;
-                },
-
                 .tuple, .anon_struct => {
                     const tuple = ty.tupleFields();
                     for (tuple.values, 0..) |val, i| {
@@ -4068,8 +4048,6 @@ pub const Type = struct {
                     _ = val_val;
                     return Value.empty_struct;
                 },
-
-                .empty_struct => return Value.empty_struct,
 
                 .array => {
                     if (ty.arrayLen(mod) == 0)
@@ -4158,7 +4136,23 @@ pub const Type = struct {
                     .generic_poison => unreachable,
                     .var_args_param => unreachable,
                 },
-                .struct_type => @panic("TODO"),
+                .struct_type => |struct_type| {
+                    if (mod.structPtrUnwrap(struct_type.index)) |s| {
+                        assert(s.haveFieldTypes());
+                        for (s.fields.values()) |field| {
+                            if (field.is_comptime) continue;
+                            if ((try field.ty.onePossibleValue(mod)) != null) continue;
+                            return null;
+                        }
+                    }
+                    // In this case the struct has no fields and therefore has one possible value.
+                    const empty = try mod.intern(.{ .aggregate = .{
+                        .ty = ty.ip_index,
+                        .fields = &.{},
+                    } });
+                    return empty.toValue();
+                },
+
                 .union_type => @panic("TODO"),
                 .opaque_type => return null,
 
@@ -4169,6 +4163,7 @@ pub const Type = struct {
                 .ptr => unreachable,
                 .opt => unreachable,
                 .enum_tag => unreachable,
+                .aggregate => unreachable,
             },
         };
     }
@@ -4177,12 +4172,11 @@ pub const Type = struct {
     /// resolves field types rather than asserting they are already resolved.
     /// TODO merge these implementations together with the "advanced" pattern seen
     /// elsewhere in this file.
-    pub fn comptimeOnly(ty: Type, mod: *const Module) bool {
+    pub fn comptimeOnly(ty: Type, mod: *Module) bool {
         return switch (ty.ip_index) {
             .empty_struct_type => false,
 
             .none => switch (ty.tag()) {
-                .empty_struct,
                 .error_set,
                 .error_set_single,
                 .error_set_inferred,
@@ -4220,20 +4214,6 @@ pub const Type = struct {
                         if (!have_comptime_val and field_ty.comptimeOnly(mod)) return true;
                     }
                     return false;
-                },
-
-                .@"struct" => {
-                    const struct_obj = ty.castTag(.@"struct").?.data;
-                    switch (struct_obj.requires_comptime) {
-                        .wip, .unknown => {
-                            // Return false to avoid incorrect dependency loops.
-                            // This will be handled correctly once merged with
-                            // `Sema.typeRequiresComptime`.
-                            return false;
-                        },
-                        .no => return false,
-                        .yes => return true,
-                    }
                 },
 
                 .@"union", .union_safety_tagged, .union_tagged => {
@@ -4326,7 +4306,21 @@ pub const Type = struct {
 
                     .var_args_param => unreachable,
                 },
-                .struct_type => @panic("TODO"),
+                .struct_type => |struct_type| {
+                    // A struct with no fields is not comptime-only.
+                    const struct_obj = mod.structPtrUnwrap(struct_type.index) orelse return false;
+                    switch (struct_obj.requires_comptime) {
+                        .wip, .unknown => {
+                            // Return false to avoid incorrect dependency loops.
+                            // This will be handled correctly once merged with
+                            // `Sema.typeRequiresComptime`.
+                            return false;
+                        },
+                        .no => return false,
+                        .yes => return true,
+                    }
+                },
+
                 .union_type => @panic("TODO"),
                 .opaque_type => false,
 
@@ -4337,6 +4331,7 @@ pub const Type = struct {
                 .ptr => unreachable,
                 .opt => unreachable,
                 .enum_tag => unreachable,
+                .aggregate => unreachable,
             },
         };
     }
@@ -4352,19 +4347,19 @@ pub const Type = struct {
         };
     }
 
-    pub fn isIndexable(ty: Type, mod: *const Module) bool {
+    pub fn isIndexable(ty: Type, mod: *Module) bool {
         return switch (ty.zigTypeTag(mod)) {
             .Array, .Vector => true,
             .Pointer => switch (ty.ptrSize(mod)) {
                 .Slice, .Many, .C => true,
                 .One => ty.childType(mod).zigTypeTag(mod) == .Array,
             },
-            .Struct => ty.isTuple(),
+            .Struct => ty.isTuple(mod),
             else => false,
         };
     }
 
-    pub fn indexableHasLen(ty: Type, mod: *const Module) bool {
+    pub fn indexableHasLen(ty: Type, mod: *Module) bool {
         return switch (ty.zigTypeTag(mod)) {
             .Array, .Vector => true,
             .Pointer => switch (ty.ptrSize(mod)) {
@@ -4372,7 +4367,7 @@ pub const Type = struct {
                 .Slice => true,
                 .One => ty.childType(mod).zigTypeTag(mod) == .Array,
             },
-            .Struct => ty.isTuple(),
+            .Struct => ty.isTuple(mod),
             else => false,
         };
     }
@@ -4381,10 +4376,8 @@ pub const Type = struct {
     pub fn getNamespaceIndex(ty: Type, mod: *Module) Module.Namespace.OptionalIndex {
         return switch (ty.ip_index) {
             .none => switch (ty.tag()) {
-                .@"struct" => ty.castTag(.@"struct").?.data.namespace.toOptional(),
                 .enum_full => ty.castTag(.enum_full).?.data.namespace.toOptional(),
                 .enum_nonexhaustive => ty.castTag(.enum_nonexhaustive).?.data.namespace.toOptional(),
-                .empty_struct => @panic("TODO"),
                 .@"union" => ty.castTag(.@"union").?.data.namespace.toOptional(),
                 .union_safety_tagged => ty.castTag(.union_safety_tagged).?.data.namespace.toOptional(),
                 .union_tagged => ty.castTag(.union_tagged).?.data.namespace.toOptional(),
@@ -4393,6 +4386,7 @@ pub const Type = struct {
             },
             else => switch (mod.intern_pool.indexToKey(ty.ip_index)) {
                 .opaque_type => |opaque_type| opaque_type.namespace.toOptional(),
+                .struct_type => |struct_type| struct_type.namespace,
                 else => .none,
             },
         };
@@ -4618,161 +4612,188 @@ pub const Type = struct {
         }
     }
 
-    pub fn structFields(ty: Type) Module.Struct.Fields {
-        return switch (ty.ip_index) {
-            .empty_struct_type => .{},
-            .none => switch (ty.tag()) {
-                .empty_struct => .{},
-                .@"struct" => {
-                    const struct_obj = ty.castTag(.@"struct").?.data;
-                    assert(struct_obj.haveFieldTypes());
-                    return struct_obj.fields;
-                },
-                else => unreachable,
-            },
-            else => unreachable,
-        };
-    }
-
-    pub fn structFieldName(ty: Type, field_index: usize) []const u8 {
-        switch (ty.tag()) {
-            .@"struct" => {
-                const struct_obj = ty.castTag(.@"struct").?.data;
+    pub fn structFields(ty: Type, mod: *Module) Module.Struct.Fields {
+        switch (mod.intern_pool.indexToKey(ty.ip_index)) {
+            .struct_type => |struct_type| {
+                const struct_obj = mod.structPtrUnwrap(struct_type.index) orelse return .{};
                 assert(struct_obj.haveFieldTypes());
-                return struct_obj.fields.keys()[field_index];
+                return struct_obj.fields;
             },
-            .anon_struct => return ty.castTag(.anon_struct).?.data.names[field_index],
             else => unreachable,
         }
     }
 
-    pub fn structFieldCount(ty: Type) usize {
+    pub fn structFieldName(ty: Type, field_index: usize, mod: *Module) []const u8 {
+        switch (ty.ip_index) {
+            .none => switch (ty.tag()) {
+                .anon_struct => return ty.castTag(.anon_struct).?.data.names[field_index],
+                else => unreachable,
+            },
+            else => switch (mod.intern_pool.indexToKey(ty.ip_index)) {
+                .struct_type => |struct_type| {
+                    const struct_obj = mod.structPtrUnwrap(struct_type.index).?;
+                    assert(struct_obj.haveFieldTypes());
+                    return struct_obj.fields.keys()[field_index];
+                },
+                else => unreachable,
+            },
+        }
+    }
+
+    pub fn structFieldCount(ty: Type, mod: *Module) usize {
         return switch (ty.ip_index) {
             .empty_struct_type => 0,
             .none => switch (ty.tag()) {
-                .@"struct" => {
-                    const struct_obj = ty.castTag(.@"struct").?.data;
-                    assert(struct_obj.haveFieldTypes());
-                    return struct_obj.fields.count();
-                },
-                .empty_struct => 0,
                 .tuple => ty.castTag(.tuple).?.data.types.len,
                 .anon_struct => ty.castTag(.anon_struct).?.data.types.len,
                 else => unreachable,
             },
-            else => unreachable,
+            else => switch (mod.intern_pool.indexToKey(ty.ip_index)) {
+                .struct_type => |struct_type| {
+                    const struct_obj = mod.structPtrUnwrap(struct_type.index) orelse return 0;
+                    assert(struct_obj.haveFieldTypes());
+                    return struct_obj.fields.count();
+                },
+                else => unreachable,
+            },
         };
     }
 
     /// Supports structs and unions.
-    pub fn structFieldType(ty: Type, index: usize) Type {
-        switch (ty.tag()) {
-            .@"struct" => {
-                const struct_obj = ty.castTag(.@"struct").?.data;
-                return struct_obj.fields.values()[index].ty;
+    pub fn structFieldType(ty: Type, index: usize, mod: *Module) Type {
+        return switch (ty.ip_index) {
+            .none => switch (ty.tag()) {
+                .@"union", .union_safety_tagged, .union_tagged => {
+                    const union_obj = ty.cast(Payload.Union).?.data;
+                    return union_obj.fields.values()[index].ty;
+                },
+                .tuple => return ty.castTag(.tuple).?.data.types[index],
+                .anon_struct => return ty.castTag(.anon_struct).?.data.types[index],
+                else => unreachable,
             },
-            .@"union", .union_safety_tagged, .union_tagged => {
-                const union_obj = ty.cast(Payload.Union).?.data;
-                return union_obj.fields.values()[index].ty;
+            else => switch (mod.intern_pool.indexToKey(ty.ip_index)) {
+                .struct_type => |struct_type| {
+                    const struct_obj = mod.structPtrUnwrap(struct_type.index).?;
+                    return struct_obj.fields.values()[index].ty;
+                },
+                else => unreachable,
             },
-            .tuple => return ty.castTag(.tuple).?.data.types[index],
-            .anon_struct => return ty.castTag(.anon_struct).?.data.types[index],
-            else => unreachable,
-        }
+        };
     }
 
     pub fn structFieldAlign(ty: Type, index: usize, mod: *Module) u32 {
-        switch (ty.tag()) {
-            .@"struct" => {
-                const struct_obj = ty.castTag(.@"struct").?.data;
-                assert(struct_obj.layout != .Packed);
-                return struct_obj.fields.values()[index].alignment(mod, struct_obj.layout);
+        switch (ty.ip_index) {
+            .none => switch (ty.tag()) {
+                .@"union", .union_safety_tagged, .union_tagged => {
+                    const union_obj = ty.cast(Payload.Union).?.data;
+                    return union_obj.fields.values()[index].normalAlignment(mod);
+                },
+                .tuple => return ty.castTag(.tuple).?.data.types[index].abiAlignment(mod),
+                .anon_struct => return ty.castTag(.anon_struct).?.data.types[index].abiAlignment(mod),
+                else => unreachable,
             },
-            .@"union", .union_safety_tagged, .union_tagged => {
-                const union_obj = ty.cast(Payload.Union).?.data;
-                return union_obj.fields.values()[index].normalAlignment(mod);
+            else => switch (mod.intern_pool.indexToKey(ty.ip_index)) {
+                .struct_type => |struct_type| {
+                    const struct_obj = mod.structPtrUnwrap(struct_type.index).?;
+                    assert(struct_obj.layout != .Packed);
+                    return struct_obj.fields.values()[index].alignment(mod, struct_obj.layout);
+                },
+                else => unreachable,
             },
-            .tuple => return ty.castTag(.tuple).?.data.types[index].abiAlignment(mod),
-            .anon_struct => return ty.castTag(.anon_struct).?.data.types[index].abiAlignment(mod),
-            else => unreachable,
         }
     }
 
-    pub fn structFieldDefaultValue(ty: Type, index: usize) Value {
-        switch (ty.tag()) {
-            .@"struct" => {
-                const struct_obj = ty.castTag(.@"struct").?.data;
-                return struct_obj.fields.values()[index].default_val;
+    pub fn structFieldDefaultValue(ty: Type, index: usize, mod: *Module) Value {
+        switch (ty.ip_index) {
+            .none => switch (ty.tag()) {
+                .tuple => {
+                    const tuple = ty.castTag(.tuple).?.data;
+                    return tuple.values[index];
+                },
+                .anon_struct => {
+                    const struct_obj = ty.castTag(.anon_struct).?.data;
+                    return struct_obj.values[index];
+                },
+                else => unreachable,
             },
-            .tuple => {
-                const tuple = ty.castTag(.tuple).?.data;
-                return tuple.values[index];
+            else => switch (mod.intern_pool.indexToKey(ty.ip_index)) {
+                .struct_type => |struct_type| {
+                    const struct_obj = mod.structPtrUnwrap(struct_type.index).?;
+                    return struct_obj.fields.values()[index].default_val;
+                },
+                else => unreachable,
             },
-            .anon_struct => {
-                const struct_obj = ty.castTag(.anon_struct).?.data;
-                return struct_obj.values[index];
-            },
-            else => unreachable,
         }
     }
 
     pub fn structFieldValueComptime(ty: Type, mod: *Module, index: usize) !?Value {
-        switch (ty.tag()) {
-            .@"struct" => {
-                const struct_obj = ty.castTag(.@"struct").?.data;
-                const field = struct_obj.fields.values()[index];
-                if (field.is_comptime) {
-                    return field.default_val;
-                } else {
-                    return field.ty.onePossibleValue(mod);
-                }
+        switch (ty.ip_index) {
+            .none => switch (ty.tag()) {
+                .tuple => {
+                    const tuple = ty.castTag(.tuple).?.data;
+                    const val = tuple.values[index];
+                    if (val.ip_index == .unreachable_value) {
+                        return tuple.types[index].onePossibleValue(mod);
+                    } else {
+                        return val;
+                    }
+                },
+                .anon_struct => {
+                    const anon_struct = ty.castTag(.anon_struct).?.data;
+                    const val = anon_struct.values[index];
+                    if (val.ip_index == .unreachable_value) {
+                        return anon_struct.types[index].onePossibleValue(mod);
+                    } else {
+                        return val;
+                    }
+                },
+                else => unreachable,
             },
-            .tuple => {
-                const tuple = ty.castTag(.tuple).?.data;
-                const val = tuple.values[index];
-                if (val.ip_index == .unreachable_value) {
-                    return tuple.types[index].onePossibleValue(mod);
-                } else {
-                    return val;
-                }
+            else => switch (mod.intern_pool.indexToKey(ty.ip_index)) {
+                .struct_type => |struct_type| {
+                    const struct_obj = mod.structPtrUnwrap(struct_type.index).?;
+                    const field = struct_obj.fields.values()[index];
+                    if (field.is_comptime) {
+                        return field.default_val;
+                    } else {
+                        return field.ty.onePossibleValue(mod);
+                    }
+                },
+                else => unreachable,
             },
-            .anon_struct => {
-                const anon_struct = ty.castTag(.anon_struct).?.data;
-                const val = anon_struct.values[index];
-                if (val.ip_index == .unreachable_value) {
-                    return anon_struct.types[index].onePossibleValue(mod);
-                } else {
-                    return val;
-                }
-            },
-            else => unreachable,
         }
     }
 
-    pub fn structFieldIsComptime(ty: Type, index: usize) bool {
-        switch (ty.tag()) {
-            .@"struct" => {
-                const struct_obj = ty.castTag(.@"struct").?.data;
-                if (struct_obj.layout == .Packed) return false;
-                const field = struct_obj.fields.values()[index];
-                return field.is_comptime;
+    pub fn structFieldIsComptime(ty: Type, index: usize, mod: *Module) bool {
+        switch (ty.ip_index) {
+            .none => switch (ty.tag()) {
+                .tuple => {
+                    const tuple = ty.castTag(.tuple).?.data;
+                    const val = tuple.values[index];
+                    return val.ip_index != .unreachable_value;
+                },
+                .anon_struct => {
+                    const anon_struct = ty.castTag(.anon_struct).?.data;
+                    const val = anon_struct.values[index];
+                    return val.ip_index != .unreachable_value;
+                },
+                else => unreachable,
             },
-            .tuple => {
-                const tuple = ty.castTag(.tuple).?.data;
-                const val = tuple.values[index];
-                return val.ip_index != .unreachable_value;
+            else => switch (mod.intern_pool.indexToKey(ty.ip_index)) {
+                .struct_type => |struct_type| {
+                    const struct_obj = mod.structPtrUnwrap(struct_type.index).?;
+                    if (struct_obj.layout == .Packed) return false;
+                    const field = struct_obj.fields.values()[index];
+                    return field.is_comptime;
+                },
+                else => unreachable,
             },
-            .anon_struct => {
-                const anon_struct = ty.castTag(.anon_struct).?.data;
-                const val = anon_struct.values[index];
-                return val.ip_index != .unreachable_value;
-            },
-            else => unreachable,
         }
     }
 
     pub fn packedStructFieldByteOffset(ty: Type, field_index: usize, mod: *Module) u32 {
-        const struct_obj = ty.castTag(.@"struct").?.data;
+        const struct_type = mod.intern_pool.indexToKey(ty.ip_index).struct_type;
+        const struct_obj = mod.structPtrUnwrap(struct_type.index).?;
         assert(struct_obj.layout == .Packed);
         comptime assert(Type.packed_struct_layout_version == 2);
 
@@ -4833,7 +4854,8 @@ pub const Type = struct {
     /// Get an iterator that iterates over all the struct field, returning the field and
     /// offset of that field. Asserts that the type is a non-packed struct.
     pub fn iterateStructOffsets(ty: Type, mod: *Module) StructOffsetIterator {
-        const struct_obj = ty.castTag(.@"struct").?.data;
+        const struct_type = mod.intern_pool.indexToKey(ty.ip_index).struct_type;
+        const struct_obj = mod.structPtrUnwrap(struct_type.index).?;
         assert(struct_obj.haveLayout());
         assert(struct_obj.layout != .Packed);
         return .{ .struct_obj = struct_obj, .module = mod };
@@ -4841,57 +4863,62 @@ pub const Type = struct {
 
     /// Supports structs and unions.
     pub fn structFieldOffset(ty: Type, index: usize, mod: *Module) u64 {
-        switch (ty.tag()) {
-            .@"struct" => {
-                const struct_obj = ty.castTag(.@"struct").?.data;
-                assert(struct_obj.haveLayout());
-                assert(struct_obj.layout != .Packed);
-                var it = ty.iterateStructOffsets(mod);
-                while (it.next()) |field_offset| {
-                    if (index == field_offset.field)
-                        return field_offset.offset;
-                }
+        switch (ty.ip_index) {
+            .none => switch (ty.tag()) {
+                .tuple, .anon_struct => {
+                    const tuple = ty.tupleFields();
 
-                return std.mem.alignForwardGeneric(u64, it.offset, @max(it.big_align, 1));
-            },
+                    var offset: u64 = 0;
+                    var big_align: u32 = 0;
 
-            .tuple, .anon_struct => {
-                const tuple = ty.tupleFields();
+                    for (tuple.types, 0..) |field_ty, i| {
+                        const field_val = tuple.values[i];
+                        if (field_val.ip_index != .unreachable_value or !field_ty.hasRuntimeBits(mod)) {
+                            // comptime field
+                            if (i == index) return offset;
+                            continue;
+                        }
 
-                var offset: u64 = 0;
-                var big_align: u32 = 0;
-
-                for (tuple.types, 0..) |field_ty, i| {
-                    const field_val = tuple.values[i];
-                    if (field_val.ip_index != .unreachable_value or !field_ty.hasRuntimeBits(mod)) {
-                        // comptime field
+                        const field_align = field_ty.abiAlignment(mod);
+                        big_align = @max(big_align, field_align);
+                        offset = std.mem.alignForwardGeneric(u64, offset, field_align);
                         if (i == index) return offset;
-                        continue;
+                        offset += field_ty.abiSize(mod);
+                    }
+                    offset = std.mem.alignForwardGeneric(u64, offset, @max(big_align, 1));
+                    return offset;
+                },
+
+                .@"union" => return 0,
+                .union_safety_tagged, .union_tagged => {
+                    const union_obj = ty.cast(Payload.Union).?.data;
+                    const layout = union_obj.getLayout(mod, true);
+                    if (layout.tag_align >= layout.payload_align) {
+                        // {Tag, Payload}
+                        return std.mem.alignForwardGeneric(u64, layout.tag_size, layout.payload_align);
+                    } else {
+                        // {Payload, Tag}
+                        return 0;
+                    }
+                },
+                else => unreachable,
+            },
+            else => switch (mod.intern_pool.indexToKey(ty.ip_index)) {
+                .struct_type => |struct_type| {
+                    const struct_obj = mod.structPtrUnwrap(struct_type.index).?;
+                    assert(struct_obj.haveLayout());
+                    assert(struct_obj.layout != .Packed);
+                    var it = ty.iterateStructOffsets(mod);
+                    while (it.next()) |field_offset| {
+                        if (index == field_offset.field)
+                            return field_offset.offset;
                     }
 
-                    const field_align = field_ty.abiAlignment(mod);
-                    big_align = @max(big_align, field_align);
-                    offset = std.mem.alignForwardGeneric(u64, offset, field_align);
-                    if (i == index) return offset;
-                    offset += field_ty.abiSize(mod);
-                }
-                offset = std.mem.alignForwardGeneric(u64, offset, @max(big_align, 1));
-                return offset;
-            },
+                    return std.mem.alignForwardGeneric(u64, it.offset, @max(it.big_align, 1));
+                },
 
-            .@"union" => return 0,
-            .union_safety_tagged, .union_tagged => {
-                const union_obj = ty.cast(Payload.Union).?.data;
-                const layout = union_obj.getLayout(mod, true);
-                if (layout.tag_align >= layout.payload_align) {
-                    // {Tag, Payload}
-                    return std.mem.alignForwardGeneric(u64, layout.tag_size, layout.payload_align);
-                } else {
-                    // {Payload, Tag}
-                    return 0;
-                }
+                else => unreachable,
             },
-            else => unreachable,
         }
     }
 
@@ -4901,6 +4928,7 @@ pub const Type = struct {
 
     pub fn declSrcLocOrNull(ty: Type, mod: *Module) ?Module.SrcLoc {
         switch (ty.ip_index) {
+            .empty_struct_type => return null,
             .none => switch (ty.tag()) {
                 .enum_full, .enum_nonexhaustive => {
                     const enum_full = ty.cast(Payload.EnumFull).?.data;
@@ -4914,10 +4942,6 @@ pub const Type = struct {
                     const enum_simple = ty.castTag(.enum_simple).?.data;
                     return enum_simple.srcLoc(mod);
                 },
-                .@"struct" => {
-                    const struct_obj = ty.castTag(.@"struct").?.data;
-                    return struct_obj.srcLoc(mod);
-                },
                 .error_set => {
                     const error_set = ty.castTag(.error_set).?.data;
                     return error_set.srcLoc(mod);
@@ -4930,7 +4954,10 @@ pub const Type = struct {
                 else => return null,
             },
             else => return switch (mod.intern_pool.indexToKey(ty.ip_index)) {
-                .struct_type => @panic("TODO"),
+                .struct_type => |struct_type| {
+                    const struct_obj = mod.structPtrUnwrap(struct_type.index).?;
+                    return struct_obj.srcLoc(mod);
+                },
                 .union_type => @panic("TODO"),
                 .opaque_type => |opaque_type| mod.opaqueSrcLoc(opaque_type),
                 else => null,
@@ -4954,10 +4981,6 @@ pub const Type = struct {
                     const enum_simple = ty.castTag(.enum_simple).?.data;
                     return enum_simple.owner_decl;
                 },
-                .@"struct" => {
-                    const struct_obj = ty.castTag(.@"struct").?.data;
-                    return struct_obj.owner_decl;
-                },
                 .error_set => {
                     const error_set = ty.castTag(.error_set).?.data;
                     return error_set.owner_decl;
@@ -4970,7 +4993,10 @@ pub const Type = struct {
                 else => return null,
             },
             else => return switch (mod.intern_pool.indexToKey(ty.ip_index)) {
-                .struct_type => @panic("TODO"),
+                .struct_type => |struct_type| {
+                    const struct_obj = mod.structPtrUnwrap(struct_type.index) orelse return null;
+                    return struct_obj.owner_decl;
+                },
                 .union_type => @panic("TODO"),
                 .opaque_type => |opaque_type| opaque_type.decl,
                 else => null,
@@ -5013,8 +5039,6 @@ pub const Type = struct {
         /// The type is the inferred error set of a specific function.
         error_set_inferred,
         error_set_merged,
-        empty_struct,
-        @"struct",
         @"union",
         union_safety_tagged,
         union_tagged,
@@ -5046,12 +5070,10 @@ pub const Type = struct {
                 .function => Payload.Function,
                 .error_union => Payload.ErrorUnion,
                 .error_set_single => Payload.Name,
-                .@"struct" => Payload.Struct,
                 .@"union", .union_safety_tagged, .union_tagged => Payload.Union,
                 .enum_full, .enum_nonexhaustive => Payload.EnumFull,
                 .enum_simple => Payload.EnumSimple,
                 .enum_numbered => Payload.EnumNumbered,
-                .empty_struct => Payload.ContainerScope,
                 .tuple => Payload.Tuple,
                 .anon_struct => Payload.AnonStruct,
             };
@@ -5082,15 +5104,19 @@ pub const Type = struct {
         }
     };
 
-    pub fn isTuple(ty: Type) bool {
+    pub fn isTuple(ty: Type, mod: *Module) bool {
         return switch (ty.ip_index) {
-            .empty_struct_type => true,
             .none => switch (ty.tag()) {
                 .tuple => true,
-                .@"struct" => ty.castTag(.@"struct").?.data.is_tuple,
                 else => false,
             },
-            else => false, // TODO struct
+            else => return switch (mod.intern_pool.indexToKey(ty.ip_index)) {
+                .struct_type => |struct_type| {
+                    const struct_obj = mod.structPtrUnwrap(struct_type.index) orelse return false;
+                    return struct_obj.is_tuple;
+                },
+                else => false,
+            },
         };
     }
 
@@ -5101,36 +5127,41 @@ pub const Type = struct {
                 .anon_struct => true,
                 else => false,
             },
-            else => false, // TODO struct
+            else => false,
         };
     }
 
-    pub fn isTupleOrAnonStruct(ty: Type) bool {
+    pub fn isTupleOrAnonStruct(ty: Type, mod: *Module) bool {
         return switch (ty.ip_index) {
             .empty_struct_type => true,
             .none => switch (ty.tag()) {
                 .tuple, .anon_struct => true,
-                .@"struct" => ty.castTag(.@"struct").?.data.is_tuple,
                 else => false,
             },
-            else => false, // TODO struct
+            else => return switch (mod.intern_pool.indexToKey(ty.ip_index)) {
+                .struct_type => |struct_type| {
+                    const struct_obj = mod.structPtrUnwrap(struct_type.index) orelse return false;
+                    return struct_obj.is_tuple;
+                },
+                else => false,
+            },
         };
     }
 
     pub fn isSimpleTuple(ty: Type) bool {
         return switch (ty.ip_index) {
-            .empty_struct => true,
+            .empty_struct_type => true,
             .none => switch (ty.tag()) {
                 .tuple => true,
                 else => false,
             },
-            else => false, // TODO
+            else => false,
         };
     }
 
     pub fn isSimpleTupleOrAnonStruct(ty: Type) bool {
         return switch (ty.ip_index) {
-            .empty_struct => true,
+            .empty_struct_type => true,
             .none => switch (ty.tag()) {
                 .tuple, .anon_struct => true,
                 else => false,
@@ -5142,7 +5173,7 @@ pub const Type = struct {
     // Only allowed for simple tuple types
     pub fn tupleFields(ty: Type) Payload.Tuple.Data {
         return switch (ty.ip_index) {
-            .empty_struct => .{ .types = &.{}, .values = &.{} },
+            .empty_struct_type => .{ .types = &.{}, .values = &.{} },
             .none => switch (ty.tag()) {
                 .tuple => ty.castTag(.tuple).?.data,
                 .anon_struct => .{
@@ -5317,18 +5348,6 @@ pub const Type = struct {
             base: Payload,
             /// memory is owned by `Module`
             data: []const u8,
-        };
-
-        /// Mostly used for namespace like structs with zero fields.
-        /// Most commonly used for files.
-        pub const ContainerScope = struct {
-            base: Payload,
-            data: *Module.Namespace,
-        };
-
-        pub const Struct = struct {
-            base: Payload = .{ .tag = .@"struct" },
-            data: *Module.Struct,
         };
 
         pub const Tuple = struct {
