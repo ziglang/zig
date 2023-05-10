@@ -1013,10 +1013,16 @@ pub fn indexOfAnyPos(comptime T: type, slice: []const T, start_index: usize, val
     return null;
 }
 
+/// Find the first item in `slice` which is not contained in `values`.
+///
+/// Comparable to `strspn` in the C standard library.
 pub fn indexOfNone(comptime T: type, slice: []const T, values: []const T) ?usize {
     return indexOfNonePos(T, slice, 0, values);
 }
 
+/// Find the last item in `slice` which is not contained in `values`.
+///
+/// Like `strspn` in the C standard library, but searches from the end.
 pub fn lastIndexOfNone(comptime T: type, slice: []const T, values: []const T) ?usize {
     var i: usize = slice.len;
     outer: while (i != 0) {
@@ -1029,6 +1035,10 @@ pub fn lastIndexOfNone(comptime T: type, slice: []const T, values: []const T) ?u
     return null;
 }
 
+/// Find the first item in `slice[start_index..]` which is not contained in `values`.
+/// The returned index will be relative to the start of `slice`, and never less than `start_index`.
+///
+/// Comparable to `strspn` in the C standard library.
 pub fn indexOfNonePos(comptime T: type, slice: []const T, start_index: usize, values: []const T) ?usize {
     var i: usize = start_index;
     outer: while (i < slice.len) : (i += 1) {
