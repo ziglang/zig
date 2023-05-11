@@ -3974,7 +3974,6 @@ pub const host_load_info = extern struct {
     mach_factor: [3]integer_t,
 };
 
-
 pub const host_load_info_data_t = host_load_info;
 pub const host_load_info_t = *host_load_info;
 
