@@ -63,7 +63,7 @@ fn encodesTo(decoded: []const u8, encoded: []const u8) bool {
                 var buf: [4]u8 = undefined;
                 const len = std.unicode.utf8Encode(codepoint, &buf) catch unreachable;
                 if (i + len > decoded.len) return false;
-                if (!mem.eql(u8, decoded[i .. i + len], buf[0..len])) return false;
+                if (!mem.eql(u8, decoded[i..][0..len], buf[0..len])) return false;
                 i += len;
             }
         }
@@ -2285,10 +2285,10 @@ pub fn encodeJsonStringChars(chars: []const u8, options: StringifyOptions, write
                 const ulen = std.unicode.utf8ByteSequenceLength(chars[i]) catch unreachable;
                 // control characters (only things left with 1 byte length) should always be printed as unicode escapes
                 if (ulen == 1 or options.string.String.escape_unicode) {
-                    const codepoint = std.unicode.utf8Decode(chars[i .. i + ulen]) catch unreachable;
+                    const codepoint = std.unicode.utf8Decode(chars[i..][0..ulen]) catch unreachable;
                     try outputUnicodeEscape(codepoint, writer);
                 } else {
-                    try writer.writeAll(chars[i .. i + ulen]);
+                    try writer.writeAll(chars[i..][0..ulen]);
                 }
                 i += ulen - 1;
             },

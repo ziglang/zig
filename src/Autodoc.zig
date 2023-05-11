@@ -608,6 +608,7 @@ const DocData = struct {
             is_tuple: bool,
             line_number: usize,
             parent_container: ?usize, // index into `types`
+            layout: ?Expr, // if different than Auto
         },
         ComptimeExpr: struct { name: []const u8 },
         ComptimeFloat: struct { name: []const u8 },
@@ -645,6 +646,7 @@ const DocData = struct {
             tag: ?Expr, // tag type if specified
             auto_enum: bool, // tag is an auto enum
             parent_container: ?usize, // index into `types`
+            layout: ?Expr, // if different than Auto
         },
         Fn: struct {
             name: []const u8,
@@ -756,6 +758,7 @@ const DocData = struct {
         string: []const u8, // direct value
         sliceIndex: usize,
         slice: Slice,
+        sliceLength: SliceLength,
         cmpxchgIndex: usize,
         cmpxchg: Cmpxchg,
         builtin: Builtin,
@@ -791,6 +794,12 @@ const DocData = struct {
             start: usize,
             end: ?usize = null,
             sentinel: ?usize = null, // index in `exprs`
+        };
+        const SliceLength = struct {
+            lhs: usize,
+            start: usize,
+            len: usize,
+            sentinel: ?usize = null,
         };
         const Cmpxchg = struct {
             name: []const u8,
@@ -1288,6 +1297,68 @@ fn walkInstruction(
             const sentinel_index = self.exprs.items.len;
             try self.exprs.append(self.arena, sentinel.expr);
             self.exprs.items[slice_index] = .{ .slice = .{ .lhs = lhs_index, .start = start_index, .end = end_index, .sentinel = sentinel_index } };
+
+            return DocData.WalkResult{
+                .typeRef = self.decls.items[lhs.expr.declRef.Analyzed].value.typeRef,
+                .expr = .{ .sliceIndex = slice_index },
+            };
+        },
+        .slice_length => {
+            const pl_node = data[inst_index].pl_node;
+            const extra = file.zir.extraData(Zir.Inst.SliceLength, pl_node.payload_index);
+
+            const slice_index = self.exprs.items.len;
+            try self.exprs.append(self.arena, .{ .slice = .{ .lhs = 0, .start = 0 } });
+
+            var lhs: DocData.WalkResult = try self.walkRef(
+                file,
+                parent_scope,
+                parent_src,
+                extra.data.lhs,
+                false,
+            );
+            var start: DocData.WalkResult = try self.walkRef(
+                file,
+                parent_scope,
+                parent_src,
+                extra.data.start,
+                false,
+            );
+            var len: DocData.WalkResult = try self.walkRef(
+                file,
+                parent_scope,
+                parent_src,
+                extra.data.len,
+                false,
+            );
+            var sentinel_opt: ?DocData.WalkResult = if (extra.data.sentinel != .none)
+                try self.walkRef(
+                    file,
+                    parent_scope,
+                    parent_src,
+                    extra.data.sentinel,
+                    false,
+                )
+            else
+                null;
+
+            const lhs_index = self.exprs.items.len;
+            try self.exprs.append(self.arena, lhs.expr);
+            const start_index = self.exprs.items.len;
+            try self.exprs.append(self.arena, start.expr);
+            const len_index = self.exprs.items.len;
+            try self.exprs.append(self.arena, len.expr);
+            const sentinel_index = if (sentinel_opt) |sentinel| sentinel_index: {
+                const index = self.exprs.items.len;
+                try self.exprs.append(self.arena, sentinel.expr);
+                break :sentinel_index index;
+            } else null;
+            self.exprs.items[slice_index] = .{ .sliceLength = .{
+                .lhs = lhs_index,
+                .start = start_index,
+                .len = len_index,
+                .sentinel = sentinel_index,
+            } };
 
             return DocData.WalkResult{
                 .typeRef = self.decls.items[lhs.expr.declRef.Analyzed].value.typeRef,
@@ -2625,6 +2696,11 @@ fn walkInstruction(
                         break :blk fields_len;
                     } else 0;
 
+                    const layout_expr: ?DocData.Expr = switch (small.layout) {
+                        .Auto => null,
+                        else => .{ .enumLiteral = @tagName(small.layout) },
+                    };
+
                     var decl_indexes: std.ArrayListUnmanaged(usize) = .{};
                     var priv_decl_indexes: std.ArrayListUnmanaged(usize) = .{};
 
@@ -2679,6 +2755,7 @@ fn walkInstruction(
                             .tag = tag_type,
                             .auto_enum = small.auto_enum_tag,
                             .parent_container = parent_scope.enclosing_type,
+                            .layout = layout_expr,
                         },
                     };
 
@@ -2889,6 +2966,11 @@ fn walkInstruction(
                         }
                     }
 
+                    const layout_expr: ?DocData.Expr = switch (small.layout) {
+                        .Auto => null,
+                        else => .{ .enumLiteral = @tagName(small.layout) },
+                    };
+
                     var decl_indexes: std.ArrayListUnmanaged(usize) = .{};
                     var priv_decl_indexes: std.ArrayListUnmanaged(usize) = .{};
 
@@ -2930,6 +3012,7 @@ fn walkInstruction(
                             .backing_int = backing_int,
                             .line_number = self.ast_nodes.items[self_ast_node_index].line,
                             .parent_container = parent_scope.enclosing_type,
+                            .layout = layout_expr,
                         },
                     };
                     if (self.ref_paths_pending_on_types.get(type_slot_index)) |paths| {

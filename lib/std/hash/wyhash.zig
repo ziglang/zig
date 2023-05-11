@@ -65,7 +65,7 @@ const WyhashStateless = struct {
 
         var off: usize = 0;
         while (off < b.len) : (off += 32) {
-            @call(.always_inline, self.round, .{b[off .. off + 32]});
+            @call(.always_inline, self.round, .{b[off..][0..32]});
         }
 
         self.msg_len += b.len;

@@ -185,7 +185,7 @@ pub fn utf8CountCodepoints(s: []const u8) !usize {
 
             switch (n) {
                 1 => {}, // ASCII, no validation needed
-                else => _ = try utf8Decode(s[i .. i + n]),
+                else => _ = try utf8Decode(s[i..][0..n]),
             }
 
             i += n;

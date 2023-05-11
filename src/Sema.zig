@@ -985,6 +985,7 @@ fn analyzeBodyInner(
             .slice_end                    => try sema.zirSliceEnd(block, inst),
             .slice_sentinel               => try sema.zirSliceSentinel(block, inst),
             .slice_start                  => try sema.zirSliceStart(block, inst),
+            .slice_length                 => try sema.zirSliceLength(block, inst),
             .str                          => try sema.zirStr(block, inst),
             .switch_block                 => try sema.zirSwitchBlock(block, inst),
             .switch_cond                  => try sema.zirSwitchCond(block, inst, false),
@@ -9931,7 +9932,7 @@ fn zirSliceStart(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!
     const start_src: LazySrcLoc = .{ .node_offset_slice_start = inst_data.src_node };
     const end_src: LazySrcLoc = .{ .node_offset_slice_end = inst_data.src_node };
 
-    return sema.analyzeSlice(block, src, array_ptr, start, .none, .none, .unneeded, ptr_src, start_src, end_src);
+    return sema.analyzeSlice(block, src, array_ptr, start, .none, .none, .unneeded, ptr_src, start_src, end_src, false);
 }
 
 fn zirSliceEnd(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
@@ -9948,7 +9949,7 @@ fn zirSliceEnd(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
     const start_src: LazySrcLoc = .{ .node_offset_slice_start = inst_data.src_node };
     const end_src: LazySrcLoc = .{ .node_offset_slice_end = inst_data.src_node };
 
-    return sema.analyzeSlice(block, src, array_ptr, start, end, .none, .unneeded, ptr_src, start_src, end_src);
+    return sema.analyzeSlice(block, src, array_ptr, start, end, .none, .unneeded, ptr_src, start_src, end_src, false);
 }
 
 fn zirSliceSentinel(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
@@ -9967,7 +9968,29 @@ fn zirSliceSentinel(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileErr
     const start_src: LazySrcLoc = .{ .node_offset_slice_start = inst_data.src_node };
     const end_src: LazySrcLoc = .{ .node_offset_slice_end = inst_data.src_node };
 
-    return sema.analyzeSlice(block, src, array_ptr, start, end, sentinel, sentinel_src, ptr_src, start_src, end_src);
+    return sema.analyzeSlice(block, src, array_ptr, start, end, sentinel, sentinel_src, ptr_src, start_src, end_src, false);
+}
+
+fn zirSliceLength(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
+    const tracy = trace(@src());
+    defer tracy.end();
+
+    const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
+    const src = inst_data.src();
+    const extra = sema.code.extraData(Zir.Inst.SliceLength, inst_data.payload_index).data;
+    const array_ptr = try sema.resolveInst(extra.lhs);
+    const start = try sema.resolveInst(extra.start);
+    const len = try sema.resolveInst(extra.len);
+    const sentinel = try sema.resolveInst(extra.sentinel);
+    const ptr_src: LazySrcLoc = .{ .node_offset_slice_ptr = inst_data.src_node };
+    const start_src: LazySrcLoc = .{ .node_offset_slice_start = extra.start_src_node_offset };
+    const end_src: LazySrcLoc = .{ .node_offset_slice_end = inst_data.src_node };
+    const sentinel_src: LazySrcLoc = if (sentinel == .none)
+        .unneeded
+    else
+        .{ .node_offset_slice_sentinel = inst_data.src_node };
+
+    return sema.analyzeSlice(block, src, array_ptr, start, len, sentinel, sentinel_src, ptr_src, start_src, end_src, true);
 }
 
 fn zirSwitchCapture(
@@ -29193,6 +29216,7 @@ fn analyzeSlice(
     ptr_src: LazySrcLoc,
     start_src: LazySrcLoc,
     end_src: LazySrcLoc,
+    by_length: bool,
 ) CompileError!Air.Inst.Ref {
     // Slice expressions can operate on a variable whose type is an array. This requires
     // the slice operand to be a pointer. In the case of a non-array, it will be a double pointer.
@@ -29271,7 +29295,11 @@ fn analyzeSlice(
             const len_val = try Value.Tag.int_u64.create(sema.arena, array_ty.arrayLen());
 
             if (!end_is_len) {
-                const end = try sema.coerce(block, Type.usize, uncasted_end_opt, end_src);
+                const end = if (by_length) end: {
+                    const len = try sema.coerce(block, Type.usize, uncasted_end_opt, end_src);
+                    const uncasted_end = try sema.analyzeArithmetic(block, .add, start, len, src, start_src, end_src, false);
+                    break :end try sema.coerce(block, Type.usize, uncasted_end, end_src);
+                } else try sema.coerce(block, Type.usize, uncasted_end_opt, end_src);
                 if (try sema.resolveMaybeUndefVal(end)) |end_val| {
                     const len_s_val = try Value.Tag.int_u64.create(
                         sema.arena,
@@ -29308,7 +29336,11 @@ fn analyzeSlice(
             break :e try sema.addConstant(Type.usize, len_val);
         } else if (slice_ty.isSlice()) {
             if (!end_is_len) {
-                const end = try sema.coerce(block, Type.usize, uncasted_end_opt, end_src);
+                const end = if (by_length) end: {
+                    const len = try sema.coerce(block, Type.usize, uncasted_end_opt, end_src);
+                    const uncasted_end = try sema.analyzeArithmetic(block, .add, start, len, src, start_src, end_src, false);
+                    break :end try sema.coerce(block, Type.usize, uncasted_end, end_src);
+                } else try sema.coerce(block, Type.usize, uncasted_end_opt, end_src);
                 if (try sema.resolveDefinedValue(block, end_src, end)) |end_val| {
                     if (try sema.resolveMaybeUndefVal(ptr_or_slice)) |slice_val| {
                         if (slice_val.isUndef()) {
@@ -29355,7 +29387,11 @@ fn analyzeSlice(
             break :e try sema.analyzeSliceLen(block, src, ptr_or_slice);
         }
         if (!end_is_len) {
-            break :e try sema.coerce(block, Type.usize, uncasted_end_opt, end_src);
+            if (by_length) {
+                const len = try sema.coerce(block, Type.usize, uncasted_end_opt, end_src);
+                const uncasted_end = try sema.analyzeArithmetic(block, .add, start, len, src, start_src, end_src, false);
+                break :e try sema.coerce(block, Type.usize, uncasted_end, end_src);
+            } else break :e try sema.coerce(block, Type.usize, uncasted_end_opt, end_src);
         }
         return sema.fail(block, src, "slice of pointer must include end value", .{});
     };
@@ -29379,7 +29415,7 @@ fn analyzeSlice(
     // requirement: start <= end
     if (try sema.resolveDefinedValue(block, end_src, end)) |end_val| {
         if (try sema.resolveDefinedValue(block, start_src, start)) |start_val| {
-            if (!(try sema.compareAll(start_val, .lte, end_val, Type.usize))) {
+            if (!by_length and !(try sema.compareAll(start_val, .lte, end_val, Type.usize))) {
                 return sema.fail(
                     block,
                     start_src,
@@ -29432,11 +29468,14 @@ fn analyzeSlice(
         }
     }
 
-    if (block.wantSafety() and !block.is_comptime) {
+    if (!by_length and block.wantSafety() and !block.is_comptime) {
         // requirement: start <= end
         try sema.panicStartLargerThanEnd(block, start, end);
     }
-    const new_len = try sema.analyzeArithmetic(block, .sub, end, start, src, end_src, start_src, false);
+    const new_len = if (by_length)
+        try sema.coerce(block, Type.usize, uncasted_end_opt, end_src)
+    else
+        try sema.analyzeArithmetic(block, .sub, end, start, src, end_src, start_src, false);
     const opt_new_len_val = try sema.resolveDefinedValue(block, src, new_len);
 
     const new_ptr_ty_info = sema.typeOf(new_ptr).ptrInfo().data;

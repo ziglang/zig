@@ -6508,23 +6508,16 @@ fn airSplat(f: *Function, inst: Air.Inst.Index) !CValue {
 
     const inst_ty = f.air.typeOfIndex(inst);
     const inst_scalar_ty = inst_ty.scalarType();
-    const inst_scalar_cty = try f.typeToIndex(inst_scalar_ty, .complete);
-    const need_memcpy = f.indexToCType(inst_scalar_cty).tag() == .array;
 
     const writer = f.object.writer();
     const local = try f.allocLocal(inst, inst_ty);
     const v = try Vectorize.start(f, inst, writer, inst_ty);
-    if (need_memcpy) try writer.writeAll("memcpy(&");
+    const a = try Assignment.init(f, inst_scalar_ty);
     try f.writeCValue(writer, local, .Other);
     try v.elem(f, writer);
-    try writer.writeAll(if (need_memcpy) ", &" else " = ");
+    try a.assign(f, writer);
     try f.writeCValue(writer, operand, .Other);
-    if (need_memcpy) {
-        try writer.writeAll(", sizeof(");
-        try f.renderCType(writer, inst_scalar_cty);
-        try writer.writeAll("))");
-    }
-    try writer.writeAll(";\n");
+    try a.end(f, writer);
     try v.end(f, inst, writer);
 
     return local;
