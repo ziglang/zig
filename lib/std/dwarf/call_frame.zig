@@ -216,16 +216,35 @@ pub const Instruction = union(Opcode) {
     }
 };
 
-/// See section 6.4.1 of the DWARF5 specification
+/// This is a virtual machine that runs DWARF call frame instructions.
+/// See section 6.4.1 of the DWARF5 specification.
 pub const VirtualMachine = struct {
+
     const RegisterRule = union(enum) {
+        // The spec says that the default rule for each column is the undefined rule.
+        // However, it also allows ABI / compiler authors to specify alternate defaults, so
+        // there is a distinction made here.
+        default: void,
+
         undefined: void,
         same_value: void,
+
+        // offset(N)
         offset: i64,
+
+        // val_offset(N)
         val_offset: i64,
+
+        // register(R)
         register: u8,
+
+        // expression(E)
         expression: []const u8,
+
+        // val_expression(E)
         val_expression: []const u8,
+
+        // Augmenter-defined rule
         architectural: void,
     };
 
@@ -248,7 +267,7 @@ pub const VirtualMachine = struct {
     pub const Column = struct {
         /// Register can only null in the case of the CFA column
         register: ?u8 = null,
-        rule: RegisterRule = .{ .undefined = {} },
+        rule: RegisterRule = .{ .default = {} },
     };
 
     const ColumnRange = struct {
@@ -263,13 +282,6 @@ pub const VirtualMachine = struct {
 
     /// The result of executing the CIE's initial_instructions
     cie_row: ?Row = null,
-
-    pub fn reset(self: *VirtualMachine) void {
-        self.stack.clearRetainingCapacity();
-        self.columns.clearRetainingCapacity();
-        self.current_row = .{};
-        self.cie_row = null;
-    }
 
     pub fn deinit(self: *VirtualMachine, allocator: std.mem.Allocator) void {
         self.stack.deinit(allocator);
@@ -357,7 +369,7 @@ pub const VirtualMachine = struct {
 
     /// Executes a single instruction.
     /// If this instruction is from the CIE, `is_initial` should be set.
-    /// Returns the value of `current_row` before executing this instruction
+    /// Returns the value of `current_row` before executing this instruction.
     pub fn step(
         self: *VirtualMachine,
         allocator: std.mem.Allocator,
@@ -367,13 +379,16 @@ pub const VirtualMachine = struct {
     ) !Row {
         // CIE instructions must be run before FDE instructions
         assert(!is_initial or self.cie_row == null);
-        if (!is_initial and self.cie_row == null) self.cie_row = self.current_row;
+        if (!is_initial and self.cie_row == null) {
+            self.cie_row = self.current_row;
+            self.current_row.copy_on_write = true;
+        }
 
         const prev_row = self.current_row;
         switch (instruction) {
             .set_loc => |i| {
                 if (i.operands.address <= self.current_row.offset) return error.InvalidOperation;
-                // TODO: Check cie.segment_selector_size != for DWARFV4
+                // TODO: Check cie.segment_selector_size != 0 for DWARFV4
                 self.current_row.offset = i.operands.address;
             },
             inline .advance_loc,
@@ -392,11 +407,6 @@ pub const VirtualMachine = struct {
                 const column = try self.getOrAddColumn(allocator, i.operands.register);
                 column.rule = .{ .offset = @intCast(i64, i.operands.offset) * cie.data_alignment_factor };
             },
-            // .offset_extended_sf => |i| {
-            //     try self.resolveCopyOnWrite(allocator);
-            //     const column = try self.getOrAddColumn(allocator, i.operands.register);
-            //     column.rule = .{ .offset = i.operands.offset * cie.data_alignment_factor };
-            // },
             inline .restore,
             .restore_extended,
             => |i| {
@@ -405,7 +415,7 @@ pub const VirtualMachine = struct {
                     const column = try self.getOrAddColumn(allocator, i.operands.register);
                     column.rule = for (self.rowColumns(cie_row)) |cie_column| {
                         if (cie_column.register == i.operands.register) break cie_column.rule;
-                    } else .{ .undefined = {} };
+                    } else .{ .default = {} };
                 } else return error.InvalidOperation;
             },
             .nop => {},
@@ -427,13 +437,6 @@ pub const VirtualMachine = struct {
             .remember_state => {
                 try self.stack.append(allocator, self.current_row.columns);
                 self.current_row.copy_on_write = true;
-
-                // const new_start = self.columns.items.len;
-                // if (self.current_row.columns.len > 0) {
-                //     try self.columns.ensureUnusedCapacity(allocator, self.current_row.columns.len);
-                //     self.columns.appendSliceAssumeCapacity(self.rowColumns(self.current_row));
-                //     self.current_row.columns.start = new_start;
-                // }
             },
             .restore_state => {
                 const restored_columns = self.stack.popOrNull() orelse return error.InvalidOperation;

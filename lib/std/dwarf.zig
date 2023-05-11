@@ -1494,18 +1494,34 @@ pub const DwarfInfo = struct {
                 }
 
                 const id_len = @as(u8, if (is_64) 8 else 4);
-                const entry_bytes = eh_frame[stream.pos..][0..length - id_len];
+                const entry_bytes = eh_frame[stream.pos..][0 .. length - id_len];
                 const id = try reader.readInt(u32, di.endian);
 
                 // TODO: Get section_offset here (pass in from headers)
 
                 if (id == 0) {
-                    const cie = try CommonInformationEntry.parse(entry_bytes, @ptrToInt(eh_frame.ptr), 0, length_offset, @sizeOf(usize), di.endian);
+                    const cie = try CommonInformationEntry.parse(
+                        entry_bytes,
+                        @ptrToInt(eh_frame.ptr),
+                        0,
+                        true,
+                        length_offset,
+                        @sizeOf(usize),
+                        di.endian,
+                    );
                     try di.cie_map.put(allocator, length_offset, cie);
                 } else {
                     const cie_offset = stream.pos - 4 - id;
                     const cie = di.cie_map.get(cie_offset) orelse return badDwarf();
-                    const fde = try FrameDescriptionEntry.parse(entry_bytes, @ptrToInt(eh_frame.ptr), 0, cie, @sizeOf(usize), di.endian);
+                    const fde = try FrameDescriptionEntry.parse(
+                        entry_bytes,
+                        @ptrToInt(eh_frame.ptr),
+                        0,
+                        true,
+                        cie,
+                        @sizeOf(usize),
+                        di.endian,
+                    );
                     try di.fde_list.append(allocator, fde);
                 }
             }
@@ -1557,6 +1573,11 @@ const EhPointerContext = struct {
     // The address of the pointer field itself
     pc_rel_base: u64,
 
+    // Whether or not to follow indirect pointers. This should only be
+    // used when decoding pointers at runtime using the current process's
+    // debug info.
+    follow_indirect: bool,
+
     // These relative addressing modes are only used in specific cases, and
     // might not be available / required in all parsing contexts
     data_rel_base: ?u64 = null,
@@ -1570,7 +1591,7 @@ fn readEhPointer(reader: anytype, enc: u8, addr_size_bytes: u8, ctx: EhPointerCo
     const value: union(enum) {
         signed: i64,
         unsigned: u64,
-    } = switch (enc & 0x0f) {
+    } = switch (enc & EH.PE.type_mask) {
         EH.PE.absptr => .{
             .unsigned = switch (addr_size_bytes) {
                 2 => try reader.readInt(u16, endian),
@@ -1590,33 +1611,31 @@ fn readEhPointer(reader: anytype, enc: u8, addr_size_bytes: u8, ctx: EhPointerCo
         else => return badDwarf(),
     };
 
-    const relative_to = enc & 0xf0;
-    var base = switch (relative_to) {
+    var base = switch (enc & EH.PE.rel_mask) {
         EH.PE.pcrel => ctx.pc_rel_base,
         EH.PE.textrel => ctx.text_rel_base orelse return error.PointerBaseNotSpecified,
         EH.PE.datarel => ctx.data_rel_base orelse return error.PointerBaseNotSpecified,
         EH.PE.funcrel => ctx.function_rel_base orelse return error.PointerBaseNotSpecified,
-        EH.PE.indirect => {
-            switch (addr_size_bytes) {
-                2 => return @intToPtr(*const u16, value.unsigned).*,
-                4 => return @intToPtr(*const u32, value.unsigned).*,
-                8 => return @intToPtr(*const u64, value.unsigned).*,
-                else => return error.UnsupportedAddrSize,
-            }
-        },
         else => null,
     };
 
-    if (base) |b| {
-        return switch (value) {
-            .signed => |s| @intCast(u64, s + @intCast(i64, b)),
-            .unsigned => |u| u + b,
+    const ptr = if (base) |b| switch (value) {
+        .signed => |s| @intCast(u64, s + @intCast(i64, b)),
+        .unsigned => |u| u + b,
+    } else switch (value) {
+        .signed => |s| @intCast(u64, s),
+        .unsigned => |u| u,
+    };
+
+    if ((enc & EH.PE.indirect) > 0 and ctx.follow_indirect) {
+        return switch (addr_size_bytes) {
+            2 => return @intToPtr(*const u16, ptr).*,
+            4 => return @intToPtr(*const u32, ptr).*,
+            8 => return @intToPtr(*const u64, ptr).*,
+            else => return error.UnsupportedAddrSize,
         };
     } else {
-        return switch (value) {
-            .signed => |s| @intCast(u64, s),
-            .unsigned => |u| u,
-        };
+        return ptr;
     }
 }
 
@@ -1668,6 +1687,7 @@ pub const CommonInformationEntry = struct {
         cie_bytes: []const u8,
         section_base: u64,
         section_offset: u64,
+        is_runtime: bool,
         length_offset: u64,
         addr_size_bytes: u8,
         endian: std.builtin.Endian,
@@ -1735,7 +1755,10 @@ pub const CommonInformationEntry = struct {
                             reader,
                             personality_enc.?,
                             addr_size_bytes,
-                            .{ .pc_rel_base = @ptrToInt(&cie_bytes[stream.pos]) - section_base + section_offset },
+                            .{
+                                .pc_rel_base = @ptrToInt(&cie_bytes[stream.pos]) - section_base + section_offset,
+                                .follow_indirect = is_runtime,
+                            },
                             endian,
                         );
                     },
@@ -1785,6 +1808,7 @@ pub const FrameDescriptionEntry = struct {
         fde_bytes: []const u8,
         section_base: u64,
         section_offset: u64,
+        is_runtime: bool,
         cie: CommonInformationEntry,
         addr_size_bytes: u8,
         endian: std.builtin.Endian,
@@ -1798,15 +1822,21 @@ pub const FrameDescriptionEntry = struct {
             reader,
             cie.fde_pointer_enc,
             addr_size_bytes,
-            .{ .pc_rel_base = @ptrToInt(&fde_bytes[stream.pos]) - section_base + section_offset },
+            .{
+                .pc_rel_base = @ptrToInt(&fde_bytes[stream.pos]) - section_base + section_offset,
+                .follow_indirect = is_runtime,
+            },
             endian,
         ) orelse return badDwarf();
 
         const pc_range = try readEhPointer(
             reader,
-            cie.fde_pointer_enc & 0x0f,
+            cie.fde_pointer_enc,
             addr_size_bytes,
-            .{ .pc_rel_base = @ptrToInt(&fde_bytes[stream.pos]) - section_base + section_offset },
+            .{
+                .pc_rel_base = 0,
+                .follow_indirect = false,
+            },
             endian,
         ) orelse return badDwarf();
 
@@ -1819,9 +1849,12 @@ pub const FrameDescriptionEntry = struct {
             const lsda_pointer = if (cie.lsda_pointer_enc != EH.PE.omit)
                 try readEhPointer(
                     reader,
-                    cie.lsda_pointer_enc & 0x0f,
+                    cie.lsda_pointer_enc,
                     addr_size_bytes,
-                    .{ .pc_rel_base = @ptrToInt(&fde_bytes[stream.pos]) },
+                    .{
+                        .pc_rel_base = @ptrToInt(&fde_bytes[stream.pos]) - section_base + section_offset,
+                        .follow_indirect = is_runtime,
+                    },
                     endian,
                 )
             else
