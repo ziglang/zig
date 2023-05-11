@@ -1294,6 +1294,7 @@ pub fn deinit(ip: *InternPool, gpa: Allocator) void {
     ip.items.deinit(gpa);
     ip.extra.deinit(gpa);
     ip.limbs.deinit(gpa);
+    ip.string_bytes.deinit(gpa);
 
     ip.structs_free_list.deinit(gpa);
     ip.allocated_structs.deinit(gpa);
@@ -1301,8 +1302,8 @@ pub fn deinit(ip: *InternPool, gpa: Allocator) void {
     ip.unions_free_list.deinit(gpa);
     ip.allocated_unions.deinit(gpa);
 
+    for (ip.maps) |*map| map.deinit(gpa);
     ip.maps.deinit(gpa);
-    ip.string_bytes.deinit(gpa);
 
     ip.* = undefined;
 }
