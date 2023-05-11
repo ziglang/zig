@@ -1436,6 +1436,8 @@ pub const AtomicRMWBinOp = enum(c_int) {
     UMin,
     FAdd,
     FSub,
+    FMax,
+    FMin,
 };
 
 pub const TypeKind = enum(c_int) {

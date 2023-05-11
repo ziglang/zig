@@ -21,6 +21,7 @@ const Allocator = mem.Allocator;
 const Arch = std.Target.Cpu.Arch;
 const AtomIndex = @import("zld.zig").AtomIndex;
 const Object = @import("Object.zig");
+const Relocation = @import("Relocation.zig");
 const SymbolWithLoc = @import("zld.zig").SymbolWithLoc;
 const Zld = @import("zld.zig").Zld;
 
@@ -571,7 +572,7 @@ fn resolveRelocsArm64(
                     zld.getAtom(getRelocTargetAtomIndex(zld, target, is_via_got).?).getFile(),
                 });
 
-                const displacement = if (calcPcRelativeDisplacementArm64(
+                const displacement = if (Relocation.calcPcRelativeDisplacementArm64(
                     source_addr,
                     zld.getSymbol(actual_target).n_value,
                 )) |disp| blk: {
@@ -585,7 +586,7 @@ fn resolveRelocsArm64(
                         actual_target,
                     ).?);
                     log.debug("    | target_addr = 0x{x} (thunk)", .{thunk_sym.n_value});
-                    break :blk try calcPcRelativeDisplacementArm64(source_addr, thunk_sym.n_value);
+                    break :blk try Relocation.calcPcRelativeDisplacementArm64(source_addr, thunk_sym.n_value);
                 };
 
                 const code = atom_code[rel_offset..][0..4];
@@ -607,7 +608,7 @@ fn resolveRelocsArm64(
 
                 log.debug("    | target_addr = 0x{x}", .{adjusted_target_addr});
 
-                const pages = @bitCast(u21, calcNumberOfPages(source_addr, adjusted_target_addr));
+                const pages = @bitCast(u21, Relocation.calcNumberOfPages(source_addr, adjusted_target_addr));
                 const code = atom_code[rel_offset..][0..4];
                 var inst = aarch64.Instruction{
                     .pc_relative_address = mem.bytesToValue(meta.TagPayload(
@@ -627,8 +628,8 @@ fn resolveRelocsArm64(
                 log.debug("    | target_addr = 0x{x}", .{adjusted_target_addr});
 
                 const code = atom_code[rel_offset..][0..4];
-                if (isArithmeticOp(code)) {
-                    const off = try calcPageOffset(adjusted_target_addr, .arithmetic);
+                if (Relocation.isArithmeticOp(code)) {
+                    const off = try Relocation.calcPageOffset(adjusted_target_addr, .arithmetic);
                     var inst = aarch64.Instruction{
                         .add_subtract_immediate = mem.bytesToValue(meta.TagPayload(
                             aarch64.Instruction,
@@ -644,11 +645,11 @@ fn resolveRelocsArm64(
                             aarch64.Instruction.load_store_register,
                         ), code),
                     };
-                    const off = try calcPageOffset(adjusted_target_addr, switch (inst.load_store_register.size) {
+                    const off = try Relocation.calcPageOffset(adjusted_target_addr, switch (inst.load_store_register.size) {
                         0 => if (inst.load_store_register.v == 1)
-                            PageOffsetInstKind.load_store_128
+                            Relocation.PageOffsetInstKind.load_store_128
                         else
-                            PageOffsetInstKind.load_store_8,
+                            Relocation.PageOffsetInstKind.load_store_8,
                         1 => .load_store_16,
                         2 => .load_store_32,
                         3 => .load_store_64,
@@ -665,7 +666,7 @@ fn resolveRelocsArm64(
 
                 log.debug("    | target_addr = 0x{x}", .{adjusted_target_addr});
 
-                const off = try calcPageOffset(adjusted_target_addr, .load_store_64);
+                const off = try Relocation.calcPageOffset(adjusted_target_addr, .load_store_64);
                 var inst: aarch64.Instruction = .{
                     .load_store_register = mem.bytesToValue(meta.TagPayload(
                         aarch64.Instruction,
@@ -689,7 +690,7 @@ fn resolveRelocsArm64(
                     size: u2,
                 };
                 const reg_info: RegInfo = blk: {
-                    if (isArithmeticOp(code)) {
+                    if (Relocation.isArithmeticOp(code)) {
                         const inst = mem.bytesToValue(meta.TagPayload(
                             aarch64.Instruction,
                             aarch64.Instruction.add_subtract_immediate,
@@ -716,7 +717,7 @@ fn resolveRelocsArm64(
                     .load_store_register = .{
                         .rt = reg_info.rd,
                         .rn = reg_info.rn,
-                        .offset = try calcPageOffset(adjusted_target_addr, .load_store_64),
+                        .offset = try Relocation.calcPageOffset(adjusted_target_addr, .load_store_64),
                         .opc = 0b01,
                         .op1 = 0b01,
                         .v = 0,
@@ -726,7 +727,7 @@ fn resolveRelocsArm64(
                     .add_subtract_immediate = .{
                         .rd = reg_info.rd,
                         .rn = reg_info.rn,
-                        .imm12 = try calcPageOffset(adjusted_target_addr, .arithmetic),
+                        .imm12 = try Relocation.calcPageOffset(adjusted_target_addr, .arithmetic),
                         .sh = 0,
                         .s = 0,
                         .op = 0,
@@ -858,7 +859,7 @@ fn resolveRelocsX86(
                 const addend = mem.readIntLittle(i32, atom_code[rel_offset..][0..4]);
                 const adjusted_target_addr = @intCast(u64, @intCast(i64, target_addr) + addend);
                 log.debug("    | target_addr = 0x{x}", .{adjusted_target_addr});
-                const disp = try calcPcRelativeDisplacementX86(source_addr, adjusted_target_addr, 0);
+                const disp = try Relocation.calcPcRelativeDisplacementX86(source_addr, adjusted_target_addr, 0);
                 mem.writeIntLittle(i32, atom_code[rel_offset..][0..4], disp);
             },
 
@@ -868,7 +869,7 @@ fn resolveRelocsX86(
                 const addend = mem.readIntLittle(i32, atom_code[rel_offset..][0..4]);
                 const adjusted_target_addr = @intCast(u64, @intCast(i64, target_addr) + addend);
                 log.debug("    | target_addr = 0x{x}", .{adjusted_target_addr});
-                const disp = try calcPcRelativeDisplacementX86(source_addr, adjusted_target_addr, 0);
+                const disp = try Relocation.calcPcRelativeDisplacementX86(source_addr, adjusted_target_addr, 0);
                 mem.writeIntLittle(i32, atom_code[rel_offset..][0..4], disp);
             },
 
@@ -876,7 +877,7 @@ fn resolveRelocsX86(
                 const addend = mem.readIntLittle(i32, atom_code[rel_offset..][0..4]);
                 const adjusted_target_addr = @intCast(u64, @intCast(i64, target_addr) + addend);
                 log.debug("    | target_addr = 0x{x}", .{adjusted_target_addr});
-                const disp = try calcPcRelativeDisplacementX86(source_addr, adjusted_target_addr, 0);
+                const disp = try Relocation.calcPcRelativeDisplacementX86(source_addr, adjusted_target_addr, 0);
 
                 if (zld.tlv_ptr_table.get(target) == null) {
                     // We need to rewrite the opcode from movq to leaq.
@@ -913,7 +914,7 @@ fn resolveRelocsX86(
 
                 log.debug("    | target_addr = 0x{x}", .{adjusted_target_addr});
 
-                const disp = try calcPcRelativeDisplacementX86(source_addr, adjusted_target_addr, correction);
+                const disp = try Relocation.calcPcRelativeDisplacementX86(source_addr, adjusted_target_addr, correction);
                 mem.writeIntLittle(i32, atom_code[rel_offset..][0..4], disp);
             },
 
@@ -953,11 +954,6 @@ fn resolveRelocsX86(
             .X86_64_RELOC_SUBTRACTOR => unreachable,
         }
     }
-}
-
-inline fn isArithmeticOp(inst: *const [4]u8) bool {
-    const group_decode = @truncate(u5, inst[3]);
-    return ((group_decode >> 2) == 4);
 }
 
 pub fn getAtomCode(zld: *Zld, atom_index: AtomIndex) []const u8 {
@@ -1004,43 +1000,6 @@ pub fn getAtomRelocs(zld: *Zld, atom_index: AtomIndex) []const macho.relocation_
     assert(!source_sect.isZerofill());
     const relocs = object.getRelocs(source_sect_id);
     return relocs[cache.start..][0..cache.len];
-}
-
-pub fn calcPcRelativeDisplacementX86(source_addr: u64, target_addr: u64, correction: u3) error{Overflow}!i32 {
-    const disp = @intCast(i64, target_addr) - @intCast(i64, source_addr + 4 + correction);
-    return math.cast(i32, disp) orelse error.Overflow;
-}
-
-pub fn calcPcRelativeDisplacementArm64(source_addr: u64, target_addr: u64) error{Overflow}!i28 {
-    const disp = @intCast(i64, target_addr) - @intCast(i64, source_addr);
-    return math.cast(i28, disp) orelse error.Overflow;
-}
-
-pub fn calcNumberOfPages(source_addr: u64, target_addr: u64) i21 {
-    const source_page = @intCast(i32, source_addr >> 12);
-    const target_page = @intCast(i32, target_addr >> 12);
-    const pages = @intCast(i21, target_page - source_page);
-    return pages;
-}
-
-const PageOffsetInstKind = enum {
-    arithmetic,
-    load_store_8,
-    load_store_16,
-    load_store_32,
-    load_store_64,
-    load_store_128,
-};
-
-pub fn calcPageOffset(target_addr: u64, kind: PageOffsetInstKind) !u12 {
-    const narrowed = @truncate(u12, target_addr);
-    return switch (kind) {
-        .arithmetic, .load_store_8 => narrowed,
-        .load_store_16 => try math.divExact(u12, narrowed, 2),
-        .load_store_32 => try math.divExact(u12, narrowed, 4),
-        .load_store_64 => try math.divExact(u12, narrowed, 8),
-        .load_store_128 => try math.divExact(u12, narrowed, 16),
-    };
 }
 
 pub fn relocRequiresGot(zld: *Zld, rel: macho.relocation_info) bool {

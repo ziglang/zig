@@ -10,7 +10,7 @@ pub const TrailerFlags = @import("meta/trailer_flags.zig").TrailerFlags;
 
 const Type = std.builtin.Type;
 
-test "std.meta.TrailerFlags" {
+test {
     _ = TrailerFlags;
 }
 

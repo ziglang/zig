@@ -58,6 +58,7 @@ pub const Tag = enum {
     has_decl,
     has_field,
     import,
+    in_comptime,
     int_cast,
     int_to_enum,
     int_to_error,
@@ -558,6 +559,13 @@ pub const list = list: {
             .{
                 .tag = .import,
                 .param_count = 1,
+            },
+        },
+        .{
+            "@inComptime",
+            .{
+                .tag = .in_comptime,
+                .param_count = 0,
             },
         },
         .{

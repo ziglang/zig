@@ -7,4 +7,4 @@ export fn entry() void {
 // backend=stage2
 // target=native
 //
-// :3:30: error: @atomicRmw with float only allowed with .Xchg, .Add, and .Sub
+// :3:30: error: @atomicRmw with float only allowed with .Xchg, .Add, .Sub, .Max, and .Min

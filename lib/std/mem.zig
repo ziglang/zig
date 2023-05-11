@@ -227,7 +227,7 @@ pub fn set(comptime T: type, dest: []T, value: T) void {
 /// interfacing with a C API where this practice is more common and relied upon. If you are performing code review and see this
 /// function used, examine closely - it may be a code smell.
 /// Zero initializes the type.
-/// This can be used to zero initialize a any type for which it makes sense. Structs will be initialized recursively.
+/// This can be used to zero-initialize any type for which it makes sense. Structs will be initialized recursively.
 pub fn zeroes(comptime T: type) T {
     switch (@typeInfo(T)) {
         .ComptimeInt, .Int, .ComptimeFloat, .Float => {
@@ -1504,6 +1504,8 @@ test "comptime read/write int" {
 }
 
 test "readIntBig and readIntLittle" {
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
+
     try testing.expect(readIntSliceBig(u0, &[_]u8{}) == 0x0);
     try testing.expect(readIntSliceLittle(u0, &[_]u8{}) == 0x0);
 
@@ -1795,6 +1797,8 @@ pub fn writeVarPackedInt(bytes: []u8, bit_offset: usize, bit_count: usize, value
 }
 
 test "writeIntBig and writeIntLittle" {
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
+
     var buf0: [0]u8 = undefined;
     var buf1: [1]u8 = undefined;
     var buf2: [2]u8 = undefined;
@@ -4011,6 +4015,8 @@ pub fn alignInSlice(slice: anytype, comptime new_alignment: usize) ?AlignedSlice
 }
 
 test "read/write(Var)PackedInt" {
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
+
     switch (builtin.cpu.arch) {
         // This test generates too much code to execute on WASI.
         // LLVM backend fails with "too many locals: locals exceed maximum"

@@ -13,8 +13,23 @@ pub const cpulevel_t = c_int;
 pub const cpuwhich_t = c_int;
 pub const id_t = i64;
 
+pub const CPU_LEVEL_ROOT: cpulevel_t = 1;
+pub const CPU_LEVEL_CPUSET: cpulevel_t = 2;
+pub const CPU_LEVEL_WHICH: cpulevel_t = 3;
+pub const CPU_WHICH_TID: cpuwhich_t = 1;
+pub const CPU_WHICH_PID: cpuwhich_t = 2;
+pub const CPU_WHICH_CPUSET: cpuwhich_t = 3;
+pub const CPU_WHICH_IRQ: cpuwhich_t = 4;
+pub const CPU_WHICH_JAIL: cpuwhich_t = 5;
+pub const CPU_WHICH_DOMAIN: cpuwhich_t = 6;
+pub const CPU_WHICH_INTRHANDLER: cpuwhich_t = 7;
+pub const CPU_WHICH_ITHREAD: cpuwhich_t = 8;
+pub const CPU_WHICH_TIDPID: cpuwhich_t = 8;
+
 extern "c" fn __error() *c_int;
 pub const _errno = __error;
+
+pub extern "c" var malloc_options: [*:0]const u8;
 
 pub extern "c" fn getdents(fd: c_int, buf_ptr: [*]u8, nbytes: usize) usize;
 pub extern "c" fn sigaltstack(ss: ?*stack_t, old_ss: ?*stack_t) c_int;
@@ -29,6 +44,7 @@ pub extern "c" fn arc4random_buf(buf: [*]u8, len: usize) void;
 
 pub extern "c" fn posix_memalign(memptr: *?*anyopaque, alignment: usize, size: usize) c_int;
 pub extern "c" fn malloc_usable_size(?*const anyopaque) usize;
+pub extern "c" fn reallocf(?*anyopaque, usize) ?*anyopaque;
 
 pub extern "c" fn getpid() pid_t;
 
@@ -37,6 +53,9 @@ pub extern "c" fn kinfo_getvmmap(pid: pid_t, cntp: *c_int) ?[*]kinfo_vmentry;
 
 pub extern "c" fn cpuset_getaffinity(level: cpulevel_t, which: cpuwhich_t, id: id_t, setsize: usize, mask: *cpuset_t) c_int;
 pub extern "c" fn cpuset_setaffinity(level: cpulevel_t, which: cpuwhich_t, id: id_t, setsize: usize, mask: *const cpuset_t) c_int;
+pub extern "c" fn sched_getaffinity(pid: pid_t, cpusetsz: usize, cpuset: *cpuset_t) c_int;
+pub extern "c" fn sched_setaffinity(pid: pid_t, cpusetsz: usize, cpuset: *const cpuset_t) c_int;
+pub extern "c" fn sched_getcpu() c_int;
 
 pub const sf_hdtr = extern struct {
     headers: [*]const iovec_const,
@@ -1089,6 +1108,11 @@ pub const DT = struct {
     pub const WHT = 14;
 };
 
+pub const accept_filter = extern struct {
+    af_name: [16]u8,
+    af_args: [240]u8,
+};
+
 /// add event to kq (implies enable)
 pub const EV_ADD = 0x0001;
 
@@ -1370,15 +1394,47 @@ pub const mcontext_t = switch (builtin.cpu.arch) {
         rflags: u64,
         rsp: u64,
         ss: u64,
-        len: u64,
-        fpformat: u64,
-        ownedfp: u64,
-        fpstate: [64]u64 align(16),
+        len: c_long,
+        fpformat: c_long,
+        ownedfp: c_long,
+        fpstate: [64]c_long align(16),
         fsbase: u64,
         gsbase: u64,
         xfpustate: u64,
         xfpustate_len: u64,
-        spare: [4]u64,
+        spare: [4]c_long,
+    },
+    .x86 => extern struct {
+        onstack: u32,
+        gs: u32,
+        fs: u32,
+        es: u32,
+        ds: u32,
+        edi: u32,
+        esi: u32,
+        ebp: u32,
+        isp: u32,
+        ebx: u32,
+        edx: u32,
+        ecx: u32,
+        eax: u32,
+        trapno: u32,
+        err: u32,
+        eip: u32,
+        cs: u32,
+        eflags: u32,
+        esp: u32,
+        ss: u32,
+        len: c_int,
+        fpformat: c_int,
+        ownedfp: c_int,
+        flags: u32,
+        fpstate: [128]c_int align(16),
+        fsbase: u32,
+        gsbase: u32,
+        xpustate: u32,
+        xpustate_len: u32,
+        spare2: [4]c_int,
     },
     .aarch64 => extern struct {
         gpregs: extern struct {
@@ -2192,3 +2248,46 @@ pub const shm_largeconf = extern struct {
 pub extern "c" fn shm_create_largepage(path: [*:0]const u8, flags: c_int, psind: c_int, alloc_policy: c_int, mode: mode_t) c_int;
 
 pub extern "c" fn elf_aux_info(aux: c_int, buf: ?*anyopaque, buflen: c_int) c_int;
+
+pub const lwpid = i32;
+
+pub const SIGEV = struct {
+    pub const NONE = 0;
+    pub const SIGNAL = 1;
+    pub const THREAD = 2;
+    pub const KEVENT = 3;
+    pub const THREAD_ID = 4;
+};
+
+pub const sigevent = extern struct {
+    sigev_notify: c_int,
+    sigev_signo: c_int,
+    sigev_value: sigval,
+    _sigev_un: extern union {
+        _threadid: lwpid,
+        _sigev_thread: extern struct {
+            _function: ?*const fn (sigval) callconv(.C) void,
+            _attribute: ?**pthread_attr_t,
+        },
+        _kevent_flags: c_ushort,
+        __spare__: [8]c_long,
+    },
+};
+
+pub const MIN = struct {
+    pub const INCORE = 0x1;
+    pub const REFERENCED = 0x2;
+    pub const MODIFIED = 0x4;
+    pub const REFERENCED_OTHER = 0x8;
+    pub const MODIFIED_OTHER = 0x10;
+    pub const SUPER = 0x60;
+    pub fn PSIND(i: u32) u32 {
+        return (i << 5) & SUPER;
+    }
+};
+
+pub extern "c" fn mincore(
+    addr: *align(std.mem.page_size) const anyopaque,
+    length: usize,
+    vec: [*]u8,
+) c_int;

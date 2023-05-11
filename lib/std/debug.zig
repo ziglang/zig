@@ -651,6 +651,8 @@ pub fn writeCurrentStackTraceWindows(
     }
 }
 
+/// Provides simple functionality for manipulating the terminal in some way,
+/// for debugging purposes, such as coloring text, etc.
 pub const TTY = struct {
     pub const Color = enum {
         Red,
@@ -2189,6 +2191,8 @@ pub fn dumpStackPointerAddr(prefix: []const u8) void {
 }
 
 test "manage resources correctly" {
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // error.UnsupportedBackend
+
     if (builtin.os.tag == .wasi) return error.SkipZigTest;
 
     if (builtin.os.tag == .windows and builtin.cpu.arch == .x86_64) {

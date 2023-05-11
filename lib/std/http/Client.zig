@@ -645,7 +645,6 @@ pub const Request = struct {
                 if (req.response.parser.state.isContent()) break;
             }
 
-            req.response.headers = http.Headers{ .allocator = req.client.allocator, .owned = false };
             try req.response.parse(req.response.parser.header_bytes.items);
 
             if (req.response.status == .switching_protocols) {
@@ -765,7 +764,7 @@ pub const Request = struct {
             }
 
             if (has_trail) {
-                req.response.headers = http.Headers{ .allocator = req.client.allocator, .owned = false };
+                req.response.headers.clearRetainingCapacity();
 
                 // The response headers before the trailers are already guaranteed to be valid, so they will always be parsed again and cannot return an error.
                 // This will *only* fail for a malformed trailer.
@@ -797,18 +796,18 @@ pub const Request = struct {
 
     /// Write `bytes` to the server. The `transfer_encoding` request header determines how data will be sent.
     pub fn write(req: *Request, bytes: []const u8) WriteError!usize {
-        switch (req.headers.transfer_encoding) {
+        switch (req.transfer_encoding) {
             .chunked => {
-                try req.connection.data.conn.writer().print("{x}\r\n", .{bytes.len});
-                try req.connection.data.conn.writeAll(bytes);
-                try req.connection.data.conn.writeAll("\r\n");
+                try req.connection.data.buffered.writer().print("{x}\r\n", .{bytes.len});
+                try req.connection.data.buffered.writeAll(bytes);
+                try req.connection.data.buffered.writeAll("\r\n");
 
                 return bytes.len;
             },
             .content_length => |*len| {
                 if (len.* < bytes.len) return error.MessageTooLong;
 
-                const amt = try req.connection.data.conn.write(bytes);
+                const amt = try req.connection.data.buffered.write(bytes);
                 len.* -= amt;
                 return amt;
             },
@@ -828,7 +827,7 @@ pub const Request = struct {
     /// Finish the body of a request. This notifies the server that you have no more data to send.
     pub fn finish(req: *Request) FinishError!void {
         switch (req.transfer_encoding) {
-            .chunked => try req.connection.data.conn.writeAll("0\r\n\r\n"),
+            .chunked => try req.connection.data.buffered.writeAll("0\r\n\r\n"),
             .content_length => |len| if (len != 0) return error.MessageNotCompleted,
             .none => {},
         }
@@ -1019,7 +1018,7 @@ pub fn request(client: *Client, method: http.Method, uri: Uri, headers: http.Hea
             .status = undefined,
             .reason = undefined,
             .version = undefined,
-            .headers = undefined,
+            .headers = http.Headers{ .allocator = client.allocator, .owned = false },
             .parser = switch (options.header_strategy) {
                 .dynamic => |max| proto.HeadersParser.initDynamic(max),
                 .static => |buf| proto.HeadersParser.initStatic(buf),

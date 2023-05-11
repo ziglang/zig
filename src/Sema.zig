@@ -1166,6 +1166,7 @@ fn analyzeBodyInner(
                     .work_item_id          => try sema.zirWorkItem(          block, extended, extended.opcode),
                     .work_group_size       => try sema.zirWorkItem(          block, extended, extended.opcode),
                     .work_group_id         => try sema.zirWorkItem(          block, extended, extended.opcode),
+                    .in_comptime           => try sema.zirInComptime(        block),
                     // zig fmt: on
 
                     .fence => {
@@ -4155,7 +4156,7 @@ fn validateUnionInit(
             const msg = try sema.errMsg(
                 block,
                 init_src,
-                "cannot initialize multiple union fields at once, unions can only have one active field",
+                "cannot initialize multiple union fields at once; unions can only have one active field",
                 .{},
             );
             errdefer msg.destroy(sema.gpa);
@@ -9646,7 +9647,7 @@ fn zirBitcast(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
                 .Union => "union",
                 else => unreachable,
             };
-            return sema.fail(block, dest_ty_src, "cannot @bitCast to '{}', {s} does not have a guaranteed in-memory layout", .{
+            return sema.fail(block, dest_ty_src, "cannot @bitCast to '{}'; {s} does not have a guaranteed in-memory layout", .{
                 dest_ty.fmt(sema.mod), container,
             });
         },
@@ -9709,7 +9710,7 @@ fn zirBitcast(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
                 .Union => "union",
                 else => unreachable,
             };
-            return sema.fail(block, operand_src, "cannot @bitCast from '{}', {s} does not have a guaranteed in-memory layout", .{
+            return sema.fail(block, operand_src, "cannot @bitCast from '{}'; {s} does not have a guaranteed in-memory layout", .{
                 operand_ty.fmt(sema.mod), container,
             });
         },
@@ -19626,7 +19627,7 @@ fn zirIntToPtr(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
     }
 
     try sema.requireRuntimeBlock(block, src, operand_src);
-    if (block.wantSafety() and try sema.typeHasRuntimeBits(elem_ty)) {
+    if (block.wantSafety() and (try sema.typeHasRuntimeBits(elem_ty) or elem_ty.zigTypeTag() == .Fn)) {
         if (!ptr_ty.isAllowzeroPtr()) {
             const is_non_zero = try block.addBinOp(.cmp_neq, operand_coerced, .zero_usize);
             try sema.addSafetyCheck(block, is_non_zero, .cast_to_null);
@@ -19852,7 +19853,7 @@ fn zirPtrCast(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
 
     try sema.requireRuntimeBlock(block, src, null);
     if (block.wantSafety() and operand_ty.ptrAllowsZero() and !dest_ty.ptrAllowsZero() and
-        try sema.typeHasRuntimeBits(dest_ty.elemType2()))
+        (try sema.typeHasRuntimeBits(dest_ty.elemType2()) or dest_ty.elemType2().zigTypeTag() == .Fn))
     {
         const ptr_int = try block.addUnOp(.ptrtoint, ptr);
         const is_non_zero = try block.addBinOp(.cmp_neq, ptr_int, .zero_usize);
@@ -21319,8 +21320,8 @@ fn zirAtomicRmw(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!A
             return sema.fail(block, op_src, "@atomicRmw with bool only allowed with .Xchg", .{});
         },
         .Float => switch (op) {
-            .Xchg, .Add, .Sub => {},
-            else => return sema.fail(block, op_src, "@atomicRmw with float only allowed with .Xchg, .Add, and .Sub", .{}),
+            .Xchg, .Add, .Sub, .Max, .Min => {},
+            else => return sema.fail(block, op_src, "@atomicRmw with float only allowed with .Xchg, .Add, .Sub, .Max, and .Min", .{}),
         },
         else => {},
     }
@@ -22464,6 +22465,18 @@ fn zirWorkItem(
             .payload = dimension,
         } },
     });
+}
+
+fn zirInComptime(
+    sema: *Sema,
+    block: *Block,
+) CompileError!Air.Inst.Ref {
+    _ = sema;
+    if (block.is_comptime) {
+        return Air.Inst.Ref.bool_true;
+    } else {
+        return Air.Inst.Ref.bool_false;
+    }
 }
 
 fn requireRuntimeBlock(sema: *Sema, block: *Block, src: LazySrcLoc, runtime_src: ?LazySrcLoc) !void {
@@ -23738,7 +23751,6 @@ fn fieldCallBind(
                     {
                         const first_param_type = decl_type.fnParamType(0);
                         const first_param_tag = first_param_type.tag();
-                        var opt_buf: Type.Payload.ElemType = undefined;
                         // zig fmt: off
                         if (first_param_tag == .var_args_param or
                             first_param_tag == .generic_poison or (
@@ -23764,17 +23776,29 @@ fn fieldCallBind(
                                 .arg0_inst = deref,
                             });
                             return sema.addConstant(ty, value);
-                        } else if (first_param_tag != .generic_poison and first_param_type.zigTypeTag() == .Optional and
-                            first_param_type.optionalChild(&opt_buf).eql(concrete_ty, sema.mod))
-                        {
-                            const deref = try sema.analyzeLoad(block, src, object_ptr, src);
-                            const ty = Type.Tag.bound_fn.init();
-                            const value = try Value.Tag.bound_fn.create(arena, .{
-                                .func_inst = decl_val,
-                                .arg0_inst = deref,
-                            });
-                            return sema.addConstant(ty, value);
-                        } else if (first_param_tag != .generic_poison and first_param_type.zigTypeTag() == .ErrorUnion and
+                        } else if (first_param_type.zigTypeTag() == .Optional) {
+                            var opt_buf: Type.Payload.ElemType = undefined;
+                            const child = first_param_type.optionalChild(&opt_buf);
+                            if (child.eql(concrete_ty, sema.mod)) {
+                                const deref = try sema.analyzeLoad(block, src, object_ptr, src);
+                                const ty = Type.Tag.bound_fn.init();
+                                const value = try Value.Tag.bound_fn.create(arena, .{
+                                    .func_inst = decl_val,
+                                    .arg0_inst = deref,
+                                });
+                                return sema.addConstant(ty, value);
+                            } else if (child.zigTypeTag() == .Pointer and
+                                child.ptrSize() == .One and
+                                child.childType().eql(concrete_ty, sema.mod))
+                            {
+                                const ty = Type.Tag.bound_fn.init();
+                                const value = try Value.Tag.bound_fn.create(arena, .{
+                                    .func_inst = decl_val,
+                                    .arg0_inst = object_ptr,
+                                });
+                                return sema.addConstant(ty, value);
+                            }
+                        } else if (first_param_type.zigTypeTag() == .ErrorUnion and
                             first_param_type.errorUnionPayload().eql(concrete_ty, sema.mod))
                         {
                             const deref = try sema.analyzeLoad(block, src, object_ptr, src);
@@ -26434,7 +26458,7 @@ fn coerceVarArgParam(
         .ComptimeInt, .ComptimeFloat => return sema.fail(
             block,
             inst_src,
-            "integer and float literals passed variadic function must be casted to a fixed-size number type",
+            "integer and float literals passed to variadic function must be casted to a fixed-size number type",
             .{},
         ),
         .Fn => blk: {
@@ -27718,7 +27742,7 @@ fn coerceCompatiblePtrs(
     try sema.requireRuntimeBlock(block, inst_src, null);
     const inst_allows_zero = inst_ty.zigTypeTag() != .Pointer or inst_ty.ptrAllowsZero();
     if (block.wantSafety() and inst_allows_zero and !dest_ty.ptrAllowsZero() and
-        try sema.typeHasRuntimeBits(dest_ty.elemType2()))
+        (try sema.typeHasRuntimeBits(dest_ty.elemType2()) or dest_ty.elemType2().zigTypeTag() == .Fn))
     {
         const actual_ptr = if (inst_ty.isSlice())
             try sema.analyzeSlicePtr(block, inst_src, inst, inst_ty)
@@ -27891,7 +27915,7 @@ fn coerceAnonStructToUnion(
             const msg = if (field_count > 1) try sema.errMsg(
                 block,
                 inst_src,
-                "cannot initialize multiple union fields at once, unions can only have one active field",
+                "cannot initialize multiple union fields at once; unions can only have one active field",
                 .{},
             ) else try sema.errMsg(
                 block,
@@ -30369,7 +30393,9 @@ fn resolveStructLayout(sema: *Sema, ty: Type) CompileError!void {
         }
 
         if (struct_obj.layout == .Auto and sema.mod.backendSupportsFeature(.field_reordering)) {
-            const optimized_order = blk: {
+            const optimized_order = if (struct_obj.owner_decl == sema.owner_decl_index)
+                try sema.perm_arena.alloc(u32, struct_obj.fields.count())
+            else blk: {
                 const decl = sema.mod.declPtr(struct_obj.owner_decl);
                 var decl_arena = decl.value_arena.?.promote(sema.mod.gpa);
                 defer decl.value_arena.?.* = decl_arena.state;

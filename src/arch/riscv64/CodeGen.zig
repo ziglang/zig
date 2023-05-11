@@ -1734,6 +1734,7 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallModifier
                 const func = func_payload.data;
                 const atom_index = try elf_file.getOrCreateAtomForDecl(func.owner_decl);
                 const atom = elf_file.getAtom(atom_index);
+                _ = try atom.getOrCreateOffsetTableEntry(elf_file);
                 const got_addr = @intCast(u32, atom.getOffsetTableAddress(elf_file));
                 try self.genSetReg(Type.initTag(.usize), .ra, .{ .memory = got_addr });
                 _ = try self.addInst(.{

@@ -35,9 +35,10 @@ const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
 
 /// Returns the optimal static bit set type for the specified number
-/// of elements.  The returned type will perform no allocations,
+/// of elements: either `IntegerBitSet` or `ArrayBitSet`,
+/// both of which fulfill the same interface.
+/// The returned type will perform no allocations,
 /// can be copied by value, and does not require deinitialization.
-/// Both possible implementations fulfill the same interface.
 pub fn StaticBitSet(comptime size: usize) type {
     if (size <= @bitSizeOf(usize)) {
         return IntegerBitSet(size);
@@ -1635,6 +1636,8 @@ fn testStaticBitSet(comptime Set: type) !void {
 }
 
 test "IntegerBitSet" {
+    if (@import("builtin").zig_backend == .stage2_c) return error.SkipZigTest;
+
     try testStaticBitSet(IntegerBitSet(0));
     try testStaticBitSet(IntegerBitSet(1));
     try testStaticBitSet(IntegerBitSet(2));

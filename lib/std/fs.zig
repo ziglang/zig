@@ -1236,6 +1236,7 @@ pub const Dir = struct {
             .capable_io_mode = std.io.default_mode,
             .intended_io_mode = flags.intended_io_mode,
         };
+        errdefer file.close();
         var io: w.IO_STATUS_BLOCK = undefined;
         const range_off: w.LARGE_INTEGER = 0;
         const range_len: w.LARGE_INTEGER = 1;
@@ -1396,6 +1397,7 @@ pub const Dir = struct {
             .capable_io_mode = std.io.default_mode,
             .intended_io_mode = flags.intended_io_mode,
         };
+        errdefer file.close();
         var io: w.IO_STATUS_BLOCK = undefined;
         const range_off: w.LARGE_INTEGER = 0;
         const range_len: w.LARGE_INTEGER = 1;
@@ -2210,7 +2212,7 @@ pub const Dir = struct {
             var need_to_retry: bool = false;
             parent_dir.deleteDir(name) catch |err| switch (err) {
                 error.FileNotFound => {},
-                error.DirNotEmpty => need_to_retry = false,
+                error.DirNotEmpty => need_to_retry = true,
                 else => |e| return e,
             };
 
@@ -2913,6 +2915,7 @@ pub const OpenSelfExeError = error{
     /// On Windows, file paths cannot contain these characters:
     /// '/', '*', '?', '"', '<', '>', '|'
     BadPathName,
+    Overflow,
     Unexpected,
 } || os.OpenError || SelfExePathError || os.FlockError;
 
@@ -2991,7 +2994,15 @@ pub fn selfExePath(out_buffer: []u8) SelfExePathError![]u8 {
             // TODO could this slice from 0 to out_len instead?
             return mem.sliceTo(out_buffer, 0);
         },
-        .openbsd, .haiku => {
+        .haiku => {
+            // The only possible issue when looking for the self image path is
+            // when the buffer is too short.
+            // TODO replace with proper constants
+            if (os.find_path(null, 1000, null, out_buffer.ptr, out_buffer.len) != 0)
+                return error.Overflow;
+            return mem.sliceTo(out_buffer, 0);
+        },
+        .openbsd => {
             // OpenBSD doesn't support getting the path of a running process, so try to guess it
             if (os.argv.len == 0)
                 return error.FileNotFound;

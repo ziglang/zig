@@ -681,7 +681,7 @@ pub const Inst = struct {
         /// Uses the `un_op` field.
         tag_name,
 
-        /// Given an error value, return the error name. Result type is always `[:0] const u8`.
+        /// Given an error value, return the error name. Result type is always `[:0]const u8`.
         /// Uses the `un_op` field.
         error_name,
 

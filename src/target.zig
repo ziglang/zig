@@ -575,9 +575,6 @@ pub fn atomicPtrAlignment(
         .xtensa,
         => 32,
 
-        .aarch64,
-        .aarch64_be,
-        .aarch64_32,
         .amdgcn,
         .bpfel,
         .bpfeb,
@@ -600,7 +597,12 @@ pub fn atomicPtrAlignment(
         .loongarch64,
         => 64,
 
-        .x86_64 => 128,
+        .aarch64,
+        .aarch64_be,
+        .aarch64_32,
+        => 128,
+
+        .x86_64 => if (std.Target.x86.featureSetHas(target.cpu.features, .cx16)) 128 else 64,
     };
 
     var buffer: Type.Payload.Bits = undefined;

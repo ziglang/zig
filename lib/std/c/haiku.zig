@@ -5,11 +5,15 @@ const maxInt = std.math.maxInt;
 const iovec = std.os.iovec;
 const iovec_const = std.os.iovec_const;
 
+const status_t = i32;
+
 extern "c" fn _errnop() *c_int;
 
 pub const _errno = _errnop;
 
-pub extern "c" fn find_directory(which: c_int, volume: i32, createIt: bool, path_ptr: [*]u8, length: i32) u64;
+pub extern "c" fn find_directory(which: c_int, volume: i32, createIt: bool, path_ptr: [*]u8, length: i32) status_t;
+
+pub extern "c" fn find_path(codePointer: *const u8, baseDirectory: c_int, subPath: [*:0]const u8, pathBuffer: [*:0]u8, bufferSize: usize) status_t;
 
 pub extern "c" fn find_thread(thread_name: ?*anyopaque) i32;
 
@@ -1038,3 +1042,22 @@ pub const termios = extern struct {
 };
 
 pub const MSG_NOSIGNAL = 0x0800;
+
+pub const SIGEV = struct {
+    pub const NONE = 0;
+    pub const SIGNAL = 1;
+    pub const THREAD = 2;
+};
+
+pub const sigval = extern union {
+    int: c_int,
+    ptr: ?*anyopaque,
+};
+
+pub const sigevent = extern struct {
+    sigev_notify: c_int,
+    sigev_signo: c_int,
+    sigev_value: sigval,
+    sigev_notify_function: ?*const fn (sigval) callconv(.C) void,
+    sigev_notify_attributes: ?*pthread_attr_t,
+};

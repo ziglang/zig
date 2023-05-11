@@ -144,22 +144,47 @@ pub const Mode = OptimizeMode;
 /// This data structure is used by the Zig language code generation and
 /// therefore must be kept in sync with the compiler implementation.
 pub const CallingConvention = enum {
+    /// This is the default Zig calling convention used when not using `export` on `fn`
+    /// and no other calling convention is specified.
     Unspecified,
+    /// Matches the C ABI for the target.
+    /// This is the default calling convention when using `export` on `fn`
+    /// and no other calling convention is specified.
     C,
+    /// This makes a function not have any function prologue or epilogue,
+    /// making the function itself uncallable in regular Zig code.
+    /// This can be useful when integrating with assembly.
     Naked,
+    /// Functions with this calling convention are called asynchronously,
+    /// as if called as `async function()`.
     Async,
+    /// Functions with this calling convention are inlined at all call sites.
     Inline,
+    /// x86-only.
     Interrupt,
     Signal,
+    /// x86-only.
     Stdcall,
+    /// x86-only.
     Fastcall,
+    /// x86-only.
     Vectorcall,
+    /// x86-only.
     Thiscall,
+    /// ARM Procedure Call Standard (obsolete)
+    /// ARM-only.
     APCS,
+    /// ARM Architecture Procedure Call Standard (current standard)
+    /// ARM-only.
     AAPCS,
+    /// ARM Architecture Procedure Call Standard Vector Floating-Point
+    /// ARM-only.
     AAPCSVFP,
+    /// x86-64-only.
     SysV,
+    /// x86-64-only.
     Win64,
+    /// AMD GPU, NVPTX, or SPIR-V kernel
     Kernel,
 };
 
@@ -716,6 +741,8 @@ pub const VaList = switch (builtin.cpu.arch) {
 pub const PrefetchOptions = struct {
     /// Whether the prefetch should prepare for a read or a write.
     rw: Rw = .read,
+    /// The data's locality in an inclusive range from 0 to 3.
+    ///
     /// 0 means no temporal locality. That is, the data can be immediately
     /// dropped from the cache after it is accessed.
     ///
