@@ -51,7 +51,7 @@ const __udivmodsi4 = @import("int.zig").__udivmodsi4;
 const __divmoddi4 = @import("int.zig").__divmoddi4;
 const __udivmoddi4 = @import("int.zig").__udivmoddi4;
 
-extern fn memset(dest: ?[*]u8, c: u8, n: usize) ?[*]u8;
+extern fn memset(dest: ?[*]u8, c: i32, n: usize) ?[*]u8;
 extern fn memcpy(noalias dest: ?[*]u8, noalias src: ?[*]const u8, n: usize) ?[*]u8;
 extern fn memmove(dest: ?[*]u8, src: ?[*]const u8, n: usize) ?[*]u8;
 
@@ -81,17 +81,17 @@ pub fn __aeabi_memmove8(dest: [*]u8, src: [*]u8, n: usize) callconv(.AAPCS) void
     _ = memmove(dest, src, n);
 }
 
-pub fn __aeabi_memset(dest: [*]u8, n: usize, c: u8) callconv(.AAPCS) void {
+pub fn __aeabi_memset(dest: [*]u8, n: usize, c: i32) callconv(.AAPCS) void {
     @setRuntimeSafety(false);
     // This is dentical to the standard `memset` definition but with the last
     // two arguments swapped
     _ = memset(dest, c, n);
 }
-pub fn __aeabi_memset4(dest: [*]u8, n: usize, c: u8) callconv(.AAPCS) void {
+pub fn __aeabi_memset4(dest: [*]u8, n: usize, c: i32) callconv(.AAPCS) void {
     @setRuntimeSafety(false);
     _ = memset(dest, c, n);
 }
-pub fn __aeabi_memset8(dest: [*]u8, n: usize, c: u8) callconv(.AAPCS) void {
+pub fn __aeabi_memset8(dest: [*]u8, n: usize, c: i32) callconv(.AAPCS) void {
     @setRuntimeSafety(false);
     _ = memset(dest, c, n);
 }
