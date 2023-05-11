@@ -1150,7 +1150,7 @@ fn analyzeInst(
             if (args.len + 1 <= bpi - 1) {
                 var buf = [1]Air.Inst.Ref{.none} ** (bpi - 1);
                 buf[0] = callee;
-                std.mem.copy(Air.Inst.Ref, buf[1..], args);
+                @memcpy(buf[1..][0..args.len], args);
                 return analyzeOperands(a, pass, data, inst, buf);
             }
 
@@ -1189,7 +1189,7 @@ fn analyzeInst(
 
             if (elements.len <= bpi - 1) {
                 var buf = [1]Air.Inst.Ref{.none} ** (bpi - 1);
-                std.mem.copy(Air.Inst.Ref, &buf, elements);
+                @memcpy(buf[0..elements.len], elements);
                 return analyzeOperands(a, pass, data, inst, buf);
             }
 
@@ -1255,7 +1255,7 @@ fn analyzeInst(
                 if (buf_index + inputs.len > buf.len) {
                     break :simple buf_index + inputs.len;
                 }
-                std.mem.copy(Air.Inst.Ref, buf[buf_index..], inputs);
+                @memcpy(buf[buf_index..][0..inputs.len], inputs);
                 return analyzeOperands(a, pass, data, inst, buf);
             };
 

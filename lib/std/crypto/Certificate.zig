@@ -1134,9 +1134,9 @@ pub const rsa = struct {
         return res;
     }
 
-    fn setBytes(r: *BigInt, bytes: []const u8, allcator: std.mem.Allocator) !void {
+    fn setBytes(r: *BigInt, bytes: []const u8, allocator: std.mem.Allocator) !void {
         try r.set(0);
-        var tmp = try BigInt.init(allcator);
+        var tmp = try BigInt.init(allocator);
         defer tmp.deinit();
         for (bytes) |b| {
             try r.shiftLeft(r, 8);

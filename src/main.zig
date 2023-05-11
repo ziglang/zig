@@ -2072,6 +2072,8 @@ fn buildOutputType(
                     linker_tsaware = true;
                 } else if (mem.eql(u8, arg, "--nxcompat")) {
                     linker_nxcompat = true;
+                } else if (mem.eql(u8, arg, "--dynamicbase")) {
+                    linker_dynamicbase = true;
                 } else if (mem.eql(u8, arg, "--no-dynamicbase")) {
                     linker_dynamicbase = false;
                 } else if (mem.eql(u8, arg, "--high-entropy-va")) {

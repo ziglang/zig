@@ -765,7 +765,7 @@ pub const DynamicBitSetUnmanaged = struct {
         const num_masks = numMasks(self.bit_length);
         var copy = Self{};
         try copy.resize(new_allocator, self.bit_length, false);
-        std.mem.copy(MaskInt, copy.masks[0..num_masks], self.masks[0..num_masks]);
+        @memcpy(copy.masks[0..num_masks], self.masks[0..num_masks]);
         return copy;
     }
 

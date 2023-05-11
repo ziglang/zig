@@ -37,7 +37,7 @@ result_duration_ns: ?u64,
 result_peak_rss: usize,
 test_results: TestResults,
 
-/// The return addresss associated with creation of this step that can be useful
+/// The return address associated with creation of this step that can be useful
 /// to print along with debugging messages.
 debug_stack_trace: [n_debug_stack_frames]usize,
 

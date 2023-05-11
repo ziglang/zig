@@ -3858,7 +3858,7 @@ fn airCmpOp(
     try reap(f, inst, &.{ data.lhs, data.rhs });
 
     const rhs_ty = f.air.typeOf(data.rhs);
-    const need_cast = lhs_ty.isSinglePointer() != rhs_ty.isSinglePointer();
+    const need_cast = lhs_ty.isSinglePointer() or rhs_ty.isSinglePointer();
     const writer = f.object.writer();
     const local = try f.allocLocal(inst, inst_ty);
     const v = try Vectorize.start(f, inst, writer, lhs_ty);
@@ -6335,26 +6335,18 @@ fn airMemset(f: *Function, inst: Air.Inst.Index, safety: bool) !CValue {
         try writer.writeAll("; ++");
         try f.writeCValue(writer, index, .Other);
         try writer.writeAll(") ");
-        if (lowersToArray(elem_ty, target)) {
-            // Arrays are not assignable, so we use memcpy here.
-            try writer.writeAll("memcpy(");
-            try writeSliceOrPtr(f, writer, dest_slice, dest_ty);
-            try writer.writeAll("[");
-            try f.writeCValue(writer, index, .Other);
-            try writer.writeAll("], ");
-            try f.writeCValue(writer, value, .FunctionArgument);
-            try writer.print(", {d});\n", .{elem_abi_size});
-        } else {
-            try writer.writeAll("((");
-            try f.renderType(writer, elem_ptr_ty);
-            try writer.writeByte(')');
-            try writeSliceOrPtr(f, writer, dest_slice, dest_ty);
-            try writer.writeAll(")[");
-            try f.writeCValue(writer, index, .Other);
-            try writer.writeAll("] = ");
-            try f.writeCValue(writer, value, .FunctionArgument);
-            try writer.writeAll(";\n");
-        }
+
+        const a = try Assignment.start(f, writer, elem_ty);
+        try writer.writeAll("((");
+        try f.renderType(writer, elem_ptr_ty);
+        try writer.writeByte(')');
+        try writeSliceOrPtr(f, writer, dest_slice, dest_ty);
+        try writer.writeAll(")[");
+        try f.writeCValue(writer, index, .Other);
+        try writer.writeByte(']');
+        try a.assign(f, writer);
+        try f.writeCValue(writer, value, .Other);
+        try a.end(f, writer);
 
         try reap(f, inst, &.{ bin_op.lhs, bin_op.rhs });
         try freeLocal(f, inst, index.new_local, 0);

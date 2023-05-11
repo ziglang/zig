@@ -237,7 +237,7 @@ pub const DeflateFast = struct {
         }
         self.cur += @intCast(i32, src.len);
         self.prev_len = @intCast(u32, src.len);
-        mem.copy(u8, self.prev[0..self.prev_len], src);
+        @memcpy(self.prev[0..self.prev_len], src);
         return;
     }
 

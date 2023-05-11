@@ -829,7 +829,7 @@ test "error illegal char at position - bad target escape" {
     );
 }
 
-test "error illegal char at position - execting dollar_sign" {
+test "error illegal char at position - expecting dollar_sign" {
     try depTokenizer("$\t",
         \\ERROR: illegal char \x09 at position 1: expecting '$'
     );

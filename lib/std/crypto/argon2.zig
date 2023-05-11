@@ -149,7 +149,7 @@ fn blake2bLong(out: []u8, in: []const u8) void {
         h.update(&outlen_bytes);
         h.update(in);
         h.final(&out_buf);
-        mem.copy(u8, out, out_buf[0..out.len]);
+        @memcpy(out, out_buf[0..out.len]);
         return;
     }
 
@@ -158,19 +158,19 @@ fn blake2bLong(out: []u8, in: []const u8) void {
     h.update(in);
     h.final(&out_buf);
     var out_slice = out;
-    mem.copy(u8, out_slice, out_buf[0 .. H.digest_length / 2]);
+    out_slice[0 .. H.digest_length / 2].* = out_buf[0 .. H.digest_length / 2].*;
     out_slice = out_slice[H.digest_length / 2 ..];
 
     var in_buf: [H.digest_length]u8 = undefined;
     while (out_slice.len > H.digest_length) {
-        mem.copy(u8, &in_buf, &out_buf);
+        in_buf = out_buf;
         H.hash(&in_buf, &out_buf, .{});
-        mem.copy(u8, out_slice, out_buf[0 .. H.digest_length / 2]);
+        out_slice[0 .. H.digest_length / 2].* = out_buf[0 .. H.digest_length / 2].*;
         out_slice = out_slice[H.digest_length / 2 ..];
     }
-    mem.copy(u8, &in_buf, &out_buf);
+    in_buf = out_buf;
     H.hash(&in_buf, &out_buf, .{ .expected_out_bits = out_slice.len * 8 });
-    mem.copy(u8, out_slice, out_buf[0..out_slice.len]);
+    @memcpy(out_slice, out_buf[0..out_slice.len]);
 }
 
 fn initBlocks(

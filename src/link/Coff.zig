@@ -1916,7 +1916,7 @@ fn writeImportTables(self: *Coff) !void {
             .name_rva = header.virtual_address + dll_names_offset,
             .import_address_table_rva = header.virtual_address + iat_offset,
         };
-        mem.copy(u8, buffer.items[dir_table_offset..], mem.asBytes(&lookup_header));
+        @memcpy(buffer.items[dir_table_offset..][0..@sizeOf(coff.ImportDirectoryEntry)], mem.asBytes(&lookup_header));
         dir_table_offset += dir_header_size;
 
         for (itable.entries.items) |entry| {
@@ -1924,15 +1924,21 @@ fn writeImportTables(self: *Coff) !void {
 
             // IAT and lookup table entry
             const lookup = coff.ImportLookupEntry64.ByName{ .name_table_rva = @intCast(u31, header.virtual_address + names_table_offset) };
-            mem.copy(u8, buffer.items[iat_offset..], mem.asBytes(&lookup));
+            @memcpy(
+                buffer.items[iat_offset..][0..@sizeOf(coff.ImportLookupEntry64.ByName)],
+                mem.asBytes(&lookup),
+            );
             iat_offset += lookup_entry_size;
-            mem.copy(u8, buffer.items[lookup_table_offset..], mem.asBytes(&lookup));
+            @memcpy(
+                buffer.items[lookup_table_offset..][0..@sizeOf(coff.ImportLookupEntry64.ByName)],
+                mem.asBytes(&lookup),
+            );
             lookup_table_offset += lookup_entry_size;
 
             // Names table entry
             mem.writeIntLittle(u16, buffer.items[names_table_offset..][0..2], 0); // Hint set to 0 until we learn how to parse DLLs
             names_table_offset += 2;
-            mem.copy(u8, buffer.items[names_table_offset..], import_name);
+            @memcpy(buffer.items[names_table_offset..][0..import_name.len], import_name);
             names_table_offset += @intCast(u32, import_name.len);
             buffer.items[names_table_offset] = 0;
             names_table_offset += 1;
@@ -1947,13 +1953,16 @@ fn writeImportTables(self: *Coff) !void {
         iat_offset += 8;
 
         // Lookup table sentinel
-        mem.copy(u8, buffer.items[lookup_table_offset..], mem.asBytes(&coff.ImportLookupEntry64.ByName{ .name_table_rva = 0 }));
+        @memcpy(
+            buffer.items[lookup_table_offset..][0..@sizeOf(coff.ImportLookupEntry64.ByName)],
+            mem.asBytes(&coff.ImportLookupEntry64.ByName{ .name_table_rva = 0 }),
+        );
         lookup_table_offset += lookup_entry_size;
 
         // DLL name
-        mem.copy(u8, buffer.items[dll_names_offset..], lib_name);
+        @memcpy(buffer.items[dll_names_offset..][0..lib_name.len], lib_name);
         dll_names_offset += @intCast(u32, lib_name.len);
-        mem.copy(u8, buffer.items[dll_names_offset..], ext);
+        @memcpy(buffer.items[dll_names_offset..][0..ext.len], ext);
         dll_names_offset += @intCast(u32, ext.len);
         buffer.items[dll_names_offset] = 0;
         dll_names_offset += 1;
@@ -1967,7 +1976,10 @@ fn writeImportTables(self: *Coff) !void {
         .name_rva = 0,
         .import_address_table_rva = 0,
     };
-    mem.copy(u8, buffer.items[dir_table_offset..], mem.asBytes(&lookup_header));
+    @memcpy(
+        buffer.items[dir_table_offset..][0..@sizeOf(coff.ImportDirectoryEntry)],
+        mem.asBytes(&lookup_header),
+    );
     dir_table_offset += dir_header_size;
 
     assert(dll_names_offset == needed_size);
@@ -2366,7 +2378,7 @@ pub fn getAtomIndexForSymbol(self: *const Coff, sym_loc: SymbolWithLoc) ?Atom.In
 
 fn setSectionName(self: *Coff, header: *coff.SectionHeader, name: []const u8) !void {
     if (name.len <= 8) {
-        mem.copy(u8, &header.name, name);
+        @memcpy(header.name[0..name.len], name);
         @memset(header.name[name.len..], 0);
         return;
     }
@@ -2385,7 +2397,7 @@ fn getSectionName(self: *const Coff, header: *const coff.SectionHeader) []const 
 
 fn setSymbolName(self: *Coff, symbol: *coff.Symbol, name: []const u8) !void {
     if (name.len <= 8) {
-        mem.copy(u8, &symbol.name, name);
+        @memcpy(symbol.name[0..name.len], name);
         @memset(symbol.name[name.len..], 0);
         return;
     }

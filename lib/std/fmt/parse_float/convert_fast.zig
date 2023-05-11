@@ -1,4 +1,4 @@
-//! Representation of a float as the signficant digits and exponent.
+//! Representation of a float as the significant digits and exponent.
 //! The fast path algorithm using machine-sized integers and floats.
 //!
 //! This only works if both the mantissa and the exponent can be exactly

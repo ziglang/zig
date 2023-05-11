@@ -33,7 +33,7 @@ pub fn PackedIntIo(comptime Int: type, comptime endian: Endian) type {
     // In the worst case, this is the number of bytes we need to touch
     // to read or write a value, as bits. To calculate for int_bits > 1,
     // set aside 2 bits to touch the first and last bytes, then divide
-    // by 8 to see how many bytes can be filled up inbetween.
+    // by 8 to see how many bytes can be filled up in between.
     const max_io_bits = switch (int_bits) {
         0 => 0,
         1 => 8,
@@ -298,7 +298,7 @@ pub fn PackedIntSliceEndian(comptime Int: type, comptime endian: Endian) type {
         }
 
         /// Initialize a packed slice using the memory at `bytes`, with `int_count`
-        /// elements. `bytes` must be large enough to accomodate the requested
+        /// elements. `bytes` must be large enough to accommodate the requested
         /// count.
         pub fn init(bytes: []u8, int_count: usize) Self {
             debug.assert(bytes.len >= bytesRequired(int_count));

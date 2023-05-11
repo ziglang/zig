@@ -2789,6 +2789,7 @@ pub const Value = extern union {
             .field_ptr => isComptimeMutablePtr(val.castTag(.field_ptr).?.data.container_ptr),
             .eu_payload_ptr => isComptimeMutablePtr(val.castTag(.eu_payload_ptr).?.data.container_ptr),
             .opt_payload_ptr => isComptimeMutablePtr(val.castTag(.opt_payload_ptr).?.data.container_ptr),
+            .slice => isComptimeMutablePtr(val.castTag(.slice).?.data.ptr),
 
             else => false,
         };
@@ -5389,7 +5390,7 @@ pub const Value = extern union {
     /// have the same value, return that byte value, otherwise null.
     pub fn hasRepeatedByteRepr(val: Value, ty: Type, mod: *Module, value_buffer: *Payload.U64) !?Value {
         const target = mod.getTarget();
-        const abi_size = ty.abiSize(target);
+        const abi_size = std.math.cast(usize, ty.abiSize(target)) orelse return null;
         assert(abi_size >= 1);
         const byte_buffer = try mod.gpa.alloc(u8, abi_size);
         defer mod.gpa.free(byte_buffer);

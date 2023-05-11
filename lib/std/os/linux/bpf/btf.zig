@@ -109,7 +109,7 @@ pub const Enum64 = extern struct {
     val_hi32: i32,
 };
 
-/// array kind is followd by this struct
+/// array kind is followed by this struct
 pub const Array = extern struct {
     typ: u32,
     index_type: u32,
@@ -149,13 +149,13 @@ pub const FuncLinkage = enum {
     external,
 };
 
-/// var kind is followd by a single Var struct to describe additional
+/// var kind is followed by a single Var struct to describe additional
 /// information related to the variable such as its linkage
 pub const Var = extern struct {
     linkage: u32,
 };
 
-/// datasec kind is followed by multible VarSecInfo to describe all Var kind
+/// datasec kind is followed by multiple VarSecInfo to describe all Var kind
 /// types it contains along with it's in-section offset as well as size.
 pub const VarSecInfo = extern struct {
     typ: u32,

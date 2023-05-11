@@ -113,7 +113,7 @@ const Scope = struct {
                 const alloc_len = self.statements.items.len + @boolToInt(self.base.parent.?.id == .do_loop);
                 var stmts = try c.arena.alloc(Node, alloc_len);
                 stmts.len = self.statements.items.len;
-                mem.copy(Node, stmts, self.statements.items);
+                @memcpy(stmts[0..self.statements.items.len], self.statements.items);
                 return Tag.block.create(c.arena, .{
                     .label = self.label,
                     .stmts = stmts,

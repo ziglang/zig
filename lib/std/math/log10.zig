@@ -58,7 +58,7 @@ pub fn log10_int(x: anytype) Log2Int(@TypeOf(x)) {
     var log: u32 = 0;
 
     inline for (0..11) |i| {
-        // Unnecesary branches should be removed by the compiler
+        // Unnecessary branches should be removed by the compiler
         if (bit_size > (1 << (11 - i)) * 5 * @log2(10.0) and val >= pow10((1 << (11 - i)) * 5)) {
             const num_digits = (1 << (11 - i)) * 5;
             val /= pow10(num_digits);

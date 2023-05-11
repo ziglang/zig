@@ -1146,7 +1146,7 @@ fn walkInstruction(
             const limb_bytes = file.zir.string_bytes[str.start..][0..byte_count];
 
             var limbs = try self.arena.alloc(std.math.big.Limb, str.len);
-            std.mem.copy(u8, std.mem.sliceAsBytes(limbs), limb_bytes);
+            @memcpy(std.mem.sliceAsBytes(limbs)[0..limb_bytes.len], limb_bytes);
 
             const big_int = std.math.big.int.Const{
                 .limbs = limbs,
@@ -3104,7 +3104,9 @@ fn analyzeAllDecls(
     while (it.next()) |d| {
         const decl_name_index = file.zir.extra[d.sub_index + 5];
         switch (decl_name_index) {
-            0, 1, 2 => continue, // skip over usingnamespace decls
+            0, 1 => continue, // skip over usingnamespace decls
+            2 => continue, // skip decltests
+
             else => if (file.zir.string_bytes[decl_name_index] == 0) {
                 continue;
             },
@@ -3116,6 +3118,24 @@ fn analyzeAllDecls(
             parent_src,
             decl_indexes,
             priv_decl_indexes,
+            d,
+        );
+    }
+
+    // Fourth loop to analyze decltests
+    it = original_it;
+    while (it.next()) |d| {
+        const decl_name_index = file.zir.extra[d.sub_index + 5];
+        switch (decl_name_index) {
+            0, 1 => continue, // skip over usingnamespace decls
+            2 => {},
+            else => continue, // skip tests and normal decls
+        }
+
+        try self.analyzeDecltest(
+            file,
+            scope,
+            parent_src,
             d,
         );
     }
@@ -3324,6 +3344,56 @@ fn analyzeUsingnamespaceDecl(
         try decl_indexes.append(self.arena, decl_slot_index);
     } else {
         try priv_decl_indexes.append(self.arena, decl_slot_index);
+    }
+}
+
+fn analyzeDecltest(
+    self: *Autodoc,
+    file: *File,
+    scope: *Scope,
+    parent_src: SrcLocInfo,
+    d: Zir.DeclIterator.Item,
+) AutodocErrors!void {
+    const data = file.zir.instructions.items(.data);
+
+    const value_index = file.zir.extra[d.sub_index + 6];
+    const decl_name_index = file.zir.extra[d.sub_index + 7];
+
+    // This is known to work because decl values are always block_inlines
+    const value_pl_node = data[value_index].pl_node;
+    const decl_src = try self.srcLocInfo(file, value_pl_node.src_node, parent_src);
+
+    const func_index = getBlockInlineBreak(file.zir, value_index).?;
+    const pl_node = data[Zir.refToIndex(func_index).?].pl_node;
+    const fn_src = try self.srcLocInfo(file, pl_node.src_node, decl_src);
+    const tree = try file.getTree(self.comp_module.gpa);
+    const test_source_code = tree.getNodeSource(fn_src.src_node);
+
+    const decl_name: ?[]const u8 = if (decl_name_index != 0)
+        file.zir.nullTerminatedString(decl_name_index)
+    else
+        null;
+
+    // astnode
+    const ast_node_index = idx: {
+        const idx = self.ast_nodes.items.len;
+        try self.ast_nodes.append(self.arena, .{
+            .file = self.files.getIndex(file).?,
+            .line = decl_src.line,
+            .col = 0,
+            .name = decl_name,
+            .code = test_source_code,
+        });
+        break :idx idx;
+    };
+
+    const decl_status = scope.resolveDeclName(decl_name_index, file, 0);
+
+    switch (decl_status.*) {
+        .Analyzed => |idx| {
+            self.decls.items[idx].decltest = ast_node_index;
+        },
+        else => unreachable, // we assume analyzeAllDecls analyzed other decls by this point
     }
 }
 

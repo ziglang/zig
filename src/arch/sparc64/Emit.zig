@@ -91,6 +91,11 @@ pub fn emitMir(
             .lduw => try emit.mirArithmetic3Op(inst),
             .ldx => try emit.mirArithmetic3Op(inst),
 
+            .lduba => try emit.mirMemASI(inst),
+            .lduha => try emit.mirMemASI(inst),
+            .lduwa => try emit.mirMemASI(inst),
+            .ldxa => try emit.mirMemASI(inst),
+
             .@"and" => try emit.mirArithmetic3Op(inst),
             .@"or" => try emit.mirArithmetic3Op(inst),
             .xor => try emit.mirArithmetic3Op(inst),
@@ -126,6 +131,11 @@ pub fn emitMir(
             .sth => try emit.mirArithmetic3Op(inst),
             .stw => try emit.mirArithmetic3Op(inst),
             .stx => try emit.mirArithmetic3Op(inst),
+
+            .stba => try emit.mirMemASI(inst),
+            .stha => try emit.mirMemASI(inst),
+            .stwa => try emit.mirMemASI(inst),
+            .stxa => try emit.mirMemASI(inst),
 
             .sub => try emit.mirArithmetic3Op(inst),
             .subcc => try emit.mirArithmetic3Op(inst),
@@ -364,6 +374,29 @@ fn mirConditionalMove(emit: *Emit, inst: Mir.Inst.Index) !void {
                 ));
             }
         },
+        else => unreachable,
+    }
+}
+
+fn mirMemASI(emit: *Emit, inst: Mir.Inst.Index) !void {
+    const tag = emit.mir.instructions.items(.tag)[inst];
+    const data = emit.mir.instructions.items(.data)[inst].mem_asi;
+
+    const rd = data.rd;
+    const rs1 = data.rs1;
+    const rs2 = data.rs2;
+    const asi = data.asi;
+
+    switch (tag) {
+        .lduba => try emit.writeInstruction(Instruction.lduba(rs1, rs2, asi, rd)),
+        .lduha => try emit.writeInstruction(Instruction.lduha(rs1, rs2, asi, rd)),
+        .lduwa => try emit.writeInstruction(Instruction.lduwa(rs1, rs2, asi, rd)),
+        .ldxa => try emit.writeInstruction(Instruction.ldxa(rs1, rs2, asi, rd)),
+
+        .stba => try emit.writeInstruction(Instruction.stba(rs1, rs2, asi, rd)),
+        .stha => try emit.writeInstruction(Instruction.stha(rs1, rs2, asi, rd)),
+        .stwa => try emit.writeInstruction(Instruction.stwa(rs1, rs2, asi, rd)),
+        .stxa => try emit.writeInstruction(Instruction.stxa(rs1, rs2, asi, rd)),
         else => unreachable,
     }
 }

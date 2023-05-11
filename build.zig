@@ -179,9 +179,6 @@ pub fn build(b: *std.Build) !void {
     exe.entitlements = entitlements;
     b.installArtifact(exe);
 
-    const compile_step = b.step("compile", "Build the self-hosted compiler");
-    compile_step.dependOn(&exe.step);
-
     test_step.dependOn(&exe.step);
 
     exe.single_threaded = single_threaded;

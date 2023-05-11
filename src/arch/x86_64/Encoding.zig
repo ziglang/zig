@@ -575,8 +575,10 @@ const mnemonic_to_encodings_map = init: {
             .modrm_ext = entry[4],
             .mode = entry[5],
         };
-        std.mem.copy(Op, &data.ops, entry[2]);
-        std.mem.copy(u8, &data.opc, entry[3]);
+        // TODO: use `@memcpy` for these. When I did that, I got a false positive
+        // compile error for this copy happening at compile time.
+        std.mem.copyForwards(Op, &data.ops, entry[2]);
+        std.mem.copyForwards(u8, &data.opc, entry[3]);
 
         while (mnemonic_int < @enumToInt(entry[0])) : (mnemonic_int += 1) {
             mnemonic_map[mnemonic_int] = data_storage[mnemonic_start..data_index];

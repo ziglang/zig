@@ -646,7 +646,7 @@ pub const CallModifier = enum {
     /// If this is not possible, a compile error is emitted instead.
     always_tail,
 
-    /// Guarantees that the call will inlined at the callsite.
+    /// Guarantees that the call will be inlined at the callsite.
     /// If this is not possible, a compile error is emitted instead.
     always_inline,
 
@@ -749,7 +749,7 @@ pub const PrefetchOptions = struct {
     /// 3 means high temporal locality. That is, the data should be kept in
     /// the cache as it is likely to be accessed again soon.
     locality: u2 = 3,
-    /// The cache that the prefetch should be preformed on.
+    /// The cache that the prefetch should be performed on.
     cache: Cache = .data,
 
     pub const Rw = enum(u1) {

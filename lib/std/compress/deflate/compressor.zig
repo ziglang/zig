@@ -10,7 +10,6 @@ const Allocator = std.mem.Allocator;
 const deflate_const = @import("deflate_const.zig");
 const fast = @import("deflate_fast.zig");
 const hm_bw = @import("huffman_bit_writer.zig");
-const mu = @import("mem_utils.zig");
 const token = @import("token.zig");
 
 pub const Compression = enum(i5) {
@@ -296,7 +295,7 @@ pub fn Compressor(comptime WriterType: anytype) type {
         fn fillDeflate(self: *Self, b: []const u8) u32 {
             if (self.index >= 2 * window_size - (min_match_length + max_match_length)) {
                 // shift the window by window_size
-                mem.copy(u8, self.window, self.window[window_size .. 2 * window_size]);
+                mem.copyForwards(u8, self.window, self.window[window_size .. 2 * window_size]);
                 self.index -= window_size;
                 self.window_end -= window_size;
                 if (self.block_start >= window_size) {
@@ -328,7 +327,7 @@ pub fn Compressor(comptime WriterType: anytype) type {
                     }
                 }
             }
-            var n = mu.copy(self.window[self.window_end..], b);
+            const n = std.compress.deflate.copy(self.window[self.window_end..], b);
             self.window_end += n;
             return @intCast(u32, n);
         }
@@ -369,7 +368,7 @@ pub fn Compressor(comptime WriterType: anytype) type {
                 b = b[b.len - window_size ..];
             }
             // Add all to window.
-            mem.copy(u8, self.window, b);
+            @memcpy(self.window[0..b.len], b);
             var n = b.len;
 
             // Calculate 256 hashes at the time (more L1 cache hits)
@@ -706,7 +705,7 @@ pub fn Compressor(comptime WriterType: anytype) type {
         }
 
         fn fillStore(self: *Self, b: []const u8) u32 {
-            var n = mu.copy(self.window[self.window_end..], b);
+            const n = std.compress.deflate.copy(self.window[self.window_end..], b);
             self.window_end += n;
             return @intCast(u32, n);
         }
@@ -1091,8 +1090,8 @@ test "bulkHash4" {
         // double the test data
         var out = try testing.allocator.alloc(u8, x.out.len * 2);
         defer testing.allocator.free(out);
-        mem.copy(u8, out[0..x.out.len], x.out);
-        mem.copy(u8, out[x.out.len..], x.out);
+        @memcpy(out[0..x.out.len], x.out);
+        @memcpy(out[x.out.len..], x.out);
 
         var j: usize = 4;
         while (j < out.len) : (j += 1) {

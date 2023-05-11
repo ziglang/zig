@@ -258,7 +258,7 @@ pub const Instant = struct {
 
 /// A monotonic, high performance timer.
 ///
-/// Timer.start() is used to initalize the timer
+/// Timer.start() is used to initialize the timer
 /// and gives the caller an opportunity to check for the existence of a supported clock.
 /// Once a supported clock is discovered,
 /// it is assumed that it will be available for the duration of the Timer's use.
