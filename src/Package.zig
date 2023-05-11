@@ -490,15 +490,14 @@ fn fetchAndUnpack(
         try req.wait();
 
         if (req.response.status != .ok) {
-            return report.fail(dep.url_tok, "expected '200 OK' got '{} {s}' from '{s}'", .{
+            return report.fail(dep.url_tok, "Expected response status '200 OK' got '{} {s}'", .{
                 @enumToInt(req.response.status),
                 req.response.status.phrase() orelse "",
-                uri.path,
             });
         }
 
         const content_type = req.response.headers.getFirstValue("Content-Type") orelse
-            return report.fail(dep.url_tok, "missing Content-Type for '{s}'", .{uri.path});
+            return report.fail(dep.url_tok, "Missing 'Content-Type' header", .{});
 
         if (ascii.eqlIgnoreCase(content_type, "application/gzip") or
             ascii.eqlIgnoreCase(content_type, "application/x-gzip"))
@@ -511,7 +510,7 @@ fn fetchAndUnpack(
             // by default, so the same logic applies for buffering the reader as for gzip.
             try unpackTarball(gpa, &req, tmp_directory.handle, std.compress.xz);
         } else {
-            return report.fail(dep.url_tok, "unsupported Content-Type '{s}' for path '{s}'", .{ content_type, uri.path });
+            return report.fail(dep.url_tok, "Unsupported 'Content-Type' header value: '{s}'", .{content_type});
         }
 
         // TODO: delete files not included in the package prior to computing the package hash.
