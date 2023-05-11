@@ -116,6 +116,10 @@ fn ParseInternalErrorImpl(comptime T: type, comptime Source: type, comptime infe
             return error{LengthMismatch} ||
                 ParseInternalErrorImpl(arrayInfo.child, Source, inferred_types ++ [_]type{T});
         },
+        .Vector => |vecInfo| {
+            return error{LengthMismatch} ||
+                ParseInternalErrorImpl(vecInfo.child, Source, inferred_types ++ [_]type{T});
+        },
         .Pointer => |ptrInfo| {
             switch (ptrInfo.size) {
                 .One, .Slice => {
@@ -355,30 +359,13 @@ fn parseInternal(
         .Array => |arrayInfo| {
             switch (try source.peekNextTokenType()) {
                 .array_begin => {
-                    _ = try source.next();
-
                     // Typical array.
-                    var r: T = undefined;
-                    var i: usize = 0;
-                    errdefer {
-                        // Without the r.len check `r[i]` is not allowed
-                        if (r.len > 0) while (true) : (i -= 1) {
-                            parseFree(arrayInfo.child, allocator, r[i]);
-                            if (i == 0) break;
-                        };
-                    }
-                    while (i < r.len) : (i += 1) {
-                        r[i] = try parseInternal(arrayInfo.child, allocator, source, options);
-                    }
-
-                    if (.array_end != try source.next()) return error.UnexpectedToken;
-
-                    return r;
+                    return parseInternalArray(T, arrayInfo.child, arrayInfo.len, allocator, source, options);
                 },
                 .string => {
                     if (arrayInfo.child != u8) return error.UnexpectedToken;
-
                     // Fixed-length string.
+
                     var r: T = undefined;
                     var i: usize = 0;
                     while (true) {
@@ -420,6 +407,15 @@ fn parseInternal(
                     return r;
                 },
 
+                else => return error.UnexpectedToken,
+            }
+        },
+
+        .Vector => |vecInfo| {
+            switch (try source.peekNextTokenType()) {
+                .array_begin => {
+                    return parseInternalArray(T, vecInfo.child, vecInfo.len, allocator, source, options);
+                },
                 else => return error.UnexpectedToken,
             }
         },
@@ -493,6 +489,34 @@ fn parseInternal(
     unreachable;
 }
 
+fn parseInternalArray(
+    comptime T: type,
+    comptime Child: type,
+    comptime len: comptime_int,
+    allocator: Allocator,
+    source: anytype,
+    options: ParseOptions,
+) !T {
+    assert(.array_begin == try source.next());
+
+    var r: T = undefined;
+    var i: usize = 0;
+    errdefer {
+        // Without the len check `r[i]` is not allowed
+        if (len > 0) while (true) : (i -= 1) {
+            parseFree(Child, allocator, r[i]);
+            if (i == 0) break;
+        };
+    }
+    while (i < len) : (i += 1) {
+        r[i] = try parseInternal(Child, allocator, source, options);
+    }
+
+    if (.array_end != try source.next()) return error.UnexpectedToken;
+
+    return r;
+}
+
 fn freeAllocated(allocator: Allocator, token: Token) void {
     switch (token) {
         .allocated_number, .allocated_string => |slice| {
@@ -561,6 +585,12 @@ pub fn parseFree(comptime T: type, allocator: Allocator, value: T) void {
         .Array => |arrayInfo| {
             for (value) |v| {
                 parseFree(arrayInfo.child, allocator, v);
+            }
+        },
+        .Vector => |vecInfo| {
+            var i: usize = 0;
+            while (i < vecInfo.len) : (i += 1) {
+                parseFree(vecInfo.child, allocator, value[i]);
             }
         },
         .Pointer => |ptrInfo| {

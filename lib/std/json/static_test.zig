@@ -417,3 +417,21 @@ test "parseFromTokenSource" {
 test "max_value_len" {
     try testing.expectError(error.ValueTooLong, parseFromSlice([]u8, testing.allocator, "\"0123456789\"", .{ .max_value_len = 5 }));
 }
+
+test "parse into vector" {
+    const T = struct {
+        vec_i32: @Vector(4, i32),
+        vec_f32: @Vector(2, f32),
+    };
+    var s =
+        \\{
+        \\  "vec_f32": [1.5, 2.5],
+        \\  "vec_i32": [4, 5, 6, 7]
+        \\}
+    ;
+    const r = try parseFromSlice(T, testing.allocator, s, .{});
+    defer parseFree(T, testing.allocator, r);
+    try testing.expectApproxEqAbs(@as(f32, 1.5), r.vec_f32[0], 0.0000001);
+    try testing.expectApproxEqAbs(@as(f32, 2.5), r.vec_f32[1], 0.0000001);
+    try testing.expectEqual(@Vector(4, i32){ 4, 5, 6, 7 }, r.vec_i32);
+}
