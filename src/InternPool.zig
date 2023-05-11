@@ -13,6 +13,12 @@ extra: std.ArrayListUnmanaged(u32) = .{},
 /// Use the helper methods instead of accessing this directly in order to not
 /// violate the above mechanism.
 limbs: std.ArrayListUnmanaged(u64) = .{},
+/// In order to store references to strings in fewer bytes, we copy all
+/// string bytes into here. String bytes can be null. It is up to whomever
+/// is referencing the data here whether they want to store both index and length,
+/// thus allowing null bytes, or store only index, and use null-termination. The
+/// `string_bytes` array is agnostic to either usage.
+string_bytes: std.ArrayListUnmanaged(u8) = .{},
 
 /// Struct objects are stored in this data structure because:
 /// * They contain pointers such as the field maps.
@@ -27,6 +33,12 @@ structs_free_list: std.ArrayListUnmanaged(Module.Struct.Index) = .{},
 allocated_unions: std.SegmentedList(Module.Union, 0) = .{},
 /// When a Union object is freed from `allocated_unions`, it is pushed into this stack.
 unions_free_list: std.ArrayListUnmanaged(Module.Union.Index) = .{},
+
+/// Some types such as enums, structs, and unions need to store mappings from field names
+/// to field index, or value to field index. In such cases, they will store the underlying
+/// field names and values directly, relying on one of these maps, stored separately,
+/// to provide lookup.
+maps: std.ArrayListUnmanaged(std.AutoArrayHashMapUnmanaged(void, void)) = .{},
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
@@ -52,6 +64,46 @@ const KeyAdapter = struct {
     }
 };
 
+/// An index into `maps` which might be `none`.
+pub const OptionalMapIndex = enum(u32) {
+    none = std.math.maxInt(u32),
+    _,
+};
+
+/// An index into `maps`.
+pub const MapIndex = enum(u32) {
+    _,
+
+    pub fn toOptional(i: MapIndex) OptionalMapIndex {
+        return @intToEnum(OptionalMapIndex, @enumToInt(i));
+    }
+};
+
+/// An index into `string_bytes`.
+pub const NullTerminatedString = enum(u32) {
+    _,
+
+    const Adapter = struct {
+        strings: []const NullTerminatedString,
+
+        pub fn eql(ctx: @This(), a: NullTerminatedString, b_void: void, b_map_index: usize) bool {
+            _ = b_void;
+            return a == ctx.strings[b_map_index];
+        }
+
+        pub fn hash(ctx: @This(), a: NullTerminatedString) u32 {
+            _ = ctx;
+            return std.hash.uint32(@enumToInt(a));
+        }
+    };
+};
+
+/// An index into `string_bytes` which might be `none`.
+pub const OptionalNullTerminatedString = enum(u32) {
+    none = std.math.maxInt(u32),
+    _,
+};
+
 pub const Key = union(enum) {
     int_type: IntType,
     ptr_type: PtrType,
@@ -68,6 +120,7 @@ pub const Key = union(enum) {
     struct_type: StructType,
     union_type: UnionType,
     opaque_type: OpaqueType,
+    enum_type: EnumType,
 
     simple_value: SimpleValue,
     extern_func: struct {
@@ -174,6 +227,30 @@ pub const Key = union(enum) {
         }
     };
 
+    pub const EnumType = struct {
+        /// The Decl that corresponds to the enum itself.
+        decl: Module.Decl.Index,
+        /// Represents the declarations inside this enum.
+        namespace: Module.Namespace.OptionalIndex,
+        /// An integer type which is used for the numerical value of the enum.
+        /// This field is present regardless of whether the enum has an
+        /// explicitly provided tag type or auto-numbered.
+        tag_ty: Index,
+        /// Set of field names in declaration order.
+        names: []const NullTerminatedString,
+        /// Maps integer tag value to field index.
+        /// Entries are in declaration order, same as `fields`.
+        /// If this is empty, it means the enum tags are auto-numbered.
+        values: []const Index,
+        /// true if zig inferred this tag type, false if user specified it
+        tag_ty_inferred: bool,
+        /// This is ignored by `get` but will always be provided by `indexToKey`.
+        names_map: OptionalMapIndex = .none,
+        /// This is ignored by `get` but will be provided by `indexToKey` when
+        /// a value map exists.
+        values_map: OptionalMapIndex = .none,
+    };
+
     pub const Int = struct {
         ty: Index,
         storage: Storage,
@@ -263,6 +340,7 @@ pub const Key = union(enum) {
             => |info| std.hash.autoHash(hasher, info),
 
             .opaque_type => |opaque_type| std.hash.autoHash(hasher, opaque_type.decl),
+            .enum_type => |enum_type| std.hash.autoHash(hasher, enum_type.decl),
 
             .int => |int| {
                 // Canonicalize all integers by converting them to BigIntConst.
@@ -410,6 +488,10 @@ pub const Key = union(enum) {
                 const b_info = b.opaque_type;
                 return a_info.decl == b_info.decl;
             },
+            .enum_type => |a_info| {
+                const b_info = b.enum_type;
+                return a_info.decl == b_info.decl;
+            },
             .aggregate => |a_info| {
                 const b_info = b.aggregate;
                 if (a_info.ty != b_info.ty) return false;
@@ -430,6 +512,7 @@ pub const Key = union(enum) {
             .struct_type,
             .union_type,
             .opaque_type,
+            .enum_type,
             => return .type_type,
 
             inline .ptr,
@@ -592,6 +675,21 @@ pub const Index = enum(u32) {
             .legacy = undefined,
         };
     }
+
+    /// Used for a map of `Index` values to the index within a list of `Index` values.
+    const Adapter = struct {
+        indexes: []const Index,
+
+        pub fn eql(ctx: @This(), a: Index, b_void: void, b_map_index: usize) bool {
+            _ = b_void;
+            return a == ctx.indexes[b_map_index];
+        }
+
+        pub fn hash(ctx: @This(), a: Index) u32 {
+            _ = ctx;
+            return std.hash.uint32(@enumToInt(a));
+        }
+    };
 };
 
 pub const static_keys = [_]Key{
@@ -848,10 +946,12 @@ pub const Tag = enum(u8) {
     /// An error union type.
     /// data is payload to ErrorUnion.
     type_error_union,
-    /// Represents the data that an enum declaration provides, when the fields
-    /// are auto-numbered, and there are no declarations.
-    /// data is payload index to `EnumSimple`.
-    type_enum_simple,
+    /// An enum type with an explicitly provided integer tag type.
+    /// data is payload index to `EnumExplicit`.
+    type_enum_explicit,
+    /// An enum type with auto-numbered tag values.
+    /// data is payload index to `EnumAuto`.
+    type_enum_auto,
     /// A type that can be represented with only an enum tag.
     /// data is SimpleType enum value.
     simple_type,
@@ -1087,17 +1187,35 @@ pub const ErrorUnion = struct {
 };
 
 /// Trailing:
-/// 0. field name: null-terminated string index for each fields_len; declaration order
-pub const EnumSimple = struct {
+/// 0. field name: NullTerminatedString for each fields_len; declaration order
+/// 1. tag value: Index for each fields_len; declaration order
+pub const EnumExplicit = struct {
     /// The Decl that corresponds to the enum itself.
     decl: Module.Decl.Index,
-    /// An integer type which is used for the numerical value of the enum. This
-    /// is inferred by Zig to be the smallest power of two unsigned int that
-    /// fits the number of fields. It is stored here to avoid unnecessary
-    /// calculations and possibly allocation failure when querying the tag type
-    /// of enums.
-    int_tag_ty: Index,
+    /// This may be `none` if there are no declarations.
+    namespace: Module.Namespace.OptionalIndex,
+    /// An integer type which is used for the numerical value of the enum, which
+    /// has been explicitly provided by the enum declaration.
+    int_tag_type: Index,
     fields_len: u32,
+    /// Maps field names to declaration index.
+    names_map: MapIndex,
+    /// Maps field values to declaration index.
+    /// If this is `none`, it means the trailing tag values are absent because
+    /// they are auto-numbered.
+    values_map: OptionalMapIndex,
+};
+
+/// Trailing:
+/// 0. field name: NullTerminatedString for each fields_len; declaration order
+pub const EnumAuto = struct {
+    /// The Decl that corresponds to the enum itself.
+    decl: Module.Decl.Index,
+    /// This may be `none` if there are no declarations.
+    namespace: Module.Namespace.OptionalIndex,
+    fields_len: u32,
+    /// Maps field names to declaration index.
+    names_map: MapIndex,
 };
 
 pub const PackedU64 = packed struct(u64) {
@@ -1183,6 +1301,9 @@ pub fn deinit(ip: *InternPool, gpa: Allocator) void {
     ip.unions_free_list.deinit(gpa);
     ip.allocated_unions.deinit(gpa);
 
+    ip.maps.deinit(gpa);
+    ip.string_bytes.deinit(gpa);
+
     ip.* = undefined;
 }
 
@@ -1256,7 +1377,6 @@ pub fn indexToKey(ip: InternPool, index: Index) Key {
         .type_optional => .{ .opt_type = @intToEnum(Index, data) },
 
         .type_error_union => @panic("TODO"),
-        .type_enum_simple => @panic("TODO"),
 
         .type_opaque => .{ .opaque_type = ip.extraData(Key.OpaqueType, data) },
         .type_struct => {
@@ -1287,6 +1407,46 @@ pub fn indexToKey(ip: InternPool, index: Index) Key {
             .index = @intToEnum(Module.Union.Index, data),
             .runtime_tag = .safety,
         } },
+
+        .type_enum_auto => {
+            const enum_auto = ip.extraDataTrail(EnumAuto, data);
+            const names = @ptrCast(
+                []const NullTerminatedString,
+                ip.extra.items[enum_auto.end..][0..enum_auto.data.fields_len],
+            );
+            return .{ .enum_type = .{
+                .decl = enum_auto.data.decl,
+                .namespace = enum_auto.data.namespace,
+                .tag_ty = ip.getEnumIntTagType(enum_auto.data.fields_len),
+                .names = names,
+                .values = &.{},
+                .tag_ty_inferred = true,
+                .names_map = enum_auto.data.names_map.toOptional(),
+                .values_map = .none,
+            } };
+        },
+        .type_enum_explicit => {
+            const enum_explicit = ip.extraDataTrail(EnumExplicit, data);
+            const names = @ptrCast(
+                []const NullTerminatedString,
+                ip.extra.items[enum_explicit.end..][0..enum_explicit.data.fields_len],
+            );
+            const values = if (enum_explicit.data.values_map != .none) @ptrCast(
+                []const Index,
+                ip.extra.items[enum_explicit.end + names.len ..][0..enum_explicit.data.fields_len],
+            ) else &[0]Index{};
+
+            return .{ .enum_type = .{
+                .decl = enum_explicit.data.decl,
+                .namespace = enum_explicit.data.namespace,
+                .tag_ty = enum_explicit.data.int_tag_type,
+                .names = names,
+                .values = values,
+                .tag_ty_inferred = false,
+                .names_map = enum_explicit.data.names_map.toOptional(),
+                .values_map = enum_explicit.data.values_map,
+            } };
+        },
 
         .opt_null => .{ .opt = .{
             .ty = @intToEnum(Index, data),
@@ -1360,6 +1520,14 @@ pub fn indexToKey(ip: InternPool, index: Index) Key {
         },
         .union_value => .{ .un = ip.extraData(Key.Union, data) },
     };
+}
+
+/// Asserts the integer tag type is already present in the InternPool.
+fn getEnumIntTagType(ip: InternPool, fields_len: u32) Index {
+    return ip.getAssumeExists(.{ .int_type = .{
+        .bits = if (fields_len == 0) 0 else std.math.log2_int_ceil(u32, fields_len),
+        .signedness = .unsigned,
+    } });
 }
 
 fn indexToKeyBigInt(ip: InternPool, limb_index: u32, positive: bool) Key {
@@ -1520,6 +1688,54 @@ pub fn get(ip: *InternPool, gpa: Allocator, key: Key) Allocator.Error!Index {
                 .tag = .type_opaque,
                 .data = try ip.addExtra(gpa, opaque_type),
             });
+        },
+
+        .enum_type => |enum_type| {
+            assert(enum_type.tag_ty != .none);
+            assert(enum_type.names_map == .none);
+            assert(enum_type.values_map == .none);
+
+            const names_map = try ip.addMap(gpa);
+            try addStringsToMap(ip, gpa, names_map, enum_type.names);
+
+            const fields_len = @intCast(u32, enum_type.names.len);
+
+            if (enum_type.tag_ty_inferred) {
+                try ip.extra.ensureUnusedCapacity(gpa, @typeInfo(EnumAuto).Struct.fields.len +
+                    fields_len);
+                ip.items.appendAssumeCapacity(.{
+                    .tag = .type_enum_auto,
+                    .data = ip.addExtraAssumeCapacity(EnumAuto{
+                        .decl = enum_type.decl,
+                        .namespace = enum_type.namespace,
+                        .names_map = names_map,
+                        .fields_len = fields_len,
+                    }),
+                });
+                ip.extra.appendSliceAssumeCapacity(@ptrCast([]const u32, enum_type.names));
+                return @intToEnum(Index, ip.items.len - 1);
+            }
+
+            const values_map: OptionalMapIndex = if (enum_type.values.len == 0) .none else m: {
+                const values_map = try ip.addMap(gpa);
+                try addIndexesToMap(ip, gpa, values_map, enum_type.values);
+                break :m values_map.toOptional();
+            };
+            try ip.extra.ensureUnusedCapacity(gpa, @typeInfo(EnumExplicit).Struct.fields.len +
+                fields_len);
+            ip.items.appendAssumeCapacity(.{
+                .tag = .type_enum_auto,
+                .data = ip.addExtraAssumeCapacity(EnumExplicit{
+                    .decl = enum_type.decl,
+                    .namespace = enum_type.namespace,
+                    .int_tag_type = enum_type.tag_ty,
+                    .fields_len = fields_len,
+                    .names_map = names_map,
+                    .values_map = values_map,
+                }),
+            });
+            ip.extra.appendSliceAssumeCapacity(@ptrCast([]const u32, enum_type.names));
+            ip.extra.appendSliceAssumeCapacity(@ptrCast([]const u32, enum_type.values));
         },
 
         .extern_func => @panic("TODO"),
@@ -1723,6 +1939,40 @@ pub fn getAssumeExists(ip: InternPool, key: Key) Index {
     return @intToEnum(Index, index);
 }
 
+fn addStringsToMap(
+    ip: *InternPool,
+    gpa: Allocator,
+    map_index: MapIndex,
+    strings: []const NullTerminatedString,
+) Allocator.Error!void {
+    const map = &ip.maps.items[@enumToInt(map_index)];
+    const adapter: NullTerminatedString.Adapter = .{ .strings = strings };
+    for (strings) |string| {
+        const gop = try map.getOrPutAdapted(gpa, string, adapter);
+        assert(!gop.found_existing);
+    }
+}
+
+fn addIndexesToMap(
+    ip: *InternPool,
+    gpa: Allocator,
+    map_index: MapIndex,
+    indexes: []const Index,
+) Allocator.Error!void {
+    const map = &ip.maps.items[@enumToInt(map_index)];
+    const adapter: Index.Adapter = .{ .indexes = indexes };
+    for (indexes) |index| {
+        const gop = try map.getOrPutAdapted(gpa, index, adapter);
+        assert(!gop.found_existing);
+    }
+}
+
+fn addMap(ip: *InternPool, gpa: Allocator) Allocator.Error!MapIndex {
+    const ptr = try ip.maps.addOne(gpa);
+    ptr.* = .{};
+    return @intToEnum(MapIndex, ip.maps.items.len - 1);
+}
+
 /// This operation only happens under compile error conditions.
 /// Leak the index until the next garbage collection.
 pub fn remove(ip: *InternPool, index: Index) void {
@@ -1758,6 +2008,9 @@ fn addExtraAssumeCapacity(ip: *InternPool, extra: anytype) u32 {
             Index => @enumToInt(@field(extra, field.name)),
             Module.Decl.Index => @enumToInt(@field(extra, field.name)),
             Module.Namespace.Index => @enumToInt(@field(extra, field.name)),
+            Module.Namespace.OptionalIndex => @enumToInt(@field(extra, field.name)),
+            MapIndex => @enumToInt(@field(extra, field.name)),
+            OptionalMapIndex => @enumToInt(@field(extra, field.name)),
             i32 => @bitCast(u32, @field(extra, field.name)),
             Pointer.Flags => @bitCast(u32, @field(extra, field.name)),
             Pointer.PackedOffset => @bitCast(u32, @field(extra, field.name)),
@@ -1806,15 +2059,19 @@ fn addLimbsAssumeCapacity(ip: *InternPool, limbs: []const Limb) void {
     }
 }
 
-fn extraData(ip: InternPool, comptime T: type, index: usize) T {
+fn extraDataTrail(ip: InternPool, comptime T: type, index: usize) struct { data: T, end: usize } {
     var result: T = undefined;
-    inline for (@typeInfo(T).Struct.fields, 0..) |field, i| {
+    const fields = @typeInfo(T).Struct.fields;
+    inline for (fields, 0..) |field, i| {
         const int32 = ip.extra.items[i + index];
         @field(result, field.name) = switch (field.type) {
             u32 => int32,
             Index => @intToEnum(Index, int32),
             Module.Decl.Index => @intToEnum(Module.Decl.Index, int32),
             Module.Namespace.Index => @intToEnum(Module.Namespace.Index, int32),
+            Module.Namespace.OptionalIndex => @intToEnum(Module.Namespace.OptionalIndex, int32),
+            MapIndex => @intToEnum(MapIndex, int32),
+            OptionalMapIndex => @intToEnum(OptionalMapIndex, int32),
             i32 => @bitCast(i32, int32),
             Pointer.Flags => @bitCast(Pointer.Flags, int32),
             Pointer.PackedOffset => @bitCast(Pointer.PackedOffset, int32),
@@ -1822,7 +2079,14 @@ fn extraData(ip: InternPool, comptime T: type, index: usize) T {
             else => @compileError("bad field type: " ++ @typeName(field.type)),
         };
     }
-    return result;
+    return .{
+        .data = result,
+        .end = index + fields.len,
+    };
+}
+
+fn extraData(ip: InternPool, comptime T: type, index: usize) T {
+    return extraDataTrail(ip, T, index).data;
 }
 
 /// Asserts the struct has 32-bit fields and the number of fields is evenly divisible by 2.
@@ -2071,7 +2335,8 @@ fn dumpFallible(ip: InternPool, arena: Allocator) anyerror!void {
             .type_slice => 0,
             .type_optional => 0,
             .type_error_union => @sizeOf(ErrorUnion),
-            .type_enum_simple => @sizeOf(EnumSimple),
+            .type_enum_explicit => @sizeOf(EnumExplicit),
+            .type_enum_auto => @sizeOf(EnumAuto),
             .type_opaque => @sizeOf(Key.OpaqueType),
             .type_struct => @sizeOf(Module.Struct) + @sizeOf(Module.Namespace) + @sizeOf(Module.Decl),
             .type_struct_ns => @sizeOf(Module.Namespace),
