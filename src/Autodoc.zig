@@ -295,7 +295,7 @@ pub fn generateZirData(self: *Autodoc) !void {
         try std.json.stringify(
             data,
             .{
-                .whitespace = .{ .indent = .None, .separator = false },
+                .whitespace = .{ .indent = .none, .separator = false },
                 .emit_null_optional_fields = true,
             },
             out,

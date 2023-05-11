@@ -9,10 +9,10 @@ pub const StringifyOptions = struct {
 
         /// What character(s) should be used for indentation?
         indent: union(enum) {
-            Space: u8,
-            Tab: void,
-            None: void,
-        } = .{ .Space = 4 },
+            space: u8,
+            tab: void,
+            none: void,
+        } = .{ .space = 4 },
 
         /// After a colon, should whitespace be inserted?
         separator: bool = true,
@@ -24,15 +24,15 @@ pub const StringifyOptions = struct {
             var char: u8 = undefined;
             var n_chars: usize = undefined;
             switch (whitespace.indent) {
-                .Space => |n_spaces| {
+                .space => |n_spaces| {
                     char = ' ';
                     n_chars = n_spaces;
                 },
-                .Tab => {
+                .tab => {
                     char = '\t';
                     n_chars = 1;
                 },
-                .None => return,
+                .none => return,
             }
             try out_stream.writeByte('\n');
             n_chars *= whitespace.indent_level;
@@ -454,7 +454,7 @@ test "stringify struct with indentation" {
         },
         StringifyOptions{
             .whitespace = .{
-                .indent = .Tab,
+                .indent = .tab,
                 .separator = false,
             },
         },
@@ -471,7 +471,7 @@ test "stringify struct with indentation" {
         },
         StringifyOptions{
             .whitespace = .{
-                .indent = .None,
+                .indent = .none,
                 .separator = false,
             },
         },

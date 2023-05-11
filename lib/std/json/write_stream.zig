@@ -28,7 +28,7 @@ pub fn WriteStream(comptime OutStream: type, comptime max_depth: usize) type {
 
         whitespace: StringifyOptions.Whitespace = StringifyOptions.Whitespace{
             .indent_level = 0,
-            .indent = .{ .Space = 1 },
+            .indent = .{ .space = 1 },
         },
 
         stream: OutStream,
