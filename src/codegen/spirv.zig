@@ -1688,9 +1688,9 @@ pub const DeclGen = struct {
 
             .shl => try self.airShift(inst, .OpShiftLeftLogical),
 
-            .bitcast => try self.airBitcast(inst),
-            .intcast => try self.airIntcast(inst),
-            .not     => try self.airNot(inst),
+            .bitcast         => try self.airBitcast(inst),
+            .intcast, .trunc => try self.airIntcast(inst),
+            .not             => try self.airNot(inst),
 
             .slice_ptr      => try self.airSliceField(inst, 0),
             .slice_len      => try self.airSliceField(inst, 1),
@@ -1718,21 +1718,21 @@ pub const DeclGen = struct {
             .ret_ptr => try self.airAlloc(inst),
             .block   => try self.airBlock(inst),
 
-            .load    => try self.airLoad(inst),
-            .store   => return self.airStore(inst),
+            .load               => try self.airLoad(inst),
+            .store, .store_safe => return self.airStore(inst),
 
-            .br         => return self.airBr(inst),
-            .breakpoint => return,
-            .cond_br    => return self.airCondBr(inst),
-            .constant   => unreachable,
-            .const_ty   => unreachable,
-            .dbg_stmt   => return self.airDbgStmt(inst),
-            .loop       => return self.airLoop(inst),
-            .ret        => return self.airRet(inst),
-            .ret_load   => return self.airRetLoad(inst),
-            .@"try"     => try self.airTry(inst),
-            .switch_br  => return self.airSwitchBr(inst),
-            .unreach    => return self.airUnreach(),
+            .br             => return self.airBr(inst),
+            .breakpoint     => return,
+            .cond_br        => return self.airCondBr(inst),
+            .constant       => unreachable,
+            .const_ty       => unreachable,
+            .dbg_stmt       => return self.airDbgStmt(inst),
+            .loop           => return self.airLoop(inst),
+            .ret            => return self.airRet(inst),
+            .ret_load       => return self.airRetLoad(inst),
+            .@"try"         => try self.airTry(inst),
+            .switch_br      => return self.airSwitchBr(inst),
+            .unreach, .trap => return self.airUnreach(),
 
             .unwrap_errunion_err => try self.airErrUnionErr(inst),
             .wrap_errunion_err => try self.airWrapErrUnionErr(inst),
@@ -2490,8 +2490,15 @@ pub const DeclGen = struct {
         const ptr_ty = self.air.typeOf(bin_op.lhs);
         const ptr = try self.resolve(bin_op.lhs);
         const value = try self.resolve(bin_op.rhs);
+        const ptr_ty_ref = try self.resolveType(ptr_ty, .direct);
 
-        try self.store(ptr_ty, ptr, value);
+        const val_is_undef = if (self.air.value(bin_op.rhs)) |val| val.isUndefDeep() else false;
+        if (val_is_undef) {
+            const undef = try self.constUndef(ptr_ty_ref);
+            try self.store(ptr_ty, ptr, undef);
+        } else {
+            try self.store(ptr_ty, ptr, value);
+        }
     }
 
     fn airLoop(self: *DeclGen, inst: Air.Inst.Index) !void {
