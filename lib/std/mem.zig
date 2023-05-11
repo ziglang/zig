@@ -3656,6 +3656,7 @@ pub fn replacementSizeMany(comptime T: type, input: []const T, replacement_pairs
                 size = size - pair.ToReplace.len + pair.Replacer.len;
                 i += pair.ToReplace.len;
                 found = true;
+                break;
             }
         }
 
@@ -3732,6 +3733,7 @@ pub fn replaceMany(comptime T: type, input: []const T, replacement_pairs: []cons
                 slide += pair.ToReplace.len;
                 replacements += 1;
                 found = true;
+                break;
             }
         }
         if (found == false) {
