@@ -275,5 +275,4 @@ test {
     _ = Client;
     _ = Method;
     _ = Status;
-    _ = @import("http/test.zig");
 }
