@@ -203,7 +203,7 @@ test "multiline string comments at multiple places" {
     try expect(mem.eql(u8, s1, s2));
 }
 
-test "string concatenation" {
+test "string concatenation simple" {
     try expect(mem.eql(u8, "OK" ++ " IT " ++ "WORKED", "OK IT WORKED"));
 }
 
@@ -363,7 +363,6 @@ fn hereIsAnOpaqueType(ptr: *OpaqueA) *OpaqueA {
 }
 
 test "take address of parameter" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
@@ -391,7 +390,6 @@ test "array 2D const double ptr" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
 
     const rect_2d_vertexes = [_][1]f32{
@@ -405,7 +403,6 @@ test "array 2D const double ptr with offset" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest;
 
     const rect_2d_vertexes = [_][2]f32{
@@ -419,7 +416,6 @@ test "array 3D const double ptr with offset" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
 
     const rect_3d_vertexes = [_][2][2]f32{
@@ -1127,4 +1123,25 @@ test "runtime-known globals initialized with undefined" {
 
     try expect(S.s[0] == 1);
     try expect(S.s[4] == 5);
+}
+
+test "arrays and vectors with big integers" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest;
+
+    // TODO: only aarch64-windows didn't pass in the PR that added this code.
+    //       figure out why if you can run this target.
+    if (builtin.os.tag == .windows and builtin.cpu.arch == .aarch64) return error.SkipZigTest;
+
+    inline for (.{ u65528, u65529, u65535 }) |Int| {
+        var a: [1]Int = undefined;
+        a[0] = std.math.maxInt(Int);
+        try expect(a[0] == comptime std.math.maxInt(Int));
+        var b: @Vector(1, Int) = undefined;
+        b[0] = std.math.maxInt(Int);
+        try expect(b[0] == comptime std.math.maxInt(Int));
+    }
 }

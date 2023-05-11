@@ -1132,7 +1132,7 @@ pub fn addCases(
     b: *std.Build,
     parent_step: *Step,
     opt_test_filter: ?[]const u8,
-    check_case_exe: *std.Build.CompileStep,
+    check_case_exe: *std.Build.Step.Compile,
 ) !void {
     const arena = b.allocator;
     const gpa = b.allocator;

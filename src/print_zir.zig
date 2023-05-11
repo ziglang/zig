@@ -467,6 +467,7 @@ const Writer = struct {
             .breakpoint,
             .c_va_start,
             .in_comptime,
+            .errdefer_err_code,
             => try self.writeExtNode(stream, extended),
 
             .builtin_src => {
@@ -482,6 +483,8 @@ const Writer = struct {
 
             .compile_log => try self.writeNodeMultiOp(stream, extended),
             .typeof_peer => try self.writeTypeofPeer(stream, extended),
+            .min_multi => try self.writeNodeMultiOp(stream, extended),
+            .max_multi => try self.writeNodeMultiOp(stream, extended),
 
             .select => try self.writeSelect(stream, extended),
 

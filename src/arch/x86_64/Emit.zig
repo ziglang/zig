@@ -18,142 +18,152 @@ pub const Error = Lower.Error || error{
 };
 
 pub fn emitMir(emit: *Emit) Error!void {
-    for (0..emit.lower.mir.instructions.len) |i| {
-        const index = @intCast(Mir.Inst.Index, i);
-        const inst = emit.lower.mir.instructions.get(index);
-
-        const start_offset = @intCast(u32, emit.code.items.len);
-        try emit.code_offset_mapping.putNoClobber(emit.lower.allocator, index, start_offset);
-        for (try emit.lower.lowerMir(inst)) |lower_inst| try lower_inst.encode(emit.code.writer(), .{});
-        const end_offset = @intCast(u32, emit.code.items.len);
-
-        switch (inst.tag) {
-            else => {},
-
-            .jmp_reloc => try emit.relocs.append(emit.lower.allocator, .{
-                .source = start_offset,
-                .target = inst.data.inst,
-                .offset = end_offset - 4,
-                .length = 5,
-            }),
-
-            .call_extern => if (emit.bin_file.cast(link.File.MachO)) |macho_file| {
-                // Add relocation to the decl.
-                const atom_index = macho_file.getAtomIndexForSymbol(
-                    .{ .sym_index = inst.data.relocation.atom_index, .file = null },
-                ).?;
-                const target = macho_file.getGlobalByIndex(inst.data.relocation.sym_index);
-                try link.File.MachO.Atom.addRelocation(macho_file, atom_index, .{
-                    .type = .branch,
+    for (0..emit.lower.mir.instructions.len) |mir_i| {
+        const mir_index = @intCast(Mir.Inst.Index, mir_i);
+        try emit.code_offset_mapping.putNoClobber(
+            emit.lower.allocator,
+            mir_index,
+            @intCast(u32, emit.code.items.len),
+        );
+        const lowered = try emit.lower.lowerMir(mir_index);
+        var lowered_relocs = lowered.relocs;
+        for (lowered.insts, 0..) |lowered_inst, lowered_index| {
+            const start_offset = @intCast(u32, emit.code.items.len);
+            try lowered_inst.encode(emit.code.writer(), .{});
+            const end_offset = @intCast(u32, emit.code.items.len);
+            while (lowered_relocs.len > 0 and
+                lowered_relocs[0].lowered_inst_index == lowered_index) : ({
+                lowered_relocs = lowered_relocs[1..];
+            }) switch (lowered_relocs[0].target) {
+                .inst => |target| try emit.relocs.append(emit.lower.allocator, .{
+                    .source = start_offset,
                     .target = target,
                     .offset = end_offset - 4,
-                    .addend = 0,
-                    .pcrel = true,
-                    .length = 2,
-                });
-            } else if (emit.bin_file.cast(link.File.Coff)) |coff_file| {
-                // Add relocation to the decl.
-                const atom_index = coff_file.getAtomIndexForSymbol(
-                    .{ .sym_index = inst.data.relocation.atom_index, .file = null },
-                ).?;
-                const target = coff_file.getGlobalByIndex(inst.data.relocation.sym_index);
-                try link.File.Coff.Atom.addRelocation(coff_file, atom_index, .{
-                    .type = .direct,
-                    .target = target,
-                    .offset = end_offset - 4,
-                    .addend = 0,
-                    .pcrel = true,
-                    .length = 2,
-                });
-            } else return emit.fail("TODO implement {} for {}", .{ inst.tag, emit.bin_file.tag }),
+                    .length = @intCast(u5, end_offset - start_offset),
+                }),
+                .linker_extern_fn => |symbol| if (emit.bin_file.cast(link.File.MachO)) |macho_file| {
+                    // Add relocation to the decl.
+                    const atom_index = macho_file.getAtomIndexForSymbol(
+                        .{ .sym_index = symbol.atom_index, .file = null },
+                    ).?;
+                    const target = macho_file.getGlobalByIndex(symbol.sym_index);
+                    try link.File.MachO.Atom.addRelocation(macho_file, atom_index, .{
+                        .type = .branch,
+                        .target = target,
+                        .offset = end_offset - 4,
+                        .addend = 0,
+                        .pcrel = true,
+                        .length = 2,
+                    });
+                } else if (emit.bin_file.cast(link.File.Coff)) |coff_file| {
+                    // Add relocation to the decl.
+                    const atom_index = coff_file.getAtomIndexForSymbol(
+                        .{ .sym_index = symbol.atom_index, .file = null },
+                    ).?;
+                    const target = coff_file.getGlobalByIndex(symbol.sym_index);
+                    try link.File.Coff.Atom.addRelocation(coff_file, atom_index, .{
+                        .type = .direct,
+                        .target = target,
+                        .offset = end_offset - 4,
+                        .addend = 0,
+                        .pcrel = true,
+                        .length = 2,
+                    });
+                } else return emit.fail("TODO implement extern reloc for {s}", .{
+                    @tagName(emit.bin_file.tag),
+                }),
+                .linker_got,
+                .linker_direct,
+                .linker_import,
+                .linker_tlv,
+                => |symbol| if (emit.bin_file.cast(link.File.MachO)) |macho_file| {
+                    const atom_index = macho_file.getAtomIndexForSymbol(.{
+                        .sym_index = symbol.atom_index,
+                        .file = null,
+                    }).?;
+                    try link.File.MachO.Atom.addRelocation(macho_file, atom_index, .{
+                        .type = switch (lowered_relocs[0].target) {
+                            .linker_got => .got,
+                            .linker_direct => .signed,
+                            .linker_tlv => .tlv,
+                            else => unreachable,
+                        },
+                        .target = .{ .sym_index = symbol.sym_index, .file = null },
+                        .offset = @intCast(u32, end_offset - 4),
+                        .addend = 0,
+                        .pcrel = true,
+                        .length = 2,
+                    });
+                } else if (emit.bin_file.cast(link.File.Coff)) |coff_file| {
+                    const atom_index = coff_file.getAtomIndexForSymbol(.{
+                        .sym_index = symbol.atom_index,
+                        .file = null,
+                    }).?;
+                    try link.File.Coff.Atom.addRelocation(coff_file, atom_index, .{
+                        .type = switch (lowered_relocs[0].target) {
+                            .linker_got => .got,
+                            .linker_direct => .direct,
+                            .linker_import => .import,
+                            else => unreachable,
+                        },
+                        .target = switch (lowered_relocs[0].target) {
+                            .linker_got,
+                            .linker_direct,
+                            => .{ .sym_index = symbol.sym_index, .file = null },
+                            .linker_import => coff_file.getGlobalByIndex(symbol.sym_index),
+                            else => unreachable,
+                        },
+                        .offset = @intCast(u32, end_offset - 4),
+                        .addend = 0,
+                        .pcrel = true,
+                        .length = 2,
+                    });
+                } else return emit.fail("TODO implement linker reloc for {s}", .{
+                    @tagName(emit.bin_file.tag),
+                }),
+            };
+        }
+        std.debug.assert(lowered_relocs.len == 0);
 
-            .mov_linker, .lea_linker => if (emit.bin_file.cast(link.File.MachO)) |macho_file| {
-                const metadata =
-                    emit.lower.mir.extraData(Mir.LeaRegisterReloc, inst.data.payload).data;
-                const atom_index = macho_file.getAtomIndexForSymbol(.{
-                    .sym_index = metadata.atom_index,
-                    .file = null,
-                }).?;
-                try link.File.MachO.Atom.addRelocation(macho_file, atom_index, .{
-                    .type = switch (inst.ops) {
-                        .got_reloc => .got,
-                        .direct_reloc => .signed,
-                        .tlv_reloc => .tlv,
-                        else => unreachable,
+        if (lowered.insts.len == 0) {
+            const mir_inst = emit.lower.mir.instructions.get(mir_index);
+            switch (mir_inst.tag) {
+                else => unreachable,
+                .pseudo => switch (mir_inst.ops) {
+                    else => unreachable,
+                    .pseudo_dbg_prologue_end_none => {
+                        switch (emit.debug_output) {
+                            .dwarf => |dw| {
+                                try dw.setPrologueEnd();
+                                log.debug("mirDbgPrologueEnd (line={d}, col={d})", .{
+                                    emit.prev_di_line, emit.prev_di_column,
+                                });
+                                try emit.dbgAdvancePCAndLine(emit.prev_di_line, emit.prev_di_column);
+                            },
+                            .plan9 => {},
+                            .none => {},
+                        }
                     },
-                    .target = .{ .sym_index = metadata.sym_index, .file = null },
-                    .offset = @intCast(u32, end_offset - 4),
-                    .addend = 0,
-                    .pcrel = true,
-                    .length = 2,
-                });
-            } else if (emit.bin_file.cast(link.File.Coff)) |coff_file| {
-                const metadata =
-                    emit.lower.mir.extraData(Mir.LeaRegisterReloc, inst.data.payload).data;
-                const atom_index = coff_file.getAtomIndexForSymbol(.{
-                    .sym_index = metadata.atom_index,
-                    .file = null,
-                }).?;
-                try link.File.Coff.Atom.addRelocation(coff_file, atom_index, .{
-                    .type = switch (inst.ops) {
-                        .got_reloc => .got,
-                        .direct_reloc => .direct,
-                        .import_reloc => .import,
-                        else => unreachable,
+                    .pseudo_dbg_line_line_column => try emit.dbgAdvancePCAndLine(
+                        mir_inst.data.line_column.line,
+                        mir_inst.data.line_column.column,
+                    ),
+                    .pseudo_dbg_epilogue_begin_none => {
+                        switch (emit.debug_output) {
+                            .dwarf => |dw| {
+                                try dw.setEpilogueBegin();
+                                log.debug("mirDbgEpilogueBegin (line={d}, col={d})", .{
+                                    emit.prev_di_line, emit.prev_di_column,
+                                });
+                                try emit.dbgAdvancePCAndLine(emit.prev_di_line, emit.prev_di_column);
+                            },
+                            .plan9 => {},
+                            .none => {},
+                        }
                     },
-                    .target = switch (inst.ops) {
-                        .got_reloc,
-                        .direct_reloc,
-                        => .{ .sym_index = metadata.sym_index, .file = null },
-                        .import_reloc => coff_file.getGlobalByIndex(metadata.sym_index),
-                        else => unreachable,
-                    },
-                    .offset = @intCast(u32, end_offset - 4),
-                    .addend = 0,
-                    .pcrel = true,
-                    .length = 2,
-                });
-            } else return emit.fail("TODO implement {} for {}", .{ inst.tag, emit.bin_file.tag }),
-
-            .jcc => try emit.relocs.append(emit.lower.allocator, .{
-                .source = start_offset,
-                .target = inst.data.inst_cc.inst,
-                .offset = end_offset - 4,
-                .length = 6,
-            }),
-
-            .dbg_line => try emit.dbgAdvancePCAndLine(
-                inst.data.line_column.line,
-                inst.data.line_column.column,
-            ),
-
-            .dbg_prologue_end => {
-                switch (emit.debug_output) {
-                    .dwarf => |dw| {
-                        try dw.setPrologueEnd();
-                        log.debug("mirDbgPrologueEnd (line={d}, col={d})", .{
-                            emit.prev_di_line, emit.prev_di_column,
-                        });
-                        try emit.dbgAdvancePCAndLine(emit.prev_di_line, emit.prev_di_column);
-                    },
-                    .plan9 => {},
-                    .none => {},
-                }
-            },
-
-            .dbg_epilogue_begin => {
-                switch (emit.debug_output) {
-                    .dwarf => |dw| {
-                        try dw.setEpilogueBegin();
-                        log.debug("mirDbgEpilogueBegin (line={d}, col={d})", .{
-                            emit.prev_di_line, emit.prev_di_column,
-                        });
-                        try emit.dbgAdvancePCAndLine(emit.prev_di_line, emit.prev_di_column);
-                    },
-                    .plan9 => {},
-                    .none => {},
-                }
-            },
+                    .pseudo_dead_none => {},
+                },
+            }
         }
     }
     try emit.fixupRelocs();

@@ -1,8 +1,6 @@
-const std = @import("../std.zig");
+const std = @import("std");
 const builtin = @import("builtin");
 const Step = std.Build.Step;
-const CompileStep = std.Build.CompileStep;
-const WriteFileStep = std.Build.WriteFileStep;
 const fs = std.fs;
 const mem = std.mem;
 const process = std.process;
@@ -12,7 +10,7 @@ const Allocator = mem.Allocator;
 const ExecError = std.Build.ExecError;
 const assert = std.debug.assert;
 
-const RunStep = @This();
+const Run = @This();
 
 pub const base_id: Step.Id = .run;
 
@@ -29,12 +27,12 @@ cwd: ?[]const u8,
 /// Override this field to modify the environment, or use setEnvironmentVariable
 env_map: ?*EnvMap,
 
-/// Configures whether the RunStep is considered to have side-effects, and also
-/// whether the RunStep will inherit stdio streams, forwarding them to the
+/// Configures whether the Run step is considered to have side-effects, and also
+/// whether the Run step will inherit stdio streams, forwarding them to the
 /// parent process, in which case will require a global lock to prevent other
 /// steps from interfering with stdio while the subprocess associated with this
-/// RunStep is running.
-/// If the RunStep is determined to not have side-effects, then execution will
+/// Run step is running.
+/// If the Run step is determined to not have side-effects, then execution will
 /// be skipped if all output files are up-to-date and input files are
 /// unchanged.
 stdio: StdIo = .infer_from_args,
@@ -42,9 +40,9 @@ stdio: StdIo = .infer_from_args,
 stdin: ?[]const u8 = null,
 
 /// Additional file paths relative to build.zig that, when modified, indicate
-/// that the RunStep should be re-executed.
-/// If the RunStep is determined to have side-effects, this field is ignored
-/// and the RunStep is always executed when it appears in the build graph.
+/// that the Run step should be re-executed.
+/// If the Run step is determined to have side-effects, this field is ignored
+/// and the Run step is always executed when it appears in the build graph.
 extra_file_dependencies: []const []const u8 = &.{},
 
 /// After adding an output argument, this step will by default rename itself
@@ -52,14 +50,14 @@ extra_file_dependencies: []const []const u8 = &.{},
 /// This can be disabled by setting this to false.
 rename_step_with_output_arg: bool = true,
 
-/// If this is true, a RunStep which is configured to check the output of the
+/// If this is true, a Run step which is configured to check the output of the
 /// executed binary will not fail the build if the binary cannot be executed
 /// due to being for a foreign binary to the host system which is running the
 /// build graph.
 /// Command-line arguments such as -fqemu and -fwasmtime may affect whether a
 /// binary is detected as foreign, as well as system configuration such as
 /// Rosetta (macOS) and binfmt_misc (Linux).
-/// If this RunStep is considered to have side-effects, then this flag does
+/// If this Run step is considered to have side-effects, then this flag does
 /// nothing.
 skip_foreign_checks: bool = false,
 
@@ -73,18 +71,18 @@ captured_stderr: ?*Output = null,
 has_side_effects: bool = false,
 
 pub const StdIo = union(enum) {
-    /// Whether the RunStep has side-effects will be determined by whether or not one
+    /// Whether the Run step has side-effects will be determined by whether or not one
     /// of the args is an output file (added with `addOutputFileArg`).
-    /// If the RunStep is determined to have side-effects, this is the same as `inherit`.
+    /// If the Run step is determined to have side-effects, this is the same as `inherit`.
     /// The step will fail if the subprocess crashes or returns a non-zero exit code.
     infer_from_args,
-    /// Causes the RunStep to be considered to have side-effects, and therefore
+    /// Causes the Run step to be considered to have side-effects, and therefore
     /// always execute when it appears in the build graph.
     /// It also means that this step will obtain a global lock to prevent other
     /// steps from running in the meantime.
     /// The step will fail if the subprocess crashes or returns a non-zero exit code.
     inherit,
-    /// Causes the RunStep to be considered to *not* have side-effects. The
+    /// Causes the Run step to be considered to *not* have side-effects. The
     /// process will be re-executed if any of the input dependencies are
     /// modified. The exit code and standard I/O streams will be checked for
     /// certain conditions, and the step will succeed or fail based on these
@@ -92,7 +90,7 @@ pub const StdIo = union(enum) {
     /// Note that an explicit check for exit code 0 needs to be added to this
     /// list if such a check is desirable.
     check: std.ArrayList(Check),
-    /// This RunStep is running a zig unit test binary and will communicate
+    /// This Run step is running a zig unit test binary and will communicate
     /// extra metadata over the IPC protocol.
     zig_test,
 
@@ -106,7 +104,7 @@ pub const StdIo = union(enum) {
 };
 
 pub const Arg = union(enum) {
-    artifact: *CompileStep,
+    artifact: *Step.Compile,
     file_source: std.Build.FileSource,
     directory_source: std.Build.FileSource,
     bytes: []u8,
@@ -119,8 +117,8 @@ pub const Output = struct {
     basename: []const u8,
 };
 
-pub fn create(owner: *std.Build, name: []const u8) *RunStep {
-    const self = owner.allocator.create(RunStep) catch @panic("OOM");
+pub fn create(owner: *std.Build, name: []const u8) *Run {
+    const self = owner.allocator.create(Run) catch @panic("OOM");
     self.* = .{
         .step = Step.init(.{
             .id = base_id,
@@ -135,17 +133,17 @@ pub fn create(owner: *std.Build, name: []const u8) *RunStep {
     return self;
 }
 
-pub fn setName(self: *RunStep, name: []const u8) void {
+pub fn setName(self: *Run, name: []const u8) void {
     self.step.name = name;
     self.rename_step_with_output_arg = false;
 }
 
-pub fn enableTestRunnerMode(rs: *RunStep) void {
+pub fn enableTestRunnerMode(rs: *Run) void {
     rs.stdio = .zig_test;
     rs.addArgs(&.{"--listen=-"});
 }
 
-pub fn addArtifactArg(self: *RunStep, artifact: *CompileStep) void {
+pub fn addArtifactArg(self: *Run, artifact: *Step.Compile) void {
     self.argv.append(Arg{ .artifact = artifact }) catch @panic("OOM");
     self.step.dependOn(&artifact.step);
 }
@@ -153,12 +151,12 @@ pub fn addArtifactArg(self: *RunStep, artifact: *CompileStep) void {
 /// This provides file path as a command line argument to the command being
 /// run, and returns a FileSource which can be used as inputs to other APIs
 /// throughout the build system.
-pub fn addOutputFileArg(rs: *RunStep, basename: []const u8) std.Build.FileSource {
+pub fn addOutputFileArg(rs: *Run, basename: []const u8) std.Build.FileSource {
     return addPrefixedOutputFileArg(rs, "", basename);
 }
 
 pub fn addPrefixedOutputFileArg(
-    rs: *RunStep,
+    rs: *Run,
     prefix: []const u8,
     basename: []const u8,
 ) std.Build.FileSource {
@@ -179,38 +177,38 @@ pub fn addPrefixedOutputFileArg(
     return .{ .generated = &output.generated_file };
 }
 
-pub fn addFileSourceArg(self: *RunStep, file_source: std.Build.FileSource) void {
+pub fn addFileSourceArg(self: *Run, file_source: std.Build.FileSource) void {
     self.argv.append(.{
         .file_source = file_source.dupe(self.step.owner),
     }) catch @panic("OOM");
     file_source.addStepDependencies(&self.step);
 }
 
-pub fn addDirectorySourceArg(self: *RunStep, directory_source: std.Build.FileSource) void {
+pub fn addDirectorySourceArg(self: *Run, directory_source: std.Build.FileSource) void {
     self.argv.append(.{
         .directory_source = directory_source.dupe(self.step.owner),
     }) catch @panic("OOM");
     directory_source.addStepDependencies(&self.step);
 }
 
-pub fn addArg(self: *RunStep, arg: []const u8) void {
+pub fn addArg(self: *Run, arg: []const u8) void {
     self.argv.append(.{ .bytes = self.step.owner.dupe(arg) }) catch @panic("OOM");
 }
 
-pub fn addArgs(self: *RunStep, args: []const []const u8) void {
+pub fn addArgs(self: *Run, args: []const []const u8) void {
     for (args) |arg| {
         self.addArg(arg);
     }
 }
 
-pub fn clearEnvironment(self: *RunStep) void {
+pub fn clearEnvironment(self: *Run) void {
     const b = self.step.owner;
     const new_env_map = b.allocator.create(EnvMap) catch @panic("OOM");
     new_env_map.* = EnvMap.init(b.allocator);
     self.env_map = new_env_map;
 }
 
-pub fn addPathDir(self: *RunStep, search_path: []const u8) void {
+pub fn addPathDir(self: *Run, search_path: []const u8) void {
     const b = self.step.owner;
     const env_map = getEnvMapInternal(self);
 
@@ -225,11 +223,11 @@ pub fn addPathDir(self: *RunStep, search_path: []const u8) void {
     }
 }
 
-pub fn getEnvMap(self: *RunStep) *EnvMap {
+pub fn getEnvMap(self: *Run) *EnvMap {
     return getEnvMapInternal(self);
 }
 
-fn getEnvMapInternal(self: *RunStep) *EnvMap {
+fn getEnvMapInternal(self: *Run) *EnvMap {
     const arena = self.step.owner.allocator;
     return self.env_map orelse {
         const env_map = arena.create(EnvMap) catch @panic("OOM");
@@ -239,25 +237,25 @@ fn getEnvMapInternal(self: *RunStep) *EnvMap {
     };
 }
 
-pub fn setEnvironmentVariable(self: *RunStep, key: []const u8, value: []const u8) void {
+pub fn setEnvironmentVariable(self: *Run, key: []const u8, value: []const u8) void {
     const b = self.step.owner;
     const env_map = self.getEnvMap();
     env_map.put(b.dupe(key), b.dupe(value)) catch @panic("unhandled error");
 }
 
-pub fn removeEnvironmentVariable(self: *RunStep, key: []const u8) void {
+pub fn removeEnvironmentVariable(self: *Run, key: []const u8) void {
     self.getEnvMap().remove(key);
 }
 
 /// Adds a check for exact stderr match. Does not add any other checks.
-pub fn expectStdErrEqual(self: *RunStep, bytes: []const u8) void {
+pub fn expectStdErrEqual(self: *Run, bytes: []const u8) void {
     const new_check: StdIo.Check = .{ .expect_stderr_exact = self.step.owner.dupe(bytes) };
     self.addCheck(new_check);
 }
 
 /// Adds a check for exact stdout match as well as a check for exit code 0, if
 /// there is not already an expected termination check.
-pub fn expectStdOutEqual(self: *RunStep, bytes: []const u8) void {
+pub fn expectStdOutEqual(self: *Run, bytes: []const u8) void {
     const new_check: StdIo.Check = .{ .expect_stdout_exact = self.step.owner.dupe(bytes) };
     self.addCheck(new_check);
     if (!self.hasTermCheck()) {
@@ -265,12 +263,12 @@ pub fn expectStdOutEqual(self: *RunStep, bytes: []const u8) void {
     }
 }
 
-pub fn expectExitCode(self: *RunStep, code: u8) void {
+pub fn expectExitCode(self: *Run, code: u8) void {
     const new_check: StdIo.Check = .{ .expect_term = .{ .Exited = code } };
     self.addCheck(new_check);
 }
 
-pub fn hasTermCheck(self: RunStep) bool {
+pub fn hasTermCheck(self: Run) bool {
     for (self.stdio.check.items) |check| switch (check) {
         .expect_term => return true,
         else => continue,
@@ -278,18 +276,18 @@ pub fn hasTermCheck(self: RunStep) bool {
     return false;
 }
 
-pub fn addCheck(self: *RunStep, new_check: StdIo.Check) void {
+pub fn addCheck(self: *Run, new_check: StdIo.Check) void {
     switch (self.stdio) {
         .infer_from_args => {
             self.stdio = .{ .check = std.ArrayList(StdIo.Check).init(self.step.owner.allocator) };
             self.stdio.check.append(new_check) catch @panic("OOM");
         },
         .check => |*checks| checks.append(new_check) catch @panic("OOM"),
-        else => @panic("illegal call to addCheck: conflicting helper method calls. Suggest to directly set stdio field of RunStep instead"),
+        else => @panic("illegal call to addCheck: conflicting helper method calls. Suggest to directly set stdio field of Run instead"),
     }
 }
 
-pub fn captureStdErr(self: *RunStep) std.Build.FileSource {
+pub fn captureStdErr(self: *Run) std.Build.FileSource {
     assert(self.stdio != .inherit);
 
     if (self.captured_stderr) |output| return .{ .generated = &output.generated_file };
@@ -304,7 +302,7 @@ pub fn captureStdErr(self: *RunStep) std.Build.FileSource {
     return .{ .generated = &output.generated_file };
 }
 
-pub fn captureStdOut(self: *RunStep) std.Build.FileSource {
+pub fn captureStdOut(self: *Run) std.Build.FileSource {
     assert(self.stdio != .inherit);
 
     if (self.captured_stdout) |output| return .{ .generated = &output.generated_file };
@@ -319,8 +317,8 @@ pub fn captureStdOut(self: *RunStep) std.Build.FileSource {
     return .{ .generated = &output.generated_file };
 }
 
-/// Returns whether the RunStep has side effects *other than* updating the output arguments.
-fn hasSideEffects(self: RunStep) bool {
+/// Returns whether the Run step has side effects *other than* updating the output arguments.
+fn hasSideEffects(self: Run) bool {
     if (self.has_side_effects) return true;
     return switch (self.stdio) {
         .infer_from_args => !self.hasAnyOutputArgs(),
@@ -330,7 +328,7 @@ fn hasSideEffects(self: RunStep) bool {
     };
 }
 
-fn hasAnyOutputArgs(self: RunStep) bool {
+fn hasAnyOutputArgs(self: Run) bool {
     if (self.captured_stdout != null) return true;
     if (self.captured_stderr != null) return true;
     for (self.argv.items) |arg| switch (arg) {
@@ -371,7 +369,7 @@ fn checksContainStderr(checks: []const StdIo.Check) bool {
 fn make(step: *Step, prog_node: *std.Progress.Node) !void {
     const b = step.owner;
     const arena = b.allocator;
-    const self = @fieldParentPtr(RunStep, "step", step);
+    const self = @fieldParentPtr(Run, "step", step);
     const has_side_effects = self.hasSideEffects();
 
     var argv_list = ArrayList([]const u8).init(arena);
@@ -541,7 +539,7 @@ fn termMatches(expected: ?std.process.Child.Term, actual: std.process.Child.Term
 }
 
 fn runCommand(
-    self: *RunStep,
+    self: *Run,
     argv: []const []const u8,
     has_side_effects: bool,
     digest: ?*const [std.Build.Cache.hex_digest_len]u8,
@@ -567,7 +565,7 @@ fn runCommand(
         // FileNotFound: can happen with a wrong dynamic linker path
         if (err == error.InvalidExe or err == error.FileNotFound) interpret: {
             // TODO: learn the target from the binary directly rather than from
-            // relying on it being a CompileStep. This will make this logic
+            // relying on it being a Compile step. This will make this logic
             // work even for the edge case that the binary was produced by a
             // third party.
             const exe = switch (self.argv.items[0]) {
@@ -824,7 +822,7 @@ fn runCommand(
         .zig_test => {
             const prefix: []const u8 = p: {
                 if (result.stdio.test_metadata) |tm| {
-                    if (tm.next_index <= tm.names.len) {
+                    if (tm.next_index > 0 and tm.next_index <= tm.names.len) {
                         const name = tm.testName(tm.next_index - 1);
                         break :p b.fmt("while executing test '{s}', ", .{name});
                     }
@@ -862,7 +860,7 @@ const ChildProcResult = struct {
 };
 
 fn spawnChildAndCollect(
-    self: *RunStep,
+    self: *Run,
     argv: []const []const u8,
     has_side_effects: bool,
     prog_node: *std.Progress.Node,
@@ -936,7 +934,7 @@ const StdIoResult = struct {
 };
 
 fn evalZigTest(
-    self: *RunStep,
+    self: *Run,
     child: *std.process.Child,
     prog_node: *std.Progress.Node,
 ) !StdIoResult {
@@ -1121,7 +1119,7 @@ fn sendRunTestMessage(file: std.fs.File, index: u32) !void {
     try file.writeAll(full_msg);
 }
 
-fn evalGeneric(self: *RunStep, child: *std.process.Child) !StdIoResult {
+fn evalGeneric(self: *Run, child: *std.process.Child) !StdIoResult {
     const arena = self.step.owner.allocator;
 
     if (self.stdin) |stdin| {
@@ -1188,7 +1186,7 @@ fn evalGeneric(self: *RunStep, child: *std.process.Child) !StdIoResult {
     };
 }
 
-fn addPathForDynLibs(self: *RunStep, artifact: *CompileStep) void {
+fn addPathForDynLibs(self: *Run, artifact: *Step.Compile) void {
     const b = self.step.owner;
     for (artifact.link_objects.items) |link_object| {
         switch (link_object) {
@@ -1204,10 +1202,10 @@ fn addPathForDynLibs(self: *RunStep, artifact: *CompileStep) void {
 }
 
 fn failForeign(
-    self: *RunStep,
+    self: *Run,
     suggested_flag: []const u8,
     argv0: []const u8,
-    exe: *CompileStep,
+    exe: *Step.Compile,
 ) error{ MakeFailed, MakeSkipped, OutOfMemory } {
     switch (self.stdio) {
         .check, .zig_test => {

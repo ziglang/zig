@@ -3596,12 +3596,12 @@ pub const Type = extern union {
 
     fn intAbiSize(bits: u16, target: Target) u64 {
         const alignment = intAbiAlignment(bits, target);
-        return std.mem.alignForwardGeneric(u64, (bits + 7) / 8, alignment);
+        return std.mem.alignForwardGeneric(u64, @intCast(u16, (@as(u17, bits) + 7) / 8), alignment);
     }
 
     fn intAbiAlignment(bits: u16, target: Target) u32 {
         return @min(
-            std.math.ceilPowerOfTwoPromote(u16, (bits + 7) / 8),
+            std.math.ceilPowerOfTwoPromote(u16, @intCast(u16, (@as(u17, bits) + 7) / 8)),
             target.maxIntAlignment(),
         );
     }
@@ -6723,7 +6723,17 @@ pub const Type = extern union {
 
     pub fn smallestUnsignedInt(arena: Allocator, max: u64) !Type {
         const bits = smallestUnsignedBits(max);
-        return switch (bits) {
+        return intWithBits(arena, false, bits);
+    }
+
+    pub fn intWithBits(arena: Allocator, sign: bool, bits: u16) !Type {
+        return if (sign) switch (bits) {
+            8 => initTag(.i8),
+            16 => initTag(.i16),
+            32 => initTag(.i32),
+            64 => initTag(.i64),
+            else => return Tag.int_signed.create(arena, bits),
+        } else switch (bits) {
             1 => initTag(.u1),
             8 => initTag(.u8),
             16 => initTag(.u16),
@@ -6731,6 +6741,61 @@ pub const Type = extern union {
             64 => initTag(.u64),
             else => return Tag.int_unsigned.create(arena, bits),
         };
+    }
+
+    /// Given a value representing an integer, returns the number of bits necessary to represent
+    /// this value in an integer. If `sign` is true, returns the number of bits necessary in a
+    /// twos-complement integer; otherwise in an unsigned integer.
+    /// Asserts that `val` is not undef. If `val` is negative, asserts that `sign` is true.
+    pub fn intBitsForValue(target: Target, val: Value, sign: bool) u16 {
+        assert(!val.isUndef());
+        switch (val.tag()) {
+            .int_big_positive => {
+                const limbs = val.castTag(.int_big_positive).?.data;
+                const big: std.math.big.int.Const = .{ .limbs = limbs, .positive = true };
+                return @intCast(u16, big.bitCountAbs() + @boolToInt(sign));
+            },
+            .int_big_negative => {
+                const limbs = val.castTag(.int_big_negative).?.data;
+                // Zero is still a possibility, in which case unsigned is fine
+                for (limbs) |limb| {
+                    if (limb != 0) break;
+                } else return 0; // val == 0
+                assert(sign);
+                const big: std.math.big.int.Const = .{ .limbs = limbs, .positive = false };
+                return @intCast(u16, big.bitCountTwosComp());
+            },
+            .int_i64 => {
+                const x = val.castTag(.int_i64).?.data;
+                if (x >= 0) return smallestUnsignedBits(@intCast(u64, x));
+                assert(sign);
+                return smallestUnsignedBits(@intCast(u64, -x - 1)) + 1;
+            },
+            else => {
+                const x = val.toUnsignedInt(target);
+                return smallestUnsignedBits(x) + @boolToInt(sign);
+            },
+        }
+    }
+
+    /// Returns the smallest possible integer type containing both `min` and `max`. Asserts that neither
+    /// value is undef.
+    /// TODO: if #3806 is implemented, this becomes trivial
+    pub fn intFittingRange(target: Target, arena: Allocator, min: Value, max: Value) !Type {
+        assert(!min.isUndef());
+        assert(!max.isUndef());
+
+        if (std.debug.runtime_safety) {
+            assert(Value.order(min, max, target).compare(.lte));
+        }
+
+        const sign = min.orderAgainstZero() == .lt;
+
+        const min_val_bits = intBitsForValue(target, min, sign);
+        const max_val_bits = intBitsForValue(target, max, sign);
+        const bits = @max(min_val_bits, max_val_bits);
+
+        return intWithBits(arena, sign, bits);
     }
 
     /// This is only used for comptime asserts. Bump this number when you make a change

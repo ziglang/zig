@@ -1233,7 +1233,7 @@ fn finishRead2(c: *Client, first: []const u8, frag1: []const u8, out: usize) usi
         c.partial_cleartext_idx = 0;
         c.partial_ciphertext_idx = 0;
         c.partial_ciphertext_end = @intCast(@TypeOf(c.partial_ciphertext_end), first.len + frag1.len);
-        @memcpy(c.partially_read_buffer[0..first.len], first);
+        std.mem.copyForwards(u8, c.partially_read_buffer[0..first.len], first);
         @memcpy(c.partially_read_buffer[first.len..][0..frag1.len], frag1);
     }
     return out;
@@ -1330,18 +1330,15 @@ const VecPut = struct {
 
 /// Limit iovecs to a specific byte size.
 fn limitVecs(iovecs: []std.os.iovec, len: usize) []std.os.iovec {
-    var vec_i: usize = 0;
     var bytes_left: usize = len;
-    while (true) {
-        if (bytes_left >= iovecs[vec_i].iov_len) {
-            bytes_left -= iovecs[vec_i].iov_len;
-            vec_i += 1;
-            if (vec_i == iovecs.len or bytes_left == 0) return iovecs[0..vec_i];
-            continue;
+    for (iovecs, 0..) |*iovec, vec_i| {
+        if (bytes_left <= iovec.iov_len) {
+            iovec.iov_len = bytes_left;
+            return iovecs[0 .. vec_i + 1];
         }
-        iovecs[vec_i].iov_len = bytes_left;
-        return iovecs[0..vec_i];
+        bytes_left -= iovec.iov_len;
     }
+    return iovecs;
 }
 
 /// The priority order here is chosen based on what crypto algorithms Zig has

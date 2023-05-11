@@ -927,10 +927,10 @@ pub const Inst = struct {
         /// Implements the `@memset` builtin.
         /// Uses the `pl_node` union field with payload `Bin`.
         memset,
-        /// Implements the `@min` builtin.
+        /// Implements the `@min` builtin for 2 args.
         /// Uses the `pl_node` union field with payload `Bin`
         min,
-        /// Implements the `@max` builtin.
+        /// Implements the `@max` builtin for 2 args.
         /// Uses the `pl_node` union field with payload `Bin`
         max,
         /// Implements the `@cImport` builtin.
@@ -1905,10 +1905,20 @@ pub const Inst = struct {
         compile_log,
         /// The builtin `@TypeOf` which returns the type after Peer Type Resolution
         /// of one or more params.
-        /// `operand` is payload index to `NodeMultiOp`.
+        /// `operand` is payload index to `TypeOfPeer`.
         /// `small` is `operands_len`.
         /// The AST node is the builtin call.
         typeof_peer,
+        /// Implements the `@min` builtin for more than 2 args.
+        /// `operand` is payload index to `NodeMultiOp`.
+        /// `small` is `operands_len`.
+        /// The AST node is the builtin call.
+        min_multi,
+        /// Implements the `@max` builtin for more than 2 args.
+        /// `operand` is payload index to `NodeMultiOp`.
+        /// `small` is `operands_len`.
+        /// The AST node is the builtin call.
+        max_multi,
         /// Implements the `@addWithOverflow` builtin.
         /// `operand` is payload index to `BinNode`.
         /// `small` is unused.
@@ -1969,7 +1979,7 @@ pub const Inst = struct {
         /// `operand` is `src_node: i32`.
         breakpoint,
         /// Implements the `@select` builtin.
-        /// operand` is payload index to `Select`.
+        /// `operand` is payload index to `Select`.
         select,
         /// Implement builtin `@errToInt`.
         /// `operand` is payload index to `UnNode`.
@@ -1989,7 +1999,7 @@ pub const Inst = struct {
         /// `operand` is payload index to `Cmpxchg`.
         cmpxchg,
         /// Implement the builtin `@addrSpaceCast`
-        /// `Operand` is payload index to `BinNode`. `lhs` is dest type, `rhs` is operand.
+        /// `operand` is payload index to `BinNode`. `lhs` is dest type, `rhs` is operand.
         addrspace_cast,
         /// Implement builtin `@cVaArg`.
         /// `operand` is payload index to `BinNode`.
@@ -2021,6 +2031,9 @@ pub const Inst = struct {
         /// Implements the `@inComptime` builtin.
         /// `operand` is `src_node: i32`.
         in_comptime,
+        /// Used as a placeholder for the capture of an `errdefer`.
+        /// This is replaced by Sema with the captured value.
+        errdefer_err_code,
 
         pub const InstData = struct {
             opcode: Extended,

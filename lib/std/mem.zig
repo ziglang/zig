@@ -1013,6 +1013,54 @@ pub fn indexOfAnyPos(comptime T: type, slice: []const T, start_index: usize, val
     return null;
 }
 
+/// Find the first item in `slice` which is not contained in `values`.
+///
+/// Comparable to `strspn` in the C standard library.
+pub fn indexOfNone(comptime T: type, slice: []const T, values: []const T) ?usize {
+    return indexOfNonePos(T, slice, 0, values);
+}
+
+/// Find the last item in `slice` which is not contained in `values`.
+///
+/// Like `strspn` in the C standard library, but searches from the end.
+pub fn lastIndexOfNone(comptime T: type, slice: []const T, values: []const T) ?usize {
+    var i: usize = slice.len;
+    outer: while (i != 0) {
+        i -= 1;
+        for (values) |value| {
+            if (slice[i] == value) continue :outer;
+        }
+        return i;
+    }
+    return null;
+}
+
+/// Find the first item in `slice[start_index..]` which is not contained in `values`.
+/// The returned index will be relative to the start of `slice`, and never less than `start_index`.
+///
+/// Comparable to `strspn` in the C standard library.
+pub fn indexOfNonePos(comptime T: type, slice: []const T, start_index: usize, values: []const T) ?usize {
+    var i: usize = start_index;
+    outer: while (i < slice.len) : (i += 1) {
+        for (values) |value| {
+            if (slice[i] == value) continue :outer;
+        }
+        return i;
+    }
+    return null;
+}
+
+test "indexOfNone" {
+    try testing.expect(indexOfNone(u8, "abc123", "123").? == 0);
+    try testing.expect(lastIndexOfNone(u8, "abc123", "123").? == 2);
+    try testing.expect(indexOfNone(u8, "123abc", "123").? == 3);
+    try testing.expect(lastIndexOfNone(u8, "123abc", "123").? == 5);
+    try testing.expect(indexOfNone(u8, "123123", "123") == null);
+    try testing.expect(indexOfNone(u8, "333333", "123") == null);
+
+    try testing.expect(indexOfNonePos(u8, "abc123", 3, "321") == null);
+}
+
 pub fn indexOf(comptime T: type, haystack: []const T, needle: []const T) ?usize {
     return indexOfPos(T, haystack, 0, needle);
 }

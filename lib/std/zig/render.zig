@@ -40,27 +40,28 @@ pub fn renderTree(buffer: *std.ArrayList(u8), tree: Ast) Error!void {
 /// Render all members in the given slice, keeping empty lines where appropriate
 fn renderMembers(gpa: Allocator, ais: *Ais, tree: Ast, members: []const Ast.Node.Index) Error!void {
     if (members.len == 0) return;
-    var is_tuple = true;
-    for (members) |member| {
-        const container_field = tree.fullContainerField(member) orelse continue;
-        if (!container_field.ast.tuple_like) {
-            is_tuple = false;
-            break;
-        }
-    }
-    try renderMember(gpa, ais, tree, members[0], is_tuple, .newline);
+    const container: Container = for (members) |member| {
+        if (tree.fullContainerField(member)) |field| if (!field.ast.tuple_like) break .other;
+    } else .tuple;
+    try renderMember(gpa, ais, tree, container, members[0], .newline);
     for (members[1..]) |member| {
         try renderExtraNewline(ais, tree, member);
-        try renderMember(gpa, ais, tree, member, is_tuple, .newline);
+        try renderMember(gpa, ais, tree, container, member, .newline);
     }
 }
+
+const Container = enum {
+    @"enum",
+    tuple,
+    other,
+};
 
 fn renderMember(
     gpa: Allocator,
     ais: *Ais,
     tree: Ast,
+    container: Container,
     decl: Ast.Node.Index,
-    is_tuple: bool,
     space: Space,
 ) Error!void {
     const token_tags = tree.tokens.items(.tag);
@@ -180,7 +181,7 @@ fn renderMember(
         .container_field_init,
         .container_field_align,
         .container_field,
-        => return renderContainerField(gpa, ais, tree, tree.fullContainerField(decl).?, is_tuple, space),
+        => return renderContainerField(gpa, ais, tree, container, tree.fullContainerField(decl).?, space),
 
         .@"comptime" => return renderExpression(gpa, ais, tree, decl, space),
 
@@ -1279,19 +1280,23 @@ fn renderContainerField(
     gpa: Allocator,
     ais: *Ais,
     tree: Ast,
+    container: Container,
     field_param: Ast.full.ContainerField,
-    is_tuple: bool,
     space: Space,
 ) Error!void {
     var field = field_param;
-    if (!is_tuple) field.convertToNonTupleLike(tree.nodes);
+    if (container != .tuple) field.convertToNonTupleLike(tree.nodes);
+    const quote: QuoteBehavior = switch (container) {
+        .@"enum" => .eagerly_unquote_except_underscore,
+        .tuple, .other => .eagerly_unquote,
+    };
 
     if (field.comptime_token) |t| {
         try renderToken(ais, tree, t, .space); // comptime
     }
     if (field.ast.type_expr == 0 and field.ast.value_expr == 0) {
         if (field.ast.align_expr != 0) {
-            try renderIdentifier(ais, tree, field.ast.main_token, .space, .eagerly_unquote); // name
+            try renderIdentifier(ais, tree, field.ast.main_token, .space, quote); // name
             const lparen_token = tree.firstToken(field.ast.align_expr) - 1;
             const align_kw = lparen_token - 1;
             const rparen_token = tree.lastToken(field.ast.align_expr) + 1;
@@ -1300,11 +1305,11 @@ fn renderContainerField(
             try renderExpression(gpa, ais, tree, field.ast.align_expr, .none); // alignment
             return renderToken(ais, tree, rparen_token, .space); // )
         }
-        return renderIdentifierComma(ais, tree, field.ast.main_token, space, .eagerly_unquote); // name
+        return renderIdentifierComma(ais, tree, field.ast.main_token, space, quote); // name
     }
     if (field.ast.type_expr != 0 and field.ast.value_expr == 0) {
         if (!field.ast.tuple_like) {
-            try renderIdentifier(ais, tree, field.ast.main_token, .none, .eagerly_unquote); // name
+            try renderIdentifier(ais, tree, field.ast.main_token, .none, quote); // name
             try renderToken(ais, tree, field.ast.main_token + 1, .space); // :
         }
 
@@ -1321,7 +1326,7 @@ fn renderContainerField(
         }
     }
     if (field.ast.type_expr == 0 and field.ast.value_expr != 0) {
-        try renderIdentifier(ais, tree, field.ast.main_token, .space, .eagerly_unquote); // name
+        try renderIdentifier(ais, tree, field.ast.main_token, .space, quote); // name
         if (field.ast.align_expr != 0) {
             const lparen_token = tree.firstToken(field.ast.align_expr) - 1;
             const align_kw = lparen_token - 1;
@@ -1335,7 +1340,7 @@ fn renderContainerField(
         return renderExpressionComma(gpa, ais, tree, field.ast.value_expr, space); // value
     }
     if (!field.ast.tuple_like) {
-        try renderIdentifier(ais, tree, field.ast.main_token, .none, .eagerly_unquote); // name
+        try renderIdentifier(ais, tree, field.ast.main_token, .none, quote); // name
         try renderToken(ais, tree, field.ast.main_token + 1, .space); // :
     }
     try renderExpression(gpa, ais, tree, field.ast.type_expr, .space); // type
@@ -2054,13 +2059,12 @@ fn renderContainerDecl(
         try renderToken(ais, tree, layout_token, .space);
     }
 
-    var is_tuple = token_tags[container_decl.ast.main_token] == .keyword_struct;
-    if (is_tuple) for (container_decl.ast.members) |member| {
-        const container_field = tree.fullContainerField(member) orelse continue;
-        if (!container_field.ast.tuple_like) {
-            is_tuple = false;
-            break;
-        }
+    const container: Container = switch (token_tags[container_decl.ast.main_token]) {
+        .keyword_enum => .@"enum",
+        .keyword_struct => for (container_decl.ast.members) |member| {
+            if (tree.fullContainerField(member)) |field| if (!field.ast.tuple_like) break .other;
+        } else .tuple,
+        else => .other,
     };
 
     var lbrace: Ast.TokenIndex = undefined;
@@ -2129,7 +2133,7 @@ fn renderContainerDecl(
         // Print all the declarations on the same line.
         try renderToken(ais, tree, lbrace, .space); // lbrace
         for (container_decl.ast.members) |member| {
-            try renderMember(gpa, ais, tree, member, is_tuple, .space);
+            try renderMember(gpa, ais, tree, container, member, .space);
         }
         return renderToken(ais, tree, rbrace, space); // rbrace
     }
@@ -2147,9 +2151,9 @@ fn renderContainerDecl(
             .container_field_init,
             .container_field_align,
             .container_field,
-            => try renderMember(gpa, ais, tree, member, is_tuple, .comma),
+            => try renderMember(gpa, ais, tree, container, member, .comma),
 
-            else => try renderMember(gpa, ais, tree, member, is_tuple, .newline),
+            else => try renderMember(gpa, ais, tree, container, member, .newline),
         }
     }
     ais.popIndent();
@@ -2565,6 +2569,7 @@ fn renderSpace(ais: *Ais, tree: Ast, token_index: Ast.TokenIndex, lexeme_len: us
 const QuoteBehavior = enum {
     preserve_when_shadowing,
     eagerly_unquote,
+    eagerly_unquote_except_underscore,
 };
 
 fn renderIdentifier(ais: *Ais, tree: Ast, token_index: Ast.TokenIndex, space: Space, quote: QuoteBehavior) Error!void {
@@ -2589,7 +2594,9 @@ fn renderIdentifier(ais: *Ais, tree: Ast, token_index: Ast.TokenIndex, space: Sp
     // Special case for _ which would incorrectly be rejected by isValidId below.
     if (contents.len == 1 and contents[0] == '_') switch (quote) {
         .eagerly_unquote => return renderQuotedIdentifier(ais, tree, token_index, space, true),
-        .preserve_when_shadowing => return renderQuotedIdentifier(ais, tree, token_index, space, false),
+        .eagerly_unquote_except_underscore,
+        .preserve_when_shadowing,
+        => return renderQuotedIdentifier(ais, tree, token_index, space, false),
     };
 
     // Scan the entire name for characters that would (after un-escaping) be illegal in a symbol,
@@ -2653,7 +2660,9 @@ fn renderIdentifier(ais: *Ais, tree: Ast, token_index: Ast.TokenIndex, space: Sp
             return renderQuotedIdentifier(ais, tree, token_index, space, false);
         }
         if (primitives.isPrimitive(buf[0..buf_i])) switch (quote) {
-            .eagerly_unquote => return renderQuotedIdentifier(ais, tree, token_index, space, true),
+            .eagerly_unquote,
+            .eagerly_unquote_except_underscore,
+            => return renderQuotedIdentifier(ais, tree, token_index, space, true),
             .preserve_when_shadowing => return renderQuotedIdentifier(ais, tree, token_index, space, false),
         };
     }
