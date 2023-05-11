@@ -489,6 +489,14 @@ fn fetchAndUnpack(
         try req.start();
         try req.wait();
 
+        if (req.response.status != .ok) {
+            return report.fail(dep.url_tok, "expected '200 OK' got '{} {s}' from '{s}'", .{
+                @enumToInt(req.response.status),
+                req.response.status.phrase() orelse "",
+                uri.path,
+            });
+        }
+
         const content_type = req.response.headers.getFirstValue("Content-Type") orelse
             return report.fail(dep.url_tok, "missing Content-Type for '{s}'", .{uri.path});
 
@@ -503,7 +511,7 @@ fn fetchAndUnpack(
             // by default, so the same logic applies for buffering the reader as for gzip.
             try unpackTarball(gpa, &req, tmp_directory.handle, std.compress.xz);
         } else {
-            return report.fail(dep.url_tok, "unknown file extension for path '{s}'", .{uri.path});
+            return report.fail(dep.url_tok, "unsupported Content-Type '{s}' for path '{s}'", .{ content_type, uri.path });
         }
 
         // TODO: delete files not included in the package prior to computing the package hash.
