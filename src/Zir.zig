@@ -570,6 +570,10 @@ pub const Inst = struct {
         /// Returns a pointer to the subslice.
         /// Uses the `pl_node` field. AST node is the slice syntax. Payload is `SliceSentinel`.
         slice_sentinel,
+        /// Slice operation `array_ptr[start..][0..len]`. Optional sentinel.
+        /// Returns a pointer to the subslice.
+        /// Uses the `pl_node` field. AST node is the slice syntax. Payload is `SliceLength`.
+        slice_length,
         /// Write a value to a pointer. For loading, see `load`.
         /// Source location is assumed to be same as previous instruction.
         /// Uses the `bin` union field.
@@ -1135,6 +1139,7 @@ pub const Inst = struct {
                 .slice_start,
                 .slice_end,
                 .slice_sentinel,
+                .slice_length,
                 .import,
                 .typeof_log2_int_type,
                 .resolve_inferred_alloc,
@@ -1430,6 +1435,7 @@ pub const Inst = struct {
                 .slice_start,
                 .slice_end,
                 .slice_sentinel,
+                .slice_length,
                 .import,
                 .typeof_log2_int_type,
                 .switch_capture,
@@ -1667,6 +1673,7 @@ pub const Inst = struct {
                 .slice_start = .pl_node,
                 .slice_end = .pl_node,
                 .slice_sentinel = .pl_node,
+                .slice_length = .pl_node,
                 .store = .bin,
                 .store_node = .pl_node,
                 .store_to_block_ptr = .bin,
@@ -2978,6 +2985,14 @@ pub const Inst = struct {
         start: Ref,
         end: Ref,
         sentinel: Ref,
+    };
+
+    pub const SliceLength = struct {
+        lhs: Ref,
+        start: Ref,
+        len: Ref,
+        sentinel: Ref,
+        start_src_node_offset: i32,
     };
 
     /// The meaning of these operands depends on the corresponding `Tag`.
