@@ -31760,6 +31760,8 @@ pub fn resolveTypeRequiresComptime(sema: *Sema, ty: Type) CompileError!bool {
 
             .opaque_type => false,
 
+            .enum_type => @panic("TODO"),
+
             // values, not types
             .un => unreachable,
             .simple_value => unreachable,
@@ -33293,6 +33295,7 @@ pub fn typeHasOnePossibleValue(sema: *Sema, ty: Type) CompileError!?Value {
                 return only.toValue();
             },
             .opaque_type => null,
+            .enum_type => @panic("TODO"),
 
             // values, not types
             .un => unreachable,
@@ -33862,6 +33865,7 @@ pub fn typeRequiresComptime(sema: *Sema, ty: Type) CompileError!bool {
             },
 
             .opaque_type => false,
+            .enum_type => @panic("TODO"),
 
             // values, not types
             .un => unreachable,
