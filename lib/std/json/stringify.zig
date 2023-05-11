@@ -41,7 +41,7 @@ pub const StringifyOptions = struct {
     };
 
     /// Controls the whitespace emitted
-    whitespace: ?Whitespace = null,
+    whitespace: Whitespace = .{.indent = .none, .separator = false},
 
     /// Should optional fields with null value be written?
     emit_null_optional_fields: bool = true,
@@ -176,20 +176,14 @@ pub fn stringify(
             if (info.tag_type) |UnionTagType| {
                 try out_stream.writeByte('{');
                 var child_options = options;
-                if (child_options.whitespace) |*whitespace| {
-                    whitespace.indent_level += 1;
-                }
+                child_options.whitespace.indent_level += 1;
                 inline for (info.fields) |u_field| {
                     if (value == @field(UnionTagType, u_field.name)) {
-                        if (child_options.whitespace) |child_whitespace| {
-                            try child_whitespace.outputIndent(out_stream);
-                        }
+                        try child_options.whitespace.outputIndent(out_stream);
                         try encodeJsonString(u_field.name, options, out_stream);
                         try out_stream.writeByte(':');
-                        if (child_options.whitespace) |child_whitespace| {
-                            if (child_whitespace.separator) {
-                                try out_stream.writeByte(' ');
-                            }
+                        if (child_options.whitespace.separator) {
+                            try out_stream.writeByte(' ');
                         }
                         if (u_field.type == void) {
                             try out_stream.writeAll("{}");
@@ -201,9 +195,7 @@ pub fn stringify(
                 } else {
                     unreachable; // No active tag?
                 }
-                if (options.whitespace) |whitespace| {
-                    try whitespace.outputIndent(out_stream);
-                }
+                try options.whitespace.outputIndent(out_stream);
                 try out_stream.writeByte('}');
                 return;
             } else {
@@ -218,9 +210,7 @@ pub fn stringify(
             try out_stream.writeByte(if (S.is_tuple) '[' else '{');
             var field_output = false;
             var child_options = options;
-            if (child_options.whitespace) |*child_whitespace| {
-                child_whitespace.indent_level += 1;
-            }
+            child_options.whitespace.indent_level += 1;
             inline for (S.fields) |Field| {
                 // don't include void fields
                 if (Field.type == void) continue;
@@ -242,25 +232,19 @@ pub fn stringify(
                     } else {
                         try out_stream.writeByte(',');
                     }
-                    if (child_options.whitespace) |child_whitespace| {
-                        try child_whitespace.outputIndent(out_stream);
-                    }
+                    try child_options.whitespace.outputIndent(out_stream);
                     if (!S.is_tuple) {
                         try encodeJsonString(Field.name, options, out_stream);
                         try out_stream.writeByte(':');
-                        if (child_options.whitespace) |child_whitespace| {
-                            if (child_whitespace.separator) {
-                                try out_stream.writeByte(' ');
-                            }
+                        if (child_options.whitespace.separator) {
+                            try out_stream.writeByte(' ');
                         }
                     }
                     try stringify(@field(value, Field.name), child_options, out_stream);
                 }
             }
             if (field_output) {
-                if (options.whitespace) |whitespace| {
-                    try whitespace.outputIndent(out_stream);
-                }
+                try options.whitespace.outputIndent(out_stream);
             }
             try out_stream.writeByte(if (S.is_tuple) ']' else '}');
             return;
@@ -289,22 +273,16 @@ pub fn stringify(
 
                 try out_stream.writeByte('[');
                 var child_options = options;
-                if (child_options.whitespace) |*whitespace| {
-                    whitespace.indent_level += 1;
-                }
+                child_options.whitespace.indent_level += 1;
                 for (slice, 0..) |x, i| {
                     if (i != 0) {
                         try out_stream.writeByte(',');
                     }
-                    if (child_options.whitespace) |child_whitespace| {
-                        try child_whitespace.outputIndent(out_stream);
-                    }
+                    try child_options.whitespace.outputIndent(out_stream);
                     try stringify(x, child_options, out_stream);
                 }
                 if (slice.len != 0) {
-                    if (options.whitespace) |whitespace| {
-                        try whitespace.outputIndent(out_stream);
-                    }
+                    try options.whitespace.outputIndent(out_stream);
                 }
                 try out_stream.writeByte(']');
                 return;
