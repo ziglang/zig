@@ -6870,6 +6870,7 @@ pub fn tcgetpgrp(handle: fd_t) TermioGetPgrpError!pid_t {
             .SUCCESS => return pgrp,
             .BADF => unreachable,
             .INVAL => unreachable,
+            .INTR => continue,
             .NOTTY => return error.NotATerminal,
             else => |err| return unexpectedErrno(err),
         }
@@ -6888,6 +6889,7 @@ pub fn tcsetpgrp(handle: fd_t, pgrp: pid_t) TermioSetPgrpError!void {
             .SUCCESS => return,
             .BADF => unreachable,
             .INVAL => unreachable,
+            .INTR => continue,
             .NOTTY => return error.NotATerminal,
             .PERM => return TermioSetPgrpError.NotAPgrpMember,
             else => |err| return unexpectedErrno(err),
