@@ -3613,6 +3613,8 @@ test "replace" {
     try testing.expectEqualStrings(expected, output[0..expected.len]);
 }
 
+
+
 /// Replace all occurrences of `needle` with `replacement`.
 pub fn replaceScalar(comptime T: type, slice: []T, needle: T, replacement: T) void {
     for (slice, 0..) |e, i| {
@@ -3621,6 +3623,242 @@ pub fn replaceScalar(comptime T: type, slice: []T, needle: T, replacement: T) vo
         }
     }
 }
+
+/// This generic struct contains the pair of `ToReplace` and `Replacer`.
+/// This struct is needed for the `replaceMany` and
+/// the `replaceManyOwned`methods, which replace the `ToReplace`field with
+/// the `Replacer` field.
+pub fn ReplacementPair(comptime T: type) type {
+    return struct {
+        /// The array which should be replaced by the `Replacer`.
+        ToReplace: []const T,
+        
+        /// The array by which the `ToReplace` should be replaced.
+        Replacer: []const T,
+    };
+}
+
+/// Calculate the size needed in an output buffer to perform multiple replacements.
+/// The `replacement_pairs` array must not be empty and each `replacement_pair`
+/// must also not be empty.
+pub fn replacementSizeMany(comptime T: type, input: []const T, replacement_pairs: []const ReplacementPair(T)) usize {
+    assert(replacement_pairs.len > 0);
+    for (replacement_pairs) |pair| {
+        assert(pair.ToReplace.len > 0);
+    }
+
+    var i: usize = 0;
+    var size: usize = input.len;
+    while (i < input.len) {
+        var found = false;
+        for (replacement_pairs) |pair| {
+            if (mem.startsWith(T, input[i..], pair.ToReplace)) {
+                size = size - pair.ToReplace.len + pair.Replacer.len;
+                i += pair.ToReplace.len;
+                found = true;
+            }
+        }
+
+        if (found == false) {
+            i += 1;
+        }
+    }
+    return size;
+}
+
+test "replacementSizeMany" {
+   var replacementPairs = [_]ReplacementPair(u8){
+        ReplacementPair(u8){
+            .ToReplace = "All",
+            .Replacer = "None of",
+        },
+        ReplacementPair(u8){
+            .ToReplace = "base",
+            .Replacer = "Zig",
+        },
+    };
+    try testing.expect(replacementSizeMany(u8, "All your base are belong to us", &replacementPairs) == 33);
+
+    replacementPairs[0] = ReplacementPair(u8){ .ToReplace = "reading", .Replacer = "writing" };
+    replacementPairs[1] = ReplacementPair(u8){ .ToReplace = "over", .Replacer = "not" };
+
+    try testing.expect(replacementSizeMany(u8, "Favor reading code over writing code", &replacementPairs) == 35);
+
+    // Empty needle is not allowed but input may be empty.
+    try testing.expect(replacementSizeMany(u8, "", &replacementPairs) == 0);
+
+    // Adjacent replacements.
+    replacementPairs[0] = ReplacementPair(u8){ .ToReplace = "\\n", .Replacer = "\n" };
+    replacementPairs[1] = ReplacementPair(u8){ .ToReplace = "\\t", .Replacer = "\t" };
+
+    try testing.expect(replacementSizeMany(u8, "\\n\\t\\n", &replacementPairs) == 3);
+
+    // keywords in keywords
+    replacementPairs[0] = ReplacementPair(u8){ .ToReplace = "version", .Replacer = "0.0.0" };
+    replacementPairs[1] = ReplacementPair(u8){ .ToReplace = "ver", .Replacer = "0.0.0" };
+    // Always pick the first on the array.
+    try testing.expect(replacementSizeMany(u8, "version", &replacementPairs) == 5);
+
+    // keywords in replacors
+    replacementPairs[0] = ReplacementPair(u8){ .ToReplace = "version", .Replacer = "ver" };
+    replacementPairs[1] = ReplacementPair(u8){ .ToReplace = "ver", .Replacer = "version" };
+
+    try testing.expect(replacementSizeMany(u8, "version", &replacementPairs) == 3);
+}
+
+/// Replace multiple needles with their respective replacement as many times as possible, 
+/// writing to an output buffer which is assumed to be of appropriate size.
+/// Use `replacementSizeMany` to calculate an appropriate buffer size.
+/// The `replacement_pairs`array must not be empty, as well as each `replacement_pair.ToReplace`.
+/// When multiple needles share the same wordstart (like "VERSION" and "VER")
+/// the priority is always on that needle, which comes first in the `replacement_pairs` array.
+/// Returns the number of replacements made.
+pub fn replaceMany(comptime T: type, input: []const T, replacement_pairs: []const ReplacementPair(T), output: []T) usize {
+    // Empty needle will loop until output buffer overflows.
+    assert(replacement_pairs.len > 0);
+    for (replacement_pairs) |pair| {
+        assert(pair.ToReplace.len > 0);
+    }
+
+    var i: usize = 0;
+    var slide: usize = 0;
+    var replacements: usize = 0;
+    while (slide < input.len) {
+        var found = false;
+        for (replacement_pairs) |pair| {
+            if (mem.startsWith(T, input[slide..], pair.ToReplace)) {
+                mem.copy(T, output[i .. i + pair.Replacer.len], pair.Replacer);
+                i += pair.Replacer.len;
+                slide += pair.ToReplace.len;
+                replacements += 1;
+                found = true;
+            }
+        }
+        if (found == false) {
+            output[i] = input[slide];
+            i += 1;
+            slide += 1;
+        }
+    }
+
+    return replacements;
+}
+
+test "replaceMany" {
+    var replacementPairs = [_]ReplacementPair(u8){
+        ReplacementPair(u8){
+            .ToReplace = "All",
+            .Replacer = "None of",
+        },
+        ReplacementPair(u8){
+            .ToReplace = "base",
+            .Replacer = "Zig",
+        },
+    };
+    var size = replacementSizeMany(u8, "All your base are belong to us", &replacementPairs);
+    var buffer = testing.allocator.alloc(u8, size) catch @panic("out of memory");
+    try testing.expect(replaceMany(u8, "All your base are belong to us", &replacementPairs, buffer) == 2);
+    try testing.expectEqualStrings("None of your Zig are belong to us", buffer);
+    testing.allocator.free(buffer);
+
+    replacementPairs[0] = ReplacementPair(u8){ .ToReplace = "reading", .Replacer = "writing" };
+    replacementPairs[1] = ReplacementPair(u8){ .ToReplace = "over", .Replacer = "not" };
+    size = replacementSizeMany(u8, "Favor reading code over writing code", &replacementPairs);
+    buffer = testing.allocator.alloc(u8, size) catch @panic("out of memory");
+    try testing.expect(replaceMany(u8, "Favor reading code over writing code", &replacementPairs, buffer) == 2);
+    try testing.expectEqualStrings("Favor writing code not writing code", buffer);
+    testing.allocator.free(buffer);
+
+    // Adjacent replacements.
+    replacementPairs[0] = ReplacementPair(u8){ .ToReplace = "\\n", .Replacer = "\n" };
+    replacementPairs[1] = ReplacementPair(u8){ .ToReplace = "\\t", .Replacer = "\t" };
+
+    size = replacementSizeMany(u8, "\\n\\t\\n", &replacementPairs);
+    buffer = testing.allocator.alloc(u8, size) catch @panic("out of memory");
+    try testing.expect(replaceMany(u8, "\\n\\t\\n", &replacementPairs, buffer) == 3);
+    try testing.expectEqualStrings("\n\t\n", buffer);
+    testing.allocator.free(buffer);
+
+    // keywords in keywords
+    replacementPairs[0] = ReplacementPair(u8){ .ToReplace = "version", .Replacer = "0.0.0" };
+    replacementPairs[1] = ReplacementPair(u8){ .ToReplace = "ver", .Replacer = "0.0.0" };
+
+    size = replacementSizeMany(u8, "version", &replacementPairs);
+    buffer = testing.allocator.alloc(u8, size) catch @panic("out of memory");
+
+    // Always pick the first on the array.
+    try testing.expect(replaceMany(u8, "version", &replacementPairs, buffer) == 1);
+    try testing.expectEqualStrings("0.0.0", buffer);
+    testing.allocator.free(buffer);
+
+    // keywords in replacors
+    replacementPairs[0] = ReplacementPair(u8){ .ToReplace = "version", .Replacer = "ver" };
+    replacementPairs[1] = ReplacementPair(u8){ .ToReplace = "ver", .Replacer = "version" };
+    size = replacementSizeMany(u8, "version", &replacementPairs);
+    buffer = testing.allocator.alloc(u8, size) catch @panic("out of memory");
+    try testing.expect(replaceMany(u8, "version", &replacementPairs, buffer) == 1);
+    try testing.expectEqualStrings("ver", buffer);
+    testing.allocator.free(buffer);
+}
+
+/// Performs replacements on an allocated buffer of pre-determined size. Caller must free returned memory.
+pub fn replaceManyOwned(comptime T: type, allocator: Allocator, input: []const T, replacement_pairs: []const ReplacementPair(T)) Allocator.Error![]T {
+    var output = try allocator.alloc(T, replacementSizeMany(T, input, replacement_pairs));
+    _ = replaceMany(T, input, replacement_pairs, output);
+    return output;
+}
+
+test "replaceManyOwned" {
+    const replacementPairs = [_]ReplacementPair(u8){
+        ReplacementPair(u8){
+            .ToReplace = "All",
+            .Replacer = "None of",
+        },
+        ReplacementPair(u8){
+            .ToReplace = "base",
+            .Replacer = "Zig",
+        },
+    };
+    const buffer = try replaceManyOwned(u8, std.testing.allocator, "All your base are belong to us", &replacementPairs);
+    try testing.expectEqualStrings("None of your Zig are belong to us", buffer);
+    testing.allocator.free(buffer);
+}
+
+// This generic struct contains the pair of `ToReplace` and `Replacer`.
+/// This struct is needed for the `replaceManyScalar` method, 
+/// which replaces the `ToReplace` scalar with the `Replacer` scalar.
+pub fn ScalarReplacementPair(comptime T: type) type {
+    return struct { 
+        /// The scalar which should be replaced.
+        ToReplace: T, 
+        /// The scalar by which the ToReplace scalar should be replaced.
+        Replacer: T 
+   };
+}
+
+/// Replaces all `replacement_pairs.ToReplace` with all `replacement_pairs.Replacer`.
+pub fn replaceManyScalar(comptime T: type, slice: []T, replacement_pairs: []const ScalarReplacementPair(T)) usize {
+    var counter: usize = 0;
+    for (slice, 0..) |e, i| {
+        for (replacement_pairs) |pair| {
+            if (e == pair.ToReplace) {
+                slice[i] = pair.Replacer;
+                counter += 1;
+                break;
+            }
+        }
+    }
+    return counter;
+}
+
+test "replaceManyScalar" {
+    var buffer: [5]u8 = [_]u8{ 0, 1, 1, 0, 1 };
+    const replacementPairs = [_]ScalarReplacementPair(u8){ ScalarReplacementPair(u8){ .ToReplace = 0, .Replacer = 1 }, ScalarReplacementPair(u8){ .ToReplace = 1, .Replacer = 2 } };
+
+    try testing.expect(replaceManyScalar(u8, &buffer, &replacementPairs) == 5);
+    try testing.expectEqualSlices(u8, &[5]u8{ 1, 2, 2, 1, 2 }, &buffer);
+}
+
 
 /// Collapse consecutive duplicate elements into one entry.
 pub fn collapseRepeatsLen(comptime T: type, slice: []T, elem: T) usize {
