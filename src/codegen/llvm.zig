@@ -7034,7 +7034,7 @@ pub const FuncGen = struct {
         const rhs = try self.resolveInst(bin_op.rhs);
         const scalar_ty = self.air.typeOfIndex(inst).scalarType();
 
-        if (scalar_ty.isAnyFloat()) return self.builder.buildMinNum(lhs, rhs, "");
+        if (scalar_ty.isAnyFloat()) return self.buildFloatOp(.fmin, scalar_ty, 2, .{ lhs, rhs });
         if (scalar_ty.isSignedInt()) return self.builder.buildSMin(lhs, rhs, "");
         return self.builder.buildUMin(lhs, rhs, "");
     }
@@ -7045,7 +7045,7 @@ pub const FuncGen = struct {
         const rhs = try self.resolveInst(bin_op.rhs);
         const scalar_ty = self.air.typeOfIndex(inst).scalarType();
 
-        if (scalar_ty.isAnyFloat()) return self.builder.buildMaxNum(lhs, rhs, "");
+        if (scalar_ty.isAnyFloat()) return self.buildFloatOp(.fmax, scalar_ty, 2, .{ lhs, rhs });
         if (scalar_ty.isSignedInt()) return self.builder.buildSMax(lhs, rhs, "");
         return self.builder.buildUMax(lhs, rhs, "");
     }
