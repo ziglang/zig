@@ -44,5 +44,5 @@ test {
     _ = @import("json/dynamic.zig");
     _ = @import("json/static.zig");
     _ = @import("json/stringify.zig");
-    _ = @import("json/JSONTestSuite.zig");
+    _ = @import("json/JSONTestSuite_test.zig");
 }
