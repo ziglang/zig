@@ -1739,8 +1739,8 @@ fn isByRef(ty: Type, mod: *Module) bool {
         .Frame,
         => return ty.hasRuntimeBitsIgnoreComptime(mod),
         .Union => {
-            if (ty.castTag(.@"union")) |union_ty| {
-                if (union_ty.data.layout == .Packed) {
+            if (mod.typeToUnion(ty)) |union_obj| {
+                if (union_obj.layout == .Packed) {
                     return ty.abiSize(mod) > 8;
                 }
             }
@@ -3175,7 +3175,7 @@ fn lowerConstant(func: *CodeGen, arg_val: Value, ty: Type) InnerError!WValue {
         },
         .Union => {
             // in this case we have a packed union which will not be passed by reference.
-            const union_ty = ty.cast(Type.Payload.Union).?.data;
+            const union_ty = mod.typeToUnion(ty).?;
             const union_obj = val.castTag(.@"union").?.data;
             const field_index = ty.unionTagFieldIndex(union_obj.tag, func.bin_file.base.options.module.?).?;
             const field_ty = union_ty.fields.values()[field_index].ty;
@@ -5086,12 +5086,12 @@ fn airUnionInit(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     const result = result: {
         const union_ty = func.typeOfIndex(inst);
         const layout = union_ty.unionGetLayout(mod);
-        const union_obj = union_ty.cast(Type.Payload.Union).?.data;
+        const union_obj = mod.typeToUnion(union_ty).?;
         const field = union_obj.fields.values()[extra.field_index];
         const field_name = union_obj.fields.keys()[extra.field_index];
 
         const tag_int = blk: {
-            const tag_ty = union_ty.unionTagTypeHypothetical();
+            const tag_ty = union_ty.unionTagTypeHypothetical(mod);
             const enum_field_index = tag_ty.enumFieldIndex(field_name).?;
             var tag_val_payload: Value.Payload.U32 = .{
                 .base = .{ .tag = .enum_field_index },

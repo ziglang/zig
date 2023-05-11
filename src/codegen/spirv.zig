@@ -755,10 +755,10 @@ pub const DeclGen = struct {
                     const layout = ty.unionGetLayout(mod);
 
                     if (layout.payload_size == 0) {
-                        return try self.lower(ty.unionTagTypeSafety().?, tag_and_val.tag);
+                        return try self.lower(ty.unionTagTypeSafety(mod).?, tag_and_val.tag);
                     }
 
-                    const union_ty = ty.cast(Type.Payload.Union).?.data;
+                    const union_ty = mod.typeToUnion(ty).?;
                     if (union_ty.layout == .Packed) {
                         return dg.todo("packed union constants", .{});
                     }
@@ -770,7 +770,7 @@ pub const DeclGen = struct {
                     const tag_first = layout.tag_align >= layout.payload_align;
 
                     if (has_tag and tag_first) {
-                        try self.lower(ty.unionTagTypeSafety().?, tag_and_val.tag);
+                        try self.lower(ty.unionTagTypeSafety(mod).?, tag_and_val.tag);
                     }
 
                     const active_field_size = if (active_field_ty.hasRuntimeBitsIgnoreComptime(mod)) blk: {
@@ -782,7 +782,7 @@ pub const DeclGen = struct {
                     try self.addUndef(payload_padding_len);
 
                     if (has_tag and !tag_first) {
-                        try self.lower(ty.unionTagTypeSafety().?, tag_and_val.tag);
+                        try self.lower(ty.unionTagTypeSafety(mod).?, tag_and_val.tag);
                     }
 
                     try self.addUndef(layout.padding);
@@ -1121,7 +1121,7 @@ pub const DeclGen = struct {
     fn resolveUnionType(self: *DeclGen, ty: Type, maybe_active_field: ?usize) !CacheRef {
         const mod = self.module;
         const layout = ty.unionGetLayout(mod);
-        const union_ty = ty.cast(Type.Payload.Union).?.data;
+        const union_ty = mod.typeToUnion(ty).?;
 
         if (union_ty.layout == .Packed) {
             return self.todo("packed union types", .{});

@@ -338,7 +338,7 @@ pub fn classifySystemV(ty: Type, mod: *Module, ctx: Context) [8]Class {
             if (ty_size > 64)
                 return memory_class;
 
-            const fields = ty.unionFields();
+            const fields = ty.unionFields(mod);
             for (fields.values()) |field| {
                 if (field.abi_align != 0) {
                     if (field.abi_align < field.ty.abiAlignment(mod)) {

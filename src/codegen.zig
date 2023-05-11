@@ -568,7 +568,7 @@ pub fn generateSymbol(
 
             if (layout.payload_size == 0) {
                 return generateSymbol(bin_file, src_loc, .{
-                    .ty = typed_value.ty.unionTagType().?,
+                    .ty = typed_value.ty.unionTagType(mod).?,
                     .val = union_obj.tag,
                 }, code, debug_output, reloc_info);
             }
@@ -576,7 +576,7 @@ pub fn generateSymbol(
             // Check if we should store the tag first.
             if (layout.tag_align >= layout.payload_align) {
                 switch (try generateSymbol(bin_file, src_loc, .{
-                    .ty = typed_value.ty.unionTagType().?,
+                    .ty = typed_value.ty.unionTagType(mod).?,
                     .val = union_obj.tag,
                 }, code, debug_output, reloc_info)) {
                     .ok => {},
@@ -584,7 +584,7 @@ pub fn generateSymbol(
                 }
             }
 
-            const union_ty = typed_value.ty.cast(Type.Payload.Union).?.data;
+            const union_ty = mod.typeToUnion(typed_value.ty).?;
             const field_index = typed_value.ty.unionTagFieldIndex(union_obj.tag, mod).?;
             assert(union_ty.haveFieldTypes());
             const field_ty = union_ty.fields.values()[field_index].ty;

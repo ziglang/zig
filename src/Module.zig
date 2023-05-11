@@ -851,11 +851,10 @@ pub const Decl = struct {
 
     /// If the Decl has a value and it is a union, return it,
     /// otherwise null.
-    pub fn getUnion(decl: *Decl) ?*Union {
+    pub fn getUnion(decl: *Decl, mod: *Module) ?*Union {
         if (!decl.owns_tv) return null;
         const ty = (decl.val.castTag(.ty) orelse return null).data;
-        const union_obj = (ty.cast(Type.Payload.Union) orelse return null).data;
-        return union_obj;
+        return mod.typeToUnion(ty);
     }
 
     /// If the Decl has a value and it is a function, return it,
@@ -896,10 +895,6 @@ pub const Decl = struct {
                         const enum_obj = ty.cast(Type.Payload.EnumFull).?.data;
                         return enum_obj.namespace.toOptional();
                     },
-                    .@"union", .union_safety_tagged, .union_tagged => {
-                        const union_obj = ty.cast(Type.Payload.Union).?.data;
-                        return union_obj.namespace.toOptional();
-                    },
 
                     else => return .none,
                 }
@@ -907,6 +902,10 @@ pub const Decl = struct {
             else => return switch (mod.intern_pool.indexToKey(decl.val.ip_index)) {
                 .opaque_type => |opaque_type| opaque_type.namespace.toOptional(),
                 .struct_type => |struct_type| struct_type.namespace,
+                .union_type => |union_type| {
+                    const union_obj = mod.unionPtr(union_type.index);
+                    return union_obj.namespace.toOptional();
+                },
                 else => .none,
             },
         }
@@ -1372,6 +1371,28 @@ pub const Union = struct {
     },
     requires_comptime: PropertyBoolean = .unknown,
     assumed_runtime_bits: bool = false,
+
+    pub const Index = enum(u32) {
+        _,
+
+        pub fn toOptional(i: Index) OptionalIndex {
+            return @intToEnum(OptionalIndex, @enumToInt(i));
+        }
+    };
+
+    pub const OptionalIndex = enum(u32) {
+        none = std.math.maxInt(u32),
+        _,
+
+        pub fn init(oi: ?Index) OptionalIndex {
+            return @intToEnum(OptionalIndex, @enumToInt(oi orelse return .none));
+        }
+
+        pub fn unwrap(oi: OptionalIndex) ?Index {
+            if (oi == .none) return null;
+            return @intToEnum(Index, @enumToInt(oi));
+        }
+    };
 
     pub const Field = struct {
         /// undefined until `status` is `have_field_types` or `have_layout`.
@@ -3639,6 +3660,10 @@ pub fn namespacePtr(mod: *Module, index: Namespace.Index) *Namespace {
     return mod.allocated_namespaces.at(@enumToInt(index));
 }
 
+pub fn unionPtr(mod: *Module, index: Union.Index) *Union {
+    return mod.intern_pool.unionPtr(index);
+}
+
 pub fn structPtr(mod: *Module, index: Struct.Index) *Struct {
     return mod.intern_pool.structPtr(index);
 }
@@ -4112,7 +4137,7 @@ fn updateZirRefs(mod: *Module, file: *File, old_zir: Zir) !void {
             };
         }
 
-        if (decl.getUnion()) |union_obj| {
+        if (decl.getUnion(mod)) |union_obj| {
             union_obj.zir_index = inst_map.get(union_obj.zir_index) orelse {
                 try file.deleted_decls.append(gpa, decl_index);
                 continue;
@@ -5988,20 +6013,10 @@ fn markOutdatedDecl(mod: *Module, decl_index: Decl.Index) !void {
     decl.analysis = .outdated;
 }
 
-pub const CreateNamespaceOptions = struct {
-    parent: Namespace.OptionalIndex,
-    file_scope: *File,
-    ty: Type,
-};
-
-pub fn createNamespace(mod: *Module, options: CreateNamespaceOptions) !Namespace.Index {
+pub fn createNamespace(mod: *Module, initialization: Namespace) !Namespace.Index {
     if (mod.namespaces_free_list.popOrNull()) |index| return index;
     const ptr = try mod.allocated_namespaces.addOne(mod.gpa);
-    ptr.* = .{
-        .parent = options.parent,
-        .file_scope = options.file_scope,
-        .ty = options.ty,
-    };
+    ptr.* = initialization;
     return @intToEnum(Namespace.Index, mod.allocated_namespaces.len - 1);
 }
 
@@ -6019,6 +6034,14 @@ pub fn createStruct(mod: *Module, initialization: Struct) Allocator.Error!Struct
 
 pub fn destroyStruct(mod: *Module, index: Struct.Index) void {
     return mod.intern_pool.destroyStruct(mod.gpa, index);
+}
+
+pub fn createUnion(mod: *Module, initialization: Union) Allocator.Error!Union.Index {
+    return mod.intern_pool.createUnion(mod.gpa, initialization);
+}
+
+pub fn destroyUnion(mod: *Module, index: Union.Index) void {
+    return mod.intern_pool.destroyUnion(mod.gpa, index);
 }
 
 pub fn allocateNewDecl(
@@ -7068,6 +7091,15 @@ pub fn intValue_i64(mod: *Module, ty: Type, x: i64) Allocator.Error!Value {
     return i.toValue();
 }
 
+pub fn unionValue(mod: *Module, union_ty: Type, tag: Value, val: Value) Allocator.Error!Value {
+    const i = try intern(mod, .{ .un = .{
+        .ty = union_ty.ip_index,
+        .tag = tag.ip_index,
+        .val = val.ip_index,
+    } });
+    return i.toValue();
+}
+
 pub fn smallestUnsignedInt(mod: *Module, max: u64) Allocator.Error!Type {
     return intType(mod, .unsigned, Type.smallestUnsignedBits(max));
 }
@@ -7275,4 +7307,9 @@ pub fn namespaceDeclIndex(mod: *Module, namespace_index: Namespace.Index) Decl.I
 pub fn typeToStruct(mod: *Module, ty: Type) ?*Struct {
     const struct_index = mod.intern_pool.indexToStruct(ty.ip_index).unwrap() orelse return null;
     return mod.structPtr(struct_index);
+}
+
+pub fn typeToUnion(mod: *Module, ty: Type) ?*Union {
+    const union_index = mod.intern_pool.indexToUnion(ty.ip_index).unwrap() orelse return null;
+    return mod.unionPtr(union_index);
 }

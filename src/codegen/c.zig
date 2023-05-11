@@ -853,7 +853,7 @@ pub const DeclGen = struct {
                     }
 
                     try writer.writeByte('{');
-                    if (ty.unionTagTypeSafety()) |tag_ty| {
+                    if (ty.unionTagTypeSafety(mod)) |tag_ty| {
                         const layout = ty.unionGetLayout(mod);
                         if (layout.tag_size != 0) {
                             try writer.writeAll(" .tag = ");
@@ -863,12 +863,12 @@ pub const DeclGen = struct {
                         if (layout.tag_size != 0) try writer.writeByte(',');
                         try writer.writeAll(" .payload = {");
                     }
-                    for (ty.unionFields().values()) |field| {
+                    for (ty.unionFields(mod).values()) |field| {
                         if (!field.ty.hasRuntimeBits(mod)) continue;
                         try dg.renderValue(writer, field.ty, val, initializer_type);
                         break;
                     }
-                    if (ty.unionTagTypeSafety()) |_| try writer.writeByte('}');
+                    if (ty.unionTagTypeSafety(mod)) |_| try writer.writeByte('}');
                     return writer.writeByte('}');
                 },
                 .ErrorUnion => {
@@ -1451,8 +1451,8 @@ pub const DeclGen = struct {
                 }
 
                 const field_i = ty.unionTagFieldIndex(union_obj.tag, mod).?;
-                const field_ty = ty.unionFields().values()[field_i].ty;
-                const field_name = ty.unionFields().keys()[field_i];
+                const field_ty = ty.unionFields(mod).values()[field_i].ty;
+                const field_name = ty.unionFields(mod).keys()[field_i];
                 if (ty.containerLayout(mod) == .Packed) {
                     if (field_ty.hasRuntimeBits(mod)) {
                         if (field_ty.isPtrAtRuntime(mod)) {
@@ -1472,7 +1472,7 @@ pub const DeclGen = struct {
                 }
 
                 try writer.writeByte('{');
-                if (ty.unionTagTypeSafety()) |tag_ty| {
+                if (ty.unionTagTypeSafety(mod)) |tag_ty| {
                     const layout = ty.unionGetLayout(mod);
                     if (layout.tag_size != 0) {
                         try writer.writeAll(" .tag = ");
@@ -1486,12 +1486,12 @@ pub const DeclGen = struct {
                     try writer.print(" .{ } = ", .{fmtIdent(field_name)});
                     try dg.renderValue(writer, field_ty, union_obj.val, initializer_type);
                     try writer.writeByte(' ');
-                } else for (ty.unionFields().values()) |field| {
+                } else for (ty.unionFields(mod).values()) |field| {
                     if (!field.ty.hasRuntimeBits(mod)) continue;
                     try dg.renderValue(writer, field.ty, Value.undef, initializer_type);
                     break;
                 }
-                if (ty.unionTagTypeSafety()) |_| try writer.writeByte('}');
+                if (ty.unionTagTypeSafety(mod)) |_| try writer.writeByte('}');
                 try writer.writeByte('}');
             },
 
@@ -5238,13 +5238,13 @@ fn fieldLocation(
             .Auto, .Extern => {
                 const field_ty = container_ty.structFieldType(field_index, mod);
                 if (!field_ty.hasRuntimeBitsIgnoreComptime(mod))
-                    return if (container_ty.unionTagTypeSafety() != null and
+                    return if (container_ty.unionTagTypeSafety(mod) != null and
                         !container_ty.unionHasAllZeroBitFieldTypes(mod))
                         .{ .field = .{ .identifier = "payload" } }
                     else
                         .begin;
-                const field_name = container_ty.unionFields().keys()[field_index];
-                return .{ .field = if (container_ty.unionTagTypeSafety()) |_|
+                const field_name = container_ty.unionFields(mod).keys()[field_index];
+                return .{ .field = if (container_ty.unionTagTypeSafety(mod)) |_|
                     .{ .payload_identifier = field_name }
                 else
                     .{ .identifier = field_name } };
@@ -5424,37 +5424,6 @@ fn airStructFieldVal(f: *Function, inst: Air.Inst.Index) !CValue {
             else
                 .{ .identifier = struct_ty.structFieldName(extra.field_index, mod) },
 
-            .@"union", .union_safety_tagged, .union_tagged => if (struct_ty.containerLayout(mod) == .Packed) {
-                const operand_lval = if (struct_byval == .constant) blk: {
-                    const operand_local = try f.allocLocal(inst, struct_ty);
-                    try f.writeCValue(writer, operand_local, .Other);
-                    try writer.writeAll(" = ");
-                    try f.writeCValue(writer, struct_byval, .Initializer);
-                    try writer.writeAll(";\n");
-                    break :blk operand_local;
-                } else struct_byval;
-
-                const local = try f.allocLocal(inst, inst_ty);
-                try writer.writeAll("memcpy(&");
-                try f.writeCValue(writer, local, .Other);
-                try writer.writeAll(", &");
-                try f.writeCValue(writer, operand_lval, .Other);
-                try writer.writeAll(", sizeof(");
-                try f.renderType(writer, inst_ty);
-                try writer.writeAll("));\n");
-
-                if (struct_byval == .constant) {
-                    try freeLocal(f, inst, operand_lval.new_local, 0);
-                }
-
-                return local;
-            } else field_name: {
-                const name = struct_ty.unionFields().keys()[extra.field_index];
-                break :field_name if (struct_ty.unionTagTypeSafety()) |_|
-                    .{ .payload_identifier = name }
-                else
-                    .{ .identifier = name };
-            },
             else => unreachable,
         },
         else => switch (mod.intern_pool.indexToKey(struct_ty.ip_index)) {
@@ -5519,6 +5488,41 @@ fn airStructFieldVal(f: *Function, inst: Air.Inst.Index) !CValue {
                     try freeLocal(f, inst, temp_local.new_local, 0);
                     return local;
                 },
+            },
+            .union_type => |union_type| field_name: {
+                const union_obj = mod.unionPtr(union_type.index);
+                if (union_obj.layout == .Packed) {
+                    const operand_lval = if (struct_byval == .constant) blk: {
+                        const operand_local = try f.allocLocal(inst, struct_ty);
+                        try f.writeCValue(writer, operand_local, .Other);
+                        try writer.writeAll(" = ");
+                        try f.writeCValue(writer, struct_byval, .Initializer);
+                        try writer.writeAll(";\n");
+                        break :blk operand_local;
+                    } else struct_byval;
+
+                    const local = try f.allocLocal(inst, inst_ty);
+                    try writer.writeAll("memcpy(&");
+                    try f.writeCValue(writer, local, .Other);
+                    try writer.writeAll(", &");
+                    try f.writeCValue(writer, operand_lval, .Other);
+                    try writer.writeAll(", sizeof(");
+                    try f.renderType(writer, inst_ty);
+                    try writer.writeAll("));\n");
+
+                    if (struct_byval == .constant) {
+                        try freeLocal(f, inst, operand_lval.new_local, 0);
+                    }
+
+                    return local;
+                } else {
+                    const name = union_obj.fields.keys()[extra.field_index];
+                    break :field_name if (union_type.hasTag()) .{
+                        .payload_identifier = name,
+                    } else .{
+                        .identifier = name,
+                    };
+                }
             },
             else => unreachable,
         },
@@ -6461,7 +6465,7 @@ fn airSetUnionTag(f: *Function, inst: Air.Inst.Index) !CValue {
     const union_ty = f.typeOf(bin_op.lhs).childType(mod);
     const layout = union_ty.unionGetLayout(mod);
     if (layout.tag_size == 0) return .none;
-    const tag_ty = union_ty.unionTagTypeSafety().?;
+    const tag_ty = union_ty.unionTagTypeSafety(mod).?;
 
     const writer = f.object.writer();
     const a = try Assignment.start(f, writer, tag_ty);
@@ -6907,7 +6911,7 @@ fn airUnionInit(f: *Function, inst: Air.Inst.Index) !CValue {
     const extra = f.air.extraData(Air.UnionInit, ty_pl.payload).data;
 
     const union_ty = f.typeOfIndex(inst);
-    const union_obj = union_ty.cast(Type.Payload.Union).?.data;
+    const union_obj = mod.typeToUnion(union_ty).?;
     const field_name = union_obj.fields.keys()[extra.field_index];
     const payload_ty = f.typeOf(extra.init);
     const payload = try f.resolveInst(extra.init);
@@ -6923,7 +6927,7 @@ fn airUnionInit(f: *Function, inst: Air.Inst.Index) !CValue {
         return local;
     }
 
-    const field: CValue = if (union_ty.unionTagTypeSafety()) |tag_ty| field: {
+    const field: CValue = if (union_ty.unionTagTypeSafety(mod)) |tag_ty| field: {
         const layout = union_ty.unionGetLayout(mod);
         if (layout.tag_size != 0) {
             const field_index = tag_ty.enumFieldIndex(field_name).?;

@@ -715,7 +715,7 @@ pub const Value = struct {
     }
 
     pub fn tagName(val: Value, ty: Type, mod: *Module) []const u8 {
-        if (ty.zigTypeTag(mod) == .Union) return val.unionTag().tagName(ty.unionTagTypeHypothetical(), mod);
+        if (ty.zigTypeTag(mod) == .Union) return val.unionTag().tagName(ty.unionTagTypeHypothetical(mod), mod);
 
         const field_index = switch (val.tag()) {
             .enum_field_index => val.castTag(.enum_field_index).?.data,
@@ -1138,7 +1138,7 @@ pub const Value = struct {
                 .Extern => unreachable, // Handled in non-packed writeToMemory
                 .Packed => {
                     const field_index = ty.unionTagFieldIndex(val.unionTag(), mod);
-                    const field_type = ty.unionFields().values()[field_index.?].ty;
+                    const field_type = ty.unionFields(mod).values()[field_index.?].ty;
                     const field_val = try val.fieldValue(field_type, mod, field_index.?);
 
                     return field_val.writeToPackedMemory(field_type, mod, buffer, bit_offset);
@@ -2021,7 +2021,7 @@ pub const Value = struct {
                 const b_union = b.castTag(.@"union").?.data;
                 switch (ty.containerLayout(mod)) {
                     .Packed, .Extern => {
-                        const tag_ty = ty.unionTagTypeHypothetical();
+                        const tag_ty = ty.unionTagTypeHypothetical(mod);
                         if (!(try eqlAdvanced(a_union.tag, tag_ty, b_union.tag, tag_ty, mod, opt_sema))) {
                             // In this case, we must disregard mismatching tags and compare
                             // based on the in-memory bytes of the payloads.
@@ -2029,7 +2029,7 @@ pub const Value = struct {
                         }
                     },
                     .Auto => {
-                        const tag_ty = ty.unionTagTypeHypothetical();
+                        const tag_ty = ty.unionTagTypeHypothetical(mod);
                         if (!(try eqlAdvanced(a_union.tag, tag_ty, b_union.tag, tag_ty, mod, opt_sema))) {
                             return false;
                         }
@@ -2118,7 +2118,7 @@ pub const Value = struct {
                         return false;
                     }
                     const field_name = tuple.names[0];
-                    const union_obj = ty.cast(Type.Payload.Union).?.data;
+                    const union_obj = mod.typeToUnion(ty).?;
                     const field_index = union_obj.fields.getIndex(field_name) orelse return false;
                     const tag_and_val = b.castTag(.@"union").?.data;
                     var field_tag_buf: Value.Payload.U32 = .{
@@ -2297,7 +2297,7 @@ pub const Value = struct {
             },
             .Union => {
                 const union_obj = val.cast(Payload.Union).?.data;
-                if (ty.unionTagType()) |tag_ty| {
+                if (ty.unionTagType(mod)) |tag_ty| {
                     union_obj.tag.hash(tag_ty, hasher, mod);
                 }
                 const active_field_ty = ty.unionFieldType(union_obj.tag, mod);
