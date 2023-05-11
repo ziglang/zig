@@ -16,6 +16,9 @@ fn __subdf3(a: f64, b: f64) callconv(.C) f64 {
 }
 
 fn __aeabi_dsub(a: f64, b: f64) callconv(.AAPCS) f64 {
+    if (common.has_hardware_f64) {
+        return a - b;
+    }
     const neg_b = @bitCast(f64, @bitCast(u64, b) ^ (@as(u64, 1) << 63));
     return a + neg_b;
 }

@@ -56,13 +56,22 @@ pub fn __ltsf2(a: f32, b: f32) callconv(.C) i32 {
 }
 
 fn __aeabi_fcmpeq(a: f32, b: f32) callconv(.AAPCS) i32 {
+    if (common.has_hardware_f32) {
+        return @boolToInt(a == b);
+    }
     return @boolToInt(comparef.cmpf2(f32, comparef.LE, a, b) == .Equal);
 }
 
 fn __aeabi_fcmplt(a: f32, b: f32) callconv(.AAPCS) i32 {
+    if (common.has_hardware_f32) {
+        return @boolToInt(a < b);
+    }
     return @boolToInt(comparef.cmpf2(f32, comparef.LE, a, b) == .Less);
 }
 
 fn __aeabi_fcmple(a: f32, b: f32) callconv(.AAPCS) i32 {
+    if (common.has_hardware_f32) {
+        return @boolToInt(a <= b);
+    }
     return @boolToInt(comparef.cmpf2(f32, comparef.LE, a, b) != .Greater);
 }

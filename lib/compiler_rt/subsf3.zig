@@ -16,6 +16,9 @@ fn __subsf3(a: f32, b: f32) callconv(.C) f32 {
 }
 
 fn __aeabi_fsub(a: f32, b: f32) callconv(.AAPCS) f32 {
+    if (common.has_hardware_f32) {
+        return a - b;
+    }
     const neg_b = @bitCast(f32, @bitCast(u32, b) ^ (@as(u32, 1) << 31));
     return a + neg_b;
 }

@@ -16,5 +16,8 @@ fn __adddf3(a: f64, b: f64) callconv(.C) f64 {
 }
 
 fn __aeabi_dadd(a: f64, b: f64) callconv(.AAPCS) f64 {
+    if (common.has_hardware_f64) {
+        return a + b;
+    }
     return addf3(f64, a, b);
 }

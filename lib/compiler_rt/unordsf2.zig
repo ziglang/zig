@@ -16,5 +16,8 @@ pub fn __unordsf2(a: f32, b: f32) callconv(.C) i32 {
 }
 
 fn __aeabi_fcmpun(a: f32, b: f32) callconv(.AAPCS) i32 {
+    if (common.has_hardware_f32) {
+        return @boolToInt(a != a or b != b);
+    }
     return comparef.unordcmp(f32, a, b);
 }

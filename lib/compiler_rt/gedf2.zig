@@ -28,9 +28,15 @@ pub fn __gtdf2(a: f64, b: f64) callconv(.C) i32 {
 }
 
 fn __aeabi_dcmpge(a: f64, b: f64) callconv(.AAPCS) i32 {
+    if (common.has_hardware_f64) {
+        return @boolToInt(a >= b);
+    }
     return @boolToInt(comparef.cmpf2(f64, comparef.GE, a, b) != .Less);
 }
 
 fn __aeabi_dcmpgt(a: f64, b: f64) callconv(.AAPCS) i32 {
+    if (common.has_hardware_f64) {
+        return @boolToInt(a > b);
+    }
     return @boolToInt(comparef.cmpf2(f64, comparef.GE, a, b) == .Greater);
 }

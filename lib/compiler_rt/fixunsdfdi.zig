@@ -16,5 +16,8 @@ pub fn __fixunsdfdi(a: f64) callconv(.C) u64 {
 }
 
 fn __aeabi_d2ulz(a: f64) callconv(.AAPCS) u64 {
+    if (common.has_hardware_f64) {
+        return @floatToInt(u64, a);
+    }
     return floatToInt(u64, a);
 }

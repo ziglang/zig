@@ -16,5 +16,8 @@ pub fn __floatsidf(a: i32) callconv(.C) f64 {
 }
 
 fn __aeabi_i2d(a: i32) callconv(.AAPCS) f64 {
+    if (common.has_hardware_f64) {
+        return @intToFloat(f64, a);
+    }
     return intToFloat(f64, a);
 }

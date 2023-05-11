@@ -15,5 +15,8 @@ fn __negsf2(a: f32) callconv(.C) f32 {
 }
 
 fn __aeabi_fneg(a: f32) callconv(.AAPCS) f32 {
+    if (common.has_hardware_f32) {
+        return -a;
+    }
     return common.fneg(a);
 }

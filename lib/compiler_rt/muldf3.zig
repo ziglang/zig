@@ -16,5 +16,8 @@ pub fn __muldf3(a: f64, b: f64) callconv(.C) f64 {
 }
 
 fn __aeabi_dmul(a: f64, b: f64) callconv(.AAPCS) f64 {
+    if (common.has_hardware_f64) {
+        return a * b;
+    }
     return mulf3(f64, a, b);
 }

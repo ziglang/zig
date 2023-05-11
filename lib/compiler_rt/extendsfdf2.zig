@@ -16,5 +16,8 @@ fn __extendsfdf2(a: f32) callconv(.C) f64 {
 }
 
 fn __aeabi_f2d(a: f32) callconv(.AAPCS) f64 {
+    if (common.has_hardware_f64) {
+        return a;
+    }
     return extendf(f64, f32, @bitCast(u32, a));
 }

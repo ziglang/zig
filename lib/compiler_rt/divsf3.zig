@@ -24,6 +24,9 @@ pub fn __divsf3(a: f32, b: f32) callconv(.C) f32 {
 }
 
 fn __aeabi_fdiv(a: f32, b: f32) callconv(.AAPCS) f32 {
+    if (common.has_hardware_f32) {
+        return a / b;
+    }
     return div(a, b);
 }
 

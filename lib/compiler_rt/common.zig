@@ -66,6 +66,21 @@ pub const gnu_f16_abi = switch (builtin.cpu.arch) {
 
 pub const want_sparc_abi = builtin.cpu.arch.isSPARC();
 
+// Incomplete set of helpers used to prevent emitting software implementations of
+// the ARM run-time ABI floating point functions if VFP is available.
+fn hasHardwareFloat(comptime T: type) bool {
+    return switch (builtin.cpu.arch) {
+        .arm, .armeb, .thumb, .thumbeb => switch (T) {
+            f32 => std.Target.arm.featureSetHas(builtin.cpu.features, .vfp2sp),
+            f64 => std.Target.arm.featureSetHas(builtin.cpu.features, .fp64),
+            else => false,
+        },
+        else => false,
+    };
+}
+pub const has_hardware_f32 = hasHardwareFloat(f32);
+pub const has_hardware_f64 = hasHardwareFloat(f64);
+
 // Avoid dragging in the runtime safety mechanisms into this .o file,
 // unless we're trying to test compiler-rt.
 pub fn panic(msg: []const u8, error_return_trace: ?*std.builtin.StackTrace, _: ?usize) noreturn {

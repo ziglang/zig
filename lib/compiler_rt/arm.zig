@@ -40,8 +40,9 @@ comptime {
                 @export(__aeabi_read_tp, .{ .name = "__aeabi_read_tp", .linkage = common.linkage, .visibility = common.visibility });
             }
 
-            // floating-point helper functions (double-precision reverse subtraction, y – x), see subdf3.zig
+            // floating-point helper functions (double/single-precision reverse subtraction, y – x), see subdf3.zig & subsf3.zig
             @export(__aeabi_drsub, .{ .name = "__aeabi_drsub", .linkage = common.linkage, .visibility = common.visibility });
+            @export(__aeabi_frsub, .{ .name = "__aeabi_frsub", .linkage = common.linkage, .visibility = common.visibility });
         }
     }
 }
@@ -191,7 +192,18 @@ pub fn __aeabi_ldivmod() callconv(.Naked) void {
     unreachable;
 }
 
+pub fn __aeabi_frsub(a: f32, b: f32) callconv(.AAPCS) f32 {
+    if (common.has_hardware_f32) {
+        return b - a;
+    }
+    const neg_a = @bitCast(f32, @bitCast(u32, a) ^ (@as(u32, 1) << 31));
+    return b + neg_a;
+}
+
 pub fn __aeabi_drsub(a: f64, b: f64) callconv(.AAPCS) f64 {
+    if (common.has_hardware_f64) {
+        return b - a;
+    }
     const neg_a = @bitCast(f64, @bitCast(u64, a) ^ (@as(u64, 1) << 63));
     return b + neg_a;
 }

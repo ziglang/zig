@@ -16,5 +16,8 @@ pub fn __truncdfsf2(a: f64) callconv(.C) f32 {
 }
 
 fn __aeabi_d2f(a: f64) callconv(.AAPCS) f32 {
+    if (common.has_hardware_f64) {
+        return @floatCast(f32, a);
+    }
     return truncf(f32, f64, a);
 }

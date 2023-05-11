@@ -16,5 +16,8 @@ fn __addsf3(a: f32, b: f32) callconv(.C) f32 {
 }
 
 fn __aeabi_fadd(a: f32, b: f32) callconv(.AAPCS) f32 {
+    if (common.has_hardware_f32) {
+        return a + b;
+    }
     return addf3(f32, a, b);
 }
