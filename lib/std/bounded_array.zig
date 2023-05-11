@@ -73,7 +73,7 @@ pub fn BoundedArrayAligned(
         /// Copy the content of an existing slice.
         pub fn fromSlice(m: []const T) error{Overflow}!Self {
             var list = try init(m.len);
-            std.mem.copy(T, list.slice(), m);
+            @memcpy(list.slice(), m);
             return list;
         }
 
@@ -165,7 +165,7 @@ pub fn BoundedArrayAligned(
             try self.ensureUnusedCapacity(items.len);
             self.len += items.len;
             mem.copyBackwards(T, self.slice()[i + items.len .. self.len], self.constSlice()[i .. self.len - items.len]);
-            mem.copy(T, self.slice()[i .. i + items.len], items);
+            @memcpy(self.slice()[i..][0..items.len], items);
         }
 
         /// Replace range of elements `slice[start..start+len]` with `new_items`.
@@ -181,14 +181,14 @@ pub fn BoundedArrayAligned(
             var range = self.slice()[start..after_range];
 
             if (range.len == new_items.len) {
-                mem.copy(T, range, new_items);
+                @memcpy(range[0..new_items.len], new_items);
             } else if (range.len < new_items.len) {
                 const first = new_items[0..range.len];
                 const rest = new_items[range.len..];
-                mem.copy(T, range, first);
+                @memcpy(range[0..first.len], first);
                 try self.insertSlice(after_range, rest);
             } else {
-                mem.copy(T, range, new_items);
+                @memcpy(range[0..new_items.len], new_items);
                 const after_subrange = start + new_items.len;
                 for (self.constSlice()[after_range..], 0..) |item, i| {
                     self.slice()[after_subrange..][i] = item;
@@ -243,9 +243,9 @@ pub fn BoundedArrayAligned(
         /// Append the slice of items to the slice, asserting the capacity is already
         /// enough to store the new items.
         pub fn appendSliceAssumeCapacity(self: *Self, items: []const T) void {
-            const oldlen = self.len;
+            const old_len = self.len;
             self.len += items.len;
-            mem.copy(T, self.slice()[oldlen..], items);
+            @memcpy(self.slice()[old_len..][0..items.len], items);
         }
 
         /// Append a value to the slice `n` times.
@@ -253,7 +253,7 @@ pub fn BoundedArrayAligned(
         pub fn appendNTimes(self: *Self, value: T, n: usize) error{Overflow}!void {
             const old_len = self.len;
             try self.resize(old_len + n);
-            mem.set(T, self.slice()[old_len..self.len], value);
+            @memset(self.slice()[old_len..self.len], value);
         }
 
         /// Append a value to the slice `n` times.
@@ -262,7 +262,7 @@ pub fn BoundedArrayAligned(
             const old_len = self.len;
             self.len += n;
             assert(self.len <= buffer_capacity);
-            mem.set(T, self.slice()[old_len..self.len], value);
+            @memset(self.slice()[old_len..self.len], value);
         }
 
         pub const Writer = if (T != u8)
@@ -329,7 +329,7 @@ test "BoundedArray" {
     try testing.expectEqual(a.popOrNull(), 0);
     try testing.expectEqual(a.popOrNull(), null);
     var unused = a.unusedCapacitySlice();
-    mem.set(u8, unused[0..8], 2);
+    @memset(unused[0..8], 2);
     unused[8] = 3;
     unused[9] = 4;
     try testing.expectEqual(unused.len, a.capacity());

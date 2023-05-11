@@ -3843,9 +3843,14 @@ pub const Type = extern union {
         };
     }
 
-    /// Asserts the `Type` is a pointer.
-    pub fn ptrSize(self: Type) std.builtin.Type.Pointer.Size {
-        return switch (self.tag()) {
+    /// Asserts `ty` is a pointer.
+    pub fn ptrSize(ty: Type) std.builtin.Type.Pointer.Size {
+        return ptrSizeOrNull(ty).?;
+    }
+
+    /// Returns `null` if `ty` is not a pointer.
+    pub fn ptrSizeOrNull(ty: Type) ?std.builtin.Type.Pointer.Size {
+        return switch (ty.tag()) {
             .const_slice,
             .mut_slice,
             .const_slice_u8,
@@ -3870,9 +3875,9 @@ pub const Type = extern union {
             .inferred_alloc_mut,
             => .One,
 
-            .pointer => self.castTag(.pointer).?.data.size,
+            .pointer => ty.castTag(.pointer).?.data.size,
 
-            else => unreachable,
+            else => null,
         };
     }
 

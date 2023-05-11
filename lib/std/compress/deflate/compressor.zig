@@ -543,7 +543,7 @@ pub fn Compressor(comptime WriterType: anytype) type {
             self.hash_offset = 1;
             self.tokens = try self.allocator.alloc(token.Token, max_flate_block_tokens);
             self.tokens_count = 0;
-            mem.set(token.Token, self.tokens, 0);
+            @memset(self.tokens, 0);
             self.length = min_match_length - 1;
             self.offset = 0;
             self.byte_available = false;
@@ -841,9 +841,9 @@ pub fn Compressor(comptime WriterType: anytype) type {
             s.hash_head = try allocator.alloc(u32, hash_size);
             s.hash_prev = try allocator.alloc(u32, window_size);
             s.hash_match = try allocator.alloc(u32, max_match_length - 1);
-            mem.set(u32, s.hash_head, 0);
-            mem.set(u32, s.hash_prev, 0);
-            mem.set(u32, s.hash_match, 0);
+            @memset(s.hash_head, 0);
+            @memset(s.hash_prev, 0);
+            @memset(s.hash_match, 0);
 
             switch (options.level) {
                 .no_compression => {
@@ -936,8 +936,8 @@ pub fn Compressor(comptime WriterType: anytype) type {
                 .best_compression,
                 => {
                     self.chain_head = 0;
-                    mem.set(u32, self.hash_head, 0);
-                    mem.set(u32, self.hash_prev, 0);
+                    @memset(self.hash_head, 0);
+                    @memset(self.hash_prev, 0);
                     self.hash_offset = 1;
                     self.index = 0;
                     self.window_end = 0;

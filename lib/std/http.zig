@@ -128,7 +128,7 @@ pub const Status = enum(u10) {
     upgrade_required = 426, // RFC7231, Section 6.5.15
     precondition_required = 428, // RFC6585
     too_many_requests = 429, // RFC6585
-    header_fields_too_large = 431, // RFC6585
+    request_header_fields_too_large = 431, // RFC6585
     unavailable_for_legal_reasons = 451, // RFC7725
 
     internal_server_error = 500, // RFC7231, Section 6.6.1
@@ -203,7 +203,7 @@ pub const Status = enum(u10) {
             .upgrade_required => "Upgrade Required",
             .precondition_required => "Precondition Required",
             .too_many_requests => "Too Many Requests",
-            .header_fields_too_large => "Request Header Fields Too Large",
+            .request_header_fields_too_large => "Request Header Fields Too Large",
             .unavailable_for_legal_reasons => "Unavailable For Legal Reasons",
 
             // 5xx statuses

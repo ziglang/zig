@@ -156,7 +156,7 @@ pub fn parse(self: *Object, allocator: Allocator, cpu_arch: std.Target.Cpu.Arch)
 
     // Prepopulate relocations per section lookup table.
     try self.section_relocs_lookup.resize(allocator, nsects);
-    mem.set(u32, self.section_relocs_lookup.items, 0);
+    @memset(self.section_relocs_lookup.items, 0);
 
     // Parse symtab.
     const symtab = while (it.next()) |cmd| switch (cmd.cmd()) {
@@ -189,10 +189,10 @@ pub fn parse(self: *Object, allocator: Allocator, cpu_arch: std.Target.Cpu.Arch)
         };
     }
 
-    mem.set(i64, self.globals_lookup, -1);
-    mem.set(AtomIndex, self.atom_by_index_table, 0);
-    mem.set(Entry, self.source_section_index_lookup, .{});
-    mem.set(Entry, self.relocs_lookup, .{});
+    @memset(self.globals_lookup, -1);
+    @memset(self.atom_by_index_table, 0);
+    @memset(self.source_section_index_lookup, .{});
+    @memset(self.relocs_lookup, .{});
 
     // You would expect that the symbol table is at least pre-sorted based on symbol's type:
     // local < extern defined < undefined. Unfortunately, this is not guaranteed! For instance,
@@ -252,7 +252,7 @@ pub fn parse(self: *Object, allocator: Allocator, cpu_arch: std.Target.Cpu.Arch)
     self.unwind_info_sect_id = self.getSourceSectionIndexByName("__LD", "__compact_unwind");
     if (self.hasUnwindRecords()) {
         self.unwind_relocs_lookup = try allocator.alloc(Record, self.getUnwindRecords().len);
-        mem.set(Record, self.unwind_relocs_lookup, .{ .dead = true, .reloc = .{} });
+        @memset(self.unwind_relocs_lookup, .{ .dead = true, .reloc = .{} });
     }
 }
 

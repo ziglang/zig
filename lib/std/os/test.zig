@@ -587,7 +587,7 @@ test "mmap" {
         try testing.expect(mem.eql(u8, data, &[_]u8{0x00} ** 1234));
 
         // Make sure the memory is writeable as requested
-        std.mem.set(u8, data, 0x55);
+        @memset(data, 0x55);
         try testing.expect(mem.eql(u8, data, &[_]u8{0x55} ** 1234));
     }
 

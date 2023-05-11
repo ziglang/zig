@@ -2140,7 +2140,7 @@ pub const Zld = struct {
 
         var buffer = try gpa.alloc(u8, needed_size);
         defer gpa.free(buffer);
-        mem.set(u8, buffer, 0);
+        @memset(buffer, 0);
 
         var stream = std.io.fixedBufferStream(buffer);
         const writer = stream.writer();
@@ -2352,7 +2352,7 @@ pub const Zld = struct {
 
         const buffer = try self.gpa.alloc(u8, math.cast(usize, needed_size_aligned) orelse return error.Overflow);
         defer self.gpa.free(buffer);
-        mem.set(u8, buffer, 0);
+        @memset(buffer, 0);
         mem.copy(u8, buffer, mem.sliceAsBytes(out_dice.items));
 
         log.debug("writing data-in-code from 0x{x} to 0x{x}", .{ offset, offset + needed_size_aligned });
@@ -2484,7 +2484,7 @@ pub const Zld = struct {
 
         const buffer = try self.gpa.alloc(u8, math.cast(usize, needed_size_aligned) orelse return error.Overflow);
         defer self.gpa.free(buffer);
-        mem.set(u8, buffer, 0);
+        @memset(buffer, 0);
         mem.copy(u8, buffer, self.strtab.buffer.items);
 
         try self.file.pwriteAll(buffer, offset);
@@ -3199,7 +3199,7 @@ pub const Zld = struct {
             scoped_log.debug("  object({d}): {s}", .{ id, object.name });
             if (object.in_symtab == null) continue;
             for (object.symtab, 0..) |sym, sym_id| {
-                mem.set(u8, &buf, '_');
+                @memset(&buf, '_');
                 scoped_log.debug("    %{d}: {s} @{x} in sect({d}), {s}", .{
                     sym_id,
                     object.getSymbolName(@intCast(u32, sym_id)),
@@ -4007,7 +4007,7 @@ pub fn linkWithZld(macho_file: *MachO, comp: *Compilation, prog_node: *std.Progr
                 log.debug("zeroing out zerofill area of length {x} at {x}", .{ size, start });
                 var padding = try zld.gpa.alloc(u8, size);
                 defer zld.gpa.free(padding);
-                mem.set(u8, padding, 0);
+                @memset(padding, 0);
                 try zld.file.pwriteAll(padding, start);
             }
         }

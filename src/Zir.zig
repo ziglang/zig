@@ -922,10 +922,10 @@ pub const Inst = struct {
         /// Uses the `pl_node` union field with payload `FieldParentPtr`.
         field_parent_ptr,
         /// Implements the `@memcpy` builtin.
-        /// Uses the `pl_node` union field with payload `Memcpy`.
+        /// Uses the `pl_node` union field with payload `Bin`.
         memcpy,
         /// Implements the `@memset` builtin.
-        /// Uses the `pl_node` union field with payload `Memset`.
+        /// Uses the `pl_node` union field with payload `Bin`.
         memset,
         /// Implements the `@min` builtin.
         /// Uses the `pl_node` union field with payload `Bin`
@@ -3499,18 +3499,6 @@ pub const Inst = struct {
         parent_type: Ref,
         field_name: Ref,
         field_ptr: Ref,
-    };
-
-    pub const Memcpy = struct {
-        dest: Ref,
-        source: Ref,
-        byte_count: Ref,
-    };
-
-    pub const Memset = struct {
-        dest: Ref,
-        byte: Ref,
-        byte_count: Ref,
     };
 
     pub const Shuffle = struct {

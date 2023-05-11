@@ -860,6 +860,12 @@ pub const table = [_]Entry{
 
     .{ .minsd, .rm, &.{ .xmm, .xmm_m64 }, &.{ 0xf2, 0x0f, 0x5d }, 0, .sse2 },
 
+    .{ .movd, .rm, &.{ .xmm,  .rm32 }, &.{ 0x66, 0x0f, 0x6e }, 0, .sse2 },
+    .{ .movd, .mr, &.{ .rm32, .xmm  }, &.{ 0x66, 0x0f, 0x7e }, 0, .sse2 },
+
+    .{ .movq, .rm, &.{ .xmm,  .rm64 }, &.{ 0x66, 0x0f, 0x6e }, 0, .sse2_long },
+    .{ .movq, .mr, &.{ .rm64, .xmm  }, &.{ 0x66, 0x0f, 0x7e }, 0, .sse2_long },
+
     .{ .movq, .rm, &.{ .xmm,     .xmm_m64 }, &.{ 0xf3, 0x0f, 0x7e }, 0, .sse2 },
     .{ .movq, .mr, &.{ .xmm_m64, .xmm     }, &.{ 0x66, 0x0f, 0xd6 }, 0, .sse2 },
 

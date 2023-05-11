@@ -275,7 +275,7 @@ inline fn alignPtrCast(comptime T: type, ptr: [*]u8) *T {
 /// architecture-specific value of the thread-pointer register
 pub fn prepareTLS(area: []u8) usize {
     // Clear the area we're going to use, just to be safe
-    mem.set(u8, area, 0);
+    @memset(area, 0);
     // Prepare the DTV
     const dtv = alignPtrCast(DTV, area.ptr + tls_image.dtv_offset);
     dtv.entries = 1;

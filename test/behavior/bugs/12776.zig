@@ -32,7 +32,10 @@ test {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_x86_64) {
+        // Careful enabling this test, fails randomly.
+        return error.SkipZigTest;
+    }
 
     var ram = try RAM.new();
     var cpu = try CPU.new(&ram);

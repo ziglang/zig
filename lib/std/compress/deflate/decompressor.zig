@@ -159,7 +159,7 @@ const HuffmanDecoder = struct {
                 if (sanity) {
                     // initialize to a known invalid chunk code (0) to see if we overwrite
                     // this value later on
-                    mem.set(u16, self.links[off], 0);
+                    @memset(self.links[off], 0);
                 }
                 try self.sub_chunks.append(off);
             }

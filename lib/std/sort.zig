@@ -361,8 +361,10 @@ pub fn sort(
 
                     if (lessThan(context, items[B1.end - 1], items[A1.start])) {
                         // the two ranges are in reverse order, so copy them in reverse order into the cache
-                        mem.copy(T, cache[B1.length()..], items[A1.start..A1.end]);
-                        mem.copy(T, cache[0..], items[B1.start..B1.end]);
+                        const a1_items = items[A1.start..A1.end];
+                        @memcpy(cache[B1.length()..][0..a1_items.len], a1_items);
+                        const b1_items = items[B1.start..B1.end];
+                        @memcpy(cache[0..b1_items.len], b1_items);
                     } else if (lessThan(context, items[B1.start], items[A1.end - 1])) {
                         // these two ranges weren't already in order, so merge them into the cache
                         mergeInto(T, items, A1, B1, context, lessThan, cache[0..]);
@@ -371,23 +373,29 @@ pub fn sort(
                         if (!lessThan(context, items[B2.start], items[A2.end - 1]) and !lessThan(context, items[A2.start], items[B1.end - 1])) continue;
 
                         // copy A1 and B1 into the cache in the same order
-                        mem.copy(T, cache[0..], items[A1.start..A1.end]);
-                        mem.copy(T, cache[A1.length()..], items[B1.start..B1.end]);
+                        const a1_items = items[A1.start..A1.end];
+                        @memcpy(cache[0..a1_items.len], a1_items);
+                        const b1_items = items[B1.start..B1.end];
+                        @memcpy(cache[A1.length()..][0..b1_items.len], b1_items);
                     }
                     A1 = Range.init(A1.start, B1.end);
 
                     // merge A2 and B2 into the cache
                     if (lessThan(context, items[B2.end - 1], items[A2.start])) {
                         // the two ranges are in reverse order, so copy them in reverse order into the cache
-                        mem.copy(T, cache[A1.length() + B2.length() ..], items[A2.start..A2.end]);
-                        mem.copy(T, cache[A1.length()..], items[B2.start..B2.end]);
+                        const a2_items = items[A2.start..A2.end];
+                        @memcpy(cache[A1.length() + B2.length() ..][0..a2_items.len], a2_items);
+                        const b2_items = items[B2.start..B2.end];
+                        @memcpy(cache[A1.length()..][0..b2_items.len], b2_items);
                     } else if (lessThan(context, items[B2.start], items[A2.end - 1])) {
                         // these two ranges weren't already in order, so merge them into the cache
                         mergeInto(T, items, A2, B2, context, lessThan, cache[A1.length()..]);
                     } else {
                         // copy A2 and B2 into the cache in the same order
-                        mem.copy(T, cache[A1.length()..], items[A2.start..A2.end]);
-                        mem.copy(T, cache[A1.length() + A2.length() ..], items[B2.start..B2.end]);
+                        const a2_items = items[A2.start..A2.end];
+                        @memcpy(cache[A1.length()..][0..a2_items.len], a2_items);
+                        const b2_items = items[B2.start..B2.end];
+                        @memcpy(cache[A1.length() + A2.length() ..][0..b2_items.len], b2_items);
                     }
                     A2 = Range.init(A2.start, B2.end);
 
@@ -397,15 +405,19 @@ pub fn sort(
 
                     if (lessThan(context, cache[B3.end - 1], cache[A3.start])) {
                         // the two ranges are in reverse order, so copy them in reverse order into the items
-                        mem.copy(T, items[A1.start + A2.length() ..], cache[A3.start..A3.end]);
-                        mem.copy(T, items[A1.start..], cache[B3.start..B3.end]);
+                        const a3_items = cache[A3.start..A3.end];
+                        @memcpy(items[A1.start + A2.length() ..][0..a3_items.len], a3_items);
+                        const b3_items = cache[B3.start..B3.end];
+                        @memcpy(items[A1.start..][0..b3_items.len], b3_items);
                     } else if (lessThan(context, cache[B3.start], cache[A3.end - 1])) {
                         // these two ranges weren't already in order, so merge them back into the items
                         mergeInto(T, cache[0..], A3, B3, context, lessThan, items[A1.start..]);
                     } else {
                         // copy A3 and B3 into the items in the same order
-                        mem.copy(T, items[A1.start..], cache[A3.start..A3.end]);
-                        mem.copy(T, items[A1.start + A1.length() ..], cache[B3.start..B3.end]);
+                        const a3_items = cache[A3.start..A3.end];
+                        @memcpy(items[A1.start..][0..a3_items.len], a3_items);
+                        const b3_items = cache[B3.start..B3.end];
+                        @memcpy(items[A1.start + A1.length() ..][0..b3_items.len], b3_items);
                     }
                 }
 
@@ -423,7 +435,8 @@ pub fn sort(
                         mem.rotate(T, items[A.start..B.end], A.length());
                     } else if (lessThan(context, items[B.start], items[A.end - 1])) {
                         // these two ranges weren't already in order, so we'll need to merge them!
-                        mem.copy(T, cache[0..], items[A.start..A.end]);
+                        const a_items = items[A.start..A.end];
+                        @memcpy(cache[0..a_items.len], a_items);
                         mergeExternal(T, items, A, B, context, lessThan, cache[0..]);
                     }
                 }
@@ -718,7 +731,8 @@ pub fn sort(
                     // if the first unevenly sized A block fits into the cache, copy it there for when we go to Merge it
                     // otherwise, if the second buffer is available, block swap the contents into that
                     if (lastA.length() <= cache.len) {
-                        mem.copy(T, cache[0..], items[lastA.start..lastA.end]);
+                        const last_a_items = items[lastA.start..lastA.end];
+                        @memcpy(cache[0..last_a_items.len], last_a_items);
                     } else if (buffer2.length() > 0) {
                         blockSwap(T, items, lastA.start, buffer2.start, lastA.length());
                     }
@@ -762,7 +776,7 @@ pub fn sort(
                                 if (buffer2.length() > 0 or block_size <= cache.len) {
                                     // copy the previous A block into the cache or buffer2, since that's where we need it to be when we go to merge it anyway
                                     if (block_size <= cache.len) {
-                                        mem.copy(T, cache[0..], items[blockA.start .. blockA.start + block_size]);
+                                        @memcpy(cache[0..block_size], items[blockA.start..][0..block_size]);
                                     } else {
                                         blockSwap(T, items, blockA.start, buffer2.start, block_size);
                                     }
@@ -1122,7 +1136,8 @@ fn mergeInto(
             insert_index += 1;
             if (A_index == A_last) {
                 // copy the remainder of B into the final array
-                mem.copy(T, into[insert_index..], from[B_index..B_last]);
+                const from_b = from[B_index..B_last];
+                @memcpy(into[insert_index..][0..from_b.len], from_b);
                 break;
             }
         } else {
@@ -1131,7 +1146,8 @@ fn mergeInto(
             insert_index += 1;
             if (B_index == B_last) {
                 // copy the remainder of A into the final array
-                mem.copy(T, into[insert_index..], from[A_index..A_last]);
+                const from_a = from[A_index..A_last];
+                @memcpy(into[insert_index..][0..from_a.len], from_a);
                 break;
             }
         }
@@ -1171,7 +1187,8 @@ fn mergeExternal(
     }
 
     // copy the remainder of A into the final array
-    mem.copy(T, items[insert_index..], cache[A_index..A_last]);
+    const cache_a = cache[A_index..A_last];
+    @memcpy(items[insert_index..][0..cache_a.len], cache_a);
 }
 
 fn swap(
@@ -1305,7 +1322,7 @@ test "sort" {
     for (u8cases) |case| {
         var buf: [8]u8 = undefined;
         const slice = buf[0..case[0].len];
-        mem.copy(u8, slice, case[0]);
+        @memcpy(slice, case[0]);
         sort(u8, slice, {}, asc_u8);
         try testing.expect(mem.eql(u8, slice, case[1]));
     }
@@ -1340,7 +1357,7 @@ test "sort" {
     for (i32cases) |case| {
         var buf: [8]i32 = undefined;
         const slice = buf[0..case[0].len];
-        mem.copy(i32, slice, case[0]);
+        @memcpy(slice, case[0]);
         sort(i32, slice, {}, asc_i32);
         try testing.expect(mem.eql(i32, slice, case[1]));
     }
@@ -1377,7 +1394,7 @@ test "sort descending" {
     for (rev_cases) |case| {
         var buf: [8]i32 = undefined;
         const slice = buf[0..case[0].len];
-        mem.copy(i32, slice, case[0]);
+        @memcpy(slice, case[0]);
         sort(i32, slice, {}, desc_i32);
         try testing.expect(mem.eql(i32, slice, case[1]));
     }

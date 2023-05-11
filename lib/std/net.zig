@@ -106,7 +106,7 @@ pub const Address = extern union {
         // Add 1 to ensure a terminating 0 is present in the path array for maximum portability.
         if (path.len + 1 > sock_addr.path.len) return error.NameTooLong;
 
-        mem.set(u8, &sock_addr.path, 0);
+        @memset(&sock_addr.path, 0);
         mem.copy(u8, &sock_addr.path, path);
 
         return Address{ .un = sock_addr };
@@ -346,7 +346,7 @@ pub const Ip6Address = extern struct {
                 if (!saw_any_digits) {
                     if (abbrv) return error.InvalidCharacter; // ':::'
                     if (i != 0) abbrv = true;
-                    mem.set(u8, ip_slice[index..], 0);
+                    @memset(ip_slice[index..], 0);
                     ip_slice = tail[0..];
                     index = 0;
                     continue;
@@ -465,7 +465,7 @@ pub const Ip6Address = extern struct {
                 if (!saw_any_digits) {
                     if (abbrv) return error.InvalidCharacter; // ':::'
                     if (i != 0) abbrv = true;
-                    mem.set(u8, ip_slice[index..], 0);
+                    @memset(ip_slice[index..], 0);
                     ip_slice = tail[0..];
                     index = 0;
                     continue;
@@ -1020,7 +1020,7 @@ fn linuxLookupName(
     for (addrs.items, 0..) |*addr, i| {
         var key: i32 = 0;
         var sa6: os.sockaddr.in6 = undefined;
-        @memset(@ptrCast([*]u8, &sa6), 0, @sizeOf(os.sockaddr.in6));
+        @memset(@ptrCast([*]u8, &sa6)[0..@sizeOf(os.sockaddr.in6)], 0);
         var da6 = os.sockaddr.in6{
             .family = os.AF.INET6,
             .scope_id = addr.addr.in6.sa.scope_id,
@@ -1029,7 +1029,7 @@ fn linuxLookupName(
             .addr = [1]u8{0} ** 16,
         };
         var sa4: os.sockaddr.in = undefined;
-        @memset(@ptrCast([*]u8, &sa4), 0, @sizeOf(os.sockaddr.in));
+        @memset(@ptrCast([*]u8, &sa4)[0..@sizeOf(os.sockaddr.in)], 0);
         var da4 = os.sockaddr.in{
             .family = os.AF.INET,
             .port = 65535,
@@ -1577,7 +1577,7 @@ fn resMSendRc(
 
     // Get local address and open/bind a socket
     var sa: Address = undefined;
-    @memset(@ptrCast([*]u8, &sa), 0, @sizeOf(Address));
+    @memset(@ptrCast([*]u8, &sa)[0..@sizeOf(Address)], 0);
     sa.any.family = family;
     try os.bind(fd, &sa.any, sl);
 

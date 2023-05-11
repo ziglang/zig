@@ -128,14 +128,29 @@ const Scope = struct {
 
         /// Given the desired name, return a name that does not shadow anything from outer scopes.
         /// Inserts the returned name into the scope.
+        /// The name will not be visible to callers of getAlias.
+        fn reserveMangledName(scope: *Block, c: *Context, name: []const u8) ![]const u8 {
+            return scope.createMangledName(c, name, true);
+        }
+
+        /// Same as reserveMangledName, but enables the alias immediately.
         fn makeMangledName(scope: *Block, c: *Context, name: []const u8) ![]const u8 {
+            return scope.createMangledName(c, name, false);
+        }
+
+        fn createMangledName(scope: *Block, c: *Context, name: []const u8, reservation: bool) ![]const u8 {
             const name_copy = try c.arena.dupe(u8, name);
             var proposed_name = name_copy;
             while (scope.contains(proposed_name)) {
                 scope.mangle_count += 1;
                 proposed_name = try std.fmt.allocPrint(c.arena, "{s}_{d}", .{ name, scope.mangle_count });
             }
-            try scope.variables.append(.{ .name = name_copy, .alias = proposed_name });
+            const new_mangle = try scope.variables.addOne();
+            if (reservation) {
+                new_mangle.* = .{ .name = name_copy, .alias = name_copy };
+            } else {
+                new_mangle.* = .{ .name = name_copy, .alias = proposed_name };
+            }
             return proposed_name;
         }
 
@@ -3806,8 +3821,8 @@ fn transCreatePreCrement(
     // zig: })
     var block_scope = try Scope.Block.init(c, scope, true);
     defer block_scope.deinit();
-    const ref = try block_scope.makeMangledName(c, "ref");
 
+    const ref = try block_scope.reserveMangledName(c, "ref");
     const expr = try transExpr(c, &block_scope.base, op_expr, .used);
     const addr_of = try Tag.address_of.create(c.arena, expr);
     const ref_decl = try Tag.var_simple.create(c.arena, .{ .name = ref, .init = addr_of });
@@ -3853,7 +3868,8 @@ fn transCreatePostCrement(
     // zig: })
     var block_scope = try Scope.Block.init(c, scope, true);
     defer block_scope.deinit();
-    const ref = try block_scope.makeMangledName(c, "ref");
+    const ref = try block_scope.reserveMangledName(c, "ref");
+    const tmp = try block_scope.reserveMangledName(c, "tmp");
 
     const expr = try transExpr(c, &block_scope.base, op_expr, .used);
     const addr_of = try Tag.address_of.create(c.arena, expr);
@@ -3863,7 +3879,6 @@ fn transCreatePostCrement(
     const lhs_node = try Tag.identifier.create(c.arena, ref);
     const ref_node = try Tag.deref.create(c.arena, lhs_node);
 
-    const tmp = try block_scope.makeMangledName(c, "tmp");
     const tmp_decl = try Tag.var_simple.create(c.arena, .{ .name = tmp, .init = ref_node });
     try block_scope.statements.append(tmp_decl);
 
@@ -3968,7 +3983,7 @@ fn transCreateCompoundAssign(
     // zig: })
     var block_scope = try Scope.Block.init(c, scope, true);
     defer block_scope.deinit();
-    const ref = try block_scope.makeMangledName(c, "ref");
+    const ref = try block_scope.reserveMangledName(c, "ref");
 
     const expr = try transExpr(c, &block_scope.base, lhs, .used);
     const addr_of = try Tag.address_of.create(c.arena, expr);
@@ -4098,9 +4113,9 @@ fn transBinaryConditionalOperator(c: *Context, scope: *Scope, stmt: *const clang
     var block_scope = try Scope.Block.init(c, scope, true);
     defer block_scope.deinit();
 
-    const mangled_name = try block_scope.makeMangledName(c, "cond_temp");
+    const cond_temp = try block_scope.reserveMangledName(c, "cond_temp");
     const init_node = try transExpr(c, &block_scope.base, cond_expr, .used);
-    const ref_decl = try Tag.var_simple.create(c.arena, .{ .name = mangled_name, .init = init_node });
+    const ref_decl = try Tag.var_simple.create(c.arena, .{ .name = cond_temp, .init = init_node });
     try block_scope.statements.append(ref_decl);
 
     var cond_scope = Scope.Condition{
@@ -4111,7 +4126,7 @@ fn transBinaryConditionalOperator(c: *Context, scope: *Scope, stmt: *const clang
     };
     defer cond_scope.deinit();
 
-    const cond_ident = try Tag.identifier.create(c.arena, mangled_name);
+    const cond_ident = try Tag.identifier.create(c.arena, cond_temp);
     const ty = getExprQualType(c, cond_expr).getTypePtr();
     const cond_node = try finishBoolExpr(c, &cond_scope.base, cond_expr.getBeginLoc(), ty, cond_ident, .used);
     var then_body = cond_ident;
@@ -4180,8 +4195,11 @@ fn maybeSuppressResult(c: *Context, used: ResultUsed, result: Node) TransError!N
 }
 
 fn addTopLevelDecl(c: *Context, name: []const u8, decl_node: Node) !void {
-    try c.global_scope.sym_table.put(name, decl_node);
-    try c.global_scope.nodes.append(decl_node);
+    const gop = try c.global_scope.sym_table.getOrPut(name);
+    if (!gop.found_existing) {
+        gop.value_ptr.* = decl_node;
+        try c.global_scope.nodes.append(decl_node);
+    }
 }
 
 fn transQualTypeInitializedStringLiteral(c: *Context, elem_ty: Node, string_lit: *const clang.StringLiteral) TypeError!Node {
@@ -4552,11 +4570,12 @@ fn transCreateNodeAssign(
     var block_scope = try Scope.Block.init(c, scope, true);
     defer block_scope.deinit();
 
-    const tmp = try block_scope.makeMangledName(c, "tmp");
+    const tmp = try block_scope.reserveMangledName(c, "tmp");
     var rhs_node = try transExpr(c, &block_scope.base, rhs, .used);
     if (!exprIsBooleanType(lhs) and isBoolRes(rhs_node)) {
         rhs_node = try Tag.bool_to_int.create(c.arena, rhs_node);
     }
+
     const tmp_decl = try Tag.var_simple.create(c.arena, .{ .name = tmp, .init = rhs_node });
     try block_scope.statements.append(tmp_decl);
 
