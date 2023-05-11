@@ -241,7 +241,8 @@ test {
         builtin.zig_backend != .stage2_x86_64 and
         builtin.zig_backend != .stage2_aarch64 and
         builtin.zig_backend != .stage2_wasm and
-        builtin.zig_backend != .stage2_c)
+        builtin.zig_backend != .stage2_c and
+        builtin.zig_backend != .stage2_spirv64)
     {
         _ = @import("behavior/bugs/13063.zig");
         _ = @import("behavior/bugs/11227.zig");

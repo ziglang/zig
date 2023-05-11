@@ -5076,6 +5076,7 @@ pub fn getZigBackend(comp: Compilation) std.builtin.CompilerBackend {
         .aarch64, .aarch64_be, .aarch64_32 => .stage2_aarch64,
         .riscv64 => .stage2_riscv64,
         .sparc64 => .stage2_sparc64,
+        .spirv64 => .stage2_spirv64,
         else => .other,
     };
 }
