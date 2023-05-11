@@ -11410,9 +11410,9 @@ fn airUnionInit(self: *Self, inst: Air.Inst.Index) !void {
 
         const dst_mcv = try self.allocRegOrMem(inst, false);
 
-        const union_obj = union_ty.cast(Type.Payload.Union).?.data;
+        const union_obj = mod.typeToUnion(union_ty).?;
         const field_name = union_obj.fields.keys()[extra.field_index];
-        const tag_ty = union_ty.unionTagTypeSafety().?;
+        const tag_ty = union_obj.tag_ty;
         const field_index = @intCast(u32, tag_ty.enumFieldIndex(field_name).?);
         var tag_pl = Value.Payload.U32{ .base = .{ .tag = .enum_field_index }, .data = field_index };
         const tag_val = Value.initPayload(&tag_pl.base);

@@ -70,8 +70,8 @@ pub fn classifyType(ty: Type, mod: *Module) [2]Class {
             }
             const layout = ty.unionGetLayout(mod);
             std.debug.assert(layout.tag_size == 0);
-            if (ty.unionFields().count() > 1) return memory;
-            return classifyType(ty.unionFields().values()[0].ty, mod);
+            if (ty.unionFields(mod).count() > 1) return memory;
+            return classifyType(ty.unionFields(mod).values()[0].ty, mod);
         },
         .ErrorUnion,
         .Frame,
@@ -111,11 +111,11 @@ pub fn scalarType(ty: Type, mod: *Module) Type {
             if (ty.containerLayout(mod) != .Packed) {
                 const layout = ty.unionGetLayout(mod);
                 if (layout.payload_size == 0 and layout.tag_size != 0) {
-                    return scalarType(ty.unionTagTypeSafety().?, mod);
+                    return scalarType(ty.unionTagTypeSafety(mod).?, mod);
                 }
-                std.debug.assert(ty.unionFields().count() == 1);
+                std.debug.assert(ty.unionFields(mod).count() == 1);
             }
-            return scalarType(ty.unionFields().values()[0].ty, mod);
+            return scalarType(ty.unionFields(mod).values()[0].ty, mod);
         },
         else => return ty,
     }

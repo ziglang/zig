@@ -91,7 +91,7 @@ pub fn print(
                 try writer.writeAll(".{ ");
 
                 try print(.{
-                    .ty = ty.cast(Type.Payload.Union).?.data.tag_ty,
+                    .ty = mod.unionPtr(mod.intern_pool.indexToKey(ty.ip_index).union_type.index).tag_ty,
                     .val = union_val.tag,
                 }, writer, level - 1, mod);
                 try writer.writeAll(" = ");
@@ -185,7 +185,7 @@ pub fn print(
                         },
                     }
                 } else if (field_ptr.container_ty.zigTypeTag(mod) == .Union) {
-                    const field_name = field_ptr.container_ty.unionFields().keys()[field_ptr.field_index];
+                    const field_name = field_ptr.container_ty.unionFields(mod).keys()[field_ptr.field_index];
                     return writer.print(".{s}", .{field_name});
                 } else if (field_ptr.container_ty.isSlice(mod)) {
                     switch (field_ptr.field_index) {

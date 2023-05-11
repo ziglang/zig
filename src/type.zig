@@ -68,11 +68,6 @@ pub const Type = struct {
                 .enum_simple,
                 .enum_numbered,
                 => return .Enum,
-
-                .@"union",
-                .union_safety_tagged,
-                .union_tagged,
-                => return .Union,
             },
             else => switch (mod.intern_pool.indexToKey(ty.ip_index)) {
                 .int_type => return .Int,
@@ -140,6 +135,7 @@ pub const Type = struct {
                 },
 
                 // values, not types
+                .un => unreachable,
                 .extern_func => unreachable,
                 .int => unreachable,
                 .ptr => unreachable,
@@ -585,12 +581,6 @@ pub const Type = struct {
                 const b_enum_obj = (b.cast(Payload.EnumNumbered) orelse return false).data;
                 return a_enum_obj == b_enum_obj;
             },
-
-            .@"union", .union_safety_tagged, .union_tagged => {
-                const a_union_obj = a.cast(Payload.Union).?.data;
-                const b_union_obj = (b.cast(Payload.Union) orelse return false).data;
-                return a_union_obj == b_union_obj;
-            },
         }
     }
 
@@ -751,12 +741,6 @@ pub const Type = struct {
                 const enum_obj: *const Module.EnumNumbered = ty.cast(Payload.EnumNumbered).?.data;
                 std.hash.autoHash(hasher, std.builtin.TypeId.Enum);
                 std.hash.autoHash(hasher, enum_obj);
-            },
-
-            .@"union", .union_safety_tagged, .union_tagged => {
-                const union_obj: *const Module.Union = ty.cast(Payload.Union).?.data;
-                std.hash.autoHash(hasher, std.builtin.TypeId.Union);
-                std.hash.autoHash(hasher, union_obj);
             },
         }
     }
@@ -935,7 +919,6 @@ pub const Type = struct {
             .error_set => return self.copyPayloadShallow(allocator, Payload.ErrorSet),
             .error_set_inferred => return self.copyPayloadShallow(allocator, Payload.ErrorSetInferred),
             .error_set_single => return self.copyPayloadShallow(allocator, Payload.Name),
-            .@"union", .union_safety_tagged, .union_tagged => return self.copyPayloadShallow(allocator, Payload.Union),
             .enum_simple => return self.copyPayloadShallow(allocator, Payload.EnumSimple),
             .enum_numbered => return self.copyPayloadShallow(allocator, Payload.EnumNumbered),
             .enum_full, .enum_nonexhaustive => return self.copyPayloadShallow(allocator, Payload.EnumFull),
@@ -1011,12 +994,6 @@ pub const Type = struct {
         while (true) {
             const t = ty.tag();
             switch (t) {
-                .@"union", .union_safety_tagged, .union_tagged => {
-                    const union_obj = ty.cast(Payload.Union).?.data;
-                    return writer.print("({s} decl={d})", .{
-                        @tagName(t), union_obj.owner_decl,
-                    });
-                },
                 .enum_full, .enum_nonexhaustive => {
                     const enum_full = ty.cast(Payload.EnumFull).?.data;
                     return writer.print("({s} decl={d})", .{
@@ -1221,11 +1198,6 @@ pub const Type = struct {
                 .inferred_alloc_const => unreachable,
                 .inferred_alloc_mut => unreachable,
 
-                .@"union", .union_safety_tagged, .union_tagged => {
-                    const union_obj = ty.cast(Payload.Union).?.data;
-                    const decl = mod.declPtr(union_obj.owner_decl);
-                    try decl.renderFullyQualifiedName(mod, writer);
-                },
                 .enum_full, .enum_nonexhaustive => {
                     const enum_full = ty.cast(Payload.EnumFull).?.data;
                     const decl = mod.declPtr(enum_full.owner_decl);
@@ -1518,13 +1490,18 @@ pub const Type = struct {
                     }
                 },
 
-                .union_type => @panic("TODO"),
+                .union_type => |union_type| {
+                    const union_obj = mod.unionPtr(union_type.index);
+                    const decl = mod.declPtr(union_obj.owner_decl);
+                    try decl.renderFullyQualifiedName(mod, writer);
+                },
                 .opaque_type => |opaque_type| {
                     const decl = mod.declPtr(opaque_type.decl);
                     try decl.renderFullyQualifiedName(mod, writer);
                 },
 
                 // values, not types
+                .un => unreachable,
                 .simple_value => unreachable,
                 .extern_func => unreachable,
                 .int => unreachable,
@@ -1625,45 +1602,6 @@ pub const Type = struct {
                 .enum_numbered, .enum_nonexhaustive => {
                     const int_tag_ty = try ty.intTagType(mod);
                     return int_tag_ty.hasRuntimeBitsAdvanced(mod, ignore_comptime_only, strat);
-                },
-
-                .@"union" => {
-                    const union_obj = ty.castTag(.@"union").?.data;
-                    if (union_obj.status == .field_types_wip) {
-                        // In this case, we guess that hasRuntimeBits() for this type is true,
-                        // and then later if our guess was incorrect, we emit a compile error.
-                        union_obj.assumed_runtime_bits = true;
-                        return true;
-                    }
-                    switch (strat) {
-                        .sema => |sema| _ = try sema.resolveTypeFields(ty),
-                        .eager => assert(union_obj.haveFieldTypes()),
-                        .lazy => if (!union_obj.haveFieldTypes()) return error.NeedLazy,
-                    }
-                    for (union_obj.fields.values()) |value| {
-                        if (try value.ty.hasRuntimeBitsAdvanced(mod, ignore_comptime_only, strat))
-                            return true;
-                    } else {
-                        return false;
-                    }
-                },
-                .union_safety_tagged, .union_tagged => {
-                    const union_obj = ty.cast(Payload.Union).?.data;
-                    if (try union_obj.tag_ty.hasRuntimeBitsAdvanced(mod, ignore_comptime_only, strat)) {
-                        return true;
-                    }
-
-                    switch (strat) {
-                        .sema => |sema| _ = try sema.resolveTypeFields(ty),
-                        .eager => assert(union_obj.haveFieldTypes()),
-                        .lazy => if (!union_obj.haveFieldTypes()) return error.NeedLazy,
-                    }
-                    for (union_obj.fields.values()) |value| {
-                        if (try value.ty.hasRuntimeBitsAdvanced(mod, ignore_comptime_only, strat))
-                            return true;
-                    } else {
-                        return false;
-                    }
                 },
 
                 .array => return ty.arrayLen(mod) != 0 and
@@ -1795,10 +1733,40 @@ pub const Type = struct {
                     }
                 },
 
-                .union_type => @panic("TODO"),
+                .union_type => |union_type| {
+                    const union_obj = mod.unionPtr(union_type.index);
+                    switch (union_type.runtime_tag) {
+                        .none => {
+                            if (union_obj.status == .field_types_wip) {
+                                // In this case, we guess that hasRuntimeBits() for this type is true,
+                                // and then later if our guess was incorrect, we emit a compile error.
+                                union_obj.assumed_runtime_bits = true;
+                                return true;
+                            }
+                        },
+                        .safety, .tagged => {
+                            if (try union_obj.tag_ty.hasRuntimeBitsAdvanced(mod, ignore_comptime_only, strat)) {
+                                return true;
+                            }
+                        },
+                    }
+                    switch (strat) {
+                        .sema => |sema| _ = try sema.resolveTypeFields(ty),
+                        .eager => assert(union_obj.haveFieldTypes()),
+                        .lazy => if (!union_obj.haveFieldTypes()) return error.NeedLazy,
+                    }
+                    for (union_obj.fields.values()) |value| {
+                        if (try value.ty.hasRuntimeBitsAdvanced(mod, ignore_comptime_only, strat))
+                            return true;
+                    } else {
+                        return false;
+                    }
+                },
+
                 .opaque_type => true,
 
                 // values, not types
+                .un => unreachable,
                 .simple_value => unreachable,
                 .extern_func => unreachable,
                 .int => unreachable,
@@ -1847,8 +1815,6 @@ pub const Type = struct {
                 => ty.childType(mod).hasWellDefinedLayout(mod),
 
                 .optional => ty.isPtrLikeOptional(mod),
-                .@"union", .union_safety_tagged => ty.cast(Payload.Union).?.data.layout != .Auto,
-                .union_tagged => false,
             },
             else => switch (mod.intern_pool.indexToKey(ty.ip_index)) {
                 .int_type => true,
@@ -1912,10 +1878,14 @@ pub const Type = struct {
                     };
                     return struct_obj.layout != .Auto;
                 },
-                .union_type => @panic("TODO"),
+                .union_type => |union_type| switch (union_type.runtime_tag) {
+                    .none, .safety => mod.unionPtr(union_type.index).layout != .Auto,
+                    .tagged => false,
+                },
                 .opaque_type => false,
 
                 // values, not types
+                .un => unreachable,
                 .simple_value => unreachable,
                 .extern_func => unreachable,
                 .int => unreachable,
@@ -2146,14 +2116,6 @@ pub const Type = struct {
                     const int_tag_ty = try ty.intTagType(mod);
                     return AbiAlignmentAdvanced{ .scalar = int_tag_ty.abiAlignment(mod) };
                 },
-                .@"union" => {
-                    const union_obj = ty.castTag(.@"union").?.data;
-                    return abiAlignmentAdvancedUnion(ty, mod, strat, union_obj, false);
-                },
-                .union_safety_tagged, .union_tagged => {
-                    const union_obj = ty.cast(Payload.Union).?.data;
-                    return abiAlignmentAdvancedUnion(ty, mod, strat, union_obj, true);
-                },
 
                 .inferred_alloc_const,
                 .inferred_alloc_mut,
@@ -2312,10 +2274,14 @@ pub const Type = struct {
                     }
                     return AbiAlignmentAdvanced{ .scalar = big_align };
                 },
-                .union_type => @panic("TODO"),
+                .union_type => |union_type| {
+                    const union_obj = mod.unionPtr(union_type.index);
+                    return abiAlignmentAdvancedUnion(ty, mod, strat, union_obj, union_type.hasTag());
+                },
                 .opaque_type => return AbiAlignmentAdvanced{ .scalar = 1 },
 
                 // values, not types
+                .un => unreachable,
                 .simple_value => unreachable,
                 .extern_func => unreachable,
                 .int => unreachable,
@@ -2507,14 +2473,6 @@ pub const Type = struct {
                 .enum_simple, .enum_full, .enum_nonexhaustive, .enum_numbered => {
                     const int_tag_ty = try ty.intTagType(mod);
                     return AbiSizeAdvanced{ .scalar = int_tag_ty.abiSize(mod) };
-                },
-                .@"union" => {
-                    const union_obj = ty.castTag(.@"union").?.data;
-                    return abiSizeAdvancedUnion(ty, mod, strat, union_obj, false);
-                },
-                .union_safety_tagged, .union_tagged => {
-                    const union_obj = ty.cast(Payload.Union).?.data;
-                    return abiSizeAdvancedUnion(ty, mod, strat, union_obj, true);
                 },
 
                 .array => {
@@ -2737,10 +2695,14 @@ pub const Type = struct {
                         return AbiSizeAdvanced{ .scalar = ty.structFieldOffset(field_count, mod) };
                     },
                 },
-                .union_type => @panic("TODO"),
+                .union_type => |union_type| {
+                    const union_obj = mod.unionPtr(union_type.index);
+                    return abiSizeAdvancedUnion(ty, mod, strat, union_obj, union_type.hasTag());
+                },
                 .opaque_type => unreachable, // no size available
 
                 // values, not types
+                .un => unreachable,
                 .simple_value => unreachable,
                 .extern_func => unreachable,
                 .int => unreachable,
@@ -2858,21 +2820,6 @@ pub const Type = struct {
                 .enum_simple, .enum_full, .enum_nonexhaustive, .enum_numbered => {
                     const int_tag_ty = try ty.intTagType(mod);
                     return try bitSizeAdvanced(int_tag_ty, mod, opt_sema);
-                },
-
-                .@"union", .union_safety_tagged, .union_tagged => {
-                    if (opt_sema) |sema| _ = try sema.resolveTypeFields(ty);
-                    if (ty.containerLayout(mod) != .Packed) {
-                        return (try ty.abiSizeAdvanced(mod, strat)).scalar * 8;
-                    }
-                    const union_obj = ty.cast(Payload.Union).?.data;
-                    assert(union_obj.haveFieldTypes());
-
-                    var size: u64 = 0;
-                    for (union_obj.fields.values()) |field| {
-                        size = @max(size, try bitSizeAdvanced(field.ty, mod, opt_sema));
-                    }
-                    return size;
                 },
 
                 .array => {
@@ -2996,10 +2943,24 @@ pub const Type = struct {
                     return try struct_obj.backing_int_ty.bitSizeAdvanced(mod, opt_sema);
                 },
 
-                .union_type => @panic("TODO"),
+                .union_type => |union_type| {
+                    if (opt_sema) |sema| _ = try sema.resolveTypeFields(ty);
+                    if (ty.containerLayout(mod) != .Packed) {
+                        return (try ty.abiSizeAdvanced(mod, strat)).scalar * 8;
+                    }
+                    const union_obj = mod.unionPtr(union_type.index);
+                    assert(union_obj.haveFieldTypes());
+
+                    var size: u64 = 0;
+                    for (union_obj.fields.values()) |field| {
+                        size = @max(size, try bitSizeAdvanced(field.ty, mod, opt_sema));
+                    }
+                    return size;
+                },
                 .opaque_type => unreachable,
 
                 // values, not types
+                .un => unreachable,
                 .simple_value => unreachable,
                 .extern_func => unreachable,
                 .int => unreachable,
@@ -3022,8 +2983,8 @@ pub const Type = struct {
                 return true;
             },
             .Union => {
-                if (ty.cast(Payload.Union)) |union_ty| {
-                    return union_ty.data.haveLayout();
+                if (mod.typeToUnion(ty)) |union_obj| {
+                    return union_obj.haveLayout();
                 }
                 return true;
             },
@@ -3413,76 +3374,71 @@ pub const Type = struct {
 
     /// Returns the tag type of a union, if the type is a union and it has a tag type.
     /// Otherwise, returns `null`.
-    pub fn unionTagType(ty: Type) ?Type {
-        return switch (ty.tag()) {
-            .union_tagged => {
-                const union_obj = ty.castTag(.union_tagged).?.data;
-                assert(union_obj.haveFieldTypes());
-                return union_obj.tag_ty;
+    pub fn unionTagType(ty: Type, mod: *Module) ?Type {
+        return switch (mod.intern_pool.indexToKey(ty.ip_index)) {
+            .union_type => |union_type| switch (union_type.runtime_tag) {
+                .tagged => {
+                    const union_obj = mod.unionPtr(union_type.index);
+                    assert(union_obj.haveFieldTypes());
+                    return union_obj.tag_ty;
+                },
+                else => null,
             },
-
             else => null,
         };
     }
 
     /// Same as `unionTagType` but includes safety tag.
     /// Codegen should use this version.
-    pub fn unionTagTypeSafety(ty: Type) ?Type {
-        return switch (ty.tag()) {
-            .union_safety_tagged, .union_tagged => {
-                const union_obj = ty.cast(Payload.Union).?.data;
+    pub fn unionTagTypeSafety(ty: Type, mod: *Module) ?Type {
+        return switch (mod.intern_pool.indexToKey(ty.ip_index)) {
+            .union_type => |union_type| {
+                if (!union_type.hasTag()) return null;
+                const union_obj = mod.unionPtr(union_type.index);
                 assert(union_obj.haveFieldTypes());
                 return union_obj.tag_ty;
             },
-
             else => null,
         };
     }
 
     /// Asserts the type is a union; returns the tag type, even if the tag will
     /// not be stored at runtime.
-    pub fn unionTagTypeHypothetical(ty: Type) Type {
-        const union_obj = ty.cast(Payload.Union).?.data;
+    pub fn unionTagTypeHypothetical(ty: Type, mod: *Module) Type {
+        const union_obj = mod.typeToUnion(ty).?;
         assert(union_obj.haveFieldTypes());
         return union_obj.tag_ty;
     }
 
-    pub fn unionFields(ty: Type) Module.Union.Fields {
-        const union_obj = ty.cast(Payload.Union).?.data;
+    pub fn unionFields(ty: Type, mod: *Module) Module.Union.Fields {
+        const union_obj = mod.typeToUnion(ty).?;
         assert(union_obj.haveFieldTypes());
         return union_obj.fields;
     }
 
     pub fn unionFieldType(ty: Type, enum_tag: Value, mod: *Module) Type {
-        const union_obj = ty.cast(Payload.Union).?.data;
+        const union_obj = mod.typeToUnion(ty).?;
         const index = ty.unionTagFieldIndex(enum_tag, mod).?;
         assert(union_obj.haveFieldTypes());
         return union_obj.fields.values()[index].ty;
     }
 
     pub fn unionTagFieldIndex(ty: Type, enum_tag: Value, mod: *Module) ?usize {
-        const union_obj = ty.cast(Payload.Union).?.data;
+        const union_obj = mod.typeToUnion(ty).?;
         const index = union_obj.tag_ty.enumTagFieldIndex(enum_tag, mod) orelse return null;
         const name = union_obj.tag_ty.enumFieldName(index);
         return union_obj.fields.getIndex(name);
     }
 
     pub fn unionHasAllZeroBitFieldTypes(ty: Type, mod: *Module) bool {
-        return ty.cast(Payload.Union).?.data.hasAllZeroBitFieldTypes(mod);
+        const union_obj = mod.typeToUnion(ty).?;
+        return union_obj.hasAllZeroBitFieldTypes(mod);
     }
 
     pub fn unionGetLayout(ty: Type, mod: *Module) Module.Union.Layout {
-        switch (ty.tag()) {
-            .@"union" => {
-                const union_obj = ty.castTag(.@"union").?.data;
-                return union_obj.getLayout(mod, false);
-            },
-            .union_safety_tagged, .union_tagged => {
-                const union_obj = ty.cast(Payload.Union).?.data;
-                return union_obj.getLayout(mod, true);
-            },
-            else => unreachable,
-        }
+        const union_type = mod.intern_pool.indexToKey(ty.ip_index).union_type;
+        const union_obj = mod.unionPtr(union_type.index);
+        return union_obj.getLayout(mod, union_type.hasTag());
     }
 
     pub fn containerLayout(ty: Type, mod: *Module) std.builtin.Type.ContainerLayout {
@@ -3490,15 +3446,16 @@ pub const Type = struct {
             .empty_struct_type => .Auto,
             .none => switch (ty.tag()) {
                 .tuple, .anon_struct => .Auto,
-                .@"union" => ty.castTag(.@"union").?.data.layout,
-                .union_safety_tagged => ty.castTag(.union_safety_tagged).?.data.layout,
-                .union_tagged => ty.castTag(.union_tagged).?.data.layout,
                 else => unreachable,
             },
             else => switch (mod.intern_pool.indexToKey(ty.ip_index)) {
                 .struct_type => |struct_type| {
                     const struct_obj = mod.structPtrUnwrap(struct_type.index) orelse return .Auto;
                     return struct_obj.layout;
+                },
+                .union_type => |union_type| {
+                    const union_obj = mod.unionPtr(union_type.index);
+                    return union_obj.layout;
                 },
                 else => unreachable,
             },
@@ -3777,6 +3734,7 @@ pub const Type = struct {
                 .opaque_type => unreachable,
 
                 // values, not types
+                .un => unreachable,
                 .simple_value => unreachable,
                 .extern_func => unreachable,
                 .int => unreachable,
@@ -4038,16 +3996,6 @@ pub const Type = struct {
                         return null;
                     }
                 },
-                .@"union", .union_safety_tagged, .union_tagged => {
-                    const union_obj = ty.cast(Payload.Union).?.data;
-                    const tag_val = (try union_obj.tag_ty.onePossibleValue(mod)) orelse return null;
-                    if (union_obj.fields.count() == 0) return Value.@"unreachable";
-                    const only_field = union_obj.fields.values()[0];
-                    const val_val = (try only_field.ty.onePossibleValue(mod)) orelse return null;
-                    _ = tag_val;
-                    _ = val_val;
-                    return Value.empty_struct;
-                },
 
                 .array => {
                     if (ty.arrayLen(mod) == 0)
@@ -4153,10 +4101,23 @@ pub const Type = struct {
                     return empty.toValue();
                 },
 
-                .union_type => @panic("TODO"),
+                .union_type => |union_type| {
+                    const union_obj = mod.unionPtr(union_type.index);
+                    const tag_val = (try union_obj.tag_ty.onePossibleValue(mod)) orelse return null;
+                    if (union_obj.fields.count() == 0) return Value.@"unreachable";
+                    const only_field = union_obj.fields.values()[0];
+                    const val_val = (try only_field.ty.onePossibleValue(mod)) orelse return null;
+                    const only = try mod.intern(.{ .un = .{
+                        .ty = ty.ip_index,
+                        .tag = tag_val.ip_index,
+                        .val = val_val.ip_index,
+                    } });
+                    return only.toValue();
+                },
                 .opaque_type => return null,
 
                 // values, not types
+                .un => unreachable,
                 .simple_value => unreachable,
                 .extern_func => unreachable,
                 .int => unreachable,
@@ -4214,20 +4175,6 @@ pub const Type = struct {
                         if (!have_comptime_val and field_ty.comptimeOnly(mod)) return true;
                     }
                     return false;
-                },
-
-                .@"union", .union_safety_tagged, .union_tagged => {
-                    const union_obj = ty.cast(Type.Payload.Union).?.data;
-                    switch (union_obj.requires_comptime) {
-                        .wip, .unknown => {
-                            // Return false to avoid incorrect dependency loops.
-                            // This will be handled correctly once merged with
-                            // `Sema.typeRequiresComptime`.
-                            return false;
-                        },
-                        .no => return false,
-                        .yes => return true,
-                    }
                 },
 
                 .error_union => return ty.errorUnionPayload().comptimeOnly(mod),
@@ -4321,10 +4268,24 @@ pub const Type = struct {
                     }
                 },
 
-                .union_type => @panic("TODO"),
+                .union_type => |union_type| {
+                    const union_obj = mod.unionPtr(union_type.index);
+                    switch (union_obj.requires_comptime) {
+                        .wip, .unknown => {
+                            // Return false to avoid incorrect dependency loops.
+                            // This will be handled correctly once merged with
+                            // `Sema.typeRequiresComptime`.
+                            return false;
+                        },
+                        .no => return false,
+                        .yes => return true,
+                    }
+                },
+
                 .opaque_type => false,
 
                 // values, not types
+                .un => unreachable,
                 .simple_value => unreachable,
                 .extern_func => unreachable,
                 .int => unreachable,
@@ -4378,15 +4339,13 @@ pub const Type = struct {
             .none => switch (ty.tag()) {
                 .enum_full => ty.castTag(.enum_full).?.data.namespace.toOptional(),
                 .enum_nonexhaustive => ty.castTag(.enum_nonexhaustive).?.data.namespace.toOptional(),
-                .@"union" => ty.castTag(.@"union").?.data.namespace.toOptional(),
-                .union_safety_tagged => ty.castTag(.union_safety_tagged).?.data.namespace.toOptional(),
-                .union_tagged => ty.castTag(.union_tagged).?.data.namespace.toOptional(),
-
                 else => .none,
             },
             else => switch (mod.intern_pool.indexToKey(ty.ip_index)) {
                 .opaque_type => |opaque_type| opaque_type.namespace.toOptional(),
                 .struct_type => |struct_type| struct_type.namespace,
+                .union_type => |union_type| mod.unionPtr(union_type.index).namespace.toOptional(),
+
                 else => .none,
             },
         };
@@ -4474,20 +4433,23 @@ pub const Type = struct {
 
     /// Asserts the type is an enum or a union.
     pub fn intTagType(ty: Type, mod: *Module) !Type {
-        switch (ty.tag()) {
-            .enum_full, .enum_nonexhaustive => return ty.cast(Payload.EnumFull).?.data.tag_ty,
-            .enum_numbered => return ty.castTag(.enum_numbered).?.data.tag_ty,
-            .enum_simple => {
-                const enum_simple = ty.castTag(.enum_simple).?.data;
-                const field_count = enum_simple.fields.count();
-                const bits: u16 = if (field_count == 0) 0 else std.math.log2_int_ceil(usize, field_count);
-                return mod.intType(.unsigned, bits);
+        return switch (ty.ip_index) {
+            .none => switch (ty.tag()) {
+                .enum_full, .enum_nonexhaustive => ty.cast(Payload.EnumFull).?.data.tag_ty,
+                .enum_numbered => ty.castTag(.enum_numbered).?.data.tag_ty,
+                .enum_simple => {
+                    const enum_simple = ty.castTag(.enum_simple).?.data;
+                    const field_count = enum_simple.fields.count();
+                    const bits: u16 = if (field_count == 0) 0 else std.math.log2_int_ceil(usize, field_count);
+                    return mod.intType(.unsigned, bits);
+                },
+                else => unreachable,
             },
-            .union_tagged => {
-                return ty.castTag(.union_tagged).?.data.tag_ty.intTagType(mod);
+            else => switch (mod.intern_pool.indexToKey(ty.ip_index)) {
+                .union_type => |union_type| mod.unionPtr(union_type.index).tag_ty.intTagType(mod),
+                else => unreachable,
             },
-            else => unreachable,
-        }
+        };
     }
 
     pub fn isNonexhaustiveEnum(ty: Type) bool {
@@ -4663,10 +4625,6 @@ pub const Type = struct {
     pub fn structFieldType(ty: Type, index: usize, mod: *Module) Type {
         return switch (ty.ip_index) {
             .none => switch (ty.tag()) {
-                .@"union", .union_safety_tagged, .union_tagged => {
-                    const union_obj = ty.cast(Payload.Union).?.data;
-                    return union_obj.fields.values()[index].ty;
-                },
                 .tuple => return ty.castTag(.tuple).?.data.types[index],
                 .anon_struct => return ty.castTag(.anon_struct).?.data.types[index],
                 else => unreachable,
@@ -4676,6 +4634,10 @@ pub const Type = struct {
                     const struct_obj = mod.structPtrUnwrap(struct_type.index).?;
                     return struct_obj.fields.values()[index].ty;
                 },
+                .union_type => |union_type| {
+                    const union_obj = mod.unionPtr(union_type.index);
+                    return union_obj.fields.values()[index].ty;
+                },
                 else => unreachable,
             },
         };
@@ -4684,10 +4646,6 @@ pub const Type = struct {
     pub fn structFieldAlign(ty: Type, index: usize, mod: *Module) u32 {
         switch (ty.ip_index) {
             .none => switch (ty.tag()) {
-                .@"union", .union_safety_tagged, .union_tagged => {
-                    const union_obj = ty.cast(Payload.Union).?.data;
-                    return union_obj.fields.values()[index].normalAlignment(mod);
-                },
                 .tuple => return ty.castTag(.tuple).?.data.types[index].abiAlignment(mod),
                 .anon_struct => return ty.castTag(.anon_struct).?.data.types[index].abiAlignment(mod),
                 else => unreachable,
@@ -4697,6 +4655,10 @@ pub const Type = struct {
                     const struct_obj = mod.structPtrUnwrap(struct_type.index).?;
                     assert(struct_obj.layout != .Packed);
                     return struct_obj.fields.values()[index].alignment(mod, struct_obj.layout);
+                },
+                .union_type => |union_type| {
+                    const union_obj = mod.unionPtr(union_type.index);
+                    return union_obj.fields.values()[index].normalAlignment(mod);
                 },
                 else => unreachable,
             },
@@ -4889,18 +4851,6 @@ pub const Type = struct {
                     return offset;
                 },
 
-                .@"union" => return 0,
-                .union_safety_tagged, .union_tagged => {
-                    const union_obj = ty.cast(Payload.Union).?.data;
-                    const layout = union_obj.getLayout(mod, true);
-                    if (layout.tag_align >= layout.payload_align) {
-                        // {Tag, Payload}
-                        return std.mem.alignForwardGeneric(u64, layout.tag_size, layout.payload_align);
-                    } else {
-                        // {Payload, Tag}
-                        return 0;
-                    }
-                },
                 else => unreachable,
             },
             else => switch (mod.intern_pool.indexToKey(ty.ip_index)) {
@@ -4915,6 +4865,20 @@ pub const Type = struct {
                     }
 
                     return std.mem.alignForwardGeneric(u64, it.offset, @max(it.big_align, 1));
+                },
+
+                .union_type => |union_type| {
+                    if (!union_type.hasTag())
+                        return 0;
+                    const union_obj = mod.unionPtr(union_type.index);
+                    const layout = union_obj.getLayout(mod, true);
+                    if (layout.tag_align >= layout.payload_align) {
+                        // {Tag, Payload}
+                        return std.mem.alignForwardGeneric(u64, layout.tag_size, layout.payload_align);
+                    } else {
+                        // {Payload, Tag}
+                        return 0;
+                    }
                 },
 
                 else => unreachable,
@@ -4946,10 +4910,6 @@ pub const Type = struct {
                     const error_set = ty.castTag(.error_set).?.data;
                     return error_set.srcLoc(mod);
                 },
-                .@"union", .union_safety_tagged, .union_tagged => {
-                    const union_obj = ty.cast(Payload.Union).?.data;
-                    return union_obj.srcLoc(mod);
-                },
 
                 else => return null,
             },
@@ -4958,7 +4918,10 @@ pub const Type = struct {
                     const struct_obj = mod.structPtrUnwrap(struct_type.index).?;
                     return struct_obj.srcLoc(mod);
                 },
-                .union_type => @panic("TODO"),
+                .union_type => |union_type| {
+                    const union_obj = mod.unionPtr(union_type.index);
+                    return union_obj.srcLoc(mod);
+                },
                 .opaque_type => |opaque_type| mod.opaqueSrcLoc(opaque_type),
                 else => null,
             },
@@ -4985,10 +4948,6 @@ pub const Type = struct {
                     const error_set = ty.castTag(.error_set).?.data;
                     return error_set.owner_decl;
                 },
-                .@"union", .union_safety_tagged, .union_tagged => {
-                    const union_obj = ty.cast(Payload.Union).?.data;
-                    return union_obj.owner_decl;
-                },
 
                 else => return null,
             },
@@ -4997,7 +4956,10 @@ pub const Type = struct {
                     const struct_obj = mod.structPtrUnwrap(struct_type.index) orelse return null;
                     return struct_obj.owner_decl;
                 },
-                .union_type => @panic("TODO"),
+                .union_type => |union_type| {
+                    const union_obj = mod.unionPtr(union_type.index);
+                    return union_obj.owner_decl;
+                },
                 .opaque_type => |opaque_type| opaque_type.decl,
                 else => null,
             },
@@ -5039,9 +5001,6 @@ pub const Type = struct {
         /// The type is the inferred error set of a specific function.
         error_set_inferred,
         error_set_merged,
-        @"union",
-        union_safety_tagged,
-        union_tagged,
         enum_simple,
         enum_numbered,
         enum_full,
@@ -5070,7 +5029,6 @@ pub const Type = struct {
                 .function => Payload.Function,
                 .error_union => Payload.ErrorUnion,
                 .error_set_single => Payload.Name,
-                .@"union", .union_safety_tagged, .union_tagged => Payload.Union,
                 .enum_full, .enum_nonexhaustive => Payload.EnumFull,
                 .enum_simple => Payload.EnumSimple,
                 .enum_numbered => Payload.EnumNumbered,
@@ -5371,11 +5329,6 @@ pub const Type = struct {
                 /// unreachable_value elements are used to indicate runtime-known.
                 values: []Value,
             };
-        };
-
-        pub const Union = struct {
-            base: Payload,
-            data: *Module.Union,
         };
 
         pub const EnumFull = struct {

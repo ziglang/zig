@@ -79,7 +79,7 @@ fn countFloats(ty: Type, mod: *Module, maybe_float_bits: *?u16) u8 {
     const invalid = std.math.maxInt(u8);
     switch (ty.zigTypeTag(mod)) {
         .Union => {
-            const fields = ty.unionFields();
+            const fields = ty.unionFields(mod);
             var max_count: u8 = 0;
             for (fields.values()) |field| {
                 const field_count = countFloats(field.ty, mod, maybe_float_bits);
@@ -118,7 +118,7 @@ fn countFloats(ty: Type, mod: *Module, maybe_float_bits: *?u16) u8 {
 pub fn getFloatArrayType(ty: Type, mod: *Module) ?Type {
     switch (ty.zigTypeTag(mod)) {
         .Union => {
-            const fields = ty.unionFields();
+            const fields = ty.unionFields(mod);
             for (fields.values()) |field| {
                 if (getFloatArrayType(field.ty, mod)) |some| return some;
             }

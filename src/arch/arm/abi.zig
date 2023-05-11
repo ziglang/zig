@@ -62,7 +62,7 @@ pub fn classifyType(ty: Type, mod: *Module, ctx: Context) Class {
             const float_count = countFloats(ty, mod, &maybe_float_bits);
             if (float_count <= byval_float_count) return .byval;
 
-            for (ty.unionFields().values()) |field| {
+            for (ty.unionFields(mod).values()) |field| {
                 if (field.ty.bitSize(mod) > 32 or field.normalAlignment(mod) > 32) {
                     return Class.arrSize(bit_size, 64);
                 }
@@ -121,7 +121,7 @@ fn countFloats(ty: Type, mod: *Module, maybe_float_bits: *?u16) u32 {
     const invalid = std.math.maxInt(u32);
     switch (ty.zigTypeTag(mod)) {
         .Union => {
-            const fields = ty.unionFields();
+            const fields = ty.unionFields(mod);
             var max_count: u32 = 0;
             for (fields.values()) |field| {
                 const field_count = countFloats(field.ty, mod, maybe_float_bits);

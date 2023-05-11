@@ -432,7 +432,7 @@ pub const DeclState = struct {
             },
             .Union => {
                 const layout = ty.unionGetLayout(mod);
-                const union_obj = ty.cast(Type.Payload.Union).?.data;
+                const union_obj = mod.typeToUnion(ty).?;
                 const payload_offset = if (layout.tag_align >= layout.payload_align) layout.tag_size else 0;
                 const tag_offset = if (layout.tag_align >= layout.payload_align) 0 else layout.payload_size;
                 const is_tagged = layout.tag_size > 0;
@@ -476,7 +476,7 @@ pub const DeclState = struct {
                     try dbg_info_buffer.writer().print("{s}\x00", .{union_name});
                 }
 
-                const fields = ty.unionFields();
+                const fields = ty.unionFields(mod);
                 for (fields.keys()) |field_name| {
                     const field = fields.get(field_name).?;
                     if (!field.ty.hasRuntimeBits(mod)) continue;

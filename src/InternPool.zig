@@ -21,6 +21,13 @@ allocated_structs: std.SegmentedList(Module.Struct, 0) = .{},
 /// When a Struct object is freed from `allocated_structs`, it is pushed into this stack.
 structs_free_list: std.ArrayListUnmanaged(Module.Struct.Index) = .{},
 
+/// Union objects are stored in this data structure because:
+/// * They contain pointers such as the field maps.
+/// * They need to be mutated after creation.
+allocated_unions: std.SegmentedList(Module.Union, 0) = .{},
+/// When a Union object is freed from `allocated_unions`, it is pushed into this stack.
+unions_free_list: std.ArrayListUnmanaged(Module.Union.Index) = .{},
+
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
@@ -59,10 +66,7 @@ pub const Key = union(enum) {
     /// If `empty_struct_type` is handled separately, then this value may be
     /// safely assumed to never be `none`.
     struct_type: StructType,
-    union_type: struct {
-        fields_len: u32,
-        // TODO move Module.Union data to InternPool
-    },
+    union_type: UnionType,
     opaque_type: OpaqueType,
 
     simple_value: SimpleValue,
@@ -87,6 +91,8 @@ pub const Key = union(enum) {
     /// In the case of sentinel-terminated arrays, the sentinel value *is* stored,
     /// so the slice length will be one more than the type's array length.
     aggregate: Aggregate,
+    /// An instance of a union.
+    un: Union,
 
     pub const IntType = std.builtin.Type.Int;
 
@@ -145,13 +151,27 @@ pub const Key = union(enum) {
     ///   - index == .none
     /// * A struct which has fields as well as a namepace.
     pub const StructType = struct {
-        /// This will be `none` only in the case of `@TypeOf(.{})`
-        /// (`Index.empty_struct_type`).
-        namespace: Module.Namespace.OptionalIndex,
         /// The `none` tag is used to represent two cases:
         /// * `@TypeOf(.{})`, in which case `namespace` will also be `none`.
         /// * A struct with no fields, in which case `namespace` will be populated.
         index: Module.Struct.OptionalIndex,
+        /// This will be `none` only in the case of `@TypeOf(.{})`
+        /// (`Index.empty_struct_type`).
+        namespace: Module.Namespace.OptionalIndex,
+    };
+
+    pub const UnionType = struct {
+        index: Module.Union.Index,
+        runtime_tag: RuntimeTag,
+
+        pub const RuntimeTag = enum { none, safety, tagged };
+
+        pub fn hasTag(self: UnionType) bool {
+            return switch (self.runtime_tag) {
+                .none => false,
+                .tagged, .safety => true,
+            };
+        }
     };
 
     pub const Int = struct {
@@ -198,6 +218,15 @@ pub const Key = union(enum) {
         val: Index,
     };
 
+    pub const Union = struct {
+        /// This is the union type; not the field type.
+        ty: Index,
+        /// Indicates the active field.
+        tag: Index,
+        /// The value of the active field.
+        val: Index,
+    };
+
     pub const Aggregate = struct {
         ty: Index,
         fields: []const Index,
@@ -229,12 +258,10 @@ pub const Key = union(enum) {
             .extern_func,
             .opt,
             .struct_type,
+            .union_type,
+            .un,
             => |info| std.hash.autoHash(hasher, info),
 
-            .union_type => |union_type| {
-                _ = union_type;
-                @panic("TODO");
-            },
             .opaque_type => |opaque_type| std.hash.autoHash(hasher, opaque_type.decl),
 
             .int => |int| {
@@ -320,6 +347,14 @@ pub const Key = union(enum) {
                 const b_info = b.struct_type;
                 return std.meta.eql(a_info, b_info);
             },
+            .union_type => |a_info| {
+                const b_info = b.union_type;
+                return std.meta.eql(a_info, b_info);
+            },
+            .un => |a_info| {
+                const b_info = b.un;
+                return std.meta.eql(a_info, b_info);
+            },
 
             .ptr => |a_info| {
                 const b_info = b.ptr;
@@ -371,14 +406,6 @@ pub const Key = union(enum) {
                 @panic("TODO");
             },
 
-            .union_type => |a_info| {
-                const b_info = b.union_type;
-
-                _ = a_info;
-                _ = b_info;
-                @panic("TODO");
-            },
-
             .opaque_type => |a_info| {
                 const b_info = b.opaque_type;
                 return a_info.decl == b_info.decl;
@@ -411,6 +438,7 @@ pub const Key = union(enum) {
             .extern_func,
             .enum_tag,
             .aggregate,
+            .un,
             => |x| return x.ty,
 
             .simple_value => |s| switch (s) {
@@ -838,6 +866,15 @@ pub const Tag = enum(u8) {
     /// Module.Struct object allocated for it.
     /// data is Module.Namespace.Index.
     type_struct_ns,
+    /// A tagged union type.
+    /// `data` is `Module.Union.Index`.
+    type_union_tagged,
+    /// An untagged union type. It also has no safety tag.
+    /// `data` is `Module.Union.Index`.
+    type_union_untagged,
+    /// An untagged union type which has a safety tag.
+    /// `data` is `Module.Union.Index`.
+    type_union_safety,
 
     /// A value that can be represented with only an enum tag.
     /// data is SimpleValue enum value.
@@ -908,6 +945,8 @@ pub const Tag = enum(u8) {
     /// * A struct which has 0 fields.
     /// data is Index of the type, which is known to be zero bits at runtime.
     only_possible_value,
+    /// data is extra index to Key.Union.
+    union_value,
 };
 
 /// Having `SimpleType` and `SimpleValue` in separate enums makes it easier to
@@ -1141,6 +1180,9 @@ pub fn deinit(ip: *InternPool, gpa: Allocator) void {
     ip.structs_free_list.deinit(gpa);
     ip.allocated_structs.deinit(gpa);
 
+    ip.unions_free_list.deinit(gpa);
+    ip.allocated_unions.deinit(gpa);
+
     ip.* = undefined;
 }
 
@@ -1233,6 +1275,19 @@ pub fn indexToKey(ip: InternPool, index: Index) Key {
             .namespace = @intToEnum(Module.Namespace.Index, data).toOptional(),
         } },
 
+        .type_union_untagged => .{ .union_type = .{
+            .index = @intToEnum(Module.Union.Index, data),
+            .runtime_tag = .none,
+        } },
+        .type_union_tagged => .{ .union_type = .{
+            .index = @intToEnum(Module.Union.Index, data),
+            .runtime_tag = .tagged,
+        } },
+        .type_union_safety => .{ .union_type = .{
+            .index = @intToEnum(Module.Union.Index, data),
+            .runtime_tag = .safety,
+        } },
+
         .opt_null => .{ .opt = .{
             .ty = @intToEnum(Index, data),
             .val = .none,
@@ -1303,6 +1358,7 @@ pub fn indexToKey(ip: InternPool, index: Index) Key {
                 else => unreachable,
             };
         },
+        .union_value => .{ .un = ip.extraData(Key.Union, data) },
     };
 }
 
@@ -1350,7 +1406,6 @@ pub fn get(ip: *InternPool, gpa: Allocator, key: Key) Allocator.Error!Index {
                 return @intToEnum(Index, ip.items.len - 1);
             }
 
-            // TODO introduce more pointer encodings
             ip.items.appendAssumeCapacity(.{
                 .tag = .type_pointer,
                 .data = try ip.addExtra(gpa, Pointer{
@@ -1450,8 +1505,14 @@ pub fn get(ip: *InternPool, gpa: Allocator, key: Key) Allocator.Error!Index {
         },
 
         .union_type => |union_type| {
-            _ = union_type;
-            @panic("TODO");
+            ip.items.appendAssumeCapacity(.{
+                .tag = switch (union_type.runtime_tag) {
+                    .none => .type_union_untagged,
+                    .safety => .type_union_safety,
+                    .tagged => .type_union_tagged,
+                },
+                .data = @enumToInt(union_type.index),
+            });
         },
 
         .opaque_type => |opaque_type| {
@@ -1641,6 +1702,16 @@ pub fn get(ip: *InternPool, gpa: Allocator, key: Key) Allocator.Error!Index {
                 return @intToEnum(Index, ip.items.len - 1);
             }
             @panic("TODO");
+        },
+
+        .un => |un| {
+            assert(un.ty != .none);
+            assert(un.tag != .none);
+            assert(un.val != .none);
+            ip.items.appendAssumeCapacity(.{
+                .tag = .union_value,
+                .data = try ip.addExtra(gpa, un),
+            });
         },
     }
     return @intToEnum(Index, ip.items.len - 1);
@@ -1923,6 +1994,17 @@ pub fn indexToStruct(ip: *InternPool, val: Index) Module.Struct.OptionalIndex {
     return @intToEnum(Module.Struct.Index, datas[@enumToInt(val)]).toOptional();
 }
 
+pub fn indexToUnion(ip: *InternPool, val: Index) Module.Union.OptionalIndex {
+    const tags = ip.items.items(.tag);
+    if (val == .none) return .none;
+    switch (tags[@enumToInt(val)]) {
+        .type_union_tagged, .type_union_untagged, .type_union_safety => {},
+        else => return .none,
+    }
+    const datas = ip.items.items(.data);
+    return @intToEnum(Module.Union.Index, datas[@enumToInt(val)]).toOptional();
+}
+
 pub fn isOptionalType(ip: InternPool, ty: Index) bool {
     const tags = ip.items.items(.tag);
     if (ty == .none) return false;
@@ -1937,15 +2019,22 @@ fn dumpFallible(ip: InternPool, arena: Allocator) anyerror!void {
     const items_size = (1 + 4) * ip.items.len;
     const extra_size = 4 * ip.extra.items.len;
     const limbs_size = 8 * ip.limbs.items.len;
+    const structs_size = ip.allocated_structs.len *
+        (@sizeOf(Module.Struct) + @sizeOf(Module.Namespace) + @sizeOf(Module.Decl));
+    const unions_size = ip.allocated_unions.len *
+        (@sizeOf(Module.Union) + @sizeOf(Module.Namespace) + @sizeOf(Module.Decl));
 
     // TODO: map overhead size is not taken into account
-    const total_size = @sizeOf(InternPool) + items_size + extra_size + limbs_size;
+    const total_size = @sizeOf(InternPool) + items_size + extra_size + limbs_size +
+        structs_size + unions_size;
 
     std.debug.print(
         \\InternPool size: {d} bytes
         \\  {d} items: {d} bytes
         \\  {d} extra: {d} bytes
         \\  {d} limbs: {d} bytes
+        \\  {d} structs: {d} bytes
+        \\  {d} unions: {d} bytes
         \\
     , .{
         total_size,
@@ -1955,6 +2044,10 @@ fn dumpFallible(ip: InternPool, arena: Allocator) anyerror!void {
         extra_size,
         ip.limbs.items.len,
         limbs_size,
+        ip.allocated_structs.len,
+        structs_size,
+        ip.allocated_unions.len,
+        unions_size,
     });
 
     const tags = ip.items.items(.tag);
@@ -1980,8 +2073,14 @@ fn dumpFallible(ip: InternPool, arena: Allocator) anyerror!void {
             .type_error_union => @sizeOf(ErrorUnion),
             .type_enum_simple => @sizeOf(EnumSimple),
             .type_opaque => @sizeOf(Key.OpaqueType),
-            .type_struct => 0,
-            .type_struct_ns => 0,
+            .type_struct => @sizeOf(Module.Struct) + @sizeOf(Module.Namespace) + @sizeOf(Module.Decl),
+            .type_struct_ns => @sizeOf(Module.Namespace),
+
+            .type_union_tagged,
+            .type_union_untagged,
+            .type_union_safety,
+            => @sizeOf(Module.Union) + @sizeOf(Module.Namespace) + @sizeOf(Module.Decl),
+
             .simple_type => 0,
             .simple_value => 0,
             .ptr_int => @sizeOf(PtrInt),
@@ -2010,6 +2109,7 @@ fn dumpFallible(ip: InternPool, arena: Allocator) anyerror!void {
             .extern_func => @panic("TODO"),
             .func => @panic("TODO"),
             .only_possible_value => 0,
+            .union_value => @sizeOf(Key.Union),
         });
     }
     const SortContext = struct {
@@ -2041,6 +2141,10 @@ pub fn structPtrUnwrapConst(ip: InternPool, index: Module.Struct.OptionalIndex) 
     return structPtrConst(ip, index.unwrap() orelse return null);
 }
 
+pub fn unionPtr(ip: *InternPool, index: Module.Union.Index) *Module.Union {
+    return ip.allocated_unions.at(@enumToInt(index));
+}
+
 pub fn createStruct(
     ip: *InternPool,
     gpa: Allocator,
@@ -2057,5 +2161,24 @@ pub fn destroyStruct(ip: *InternPool, gpa: Allocator, index: Module.Struct.Index
     ip.structs_free_list.append(gpa, index) catch {
         // In order to keep `destroyStruct` a non-fallible function, we ignore memory
         // allocation failures here, instead leaking the Struct until garbage collection.
+    };
+}
+
+pub fn createUnion(
+    ip: *InternPool,
+    gpa: Allocator,
+    initialization: Module.Union,
+) Allocator.Error!Module.Union.Index {
+    if (ip.unions_free_list.popOrNull()) |index| return index;
+    const ptr = try ip.allocated_unions.addOne(gpa);
+    ptr.* = initialization;
+    return @intToEnum(Module.Union.Index, ip.allocated_unions.len - 1);
+}
+
+pub fn destroyUnion(ip: *InternPool, gpa: Allocator, index: Module.Union.Index) void {
+    ip.unionPtr(index).* = undefined;
+    ip.unions_free_list.append(gpa, index) catch {
+        // In order to keep `destroyUnion` a non-fallible function, we ignore memory
+        // allocation failures here, instead leaking the Union until garbage collection.
     };
 }

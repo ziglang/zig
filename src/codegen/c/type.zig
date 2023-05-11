@@ -303,7 +303,7 @@ pub const CType = extern union {
             );
         }
         pub fn unionPayloadAlign(union_ty: Type, mod: *Module) AlignAs {
-            const union_obj = union_ty.cast(Type.Payload.Union).?.data;
+            const union_obj = mod.typeToUnion(union_ty).?;
             const union_payload_align = union_obj.abiAlignment(mod, false);
             return init(union_payload_align, union_payload_align);
         }
@@ -1498,7 +1498,7 @@ pub const CType = extern union {
                     if (lookup.isMutable()) {
                         for (0..switch (zig_ty_tag) {
                             .Struct => ty.structFieldCount(mod),
-                            .Union => ty.unionFields().count(),
+                            .Union => ty.unionFields(mod).count(),
                             else => unreachable,
                         }) |field_i| {
                             const field_ty = ty.structFieldType(field_i, mod);
@@ -1531,7 +1531,7 @@ pub const CType = extern union {
                         .payload => unreachable,
                     });
                 } else {
-                    const tag_ty = ty.unionTagTypeSafety();
+                    const tag_ty = ty.unionTagTypeSafety(mod);
                     const is_tagged_union_wrapper = kind != .payload and tag_ty != null;
                     const is_struct = zig_ty_tag == .Struct or is_tagged_union_wrapper;
                     switch (kind) {
@@ -1580,7 +1580,7 @@ pub const CType = extern union {
                             var is_packed = false;
                             for (0..switch (zig_ty_tag) {
                                 .Struct => ty.structFieldCount(mod),
-                                .Union => ty.unionFields().count(),
+                                .Union => ty.unionFields(mod).count(),
                                 else => unreachable,
                             }) |field_i| {
                                 const field_ty = ty.structFieldType(field_i, mod);
@@ -1930,7 +1930,7 @@ pub const CType = extern union {
                     const zig_ty_tag = ty.zigTypeTag(mod);
                     const fields_len = switch (zig_ty_tag) {
                         .Struct => ty.structFieldCount(mod),
-                        .Union => ty.unionFields().count(),
+                        .Union => ty.unionFields(mod).count(),
                         else => unreachable,
                     };
 
@@ -1956,7 +1956,7 @@ pub const CType = extern union {
                             else
                                 arena.dupeZ(u8, switch (zig_ty_tag) {
                                     .Struct => ty.structFieldName(field_i, mod),
-                                    .Union => ty.unionFields().keys()[field_i],
+                                    .Union => ty.unionFields(mod).keys()[field_i],
                                     else => unreachable,
                                 }),
                             .type = store.set.typeToIndex(field_ty, mod, switch (kind) {
@@ -1986,7 +1986,7 @@ pub const CType = extern union {
                             unnamed_pl.* = .{ .base = .{ .tag = t }, .data = .{
                                 .fields = fields_pl,
                                 .owner_decl = ty.getOwnerDecl(mod),
-                                .id = if (ty.unionTagTypeSafety()) |_| 0 else unreachable,
+                                .id = if (ty.unionTagTypeSafety(mod)) |_| 0 else unreachable,
                             } };
                             return initPayload(unnamed_pl);
                         },
@@ -2085,7 +2085,7 @@ pub const CType = extern union {
                             var c_field_i: usize = 0;
                             for (0..switch (zig_ty_tag) {
                                 .Struct => ty.structFieldCount(mod),
-                                .Union => ty.unionFields().count(),
+                                .Union => ty.unionFields(mod).count(),
                                 else => unreachable,
                             }) |field_i| {
                                 const field_ty = ty.structFieldType(field_i, mod);
@@ -2106,7 +2106,7 @@ pub const CType = extern union {
                                         std.fmt.bufPrint(&name_buf, "f{}", .{field_i}) catch unreachable
                                     else switch (zig_ty_tag) {
                                         .Struct => ty.structFieldName(field_i, mod),
-                                        .Union => ty.unionFields().keys()[field_i],
+                                        .Union => ty.unionFields(mod).keys()[field_i],
                                         else => unreachable,
                                     },
                                     mem.span(c_field.name),
@@ -2122,7 +2122,7 @@ pub const CType = extern union {
                         .packed_unnamed_union,
                         => switch (self.kind) {
                             .forward, .forward_parameter, .complete, .parameter, .global => unreachable,
-                            .payload => if (ty.unionTagTypeSafety()) |_| {
+                            .payload => if (ty.unionTagTypeSafety(mod)) |_| {
                                 const data = cty.cast(Payload.Unnamed).?.data;
                                 return ty.getOwnerDecl(mod) == data.owner_decl and data.id == 0;
                             } else unreachable,
@@ -2211,7 +2211,7 @@ pub const CType = extern union {
                             const zig_ty_tag = ty.zigTypeTag(mod);
                             for (0..switch (ty.zigTypeTag(mod)) {
                                 .Struct => ty.structFieldCount(mod),
-                                .Union => ty.unionFields().count(),
+                                .Union => ty.unionFields(mod).count(),
                                 else => unreachable,
                             }) |field_i| {
                                 const field_ty = ty.structFieldType(field_i, mod);
@@ -2228,7 +2228,7 @@ pub const CType = extern union {
                                     std.fmt.bufPrint(&name_buf, "f{}", .{field_i}) catch unreachable
                                 else switch (zig_ty_tag) {
                                     .Struct => ty.structFieldName(field_i, mod),
-                                    .Union => ty.unionFields().keys()[field_i],
+                                    .Union => ty.unionFields(mod).keys()[field_i],
                                     else => unreachable,
                                 });
                                 autoHash(hasher, AlignAs.fieldAlign(ty, field_i, mod).@"align");
@@ -2241,7 +2241,7 @@ pub const CType = extern union {
                         .packed_unnamed_union,
                         => switch (self.kind) {
                             .forward, .forward_parameter, .complete, .parameter, .global => unreachable,
-                            .payload => if (ty.unionTagTypeSafety()) |_| {
+                            .payload => if (ty.unionTagTypeSafety(mod)) |_| {
                                 autoHash(hasher, ty.getOwnerDecl(mod));
                                 autoHash(hasher, @as(u32, 0));
                             } else unreachable,

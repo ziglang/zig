@@ -3123,6 +3123,8 @@ fn zirUnionDecl(
     const tracy = trace(@src());
     defer tracy.end();
 
+    const mod = sema.mod;
+    const gpa = sema.gpa;
     const small = @bitCast(Zir.Inst.UnionDecl.Small, extended.small);
     var extra_index: usize = extended.operand;
 
@@ -3142,49 +3144,57 @@ fn zirUnionDecl(
         break :blk decls_len;
     } else 0;
 
-    var new_decl_arena = std.heap.ArenaAllocator.init(sema.gpa);
+    var new_decl_arena = std.heap.ArenaAllocator.init(gpa);
     errdefer new_decl_arena.deinit();
-    const new_decl_arena_allocator = new_decl_arena.allocator();
 
-    const union_obj = try new_decl_arena_allocator.create(Module.Union);
-    const type_tag = if (small.has_tag_type or small.auto_enum_tag)
-        Type.Tag.union_tagged
-    else if (small.layout != .Auto)
-        Type.Tag.@"union"
-    else switch (block.sema.mod.optimizeMode()) {
-        .Debug, .ReleaseSafe => Type.Tag.union_safety_tagged,
-        .ReleaseFast, .ReleaseSmall => Type.Tag.@"union",
-    };
-    const union_payload = try new_decl_arena_allocator.create(Type.Payload.Union);
-    union_payload.* = .{
-        .base = .{ .tag = type_tag },
-        .data = union_obj,
-    };
-    const union_ty = Type.initPayload(&union_payload.base);
-    const union_val = try Value.Tag.ty.create(new_decl_arena_allocator, union_ty);
-    const mod = sema.mod;
+    // Because these three things each reference each other, `undefined`
+    // placeholders are used before being set after the union type gains an
+    // InternPool index.
+
     const new_decl_index = try sema.createAnonymousDeclTypeNamed(block, src, .{
         .ty = Type.type,
-        .val = union_val,
+        .val = undefined,
     }, small.name_strategy, "union", inst);
     const new_decl = mod.declPtr(new_decl_index);
     new_decl.owns_tv = true;
     errdefer mod.abortAnonDecl(new_decl_index);
-    union_obj.* = .{
+
+    const new_namespace_index = try mod.createNamespace(.{
+        .parent = block.namespace.toOptional(),
+        .ty = undefined,
+        .file_scope = block.getFileScope(mod),
+    });
+    const new_namespace = mod.namespacePtr(new_namespace_index);
+    errdefer mod.destroyNamespace(new_namespace_index);
+
+    const union_index = try mod.createUnion(.{
         .owner_decl = new_decl_index,
         .tag_ty = Type.null,
         .fields = .{},
         .zir_index = inst,
         .layout = small.layout,
         .status = .none,
-        .namespace = try mod.createNamespace(.{
-            .parent = block.namespace.toOptional(),
-            .ty = union_ty,
-            .file_scope = block.getFileScope(mod),
-        }),
-    };
+        .namespace = new_namespace_index,
+    });
+    errdefer mod.destroyUnion(union_index);
 
-    _ = try mod.scanNamespace(union_obj.namespace, extra_index, decls_len, new_decl);
+    const union_ty = try mod.intern_pool.get(gpa, .{ .union_type = .{
+        .index = union_index,
+        .runtime_tag = if (small.has_tag_type or small.auto_enum_tag)
+            .tagged
+        else if (small.layout != .Auto)
+            .none
+        else switch (block.sema.mod.optimizeMode()) {
+            .Debug, .ReleaseSafe => .safety,
+            .ReleaseFast, .ReleaseSmall => .none,
+        },
+    } });
+    errdefer mod.intern_pool.remove(union_ty);
+
+    new_decl.val = union_ty.toValue();
+    new_namespace.ty = union_ty.toType();
+
+    _ = try mod.scanNamespace(new_namespace_index, extra_index, decls_len, new_decl);
 
     try new_decl.finalizeNewArena(&new_decl_arena);
     return sema.analyzeDeclVal(block, src, new_decl_index);
@@ -4246,6 +4256,8 @@ fn validateUnionInit(
     instrs: []const Zir.Inst.Index,
     union_ptr: Air.Inst.Ref,
 ) CompileError!void {
+    const mod = sema.mod;
+
     if (instrs.len != 1) {
         const msg = msg: {
             const msg = try sema.errMsg(
@@ -4343,7 +4355,7 @@ fn validateUnionInit(
         break;
     }
 
-    const tag_ty = union_ty.unionTagTypeHypothetical();
+    const tag_ty = union_ty.unionTagTypeHypothetical(mod);
     const enum_field_index = @intCast(u32, tag_ty.enumFieldIndex(field_name).?);
     const tag_val = try Value.Tag.enum_field_index.create(sema.arena, enum_field_index);
 
@@ -8273,7 +8285,7 @@ fn zirEnumToInt(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!A
         .Enum => operand,
         .Union => blk: {
             const union_ty = try sema.resolveTypeFields(operand_ty);
-            const tag_ty = union_ty.unionTagType() orelse {
+            const tag_ty = union_ty.unionTagType(mod) orelse {
                 return sema.fail(
                     block,
                     operand_src,
@@ -10158,7 +10170,7 @@ fn zirSwitchCapture(
         const item_val = sema.resolveConstValue(block, .unneeded, block.inline_case_capture, undefined) catch unreachable;
         if (operand_ty.zigTypeTag(mod) == .Union) {
             const field_index = @intCast(u32, operand_ty.unionTagFieldIndex(item_val, sema.mod).?);
-            const union_obj = operand_ty.cast(Type.Payload.Union).?.data;
+            const union_obj = mod.typeToUnion(operand_ty).?;
             const field_ty = union_obj.fields.values()[field_index].ty;
             if (try sema.resolveDefinedValue(block, sema.src, operand_ptr)) |union_val| {
                 if (is_ref) {
@@ -10229,7 +10241,7 @@ fn zirSwitchCapture(
 
     switch (operand_ty.zigTypeTag(mod)) {
         .Union => {
-            const union_obj = operand_ty.cast(Type.Payload.Union).?.data;
+            const union_obj = mod.typeToUnion(operand_ty).?;
             const first_item = try sema.resolveInst(items[0]);
             // Previous switch validation ensured this will succeed
             const first_item_val = sema.resolveConstValue(block, .unneeded, first_item, "") catch unreachable;
@@ -10403,7 +10415,7 @@ fn zirSwitchCond(
 
         .Union => {
             const union_ty = try sema.resolveTypeFields(operand_ty);
-            const enum_ty = union_ty.unionTagType() orelse {
+            const enum_ty = union_ty.unionTagType(mod) orelse {
                 const msg = msg: {
                     const msg = try sema.errMsg(block, src, "switch on union with no attached enum", .{});
                     errdefer msg.destroy(sema.gpa);
@@ -11627,7 +11639,7 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
         const analyze_body = if (union_originally and !special.is_inline)
             for (seen_enum_fields, 0..) |seen_field, index| {
                 if (seen_field != null) continue;
-                const union_obj = maybe_union_ty.cast(Type.Payload.Union).?.data;
+                const union_obj = mod.typeToUnion(maybe_union_ty).?;
                 const field_ty = union_obj.fields.values()[index].ty;
                 if (field_ty.zigTypeTag(mod) != .NoReturn) break true;
             } else false
@@ -12068,7 +12080,7 @@ fn zirHasField(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
         }
         break :hf switch (ty.zigTypeTag(mod)) {
             .Struct => ty.structFields(mod).contains(field_name),
-            .Union => ty.unionFields().contains(field_name),
+            .Union => ty.unionFields(mod).contains(field_name),
             .Enum => ty.enumFields().contains(field_name),
             .Array => mem.eql(u8, field_name, "len"),
             else => return sema.fail(block, ty_src, "type '{}' does not support '@hasField'", .{
@@ -15415,7 +15427,7 @@ fn analyzeCmpUnionTag(
 ) CompileError!Air.Inst.Ref {
     const mod = sema.mod;
     const union_ty = try sema.resolveTypeFields(sema.typeOf(un));
-    const union_tag_ty = union_ty.unionTagType() orelse {
+    const union_tag_ty = union_ty.unionTagType(mod) orelse {
         const msg = msg: {
             const msg = try sema.errMsg(block, un_src, "comparison of union and enum literal is only valid for tagged union types", .{});
             errdefer msg.destroy(sema.gpa);
@@ -16403,7 +16415,7 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
             try sema.resolveTypeLayout(ty); // Getting alignment requires type layout
             const layout = union_ty.containerLayout(mod);
 
-            const union_fields = union_ty.unionFields();
+            const union_fields = union_ty.unionFields(mod);
             const union_field_vals = try fields_anon_decl.arena().alloc(Value, union_fields.count());
 
             for (union_field_vals, 0..) |*field_val, i| {
@@ -16458,7 +16470,7 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
 
             const decls_val = try sema.typeInfoDecls(block, src, type_info_ty, union_ty.getNamespace(mod));
 
-            const enum_tag_ty_val = if (union_ty.unionTagType()) |tag_ty| v: {
+            const enum_tag_ty_val = if (union_ty.unionTagType(mod)) |tag_ty| v: {
                 const ty_val = try Value.Tag.ty.create(sema.arena, tag_ty);
                 break :v try Value.Tag.opt_payload.create(sema.arena, ty_val);
             } else Value.null;
@@ -17877,12 +17889,13 @@ fn unionInit(
     field_name: []const u8,
     field_src: LazySrcLoc,
 ) CompileError!Air.Inst.Ref {
+    const mod = sema.mod;
     const field_index = try sema.unionFieldIndex(block, union_ty, field_name, field_src);
-    const field = union_ty.unionFields().values()[field_index];
+    const field = union_ty.unionFields(mod).values()[field_index];
     const init = try sema.coerce(block, field.ty, uncasted_init, init_src);
 
     if (try sema.resolveMaybeUndefVal(init)) |init_val| {
-        const tag_ty = union_ty.unionTagTypeHypothetical();
+        const tag_ty = union_ty.unionTagTypeHypothetical(mod);
         const enum_field_index = @intCast(u32, tag_ty.enumFieldIndex(field_name).?);
         const tag_val = try Value.Tag.enum_field_index.create(sema.arena, enum_field_index);
         return sema.addConstant(union_ty, try Value.Tag.@"union".create(sema.arena, .{
@@ -17983,7 +17996,7 @@ fn zirStructInit(
         const field_type_extra = sema.code.extraData(Zir.Inst.FieldType, field_type_data.payload_index).data;
         const field_name = sema.code.nullTerminatedString(field_type_extra.name_start);
         const field_index = try sema.unionFieldIndex(block, resolved_ty, field_name, field_src);
-        const tag_ty = resolved_ty.unionTagTypeHypothetical();
+        const tag_ty = resolved_ty.unionTagTypeHypothetical(mod);
         const enum_field_index = @intCast(u32, tag_ty.enumFieldIndex(field_name).?);
         const tag_val = try Value.Tag.enum_field_index.create(sema.arena, enum_field_index);
 
@@ -18006,7 +18019,7 @@ fn zirStructInit(
             const alloc = try block.addTy(.alloc, alloc_ty);
             const field_ptr = try sema.unionFieldPtr(block, field_src, alloc, field_name, field_src, resolved_ty, true);
             try sema.storePtr(block, src, field_ptr, init_inst);
-            const new_tag = try sema.addConstant(resolved_ty.unionTagTypeHypothetical(), tag_val);
+            const new_tag = try sema.addConstant(resolved_ty.unionTagTypeHypothetical(mod), tag_val);
             _ = try block.addBinOp(.set_union_tag, alloc, new_tag);
             return sema.makePtrConst(block, alloc);
         }
@@ -18544,7 +18557,7 @@ fn fieldType(
                 return sema.addType(field.ty);
             },
             .Union => {
-                const union_obj = cur_ty.cast(Type.Payload.Union).?.data;
+                const union_obj = mod.typeToUnion(cur_ty).?;
                 const field = union_obj.fields.get(field_name) orelse
                     return sema.failWithBadUnionFieldAccess(block, union_obj, field_src, field_name);
                 return sema.addType(field.ty);
@@ -18726,7 +18739,7 @@ fn zirTagName(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
             return sema.addStrLit(block, bytes);
         },
         .Enum => operand_ty,
-        .Union => operand_ty.unionTagType() orelse {
+        .Union => operand_ty.unionTagType(mod) orelse {
             const msg = msg: {
                 const msg = try sema.errMsg(block, src, "union '{}' is untagged", .{
                     operand_ty.fmt(sema.mod),
@@ -19245,42 +19258,53 @@ fn zirReify(
             errdefer new_decl_arena.deinit();
             const new_decl_arena_allocator = new_decl_arena.allocator();
 
-            const union_obj = try new_decl_arena_allocator.create(Module.Union);
-            const type_tag = if (!tag_type_val.isNull(mod))
-                Type.Tag.union_tagged
-            else if (layout != .Auto)
-                Type.Tag.@"union"
-            else switch (mod.optimizeMode()) {
-                .Debug, .ReleaseSafe => Type.Tag.union_safety_tagged,
-                .ReleaseFast, .ReleaseSmall => Type.Tag.@"union",
-            };
-            const union_payload = try new_decl_arena_allocator.create(Type.Payload.Union);
-            union_payload.* = .{
-                .base = .{ .tag = type_tag },
-                .data = union_obj,
-            };
-            const union_ty = Type.initPayload(&union_payload.base);
-            const new_union_val = try Value.Tag.ty.create(new_decl_arena_allocator, union_ty);
+            // Because these three things each reference each other, `undefined`
+            // placeholders are used before being set after the union type gains an
+            // InternPool index.
+
             const new_decl_index = try sema.createAnonymousDeclTypeNamed(block, src, .{
                 .ty = Type.type,
-                .val = new_union_val,
+                .val = undefined,
             }, name_strategy, "union", inst);
             const new_decl = mod.declPtr(new_decl_index);
             new_decl.owns_tv = true;
             errdefer mod.abortAnonDecl(new_decl_index);
-            union_obj.* = .{
+
+            const new_namespace_index = try mod.createNamespace(.{
+                .parent = block.namespace.toOptional(),
+                .ty = undefined,
+                .file_scope = block.getFileScope(mod),
+            });
+            const new_namespace = mod.namespacePtr(new_namespace_index);
+            errdefer mod.destroyNamespace(new_namespace_index);
+
+            const union_index = try mod.createUnion(.{
                 .owner_decl = new_decl_index,
                 .tag_ty = Type.null,
                 .fields = .{},
                 .zir_index = inst,
                 .layout = layout,
                 .status = .have_field_types,
-                .namespace = try mod.createNamespace(.{
-                    .parent = block.namespace.toOptional(),
-                    .ty = union_ty,
-                    .file_scope = block.getFileScope(mod),
-                }),
-            };
+                .namespace = new_namespace_index,
+            });
+            const union_obj = mod.unionPtr(union_index);
+            errdefer mod.destroyUnion(union_index);
+
+            const union_ty = try mod.intern_pool.get(gpa, .{ .union_type = .{
+                .index = union_index,
+                .runtime_tag = if (!tag_type_val.isNull(mod))
+                    .tagged
+                else if (layout != .Auto)
+                    .none
+                else switch (mod.optimizeMode()) {
+                    .Debug, .ReleaseSafe => .safety,
+                    .ReleaseFast, .ReleaseSmall => .none,
+                },
+            } });
+            errdefer mod.intern_pool.remove(union_ty);
+
+            new_decl.val = union_ty.toValue();
+            new_namespace.ty = union_ty.toType();
 
             // Tag type
             var tag_ty_field_names: ?Module.EnumFull.NameMap = null;
@@ -21981,8 +22005,8 @@ fn zirFieldParentPtr(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileEr
         ptr_ty_data.@"align" = blk: {
             if (mod.typeToStruct(parent_ty)) |struct_obj| {
                 break :blk struct_obj.fields.values()[field_index].abi_align;
-            } else if (parent_ty.cast(Type.Payload.Union)) |union_obj| {
-                break :blk union_obj.data.fields.values()[field_index].abi_align;
+            } else if (mod.typeToUnion(parent_ty)) |union_obj| {
+                break :blk union_obj.fields.values()[field_index].abi_align;
             } else {
                 break :blk 0;
             }
@@ -23443,8 +23467,7 @@ fn explainWhyTypeIsComptimeInner(
         .Union => {
             if ((try type_set.getOrPutContext(sema.gpa, ty, .{ .mod = mod })).found_existing) return;
 
-            if (ty.cast(Type.Payload.Union)) |payload| {
-                const union_obj = payload.data;
+            if (mod.typeToUnion(ty)) |union_obj| {
                 for (union_obj.fields.values(), 0..) |field, i| {
                     const field_src_loc = union_obj.fieldSrcLoc(sema.mod, .{
                         .index = i,
@@ -24144,7 +24167,7 @@ fn fieldVal(
                         }
                     }
                     const union_ty = try sema.resolveTypeFields(child_type);
-                    if (union_ty.unionTagType()) |enum_ty| {
+                    if (union_ty.unionTagType(mod)) |enum_ty| {
                         if (enum_ty.enumFieldIndex(field_name)) |field_index_usize| {
                             const field_index = @intCast(u32, field_index_usize);
                             return sema.addConstant(
@@ -24358,7 +24381,7 @@ fn fieldPtr(
                         }
                     }
                     const union_ty = try sema.resolveTypeFields(child_type);
-                    if (union_ty.unionTagType()) |enum_ty| {
+                    if (union_ty.unionTagType(mod)) |enum_ty| {
                         if (enum_ty.enumFieldIndex(field_name)) |field_index| {
                             const field_index_u32 = @intCast(u32, field_index);
                             var anon_decl = try block.startAnonDecl();
@@ -24489,7 +24512,7 @@ fn fieldCallBind(
             },
             .Union => {
                 const union_ty = try sema.resolveTypeFields(concrete_ty);
-                const fields = union_ty.unionFields();
+                const fields = union_ty.unionFields(mod);
                 const field_index_usize = fields.getIndex(field_name) orelse break :find_field;
                 const field_index = @intCast(u32, field_index_usize);
                 const field = fields.values()[field_index];
@@ -24964,7 +24987,7 @@ fn unionFieldPtr(
 
     const union_ptr_ty = sema.typeOf(union_ptr);
     const union_ty = try sema.resolveTypeFields(unresolved_union_ty);
-    const union_obj = union_ty.cast(Type.Payload.Union).?.data;
+    const union_obj = mod.typeToUnion(union_ty).?;
     const field_index = try sema.unionFieldIndex(block, union_ty, field_name, field_name_src);
     const field = union_obj.fields.values()[field_index];
     const ptr_field_ty = try Type.ptr(arena, mod, .{
@@ -25028,7 +25051,7 @@ fn unionFieldPtr(
 
     try sema.requireRuntimeBlock(block, src, null);
     if (!initializing and union_obj.layout == .Auto and block.wantSafety() and
-        union_ty.unionTagTypeSafety() != null and union_obj.fields.count() > 1)
+        union_ty.unionTagTypeSafety(mod) != null and union_obj.fields.count() > 1)
     {
         const wanted_tag_val = try Value.Tag.enum_field_index.create(sema.arena, enum_field_index);
         const wanted_tag = try sema.addConstant(union_obj.tag_ty, wanted_tag_val);
@@ -25057,7 +25080,7 @@ fn unionFieldVal(
     assert(unresolved_union_ty.zigTypeTag(mod) == .Union);
 
     const union_ty = try sema.resolveTypeFields(unresolved_union_ty);
-    const union_obj = union_ty.cast(Type.Payload.Union).?.data;
+    const union_obj = mod.typeToUnion(union_ty).?;
     const field_index = try sema.unionFieldIndex(block, union_ty, field_name, field_name_src);
     const field = union_obj.fields.values()[field_index];
     const enum_field_index = @intCast(u32, union_obj.tag_ty.enumFieldIndex(field_name).?);
@@ -25103,7 +25126,7 @@ fn unionFieldVal(
 
     try sema.requireRuntimeBlock(block, src, null);
     if (union_obj.layout == .Auto and block.wantSafety() and
-        union_ty.unionTagTypeSafety() != null and union_obj.fields.count() > 1)
+        union_ty.unionTagTypeSafety(mod) != null and union_obj.fields.count() > 1)
     {
         const wanted_tag_val = try Value.Tag.enum_field_index.create(sema.arena, enum_field_index);
         const wanted_tag = try sema.addConstant(union_obj.tag_ty, wanted_tag_val);
@@ -26189,7 +26212,7 @@ fn coerceExtra(
             },
             .Union => blk: {
                 // union to its own tag type
-                const union_tag_ty = inst_ty.unionTagType() orelse break :blk;
+                const union_tag_ty = inst_ty.unionTagType(mod) orelse break :blk;
                 if (union_tag_ty.eql(dest_ty, sema.mod)) {
                     return sema.unionToTag(block, dest_ty, inst, inst_src);
                 }
@@ -28622,7 +28645,7 @@ fn coerceEnumToUnion(
     const mod = sema.mod;
     const inst_ty = sema.typeOf(inst);
 
-    const tag_ty = union_ty.unionTagType() orelse {
+    const tag_ty = union_ty.unionTagType(mod) orelse {
         const msg = msg: {
             const msg = try sema.errMsg(block, inst_src, "expected type '{}', found '{}'", .{
                 union_ty.fmt(sema.mod), inst_ty.fmt(sema.mod),
@@ -28649,7 +28672,7 @@ fn coerceEnumToUnion(
             return sema.failWithOwnedErrorMsg(msg);
         };
 
-        const union_obj = union_ty.cast(Type.Payload.Union).?.data;
+        const union_obj = mod.typeToUnion(union_ty).?;
         const field = union_obj.fields.values()[field_index];
         const field_ty = try sema.resolveTypeFields(field.ty);
         if (field_ty.zigTypeTag(mod) == .NoReturn) {
@@ -28679,10 +28702,7 @@ fn coerceEnumToUnion(
             return sema.failWithOwnedErrorMsg(msg);
         };
 
-        return sema.addConstant(union_ty, try Value.Tag.@"union".create(sema.arena, .{
-            .tag = val,
-            .val = opv,
-        }));
+        return sema.addConstant(union_ty, try mod.unionValue(union_ty, val, opv));
     }
 
     try sema.requireRuntimeBlock(block, inst_src, null);
@@ -28699,7 +28719,7 @@ fn coerceEnumToUnion(
         return sema.failWithOwnedErrorMsg(msg);
     }
 
-    const union_obj = union_ty.cast(Type.Payload.Union).?.data;
+    const union_obj = mod.typeToUnion(union_ty).?;
     {
         var msg: ?*Module.ErrorMsg = null;
         errdefer if (msg) |some| some.destroy(sema.gpa);
@@ -29350,10 +29370,13 @@ fn analyzeRef(
     const operand_ty = sema.typeOf(operand);
 
     if (try sema.resolveMaybeUndefVal(operand)) |val| {
-        switch (val.tag()) {
-            .extern_fn, .function => {
-                const decl_index = val.pointerDecl().?;
-                return sema.analyzeDeclRef(decl_index);
+        switch (val.ip_index) {
+            .none => switch (val.tag()) {
+                .extern_fn, .function => {
+                    const decl_index = val.pointerDecl().?;
+                    return sema.analyzeDeclRef(decl_index);
+                },
+                else => {},
             },
             else => {},
         }
@@ -31523,8 +31546,9 @@ fn checkMemOperand(sema: *Sema, block: *Block, src: LazySrcLoc, ty: Type) !void 
 }
 
 fn resolveUnionLayout(sema: *Sema, ty: Type) CompileError!void {
+    const mod = sema.mod;
     const resolved_ty = try sema.resolveTypeFields(ty);
-    const union_obj = resolved_ty.cast(Type.Payload.Union).?.data;
+    const union_obj = mod.typeToUnion(resolved_ty).?;
     switch (union_obj.status) {
         .none, .have_field_types => {},
         .field_types_wip, .layout_wip => {
@@ -31615,27 +31639,6 @@ pub fn resolveTypeRequiresComptime(sema: *Sema, ty: Type) CompileError!bool {
                     }
                 }
                 return false;
-            },
-
-            .@"union", .union_safety_tagged, .union_tagged => {
-                const union_obj = ty.cast(Type.Payload.Union).?.data;
-                switch (union_obj.requires_comptime) {
-                    .no, .wip => return false,
-                    .yes => return true,
-                    .unknown => {
-                        var requires_comptime = false;
-                        union_obj.requires_comptime = .wip;
-                        for (union_obj.fields.values()) |field| {
-                            if (try sema.resolveTypeRequiresComptime(field.ty)) requires_comptime = true;
-                        }
-                        if (requires_comptime) {
-                            union_obj.requires_comptime = .yes;
-                        } else {
-                            union_obj.requires_comptime = .no;
-                        }
-                        return requires_comptime;
-                    },
-                }
             },
 
             .error_union => return sema.resolveTypeRequiresComptime(ty.errorUnionPayload()),
@@ -31734,10 +31737,31 @@ pub fn resolveTypeRequiresComptime(sema: *Sema, ty: Type) CompileError!bool {
                 }
             },
 
-            .union_type => @panic("TODO"),
+            .union_type => |union_type| {
+                const union_obj = mod.unionPtr(union_type.index);
+                switch (union_obj.requires_comptime) {
+                    .no, .wip => return false,
+                    .yes => return true,
+                    .unknown => {
+                        var requires_comptime = false;
+                        union_obj.requires_comptime = .wip;
+                        for (union_obj.fields.values()) |field| {
+                            if (try sema.resolveTypeRequiresComptime(field.ty)) requires_comptime = true;
+                        }
+                        if (requires_comptime) {
+                            union_obj.requires_comptime = .yes;
+                        } else {
+                            union_obj.requires_comptime = .no;
+                        }
+                        return requires_comptime;
+                    },
+                }
+            },
+
             .opaque_type => false,
 
             // values, not types
+            .un => unreachable,
             .simple_value => unreachable,
             .extern_func => unreachable,
             .int => unreachable,
@@ -31829,8 +31853,9 @@ fn resolveStructFully(sema: *Sema, ty: Type) CompileError!void {
 fn resolveUnionFully(sema: *Sema, ty: Type) CompileError!void {
     try sema.resolveUnionLayout(ty);
 
+    const mod = sema.mod;
     const resolved_ty = try sema.resolveTypeFields(ty);
-    const union_obj = resolved_ty.cast(Type.Payload.Union).?.data;
+    const union_obj = mod.typeToUnion(resolved_ty).?;
     switch (union_obj.status) {
         .none, .have_field_types, .field_types_wip, .layout_wip, .have_layout => {},
         .fully_resolved_wip, .fully_resolved => return,
@@ -31858,15 +31883,8 @@ pub fn resolveTypeFields(sema: *Sema, ty: Type) CompileError!Type {
     const mod = sema.mod;
 
     switch (ty.ip_index) {
-        .none => switch (ty.tag()) {
-            .@"union", .union_safety_tagged, .union_tagged => {
-                const union_obj = ty.cast(Type.Payload.Union).?.data;
-                try sema.resolveTypeFieldsUnion(ty, union_obj);
-                return ty;
-            },
-
-            else => return ty,
-        },
+        // TODO: After the InternPool transition is complete, change this to `unreachable`.
+        .none => return ty,
 
         .u1_type,
         .u8_type,
@@ -31957,7 +31975,12 @@ pub fn resolveTypeFields(sema: *Sema, ty: Type) CompileError!Type {
                 try sema.resolveTypeFieldsStruct(ty, struct_obj);
                 return ty;
             },
-            .union_type => @panic("TODO"),
+            .union_type => |union_type| {
+                const union_obj = mod.unionPtr(union_type.index);
+                try sema.resolveTypeFieldsUnion(ty, union_obj);
+                return ty;
+            },
+
             else => return ty,
         },
     }
@@ -33123,32 +33146,6 @@ pub fn typeHasOnePossibleValue(sema: *Sema, ty: Type) CompileError!?Value {
                     return null;
                 }
             },
-            .@"union", .union_safety_tagged, .union_tagged => {
-                const resolved_ty = try sema.resolveTypeFields(ty);
-                const union_obj = resolved_ty.cast(Type.Payload.Union).?.data;
-                const tag_val = (try sema.typeHasOnePossibleValue(union_obj.tag_ty)) orelse
-                    return null;
-                const fields = union_obj.fields.values();
-                if (fields.len == 0) return Value.@"unreachable";
-                const only_field = fields[0];
-                if (only_field.ty.eql(resolved_ty, sema.mod)) {
-                    const msg = try Module.ErrorMsg.create(
-                        sema.gpa,
-                        union_obj.srcLoc(sema.mod),
-                        "union '{}' depends on itself",
-                        .{ty.fmt(sema.mod)},
-                    );
-                    try sema.addFieldErrNote(resolved_ty, 0, msg, "while checking this field", .{});
-                    return sema.failWithOwnedErrorMsg(msg);
-                }
-                const val_val = (try sema.typeHasOnePossibleValue(only_field.ty)) orelse
-                    return null;
-                // TODO make this not allocate.
-                return try Value.Tag.@"union".create(sema.arena, .{
-                    .tag = tag_val,
-                    .val = val_val,
-                });
-            },
 
             .array => {
                 if (ty.arrayLen(mod) == 0)
@@ -33268,10 +33265,37 @@ pub fn typeHasOnePossibleValue(sema: *Sema, ty: Type) CompileError!?Value {
                 return empty.toValue();
             },
 
-            .union_type => @panic("TODO"),
+            .union_type => |union_type| {
+                const resolved_ty = try sema.resolveTypeFields(ty);
+                const union_obj = mod.unionPtr(union_type.index);
+                const tag_val = (try sema.typeHasOnePossibleValue(union_obj.tag_ty)) orelse
+                    return null;
+                const fields = union_obj.fields.values();
+                if (fields.len == 0) return Value.@"unreachable";
+                const only_field = fields[0];
+                if (only_field.ty.eql(resolved_ty, sema.mod)) {
+                    const msg = try Module.ErrorMsg.create(
+                        sema.gpa,
+                        union_obj.srcLoc(sema.mod),
+                        "union '{}' depends on itself",
+                        .{ty.fmt(sema.mod)},
+                    );
+                    try sema.addFieldErrNote(resolved_ty, 0, msg, "while checking this field", .{});
+                    return sema.failWithOwnedErrorMsg(msg);
+                }
+                const val_val = (try sema.typeHasOnePossibleValue(only_field.ty)) orelse
+                    return null;
+                const only = try mod.intern(.{ .un = .{
+                    .ty = resolved_ty.ip_index,
+                    .tag = tag_val.ip_index,
+                    .val = val_val.ip_index,
+                } });
+                return only.toValue();
+            },
             .opaque_type => null,
 
             // values, not types
+            .un => unreachable,
             .simple_value => unreachable,
             .extern_func => unreachable,
             .int => unreachable,
@@ -33710,30 +33734,6 @@ pub fn typeRequiresComptime(sema: *Sema, ty: Type) CompileError!bool {
                 return false;
             },
 
-            .@"union", .union_safety_tagged, .union_tagged => {
-                const union_obj = ty.cast(Type.Payload.Union).?.data;
-                switch (union_obj.requires_comptime) {
-                    .no, .wip => return false,
-                    .yes => return true,
-                    .unknown => {
-                        if (union_obj.status == .field_types_wip)
-                            return false;
-
-                        try sema.resolveTypeFieldsUnion(ty, union_obj);
-
-                        union_obj.requires_comptime = .wip;
-                        for (union_obj.fields.values()) |field| {
-                            if (try sema.typeRequiresComptime(field.ty)) {
-                                union_obj.requires_comptime = .yes;
-                                return true;
-                            }
-                        }
-                        union_obj.requires_comptime = .no;
-                        return false;
-                    },
-                }
-            },
-
             .error_union => return sema.typeRequiresComptime(ty.errorUnionPayload()),
             .anyframe_T => {
                 const child_ty = ty.castTag(.anyframe_T).?.data;
@@ -33837,10 +33837,34 @@ pub fn typeRequiresComptime(sema: *Sema, ty: Type) CompileError!bool {
                 }
             },
 
-            .union_type => @panic("TODO"),
+            .union_type => |union_type| {
+                const union_obj = mod.unionPtr(union_type.index);
+                switch (union_obj.requires_comptime) {
+                    .no, .wip => return false,
+                    .yes => return true,
+                    .unknown => {
+                        if (union_obj.status == .field_types_wip)
+                            return false;
+
+                        try sema.resolveTypeFieldsUnion(ty, union_obj);
+
+                        union_obj.requires_comptime = .wip;
+                        for (union_obj.fields.values()) |field| {
+                            if (try sema.typeRequiresComptime(field.ty)) {
+                                union_obj.requires_comptime = .yes;
+                                return true;
+                            }
+                        }
+                        union_obj.requires_comptime = .no;
+                        return false;
+                    },
+                }
+            },
+
             .opaque_type => false,
 
             // values, not types
+            .un => unreachable,
             .simple_value => unreachable,
             .extern_func => unreachable,
             .int => unreachable,
@@ -33905,8 +33929,9 @@ fn unionFieldIndex(
     field_name: []const u8,
     field_src: LazySrcLoc,
 ) !u32 {
+    const mod = sema.mod;
     const union_ty = try sema.resolveTypeFields(unresolved_union_ty);
-    const union_obj = union_ty.cast(Type.Payload.Union).?.data;
+    const union_obj = mod.typeToUnion(union_ty).?;
     const field_index_usize = union_obj.fields.getIndex(field_name) orelse
         return sema.failWithBadUnionFieldAccess(block, union_obj, field_src, field_name);
     return @intCast(u32, field_index_usize);

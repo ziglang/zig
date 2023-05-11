@@ -2178,7 +2178,7 @@ pub const Object = struct {
                     break :blk fwd_decl;
                 };
 
-                const union_obj = ty.cast(Type.Payload.Union).?.data;
+                const union_obj = mod.typeToUnion(ty).?;
                 if (!union_obj.haveFieldTypes() or !ty.hasRuntimeBitsIgnoreComptime(mod)) {
                     const union_di_ty = try o.makeEmptyNamespaceDIType(owner_decl_index);
                     dib.replaceTemporary(fwd_decl, union_di_ty);
@@ -3063,7 +3063,7 @@ pub const DeclGen = struct {
                 gop.key_ptr.* = try t.copy(dg.object.type_map_arena.allocator());
 
                 const layout = t.unionGetLayout(mod);
-                const union_obj = t.cast(Type.Payload.Union).?.data;
+                const union_obj = mod.typeToUnion(t).?;
 
                 if (union_obj.layout == .Packed) {
                     const bitsize = @intCast(c_uint, t.bitSize(mod));
@@ -3797,11 +3797,11 @@ pub const DeclGen = struct {
 
                 if (layout.payload_size == 0) {
                     return lowerValue(dg, .{
-                        .ty = tv.ty.unionTagTypeSafety().?,
+                        .ty = tv.ty.unionTagTypeSafety(mod).?,
                         .val = tag_and_val.tag,
                     });
                 }
-                const union_obj = tv.ty.cast(Type.Payload.Union).?.data;
+                const union_obj = mod.typeToUnion(tv.ty).?;
                 const field_index = tv.ty.unionTagFieldIndex(tag_and_val.tag, dg.module).?;
                 assert(union_obj.haveFieldTypes());
 
@@ -3851,7 +3851,7 @@ pub const DeclGen = struct {
                     }
                 }
                 const llvm_tag_value = try lowerValue(dg, .{
-                    .ty = tv.ty.unionTagTypeSafety().?,
+                    .ty = tv.ty.unionTagTypeSafety(mod).?,
                     .val = tag_and_val.tag,
                 });
                 var fields: [3]*llvm.Value = undefined;
@@ -9410,7 +9410,7 @@ pub const FuncGen = struct {
         const union_ty = self.typeOfIndex(inst);
         const union_llvm_ty = try self.dg.lowerType(union_ty);
         const layout = union_ty.unionGetLayout(mod);
-        const union_obj = union_ty.cast(Type.Payload.Union).?.data;
+        const union_obj = mod.typeToUnion(union_ty).?;
 
         if (union_obj.layout == .Packed) {
             const big_bits = union_ty.bitSize(mod);
@@ -9427,7 +9427,7 @@ pub const FuncGen = struct {
         }
 
         const tag_int = blk: {
-            const tag_ty = union_ty.unionTagTypeHypothetical();
+            const tag_ty = union_ty.unionTagTypeHypothetical(mod);
             const union_field_name = union_obj.fields.keys()[extra.field_index];
             const enum_field_index = tag_ty.enumFieldIndex(union_field_name).?;
             var tag_val_payload: Value.Payload.U32 = .{
