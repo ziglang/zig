@@ -917,7 +917,6 @@ const Writer = struct {
 
         try s.writeAll("\n");
         try s.writeByteNTimes(' ', old_indent);
-        try s.writeAll("}");
     }
 
     fn writeWasmMemorySize(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {

@@ -2730,9 +2730,13 @@ fn createAnonymousDeclTypeNamed(
             for (fn_info.param_body) |zir_inst| switch (zir_tags[zir_inst]) {
                 .param, .param_comptime, .param_anytype, .param_anytype_comptime => {
                     const arg = sema.inst_map.get(zir_inst).?;
-                    // The comptime call code in analyzeCall already did this, so we're
-                    // just repeating it here and it's guaranteed to work.
-                    const arg_val = sema.resolveConstMaybeUndefVal(block, .unneeded, arg, "") catch unreachable;
+                    // If this is being called in a generic function then analyzeCall will
+                    // have already resolved the args and this will work.
+                    // If not then this is a struct type being returned from a non-generic
+                    // function and the name doesn't matter since it will later
+                    // result in a compile error.
+                    const arg_val = sema.resolveConstMaybeUndefVal(block, .unneeded, arg, "") catch
+                        return sema.createAnonymousDeclTypeNamed(block, src, typed_value, .anon, anon_prefix, null);
 
                     if (arg_i != 0) try buf.appendSlice(",");
                     try buf.writer().print("{}", .{arg_val.fmtValue(sema.typeOf(arg), sema.mod)});
@@ -6561,7 +6565,6 @@ fn analyzeCall(
     call_dbg_node: ?Zir.Inst.Index,
 ) CompileError!Air.Inst.Ref {
     const mod = sema.mod;
-
 
     const callee_ty = sema.typeOf(func);
     const func_ty_info = func_ty.fnInfo();
