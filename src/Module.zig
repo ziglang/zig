@@ -6543,9 +6543,10 @@ pub fn populateTestFunctions(
 
         const test_fn_vals = try arena.alloc(Value, mod.test_functions.count());
         const array_decl_index = try mod.createAnonymousDeclFromDecl(decl, decl.src_namespace, null, .{
-            .ty = try Type.Tag.array.create(arena, .{
+            .ty = try mod.arrayType(.{
                 .len = test_fn_vals.len,
-                .elem_type = try tmp_test_fn_ty.copy(arena),
+                .child = tmp_test_fn_ty.ip_index,
+                .sentinel = .none,
             }),
             .val = try Value.Tag.aggregate.create(arena, test_fn_vals),
         });
