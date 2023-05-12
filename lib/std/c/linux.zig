@@ -371,3 +371,19 @@ pub const dirent64 = struct {
     d_type: u8,
     d_name: [256]u8,
 };
+
+pub const MPOL = struct {
+    pub const F_NODE = 1 << 0;
+    pub const F_ADDR = 1 << 1;
+    pub const F_MEMS_ALLOWED = 1 << 2;
+    /// flags for SYS_mbind
+    pub const MF_STRICT = 1 << 0;
+    pub const MF_MOVE = 1 << 1;
+    pub const MF_MOVE_ALL = 1 << 2;
+    pub const MF_LAZY = 1 << 3;
+    pub const MF_INTERNAL = 1 << 4;
+    pub const MF_VALID = MPOL.MF_STRICT | MPOL.MF_MOVE | MPOL.MOVE_ALL;
+};
+
+pub extern "c" fn getcpu(cpu: *c_uint, node: *c_uint) c_int;
+pub extern "c" fn sched_getcpu() c_int;
