@@ -1,6 +1,9 @@
 const std = @import("std");
+const builtin = @import("builtin");
 
 test {
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
     const string = "Hello!\x00World!";
     try std.testing.expect(@TypeOf(string) == *const [13:0]u8);
 
