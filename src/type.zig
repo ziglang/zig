@@ -126,6 +126,7 @@ pub const Type = struct {
                 },
 
                 // values, not types
+                .undef => unreachable,
                 .un => unreachable,
                 .extern_func => unreachable,
                 .int => unreachable,
@@ -1350,6 +1351,7 @@ pub const Type = struct {
                 },
 
                 // values, not types
+                .undef => unreachable,
                 .un => unreachable,
                 .simple_value => unreachable,
                 .extern_func => unreachable,
@@ -1600,6 +1602,7 @@ pub const Type = struct {
                 .enum_type => |enum_type| enum_type.tag_ty.toType().hasRuntimeBitsAdvanced(mod, ignore_comptime_only, strat),
 
                 // values, not types
+                .undef => unreachable,
                 .un => unreachable,
                 .simple_value => unreachable,
                 .extern_func => unreachable,
@@ -1713,6 +1716,7 @@ pub const Type = struct {
                 },
 
                 // values, not types
+                .undef => unreachable,
                 .un => unreachable,
                 .simple_value => unreachable,
                 .extern_func => unreachable,
@@ -2104,6 +2108,7 @@ pub const Type = struct {
                 .enum_type => |enum_type| return AbiAlignmentAdvanced{ .scalar = enum_type.tag_ty.toType().abiAlignment(mod) },
 
                 // values, not types
+                .undef => unreachable,
                 .un => unreachable,
                 .simple_value => unreachable,
                 .extern_func => unreachable,
@@ -2499,6 +2504,7 @@ pub const Type = struct {
                 .enum_type => |enum_type| return AbiSizeAdvanced{ .scalar = enum_type.tag_ty.toType().abiSize(mod) },
 
                 // values, not types
+                .undef => unreachable,
                 .un => unreachable,
                 .simple_value => unreachable,
                 .extern_func => unreachable,
@@ -2736,6 +2742,7 @@ pub const Type = struct {
                 .enum_type => |enum_type| return bitSizeAdvanced(enum_type.tag_ty.toType(), mod, opt_sema),
 
                 // values, not types
+                .undef => unreachable,
                 .un => unreachable,
                 .simple_value => unreachable,
                 .extern_func => unreachable,
@@ -3492,6 +3499,7 @@ pub const Type = struct {
                 .opaque_type => unreachable,
 
                 // values, not types
+                .undef => unreachable,
                 .un => unreachable,
                 .simple_value => unreachable,
                 .extern_func => unreachable,
@@ -3826,19 +3834,30 @@ pub const Type = struct {
                 .opaque_type => return null,
                 .enum_type => |enum_type| switch (enum_type.tag_mode) {
                     .nonexhaustive => {
-                        if (enum_type.tag_ty != .comptime_int_type and
-                            !enum_type.tag_ty.toType().hasRuntimeBits(mod))
-                        {
-                            return Value.enum_field_0;
-                        } else {
-                            return null;
+                        if (enum_type.tag_ty == .comptime_int_type) return null;
+
+                        if (try enum_type.tag_ty.toType().onePossibleValue(mod)) |int_opv| {
+                            const only = try mod.intern(.{ .enum_tag = .{
+                                .ty = ty.ip_index,
+                                .int = int_opv.ip_index,
+                            } });
+                            return only.toValue();
                         }
+
+                        return null;
                     },
                     .auto, .explicit => switch (enum_type.names.len) {
                         0 => return Value.@"unreachable",
                         1 => {
                             if (enum_type.values.len == 0) {
-                                return Value.enum_field_0; // auto-numbered
+                                const only = try mod.intern(.{ .enum_tag = .{
+                                    .ty = ty.ip_index,
+                                    .int = try mod.intern(.{ .int = .{
+                                        .ty = enum_type.tag_ty,
+                                        .storage = .{ .u64 = 0 },
+                                    } }),
+                                } });
+                                return only.toValue();
                             } else {
                                 return enum_type.values[0].toValue();
                             }
@@ -3848,6 +3867,7 @@ pub const Type = struct {
                 },
 
                 // values, not types
+                .undef => unreachable,
                 .un => unreachable,
                 .simple_value => unreachable,
                 .extern_func => unreachable,
@@ -4006,6 +4026,7 @@ pub const Type = struct {
                 .enum_type => |enum_type| enum_type.tag_ty.toType().comptimeOnly(mod),
 
                 // values, not types
+                .undef => unreachable,
                 .un => unreachable,
                 .simple_value => unreachable,
                 .extern_func => unreachable,
@@ -4224,36 +4245,22 @@ pub const Type = struct {
         return ip.stringToSlice(field_name);
     }
 
-    pub fn enumFieldIndex(ty: Type, field_name: []const u8, mod: *Module) ?usize {
+    pub fn enumFieldIndex(ty: Type, field_name: []const u8, mod: *Module) ?u32 {
         const ip = &mod.intern_pool;
         const enum_type = ip.indexToKey(ty.ip_index).enum_type;
         // If the string is not interned, then the field certainly is not present.
         const field_name_interned = ip.getString(field_name).unwrap() orelse return null;
-        return enum_type.nameIndex(ip.*, field_name_interned);
+        return enum_type.nameIndex(ip, field_name_interned);
     }
 
     /// Asserts `ty` is an enum. `enum_tag` can either be `enum_field_index` or
     /// an integer which represents the enum value. Returns the field index in
     /// declaration order, or `null` if `enum_tag` does not match any field.
-    pub fn enumTagFieldIndex(ty: Type, enum_tag: Value, mod: *Module) ?usize {
-        if (enum_tag.castTag(.enum_field_index)) |payload| {
-            return @as(usize, payload.data);
-        }
+    pub fn enumTagFieldIndex(ty: Type, enum_tag: Value, mod: *Module) ?u32 {
         const ip = &mod.intern_pool;
         const enum_type = ip.indexToKey(ty.ip_index).enum_type;
-        const tag_ty = enum_type.tag_ty.toType();
-        if (enum_type.values.len == 0) {
-            if (enum_tag.compareAllWithZero(.lt, mod)) return null;
-            const end_val = mod.intValue(tag_ty, enum_type.names.len) catch |err| switch (err) {
-                // TODO: eliminate this failure condition
-                error.OutOfMemory => @panic("OOM"),
-            };
-            if (enum_tag.compareScalar(.gte, end_val, tag_ty, mod)) return null;
-            return @intCast(usize, enum_tag.toUnsignedInt(mod));
-        } else {
-            assert(ip.typeOf(enum_tag.ip_index) == enum_type.tag_ty);
-            return enum_type.tagValueIndex(ip.*, enum_tag.ip_index);
-        }
+        assert(ip.typeOf(enum_tag.ip_index) == enum_type.tag_ty);
+        return enum_type.tagValueIndex(ip, enum_tag.ip_index);
     }
 
     pub fn structFields(ty: Type, mod: *Module) Module.Struct.Fields {

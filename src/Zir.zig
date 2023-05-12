@@ -2052,6 +2052,7 @@ pub const Inst = struct {
     /// and `[]Ref`.
     pub const Ref = enum(u32) {
         u1_type = @enumToInt(InternPool.Index.u1_type),
+        u5_type = @enumToInt(InternPool.Index.u5_type),
         u8_type = @enumToInt(InternPool.Index.u8_type),
         i8_type = @enumToInt(InternPool.Index.i8_type),
         u16_type = @enumToInt(InternPool.Index.u16_type),
@@ -2120,6 +2121,8 @@ pub const Inst = struct {
         zero_u8 = @enumToInt(InternPool.Index.zero_u8),
         one = @enumToInt(InternPool.Index.one),
         one_usize = @enumToInt(InternPool.Index.one_usize),
+        one_u5 = @enumToInt(InternPool.Index.one_u5),
+        four_u5 = @enumToInt(InternPool.Index.four_u5),
         negative_one = @enumToInt(InternPool.Index.negative_one),
         calling_convention_c = @enumToInt(InternPool.Index.calling_convention_c),
         calling_convention_inline = @enumToInt(InternPool.Index.calling_convention_inline),

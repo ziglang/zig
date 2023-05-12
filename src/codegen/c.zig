@@ -748,7 +748,7 @@ pub const DeclGen = struct {
             .ReleaseFast, .ReleaseSmall => false,
         };
 
-        if (val.isUndefDeep()) {
+        if (val.isUndefDeep(mod)) {
             switch (ty.zigTypeTag(mod)) {
                 .Bool => {
                     if (safety_on) {
@@ -1183,7 +1183,7 @@ pub const DeclGen = struct {
                         var index: usize = 0;
                         while (index < ai.len) : (index += 1) {
                             const elem_val = try val.elemValue(mod, index);
-                            const elem_val_u8 = if (elem_val.isUndef()) undefPattern(u8) else @intCast(u8, elem_val.toUnsignedInt(mod));
+                            const elem_val_u8 = if (elem_val.isUndef(mod)) undefPattern(u8) else @intCast(u8, elem_val.toUnsignedInt(mod));
                             try literal.writeChar(elem_val_u8);
                         }
                         if (ai.sentinel) |s| {
@@ -1197,7 +1197,7 @@ pub const DeclGen = struct {
                         while (index < ai.len) : (index += 1) {
                             if (index != 0) try writer.writeByte(',');
                             const elem_val = try val.elemValue(mod, index);
-                            const elem_val_u8 = if (elem_val.isUndef()) undefPattern(u8) else @intCast(u8, elem_val.toUnsignedInt(mod));
+                            const elem_val_u8 = if (elem_val.isUndef(mod)) undefPattern(u8) else @intCast(u8, elem_val.toUnsignedInt(mod));
                             try writer.print("'\\x{x}'", .{elem_val_u8});
                         }
                         if (ai.sentinel) |s| {
@@ -1284,23 +1284,16 @@ pub const DeclGen = struct {
                 try dg.renderValue(writer, error_ty, error_val, initializer_type);
                 try writer.writeAll(" }");
             },
-            .Enum => {
-                switch (val.tag()) {
-                    .enum_field_index => {
-                        const field_index = val.castTag(.enum_field_index).?.data;
-                        const enum_type = mod.intern_pool.indexToKey(ty.ip_index).enum_type;
-                        if (enum_type.values.len != 0) {
-                            const tag_val = enum_type.values[field_index];
-                            return dg.renderValue(writer, enum_type.tag_ty.toType(), tag_val.toValue(), location);
-                        } else {
-                            return writer.print("{d}", .{field_index});
-                        }
-                    },
-                    else => {
-                        const int_tag_ty = try ty.intTagType(mod);
-                        return dg.renderValue(writer, int_tag_ty, val, location);
-                    },
-                }
+            .Enum => switch (val.ip_index) {
+                .none => {
+                    const int_tag_ty = try ty.intTagType(mod);
+                    return dg.renderValue(writer, int_tag_ty, val, location);
+                },
+                else => {
+                    const enum_tag = mod.intern_pool.indexToKey(val.ip_index).enum_tag;
+                    const int_tag_ty = mod.intern_pool.typeOf(enum_tag.int);
+                    return dg.renderValue(writer, int_tag_ty.toType(), enum_tag.int.toValue(), location);
+                },
             },
             .Fn => switch (val.tag()) {
                 .function => {
@@ -2524,13 +2517,10 @@ pub fn genLazyFn(o: *Object, lazy_fn: LazyFnMap.Entry) !void {
             try w.writeByte('(');
             try o.dg.renderTypeAndName(w, enum_ty, .{ .identifier = "tag" }, Const, 0, .complete);
             try w.writeAll(") {\n switch (tag) {\n");
-            for (enum_ty.enumFields(mod), 0..) |name_ip, index| {
+            for (enum_ty.enumFields(mod), 0..) |name_ip, index_usize| {
+                const index = @intCast(u32, index_usize);
                 const name = mod.intern_pool.stringToSlice(name_ip);
-                var tag_pl: Value.Payload.U32 = .{
-                    .base = .{ .tag = .enum_field_index },
-                    .data = @intCast(u32, index),
-                };
-                const tag_val = Value.initPayload(&tag_pl.base);
+                const tag_val = try mod.enumValueFieldIndex(enum_ty, index);
 
                 const int_val = try tag_val.enumToInt(enum_ty, mod);
 
@@ -3609,7 +3599,7 @@ fn airStore(f: *Function, inst: Air.Inst.Index, safety: bool) !CValue {
     const ptr_val = try f.resolveInst(bin_op.lhs);
     const src_ty = f.typeOf(bin_op.rhs);
 
-    const val_is_undef = if (try f.air.value(bin_op.rhs, mod)) |v| v.isUndefDeep() else false;
+    const val_is_undef = if (try f.air.value(bin_op.rhs, mod)) |v| v.isUndefDeep(mod) else false;
 
     if (val_is_undef) {
         try reap(f, inst, &.{ bin_op.lhs, bin_op.rhs });
@@ -4267,7 +4257,7 @@ fn airDbgVar(f: *Function, inst: Air.Inst.Index) !CValue {
     const mod = f.object.dg.module;
     const pl_op = f.air.instructions.items(.data)[inst].pl_op;
     const name = f.air.nullTerminatedString(pl_op.payload);
-    const operand_is_undef = if (try f.air.value(pl_op.operand, mod)) |v| v.isUndefDeep() else false;
+    const operand_is_undef = if (try f.air.value(pl_op.operand, mod)) |v| v.isUndefDeep(mod) else false;
     if (!operand_is_undef) _ = try f.resolveInst(pl_op.operand);
 
     try reap(f, inst, &.{pl_op.operand});
@@ -6290,7 +6280,7 @@ fn airMemset(f: *Function, inst: Air.Inst.Index, safety: bool) !CValue {
     const value = try f.resolveInst(bin_op.rhs);
     const elem_ty = f.typeOf(bin_op.rhs);
     const elem_abi_size = elem_ty.abiSize(mod);
-    const val_is_undef = if (try f.air.value(bin_op.rhs, mod)) |val| val.isUndefDeep() else false;
+    const val_is_undef = if (try f.air.value(bin_op.rhs, mod)) |val| val.isUndefDeep(mod) else false;
     const writer = f.object.writer();
 
     if (val_is_undef) {
@@ -6907,11 +6897,7 @@ fn airUnionInit(f: *Function, inst: Air.Inst.Index) !CValue {
         if (layout.tag_size != 0) {
             const field_index = tag_ty.enumFieldIndex(field_name, mod).?;
 
-            var tag_pl: Value.Payload.U32 = .{
-                .base = .{ .tag = .enum_field_index },
-                .data = @intCast(u32, field_index),
-            };
-            const tag_val = Value.initPayload(&tag_pl.base);
+            const tag_val = try mod.enumValueFieldIndex(tag_ty, field_index);
 
             const int_val = try tag_val.enumToInt(tag_ty, mod);
 
@@ -7438,7 +7424,7 @@ fn formatIntLiteral(
     defer allocator.free(undef_limbs);
 
     var int_buf: Value.BigIntSpace = undefined;
-    const int = if (data.val.isUndefDeep()) blk: {
+    const int = if (data.val.isUndefDeep(mod)) blk: {
         undef_limbs = try allocator.alloc(BigIntLimb, BigInt.calcTwosCompLimbCount(data.int_info.bits));
         @memset(undef_limbs, undefPattern(BigIntLimb));
 

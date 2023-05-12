@@ -196,7 +196,7 @@ pub fn generateSymbol(
         typed_value.val.fmtValue(typed_value.ty, mod),
     });
 
-    if (typed_value.val.isUndefDeep()) {
+    if (typed_value.val.isUndefDeep(mod)) {
         const abi_size = math.cast(usize, typed_value.ty.abiSize(mod)) orelse return error.Overflow;
         try code.appendNTimes(0xaa, abi_size);
         return Result.ok;
@@ -1168,7 +1168,7 @@ pub fn genTypedValue(
         typed_value.val.fmtValue(typed_value.ty, mod),
     });
 
-    if (typed_value.val.isUndef())
+    if (typed_value.val.isUndef(mod))
         return GenResult.mcv(.undef);
 
     const target = bin_file.options.target;
@@ -1229,24 +1229,12 @@ pub fn genTypedValue(
             }
         },
         .Enum => {
-            if (typed_value.val.castTag(.enum_field_index)) |field_index| {
-                const enum_type = mod.intern_pool.indexToKey(typed_value.ty.ip_index).enum_type;
-                if (enum_type.values.len != 0) {
-                    const tag_val = enum_type.values[field_index.data];
-                    return genTypedValue(bin_file, src_loc, .{
-                        .ty = enum_type.tag_ty.toType(),
-                        .val = tag_val.toValue(),
-                    }, owner_decl_index);
-                } else {
-                    return GenResult.mcv(.{ .immediate = field_index.data });
-                }
-            } else {
-                const int_tag_ty = try typed_value.ty.intTagType(mod);
-                return genTypedValue(bin_file, src_loc, .{
-                    .ty = int_tag_ty,
-                    .val = typed_value.val,
-                }, owner_decl_index);
-            }
+            const enum_tag = mod.intern_pool.indexToKey(typed_value.val.ip_index).enum_tag;
+            const int_tag_ty = mod.intern_pool.typeOf(enum_tag.int);
+            return genTypedValue(bin_file, src_loc, .{
+                .ty = int_tag_ty.toType(),
+                .val = enum_tag.int.toValue(),
+            }, owner_decl_index);
         },
         .ErrorSet => {
             switch (typed_value.val.tag()) {

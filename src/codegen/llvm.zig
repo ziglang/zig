@@ -3233,16 +3233,16 @@ pub const DeclGen = struct {
     }
 
     fn lowerValue(dg: *DeclGen, arg_tv: TypedValue) Error!*llvm.Value {
+        const mod = dg.module;
+        const target = mod.getTarget();
         var tv = arg_tv;
         if (tv.val.castTag(.runtime_value)) |rt| {
             tv.val = rt.data;
         }
-        if (tv.val.isUndef()) {
+        if (tv.val.isUndef(mod)) {
             const llvm_type = try dg.lowerType(tv.ty);
             return llvm_type.getUndef();
         }
-        const mod = dg.module;
-        const target = mod.getTarget();
         switch (tv.ty.zigTypeTag(mod)) {
             .Bool => {
                 const llvm_type = try dg.lowerType(tv.ty);
@@ -8204,7 +8204,7 @@ pub const FuncGen = struct {
         const ptr_ty = self.typeOf(bin_op.lhs);
         const operand_ty = ptr_ty.childType(mod);
 
-        const val_is_undef = if (try self.air.value(bin_op.rhs, mod)) |val| val.isUndefDeep() else false;
+        const val_is_undef = if (try self.air.value(bin_op.rhs, mod)) |val| val.isUndefDeep(mod) else false;
         if (val_is_undef) {
             // Even if safety is disabled, we still emit a memset to undefined since it conveys
             // extra information to LLVM. However, safety makes the difference between using
@@ -8496,7 +8496,7 @@ pub const FuncGen = struct {
         const is_volatile = ptr_ty.isVolatilePtr(mod);
 
         if (try self.air.value(bin_op.rhs, mod)) |elem_val| {
-            if (elem_val.isUndefDeep()) {
+            if (elem_val.isUndefDeep(mod)) {
                 // Even if safety is disabled, we still emit a memset to undefined since it conveys
                 // extra information to LLVM. However, safety makes the difference between using
                 // 0xaa or actual undefined for the fill byte.
@@ -8890,15 +8890,12 @@ pub const FuncGen = struct {
         const tag_int_value = fn_val.getParam(0);
         const switch_instr = self.builder.buildSwitch(tag_int_value, unnamed_block, @intCast(c_uint, enum_type.names.len));
 
-        for (enum_type.names, 0..) |_, field_index| {
+        for (enum_type.names, 0..) |_, field_index_usize| {
+            const field_index = @intCast(u32, field_index_usize);
             const this_tag_int_value = int: {
-                var tag_val_payload: Value.Payload.U32 = .{
-                    .base = .{ .tag = .enum_field_index },
-                    .data = @intCast(u32, field_index),
-                };
                 break :int try self.dg.lowerValue(.{
                     .ty = enum_ty,
-                    .val = Value.initPayload(&tag_val_payload.base),
+                    .val = try mod.enumValueFieldIndex(enum_ty, field_index),
                 });
             };
             switch_instr.addCase(this_tag_int_value, named_block);
@@ -8973,7 +8970,8 @@ pub const FuncGen = struct {
             usize_llvm_ty.constNull(), usize_llvm_ty.constNull(),
         };
 
-        for (enum_type.names, 0..) |name_ip, field_index| {
+        for (enum_type.names, 0..) |name_ip, field_index_usize| {
+            const field_index = @intCast(u32, field_index_usize);
             const name = mod.intern_pool.stringToSlice(name_ip);
             const str_init = self.context.constString(name.ptr, @intCast(c_uint, name.len), .False);
             const str_init_llvm_ty = str_init.typeOf();
@@ -8997,16 +8995,10 @@ pub const FuncGen = struct {
             slice_global.setAlignment(slice_alignment);
 
             const return_block = self.context.appendBasicBlock(fn_val, "Name");
-            const this_tag_int_value = int: {
-                var tag_val_payload: Value.Payload.U32 = .{
-                    .base = .{ .tag = .enum_field_index },
-                    .data = @intCast(u32, field_index),
-                };
-                break :int try self.dg.lowerValue(.{
-                    .ty = enum_ty,
-                    .val = Value.initPayload(&tag_val_payload.base),
-                });
-            };
+            const this_tag_int_value = try self.dg.lowerValue(.{
+                .ty = enum_ty,
+                .val = try mod.enumValueFieldIndex(enum_ty, field_index),
+            });
             switch_instr.addCase(this_tag_int_value, return_block);
 
             self.builder.positionBuilderAtEnd(return_block);
@@ -9094,7 +9086,7 @@ pub const FuncGen = struct {
 
         for (values, 0..) |*val, i| {
             const elem = try mask.elemValue(mod, i);
-            if (elem.isUndef()) {
+            if (elem.isUndef(mod)) {
                 val.* = llvm_i32.getUndef();
             } else {
                 const int = elem.toSignedInt(mod);
@@ -9419,11 +9411,7 @@ pub const FuncGen = struct {
             const tag_ty = union_ty.unionTagTypeHypothetical(mod);
             const union_field_name = union_obj.fields.keys()[extra.field_index];
             const enum_field_index = tag_ty.enumFieldIndex(union_field_name, mod).?;
-            var tag_val_payload: Value.Payload.U32 = .{
-                .base = .{ .tag = .enum_field_index },
-                .data = @intCast(u32, enum_field_index),
-            };
-            const tag_val = Value.initPayload(&tag_val_payload.base);
+            const tag_val = try mod.enumValueFieldIndex(tag_ty, enum_field_index);
             const tag_int_val = try tag_val.enumToInt(tag_ty, mod);
             break :blk tag_int_val.toUnsignedInt(mod);
         };

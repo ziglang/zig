@@ -11,6 +11,7 @@ const log = std.log.scoped(.codegen);
 
 const codegen = @import("../../codegen.zig");
 const Module = @import("../../Module.zig");
+const InternPool = @import("../../InternPool.zig");
 const Decl = Module.Decl;
 const Type = @import("../../type.zig").Type;
 const Value = @import("../../value.zig").Value;
@@ -3044,11 +3045,12 @@ fn toTwosComplement(value: anytype, bits: u7) std.meta.Int(.unsigned, @typeInfo(
 }
 
 fn lowerConstant(func: *CodeGen, arg_val: Value, ty: Type) InnerError!WValue {
+    const mod = func.bin_file.base.options.module.?;
     var val = arg_val;
     if (val.castTag(.runtime_value)) |rt| {
         val = rt.data;
     }
-    if (val.isUndefDeep()) return func.emitUndefined(ty);
+    if (val.isUndefDeep(mod)) return func.emitUndefined(ty);
     if (val.castTag(.decl_ref)) |decl_ref| {
         const decl_index = decl_ref.data;
         return func.lowerDeclRefValue(.{ .ty = ty, .val = val }, decl_index, 0);
@@ -3057,7 +3059,6 @@ fn lowerConstant(func: *CodeGen, arg_val: Value, ty: Type) InnerError!WValue {
         const decl_index = decl_ref_mut.data.decl_index;
         return func.lowerDeclRefValue(.{ .ty = ty, .val = val }, decl_index, 0);
     }
-    const mod = func.bin_file.base.options.module.?;
     switch (ty.zigTypeTag(mod)) {
         .Void => return WValue{ .none = {} },
         .Int => {
@@ -3100,18 +3101,9 @@ fn lowerConstant(func: *CodeGen, arg_val: Value, ty: Type) InnerError!WValue {
             },
         },
         .Enum => {
-            if (val.castTag(.enum_field_index)) |field_index| {
-                const enum_type = mod.intern_pool.indexToKey(ty.ip_index).enum_type;
-                if (enum_type.values.len != 0) {
-                    const tag_val = enum_type.values[field_index.data];
-                    return func.lowerConstant(tag_val.toValue(), enum_type.tag_ty.toType());
-                } else {
-                    return WValue{ .imm32 = field_index.data };
-                }
-            } else {
-                const int_tag_ty = try ty.intTagType(mod);
-                return func.lowerConstant(val, int_tag_ty);
-            }
+            const enum_tag = mod.intern_pool.indexToKey(val.ip_index).enum_tag;
+            const int_tag_ty = mod.intern_pool.typeOf(enum_tag.int);
+            return func.lowerConstant(enum_tag.int.toValue(), int_tag_ty.toType());
         },
         .ErrorSet => switch (val.tag()) {
             .@"error" => {
@@ -3223,35 +3215,40 @@ fn emitUndefined(func: *CodeGen, ty: Type) InnerError!WValue {
 /// Returns a `Value` as a signed 32 bit value.
 /// It's illegal to provide a value with a type that cannot be represented
 /// as an integer value.
-fn valueAsI32(func: *const CodeGen, val: Value, ty: Type) !i32 {
+fn valueAsI32(func: *const CodeGen, val: Value, ty: Type) i32 {
     const mod = func.bin_file.base.options.module.?;
+
+    switch (val.ip_index) {
+        .none => {},
+        .bool_true => return 1,
+        .bool_false => return 0,
+        else => return switch (mod.intern_pool.indexToKey(val.ip_index)) {
+            .enum_tag => |enum_tag| intIndexAsI32(&mod.intern_pool, enum_tag.int),
+            .int => |int| intStorageAsI32(int.storage),
+            .ptr => |ptr| intIndexAsI32(&mod.intern_pool, ptr.addr.int),
+            else => unreachable,
+        },
+    }
+
     switch (ty.zigTypeTag(mod)) {
-        .Enum => {
-            if (val.castTag(.enum_field_index)) |field_index| {
-                const enum_type = mod.intern_pool.indexToKey(ty.ip_index).enum_type;
-                if (enum_type.values.len != 0) {
-                    const tag_val = enum_type.values[field_index.data];
-                    return func.valueAsI32(tag_val.toValue(), enum_type.tag_ty.toType());
-                } else {
-                    return @bitCast(i32, field_index.data);
-                }
-            } else {
-                const int_tag_ty = try ty.intTagType(mod);
-                return func.valueAsI32(val, int_tag_ty);
-            }
-        },
-        .Int => switch (ty.intInfo(mod).signedness) {
-            .signed => return @truncate(i32, val.toSignedInt(mod)),
-            .unsigned => return @bitCast(i32, @truncate(u32, val.toUnsignedInt(mod))),
-        },
         .ErrorSet => {
             const kv = func.bin_file.base.options.module.?.getErrorValue(val.getError().?) catch unreachable; // passed invalid `Value` to function
             return @bitCast(i32, kv.value);
         },
-        .Bool => return @intCast(i32, val.toSignedInt(mod)),
-        .Pointer => return @intCast(i32, val.toSignedInt(mod)),
         else => unreachable, // Programmer called this function for an illegal type
     }
+}
+
+fn intIndexAsI32(ip: *const InternPool, int: InternPool.Index) i32 {
+    return intStorageAsI32(ip.indexToKey(int).int.storage);
+}
+
+fn intStorageAsI32(storage: InternPool.Key.Int.Storage) i32 {
+    return switch (storage) {
+        .i64 => |x| @intCast(i32, x),
+        .u64 => |x| @bitCast(i32, @intCast(u32, x)),
+        .big_int => unreachable,
+    };
 }
 
 fn airBlock(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
@@ -3772,7 +3769,7 @@ fn airSwitchBr(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
 
         for (items, 0..) |ref, i| {
             const item_val = (try func.air.value(ref, mod)).?;
-            const int_val = try func.valueAsI32(item_val, target_ty);
+            const int_val = func.valueAsI32(item_val, target_ty);
             if (lowest_maybe == null or int_val < lowest_maybe.?) {
                 lowest_maybe = int_val;
             }
@@ -6815,7 +6812,8 @@ fn getTagNameFunction(func: *CodeGen, enum_ty: Type) InnerError!u32 {
 
     // TODO: Make switch implementation generic so we can use a jump table for this when the tags are not sparse.
     // generate an if-else chain for each tag value as well as constant.
-    for (enum_ty.enumFields(mod), 0..) |tag_name_ip, field_index| {
+    for (enum_ty.enumFields(mod), 0..) |tag_name_ip, field_index_usize| {
+        const field_index = @intCast(u32, field_index_usize);
         const tag_name = mod.intern_pool.stringToSlice(tag_name_ip);
         // for each tag name, create an unnamed const,
         // and then get a pointer to its value.
@@ -6857,11 +6855,8 @@ fn getTagNameFunction(func: *CodeGen, enum_ty: Type) InnerError!u32 {
         try writer.writeByte(std.wasm.opcode(.local_get));
         try leb.writeULEB128(writer, @as(u32, 1));
 
-        var tag_val_payload: Value.Payload.U32 = .{
-            .base = .{ .tag = .enum_field_index },
-            .data = @intCast(u32, field_index),
-        };
-        const tag_value = try func.lowerConstant(Value.initPayload(&tag_val_payload.base), enum_ty);
+        const tag_val = try mod.enumValueFieldIndex(enum_ty, field_index);
+        const tag_value = try func.lowerConstant(tag_val, enum_ty);
 
         switch (tag_value) {
             .imm32 => |value| {

@@ -2029,13 +2029,10 @@ fn genLazy(self: *Self, lazy_sym: link.File.LazySymbol) InnerError!void {
                 exitlude_jump_relocs,
                 enum_ty.enumFields(mod),
                 0..,
-            ) |*exitlude_jump_reloc, tag_name_ip, index| {
+            ) |*exitlude_jump_reloc, tag_name_ip, index_usize| {
+                const index = @intCast(u32, index_usize);
                 const tag_name = mod.intern_pool.stringToSlice(tag_name_ip);
-                var tag_pl = Value.Payload.U32{
-                    .base = .{ .tag = .enum_field_index },
-                    .data = @intCast(u32, index),
-                };
-                const tag_val = Value.initPayload(&tag_pl.base);
+                const tag_val = try mod.enumValueFieldIndex(enum_ty, index);
                 const tag_mcv = try self.genTypedValue(.{ .ty = enum_ty, .val = tag_val });
                 try self.genBinOpMir(.{ ._, .cmp }, enum_ty, enum_mcv, tag_mcv);
                 const skip_reloc = try self.asmJccReloc(undefined, .ne);

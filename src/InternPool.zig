@@ -144,6 +144,9 @@ pub const Key = union(enum) {
     opaque_type: OpaqueType,
     enum_type: EnumType,
 
+    /// Typed `undefined`. This will never be `none`; untyped `undefined` is represented
+    /// via `simple_value` and has a named `Index` tag for it.
+    undef: Index,
     simple_value: SimpleValue,
     extern_func: struct {
         ty: Index,
@@ -155,13 +158,12 @@ pub const Key = union(enum) {
         lib_name: u32,
     },
     int: Key.Int,
+    /// A specific enum tag, indicated by the integer tag value.
+    enum_tag: Key.EnumTag,
     float: Key.Float,
     ptr: Ptr,
     opt: Opt,
-    enum_tag: struct {
-        ty: Index,
-        tag: BigIntConst,
-    },
+
     /// An instance of a struct, array, or vector.
     /// Each element/field stored as an `Index`.
     /// In the case of sentinel-terminated arrays, the sentinel value *is* stored,
@@ -284,21 +286,33 @@ pub const Key = union(enum) {
         };
 
         /// Look up field index based on field name.
-        pub fn nameIndex(self: EnumType, ip: InternPool, name: NullTerminatedString) ?usize {
+        pub fn nameIndex(self: EnumType, ip: *const InternPool, name: NullTerminatedString) ?u32 {
             const map = &ip.maps.items[@enumToInt(self.names_map.unwrap().?)];
             const adapter: NullTerminatedString.Adapter = .{ .strings = self.names };
-            return map.getIndexAdapted(name, adapter);
+            const field_index = map.getIndexAdapted(name, adapter) orelse return null;
+            return @intCast(u32, field_index);
         }
 
         /// Look up field index based on tag value.
         /// Asserts that `values_map` is not `none`.
         /// This function returns `null` when `tag_val` does not have the
         /// integer tag type of the enum.
-        pub fn tagValueIndex(self: EnumType, ip: InternPool, tag_val: Index) ?usize {
+        pub fn tagValueIndex(self: EnumType, ip: *const InternPool, tag_val: Index) ?u32 {
             assert(tag_val != .none);
-            const map = &ip.maps.items[@enumToInt(self.values_map.unwrap().?)];
-            const adapter: Index.Adapter = .{ .indexes = self.values };
-            return map.getIndexAdapted(tag_val, adapter);
+            if (self.values_map.unwrap()) |values_map| {
+                const map = &ip.maps.items[@enumToInt(values_map)];
+                const adapter: Index.Adapter = .{ .indexes = self.values };
+                const field_index = map.getIndexAdapted(tag_val, adapter) orelse return null;
+                return @intCast(u32, field_index);
+            }
+            // Auto-numbered enum. Convert `tag_val` to field index.
+            switch (ip.indexToKey(tag_val).int.storage) {
+                .u64 => |x| {
+                    if (x >= self.names.len) return null;
+                    return @intCast(u32, x);
+                },
+                .i64, .big_int => return null, // out of range
+            }
         }
     };
 
@@ -360,6 +374,13 @@ pub const Key = union(enum) {
                 };
             }
         };
+    };
+
+    pub const EnumTag = struct {
+        /// The enum type.
+        ty: Index,
+        /// The integer tag value which has the integer tag type of the enum.
+        int: Index,
     };
 
     pub const Float = struct {
@@ -436,6 +457,8 @@ pub const Key = union(enum) {
             .struct_type,
             .union_type,
             .un,
+            .undef,
+            .enum_tag,
             => |info| std.hash.autoHash(hasher, info),
 
             .opaque_type => |opaque_type| std.hash.autoHash(hasher, opaque_type.decl),
@@ -469,12 +492,6 @@ pub const Key = union(enum) {
                     .int => |int| std.hash.autoHash(hasher, int),
                     .decl => @panic("TODO"),
                 }
-            },
-
-            .enum_tag => |enum_tag| {
-                std.hash.autoHash(hasher, enum_tag.ty);
-                std.hash.autoHash(hasher, enum_tag.tag.positive);
-                for (enum_tag.tag.limbs) |limb| std.hash.autoHash(hasher, limb);
             },
 
             .aggregate => |aggregate| {
@@ -522,6 +539,10 @@ pub const Key = union(enum) {
                 const b_info = b.simple_value;
                 return a_info == b_info;
             },
+            .undef => |a_info| {
+                const b_info = b.undef;
+                return a_info == b_info;
+            },
             .extern_func => |a_info| {
                 const b_info = b.extern_func;
                 return std.meta.eql(a_info, b_info);
@@ -540,6 +561,10 @@ pub const Key = union(enum) {
             },
             .un => |a_info| {
                 const b_info = b.un;
+                return std.meta.eql(a_info, b_info);
+            },
+            .enum_tag => |a_info| {
+                const b_info = b.enum_tag;
                 return std.meta.eql(a_info, b_info);
             },
 
@@ -612,13 +637,6 @@ pub const Key = union(enum) {
                 };
             },
 
-            .enum_tag => |a_info| {
-                const b_info = b.enum_tag;
-                _ = a_info;
-                _ = b_info;
-                @panic("TODO");
-            },
-
             .opaque_type => |a_info| {
                 const b_info = b.opaque_type;
                 return a_info.decl == b_info.decl;
@@ -636,7 +654,7 @@ pub const Key = union(enum) {
     }
 
     pub fn typeOf(key: Key) Index {
-        switch (key) {
+        return switch (key) {
             .int_type,
             .ptr_type,
             .array_type,
@@ -648,7 +666,7 @@ pub const Key = union(enum) {
             .union_type,
             .opaque_type,
             .enum_type,
-            => return .type_type,
+            => .type_type,
 
             inline .ptr,
             .int,
@@ -658,18 +676,20 @@ pub const Key = union(enum) {
             .enum_tag,
             .aggregate,
             .un,
-            => |x| return x.ty,
+            => |x| x.ty,
+
+            .undef => |x| x,
 
             .simple_value => |s| switch (s) {
-                .undefined => return .undefined_type,
-                .void => return .void_type,
-                .null => return .null_type,
-                .false, .true => return .bool_type,
-                .empty_struct => return .empty_struct_type,
-                .@"unreachable" => return .noreturn_type,
+                .undefined => .undefined_type,
+                .void => .void_type,
+                .null => .null_type,
+                .false, .true => .bool_type,
+                .empty_struct => .empty_struct_type,
+                .@"unreachable" => .noreturn_type,
                 .generic_poison => unreachable,
             },
-        }
+        };
     }
 };
 
@@ -693,6 +713,7 @@ pub const Index = enum(u32) {
     pub const last_value: Index = .empty_struct;
 
     u1_type,
+    u5_type,
     u8_type,
     i8_type,
     u16_type,
@@ -769,6 +790,10 @@ pub const Index = enum(u32) {
     one,
     /// `1` (usize)
     one_usize,
+    /// `1` (u5)
+    one_u5,
+    /// `4` (u5)
+    four_u5,
     /// `-1` (comptime_int)
     negative_one,
     /// `std.builtin.CallingConvention.C`
@@ -832,6 +857,12 @@ pub const static_keys = [_]Key{
     .{ .int_type = .{
         .signedness = .unsigned,
         .bits = 1,
+    } },
+
+    // u5_type
+    .{ .int_type = .{
+        .signedness = .unsigned,
+        .bits = 5,
     } },
 
     .{ .int_type = .{
@@ -1021,25 +1052,30 @@ pub const static_keys = [_]Key{
         .storage = .{ .u64 = 1 },
     } },
 
+    // one_u5
+    .{ .int = .{
+        .ty = .u5_type,
+        .storage = .{ .u64 = 1 },
+    } },
+    // four_u5
+    .{ .int = .{
+        .ty = .u5_type,
+        .storage = .{ .u64 = 4 },
+    } },
+    // negative_one
     .{ .int = .{
         .ty = .comptime_int_type,
         .storage = .{ .i64 = -1 },
     } },
-
+    // calling_convention_c
     .{ .enum_tag = .{
         .ty = .calling_convention_type,
-        .tag = .{
-            .limbs = &.{@enumToInt(std.builtin.CallingConvention.C)},
-            .positive = true,
-        },
+        .int = .one_u5,
     } },
-
+    // calling_convention_inline
     .{ .enum_tag = .{
         .ty = .calling_convention_type,
-        .tag = .{
-            .limbs = &.{@enumToInt(std.builtin.CallingConvention.Inline)},
-            .positive = true,
-        },
+        .int = .four_u5,
     } },
 
     .{ .simple_value = .void },
@@ -1118,6 +1154,10 @@ pub const Tag = enum(u8) {
     /// `data` is `Module.Union.Index`.
     type_union_safety,
 
+    /// Typed `undefined`.
+    /// `data` is `Index` of the type.
+    /// Untyped `undefined` is stored instead via `simple_value`.
+    undef,
     /// A value that can be represented with only an enum tag.
     /// data is SimpleValue enum value.
     simple_value,
@@ -1132,7 +1172,7 @@ pub const Tag = enum(u8) {
     /// already contains the optional type corresponding to this payload.
     opt_payload,
     /// An optional value that is null.
-    /// data is Index of the payload type.
+    /// data is Index of the optional type.
     opt_null,
     /// Type: u8
     /// data is integer value
@@ -1155,18 +1195,18 @@ pub const Tag = enum(u8) {
     /// A comptime_int that fits in an i32.
     /// data is integer value bitcasted to u32.
     int_comptime_int_i32,
+    /// An integer value that fits in 32 bits with an explicitly provided type.
+    /// data is extra index of `IntSmall`.
+    int_small,
     /// A positive integer value.
-    /// data is a limbs index to Int.
+    /// data is a limbs index to `Int`.
     int_positive,
     /// A negative integer value.
-    /// data is a limbs index to Int.
+    /// data is a limbs index to `Int`.
     int_negative,
-    /// An enum tag identified by a positive integer value.
-    /// data is a limbs index to Int.
-    enum_tag_positive,
-    /// An enum tag identified by a negative integer value.
-    /// data is a limbs index to Int.
-    enum_tag_negative,
+    /// An enum tag value.
+    /// data is extra index of `Key.EnumTag`.
+    enum_tag,
     /// An f16 value.
     /// data is float value bitcasted to u16 and zero-extended.
     float_f16,
@@ -1404,6 +1444,11 @@ pub const Int = struct {
     limbs_len: u32,
 };
 
+pub const IntSmall = struct {
+    ty: Index,
+    value: u32,
+};
+
 /// A f64 value, broken up into 2 u32 parts.
 pub const Float64 = struct {
     piece0: u32,
@@ -1479,15 +1524,28 @@ pub fn init(ip: *InternPool, gpa: Allocator) !void {
     try ip.items.ensureUnusedCapacity(gpa, static_keys.len);
     try ip.map.ensureUnusedCapacity(gpa, static_keys.len);
     try ip.extra.ensureUnusedCapacity(gpa, static_keys.len);
-    try ip.limbs.ensureUnusedCapacity(gpa, 2);
 
     // This inserts all the statically-known values into the intern pool in the
     // order expected.
     for (static_keys) |key| _ = ip.get(gpa, key) catch unreachable;
 
-    // Sanity check.
-    assert(ip.indexToKey(.bool_true).simple_value == .true);
-    assert(ip.indexToKey(.bool_false).simple_value == .false);
+    if (std.debug.runtime_safety) {
+        // Sanity check.
+        assert(ip.indexToKey(.bool_true).simple_value == .true);
+        assert(ip.indexToKey(.bool_false).simple_value == .false);
+
+        const cc_inline = ip.indexToKey(.calling_convention_inline).enum_tag.int;
+        const cc_c = ip.indexToKey(.calling_convention_c).enum_tag.int;
+
+        assert(ip.indexToKey(cc_inline).int.storage.u64 ==
+            @enumToInt(std.builtin.CallingConvention.Inline));
+
+        assert(ip.indexToKey(cc_c).int.storage.u64 ==
+            @enumToInt(std.builtin.CallingConvention.C));
+
+        assert(ip.indexToKey(ip.typeOf(cc_inline)).int_type.bits ==
+            @typeInfo(@typeInfo(std.builtin.CallingConvention).Enum.tag_type).Int.bits);
+    }
 
     assert(ip.items.len == static_keys.len);
 }
@@ -1634,6 +1692,7 @@ pub fn indexToKey(ip: InternPool, index: Index) Key {
         .type_enum_explicit => indexToKeyEnum(ip, data, .explicit),
         .type_enum_nonexhaustive => indexToKeyEnum(ip, data, .nonexhaustive),
 
+        .undef => .{ .undef = @intToEnum(Index, data) },
         .opt_null => .{ .opt = .{
             .ty = @intToEnum(Index, data),
             .val = .none,
@@ -1687,8 +1746,13 @@ pub fn indexToKey(ip: InternPool, index: Index) Key {
         } },
         .int_positive => indexToKeyBigInt(ip, data, true),
         .int_negative => indexToKeyBigInt(ip, data, false),
-        .enum_tag_positive => @panic("TODO"),
-        .enum_tag_negative => @panic("TODO"),
+        .int_small => {
+            const info = ip.extraData(IntSmall, data);
+            return .{ .int = .{
+                .ty = info.ty,
+                .storage = .{ .u64 = info.value },
+            } };
+        },
         .float_f16 => .{ .float = .{
             .ty = .f16_type,
             .storage = .{ .f16 = @bitCast(f16, @intCast(u16, data)) },
@@ -1734,6 +1798,7 @@ pub fn indexToKey(ip: InternPool, index: Index) Key {
             };
         },
         .union_value => .{ .un = ip.extraData(Key.Union, data) },
+        .enum_tag => .{ .enum_tag = ip.extraData(Key.EnumTag, data) },
     };
 }
 
@@ -1894,6 +1959,13 @@ pub fn get(ip: *InternPool, gpa: Allocator, key: Key) Allocator.Error!Index {
             ip.items.appendAssumeCapacity(.{
                 .tag = .simple_value,
                 .data = @enumToInt(simple_value),
+            });
+        },
+        .undef => |ty| {
+            assert(ty != .none);
+            ip.items.appendAssumeCapacity(.{
+                .tag = .undef,
+                .data = @enumToInt(ty),
             });
         },
 
@@ -2112,16 +2184,48 @@ pub fn get(ip: *InternPool, gpa: Allocator, key: Key) Allocator.Error!Index {
             }
             switch (int.storage) {
                 .big_int => |big_int| {
+                    if (big_int.to(u32)) |casted| {
+                        ip.items.appendAssumeCapacity(.{
+                            .tag = .int_small,
+                            .data = try ip.addExtra(gpa, IntSmall{
+                                .ty = int.ty,
+                                .value = casted,
+                            }),
+                        });
+                        return @intToEnum(Index, ip.items.len - 1);
+                    } else |_| {}
+
                     const tag: Tag = if (big_int.positive) .int_positive else .int_negative;
                     try addInt(ip, gpa, int.ty, tag, big_int.limbs);
                 },
-                inline .i64, .u64 => |x| {
+                inline .u64, .i64 => |x| {
+                    if (std.math.cast(u32, x)) |casted| {
+                        ip.items.appendAssumeCapacity(.{
+                            .tag = .int_small,
+                            .data = try ip.addExtra(gpa, IntSmall{
+                                .ty = int.ty,
+                                .value = casted,
+                            }),
+                        });
+                        return @intToEnum(Index, ip.items.len - 1);
+                    }
+
                     var buf: [2]Limb = undefined;
                     const big_int = BigIntMutable.init(&buf, x).toConst();
                     const tag: Tag = if (big_int.positive) .int_positive else .int_negative;
                     try addInt(ip, gpa, int.ty, tag, big_int.limbs);
                 },
             }
+        },
+
+        .enum_tag => |enum_tag| {
+            assert(enum_tag.ty != .none);
+            assert(enum_tag.int != .none);
+
+            ip.items.appendAssumeCapacity(.{
+                .tag = .enum_tag,
+                .data = try ip.addExtra(gpa, enum_tag),
+            });
         },
 
         .float => |float| {
@@ -2162,11 +2266,6 @@ pub fn get(ip: *InternPool, gpa: Allocator, key: Key) Allocator.Error!Index {
                 }),
                 else => unreachable,
             }
-        },
-
-        .enum_tag => |enum_tag| {
-            const tag: Tag = if (enum_tag.tag.positive) .enum_tag_positive else .enum_tag_negative;
-            try addInt(ip, gpa, enum_tag.ty, tag, enum_tag.tag.limbs);
         },
 
         .aggregate => |aggregate| {
@@ -2671,41 +2770,56 @@ pub fn slicePtrType(ip: InternPool, i: Index) Index {
 
 /// Given an existing value, returns the same value but with the supplied type.
 /// Only some combinations are allowed:
-/// * int to int
+/// * int <=> int
+/// * int <=> enum
 pub fn getCoerced(ip: *InternPool, gpa: Allocator, val: Index, new_ty: Index) Allocator.Error!Index {
     switch (ip.indexToKey(val)) {
-        .int => |int| {
-            // The key cannot be passed directly to `get`, otherwise in the case of
-            // big_int storage, the limbs would be invalidated before they are read.
-            // Here we pre-reserve the limbs to ensure that the logic in `addInt` will
-            // not use an invalidated limbs pointer.
-            switch (int.storage) {
-                .u64 => |x| return ip.get(gpa, .{ .int = .{
-                    .ty = new_ty,
-                    .storage = .{ .u64 = x },
-                } }),
-                .i64 => |x| return ip.get(gpa, .{ .int = .{
-                    .ty = new_ty,
-                    .storage = .{ .i64 = x },
-                } }),
-
-                .big_int => |big_int| {
-                    const positive = big_int.positive;
-                    const limbs = ip.limbsSliceToIndex(big_int.limbs);
-                    // This line invalidates the limbs slice, but the indexes computed in the
-                    // previous line are still correct.
-                    try reserveLimbs(ip, gpa, @typeInfo(Int).Struct.fields.len + big_int.limbs.len);
-                    return ip.get(gpa, .{ .int = .{
-                        .ty = new_ty,
-                        .storage = .{ .big_int = .{
-                            .limbs = ip.limbsIndexToSlice(limbs),
-                            .positive = positive,
-                        } },
-                    } });
-                },
-            }
+        .int => |int| switch (ip.indexToKey(new_ty)) {
+            .enum_type => return ip.get(gpa, .{ .enum_tag = .{
+                .ty = new_ty,
+                .int = val,
+            } }),
+            else => return getCoercedInts(ip, gpa, int, new_ty),
+        },
+        .enum_tag => |enum_tag| {
+            // Assume new_ty is an integer type.
+            return getCoercedInts(ip, gpa, ip.indexToKey(enum_tag.int).int, new_ty);
         },
         else => unreachable,
+    }
+}
+
+/// Asserts `val` has an integer type.
+/// Assumes `new_ty` is an integer type.
+pub fn getCoercedInts(ip: *InternPool, gpa: Allocator, int: Key.Int, new_ty: Index) Allocator.Error!Index {
+    // The key cannot be passed directly to `get`, otherwise in the case of
+    // big_int storage, the limbs would be invalidated before they are read.
+    // Here we pre-reserve the limbs to ensure that the logic in `addInt` will
+    // not use an invalidated limbs pointer.
+    switch (int.storage) {
+        .u64 => |x| return ip.get(gpa, .{ .int = .{
+            .ty = new_ty,
+            .storage = .{ .u64 = x },
+        } }),
+        .i64 => |x| return ip.get(gpa, .{ .int = .{
+            .ty = new_ty,
+            .storage = .{ .i64 = x },
+        } }),
+
+        .big_int => |big_int| {
+            const positive = big_int.positive;
+            const limbs = ip.limbsSliceToIndex(big_int.limbs);
+            // This line invalidates the limbs slice, but the indexes computed in the
+            // previous line are still correct.
+            try reserveLimbs(ip, gpa, @typeInfo(Int).Struct.fields.len + big_int.limbs.len);
+            return ip.get(gpa, .{ .int = .{
+                .ty = new_ty,
+                .storage = .{ .big_int = .{
+                    .limbs = ip.limbsIndexToSlice(limbs),
+                    .positive = positive,
+                } },
+            } });
+        },
     }
 }
 
@@ -2805,6 +2919,7 @@ fn dumpFallible(ip: InternPool, arena: Allocator) anyerror!void {
             .type_union_safety,
             => @sizeOf(Module.Union) + @sizeOf(Module.Namespace) + @sizeOf(Module.Decl),
 
+            .undef => 0,
             .simple_type => 0,
             .simple_value => 0,
             .ptr_int => @sizeOf(PtrInt),
@@ -2817,15 +2932,15 @@ fn dumpFallible(ip: InternPool, arena: Allocator) anyerror!void {
             .int_usize => 0,
             .int_comptime_int_u32 => 0,
             .int_comptime_int_i32 => 0,
+            .int_small => @sizeOf(IntSmall),
 
             .int_positive,
             .int_negative,
-            .enum_tag_positive,
-            .enum_tag_negative,
             => b: {
                 const int = ip.limbData(Int, data);
                 break :b @sizeOf(Int) + int.limbs_len * 8;
             },
+            .enum_tag => @sizeOf(Key.EnumTag),
 
             .float_f16 => 0,
             .float_f32 => 0,
@@ -2957,4 +3072,10 @@ pub fn stringToSlice(ip: InternPool, s: NullTerminatedString) [:0]const u8 {
 
 pub fn typeOf(ip: InternPool, index: Index) Index {
     return ip.indexToKey(index).typeOf();
+}
+
+/// Assumes that the enum's field indexes equal its value tags.
+pub fn toEnum(ip: InternPool, comptime E: type, i: Index) E {
+    const int = ip.indexToKey(i).enum_tag.int;
+    return @intToEnum(E, ip.indexToKey(int).int.storage.u64);
 }

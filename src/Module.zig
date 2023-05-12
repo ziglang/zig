@@ -6896,6 +6896,43 @@ pub fn ptrIntValue_ptronly(mod: *Module, ty: Type, x: u64) Allocator.Error!Value
     return i.toValue();
 }
 
+/// Creates an enum tag value based on the integer tag value.
+pub fn enumValue(mod: *Module, ty: Type, tag_int: InternPool.Index) Allocator.Error!Value {
+    if (std.debug.runtime_safety) {
+        const tag = ty.zigTypeTag(mod);
+        assert(tag == .Enum);
+    }
+    const i = try intern(mod, .{ .enum_tag = .{
+        .ty = ty.ip_index,
+        .int = tag_int,
+    } });
+    return i.toValue();
+}
+
+/// Creates an enum tag value based on the field index according to source code
+/// declaration order.
+pub fn enumValueFieldIndex(mod: *Module, ty: Type, field_index: u32) Allocator.Error!Value {
+    const ip = &mod.intern_pool;
+    const gpa = mod.gpa;
+    const enum_type = ip.indexToKey(ty.ip_index).enum_type;
+
+    if (enum_type.values.len == 0) {
+        // Auto-numbered fields.
+        return (try ip.get(gpa, .{ .enum_tag = .{
+            .ty = ty.ip_index,
+            .int = try ip.get(gpa, .{ .int = .{
+                .ty = enum_type.tag_ty,
+                .storage = .{ .u64 = field_index },
+            } }),
+        } })).toValue();
+    }
+
+    return (try ip.get(gpa, .{ .enum_tag = .{
+        .ty = ty.ip_index,
+        .int = enum_type.values[field_index],
+    } })).toValue();
+}
+
 pub fn intValue(mod: *Module, ty: Type, x: anytype) Allocator.Error!Value {
     if (std.debug.runtime_safety) {
         const tag = ty.zigTypeTag(mod);
@@ -6967,8 +7004,8 @@ pub fn smallestUnsignedInt(mod: *Module, max: u64) Allocator.Error!Type {
 /// `max`. Asserts that neither value is undef.
 /// TODO: if #3806 is implemented, this becomes trivial
 pub fn intFittingRange(mod: *Module, min: Value, max: Value) !Type {
-    assert(!min.isUndef());
-    assert(!max.isUndef());
+    assert(!min.isUndef(mod));
+    assert(!max.isUndef(mod));
 
     if (std.debug.runtime_safety) {
         assert(Value.order(min, max, mod).compare(.lte));
@@ -6990,7 +7027,7 @@ pub fn intFittingRange(mod: *Module, min: Value, max: Value) !Type {
 /// twos-complement integer; otherwise in an unsigned integer.
 /// Asserts that `val` is not undef. If `val` is negative, asserts that `sign` is true.
 pub fn intBitsForValue(mod: *Module, val: Value, sign: bool) u16 {
-    assert(!val.isUndef());
+    assert(!val.isUndef(mod));
 
     const key = mod.intern_pool.indexToKey(val.ip_index);
     switch (key.int.storage) {
@@ -7192,4 +7229,8 @@ pub fn fieldSrcLoc(mod: *Module, owner_decl_index: Decl.Index, query: FieldSrcQu
         // This type was generated using @Type
         return owner_decl.srcLoc(mod);
     }
+}
+
+pub fn toEnum(mod: *Module, comptime E: type, val: Value) E {
+    return mod.intern_pool.toEnum(E, val.ip_index);
 }

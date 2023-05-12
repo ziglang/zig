@@ -3374,7 +3374,7 @@ pub fn flushModule(wasm: *Wasm, comp: *Compilation, prog_node: *std.Progress.Nod
             } else if (decl.getVariable()) |variable| {
                 if (!variable.is_mutable) {
                     try wasm.parseAtom(atom_index, .{ .data = .read_only });
-                } else if (variable.init.isUndefDeep()) {
+                } else if (variable.init.isUndefDeep(mod)) {
                     // for safe build modes, we store the atom in the data segment,
                     // whereas for unsafe build modes we store it in bss.
                     const is_initialized = wasm.base.options.optimize_mode == .Debug or

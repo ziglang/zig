@@ -2270,7 +2270,7 @@ fn getDeclOutputSection(self: *MachO, decl_index: Module.Decl.Index) u8 {
     const single_threaded = self.base.options.single_threaded;
     const sect_id: u8 = blk: {
         // TODO finish and audit this function
-        if (val.isUndefDeep()) {
+        if (val.isUndefDeep(mod)) {
             if (mode == .ReleaseFast or mode == .ReleaseSmall) {
                 @panic("TODO __DATA,__bss");
             } else {

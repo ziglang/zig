@@ -197,9 +197,6 @@ pub fn print(
             },
             .empty_array => return writer.writeAll(".{}"),
             .enum_literal => return writer.print(".{}", .{std.zig.fmtId(val.castTag(.enum_literal).?.data)}),
-            .enum_field_index => {
-                return writer.print(".{s}", .{ty.enumFieldName(val.castTag(.enum_field_index).?.data, mod)});
-            },
             .bytes => return writer.print("\"{}\"", .{std.zig.fmtEscapes(val.castTag(.bytes).?.data)}),
             .str_lit => {
                 const str_lit = val.castTag(.str_lit).?.data;
@@ -255,7 +252,7 @@ pub fn print(
                         const elem_val = payload.ptr.elemValue(mod, i) catch |err| switch (err) {
                             error.OutOfMemory => @panic("OOM"), // TODO: eliminate this panic
                         };
-                        if (elem_val.isUndef()) break :str;
+                        if (elem_val.isUndef(mod)) break :str;
                         buf[i] = std.math.cast(u8, elem_val.toUnsignedInt(mod)) orelse break :str;
                     }
 
@@ -358,6 +355,20 @@ pub fn print(
                 .int => |int| switch (int.storage) {
                     inline .u64, .i64, .big_int => |x| return writer.print("{}", .{x}),
                 },
+                .enum_tag => |enum_tag| {
+                    try writer.writeAll("@intToEnum(");
+                    try print(.{
+                        .ty = Type.type,
+                        .val = enum_tag.ty.toValue(),
+                    }, writer, level - 1, mod);
+                    try writer.writeAll(", ");
+                    try print(.{
+                        .ty = mod.intern_pool.typeOf(enum_tag.int).toType(),
+                        .val = enum_tag.int.toValue(),
+                    }, writer, level - 1, mod);
+                    try writer.writeAll(")");
+                    return;
+                },
                 .float => |float| switch (float.storage) {
                     inline else => |x| return writer.print("{}", .{x}),
                 },
@@ -414,7 +425,7 @@ fn printAggregate(
             var i: u32 = 0;
             while (i < max_len) : (i += 1) {
                 const elem = try val.fieldValue(ty, mod, i);
-                if (elem.isUndef()) break :str;
+                if (elem.isUndef(mod)) break :str;
                 buf[i] = std.math.cast(u8, elem.toUnsignedInt(mod)) orelse break :str;
             }
 
