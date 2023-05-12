@@ -69,7 +69,7 @@ pub fn validate(allocator: Allocator, s: []const u8) Allocator.Error!bool {
 ///  * UnexpectedEndOfInput is for signaling that everything's been
 ///    valid so far, but the input appears to be truncated for some reason.
 /// Note that a completely empty (or whitespace-only) input will give UnexpectedEndOfInput.
-pub const JsonError = error{ SyntaxError, UnexpectedEndOfInput };
+pub const Error = error{ SyntaxError, UnexpectedEndOfInput };
 
 /// Calls JsonReader() with default_buffer_size.
 pub fn jsonReader(allocator: Allocator, reader: anytype) JsonReader(default_buffer_size, @TypeOf(reader)) {
@@ -130,7 +130,7 @@ pub const default_buffer_size = 0x1000;
 ///
 /// For tokens with a []const u8 payload, the payload is a slice into the current input buffer.
 /// The memory may become undefined during the next call to JsonScanner.feedInput()
-/// or any JsonReader method whose return error set includes JsonError.
+/// or any JsonReader method whose return error set includes json.Error.
 /// To keep the value persistently, it recommended to make a copy or to use .alloc_always,
 /// which makes a copy for you.
 ///
@@ -245,10 +245,10 @@ pub fn JsonReader(comptime buffer_size: usize, comptime ReaderType: type) type {
             self.scanner.enableDiagnostics(diagnostics);
         }
 
-        pub const NextError = ReaderType.Error || JsonError || Allocator.Error;
+        pub const NextError = ReaderType.Error || Error || Allocator.Error;
         pub const SkipError = NextError;
         pub const AllocError = NextError || error{ValueTooLong};
-        pub const PeekError = ReaderType.Error || JsonError;
+        pub const PeekError = ReaderType.Error || Error;
 
         /// Equivalent to nextAllocMax(allocator, when, default_max_value_len);
         /// See also Token for documentation of nextAlloc*() function behavior.
@@ -466,10 +466,10 @@ pub const JsonScanner = struct {
         self.is_end_of_input = true;
     }
 
-    pub const NextError = JsonError || Allocator.Error || error{BufferUnderrun};
-    pub const AllocError = JsonError || Allocator.Error || error{ValueTooLong};
-    pub const PeekError = JsonError || error{BufferUnderrun};
-    pub const SkipError = JsonError || Allocator.Error;
+    pub const NextError = Error || Allocator.Error || error{BufferUnderrun};
+    pub const AllocError = Error || Allocator.Error || error{ValueTooLong};
+    pub const PeekError = Error || error{BufferUnderrun};
+    pub const SkipError = Error || Allocator.Error;
     pub const AllocIntoArrayListError = AllocError || error{BufferUnderrun};
 
     /// Equivalent to nextAllocMax(allocator, when, default_max_value_len);

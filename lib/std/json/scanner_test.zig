@@ -5,7 +5,7 @@ const JsonReader = @import("./scanner.zig").JsonReader;
 const Token = @import("./scanner.zig").Token;
 const TokenType = @import("./scanner.zig").TokenType;
 const Diagnostics = @import("./scanner.zig").Diagnostics;
-const JsonError = @import("./scanner.zig").JsonError;
+const Error = @import("./scanner.zig").Error;
 const validate = @import("./scanner.zig").validate;
 
 const example_document_str =
@@ -286,7 +286,7 @@ test "nesting" {
     }
 }
 
-fn expectMaybeError(document_str: []const u8, maybe_error: ?JsonError) !void {
+fn expectMaybeError(document_str: []const u8, maybe_error: ?Error) !void {
     var scanner = JsonScanner.initCompleteInput(std.testing.allocator, document_str);
     defer scanner.deinit();
 
