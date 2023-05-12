@@ -20,10 +20,10 @@ pub const ParseOptions = struct {
     /// If false, finding an unknown field returns an error.
     ignore_unknown_fields: bool = false,
 
-    /// Passed to JsonScanner.nextAllocMax() or JsonReader.nextAllocMax().
+    /// Passed to JsonScanner.nextAllocMax() or json.Reader.nextAllocMax().
     /// The default for parseFromSlice() or parseFromTokenSource() with a *JsonScanner input
     /// is the length of the input slice, which means error.ValueTooLong will never be returned.
-    /// The default for parseFromTokenSource() with a *JsonReader is default_max_value_len.
+    /// The default for parseFromTokenSource() with a *json.Reader is default_max_value_len.
     max_value_len: ?usize = null,
 };
 
@@ -39,7 +39,7 @@ pub fn parseFromSlice(comptime T: type, allocator: Allocator, s: []const u8, opt
     return parseFromTokenSource(T, allocator, &scanner, options);
 }
 
-/// scanner_or_reader must be either a *JsonScanner with complete input or a *JsonReader.
+/// scanner_or_reader must be either a *JsonScanner with complete input or a *json.Reader.
 /// allocator is used to allocate the data of T if necessary,
 /// such as if T is *u32 or []u32.
 /// If T contains no pointers, the allocator is never used.

@@ -5,7 +5,7 @@
 //! with some extra buffer according to the implementation of ArrayList.
 //!
 //! The low-level JsonScanner API reads from successive slices of inputs,
-//! The JsonReader API connects a std.io.Reader to a JsonScanner.
+//! The json.Reader API connects a std.io.Reader to a JsonScanner.
 //!
 //! Notes on standards compliance:
 //! * RFC 8259 requires JSON documents be valid UTF-8,
@@ -71,14 +71,14 @@ pub fn validate(allocator: Allocator, s: []const u8) Allocator.Error!bool {
 /// Note that a completely empty (or whitespace-only) input will give UnexpectedEndOfInput.
 pub const Error = error{ SyntaxError, UnexpectedEndOfInput };
 
-/// Calls JsonReader() with default_buffer_size.
-pub fn reader(allocator: Allocator, io_reader: anytype) JsonReader(default_buffer_size, @TypeOf(io_reader)) {
-    return JsonReader(default_buffer_size, @TypeOf(io_reader)).init(allocator, io_reader);
+/// Calls json.Reader() with default_buffer_size.
+pub fn reader(allocator: Allocator, io_reader: anytype) Reader(default_buffer_size, @TypeOf(io_reader)) {
+    return Reader(default_buffer_size, @TypeOf(io_reader)).init(allocator, io_reader);
 }
 /// Used by json.reader().
 pub const default_buffer_size = 0x1000;
 
-/// The tokens emitted by JsonScanner and JsonReader .next*() functions follow this grammar:
+/// The tokens emitted by JsonScanner and json.Reader .next*() functions follow this grammar:
 ///  <document> = <value> .end_of_document
 ///  <value> =
 ///    | <object>
@@ -122,7 +122,7 @@ pub const default_buffer_size = 0x1000;
 /// For strings, this is the content of the string after resolving escape sequences.
 ///
 /// For .allocated_number and .allocated_string, the []u8 payloads are allocations made with the given allocator.
-/// You are responsible for managing that memory. JsonReader.deinit() does *not* free those allocations.
+/// You are responsible for managing that memory. json.Reader.deinit() does *not* free those allocations.
 ///
 /// The .partial_* tokens indicate that a value spans multiple input buffers or that a string contains escape sequences.
 /// To get a complete value in memory, you need to concatenate the values yourself.
@@ -130,7 +130,7 @@ pub const default_buffer_size = 0x1000;
 ///
 /// For tokens with a []const u8 payload, the payload is a slice into the current input buffer.
 /// The memory may become undefined during the next call to JsonScanner.feedInput()
-/// or any JsonReader method whose return error set includes json.Error.
+/// or any json.Reader method whose return error set includes json.Error.
 /// To keep the value persistently, it recommended to make a copy or to use .alloc_always,
 /// which makes a copy for you.
 ///
@@ -189,7 +189,7 @@ pub const TokenType = enum {
 };
 
 /// To enable diagnostics, declare `var diagnostics = Diagnostics{};` then call `source.enableDiagnostics(&diagnostics);`
-/// where `source` is either a JsonReader or a JsonScanner that has just been initialized.
+/// where `source` is either a json.Reader or a JsonScanner that has just been initialized.
 /// At any time, notably just after an error, call getLine(), getColumn(), and/or getByteOffset()
 /// to get meaningful information from this.
 pub const Diagnostics = struct {
@@ -219,9 +219,9 @@ pub const AllocWhen = enum { alloc_if_needed, alloc_always };
 /// This limit can be specified by calling nextAllocMax() instead of nextAlloc().
 pub const default_max_value_len = 4 * 1024 * 1024;
 
-/// JsonReader connects a std.io.Reader to a JsonScanner.
+/// json.Reader connects a std.io.Reader to a JsonScanner.
 /// All next*() methods here handle BufferUnderrun from JsonScanner, and then read from the reader.
-pub fn JsonReader(comptime buffer_size: usize, comptime ReaderType: type) type {
+pub fn Reader(comptime buffer_size: usize, comptime ReaderType: type) type {
     return struct {
         scanner: JsonScanner,
         reader: ReaderType,

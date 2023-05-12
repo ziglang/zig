@@ -13,7 +13,7 @@ pub const TokenType = @import("json/scanner.zig").TokenType;
 pub const Diagnostics = @import("json/scanner.zig").Diagnostics;
 pub const AllocWhen = @import("json/scanner.zig").AllocWhen;
 pub const default_max_value_len = @import("json/scanner.zig").default_max_value_len;
-pub const JsonReader = @import("json/scanner.zig").JsonReader;
+pub const Reader = @import("json/scanner.zig").Reader;
 pub const JsonScanner = @import("json/scanner.zig").JsonScanner;
 pub const isNumberFormattedLikeAnInteger = @import("json/scanner.zig").isNumberFormattedLikeAnInteger;
 
@@ -34,8 +34,8 @@ pub const writeStream = @import("json/write_stream.zig").writeStream;
 
 // Deprecations
 pub const parse = @compileError("Deprecated; use parseFromSlice() or parseFromTokenSource() instead.");
-pub const StreamingParser = @compileError("Deprecated; use JsonScanner or JsonReader instead.");
-pub const TokenStream = @compileError("Deprecated; use JsonScanner or JsonReader instead.");
+pub const StreamingParser = @compileError("Deprecated; use JsonScanner or json.Reader instead.");
+pub const TokenStream = @compileError("Deprecated; use JsonScanner or json.Reader instead.");
 
 test {
     _ = @import("json/test.zig");
