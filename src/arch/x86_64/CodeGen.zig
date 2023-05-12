@@ -1550,7 +1550,9 @@ fn gen(self: *Self) InnerError!void {
         const backpatch_push_callee_preserved_regs = try self.asmPlaceholder();
         try self.asmRegisterRegister(.{ ._, .mov }, .rbp, .rsp);
         const backpatch_frame_align = try self.asmPlaceholder();
+        const backpatch_frame_align_extra = try self.asmPlaceholder();
         const backpatch_stack_alloc = try self.asmPlaceholder();
+        const backpatch_stack_alloc_extra = try self.asmPlaceholder();
 
         switch (self.ret_mcv.long) {
             .none, .unreach => {},
@@ -1599,24 +1601,67 @@ fn gen(self: *Self) InnerError!void {
         const need_stack_adjust = frame_layout.stack_adjust > 0;
         const need_save_reg = frame_layout.save_reg_list.count() > 0;
         if (need_frame_align) {
+            const page_align = @as(u32, math.maxInt(u32)) << 12;
             self.mir_instructions.set(backpatch_frame_align, .{
                 .tag = .@"and",
                 .ops = .ri_s,
                 .data = .{ .ri = .{
                     .r1 = .rsp,
-                    .i = frame_layout.stack_mask,
+                    .i = @max(frame_layout.stack_mask, page_align),
                 } },
             });
+            if (frame_layout.stack_mask < page_align) {
+                self.mir_instructions.set(backpatch_frame_align_extra, .{
+                    .tag = .pseudo,
+                    .ops = .pseudo_probe_align_ri_s,
+                    .data = .{ .ri = .{
+                        .r1 = .rsp,
+                        .i = ~frame_layout.stack_mask & page_align,
+                    } },
+                });
+            }
         }
         if (need_stack_adjust) {
-            self.mir_instructions.set(backpatch_stack_alloc, .{
-                .tag = .sub,
-                .ops = .ri_s,
-                .data = .{ .ri = .{
-                    .r1 = .rsp,
-                    .i = frame_layout.stack_adjust,
-                } },
-            });
+            const page_size: u32 = 1 << 12;
+            if (frame_layout.stack_adjust <= page_size) {
+                self.mir_instructions.set(backpatch_stack_alloc, .{
+                    .tag = .sub,
+                    .ops = .ri_s,
+                    .data = .{ .ri = .{
+                        .r1 = .rsp,
+                        .i = frame_layout.stack_adjust,
+                    } },
+                });
+            } else if (frame_layout.stack_adjust <
+                page_size * Lower.pseudo_probe_adjust_unrolled_max_insts)
+            {
+                self.mir_instructions.set(backpatch_stack_alloc, .{
+                    .tag = .pseudo,
+                    .ops = .pseudo_probe_adjust_unrolled_ri_s,
+                    .data = .{ .ri = .{
+                        .r1 = .rsp,
+                        .i = frame_layout.stack_adjust,
+                    } },
+                });
+            } else {
+                self.mir_instructions.set(backpatch_stack_alloc, .{
+                    .tag = .pseudo,
+                    .ops = .pseudo_probe_adjust_setup_rri_s,
+                    .data = .{ .rri = .{
+                        .r1 = .rsp,
+                        .r2 = .rax,
+                        .i = frame_layout.stack_adjust,
+                    } },
+                });
+                self.mir_instructions.set(backpatch_stack_alloc_extra, .{
+                    .tag = .pseudo,
+                    .ops = .pseudo_probe_adjust_loop_rr,
+                    .data = .{ .rr = .{
+                        .r1 = .rsp,
+                        .r2 = .rax,
+                    } },
+                });
+            }
         }
         if (need_frame_align or need_stack_adjust) {
             self.mir_instructions.set(backpatch_stack_dealloc, .{

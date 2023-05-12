@@ -740,6 +740,18 @@ pub const Inst = struct {
         /// Uses `inst` payload.
         pseudo_j_nz_or_p_inst,
 
+        /// Probe alignment
+        /// Uses `ri` payload
+        pseudo_probe_align_ri_s,
+        /// Probe adjust unrolled
+        /// Uses `ri` payload
+        pseudo_probe_adjust_unrolled_ri_s,
+        /// Probe adjust setup
+        /// Uses `rri` payload
+        pseudo_probe_adjust_setup_rri_s,
+        /// Probe adjust loop
+        /// Uses `rr` payload
+        pseudo_probe_adjust_loop_rr,
         /// Push registers
         /// Uses `reg_list` payload.
         pseudo_push_reg_list,
