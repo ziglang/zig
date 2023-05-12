@@ -20,8 +20,7 @@ pub fn main() !void {
     // Required for json parsing.
     @setEvalBranchQuota(10000);
 
-    var tokens = std.json.TokenStream.init(spec);
-    var registry = try std.json.parse(g.Registry, &tokens, .{ .allocator = allocator });
+    var registry = try std.json.parseFromSlice(g.Registry, allocator, spec, .{});
 
     const core_reg = switch (registry) {
         .core => |core_reg| core_reg,

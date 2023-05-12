@@ -624,7 +624,7 @@ pub fn main() anyerror!void {
         },
     };
 
-    var parser = json.Parser.init(allocator, false);
+    var parser = json.Parser.init(allocator, .alloc_if_needed);
     const tree = try parser.parse(json_text);
     const root_map = &tree.root.Object;
 

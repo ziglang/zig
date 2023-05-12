@@ -1054,7 +1054,7 @@ fn processOneTarget(job: Job) anyerror!void {
     var json_parse_progress = progress_node.start("parse JSON", 0);
     json_parse_progress.activate();
 
-    var parser = json.Parser.init(arena, false);
+    var parser = json.Parser.init(arena, .alloc_if_needed);
     const tree = try parser.parse(json_text);
     json_parse_progress.end();
 
