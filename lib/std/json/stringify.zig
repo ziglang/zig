@@ -41,7 +41,7 @@ pub const StringifyOptions = struct {
     };
 
     /// Controls the whitespace emitted
-    whitespace: Whitespace = .{.indent = .none, .separator = false},
+    whitespace: Whitespace = .{ .indent = .none, .separator = false },
 
     /// Should optional fields with null value be written?
     emit_null_optional_fields: bool = true,
