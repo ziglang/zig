@@ -1,41 +1,32 @@
-//! JSON tokenizer conforming to RFC 8259. https://datatracker.ietf.org/doc/html/rfc8259
-//! Supports streaming input with a low memory footprint.
-//! The memory requirement is O(d) where d is the nesting depth of [] or {} containers in the input.
-//! Specifically d/8 bytes are required for this purpose,
-//! with some extra buffer according to the implementation of ArrayList.
-//!
-//! The low-level json.Scanner API reads from successive slices of inputs,
-//! The json.Reader API connects a std.io.Reader to a json.Scanner.
-//!
-//! Notes on standards compliance:
-//! * RFC 8259 requires JSON documents be valid UTF-8,
-//!   but makes an allowance for systems that are "part of a closed ecosystem".
-//!   I have no idea what that's supposed to mean in the context of a standard specification.
-//!   This implementation requires inputs to be valid UTF-8.
-//! * RFC 8259 contradicts itself regarding whether lowercase is allowed in \u hex digits,
-//!   but this is probably a bug in the spec, and it's clear that lowercase is meant to be allowed.
-//!   (RFC 5234 defines HEXDIG to only allow uppercase.)
-//! * When RFC 8259 refers to a "character", I assume they really mean a "Unicode scalar value".
-//!   See http://www.unicode.org/glossary/#unicode_scalar_value .
-//! * RFC 8259 doesn't explicitly disallow unpaired surrogate halves in \u escape sequences,
-//!   but vaguely implies that \u escapes are for encoding Unicode "characters" (i.e. Unicode scalar values?),
-//!   which would mean that unpaired surrogate halves are forbidden.
-//!   By contrast ECMA-404 (a competing(/compatible?) JSON standard, which JavaScript's JSON.parse() conforms to)
-//!   explicitly allows unpaired surrogate halves.
-//!   This implementation forbids unpaired surrogate halves in \u sequences.
-//!   If a high surrogate half appears in a \u sequence,
-//!   then a low surrogate half must immediately follow in \u notation.
-//! * RFC 8259 allows implementations to "accept non-JSON forms or extensions".
-//!   This implementation does not accept any of that.
-//! * RFC 8259 allows implementations to put limits on "the size of texts",
-//!   "the maximum depth of nesting", "the range and precision of numbers",
-//!   and "the length and character contents of strings".
-//!   This low-level implementation does not limit these,
-//!   except where noted above, and except that nesting depth requires memory allocation.
-//!   Note that this low-level API does not interpret numbers numerically,
-//!   but simply emits their source form for some higher level code to make sense of.
-//! * This low-level implementation allows duplicate object keys,
-//!   and key/value pairs are emitted in the order they appear in the input.
+// Notes on standards compliance: https://datatracker.ietf.org/doc/html/rfc8259
+// * RFC 8259 requires JSON documents be valid UTF-8,
+//   but makes an allowance for systems that are "part of a closed ecosystem".
+//   I have no idea what that's supposed to mean in the context of a standard specification.
+//   This implementation requires inputs to be valid UTF-8.
+// * RFC 8259 contradicts itself regarding whether lowercase is allowed in \u hex digits,
+//   but this is probably a bug in the spec, and it's clear that lowercase is meant to be allowed.
+//   (RFC 5234 defines HEXDIG to only allow uppercase.)
+// * When RFC 8259 refers to a "character", I assume they really mean a "Unicode scalar value".
+//   See http://www.unicode.org/glossary/#unicode_scalar_value .
+// * RFC 8259 doesn't explicitly disallow unpaired surrogate halves in \u escape sequences,
+//   but vaguely implies that \u escapes are for encoding Unicode "characters" (i.e. Unicode scalar values?),
+//   which would mean that unpaired surrogate halves are forbidden.
+//   By contrast ECMA-404 (a competing(/compatible?) JSON standard, which JavaScript's JSON.parse() conforms to)
+//   explicitly allows unpaired surrogate halves.
+//   This implementation forbids unpaired surrogate halves in \u sequences.
+//   If a high surrogate half appears in a \u sequence,
+//   then a low surrogate half must immediately follow in \u notation.
+// * RFC 8259 allows implementations to "accept non-JSON forms or extensions".
+//   This implementation does not accept any of that.
+// * RFC 8259 allows implementations to put limits on "the size of texts",
+//   "the maximum depth of nesting", "the range and precision of numbers",
+//   and "the length and character contents of strings".
+//   This low-level implementation does not limit these,
+//   except where noted above, and except that nesting depth requires memory allocation.
+//   Note that this low-level API does not interpret numbers numerically,
+//   but simply emits their source form for some higher level code to make sense of.
+// * This low-level implementation allows duplicate object keys,
+//   and key/value pairs are emitted in the order they appear in the input.
 
 const std = @import("std");
 
@@ -44,7 +35,7 @@ const ArrayList = std.ArrayList;
 const assert = std.debug.assert;
 
 /// Scan the input and check for malformed JSON.
-/// On SyntaxError or UnexpectedEndOfInput, returns false.
+/// On `SyntaxError` or `UnexpectedEndOfInput`, returns `false`.
 /// Returns any errors from the allocator as-is, which is unlikely,
 /// but can be caused by extreme nesting depth in the input.
 pub fn validate(allocator: Allocator, s: []const u8) Allocator.Error!bool {
@@ -64,21 +55,22 @@ pub fn validate(allocator: Allocator, s: []const u8) Allocator.Error!bool {
 }
 
 /// The parsing errors are divided into two categories:
-///  * SyntaxError is for clearly malformed JSON documents,
+///  * `SyntaxError` is for clearly malformed JSON documents,
 ///    such as giving an input document that isn't JSON at all.
-///  * UnexpectedEndOfInput is for signaling that everything's been
+///  * `UnexpectedEndOfInput` is for signaling that everything's been
 ///    valid so far, but the input appears to be truncated for some reason.
-/// Note that a completely empty (or whitespace-only) input will give UnexpectedEndOfInput.
+/// Note that a completely empty (or whitespace-only) input will give `UnexpectedEndOfInput`.
 pub const Error = error{ SyntaxError, UnexpectedEndOfInput };
 
-/// Calls json.Reader() with default_buffer_size.
+/// Calls `std.json.Reader` with `std.json.default_buffer_size`.
 pub fn reader(allocator: Allocator, io_reader: anytype) Reader(default_buffer_size, @TypeOf(io_reader)) {
     return Reader(default_buffer_size, @TypeOf(io_reader)).init(allocator, io_reader);
 }
-/// Used by json.reader().
+/// Used by `json.reader`.
 pub const default_buffer_size = 0x1000;
 
-/// The tokens emitted by json.Scanner and json.Reader .next*() functions follow this grammar:
+/// The tokens emitted by `std.json.Scanner` and `std.json.Reader` `.next*()` functions follow this grammar:
+/// ```
 ///  <document> = <value> .end_of_document
 ///  <value> =
 ///    | <object>
@@ -92,9 +84,11 @@ pub const default_buffer_size = 0x1000;
 ///  <array> = .array_begin ( <value> )* .array_end
 ///  <number> = <It depends. See below.>
 ///  <string> = <It depends. See below.>
+/// ```
 ///
-/// What you get for <number> and <string> values depends on which next*() method you call:
+/// What you get for `<number>` and `<string>` values depends on which `next*()` method you call:
 ///
+/// ```
 /// next():
 ///  <number> = ( .partial_number )* .number
 ///  <string> = ( <partial_string> )* .string
@@ -116,39 +110,44 @@ pub const default_buffer_size = 0x1000;
 ///  <string> =
 ///    | .string
 ///    | .allocated_string
+/// ```
 ///
-/// For all tokens with a []const u8, []u8, or [n]u8 payload, the payload represents the content of the value.
+/// For all tokens with a `[]const u8`, `[]u8`, or `[n]u8` payload, the payload represents the content of the value.
 /// For number values, this is the representation of the number exactly as it appears in the input.
 /// For strings, this is the content of the string after resolving escape sequences.
 ///
-/// For .allocated_number and .allocated_string, the []u8 payloads are allocations made with the given allocator.
-/// You are responsible for managing that memory. json.Reader.deinit() does *not* free those allocations.
+/// For `.allocated_number` and `.allocated_string`, the `[]u8` payloads are allocations made with the given allocator.
+/// You are responsible for managing that memory. `json.Reader.deinit()` does *not* free those allocations.
 ///
-/// The .partial_* tokens indicate that a value spans multiple input buffers or that a string contains escape sequences.
+/// The `.partial_*` tokens indicate that a value spans multiple input buffers or that a string contains escape sequences.
 /// To get a complete value in memory, you need to concatenate the values yourself.
-/// Calling nextAlloc*() does this for you, and returns an .allocated_* token with the result.
+/// Calling `nextAlloc*()` does this for you, and returns an `.allocated_*` token with the result.
 ///
-/// For tokens with a []const u8 payload, the payload is a slice into the current input buffer.
-/// The memory may become undefined during the next call to json.Scanner.feedInput()
-/// or any json.Reader method whose return error set includes json.Error.
-/// To keep the value persistently, it recommended to make a copy or to use .alloc_always,
+/// For tokens with a `[]const u8` payload, the payload is a slice into the current input buffer.
+/// The memory may become undefined during the next call to `json.Scanner.feedInput()`
+/// or any `json.Reader` method whose return error set includes `json.Error`.
+/// To keep the value persistently, it recommended to make a copy or to use `.alloc_always`,
 /// which makes a copy for you.
 ///
-/// Note that .number and .string tokens that follow .partial_* tokens may have 0 length to indicate that
+/// Note that `.number` and `.string` tokens that follow `.partial_*` tokens may have `0` length to indicate that
 /// the previously partial value is completed with no additional bytes.
-/// (This can happen when the break between input buffers happens to land on the exact end of a value. E.g. "[1234", "]".)
-/// .partial_* tokens never have 0 length.
+/// (This can happen when the break between input buffers happens to land on the exact end of a value. E.g. `"[1234"`, `"]"`.)
+/// `.partial_*` tokens never have `0` length.
 ///
-/// The recommended strategy for using the different next*() methods is something like this:
-///  * When you're expecting an object key, use .alloc_if_needed.
-///    You often don't need a copy of the key string to persist; you might just check which field it is.
-///    In the case that the key happens to require an allocation, free it immediately after checking it.
-///  * When you're expecting a meaningful string value (such as on the right of a `:`),
-///    use .alloc_always in order to keep the value valid throughout parsing the rest of the document.
-///  * When you're expecting a number value, use .alloc_if_needed.
-///    You're probably going to be parsing the string representation of the number into a numeric representation,
-///    so you need the complete string representation only temporarily.
-///  * When you're skipping an unrecognized value, use skipValue().
+/// The recommended strategy for using the different `next*()` methods is something like this:
+///
+/// When you're expecting an object key, use `.alloc_if_needed`.
+/// You often don't need a copy of the key string to persist; you might just check which field it is.
+/// In the case that the key happens to require an allocation, free it immediately after checking it.
+///
+/// When you're expecting a meaningful string value (such as on the right of a `:`),
+/// use `.alloc_always` in order to keep the value valid throughout parsing the rest of the document.
+///
+/// When you're expecting a number value, use `.alloc_if_needed`.
+/// You're probably going to be parsing the string representation of the number into a numeric representation,
+/// so you need the complete string representation only temporarily.
+///
+/// When you're skipping an unrecognized value, use `skipValue()`.
 pub const Token = union(enum) {
     object_begin,
     object_end,
@@ -174,7 +173,7 @@ pub const Token = union(enum) {
     end_of_document,
 };
 
-/// This is only used in peekNextTokenType() and gives a categorization based on the first byte of the next token that will be emitted from a next*() call.
+/// This is only used in `peekNextTokenType()` and gives a categorization based on the first byte of the next token that will be emitted from a `next*()` call.
 pub const TokenType = enum {
     object_begin,
     object_end,
@@ -189,8 +188,8 @@ pub const TokenType = enum {
 };
 
 /// To enable diagnostics, declare `var diagnostics = Diagnostics{};` then call `source.enableDiagnostics(&diagnostics);`
-/// where `source` is either a json.Reader or a json.Scanner that has just been initialized.
-/// At any time, notably just after an error, call getLine(), getColumn(), and/or getByteOffset()
+/// where `source` is either a `std.json.Reader` or a `std.json.Scanner` that has just been initialized.
+/// At any time, notably just after an error, call `getLine()`, `getColumn()`, and/or `getByteOffset()`
 /// to get meaningful information from this.
 pub const Diagnostics = struct {
     line_number: u64 = 1,
@@ -212,15 +211,15 @@ pub const Diagnostics = struct {
     }
 };
 
-/// See the documentation for Token.
+/// See the documentation for `std.json.Token`.
 pub const AllocWhen = enum { alloc_if_needed, alloc_always };
 
 /// For security, the maximum size allocated to store a single string or number value is limited to 4MiB by default.
-/// This limit can be specified by calling nextAllocMax() instead of nextAlloc().
+/// This limit can be specified by calling `nextAllocMax()` instead of `nextAlloc()`.
 pub const default_max_value_len = 4 * 1024 * 1024;
 
-/// json.Reader connects a std.io.Reader to a json.Scanner.
-/// All next*() methods here handle BufferUnderrun from json.Scanner, and then read from the reader.
+/// Connects a `std.io.Reader` to a `std.json.Scanner`.
+/// All `next*()` methods here handle `error.BufferUnderrun` from `std.json.Scanner`, and then read from the reader.
 pub fn Reader(comptime buffer_size: usize, comptime ReaderType: type) type {
     return struct {
         scanner: Scanner,
@@ -228,7 +227,7 @@ pub fn Reader(comptime buffer_size: usize, comptime ReaderType: type) type {
 
         buffer: [buffer_size]u8 = undefined,
 
-        /// The allocator is only used to track [] and {} nesting levels.
+        /// The allocator is only used to track `[]` and `{}` nesting levels.
         pub fn init(allocator: Allocator, io_reader: ReaderType) @This() {
             return .{
                 .scanner = Scanner.initStreaming(allocator),
@@ -240,7 +239,7 @@ pub fn Reader(comptime buffer_size: usize, comptime ReaderType: type) type {
             self.* = undefined;
         }
 
-        /// Calls json.Scanner.enableDiagnostics().
+        /// Calls `std.json.Scanner.enableDiagnostics`.
         pub fn enableDiagnostics(self: *@This(), diagnostics: *Diagnostics) void {
             self.scanner.enableDiagnostics(diagnostics);
         }
@@ -250,12 +249,12 @@ pub fn Reader(comptime buffer_size: usize, comptime ReaderType: type) type {
         pub const AllocError = NextError || error{ValueTooLong};
         pub const PeekError = ReaderType.Error || Error;
 
-        /// Equivalent to nextAllocMax(allocator, when, default_max_value_len);
-        /// See also Token for documentation of nextAlloc*() function behavior.
+        /// Equivalent to `nextAllocMax(allocator, when, default_max_value_len);`
+        /// See also `std.json.Token` for documentation of `nextAlloc*()` function behavior.
         pub fn nextAlloc(self: *@This(), allocator: Allocator, when: AllocWhen) AllocError!Token {
             return self.nextAllocMax(allocator, when, default_max_value_len);
         }
-        /// See also Token for documentation of nextAlloc*() function behavior.
+        /// See also `std.json.Token` for documentation of `nextAlloc*()` function behavior.
         pub fn nextAllocMax(self: *@This(), allocator: Allocator, when: AllocWhen, max_value_len: usize) AllocError!Token {
             const token_type = try self.peekNextTokenType();
             switch (token_type) {
@@ -290,11 +289,11 @@ pub fn Reader(comptime buffer_size: usize, comptime ReaderType: type) type {
             }
         }
 
-        /// Equivalent to allocNextIntoArrayListMax(value_list, when, default_max_value_len)
+        /// Equivalent to `allocNextIntoArrayListMax(value_list, when, default_max_value_len);`
         pub fn allocNextIntoArrayList(self: *@This(), value_list: *ArrayList(u8), when: AllocWhen) AllocError!?[]const u8 {
             return self.allocNextIntoArrayListMax(value_list, when, default_max_value_len);
         }
-        /// Calls json.Scanner.allocNextIntoArrayListMax() and handles BufferUnderrun.
+        /// Calls `std.json.Scanner.allocNextIntoArrayListMax` and handles `error.BufferUnderrun`.
         pub fn allocNextIntoArrayListMax(self: *@This(), value_list: *ArrayList(u8), when: AllocWhen, max_value_len: usize) AllocError!?[]const u8 {
             while (true) {
                 return self.scanner.allocNextIntoArrayListMax(value_list, when, max_value_len) catch |err| switch (err) {
@@ -307,7 +306,7 @@ pub fn Reader(comptime buffer_size: usize, comptime ReaderType: type) type {
             }
         }
 
-        /// Like json.Scanner.skipValue(), but handles BufferUnderrun.
+        /// Like `std.json.Scanner.skipValue`, but handles `error.BufferUnderrun`.
         pub fn skipValue(self: *@This()) SkipError!void {
             switch (try self.peekNextTokenType()) {
                 .object_begin, .array_begin => {
@@ -337,7 +336,7 @@ pub fn Reader(comptime buffer_size: usize, comptime ReaderType: type) type {
                 .object_end, .array_end, .end_of_document => unreachable, // Attempt to skip a non-value token.
             }
         }
-        /// Like json.Scanner.skipUntilStackHeight() but handles BufferUnderrun.
+        /// Like `std.json.Scanner.skipUntilStackHeight()` but handles `error.BufferUnderrun`.
         pub fn skipUntilStackHeight(self: *@This(), terminal_stack_height: u32) NextError!void {
             while (true) {
                 return self.scanner.skipUntilStackHeight(terminal_stack_height) catch |err| switch (err) {
@@ -350,16 +349,16 @@ pub fn Reader(comptime buffer_size: usize, comptime ReaderType: type) type {
             }
         }
 
-        /// Calls json.Scanner.stackHeight().
+        /// Calls `std.json.Scanner.stackHeight`.
         pub fn stackHeight(self: *const @This()) u32 {
             return self.scanner.stackHeight();
         }
-        /// Calls json.Scanner.ensureTotalStackCapacity().
+        /// Calls `std.json.Scanner.ensureTotalStackCapacity`.
         pub fn ensureTotalStackCapacity(self: *@This(), height: u32) Allocator.Error!void {
             try self.scanner.ensureTotalStackCapacity(height);
         }
 
-        /// See Token for documentation of this function.
+        /// See `std.json.Token` for documentation of this function.
         pub fn next(self: *@This()) NextError!Token {
             while (true) {
                 return self.scanner.next() catch |err| switch (err) {
@@ -372,7 +371,7 @@ pub fn Reader(comptime buffer_size: usize, comptime ReaderType: type) type {
             }
         }
 
-        /// See json.Scanner.peekNextTokenType().
+        /// See `std.json.Scanner.peekNextTokenType()`.
         pub fn peekNextTokenType(self: *@This()) PeekError!TokenType {
             while (true) {
                 return self.scanner.peekNextTokenType() catch |err| switch (err) {
@@ -396,14 +395,19 @@ pub fn Reader(comptime buffer_size: usize, comptime ReaderType: type) type {
     };
 }
 
-/// json.Scanner is the lowest level API in this package.
-/// This scanner can emit partial tokens and only allocates memory as needed to track [] and {} nesting.
+/// The lowest level parsing API in this package;
+/// supports streaming input with a low memory footprint.
+/// The memory requirement is `O(d)` where d is the nesting depth of `[]` or `{}` containers in the input.
+/// Specifically `d/8` bytes are required for this purpose,
+/// with some extra buffer according to the implementation of `std.ArrayList`.
+///
+/// This scanner can emit partial tokens; see `std.json.Token`.
 /// The input to this class is a sequence of input buffers that you must supply one at a time.
-/// Call feedInput() with the first buffer, then call next() repeatedly until error.BufferUnderrun is returned.
-/// Then call feedInput() again and so forth.
-/// Call endInput() when the last input buffer has been given to feedInput(), either immediately after calling feedInput(),
-/// or when error.BufferUnderrun requests more data and there is no more.
-/// Be sure to call next() after calling endInput() until .end_of_document has been returned.
+/// Call `feedInput()` with the first buffer, then call `next()` repeatedly until `error.BufferUnderrun` is returned.
+/// Then call `feedInput()` again and so forth.
+/// Call `endInput()` when the last input buffer has been given to `feedInput()`, either immediately after calling `feedInput()`,
+/// or when `error.BufferUnderrun` requests more data and there is no more.
+/// Be sure to call `next()` after calling `endInput()` until `Token.end_of_document` has been returned.
 pub const Scanner = struct {
     state: State = .value,
     string_is_object_key: bool = false,
@@ -416,7 +420,7 @@ pub const Scanner = struct {
     is_end_of_input: bool = false,
     diagnostics: ?*Diagnostics = null,
 
-    /// The allocator is only used to track [] and {} nesting levels.
+    /// The allocator is only used to track `[]` and `{}` nesting levels.
     pub fn initStreaming(allocator: Allocator) @This() {
         return .{
             .stack = BitStack.init(allocator),
@@ -424,9 +428,11 @@ pub const Scanner = struct {
     }
     /// Use this if your input is a single slice.
     /// This is effectively equivalent to:
-    /// * initStreaming(allocator);
-    /// * feedInput(complete_input);
-    /// * endInput()
+    /// ```
+    /// initStreaming(allocator);
+    /// feedInput(complete_input);
+    /// endInput();
+    /// ```
     pub fn initCompleteInput(allocator: Allocator, complete_input: []const u8) @This() {
         return .{
             .stack = BitStack.init(allocator),
@@ -444,8 +450,8 @@ pub const Scanner = struct {
         self.diagnostics = diagnostics;
     }
 
-    /// Call this whenever you get error.BufferUnderrun from next().
-    /// When there is no more input to provide, call endInput().
+    /// Call this whenever you get `error.BufferUnderrun` from `next()`.
+    /// When there is no more input to provide, call `endInput()`.
     pub fn feedInput(self: *@This(), input: []const u8) void {
         assert(self.cursor == self.input.len); // Not done with the last input slice.
         if (self.diagnostics) |diag| {
@@ -458,10 +464,10 @@ pub const Scanner = struct {
         self.cursor = 0;
         self.value_start = 0;
     }
-    /// Call this when you will no longer call feedInput() anymore.
-    /// This can be called either immediately after the last feedInput(),
-    /// or at any time afterward, such as when getting error.BufferUnderrun from next().
-    /// Don't forget to call next*() after endInput() until you get .end_of_document.
+    /// Call this when you will no longer call `feedInput()` anymore.
+    /// This can be called either immediately after the last `feedInput()`,
+    /// or at any time afterward, such as when getting `error.BufferUnderrun` from `next()`.
+    /// Don't forget to call `next*()` after `endInput()` until you get `.end_of_document`.
     pub fn endInput(self: *@This()) void {
         self.is_end_of_input = true;
     }
@@ -472,15 +478,15 @@ pub const Scanner = struct {
     pub const SkipError = Error || Allocator.Error;
     pub const AllocIntoArrayListError = AllocError || error{BufferUnderrun};
 
-    /// Equivalent to nextAllocMax(allocator, when, default_max_value_len);
-    /// This function is only available after endInput() (or initCompleteInput()) has been called.
-    /// See also Token for documentation of nextAlloc*() function behavior.
+    /// Equivalent to `nextAllocMax(allocator, when, default_max_value_len);`
+    /// This function is only available after `endInput()` (or `initCompleteInput()`) has been called.
+    /// See also `std.json.Token` for documentation of `nextAlloc*()` function behavior.
     pub fn nextAlloc(self: *@This(), allocator: Allocator, when: AllocWhen) AllocError!Token {
         return self.nextAllocMax(allocator, when, default_max_value_len);
     }
 
-    /// This function is only available after endInput() (or initCompleteInput()) has been called.
-    /// See also Token for documentation of nextAlloc*() function behavior.
+    /// This function is only available after `endInput()` (or `initCompleteInput()`) has been called.
+    /// See also `std.json.Token` for documentation of `nextAlloc*()` function behavior.
     pub fn nextAllocMax(self: *@This(), allocator: Allocator, when: AllocWhen, max_value_len: usize) AllocError!Token {
         assert(self.is_end_of_input); // This function is not available in streaming mode.
         const token_type = self.peekNextTokenType() catch |e| switch (e) {
@@ -525,18 +531,19 @@ pub const Scanner = struct {
         }
     }
 
-    /// Equivalent to allocNextIntoArrayListMax(value_list, when, default_max_value_len)
+    /// Equivalent to `allocNextIntoArrayListMax(value_list, when, default_max_value_len);`
     pub fn allocNextIntoArrayList(self: *@This(), value_list: *ArrayList(u8), when: AllocWhen) AllocIntoArrayListError!?[]const u8 {
         return self.allocNextIntoArrayListMax(value_list, when, default_max_value_len);
     }
-    /// The next token type must be either .number or .string. See peekNextTokenType().
-    /// When allocation is not necessary with .alloc_if_needed,
-    /// this method returns the content slice from the input buffer, and value_list is not touched.
-    /// When allocation is necessary or with .alloc_always, this method concatenates partial tokens into the given value_list,
-    /// and returns null once the final .number or .string token has been written into it.
-    /// In case of a BufferUnderrun, partial values will be left in the given value_list.
-    /// The given value_list is never reset by this method, so a BufferUnderrun situation can be resumed by passing the same array list in again.
-    /// This method does not indicate whether the token content being returned is for a .number or .string token type;
+    /// The next token type must be either `.number` or `.string`. See `peekNextTokenType()`.
+    /// When allocation is not necessary with `.alloc_if_needed`,
+    /// this method returns the content slice from the input buffer, and `value_list` is not touched.
+    /// When allocation is necessary or with `.alloc_always`, this method concatenates partial tokens into the given `value_list`,
+    /// and returns `null` once the final `.number` or `.string` token has been written into it.
+    /// In case of an `error.BufferUnderrun`, partial values will be left in the given value_list.
+    /// The given `value_list` is never reset by this method, so an `error.BufferUnderrun` situation
+    /// can be resumed by passing the same array list in again.
+    /// This method does not indicate whether the token content being returned is for a `.number` or `.string` token type;
     /// the caller of this method is expected to know which type of token is being processed.
     pub fn allocNextIntoArrayListMax(self: *@This(), value_list: *ArrayList(u8), when: AllocWhen, max_value_len: usize) AllocIntoArrayListError!?[]const u8 {
         while (true) {
@@ -594,14 +601,14 @@ pub const Scanner = struct {
         }
     }
 
-    /// This function is only available after endInput() (or initCompleteInput()) has been called.
-    /// If the next token type is .object_begin or .array_begin,
-    /// this function calls next() repeatedly until the corresponding .object_end or .array_end is found.
-    /// If the next token type is .number or .string,
-    /// this function calls next() repeatedly until the (non .partial_*) .number or .string token is found.
-    /// If the next token type is .true, .false, or .null, this function calls next() once.
-    /// The next token type must not be .object_end, .array_end, or .end_of_document;
-    /// see peekNextTokenType().
+    /// This function is only available after `endInput()` (or `initCompleteInput()`) has been called.
+    /// If the next token type is `.object_begin` or `.array_begin`,
+    /// this function calls `next()` repeatedly until the corresponding `.object_end` or `.array_end` is found.
+    /// If the next token type is `.number` or `.string`,
+    /// this function calls `next()` repeatedly until the (non `.partial_*`) `.number` or `.string` token is found.
+    /// If the next token type is `.true`, `.false`, or `.null`, this function calls `next()` once.
+    /// The next token type must not be `.object_end`, `.array_end`, or `.end_of_document`;
+    /// see `peekNextTokenType()`.
     pub fn skipValue(self: *@This()) SkipError!void {
         assert(self.is_end_of_input); // This function is not available in streaming mode.
         switch (self.peekNextTokenType() catch |e| switch (e) {
@@ -645,8 +652,8 @@ pub const Scanner = struct {
         }
     }
 
-    /// Skip tokens until an .object_end or .array_end token results in a stackHeight() equal the given stack height.
-    /// Unlike skipValue(), this function is available in streaming mode.
+    /// Skip tokens until an `.object_end` or `.array_end` token results in a `stackHeight()` equal the given stack height.
+    /// Unlike `skipValue()`, this function is available in streaming mode.
     pub fn skipUntilStackHeight(self: *@This(), terminal_stack_height: u32) NextError!void {
         while (true) {
             switch (try self.next()) {
@@ -659,18 +666,18 @@ pub const Scanner = struct {
         }
     }
 
-    /// The depth of {} or [] nesting levels at the current position.
+    /// The depth of `{}` or `[]` nesting levels at the current position.
     pub fn stackHeight(self: *const @This()) u32 {
         return self.stack.bit_len;
     }
 
     /// Pre allocate memory to hold the given number of nesting levels.
-    /// stackHeight() up to the given number will not cause allocations.
+    /// `stackHeight()` up to the given number will not cause allocations.
     pub fn ensureTotalStackCapacity(self: *@This(), height: u32) Allocator.Error!void {
         try self.stack.ensureTotalCapacity(height);
     }
 
-    /// See Token for documentation of this function.
+    /// See `std.json.Token` for documentation of this function.
     pub fn next(self: *@This()) NextError!Token {
         state_loop: while (true) {
             switch (self.state) {
@@ -1425,7 +1432,7 @@ pub const Scanner = struct {
     }
 
     /// Seeks ahead in the input until the first byte of the next token (or the end of the input)
-    /// determines which type of token will be returned from the next next*() call.
+    /// determines which type of token will be returned from the next `next*()` call.
     /// This function is idempotent, only advancing past commas, colons, and inter-token whitespace.
     pub fn peekNextTokenType(self: *@This()) PeekError!TokenType {
         state_loop: while (true) {
@@ -1743,9 +1750,9 @@ fn appendSlice(list: *std.ArrayList(u8), buf: []const u8, max_value_len: usize) 
     try list.appendSlice(buf);
 }
 
-/// For the slice you get from a .number or .allocated_number,
+/// For the slice you get from a `Token.number` or `Token.allocated_number`,
 /// this function returns true if the number doesn't contain any fraction or exponent components.
-/// Note, the numeric value encoded by the value may still be an integer, such as 1.0.
+/// Note, the numeric value encoded by the value may still be an integer, such as `1.0`.
 /// This function is meant to give a hint about whether integer parsing or float parsing should be used on the value.
 /// This function will not give meaningful results on non-numeric input.
 pub fn isNumberFormattedLikeAnInteger(value: []const u8) bool {

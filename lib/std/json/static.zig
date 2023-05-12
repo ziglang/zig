@@ -30,8 +30,8 @@ pub const ParseOptions = struct {
 /// Parses the json document from s and returns the result.
 /// The provided allocator is used both for temporary allocations during parsing the document,
 /// and also to allocate any pointer values in the return type.
-/// If T contains any pointers, free the memory with parseFree().
-/// Note that error.BufferUnderrun is not actually possible to return from this function.
+/// If T contains any pointers, free the memory with `std.json.parseFree`.
+/// Note that `error.BufferUnderrun` is not actually possible to return from this function.
 pub fn parseFromSlice(comptime T: type, allocator: Allocator, s: []const u8, options: ParseOptions) ParseError(T, Scanner)!T {
     var scanner = Scanner.initCompleteInput(allocator, s);
     defer scanner.deinit();
@@ -39,10 +39,14 @@ pub fn parseFromSlice(comptime T: type, allocator: Allocator, s: []const u8, opt
     return parseFromTokenSource(T, allocator, &scanner, options);
 }
 
-/// scanner_or_reader must be either a *json.Scanner with complete input or a *json.Reader.
+/// `scanner_or_reader` must be either a `*std.json.Scanner` with complete input or a `*std.json.Reader`.
 /// allocator is used to allocate the data of T if necessary,
-/// such as if T is *u32 or []u32.
-/// If T contains no pointers, the allocator is never used.
+/// such as if T is `*u32` or `[]u32`.
+/// If T contains any pointers, free the memory with `std.json.parseFree`.
+/// If T contains no pointers, the allocator may sometimes be used for temporary allocations,
+/// but no call to `std.json.parseFree` will be necessary;
+/// all temporary allocations will be freed before this function returns.
+/// Note that `error.BufferUnderrun` is not actually possible to return from this function.
 pub fn parseFromTokenSource(comptime T: type, allocator: Allocator, scanner_or_reader: anytype, options: ParseOptions) ParseError(T, @TypeOf(scanner_or_reader.*))!T {
     if (@TypeOf(scanner_or_reader.*) == Scanner) {
         assert(scanner_or_reader.is_end_of_input);

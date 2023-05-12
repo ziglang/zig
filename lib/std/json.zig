@@ -1,3 +1,14 @@
+//! JSON parsing and stringification conforming to RFC 8259. https://datatracker.ietf.org/doc/html/rfc8259
+//!
+//! The low-level `Scanner` API reads from an input slice or successive slices of inputs,
+//! The `Reader` API connects a `std.io.Reader` to a `Scanner`.
+//!
+//! The high-level `parseFromSlice` and `parseFromTokenSource` deserializes a JSON document into a Zig type.
+//! The high-level `Parser` parses any JSON document into a dynamically typed `ValueTree` that has its own memory arena.
+//!
+//! The low-level `writeStream` emits syntax-conformant JSON tokens to a `std.io.Writer`.
+//! The high-level `stringify` serializes a Zig type into JSON.
+
 pub const ValueTree = @import("json/dynamic.zig").ValueTree;
 pub const ObjectMap = @import("json/dynamic.zig").ObjectMap;
 pub const Array = @import("json/dynamic.zig").Array;
