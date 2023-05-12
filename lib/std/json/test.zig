@@ -2,7 +2,7 @@ const std = @import("std");
 const testing = std.testing;
 const Parser = @import("./dynamic.zig").Parser;
 const validate = @import("./scanner.zig").validate;
-const JsonScanner = @import("./scanner.zig").JsonScanner;
+const JsonScanner = @import("./scanner.zig").Scanner;
 
 // Support for JSONTestSuite.zig
 pub fn ok(s: []const u8) !void {

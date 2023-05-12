@@ -8,7 +8,7 @@ const Allocator = std.mem.Allocator;
 const StringifyOptions = @import("./stringify.zig").StringifyOptions;
 const stringify = @import("./stringify.zig").stringify;
 
-const JsonScanner = @import("./scanner.zig").JsonScanner;
+const JsonScanner = @import("./scanner.zig").Scanner;
 const AllocWhen = @import("./scanner.zig").AllocWhen;
 const Token = @import("./scanner.zig").Token;
 const isNumberFormattedLikeAnInteger = @import("./scanner.zig").isNumberFormattedLikeAnInteger;

@@ -3,7 +3,7 @@ const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
 const ArrayList = std.ArrayList;
 
-const JsonScanner = @import("./scanner.zig").JsonScanner;
+const Scanner = @import("./scanner.zig").Scanner;
 const Token = @import("./scanner.zig").Token;
 const AllocWhen = @import("./scanner.zig").AllocWhen;
 const default_max_value_len = @import("./scanner.zig").default_max_value_len;
@@ -20,8 +20,8 @@ pub const ParseOptions = struct {
     /// If false, finding an unknown field returns an error.
     ignore_unknown_fields: bool = false,
 
-    /// Passed to JsonScanner.nextAllocMax() or json.Reader.nextAllocMax().
-    /// The default for parseFromSlice() or parseFromTokenSource() with a *JsonScanner input
+    /// Passed to json.Scanner.nextAllocMax() or json.Reader.nextAllocMax().
+    /// The default for parseFromSlice() or parseFromTokenSource() with a *json.Scanner input
     /// is the length of the input slice, which means error.ValueTooLong will never be returned.
     /// The default for parseFromTokenSource() with a *json.Reader is default_max_value_len.
     max_value_len: ?usize = null,
@@ -32,25 +32,25 @@ pub const ParseOptions = struct {
 /// and also to allocate any pointer values in the return type.
 /// If T contains any pointers, free the memory with parseFree().
 /// Note that error.BufferUnderrun is not actually possible to return from this function.
-pub fn parseFromSlice(comptime T: type, allocator: Allocator, s: []const u8, options: ParseOptions) ParseError(T, JsonScanner)!T {
-    var scanner = JsonScanner.initCompleteInput(allocator, s);
+pub fn parseFromSlice(comptime T: type, allocator: Allocator, s: []const u8, options: ParseOptions) ParseError(T, Scanner)!T {
+    var scanner = Scanner.initCompleteInput(allocator, s);
     defer scanner.deinit();
 
     return parseFromTokenSource(T, allocator, &scanner, options);
 }
 
-/// scanner_or_reader must be either a *JsonScanner with complete input or a *json.Reader.
+/// scanner_or_reader must be either a *json.Scanner with complete input or a *json.Reader.
 /// allocator is used to allocate the data of T if necessary,
 /// such as if T is *u32 or []u32.
 /// If T contains no pointers, the allocator is never used.
 pub fn parseFromTokenSource(comptime T: type, allocator: Allocator, scanner_or_reader: anytype, options: ParseOptions) ParseError(T, @TypeOf(scanner_or_reader.*))!T {
-    if (@TypeOf(scanner_or_reader.*) == JsonScanner) {
+    if (@TypeOf(scanner_or_reader.*) == Scanner) {
         assert(scanner_or_reader.is_end_of_input);
     }
 
     var resolved_options = options;
     if (resolved_options.max_value_len == null) {
-        if (@TypeOf(scanner_or_reader.*) == JsonScanner) {
+        if (@TypeOf(scanner_or_reader.*) == Scanner) {
             resolved_options.max_value_len = scanner_or_reader.input.len;
         } else {
             resolved_options.max_value_len = default_max_value_len;
@@ -102,7 +102,7 @@ fn ParseInternalErrorImpl(comptime T: type, comptime Source: type, comptime infe
             }
         },
         .Struct => |structInfo| {
-            var errors = JsonScanner.AllocError || error{
+            var errors = Scanner.AllocError || error{
                 DuplicateField,
                 UnknownField,
                 MissingField,

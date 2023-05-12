@@ -4,8 +4,8 @@
 //! Specifically d/8 bytes are required for this purpose,
 //! with some extra buffer according to the implementation of ArrayList.
 //!
-//! The low-level JsonScanner API reads from successive slices of inputs,
-//! The json.Reader API connects a std.io.Reader to a JsonScanner.
+//! The low-level json.Scanner API reads from successive slices of inputs,
+//! The json.Reader API connects a std.io.Reader to a json.Scanner.
 //!
 //! Notes on standards compliance:
 //! * RFC 8259 requires JSON documents be valid UTF-8,
@@ -48,7 +48,7 @@ const assert = std.debug.assert;
 /// Returns any errors from the allocator as-is, which is unlikely,
 /// but can be caused by extreme nesting depth in the input.
 pub fn validate(allocator: Allocator, s: []const u8) Allocator.Error!bool {
-    var scanner = JsonScanner.initCompleteInput(allocator, s);
+    var scanner = Scanner.initCompleteInput(allocator, s);
     defer scanner.deinit();
 
     while (true) {
@@ -78,7 +78,7 @@ pub fn reader(allocator: Allocator, io_reader: anytype) Reader(default_buffer_si
 /// Used by json.reader().
 pub const default_buffer_size = 0x1000;
 
-/// The tokens emitted by JsonScanner and json.Reader .next*() functions follow this grammar:
+/// The tokens emitted by json.Scanner and json.Reader .next*() functions follow this grammar:
 ///  <document> = <value> .end_of_document
 ///  <value> =
 ///    | <object>
@@ -129,7 +129,7 @@ pub const default_buffer_size = 0x1000;
 /// Calling nextAlloc*() does this for you, and returns an .allocated_* token with the result.
 ///
 /// For tokens with a []const u8 payload, the payload is a slice into the current input buffer.
-/// The memory may become undefined during the next call to JsonScanner.feedInput()
+/// The memory may become undefined during the next call to json.Scanner.feedInput()
 /// or any json.Reader method whose return error set includes json.Error.
 /// To keep the value persistently, it recommended to make a copy or to use .alloc_always,
 /// which makes a copy for you.
@@ -189,7 +189,7 @@ pub const TokenType = enum {
 };
 
 /// To enable diagnostics, declare `var diagnostics = Diagnostics{};` then call `source.enableDiagnostics(&diagnostics);`
-/// where `source` is either a json.Reader or a JsonScanner that has just been initialized.
+/// where `source` is either a json.Reader or a json.Scanner that has just been initialized.
 /// At any time, notably just after an error, call getLine(), getColumn(), and/or getByteOffset()
 /// to get meaningful information from this.
 pub const Diagnostics = struct {
@@ -219,11 +219,11 @@ pub const AllocWhen = enum { alloc_if_needed, alloc_always };
 /// This limit can be specified by calling nextAllocMax() instead of nextAlloc().
 pub const default_max_value_len = 4 * 1024 * 1024;
 
-/// json.Reader connects a std.io.Reader to a JsonScanner.
-/// All next*() methods here handle BufferUnderrun from JsonScanner, and then read from the reader.
+/// json.Reader connects a std.io.Reader to a json.Scanner.
+/// All next*() methods here handle BufferUnderrun from json.Scanner, and then read from the reader.
 pub fn Reader(comptime buffer_size: usize, comptime ReaderType: type) type {
     return struct {
-        scanner: JsonScanner,
+        scanner: Scanner,
         reader: ReaderType,
 
         buffer: [buffer_size]u8 = undefined,
@@ -231,7 +231,7 @@ pub fn Reader(comptime buffer_size: usize, comptime ReaderType: type) type {
         /// The allocator is only used to track [] and {} nesting levels.
         pub fn init(allocator: Allocator, io_reader: ReaderType) @This() {
             return .{
-                .scanner = JsonScanner.initStreaming(allocator),
+                .scanner = Scanner.initStreaming(allocator),
                 .reader = io_reader,
             };
         }
@@ -240,7 +240,7 @@ pub fn Reader(comptime buffer_size: usize, comptime ReaderType: type) type {
             self.* = undefined;
         }
 
-        /// Calls JsonScanner.enableDiagnostics().
+        /// Calls json.Scanner.enableDiagnostics().
         pub fn enableDiagnostics(self: *@This(), diagnostics: *Diagnostics) void {
             self.scanner.enableDiagnostics(diagnostics);
         }
@@ -294,7 +294,7 @@ pub fn Reader(comptime buffer_size: usize, comptime ReaderType: type) type {
         pub fn allocNextIntoArrayList(self: *@This(), value_list: *ArrayList(u8), when: AllocWhen) AllocError!?[]const u8 {
             return self.allocNextIntoArrayListMax(value_list, when, default_max_value_len);
         }
-        /// Calls JsonScanner.allocNextIntoArrayListMax() and handles BufferUnderrun.
+        /// Calls json.Scanner.allocNextIntoArrayListMax() and handles BufferUnderrun.
         pub fn allocNextIntoArrayListMax(self: *@This(), value_list: *ArrayList(u8), when: AllocWhen, max_value_len: usize) AllocError!?[]const u8 {
             while (true) {
                 return self.scanner.allocNextIntoArrayListMax(value_list, when, max_value_len) catch |err| switch (err) {
@@ -307,7 +307,7 @@ pub fn Reader(comptime buffer_size: usize, comptime ReaderType: type) type {
             }
         }
 
-        /// Like JsonScanner.skipValue(), but handles BufferUnderrun.
+        /// Like json.Scanner.skipValue(), but handles BufferUnderrun.
         pub fn skipValue(self: *@This()) SkipError!void {
             switch (try self.peekNextTokenType()) {
                 .object_begin, .array_begin => {
@@ -337,7 +337,7 @@ pub fn Reader(comptime buffer_size: usize, comptime ReaderType: type) type {
                 .object_end, .array_end, .end_of_document => unreachable, // Attempt to skip a non-value token.
             }
         }
-        /// Like JsonScanner.skipUntilStackHeight() but handles BufferUnderrun.
+        /// Like json.Scanner.skipUntilStackHeight() but handles BufferUnderrun.
         pub fn skipUntilStackHeight(self: *@This(), terminal_stack_height: u32) NextError!void {
             while (true) {
                 return self.scanner.skipUntilStackHeight(terminal_stack_height) catch |err| switch (err) {
@@ -350,11 +350,11 @@ pub fn Reader(comptime buffer_size: usize, comptime ReaderType: type) type {
             }
         }
 
-        /// Calls JsonScanner.stackHeight().
+        /// Calls json.Scanner.stackHeight().
         pub fn stackHeight(self: *const @This()) u32 {
             return self.scanner.stackHeight();
         }
-        /// Calls JsonScanner.ensureTotalStackCapacity().
+        /// Calls json.Scanner.ensureTotalStackCapacity().
         pub fn ensureTotalStackCapacity(self: *@This(), height: u32) Allocator.Error!void {
             try self.scanner.ensureTotalStackCapacity(height);
         }
@@ -372,7 +372,7 @@ pub fn Reader(comptime buffer_size: usize, comptime ReaderType: type) type {
             }
         }
 
-        /// See JsonScanner.peekNextTokenType().
+        /// See json.Scanner.peekNextTokenType().
         pub fn peekNextTokenType(self: *@This()) PeekError!TokenType {
             while (true) {
                 return self.scanner.peekNextTokenType() catch |err| switch (err) {
@@ -396,7 +396,7 @@ pub fn Reader(comptime buffer_size: usize, comptime ReaderType: type) type {
     };
 }
 
-/// JsonScanner is the lowest level API in this package.
+/// json.Scanner is the lowest level API in this package.
 /// This scanner can emit partial tokens and only allocates memory as needed to track [] and {} nesting.
 /// The input to this class is a sequence of input buffers that you must supply one at a time.
 /// Call feedInput() with the first buffer, then call next() repeatedly until error.BufferUnderrun is returned.
@@ -404,7 +404,7 @@ pub fn Reader(comptime buffer_size: usize, comptime ReaderType: type) type {
 /// Call endInput() when the last input buffer has been given to feedInput(), either immediately after calling feedInput(),
 /// or when error.BufferUnderrun requests more data and there is no more.
 /// Be sure to call next() after calling endInput() until .end_of_document has been returned.
-pub const JsonScanner = struct {
+pub const Scanner = struct {
     state: State = .value,
     string_is_object_key: bool = false,
     stack: BitStack,

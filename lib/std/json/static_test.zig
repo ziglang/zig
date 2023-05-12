@@ -5,7 +5,7 @@ const parseFromSlice = @import("./static.zig").parseFromSlice;
 const parseFromTokenSource = @import("./static.zig").parseFromTokenSource;
 const parseFree = @import("./static.zig").parseFree;
 const ParseOptions = @import("./static.zig").ParseOptions;
-const JsonScanner = @import("./scanner.zig").JsonScanner;
+const JsonScanner = @import("./scanner.zig").Scanner;
 const jsonReader = @import("./scanner.zig").reader;
 
 test "parse" {
