@@ -95,54 +95,54 @@ pub fn lowerMir(lower: *Lower, index: Mir.Inst.Index) Error!struct {
             },
             .pseudo_set_z_and_np_r => {
                 try lower.emit(.none, .setz, &.{
-                    .{ .reg = inst.data.r_scratch.r1 },
+                    .{ .reg = inst.data.rr.r1 },
                 });
                 try lower.emit(.none, .setnp, &.{
-                    .{ .reg = inst.data.r_scratch.scratch_reg },
+                    .{ .reg = inst.data.rr.r2 },
                 });
                 try lower.emit(.none, .@"and", &.{
-                    .{ .reg = inst.data.r_scratch.r1 },
-                    .{ .reg = inst.data.r_scratch.scratch_reg },
+                    .{ .reg = inst.data.rr.r1 },
+                    .{ .reg = inst.data.rr.r2 },
                 });
             },
             .pseudo_set_z_and_np_m_sib,
             .pseudo_set_z_and_np_m_rip,
             => {
                 try lower.emit(.none, .setz, &.{
-                    .{ .mem = lower.mem(inst.ops, inst.data.x_scratch.payload) },
+                    .{ .mem = lower.mem(inst.ops, inst.data.rx.payload) },
                 });
                 try lower.emit(.none, .setnp, &.{
-                    .{ .reg = inst.data.x_scratch.scratch_reg },
+                    .{ .reg = inst.data.rx.r1 },
                 });
                 try lower.emit(.none, .@"and", &.{
-                    .{ .mem = lower.mem(inst.ops, inst.data.x_scratch.payload) },
-                    .{ .reg = inst.data.x_scratch.scratch_reg },
+                    .{ .mem = lower.mem(inst.ops, inst.data.rx.payload) },
+                    .{ .reg = inst.data.rx.r1 },
                 });
             },
             .pseudo_set_nz_or_p_r => {
                 try lower.emit(.none, .setnz, &.{
-                    .{ .reg = inst.data.r_scratch.r1 },
+                    .{ .reg = inst.data.rr.r1 },
                 });
                 try lower.emit(.none, .setp, &.{
-                    .{ .reg = inst.data.r_scratch.scratch_reg },
+                    .{ .reg = inst.data.rr.r2 },
                 });
                 try lower.emit(.none, .@"or", &.{
-                    .{ .reg = inst.data.r_scratch.r1 },
-                    .{ .reg = inst.data.r_scratch.scratch_reg },
+                    .{ .reg = inst.data.rr.r1 },
+                    .{ .reg = inst.data.rr.r2 },
                 });
             },
             .pseudo_set_nz_or_p_m_sib,
             .pseudo_set_nz_or_p_m_rip,
             => {
                 try lower.emit(.none, .setnz, &.{
-                    .{ .mem = lower.mem(inst.ops, inst.data.x_scratch.payload) },
+                    .{ .mem = lower.mem(inst.ops, inst.data.rx.payload) },
                 });
                 try lower.emit(.none, .setp, &.{
-                    .{ .reg = inst.data.x_scratch.scratch_reg },
+                    .{ .reg = inst.data.rx.r1 },
                 });
                 try lower.emit(.none, .@"or", &.{
-                    .{ .mem = lower.mem(inst.ops, inst.data.x_scratch.payload) },
-                    .{ .reg = inst.data.x_scratch.scratch_reg },
+                    .{ .mem = lower.mem(inst.ops, inst.data.rx.payload) },
+                    .{ .reg = inst.data.rx.r1 },
                 });
             },
             .pseudo_j_z_and_np_inst => {

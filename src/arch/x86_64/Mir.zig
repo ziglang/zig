@@ -711,27 +711,27 @@ pub const Inst = struct {
         pseudo_cmov_nz_or_p_rm_rip,
         /// Set byte if zero flag set and parity flag not set
         /// Requires a scratch register!
-        /// Uses `r_scratch` payload.
+        /// Uses `rr` payload.
         pseudo_set_z_and_np_r,
         /// Set byte if zero flag set and parity flag not set
         /// Requires a scratch register!
-        /// Uses `x_scratch` payload.
+        /// Uses `rx` payload.
         pseudo_set_z_and_np_m_sib,
         /// Set byte if zero flag set and parity flag not set
         /// Requires a scratch register!
-        /// Uses `x_scratch` payload.
+        /// Uses `rx` payload.
         pseudo_set_z_and_np_m_rip,
         /// Set byte if zero flag not set or parity flag set
         /// Requires a scratch register!
-        /// Uses `r_scratch` payload.
+        /// Uses `rr` payload.
         pseudo_set_nz_or_p_r,
         /// Set byte if zero flag not set or parity flag set
         /// Requires a scratch register!
-        /// Uses `x_scratch` payload.
+        /// Uses `rx` payload.
         pseudo_set_nz_or_p_m_sib,
         /// Set byte if zero flag not set or parity flag set
         /// Requires a scratch register!
-        /// Uses `x_scratch` payload.
+        /// Uses `rx` payload.
         pseudo_set_nz_or_p_m_rip,
         /// Jump if zero flag set and parity flag not set
         /// Uses `inst` payload.
@@ -834,18 +834,6 @@ pub const Inst = struct {
             r1: Register,
             r2: Register,
             i: u8,
-            payload: u32,
-        },
-        /// Register, scratch register
-        r_scratch: struct {
-            fixes: Fixes = ._,
-            r1: Register,
-            scratch_reg: Register,
-        },
-        /// Scratch register, followed by Custom payload found in extra.
-        x_scratch: struct {
-            fixes: Fixes = ._,
-            scratch_reg: Register,
             payload: u32,
         },
         /// Custom payload found in extra.

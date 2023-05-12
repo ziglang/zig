@@ -1079,9 +1079,9 @@ fn asmSetccRegister(self: *Self, reg: Register, cc: bits.Condition) !void {
                 .fixes = Mir.Inst.Fixes.fromCondition(cc),
                 .r1 = reg,
             } },
-            .z_and_np, .nz_or_p => .{ .r_scratch = .{
+            .z_and_np, .nz_or_p => .{ .rr = .{
                 .r1 = reg,
-                .scratch_reg = (try self.register_manager.allocReg(null, gp)).to8(),
+                .r2 = (try self.register_manager.allocReg(null, gp)).to8(),
             } },
         },
     });
@@ -1120,8 +1120,8 @@ fn asmSetccMemory(self: *Self, m: Memory, cc: bits.Condition) !void {
                 .fixes = Mir.Inst.Fixes.fromCondition(cc),
                 .payload = payload,
             } },
-            .z_and_np, .nz_or_p => .{ .x_scratch = .{
-                .scratch_reg = (try self.register_manager.allocReg(null, gp)).to8(),
+            .z_and_np, .nz_or_p => .{ .rx = .{
+                .r1 = (try self.register_manager.allocReg(null, gp)).to8(),
                 .payload = payload,
             } },
         },
