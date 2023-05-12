@@ -817,7 +817,7 @@ fn ElfFile(comptime is_64: bool) type {
             // fill-in sections info:
             //    resolve the name
             //    find if a program segment uses the section
-            //    categorise sections usage (used by program segments, debug datadase, common metadata, symbol table)
+            //    categorize sections usage (used by program segments, debug datadase, common metadata, symbol table)
             for (sections) |*section| {
                 section.segment = for (program_segments) |*seg| {
                     if (sectionWithinSegment(section.section, seg.*)) break seg;
@@ -836,8 +836,8 @@ fn ElfFile(comptime is_64: bool) type {
                         if (std.mem.eql(u8, section.name, ".gnu_debuglink")) break :cat .none;
                         break :cat category_from_program;
                     },
-                    elf.SHT_LOPROC...elf.SHT_HIPROC => .common, // don't strip unkonwn sections
-                    elf.SHT_LOUSER...elf.SHT_HIUSER => .common, // don't strip unkonwn sections
+                    elf.SHT_LOPROC...elf.SHT_HIPROC => .common, // don't strip unknown sections
+                    elf.SHT_LOUSER...elf.SHT_HIUSER => .common, // don't strip unknown sections
                     else => category_from_program,
                 };
             }
@@ -846,7 +846,7 @@ fn ElfFile(comptime is_64: bool) type {
             if (header.shstrndx != elf.SHN_UNDEF)
                 sections[header.shstrndx].category = .common; // string table for the headers
 
-            // recursive dependencies
+            // recursively propagate section categories to their linked sections, so that they are kept together
             var dirty: u1 = 1;
             while (dirty != 0) {
                 dirty = 0;
@@ -856,29 +856,6 @@ fn ElfFile(comptime is_64: bool) type {
                         dirty |= ElfFileHelper.propagateCategory(&sections[section.section.sh_link].category, section.category);
                     if ((section.section.sh_flags & elf.SHF_INFO_LINK) != 0 and section.section.sh_info != elf.SHN_UNDEF)
                         dirty |= ElfFileHelper.propagateCategory(&sections[section.section.sh_info].category, section.category);
-
-                    if (section.payload) |data| {
-                        switch (section.section.sh_type) {
-                            elf.DT_VERSYM => {
-                                assert(section.section.sh_entsize == @sizeOf(Elf_Verdef));
-                                const defs = @ptrCast([*]const Elf_Verdef, data)[0 .. @intCast(usize, section.section.sh_size) / @sizeOf(Elf_Verdef)];
-                                for (defs) |def| {
-                                    if (def.vd_ndx != elf.SHN_UNDEF)
-                                        dirty |= ElfFileHelper.propagateCategory(&sections[def.vd_ndx].category, section.category);
-                                }
-                            },
-                            elf.SHT_SYMTAB, elf.SHT_DYNSYM => {
-                                assert(section.section.sh_entsize == @sizeOf(Elf_Sym));
-                                const syms = @ptrCast([*]const Elf_Sym, data)[0 .. @intCast(usize, section.section.sh_size) / @sizeOf(Elf_Sym)];
-
-                                for (syms) |sym| {
-                                    if (sym.st_shndx != elf.SHN_UNDEF and sym.st_shndx < elf.SHN_LORESERVE)
-                                        dirty |= ElfFileHelper.propagateCategory(&sections[sym.st_shndx].category, section.category);
-                                }
-                            },
-                            else => {},
-                        }
-                    }
                 }
             }
 
@@ -994,6 +971,8 @@ fn ElfFile(comptime is_64: bool) type {
                     // this code only supports when they are in increasing file order.
                     var offset: u64 = eof_offset;
                     for (self.sections[1..]) |section| {
+                        if (section.section.sh_type == elf.SHT_NOBITS)
+                            continue;
                         if (section.section.sh_offset < offset) {
                             fatal("zig objcopy: unsuported ELF file", .{});
                         }
@@ -1025,7 +1004,7 @@ fn ElfFile(comptime is_64: bool) type {
 
                     const addralign = if (src.sh_addralign == 0 or dest.sh_type == elf.SHT_NOBITS) 1 else src.sh_addralign;
                     dest.sh_offset = std.mem.alignForward(Elf_OffSize, eof_offset, addralign);
-                    if (src.sh_offset != dest.sh_offset and section.segment != null and update.action != .empty and dest.sh_type != elf.SHT_NOTE) {
+                    if (src.sh_offset != dest.sh_offset and section.segment != null and update.action != .empty and dest.sh_type != elf.SHT_NOTE and dest.sh_type != elf.SHT_NOBITS) {
                         if (src.sh_offset > dest.sh_offset) {
                             dest.sh_offset = src.sh_offset; // add padding to avoid modifing the program segments
                         } else {
