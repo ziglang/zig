@@ -1,6 +1,6 @@
 const std = @import("std");
 const JsonScanner = @import("./scanner.zig").JsonScanner;
-const jsonReader = @import("./scanner.zig").jsonReader;
+const jsonReader = @import("./scanner.zig").reader;
 const JsonReader = @import("./scanner.zig").JsonReader;
 const Token = @import("./scanner.zig").Token;
 const TokenType = @import("./scanner.zig").TokenType;

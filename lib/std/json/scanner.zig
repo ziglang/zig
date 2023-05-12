@@ -72,10 +72,10 @@ pub fn validate(allocator: Allocator, s: []const u8) Allocator.Error!bool {
 pub const Error = error{ SyntaxError, UnexpectedEndOfInput };
 
 /// Calls JsonReader() with default_buffer_size.
-pub fn jsonReader(allocator: Allocator, reader: anytype) JsonReader(default_buffer_size, @TypeOf(reader)) {
-    return JsonReader(default_buffer_size, @TypeOf(reader)).init(allocator, reader);
+pub fn reader(allocator: Allocator, io_reader: anytype) JsonReader(default_buffer_size, @TypeOf(io_reader)) {
+    return JsonReader(default_buffer_size, @TypeOf(io_reader)).init(allocator, io_reader);
 }
-/// Used by jsonReader().
+/// Used by json.reader().
 pub const default_buffer_size = 0x1000;
 
 /// The tokens emitted by JsonScanner and JsonReader .next*() functions follow this grammar:
@@ -229,10 +229,10 @@ pub fn JsonReader(comptime buffer_size: usize, comptime ReaderType: type) type {
         buffer: [buffer_size]u8 = undefined,
 
         /// The allocator is only used to track [] and {} nesting levels.
-        pub fn init(allocator: Allocator, reader: ReaderType) @This() {
+        pub fn init(allocator: Allocator, io_reader: ReaderType) @This() {
             return .{
                 .scanner = JsonScanner.initStreaming(allocator),
-                .reader = reader,
+                .reader = io_reader,
             };
         }
         pub fn deinit(self: *@This()) void {

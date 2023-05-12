@@ -6,7 +6,7 @@ const parseFromTokenSource = @import("./static.zig").parseFromTokenSource;
 const parseFree = @import("./static.zig").parseFree;
 const ParseOptions = @import("./static.zig").ParseOptions;
 const JsonScanner = @import("./scanner.zig").JsonScanner;
-const jsonReader = @import("./scanner.zig").jsonReader;
+const jsonReader = @import("./scanner.zig").reader;
 
 test "parse" {
     try testing.expectEqual(false, try parseFromSlice(bool, testing.allocator, "false", .{}));

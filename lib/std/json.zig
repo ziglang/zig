@@ -6,7 +6,7 @@ pub const Parser = @import("json/dynamic.zig").Parser;
 
 pub const validate = @import("json/scanner.zig").validate;
 pub const Error = @import("json/scanner.zig").Error;
-pub const jsonReader = @import("json/scanner.zig").jsonReader;
+pub const reader = @import("json/scanner.zig").reader;
 pub const default_buffer_size = @import("json/scanner.zig").default_buffer_size;
 pub const Token = @import("json/scanner.zig").Token;
 pub const TokenType = @import("json/scanner.zig").TokenType;
