@@ -16015,9 +16015,10 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                 const param_info_decl = mod.declPtr(param_info_decl_index);
                 const param_ty = param_info_decl.val.toType();
                 const new_decl = try params_anon_decl.finish(
-                    try Type.Tag.array.create(params_anon_decl.arena(), .{
+                    try mod.arrayType(.{
                         .len = param_vals.len,
-                        .elem_type = try param_ty.copy(params_anon_decl.arena()),
+                        .child = param_ty.ip_index,
+                        .sentinel = .none,
                     }),
                     try Value.Tag.aggregate.create(
                         params_anon_decl.arena(),
@@ -16238,9 +16239,10 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
             // Build our ?[]const Error value
             const errors_val = if (error_field_vals) |vals| v: {
                 const new_decl = try fields_anon_decl.finish(
-                    try Type.Tag.array.create(fields_anon_decl.arena(), .{
+                    try mod.arrayType(.{
                         .len = vals.len,
-                        .elem_type = error_field_ty,
+                        .child = error_field_ty.ip_index,
+                        .sentinel = .none,
                     }),
                     try Value.Tag.aggregate.create(
                         fields_anon_decl.arena(),
@@ -16332,9 +16334,10 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
 
             const fields_val = v: {
                 const new_decl = try fields_anon_decl.finish(
-                    try Type.Tag.array.create(fields_anon_decl.arena(), .{
+                    try mod.arrayType(.{
                         .len = enum_field_vals.len,
-                        .elem_type = enum_field_ty,
+                        .child = enum_field_ty.ip_index,
+                        .sentinel = .none,
                     }),
                     try Value.Tag.aggregate.create(
                         fields_anon_decl.arena(),
@@ -16427,9 +16430,10 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
 
             const fields_val = v: {
                 const new_decl = try fields_anon_decl.finish(
-                    try Type.Tag.array.create(fields_anon_decl.arena(), .{
+                    try mod.arrayType(.{
                         .len = union_field_vals.len,
-                        .elem_type = union_field_ty,
+                        .child = union_field_ty.ip_index,
+                        .sentinel = .none,
                     }),
                     try Value.Tag.aggregate.create(
                         fields_anon_decl.arena(),
@@ -16590,9 +16594,10 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
 
             const fields_val = v: {
                 const new_decl = try fields_anon_decl.finish(
-                    try Type.Tag.array.create(fields_anon_decl.arena(), .{
+                    try mod.arrayType(.{
                         .len = struct_field_vals.len,
-                        .elem_type = struct_field_ty,
+                        .child = struct_field_ty.ip_index,
+                        .sentinel = .none,
                     }),
                     try Value.Tag.aggregate.create(
                         fields_anon_decl.arena(),
@@ -16707,9 +16712,10 @@ fn typeInfoDecls(
     }
 
     const new_decl = try decls_anon_decl.finish(
-        try Type.Tag.array.create(decls_anon_decl.arena(), .{
+        try mod.arrayType(.{
             .len = decl_vals.items.len,
-            .elem_type = declaration_ty,
+            .child = declaration_ty.ip_index,
+            .sentinel = .none,
         }),
         try Value.Tag.aggregate.create(
             decls_anon_decl.arena(),
@@ -31574,10 +31580,6 @@ pub fn resolveTypeRequiresComptime(sema: *Sema, ty: Type) CompileError!bool {
             .inferred_alloc_mut => unreachable,
             .inferred_alloc_const => unreachable,
 
-            .array,
-            .array_sentinel,
-            => return sema.resolveTypeRequiresComptime(ty.childType(mod)),
-
             .pointer => {
                 const child_ty = ty.childType(mod);
                 if (child_ty.zigTypeTag(mod) == .Fn) {
@@ -32862,7 +32864,6 @@ fn generateUnionTagTypeNumbered(
     new_decl.name_fully_qualified = true;
     new_decl.owns_tv = true;
     new_decl.name_fully_qualified = true;
-    errdefer mod.abortAnonDecl(new_decl_index);
 
     const enum_ty = try mod.intern(.{ .enum_type = .{
         .decl = new_decl_index,
@@ -32875,7 +32876,6 @@ fn generateUnionTagTypeNumbered(
         .values = enum_field_vals,
         .tag_mode = .explicit,
     } });
-    errdefer mod.intern_pool.remove(enum_ty);
 
     new_decl.val = enum_ty.toValue();
 
@@ -32924,12 +32924,10 @@ fn generateUnionTagTypeSimple(
         .values = &.{},
         .tag_mode = .auto,
     } });
-    errdefer mod.intern_pool.remove(enum_ty);
 
     const new_decl = mod.declPtr(new_decl_index);
     new_decl.owns_tv = true;
     new_decl.val = enum_ty.toValue();
-    errdefer mod.abortAnonDecl(new_decl_index);
 
     return enum_ty.toType();
 }
@@ -33024,7 +33022,6 @@ pub fn typeHasOnePossibleValue(sema: *Sema, ty: Type) CompileError!?Value {
             .error_set_merged,
             .error_union,
             .function,
-            .array_sentinel,
             .error_set_inferred,
             .anyframe_T,
             .pointer,
@@ -33048,15 +33045,6 @@ pub fn typeHasOnePossibleValue(sema: *Sema, ty: Type) CompileError!?Value {
                     return null;
                 }
                 return Value.empty_struct;
-            },
-
-            .array => {
-                if (ty.arrayLen(mod) == 0)
-                    return Value.initTag(.empty_array);
-                if ((try sema.typeHasOnePossibleValue(ty.childType(mod))) != null) {
-                    return Value.initTag(.the_only_possible_value);
-                }
-                return null;
             },
 
             .inferred_alloc_const => unreachable,
@@ -33630,10 +33618,6 @@ pub fn typeRequiresComptime(sema: *Sema, ty: Type) CompileError!bool {
 
             .inferred_alloc_mut => unreachable,
             .inferred_alloc_const => unreachable,
-
-            .array,
-            .array_sentinel,
-            => return sema.typeRequiresComptime(ty.childType(mod)),
 
             .pointer => {
                 const child_ty = ty.childType(mod);

@@ -44,10 +44,6 @@ pub const Type = struct {
 
                 .function => return .Fn,
 
-                .array,
-                .array_sentinel,
-                => return .Array,
-
                 .pointer,
                 .inferred_alloc_const,
                 .inferred_alloc_mut,
@@ -398,29 +394,6 @@ pub const Type = struct {
                 return true;
             },
 
-            .array,
-            .array_sentinel,
-            => {
-                if (a.zigTypeTag(mod) != b.zigTypeTag(mod)) return false;
-
-                if (a.arrayLen(mod) != b.arrayLen(mod))
-                    return false;
-                const elem_ty = a.childType(mod);
-                if (!elem_ty.eql(b.childType(mod), mod))
-                    return false;
-                const sentinel_a = a.sentinel(mod);
-                const sentinel_b = b.sentinel(mod);
-                if (sentinel_a) |sa| {
-                    if (sentinel_b) |sb| {
-                        return sa.eql(sb, elem_ty, mod);
-                    } else {
-                        return false;
-                    }
-                } else {
-                    return sentinel_b == null;
-                }
-            },
-
             .pointer,
             .inferred_alloc_const,
             .inferred_alloc_mut,
@@ -627,17 +600,6 @@ pub const Type = struct {
                 }
             },
 
-            .array,
-            .array_sentinel,
-            => {
-                std.hash.autoHash(hasher, std.builtin.TypeId.Array);
-
-                const elem_ty = ty.childType(mod);
-                std.hash.autoHash(hasher, ty.arrayLen(mod));
-                hashWithHasher(elem_ty, hasher, mod);
-                hashSentinel(ty.sentinel(mod), elem_ty, hasher, mod);
-            },
-
             .pointer,
             .inferred_alloc_const,
             .inferred_alloc_mut,
@@ -770,21 +732,6 @@ pub const Type = struct {
                 };
             },
 
-            .array => {
-                const payload = self.castTag(.array).?.data;
-                return Tag.array.create(allocator, .{
-                    .len = payload.len,
-                    .elem_type = try payload.elem_type.copy(allocator),
-                });
-            },
-            .array_sentinel => {
-                const payload = self.castTag(.array_sentinel).?.data;
-                return Tag.array_sentinel.create(allocator, .{
-                    .len = payload.len,
-                    .sentinel = try payload.sentinel.copy(allocator),
-                    .elem_type = try payload.elem_type.copy(allocator),
-                });
-            },
             .tuple => {
                 const payload = self.castTag(.tuple).?.data;
                 const types = try allocator.alloc(Type, payload.types.len);
@@ -987,21 +934,6 @@ pub const Type = struct {
                     ty = return_type;
                     continue;
                 },
-                .array => {
-                    const payload = ty.castTag(.array).?.data;
-                    try writer.print("[{d}]", .{payload.len});
-                    ty = payload.elem_type;
-                    continue;
-                },
-                .array_sentinel => {
-                    const payload = ty.castTag(.array_sentinel).?.data;
-                    try writer.print("[{d}:{}]", .{
-                        payload.len,
-                        payload.sentinel.fmtDebug(),
-                    });
-                    ty = payload.elem_type;
-                    continue;
-                },
                 .tuple => {
                     const tuple = ty.castTag(.tuple).?.data;
                     try writer.writeAll("tuple{");
@@ -1198,19 +1130,6 @@ pub const Type = struct {
                     try print(error_union.payload, writer, mod);
                 },
 
-                .array => {
-                    const payload = ty.castTag(.array).?.data;
-                    try writer.print("[{d}]", .{payload.len});
-                    try print(payload.elem_type, writer, mod);
-                },
-                .array_sentinel => {
-                    const payload = ty.castTag(.array_sentinel).?.data;
-                    try writer.print("[{d}:{}]", .{
-                        payload.len,
-                        payload.sentinel.fmtValue(payload.elem_type, mod),
-                    });
-                    try print(payload.elem_type, writer, mod);
-                },
                 .tuple => {
                     const tuple = ty.castTag(.tuple).?.data;
 
@@ -1522,10 +1441,6 @@ pub const Type = struct {
                     }
                 },
 
-                .array => return ty.arrayLen(mod) != 0 and
-                    try ty.childType(mod).hasRuntimeBitsAdvanced(mod, ignore_comptime_only, strat),
-                .array_sentinel => return ty.childType(mod).hasRuntimeBitsAdvanced(mod, ignore_comptime_only, strat),
-
                 .tuple, .anon_struct => {
                     const tuple = ty.tupleFields();
                     for (tuple.types, 0..) |field_ty, i| {
@@ -1722,10 +1637,6 @@ pub const Type = struct {
 
                 .inferred_alloc_mut => unreachable,
                 .inferred_alloc_const => unreachable,
-
-                .array,
-                .array_sentinel,
-                => ty.childType(mod).hasWellDefinedLayout(mod),
 
                 .optional => ty.isPtrLikeOptional(mod),
             },
@@ -2004,8 +1915,6 @@ pub const Type = struct {
                 .error_set,
                 .error_set_merged,
                 => return AbiAlignmentAdvanced{ .scalar = 2 },
-
-                .array, .array_sentinel => return ty.childType(mod).abiAlignmentAdvanced(mod, strat),
 
                 .optional => return abiAlignmentAdvancedOptional(ty, mod, strat),
                 .error_union => return abiAlignmentAdvancedErrorUnion(ty, mod, strat),
@@ -2385,29 +2294,6 @@ pub const Type = struct {
                     return AbiSizeAdvanced{ .scalar = ty.structFieldOffset(field_count, mod) };
                 },
 
-                .array => {
-                    const payload = ty.castTag(.array).?.data;
-                    switch (try payload.elem_type.abiSizeAdvanced(mod, strat)) {
-                        .scalar => |elem_size| return AbiSizeAdvanced{ .scalar = payload.len * elem_size },
-                        .val => switch (strat) {
-                            .sema => unreachable,
-                            .eager => unreachable,
-                            .lazy => |arena| return AbiSizeAdvanced{ .val = try Value.Tag.lazy_size.create(arena, ty) },
-                        },
-                    }
-                },
-                .array_sentinel => {
-                    const payload = ty.castTag(.array_sentinel).?.data;
-                    switch (try payload.elem_type.abiSizeAdvanced(mod, strat)) {
-                        .scalar => |elem_size| return AbiSizeAdvanced{ .scalar = (payload.len + 1) * elem_size },
-                        .val => switch (strat) {
-                            .sema => unreachable,
-                            .eager => unreachable,
-                            .lazy => |arena| return AbiSizeAdvanced{ .val = try Value.Tag.lazy_size.create(arena, ty) },
-                        },
-                    }
-                },
-
                 .anyframe_T => return AbiSizeAdvanced{ .scalar = @divExact(target.ptrBitWidth(), 8) },
 
                 .pointer => switch (ty.castTag(.pointer).?.data.size) {
@@ -2727,24 +2613,6 @@ pub const Type = struct {
                         total += try bitSizeAdvanced(field_ty, mod, opt_sema);
                     }
                     return total;
-                },
-
-                .array => {
-                    const payload = ty.castTag(.array).?.data;
-                    const elem_size = std.math.max(payload.elem_type.abiAlignment(mod), payload.elem_type.abiSize(mod));
-                    if (elem_size == 0 or payload.len == 0)
-                        return @as(u64, 0);
-                    const elem_bit_size = try bitSizeAdvanced(payload.elem_type, mod, opt_sema);
-                    return (payload.len - 1) * 8 * elem_size + elem_bit_size;
-                },
-                .array_sentinel => {
-                    const payload = ty.castTag(.array_sentinel).?.data;
-                    const elem_size = std.math.max(
-                        payload.elem_type.abiAlignment(mod),
-                        payload.elem_type.abiSize(mod),
-                    );
-                    const elem_bit_size = try bitSizeAdvanced(payload.elem_type, mod, opt_sema);
-                    return payload.len * 8 * elem_size + elem_bit_size;
                 },
 
                 .anyframe_T => return target.ptrBitWidth(),
@@ -3188,9 +3056,6 @@ pub const Type = struct {
     pub fn childTypeIp(ty: Type, ip: InternPool) Type {
         return switch (ty.ip_index) {
             .none => switch (ty.tag()) {
-                .array => ty.castTag(.array).?.data.elem_type,
-                .array_sentinel => ty.castTag(.array_sentinel).?.data.elem_type,
-
                 .pointer => ty.castTag(.pointer).?.data.pointee_type,
 
                 else => unreachable,
@@ -3211,9 +3076,6 @@ pub const Type = struct {
     pub fn elemType2(ty: Type, mod: *const Module) Type {
         return switch (ty.ip_index) {
             .none => switch (ty.tag()) {
-                .array => ty.castTag(.array).?.data.elem_type,
-                .array_sentinel => ty.castTag(.array_sentinel).?.data.elem_type,
-
                 .pointer => {
                     const info = ty.castTag(.pointer).?.data;
                     const child_ty = info.pointee_type;
@@ -3483,8 +3345,6 @@ pub const Type = struct {
         return switch (ty.ip_index) {
             .empty_struct_type => 0,
             .none => switch (ty.tag()) {
-                .array => ty.castTag(.array).?.data.len,
-                .array_sentinel => ty.castTag(.array_sentinel).?.data.len,
                 .tuple => ty.castTag(.tuple).?.data.types.len,
                 .anon_struct => ty.castTag(.anon_struct).?.data.types.len,
 
@@ -3524,12 +3384,9 @@ pub const Type = struct {
     pub fn sentinel(ty: Type, mod: *const Module) ?Value {
         return switch (ty.ip_index) {
             .none => switch (ty.tag()) {
-                .array,
-                .tuple,
-                => null,
+                .tuple => null,
 
                 .pointer => ty.castTag(.pointer).?.data.sentinel,
-                .array_sentinel => ty.castTag(.array_sentinel).?.data.sentinel,
 
                 else => unreachable,
             },
@@ -3832,7 +3689,6 @@ pub const Type = struct {
                 .error_set,
                 .error_set_merged,
                 .function,
-                .array_sentinel,
                 .error_set_inferred,
                 .anyframe_T,
                 .pointer,
@@ -3856,14 +3712,6 @@ pub const Type = struct {
                         return null;
                     }
                     return Value.empty_struct;
-                },
-
-                .array => {
-                    if (ty.arrayLen(mod) == 0)
-                        return Value.initTag(.empty_array);
-                    if ((try ty.childType(mod).onePossibleValue(mod)) != null)
-                        return Value.initTag(.the_only_possible_value);
-                    return null;
                 },
 
                 .inferred_alloc_const => unreachable,
@@ -4033,10 +3881,6 @@ pub const Type = struct {
 
                 .inferred_alloc_mut => unreachable,
                 .inferred_alloc_const => unreachable,
-
-                .array,
-                .array_sentinel,
-                => return ty.childType(mod).comptimeOnly(mod),
 
                 .pointer => {
                     const child_ty = ty.childType(mod);
@@ -4804,8 +4648,6 @@ pub const Type = struct {
         inferred_alloc_const, // See last_no_payload_tag below.
         // After this, the tag requires a payload.
 
-        array,
-        array_sentinel,
         /// Possible Value tags for this: @"struct"
         tuple,
         /// Possible Value tags for this: @"struct"
@@ -4838,8 +4680,6 @@ pub const Type = struct {
                 .error_set_inferred => Payload.ErrorSetInferred,
                 .error_set_merged => Payload.ErrorSetMerged,
 
-                .array => Payload.Array,
-                .array_sentinel => Payload.ArraySentinel,
                 .pointer => Payload.Pointer,
                 .function => Payload.Function,
                 .error_union => Payload.ErrorUnion,
@@ -4963,25 +4803,6 @@ pub const Type = struct {
         pub const Len = struct {
             base: Payload,
             data: u64,
-        };
-
-        pub const Array = struct {
-            base: Payload,
-            data: struct {
-                len: u64,
-                elem_type: Type,
-            },
-        };
-
-        pub const ArraySentinel = struct {
-            pub const base_tag = Tag.array_sentinel;
-
-            base: Payload = Payload{ .tag = base_tag },
-            data: struct {
-                len: u64,
-                sentinel: Value,
-                elem_type: Type,
-            },
         };
 
         pub const ElemType = struct {
@@ -5269,35 +5090,14 @@ pub const Type = struct {
         elem_type: Type,
         mod: *Module,
     ) Allocator.Error!Type {
-        if (elem_type.ip_index != .none) {
-            if (sent) |s| {
-                if (s.ip_index != .none) {
-                    return mod.arrayType(.{
-                        .len = len,
-                        .child = elem_type.ip_index,
-                        .sentinel = s.ip_index,
-                    });
-                }
-            } else {
-                return mod.arrayType(.{
-                    .len = len,
-                    .child = elem_type.ip_index,
-                    .sentinel = .none,
-                });
-            }
-        }
+        // TODO: update callsites of this function to directly call mod.arrayType
+        // and then delete this function.
+        _ = arena;
 
-        if (sent) |some| {
-            return Tag.array_sentinel.create(arena, .{
-                .len = len,
-                .sentinel = some,
-                .elem_type = elem_type,
-            });
-        }
-
-        return Tag.array.create(arena, .{
+        return mod.arrayType(.{
             .len = len,
-            .elem_type = elem_type,
+            .child = elem_type.ip_index,
+            .sentinel = if (sent) |s| s.ip_index else .none,
         });
     }
 

@@ -2467,11 +2467,11 @@ pub fn genErrDecls(o: *Object) !void {
         try writer.writeAll(";\n");
     }
 
-    var name_array_ty_pl = Type.Payload.Array{ .base = .{ .tag = .array }, .data = .{
+    const name_array_ty = try mod.arrayType(.{
         .len = mod.error_name_list.items.len,
-        .elem_type = Type.const_slice_u8_sentinel_0,
-    } };
-    const name_array_ty = Type.initPayload(&name_array_ty_pl.base);
+        .child = .const_slice_u8_sentinel_0_type,
+        .sentinel = .zero_u8,
+    });
 
     try writer.writeAll("static ");
     try o.dg.renderTypeAndName(writer, name_array_ty, .{ .identifier = array_identifier }, Const, 0, .complete);
