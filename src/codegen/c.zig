@@ -1288,27 +1288,12 @@ pub const DeclGen = struct {
                 switch (val.tag()) {
                     .enum_field_index => {
                         const field_index = val.castTag(.enum_field_index).?.data;
-                        switch (ty.tag()) {
-                            .enum_simple => return writer.print("{d}", .{field_index}),
-                            .enum_full, .enum_nonexhaustive => {
-                                const enum_full = ty.cast(Type.Payload.EnumFull).?.data;
-                                if (enum_full.values.count() != 0) {
-                                    const tag_val = enum_full.values.keys()[field_index];
-                                    return dg.renderValue(writer, enum_full.tag_ty, tag_val, location);
-                                } else {
-                                    return writer.print("{d}", .{field_index});
-                                }
-                            },
-                            .enum_numbered => {
-                                const enum_obj = ty.castTag(.enum_numbered).?.data;
-                                if (enum_obj.values.count() != 0) {
-                                    const tag_val = enum_obj.values.keys()[field_index];
-                                    return dg.renderValue(writer, enum_obj.tag_ty, tag_val, location);
-                                } else {
-                                    return writer.print("{d}", .{field_index});
-                                }
-                            },
-                            else => unreachable,
+                        const enum_type = mod.intern_pool.indexToKey(ty.ip_index).enum_type;
+                        if (enum_type.values.len != 0) {
+                            const tag_val = enum_type.values[field_index];
+                            return dg.renderValue(writer, enum_type.tag_ty.toType(), tag_val.toValue(), location);
+                        } else {
+                            return writer.print("{d}", .{field_index});
                         }
                     },
                     else => {
@@ -2539,7 +2524,8 @@ pub fn genLazyFn(o: *Object, lazy_fn: LazyFnMap.Entry) !void {
             try w.writeByte('(');
             try o.dg.renderTypeAndName(w, enum_ty, .{ .identifier = "tag" }, Const, 0, .complete);
             try w.writeAll(") {\n switch (tag) {\n");
-            for (enum_ty.enumFields().keys(), 0..) |name, index| {
+            for (enum_ty.enumFields(mod), 0..) |name_ip, index| {
+                const name = mod.intern_pool.stringToSlice(name_ip);
                 var tag_pl: Value.Payload.U32 = .{
                     .base = .{ .tag = .enum_field_index },
                     .data = @intCast(u32, index),
@@ -6930,7 +6916,7 @@ fn airUnionInit(f: *Function, inst: Air.Inst.Index) !CValue {
     const field: CValue = if (union_ty.unionTagTypeSafety(mod)) |tag_ty| field: {
         const layout = union_ty.unionGetLayout(mod);
         if (layout.tag_size != 0) {
-            const field_index = tag_ty.enumFieldIndex(field_name).?;
+            const field_index = tag_ty.enumFieldIndex(field_name, mod).?;
 
             var tag_pl: Value.Payload.U32 = .{
                 .base = .{ .tag = .enum_field_index },

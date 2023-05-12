@@ -156,7 +156,8 @@ pub fn generateLazySymbol(
         return Result.ok;
     } else if (lazy_sym.ty.zigTypeTag(mod) == .Enum) {
         alignment.* = 1;
-        for (lazy_sym.ty.enumFields().keys()) |tag_name| {
+        for (lazy_sym.ty.enumFields(mod)) |tag_name_ip| {
+            const tag_name = mod.intern_pool.stringToSlice(tag_name_ip);
             try code.ensureUnusedCapacity(tag_name.len + 1);
             code.appendSliceAssumeCapacity(tag_name);
             code.appendAssumeCapacity(0);
@@ -1229,26 +1230,15 @@ pub fn genTypedValue(
         },
         .Enum => {
             if (typed_value.val.castTag(.enum_field_index)) |field_index| {
-                switch (typed_value.ty.tag()) {
-                    .enum_simple => {
-                        return GenResult.mcv(.{ .immediate = field_index.data });
-                    },
-                    .enum_numbered, .enum_full, .enum_nonexhaustive => {
-                        const enum_values = if (typed_value.ty.castTag(.enum_numbered)) |pl|
-                            pl.data.values
-                        else
-                            typed_value.ty.cast(Type.Payload.EnumFull).?.data.values;
-                        if (enum_values.count() != 0) {
-                            const tag_val = enum_values.keys()[field_index.data];
-                            return genTypedValue(bin_file, src_loc, .{
-                                .ty = try typed_value.ty.intTagType(mod),
-                                .val = tag_val,
-                            }, owner_decl_index);
-                        } else {
-                            return GenResult.mcv(.{ .immediate = field_index.data });
-                        }
-                    },
-                    else => unreachable,
+                const enum_type = mod.intern_pool.indexToKey(typed_value.ty.ip_index).enum_type;
+                if (enum_type.values.len != 0) {
+                    const tag_val = enum_type.values[field_index.data];
+                    return genTypedValue(bin_file, src_loc, .{
+                        .ty = enum_type.tag_ty.toType(),
+                        .val = tag_val.toValue(),
+                    }, owner_decl_index);
+                } else {
+                    return GenResult.mcv(.{ .immediate = field_index.data });
                 }
             } else {
                 const int_tag_ty = try typed_value.ty.intTagType(mod);

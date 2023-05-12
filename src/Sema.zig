@@ -2096,7 +2096,7 @@ fn failWithInvalidComptimeFieldStore(sema: *Sema, block: *Block, init_src: LazyS
         errdefer msg.destroy(sema.gpa);
 
         const struct_ty = mod.typeToStruct(container_ty) orelse break :msg msg;
-        const default_value_src = struct_ty.fieldSrcLoc(mod, .{
+        const default_value_src = mod.fieldSrcLoc(struct_ty.owner_decl, .{
             .index = field_index,
             .range = .value,
         });
@@ -2875,50 +2875,28 @@ fn zirEnumDecl(
         break :blk decls_len;
     } else 0;
 
+    // Because these three things each reference each other, `undefined`
+    // placeholders are used before being set after the enum type gains an
+    // InternPool index.
+
     var done = false;
-
-    var new_decl_arena = std.heap.ArenaAllocator.init(gpa);
-    errdefer if (!done) new_decl_arena.deinit();
-    const new_decl_arena_allocator = new_decl_arena.allocator();
-
-    const enum_obj = try new_decl_arena_allocator.create(Module.EnumFull);
-    const enum_ty_payload = try new_decl_arena_allocator.create(Type.Payload.EnumFull);
-    enum_ty_payload.* = .{
-        .base = .{ .tag = if (small.nonexhaustive) .enum_nonexhaustive else .enum_full },
-        .data = enum_obj,
-    };
-    const enum_ty = Type.initPayload(&enum_ty_payload.base);
-    const enum_val = try Value.Tag.ty.create(new_decl_arena_allocator, enum_ty);
     const new_decl_index = try sema.createAnonymousDeclTypeNamed(block, src, .{
         .ty = Type.type,
-        .val = enum_val,
+        .val = undefined,
     }, small.name_strategy, "enum", inst);
     const new_decl = mod.declPtr(new_decl_index);
     new_decl.owns_tv = true;
     errdefer if (!done) mod.abortAnonDecl(new_decl_index);
 
-    enum_obj.* = .{
-        .owner_decl = new_decl_index,
-        .tag_ty = Type.null,
-        .tag_ty_inferred = true,
-        .fields = .{},
-        .values = .{},
-        .namespace = try mod.createNamespace(.{
-            .parent = block.namespace.toOptional(),
-            .ty = enum_ty,
-            .file_scope = block.getFileScope(mod),
-        }),
-    };
+    const new_namespace_index = try mod.createNamespace(.{
+        .parent = block.namespace.toOptional(),
+        .ty = undefined,
+        .file_scope = block.getFileScope(mod),
+    });
+    const new_namespace = mod.namespacePtr(new_namespace_index);
+    errdefer if (!done) mod.destroyNamespace(new_namespace_index);
 
-    try new_decl.finalizeNewArena(&new_decl_arena);
-    const decl_val = try sema.analyzeDeclVal(block, src, new_decl_index);
-    done = true;
-
-    var decl_arena: std.heap.ArenaAllocator = undefined;
-    const decl_arena_allocator = new_decl.value_arena.?.acquire(gpa, &decl_arena);
-    defer new_decl.value_arena.?.release(&decl_arena);
-
-    extra_index = try mod.scanNamespace(enum_obj.namespace, extra_index, decls_len, new_decl);
+    extra_index = try mod.scanNamespace(new_namespace_index, extra_index, decls_len, new_decl);
 
     const body = sema.code.extra[extra_index..][0..body_len];
     extra_index += body.len;
@@ -2927,7 +2905,31 @@ fn zirEnumDecl(
     const body_end = extra_index;
     extra_index += bit_bags_count;
 
-    {
+    const any_values = for (sema.code.extra[body_end..][0..bit_bags_count]) |bag| {
+        if (bag != 0) break true;
+    } else false;
+
+    const incomplete_enum = try mod.intern_pool.getIncompleteEnum(gpa, .{
+        .decl = new_decl_index,
+        .namespace = new_namespace_index.toOptional(),
+        .fields_len = fields_len,
+        .has_values = any_values,
+        .tag_mode = if (small.nonexhaustive)
+            .nonexhaustive
+        else if (tag_type_ref == .none)
+            .auto
+        else
+            .explicit,
+    });
+    errdefer if (!done) mod.intern_pool.remove(incomplete_enum.index);
+
+    new_decl.val = incomplete_enum.index.toValue();
+    new_namespace.ty = incomplete_enum.index.toType();
+
+    const decl_val = try sema.analyzeDeclVal(block, src, new_decl_index);
+    done = true;
+
+    const int_tag_ty = ty: {
         // We create a block for the field type instructions because they
         // may need to reference Decls from inside the enum namespace.
         // Within the field type, default value, and alignment expressions, the "owner decl"
@@ -2957,7 +2959,7 @@ fn zirEnumDecl(
             .parent = null,
             .sema = sema,
             .src_decl = new_decl_index,
-            .namespace = enum_obj.namespace,
+            .namespace = new_namespace_index,
             .wip_capture_scope = wip_captures.scope,
             .instructions = .{},
             .inlining = null,
@@ -2976,33 +2978,20 @@ fn zirEnumDecl(
             if (ty.zigTypeTag(mod) != .Int and ty.zigTypeTag(mod) != .ComptimeInt) {
                 return sema.fail(block, tag_ty_src, "expected integer tag type, found '{}'", .{ty.fmt(sema.mod)});
             }
-            enum_obj.tag_ty = try ty.copy(decl_arena_allocator);
-            enum_obj.tag_ty_inferred = false;
+            incomplete_enum.setTagType(&mod.intern_pool, ty.ip_index);
+            break :ty ty;
         } else if (fields_len == 0) {
-            enum_obj.tag_ty = try mod.intType(.unsigned, 0);
-            enum_obj.tag_ty_inferred = true;
+            break :ty try mod.intType(.unsigned, 0);
         } else {
             const bits = std.math.log2_int_ceil(usize, fields_len);
-            enum_obj.tag_ty = try mod.intType(.unsigned, bits);
-            enum_obj.tag_ty_inferred = true;
+            break :ty try mod.intType(.unsigned, bits);
         }
-    }
+    };
 
-    if (small.nonexhaustive and enum_obj.tag_ty.zigTypeTag(mod) != .ComptimeInt) {
-        if (fields_len > 1 and std.math.log2_int(u64, fields_len) == enum_obj.tag_ty.bitSize(mod)) {
+    if (small.nonexhaustive and int_tag_ty.ip_index != .comptime_int_type) {
+        if (fields_len > 1 and std.math.log2_int(u64, fields_len) == int_tag_ty.bitSize(mod)) {
             return sema.fail(block, src, "non-exhaustive enum specifies every value", .{});
         }
-    }
-
-    try enum_obj.fields.ensureTotalCapacity(decl_arena_allocator, fields_len);
-    const any_values = for (sema.code.extra[body_end..][0..bit_bags_count]) |bag| {
-        if (bag != 0) break true;
-    } else false;
-    if (any_values) {
-        try enum_obj.values.ensureTotalCapacityContext(decl_arena_allocator, fields_len, .{
-            .ty = enum_obj.tag_ty,
-            .mod = mod,
-        });
     }
 
     var bit_bag_index: usize = body_end;
@@ -3023,15 +3012,12 @@ fn zirEnumDecl(
         // doc comment
         extra_index += 1;
 
-        // This string needs to outlive the ZIR code.
-        const field_name = try decl_arena_allocator.dupe(u8, field_name_zir);
-
-        const gop_field = enum_obj.fields.getOrPutAssumeCapacity(field_name);
-        if (gop_field.found_existing) {
-            const field_src = enum_obj.fieldSrcLoc(sema.mod, .{ .index = field_i }).lazy;
-            const other_field_src = enum_obj.fieldSrcLoc(sema.mod, .{ .index = gop_field.index }).lazy;
+        const field_name = try mod.intern_pool.getOrPutString(gpa, field_name_zir);
+        if (try incomplete_enum.addFieldName(&mod.intern_pool, gpa, field_name)) |other_index| {
+            const field_src = mod.fieldSrcLoc(new_decl_index, .{ .index = field_i }).lazy;
+            const other_field_src = mod.fieldSrcLoc(new_decl_index, .{ .index = other_index }).lazy;
             const msg = msg: {
-                const msg = try sema.errMsg(block, field_src, "duplicate enum field '{s}'", .{field_name});
+                const msg = try sema.errMsg(block, field_src, "duplicate enum field '{s}'", .{field_name_zir});
                 errdefer msg.destroy(gpa);
                 try sema.errNote(block, other_field_src, msg, "other field here", .{});
                 break :msg msg;
@@ -3045,7 +3031,7 @@ fn zirEnumDecl(
             const tag_inst = try sema.resolveInst(tag_val_ref);
             const tag_val = sema.resolveConstValue(block, .unneeded, tag_inst, "") catch |err| switch (err) {
                 error.NeededSourceLocation => {
-                    const value_src = enum_obj.fieldSrcLoc(sema.mod, .{
+                    const value_src = mod.fieldSrcLoc(new_decl_index, .{
                         .index = field_i,
                         .range = .value,
                     }).lazy;
@@ -3055,19 +3041,14 @@ fn zirEnumDecl(
                 else => |e| return e,
             };
             last_tag_val = tag_val;
-            const copied_tag_val = try tag_val.copy(decl_arena_allocator);
-            const gop_val = enum_obj.values.getOrPutAssumeCapacityContext(copied_tag_val, .{
-                .ty = enum_obj.tag_ty,
-                .mod = mod,
-            });
-            if (gop_val.found_existing) {
-                const value_src = enum_obj.fieldSrcLoc(sema.mod, .{
+            if (try incomplete_enum.addFieldValue(&mod.intern_pool, gpa, tag_val.ip_index)) |other_index| {
+                const value_src = mod.fieldSrcLoc(new_decl_index, .{
                     .index = field_i,
                     .range = .value,
                 }).lazy;
-                const other_field_src = enum_obj.fieldSrcLoc(sema.mod, .{ .index = gop_val.index }).lazy;
+                const other_field_src = mod.fieldSrcLoc(new_decl_index, .{ .index = other_index }).lazy;
                 const msg = msg: {
-                    const msg = try sema.errMsg(block, value_src, "enum tag value {} already taken", .{tag_val.fmtValue(enum_obj.tag_ty, sema.mod)});
+                    const msg = try sema.errMsg(block, value_src, "enum tag value {} already taken", .{tag_val.fmtValue(int_tag_ty, sema.mod)});
                     errdefer msg.destroy(gpa);
                     try sema.errNote(block, other_field_src, msg, "other occurrence here", .{});
                     break :msg msg;
@@ -3076,20 +3057,15 @@ fn zirEnumDecl(
             }
         } else if (any_values) {
             const tag_val = if (last_tag_val) |val|
-                try sema.intAdd(val, try mod.intValue(enum_obj.tag_ty, 1), enum_obj.tag_ty)
+                try sema.intAdd(val, try mod.intValue(int_tag_ty, 1), int_tag_ty)
             else
-                try mod.intValue(enum_obj.tag_ty, 0);
+                try mod.intValue(int_tag_ty, 0);
             last_tag_val = tag_val;
-            const copied_tag_val = try tag_val.copy(decl_arena_allocator);
-            const gop_val = enum_obj.values.getOrPutAssumeCapacityContext(copied_tag_val, .{
-                .ty = enum_obj.tag_ty,
-                .mod = mod,
-            });
-            if (gop_val.found_existing) {
-                const field_src = enum_obj.fieldSrcLoc(sema.mod, .{ .index = field_i }).lazy;
-                const other_field_src = enum_obj.fieldSrcLoc(sema.mod, .{ .index = gop_val.index }).lazy;
+            if (try incomplete_enum.addFieldValue(&mod.intern_pool, gpa, tag_val.ip_index)) |other_index| {
+                const field_src = mod.fieldSrcLoc(new_decl_index, .{ .index = field_i }).lazy;
+                const other_field_src = mod.fieldSrcLoc(new_decl_index, .{ .index = other_index }).lazy;
                 const msg = msg: {
-                    const msg = try sema.errMsg(block, field_src, "enum tag value {} already taken", .{tag_val.fmtValue(enum_obj.tag_ty, sema.mod)});
+                    const msg = try sema.errMsg(block, field_src, "enum tag value {} already taken", .{tag_val.fmtValue(int_tag_ty, sema.mod)});
                     errdefer msg.destroy(gpa);
                     try sema.errNote(block, other_field_src, msg, "other occurrence here", .{});
                     break :msg msg;
@@ -3097,16 +3073,16 @@ fn zirEnumDecl(
                 return sema.failWithOwnedErrorMsg(msg);
             }
         } else {
-            last_tag_val = try mod.intValue(enum_obj.tag_ty, field_i);
+            last_tag_val = try mod.intValue(int_tag_ty, field_i);
         }
 
-        if (!(try sema.intFitsInType(last_tag_val.?, enum_obj.tag_ty, null))) {
-            const value_src = enum_obj.fieldSrcLoc(sema.mod, .{
+        if (!(try sema.intFitsInType(last_tag_val.?, int_tag_ty, null))) {
+            const value_src = mod.fieldSrcLoc(new_decl_index, .{
                 .index = field_i,
                 .range = if (has_tag_value) .value else .name,
             }).lazy;
             const msg = try sema.errMsg(block, value_src, "enumeration value '{}' too large for type '{}'", .{
-                last_tag_val.?.fmtValue(enum_obj.tag_ty, mod), enum_obj.tag_ty.fmt(mod),
+                last_tag_val.?.fmtValue(int_tag_ty, mod), int_tag_ty.fmt(mod),
             });
             return sema.failWithOwnedErrorMsg(msg);
         }
@@ -4356,7 +4332,7 @@ fn validateUnionInit(
     }
 
     const tag_ty = union_ty.unionTagTypeHypothetical(mod);
-    const enum_field_index = @intCast(u32, tag_ty.enumFieldIndex(field_name).?);
+    const enum_field_index = @intCast(u32, tag_ty.enumFieldIndex(field_name, mod).?);
     const tag_val = try Value.Tag.enum_field_index.create(sema.arena, enum_field_index);
 
     if (init_val) |val| {
@@ -8334,7 +8310,7 @@ fn zirIntToEnum(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!A
     _ = try sema.checkIntType(block, operand_src, sema.typeOf(operand));
 
     if (try sema.resolveMaybeUndefVal(operand)) |int_val| {
-        if (dest_ty.isNonexhaustiveEnum()) {
+        if (dest_ty.isNonexhaustiveEnum(mod)) {
             const int_tag_ty = try dest_ty.intTagType(mod);
             if (try sema.intFitsInType(int_val, int_tag_ty, null)) {
                 return sema.addConstant(dest_ty, int_val);
@@ -8383,7 +8359,7 @@ fn zirIntToEnum(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!A
 
     try sema.requireRuntimeBlock(block, src, operand_src);
     const result = try block.addTyOp(.intcast, dest_ty, operand);
-    if (block.wantSafety() and !dest_ty.isNonexhaustiveEnum() and
+    if (block.wantSafety() and !dest_ty.isNonexhaustiveEnum(mod) and
         sema.mod.backendSupportsFeature(.is_named_enum_value))
     {
         const ok = try block.addUnOp(.is_named_enum_value, result);
@@ -10518,7 +10494,7 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
     var else_error_ty: ?Type = null;
 
     // Validate usage of '_' prongs.
-    if (special_prong == .under and (!operand_ty.isNonexhaustiveEnum() or union_originally)) {
+    if (special_prong == .under and (!operand_ty.isNonexhaustiveEnum(mod) or union_originally)) {
         const msg = msg: {
             const msg = try sema.errMsg(
                 block,
@@ -10543,8 +10519,8 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
     switch (operand_ty.zigTypeTag(mod)) {
         .Union => unreachable, // handled in zirSwitchCond
         .Enum => {
-            seen_enum_fields = try gpa.alloc(?Module.SwitchProngSrc, operand_ty.enumFieldCount());
-            empty_enum = seen_enum_fields.len == 0 and !operand_ty.isNonexhaustiveEnum();
+            seen_enum_fields = try gpa.alloc(?Module.SwitchProngSrc, operand_ty.enumFieldCount(mod));
+            empty_enum = seen_enum_fields.len == 0 and !operand_ty.isNonexhaustiveEnum(mod);
             @memset(seen_enum_fields, null);
             // `range_set` is used for non-exhaustive enum values that do not correspond to any tags.
 
@@ -10599,7 +10575,7 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
             } else true;
 
             if (special_prong == .@"else") {
-                if (all_tags_handled and !operand_ty.isNonexhaustiveEnum()) return sema.fail(
+                if (all_tags_handled and !operand_ty.isNonexhaustiveEnum(mod)) return sema.fail(
                     block,
                     special_prong_src,
                     "unreachable else prong; all cases already handled",
@@ -10617,7 +10593,7 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
                     for (seen_enum_fields, 0..) |seen_src, i| {
                         if (seen_src != null) continue;
 
-                        const field_name = operand_ty.enumFieldName(i);
+                        const field_name = operand_ty.enumFieldName(i, mod);
                         try sema.addFieldErrNote(
                             operand_ty,
                             i,
@@ -10635,7 +10611,7 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
                     break :msg msg;
                 };
                 return sema.failWithOwnedErrorMsg(msg);
-            } else if (special_prong == .none and operand_ty.isNonexhaustiveEnum() and !union_originally) {
+            } else if (special_prong == .none and operand_ty.isNonexhaustiveEnum(mod) and !union_originally) {
                 return sema.fail(
                     block,
                     src,
@@ -11159,7 +11135,7 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
             return Air.Inst.Ref.unreachable_value;
         }
         if (mod.backendSupportsFeature(.is_named_enum_value) and block.wantSafety() and operand_ty.zigTypeTag(mod) == .Enum and
-            (!operand_ty.isNonexhaustiveEnum() or union_originally))
+            (!operand_ty.isNonexhaustiveEnum(mod) or union_originally))
         {
             try sema.zirDbgStmt(block, cond_dbg_node_index);
             const ok = try block.addUnOp(.is_named_enum_value, operand);
@@ -11489,7 +11465,7 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
         var emit_bb = false;
         if (special.is_inline) switch (operand_ty.zigTypeTag(mod)) {
             .Enum => {
-                if (operand_ty.isNonexhaustiveEnum() and !union_originally) {
+                if (operand_ty.isNonexhaustiveEnum(mod) and !union_originally) {
                     return sema.fail(block, special_prong_src, "cannot enumerate values of type '{}' for 'inline else'", .{
                         operand_ty.fmt(mod),
                     });
@@ -11629,7 +11605,7 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
         case_block.inline_case_capture = .none;
 
         if (mod.backendSupportsFeature(.is_named_enum_value) and special.body.len != 0 and block.wantSafety() and
-            operand_ty.zigTypeTag(mod) == .Enum and (!operand_ty.isNonexhaustiveEnum() or union_originally))
+            operand_ty.zigTypeTag(mod) == .Enum and (!operand_ty.isNonexhaustiveEnum(mod) or union_originally))
         {
             try sema.zirDbgStmt(&case_block, cond_dbg_node_index);
             const ok = try case_block.addUnOp(.is_named_enum_value, operand);
@@ -12081,7 +12057,7 @@ fn zirHasField(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
         break :hf switch (ty.zigTypeTag(mod)) {
             .Struct => ty.structFields(mod).contains(field_name),
             .Union => ty.unionFields(mod).contains(field_name),
-            .Enum => ty.enumFields().contains(field_name),
+            .Enum => ty.enumFieldIndex(field_name, mod) != null,
             .Array => mem.eql(u8, field_name, "len"),
             else => return sema.fail(block, ty_src, "type '{}' does not support '@hasField'", .{
                 ty.fmt(sema.mod),
@@ -16300,9 +16276,9 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
         },
         .Enum => {
             // TODO: look into memoizing this result.
-            const int_tag_ty = try ty.intTagType(mod);
+            const enum_type = mod.intern_pool.indexToKey(ty.ip_index).enum_type;
 
-            const is_exhaustive = Value.makeBool(!ty.isNonexhaustiveEnum());
+            const is_exhaustive = Value.makeBool(enum_type.tag_mode != .nonexhaustive);
 
             var fields_anon_decl = try block.startAnonDecl();
             defer fields_anon_decl.deinit();
@@ -16320,25 +16296,17 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                 break :t try enum_field_ty_decl.val.toType().copy(fields_anon_decl.arena());
             };
 
-            const enum_fields = ty.enumFields();
-            const enum_field_vals = try fields_anon_decl.arena().alloc(Value, enum_fields.count());
+            const enum_field_vals = try fields_anon_decl.arena().alloc(Value, enum_type.names.len);
 
             for (enum_field_vals, 0..) |*field_val, i| {
-                var tag_val_payload: Value.Payload.U32 = .{
-                    .base = .{ .tag = .enum_field_index },
-                    .data = @intCast(u32, i),
-                };
-                const tag_val = Value.initPayload(&tag_val_payload.base);
-
-                const int_val = try tag_val.enumToInt(ty, mod);
-
-                const name = enum_fields.keys()[i];
+                const name_ip = enum_type.names[i];
+                const name = mod.intern_pool.stringToSlice(name_ip);
                 const name_val = v: {
                     var anon_decl = try block.startAnonDecl();
                     defer anon_decl.deinit();
                     const bytes = try anon_decl.arena().dupeZ(u8, name);
                     const new_decl = try anon_decl.finish(
-                        try Type.array(anon_decl.arena(), bytes.len, try mod.intValue(Type.u8, 0), Type.u8, mod),
+                        try Type.array(anon_decl.arena(), bytes.len, Value.zero_u8, Type.u8, mod),
                         try Value.Tag.bytes.create(anon_decl.arena(), bytes[0 .. bytes.len + 1]),
                         0, // default alignment
                     );
@@ -16350,7 +16318,7 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                     // name: []const u8,
                     name_val,
                     // value: comptime_int,
-                    int_val,
+                    try mod.intValue(Type.comptime_int, i),
                 };
                 field_val.* = try Value.Tag.aggregate.create(fields_anon_decl.arena(), enum_field_fields);
             }
@@ -16370,12 +16338,12 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                 break :v try Value.Tag.decl_ref.create(sema.arena, new_decl);
             };
 
-            const decls_val = try sema.typeInfoDecls(block, src, type_info_ty, ty.getNamespace(mod));
+            const decls_val = try sema.typeInfoDecls(block, src, type_info_ty, enum_type.namespace);
 
             const field_values = try sema.arena.create([4]Value);
             field_values.* = .{
                 // tag_type: type,
-                try Value.Tag.ty.create(sema.arena, int_tag_ty),
+                enum_type.tag_ty.toValue(),
                 // fields: []const EnumField,
                 fields_val,
                 // decls: []const Declaration,
@@ -16468,7 +16436,7 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                 });
             };
 
-            const decls_val = try sema.typeInfoDecls(block, src, type_info_ty, union_ty.getNamespace(mod));
+            const decls_val = try sema.typeInfoDecls(block, src, type_info_ty, union_ty.getNamespaceIndex(mod));
 
             const enum_tag_ty_val = if (union_ty.unionTagType(mod)) |tag_ty| v: {
                 const ty_val = try Value.Tag.ty.create(sema.arena, tag_ty);
@@ -16631,7 +16599,7 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                 });
             };
 
-            const decls_val = try sema.typeInfoDecls(block, src, type_info_ty, struct_ty.getNamespace(mod));
+            const decls_val = try sema.typeInfoDecls(block, src, type_info_ty, struct_ty.getNamespaceIndex(mod));
 
             const backing_integer_val = blk: {
                 if (layout == .Packed) {
@@ -16674,7 +16642,7 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
             // TODO: look into memoizing this result.
 
             const opaque_ty = try sema.resolveTypeFields(ty);
-            const decls_val = try sema.typeInfoDecls(block, src, type_info_ty, opaque_ty.getNamespace(mod));
+            const decls_val = try sema.typeInfoDecls(block, src, type_info_ty, opaque_ty.getNamespaceIndex(mod));
 
             const field_values = try sema.arena.create([1]Value);
             field_values.* = .{
@@ -16700,7 +16668,7 @@ fn typeInfoDecls(
     block: *Block,
     src: LazySrcLoc,
     type_info_ty: Type,
-    opt_namespace: ?*Module.Namespace,
+    opt_namespace: Module.Namespace.OptionalIndex,
 ) CompileError!Value {
     const mod = sema.mod;
     var decls_anon_decl = try block.startAnonDecl();
@@ -16726,8 +16694,9 @@ fn typeInfoDecls(
     var seen_namespaces = std.AutoHashMap(*Namespace, void).init(sema.gpa);
     defer seen_namespaces.deinit();
 
-    if (opt_namespace) |some| {
-        try sema.typeInfoNamespaceDecls(block, decls_anon_decl.arena(), some, &decl_vals, &seen_namespaces);
+    if (opt_namespace.unwrap()) |namespace_index| {
+        const namespace = mod.namespacePtr(namespace_index);
+        try sema.typeInfoNamespaceDecls(block, decls_anon_decl.arena(), namespace, &decl_vals, &seen_namespaces);
     }
 
     const new_decl = try decls_anon_decl.finish(
@@ -17896,7 +17865,7 @@ fn unionInit(
 
     if (try sema.resolveMaybeUndefVal(init)) |init_val| {
         const tag_ty = union_ty.unionTagTypeHypothetical(mod);
-        const enum_field_index = @intCast(u32, tag_ty.enumFieldIndex(field_name).?);
+        const enum_field_index = @intCast(u32, tag_ty.enumFieldIndex(field_name, mod).?);
         const tag_val = try Value.Tag.enum_field_index.create(sema.arena, enum_field_index);
         return sema.addConstant(union_ty, try Value.Tag.@"union".create(sema.arena, .{
             .tag = tag_val,
@@ -17997,7 +17966,7 @@ fn zirStructInit(
         const field_name = sema.code.nullTerminatedString(field_type_extra.name_start);
         const field_index = try sema.unionFieldIndex(block, resolved_ty, field_name, field_src);
         const tag_ty = resolved_ty.unionTagTypeHypothetical(mod);
-        const enum_field_index = @intCast(u32, tag_ty.enumFieldIndex(field_name).?);
+        const enum_field_index = @intCast(u32, tag_ty.enumFieldIndex(field_name, mod).?);
         const tag_val = try Value.Tag.enum_field_index.create(sema.arena, enum_field_index);
 
         const init_inst = try sema.resolveInst(item.data.init);
@@ -18754,7 +18723,7 @@ fn zirTagName(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
             operand_ty.fmt(mod),
         }),
     };
-    if (enum_ty.enumFieldCount() == 0) {
+    if (enum_ty.enumFieldCount(mod) == 0) {
         // TODO I don't think this is the correct way to handle this but
         // it prevents a crash.
         return sema.fail(block, operand_src, "cannot get @tagName of empty enum '{}'", .{
@@ -18776,7 +18745,7 @@ fn zirTagName(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
             };
             return sema.failWithOwnedErrorMsg(msg);
         };
-        const field_name = enum_ty.enumFieldName(field_index);
+        const field_name = enum_ty.enumFieldName(field_index, mod);
         return sema.addStrLit(block, field_name);
     }
     try sema.requireRuntimeBlock(block, src, operand_src);
@@ -19081,63 +19050,41 @@ fn zirReify(
                 return sema.fail(block, src, "reified enums must have no decls", .{});
             }
 
-            var new_decl_arena = std.heap.ArenaAllocator.init(gpa);
-            errdefer new_decl_arena.deinit();
-            const new_decl_arena_allocator = new_decl_arena.allocator();
+            const int_tag_ty = tag_type_val.toType();
+            if (int_tag_ty.zigTypeTag(mod) != .Int) {
+                return sema.fail(block, src, "Type.Enum.tag_type must be an integer type", .{});
+            }
 
-            // Define our empty enum decl
-            const enum_obj = try new_decl_arena_allocator.create(Module.EnumFull);
-            const enum_ty_payload = try new_decl_arena_allocator.create(Type.Payload.EnumFull);
-            enum_ty_payload.* = .{
-                .base = .{
-                    .tag = if (!is_exhaustive_val.toBool(mod))
-                        .enum_nonexhaustive
-                    else
-                        .enum_full,
-                },
-                .data = enum_obj,
-            };
-            const enum_ty = Type.initPayload(&enum_ty_payload.base);
-            const enum_val = try Value.Tag.ty.create(new_decl_arena_allocator, enum_ty);
+            // Because these things each reference each other, `undefined`
+            // placeholders are used before being set after the enum type gains
+            // an InternPool index.
+
             const new_decl_index = try sema.createAnonymousDeclTypeNamed(block, src, .{
                 .ty = Type.type,
-                .val = enum_val,
+                .val = undefined,
             }, name_strategy, "enum", inst);
             const new_decl = mod.declPtr(new_decl_index);
             new_decl.owns_tv = true;
             errdefer mod.abortAnonDecl(new_decl_index);
 
-            enum_obj.* = .{
-                .owner_decl = new_decl_index,
-                .tag_ty = Type.null,
-                .tag_ty_inferred = false,
-                .fields = .{},
-                .values = .{},
-                .namespace = try mod.createNamespace(.{
-                    .parent = block.namespace.toOptional(),
-                    .ty = enum_ty,
-                    .file_scope = block.getFileScope(mod),
-                }),
-            };
-
-            // Enum tag type
-            const int_tag_ty = try tag_type_val.toType().copy(new_decl_arena_allocator);
-
-            if (int_tag_ty.zigTypeTag(mod) != .Int) {
-                return sema.fail(block, src, "Type.Enum.tag_type must be an integer type", .{});
-            }
-            enum_obj.tag_ty = int_tag_ty;
-
-            // Fields
-            const fields_len = try sema.usizeCast(block, src, fields_val.sliceLen(mod));
-            try enum_obj.fields.ensureTotalCapacity(new_decl_arena_allocator, fields_len);
-            try enum_obj.values.ensureTotalCapacityContext(new_decl_arena_allocator, fields_len, .{
-                .ty = enum_obj.tag_ty,
-                .mod = mod,
+            // Define our empty enum decl
+            const fields_len = @intCast(u32, try sema.usizeCast(block, src, fields_val.sliceLen(mod)));
+            const incomplete_enum = try mod.intern_pool.getIncompleteEnum(gpa, .{
+                .decl = new_decl_index,
+                .namespace = .none,
+                .fields_len = fields_len,
+                .has_values = true,
+                .tag_mode = if (!is_exhaustive_val.toBool(mod))
+                    .nonexhaustive
+                else
+                    .explicit,
+                .tag_ty = int_tag_ty.ip_index,
             });
+            errdefer mod.intern_pool.remove(incomplete_enum.index);
 
-            var field_i: usize = 0;
-            while (field_i < fields_len) : (field_i += 1) {
+            new_decl.val = incomplete_enum.index.toValue();
+
+            for (0..fields_len) |field_i| {
                 const elem_val = try fields_val.elemValue(mod, field_i);
                 const field_struct_val: []const Value = elem_val.castTag(.aggregate).?.data;
                 // TODO use reflection instead of magic numbers here
@@ -19148,39 +19095,36 @@ fn zirReify(
 
                 const field_name = try name_val.toAllocatedBytes(
                     Type.const_slice_u8,
-                    new_decl_arena_allocator,
+                    sema.arena,
                     mod,
                 );
+                const field_name_ip = try mod.intern_pool.getOrPutString(gpa, field_name);
 
-                if (!try sema.intFitsInType(value_val, enum_obj.tag_ty, null)) {
+                if (!try sema.intFitsInType(value_val, int_tag_ty, null)) {
                     // TODO: better source location
                     return sema.fail(block, src, "field '{s}' with enumeration value '{}' is too large for backing int type '{}'", .{
                         field_name,
                         value_val.fmtValue(Type.comptime_int, mod),
-                        enum_obj.tag_ty.fmt(mod),
+                        int_tag_ty.fmt(mod),
                     });
                 }
 
-                const gop_field = enum_obj.fields.getOrPutAssumeCapacity(field_name);
-                if (gop_field.found_existing) {
+                if (try incomplete_enum.addFieldName(&mod.intern_pool, gpa, field_name_ip)) |other_index| {
                     const msg = msg: {
                         const msg = try sema.errMsg(block, src, "duplicate enum field '{s}'", .{field_name});
                         errdefer msg.destroy(gpa);
+                        _ = other_index; // TODO: this note is incorrect
                         try sema.errNote(block, src, msg, "other field here", .{});
                         break :msg msg;
                     };
                     return sema.failWithOwnedErrorMsg(msg);
                 }
 
-                const copied_tag_val = try value_val.copy(new_decl_arena_allocator);
-                const gop_val = enum_obj.values.getOrPutAssumeCapacityContext(copied_tag_val, .{
-                    .ty = enum_obj.tag_ty,
-                    .mod = mod,
-                });
-                if (gop_val.found_existing) {
+                if (try incomplete_enum.addFieldValue(&mod.intern_pool, gpa, value_val.ip_index)) |other| {
                     const msg = msg: {
                         const msg = try sema.errMsg(block, src, "enum tag value {} already taken", .{value_val.fmtValue(Type.comptime_int, mod)});
                         errdefer msg.destroy(gpa);
+                        _ = other; // TODO: this note is incorrect
                         try sema.errNote(block, src, msg, "other enum tag value here", .{});
                         break :msg msg;
                     };
@@ -19188,7 +19132,6 @@ fn zirReify(
                 }
             }
 
-            try new_decl.finalizeNewArena(&new_decl_arena);
             return sema.analyzeDeclVal(block, src, new_decl_index);
         },
         .Opaque => {
@@ -19307,26 +19250,29 @@ fn zirReify(
             new_namespace.ty = union_ty.toType();
 
             // Tag type
-            var tag_ty_field_names: ?Module.EnumFull.NameMap = null;
-            var enum_field_names: ?*Module.EnumNumbered.NameMap = null;
             const fields_len = try sema.usizeCast(block, src, fields_val.sliceLen(mod));
+            var explicit_tags_seen: []bool = &.{};
+            var explicit_enum_info: ?InternPool.Key.EnumType = null;
+            var enum_field_names: []InternPool.NullTerminatedString = &.{};
             if (tag_type_val.optionalValue(mod)) |payload_val| {
-                union_obj.tag_ty = try payload_val.toType().copy(new_decl_arena_allocator);
+                union_obj.tag_ty = payload_val.toType();
 
-                if (union_obj.tag_ty.zigTypeTag(mod) != .Enum) {
-                    return sema.fail(block, src, "Type.Union.tag_type must be an enum type", .{});
-                }
-                tag_ty_field_names = try union_obj.tag_ty.enumFields().clone(sema.arena);
+                const enum_type = switch (mod.intern_pool.indexToKey(union_obj.tag_ty.ip_index)) {
+                    .enum_type => |x| x,
+                    else => return sema.fail(block, src, "Type.Union.tag_type must be an enum type", .{}),
+                };
+
+                explicit_enum_info = enum_type;
+                explicit_tags_seen = try sema.arena.alloc(bool, enum_type.names.len);
+                @memset(explicit_tags_seen, false);
             } else {
-                union_obj.tag_ty = try sema.generateUnionTagTypeSimple(block, fields_len, null);
-                enum_field_names = &union_obj.tag_ty.castTag(.enum_simple).?.data.fields;
+                enum_field_names = try sema.arena.alloc(InternPool.NullTerminatedString, fields_len);
             }
 
             // Fields
             try union_obj.fields.ensureTotalCapacity(new_decl_arena_allocator, fields_len);
 
-            var i: usize = 0;
-            while (i < fields_len) : (i += 1) {
+            for (0..fields_len) |i| {
                 const elem_val = try fields_val.elemValue(mod, i);
                 const field_struct_val = elem_val.castTag(.aggregate).?.data;
                 // TODO use reflection instead of magic numbers here
@@ -19343,13 +19289,14 @@ fn zirReify(
                     mod,
                 );
 
-                if (enum_field_names) |set| {
-                    set.putAssumeCapacity(field_name, {});
+                const field_name_ip = try mod.intern_pool.getOrPutString(gpa, field_name);
+
+                if (enum_field_names.len != 0) {
+                    enum_field_names[i] = field_name_ip;
                 }
 
-                if (tag_ty_field_names) |*names| {
-                    const enum_has_field = names.orderedRemove(field_name);
-                    if (!enum_has_field) {
+                if (explicit_enum_info) |tag_info| {
+                    const enum_index = tag_info.nameIndex(mod.intern_pool, field_name_ip) orelse {
                         const msg = msg: {
                             const msg = try sema.errMsg(block, src, "no field named '{s}' in enum '{}'", .{ field_name, union_obj.tag_ty.fmt(mod) });
                             errdefer msg.destroy(gpa);
@@ -19357,7 +19304,11 @@ fn zirReify(
                             break :msg msg;
                         };
                         return sema.failWithOwnedErrorMsg(msg);
-                    }
+                    };
+                    // No check for duplicate because the check already happened in order
+                    // to create the enum type in the first place.
+                    assert(!explicit_tags_seen[enum_index]);
+                    explicit_tags_seen[enum_index] = true;
                 }
 
                 const gop = union_obj.fields.getOrPutAssumeCapacity(field_name);
@@ -19409,22 +19360,26 @@ fn zirReify(
                 }
             }
 
-            if (tag_ty_field_names) |names| {
-                if (names.count() > 0) {
+            if (explicit_enum_info) |tag_info| {
+                if (tag_info.names.len > fields_len) {
                     const msg = msg: {
                         const msg = try sema.errMsg(block, src, "enum field(s) missing in union", .{});
                         errdefer msg.destroy(gpa);
 
                         const enum_ty = union_obj.tag_ty;
-                        for (names.keys()) |field_name| {
-                            const field_index = enum_ty.enumFieldIndex(field_name).?;
-                            try sema.addFieldErrNote(enum_ty, field_index, msg, "field '{s}' missing, declared here", .{field_name});
+                        for (tag_info.names, 0..) |field_name, field_index| {
+                            if (explicit_tags_seen[field_index]) continue;
+                            try sema.addFieldErrNote(enum_ty, field_index, msg, "field '{s}' missing, declared here", .{
+                                mod.intern_pool.stringToSlice(field_name),
+                            });
                         }
                         try sema.addDeclaredHereNote(msg, union_obj.tag_ty);
                         break :msg msg;
                     };
                     return sema.failWithOwnedErrorMsg(msg);
                 }
+            } else {
+                union_obj.tag_ty = try sema.generateUnionTagTypeSimple(block, enum_field_names, null);
             }
 
             try new_decl.finalizeNewArena(&new_decl_arena);
@@ -23440,7 +23395,7 @@ fn explainWhyTypeIsComptimeInner(
 
             if (mod.typeToStruct(ty)) |struct_obj| {
                 for (struct_obj.fields.values(), 0..) |field, i| {
-                    const field_src_loc = struct_obj.fieldSrcLoc(sema.mod, .{
+                    const field_src_loc = mod.fieldSrcLoc(struct_obj.owner_decl, .{
                         .index = i,
                         .range = .type,
                     });
@@ -23459,7 +23414,7 @@ fn explainWhyTypeIsComptimeInner(
 
             if (mod.typeToUnion(ty)) |union_obj| {
                 for (union_obj.fields.values(), 0..) |field, i| {
-                    const field_src_loc = union_obj.fieldSrcLoc(sema.mod, .{
+                    const field_src_loc = mod.fieldSrcLoc(union_obj.owner_decl, .{
                         .index = i,
                         .range = .type,
                     });
@@ -24158,7 +24113,7 @@ fn fieldVal(
                     }
                     const union_ty = try sema.resolveTypeFields(child_type);
                     if (union_ty.unionTagType(mod)) |enum_ty| {
-                        if (enum_ty.enumFieldIndex(field_name)) |field_index_usize| {
+                        if (enum_ty.enumFieldIndex(field_name, mod)) |field_index_usize| {
                             const field_index = @intCast(u32, field_index_usize);
                             return sema.addConstant(
                                 enum_ty,
@@ -24174,7 +24129,7 @@ fn fieldVal(
                             return inst;
                         }
                     }
-                    const field_index_usize = child_type.enumFieldIndex(field_name) orelse
+                    const field_index_usize = child_type.enumFieldIndex(field_name, mod) orelse
                         return sema.failWithBadMemberAccess(block, child_type, field_name_src, field_name);
                     const field_index = @intCast(u32, field_index_usize);
                     const enum_val = try Value.Tag.enum_field_index.create(arena, field_index);
@@ -24372,7 +24327,7 @@ fn fieldPtr(
                     }
                     const union_ty = try sema.resolveTypeFields(child_type);
                     if (union_ty.unionTagType(mod)) |enum_ty| {
-                        if (enum_ty.enumFieldIndex(field_name)) |field_index| {
+                        if (enum_ty.enumFieldIndex(field_name, mod)) |field_index| {
                             const field_index_u32 = @intCast(u32, field_index);
                             var anon_decl = try block.startAnonDecl();
                             defer anon_decl.deinit();
@@ -24391,7 +24346,7 @@ fn fieldPtr(
                             return inst;
                         }
                     }
-                    const field_index = child_type.enumFieldIndex(field_name) orelse {
+                    const field_index = child_type.enumFieldIndex(field_name, mod) orelse {
                         return sema.failWithBadMemberAccess(block, child_type, field_name_src, field_name);
                     };
                     const field_index_u32 = @intCast(u32, field_index);
@@ -24986,7 +24941,7 @@ fn unionFieldPtr(
         .@"volatile" = union_ptr_ty.isVolatilePtr(mod),
         .@"addrspace" = union_ptr_ty.ptrAddressSpace(mod),
     });
-    const enum_field_index = @intCast(u32, union_obj.tag_ty.enumFieldIndex(field_name).?);
+    const enum_field_index = @intCast(u32, union_obj.tag_ty.enumFieldIndex(field_name, mod).?);
 
     if (initializing and field.ty.zigTypeTag(mod) == .NoReturn) {
         const msg = msg: {
@@ -25018,7 +24973,7 @@ fn unionFieldPtr(
                 if (!tag_matches) {
                     const msg = msg: {
                         const active_index = tag_and_val.tag.castTag(.enum_field_index).?.data;
-                        const active_field_name = union_obj.tag_ty.enumFieldName(active_index);
+                        const active_field_name = union_obj.tag_ty.enumFieldName(active_index, mod);
                         const msg = try sema.errMsg(block, src, "access of union field '{s}' while field '{s}' is active", .{ field_name, active_field_name });
                         errdefer msg.destroy(sema.gpa);
                         try sema.addDeclaredHereNote(msg, union_ty);
@@ -25073,7 +25028,7 @@ fn unionFieldVal(
     const union_obj = mod.typeToUnion(union_ty).?;
     const field_index = try sema.unionFieldIndex(block, union_ty, field_name, field_name_src);
     const field = union_obj.fields.values()[field_index];
-    const enum_field_index = @intCast(u32, union_obj.tag_ty.enumFieldIndex(field_name).?);
+    const enum_field_index = @intCast(u32, union_obj.tag_ty.enumFieldIndex(field_name, mod).?);
 
     if (try sema.resolveMaybeUndefVal(union_byval)) |union_val| {
         if (union_val.isUndef()) return sema.addConstUndef(field.ty);
@@ -25092,7 +25047,7 @@ fn unionFieldVal(
                 } else {
                     const msg = msg: {
                         const active_index = tag_and_val.tag.castTag(.enum_field_index).?.data;
-                        const active_field_name = union_obj.tag_ty.enumFieldName(active_index);
+                        const active_field_name = union_obj.tag_ty.enumFieldName(active_index, mod);
                         const msg = try sema.errMsg(block, src, "access of union field '{s}' while field '{s}' is active", .{ field_name, active_field_name });
                         errdefer msg.destroy(sema.gpa);
                         try sema.addDeclaredHereNote(msg, union_ty);
@@ -26181,7 +26136,7 @@ fn coerceExtra(
                 // enum literal to enum
                 const val = try sema.resolveConstValue(block, .unneeded, inst, "");
                 const bytes = val.castTag(.enum_literal).?.data;
-                const field_index = dest_ty.enumFieldIndex(bytes) orelse {
+                const field_index = dest_ty.enumFieldIndex(bytes, mod) orelse {
                     const msg = msg: {
                         const msg = try sema.errMsg(
                             block,
@@ -28697,7 +28652,7 @@ fn coerceEnumToUnion(
 
     try sema.requireRuntimeBlock(block, inst_src, null);
 
-    if (tag_ty.isNonexhaustiveEnum()) {
+    if (tag_ty.isNonexhaustiveEnum(mod)) {
         const msg = msg: {
             const msg = try sema.errMsg(block, inst_src, "runtime coercion to union '{}' from non-exhaustive enum", .{
                 union_ty.fmt(sema.mod),
@@ -31591,7 +31546,6 @@ pub fn resolveTypeRequiresComptime(sema: *Sema, ty: Type) CompileError!bool {
             .error_set_single,
             .error_set_inferred,
             .error_set_merged,
-            .enum_simple,
             => false,
 
             .function => true,
@@ -31631,14 +31585,6 @@ pub fn resolveTypeRequiresComptime(sema: *Sema, ty: Type) CompileError!bool {
             .anyframe_T => {
                 const child_ty = ty.castTag(.anyframe_T).?.data;
                 return sema.resolveTypeRequiresComptime(child_ty);
-            },
-            .enum_numbered => {
-                const tag_ty = ty.castTag(.enum_numbered).?.data.tag_ty;
-                return sema.resolveTypeRequiresComptime(tag_ty);
-            },
-            .enum_full, .enum_nonexhaustive => {
-                const tag_ty = ty.cast(Type.Payload.EnumFull).?.data.tag_ty;
-                return sema.resolveTypeRequiresComptime(tag_ty);
             },
         },
         else => switch (mod.intern_pool.indexToKey(ty.ip_index)) {
@@ -31746,7 +31692,7 @@ pub fn resolveTypeRequiresComptime(sema: *Sema, ty: Type) CompileError!bool {
 
             .opaque_type => false,
 
-            .enum_type => @panic("TODO"),
+            .enum_type => |enum_type| try sema.resolveTypeRequiresComptime(enum_type.tag_ty.toType()),
 
             // values, not types
             .un => unreachable,
@@ -32270,12 +32216,12 @@ fn semaStructFields(mod: *Module, struct_obj: *Module.Struct) CompileError!void 
             const gop = struct_obj.fields.getOrPutAssumeCapacity(field_name);
             if (gop.found_existing) {
                 const msg = msg: {
-                    const field_src = struct_obj.fieldSrcLoc(sema.mod, .{ .index = field_i }).lazy;
+                    const field_src = mod.fieldSrcLoc(struct_obj.owner_decl, .{ .index = field_i }).lazy;
                     const msg = try sema.errMsg(&block_scope, field_src, "duplicate struct field: '{s}'", .{field_name});
                     errdefer msg.destroy(gpa);
 
                     const prev_field_index = struct_obj.fields.getIndex(field_name).?;
-                    const prev_field_src = struct_obj.fieldSrcLoc(sema.mod, .{ .index = prev_field_index });
+                    const prev_field_src = mod.fieldSrcLoc(struct_obj.owner_decl, .{ .index = prev_field_index });
                     try sema.mod.errNoteNonLazy(prev_field_src, msg, "other field here", .{});
                     try sema.errNote(&block_scope, src, msg, "struct declared here", .{});
                     break :msg msg;
@@ -32311,7 +32257,7 @@ fn semaStructFields(mod: *Module, struct_obj: *Module.Struct) CompileError!void 
             if (zir_field.type_ref != .none) {
                 break :ty sema.resolveType(&block_scope, .unneeded, zir_field.type_ref) catch |err| switch (err) {
                     error.NeededSourceLocation => {
-                        const ty_src = struct_obj.fieldSrcLoc(sema.mod, .{
+                        const ty_src = mod.fieldSrcLoc(struct_obj.owner_decl, .{
                             .index = field_i,
                             .range = .type,
                         }).lazy;
@@ -32327,7 +32273,7 @@ fn semaStructFields(mod: *Module, struct_obj: *Module.Struct) CompileError!void 
             const ty_ref = try sema.resolveBody(&block_scope, body, struct_obj.zir_index);
             break :ty sema.analyzeAsType(&block_scope, .unneeded, ty_ref) catch |err| switch (err) {
                 error.NeededSourceLocation => {
-                    const ty_src = struct_obj.fieldSrcLoc(sema.mod, .{
+                    const ty_src = mod.fieldSrcLoc(struct_obj.owner_decl, .{
                         .index = field_i,
                         .range = .type,
                     }).lazy;
@@ -32346,7 +32292,7 @@ fn semaStructFields(mod: *Module, struct_obj: *Module.Struct) CompileError!void 
 
         if (field_ty.zigTypeTag(mod) == .Opaque) {
             const msg = msg: {
-                const ty_src = struct_obj.fieldSrcLoc(sema.mod, .{
+                const ty_src = mod.fieldSrcLoc(struct_obj.owner_decl, .{
                     .index = field_i,
                     .range = .type,
                 }).lazy;
@@ -32360,7 +32306,7 @@ fn semaStructFields(mod: *Module, struct_obj: *Module.Struct) CompileError!void 
         }
         if (field_ty.zigTypeTag(mod) == .NoReturn) {
             const msg = msg: {
-                const ty_src = struct_obj.fieldSrcLoc(sema.mod, .{
+                const ty_src = mod.fieldSrcLoc(struct_obj.owner_decl, .{
                     .index = field_i,
                     .range = .type,
                 }).lazy;
@@ -32374,7 +32320,7 @@ fn semaStructFields(mod: *Module, struct_obj: *Module.Struct) CompileError!void 
         }
         if (struct_obj.layout == .Extern and !try sema.validateExternType(field.ty, .struct_field)) {
             const msg = msg: {
-                const ty_src = struct_obj.fieldSrcLoc(sema.mod, .{
+                const ty_src = mod.fieldSrcLoc(struct_obj.owner_decl, .{
                     .index = field_i,
                     .range = .type,
                 });
@@ -32389,7 +32335,7 @@ fn semaStructFields(mod: *Module, struct_obj: *Module.Struct) CompileError!void 
             return sema.failWithOwnedErrorMsg(msg);
         } else if (struct_obj.layout == .Packed and !(validatePackedType(field.ty, mod))) {
             const msg = msg: {
-                const ty_src = struct_obj.fieldSrcLoc(sema.mod, .{
+                const ty_src = mod.fieldSrcLoc(struct_obj.owner_decl, .{
                     .index = field_i,
                     .range = .type,
                 });
@@ -32410,7 +32356,7 @@ fn semaStructFields(mod: *Module, struct_obj: *Module.Struct) CompileError!void 
             const align_ref = try sema.resolveBody(&block_scope, body, struct_obj.zir_index);
             field.abi_align = sema.analyzeAsAlign(&block_scope, .unneeded, align_ref) catch |err| switch (err) {
                 error.NeededSourceLocation => {
-                    const align_src = struct_obj.fieldSrcLoc(sema.mod, .{
+                    const align_src = mod.fieldSrcLoc(struct_obj.owner_decl, .{
                         .index = field_i,
                         .range = .alignment,
                     }).lazy;
@@ -32438,7 +32384,7 @@ fn semaStructFields(mod: *Module, struct_obj: *Module.Struct) CompileError!void 
                 const field = &struct_obj.fields.values()[field_i];
                 const coerced = sema.coerce(&block_scope, field.ty, init, .unneeded) catch |err| switch (err) {
                     error.NeededSourceLocation => {
-                        const init_src = struct_obj.fieldSrcLoc(sema.mod, .{
+                        const init_src = mod.fieldSrcLoc(struct_obj.owner_decl, .{
                             .index = field_i,
                             .range = .value,
                         }).lazy;
@@ -32448,7 +32394,7 @@ fn semaStructFields(mod: *Module, struct_obj: *Module.Struct) CompileError!void 
                     else => |e| return e,
                 };
                 const default_val = (try sema.resolveMaybeUndefVal(coerced)) orelse {
-                    const init_src = struct_obj.fieldSrcLoc(sema.mod, .{
+                    const init_src = mod.fieldSrcLoc(struct_obj.owner_decl, .{
                         .index = field_i,
                         .range = .value,
                     }).lazy;
@@ -32559,9 +32505,11 @@ fn semaUnionFields(mod: *Module, union_obj: *Module.Union) CompileError!void {
     try union_obj.fields.ensureTotalCapacity(decl_arena_allocator, fields_len);
 
     var int_tag_ty: Type = undefined;
-    var enum_field_names: ?*Module.EnumNumbered.NameMap = null;
-    var enum_value_map: ?*Module.EnumNumbered.ValueMap = null;
-    var tag_ty_field_names: ?Module.EnumFull.NameMap = null;
+    var enum_field_names: []InternPool.NullTerminatedString = &.{};
+    var enum_field_vals: []InternPool.Index = &.{};
+    var enum_field_vals_map: std.ArrayHashMapUnmanaged(Value, void, Value.ArrayHashContext, false) = .{};
+    var explicit_tags_seen: []bool = &.{};
+    var explicit_enum_info: ?InternPool.Key.EnumType = null;
     if (tag_type_ref != .none) {
         const tag_ty_src: LazySrcLoc = .{ .node_offset_container_tag = src.node_offset.x };
         const provided_ty = try sema.resolveType(&block_scope, tag_ty_src, tag_type_ref);
@@ -32587,27 +32535,26 @@ fn semaUnionFields(mod: *Module, union_obj: *Module.Union) CompileError!void {
                     return sema.failWithOwnedErrorMsg(msg);
                 }
             }
-            union_obj.tag_ty = try sema.generateUnionTagTypeNumbered(&block_scope, fields_len, provided_ty, union_obj);
-            const enum_obj = union_obj.tag_ty.castTag(.enum_numbered).?.data;
-            enum_field_names = &enum_obj.fields;
-            enum_value_map = &enum_obj.values;
+            enum_field_names = try sema.arena.alloc(InternPool.NullTerminatedString, fields_len);
+            enum_field_vals = try sema.arena.alloc(InternPool.Index, fields_len);
         } else {
             // The provided type is the enum tag type.
-            union_obj.tag_ty = try provided_ty.copy(decl_arena_allocator);
-            if (union_obj.tag_ty.zigTypeTag(mod) != .Enum) {
-                return sema.fail(&block_scope, tag_ty_src, "expected enum tag type, found '{}'", .{union_obj.tag_ty.fmt(sema.mod)});
-            }
+            union_obj.tag_ty = provided_ty;
+            const enum_type = switch (mod.intern_pool.indexToKey(union_obj.tag_ty.ip_index)) {
+                .enum_type => |x| x,
+                else => return sema.fail(&block_scope, tag_ty_src, "expected enum tag type, found '{}'", .{union_obj.tag_ty.fmt(sema.mod)}),
+            };
             // The fields of the union must match the enum exactly.
-            // Store a copy of the enum field names so we can check for
-            // missing or extraneous fields later.
-            tag_ty_field_names = try union_obj.tag_ty.enumFields().clone(sema.arena);
+            // A flag per field is used to check for missing and extraneous fields.
+            explicit_enum_info = enum_type;
+            explicit_tags_seen = try sema.arena.alloc(bool, enum_type.names.len);
+            @memset(explicit_tags_seen, false);
         }
     } else {
         // If auto_enum_tag is false, this is an untagged union. However, for semantic analysis
         // purposes, we still auto-generate an enum tag type the same way. That the union is
         // untagged is represented by the Type tag (union vs union_tagged).
-        union_obj.tag_ty = try sema.generateUnionTagTypeSimple(&block_scope, fields_len, union_obj);
-        enum_field_names = &union_obj.tag_ty.castTag(.enum_simple).?.data.fields;
+        enum_field_names = try sema.arena.alloc(InternPool.NullTerminatedString, fields_len);
     }
 
     if (fields_len == 0) {
@@ -32661,11 +32608,11 @@ fn semaUnionFields(mod: *Module, union_obj: *Module.Union) CompileError!void {
             break :blk try sema.resolveInst(tag_ref);
         } else .none;
 
-        if (enum_value_map) |map| {
+        if (enum_field_vals.len != 0) {
             const copied_val = if (tag_ref != .none) blk: {
                 const val = sema.semaUnionFieldVal(&block_scope, .unneeded, int_tag_ty, tag_ref) catch |err| switch (err) {
                     error.NeededSourceLocation => {
-                        const val_src = union_obj.fieldSrcLoc(sema.mod, .{
+                        const val_src = mod.fieldSrcLoc(union_obj.owner_decl, .{
                             .index = field_i,
                             .range = .value,
                         }).lazy;
@@ -32676,25 +32623,24 @@ fn semaUnionFields(mod: *Module, union_obj: *Module.Union) CompileError!void {
                 };
                 last_tag_val = val;
 
-                // This puts the memory into the union arena, not the enum arena, but
-                // it is OK since they share the same lifetime.
-                break :blk try val.copy(decl_arena_allocator);
+                break :blk val;
             } else blk: {
                 const val = if (last_tag_val) |val|
-                    try sema.intAdd(val, try mod.intValue(int_tag_ty, 1), int_tag_ty)
+                    try sema.intAdd(val, Value.one_comptime_int, int_tag_ty)
                 else
                     try mod.intValue(int_tag_ty, 0);
                 last_tag_val = val;
 
-                break :blk try val.copy(decl_arena_allocator);
+                break :blk val;
             };
-            const gop = map.getOrPutAssumeCapacityContext(copied_val, .{
+            enum_field_vals[field_i] = copied_val.ip_index;
+            const gop = enum_field_vals_map.getOrPutAssumeCapacityContext(copied_val, .{
                 .ty = int_tag_ty,
                 .mod = mod,
             });
             if (gop.found_existing) {
-                const field_src = union_obj.fieldSrcLoc(sema.mod, .{ .index = field_i }).lazy;
-                const other_field_src = union_obj.fieldSrcLoc(sema.mod, .{ .index = gop.index }).lazy;
+                const field_src = mod.fieldSrcLoc(union_obj.owner_decl, .{ .index = field_i }).lazy;
+                const other_field_src = mod.fieldSrcLoc(union_obj.owner_decl, .{ .index = gop.index }).lazy;
                 const msg = msg: {
                     const msg = try sema.errMsg(&block_scope, field_src, "enum tag value {} already taken", .{copied_val.fmtValue(int_tag_ty, sema.mod)});
                     errdefer msg.destroy(gpa);
@@ -32707,8 +32653,9 @@ fn semaUnionFields(mod: *Module, union_obj: *Module.Union) CompileError!void {
 
         // This string needs to outlive the ZIR code.
         const field_name = try decl_arena_allocator.dupe(u8, field_name_zir);
-        if (enum_field_names) |set| {
-            set.putAssumeCapacity(field_name, {});
+        const field_name_ip = try mod.intern_pool.getOrPutString(gpa, field_name);
+        if (enum_field_names.len != 0) {
+            enum_field_names[field_i] = field_name_ip;
         }
 
         const field_ty: Type = if (!has_type)
@@ -32718,7 +32665,7 @@ fn semaUnionFields(mod: *Module, union_obj: *Module.Union) CompileError!void {
         else
             sema.resolveType(&block_scope, .unneeded, field_type_ref) catch |err| switch (err) {
                 error.NeededSourceLocation => {
-                    const ty_src = union_obj.fieldSrcLoc(sema.mod, .{
+                    const ty_src = mod.fieldSrcLoc(union_obj.owner_decl, .{
                         .index = field_i,
                         .range = .type,
                     }).lazy;
@@ -32735,12 +32682,12 @@ fn semaUnionFields(mod: *Module, union_obj: *Module.Union) CompileError!void {
         const gop = union_obj.fields.getOrPutAssumeCapacity(field_name);
         if (gop.found_existing) {
             const msg = msg: {
-                const field_src = union_obj.fieldSrcLoc(sema.mod, .{ .index = field_i }).lazy;
+                const field_src = mod.fieldSrcLoc(union_obj.owner_decl, .{ .index = field_i }).lazy;
                 const msg = try sema.errMsg(&block_scope, field_src, "duplicate union field: '{s}'", .{field_name});
                 errdefer msg.destroy(gpa);
 
                 const prev_field_index = union_obj.fields.getIndex(field_name).?;
-                const prev_field_src = union_obj.fieldSrcLoc(sema.mod, .{ .index = prev_field_index }).lazy;
+                const prev_field_src = mod.fieldSrcLoc(union_obj.owner_decl, .{ .index = prev_field_index }).lazy;
                 try sema.mod.errNoteNonLazy(prev_field_src.toSrcLoc(decl, mod), msg, "other field here", .{});
                 try sema.errNote(&block_scope, src, msg, "union declared here", .{});
                 break :msg msg;
@@ -32748,26 +32695,31 @@ fn semaUnionFields(mod: *Module, union_obj: *Module.Union) CompileError!void {
             return sema.failWithOwnedErrorMsg(msg);
         }
 
-        if (tag_ty_field_names) |*names| {
-            const enum_has_field = names.orderedRemove(field_name);
-            if (!enum_has_field) {
+        if (explicit_enum_info) |tag_info| {
+            const enum_index = tag_info.nameIndex(mod.intern_pool, field_name_ip) orelse {
                 const msg = msg: {
-                    const ty_src = union_obj.fieldSrcLoc(sema.mod, .{
+                    const ty_src = mod.fieldSrcLoc(union_obj.owner_decl, .{
                         .index = field_i,
                         .range = .type,
                     }).lazy;
-                    const msg = try sema.errMsg(&block_scope, ty_src, "no field named '{s}' in enum '{}'", .{ field_name, union_obj.tag_ty.fmt(sema.mod) });
+                    const msg = try sema.errMsg(&block_scope, ty_src, "no field named '{s}' in enum '{}'", .{
+                        field_name, union_obj.tag_ty.fmt(sema.mod),
+                    });
                     errdefer msg.destroy(sema.gpa);
                     try sema.addDeclaredHereNote(msg, union_obj.tag_ty);
                     break :msg msg;
                 };
                 return sema.failWithOwnedErrorMsg(msg);
-            }
+            };
+            // No check for duplicate because the check already happened in order
+            // to create the enum type in the first place.
+            assert(!explicit_tags_seen[enum_index]);
+            explicit_tags_seen[enum_index] = true;
         }
 
         if (field_ty.zigTypeTag(mod) == .Opaque) {
             const msg = msg: {
-                const ty_src = union_obj.fieldSrcLoc(sema.mod, .{
+                const ty_src = mod.fieldSrcLoc(union_obj.owner_decl, .{
                     .index = field_i,
                     .range = .type,
                 }).lazy;
@@ -32781,7 +32733,7 @@ fn semaUnionFields(mod: *Module, union_obj: *Module.Union) CompileError!void {
         }
         if (union_obj.layout == .Extern and !try sema.validateExternType(field_ty, .union_field)) {
             const msg = msg: {
-                const ty_src = union_obj.fieldSrcLoc(sema.mod, .{
+                const ty_src = mod.fieldSrcLoc(union_obj.owner_decl, .{
                     .index = field_i,
                     .range = .type,
                 });
@@ -32796,7 +32748,7 @@ fn semaUnionFields(mod: *Module, union_obj: *Module.Union) CompileError!void {
             return sema.failWithOwnedErrorMsg(msg);
         } else if (union_obj.layout == .Packed and !(validatePackedType(field_ty, mod))) {
             const msg = msg: {
-                const ty_src = union_obj.fieldSrcLoc(sema.mod, .{
+                const ty_src = mod.fieldSrcLoc(union_obj.owner_decl, .{
                     .index = field_i,
                     .range = .type,
                 });
@@ -32819,7 +32771,7 @@ fn semaUnionFields(mod: *Module, union_obj: *Module.Union) CompileError!void {
         if (align_ref != .none) {
             gop.value_ptr.abi_align = sema.resolveAlign(&block_scope, .unneeded, align_ref) catch |err| switch (err) {
                 error.NeededSourceLocation => {
-                    const align_src = union_obj.fieldSrcLoc(sema.mod, .{
+                    const align_src = mod.fieldSrcLoc(union_obj.owner_decl, .{
                         .index = field_i,
                         .range = .alignment,
                     }).lazy;
@@ -32833,22 +32785,28 @@ fn semaUnionFields(mod: *Module, union_obj: *Module.Union) CompileError!void {
         }
     }
 
-    if (tag_ty_field_names) |names| {
-        if (names.count() > 0) {
+    if (explicit_enum_info) |tag_info| {
+        if (tag_info.names.len > fields_len) {
             const msg = msg: {
                 const msg = try sema.errMsg(&block_scope, src, "enum field(s) missing in union", .{});
                 errdefer msg.destroy(sema.gpa);
 
                 const enum_ty = union_obj.tag_ty;
-                for (names.keys()) |field_name| {
-                    const field_index = enum_ty.enumFieldIndex(field_name).?;
-                    try sema.addFieldErrNote(enum_ty, field_index, msg, "field '{s}' missing, declared here", .{field_name});
+                for (tag_info.names, 0..) |field_name, field_index| {
+                    if (explicit_tags_seen[field_index]) continue;
+                    try sema.addFieldErrNote(enum_ty, field_index, msg, "field '{s}' missing, declared here", .{
+                        mod.intern_pool.stringToSlice(field_name),
+                    });
                 }
                 try sema.addDeclaredHereNote(msg, union_obj.tag_ty);
                 break :msg msg;
             };
             return sema.failWithOwnedErrorMsg(msg);
         }
+    } else if (enum_field_vals.len != 0) {
+        union_obj.tag_ty = try sema.generateUnionTagTypeNumbered(&block_scope, enum_field_names, enum_field_vals, union_obj);
+    } else {
+        union_obj.tag_ty = try sema.generateUnionTagTypeSimple(&block_scope, enum_field_names, union_obj);
     }
 }
 
@@ -32860,24 +32818,11 @@ fn semaUnionFieldVal(sema: *Sema, block: *Block, src: LazySrcLoc, int_tag_ty: Ty
 fn generateUnionTagTypeNumbered(
     sema: *Sema,
     block: *Block,
-    fields_len: u32,
-    int_ty: Type,
+    enum_field_names: []const InternPool.NullTerminatedString,
+    enum_field_vals: []const InternPool.Index,
     union_obj: *Module.Union,
 ) !Type {
     const mod = sema.mod;
-
-    var new_decl_arena = std.heap.ArenaAllocator.init(sema.gpa);
-    errdefer new_decl_arena.deinit();
-    const new_decl_arena_allocator = new_decl_arena.allocator();
-
-    const enum_obj = try new_decl_arena_allocator.create(Module.EnumNumbered);
-    const enum_ty_payload = try new_decl_arena_allocator.create(Type.Payload.EnumNumbered);
-    enum_ty_payload.* = .{
-        .base = .{ .tag = .enum_numbered },
-        .data = enum_obj,
-    };
-    const enum_ty = Type.initPayload(&enum_ty_payload.base);
-    const enum_val = try Value.Tag.ty.create(new_decl_arena_allocator, enum_ty);
 
     const src_decl = mod.declPtr(block.src_decl);
     const new_decl_index = try mod.allocateNewDecl(block.namespace, src_decl.src_node, block.wip_capture_scope);
@@ -32889,53 +32834,45 @@ fn generateUnionTagTypeNumbered(
     };
     try mod.initNewAnonDecl(new_decl_index, src_decl.src_line, block.namespace, .{
         .ty = Type.type,
-        .val = enum_val,
+        .val = undefined,
     }, name);
-    sema.mod.declPtr(new_decl_index).name_fully_qualified = true;
-
     const new_decl = mod.declPtr(new_decl_index);
+    new_decl.name_fully_qualified = true;
     new_decl.owns_tv = true;
     new_decl.name_fully_qualified = true;
     errdefer mod.abortAnonDecl(new_decl_index);
 
-    const copied_int_ty = try int_ty.copy(new_decl_arena_allocator);
-    enum_obj.* = .{
-        .owner_decl = new_decl_index,
-        .tag_ty = copied_int_ty,
-        .fields = .{},
-        .values = .{},
-    };
-    // Here we pre-allocate the maps using the decl arena.
-    try enum_obj.fields.ensureTotalCapacity(new_decl_arena_allocator, fields_len);
-    try enum_obj.values.ensureTotalCapacityContext(new_decl_arena_allocator, fields_len, .{
-        .ty = copied_int_ty,
-        .mod = mod,
-    });
-    try new_decl.finalizeNewArena(&new_decl_arena);
-    return enum_ty;
+    const enum_ty = try mod.intern(.{ .enum_type = .{
+        .decl = new_decl_index,
+        .namespace = .none,
+        .tag_ty = if (enum_field_vals.len == 0)
+            .noreturn_type
+        else
+            mod.intern_pool.typeOf(enum_field_vals[0]),
+        .names = enum_field_names,
+        .values = enum_field_vals,
+        .tag_mode = .explicit,
+    } });
+    errdefer mod.intern_pool.remove(enum_ty);
+
+    new_decl.val = enum_ty.toValue();
+
+    return enum_ty.toType();
 }
 
-fn generateUnionTagTypeSimple(sema: *Sema, block: *Block, fields_len: usize, maybe_union_obj: ?*Module.Union) !Type {
+fn generateUnionTagTypeSimple(
+    sema: *Sema,
+    block: *Block,
+    enum_field_names: []const InternPool.NullTerminatedString,
+    maybe_union_obj: ?*Module.Union,
+) !Type {
     const mod = sema.mod;
-
-    var new_decl_arena = std.heap.ArenaAllocator.init(sema.gpa);
-    errdefer new_decl_arena.deinit();
-    const new_decl_arena_allocator = new_decl_arena.allocator();
-
-    const enum_obj = try new_decl_arena_allocator.create(Module.EnumSimple);
-    const enum_ty_payload = try new_decl_arena_allocator.create(Type.Payload.EnumSimple);
-    enum_ty_payload.* = .{
-        .base = .{ .tag = .enum_simple },
-        .data = enum_obj,
-    };
-    const enum_ty = Type.initPayload(&enum_ty_payload.base);
-    const enum_val = try Value.Tag.ty.create(new_decl_arena_allocator, enum_ty);
 
     const new_decl_index = new_decl_index: {
         const union_obj = maybe_union_obj orelse {
             break :new_decl_index try mod.createAnonymousDecl(block, .{
                 .ty = Type.type,
-                .val = enum_val,
+                .val = undefined,
             });
         };
         const src_decl = mod.declPtr(block.src_decl);
@@ -32948,24 +32885,31 @@ fn generateUnionTagTypeSimple(sema: *Sema, block: *Block, fields_len: usize, may
         };
         try mod.initNewAnonDecl(new_decl_index, src_decl.src_line, block.namespace, .{
             .ty = Type.type,
-            .val = enum_val,
+            .val = undefined,
         }, name);
-        sema.mod.declPtr(new_decl_index).name_fully_qualified = true;
+        mod.declPtr(new_decl_index).name_fully_qualified = true;
         break :new_decl_index new_decl_index;
     };
 
+    const enum_ty = try mod.intern(.{ .enum_type = .{
+        .decl = new_decl_index,
+        .namespace = .none,
+        .tag_ty = if (enum_field_names.len == 0)
+            .noreturn_type
+        else
+            (try mod.smallestUnsignedInt(enum_field_names.len - 1)).ip_index,
+        .names = enum_field_names,
+        .values = &.{},
+        .tag_mode = .auto,
+    } });
+    errdefer mod.intern_pool.remove(enum_ty);
+
     const new_decl = mod.declPtr(new_decl_index);
     new_decl.owns_tv = true;
+    new_decl.val = enum_ty.toValue();
     errdefer mod.abortAnonDecl(new_decl_index);
 
-    enum_obj.* = .{
-        .owner_decl = new_decl_index,
-        .fields = .{},
-    };
-    // Here we pre-allocate the maps using the decl arena.
-    try enum_obj.fields.ensureTotalCapacity(new_decl_arena_allocator, fields_len);
-    try new_decl.finalizeNewArena(&new_decl_arena);
-    return enum_ty;
+    return enum_ty.toType();
 }
 
 fn getBuiltin(sema: *Sema, name: []const u8) CompileError!Air.Inst.Ref {
@@ -33082,57 +33026,6 @@ pub fn typeHasOnePossibleValue(sema: *Sema, ty: Type) CompileError!?Value {
                     return null;
                 }
                 return Value.empty_struct;
-            },
-
-            .enum_numbered => {
-                const resolved_ty = try sema.resolveTypeFields(ty);
-                const enum_obj = resolved_ty.castTag(.enum_numbered).?.data;
-                // An explicit tag type is always provided for enum_numbered.
-                if (!(try sema.typeHasRuntimeBits(enum_obj.tag_ty))) {
-                    return null;
-                }
-                if (enum_obj.fields.count() == 1) {
-                    if (enum_obj.values.count() == 0) {
-                        return Value.enum_field_0; // auto-numbered
-                    } else {
-                        return enum_obj.values.keys()[0];
-                    }
-                } else {
-                    return null;
-                }
-            },
-            .enum_full => {
-                const resolved_ty = try sema.resolveTypeFields(ty);
-                const enum_obj = resolved_ty.castTag(.enum_full).?.data;
-                if (!(try sema.typeHasRuntimeBits(enum_obj.tag_ty))) {
-                    return null;
-                }
-                switch (enum_obj.fields.count()) {
-                    0 => return Value.@"unreachable",
-                    1 => if (enum_obj.values.count() == 0) {
-                        return Value.enum_field_0; // auto-numbered
-                    } else {
-                        return enum_obj.values.keys()[0];
-                    },
-                    else => return null,
-                }
-            },
-            .enum_simple => {
-                const resolved_ty = try sema.resolveTypeFields(ty);
-                const enum_simple = resolved_ty.castTag(.enum_simple).?.data;
-                switch (enum_simple.fields.count()) {
-                    0 => return Value.@"unreachable",
-                    1 => return Value.enum_field_0,
-                    else => return null,
-                }
-            },
-            .enum_nonexhaustive => {
-                const tag_ty = ty.castTag(.enum_nonexhaustive).?.data.tag_ty;
-                if (tag_ty.zigTypeTag(mod) != .ComptimeInt and !(try sema.typeHasRuntimeBits(tag_ty))) {
-                    return Value.enum_field_0;
-                } else {
-                    return null;
-                }
             },
 
             .array => {
@@ -33281,7 +33174,28 @@ pub fn typeHasOnePossibleValue(sema: *Sema, ty: Type) CompileError!?Value {
                 return only.toValue();
             },
             .opaque_type => null,
-            .enum_type => @panic("TODO"),
+            .enum_type => |enum_type| switch (enum_type.tag_mode) {
+                .nonexhaustive => {
+                    if (enum_type.tag_ty != .comptime_int_type and
+                        !(try sema.typeHasRuntimeBits(enum_type.tag_ty.toType())))
+                    {
+                        return Value.enum_field_0;
+                    } else {
+                        return null;
+                    }
+                },
+                .auto, .explicit => switch (enum_type.names.len) {
+                    0 => return Value.@"unreachable",
+                    1 => {
+                        if (enum_type.values.len == 0) {
+                            return Value.enum_field_0; // auto-numbered
+                        } else {
+                            return enum_type.values[0].toValue();
+                        }
+                    },
+                    else => return null,
+                },
+            },
 
             // values, not types
             .un => unreachable,
@@ -33687,7 +33601,6 @@ pub fn typeRequiresComptime(sema: *Sema, ty: Type) CompileError!bool {
             .error_set_single,
             .error_set_inferred,
             .error_set_merged,
-            .enum_simple,
             => false,
 
             .function => true,
@@ -33727,14 +33640,6 @@ pub fn typeRequiresComptime(sema: *Sema, ty: Type) CompileError!bool {
             .anyframe_T => {
                 const child_ty = ty.castTag(.anyframe_T).?.data;
                 return sema.typeRequiresComptime(child_ty);
-            },
-            .enum_numbered => {
-                const tag_ty = ty.castTag(.enum_numbered).?.data.tag_ty;
-                return sema.typeRequiresComptime(tag_ty);
-            },
-            .enum_full, .enum_nonexhaustive => {
-                const tag_ty = ty.cast(Type.Payload.EnumFull).?.data.tag_ty;
-                return sema.typeRequiresComptime(tag_ty);
             },
         },
         else => switch (mod.intern_pool.indexToKey(ty.ip_index)) {
@@ -33851,7 +33756,7 @@ pub fn typeRequiresComptime(sema: *Sema, ty: Type) CompileError!bool {
             },
 
             .opaque_type => false,
-            .enum_type => @panic("TODO"),
+            .enum_type => |enum_type| try sema.typeRequiresComptime(enum_type.tag_ty.toType()),
 
             // values, not types
             .un => unreachable,
@@ -34421,42 +34326,19 @@ fn intInRange(sema: *Sema, tag_ty: Type, int_val: Value, end: usize) !bool {
 /// Asserts the type is an enum.
 fn enumHasInt(sema: *Sema, ty: Type, int: Value) CompileError!bool {
     const mod = sema.mod;
-    switch (ty.tag()) {
-        .enum_nonexhaustive => unreachable,
-        .enum_full => {
-            const enum_full = ty.castTag(.enum_full).?.data;
-            const tag_ty = enum_full.tag_ty;
-            if (enum_full.values.count() == 0) {
-                return sema.intInRange(tag_ty, int, enum_full.fields.count());
-            } else {
-                return enum_full.values.containsContext(int, .{
-                    .ty = tag_ty,
-                    .mod = sema.mod,
-                });
-            }
-        },
-        .enum_numbered => {
-            const enum_obj = ty.castTag(.enum_numbered).?.data;
-            const tag_ty = enum_obj.tag_ty;
-            if (enum_obj.values.count() == 0) {
-                return sema.intInRange(tag_ty, int, enum_obj.fields.count());
-            } else {
-                return enum_obj.values.containsContext(int, .{
-                    .ty = tag_ty,
-                    .mod = sema.mod,
-                });
-            }
-        },
-        .enum_simple => {
-            const enum_simple = ty.castTag(.enum_simple).?.data;
-            const fields_len = enum_simple.fields.count();
-            const bits = std.math.log2_int_ceil(usize, fields_len);
-            const tag_ty = try mod.intType(.unsigned, bits);
-            return sema.intInRange(tag_ty, int, fields_len);
-        },
-
-        else => unreachable,
+    const enum_type = mod.intern_pool.indexToKey(ty.ip_index).enum_type;
+    assert(enum_type.tag_mode != .nonexhaustive);
+    if (enum_type.values.len == 0) {
+        // auto-numbered
+        return sema.intInRange(enum_type.tag_ty.toType(), int, enum_type.names.len);
     }
+
+    // The `tagValueIndex` function call below relies on the type being the integer tag type.
+    // `getCoerced` assumes the value will fit the new type.
+    if (!(try sema.intFitsInType(int, enum_type.tag_ty.toType(), null))) return false;
+    const int_coerced = try mod.intern_pool.getCoerced(sema.gpa, int.ip_index, enum_type.tag_ty);
+
+    return enum_type.tagValueIndex(mod.intern_pool, int_coerced) != null;
 }
 
 fn intAddWithOverflow(

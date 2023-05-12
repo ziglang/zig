@@ -1516,30 +1516,25 @@ pub const Object = struct {
                     return enum_di_ty;
                 }
 
-                const field_names = ty.enumFields().keys();
+                const ip = &mod.intern_pool;
+                const enum_type = ip.indexToKey(ty.ip_index).enum_type;
 
-                const enumerators = try gpa.alloc(*llvm.DIEnumerator, field_names.len);
+                const enumerators = try gpa.alloc(*llvm.DIEnumerator, enum_type.names.len);
                 defer gpa.free(enumerators);
 
-                var buf_field_index: Value.Payload.U32 = .{
-                    .base = .{ .tag = .enum_field_index },
-                    .data = undefined,
-                };
-                const field_index_val = Value.initPayload(&buf_field_index.base);
-
-                const int_ty = try ty.intTagType(mod);
+                const int_ty = enum_type.tag_ty.toType();
                 const int_info = ty.intInfo(mod);
                 assert(int_info.bits != 0);
 
-                for (field_names, 0..) |field_name, i| {
-                    const field_name_z = try gpa.dupeZ(u8, field_name);
-                    defer gpa.free(field_name_z);
+                for (enum_type.names, 0..) |field_name_ip, i| {
+                    const field_name_z = ip.stringToSlice(field_name_ip);
 
-                    buf_field_index.data = @intCast(u32, i);
-                    const field_int_val = try field_index_val.enumToInt(ty, mod);
-
-                    var bigint_space: Value.BigIntSpace = undefined;
-                    const bigint = field_int_val.toBigInt(&bigint_space, mod);
+                    var bigint_space: InternPool.Key.Int.Storage.BigIntSpace = undefined;
+                    const storage = if (enum_type.values.len != 0)
+                        ip.indexToKey(enum_type.values[i]).int.storage
+                    else
+                        InternPool.Key.Int.Storage{ .u64 = i };
+                    const bigint = storage.toBigInt(&bigint_space);
 
                     if (bigint.limbs.len == 1) {
                         enumerators[i] = dib.createEnumerator(field_name_z, bigint.limbs[0], int_info.signedness == .unsigned);
@@ -8852,23 +8847,22 @@ pub const FuncGen = struct {
 
     fn getIsNamedEnumValueFunction(self: *FuncGen, enum_ty: Type) !*llvm.Value {
         const mod = self.dg.module;
-        const enum_decl = enum_ty.getOwnerDecl(mod);
+        const enum_type = mod.intern_pool.indexToKey(enum_ty.ip_index).enum_type;
 
         // TODO: detect when the type changes and re-emit this function.
-        const gop = try self.dg.object.named_enum_map.getOrPut(self.dg.gpa, enum_decl);
+        const gop = try self.dg.object.named_enum_map.getOrPut(self.dg.gpa, enum_type.decl);
         if (gop.found_existing) return gop.value_ptr.*;
-        errdefer assert(self.dg.object.named_enum_map.remove(enum_decl));
+        errdefer assert(self.dg.object.named_enum_map.remove(enum_type.decl));
 
         var arena_allocator = std.heap.ArenaAllocator.init(self.gpa);
         defer arena_allocator.deinit();
         const arena = arena_allocator.allocator();
 
-        const fqn = try mod.declPtr(enum_decl).getFullyQualifiedName(mod);
+        const fqn = try mod.declPtr(enum_type.decl).getFullyQualifiedName(mod);
         defer self.gpa.free(fqn);
         const llvm_fn_name = try std.fmt.allocPrintZ(arena, "__zig_is_named_enum_value_{s}", .{fqn});
 
-        const int_tag_ty = try enum_ty.intTagType(mod);
-        const param_types = [_]*llvm.Type{try self.dg.lowerType(int_tag_ty)};
+        const param_types = [_]*llvm.Type{try self.dg.lowerType(enum_type.tag_ty.toType())};
 
         const llvm_ret_ty = try self.dg.lowerType(Type.bool);
         const fn_type = llvm.functionType(llvm_ret_ty, &param_types, param_types.len, .False);
@@ -8891,13 +8885,12 @@ pub const FuncGen = struct {
         self.builder.positionBuilderAtEnd(entry_block);
         self.builder.clearCurrentDebugLocation();
 
-        const fields = enum_ty.enumFields();
         const named_block = self.context.appendBasicBlock(fn_val, "Named");
         const unnamed_block = self.context.appendBasicBlock(fn_val, "Unnamed");
         const tag_int_value = fn_val.getParam(0);
-        const switch_instr = self.builder.buildSwitch(tag_int_value, unnamed_block, @intCast(c_uint, fields.count()));
+        const switch_instr = self.builder.buildSwitch(tag_int_value, unnamed_block, @intCast(c_uint, enum_type.names.len));
 
-        for (fields.keys(), 0..) |_, field_index| {
+        for (enum_type.names, 0..) |_, field_index| {
             const this_tag_int_value = int: {
                 var tag_val_payload: Value.Payload.U32 = .{
                     .base = .{ .tag = .enum_field_index },
@@ -8930,18 +8923,18 @@ pub const FuncGen = struct {
 
     fn getEnumTagNameFunction(self: *FuncGen, enum_ty: Type) !*llvm.Value {
         const mod = self.dg.module;
-        const enum_decl = enum_ty.getOwnerDecl(mod);
+        const enum_type = mod.intern_pool.indexToKey(enum_ty.ip_index).enum_type;
 
         // TODO: detect when the type changes and re-emit this function.
-        const gop = try self.dg.object.decl_map.getOrPut(self.dg.gpa, enum_decl);
+        const gop = try self.dg.object.decl_map.getOrPut(self.dg.gpa, enum_type.decl);
         if (gop.found_existing) return gop.value_ptr.*;
-        errdefer assert(self.dg.object.decl_map.remove(enum_decl));
+        errdefer assert(self.dg.object.decl_map.remove(enum_type.decl));
 
         var arena_allocator = std.heap.ArenaAllocator.init(self.gpa);
         defer arena_allocator.deinit();
         const arena = arena_allocator.allocator();
 
-        const fqn = try mod.declPtr(enum_decl).getFullyQualifiedName(mod);
+        const fqn = try mod.declPtr(enum_type.decl).getFullyQualifiedName(mod);
         defer self.gpa.free(fqn);
         const llvm_fn_name = try std.fmt.allocPrintZ(arena, "__zig_tag_name_{s}", .{fqn});
 
@@ -8950,8 +8943,7 @@ pub const FuncGen = struct {
         const usize_llvm_ty = try self.dg.lowerType(Type.usize);
         const slice_alignment = slice_ty.abiAlignment(mod);
 
-        const int_tag_ty = try enum_ty.intTagType(mod);
-        const param_types = [_]*llvm.Type{try self.dg.lowerType(int_tag_ty)};
+        const param_types = [_]*llvm.Type{try self.dg.lowerType(enum_type.tag_ty.toType())};
 
         const fn_type = llvm.functionType(llvm_ret_ty, &param_types, param_types.len, .False);
         const fn_val = self.dg.object.llvm_module.addFunction(llvm_fn_name, fn_type);
@@ -8973,16 +8965,16 @@ pub const FuncGen = struct {
         self.builder.positionBuilderAtEnd(entry_block);
         self.builder.clearCurrentDebugLocation();
 
-        const fields = enum_ty.enumFields();
         const bad_value_block = self.context.appendBasicBlock(fn_val, "BadValue");
         const tag_int_value = fn_val.getParam(0);
-        const switch_instr = self.builder.buildSwitch(tag_int_value, bad_value_block, @intCast(c_uint, fields.count()));
+        const switch_instr = self.builder.buildSwitch(tag_int_value, bad_value_block, @intCast(c_uint, enum_type.names.len));
 
         const array_ptr_indices = [_]*llvm.Value{
             usize_llvm_ty.constNull(), usize_llvm_ty.constNull(),
         };
 
-        for (fields.keys(), 0..) |name, field_index| {
+        for (enum_type.names, 0..) |name_ip, field_index| {
+            const name = mod.intern_pool.stringToSlice(name_ip);
             const str_init = self.context.constString(name.ptr, @intCast(c_uint, name.len), .False);
             const str_init_llvm_ty = str_init.typeOf();
             const str_global = self.dg.object.llvm_module.addGlobal(str_init_llvm_ty, "");
@@ -9429,7 +9421,7 @@ pub const FuncGen = struct {
         const tag_int = blk: {
             const tag_ty = union_ty.unionTagTypeHypothetical(mod);
             const union_field_name = union_obj.fields.keys()[extra.field_index];
-            const enum_field_index = tag_ty.enumFieldIndex(union_field_name).?;
+            const enum_field_index = tag_ty.enumFieldIndex(union_field_name, mod).?;
             var tag_val_payload: Value.Payload.U32 = .{
                 .base = .{ .tag = .enum_field_index },
                 .data = @intCast(u32, enum_field_index),

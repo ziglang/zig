@@ -886,29 +886,17 @@ pub const Decl = struct {
     /// Only returns it if the Decl is the owner.
     pub fn getInnerNamespaceIndex(decl: *Decl, mod: *Module) Namespace.OptionalIndex {
         if (!decl.owns_tv) return .none;
-        switch (decl.val.ip_index) {
-            .empty_struct_type => return .none,
-            .none => {
-                const ty = (decl.val.castTag(.ty) orelse return .none).data;
-                switch (ty.tag()) {
-                    .enum_full, .enum_nonexhaustive => {
-                        const enum_obj = ty.cast(Type.Payload.EnumFull).?.data;
-                        return enum_obj.namespace.toOptional();
-                    },
-
-                    else => return .none,
-                }
-            },
-            else => return switch (mod.intern_pool.indexToKey(decl.val.ip_index)) {
+        return switch (decl.val.ip_index) {
+            .empty_struct_type => .none,
+            .none => .none,
+            else => switch (mod.intern_pool.indexToKey(decl.val.ip_index)) {
                 .opaque_type => |opaque_type| opaque_type.namespace.toOptional(),
                 .struct_type => |struct_type| struct_type.namespace,
-                .union_type => |union_type| {
-                    const union_obj = mod.unionPtr(union_type.index);
-                    return union_obj.namespace.toOptional();
-                },
+                .union_type => |union_type| mod.unionPtr(union_type.index).namespace.toOptional(),
+                .enum_type => |enum_type| enum_type.namespace,
                 else => .none,
             },
-        }
+        };
     }
 
     /// Same as `getInnerNamespaceIndex` but additionally obtains the pointer.
@@ -1135,28 +1123,6 @@ pub const Struct = struct {
         return mod.declPtr(s.owner_decl).srcLoc(mod);
     }
 
-    pub fn fieldSrcLoc(s: Struct, mod: *Module, query: FieldSrcQuery) SrcLoc {
-        @setCold(true);
-        const owner_decl = mod.declPtr(s.owner_decl);
-        const file = owner_decl.getFileScope(mod);
-        const tree = file.getTree(mod.gpa) catch |err| {
-            // In this case we emit a warning + a less precise source location.
-            log.warn("unable to load {s}: {s}", .{
-                file.sub_file_path, @errorName(err),
-            });
-            return s.srcLoc(mod);
-        };
-        const node = owner_decl.relativeToNodeIndex(0);
-
-        var buf: [2]Ast.Node.Index = undefined;
-        if (tree.fullContainerDecl(&buf, node)) |container_decl| {
-            return queryFieldSrc(tree.*, query, file, container_decl);
-        } else {
-            // This struct was generated using @Type
-            return s.srcLoc(mod);
-        }
-    }
-
     pub fn haveFieldTypes(s: Struct) bool {
         return switch (s.status) {
             .none,
@@ -1234,110 +1200,6 @@ pub const Struct = struct {
             .struct_obj = s,
             .module = module,
         };
-    }
-};
-
-/// Represents the data that an enum declaration provides, when the fields
-/// are auto-numbered, and there are no declarations. The integer tag type
-/// is inferred to be the smallest power of two unsigned int that fits
-/// the number of fields.
-pub const EnumSimple = struct {
-    /// The Decl that corresponds to the enum itself.
-    owner_decl: Decl.Index,
-    /// Set of field names in declaration order.
-    fields: NameMap,
-
-    pub const NameMap = EnumFull.NameMap;
-
-    pub fn srcLoc(self: EnumSimple, mod: *Module) SrcLoc {
-        const owner_decl = mod.declPtr(self.owner_decl);
-        return .{
-            .file_scope = owner_decl.getFileScope(mod),
-            .parent_decl_node = owner_decl.src_node,
-            .lazy = LazySrcLoc.nodeOffset(0),
-        };
-    }
-};
-
-/// Represents the data that an enum declaration provides, when there are no
-/// declarations. However an integer tag type is provided, and the enum tag values
-/// are explicitly provided.
-pub const EnumNumbered = struct {
-    /// The Decl that corresponds to the enum itself.
-    owner_decl: Decl.Index,
-    /// An integer type which is used for the numerical value of the enum.
-    /// Whether zig chooses this type or the user specifies it, it is stored here.
-    tag_ty: Type,
-    /// Set of field names in declaration order.
-    fields: NameMap,
-    /// Maps integer tag value to field index.
-    /// Entries are in declaration order, same as `fields`.
-    /// If this hash map is empty, it means the enum tags are auto-numbered.
-    values: ValueMap,
-
-    pub const NameMap = EnumFull.NameMap;
-    pub const ValueMap = EnumFull.ValueMap;
-
-    pub fn srcLoc(self: EnumNumbered, mod: *Module) SrcLoc {
-        const owner_decl = mod.declPtr(self.owner_decl);
-        return .{
-            .file_scope = owner_decl.getFileScope(mod),
-            .parent_decl_node = owner_decl.src_node,
-            .lazy = LazySrcLoc.nodeOffset(0),
-        };
-    }
-};
-
-/// Represents the data that an enum declaration provides, when there is
-/// at least one tag value explicitly specified, or at least one declaration.
-pub const EnumFull = struct {
-    /// The Decl that corresponds to the enum itself.
-    owner_decl: Decl.Index,
-    /// An integer type which is used for the numerical value of the enum.
-    /// Whether zig chooses this type or the user specifies it, it is stored here.
-    tag_ty: Type,
-    /// Set of field names in declaration order.
-    fields: NameMap,
-    /// Maps integer tag value to field index.
-    /// Entries are in declaration order, same as `fields`.
-    /// If this hash map is empty, it means the enum tags are auto-numbered.
-    values: ValueMap,
-    /// Represents the declarations inside this enum.
-    namespace: Namespace.Index,
-    /// true if zig inferred this tag type, false if user specified it
-    tag_ty_inferred: bool,
-
-    pub const NameMap = std.StringArrayHashMapUnmanaged(void);
-    pub const ValueMap = std.ArrayHashMapUnmanaged(Value, void, Value.ArrayHashContext, false);
-
-    pub fn srcLoc(self: EnumFull, mod: *Module) SrcLoc {
-        const owner_decl = mod.declPtr(self.owner_decl);
-        return .{
-            .file_scope = owner_decl.getFileScope(mod),
-            .parent_decl_node = owner_decl.src_node,
-            .lazy = LazySrcLoc.nodeOffset(0),
-        };
-    }
-
-    pub fn fieldSrcLoc(e: EnumFull, mod: *Module, query: FieldSrcQuery) SrcLoc {
-        @setCold(true);
-        const owner_decl = mod.declPtr(e.owner_decl);
-        const file = owner_decl.getFileScope(mod);
-        const tree = file.getTree(mod.gpa) catch |err| {
-            // In this case we emit a warning + a less precise source location.
-            log.warn("unable to load {s}: {s}", .{
-                file.sub_file_path, @errorName(err),
-            });
-            return e.srcLoc(mod);
-        };
-        const node = owner_decl.relativeToNodeIndex(0);
-        var buf: [2]Ast.Node.Index = undefined;
-        if (tree.fullContainerDecl(&buf, node)) |container_decl| {
-            return queryFieldSrc(tree.*, query, file, container_decl);
-        } else {
-            // This enum was generated using @Type
-            return e.srcLoc(mod);
-        }
     }
 };
 
@@ -1425,28 +1287,6 @@ pub const Union = struct {
             .parent_decl_node = owner_decl.src_node,
             .lazy = LazySrcLoc.nodeOffset(0),
         };
-    }
-
-    pub fn fieldSrcLoc(u: Union, mod: *Module, query: FieldSrcQuery) SrcLoc {
-        @setCold(true);
-        const owner_decl = mod.declPtr(u.owner_decl);
-        const file = owner_decl.getFileScope(mod);
-        const tree = file.getTree(mod.gpa) catch |err| {
-            // In this case we emit a warning + a less precise source location.
-            log.warn("unable to load {s}: {s}", .{
-                file.sub_file_path, @errorName(err),
-            });
-            return u.srcLoc(mod);
-        };
-        const node = owner_decl.relativeToNodeIndex(0);
-
-        var buf: [2]Ast.Node.Index = undefined;
-        if (tree.fullContainerDecl(&buf, node)) |container_decl| {
-            return queryFieldSrc(tree.*, query, file, container_decl);
-        } else {
-            // This union was generated using @Type
-            return u.srcLoc(mod);
-        }
     }
 
     pub fn haveFieldTypes(u: Union) bool {
@@ -7312,4 +7152,25 @@ pub fn typeToStruct(mod: *Module, ty: Type) ?*Struct {
 pub fn typeToUnion(mod: *Module, ty: Type) ?*Union {
     const union_index = mod.intern_pool.indexToUnion(ty.ip_index).unwrap() orelse return null;
     return mod.unionPtr(union_index);
+}
+
+pub fn fieldSrcLoc(mod: *Module, owner_decl_index: Decl.Index, query: FieldSrcQuery) SrcLoc {
+    @setCold(true);
+    const owner_decl = mod.declPtr(owner_decl_index);
+    const file = owner_decl.getFileScope(mod);
+    const tree = file.getTree(mod.gpa) catch |err| {
+        // In this case we emit a warning + a less precise source location.
+        log.warn("unable to load {s}: {s}", .{
+            file.sub_file_path, @errorName(err),
+        });
+        return owner_decl.srcLoc(mod);
+    };
+    const node = owner_decl.relativeToNodeIndex(0);
+    var buf: [2]Ast.Node.Index = undefined;
+    if (tree.fullContainerDecl(&buf, node)) |container_decl| {
+        return queryFieldSrc(tree.*, query, file, container_decl);
+    } else {
+        // This type was generated using @Type
+        return owner_decl.srcLoc(mod);
+    }
 }

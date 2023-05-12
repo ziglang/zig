@@ -62,12 +62,6 @@ pub const Type = struct {
                 .tuple,
                 .anon_struct,
                 => return .Struct,
-
-                .enum_full,
-                .enum_nonexhaustive,
-                .enum_simple,
-                .enum_numbered,
-                => return .Enum,
             },
             else => switch (mod.intern_pool.indexToKey(ty.ip_index)) {
                 .int_type => return .Int,
@@ -566,22 +560,6 @@ pub const Type = struct {
 
                 return true;
             },
-
-            .enum_full, .enum_nonexhaustive => {
-                const a_enum_obj = a.cast(Payload.EnumFull).?.data;
-                const b_enum_obj = (b.cast(Payload.EnumFull) orelse return false).data;
-                return a_enum_obj == b_enum_obj;
-            },
-            .enum_simple => {
-                const a_enum_obj = a.cast(Payload.EnumSimple).?.data;
-                const b_enum_obj = (b.cast(Payload.EnumSimple) orelse return false).data;
-                return a_enum_obj == b_enum_obj;
-            },
-            .enum_numbered => {
-                const a_enum_obj = a.cast(Payload.EnumNumbered).?.data;
-                const b_enum_obj = (b.cast(Payload.EnumNumbered) orelse return false).data;
-                return a_enum_obj == b_enum_obj;
-            },
         }
     }
 
@@ -726,22 +704,6 @@ pub const Type = struct {
                     if (field_val.ip_index == .unreachable_value) continue;
                     field_val.hash(field_ty, hasher, mod);
                 }
-            },
-
-            .enum_full, .enum_nonexhaustive => {
-                const enum_obj: *const Module.EnumFull = ty.cast(Payload.EnumFull).?.data;
-                std.hash.autoHash(hasher, std.builtin.TypeId.Enum);
-                std.hash.autoHash(hasher, enum_obj);
-            },
-            .enum_simple => {
-                const enum_obj: *const Module.EnumSimple = ty.cast(Payload.EnumSimple).?.data;
-                std.hash.autoHash(hasher, std.builtin.TypeId.Enum);
-                std.hash.autoHash(hasher, enum_obj);
-            },
-            .enum_numbered => {
-                const enum_obj: *const Module.EnumNumbered = ty.cast(Payload.EnumNumbered).?.data;
-                std.hash.autoHash(hasher, std.builtin.TypeId.Enum);
-                std.hash.autoHash(hasher, enum_obj);
             },
         }
     }
@@ -920,9 +882,6 @@ pub const Type = struct {
             .error_set => return self.copyPayloadShallow(allocator, Payload.ErrorSet),
             .error_set_inferred => return self.copyPayloadShallow(allocator, Payload.ErrorSetInferred),
             .error_set_single => return self.copyPayloadShallow(allocator, Payload.Name),
-            .enum_simple => return self.copyPayloadShallow(allocator, Payload.EnumSimple),
-            .enum_numbered => return self.copyPayloadShallow(allocator, Payload.EnumNumbered),
-            .enum_full, .enum_nonexhaustive => return self.copyPayloadShallow(allocator, Payload.EnumFull),
         }
     }
 
@@ -995,25 +954,6 @@ pub const Type = struct {
         while (true) {
             const t = ty.tag();
             switch (t) {
-                .enum_full, .enum_nonexhaustive => {
-                    const enum_full = ty.cast(Payload.EnumFull).?.data;
-                    return writer.print("({s} decl={d})", .{
-                        @tagName(t), enum_full.owner_decl,
-                    });
-                },
-                .enum_simple => {
-                    const enum_simple = ty.castTag(.enum_simple).?.data;
-                    return writer.print("({s} decl={d})", .{
-                        @tagName(t), enum_simple.owner_decl,
-                    });
-                },
-                .enum_numbered => {
-                    const enum_numbered = ty.castTag(.enum_numbered).?.data;
-                    return writer.print("({s} decl={d})", .{
-                        @tagName(t), enum_numbered.owner_decl,
-                    });
-                },
-
                 .function => {
                     const payload = ty.castTag(.function).?.data;
                     try writer.writeAll("fn(");
@@ -1198,22 +1138,6 @@ pub const Type = struct {
             .none => switch (ty.tag()) {
                 .inferred_alloc_const => unreachable,
                 .inferred_alloc_mut => unreachable,
-
-                .enum_full, .enum_nonexhaustive => {
-                    const enum_full = ty.cast(Payload.EnumFull).?.data;
-                    const decl = mod.declPtr(enum_full.owner_decl);
-                    try decl.renderFullyQualifiedName(mod, writer);
-                },
-                .enum_simple => {
-                    const enum_simple = ty.castTag(.enum_simple).?.data;
-                    const decl = mod.declPtr(enum_simple.owner_decl);
-                    try decl.renderFullyQualifiedName(mod, writer);
-                },
-                .enum_numbered => {
-                    const enum_numbered = ty.castTag(.enum_numbered).?.data;
-                    const decl = mod.declPtr(enum_numbered.owner_decl);
-                    try decl.renderFullyQualifiedName(mod, writer);
-                },
 
                 .error_set_inferred => {
                     const func = ty.castTag(.error_set_inferred).?.data.func;
@@ -1500,7 +1424,10 @@ pub const Type = struct {
                     const decl = mod.declPtr(opaque_type.decl);
                     try decl.renderFullyQualifiedName(mod, writer);
                 },
-                .enum_type => @panic("TODO"),
+                .enum_type => |enum_type| {
+                    const decl = mod.declPtr(enum_type.decl);
+                    try decl.renderFullyQualifiedName(mod, writer);
+                },
 
                 // values, not types
                 .un => unreachable,
@@ -1591,19 +1518,6 @@ pub const Type = struct {
                     } else {
                         return !comptimeOnly(child_ty, mod);
                     }
-                },
-
-                .enum_full => {
-                    const enum_full = ty.castTag(.enum_full).?.data;
-                    return enum_full.tag_ty.hasRuntimeBitsAdvanced(mod, ignore_comptime_only, strat);
-                },
-                .enum_simple => {
-                    const enum_simple = ty.castTag(.enum_simple).?.data;
-                    return enum_simple.fields.count() >= 2;
-                },
-                .enum_numbered, .enum_nonexhaustive => {
-                    const int_tag_ty = try ty.intTagType(mod);
-                    return int_tag_ty.hasRuntimeBitsAdvanced(mod, ignore_comptime_only, strat);
                 },
 
                 .array => return ty.arrayLen(mod) != 0 and
@@ -1766,7 +1680,7 @@ pub const Type = struct {
                 },
 
                 .opaque_type => true,
-                .enum_type => @panic("TODO"),
+                .enum_type => |enum_type| enum_type.tag_ty.toType().hasRuntimeBitsAdvanced(mod, ignore_comptime_only, strat),
 
                 // values, not types
                 .un => unreachable,
@@ -1789,9 +1703,7 @@ pub const Type = struct {
             .empty_struct_type => false,
 
             .none => switch (ty.tag()) {
-                .pointer,
-                .enum_numbered,
-                => true,
+                .pointer => true,
 
                 .error_set,
                 .error_set_single,
@@ -1799,16 +1711,11 @@ pub const Type = struct {
                 .error_set_merged,
                 // These are function bodies, not function pointers.
                 .function,
-                .enum_simple,
                 .error_union,
                 .anyframe_T,
                 .tuple,
                 .anon_struct,
                 => false,
-
-                .enum_full,
-                .enum_nonexhaustive,
-                => !ty.cast(Payload.EnumFull).?.data.tag_ty_inferred,
 
                 .inferred_alloc_mut => unreachable,
                 .inferred_alloc_const => unreachable,
@@ -1886,7 +1793,10 @@ pub const Type = struct {
                     .tagged => false,
                 },
                 .opaque_type => false,
-                .enum_type => @panic("TODO"),
+                .enum_type => |enum_type| switch (enum_type.tag_mode) {
+                    .auto => false,
+                    .explicit, .nonexhaustive => true,
+                },
 
                 // values, not types
                 .un => unreachable,
@@ -2116,11 +2026,6 @@ pub const Type = struct {
                     return AbiAlignmentAdvanced{ .scalar = big_align };
                 },
 
-                .enum_full, .enum_nonexhaustive, .enum_simple, .enum_numbered => {
-                    const int_tag_ty = try ty.intTagType(mod);
-                    return AbiAlignmentAdvanced{ .scalar = int_tag_ty.abiAlignment(mod) };
-                },
-
                 .inferred_alloc_const,
                 .inferred_alloc_mut,
                 => unreachable,
@@ -2283,7 +2188,7 @@ pub const Type = struct {
                     return abiAlignmentAdvancedUnion(ty, mod, strat, union_obj, union_type.hasTag());
                 },
                 .opaque_type => return AbiAlignmentAdvanced{ .scalar = 1 },
-                .enum_type => @panic("TODO"),
+                .enum_type => |enum_type| return AbiAlignmentAdvanced{ .scalar = enum_type.tag_ty.toType().abiAlignment(mod) },
 
                 // values, not types
                 .un => unreachable,
@@ -2473,11 +2378,6 @@ pub const Type = struct {
                         return AbiSizeAdvanced{ .scalar = 0 };
                     }
                     return AbiSizeAdvanced{ .scalar = ty.structFieldOffset(field_count, mod) };
-                },
-
-                .enum_simple, .enum_full, .enum_nonexhaustive, .enum_numbered => {
-                    const int_tag_ty = try ty.intTagType(mod);
-                    return AbiSizeAdvanced{ .scalar = int_tag_ty.abiSize(mod) };
                 },
 
                 .array => {
@@ -2705,7 +2605,7 @@ pub const Type = struct {
                     return abiSizeAdvancedUnion(ty, mod, strat, union_obj, union_type.hasTag());
                 },
                 .opaque_type => unreachable, // no size available
-                .enum_type => @panic("TODO"),
+                .enum_type => |enum_type| return AbiSizeAdvanced{ .scalar = enum_type.tag_ty.toType().abiSize(mod) },
 
                 // values, not types
                 .un => unreachable,
@@ -2821,11 +2721,6 @@ pub const Type = struct {
                         total += try bitSizeAdvanced(field_ty, mod, opt_sema);
                     }
                     return total;
-                },
-
-                .enum_simple, .enum_full, .enum_nonexhaustive, .enum_numbered => {
-                    const int_tag_ty = try ty.intTagType(mod);
-                    return try bitSizeAdvanced(int_tag_ty, mod, opt_sema);
                 },
 
                 .array => {
@@ -2964,7 +2859,7 @@ pub const Type = struct {
                     return size;
                 },
                 .opaque_type => unreachable,
-                .enum_type => @panic("TODO"),
+                .enum_type => |enum_type| return bitSizeAdvanced(enum_type.tag_ty.toType(), mod, opt_sema),
 
                 // values, not types
                 .un => unreachable,
@@ -3433,7 +3328,7 @@ pub const Type = struct {
     pub fn unionTagFieldIndex(ty: Type, enum_tag: Value, mod: *Module) ?usize {
         const union_obj = mod.typeToUnion(ty).?;
         const index = union_obj.tag_ty.enumTagFieldIndex(enum_tag, mod) orelse return null;
-        const name = union_obj.tag_ty.enumFieldName(index);
+        const name = union_obj.tag_ty.enumFieldName(index, mod);
         return union_obj.fields.getIndex(name);
     }
 
@@ -3690,15 +3585,6 @@ pub const Type = struct {
 
         while (true) switch (ty.ip_index) {
             .none => switch (ty.tag()) {
-                .enum_full, .enum_nonexhaustive => ty = ty.cast(Payload.EnumFull).?.data.tag_ty,
-                .enum_numbered => ty = ty.castTag(.enum_numbered).?.data.tag_ty,
-                .enum_simple => {
-                    const enum_obj = ty.castTag(.enum_simple).?.data;
-                    const field_count = enum_obj.fields.count();
-                    if (field_count == 0) return .{ .signedness = .unsigned, .bits = 0 };
-                    return .{ .signedness = .unsigned, .bits = smallestUnsignedBits(field_count - 1) };
-                },
-
                 .error_set, .error_set_single, .error_set_inferred, .error_set_merged => {
                     // TODO revisit this when error sets support custom int types
                     return .{ .signedness = .unsigned, .bits = 16 };
@@ -3728,7 +3614,7 @@ pub const Type = struct {
                     assert(struct_obj.layout == .Packed);
                     ty = struct_obj.backing_int_ty;
                 },
-                .enum_type => @panic("TODO"),
+                .enum_type => |enum_type| ty = enum_type.tag_ty.toType(),
 
                 .ptr_type => unreachable,
                 .array_type => unreachable,
@@ -3964,47 +3850,6 @@ pub const Type = struct {
                     return Value.empty_struct;
                 },
 
-                .enum_numbered => {
-                    const enum_numbered = ty.castTag(.enum_numbered).?.data;
-                    // An explicit tag type is always provided for enum_numbered.
-                    if (enum_numbered.tag_ty.hasRuntimeBits(mod)) {
-                        return null;
-                    }
-                    assert(enum_numbered.fields.count() == 1);
-                    return enum_numbered.values.keys()[0];
-                },
-                .enum_full => {
-                    const enum_full = ty.castTag(.enum_full).?.data;
-                    if (enum_full.tag_ty.hasRuntimeBits(mod)) {
-                        return null;
-                    }
-                    switch (enum_full.fields.count()) {
-                        0 => return Value.@"unreachable",
-                        1 => if (enum_full.values.count() == 0) {
-                            return Value.enum_field_0; // auto-numbered
-                        } else {
-                            return enum_full.values.keys()[0];
-                        },
-                        else => return null,
-                    }
-                },
-                .enum_simple => {
-                    const enum_simple = ty.castTag(.enum_simple).?.data;
-                    switch (enum_simple.fields.count()) {
-                        0 => return Value.@"unreachable",
-                        1 => return Value.enum_field_0,
-                        else => return null,
-                    }
-                },
-                .enum_nonexhaustive => {
-                    const tag_ty = ty.castTag(.enum_nonexhaustive).?.data.tag_ty;
-                    if (!tag_ty.hasRuntimeBits(mod)) {
-                        return Value.enum_field_0;
-                    } else {
-                        return null;
-                    }
-                },
-
                 .array => {
                     if (ty.arrayLen(mod) == 0)
                         return Value.initTag(.empty_array);
@@ -4123,7 +3968,28 @@ pub const Type = struct {
                     return only.toValue();
                 },
                 .opaque_type => return null,
-                .enum_type => @panic("TODO"),
+                .enum_type => |enum_type| switch (enum_type.tag_mode) {
+                    .nonexhaustive => {
+                        if (enum_type.tag_ty != .comptime_int_type and
+                            !enum_type.tag_ty.toType().hasRuntimeBits(mod))
+                        {
+                            return Value.enum_field_0;
+                        } else {
+                            return null;
+                        }
+                    },
+                    .auto, .explicit => switch (enum_type.names.len) {
+                        0 => return Value.@"unreachable",
+                        1 => {
+                            if (enum_type.values.len == 0) {
+                                return Value.enum_field_0; // auto-numbered
+                            } else {
+                                return enum_type.values[0].toValue();
+                            }
+                        },
+                        else => return null,
+                    },
+                },
 
                 // values, not types
                 .un => unreachable,
@@ -4151,7 +4017,6 @@ pub const Type = struct {
                 .error_set_single,
                 .error_set_inferred,
                 .error_set_merged,
-                .enum_simple,
                 => false,
 
                 // These are function bodies, not function pointers.
@@ -4190,14 +4055,6 @@ pub const Type = struct {
                 .anyframe_T => {
                     const child_ty = ty.castTag(.anyframe_T).?.data;
                     return child_ty.comptimeOnly(mod);
-                },
-                .enum_numbered => {
-                    const tag_ty = ty.castTag(.enum_numbered).?.data.tag_ty;
-                    return tag_ty.comptimeOnly(mod);
-                },
-                .enum_full, .enum_nonexhaustive => {
-                    const tag_ty = ty.cast(Type.Payload.EnumFull).?.data.tag_ty;
-                    return tag_ty.comptimeOnly(mod);
                 },
             },
             else => switch (mod.intern_pool.indexToKey(ty.ip_index)) {
@@ -4293,7 +4150,7 @@ pub const Type = struct {
 
                 .opaque_type => false,
 
-                .enum_type => @panic("TODO"),
+                .enum_type => |enum_type| enum_type.tag_ty.toType().comptimeOnly(mod),
 
                 // values, not types
                 .un => unreachable,
@@ -4346,19 +4203,14 @@ pub const Type = struct {
 
     /// Returns null if the type has no namespace.
     pub fn getNamespaceIndex(ty: Type, mod: *Module) Module.Namespace.OptionalIndex {
-        return switch (ty.ip_index) {
-            .none => switch (ty.tag()) {
-                .enum_full => ty.castTag(.enum_full).?.data.namespace.toOptional(),
-                .enum_nonexhaustive => ty.castTag(.enum_nonexhaustive).?.data.namespace.toOptional(),
-                else => .none,
-            },
-            else => switch (mod.intern_pool.indexToKey(ty.ip_index)) {
-                .opaque_type => |opaque_type| opaque_type.namespace.toOptional(),
-                .struct_type => |struct_type| struct_type.namespace,
-                .union_type => |union_type| mod.unionPtr(union_type.index).namespace.toOptional(),
+        if (ty.ip_index == .none) return .none;
+        return switch (mod.intern_pool.indexToKey(ty.ip_index)) {
+            .opaque_type => |opaque_type| opaque_type.namespace.toOptional(),
+            .struct_type => |struct_type| struct_type.namespace,
+            .union_type => |union_type| mod.unionPtr(union_type.index).namespace.toOptional(),
+            .enum_type => |enum_type| enum_type.namespace,
 
-                else => .none,
-            },
+            else => .none,
         };
     }
 
@@ -4444,29 +4296,23 @@ pub const Type = struct {
 
     /// Asserts the type is an enum or a union.
     pub fn intTagType(ty: Type, mod: *Module) !Type {
-        return switch (ty.ip_index) {
-            .none => switch (ty.tag()) {
-                .enum_full, .enum_nonexhaustive => ty.cast(Payload.EnumFull).?.data.tag_ty,
-                .enum_numbered => ty.castTag(.enum_numbered).?.data.tag_ty,
-                .enum_simple => {
-                    const enum_simple = ty.castTag(.enum_simple).?.data;
-                    const field_count = enum_simple.fields.count();
-                    const bits: u16 = if (field_count == 0) 0 else std.math.log2_int_ceil(usize, field_count);
-                    return mod.intType(.unsigned, bits);
-                },
-                else => unreachable,
-            },
-            else => switch (mod.intern_pool.indexToKey(ty.ip_index)) {
-                .union_type => |union_type| mod.unionPtr(union_type.index).tag_ty.intTagType(mod),
-                else => unreachable,
-            },
+        return switch (mod.intern_pool.indexToKey(ty.ip_index)) {
+            .union_type => |union_type| mod.unionPtr(union_type.index).tag_ty.intTagType(mod),
+            .enum_type => |enum_type| enum_type.tag_ty.toType(),
+            else => unreachable,
         };
     }
 
-    pub fn isNonexhaustiveEnum(ty: Type) bool {
-        return switch (ty.tag()) {
-            .enum_nonexhaustive => true,
-            else => false,
+    pub fn isNonexhaustiveEnum(ty: Type, mod: *Module) bool {
+        return switch (ty.ip_index) {
+            .none => false,
+            else => switch (mod.intern_pool.indexToKey(ty.ip_index)) {
+                .enum_type => |enum_type| switch (enum_type.tag_mode) {
+                    .nonexhaustive => true,
+                    .auto, .explicit => false,
+                },
+                else => false,
+            },
         };
     }
 
@@ -4510,25 +4356,26 @@ pub const Type = struct {
         return try Tag.error_set_merged.create(arena, names);
     }
 
-    pub fn enumFields(ty: Type) Module.EnumFull.NameMap {
-        return switch (ty.tag()) {
-            .enum_full, .enum_nonexhaustive => ty.cast(Payload.EnumFull).?.data.fields,
-            .enum_simple => ty.castTag(.enum_simple).?.data.fields,
-            .enum_numbered => ty.castTag(.enum_numbered).?.data.fields,
-            else => unreachable,
-        };
+    pub fn enumFields(ty: Type, mod: *Module) []const InternPool.NullTerminatedString {
+        return mod.intern_pool.indexToKey(ty.ip_index).enum_type.names;
     }
 
-    pub fn enumFieldCount(ty: Type) usize {
-        return ty.enumFields().count();
+    pub fn enumFieldCount(ty: Type, mod: *Module) usize {
+        return mod.intern_pool.indexToKey(ty.ip_index).enum_type.names.len;
     }
 
-    pub fn enumFieldName(ty: Type, field_index: usize) []const u8 {
-        return ty.enumFields().keys()[field_index];
+    pub fn enumFieldName(ty: Type, field_index: usize, mod: *Module) [:0]const u8 {
+        const ip = &mod.intern_pool;
+        const field_name = ip.indexToKey(ty.ip_index).enum_type.names[field_index];
+        return ip.stringToSlice(field_name);
     }
 
-    pub fn enumFieldIndex(ty: Type, field_name: []const u8) ?usize {
-        return ty.enumFields().getIndex(field_name);
+    pub fn enumFieldIndex(ty: Type, field_name: []const u8, mod: *Module) ?usize {
+        const ip = &mod.intern_pool;
+        const enum_type = ip.indexToKey(ty.ip_index).enum_type;
+        // If the string is not interned, then the field certainly is not present.
+        const field_name_interned = ip.getString(field_name).unwrap() orelse return null;
+        return enum_type.nameIndex(ip.*, field_name_interned);
     }
 
     /// Asserts `ty` is an enum. `enum_tag` can either be `enum_field_index` or
@@ -4538,50 +4385,20 @@ pub const Type = struct {
         if (enum_tag.castTag(.enum_field_index)) |payload| {
             return @as(usize, payload.data);
         }
-        const S = struct {
-            fn fieldWithRange(int_ty: Type, int_val: Value, end: usize, m: *Module) ?usize {
-                if (int_val.compareAllWithZero(.lt, m)) return null;
-                const end_val = m.intValue(int_ty, end) catch |err| switch (err) {
-                    // TODO: eliminate this failure condition
-                    error.OutOfMemory => @panic("OOM"),
-                };
-                if (int_val.compareScalar(.gte, end_val, int_ty, m)) return null;
-                return @intCast(usize, int_val.toUnsignedInt(m));
-            }
-        };
-        switch (ty.tag()) {
-            .enum_full, .enum_nonexhaustive => {
-                const enum_full = ty.cast(Payload.EnumFull).?.data;
-                const tag_ty = enum_full.tag_ty;
-                if (enum_full.values.count() == 0) {
-                    return S.fieldWithRange(tag_ty, enum_tag, enum_full.fields.count(), mod);
-                } else {
-                    return enum_full.values.getIndexContext(enum_tag, .{
-                        .ty = tag_ty,
-                        .mod = mod,
-                    });
-                }
-            },
-            .enum_numbered => {
-                const enum_obj = ty.castTag(.enum_numbered).?.data;
-                const tag_ty = enum_obj.tag_ty;
-                if (enum_obj.values.count() == 0) {
-                    return S.fieldWithRange(tag_ty, enum_tag, enum_obj.fields.count(), mod);
-                } else {
-                    return enum_obj.values.getIndexContext(enum_tag, .{
-                        .ty = tag_ty,
-                        .mod = mod,
-                    });
-                }
-            },
-            .enum_simple => {
-                const enum_simple = ty.castTag(.enum_simple).?.data;
-                const fields_len = enum_simple.fields.count();
-                const bits = std.math.log2_int_ceil(usize, fields_len);
-                const tag_ty = mod.intType(.unsigned, bits) catch @panic("TODO: handle OOM here");
-                return S.fieldWithRange(tag_ty, enum_tag, fields_len, mod);
-            },
-            else => unreachable,
+        const ip = &mod.intern_pool;
+        const enum_type = ip.indexToKey(ty.ip_index).enum_type;
+        const tag_ty = enum_type.tag_ty.toType();
+        if (enum_type.values.len == 0) {
+            if (enum_tag.compareAllWithZero(.lt, mod)) return null;
+            const end_val = mod.intValue(tag_ty, enum_type.names.len) catch |err| switch (err) {
+                // TODO: eliminate this failure condition
+                error.OutOfMemory => @panic("OOM"),
+            };
+            if (enum_tag.compareScalar(.gte, end_val, tag_ty, mod)) return null;
+            return @intCast(usize, enum_tag.toUnsignedInt(mod));
+        } else {
+            assert(ip.typeOf(enum_tag.ip_index) == enum_type.tag_ty);
+            return enum_type.tagValueIndex(ip.*, enum_tag.ip_index);
         }
     }
 
@@ -4905,18 +4722,6 @@ pub const Type = struct {
         switch (ty.ip_index) {
             .empty_struct_type => return null,
             .none => switch (ty.tag()) {
-                .enum_full, .enum_nonexhaustive => {
-                    const enum_full = ty.cast(Payload.EnumFull).?.data;
-                    return enum_full.srcLoc(mod);
-                },
-                .enum_numbered => {
-                    const enum_numbered = ty.castTag(.enum_numbered).?.data;
-                    return enum_numbered.srcLoc(mod);
-                },
-                .enum_simple => {
-                    const enum_simple = ty.castTag(.enum_simple).?.data;
-                    return enum_simple.srcLoc(mod);
-                },
                 .error_set => {
                     const error_set = ty.castTag(.error_set).?.data;
                     return error_set.srcLoc(mod);
@@ -4934,6 +4739,7 @@ pub const Type = struct {
                     return union_obj.srcLoc(mod);
                 },
                 .opaque_type => |opaque_type| mod.opaqueSrcLoc(opaque_type),
+                .enum_type => |enum_type| mod.declPtr(enum_type.decl).srcLoc(mod),
                 else => null,
             },
         }
@@ -4946,15 +4752,6 @@ pub const Type = struct {
     pub fn getOwnerDeclOrNull(ty: Type, mod: *Module) ?Module.Decl.Index {
         switch (ty.ip_index) {
             .none => switch (ty.tag()) {
-                .enum_full, .enum_nonexhaustive => {
-                    const enum_full = ty.cast(Payload.EnumFull).?.data;
-                    return enum_full.owner_decl;
-                },
-                .enum_numbered => return ty.castTag(.enum_numbered).?.data.owner_decl,
-                .enum_simple => {
-                    const enum_simple = ty.castTag(.enum_simple).?.data;
-                    return enum_simple.owner_decl;
-                },
                 .error_set => {
                     const error_set = ty.castTag(.error_set).?.data;
                     return error_set.owner_decl;
@@ -4972,6 +4769,7 @@ pub const Type = struct {
                     return union_obj.owner_decl;
                 },
                 .opaque_type => |opaque_type| opaque_type.decl,
+                .enum_type => |enum_type| enum_type.decl,
                 else => null,
             },
         }
@@ -5012,10 +4810,6 @@ pub const Type = struct {
         /// The type is the inferred error set of a specific function.
         error_set_inferred,
         error_set_merged,
-        enum_simple,
-        enum_numbered,
-        enum_full,
-        enum_nonexhaustive,
 
         pub const last_no_payload_tag = Tag.inferred_alloc_const;
         pub const no_payload_count = @enumToInt(last_no_payload_tag) + 1;
@@ -5040,9 +4834,6 @@ pub const Type = struct {
                 .function => Payload.Function,
                 .error_union => Payload.ErrorUnion,
                 .error_set_single => Payload.Name,
-                .enum_full, .enum_nonexhaustive => Payload.EnumFull,
-                .enum_simple => Payload.EnumSimple,
-                .enum_numbered => Payload.EnumNumbered,
                 .tuple => Payload.Tuple,
                 .anon_struct => Payload.AnonStruct,
             };
@@ -5340,21 +5131,6 @@ pub const Type = struct {
                 /// unreachable_value elements are used to indicate runtime-known.
                 values: []Value,
             };
-        };
-
-        pub const EnumFull = struct {
-            base: Payload,
-            data: *Module.EnumFull,
-        };
-
-        pub const EnumSimple = struct {
-            base: Payload = .{ .tag = .enum_simple },
-            data: *Module.EnumSimple,
-        };
-
-        pub const EnumNumbered = struct {
-            base: Payload = .{ .tag = .enum_numbered },
-            data: *Module.EnumNumbered,
         };
     };
 

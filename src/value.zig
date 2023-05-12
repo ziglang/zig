@@ -675,80 +675,50 @@ pub const Value = struct {
         const field_index = switch (val.tag()) {
             .enum_field_index => val.castTag(.enum_field_index).?.data,
             .the_only_possible_value => blk: {
-                assert(ty.enumFieldCount() == 1);
+                assert(ty.enumFieldCount(mod) == 1);
                 break :blk 0;
             },
             .enum_literal => i: {
                 const name = val.castTag(.enum_literal).?.data;
-                break :i ty.enumFieldIndex(name).?;
+                break :i ty.enumFieldIndex(name, mod).?;
             },
             // Assume it is already an integer and return it directly.
             else => return val,
         };
 
-        switch (ty.tag()) {
-            .enum_full, .enum_nonexhaustive => {
-                const enum_full = ty.cast(Type.Payload.EnumFull).?.data;
-                if (enum_full.values.count() != 0) {
-                    return enum_full.values.keys()[field_index];
-                } else {
-                    // Field index and integer values are the same.
-                    return mod.intValue(enum_full.tag_ty, field_index);
-                }
-            },
-            .enum_numbered => {
-                const enum_obj = ty.castTag(.enum_numbered).?.data;
-                if (enum_obj.values.count() != 0) {
-                    return enum_obj.values.keys()[field_index];
-                } else {
-                    // Field index and integer values are the same.
-                    return mod.intValue(enum_obj.tag_ty, field_index);
-                }
-            },
-            .enum_simple => {
-                // Field index and integer values are the same.
-                const tag_ty = try ty.intTagType(mod);
-                return mod.intValue(tag_ty, field_index);
-            },
-            else => unreachable,
+        const enum_type = mod.intern_pool.indexToKey(ty.ip_index).enum_type;
+        if (enum_type.values.len != 0) {
+            return enum_type.values[field_index].toValue();
+        } else {
+            // Field index and integer values are the same.
+            return mod.intValue(enum_type.tag_ty.toType(), field_index);
         }
     }
 
     pub fn tagName(val: Value, ty: Type, mod: *Module) []const u8 {
         if (ty.zigTypeTag(mod) == .Union) return val.unionTag().tagName(ty.unionTagTypeHypothetical(mod), mod);
 
+        const enum_type = mod.intern_pool.indexToKey(ty.ip_index).enum_type;
+
         const field_index = switch (val.tag()) {
             .enum_field_index => val.castTag(.enum_field_index).?.data,
             .the_only_possible_value => blk: {
-                assert(ty.enumFieldCount() == 1);
+                assert(ty.enumFieldCount(mod) == 1);
                 break :blk 0;
             },
             .enum_literal => return val.castTag(.enum_literal).?.data,
             else => field_index: {
-                const values = switch (ty.tag()) {
-                    .enum_full, .enum_nonexhaustive => ty.cast(Type.Payload.EnumFull).?.data.values,
-                    .enum_numbered => ty.castTag(.enum_numbered).?.data.values,
-                    .enum_simple => Module.EnumFull.ValueMap{},
-                    else => unreachable,
-                };
-                if (values.entries.len == 0) {
+                if (enum_type.values.len == 0) {
                     // auto-numbered enum
                     break :field_index @intCast(u32, val.toUnsignedInt(mod));
                 }
-                const int_tag_ty = ty.intTagType(mod) catch |err| switch (err) {
-                    error.OutOfMemory => @panic("OOM"), // TODO handle this failure
-                };
-                break :field_index @intCast(u32, values.getIndexContext(val, .{ .ty = int_tag_ty, .mod = mod }).?);
+                const field_index = enum_type.tagValueIndex(mod.intern_pool, val.ip_index).?;
+                break :field_index @intCast(u32, field_index);
             },
         };
 
-        const fields = switch (ty.tag()) {
-            .enum_full, .enum_nonexhaustive => ty.cast(Type.Payload.EnumFull).?.data.fields,
-            .enum_numbered => ty.castTag(.enum_numbered).?.data.fields,
-            .enum_simple => ty.castTag(.enum_simple).?.data.fields,
-            else => unreachable,
-        };
-        return fields.keys()[field_index];
+        const field_name = enum_type.names[field_index];
+        return mod.intern_pool.stringToSlice(field_name);
     }
 
     /// Asserts the value is an integer.

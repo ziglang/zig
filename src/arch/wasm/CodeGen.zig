@@ -3101,24 +3101,12 @@ fn lowerConstant(func: *CodeGen, arg_val: Value, ty: Type) InnerError!WValue {
         },
         .Enum => {
             if (val.castTag(.enum_field_index)) |field_index| {
-                switch (ty.tag()) {
-                    .enum_simple => return WValue{ .imm32 = field_index.data },
-                    .enum_full, .enum_nonexhaustive => {
-                        const enum_full = ty.cast(Type.Payload.EnumFull).?.data;
-                        if (enum_full.values.count() != 0) {
-                            const tag_val = enum_full.values.keys()[field_index.data];
-                            return func.lowerConstant(tag_val, enum_full.tag_ty);
-                        } else {
-                            return WValue{ .imm32 = field_index.data };
-                        }
-                    },
-                    .enum_numbered => {
-                        const index = field_index.data;
-                        const enum_data = ty.castTag(.enum_numbered).?.data;
-                        const enum_val = enum_data.values.keys()[index];
-                        return func.lowerConstant(enum_val, enum_data.tag_ty);
-                    },
-                    else => return func.fail("TODO: lowerConstant for enum tag: {}", .{ty.tag()}),
+                const enum_type = mod.intern_pool.indexToKey(ty.ip_index).enum_type;
+                if (enum_type.values.len != 0) {
+                    const tag_val = enum_type.values[field_index.data];
+                    return func.lowerConstant(tag_val.toValue(), enum_type.tag_ty.toType());
+                } else {
+                    return WValue{ .imm32 = field_index.data };
                 }
             } else {
                 const int_tag_ty = try ty.intTagType(mod);
@@ -3240,21 +3228,12 @@ fn valueAsI32(func: *const CodeGen, val: Value, ty: Type) !i32 {
     switch (ty.zigTypeTag(mod)) {
         .Enum => {
             if (val.castTag(.enum_field_index)) |field_index| {
-                switch (ty.tag()) {
-                    .enum_simple => return @bitCast(i32, field_index.data),
-                    .enum_full, .enum_nonexhaustive => {
-                        const enum_full = ty.cast(Type.Payload.EnumFull).?.data;
-                        if (enum_full.values.count() != 0) {
-                            const tag_val = enum_full.values.keys()[field_index.data];
-                            return func.valueAsI32(tag_val, enum_full.tag_ty);
-                        } else return @bitCast(i32, field_index.data);
-                    },
-                    .enum_numbered => {
-                        const index = field_index.data;
-                        const enum_data = ty.castTag(.enum_numbered).?.data;
-                        return func.valueAsI32(enum_data.values.keys()[index], enum_data.tag_ty);
-                    },
-                    else => unreachable,
+                const enum_type = mod.intern_pool.indexToKey(ty.ip_index).enum_type;
+                if (enum_type.values.len != 0) {
+                    const tag_val = enum_type.values[field_index.data];
+                    return func.valueAsI32(tag_val.toValue(), enum_type.tag_ty.toType());
+                } else {
+                    return @bitCast(i32, field_index.data);
                 }
             } else {
                 const int_tag_ty = try ty.intTagType(mod);
@@ -6836,7 +6815,8 @@ fn getTagNameFunction(func: *CodeGen, enum_ty: Type) InnerError!u32 {
 
     // TODO: Make switch implementation generic so we can use a jump table for this when the tags are not sparse.
     // generate an if-else chain for each tag value as well as constant.
-    for (enum_ty.enumFields().keys(), 0..) |tag_name, field_index| {
+    for (enum_ty.enumFields(mod), 0..) |tag_name_ip, field_index| {
+        const tag_name = mod.intern_pool.stringToSlice(tag_name_ip);
         // for each tag name, create an unnamed const,
         // and then get a pointer to its value.
         const name_ty = try mod.arrayType(.{
@@ -6846,7 +6826,7 @@ fn getTagNameFunction(func: *CodeGen, enum_ty: Type) InnerError!u32 {
         });
         const string_bytes = &mod.string_literal_bytes;
         try string_bytes.ensureUnusedCapacity(mod.gpa, tag_name.len);
-        const gop = try mod.string_literal_table.getOrPutContextAdapted(mod.gpa, tag_name, Module.StringLiteralAdapter{
+        const gop = try mod.string_literal_table.getOrPutContextAdapted(mod.gpa, @as([]const u8, tag_name), Module.StringLiteralAdapter{
             .bytes = string_bytes,
         }, Module.StringLiteralContext{
             .bytes = string_bytes,

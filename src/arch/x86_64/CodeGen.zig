@@ -2016,7 +2016,7 @@ fn genLazy(self: *Self, lazy_sym: link.File.LazySymbol) InnerError!void {
             const ret_reg = param_regs[0];
             const enum_mcv = MCValue{ .register = param_regs[1] };
 
-            var exitlude_jump_relocs = try self.gpa.alloc(u32, enum_ty.enumFieldCount());
+            var exitlude_jump_relocs = try self.gpa.alloc(u32, enum_ty.enumFieldCount(mod));
             defer self.gpa.free(exitlude_jump_relocs);
 
             const data_reg = try self.register_manager.allocReg(null, gp);
@@ -2027,9 +2027,10 @@ fn genLazy(self: *Self, lazy_sym: link.File.LazySymbol) InnerError!void {
             var data_off: i32 = 0;
             for (
                 exitlude_jump_relocs,
-                enum_ty.enumFields().keys(),
+                enum_ty.enumFields(mod),
                 0..,
-            ) |*exitlude_jump_reloc, tag_name, index| {
+            ) |*exitlude_jump_reloc, tag_name_ip, index| {
+                const tag_name = mod.intern_pool.stringToSlice(tag_name_ip);
                 var tag_pl = Value.Payload.U32{
                     .base = .{ .tag = .enum_field_index },
                     .data = @intCast(u32, index),
@@ -11413,7 +11414,7 @@ fn airUnionInit(self: *Self, inst: Air.Inst.Index) !void {
         const union_obj = mod.typeToUnion(union_ty).?;
         const field_name = union_obj.fields.keys()[extra.field_index];
         const tag_ty = union_obj.tag_ty;
-        const field_index = @intCast(u32, tag_ty.enumFieldIndex(field_name).?);
+        const field_index = @intCast(u32, tag_ty.enumFieldIndex(field_name, mod).?);
         var tag_pl = Value.Payload.U32{ .base = .{ .tag = .enum_field_index }, .data = field_index };
         const tag_val = Value.initPayload(&tag_pl.base);
         const tag_int_val = try tag_val.enumToInt(tag_ty, mod);
