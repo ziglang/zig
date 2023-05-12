@@ -180,6 +180,18 @@ test "slicing zero length array" {
     try expect(mem.eql(u32, s2, &[_]u32{}));
 }
 
+test "slicing pointer by length" {
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest;
+    const array = [_]u8{ 1, 2, 3, 4, 5, 6, 7, 8 };
+    const ptr: [*]const u8 = @ptrCast([*]const u8, &array);
+    const slice = ptr[1..][0..5];
+    try expect(slice.len == 5);
+    var i: usize = 0;
+    while (i < slice.len) : (i += 1) {
+        try expect(slice[i] == i + 2);
+    }
+}
+
 const x = @intToPtr([*]i32, 0x1000)[0..0x500];
 const y = x[0x100..];
 test "compile time slice of pointer to hard coded address" {
@@ -502,6 +514,33 @@ test "slice syntax resulting in pointer-to-array" {
             comptime try expect(@TypeOf(array[1.. :0][0..2]) == *[2]u8);
             comptime try expect(@TypeOf(array[1.. :0][0..4]) == *[4:0]u8);
             comptime try expect(@TypeOf(array[1.. :0][0..2 :4]) == *[2:4]u8);
+        }
+
+        fn testMultiPointer() !void {
+            var array = [5]u8{ 1, 2, 3, 4, 5 };
+            var ptr: [*]u8 = &array;
+            comptime try expect(@TypeOf(ptr[1..][0..2]) == *[2]u8);
+            comptime try expect(@TypeOf(ptr[1..][0..4]) == *[4]u8);
+            comptime try expect(@TypeOf(ptr[1..][0..2 :4]) == *[2:4]u8);
+        }
+
+        fn testMultiPointerLengthZ() !void {
+            var array = [5:0]u8{ 1, 2, 3, 4, 5 };
+            var ptr: [*]u8 = &array;
+            comptime try expect(@TypeOf(ptr[1..][0..2]) == *[2]u8);
+            comptime try expect(@TypeOf(ptr[1..][0..4]) == *[4:0]u8);
+            comptime try expect(@TypeOf(ptr[1..][0..2 :4]) == *[2:4]u8);
+            comptime try expect(@TypeOf(ptr[1.. :0][0..2]) == *[2]u8);
+            comptime try expect(@TypeOf(ptr[1.. :0][0..4]) == *[4:0]u8);
+            comptime try expect(@TypeOf(ptr[1.. :0][0..2 :4]) == *[2:4]u8);
+
+            var ptr_z: [*:0]u8 = &array;
+            comptime try expect(@TypeOf(ptr_z[1..][0..2]) == *[2]u8);
+            comptime try expect(@TypeOf(ptr_z[1..][0..4]) == *[4:0]u8);
+            comptime try expect(@TypeOf(ptr_z[1..][0..2 :4]) == *[2:4]u8);
+            comptime try expect(@TypeOf(ptr_z[1.. :0][0..2]) == *[2]u8);
+            comptime try expect(@TypeOf(ptr_z[1.. :0][0..4]) == *[4:0]u8);
+            comptime try expect(@TypeOf(ptr_z[1.. :0][0..2 :4]) == *[2:4]u8);
         }
     };
 

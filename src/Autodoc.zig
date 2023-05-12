@@ -608,6 +608,7 @@ const DocData = struct {
             is_tuple: bool,
             line_number: usize,
             parent_container: ?usize, // index into `types`
+            layout: ?Expr, // if different than Auto
         },
         ComptimeExpr: struct { name: []const u8 },
         ComptimeFloat: struct { name: []const u8 },
@@ -645,6 +646,7 @@ const DocData = struct {
             tag: ?Expr, // tag type if specified
             auto_enum: bool, // tag is an auto enum
             parent_container: ?usize, // index into `types`
+            layout: ?Expr, // if different than Auto
         },
         Fn: struct {
             name: []const u8,
@@ -2694,6 +2696,11 @@ fn walkInstruction(
                         break :blk fields_len;
                     } else 0;
 
+                    const layout_expr: ?DocData.Expr = switch (small.layout) {
+                        .Auto => null,
+                        else => .{ .enumLiteral = @tagName(small.layout) },
+                    };
+
                     var decl_indexes: std.ArrayListUnmanaged(usize) = .{};
                     var priv_decl_indexes: std.ArrayListUnmanaged(usize) = .{};
 
@@ -2748,6 +2755,7 @@ fn walkInstruction(
                             .tag = tag_type,
                             .auto_enum = small.auto_enum_tag,
                             .parent_container = parent_scope.enclosing_type,
+                            .layout = layout_expr,
                         },
                     };
 
@@ -2958,6 +2966,11 @@ fn walkInstruction(
                         }
                     }
 
+                    const layout_expr: ?DocData.Expr = switch (small.layout) {
+                        .Auto => null,
+                        else => .{ .enumLiteral = @tagName(small.layout) },
+                    };
+
                     var decl_indexes: std.ArrayListUnmanaged(usize) = .{};
                     var priv_decl_indexes: std.ArrayListUnmanaged(usize) = .{};
 
@@ -2999,6 +3012,7 @@ fn walkInstruction(
                             .backing_int = backing_int,
                             .line_number = self.ast_nodes.items[self_ast_node_index].line,
                             .parent_container = parent_scope.enclosing_type,
+                            .layout = layout_expr,
                         },
                     };
                     if (self.ref_paths_pending_on_types.get(type_slot_index)) |paths| {

@@ -36,17 +36,6 @@ pub const Field = struct {
     name: []const u8,
     value: []const u8,
 
-    pub fn modify(entry: *Field, allocator: Allocator, new_value: []const u8) !void {
-        if (entry.value.len <= new_value.len) {
-            // TODO: eliminate this use of `@constCast`.
-            @memcpy(@constCast(entry.value)[0..new_value.len], new_value);
-        } else {
-            allocator.free(entry.value);
-
-            entry.value = try allocator.dupe(u8, new_value);
-        }
-    }
-
     fn lessThan(ctx: void, a: Field, b: Field) bool {
         _ = ctx;
         if (a.name.ptr == b.name.ptr) return false;

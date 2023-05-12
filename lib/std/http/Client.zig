@@ -71,7 +71,7 @@ pub const ConnectionPool = struct {
         while (next) |node| : (next = node.prev) {
             if ((node.data.buffered.conn.protocol == .tls) != criteria.is_tls) continue;
             if (node.data.port != criteria.port) continue;
-            if (mem.eql(u8, node.data.host, criteria.host)) continue;
+            if (!mem.eql(u8, node.data.host, criteria.host)) continue;
 
             pool.acquireUnsafe(node);
             return node;
@@ -251,47 +251,50 @@ pub const Connection = struct {
 
 /// A buffered (and peekable) Connection.
 pub const BufferedConnection = struct {
-    pub const buffer_size = 0x2000;
+    pub const buffer_size = std.crypto.tls.max_ciphertext_record_len;
 
     conn: Connection,
-    buf: [buffer_size]u8 = undefined,
-    start: u16 = 0,
-    end: u16 = 0,
+    read_buf: [buffer_size]u8 = undefined,
+    read_start: u16 = 0,
+    read_end: u16 = 0,
+
+    write_buf: [buffer_size]u8 = undefined,
+    write_end: u16 = 0,
 
     pub fn fill(bconn: *BufferedConnection) ReadError!void {
-        if (bconn.end != bconn.start) return;
+        if (bconn.read_end != bconn.read_start) return;
 
-        const nread = try bconn.conn.read(bconn.buf[0..]);
+        const nread = try bconn.conn.read(bconn.read_buf[0..]);
         if (nread == 0) return error.EndOfStream;
-        bconn.start = 0;
-        bconn.end = @truncate(u16, nread);
+        bconn.read_start = 0;
+        bconn.read_end = @intCast(u16, nread);
     }
 
     pub fn peek(bconn: *BufferedConnection) []const u8 {
-        return bconn.buf[bconn.start..bconn.end];
+        return bconn.read_buf[bconn.read_start..bconn.read_end];
     }
 
     pub fn clear(bconn: *BufferedConnection, num: u16) void {
-        bconn.start += num;
+        bconn.read_start += num;
     }
 
     pub fn readAtLeast(bconn: *BufferedConnection, buffer: []u8, len: usize) ReadError!usize {
         var out_index: u16 = 0;
         while (out_index < len) {
-            const available = bconn.end - bconn.start;
+            const available = bconn.read_end - bconn.read_start;
             const left = buffer.len - out_index;
 
             if (available > 0) {
-                const can_read = @truncate(u16, @min(available, left));
+                const can_read = @intCast(u16, @min(available, left));
 
-                @memcpy(buffer[out_index..][0..can_read], bconn.buf[bconn.start..][0..can_read]);
+                @memcpy(buffer[out_index..][0..can_read], bconn.read_buf[bconn.read_start..][0..can_read]);
                 out_index += can_read;
-                bconn.start += can_read;
+                bconn.read_start += can_read;
 
                 continue;
             }
 
-            if (left > bconn.buf.len) {
+            if (left > bconn.read_buf.len) {
                 // skip the buffer if the output is large enough
                 return bconn.conn.read(buffer[out_index..]);
             }
@@ -314,11 +317,30 @@ pub const BufferedConnection = struct {
     }
 
     pub fn writeAll(bconn: *BufferedConnection, buffer: []const u8) WriteError!void {
-        return bconn.conn.writeAll(buffer);
+        if (bconn.write_buf.len - bconn.write_end >= buffer.len) {
+            @memcpy(bconn.write_buf[bconn.write_end..][0..buffer.len], buffer);
+            bconn.write_end += @intCast(u16, buffer.len);
+        } else {
+            try bconn.flush();
+            try bconn.conn.writeAll(buffer);
+        }
     }
 
     pub fn write(bconn: *BufferedConnection, buffer: []const u8) WriteError!usize {
-        return bconn.conn.write(buffer);
+        if (bconn.write_buf.len - bconn.write_end >= buffer.len) {
+            @memcpy(bconn.write_buf[bconn.write_end..][0..buffer.len], buffer);
+            bconn.write_end += @intCast(u16, buffer.len);
+
+            return buffer.len;
+        } else {
+            try bconn.flush();
+            return try bconn.conn.write(buffer);
+        }
+    }
+
+    pub fn flush(bconn: *BufferedConnection) WriteError!void {
+        defer bconn.write_end = 0;
+        return bconn.conn.writeAll(bconn.write_buf[0..bconn.write_end]);
     }
 
     pub const WriteError = Connection.WriteError;
@@ -355,8 +377,6 @@ pub const Compression = union(enum) {
 /// A HTTP response originating from a server.
 pub const Response = struct {
     pub const ParseError = Allocator.Error || error{
-        ShortHttpStatusLine,
-        BadHttpVersion,
         HttpHeadersInvalid,
         HttpHeaderContinuationsUnsupported,
         HttpTransferEncodingUnsupported,
@@ -370,12 +390,12 @@ pub const Response = struct {
 
         const first_line = it.next() orelse return error.HttpHeadersInvalid;
         if (first_line.len < 12)
-            return error.ShortHttpStatusLine;
+            return error.HttpHeadersInvalid;
 
         const version: http.Version = switch (int64(first_line[0..8])) {
             int64("HTTP/1.0") => .@"HTTP/1.0",
             int64("HTTP/1.1") => .@"HTTP/1.1",
-            else => return error.BadHttpVersion,
+            else => return error.HttpHeadersInvalid,
         };
         if (first_line[8] != ' ') return error.HttpHeadersInvalid;
         const status = @intToEnum(http.Status, parseInt3(first_line[9..12].*));
@@ -569,8 +589,7 @@ pub const Request = struct {
 
     /// Send the request to the server.
     pub fn start(req: *Request) StartError!void {
-        var buffered = std.io.bufferedWriter(req.connection.data.buffered.writer());
-        const w = buffered.writer();
+        const w = req.connection.data.buffered.writer();
 
         try w.writeAll(@tagName(req.method));
         try w.writeByte(' ');
@@ -644,7 +663,7 @@ pub const Request = struct {
 
         try w.writeAll("\r\n");
 
-        try buffered.flush();
+        try req.connection.data.buffered.flush();
     }
 
     pub const TransferReadError = BufferedConnection.ReadError || proto.HeadersParser.ReadError;
@@ -695,16 +714,16 @@ pub const Request = struct {
 
             if (req.method == .CONNECT and req.response.status == .ok) {
                 req.connection.data.closing = false;
-                req.connection.data.proxied = true;
                 req.response.parser.done = true;
             }
 
+            // we default to using keep-alive if not provided
             const req_connection = req.headers.getFirstValue("connection");
             const req_keepalive = req_connection != null and !std.ascii.eqlIgnoreCase("close", req_connection.?);
 
             const res_connection = req.response.headers.getFirstValue("connection");
             const res_keepalive = res_connection != null and !std.ascii.eqlIgnoreCase("close", res_connection.?);
-            if (req_keepalive and res_keepalive) {
+            if (res_keepalive and (req_keepalive or req_connection == null)) {
                 req.connection.data.closing = false;
             } else {
                 req.connection.data.closing = true;
@@ -722,6 +741,11 @@ pub const Request = struct {
 
                 if (cl == 0) req.response.parser.done = true;
             } else {
+                req.response.parser.done = true;
+            }
+
+            // HEAD requests have no body
+            if (req.method == .HEAD) {
                 req.response.parser.done = true;
             }
 
@@ -866,6 +890,8 @@ pub const Request = struct {
             .content_length => |len| if (len != 0) return error.MessageNotCompleted,
             .none => {},
         }
+
+        try req.connection.data.buffered.flush();
     }
 };
 

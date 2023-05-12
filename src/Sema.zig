@@ -29387,7 +29387,11 @@ fn analyzeSlice(
             break :e try sema.analyzeSliceLen(block, src, ptr_or_slice);
         }
         if (!end_is_len) {
-            break :e try sema.coerce(block, Type.usize, uncasted_end_opt, end_src);
+            if (by_length) {
+                const len = try sema.coerce(block, Type.usize, uncasted_end_opt, end_src);
+                const uncasted_end = try sema.analyzeArithmetic(block, .add, start, len, src, start_src, end_src, false);
+                break :e try sema.coerce(block, Type.usize, uncasted_end, end_src);
+            } else break :e try sema.coerce(block, Type.usize, uncasted_end_opt, end_src);
         }
         return sema.fail(block, src, "slice of pointer must include end value", .{});
     };
