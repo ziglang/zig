@@ -198,7 +198,7 @@ pub fn print(
             .empty_array => return writer.writeAll(".{}"),
             .enum_literal => return writer.print(".{}", .{std.zig.fmtId(val.castTag(.enum_literal).?.data)}),
             .enum_field_index => {
-                return writer.print(".{s}", .{ty.enumFieldName(val.castTag(.enum_field_index).?.data)});
+                return writer.print(".{s}", .{ty.enumFieldName(val.castTag(.enum_field_index).?.data, mod)});
             },
             .bytes => return writer.print("\"{}\"", .{std.zig.fmtEscapes(val.castTag(.bytes).?.data)}),
             .str_lit => {

@@ -401,14 +401,9 @@ pub const DeclState = struct {
                 dbg_info_buffer.appendSliceAssumeCapacity(enum_name);
                 dbg_info_buffer.appendAssumeCapacity(0);
 
-                const fields = ty.enumFields();
-                const values: ?Module.EnumFull.ValueMap = switch (ty.tag()) {
-                    .enum_full, .enum_nonexhaustive => ty.cast(Type.Payload.EnumFull).?.data.values,
-                    .enum_simple => null,
-                    .enum_numbered => ty.castTag(.enum_numbered).?.data.values,
-                    else => unreachable,
-                };
-                for (fields.keys(), 0..) |field_name, field_i| {
+                const enum_type = mod.intern_pool.indexToKey(ty.ip_index).enum_type;
+                for (enum_type.names, 0..) |field_name_index, field_i| {
+                    const field_name = mod.intern_pool.stringToSlice(field_name_index);
                     // DW.AT.enumerator
                     try dbg_info_buffer.ensureUnusedCapacity(field_name.len + 2 + @sizeOf(u64));
                     dbg_info_buffer.appendAssumeCapacity(@enumToInt(AbbrevKind.enum_variant));
@@ -416,14 +411,14 @@ pub const DeclState = struct {
                     dbg_info_buffer.appendSliceAssumeCapacity(field_name);
                     dbg_info_buffer.appendAssumeCapacity(0);
                     // DW.AT.const_value, DW.FORM.data8
-                    const value: u64 = if (values) |vals| value: {
-                        if (vals.count() == 0) break :value @intCast(u64, field_i); // auto-numbered
-                        const value = vals.keys()[field_i];
+                    const value: u64 = value: {
+                        if (enum_type.values.len == 0) break :value field_i; // auto-numbered
+                        const value = enum_type.values[field_i];
                         // TODO do not assume a 64bit enum value - could be bigger.
                         // See https://github.com/ziglang/zig/issues/645
-                        const field_int_val = try value.enumToInt(ty, mod);
+                        const field_int_val = try value.toValue().enumToInt(ty, mod);
                         break :value @bitCast(u64, field_int_val.toSignedInt(mod));
-                    } else @intCast(u64, field_i);
+                    };
                     mem.writeInt(u64, dbg_info_buffer.addManyAsArrayAssumeCapacity(8), value, target_endian);
                 }
 

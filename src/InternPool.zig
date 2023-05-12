@@ -40,6 +40,14 @@ unions_free_list: std.ArrayListUnmanaged(Module.Union.Index) = .{},
 /// to provide lookup.
 maps: std.ArrayListUnmanaged(std.AutoArrayHashMapUnmanaged(void, void)) = .{},
 
+/// Used for finding the index inside `string_bytes`.
+string_table: std.HashMapUnmanaged(
+    u32,
+    void,
+    std.hash_map.StringIndexContext,
+    std.hash_map.default_max_load_percentage,
+) = .{},
+
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
@@ -68,6 +76,11 @@ const KeyAdapter = struct {
 pub const OptionalMapIndex = enum(u32) {
     none = std.math.maxInt(u32),
     _,
+
+    pub fn unwrap(oi: OptionalMapIndex) ?MapIndex {
+        if (oi == .none) return null;
+        return @intToEnum(MapIndex, @enumToInt(oi));
+    }
 };
 
 /// An index into `maps`.
@@ -82,6 +95,10 @@ pub const MapIndex = enum(u32) {
 /// An index into `string_bytes`.
 pub const NullTerminatedString = enum(u32) {
     _,
+
+    pub fn toOptional(self: NullTerminatedString) OptionalNullTerminatedString {
+        return @intToEnum(OptionalNullTerminatedString, @enumToInt(self));
+    }
 
     const Adapter = struct {
         strings: []const NullTerminatedString,
@@ -102,6 +119,11 @@ pub const NullTerminatedString = enum(u32) {
 pub const OptionalNullTerminatedString = enum(u32) {
     none = std.math.maxInt(u32),
     _,
+
+    pub fn unwrap(oi: OptionalNullTerminatedString) ?NullTerminatedString {
+        if (oi == .none) return null;
+        return @intToEnum(NullTerminatedString, @enumToInt(oi));
+    }
 };
 
 pub const Key = union(enum) {
@@ -242,13 +264,75 @@ pub const Key = union(enum) {
         /// Entries are in declaration order, same as `fields`.
         /// If this is empty, it means the enum tags are auto-numbered.
         values: []const Index,
-        /// true if zig inferred this tag type, false if user specified it
-        tag_ty_inferred: bool,
+        tag_mode: TagMode,
         /// This is ignored by `get` but will always be provided by `indexToKey`.
         names_map: OptionalMapIndex = .none,
         /// This is ignored by `get` but will be provided by `indexToKey` when
         /// a value map exists.
         values_map: OptionalMapIndex = .none,
+
+        pub const TagMode = enum {
+            /// The integer tag type was auto-numbered by zig.
+            auto,
+            /// The integer tag type was provided by the enum declaration, and the enum
+            /// is exhaustive.
+            explicit,
+            /// The integer tag type was provided by the enum declaration, and the enum
+            /// is non-exhaustive.
+            nonexhaustive,
+        };
+
+        /// Look up field index based on field name.
+        pub fn nameIndex(self: EnumType, ip: InternPool, name: NullTerminatedString) ?usize {
+            const map = &ip.maps.items[@enumToInt(self.names_map.unwrap().?)];
+            const adapter: NullTerminatedString.Adapter = .{ .strings = self.names };
+            return map.getIndexAdapted(name, adapter);
+        }
+
+        /// Look up field index based on tag value.
+        /// Asserts that `values_map` is not `none`.
+        /// This function returns `null` when `tag_val` does not have the
+        /// integer tag type of the enum.
+        pub fn tagValueIndex(self: EnumType, ip: InternPool, tag_val: Index) ?usize {
+            assert(tag_val != .none);
+            const map = &ip.maps.items[@enumToInt(self.values_map.unwrap().?)];
+            const adapter: Index.Adapter = .{ .indexes = self.values };
+            return map.getIndexAdapted(tag_val, adapter);
+        }
+    };
+
+    pub const IncompleteEnumType = struct {
+        /// Same as corresponding `EnumType` field.
+        decl: Module.Decl.Index,
+        /// Same as corresponding `EnumType` field.
+        namespace: Module.Namespace.OptionalIndex,
+        /// The field names and field values are not known yet, but
+        /// the number of fields must be known ahead of time.
+        fields_len: u32,
+        /// This information is needed so that the size does not change
+        /// later when populating field values.
+        has_values: bool,
+        /// Same as corresponding `EnumType` field.
+        tag_mode: EnumType.TagMode,
+        /// This may be updated via `setTagType` later.
+        tag_ty: Index = .none,
+
+        pub fn toEnumType(self: @This()) EnumType {
+            return .{
+                .decl = self.decl,
+                .namespace = self.namespace,
+                .tag_ty = self.tag_ty,
+                .tag_mode = self.tag_mode,
+                .names = &.{},
+                .values = &.{},
+            };
+        }
+
+        /// Only the decl is used for hashing and equality, so we can construct
+        /// this minimal key for use with `map`.
+        pub fn toKey(self: @This()) Key {
+            return .{ .enum_type = self.toEnumType() };
+        }
     };
 
     pub const Int = struct {
@@ -946,12 +1030,18 @@ pub const Tag = enum(u8) {
     /// An error union type.
     /// data is payload to ErrorUnion.
     type_error_union,
-    /// An enum type with an explicitly provided integer tag type.
-    /// data is payload index to `EnumExplicit`.
-    type_enum_explicit,
     /// An enum type with auto-numbered tag values.
+    /// The enum is exhaustive.
     /// data is payload index to `EnumAuto`.
     type_enum_auto,
+    /// An enum type with an explicitly provided integer tag type.
+    /// The enum is exhaustive.
+    /// data is payload index to `EnumExplicit`.
+    type_enum_explicit,
+    /// An enum type with an explicitly provided integer tag type.
+    /// The enum is non-exhaustive.
+    /// data is payload index to `EnumExplicit`.
+    type_enum_nonexhaustive,
     /// A type that can be represented with only an enum tag.
     /// data is SimpleType enum value.
     simple_type,
@@ -1302,8 +1392,10 @@ pub fn deinit(ip: *InternPool, gpa: Allocator) void {
     ip.unions_free_list.deinit(gpa);
     ip.allocated_unions.deinit(gpa);
 
-    for (ip.maps) |*map| map.deinit(gpa);
+    for (ip.maps.items) |*map| map.deinit(gpa);
     ip.maps.deinit(gpa);
+
+    ip.string_table.deinit(gpa);
 
     ip.* = undefined;
 }
@@ -1421,33 +1513,13 @@ pub fn indexToKey(ip: InternPool, index: Index) Key {
                 .tag_ty = ip.getEnumIntTagType(enum_auto.data.fields_len),
                 .names = names,
                 .values = &.{},
-                .tag_ty_inferred = true,
+                .tag_mode = .auto,
                 .names_map = enum_auto.data.names_map.toOptional(),
                 .values_map = .none,
             } };
         },
-        .type_enum_explicit => {
-            const enum_explicit = ip.extraDataTrail(EnumExplicit, data);
-            const names = @ptrCast(
-                []const NullTerminatedString,
-                ip.extra.items[enum_explicit.end..][0..enum_explicit.data.fields_len],
-            );
-            const values = if (enum_explicit.data.values_map != .none) @ptrCast(
-                []const Index,
-                ip.extra.items[enum_explicit.end + names.len ..][0..enum_explicit.data.fields_len],
-            ) else &[0]Index{};
-
-            return .{ .enum_type = .{
-                .decl = enum_explicit.data.decl,
-                .namespace = enum_explicit.data.namespace,
-                .tag_ty = enum_explicit.data.int_tag_type,
-                .names = names,
-                .values = values,
-                .tag_ty_inferred = false,
-                .names_map = enum_explicit.data.names_map.toOptional(),
-                .values_map = enum_explicit.data.values_map,
-            } };
-        },
+        .type_enum_explicit => indexToKeyEnum(ip, data, .explicit),
+        .type_enum_nonexhaustive => indexToKeyEnum(ip, data, .nonexhaustive),
 
         .opt_null => .{ .opt = .{
             .ty = @intToEnum(Index, data),
@@ -1529,6 +1601,29 @@ fn getEnumIntTagType(ip: InternPool, fields_len: u32) Index {
         .bits = if (fields_len == 0) 0 else std.math.log2_int_ceil(u32, fields_len),
         .signedness = .unsigned,
     } });
+}
+
+fn indexToKeyEnum(ip: InternPool, data: u32, tag_mode: Key.EnumType.TagMode) Key {
+    const enum_explicit = ip.extraDataTrail(EnumExplicit, data);
+    const names = @ptrCast(
+        []const NullTerminatedString,
+        ip.extra.items[enum_explicit.end..][0..enum_explicit.data.fields_len],
+    );
+    const values = if (enum_explicit.data.values_map != .none) @ptrCast(
+        []const Index,
+        ip.extra.items[enum_explicit.end + names.len ..][0..enum_explicit.data.fields_len],
+    ) else &[0]Index{};
+
+    return .{ .enum_type = .{
+        .decl = enum_explicit.data.decl,
+        .namespace = enum_explicit.data.namespace,
+        .tag_ty = enum_explicit.data.int_tag_type,
+        .names = names,
+        .values = values,
+        .tag_mode = tag_mode,
+        .names_map = enum_explicit.data.names_map.toOptional(),
+        .values_map = enum_explicit.data.values_map,
+    } };
 }
 
 fn indexToKeyBigInt(ip: InternPool, limb_index: u32, positive: bool) Key {
@@ -1696,47 +1791,29 @@ pub fn get(ip: *InternPool, gpa: Allocator, key: Key) Allocator.Error!Index {
             assert(enum_type.names_map == .none);
             assert(enum_type.values_map == .none);
 
-            const names_map = try ip.addMap(gpa);
-            try addStringsToMap(ip, gpa, names_map, enum_type.names);
+            switch (enum_type.tag_mode) {
+                .auto => {
+                    const names_map = try ip.addMap(gpa);
+                    try addStringsToMap(ip, gpa, names_map, enum_type.names);
 
-            const fields_len = @intCast(u32, enum_type.names.len);
-
-            if (enum_type.tag_ty_inferred) {
-                try ip.extra.ensureUnusedCapacity(gpa, @typeInfo(EnumAuto).Struct.fields.len +
-                    fields_len);
-                ip.items.appendAssumeCapacity(.{
-                    .tag = .type_enum_auto,
-                    .data = ip.addExtraAssumeCapacity(EnumAuto{
-                        .decl = enum_type.decl,
-                        .namespace = enum_type.namespace,
-                        .names_map = names_map,
-                        .fields_len = fields_len,
-                    }),
-                });
-                ip.extra.appendSliceAssumeCapacity(@ptrCast([]const u32, enum_type.names));
-                return @intToEnum(Index, ip.items.len - 1);
+                    const fields_len = @intCast(u32, enum_type.names.len);
+                    try ip.extra.ensureUnusedCapacity(gpa, @typeInfo(EnumAuto).Struct.fields.len +
+                        fields_len);
+                    ip.items.appendAssumeCapacity(.{
+                        .tag = .type_enum_auto,
+                        .data = ip.addExtraAssumeCapacity(EnumAuto{
+                            .decl = enum_type.decl,
+                            .namespace = enum_type.namespace,
+                            .names_map = names_map,
+                            .fields_len = fields_len,
+                        }),
+                    });
+                    ip.extra.appendSliceAssumeCapacity(@ptrCast([]const u32, enum_type.names));
+                    return @intToEnum(Index, ip.items.len - 1);
+                },
+                .explicit => return finishGetEnum(ip, gpa, enum_type, .type_enum_explicit),
+                .nonexhaustive => return finishGetEnum(ip, gpa, enum_type, .type_enum_nonexhaustive),
             }
-
-            const values_map: OptionalMapIndex = if (enum_type.values.len == 0) .none else m: {
-                const values_map = try ip.addMap(gpa);
-                try addIndexesToMap(ip, gpa, values_map, enum_type.values);
-                break :m values_map.toOptional();
-            };
-            try ip.extra.ensureUnusedCapacity(gpa, @typeInfo(EnumExplicit).Struct.fields.len +
-                fields_len);
-            ip.items.appendAssumeCapacity(.{
-                .tag = .type_enum_auto,
-                .data = ip.addExtraAssumeCapacity(EnumExplicit{
-                    .decl = enum_type.decl,
-                    .namespace = enum_type.namespace,
-                    .int_tag_type = enum_type.tag_ty,
-                    .fields_len = fields_len,
-                    .names_map = names_map,
-                    .values_map = values_map,
-                }),
-            });
-            ip.extra.appendSliceAssumeCapacity(@ptrCast([]const u32, enum_type.names));
-            ip.extra.appendSliceAssumeCapacity(@ptrCast([]const u32, enum_type.values));
         },
 
         .extern_func => @panic("TODO"),
@@ -1934,8 +2011,206 @@ pub fn get(ip: *InternPool, gpa: Allocator, key: Key) Allocator.Error!Index {
     return @intToEnum(Index, ip.items.len - 1);
 }
 
-pub fn getAssumeExists(ip: InternPool, key: Key) Index {
-    const adapter: KeyAdapter = .{ .intern_pool = &ip };
+/// Provides API for completing an enum type after calling `getIncompleteEnum`.
+pub const IncompleteEnumType = struct {
+    index: Index,
+    tag_ty_index: u32,
+    names_map: MapIndex,
+    names_start: u32,
+    values_map: OptionalMapIndex,
+    values_start: u32,
+
+    pub fn setTagType(self: @This(), ip: *InternPool, tag_ty: Index) void {
+        assert(tag_ty != .none);
+        ip.extra.items[self.tag_ty_index] = @enumToInt(tag_ty);
+    }
+
+    /// Returns the already-existing field with the same name, if any.
+    pub fn addFieldName(
+        self: @This(),
+        ip: *InternPool,
+        gpa: Allocator,
+        name: NullTerminatedString,
+    ) Allocator.Error!?u32 {
+        const map = &ip.maps.items[@enumToInt(self.names_map)];
+        const field_index = map.count();
+        const strings = ip.extra.items[self.names_start..][0..field_index];
+        const adapter: NullTerminatedString.Adapter = .{
+            .strings = @ptrCast([]const NullTerminatedString, strings),
+        };
+        const gop = try map.getOrPutAdapted(gpa, name, adapter);
+        if (gop.found_existing) return @intCast(u32, gop.index);
+        ip.extra.items[self.names_start + field_index] = @enumToInt(name);
+        return null;
+    }
+
+    /// Returns the already-existing field with the same value, if any.
+    /// Make sure the type of the value has the integer tag type of the enum.
+    pub fn addFieldValue(
+        self: @This(),
+        ip: *InternPool,
+        gpa: Allocator,
+        value: Index,
+    ) Allocator.Error!?u32 {
+        const map = &ip.maps.items[@enumToInt(self.values_map.unwrap().?)];
+        const field_index = map.count();
+        const indexes = ip.extra.items[self.values_start..][0..field_index];
+        const adapter: Index.Adapter = .{
+            .indexes = @ptrCast([]const Index, indexes),
+        };
+        const gop = try map.getOrPutAdapted(gpa, value, adapter);
+        if (gop.found_existing) return @intCast(u32, gop.index);
+        ip.extra.items[self.values_start + field_index] = @enumToInt(value);
+        return null;
+    }
+};
+
+/// This is used to create an enum type in the `InternPool`, with the ability
+/// to update the tag type, field names, and field values later.
+pub fn getIncompleteEnum(
+    ip: *InternPool,
+    gpa: Allocator,
+    enum_type: Key.IncompleteEnumType,
+) Allocator.Error!InternPool.IncompleteEnumType {
+    switch (enum_type.tag_mode) {
+        .auto => return getIncompleteEnumAuto(ip, gpa, enum_type),
+        .explicit => return getIncompleteEnumExplicit(ip, gpa, enum_type, .type_enum_explicit),
+        .nonexhaustive => return getIncompleteEnumExplicit(ip, gpa, enum_type, .type_enum_nonexhaustive),
+    }
+}
+
+pub fn getIncompleteEnumAuto(
+    ip: *InternPool,
+    gpa: Allocator,
+    enum_type: Key.IncompleteEnumType,
+) Allocator.Error!InternPool.IncompleteEnumType {
+    // Although the integer tag type will not be stored in the `EnumAuto` struct,
+    // `InternPool` logic depends on it being present so that `typeOf` can be infallible.
+    // Ensure it is present here:
+    _ = try ip.get(gpa, .{ .int_type = .{
+        .bits = if (enum_type.fields_len == 0) 0 else std.math.log2_int_ceil(u32, enum_type.fields_len),
+        .signedness = .unsigned,
+    } });
+
+    // We must keep the map in sync with `items`. The hash and equality functions
+    // for enum types only look at the decl field, which is present even in
+    // an `IncompleteEnumType`.
+    const adapter: KeyAdapter = .{ .intern_pool = ip };
+    const gop = try ip.map.getOrPutAdapted(gpa, enum_type.toKey(), adapter);
+    assert(!gop.found_existing);
+
+    const names_map = try ip.addMap(gpa);
+
+    const extra_fields_len: u32 = @typeInfo(EnumAuto).Struct.fields.len;
+    try ip.extra.ensureUnusedCapacity(gpa, extra_fields_len + enum_type.fields_len);
+
+    const extra_index = ip.addExtraAssumeCapacity(EnumAuto{
+        .decl = enum_type.decl,
+        .namespace = enum_type.namespace,
+        .names_map = names_map,
+        .fields_len = enum_type.fields_len,
+    });
+
+    ip.items.appendAssumeCapacity(.{
+        .tag = .type_enum_auto,
+        .data = extra_index,
+    });
+    ip.extra.appendNTimesAssumeCapacity(@enumToInt(Index.none), enum_type.fields_len);
+    return .{
+        .index = @intToEnum(Index, ip.items.len - 1),
+        .tag_ty_index = undefined,
+        .names_map = names_map,
+        .names_start = extra_index + extra_fields_len,
+        .values_map = .none,
+        .values_start = undefined,
+    };
+}
+
+pub fn getIncompleteEnumExplicit(
+    ip: *InternPool,
+    gpa: Allocator,
+    enum_type: Key.IncompleteEnumType,
+    tag: Tag,
+) Allocator.Error!InternPool.IncompleteEnumType {
+    // We must keep the map in sync with `items`. The hash and equality functions
+    // for enum types only look at the decl field, which is present even in
+    // an `IncompleteEnumType`.
+    const adapter: KeyAdapter = .{ .intern_pool = ip };
+    const gop = try ip.map.getOrPutAdapted(gpa, enum_type.toKey(), adapter);
+    assert(!gop.found_existing);
+
+    const names_map = try ip.addMap(gpa);
+    const values_map: OptionalMapIndex = if (!enum_type.has_values) .none else m: {
+        const values_map = try ip.addMap(gpa);
+        break :m values_map.toOptional();
+    };
+
+    const reserved_len = enum_type.fields_len +
+        if (enum_type.has_values) enum_type.fields_len else 0;
+
+    const extra_fields_len: u32 = @typeInfo(EnumExplicit).Struct.fields.len;
+    try ip.extra.ensureUnusedCapacity(gpa, extra_fields_len + reserved_len);
+
+    const extra_index = ip.addExtraAssumeCapacity(EnumExplicit{
+        .decl = enum_type.decl,
+        .namespace = enum_type.namespace,
+        .int_tag_type = enum_type.tag_ty,
+        .fields_len = enum_type.fields_len,
+        .names_map = names_map,
+        .values_map = values_map,
+    });
+
+    ip.items.appendAssumeCapacity(.{
+        .tag = tag,
+        .data = extra_index,
+    });
+    // This is both fields and values (if present).
+    ip.extra.appendNTimesAssumeCapacity(@enumToInt(Index.none), reserved_len);
+    return .{
+        .index = @intToEnum(Index, ip.items.len - 1),
+        .tag_ty_index = extra_index + std.meta.fieldIndex(EnumExplicit, "int_tag_type").?,
+        .names_map = names_map,
+        .names_start = extra_index + extra_fields_len,
+        .values_map = values_map,
+        .values_start = extra_index + extra_fields_len + enum_type.fields_len,
+    };
+}
+
+pub fn finishGetEnum(
+    ip: *InternPool,
+    gpa: Allocator,
+    enum_type: Key.EnumType,
+    tag: Tag,
+) Allocator.Error!Index {
+    const names_map = try ip.addMap(gpa);
+    try addStringsToMap(ip, gpa, names_map, enum_type.names);
+
+    const values_map: OptionalMapIndex = if (enum_type.values.len == 0) .none else m: {
+        const values_map = try ip.addMap(gpa);
+        try addIndexesToMap(ip, gpa, values_map, enum_type.values);
+        break :m values_map.toOptional();
+    };
+    const fields_len = @intCast(u32, enum_type.names.len);
+    try ip.extra.ensureUnusedCapacity(gpa, @typeInfo(EnumExplicit).Struct.fields.len +
+        fields_len);
+    ip.items.appendAssumeCapacity(.{
+        .tag = tag,
+        .data = ip.addExtraAssumeCapacity(EnumExplicit{
+            .decl = enum_type.decl,
+            .namespace = enum_type.namespace,
+            .int_tag_type = enum_type.tag_ty,
+            .fields_len = fields_len,
+            .names_map = names_map,
+            .values_map = values_map,
+        }),
+    });
+    ip.extra.appendSliceAssumeCapacity(@ptrCast([]const u32, enum_type.names));
+    ip.extra.appendSliceAssumeCapacity(@ptrCast([]const u32, enum_type.values));
+    return @intToEnum(Index, ip.items.len - 1);
+}
+
+pub fn getAssumeExists(ip: *const InternPool, key: Key) Index {
+    const adapter: KeyAdapter = .{ .intern_pool = ip };
     const index = ip.map.getIndexAdapted(key, adapter).?;
     return @intToEnum(Index, index);
 }
@@ -1979,6 +2254,7 @@ fn addMap(ip: *InternPool, gpa: Allocator) Allocator.Error!MapIndex {
 pub fn remove(ip: *InternPool, index: Index) void {
     _ = ip;
     _ = index;
+    @setCold(true);
     @panic("TODO this is a bit problematic to implement, could we maybe just never support a remove() operation on InternPool?");
 }
 
@@ -2336,7 +2612,7 @@ fn dumpFallible(ip: InternPool, arena: Allocator) anyerror!void {
             .type_slice => 0,
             .type_optional => 0,
             .type_error_union => @sizeOf(ErrorUnion),
-            .type_enum_explicit => @sizeOf(EnumExplicit),
+            .type_enum_explicit, .type_enum_nonexhaustive => @sizeOf(EnumExplicit),
             .type_enum_auto => @sizeOf(EnumAuto),
             .type_opaque => @sizeOf(Key.OpaqueType),
             .type_struct => @sizeOf(Module.Struct) + @sizeOf(Module.Namespace) + @sizeOf(Module.Decl),
@@ -2447,4 +2723,51 @@ pub fn destroyUnion(ip: *InternPool, gpa: Allocator, index: Module.Union.Index) 
         // In order to keep `destroyUnion` a non-fallible function, we ignore memory
         // allocation failures here, instead leaking the Union until garbage collection.
     };
+}
+
+pub fn getOrPutString(
+    ip: *InternPool,
+    gpa: Allocator,
+    s: []const u8,
+) Allocator.Error!NullTerminatedString {
+    const string_bytes = &ip.string_bytes;
+    const str_index = @intCast(u32, string_bytes.items.len);
+    try string_bytes.ensureUnusedCapacity(gpa, s.len + 1);
+    string_bytes.appendSliceAssumeCapacity(s);
+    const key: []const u8 = string_bytes.items[str_index..];
+    const gop = try ip.string_table.getOrPutContextAdapted(gpa, key, std.hash_map.StringIndexAdapter{
+        .bytes = string_bytes,
+    }, std.hash_map.StringIndexContext{
+        .bytes = string_bytes,
+    });
+    if (gop.found_existing) {
+        string_bytes.shrinkRetainingCapacity(str_index);
+        return @intToEnum(NullTerminatedString, gop.key_ptr.*);
+    } else {
+        gop.key_ptr.* = str_index;
+        string_bytes.appendAssumeCapacity(0);
+        return @intToEnum(NullTerminatedString, str_index);
+    }
+}
+
+pub fn getString(ip: *InternPool, s: []const u8) OptionalNullTerminatedString {
+    if (ip.string_table.getKeyAdapted(s, std.hash_map.StringIndexAdapter{
+        .bytes = &ip.string_bytes,
+    })) |index| {
+        return @intToEnum(NullTerminatedString, index).toOptional();
+    } else {
+        return .none;
+    }
+}
+
+pub fn stringToSlice(ip: InternPool, s: NullTerminatedString) [:0]const u8 {
+    const string_bytes = ip.string_bytes.items;
+    const start = @enumToInt(s);
+    var end: usize = start;
+    while (string_bytes[end] != 0) end += 1;
+    return string_bytes[start..end :0];
+}
+
+pub fn typeOf(ip: InternPool, index: Index) Index {
+    return ip.indexToKey(index).typeOf();
 }
