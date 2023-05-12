@@ -591,7 +591,7 @@ pub fn Decompressor(comptime ReaderType: type) type {
             }
 
             if (!try self.hd1.init(self.allocator, self.bits[0..nlit]) or
-                !try self.hd2.init(self.allocator, self.bits[nlit .. nlit + ndist]))
+                !try self.hd2.init(self.allocator, self.bits[nlit..][0..ndist]))
             {
                 corrupt_input_error_offset = self.roffset;
                 self.err = InflateError.CorruptInput;

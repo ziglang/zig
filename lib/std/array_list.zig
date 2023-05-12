@@ -173,7 +173,7 @@ pub fn ArrayListAligned(comptime T: type, comptime alignment: ?u29) type {
             @memcpy(self.items[i..][0..items.len], items);
         }
 
-        /// Replace range of elements `list[start..start+len]` with `new_items`.
+        /// Replace range of elements `list[start..][0..len]` with `new_items`.
         /// Grows list if `len < new_items.len`.
         /// Shrinks list if `len > new_items.len`.
         /// Invalidates pointers if this ArrayList is resized.
@@ -654,7 +654,7 @@ pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?u29) typ
             @memcpy(self.items[i..][0..items.len], items);
         }
 
-        /// Replace range of elements `list[start..start+len]` with `new_items`
+        /// Replace range of elements `list[start..][0..len]` with `new_items`
         /// Grows list if `len < new_items.len`.
         /// Shrinks list if `len > new_items.len`
         /// Invalidates pointers if this ArrayList is resized.

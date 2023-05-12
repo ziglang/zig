@@ -372,32 +372,32 @@ fn parseInternal(
                         switch (try source.next()) {
                             .string => |slice| {
                                 if (i + slice.len != r.len) return error.LengthMismatch;
-                                @memcpy(r[i .. i + slice.len], slice);
+                                @memcpy(r[i..][0..slice.len], slice);
                                 break;
                             },
                             .partial_string => |slice| {
                                 if (i + slice.len > r.len) return error.LengthMismatch;
-                                @memcpy(r[i .. i + slice.len], slice);
+                                @memcpy(r[i..][0..slice.len], slice);
                                 i += slice.len;
                             },
                             .partial_string_escaped_1 => |arr| {
                                 if (i + arr.len > r.len) return error.LengthMismatch;
-                                @memcpy(r[i .. i + arr.len], arr[0..]);
+                                @memcpy(r[i..][0..arr.len], arr[0..]);
                                 i += arr.len;
                             },
                             .partial_string_escaped_2 => |arr| {
                                 if (i + arr.len > r.len) return error.LengthMismatch;
-                                @memcpy(r[i .. i + arr.len], arr[0..]);
+                                @memcpy(r[i..][0..arr.len], arr[0..]);
                                 i += arr.len;
                             },
                             .partial_string_escaped_3 => |arr| {
                                 if (i + arr.len > r.len) return error.LengthMismatch;
-                                @memcpy(r[i .. i + arr.len], arr[0..]);
+                                @memcpy(r[i..][0..arr.len], arr[0..]);
                                 i += arr.len;
                             },
                             .partial_string_escaped_4 => |arr| {
                                 if (i + arr.len > r.len) return error.LengthMismatch;
-                                @memcpy(r[i .. i + arr.len], arr[0..]);
+                                @memcpy(r[i..][0..arr.len], arr[0..]);
                                 i += arr.len;
                             },
                             else => unreachable,

@@ -123,10 +123,10 @@ pub fn encodeJsonStringChars(chars: []const u8, options: StringifyOptions, write
                 const ulen = std.unicode.utf8ByteSequenceLength(chars[i]) catch unreachable;
                 // control characters (only things left with 1 byte length) should always be printed as unicode escapes
                 if (ulen == 1 or options.string.String.escape_unicode) {
-                    const codepoint = std.unicode.utf8Decode(chars[i .. i + ulen]) catch unreachable;
+                    const codepoint = std.unicode.utf8Decode(chars[i..][0..ulen]) catch unreachable;
                     try outputUnicodeEscape(codepoint, writer);
                 } else {
-                    try writer.writeAll(chars[i .. i + ulen]);
+                    try writer.writeAll(chars[i..][0..ulen]);
                 }
                 i += ulen - 1;
             },
