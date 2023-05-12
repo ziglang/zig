@@ -2456,7 +2456,7 @@ fn getDeclShdrIndex(self: *Elf, decl_index: Module.Decl.Index) u16 {
     const zig_ty = ty.zigTypeTag(mod);
     const val = decl.val;
     const shdr_index: u16 = blk: {
-        if (val.isUndefDeep()) {
+        if (val.isUndefDeep(mod)) {
             // TODO in release-fast and release-small, we should put undef in .bss
             break :blk self.data_section_index.?;
         }

@@ -73,8 +73,6 @@ pub const Value = struct {
         /// Pointer and length as sub `Value` objects.
         slice,
         enum_literal,
-        /// A specific enum tag, indicated by the field index (declaration order).
-        enum_field_index,
         @"error",
         /// When the type is error union:
         /// * If the tag is `.@"error"`, the error union is an error.
@@ -142,8 +140,6 @@ pub const Value = struct {
 
                 .str_lit => Payload.StrLit,
                 .slice => Payload.Slice,
-
-                .enum_field_index => Payload.U32,
 
                 .ty,
                 .lazy_align,
@@ -397,7 +393,6 @@ pub const Value = struct {
                     .legacy = .{ .ptr_otherwise = &new_payload.base },
                 };
             },
-            .enum_field_index => return self.copyPayloadShallow(arena, Payload.U32),
             .@"error" => return self.copyPayloadShallow(arena, Payload.Error),
 
             .aggregate => {
@@ -515,7 +510,6 @@ pub const Value = struct {
             },
             .empty_array => return out_stream.writeAll(".{}"),
             .enum_literal => return out_stream.print(".{}", .{std.zig.fmtId(val.castTag(.enum_literal).?.data)}),
-            .enum_field_index => return out_stream.print("(enum field {d})", .{val.castTag(.enum_field_index).?.data}),
             .bytes => return out_stream.print("\"{}\"", .{std.zig.fmtEscapes(val.castTag(.bytes).?.data)}),
             .str_lit => {
                 const str_lit = val.castTag(.str_lit).?.data;
@@ -618,87 +612,58 @@ pub const Value = struct {
         };
     }
 
-    /// Asserts the type is an enum type.
-    pub fn toEnum(val: Value, comptime E: type) E {
-        switch (val.ip_index) {
-            .calling_convention_c => {
-                if (E == std.builtin.CallingConvention) {
-                    return .C;
-                } else {
-                    unreachable;
-                }
-            },
-            .calling_convention_inline => {
-                if (E == std.builtin.CallingConvention) {
-                    return .Inline;
-                } else {
-                    unreachable;
-                }
-            },
-            .none => switch (val.tag()) {
-                .enum_field_index => {
-                    const field_index = val.castTag(.enum_field_index).?.data;
-                    return @intToEnum(E, field_index);
-                },
-                .the_only_possible_value => {
-                    const fields = std.meta.fields(E);
-                    assert(fields.len == 1);
-                    return @intToEnum(E, fields[0].value);
-                },
-                else => unreachable,
-            },
-            else => unreachable,
-        }
-    }
-
     pub fn enumToInt(val: Value, ty: Type, mod: *Module) Allocator.Error!Value {
-        const field_index = switch (val.tag()) {
-            .enum_field_index => val.castTag(.enum_field_index).?.data,
-            .the_only_possible_value => blk: {
-                assert(ty.enumFieldCount(mod) == 1);
-                break :blk 0;
+        const ip = &mod.intern_pool;
+        switch (val.ip_index) {
+            .none => {
+                const field_index = switch (val.tag()) {
+                    .the_only_possible_value => blk: {
+                        assert(ty.enumFieldCount(mod) == 1);
+                        break :blk 0;
+                    },
+                    .enum_literal => i: {
+                        const name = val.castTag(.enum_literal).?.data;
+                        break :i ty.enumFieldIndex(name, mod).?;
+                    },
+                    else => unreachable,
+                };
+                const enum_type = ip.indexToKey(ty.ip_index).enum_type;
+                if (enum_type.values.len != 0) {
+                    return enum_type.values[field_index].toValue();
+                } else {
+                    // Field index and integer values are the same.
+                    return mod.intValue(enum_type.tag_ty.toType(), field_index);
+                }
             },
-            .enum_literal => i: {
-                const name = val.castTag(.enum_literal).?.data;
-                break :i ty.enumFieldIndex(name, mod).?;
+            else => {
+                const enum_type = ip.indexToKey(ip.typeOf(val.ip_index)).enum_type;
+                const int = try ip.getCoerced(mod.gpa, val.ip_index, enum_type.tag_ty);
+                return int.toValue();
             },
-            // Assume it is already an integer and return it directly.
-            else => return val,
-        };
-
-        const enum_type = mod.intern_pool.indexToKey(ty.ip_index).enum_type;
-        if (enum_type.values.len != 0) {
-            return enum_type.values[field_index].toValue();
-        } else {
-            // Field index and integer values are the same.
-            return mod.intValue(enum_type.tag_ty.toType(), field_index);
         }
     }
 
     pub fn tagName(val: Value, ty: Type, mod: *Module) []const u8 {
-        if (ty.zigTypeTag(mod) == .Union) return val.unionTag().tagName(ty.unionTagTypeHypothetical(mod), mod);
+        _ = ty; // TODO: remove this parameter now that we use InternPool
 
-        const enum_type = mod.intern_pool.indexToKey(ty.ip_index).enum_type;
+        if (val.castTag(.enum_literal)) |payload| {
+            return payload.data;
+        }
 
-        const field_index = switch (val.tag()) {
-            .enum_field_index => val.castTag(.enum_field_index).?.data,
-            .the_only_possible_value => blk: {
-                assert(ty.enumFieldCount(mod) == 1);
-                break :blk 0;
-            },
-            .enum_literal => return val.castTag(.enum_literal).?.data,
-            else => field_index: {
-                if (enum_type.values.len == 0) {
-                    // auto-numbered enum
-                    break :field_index @intCast(u32, val.toUnsignedInt(mod));
-                }
-                const field_index = enum_type.tagValueIndex(mod.intern_pool, val.ip_index).?;
-                break :field_index @intCast(u32, field_index);
-            },
+        const ip = &mod.intern_pool;
+
+        const enum_tag = switch (ip.indexToKey(val.ip_index)) {
+            .un => |un| ip.indexToKey(un.tag).enum_tag,
+            .enum_tag => |x| x,
+            else => unreachable,
         };
-
+        const enum_type = ip.indexToKey(enum_tag.ty).enum_type;
+        const field_index = field_index: {
+            const field_index = enum_type.tagValueIndex(ip, val.ip_index).?;
+            break :field_index @intCast(u32, field_index);
+        };
         const field_name = enum_type.names[field_index];
-        return mod.intern_pool.stringToSlice(field_name);
+        return ip.stringToSlice(field_name);
     }
 
     /// Asserts the value is an integer.
@@ -722,10 +687,6 @@ pub const Value = struct {
                 .the_only_possible_value, // i0, u0
                 => BigIntMutable.init(&space.limbs, 0).toConst(),
 
-                .enum_field_index => {
-                    const index = val.castTag(.enum_field_index).?.data;
-                    return BigIntMutable.init(&space.limbs, index).toConst();
-                },
                 .runtime_value => {
                     const sub_val = val.castTag(.runtime_value).?.data;
                     return sub_val.toBigIntAdvanced(space, mod, opt_sema);
@@ -759,6 +720,7 @@ pub const Value = struct {
             },
             else => switch (mod.intern_pool.indexToKey(val.ip_index)) {
                 .int => |int| int.storage.toBigInt(space),
+                .enum_tag => |enum_tag| mod.intern_pool.indexToKey(enum_tag.int).int.storage.toBigInt(space),
                 else => unreachable,
             },
         };
@@ -886,7 +848,7 @@ pub const Value = struct {
     }!void {
         const target = mod.getTarget();
         const endian = target.cpu.arch.endian();
-        if (val.isUndef()) {
+        if (val.isUndef(mod)) {
             const size = @intCast(usize, ty.abiSize(mod));
             @memset(buffer[0..size], 0xaa);
             return;
@@ -1007,7 +969,7 @@ pub const Value = struct {
     ) error{ ReinterpretDeclRef, OutOfMemory }!void {
         const target = mod.getTarget();
         const endian = target.cpu.arch.endian();
-        if (val.isUndef()) {
+        if (val.isUndef(mod)) {
             const bit_size = @intCast(usize, ty.bitSize(mod));
             std.mem.writeVarPackedInt(buffer, bit_offset, bit_size, @as(u1, 0), endian);
             return;
@@ -1087,7 +1049,7 @@ pub const Value = struct {
                 .Auto => unreachable, // Sema is supposed to have emitted a compile error already
                 .Extern => unreachable, // Handled in non-packed writeToMemory
                 .Packed => {
-                    const field_index = ty.unionTagFieldIndex(val.unionTag(), mod);
+                    const field_index = ty.unionTagFieldIndex(val.unionTag(mod), mod);
                     const field_type = ty.unionFields(mod).values()[field_index.?].ty;
                     const field_val = try val.fieldValue(field_type, mod, field_index.?);
 
@@ -1432,7 +1394,7 @@ pub const Value = struct {
     }
 
     pub fn popCount(val: Value, ty: Type, mod: *Module) u64 {
-        assert(!val.isUndef());
+        assert(!val.isUndef(mod));
         switch (val.ip_index) {
             .bool_false => return 0,
             .bool_true => return 1,
@@ -1450,7 +1412,7 @@ pub const Value = struct {
     }
 
     pub fn bitReverse(val: Value, ty: Type, mod: *Module, arena: Allocator) !Value {
-        assert(!val.isUndef());
+        assert(!val.isUndef(mod));
 
         const info = ty.intInfo(mod);
 
@@ -1468,7 +1430,7 @@ pub const Value = struct {
     }
 
     pub fn byteSwap(val: Value, ty: Type, mod: *Module, arena: Allocator) !Value {
-        assert(!val.isUndef());
+        assert(!val.isUndef(mod));
 
         const info = ty.intInfo(mod);
 
@@ -1578,7 +1540,6 @@ pub const Value = struct {
                 .variable,
                 => .gt,
 
-                .enum_field_index => return std.math.order(lhs.castTag(.enum_field_index).?.data, 0),
                 .runtime_value => {
                     // This is needed to correctly handle hashing the value.
                     // Checks in Sema should prevent direct comparisons from reaching here.
@@ -1630,6 +1591,10 @@ pub const Value = struct {
             },
             else => return switch (mod.intern_pool.indexToKey(lhs.ip_index)) {
                 .int => |int| switch (int.storage) {
+                    .big_int => |big_int| big_int.orderAgainstScalar(0),
+                    inline .u64, .i64 => |x| std.math.order(x, 0),
+                },
+                .enum_tag => |enum_tag| switch (mod.intern_pool.indexToKey(enum_tag.int).int.storage) {
                     .big_int => |big_int| big_int.orderAgainstScalar(0),
                     inline .u64, .i64 => |x| std.math.order(x, 0),
                 },
@@ -1861,11 +1826,6 @@ pub const Value = struct {
                 const b_name = b.castTag(.enum_literal).?.data;
                 return std.mem.eql(u8, a_name, b_name);
             },
-            .enum_field_index => {
-                const a_field_index = a.castTag(.enum_field_index).?.data;
-                const b_field_index = b.castTag(.enum_field_index).?.data;
-                return a_field_index == b_field_index;
-            },
             .opt_payload => {
                 const a_payload = a.castTag(.opt_payload).?.data;
                 const b_payload = b.castTag(.opt_payload).?.data;
@@ -2064,13 +2024,9 @@ pub const Value = struct {
                     }
                     const field_name = tuple.names[0];
                     const union_obj = mod.typeToUnion(ty).?;
-                    const field_index = union_obj.fields.getIndex(field_name) orelse return false;
+                    const field_index = @intCast(u32, union_obj.fields.getIndex(field_name) orelse return false);
                     const tag_and_val = b.castTag(.@"union").?.data;
-                    var field_tag_buf: Value.Payload.U32 = .{
-                        .base = .{ .tag = .enum_field_index },
-                        .data = @intCast(u32, field_index),
-                    };
-                    const field_tag = Value.initPayload(&field_tag_buf.base);
+                    const field_tag = try mod.enumValueFieldIndex(union_obj.tag_ty, field_index);
                     const tag_matches = tag_and_val.tag.eql(field_tag, union_obj.tag_ty, mod);
                     if (!tag_matches) return false;
                     return eqlAdvanced(tag_and_val.val, union_obj.tag_ty, tuple.values[0], tuple.types[0], mod, opt_sema);
@@ -2132,7 +2088,7 @@ pub const Value = struct {
         }
         const zig_ty_tag = ty.zigTypeTag(mod);
         std.hash.autoHash(hasher, zig_ty_tag);
-        if (val.isUndef()) return;
+        if (val.isUndef(mod)) return;
         // The value is runtime-known and shouldn't affect the hash.
         if (val.isRuntimeValue()) return;
 
@@ -2277,7 +2233,7 @@ pub const Value = struct {
     /// This function is used by hash maps and so treats floating-point NaNs as equal
     /// to each other, and not equal to other floating-point values.
     pub fn hashUncoerced(val: Value, ty: Type, hasher: *std.hash.Wyhash, mod: *Module) void {
-        if (val.isUndef()) return;
+        if (val.isUndef(mod)) return;
         // The value is runtime-known and shouldn't affect the hash.
         if (val.isRuntimeValue()) return;
 
@@ -2726,16 +2682,12 @@ pub const Value = struct {
         }
     }
 
-    pub fn unionTag(val: Value) Value {
-        switch (val.ip_index) {
-            .undef => return val,
-            .none => switch (val.tag()) {
-                .enum_field_index => return val,
-                .@"union" => return val.castTag(.@"union").?.data.tag,
-                else => unreachable,
-            },
+    pub fn unionTag(val: Value, mod: *Module) Value {
+        return switch (mod.intern_pool.indexToKey(val.ip_index)) {
+            .undef, .enum_tag => val,
+            .un => |un| un.tag.toValue(),
             else => unreachable,
-        }
+        };
     }
 
     /// Returns a pointer to the element value at the index.
@@ -2769,27 +2721,30 @@ pub const Value = struct {
         });
     }
 
-    pub fn isUndef(val: Value) bool {
-        return val.ip_index == .undef;
+    pub fn isUndef(val: Value, mod: *Module) bool {
+        if (val.ip_index == .none) return false;
+        return switch (mod.intern_pool.indexToKey(val.ip_index)) {
+            .undef => true,
+            .simple_value => |v| v == .undefined,
+            else => false,
+        };
     }
 
     /// TODO: check for cases such as array that is not marked undef but all the element
     /// values are marked undef, or struct that is not marked undef but all fields are marked
     /// undef, etc.
-    pub fn isUndefDeep(val: Value) bool {
-        return val.isUndef();
+    pub fn isUndefDeep(val: Value, mod: *Module) bool {
+        return val.isUndef(mod);
     }
 
     /// Returns true if any value contained in `self` is undefined.
-    /// TODO: check for cases such as array that is not marked undef but all the element
-    /// values are marked undef, or struct that is not marked undef but all fields are marked
-    /// undef, etc.
-    pub fn anyUndef(self: Value, mod: *Module) !bool {
-        switch (self.ip_index) {
+    pub fn anyUndef(val: Value, mod: *Module) !bool {
+        if (val.ip_index == .none) return false;
+        switch (val.ip_index) {
             .undef => return true,
-            .none => switch (self.tag()) {
+            .none => switch (val.tag()) {
                 .slice => {
-                    const payload = self.castTag(.slice).?;
+                    const payload = val.castTag(.slice).?;
                     const len = payload.data.len.toUnsignedInt(mod);
 
                     for (0..len) |i| {
@@ -2799,14 +2754,21 @@ pub const Value = struct {
                 },
 
                 .aggregate => {
-                    const payload = self.castTag(.aggregate).?;
-                    for (payload.data) |val| {
-                        if (try val.anyUndef(mod)) return true;
+                    const payload = val.castTag(.aggregate).?;
+                    for (payload.data) |field| {
+                        if (try field.anyUndef(mod)) return true;
                     }
                 },
                 else => {},
             },
-            else => {},
+            else => switch (mod.intern_pool.indexToKey(val.ip_index)) {
+                .undef => return true,
+                .simple_value => |v| if (v == .undefined) return true,
+                .aggregate => |aggregate| for (aggregate.fields) |field| {
+                    if (try anyUndef(field.toValue(), mod)) return true;
+                },
+                else => {},
+            },
         }
 
         return false;
@@ -2819,11 +2781,7 @@ pub const Value = struct {
             .undef => unreachable,
             .unreachable_value => unreachable,
 
-            .null_value,
-            .zero,
-            .zero_usize,
-            .zero_u8,
-            => true,
+            .null_value => true,
 
             .none => switch (val.tag()) {
                 .opt_payload => false,
@@ -2843,6 +2801,7 @@ pub const Value = struct {
                     .big_int => |big_int| big_int.eqZero(),
                     inline .u64, .i64 => |x| x == 0,
                 },
+                .opt => |opt| opt.val == .none,
                 else => unreachable,
             },
         };
@@ -3024,8 +2983,8 @@ pub const Value = struct {
         arena: Allocator,
         mod: *Module,
     ) !Value {
-        assert(!lhs.isUndef());
-        assert(!rhs.isUndef());
+        assert(!lhs.isUndef(mod));
+        assert(!rhs.isUndef(mod));
 
         const info = ty.intInfo(mod);
 
@@ -3071,8 +3030,8 @@ pub const Value = struct {
         arena: Allocator,
         mod: *Module,
     ) !Value {
-        assert(!lhs.isUndef());
-        assert(!rhs.isUndef());
+        assert(!lhs.isUndef(mod));
+        assert(!rhs.isUndef(mod));
 
         const info = ty.intInfo(mod);
 
@@ -3178,7 +3137,7 @@ pub const Value = struct {
         arena: Allocator,
         mod: *Module,
     ) !Value {
-        if (lhs.isUndef() or rhs.isUndef()) return Value.undef;
+        if (lhs.isUndef(mod) or rhs.isUndef(mod)) return Value.undef;
 
         if (ty.zigTypeTag(mod) == .ComptimeInt) {
             return intMul(lhs, rhs, ty, arena, mod);
@@ -3220,8 +3179,8 @@ pub const Value = struct {
         arena: Allocator,
         mod: *Module,
     ) !Value {
-        assert(!lhs.isUndef());
-        assert(!rhs.isUndef());
+        assert(!lhs.isUndef(mod));
+        assert(!rhs.isUndef(mod));
 
         const info = ty.intInfo(mod);
 
@@ -3249,7 +3208,7 @@ pub const Value = struct {
 
     /// Supports both floats and ints; handles undefined.
     pub fn numberMax(lhs: Value, rhs: Value, mod: *Module) Value {
-        if (lhs.isUndef() or rhs.isUndef()) return undef;
+        if (lhs.isUndef(mod) or rhs.isUndef(mod)) return undef;
         if (lhs.isNan(mod)) return rhs;
         if (rhs.isNan(mod)) return lhs;
 
@@ -3261,7 +3220,7 @@ pub const Value = struct {
 
     /// Supports both floats and ints; handles undefined.
     pub fn numberMin(lhs: Value, rhs: Value, mod: *Module) Value {
-        if (lhs.isUndef() or rhs.isUndef()) return undef;
+        if (lhs.isUndef(mod) or rhs.isUndef(mod)) return undef;
         if (lhs.isNan(mod)) return rhs;
         if (rhs.isNan(mod)) return lhs;
 
@@ -3286,7 +3245,7 @@ pub const Value = struct {
 
     /// operands must be integers; handles undefined.
     pub fn bitwiseNotScalar(val: Value, ty: Type, arena: Allocator, mod: *Module) !Value {
-        if (val.isUndef()) return Value.undef;
+        if (val.isUndef(mod)) return Value.undef;
 
         const info = ty.intInfo(mod);
 
@@ -3324,7 +3283,7 @@ pub const Value = struct {
 
     /// operands must be integers; handles undefined.
     pub fn bitwiseAndScalar(lhs: Value, rhs: Value, ty: Type, arena: Allocator, mod: *Module) !Value {
-        if (lhs.isUndef() or rhs.isUndef()) return Value.undef;
+        if (lhs.isUndef(mod) or rhs.isUndef(mod)) return Value.undef;
 
         // TODO is this a performance issue? maybe we should try the operation without
         // resorting to BigInt first.
@@ -3358,7 +3317,7 @@ pub const Value = struct {
 
     /// operands must be integers; handles undefined.
     pub fn bitwiseNandScalar(lhs: Value, rhs: Value, ty: Type, arena: Allocator, mod: *Module) !Value {
-        if (lhs.isUndef() or rhs.isUndef()) return Value.undef;
+        if (lhs.isUndef(mod) or rhs.isUndef(mod)) return Value.undef;
 
         const anded = try bitwiseAnd(lhs, rhs, ty, arena, mod);
         const all_ones = if (ty.isSignedInt(mod)) try mod.intValue(ty, -1) else try ty.maxIntScalar(mod, ty);
@@ -3381,7 +3340,7 @@ pub const Value = struct {
 
     /// operands must be integers; handles undefined.
     pub fn bitwiseOrScalar(lhs: Value, rhs: Value, ty: Type, arena: Allocator, mod: *Module) !Value {
-        if (lhs.isUndef() or rhs.isUndef()) return Value.undef;
+        if (lhs.isUndef(mod) or rhs.isUndef(mod)) return Value.undef;
 
         // TODO is this a performance issue? maybe we should try the operation without
         // resorting to BigInt first.
@@ -3415,7 +3374,7 @@ pub const Value = struct {
 
     /// operands must be integers; handles undefined.
     pub fn bitwiseXorScalar(lhs: Value, rhs: Value, ty: Type, arena: Allocator, mod: *Module) !Value {
-        if (lhs.isUndef() or rhs.isUndef()) return Value.undef;
+        if (lhs.isUndef(mod) or rhs.isUndef(mod)) return Value.undef;
 
         // TODO is this a performance issue? maybe we should try the operation without
         // resorting to BigInt first.
@@ -4697,11 +4656,6 @@ pub const Value = struct {
     pub const Payload = struct {
         tag: Tag,
 
-        pub const U32 = struct {
-            base: Payload,
-            data: u32,
-        };
-
         pub const Function = struct {
             base: Payload,
             data: *Module.Fn,
@@ -4884,16 +4838,6 @@ pub const Value = struct {
     pub const generic_poison: Value = .{ .ip_index = .generic_poison, .legacy = undefined };
     pub const generic_poison_type: Value = .{ .ip_index = .generic_poison_type, .legacy = undefined };
     pub const empty_struct: Value = .{ .ip_index = .empty_struct, .legacy = undefined };
-
-    pub const enum_field_0: Value = .{
-        .ip_index = .none,
-        .legacy = .{ .ptr_otherwise = &enum_field_0_payload.base },
-    };
-
-    var enum_field_0_payload: Payload.U32 = .{
-        .base = .{ .tag = .enum_field_index },
-        .data = 0,
-    };
 
     pub fn makeBool(x: bool) Value {
         return if (x) Value.true else Value.false;
