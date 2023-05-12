@@ -161,7 +161,7 @@ fn atan64(x_: f64) f64 {
     var id: ?usize = undefined;
 
     // |x| < 0.4375
-    if (ix < 0x3DFC0000) {
+    if (ix < 0x3FDC0000) {
         // |x| < 2^(-27)
         if (ix < 0x3E400000) {
             if (ix < 0x00100000) {
