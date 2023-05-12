@@ -678,22 +678,6 @@ test "error union payload is properly aligned" {
     if (blk.a != 1) unreachable;
 }
 
-test "ret_ptr doesn't cause own inferred error set to be resolved" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-
-    const S = struct {
-        fn foo() !void {}
-
-        fn doTheTest() !void {
-            errdefer @compileError("bad");
-
-            return try @This().foo();
-        }
-    };
-    try S.doTheTest();
-}
-
 test "simple else prong allowed even when all errors handled" {
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
@@ -888,4 +872,29 @@ test "optional error set return type" {
 
     try expect(null == S.foo(true));
     try expect(E.A == S.foo(false).?);
+}
+
+test "try used in recursive function with inferred error set" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+
+    const Value = union(enum) {
+        values: []const @This(),
+        b,
+
+        fn x(value: @This()) !void {
+            switch (value.values[0]) {
+                .values => return try x(value.values[0]),
+                .b => return error.a,
+            }
+        }
+    };
+    const a = Value{
+        .values = &[1]Value{
+            .{
+                .values = &[1]Value{.{ .b = {} }},
+            },
+        },
+    };
+    try expectError(error.a, Value.x(a));
 }
