@@ -1200,3 +1200,10 @@ test "arrays and vectors with big integers" {
         try expect(b[0] == comptime std.math.maxInt(Int));
     }
 }
+
+test "pointer to struct literal with runtime field is constant" {
+    const S = struct { data: usize };
+    var runtime_zero: usize = 0;
+    const ptr = &S{ .data = runtime_zero };
+    try expect(@typeInfo(@TypeOf(ptr)).Pointer.is_const);
+}
