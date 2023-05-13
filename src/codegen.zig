@@ -380,7 +380,7 @@ pub fn generateSymbol(
 
                 return Result.ok;
             },
-            .field_ptr, .elem_ptr => return lowerParentPtr(
+            .field_ptr, .elem_ptr, .opt_payload_ptr => return lowerParentPtr(
                 bin_file,
                 src_loc,
                 typed_value,
@@ -812,7 +812,6 @@ fn lowerParentPtr(
     reloc_info: RelocInfo,
 ) CodeGenError!Result {
     const target = bin_file.options.target;
-
     switch (parent_ptr.tag()) {
         .field_ptr => {
             const field_ptr = parent_ptr.castTag(.field_ptr).?.data;
@@ -856,6 +855,31 @@ fn lowerParentPtr(
                 code,
                 debug_output,
                 reloc_info.offset(@intCast(u32, elem_ptr.index * elem_ptr.elem_ty.abiSize(target))),
+            );
+        },
+        .opt_payload_ptr => {
+            const opt_payload_ptr = parent_ptr.castTag(.opt_payload_ptr).?.data;
+            return lowerParentPtr(
+                bin_file,
+                src_loc,
+                typed_value,
+                opt_payload_ptr.container_ptr,
+                code,
+                debug_output,
+                reloc_info,
+            );
+        },
+        .eu_payload_ptr => {
+            const eu_payload_ptr = parent_ptr.castTag(.eu_payload_ptr).?.data;
+            const pl_ty = eu_payload_ptr.container_ty.errorUnionPayload();
+            return lowerParentPtr(
+                bin_file,
+                src_loc,
+                typed_value,
+                eu_payload_ptr.container_ptr,
+                code,
+                debug_output,
+                reloc_info.offset(@intCast(u32, errUnionPayloadOffset(pl_ty, target))),
             );
         },
         .variable, .decl_ref, .decl_ref_mut => |tag| return lowerDeclRef(
@@ -1262,9 +1286,10 @@ pub fn genTypedValue(
 }
 
 pub fn errUnionPayloadOffset(payload_ty: Type, target: std.Target) u64 {
+    if (!payload_ty.hasRuntimeBitsIgnoreComptime()) return 0;
     const payload_align = payload_ty.abiAlignment(target);
     const error_align = Type.anyerror.abiAlignment(target);
-    if (payload_align >= error_align) {
+    if (payload_align >= error_align or !payload_ty.hasRuntimeBitsIgnoreComptime()) {
         return 0;
     } else {
         return mem.alignForwardGeneric(u64, Type.anyerror.abiSize(target), payload_align);
@@ -1272,9 +1297,10 @@ pub fn errUnionPayloadOffset(payload_ty: Type, target: std.Target) u64 {
 }
 
 pub fn errUnionErrorOffset(payload_ty: Type, target: std.Target) u64 {
+    if (!payload_ty.hasRuntimeBitsIgnoreComptime()) return 0;
     const payload_align = payload_ty.abiAlignment(target);
     const error_align = Type.anyerror.abiAlignment(target);
-    if (payload_align >= error_align) {
+    if (payload_align >= error_align and payload_ty.hasRuntimeBitsIgnoreComptime()) {
         return mem.alignForwardGeneric(u64, payload_ty.abiSize(target), error_align);
     } else {
         return 0;

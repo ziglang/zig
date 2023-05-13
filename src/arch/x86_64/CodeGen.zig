@@ -3467,14 +3467,17 @@ fn airOptionalPayloadPtrSet(self: *Self, inst: Air.Inst.Index) !void {
                 try self.copyToRegisterWithInstTracking(inst, dst_ty, src_mcv);
         }
 
-        const dst_mcv = if (src_mcv.isRegister() and self.reuseOperand(inst, ty_op.operand, 0, src_mcv))
+        const dst_mcv: MCValue = if (src_mcv.isRegister() and
+            self.reuseOperand(inst, ty_op.operand, 0, src_mcv))
             src_mcv
+        else if (self.liveness.isUnused(inst))
+            .{ .register = try self.copyToTmpRegister(dst_ty, src_mcv) }
         else
             try self.copyToRegisterWithInstTracking(inst, dst_ty, src_mcv);
 
         const pl_ty = dst_ty.childType();
         const pl_abi_size = @intCast(i32, pl_ty.abiSize(self.target.*));
-        try self.genSetMem(.{ .reg = dst_mcv.register }, pl_abi_size, Type.bool, .{ .immediate = 1 });
+        try self.genSetMem(.{ .reg = dst_mcv.getReg().? }, pl_abi_size, Type.bool, .{ .immediate = 1 });
         break :result if (self.liveness.isUnused(inst)) .unreach else dst_mcv;
     };
     return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
