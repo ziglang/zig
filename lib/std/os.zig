@@ -5573,6 +5573,19 @@ pub fn sched_setaffinity(pid: pid_t, cpus: []usize) SchedSetAffinityError!cpu_se
             .PERM => return error.PermissionDenied,
             else => |err| return unexpectedErrno(err),
         }
+    } else if (builtin.os.tag == .freebsd) {
+        freebsd.CPU_ZERO(&set);
+        for (cpus) |cpu| {
+            freebsd.CPU_SET(cpu, &set);
+        }
+        switch (errno(freebsd.cpuset_setaffinity(freebsd.CPU_LEVEL_WHICH, freebsd.CPU_WHICH_PID, pid, @sizeOf(cpu_set_t), &set))) {
+            .SUCCESS => return set,
+            .FAULT => unreachable,
+            .SRCH => unreachable,
+            .INVAL => return error.InvalidCpu,
+            .PERM => return error.PermissionDenied,
+            else => |err| return unexpectedErrno(err),
+        }
     } else {
         @compileError("unsupported platform");
     }
