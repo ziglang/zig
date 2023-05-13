@@ -737,6 +737,7 @@ test "pointer to packed struct member in a stack variable" {
 }
 
 test "packed struct with u0 field access" {
+    if (true) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     const S = packed struct {

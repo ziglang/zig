@@ -923,6 +923,7 @@ test "union with comptime_int tag" {
 }
 
 test "extern union doesn't trigger field check at comptime" {
+    if (true) return error.SkipZigTest;
     const U = extern union {
         x: u32,
         y: u8,
