@@ -7378,11 +7378,15 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallModifier
     // on linking.
     const mod = self.bin_file.options.module.?;
     if (self.air.value(callee)) |func_value| {
-        if (func_value.castTag(.function)) |func_payload| {
-            const func = func_payload.data;
-
+        if (if (func_value.castTag(.function)) |func_payload|
+            func_payload.data.owner_decl
+        else if (func_value.castTag(.decl_ref)) |decl_ref_payload|
+            decl_ref_payload.data
+        else
+            null) |owner_decl|
+        {
             if (self.bin_file.cast(link.File.Elf)) |elf_file| {
-                const atom_index = try elf_file.getOrCreateAtomForDecl(func.owner_decl);
+                const atom_index = try elf_file.getOrCreateAtomForDecl(owner_decl);
                 const atom = elf_file.getAtom(atom_index);
                 _ = try atom.getOrCreateOffsetTableEntry(elf_file);
                 const got_addr = atom.getOffsetTableAddress(elf_file);
@@ -7391,17 +7395,17 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallModifier
                     .disp = @intCast(i32, got_addr),
                 }));
             } else if (self.bin_file.cast(link.File.Coff)) |coff_file| {
-                const atom = try coff_file.getOrCreateAtomForDecl(func.owner_decl);
+                const atom = try coff_file.getOrCreateAtomForDecl(owner_decl);
                 const sym_index = coff_file.getAtom(atom).getSymbolIndex().?;
                 try self.genSetReg(.rax, Type.usize, .{ .lea_got = sym_index });
                 try self.asmRegister(.{ ._, .call }, .rax);
             } else if (self.bin_file.cast(link.File.MachO)) |macho_file| {
-                const atom = try macho_file.getOrCreateAtomForDecl(func.owner_decl);
+                const atom = try macho_file.getOrCreateAtomForDecl(owner_decl);
                 const sym_index = macho_file.getAtom(atom).getSymbolIndex().?;
                 try self.genSetReg(.rax, Type.usize, .{ .lea_got = sym_index });
                 try self.asmRegister(.{ ._, .call }, .rax);
             } else if (self.bin_file.cast(link.File.Plan9)) |p9| {
-                const decl_block_index = try p9.seeDecl(func.owner_decl);
+                const decl_block_index = try p9.seeDecl(owner_decl);
                 const decl_block = p9.getDeclBlock(decl_block_index);
                 const ptr_bits = self.target.cpu.arch.ptrBitWidth();
                 const ptr_bytes: u64 = @divExact(ptr_bits, 8);
