@@ -199,6 +199,8 @@ pub const E = enum(u16) {
 pub const STRUNCATE = 80;
 
 pub const F_OK = 0;
+// pub const R_OK = 1;
+pub const W_OK = 2;
 
 /// Remove directory instead of unlinking file
 pub const AT = struct {

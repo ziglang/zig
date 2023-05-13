@@ -4447,11 +4447,12 @@ pub const AccessError = error{
 } || UnexpectedError;
 
 /// check user's permissions for a file
-/// TODO currently this assumes `mode` is `F.OK` on Windows.
 pub fn access(path: []const u8, mode: u32) AccessError!void {
     if (builtin.os.tag == .windows) {
         const path_w = try windows.sliceToPrefixedFileW(path);
-        _ = try windows.GetFileAttributesW(path_w.span().ptr);
+        const attrs = try windows.GetFileAttributesW(path_w.span().ptr);
+        if (mode & W_OK != 0 and attrs & windows.FILE_ATTRIBUTE_READONLY != 0)
+            return error.PermissionDenied;
         return;
     } else if (builtin.os.tag == .wasi and !builtin.link_libc) {
         return faccessat(wasi.AT.FDCWD, path, mode, 0);
@@ -4464,7 +4465,9 @@ pub fn access(path: []const u8, mode: u32) AccessError!void {
 pub fn accessZ(path: [*:0]const u8, mode: u32) AccessError!void {
     if (builtin.os.tag == .windows) {
         const path_w = try windows.cStrToPrefixedFileW(path);
-        _ = try windows.GetFileAttributesW(path_w.span().ptr);
+        const attrs = try windows.GetFileAttributesW(path_w.span().ptr);
+        if (mode & W_OK != 0 and attrs & windows.FILE_ATTRIBUTE_READONLY != 0)
+            return error.PermissionDenied;
         return;
     } else if (builtin.os.tag == .wasi and !builtin.link_libc) {
         return access(mem.sliceTo(path, 0), mode);
@@ -4488,19 +4491,11 @@ pub fn accessZ(path: [*:0]const u8, mode: u32) AccessError!void {
 
 /// Call from Windows-specific code if you already have a UTF-16LE encoded, null terminated string.
 /// Otherwise use `access` or `accessC`.
-/// TODO currently this ignores `mode`.
 pub fn accessW(path: [*:0]const u16, mode: u32) windows.GetFileAttributesError!void {
-    _ = mode;
     const ret = try windows.GetFileAttributesW(path);
-    if (ret != windows.INVALID_FILE_ATTRIBUTES) {
-        return;
-    }
-    switch (windows.kernel32.GetLastError()) {
-        .FILE_NOT_FOUND => return error.FileNotFound,
-        .PATH_NOT_FOUND => return error.FileNotFound,
-        .ACCESS_DENIED => return error.PermissionDenied,
-        else => |err| return windows.unexpectedError(err),
-    }
+    if (mode & W_OK != 0 and ret & windows.FILE_ATTRIBUTE_READONLY != 0)
+        return error.PermissionDenied;
+    return;
 }
 
 /// Check user's permissions for a file, based on an open directory handle.
@@ -4574,9 +4569,8 @@ pub fn faccessatZ(dirfd: fd_t, path: [*:0]const u8, mode: u32, flags: u32) Acces
 
 /// Same as `faccessat` except asserts the target is Windows and the path parameter
 /// is NtDll-prefixed, null-terminated, WTF-16 encoded.
-/// TODO currently this ignores `mode` and `flags`
+/// TODO currently this ignores `flags`
 pub fn faccessatW(dirfd: fd_t, sub_path_w: [*:0]const u16, mode: u32, flags: u32) AccessError!void {
-    _ = mode;
     _ = flags;
     if (sub_path_w[0] == '.' and sub_path_w[1] == 0) {
         return;
@@ -4601,7 +4595,11 @@ pub fn faccessatW(dirfd: fd_t, sub_path_w: [*:0]const u16, mode: u32, flags: u32
     };
     var basic_info: windows.FILE_BASIC_INFORMATION = undefined;
     switch (windows.ntdll.NtQueryAttributesFile(&attr, &basic_info)) {
-        .SUCCESS => return,
+        .SUCCESS => {
+            if (mode & W_OK != 0 and basic_info.FileAttributes & windows.FILE_ATTRIBUTE_READONLY != 0)
+                return error.PermissionDenied;
+            return;
+        },
         .OBJECT_NAME_NOT_FOUND => return error.FileNotFound,
         .OBJECT_PATH_NOT_FOUND => return error.FileNotFound,
         .OBJECT_NAME_INVALID => unreachable,
