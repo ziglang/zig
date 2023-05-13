@@ -348,7 +348,6 @@ const Writer = struct {
             .memcpy,
             .memset,
             .elem_ptr_node,
-            .elem_val_node,
             .elem_ptr,
             .elem_val,
             .coerce_result_ptr,
@@ -391,7 +390,6 @@ const Writer = struct {
 
             .field_ptr,
             .field_ptr_init,
-            .field_val,
             .field_call_bind,
             => try self.writePlNodeField(stream, inst),
 

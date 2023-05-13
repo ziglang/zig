@@ -936,7 +936,6 @@ fn analyzeBodyInner(
             .elem_ptr_node                => try sema.zirElemPtrNode(block, inst),
             .elem_ptr_imm                 => try sema.zirElemPtrImm(block, inst),
             .elem_val                     => try sema.zirElemVal(block, inst),
-            .elem_val_node                => try sema.zirElemValNode(block, inst),
             .elem_type_index              => try sema.zirElemTypeIndex(block, inst),
             .enum_literal                 => try sema.zirEnumLiteral(block, inst),
             .enum_to_int                  => try sema.zirEnumToInt(block, inst),
@@ -950,7 +949,6 @@ fn analyzeBodyInner(
             .field_ptr                    => try sema.zirFieldPtr(block, inst, false),
             .field_ptr_init               => try sema.zirFieldPtr(block, inst, true),
             .field_ptr_named              => try sema.zirFieldPtrNamed(block, inst),
-            .field_val                    => try sema.zirFieldVal(block, inst),
             .field_val_named              => try sema.zirFieldValNamed(block, inst),
             .field_call_bind              => try sema.zirFieldCallBind(block, inst),
             .func                         => try sema.zirFunc(block, inst, false),
@@ -9442,19 +9440,6 @@ fn zirPtrToInt(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
     return block.addUnOp(.ptrtoint, ptr);
 }
 
-fn zirFieldVal(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
-    const tracy = trace(@src());
-    defer tracy.end();
-
-    const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
-    const src = inst_data.src();
-    const field_name_src: LazySrcLoc = .{ .node_offset_field_name = inst_data.src_node };
-    const extra = sema.code.extraData(Zir.Inst.Field, inst_data.payload_index).data;
-    const field_name = sema.code.nullTerminatedString(extra.field_name_start);
-    const object = try sema.resolveInst(extra.lhs);
-    return sema.fieldVal(block, src, object, field_name, field_name_src);
-}
-
 fn zirFieldPtr(sema: *Sema, block: *Block, inst: Zir.Inst.Index, initializing: bool) CompileError!Air.Inst.Ref {
     const tracy = trace(@src());
     defer tracy.end();
@@ -9883,19 +9868,6 @@ fn zirElemVal(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
     const array = try sema.resolveInst(extra.lhs);
     const elem_index = try sema.resolveInst(extra.rhs);
     return sema.elemVal(block, src, array, elem_index, src, false);
-}
-
-fn zirElemValNode(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
-    const tracy = trace(@src());
-    defer tracy.end();
-
-    const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
-    const src = inst_data.src();
-    const elem_index_src: LazySrcLoc = .{ .node_offset_array_access_index = inst_data.src_node };
-    const extra = sema.code.extraData(Zir.Inst.Bin, inst_data.payload_index).data;
-    const array = try sema.resolveInst(extra.lhs);
-    const elem_index = try sema.resolveInst(extra.rhs);
-    return sema.elemVal(block, src, array, elem_index, elem_index_src, true);
 }
 
 fn zirElemPtr(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
@@ -11835,7 +11807,6 @@ fn maybeErrorUnwrap(sema: *Sema, block: *Block, body: []const Zir.Inst.Index, op
             .str,
             .as_node,
             .panic,
-            .field_val,
             => {},
             else => return false,
         }
@@ -11856,7 +11827,6 @@ fn maybeErrorUnwrap(sema: *Sema, block: *Block, body: []const Zir.Inst.Index, op
             },
             .str => try sema.zirStr(block, inst),
             .as_node => try sema.zirAsNode(block, inst),
-            .field_val => try sema.zirFieldVal(block, inst),
             .@"unreachable" => {
                 if (!sema.mod.comp.formatted_panics) {
                     try sema.safetyPanic(block, .unwrap_error);
@@ -15690,7 +15660,10 @@ fn zirBuiltinSrc(
             try Value.Tag.bytes.create(anon_decl.arena(), bytes),
             0, // default alignment
         );
-        break :blk try Value.Tag.decl_ref.create(sema.arena, new_decl);
+        break :blk try Value.Tag.slice.create(sema.arena, .{
+            .ptr = try Value.Tag.decl_ref.create(sema.arena, new_decl),
+            .len = try Value.Tag.int_u64.create(sema.arena, name.len),
+        });
     };
 
     const file_name_val = blk: {
@@ -15703,7 +15676,10 @@ fn zirBuiltinSrc(
             try Value.Tag.bytes.create(anon_decl.arena(), name[0 .. name.len + 1]),
             0, // default alignment
         );
-        break :blk try Value.Tag.decl_ref.create(sema.arena, new_decl);
+        break :blk try Value.Tag.slice.create(sema.arena, .{
+            .ptr = try Value.Tag.decl_ref.create(sema.arena, new_decl),
+            .len = try Value.Tag.int_u64.create(sema.arena, name.len),
+        });
     };
 
     const field_values = try sema.arena.alloc(Value, 4);
@@ -16056,7 +16032,10 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                             try Value.Tag.bytes.create(anon_decl.arena(), bytes[0 .. bytes.len + 1]),
                             0, // default alignment
                         );
-                        break :v try Value.Tag.decl_ref.create(fields_anon_decl.arena(), new_decl);
+                        break :v try Value.Tag.slice.create(fields_anon_decl.arena(), .{
+                            .ptr = try Value.Tag.decl_ref.create(fields_anon_decl.arena(), new_decl),
+                            .len = try Value.Tag.int_u64.create(fields_anon_decl.arena(), name.len),
+                        });
                     };
 
                     const error_field_fields = try fields_anon_decl.arena().create([1]Value);
@@ -16087,10 +16066,8 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                     ),
                     0, // default alignment
                 );
-
-                const new_decl_val = try Value.Tag.decl_ref.create(sema.arena, new_decl);
                 const slice_val = try Value.Tag.slice.create(sema.arena, .{
-                    .ptr = new_decl_val,
+                    .ptr = try Value.Tag.decl_ref.create(sema.arena, new_decl),
                     .len = try Value.Tag.int_u64.create(sema.arena, vals.len),
                 });
                 break :v try Value.Tag.opt_payload.create(sema.arena, slice_val);
@@ -16167,7 +16144,10 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                         try Value.Tag.bytes.create(anon_decl.arena(), bytes[0 .. bytes.len + 1]),
                         0, // default alignment
                     );
-                    break :v try Value.Tag.decl_ref.create(fields_anon_decl.arena(), new_decl);
+                    break :v try Value.Tag.slice.create(fields_anon_decl.arena(), .{
+                        .ptr = try Value.Tag.decl_ref.create(fields_anon_decl.arena(), new_decl),
+                        .len = try Value.Tag.int_u64.create(fields_anon_decl.arena(), name.len),
+                    });
                 };
 
                 const enum_field_fields = try fields_anon_decl.arena().create([2]Value);
@@ -16192,7 +16172,10 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                     ),
                     0, // default alignment
                 );
-                break :v try Value.Tag.decl_ref.create(sema.arena, new_decl);
+                break :v try Value.Tag.slice.create(sema.arena, .{
+                    .ptr = try Value.Tag.decl_ref.create(sema.arena, new_decl),
+                    .len = try Value.Tag.int_u64.create(sema.arena, enum_field_vals.len),
+                });
             };
 
             const decls_val = try sema.typeInfoDecls(block, src, type_info_ty, ty.getNamespace());

@@ -393,9 +393,6 @@ pub const Inst = struct {
         /// single-pointer or a many-pointer.
         elem_ptr_imm,
         /// Given an array, slice, or pointer, returns the element at the provided index.
-        /// Uses the `pl_node` union field. AST node is a[b] syntax. Payload is `Bin`.
-        elem_val_node,
-        /// Same as `elem_val_node` but used only for for loop.
         /// Uses the `pl_node` union field. AST node is the condition of a for loop.
         /// Payload is `Bin`.
         /// No OOB safety check is emitted.
@@ -427,11 +424,6 @@ pub const Inst = struct {
         field_ptr,
         /// Same as `field_ptr` but used for struct init.
         field_ptr_init,
-        /// Given a struct or object that contains virtual fields, returns the named field.
-        /// The field name is stored in string_bytes. Used by a.b syntax.
-        /// This instruction also accepts a pointer.
-        /// Uses `pl_node` field. The AST node is the a.b syntax. Payload is Field.
-        field_val,
         /// Given a pointer to a struct or object that contains virtual fields, returns the
         /// named field.  If there is no named field, searches in the type for a decl that
         /// matches the field name.  The decl is resolved and we ensure that it's a function
@@ -1074,7 +1066,6 @@ pub const Inst = struct {
                 .elem_val,
                 .elem_ptr_node,
                 .elem_ptr_imm,
-                .elem_val_node,
                 .ensure_result_used,
                 .ensure_result_non_error,
                 .ensure_err_union_payload_void,
@@ -1082,7 +1073,6 @@ pub const Inst = struct {
                 .export_value,
                 .field_ptr,
                 .field_ptr_init,
-                .field_val,
                 .field_call_bind,
                 .field_ptr_named,
                 .field_val_named,
@@ -1379,10 +1369,8 @@ pub const Inst = struct {
                 .elem_val,
                 .elem_ptr_node,
                 .elem_ptr_imm,
-                .elem_val_node,
                 .field_ptr,
                 .field_ptr_init,
-                .field_val,
                 .field_call_bind,
                 .field_ptr_named,
                 .field_val_named,
@@ -1628,7 +1616,6 @@ pub const Inst = struct {
                 .elem_ptr_node = .pl_node,
                 .elem_ptr_imm = .pl_node,
                 .elem_val = .pl_node,
-                .elem_val_node = .pl_node,
                 .ensure_result_used = .un_node,
                 .ensure_result_non_error = .un_node,
                 .ensure_err_union_payload_void = .un_node,
@@ -1638,7 +1625,6 @@ pub const Inst = struct {
                 .export_value = .pl_node,
                 .field_ptr = .pl_node,
                 .field_ptr_init = .pl_node,
-                .field_val = .pl_node,
                 .field_ptr_named = .pl_node,
                 .field_val_named = .pl_node,
                 .field_call_bind = .pl_node,

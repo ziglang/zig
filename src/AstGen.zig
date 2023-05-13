@@ -2553,10 +2553,8 @@ fn addEnsureResult(gz: *GenZir, maybe_unused_result: Zir.Inst.Ref, statement: As
             .elem_val,
             .elem_ptr_node,
             .elem_ptr_imm,
-            .elem_val_node,
             .field_ptr,
             .field_ptr_init,
-            .field_val,
             .field_call_bind,
             .field_ptr_named,
             .field_val_named,
@@ -5620,20 +5618,17 @@ fn fieldAccess(
     ri: ResultInfo,
     node: Ast.Node.Index,
 ) InnerError!Zir.Inst.Ref {
-    switch (ri.rl) {
-        .ref => return addFieldAccess(.field_ptr, gz, scope, .{ .rl = .ref }, node),
-        else => {
-            const access = try addFieldAccess(.field_val, gz, scope, .{ .rl = .none }, node);
-            return rvalue(gz, ri, access, node);
-        },
-    }
+    const field_ptr = try addFieldAccess(.field_ptr, gz, scope, node);
+    if (ri.rl == .ref) return field_ptr;
+
+    const loaded = try gz.addUnNode(.load, field_ptr, node);
+    return rvalue(gz, ri, loaded, node);
 }
 
 fn addFieldAccess(
     tag: Zir.Inst.Tag,
     gz: *GenZir,
     scope: *Scope,
-    lhs_ri: ResultInfo,
     node: Ast.Node.Index,
 ) InnerError!Zir.Inst.Ref {
     const astgen = gz.astgen;
@@ -5645,7 +5640,7 @@ fn addFieldAccess(
     const dot_token = main_tokens[node];
     const field_ident = dot_token + 1;
     const str_index = try astgen.identAsString(field_ident);
-    const lhs = try expr(gz, scope, lhs_ri, object_node);
+    const lhs = try expr(gz, scope, .{ .rl = .ref }, object_node);
 
     const cursor = maybeAdvanceSourceCursorToMainToken(gz, node);
     try emitDbgStmt(gz, cursor);
@@ -5664,28 +5659,19 @@ fn arrayAccess(
 ) InnerError!Zir.Inst.Ref {
     const tree = gz.astgen.tree;
     const node_datas = tree.nodes.items(.data);
-    switch (ri.rl) {
-        .ref => {
-            const lhs = try expr(gz, scope, .{ .rl = .ref }, node_datas[node].lhs);
+    const lhs = try expr(gz, scope, .{ .rl = .ref }, node_datas[node].lhs);
 
-            const cursor = maybeAdvanceSourceCursorToMainToken(gz, node);
+    const cursor = maybeAdvanceSourceCursorToMainToken(gz, node);
 
-            const rhs = try expr(gz, scope, .{ .rl = .{ .ty = .usize_type } }, node_datas[node].rhs);
-            try emitDbgStmt(gz, cursor);
+    const rhs = try expr(gz, scope, .{ .rl = .{ .ty = .usize_type } }, node_datas[node].rhs);
+    try emitDbgStmt(gz, cursor);
 
-            return gz.addPlNode(.elem_ptr_node, node, Zir.Inst.Bin{ .lhs = lhs, .rhs = rhs });
-        },
-        else => {
-            const lhs = try expr(gz, scope, .{ .rl = .none }, node_datas[node].lhs);
+    const elem_ptr = try gz.addPlNode(.elem_ptr_node, node, Zir.Inst.Bin{ .lhs = lhs, .rhs = rhs });
+    if (ri.rl == .ref) return elem_ptr;
 
-            const cursor = maybeAdvanceSourceCursorToMainToken(gz, node);
+    const loaded = try gz.addUnNode(.load, elem_ptr, node);
+    return rvalue(gz, ri, loaded, node);
 
-            const rhs = try expr(gz, scope, .{ .rl = .{ .ty = .usize_type } }, node_datas[node].rhs);
-            try emitDbgStmt(gz, cursor);
-
-            return rvalue(gz, ri, try gz.addPlNode(.elem_val_node, node, Zir.Inst.Bin{ .lhs = lhs, .rhs = rhs }), node);
-        },
-    }
 }
 
 fn simpleBinOp(
@@ -9039,7 +9025,7 @@ fn callExpr(
 /// calleeExpr generates the function part of a call expression (f in f(x)), or the
 /// callee argument to the @call() builtin. If the lhs is a field access or the
 /// @field() builtin, we need to generate a special field_call_bind instruction
-/// instead of the normal field_val or field_ptr.  If this is a inst.func() call,
+/// instead of the normal field_ptr.  If this is a inst.func() call,
 /// this instruction will capture the value of the first argument before evaluating
 /// the other arguments. We need to use .ref here to guarantee we will be able to
 /// promote an lvalue to an address if the first parameter requires it.  This
@@ -9054,7 +9040,7 @@ fn calleeExpr(
 
     const tag = tree.nodes.items(.tag)[node];
     switch (tag) {
-        .field_access => return addFieldAccess(.field_call_bind, gz, scope, .{ .rl = .ref }, node),
+        .field_access => return addFieldAccess(.field_call_bind, gz, scope, node),
 
         .builtin_call_two,
         .builtin_call_two_comma,
@@ -11734,9 +11720,10 @@ const GenZir = struct {
     ) !Zir.Inst.Index {
         const gpa = gz.astgen.gpa;
         const param_body = param_gz.instructionsSlice();
+        const param_body_len = gz.astgen.countBodyLenAfterFixups(param_body);
         try gz.astgen.instructions.ensureUnusedCapacity(gpa, 1);
         try gz.astgen.extra.ensureUnusedCapacity(gpa, @typeInfo(Zir.Inst.Param).Struct.fields.len +
-            param_body.len);
+            param_body_len);
 
         const doc_comment_index = if (first_doc_comment) |first|
             try gz.astgen.docCommentAsStringFromFirst(abs_tok_index, first)
@@ -11746,9 +11733,9 @@ const GenZir = struct {
         const payload_index = gz.astgen.addExtraAssumeCapacity(Zir.Inst.Param{
             .name = name,
             .doc_comment = doc_comment_index,
-            .body_len = @intCast(u32, param_body.len),
+            .body_len = @intCast(u32, param_body_len),
         });
-        gz.astgen.extra.appendSliceAssumeCapacity(param_body);
+        gz.astgen.appendBodyWithFixups(param_body);
         param_gz.unstack();
 
         const new_index = @intCast(Zir.Inst.Index, gz.astgen.instructions.len);
