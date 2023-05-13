@@ -18409,9 +18409,9 @@ fn zirBoolToInt(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!A
     const inst_data = sema.code.instructions.items(.data)[inst].un_node;
     const operand = try sema.resolveInst(inst_data.operand);
     if (try sema.resolveMaybeUndefVal(operand)) |val| {
-        if (val.isUndef()) return sema.addConstUndef(Type.initTag(.u1));
-        const bool_ints = [2]Air.Inst.Ref{ .zero, .one };
-        return bool_ints[@boolToInt(val.toBool())];
+        if (val.isUndef()) return sema.addConstUndef(Type.u1);
+        if (val.toBool()) return sema.addConstant(Type.u1, Value.one);
+        return sema.addConstant(Type.u1, Value.zero);
     }
     return block.addUnOp(.bool_to_int, operand);
 }

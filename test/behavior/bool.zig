@@ -1,6 +1,7 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const expect = std.testing.expect;
+const expectEqual = std.testing.expectEqual;
 
 test "bool literals" {
     try expect(true);
@@ -12,14 +13,22 @@ test "cast bool to int" {
 
     const t = true;
     const f = false;
-    try expect(@boolToInt(t) == @as(u32, 1));
-    try expect(@boolToInt(f) == @as(u32, 0));
+    try expectEqual(@as(u32, 1), @boolToInt(t));
+    try expectEqual(@as(u32, 0), @boolToInt(f));
+    try expectEqual(1, @bitCast(i1, @boolToInt(t)));
+    try expectEqual(0, @bitCast(i1, @boolToInt(f)));
+    try expectEqual(u1, @TypeOf(@boolToInt(t)));
+    try expectEqual(u1, @TypeOf(@boolToInt(f)));
     try nonConstCastBoolToInt(t, f);
 }
 
 fn nonConstCastBoolToInt(t: bool, f: bool) !void {
-    try expect(@boolToInt(t) == @as(u32, 1));
-    try expect(@boolToInt(f) == @as(u32, 0));
+    try expectEqual(@as(u32, 1), @boolToInt(t));
+    try expectEqual(@as(u32, 0), @boolToInt(f));
+    try expectEqual(1, @bitCast(i1, @boolToInt(t)));
+    try expectEqual(0, @bitCast(i1, @boolToInt(f)));
+    try expectEqual(u1, @TypeOf(@boolToInt(t)));
+    try expectEqual(u1, @TypeOf(@boolToInt(f)));
 }
 
 test "bool cmp" {
