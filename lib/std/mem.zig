@@ -1887,7 +1887,11 @@ test "writeIntBig and writeIntLittle" {
 pub fn byteSwapAllFields(comptime S: type, ptr: *S) void {
     if (@typeInfo(S) != .Struct) @compileError("byteSwapAllFields expects a struct as the first argument");
     inline for (std.meta.fields(S)) |f| {
-        @field(ptr, f.name) = @byteSwap(@field(ptr, f.name));
+        if (@typeInfo(f.type) == .Struct) {
+            byteSwapAllFields(f.type, &@field(ptr, f.name));
+        } else {
+            @field(ptr, f.name) = @byteSwap(@field(ptr, f.name));
+        }
     }
 }
 
