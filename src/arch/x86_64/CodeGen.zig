@@ -8579,56 +8579,174 @@ fn airAsm(self: *Self, inst: Air.Inst.Index) !void {
     return self.finishAirResult(inst, result);
 }
 
-fn movMirTag(self: *Self, ty: Type, aligned: bool) !Mir.Inst.FixedTag {
+const MoveStrategy = union(enum) {
+    move: Mir.Inst.FixedTag,
+    insert_extract: InsertExtract,
+    vex_insert_extract: InsertExtract,
+
+    const InsertExtract = struct {
+        insert: Mir.Inst.FixedTag,
+        extract: Mir.Inst.FixedTag,
+        imm: Immediate,
+    };
+};
+fn moveStrategy(self: *Self, ty: Type, aligned: bool) !MoveStrategy {
     switch (ty.zigTypeTag()) {
-        else => return .{ ._, .mov },
+        else => return .{ .move = .{ ._, .mov } },
         .Float => switch (ty.floatBits(self.target.*)) {
-            16 => unreachable, // needs special handling
-            32 => return if (self.hasFeature(.avx)) .{ .v_ss, .mov } else .{ ._ss, .mov },
-            64 => return if (self.hasFeature(.avx)) .{ .v_sd, .mov } else .{ ._sd, .mov },
-            128 => return if (self.hasFeature(.avx))
+            16 => return if (self.hasFeature(.avx)) .{ .vex_insert_extract = .{
+                .insert = .{ .vp_w, .insr },
+                .extract = .{ .vp_w, .extr },
+                .imm = Immediate.u(0),
+            } } else .{ .insert_extract = .{
+                .insert = .{ .p_w, .insr },
+                .extract = .{ .p_w, .extr },
+                .imm = Immediate.u(0),
+            } },
+            32 => return .{ .move = if (self.hasFeature(.avx)) .{ .v_ss, .mov } else .{ ._ss, .mov } },
+            64 => return .{ .move = if (self.hasFeature(.avx)) .{ .v_sd, .mov } else .{ ._sd, .mov } },
+            128 => return .{ .move = if (self.hasFeature(.avx))
                 if (aligned) .{ .v_ps, .mova } else .{ .v_ps, .movu }
-            else if (aligned) .{ ._ps, .mova } else .{ ._ps, .movu },
+            else if (aligned) .{ ._ps, .mova } else .{ ._ps, .movu } },
             else => {},
         },
         .Vector => switch (ty.childType().zigTypeTag()) {
-            .Float => switch (ty.childType().floatBits(self.target.*)) {
+            .Int => switch (ty.childType().intInfo(self.target.*).bits) {
+                8 => switch (ty.vectorLen()) {
+                    1 => if (self.hasFeature(.avx)) return .{ .vex_insert_extract = .{
+                        .insert = .{ .vp_b, .insr },
+                        .extract = .{ .vp_b, .extr },
+                        .imm = Immediate.u(0),
+                    } } else if (self.hasFeature(.sse4_2)) return .{ .insert_extract = .{
+                        .insert = .{ .p_b, .insr },
+                        .extract = .{ .p_b, .extr },
+                        .imm = Immediate.u(0),
+                    } },
+                    2 => return if (self.hasFeature(.avx)) .{ .vex_insert_extract = .{
+                        .insert = .{ .vp_w, .insr },
+                        .extract = .{ .vp_w, .extr },
+                        .imm = Immediate.u(0),
+                    } } else .{ .insert_extract = .{
+                        .insert = .{ .p_w, .insr },
+                        .extract = .{ .p_w, .extr },
+                        .imm = Immediate.u(0),
+                    } },
+                    3...4 => return .{ .move = if (self.hasFeature(.avx))
+                        .{ .v_ss, .mov }
+                    else
+                        .{ ._ss, .mov } },
+                    5...8 => return .{ .move = if (self.hasFeature(.avx))
+                        .{ .v_sd, .mov }
+                    else
+                        .{ ._sd, .mov } },
+                    else => {},
+                },
                 16 => switch (ty.vectorLen()) {
-                    1 => unreachable, // needs special handling
-                    2 => return if (self.hasFeature(.avx)) .{ .v_ss, .mov } else .{ ._ss, .mov },
-                    3...4 => return if (self.hasFeature(.avx)) .{ .v_sd, .mov } else .{ ._sd, .mov },
-                    5...8 => return if (self.hasFeature(.avx))
-                        if (aligned) .{ .v_ps, .mova } else .{ .v_ps, .movu }
-                    else if (aligned) .{ ._ps, .mova } else .{ ._ps, .movu },
-                    9...16 => if (self.hasFeature(.avx))
-                        return if (aligned) .{ .v_ps, .mova } else .{ .v_ps, .movu },
+                    1 => return if (self.hasFeature(.avx)) .{ .vex_insert_extract = .{
+                        .insert = .{ .vp_w, .insr },
+                        .extract = .{ .vp_w, .extr },
+                        .imm = Immediate.u(0),
+                    } } else .{ .insert_extract = .{
+                        .insert = .{ .p_w, .insr },
+                        .extract = .{ .p_w, .extr },
+                        .imm = Immediate.u(0),
+                    } },
+                    2 => return .{ .move = if (self.hasFeature(.avx))
+                        .{ .v_ss, .mov }
+                    else
+                        .{ ._ss, .mov } },
+                    3...4 => return .{ .move = if (self.hasFeature(.avx))
+                        .{ .v_sd, .mov }
+                    else
+                        .{ ._sd, .mov } },
+                    5...8 => return .{ .move = if (self.hasFeature(.avx))
+                        .{ .v_ps, .mov }
+                    else
+                        .{ ._ps, .mov } },
                     else => {},
                 },
                 32 => switch (ty.vectorLen()) {
-                    1 => return if (self.hasFeature(.avx)) .{ .v_ss, .mov } else .{ ._ss, .mov },
-                    2 => return if (self.hasFeature(.avx)) .{ .v_sd, .mov } else .{ ._sd, .mov },
-                    3...4 => return if (self.hasFeature(.avx))
+                    1 => return .{ .move = if (self.hasFeature(.avx))
+                        .{ .v_ss, .mov }
+                    else
+                        .{ ._ss, .mov } },
+                    2 => return .{ .move = if (self.hasFeature(.avx))
+                        .{ .v_sd, .mov }
+                    else
+                        .{ ._sd, .mov } },
+                    3...4 => return .{ .move = if (self.hasFeature(.avx))
                         if (aligned) .{ .v_ps, .mova } else .{ .v_ps, .movu }
-                    else if (aligned) .{ ._ps, .mova } else .{ ._ps, .movu },
+                    else if (aligned) .{ ._ps, .mova } else .{ ._ps, .movu } },
                     5...8 => if (self.hasFeature(.avx))
-                        return if (aligned) .{ .v_ps, .mova } else .{ .v_ps, .movu },
+                        return .{ .move = if (aligned) .{ .v_ps, .mova } else .{ .v_ps, .movu } },
                     else => {},
                 },
                 64 => switch (ty.vectorLen()) {
-                    1 => return if (self.hasFeature(.avx)) .{ .v_sd, .mov } else .{ ._sd, .mov },
-                    2 => return if (self.hasFeature(.avx))
+                    1 => return .{ .move = if (self.hasFeature(.avx))
+                        .{ .v_sd, .mov }
+                    else
+                        .{ ._sd, .mov } },
+                    2 => return .{ .move = if (self.hasFeature(.avx))
                         if (aligned) .{ .v_ps, .mova } else .{ .v_ps, .movu }
-                    else if (aligned) .{ ._ps, .mova } else .{ ._ps, .movu },
+                    else if (aligned) .{ ._ps, .mova } else .{ ._ps, .movu } },
                     3...4 => if (self.hasFeature(.avx))
-                        return if (aligned) .{ .v_ps, .mova } else .{ .v_ps, .movu },
+                        return .{ .move = if (aligned) .{ .v_ps, .mova } else .{ .v_ps, .movu } },
+                    else => {},
+                },
+                else => {},
+            },
+            .Float => switch (ty.childType().floatBits(self.target.*)) {
+                16 => switch (ty.vectorLen()) {
+                    1 => {},
+                    2 => return .{ .move = if (self.hasFeature(.avx))
+                        .{ .v_ss, .mov }
+                    else
+                        .{ ._ss, .mov } },
+                    3...4 => return .{ .move = if (self.hasFeature(.avx))
+                        .{ .v_sd, .mov }
+                    else
+                        .{ ._sd, .mov } },
+                    5...8 => return .{ .move = if (self.hasFeature(.avx))
+                        if (aligned) .{ .v_ps, .mova } else .{ .v_ps, .movu }
+                    else if (aligned) .{ ._ps, .mova } else .{ ._ps, .movu } },
+                    9...16 => if (self.hasFeature(.avx))
+                        return .{ .move = if (aligned) .{ .v_ps, .mova } else .{ .v_ps, .movu } },
+                    else => {},
+                },
+                32 => switch (ty.vectorLen()) {
+                    1 => return .{ .move = if (self.hasFeature(.avx))
+                        .{ .v_ss, .mov }
+                    else
+                        .{ ._ss, .mov } },
+                    2 => return .{ .move = if (self.hasFeature(.avx))
+                        .{ .v_sd, .mov }
+                    else
+                        .{ ._sd, .mov } },
+                    3...4 => return .{ .move = if (self.hasFeature(.avx))
+                        if (aligned) .{ .v_ps, .mova } else .{ .v_ps, .movu }
+                    else if (aligned) .{ ._ps, .mova } else .{ ._ps, .movu } },
+                    5...8 => if (self.hasFeature(.avx))
+                        return .{ .move = if (aligned) .{ .v_ps, .mova } else .{ .v_ps, .movu } },
+                    else => {},
+                },
+                64 => switch (ty.vectorLen()) {
+                    1 => return .{ .move = if (self.hasFeature(.avx))
+                        .{ .v_sd, .mov }
+                    else
+                        .{ ._sd, .mov } },
+                    2 => return .{ .move = if (self.hasFeature(.avx))
+                        if (aligned) .{ .v_ps, .mova } else .{ .v_ps, .movu }
+                    else if (aligned) .{ ._ps, .mova } else .{ ._ps, .movu } },
+                    3...4 => if (self.hasFeature(.avx))
+                        return .{ .move = if (aligned) .{ .v_ps, .mova } else .{ .v_ps, .movu } },
                     else => {},
                 },
                 128 => switch (ty.vectorLen()) {
-                    1 => return if (self.hasFeature(.avx))
+                    1 => return .{ .move = if (self.hasFeature(.avx))
                         if (aligned) .{ .v_ps, .mova } else .{ .v_ps, .movu }
-                    else if (aligned) .{ ._ps, .mova } else .{ ._ps, .movu },
+                    else if (aligned) .{ ._ps, .mova } else .{ ._ps, .movu } },
                     2 => if (self.hasFeature(.avx))
-                        return if (aligned) .{ .v_ps, .mova } else .{ .v_ps, .movu },
+                        return .{ .move = if (aligned) .{ .v_ps, .mova } else .{ .v_ps, .movu } },
                     else => {},
                 },
                 else => {},
@@ -8636,7 +8754,7 @@ fn movMirTag(self: *Self, ty: Type, aligned: bool) !Mir.Inst.FixedTag {
             else => {},
         },
     }
-    return self.fail("TODO movMirTag for {}", .{ty.fmt(self.bin_file.options.module.?)});
+    return self.fail("TODO moveStrategy for {}", .{ty.fmt(self.bin_file.options.module.?)});
 }
 
 fn genCopy(self: *Self, ty: Type, dst_mcv: MCValue, src_mcv: MCValue) InnerError!void {
@@ -8764,6 +8882,7 @@ fn genSetReg(self: *Self, dst_reg: Register, ty: Type, src_mcv: MCValue) InnerEr
         .load_frame,
         .lea_frame,
         => {
+            const dst_alias = registerAlias(dst_reg, abi_size);
             const src_mem = Memory.sib(Memory.PtrSize.fromSize(abi_size), switch (src_mcv) {
                 .register_offset, .indirect => |reg_off| .{
                     .base = .{ .reg = reg_off.reg },
@@ -8775,71 +8894,81 @@ fn genSetReg(self: *Self, dst_reg: Register, ty: Type, src_mcv: MCValue) InnerEr
                 },
                 else => unreachable,
             });
-            if (ty.isRuntimeFloat() and ty.floatBits(self.target.*) == 16)
-                try self.asmRegisterMemoryImmediate(
-                    .{ .p_w, .insr },
-                    registerAlias(dst_reg, abi_size),
+            switch (@as(MoveStrategy, switch (src_mcv) {
+                .register_offset => |reg_off| switch (reg_off.off) {
+                    0 => return self.genSetReg(dst_reg, ty, .{ .register = reg_off.reg }),
+                    else => .{ .move = .{ ._, .lea } },
+                },
+                .indirect => try self.moveStrategy(ty, false),
+                .load_frame => |frame_addr| try self.moveStrategy(
+                    ty,
+                    self.getFrameAddrAlignment(frame_addr) >= ty.abiAlignment(self.target.*),
+                ),
+                .lea_frame => .{ .move = .{ ._, .lea } },
+                else => unreachable,
+            })) {
+                .move => |tag| try self.asmRegisterMemory(tag, dst_alias, src_mem),
+                .insert_extract => |ie| try self.asmRegisterMemoryImmediate(
+                    ie.insert,
+                    dst_alias,
                     src_mem,
-                    Immediate.u(0),
-                )
-            else
-                try self.asmRegisterMemory(
-                    switch (src_mcv) {
-                        .register_offset => |reg_off| switch (reg_off.off) {
-                            0 => return self.genSetReg(dst_reg, ty, .{ .register = reg_off.reg }),
-                            else => .{ ._, .lea },
-                        },
-                        .indirect => try self.movMirTag(ty, false),
-                        .load_frame => |frame_addr| try self.movMirTag(
-                            ty,
-                            self.getFrameAddrAlignment(frame_addr) >= ty.abiAlignment(self.target.*),
-                        ),
-                        .lea_frame => .{ ._, .lea },
-                        else => unreachable,
-                    },
-                    registerAlias(dst_reg, abi_size),
+                    ie.imm,
+                ),
+                .vex_insert_extract => |ie| try self.asmRegisterRegisterMemoryImmediate(
+                    ie.insert,
+                    dst_alias,
+                    dst_alias,
                     src_mem,
-                );
+                    ie.imm,
+                ),
+            }
         },
         .memory, .load_direct, .load_got, .load_tlv => {
             switch (src_mcv) {
                 .memory => |addr| if (math.cast(i32, @bitCast(i64, addr))) |small_addr| {
+                    const dst_alias = registerAlias(dst_reg, abi_size);
                     const src_mem = Memory.sib(Memory.PtrSize.fromSize(abi_size), .{
                         .base = .{ .reg = .ds },
                         .disp = small_addr,
                     });
-                    return if (ty.isRuntimeFloat() and ty.floatBits(self.target.*) == 16)
-                        self.asmRegisterMemoryImmediate(
-                            .{ .p_w, .insr },
-                            registerAlias(dst_reg, abi_size),
+                    switch (try self.moveStrategy(ty, mem.isAlignedGeneric(
+                        u32,
+                        @bitCast(u32, small_addr),
+                        ty.abiAlignment(self.target.*),
+                    ))) {
+                        .move => |tag| try self.asmRegisterMemory(tag, dst_alias, src_mem),
+                        .insert_extract => |ie| try self.asmRegisterMemoryImmediate(
+                            ie.insert,
+                            dst_alias,
                             src_mem,
-                            Immediate.u(0),
-                        )
-                    else
-                        self.asmRegisterMemory(
-                            try self.movMirTag(ty, mem.isAlignedGeneric(
-                                u32,
-                                @bitCast(u32, small_addr),
-                                ty.abiAlignment(self.target.*),
-                            )),
-                            registerAlias(dst_reg, abi_size),
+                            ie.imm,
+                        ),
+                        .vex_insert_extract => |ie| try self.asmRegisterRegisterMemoryImmediate(
+                            ie.insert,
+                            dst_alias,
+                            dst_alias,
                             src_mem,
-                        );
+                            ie.imm,
+                        ),
+                    }
                 },
-                .load_direct => |sym_index| if (!ty.isRuntimeFloat()) {
-                    const atom_index = try self.owner.getSymbolIndex(self);
-                    _ = try self.addInst(.{
-                        .tag = .mov,
-                        .ops = .direct_reloc,
-                        .data = .{ .rx = .{
-                            .r1 = dst_reg.to64(),
-                            .payload = try self.addExtra(Mir.Reloc{
-                                .atom_index = atom_index,
-                                .sym_index = sym_index,
-                            }),
-                        } },
-                    });
-                    return;
+                .load_direct => |sym_index| switch (ty.zigTypeTag()) {
+                    else => {
+                        const atom_index = try self.owner.getSymbolIndex(self);
+                        _ = try self.addInst(.{
+                            .tag = .mov,
+                            .ops = .direct_reloc,
+                            .data = .{ .rx = .{
+                                .r1 = dst_reg.to64(),
+                                .payload = try self.addExtra(Mir.Reloc{
+                                    .atom_index = atom_index,
+                                    .sym_index = sym_index,
+                                }),
+                            } },
+                        });
+                        return;
+                    },
+                    .Float, .Vector => {},
                 },
                 .load_got, .load_tlv => {},
                 else => unreachable,
@@ -8849,22 +8978,26 @@ fn genSetReg(self: *Self, dst_reg: Register, ty: Type, src_mcv: MCValue) InnerEr
             const addr_lock = self.register_manager.lockRegAssumeUnused(addr_reg);
             defer self.register_manager.unlockReg(addr_lock);
 
+            const dst_alias = registerAlias(dst_reg, abi_size);
             const src_mem = Memory.sib(Memory.PtrSize.fromSize(abi_size), .{
                 .base = .{ .reg = addr_reg },
             });
-            if (ty.isRuntimeFloat() and ty.floatBits(self.target.*) == 16)
-                try self.asmRegisterMemoryImmediate(
-                    .{ .p_w, .insr },
-                    registerAlias(dst_reg, abi_size),
+            switch (try self.moveStrategy(ty, false)) {
+                .move => |tag| try self.asmRegisterMemory(tag, dst_alias, src_mem),
+                .insert_extract => |ie| try self.asmRegisterMemoryImmediate(
+                    ie.insert,
+                    dst_alias,
                     src_mem,
-                    Immediate.u(0),
-                )
-            else
-                try self.asmRegisterMemory(
-                    try self.movMirTag(ty, false),
-                    registerAlias(dst_reg, abi_size),
+                    ie.imm,
+                ),
+                .vex_insert_extract => |ie| try self.asmRegisterRegisterMemoryImmediate(
+                    ie.insert,
+                    dst_alias,
+                    dst_alias,
                     src_mem,
-                );
+                    ie.imm,
+                ),
+            }
         },
         .lea_direct, .lea_got => |sym_index| {
             const atom_index = try self.owner.getSymbolIndex(self);
@@ -8966,36 +9099,33 @@ fn genSetMem(self: *Self, base: Memory.Base, disp: i32, ty: Type, src_mcv: MCVal
                 Memory.PtrSize.fromSize(abi_size),
                 .{ .base = base, .disp = disp },
             );
-            if (ty.isRuntimeFloat() and ty.floatBits(self.target.*) == 16)
-                try self.asmMemoryRegisterImmediate(
-                    .{ .p_w, .extr },
+            const src_alias = registerAlias(src_reg, abi_size);
+            switch (try self.moveStrategy(ty, switch (base) {
+                .none => mem.isAlignedGeneric(
+                    u32,
+                    @bitCast(u32, disp),
+                    ty.abiAlignment(self.target.*),
+                ),
+                .reg => |reg| switch (reg) {
+                    .es, .cs, .ss, .ds => mem.isAlignedGeneric(
+                        u32,
+                        @bitCast(u32, disp),
+                        ty.abiAlignment(self.target.*),
+                    ),
+                    else => false,
+                },
+                .frame => |frame_index| self.getFrameAddrAlignment(
+                    .{ .index = frame_index, .off = disp },
+                ) >= ty.abiAlignment(self.target.*),
+            })) {
+                .move => |tag| try self.asmMemoryRegister(tag, dst_mem, src_alias),
+                .insert_extract, .vex_insert_extract => |ie| try self.asmMemoryRegisterImmediate(
+                    ie.extract,
                     dst_mem,
-                    src_reg.to128(),
-                    Immediate.u(0),
-                )
-            else
-                try self.asmMemoryRegister(
-                    try self.movMirTag(ty, switch (base) {
-                        .none => mem.isAlignedGeneric(
-                            u32,
-                            @bitCast(u32, disp),
-                            ty.abiAlignment(self.target.*),
-                        ),
-                        .reg => |reg| switch (reg) {
-                            .es, .cs, .ss, .ds => mem.isAlignedGeneric(
-                                u32,
-                                @bitCast(u32, disp),
-                                ty.abiAlignment(self.target.*),
-                            ),
-                            else => false,
-                        },
-                        .frame => |frame_index| self.getFrameAddrAlignment(
-                            .{ .index = frame_index, .off = disp },
-                        ) >= ty.abiAlignment(self.target.*),
-                    }),
-                    dst_mem,
-                    registerAlias(src_reg, abi_size),
-                );
+                    src_alias,
+                    ie.imm,
+                ),
+            }
         },
         .register_overflow => |ro| {
             try self.genSetMem(
