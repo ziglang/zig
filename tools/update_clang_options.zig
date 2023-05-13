@@ -624,9 +624,9 @@ pub fn main() anyerror!void {
         },
     };
 
-    var parser = json.Parser.init(allocator, false);
+    var parser = json.Parser.init(allocator, .alloc_if_needed);
     const tree = try parser.parse(json_text);
-    const root_map = &tree.root.Object;
+    const root_map = &tree.root.object;
 
     var all_objects = std.ArrayList(*json.ObjectMap).init(allocator);
     {
@@ -634,14 +634,14 @@ pub fn main() anyerror!void {
         it_map: while (it.next()) |kv| {
             if (kv.key_ptr.len == 0) continue;
             if (kv.key_ptr.*[0] == '!') continue;
-            if (kv.value_ptr.* != .Object) continue;
-            if (!kv.value_ptr.Object.contains("NumArgs")) continue;
-            if (!kv.value_ptr.Object.contains("Name")) continue;
+            if (kv.value_ptr.* != .object) continue;
+            if (!kv.value_ptr.object.contains("NumArgs")) continue;
+            if (!kv.value_ptr.object.contains("Name")) continue;
             for (blacklisted_options) |blacklisted_key| {
                 if (std.mem.eql(u8, blacklisted_key, kv.key_ptr.*)) continue :it_map;
             }
-            if (kv.value_ptr.Object.get("Name").?.String.len == 0) continue;
-            try all_objects.append(&kv.value_ptr.Object);
+            if (kv.value_ptr.object.get("Name").?.string.len == 0) continue;
+            try all_objects.append(&kv.value_ptr.object);
         }
     }
     // Some options have multiple matches. As an example, "-Wl,foo" matches both
@@ -666,12 +666,12 @@ pub fn main() anyerror!void {
     );
 
     for (all_objects.items) |obj| {
-        const name = obj.get("Name").?.String;
+        const name = obj.get("Name").?.string;
         var pd1 = false;
         var pd2 = false;
         var pslash = false;
-        for (obj.get("Prefixes").?.Array.items) |prefix_json| {
-            const prefix = prefix_json.String;
+        for (obj.get("Prefixes").?.array.items) |prefix_json| {
+            const prefix = prefix_json.string;
             if (std.mem.eql(u8, prefix, "-")) {
                 pd1 = true;
             } else if (std.mem.eql(u8, prefix, "--")) {
@@ -790,9 +790,9 @@ const Syntax = union(enum) {
 };
 
 fn objSyntax(obj: *json.ObjectMap) ?Syntax {
-    const num_args = @intCast(u8, obj.get("NumArgs").?.Integer);
-    for (obj.get("!superclasses").?.Array.items) |superclass_json| {
-        const superclass = superclass_json.String;
+    const num_args = @intCast(u8, obj.get("NumArgs").?.integer);
+    for (obj.get("!superclasses").?.array.items) |superclass_json| {
+        const superclass = superclass_json.string;
         if (std.mem.eql(u8, superclass, "Joined")) {
             return .joined;
         } else if (std.mem.eql(u8, superclass, "CLJoined")) {
@@ -831,20 +831,20 @@ fn objSyntax(obj: *json.ObjectMap) ?Syntax {
             return .{ .multi_arg = num_args };
         }
     }
-    const name = obj.get("Name").?.String;
+    const name = obj.get("Name").?.string;
     if (std.mem.eql(u8, name, "<input>")) {
         return .flag;
     } else if (std.mem.eql(u8, name, "<unknown>")) {
         return .flag;
     }
-    const kind_def = obj.get("Kind").?.Object.get("def").?.String;
+    const kind_def = obj.get("Kind").?.object.get("def").?.string;
     if (std.mem.eql(u8, kind_def, "KIND_FLAG")) {
         return .flag;
     }
-    const key = obj.get("!name").?.String;
+    const key = obj.get("!name").?.string;
     std.debug.print("{s} (key {s}) has unrecognized superclasses:\n", .{ name, key });
-    for (obj.get("!superclasses").?.Array.items) |superclass_json| {
-        std.debug.print(" {s}\n", .{superclass_json.String});
+    for (obj.get("!superclasses").?.array.items) |superclass_json| {
+        std.debug.print(" {s}\n", .{superclass_json.string});
     }
     //std.process.exit(1);
     return null;
@@ -883,15 +883,15 @@ fn objectLessThan(context: void, a: *json.ObjectMap, b: *json.ObjectMap) bool {
     }
 
     if (!a_match_with_eql and !b_match_with_eql) {
-        const a_name = a.get("Name").?.String;
-        const b_name = b.get("Name").?.String;
+        const a_name = a.get("Name").?.string;
+        const b_name = b.get("Name").?.string;
         if (a_name.len != b_name.len) {
             return a_name.len > b_name.len;
         }
     }
 
-    const a_key = a.get("!name").?.String;
-    const b_key = b.get("!name").?.String;
+    const a_key = a.get("!name").?.string;
+    const b_key = b.get("!name").?.string;
     return std.mem.lessThan(u8, a_key, b_key);
 }
 
