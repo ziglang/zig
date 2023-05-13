@@ -167,8 +167,8 @@ fn SipHashStateless(comptime T: type, comptime c_rounds: usize, comptime d_round
         pub fn hash(msg: []const u8, key: *const [key_length]u8) T {
             const aligned_len = msg.len - (msg.len % 8);
             var c = Self.init(key);
-            @call(.always_inline, c.update, .{msg[0..aligned_len]});
-            return @call(.always_inline, c.final, .{msg[aligned_len..]});
+            @call(.always_inline, update, .{ &c, msg[0..aligned_len] });
+            return @call(.always_inline, final, .{ &c, msg[aligned_len..] });
         }
     };
 }
