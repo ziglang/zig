@@ -439,8 +439,21 @@ pub const Inst = struct {
         /// Bitwise logical and not of packed single-precision floating-point values
         /// Bitwise logical and not of packed double-precision floating-point values
         andn,
+        /// Convert packed doubleword integers to packed single-precision floating-point values
+        /// Convert packed doubleword integers to packed double-precision floating-point values
+        cvtpi2,
+        /// Convert packed single-precision floating-point values to packed doubleword integers
+        cvtps2pi,
         /// Convert doubleword integer to scalar single-precision floating-point value
-        cvtsi2ss,
+        /// Convert doubleword integer to scalar double-precision floating-point value
+        cvtsi2,
+        /// Convert scalar single-precision floating-point value to doubleword integer
+        cvtss2si,
+        /// Convert with truncation packed single-precision floating-point values to packed doubleword integers
+        cvttps2pi,
+        /// Convert with truncation scalar single-precision floating-point value to doubleword integer
+        cvttss2si,
+
         /// Maximum of packed single-precision floating-point values
         /// Maximum of scalar single-precision floating-point values
         /// Maximum of packed double-precision floating-point values
@@ -486,12 +499,33 @@ pub const Inst = struct {
         /// Unpack and interleave low packed double-precision floating-point values
         unpckl,
 
+        /// Convert packed doubleword integers to packed single-precision floating-point values
+        /// Convert packed doubleword integers to packed double-precision floating-point values
+        cvtdq2,
+        /// Convert packed double-precision floating-point values to packed doubleword integers
+        cvtpd2dq,
+        /// Convert packed double-precision floating-point values to packed doubleword integers
+        cvtpd2pi,
+        /// Convert packed double-precision floating-point values to packed single-precision floating-point values
+        cvtpd2,
+        /// Convert packed single-precision floating-point values to packed doubleword integers
+        cvtps2dq,
+        /// Convert packed single-precision floating-point values to packed double-precision floating-point values
+        cvtps2,
+        /// Convert scalar double-precision floating-point value to doubleword integer
+        cvtsd2si,
         /// Convert scalar double-precision floating-point value to scalar single-precision floating-point value
-        cvtsd2ss,
-        /// Convert doubleword integer to scalar double-precision floating-point value
-        cvtsi2sd,
+        cvtsd2,
         /// Convert scalar single-precision floating-point value to scalar double-precision floating-point value
-        cvtss2sd,
+        cvtss2,
+        /// Convert with truncation packed double-precision floating-point values to packed doubleword integers
+        cvttpd2dq,
+        /// Convert with truncation packed double-precision floating-point values to packed doubleword integers
+        cvttpd2pi,
+        /// Convert with truncation packed single-precision floating-point values to packed doubleword integers
+        cvttps2dq,
+        /// Convert with truncation scalar double-precision floating-point value to doubleword integer
+        cvttsd2si,
         /// Packed interleave shuffle of quadruplets of single-precision floating-point values
         /// Packed interleave shuffle of pairs of double-precision floating-point values
         shuf,
@@ -542,7 +576,7 @@ pub const Inst = struct {
         broadcast,
 
         /// Convert 16-bit floating-point values to single-precision floating-point values
-        cvtph2ps,
+        cvtph2,
         /// Convert single-precision floating-point values to 16-bit floating-point values
         cvtps2ph,
 

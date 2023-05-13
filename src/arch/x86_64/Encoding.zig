@@ -233,7 +233,6 @@ pub const Mnemonic = enum {
     cmpxchg, cmpxchg8b, cmpxchg16b,
     cqo, cwd, cwde,
     div,
-    fisttp, fld,
     idiv, imul, int3,
     ja, jae, jb, jbe, jc, jrcxz, je, jg, jge, jl, jle, jna, jnae, jnb, jnbe,
     jnc, jne, jng, jnge, jnl, jnle, jno, jnp, jns, jnz, jo, jp, jpe, jpo, js, jz,
@@ -259,6 +258,8 @@ pub const Mnemonic = enum {
     @"test", tzcnt,
     ud2,
     xadd, xchg, xor,
+    // X87
+    fisttp, fld,
     // MMX
     movd,
     // SSE
@@ -266,7 +267,7 @@ pub const Mnemonic = enum {
     andps,
     andnps,
     cmpss,
-    cvtsi2ss,
+    cvtpi2ps, cvtps2pi, cvtsi2ss, cvtss2si, cvttps2pi, cvttss2si,
     divps, divss,
     maxps, maxss,
     minps, minss,
@@ -285,7 +286,9 @@ pub const Mnemonic = enum {
     andpd,
     andnpd,
     //cmpsd,
-    cvtsd2ss, cvtsi2sd, cvtss2sd,
+    cvtdq2pd, cvtdq2ps, cvtpd2dq, cvtpd2pi, cvtpd2ps, cvtpi2pd,
+    cvtps2dq, cvtps2pd, cvtsd2si, cvtsd2ss, cvtsi2sd, cvtss2sd,
+    cvttpd2dq, cvttpd2pi, cvttps2dq, cvttsd2si,
     divpd, divsd,
     maxpd, maxsd,
     minpd, minsd,
@@ -314,7 +317,10 @@ pub const Mnemonic = enum {
     // AVX
     vaddpd, vaddps, vaddsd, vaddss,
     vbroadcastf128, vbroadcastsd, vbroadcastss,
-    vcvtsd2ss, vcvtsi2sd, vcvtsi2ss, vcvtss2sd,
+    vcvtdq2pd, vcvtdq2ps, vcvtpd2dq, vcvtpd2ps,
+    vcvtps2dq, vcvtps2pd, vcvtsd2si, vcvtsd2ss,
+    vcvtsi2sd, vcvtsi2ss, vcvtss2sd, vcvtss2si,
+    vcvttpd2dq, vcvttps2dq, vcvttsd2si, vcvttss2si,
     vdivpd, vdivps, vdivsd, vdivss,
     vextractf128, vextractps,
     vinsertf128, vinsertps,
@@ -377,80 +383,84 @@ pub const Op = enum {
     m,
     moffs,
     sreg,
+    st, mm, mm_m64,
     xmm, xmm_m32, xmm_m64, xmm_m128,
     ymm, ymm_m256,
     // zig fmt: on
 
     pub fn fromOperand(operand: Instruction.Operand) Op {
-        switch (operand) {
-            .none => return .none,
+        return switch (operand) {
+            .none => .none,
 
-            .reg => |reg| {
-                switch (reg.class()) {
-                    .segment => return .sreg,
-                    .floating_point => return switch (reg.bitSize()) {
-                        128 => .xmm,
-                        256 => .ymm,
+            .reg => |reg| switch (reg.class()) {
+                .general_purpose => if (reg.to64() == .rax)
+                    switch (reg) {
+                        .al => .al,
+                        .ax => .ax,
+                        .eax => .eax,
+                        .rax => .rax,
                         else => unreachable,
-                    },
-                    .general_purpose => {
-                        if (reg.to64() == .rax) return switch (reg) {
-                            .al => .al,
-                            .ax => .ax,
-                            .eax => .eax,
-                            .rax => .rax,
-                            else => unreachable,
-                        };
-                        if (reg == .cl) return .cl;
-                        return switch (reg.bitSize()) {
-                            8 => .r8,
-                            16 => .r16,
-                            32 => .r32,
-                            64 => .r64,
-                            else => unreachable,
-                        };
-                    },
-                }
-            },
-
-            .mem => |mem| switch (mem) {
-                .moffs => return .moffs,
-                .sib, .rip => {
-                    const bit_size = mem.bitSize();
-                    return switch (bit_size) {
-                        8 => .m8,
-                        16 => .m16,
-                        32 => .m32,
-                        64 => .m64,
-                        80 => .m80,
-                        128 => .m128,
-                        256 => .m256,
-                        else => unreachable,
-                    };
+                    }
+                else if (reg == .cl)
+                    .cl
+                else switch (reg.bitSize()) {
+                    8 => .r8,
+                    16 => .r16,
+                    32 => .r32,
+                    64 => .r64,
+                    else => unreachable,
+                },
+                .segment => .sreg,
+                .x87 => .st,
+                .mmx => .mm,
+                .sse => switch (reg.bitSize()) {
+                    128 => .xmm,
+                    256 => .ymm,
+                    else => unreachable,
                 },
             },
 
-            .imm => |imm| {
-                switch (imm) {
-                    .signed => |x| {
-                        if (x == 1) return .unity;
-                        if (math.cast(i8, x)) |_| return .imm8s;
-                        if (math.cast(i16, x)) |_| return .imm16s;
-                        return .imm32s;
-                    },
-                    .unsigned => |x| {
-                        if (x == 1) return .unity;
-                        if (math.cast(i8, x)) |_| return .imm8s;
-                        if (math.cast(u8, x)) |_| return .imm8;
-                        if (math.cast(i16, x)) |_| return .imm16s;
-                        if (math.cast(u16, x)) |_| return .imm16;
-                        if (math.cast(i32, x)) |_| return .imm32s;
-                        if (math.cast(u32, x)) |_| return .imm32;
-                        return .imm64;
-                    },
-                }
+            .mem => |mem| switch (mem) {
+                .moffs => .moffs,
+                .sib, .rip => switch (mem.bitSize()) {
+                    8 => .m8,
+                    16 => .m16,
+                    32 => .m32,
+                    64 => .m64,
+                    80 => .m80,
+                    128 => .m128,
+                    256 => .m256,
+                    else => unreachable,
+                },
             },
-        }
+
+            .imm => |imm| switch (imm) {
+                .signed => |x| if (x == 1)
+                    .unity
+                else if (math.cast(i8, x)) |_|
+                    .imm8s
+                else if (math.cast(i16, x)) |_|
+                    .imm16s
+                else
+                    .imm32s,
+                .unsigned => |x| if (x == 1)
+                    .unity
+                else if (math.cast(i8, x)) |_|
+                    .imm8s
+                else if (math.cast(u8, x)) |_|
+                    .imm8
+                else if (math.cast(i16, x)) |_|
+                    .imm16s
+                else if (math.cast(u16, x)) |_|
+                    .imm16
+                else if (math.cast(i32, x)) |_|
+                    .imm32s
+                else if (math.cast(u32, x)) |_|
+                    .imm32
+                else
+                    .imm64,
+            },
+        };
     }
 
     pub fn immBitSize(op: Op) u64 {
@@ -460,6 +470,7 @@ pub const Op = enum {
             .ax, .r16, .rm16 => unreachable,
             .eax, .r32, .rm32, .r32_m16 => unreachable,
             .rax, .r64, .rm64, .r64_m16 => unreachable,
+            .st, .mm, .mm_m64 => unreachable,
             .xmm, .xmm_m32, .xmm_m64, .xmm_m128 => unreachable,
             .ymm, .ymm_m256 => unreachable,
             .m8, .m16, .m32, .m64, .m80, .m128, .m256 => unreachable,
@@ -480,7 +491,8 @@ pub const Op = enum {
             .al, .cl, .r8, .rm8 => 8,
             .ax, .r16, .rm16 => 16,
             .eax, .r32, .rm32, .r32_m8, .r32_m16 => 32,
-            .rax, .r64, .rm64, .r64_m16 => 64,
+            .rax, .r64, .rm64, .r64_m16, .mm, .mm_m64 => 64,
+            .st => 80,
             .xmm, .xmm_m32, .xmm_m64, .xmm_m128 => 128,
             .ymm, .ymm_m256 => 256,
         };
@@ -491,11 +503,11 @@ pub const Op = enum {
             .none, .o16, .o32, .o64, .moffs, .m, .sreg => unreachable,
             .unity, .imm8, .imm8s, .imm16, .imm16s, .imm32, .imm32s, .imm64 => unreachable,
             .rel8, .rel16, .rel32 => unreachable,
-            .al, .cl, .r8, .ax, .r16, .eax, .r32, .rax, .r64, .xmm, .ymm => unreachable,
+            .al, .cl, .r8, .ax, .r16, .eax, .r32, .rax, .r64, .st, .mm, .xmm, .ymm => unreachable,
             .m8, .rm8, .r32_m8 => 8,
             .m16, .rm16, .r32_m16, .r64_m16 => 16,
             .m32, .rm32, .xmm_m32 => 32,
-            .m64, .rm64, .xmm_m64 => 64,
+            .m64, .rm64, .mm_m64, .xmm_m64 => 64,
             .m80 => 80,
             .m128, .xmm_m128 => 128,
             .m256, .ymm_m256 => 256,
@@ -522,6 +534,7 @@ pub const Op = enum {
             .r8, .r16, .r32, .r64,
             .rm8, .rm16, .rm32, .rm64,
             .r32_m8, .r32_m16, .r64_m16,
+            .st, .mm, .mm_m64,
             .xmm, .xmm_m32, .xmm_m64, .xmm_m128,
             .ymm, .ymm_m256,
             => true,
@@ -550,6 +563,7 @@ pub const Op = enum {
             .r32_m8, .r32_m16, .r64_m16,
             .m8, .m16, .m32, .m64, .m80, .m128, .m256,
             .m,
+            .mm_m64,
             .xmm_m32, .xmm_m64, .xmm_m128,
             .ymm_m256,
             =>  true,
@@ -573,8 +587,10 @@ pub const Op = enum {
             .rm8, .rm16, .rm32, .rm64 => .general_purpose,
             .r32_m8, .r32_m16, .r64_m16 => .general_purpose,
             .sreg => .segment,
-            .xmm, .xmm_m32, .xmm_m64, .xmm_m128 => .floating_point,
-            .ymm, .ymm_m256 => .floating_point,
+            .st => .x87,
+            .mm, .mm_m64 => .mmx,
+            .xmm, .xmm_m32, .xmm_m64, .xmm_m128 => .sse,
+            .ymm, .ymm_m256 => .sse,
         };
     }
 
@@ -695,6 +711,7 @@ pub const Feature = enum {
     f16c,
     fma,
     lzcnt,
+    movbe,
     popcnt,
     sse,
     sse2,
@@ -717,7 +734,7 @@ fn estimateInstructionLength(prefix: Prefix, encoding: Encoding, ops: []const Op
 }
 
 const mnemonic_to_encodings_map = init: {
-    @setEvalBranchQuota(20_000);
+    @setEvalBranchQuota(25_000);
     const encodings = @import("encodings.zig");
     var entries = encodings.table;
     std.sort.sort(encodings.Entry, &entries, {}, struct {

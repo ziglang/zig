@@ -608,23 +608,44 @@ pub const DeclState = struct {
 
         switch (loc) {
             .register => |reg| {
-                try dbg_info.ensureUnusedCapacity(3);
+                try dbg_info.ensureUnusedCapacity(4);
                 dbg_info.appendAssumeCapacity(@enumToInt(AbbrevKind.parameter));
-                dbg_info.appendSliceAssumeCapacity(&[2]u8{ // DW.AT.location, DW.FORM.exprloc
-                    1, // ULEB128 dwarf expression length
-                    reg,
-                });
+                // DW.AT.location, DW.FORM.exprloc
+                var expr_len = std.io.countingWriter(std.io.null_writer);
+                if (reg < 32) {
+                    expr_len.writer().writeByte(DW.OP.reg0 + reg) catch unreachable;
+                } else {
+                    expr_len.writer().writeByte(DW.OP.regx) catch unreachable;
+                    leb128.writeULEB128(expr_len.writer(), reg) catch unreachable;
+                }
+                leb128.writeULEB128(dbg_info.writer(), expr_len.bytes_written) catch unreachable;
+                if (reg < 32) {
+                    dbg_info.appendAssumeCapacity(DW.OP.reg0 + reg);
+                } else {
+                    dbg_info.appendAssumeCapacity(DW.OP.regx);
+                    leb128.writeULEB128(dbg_info.writer(), reg) catch unreachable;
+                }
             },
             .stack => |info| {
-                try dbg_info.ensureUnusedCapacity(8);
+                try dbg_info.ensureUnusedCapacity(9);
                 dbg_info.appendAssumeCapacity(@enumToInt(AbbrevKind.parameter));
-                const fixup = dbg_info.items.len;
-                dbg_info.appendSliceAssumeCapacity(&[2]u8{ // DW.AT.location, DW.FORM.exprloc
-                    1, // we will backpatch it after we encode the displacement in LEB128
-                    info.fp_register, // frame pointer
-                });
+                // DW.AT.location, DW.FORM.exprloc
+                var expr_len = std.io.countingWriter(std.io.null_writer);
+                if (info.fp_register < 32) {
+                    expr_len.writer().writeByte(DW.OP.breg0 + info.fp_register) catch unreachable;
+                } else {
+                    expr_len.writer().writeByte(DW.OP.bregx) catch unreachable;
+                    leb128.writeULEB128(expr_len.writer(), info.fp_register) catch unreachable;
+                }
+                leb128.writeILEB128(expr_len.writer(), info.offset) catch unreachable;
+                leb128.writeULEB128(dbg_info.writer(), expr_len.bytes_written) catch unreachable;
+                if (info.fp_register < 32) {
+                    dbg_info.appendAssumeCapacity(DW.OP.breg0 + info.fp_register);
+                } else {
+                    dbg_info.appendAssumeCapacity(DW.OP.bregx);
+                    leb128.writeULEB128(dbg_info.writer(), info.fp_register) catch unreachable;
+                }
                 leb128.writeILEB128(dbg_info.writer(), info.offset) catch unreachable;
-                dbg_info.items[fixup] += @intCast(u8, dbg_info.items.len - fixup - 2);
             },
             .wasm_local => |value| {
                 const leb_size = link.File.Wasm.getULEB128Size(value);
@@ -670,22 +691,45 @@ pub const DeclState = struct {
 
         switch (loc) {
             .register => |reg| {
-                try dbg_info.ensureUnusedCapacity(2);
-                dbg_info.appendSliceAssumeCapacity(&[2]u8{ // DW.AT.location, DW.FORM.exprloc
-                    1, // ULEB128 dwarf expression length
-                    reg,
-                });
+                try dbg_info.ensureUnusedCapacity(4);
+                dbg_info.appendAssumeCapacity(@enumToInt(AbbrevKind.parameter));
+                // DW.AT.location, DW.FORM.exprloc
+                var expr_len = std.io.countingWriter(std.io.null_writer);
+                if (reg < 32) {
+                    expr_len.writer().writeByte(DW.OP.reg0 + reg) catch unreachable;
+                } else {
+                    expr_len.writer().writeByte(DW.OP.regx) catch unreachable;
+                    leb128.writeULEB128(expr_len.writer(), reg) catch unreachable;
+                }
+                leb128.writeULEB128(dbg_info.writer(), expr_len.bytes_written) catch unreachable;
+                if (reg < 32) {
+                    dbg_info.appendAssumeCapacity(DW.OP.reg0 + reg);
+                } else {
+                    dbg_info.appendAssumeCapacity(DW.OP.regx);
+                    leb128.writeULEB128(dbg_info.writer(), reg) catch unreachable;
+                }
             },
 
             .stack => |info| {
-                try dbg_info.ensureUnusedCapacity(7);
-                const fixup = dbg_info.items.len;
-                dbg_info.appendSliceAssumeCapacity(&[2]u8{ // DW.AT.location, DW.FORM.exprloc
-                    1, // we will backpatch it after we encode the displacement in LEB128
-                    info.fp_register,
-                });
+                try dbg_info.ensureUnusedCapacity(9);
+                dbg_info.appendAssumeCapacity(@enumToInt(AbbrevKind.parameter));
+                // DW.AT.location, DW.FORM.exprloc
+                var expr_len = std.io.countingWriter(std.io.null_writer);
+                if (info.fp_register < 32) {
+                    expr_len.writer().writeByte(DW.OP.breg0 + info.fp_register) catch unreachable;
+                } else {
+                    expr_len.writer().writeByte(DW.OP.bregx) catch unreachable;
+                    leb128.writeULEB128(expr_len.writer(), info.fp_register) catch unreachable;
+                }
+                leb128.writeILEB128(expr_len.writer(), info.offset) catch unreachable;
+                leb128.writeULEB128(dbg_info.writer(), expr_len.bytes_written) catch unreachable;
+                if (info.fp_register < 32) {
+                    dbg_info.appendAssumeCapacity(DW.OP.breg0 + info.fp_register);
+                } else {
+                    dbg_info.appendAssumeCapacity(DW.OP.bregx);
+                    leb128.writeULEB128(dbg_info.writer(), info.fp_register) catch unreachable;
+                }
                 leb128.writeILEB128(dbg_info.writer(), info.offset) catch unreachable;
-                dbg_info.items[fixup] += @intCast(u8, dbg_info.items.len - fixup - 2);
             },
 
             .wasm_local => |value| {
