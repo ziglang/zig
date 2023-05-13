@@ -493,7 +493,8 @@ fn fetchAndUnpack(
             return report.fail(dep.url_tok, "missing Content-Type for '{s}'", .{uri.path});
 
         if (ascii.eqlIgnoreCase(content_type, "application/gzip") or
-            ascii.eqlIgnoreCase(content_type, "application/x-gzip"))
+            ascii.eqlIgnoreCase(content_type, "application/x-gzip") or
+            ascii.eqlIgnoreCase(content_type, "application/tar+gzip"))
         {
             // I observed the gzip stream to read 1 byte at a time, so I am using a
             // buffered reader on the front of it.
