@@ -8695,10 +8695,9 @@ test "integer cast panic" {
       <p>{#syntax#}dest{#endsyntax#} must be a mutable slice, a mutable pointer to an array, or
         a mutable many-item {#link|pointer|Pointers#}. It may have any
         alignment, and it may have any element type.</p>
-      <p>Likewise, {#syntax#}source{#endsyntax#} must be a mutable slice, a
-        mutable pointer to an array, or a mutable many-item
-        {#link|pointer|Pointers#}. It may have any alignment, and it may have any
-        element type.</p>
+      <p>{#syntax#}source{#endsyntax#} must be a slice, a pointer to
+        an array, or a many-item {#link|pointer|Pointers#}. It may
+        have any alignment, and it may have any element type.</p>
       <p>The {#syntax#}source{#endsyntax#} element type must support {#link|Type Coercion#}
         into the {#syntax#}dest{#endsyntax#} element type. The element types may have
         different ABI size, however, that may incur a performance penalty.</p>
