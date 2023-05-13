@@ -1,8 +1,10 @@
 const std = @import("std");
 const testing = std.testing;
-const Parser = @import("./dynamic.zig").Parser;
+const parseFromSlice = @import("./static.zig").parseFromSlice;
+const parseFree = @import("./static.zig").parseFree;
 const validate = @import("./scanner.zig").validate;
 const JsonScanner = @import("./scanner.zig").Scanner;
+const ValueTree = @import("./dynamic.zig").ValueTree;
 
 // Support for JSONTestSuite.zig
 pub fn ok(s: []const u8) !void {
@@ -26,10 +28,8 @@ fn testLowLevelScanner(s: []const u8) !void {
     }
 }
 fn testHighLevelDynamicParser(s: []const u8) !void {
-    var p = Parser.init(testing.allocator, .alloc_if_needed);
-    defer p.deinit();
-    var tree = try p.parse(s);
-    defer tree.deinit();
+    var tree = try parseFromSlice(ValueTree, testing.allocator, s, .{});
+    defer parseFree(ValueTree, testing.allocator, tree);
 }
 
 // Additional tests not part of test JSONTestSuite.
@@ -47,10 +47,7 @@ test "n_object_closed_missing_value" {
 fn roundTrip(s: []const u8) !void {
     try testing.expect(try validate(testing.allocator, s));
 
-    var p = Parser.init(testing.allocator, .alloc_if_needed);
-    defer p.deinit();
-
-    var tree = try p.parse(s);
+    var tree = try parseFromSlice(ValueTree, testing.allocator, s, .{});
     defer tree.deinit();
 
     var buf: [256]u8 = undefined;

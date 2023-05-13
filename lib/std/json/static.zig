@@ -9,6 +9,9 @@ const AllocWhen = @import("./scanner.zig").AllocWhen;
 const default_max_value_len = @import("./scanner.zig").default_max_value_len;
 const isNumberFormattedLikeAnInteger = @import("./scanner.zig").isNumberFormattedLikeAnInteger;
 
+const ValueTree = @import("./dynamic.zig").ValueTree;
+const Value = @import("./dynamic.zig").Value;
+
 pub const ParseOptions = struct {
     /// Behaviour when a duplicate field is encountered.
     duplicate_field_behavior: enum {
@@ -20,6 +23,13 @@ pub const ParseOptions = struct {
     /// If false, finding an unknown field returns an error.
     ignore_unknown_fields: bool = false,
 
+    /// Set this to `.alloc_if_needed` to enable an optimization that tries to avoid copying strings for the returned object.
+    /// Note that .alloc_if_needed cannot be used correctly with an allocator that requires freeing individual items,
+    /// because any string in the returned object may or may not have been allocated, and there is no way to know.
+    /// If you enable `.alloc_if_needed`, you *must not* call `std.json.parseFree` for the returned object.
+    /// Instead, cleaning up the memory must be done at the allocator level, e.g. by using a `std.heap.ArenaAllocator`.
+    alloc_when: AllocWhen = .alloc_always,
+
     /// Passed to json.Scanner.nextAllocMax() or json.Reader.nextAllocMax().
     /// The default for parseFromSlice() or parseFromTokenSource() with a *json.Scanner input
     /// is the length of the input slice, which means error.ValueTooLong will never be returned.
@@ -30,9 +40,10 @@ pub const ParseOptions = struct {
 /// Parses the json document from s and returns the result.
 /// The provided allocator is used both for temporary allocations during parsing the document,
 /// and also to allocate any pointer values in the return type.
-/// If T contains any pointers, free the memory with `std.json.parseFree`.
+/// If T contains any pointers, free the memory with `std.json.parseFree`,
+/// unless `options.alloc_when = .alloc_if_needed` (see `std.json.ParseOptions.alloc_when`).
 /// Note that `error.BufferUnderrun` is not actually possible to return from this function.
-pub fn parseFromSlice(comptime T: type, allocator: Allocator, s: []const u8, options: ParseOptions) ParseError(T, Scanner)!T {
+pub fn parseFromSlice(comptime T: type, allocator: Allocator, s: []const u8, options: ParseOptions) ParseError(Scanner)!T {
     var scanner = Scanner.initCompleteInput(allocator, s);
     defer scanner.deinit();
 
@@ -42,12 +53,13 @@ pub fn parseFromSlice(comptime T: type, allocator: Allocator, s: []const u8, opt
 /// `scanner_or_reader` must be either a `*std.json.Scanner` with complete input or a `*std.json.Reader`.
 /// allocator is used to allocate the data of T if necessary,
 /// such as if T is `*u32` or `[]u32`.
-/// If T contains any pointers, free the memory with `std.json.parseFree`.
+/// If T contains any pointers, free the memory with `std.json.parseFree`,
+/// unless `options.alloc_when = .alloc_if_needed` (see `std.json.ParseOptions.alloc_when`).
 /// If T contains no pointers, the allocator may sometimes be used for temporary allocations,
 /// but no call to `std.json.parseFree` will be necessary;
 /// all temporary allocations will be freed before this function returns.
 /// Note that `error.BufferUnderrun` is not actually possible to return from this function.
-pub fn parseFromTokenSource(comptime T: type, allocator: Allocator, scanner_or_reader: anytype, options: ParseOptions) ParseError(T, @TypeOf(scanner_or_reader.*))!T {
+pub fn parseFromTokenSource(comptime T: type, allocator: Allocator, scanner_or_reader: anytype, options: ParseOptions) ParseError(@TypeOf(scanner_or_reader.*))!T {
     if (@TypeOf(scanner_or_reader.*) == Scanner) {
         assert(scanner_or_reader.is_end_of_input);
     }
@@ -69,72 +81,23 @@ pub fn parseFromTokenSource(comptime T: type, allocator: Allocator, scanner_or_r
     return r;
 }
 
-/// The error set that will be returned from parsing T from *Source.
-/// Note that this may contain error.BufferUnderrun, but that error will never actually be returned.
-pub fn ParseError(comptime T: type, comptime Source: type) type {
-    // `inferred_types` is used to avoid infinite recursion for recursive type definitions.
-    const inferred_types = [_]type{};
+/// The error set that will be returned when parsing from `*Source`.
+/// Note that this may contain `error.BufferUnderrun`, but that error will never actually be returned.
+pub fn ParseError(comptime Source: type) type {
     // A few of these will either always be present or present enough of the time that
     // omitting them is more confusing than always including them.
-    return error{UnexpectedToken} || Source.NextError || Source.PeekError ||
-        ParseInternalErrorImpl(T, Source, &inferred_types);
-}
-
-fn ParseInternalErrorImpl(comptime T: type, comptime Source: type, comptime inferred_types: []const type) type {
-    for (inferred_types) |ty| {
-        if (T == ty) return error{};
-    }
-
-    switch (@typeInfo(T)) {
-        .Bool => return error{},
-        .Float, .ComptimeFloat => return Source.AllocError || std.fmt.ParseFloatError,
-        .Int, .ComptimeInt => {
-            return Source.AllocError || error{ InvalidNumber, Overflow } ||
-                std.fmt.ParseIntError || std.fmt.ParseFloatError;
-        },
-        .Optional => |optional_info| return ParseInternalErrorImpl(optional_info.child, Source, inferred_types ++ [_]type{T}),
-        .Enum => return Source.AllocError || error{InvalidEnumTag},
-        .Union => |unionInfo| {
-            if (unionInfo.tag_type) |_| {
-                var errors = Source.AllocError || error{UnknownField};
-                for (unionInfo.fields) |u_field| {
-                    errors = errors || ParseInternalErrorImpl(u_field.type, Source, inferred_types ++ [_]type{T});
-                }
-                return errors;
-            } else {
-                @compileError("Unable to parse into untagged union '" ++ @typeName(T) ++ "'");
-            }
-        },
-        .Struct => |structInfo| {
-            var errors = Scanner.AllocError || error{
-                DuplicateField,
-                UnknownField,
-                MissingField,
-            };
-            for (structInfo.fields) |field| {
-                errors = errors || ParseInternalErrorImpl(field.type, Source, inferred_types ++ [_]type{T});
-            }
-            return errors;
-        },
-        .Array => |arrayInfo| {
-            return error{LengthMismatch} ||
-                ParseInternalErrorImpl(arrayInfo.child, Source, inferred_types ++ [_]type{T});
-        },
-        .Vector => |vecInfo| {
-            return error{LengthMismatch} ||
-                ParseInternalErrorImpl(vecInfo.child, Source, inferred_types ++ [_]type{T});
-        },
-        .Pointer => |ptrInfo| {
-            switch (ptrInfo.size) {
-                .One, .Slice => {
-                    return ParseInternalErrorImpl(ptrInfo.child, Source, inferred_types ++ [_]type{T});
-                },
-                else => @compileError("Unable to parse into type '" ++ @typeName(T) ++ "'"),
-            }
-        },
-        else => return error{},
-    }
-    unreachable;
+    return error{
+        UnexpectedToken,
+        InvalidNumber,
+        Overflow,
+        InvalidEnumTag,
+        DuplicateField,
+        UnknownField,
+        MissingField,
+        LengthMismatch,
+    } ||
+        std.fmt.ParseIntError || std.fmt.ParseFloatError ||
+        Source.NextError || Source.PeekError || Source.AllocError;
 }
 
 fn parseInternal(
@@ -142,7 +105,7 @@ fn parseInternal(
     allocator: Allocator,
     source: anytype,
     options: ParseOptions,
-) ParseError(T, @TypeOf(source.*))!T {
+) ParseError(@TypeOf(source.*))!T {
     switch (@typeInfo(T)) {
         .Bool => {
             return switch (try source.next()) {
@@ -189,6 +152,10 @@ fn parseInternal(
             }
         },
         .Enum => |enumInfo| {
+            if (comptime std.meta.trait.hasFn("jsonParse")(T)) {
+                return T.jsonParse(allocator, source, options);
+            }
+
             const token = try source.nextAllocMax(allocator, .alloc_if_needed, options.max_value_len.?);
             defer freeAllocated(allocator, token);
             const slice = switch (token) {
@@ -204,6 +171,10 @@ fn parseInternal(
             return try std.meta.intToEnum(T, n);
         },
         .Union => |unionInfo| {
+            if (comptime std.meta.trait.hasFn("jsonParse")(T)) {
+                return T.jsonParse(allocator, source, options);
+            }
+
             const UnionTagType = unionInfo.tag_type orelse @compileError("Unable to parse into untagged union '" ++ @typeName(T) ++ "'");
 
             if (.object_begin != try source.next()) return error.UnexpectedToken;
@@ -280,6 +251,10 @@ fn parseInternal(
                 if (.array_end != try source.next()) return error.UnexpectedToken;
 
                 return r;
+            }
+
+            if (comptime std.meta.trait.hasFn("jsonParse")(T)) {
+                return T.jsonParse(allocator, source, options);
             }
 
             if (.object_begin != try source.next()) return error.UnexpectedToken;
@@ -474,7 +449,7 @@ fn parseInternal(
                                 // Use our own array list so we can append the sentinel.
                                 var value_list = ArrayList(u8).init(allocator);
                                 errdefer value_list.deinit();
-                                _ = try source.allocNextIntoArrayList(&value_list, .alloc_always);
+                                _ = try source.allocNextIntoArrayList(&value_list, options.alloc_when);
                                 return try value_list.toOwnedSliceSentinel(@ptrCast(*const u8, sentinel_ptr).*);
                             }
                             switch (try source.nextAllocMax(allocator, .alloc_always, options.max_value_len.?)) {
@@ -531,15 +506,25 @@ fn freeAllocated(allocator: Allocator, token: Token) void {
 }
 
 /// Releases resources created by parseFromSlice() or parseFromTokenSource().
+/// You must not call this when `options.alloc_when` was `.alloc_if_needed` during parsing
+/// (see `std.json.ParseOptions.alloc_when`).
 pub fn parseFree(comptime T: type, allocator: Allocator, value: T) void {
     switch (@typeInfo(T)) {
-        .Bool, .Float, .ComptimeFloat, .Int, .ComptimeInt, .Enum => {},
+        .Bool, .Float, .ComptimeFloat, .Int, .ComptimeInt => {},
+        .Enum => {
+            if (comptime std.meta.trait.hasFn("jsonParseFree")(T)) {
+                return value.jsonParseFree(allocator);
+            }
+        },
         .Optional => {
             if (value) |v| {
                 return parseFree(@TypeOf(v), allocator, v);
             }
         },
         .Union => |unionInfo| {
+            if (comptime std.meta.trait.hasFn("jsonParseFree")(T)) {
+                return value.jsonParseFree(allocator);
+            }
             if (unionInfo.tag_type) |UnionTagType| {
                 inline for (unionInfo.fields) |u_field| {
                     if (value == @field(UnionTagType, u_field.name)) {
@@ -552,6 +537,9 @@ pub fn parseFree(comptime T: type, allocator: Allocator, value: T) void {
             }
         },
         .Struct => |structInfo| {
+            if (comptime std.meta.trait.hasFn("jsonParseFree")(T)) {
+                return value.jsonParseFree(allocator);
+            }
             inline for (structInfo.fields) |field| {
                 var should_free = true;
                 if (field.default_value) |default| {

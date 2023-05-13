@@ -5,12 +5,14 @@ const testing = std.testing;
 const ObjectMap = @import("dynamic.zig").ObjectMap;
 const Array = @import("dynamic.zig").Array;
 const Value = @import("dynamic.zig").Value;
-const Parser = @import("dynamic.zig").Parser;
+const ValueTree = @import("dynamic.zig").ValueTree;
+
+const parseFromSlice = @import("static.zig").parseFromSlice;
+const parseFromTokenSource = @import("static.zig").parseFromTokenSource;
+
+const jsonReader = @import("scanner.zig").reader;
 
 test "json.parser.dynamic" {
-    var p = Parser.init(testing.allocator, .alloc_if_needed);
-    defer p.deinit();
-
     const s =
         \\{
         \\  "Image": {
@@ -31,7 +33,7 @@ test "json.parser.dynamic" {
         \\}
     ;
 
-    var tree = try p.parse(s);
+    var tree = try parseFromSlice(ValueTree, testing.allocator, s, .{});
     defer tree.deinit();
 
     var root = tree.root;
@@ -98,9 +100,10 @@ test "write json then parse it" {
 
     try jw.endObject();
 
-    var parser = Parser.init(testing.allocator, .alloc_if_needed);
-    defer parser.deinit();
-    var tree = try parser.parse(fixed_buffer_stream.getWritten());
+    fixed_buffer_stream = std.io.fixedBufferStream(fixed_buffer_stream.getWritten());
+    var json_reader = jsonReader(testing.allocator, fixed_buffer_stream.reader());
+    defer json_reader.deinit();
+    var tree = try parseFromTokenSource(ValueTree, testing.allocator, &json_reader, .{});
     defer tree.deinit();
 
     try testing.expect(tree.root.object.get("f").?.bool == false);
@@ -111,9 +114,8 @@ test "write json then parse it" {
     try testing.expect(mem.eql(u8, tree.root.object.get("str").?.string, "hello"));
 }
 
-fn testParse(arena_allocator: std.mem.Allocator, json_str: []const u8) !Value {
-    var p = Parser.init(arena_allocator, .alloc_if_needed);
-    return (try p.parse(json_str)).root;
+fn testParse(allocator: std.mem.Allocator, json_str: []const u8) !Value {
+    return parseFromSlice(Value, allocator, json_str, .{ .alloc_when = .alloc_if_needed });
 }
 
 test "parsing empty string gives appropriate error" {
@@ -126,10 +128,7 @@ test "parse tree should not contain dangling pointers" {
     var arena_allocator = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena_allocator.deinit();
 
-    var p = Parser.init(arena_allocator.allocator(), .alloc_if_needed);
-    defer p.deinit();
-
-    var tree = try p.parse("[]");
+    var tree = try parseFromSlice(ValueTree, arena_allocator.allocator(), "[]", .{});
     defer tree.deinit();
 
     // Allocation should succeed
@@ -198,13 +197,8 @@ test "string copy option" {
     defer arena_allocator.deinit();
     const allocator = arena_allocator.allocator();
 
-    var parser = Parser.init(allocator, .alloc_if_needed);
-    const tree_nocopy = try parser.parse(input);
-    const obj_nocopy = tree_nocopy.root.object;
-
-    parser = Parser.init(allocator, .alloc_always);
-    const tree_copy = try parser.parse(input);
-    const obj_copy = tree_copy.root.object;
+    const obj_nocopy = (try parseFromSlice(Value, allocator, input, .{ .alloc_when = .alloc_if_needed })).object;
+    const obj_copy = (try parseFromSlice(Value, allocator, input, .{ .alloc_when = .alloc_always })).object;
 
     for ([_][]const u8{ "noescape", "simple", "unicode", "surrogatepair" }) |field_name| {
         try testing.expectEqualSlices(u8, obj_nocopy.get(field_name).?.string, obj_copy.get(field_name).?.string);

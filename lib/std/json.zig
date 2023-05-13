@@ -13,7 +13,6 @@ pub const ValueTree = @import("json/dynamic.zig").ValueTree;
 pub const ObjectMap = @import("json/dynamic.zig").ObjectMap;
 pub const Array = @import("json/dynamic.zig").Array;
 pub const Value = @import("json/dynamic.zig").Value;
-pub const Parser = @import("json/dynamic.zig").Parser;
 
 pub const validate = @import("json/scanner.zig").validate;
 pub const Error = @import("json/scanner.zig").Error;
@@ -45,6 +44,7 @@ pub const writeStream = @import("json/write_stream.zig").writeStream;
 
 // Deprecations
 pub const parse = @compileError("Deprecated; use parseFromSlice() or parseFromTokenSource() instead.");
+pub const Parser = @compileError("Deprecated; instead use parseFromSlice() or parseFromTokenSource() where T is ValueTree or Value.");
 pub const StreamingParser = @compileError("Deprecated; use json.Scanner or json.Reader instead.");
 pub const TokenStream = @compileError("Deprecated; use json.Scanner or json.Reader instead.");
 
