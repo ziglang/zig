@@ -4173,8 +4173,9 @@ pub fn cmdPkg(gpa: Allocator, arena: Allocator, args: []const []const u8) !void 
 
     const command_arg = args[0];
     if (!mem.eql(u8, command_arg, "fetch")) fatal("Invalid command: {s}\n", .{command_arg});
-
-    return cmdPkgFetch(gpa, arena);
+    if (!build_options.omit_pkg_fetching_code) {
+        try cmdPkgFetch(gpa, arena);
+    }
 }
 
 pub fn cmdPkgFetch(gpa: Allocator, arena: Allocator) !void {
