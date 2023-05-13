@@ -183,10 +183,6 @@ pub const Value = extern union {
         /// Used to coordinate alloc_inferred, store_to_inferred_ptr, and resolve_inferred_alloc
         /// instructions for comptime code.
         inferred_alloc_comptime,
-        /// Used sometimes as the result of field_call_bind.  This value is always temporary,
-        /// and refers directly to the air.  It will never be referenced by the air itself.
-        /// TODO: This is probably a bad encoding, maybe put temp data in the sema instead.
-        bound_fn,
         /// The ABI alignment of the payload type.
         lazy_align,
         /// The ABI size of the payload type.
@@ -326,7 +322,6 @@ pub const Value = extern union {
                 .inferred_alloc_comptime => Payload.InferredAllocComptime,
                 .aggregate => Payload.Aggregate,
                 .@"union" => Payload.Union,
-                .bound_fn => Payload.BoundFn,
                 .comptime_field_ptr => Payload.ComptimeFieldPtr,
             };
         }
@@ -477,7 +472,6 @@ pub const Value = extern union {
             .extern_options_type,
             .type_info_type,
             .generic_poison,
-            .bound_fn,
             => unreachable,
 
             .ty, .lazy_align, .lazy_size => {
@@ -836,10 +830,6 @@ pub const Value = extern union {
             .opt_payload_ptr => {
                 try out_stream.writeAll("(opt_payload_ptr)");
                 val = val.castTag(.opt_payload_ptr).?.data.container_ptr;
-            },
-            .bound_fn => {
-                const bound_func = val.castTag(.bound_fn).?.data;
-                return out_stream.print("(bound_fn %{}(%{})", .{ bound_func.func_inst, bound_func.arg0_inst });
             },
         };
     }
@@ -5655,16 +5645,6 @@ pub const Value = extern union {
             data: struct {
                 tag: Value,
                 val: Value,
-            },
-        };
-
-        pub const BoundFn = struct {
-            pub const base_tag = Tag.bound_fn;
-
-            base: Payload = Payload{ .tag = base_tag },
-            data: struct {
-                func_inst: Air.Inst.Ref,
-                arg0_inst: Air.Inst.Ref,
             },
         };
     };

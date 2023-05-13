@@ -156,8 +156,6 @@ pub const Type = extern union {
             .union_tagged,
             .type_info,
             => return .Union,
-
-            .bound_fn => unreachable,
         }
     }
 
@@ -933,7 +931,6 @@ pub const Type = extern union {
             // for example, a was resolved into .union_tagged but b was one of these tags.
             .type_info => unreachable, // needed to resolve the type before now
 
-            .bound_fn => unreachable,
         }
     }
 
@@ -1242,7 +1239,6 @@ pub const Type = extern union {
             // we can't hash these based on tags because they wouldn't match the expanded version.
             .type_info => unreachable, // needed to resolve the type before now
 
-            .bound_fn => unreachable,
         }
     }
 
@@ -1349,7 +1345,6 @@ pub const Type = extern union {
             .type_info,
             .@"anyframe",
             .generic_poison,
-            .bound_fn,
             => unreachable,
 
             .array_u8,
@@ -1613,7 +1608,6 @@ pub const Type = extern union {
                 .comptime_int,
                 .comptime_float,
                 .noreturn,
-                .bound_fn,
                 => return writer.writeAll(@tagName(t)),
 
                 .enum_literal => return writer.writeAll("@Type(.EnumLiteral)"),
@@ -1949,7 +1943,6 @@ pub const Type = extern union {
             .inferred_alloc_const => unreachable,
             .inferred_alloc_mut => unreachable,
             .generic_poison => unreachable,
-            .bound_fn => unreachable,
 
             // TODO get rid of these Type.Tag values.
             .atomic_order => unreachable,
@@ -2468,7 +2461,6 @@ pub const Type = extern union {
             .enum_literal,
             .empty_struct,
             .empty_struct_literal,
-            .bound_fn,
             // These are function *bodies*, not pointers.
             // Special exceptions have to be made when emitting functions due to
             // this returning false.
@@ -2703,7 +2695,6 @@ pub const Type = extern union {
 
             .inferred_alloc_mut => unreachable,
             .inferred_alloc_const => unreachable,
-            .bound_fn => unreachable,
 
             .array,
             .array_sentinel,
@@ -3182,7 +3173,6 @@ pub const Type = extern union {
             .noreturn,
             .inferred_alloc_const,
             .inferred_alloc_mut,
-            .bound_fn,
             => unreachable,
 
             .generic_poison => unreachable,
@@ -3282,7 +3272,6 @@ pub const Type = extern union {
             .fn_ccc_void_no_args => unreachable, // represents machine code; not a pointer
             .function => unreachable, // represents machine code; not a pointer
             .@"opaque" => unreachable, // no size available
-            .bound_fn => unreachable,
             .noreturn => unreachable,
             .inferred_alloc_const => unreachable,
             .inferred_alloc_mut => unreachable,
@@ -3630,7 +3619,6 @@ pub const Type = extern union {
             .inferred_alloc_mut => unreachable,
             .@"opaque" => unreachable,
             .generic_poison => unreachable,
-            .bound_fn => unreachable,
 
             .void => return 0,
             .bool, .u1 => return 1,
@@ -5042,7 +5030,6 @@ pub const Type = extern union {
             .single_const_pointer,
             .single_mut_pointer,
             .pointer,
-            .bound_fn,
             => return null,
 
             .optional => {
@@ -5245,7 +5232,6 @@ pub const Type = extern union {
 
             .inferred_alloc_mut => unreachable,
             .inferred_alloc_const => unreachable,
-            .bound_fn => unreachable,
 
             .array,
             .array_sentinel,
@@ -6081,7 +6067,6 @@ pub const Type = extern union {
         inferred_alloc_mut,
         /// Same as `inferred_alloc_mut` but the local is `var` not `const`.
         inferred_alloc_const, // See last_no_payload_tag below.
-        bound_fn,
         // After this, the tag requires a payload.
 
         array_u8,
@@ -6126,7 +6111,7 @@ pub const Type = extern union {
         enum_full,
         enum_nonexhaustive,
 
-        pub const last_no_payload_tag = Tag.bound_fn;
+        pub const last_no_payload_tag = Tag.inferred_alloc_const;
         pub const no_payload_count = @enumToInt(last_no_payload_tag) + 1;
 
         pub fn Type(comptime t: Tag) type {
@@ -6199,7 +6184,6 @@ pub const Type = extern union {
                 .extern_options,
                 .type_info,
                 .@"anyframe",
-                .bound_fn,
                 => @compileError("Type Tag " ++ @tagName(t) ++ " has no payload"),
 
                 .array_u8,
