@@ -56,7 +56,9 @@ pub fn parseFromSlice(
     return parseFromTokenSource(T, allocator, &scanner, options);
 }
 
-/// Parses
+/// Parses the json document from `s` and returns the result.
+/// Allocations made during this operation are not carefully tracked and may not be possible to individually clean up.
+/// It is recommended to use a `std.heap.ArenaAllocator` or similar.
 pub fn parseFromSliceLeaky(
     comptime T: type,
     allocator: Allocator,
@@ -90,6 +92,9 @@ pub fn parseFromTokenSource(
     return parsed;
 }
 
+/// `scanner_or_reader` must be either a `*std.json.Scanner` with complete input or a `*std.json.Reader`.
+/// Allocations made during this operation are not carefully tracked and may not be possible to individually clean up.
+/// It is recommended to use a `std.heap.ArenaAllocator` or similar.
 pub fn parseFromTokenSourceLeaky(
     comptime T: type,
     allocator: Allocator,
@@ -162,7 +167,7 @@ fn parseInternal(
             const token = try source.nextAllocMax(allocator, .alloc_if_needed, options.max_value_len.?);
             defer freeAllocated(allocator, token);
             const slice = switch (token) {
-                inline .number, .allocated_number, .string, .allocated_string=> |slice| slice,
+                inline .number, .allocated_number, .string, .allocated_string => |slice| slice,
                 else => return error.UnexpectedToken,
             };
             if (isNumberFormattedLikeAnInteger(slice))
