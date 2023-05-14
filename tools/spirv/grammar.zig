@@ -88,6 +88,7 @@ pub const Enumerant = struct {
             source: anytype,
             options: std.json.ParseOptions,
         ) std.json.ParseError(@TypeOf(source.*))!@This() {
+            _ = options;
             switch (try source.nextAlloc(allocator, .alloc_if_needed)) {
                 inline .string, .allocated_string => |s| return @This(){ .bitflag = s },
                 inline .number, .allocated_number => |s| return @This(){ .int = try std.fmt.parseInt(u31, s, 10) },
