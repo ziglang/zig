@@ -2261,11 +2261,11 @@ fn allocRegOrMemAdvanced(self: *Self, ty: Type, inst: ?Air.Inst.Index, reg_ok: b
             },
             .Vector => switch (ty.childType().zigTypeTag()) {
                 .Float => switch (ty.childType().floatBits(self.target.*)) {
-                    16, 32, 64 => if (self.hasFeature(.avx)) 32 else 16,
-                    80, 128 => break :need_mem,
+                    16, 32, 64, 128 => if (self.hasFeature(.avx)) 32 else 16,
+                    80 => break :need_mem,
                     else => unreachable,
                 },
-                else => break :need_mem,
+                else => if (self.hasFeature(.avx)) 32 else 16,
             },
             else => 8,
         })) {
