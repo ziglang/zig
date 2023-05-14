@@ -13,6 +13,10 @@ pub const ARCH = linux.ARCH;
 pub const AT = linux.AT;
 pub const CLOCK = linux.CLOCK;
 pub const CPU_COUNT = linux.CPU_COUNT;
+pub const CPU_SET = linux.CPU_SET;
+pub const CPU_ISSET = linux.CPU_ISSET;
+pub const CPU_CLR = linux.CPU_CLR;
+pub const CPU_ZERO = linux.CPU_ZERO;
 pub const E = linux.E;
 pub const Elf_Symndx = linux.Elf_Symndx;
 pub const F = linux.F;
@@ -245,6 +249,7 @@ pub extern "c" fn setrlimit64(resource: rlimit_resource, rlim: *const rlimit) c_
 
 pub extern "c" fn getrandom(buf_ptr: [*]u8, buf_len: usize, flags: c_uint) isize;
 pub extern "c" fn sched_getaffinity(pid: c_int, size: usize, set: *cpu_set_t) c_int;
+pub extern "c" fn sched_setaffinity(pid: c_int, size: usize, set: *const cpu_set_t) c_int;
 pub extern "c" fn eventfd(initval: c_uint, flags: c_uint) c_int;
 pub extern "c" fn epoll_ctl(epfd: fd_t, op: c_uint, fd: fd_t, event: ?*epoll_event) c_int;
 pub extern "c" fn epoll_create1(flags: c_uint) c_int;

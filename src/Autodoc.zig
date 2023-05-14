@@ -295,7 +295,7 @@ pub fn generateZirData(self: *Autodoc) !void {
         try std.json.stringify(
             data,
             .{
-                .whitespace = .{ .indent = .None, .separator = false },
+                .whitespace = .{ .indent = .none, .separator = false },
                 .emit_null_optional_fields = true,
             },
             out,
@@ -444,7 +444,7 @@ const DocData = struct {
         w: anytype,
     ) !void {
         var jsw = std.json.writeStream(w, 15);
-        if (opts.whitespace) |ws| jsw.whitespace = ws;
+        jsw.whitespace = opts.whitespace;
         try jsw.beginObject();
         inline for (comptime std.meta.tags(std.meta.FieldEnum(DocData))) |f| {
             const f_name = @tagName(f);
@@ -495,7 +495,7 @@ const DocData = struct {
             w: anytype,
         ) !void {
             var jsw = std.json.writeStream(w, 15);
-            if (opts.whitespace) |ws| jsw.whitespace = ws;
+            jsw.whitespace = opts.whitespace;
 
             try jsw.beginObject();
             inline for (comptime std.meta.tags(std.meta.FieldEnum(DocModule))) |f| {
@@ -529,7 +529,7 @@ const DocData = struct {
             w: anytype,
         ) !void {
             var jsw = std.json.writeStream(w, 15);
-            if (opts.whitespace) |ws| jsw.whitespace = ws;
+            jsw.whitespace = opts.whitespace;
             try jsw.beginArray();
             inline for (comptime std.meta.fields(Decl)) |f| {
                 try jsw.arrayElem();
@@ -556,7 +556,7 @@ const DocData = struct {
             w: anytype,
         ) !void {
             var jsw = std.json.writeStream(w, 15);
-            if (opts.whitespace) |ws| jsw.whitespace = ws;
+            jsw.whitespace = opts.whitespace;
             try jsw.beginArray();
             inline for (comptime std.meta.fields(AstNode)) |f| {
                 try jsw.arrayElem();
@@ -689,7 +689,7 @@ const DocData = struct {
         ) !void {
             const active_tag = std.meta.activeTag(self);
             var jsw = std.json.writeStream(w, 15);
-            if (opts.whitespace) |ws| jsw.whitespace = ws;
+            jsw.whitespace = opts.whitespace;
             try jsw.beginArray();
             try jsw.arrayElem();
             try jsw.emitNumber(@enumToInt(active_tag));
@@ -831,7 +831,7 @@ const DocData = struct {
         ) @TypeOf(w).Error!void {
             const active_tag = std.meta.activeTag(self);
             var jsw = std.json.writeStream(w, 15);
-            if (opts.whitespace) |ws| jsw.whitespace = ws;
+            jsw.whitespace = opts.whitespace;
             try jsw.beginObject();
             if (active_tag == .declIndex) {
                 try jsw.objectField("declRef");

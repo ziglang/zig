@@ -1535,6 +1535,12 @@ pub fn mbind(addr: ?*anyopaque, len: u32, mode: i32, nodemask: *const u32, maxno
     return syscall6(.mbind, addr, len, mode, nodemask, maxnode, flags);
 }
 
+pub fn sched_setaffinity(pid: pid_t, size: usize, set: *const cpu_set_t) usize {
+    const rc = syscall3(.sched_setaffinity, @bitCast(usize, @as(isize, pid)), size, @ptrToInt(set));
+    if (@bitCast(isize, rc) < 0) return rc;
+    return 0;
+}
+
 pub fn epoll_create() usize {
     return epoll_create1(0);
 }
@@ -3553,12 +3559,43 @@ pub const CPU_SETSIZE = 128;
 pub const cpu_set_t = [CPU_SETSIZE / @sizeOf(usize)]usize;
 pub const cpu_count_t = std.meta.Int(.unsigned, std.math.log2(CPU_SETSIZE * 8));
 
+fn cpu_mask(s: usize) cpu_count_t {
+    var x = s & (CPU_SETSIZE * 8);
+    return @intCast(cpu_count_t, 1) << @intCast(u4, x);
+}
+
 pub fn CPU_COUNT(set: cpu_set_t) cpu_count_t {
     var sum: cpu_count_t = 0;
     for (set) |x| {
         sum += @popCount(x);
     }
     return sum;
+}
+
+pub fn CPU_ZERO(set: *cpu_set_t) void {
+    @memset(set, 0);
+}
+
+pub fn CPU_SET(cpu: usize, set: *cpu_set_t) void {
+    const x = cpu / @sizeOf(usize);
+    if (x < @sizeOf(cpu_set_t)) {
+        (set.*)[x] |= cpu_mask(x);
+    }
+}
+
+pub fn CPU_ISSET(cpu: usize, set: cpu_set_t) bool {
+    const x = cpu / @sizeOf(usize);
+    if (x < @sizeOf(cpu_set_t)) {
+        return set[x] & cpu_mask(x);
+    }
+    return false;
+}
+
+pub fn CPU_CLR(cpu: usize, set: *cpu_set_t) void {
+    const x = cpu / @sizeOf(usize);
+    if (x < @sizeOf(cpu_set_t)) {
+        (set.*)[x] &= !cpu_mask(x);
+    }
 }
 
 pub const MINSIGSTKSZ = switch (native_arch) {
