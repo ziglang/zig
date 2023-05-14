@@ -68,13 +68,7 @@ pub const Value = union(enum) {
     number_string: []const u8,
     string: []const u8,
     array: Array,
-    object: *ObjectMap,
-
-    pub fn initObject(allocator: Allocator) Allocator.Error!@This() {
-        const object = try allocator.create(ObjectMap);
-        object.* = ObjectMap.init(allocator);
-        return Value{ .object = object };
-    }
+    object: ObjectMap,
 
     pub fn parseFromNumberSlice(s: []const u8) Value {
         if (!isNumberFormattedLikeAnInteger(s)) {
@@ -92,32 +86,6 @@ pub const Value = union(enum) {
                 error.Overflow => return Value{ .number_string = s },
                 error.InvalidCharacter => unreachable,
             }
-        }
-    }
-
-    /// This function recursively deallocates all memory for this value.
-    /// This function must not be called when this value was created while
-    /// `std.json.ParseOptions.alloc_when` was `.alloc_if_needed`;
-    /// this function unconditionally attempts to free all strings.
-    pub fn deinit(value: @This(), allocator: Allocator) void {
-        switch (value) {
-            .null, .bool, .integer, .float => {},
-            .number_string, .string => |inner| allocator.free(inner),
-            .array => |inner| {
-                for (inner.items) |child| {
-                    child.jsonParseFree(allocator);
-                }
-                inner.deinit();
-            },
-            .object => |inner| {
-                var it = inner.iterator();
-                while (it.next()) |entry| {
-                    allocator.free(entry.key_ptr.*);
-                    entry.value_ptr.*.jsonParseFree(allocator);
-                }
-                inner.deinit();
-                allocator.destroy(inner);
-            },
         }
     }
 
@@ -197,10 +165,10 @@ pub const Value = union(enum) {
 
                 .object_begin => {
                     switch (try source.nextAlloc(allocator, options.alloc_when)) {
-                        .object_end => return try handleCompleteValue(&stack, allocator, source, options.alloc_when, try Value.initObject(allocator)) orelse continue,
+                        .object_end => return try handleCompleteValue(&stack, allocator, source, options.alloc_when, Value{ .object = ObjectMap.init(allocator) }) orelse continue,
                         inline .string, .allocated_string => |key| {
                             try stack.appendSlice(&[_]Value{
-                                try Value.initObject(allocator),
+                                Value{ .object = ObjectMap.init(allocator) },
                                 Value{ .string = key },
                             });
                         },
@@ -216,15 +184,16 @@ pub const Value = union(enum) {
             }
         }
     }
-    pub fn jsonParseFree(value: @This(), allocator: Allocator) void {
-        value.deinit(allocator);
+    pub fn jsonParseFree(self: *const @This(), allocator: Allocator) void {
+        _ = self;
+        _ = allocator;
     }
 };
 
 fn handleCompleteValue(stack: *Array, allocator: Allocator, source: anytype, alloc_when: AllocWhen, value_: Value) !?Value {
+    if (stack.items.len == 0) return value_;
     var value = value_;
     while (true) {
-        if (stack.items.len == 0) return value;
         // Assert the stack grammar at the top of the stack.
         debug.assert(stack.items[stack.items.len - 1] == .array or
             (stack.items[stack.items.len - 2] == .object and stack.items[stack.items.len - 1] == .string));
@@ -234,7 +203,7 @@ fn handleCompleteValue(stack: *Array, allocator: Allocator, source: anytype, all
                 _ = stack.pop();
 
                 // stack: [..., .object]
-                var object = stack.items[stack.items.len - 1].object;
+                var object = &stack.items[stack.items.len - 1].object;
                 try object.put(key, value);
 
                 // This is an invalid state to leave the stack in,
@@ -244,6 +213,7 @@ fn handleCompleteValue(stack: *Array, allocator: Allocator, source: anytype, all
                         // This object is complete.
                         value = stack.pop();
                         // Effectively recurse now that we have a complete value.
+                        if (stack.items.len == 0) return value;
                         continue;
                     },
                     inline .string, .allocated_string => |next_key| {
