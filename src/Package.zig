@@ -614,11 +614,19 @@ fn fetchAndUnpack(
         try req.start();
         try req.wait();
 
+        if (req.response.status != .ok) {
+            return report.fail(dep.url_tok, "Expected response status '200 OK' got '{} {s}'", .{
+                @enumToInt(req.response.status),
+                req.response.status.phrase() orelse "",
+            });
+        }
+
         const content_type = req.response.headers.getFirstValue("Content-Type") orelse
-            return report.fail(dep.url_tok, "missing Content-Type for '{s}'", .{uri.path});
+            return report.fail(dep.url_tok, "Missing 'Content-Type' header", .{});
 
         if (ascii.eqlIgnoreCase(content_type, "application/gzip") or
-            ascii.eqlIgnoreCase(content_type, "application/x-gzip"))
+            ascii.eqlIgnoreCase(content_type, "application/x-gzip") or
+            ascii.eqlIgnoreCase(content_type, "application/tar+gzip"))
         {
             // I observed the gzip stream to read 1 byte at a time, so I am using a
             // buffered reader on the front of it.
@@ -628,7 +636,7 @@ fn fetchAndUnpack(
             // by default, so the same logic applies for buffering the reader as for gzip.
             try unpackTarball(gpa, &req, tmp_directory.handle, std.compress.xz);
         } else {
-            return report.fail(dep.url_tok, "unknown file extension for path '{s}'", .{uri.path});
+            return report.fail(dep.url_tok, "Unsupported 'Content-Type' header value: '{s}'", .{content_type});
         }
 
         // TODO: delete files not included in the package prior to computing the package hash.

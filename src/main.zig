@@ -4153,7 +4153,7 @@ pub const usage_pkg =
     \\  Runs a package command
     \\
     \\Commands:
-    \\  fetch                Calculates the package hash of the current directory.          
+    \\  fetch                fetch all dependenices found in build.zig.zon.          
     \\
     \\Options: 
     \\  -h --help           Print this help and exit.
@@ -4172,13 +4172,16 @@ pub fn cmdPkg(gpa: Allocator, arena: Allocator, args: []const []const u8) !void 
     }
 
     const command_arg = args[0];
-    if (!mem.eql(u8, command_arg, "fetch")) fatal("Invalid command: {s}\n", .{command_arg});
-    if (!build_options.omit_pkg_fetching_code) {
-        try cmdPkgFetch(gpa, arena);
+    if (!mem.eql(u8, command_arg, "fetch")) {
+        fatal("Invalid package command: {s}\n", .{command_arg});
     }
+
+    try cmdPkgFetch(gpa, arena);
 }
 
 pub fn cmdPkgFetch(gpa: Allocator, arena: Allocator) !void {
+    if (build_options.omit_pkg_fetching_code) unreachable;
+
     var color: Color = .auto;
 
     var cleanup_build_runner_dir: ?fs.Dir = null;
@@ -4254,15 +4257,9 @@ pub fn cmdPkgFetch(gpa: Allocator, arena: Allocator) !void {
     };
     defer local_cache_directory.handle.close();
 
-    // Here we borrow main package's table and will replace it with a fresh
-    // one after this process completes.
-
     var wip_errors: std.zig.ErrorBundle.Wip = undefined;
     try wip_errors.init(gpa);
     defer wip_errors.deinit();
-
-    var all_modules: Package.AllModules = .{};
-    defer all_modules.deinit(gpa);
 
     var thread_pool: ThreadPool = undefined;
     try thread_pool.init(.{ .allocator = gpa });
