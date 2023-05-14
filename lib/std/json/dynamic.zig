@@ -101,7 +101,7 @@ pub const Value = union(enum) {
         }
     }
 
-    pub fn jsonParse(allocator: Allocator, source: anytype, options: ParseOptions) ParseError(@TypeOf(source.*))!Value {
+    pub fn jsonParse(allocator: Allocator, source: anytype, options: ParseOptions) ParseError(@TypeOf(source.*))!@This() {
         // The grammar of the stack is:
         //  (.array | .object .string)*
         var stack = Array.init(allocator);
