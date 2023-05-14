@@ -236,6 +236,14 @@ pub const Inst = struct {
 
         /// VEX-Encoded ___
         v_,
+        /// VEX-Encoded ___ Byte
+        v_b,
+        /// VEX-Encoded ___ Word
+        v_w,
+        /// VEX-Encoded ___ Doubleword
+        v_d,
+        /// VEX-Encoded ___ QuadWord
+        v_q,
         /// VEX-Encoded Packed ___
         vp_,
         /// VEX-Encoded Packed ___ Byte
@@ -526,6 +534,10 @@ pub const Inst = struct {
         cvttps2dq,
         /// Convert with truncation scalar double-precision floating-point value to doubleword integer
         cvttsd2si,
+        /// Move aligned packed integer values
+        movdqa,
+        /// Move unaligned packed integer values
+        movdqu,
         /// Packed interleave shuffle of quadruplets of single-precision floating-point values
         /// Packed interleave shuffle of pairs of double-precision floating-point values
         shuf,

@@ -5433,8 +5433,18 @@ pub const Type = extern union {
         }
     }
 
+    // Works for vectors and vectors of integers.
+    pub fn maxInt(ty: Type, arena: Allocator, target: Target) !Value {
+        const scalar = try maxIntScalar(ty.scalarType(), arena, target);
+        if (ty.zigTypeTag() == .Vector and scalar.tag() != .the_only_possible_value) {
+            return Value.Tag.repeated.create(arena, scalar);
+        } else {
+            return scalar;
+        }
+    }
+
     /// Asserts that self.zigTypeTag() == .Int.
-    pub fn maxInt(self: Type, arena: Allocator, target: Target) !Value {
+    pub fn maxIntScalar(self: Type, arena: Allocator, target: Target) !Value {
         assert(self.zigTypeTag() == .Int);
         const info = self.intInfo(target);
 

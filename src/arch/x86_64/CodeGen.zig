@@ -4681,61 +4681,136 @@ fn airBitReverse(self: *Self, inst: Air.Inst.Index) !void {
 }
 
 fn airFloatSign(self: *Self, inst: Air.Inst.Index) !void {
+    const tag = self.air.instructions.items(.tag)[inst];
     const un_op = self.air.instructions.items(.data)[inst].un_op;
     const ty = self.air.typeOf(un_op);
-    const ty_bits = ty.floatBits(self.target.*);
+    const abi_size: u32 = switch (ty.abiSize(self.target.*)) {
+        1...16 => 16,
+        17...32 => 32,
+        else => return self.fail("TODO implement airFloatSign for {}", .{
+            ty.fmt(self.bin_file.options.module.?),
+        }),
+    };
+    const scalar_bits = ty.scalarType().floatBits(self.target.*);
+
+    const src_mcv = try self.resolveInst(un_op);
+    const src_lock = if (src_mcv.getReg()) |reg| self.register_manager.lockReg(reg) else null;
+    defer if (src_lock) |lock| self.register_manager.unlockReg(lock);
+
+    const dst_mcv: MCValue = if (src_mcv.isRegister() and self.reuseOperand(inst, un_op, 0, src_mcv))
+        src_mcv
+    else if (self.hasFeature(.avx))
+        .{ .register = try self.register_manager.allocReg(inst, sse) }
+    else
+        try self.copyToRegisterWithInstTracking(inst, ty, src_mcv);
+    const dst_reg = dst_mcv.getReg().?;
+    const dst_lock = self.register_manager.lockReg(dst_reg);
+    defer if (dst_lock) |lock| self.register_manager.unlockReg(lock);
 
     var arena = std.heap.ArenaAllocator.init(self.gpa);
     defer arena.deinit();
 
-    const ExpectedContents = union {
-        f16: Value.Payload.Float_16,
-        f32: Value.Payload.Float_32,
-        f64: Value.Payload.Float_64,
-        f80: Value.Payload.Float_80,
-        f128: Value.Payload.Float_128,
+    const ExpectedContents = struct {
+        scalar: union {
+            i64: Value.Payload.I64,
+            big: struct {
+                limbs: [
+                    @max(
+                        std.math.big.int.Managed.default_capacity,
+                        std.math.big.int.calcTwosCompLimbCount(128),
+                    )
+                ]std.math.big.Limb,
+                pl: Value.Payload.BigInt,
+            },
+        },
+        repeated: Value.Payload.SubValue,
     };
     var stack align(@alignOf(ExpectedContents)) =
         std.heap.stackFallback(@sizeOf(ExpectedContents), arena.allocator());
 
+    var int_pl = Type.Payload.Bits{
+        .base = .{ .tag = .int_signed },
+        .data = scalar_bits,
+    };
     var vec_pl = Type.Payload.Array{
         .base = .{ .tag = .vector },
         .data = .{
-            .len = @divExact(128, ty_bits),
-            .elem_type = ty,
+            .len = @divExact(abi_size * 8, scalar_bits),
+            .elem_type = Type.initPayload(&int_pl.base),
         },
     };
     const vec_ty = Type.initPayload(&vec_pl.base);
-
-    var sign_pl = Value.Payload.SubValue{
-        .base = .{ .tag = .repeated },
-        .data = try Value.floatToValue(-0.0, stack.get(), ty, self.target.*),
+    const sign_val = switch (tag) {
+        .neg => try vec_ty.minInt(stack.get(), self.target.*),
+        .fabs => try vec_ty.maxInt(stack.get(), self.target.*),
+        else => unreachable,
     };
-    const sign_val = Value.initPayload(&sign_pl.base);
 
     const sign_mcv = try self.genTypedValue(.{ .ty = vec_ty, .val = sign_val });
-
-    const src_mcv = try self.resolveInst(un_op);
-    const dst_mcv = if (src_mcv.isRegister() and self.reuseOperand(inst, un_op, 0, src_mcv))
-        src_mcv
+    const sign_mem = if (sign_mcv.isMemory())
+        sign_mcv.mem(Memory.PtrSize.fromSize(abi_size))
     else
-        try self.copyToRegisterWithInstTracking(inst, ty, src_mcv);
-    const dst_lock = self.register_manager.lockReg(dst_mcv.register);
-    defer if (dst_lock) |lock| self.register_manager.unlockReg(lock);
+        Memory.sib(Memory.PtrSize.fromSize(abi_size), .{
+            .base = .{ .reg = try self.copyToTmpRegister(Type.usize, sign_mcv.address()) },
+        });
 
-    const tag = self.air.instructions.items(.tag)[inst];
-    try self.genBinOpMir(switch (ty_bits) {
-        // No point using an extra prefix byte for *pd which performs the same operation.
-        16, 32, 64, 128 => switch (tag) {
-            .neg => .{ ._ps, .xor },
-            .fabs => .{ ._ps, .andn },
+    if (self.hasFeature(.avx)) try self.asmRegisterRegisterMemory(
+        switch (scalar_bits) {
+            16, 128 => if (abi_size <= 16 or self.hasFeature(.avx2)) switch (tag) {
+                .neg => .{ .vp_, .xor },
+                .fabs => .{ .vp_, .@"and" },
+                else => unreachable,
+            } else switch (tag) {
+                .neg => .{ .v_ps, .xor },
+                .fabs => .{ .v_ps, .@"and" },
+                else => unreachable,
+            },
+            32 => switch (tag) {
+                .neg => .{ .v_ps, .xor },
+                .fabs => .{ .v_ps, .@"and" },
+                else => unreachable,
+            },
+            64 => switch (tag) {
+                .neg => .{ .v_pd, .xor },
+                .fabs => .{ .v_pd, .@"and" },
+                else => unreachable,
+            },
+            80 => return self.fail("TODO implement airFloatSign for {}", .{
+                ty.fmt(self.bin_file.options.module.?),
+            }),
             else => unreachable,
         },
-        80 => return self.fail("TODO implement airFloatSign for {}", .{
-            ty.fmt(self.bin_file.options.module.?),
-        }),
-        else => unreachable,
-    }, vec_ty, dst_mcv, sign_mcv);
+        registerAlias(dst_reg, abi_size),
+        registerAlias(if (src_mcv.isRegister())
+            src_mcv.getReg().?
+        else
+            try self.copyToTmpRegister(ty, src_mcv), abi_size),
+        sign_mem,
+    ) else try self.asmRegisterMemory(
+        switch (scalar_bits) {
+            16, 128 => switch (tag) {
+                .neg => .{ .p_, .xor },
+                .fabs => .{ .p_, .@"and" },
+                else => unreachable,
+            },
+            32 => switch (tag) {
+                .neg => .{ ._ps, .xor },
+                .fabs => .{ ._ps, .@"and" },
+                else => unreachable,
+            },
+            64 => switch (tag) {
+                .neg => .{ ._pd, .xor },
+                .fabs => .{ ._pd, .@"and" },
+                else => unreachable,
+            },
+            80 => return self.fail("TODO implement airFloatSign for {}", .{
+                ty.fmt(self.bin_file.options.module.?),
+            }),
+            else => unreachable,
+        },
+        registerAlias(dst_reg, abi_size),
+        sign_mem,
+    );
     return self.finishAir(inst, dst_mcv, .{ un_op, .none, .none });
 }
 
@@ -8593,7 +8668,6 @@ const MoveStrategy = union(enum) {
     const InsertExtract = struct {
         insert: Mir.Inst.FixedTag,
         extract: Mir.Inst.FixedTag,
-        imm: Immediate,
     };
 };
 fn moveStrategy(self: *Self, ty: Type, aligned: bool) !MoveStrategy {
@@ -8603,17 +8677,15 @@ fn moveStrategy(self: *Self, ty: Type, aligned: bool) !MoveStrategy {
             16 => return if (self.hasFeature(.avx)) .{ .vex_insert_extract = .{
                 .insert = .{ .vp_w, .insr },
                 .extract = .{ .vp_w, .extr },
-                .imm = Immediate.u(0),
             } } else .{ .insert_extract = .{
                 .insert = .{ .p_w, .insr },
                 .extract = .{ .p_w, .extr },
-                .imm = Immediate.u(0),
             } },
             32 => return .{ .move = if (self.hasFeature(.avx)) .{ .v_ss, .mov } else .{ ._ss, .mov } },
             64 => return .{ .move = if (self.hasFeature(.avx)) .{ .v_sd, .mov } else .{ ._sd, .mov } },
             128 => return .{ .move = if (self.hasFeature(.avx))
-                if (aligned) .{ .v_ps, .mova } else .{ .v_ps, .movu }
-            else if (aligned) .{ ._ps, .mova } else .{ ._ps, .movu } },
+                if (aligned) .{ .v_, .movdqa } else .{ .v_, .movdqu }
+            else if (aligned) .{ ._, .movdqa } else .{ ._, .movdqu } },
             else => {},
         },
         .Vector => switch (ty.childType().zigTypeTag()) {
@@ -8622,101 +8694,120 @@ fn moveStrategy(self: *Self, ty: Type, aligned: bool) !MoveStrategy {
                     1 => if (self.hasFeature(.avx)) return .{ .vex_insert_extract = .{
                         .insert = .{ .vp_b, .insr },
                         .extract = .{ .vp_b, .extr },
-                        .imm = Immediate.u(0),
                     } } else if (self.hasFeature(.sse4_2)) return .{ .insert_extract = .{
                         .insert = .{ .p_b, .insr },
                         .extract = .{ .p_b, .extr },
-                        .imm = Immediate.u(0),
                     } },
                     2 => return if (self.hasFeature(.avx)) .{ .vex_insert_extract = .{
                         .insert = .{ .vp_w, .insr },
                         .extract = .{ .vp_w, .extr },
-                        .imm = Immediate.u(0),
                     } } else .{ .insert_extract = .{
                         .insert = .{ .p_w, .insr },
                         .extract = .{ .p_w, .extr },
-                        .imm = Immediate.u(0),
                     } },
                     3...4 => return .{ .move = if (self.hasFeature(.avx))
-                        .{ .v_ss, .mov }
+                        .{ .v_d, .mov }
                     else
-                        .{ ._ss, .mov } },
+                        .{ ._d, .mov } },
                     5...8 => return .{ .move = if (self.hasFeature(.avx))
-                        .{ .v_sd, .mov }
+                        .{ .v_q, .mov }
                     else
-                        .{ ._sd, .mov } },
+                        .{ ._q, .mov } },
+                    9...16 => return .{ .move = if (self.hasFeature(.avx))
+                        if (aligned) .{ .v_, .movdqa } else .{ .v_, .movdqu }
+                    else if (aligned) .{ ._, .movdqa } else .{ ._, .movdqu } },
+                    17...32 => if (self.hasFeature(.avx))
+                        return .{ .move = if (aligned) .{ .v_, .movdqa } else .{ .v_, .movdqu } },
                     else => {},
                 },
                 16 => switch (ty.vectorLen()) {
                     1 => return if (self.hasFeature(.avx)) .{ .vex_insert_extract = .{
                         .insert = .{ .vp_w, .insr },
                         .extract = .{ .vp_w, .extr },
-                        .imm = Immediate.u(0),
                     } } else .{ .insert_extract = .{
                         .insert = .{ .p_w, .insr },
                         .extract = .{ .p_w, .extr },
-                        .imm = Immediate.u(0),
                     } },
                     2 => return .{ .move = if (self.hasFeature(.avx))
-                        .{ .v_ss, .mov }
+                        .{ .v_d, .mov }
                     else
-                        .{ ._ss, .mov } },
+                        .{ ._d, .mov } },
                     3...4 => return .{ .move = if (self.hasFeature(.avx))
-                        .{ .v_sd, .mov }
+                        .{ .v_q, .mov }
                     else
-                        .{ ._sd, .mov } },
+                        .{ ._q, .mov } },
                     5...8 => return .{ .move = if (self.hasFeature(.avx))
-                        .{ .v_ps, .mov }
-                    else
-                        .{ ._ps, .mov } },
+                        if (aligned) .{ .v_, .movdqa } else .{ .v_, .movdqu }
+                    else if (aligned) .{ ._, .movdqa } else .{ ._, .movdqu } },
+                    9...16 => if (self.hasFeature(.avx))
+                        return .{ .move = if (aligned) .{ .v_, .movdqa } else .{ .v_, .movdqu } },
                     else => {},
                 },
                 32 => switch (ty.vectorLen()) {
                     1 => return .{ .move = if (self.hasFeature(.avx))
-                        .{ .v_ss, .mov }
+                        .{ .v_d, .mov }
                     else
-                        .{ ._ss, .mov } },
+                        .{ ._d, .mov } },
                     2 => return .{ .move = if (self.hasFeature(.avx))
-                        .{ .v_sd, .mov }
+                        .{ .v_q, .mov }
                     else
-                        .{ ._sd, .mov } },
+                        .{ ._q, .mov } },
                     3...4 => return .{ .move = if (self.hasFeature(.avx))
-                        if (aligned) .{ .v_ps, .mova } else .{ .v_ps, .movu }
-                    else if (aligned) .{ ._ps, .mova } else .{ ._ps, .movu } },
+                        if (aligned) .{ .v_, .movdqa } else .{ .v_, .movdqu }
+                    else if (aligned) .{ ._, .movdqa } else .{ ._, .movdqu } },
                     5...8 => if (self.hasFeature(.avx))
-                        return .{ .move = if (aligned) .{ .v_ps, .mova } else .{ .v_ps, .movu } },
+                        return .{ .move = if (aligned) .{ .v_, .movdqa } else .{ .v_, .movdqu } },
                     else => {},
                 },
                 64 => switch (ty.vectorLen()) {
                     1 => return .{ .move = if (self.hasFeature(.avx))
-                        .{ .v_sd, .mov }
+                        .{ .v_q, .mov }
                     else
-                        .{ ._sd, .mov } },
+                        .{ ._q, .mov } },
                     2 => return .{ .move = if (self.hasFeature(.avx))
-                        if (aligned) .{ .v_ps, .mova } else .{ .v_ps, .movu }
-                    else if (aligned) .{ ._ps, .mova } else .{ ._ps, .movu } },
+                        if (aligned) .{ .v_, .movdqa } else .{ .v_, .movdqu }
+                    else if (aligned) .{ ._, .movdqa } else .{ ._, .movdqu } },
                     3...4 => if (self.hasFeature(.avx))
-                        return .{ .move = if (aligned) .{ .v_ps, .mova } else .{ .v_ps, .movu } },
+                        return .{ .move = if (aligned) .{ .v_, .movdqa } else .{ .v_, .movdqu } },
+                    else => {},
+                },
+                128 => switch (ty.vectorLen()) {
+                    1 => return .{ .move = if (self.hasFeature(.avx))
+                        if (aligned) .{ .v_, .movdqa } else .{ .v_, .movdqu }
+                    else if (aligned) .{ ._, .movdqa } else .{ ._, .movdqu } },
+                    2 => if (self.hasFeature(.avx))
+                        return .{ .move = if (aligned) .{ .v_, .movdqa } else .{ .v_, .movdqu } },
+                    else => {},
+                },
+                256 => switch (ty.vectorLen()) {
+                    1 => if (self.hasFeature(.avx))
+                        return .{ .move = if (aligned) .{ .v_, .movdqa } else .{ .v_, .movdqu } },
                     else => {},
                 },
                 else => {},
             },
             .Float => switch (ty.childType().floatBits(self.target.*)) {
                 16 => switch (ty.vectorLen()) {
-                    1 => {},
+                    1 => return if (self.hasFeature(.avx)) .{ .vex_insert_extract = .{
+                        .insert = .{ .vp_w, .insr },
+                        .extract = .{ .vp_w, .extr },
+                    } } else .{ .insert_extract = .{
+                        .insert = .{ .p_w, .insr },
+                        .extract = .{ .p_w, .extr },
+                    } },
                     2 => return .{ .move = if (self.hasFeature(.avx))
-                        .{ .v_ss, .mov }
+                        .{ .v_d, .mov }
                     else
-                        .{ ._ss, .mov } },
+                        .{ ._d, .mov } },
                     3...4 => return .{ .move = if (self.hasFeature(.avx))
-                        .{ .v_sd, .mov }
+                        .{ .v_q, .mov }
                     else
-                        .{ ._sd, .mov } },
+                        .{ ._q, .mov } },
                     5...8 => return .{ .move = if (self.hasFeature(.avx))
-                        if (aligned) .{ .v_ps, .mova } else .{ .v_ps, .movu }
-                    else if (aligned) .{ ._ps, .mova } else .{ ._ps, .movu } },
+                        if (aligned) .{ .v_, .movdqa } else .{ .v_, .movdqu }
+                    else if (aligned) .{ ._, .movdqa } else .{ ._, .movdqu } },
                     9...16 => if (self.hasFeature(.avx))
-                        return .{ .move = if (aligned) .{ .v_ps, .mova } else .{ .v_ps, .movu } },
+                        return .{ .move = if (aligned) .{ .v_, .movdqa } else .{ .v_, .movdqu } },
                     else => {},
                 },
                 32 => switch (ty.vectorLen()) {
@@ -8741,18 +8832,18 @@ fn moveStrategy(self: *Self, ty: Type, aligned: bool) !MoveStrategy {
                     else
                         .{ ._sd, .mov } },
                     2 => return .{ .move = if (self.hasFeature(.avx))
-                        if (aligned) .{ .v_ps, .mova } else .{ .v_ps, .movu }
-                    else if (aligned) .{ ._ps, .mova } else .{ ._ps, .movu } },
+                        if (aligned) .{ .v_pd, .mova } else .{ .v_pd, .movu }
+                    else if (aligned) .{ ._pd, .mova } else .{ ._pd, .movu } },
                     3...4 => if (self.hasFeature(.avx))
-                        return .{ .move = if (aligned) .{ .v_ps, .mova } else .{ .v_ps, .movu } },
+                        return .{ .move = if (aligned) .{ .v_pd, .mova } else .{ .v_pd, .movu } },
                     else => {},
                 },
                 128 => switch (ty.vectorLen()) {
                     1 => return .{ .move = if (self.hasFeature(.avx))
-                        if (aligned) .{ .v_ps, .mova } else .{ .v_ps, .movu }
-                    else if (aligned) .{ ._ps, .mova } else .{ ._ps, .movu } },
+                        if (aligned) .{ .v_, .movdqa } else .{ .v_, .movdqu }
+                    else if (aligned) .{ ._, .movdqa } else .{ ._, .movdqu } },
                     2 => if (self.hasFeature(.avx))
-                        return .{ .move = if (aligned) .{ .v_ps, .mova } else .{ .v_ps, .movu } },
+                        return .{ .move = if (aligned) .{ .v_, .movdqa } else .{ .v_, .movdqu } },
                     else => {},
                 },
                 else => {},
@@ -8860,29 +8951,69 @@ fn genSetReg(self: *Self, dst_reg: Register, ty: Type, src_mcv: MCValue) InnerEr
                 );
             }
         },
-        .register => |src_reg| if (dst_reg.id() != src_reg.id()) try self.asmRegisterRegister(
-            if ((dst_reg.class() == .sse) == (src_reg.class() == .sse))
-                switch (ty.zigTypeTag()) {
-                    else => .{ ._, .mov },
-                    .Float, .Vector => .{ ._ps, .mova },
-                }
-            else switch (abi_size) {
-                2 => return try self.asmRegisterRegisterImmediate(
-                    if (dst_reg.class() == .sse) .{ .p_w, .insr } else .{ .p_w, .extr },
-                    registerAlias(dst_reg, 4),
-                    registerAlias(src_reg, 4),
-                    Immediate.u(0),
+        .register => |src_reg| if (dst_reg.id() != src_reg.id()) switch (dst_reg.class()) {
+            .general_purpose => switch (src_reg.class()) {
+                .general_purpose => try self.asmRegisterRegister(
+                    .{ ._, .mov },
+                    registerAlias(dst_reg, abi_size),
+                    registerAlias(src_reg, abi_size),
                 ),
-                4 => .{ ._d, .mov },
-                8 => .{ ._q, .mov },
-                else => return self.fail(
-                    "unsupported register copy from {s} to {s}",
-                    .{ @tagName(src_reg), @tagName(dst_reg) },
+                .segment => try self.asmRegisterRegister(
+                    .{ ._, .mov },
+                    registerAlias(dst_reg, abi_size),
+                    src_reg,
                 ),
+                .sse => try self.asmRegisterRegister(
+                    switch (abi_size) {
+                        1...4 => if (self.hasFeature(.avx)) .{ .v_d, .mov } else .{ ._d, .mov },
+                        5...8 => if (self.hasFeature(.avx)) .{ .v_q, .mov } else .{ ._q, .mov },
+                        else => unreachable,
+                    },
+                    registerAlias(dst_reg, @max(abi_size, 4)),
+                    src_reg.to128(),
+                ),
+                .x87, .mmx => unreachable,
             },
-            registerAlias(dst_reg, abi_size),
-            registerAlias(src_reg, abi_size),
-        ),
+            .segment => try self.asmRegisterRegister(
+                .{ ._, .mov },
+                dst_reg,
+                switch (src_reg.class()) {
+                    .general_purpose, .segment => registerAlias(src_reg, abi_size),
+                    .sse => try self.copyToTmpRegister(ty, src_mcv),
+                    .x87, .mmx => unreachable,
+                },
+            ),
+            .sse => switch (src_reg.class()) {
+                .general_purpose => try self.asmRegisterRegister(
+                    switch (abi_size) {
+                        1...4 => if (self.hasFeature(.avx)) .{ .v_d, .mov } else .{ ._d, .mov },
+                        5...8 => if (self.hasFeature(.avx)) .{ .v_q, .mov } else .{ ._q, .mov },
+                        else => unreachable,
+                    },
+                    dst_reg.to128(),
+                    registerAlias(src_reg, @max(abi_size, 4)),
+                ),
+                .segment => try self.genSetReg(
+                    dst_reg,
+                    ty,
+                    .{ .register = try self.copyToTmpRegister(ty, src_mcv) },
+                ),
+                .sse => try self.asmRegisterRegister(
+                    switch (ty.scalarType().zigTypeTag()) {
+                        else => if (self.hasFeature(.avx)) .{ .v_, .movdqa } else .{ ._, .movdqa },
+                        .Float => switch (ty.floatBits(self.target.*)) {
+                            else => if (self.hasFeature(.avx)) .{ .v_, .movdqa } else .{ ._, .movdqa },
+                            32 => if (self.hasFeature(.avx)) .{ .v_ps, .mova } else .{ ._ps, .mova },
+                            64 => if (self.hasFeature(.avx)) .{ .v_pd, .mova } else .{ ._pd, .mova },
+                        },
+                    },
+                    registerAlias(dst_reg, abi_size),
+                    registerAlias(src_reg, abi_size),
+                ),
+                .x87, .mmx => unreachable,
+            },
+            .x87, .mmx => unreachable,
+        },
         .register_offset,
         .indirect,
         .load_frame,
@@ -8918,14 +9049,14 @@ fn genSetReg(self: *Self, dst_reg: Register, ty: Type, src_mcv: MCValue) InnerEr
                     ie.insert,
                     dst_alias,
                     src_mem,
-                    ie.imm,
+                    Immediate.u(0),
                 ),
                 .vex_insert_extract => |ie| try self.asmRegisterRegisterMemoryImmediate(
                     ie.insert,
                     dst_alias,
                     dst_alias,
                     src_mem,
-                    ie.imm,
+                    Immediate.u(0),
                 ),
             }
         },
@@ -8947,14 +9078,14 @@ fn genSetReg(self: *Self, dst_reg: Register, ty: Type, src_mcv: MCValue) InnerEr
                             ie.insert,
                             dst_alias,
                             src_mem,
-                            ie.imm,
+                            Immediate.u(0),
                         ),
                         .vex_insert_extract => |ie| try self.asmRegisterRegisterMemoryImmediate(
                             ie.insert,
                             dst_alias,
                             dst_alias,
                             src_mem,
-                            ie.imm,
+                            Immediate.u(0),
                         ),
                     }
                 },
@@ -8994,14 +9125,14 @@ fn genSetReg(self: *Self, dst_reg: Register, ty: Type, src_mcv: MCValue) InnerEr
                     ie.insert,
                     dst_alias,
                     src_mem,
-                    ie.imm,
+                    Immediate.u(0),
                 ),
                 .vex_insert_extract => |ie| try self.asmRegisterRegisterMemoryImmediate(
                     ie.insert,
                     dst_alias,
                     dst_alias,
                     src_mem,
-                    ie.imm,
+                    Immediate.u(0),
                 ),
             }
         },
@@ -9129,7 +9260,7 @@ fn genSetMem(self: *Self, base: Memory.Base, disp: i32, ty: Type, src_mcv: MCVal
                     ie.extract,
                     dst_mem,
                     src_alias,
-                    ie.imm,
+                    Immediate.u(0),
                 ),
             }
         },
@@ -10499,7 +10630,7 @@ fn airUnionInit(self: *Self, inst: Air.Inst.Index) !void {
             if (self.reuseOperand(inst, extra.init, 0, src_mcv)) break :result src_mcv;
 
             const dst_mcv = try self.allocRegOrMem(inst, true);
-            try self.genCopy(src_ty, dst_mcv, src_mcv);
+            try self.genCopy(union_ty, dst_mcv, src_mcv);
             break :result dst_mcv;
         }
 
@@ -11000,7 +11131,15 @@ fn registerAlias(reg: Register, size_bytes: u32) Register {
             reg.to64()
         else
             unreachable,
-        .segment, .x87, .mmx => unreachable,
+        .segment => if (size_bytes <= 2)
+            reg
+        else
+            unreachable,
+        .x87 => unreachable,
+        .mmx => if (size_bytes <= 8)
+            reg
+        else
+            unreachable,
         .sse => if (size_bytes <= 16)
             reg.to128()
         else if (size_bytes <= 32)
