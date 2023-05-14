@@ -5,9 +5,9 @@ const testing = std.testing;
 const ObjectMap = @import("dynamic.zig").ObjectMap;
 const Array = @import("dynamic.zig").Array;
 const Value = @import("dynamic.zig").Value;
-const ValueTree = @import("dynamic.zig").ValueTree;
 
 const parseFromSlice = @import("static.zig").parseFromSlice;
+const parseFromSliceLeaky = @import("static.zig").parseFromSliceLeaky;
 const parseFromTokenSource = @import("static.zig").parseFromTokenSource;
 
 const jsonReader = @import("scanner.zig").reader;
@@ -33,10 +33,10 @@ test "json.parser.dynamic" {
         \\}
     ;
 
-    var tree = try parseFromSlice(ValueTree, testing.allocator, s, .{});
-    defer tree.deinit();
+    var parsed = try parseFromSlice(Value, testing.allocator, s, .{});
+    defer parsed.deinit();
 
-    var root = tree.root;
+    var root = parsed.value;
 
     var image = root.object.get("Image").?;
 
@@ -103,19 +103,19 @@ test "write json then parse it" {
     fixed_buffer_stream = std.io.fixedBufferStream(fixed_buffer_stream.getWritten());
     var json_reader = jsonReader(testing.allocator, fixed_buffer_stream.reader());
     defer json_reader.deinit();
-    var tree = try parseFromTokenSource(ValueTree, testing.allocator, &json_reader, .{});
-    defer tree.deinit();
+    var parsed = try parseFromTokenSource(Value, testing.allocator, &json_reader, .{});
+    defer parsed.deinit();
 
-    try testing.expect(tree.root.object.get("f").?.bool == false);
-    try testing.expect(tree.root.object.get("t").?.bool == true);
-    try testing.expect(tree.root.object.get("int").?.integer == 1234);
-    try testing.expect(tree.root.object.get("array").?.array.items[0].null == {});
-    try testing.expect(tree.root.object.get("array").?.array.items[1].float == 12.34);
-    try testing.expect(mem.eql(u8, tree.root.object.get("str").?.string, "hello"));
+    try testing.expect(parsed.value.object.get("f").?.bool == false);
+    try testing.expect(parsed.value.object.get("t").?.bool == true);
+    try testing.expect(parsed.value.object.get("int").?.integer == 1234);
+    try testing.expect(parsed.value.object.get("array").?.array.items[0].null == {});
+    try testing.expect(parsed.value.object.get("array").?.array.items[1].float == 12.34);
+    try testing.expect(mem.eql(u8, parsed.value.object.get("str").?.string, "hello"));
 }
 
 fn testParse(allocator: std.mem.Allocator, json_str: []const u8) !Value {
-    return parseFromSlice(Value, allocator, json_str, .{ .alloc_when = .alloc_if_needed });
+    return parseFromSliceLeaky(Value, allocator, json_str, .{ .alloc_when = .alloc_if_needed });
 }
 
 test "parsing empty string gives appropriate error" {
@@ -124,19 +124,16 @@ test "parsing empty string gives appropriate error" {
     try testing.expectError(error.UnexpectedEndOfInput, testParse(arena_allocator.allocator(), ""));
 }
 
-test "parse tree should not contain dangling pointers" {
-    var arena_allocator = std.heap.ArenaAllocator.init(std.testing.allocator);
-    defer arena_allocator.deinit();
-
-    var tree = try parseFromSlice(ValueTree, arena_allocator.allocator(), "[]", .{});
-    defer tree.deinit();
+test "Value.array allocator should still be usable after parsing" {
+    var parsed = try parseFromSlice(Value, std.testing.allocator, "[]", .{});
+    defer parsed.deinit();
 
     // Allocation should succeed
     var i: usize = 0;
     while (i < 100) : (i += 1) {
-        try tree.root.array.append(Value{ .integer = 100 });
+        try parsed.value.array.append(Value{ .integer = 100 });
     }
-    try testing.expectEqual(tree.root.array.items.len, 100);
+    try testing.expectEqual(parsed.value.array.items.len, 100);
 }
 
 test "integer after float has proper type" {
@@ -197,8 +194,8 @@ test "string copy option" {
     defer arena_allocator.deinit();
     const allocator = arena_allocator.allocator();
 
-    const obj_nocopy = (try parseFromSlice(Value, allocator, input, .{ .alloc_when = .alloc_if_needed })).object;
-    const obj_copy = (try parseFromSlice(Value, allocator, input, .{ .alloc_when = .alloc_always })).object;
+    const obj_nocopy = (try parseFromSliceLeaky(Value, allocator, input, .{ .alloc_when = .alloc_if_needed })).object;
+    const obj_copy = (try parseFromSliceLeaky(Value, allocator, input, .{ .alloc_when = .alloc_always })).object;
 
     for ([_][]const u8{ "noescape", "simple", "unicode", "surrogatepair" }) |field_name| {
         try testing.expectEqualSlices(u8, obj_nocopy.get(field_name).?.string, obj_copy.get(field_name).?.string);

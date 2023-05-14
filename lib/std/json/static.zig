@@ -1,6 +1,7 @@
 const std = @import("std");
 const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
+const ArenaAllocator = std.heap.ArenaAllocator;
 const ArrayList = std.ArrayList;
 
 const Scanner = @import("./scanner.zig").Scanner;
@@ -8,9 +9,6 @@ const Token = @import("./scanner.zig").Token;
 const AllocWhen = @import("./scanner.zig").AllocWhen;
 const default_max_value_len = @import("./scanner.zig").default_max_value_len;
 const isNumberFormattedLikeAnInteger = @import("./scanner.zig").isNumberFormattedLikeAnInteger;
-
-const ValueTree = @import("./dynamic.zig").ValueTree;
-const Value = @import("./dynamic.zig").Value;
 
 pub const ParseOptions = struct {
     /// Behaviour when a duplicate field is encountered.
@@ -23,6 +21,7 @@ pub const ParseOptions = struct {
     /// If false, finding an unknown field returns an error.
     ignore_unknown_fields: bool = false,
 
+    /// TODO: revisit this even being an option.
     /// Set this to `.alloc_if_needed` to enable an optimization that tries to avoid copying strings for the returned object.
     /// Note that .alloc_if_needed cannot be used correctly with an allocator that requires freeing individual items,
     /// because any string in the returned object may or may not have been allocated, and there is no way to know.
@@ -37,29 +36,75 @@ pub const ParseOptions = struct {
     max_value_len: ?usize = null,
 };
 
+pub fn Parsed(comptime T: type) type {
+    return struct {
+        arena: *ArenaAllocator,
+        value: T,
+
+        pub fn deinit(self: @This()) void {
+            const allocator = self.arena.child_allocator;
+            self.arena.deinit();
+            allocator.destroy(self.arena);
+        }
+    };
+}
+
 /// Parses the json document from s and returns the result.
 /// The provided allocator is used both for temporary allocations during parsing the document,
 /// and also to allocate any pointer values in the return type.
-/// If T contains any pointers, free the memory with `std.json.parseFree`,
-/// unless `options.alloc_when = .alloc_if_needed` (see `std.json.ParseOptions.alloc_when`).
 /// Note that `error.BufferUnderrun` is not actually possible to return from this function.
-pub fn parseFromSlice(comptime T: type, allocator: Allocator, s: []const u8, options: ParseOptions) ParseError(Scanner)!T {
+pub fn parseFromSlice(
+    comptime T: type,
+    allocator: Allocator,
+    s: []const u8,
+    options: ParseOptions,
+) ParseError(Scanner)!Parsed(T) {
     var scanner = Scanner.initCompleteInput(allocator, s);
     defer scanner.deinit();
 
     return parseFromTokenSource(T, allocator, &scanner, options);
 }
 
+/// TODO: document
+pub fn parseFromSliceLeaky(
+    comptime T: type,
+    allocator: Allocator,
+    s: []const u8,
+    options: ParseOptions,
+) ParseError(Scanner)!T {
+    var scanner = Scanner.initCompleteInput(allocator, s);
+    defer scanner.deinit();
+
+    return parseFromTokenSourceLeaky(T, allocator, &scanner, options);
+}
+
 /// `scanner_or_reader` must be either a `*std.json.Scanner` with complete input or a `*std.json.Reader`.
-/// allocator is used to allocate the data of T if necessary,
-/// such as if T is `*u32` or `[]u32`.
-/// If T contains any pointers, free the memory with `std.json.parseFree`,
-/// unless `options.alloc_when = .alloc_if_needed` (see `std.json.ParseOptions.alloc_when`).
-/// If T contains no pointers, the allocator may sometimes be used for temporary allocations,
-/// but no call to `std.json.parseFree` will be necessary;
-/// all temporary allocations will be freed before this function returns.
 /// Note that `error.BufferUnderrun` is not actually possible to return from this function.
-pub fn parseFromTokenSource(comptime T: type, allocator: Allocator, scanner_or_reader: anytype, options: ParseOptions) ParseError(@TypeOf(scanner_or_reader.*))!T {
+pub fn parseFromTokenSource(
+    comptime T: type,
+    allocator: Allocator,
+    scanner_or_reader: anytype,
+    options: ParseOptions,
+) ParseError(@TypeOf(scanner_or_reader.*))!Parsed(T) {
+    var parsed = Parsed(T){
+        .arena = try allocator.create(ArenaAllocator),
+        .value = undefined,
+    };
+    errdefer allocator.destroy(parsed.arena);
+    parsed.arena.* = ArenaAllocator.init(allocator);
+    errdefer parsed.arena.deinit();
+
+    parsed.value = try parseFromTokenSourceLeaky(T, parsed.arena.allocator(), scanner_or_reader, options);
+
+    return parsed;
+}
+
+pub fn parseFromTokenSourceLeaky(
+    comptime T: type,
+    allocator: Allocator,
+    scanner_or_reader: anytype,
+    options: ParseOptions,
+) ParseError(@TypeOf(scanner_or_reader.*))!T {
     if (@TypeOf(scanner_or_reader.*) == Scanner) {
         assert(scanner_or_reader.is_end_of_input);
     }
@@ -73,12 +118,11 @@ pub fn parseFromTokenSource(comptime T: type, allocator: Allocator, scanner_or_r
         }
     }
 
-    const r = try parseInternal(T, allocator, scanner_or_reader, resolved_options);
-    errdefer parseFree(T, allocator, r);
+    const value = try parseInternal(T, allocator, scanner_or_reader, resolved_options);
 
     assert(.end_of_document == try scanner_or_reader.next());
 
-    return r;
+    return value;
 }
 
 /// The error set that will be returned when parsing from `*Source`.
@@ -175,27 +219,12 @@ fn parseInternal(
                 return T.jsonParse(allocator, source, options);
             }
 
-            const UnionTagType = unionInfo.tag_type orelse @compileError("Unable to parse into untagged union '" ++ @typeName(T) ++ "'");
+            if (unionInfo.tag_type == null) @compileError("Unable to parse into untagged union '" ++ @typeName(T) ++ "'");
 
             if (.object_begin != try source.next()) return error.UnexpectedToken;
 
             var result: ?T = null;
-            errdefer {
-                if (result) |r| {
-                    inline for (unionInfo.fields) |u_field| {
-                        if (r == @field(UnionTagType, u_field.name)) {
-                            parseFree(u_field.type, allocator, @field(r, u_field.name));
-                        }
-                    }
-                }
-            }
-
             var name_token: ?Token = try source.nextAllocMax(allocator, .alloc_if_needed, options.max_value_len.?);
-            errdefer {
-                if (name_token) |t| {
-                    freeAllocated(allocator, t);
-                }
-            }
             const field_name = switch (name_token.?) {
                 .string => |slice| slice,
                 .allocated_string => |slice| slice,
@@ -236,13 +265,6 @@ fn parseInternal(
 
                 var r: T = undefined;
                 var fields_seen: usize = 0;
-                errdefer {
-                    inline for (0..structInfo.fields.len) |i| {
-                        if (i < fields_seen) {
-                            parseFree(structInfo.fields[i].type, allocator, r[i]);
-                        }
-                    }
-                }
                 inline for (0..structInfo.fields.len) |i| {
                     r[i] = try parseInternal(structInfo.fields[i].type, allocator, source, options);
                     fields_seen = i + 1;
@@ -261,21 +283,9 @@ fn parseInternal(
 
             var r: T = undefined;
             var fields_seen = [_]bool{false} ** structInfo.fields.len;
-            errdefer {
-                inline for (structInfo.fields, 0..) |field, i| {
-                    if (fields_seen[i]) {
-                        parseFree(field.type, allocator, @field(r, field.name));
-                    }
-                }
-            }
 
             while (true) {
                 var name_token: ?Token = try source.nextAllocMax(allocator, .alloc_if_needed, options.max_value_len.?);
-                errdefer {
-                    if (name_token) |t| {
-                        freeAllocated(allocator, t);
-                    }
-                }
                 const field_name = switch (name_token.?) {
                     .object_end => break, // No more fields.
                     .string => |slice| slice,
@@ -294,18 +304,13 @@ fn parseInternal(
                         if (fields_seen[i]) {
                             switch (options.duplicate_field_behavior) {
                                 .use_first => {
-                                    // Parse and then delete the redundant value.
+                                    // Parse and ignore the redundant value.
                                     // We don't want to skip the value, because we want type checking.
-                                    const ignored_value = try parseInternal(field.type, allocator, source, options);
-                                    parseFree(field.type, allocator, ignored_value);
+                                    _ = try parseInternal(field.type, allocator, source, options);
                                     break;
                                 },
                                 .@"error" => return error.DuplicateField,
-                                .use_last => {
-                                    // Delete the stale value. We're about to get a new one.
-                                    parseFree(field.type, allocator, @field(r, field.name));
-                                    fields_seen[i] = false;
-                                },
+                                .use_last => {},
                             }
                         }
                         @field(r, field.name) = try parseInternal(field.type, allocator, source, options);
@@ -403,7 +408,6 @@ fn parseInternal(
             switch (ptrInfo.size) {
                 .One => {
                     const r: *ptrInfo.child = try allocator.create(ptrInfo.child);
-                    errdefer allocator.destroy(r);
                     r.* = try parseInternal(ptrInfo.child, allocator, source, options);
                     return r;
                 },
@@ -414,13 +418,6 @@ fn parseInternal(
 
                             // Typical array.
                             var arraylist = ArrayList(ptrInfo.child).init(allocator);
-                            errdefer {
-                                while (arraylist.popOrNull()) |v| {
-                                    parseFree(ptrInfo.child, allocator, v);
-                                }
-                                arraylist.deinit();
-                            }
-
                             while (true) {
                                 switch (try source.peekNextTokenType()) {
                                     .array_end => {
@@ -448,7 +445,6 @@ fn parseInternal(
                             if (ptrInfo.sentinel) |sentinel_ptr| {
                                 // Use our own array list so we can append the sentinel.
                                 var value_list = ArrayList(u8).init(allocator);
-                                errdefer value_list.deinit();
                                 _ = try source.allocNextIntoArrayList(&value_list, options.alloc_when);
                                 return try value_list.toOwnedSliceSentinel(@ptrCast(*const u8, sentinel_ptr).*);
                             }
@@ -480,13 +476,6 @@ fn parseInternalArray(
 
     var r: T = undefined;
     var i: usize = 0;
-    errdefer {
-        // Without the len check `r[i]` is not allowed
-        if (len > 0) while (true) : (i -= 1) {
-            parseFree(Child, allocator, r[i]);
-            if (i == 0) break;
-        };
-    }
     while (i < len) : (i += 1) {
         r[i] = try parseInternal(Child, allocator, source, options);
     }
@@ -502,105 +491,6 @@ fn freeAllocated(allocator: Allocator, token: Token) void {
             allocator.free(slice);
         },
         else => {},
-    }
-}
-
-/// Releases resources created by parseFromSlice() or parseFromTokenSource().
-/// You must not call this when `options.alloc_when` was `.alloc_if_needed` during parsing
-/// (see `std.json.ParseOptions.alloc_when`).
-pub fn parseFree(comptime T: type, allocator: Allocator, value: T) void {
-    switch (@typeInfo(T)) {
-        .Bool, .Float, .ComptimeFloat, .Int, .ComptimeInt => {},
-        .Enum => {
-            if (comptime std.meta.trait.hasFn("jsonParseFree")(T)) {
-                return value.jsonParseFree(allocator);
-            }
-        },
-        .Optional => {
-            if (value) |v| {
-                return parseFree(@TypeOf(v), allocator, v);
-            }
-        },
-        .Union => |unionInfo| {
-            if (comptime std.meta.trait.hasFn("jsonParseFree")(T)) {
-                return value.jsonParseFree(allocator);
-            }
-            if (unionInfo.tag_type) |UnionTagType| {
-                inline for (unionInfo.fields) |u_field| {
-                    if (value == @field(UnionTagType, u_field.name)) {
-                        parseFree(u_field.type, allocator, @field(value, u_field.name));
-                        break;
-                    }
-                }
-            } else {
-                unreachable;
-            }
-        },
-        .Struct => |structInfo| {
-            if (comptime std.meta.trait.hasFn("jsonParseFree")(T)) {
-                return value.jsonParseFree(allocator);
-            }
-            inline for (structInfo.fields) |field| {
-                var should_free = true;
-                if (field.default_value) |default| {
-                    switch (@typeInfo(field.type)) {
-                        // We must not attempt to free pointers to struct default values
-                        .Pointer => |fieldPtrInfo| {
-                            const field_value = @field(value, field.name);
-                            const field_ptr = switch (fieldPtrInfo.size) {
-                                .One => field_value,
-                                .Slice => field_value.ptr,
-                                else => unreachable, // Other pointer types are not parseable
-                            };
-                            const field_addr = @ptrToInt(field_ptr);
-
-                            const casted_default = @ptrCast(*const field.type, @alignCast(@alignOf(field.type), default)).*;
-                            const default_ptr = switch (fieldPtrInfo.size) {
-                                .One => casted_default,
-                                .Slice => casted_default.ptr,
-                                else => unreachable, // Other pointer types are not parseable
-                            };
-                            const default_addr = @ptrToInt(default_ptr);
-
-                            if (field_addr == default_addr) {
-                                should_free = false;
-                            }
-                        },
-                        else => {},
-                    }
-                }
-                if (should_free) {
-                    parseFree(field.type, allocator, @field(value, field.name));
-                }
-            }
-        },
-        .Array => |arrayInfo| {
-            for (value) |v| {
-                parseFree(arrayInfo.child, allocator, v);
-            }
-        },
-        .Vector => |vecInfo| {
-            var i: usize = 0;
-            while (i < vecInfo.len) : (i += 1) {
-                parseFree(vecInfo.child, allocator, value[i]);
-            }
-        },
-        .Pointer => |ptrInfo| {
-            switch (ptrInfo.size) {
-                .One => {
-                    parseFree(ptrInfo.child, allocator, value.*);
-                    allocator.destroy(value);
-                },
-                .Slice => {
-                    for (value) |v| {
-                        parseFree(ptrInfo.child, allocator, v);
-                    }
-                    allocator.free(value);
-                },
-                else => unreachable,
-            }
-        },
-        else => unreachable,
     }
 }
 

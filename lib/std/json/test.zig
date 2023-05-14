@@ -1,10 +1,9 @@
 const std = @import("std");
 const testing = std.testing;
 const parseFromSlice = @import("./static.zig").parseFromSlice;
-const parseFree = @import("./static.zig").parseFree;
 const validate = @import("./scanner.zig").validate;
 const JsonScanner = @import("./scanner.zig").Scanner;
-const ValueTree = @import("./dynamic.zig").ValueTree;
+const Value = @import("./dynamic.zig").Value;
 
 // Support for JSONTestSuite.zig
 pub fn ok(s: []const u8) !void {
@@ -28,8 +27,8 @@ fn testLowLevelScanner(s: []const u8) !void {
     }
 }
 fn testHighLevelDynamicParser(s: []const u8) !void {
-    var tree = try parseFromSlice(ValueTree, testing.allocator, s, .{});
-    defer parseFree(ValueTree, testing.allocator, tree);
+    var parsed = try parseFromSlice(Value, testing.allocator, s, .{});
+    defer parsed.deinit();
 }
 
 // Additional tests not part of test JSONTestSuite.
@@ -47,12 +46,12 @@ test "n_object_closed_missing_value" {
 fn roundTrip(s: []const u8) !void {
     try testing.expect(try validate(testing.allocator, s));
 
-    var tree = try parseFromSlice(ValueTree, testing.allocator, s, .{});
-    defer tree.deinit();
+    var parsed = try parseFromSlice(Value, testing.allocator, s, .{});
+    defer parsed.deinit();
 
     var buf: [256]u8 = undefined;
     var fbs = std.io.fixedBufferStream(&buf);
-    try tree.root.jsonStringify(.{}, fbs.writer());
+    try parsed.value.jsonStringify(.{}, fbs.writer());
 
     try testing.expectEqualStrings(s, fbs.getWritten());
 }

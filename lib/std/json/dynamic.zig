@@ -16,44 +16,6 @@ const AllocWhen = @import("./scanner.zig").AllocWhen;
 const Token = @import("./scanner.zig").Token;
 const isNumberFormattedLikeAnInteger = @import("./scanner.zig").isNumberFormattedLikeAnInteger;
 
-/// A `std.json.Value` and a `std.heap.ArenaAllocator` used for any allocations for the `Value`.
-/// When parsing, the `.alloc_if_needed` optimization is always enabled;
-/// see `std.json.ParseOptions.alloc_when`.
-pub const ValueTree = struct {
-    arena: *ArenaAllocator,
-    root: Value,
-
-    pub fn deinit(self: *const ValueTree) void {
-        self.arena.deinit();
-        self.arena.child_allocator.destroy(self.arena);
-    }
-
-    pub fn jsonParse(allocator: Allocator, source: anytype, options: ParseOptions) ParseError(@TypeOf(source.*))!ValueTree {
-        var arena = try allocator.create(ArenaAllocator);
-        errdefer allocator.destroy(arena);
-
-        arena.* = ArenaAllocator.init(allocator);
-        errdefer arena.deinit();
-
-        var child_options = options;
-        child_options.alloc_when = .alloc_if_needed;
-        const root = try Value.jsonParse(arena.allocator(), source, child_options);
-
-        return ValueTree{
-            .arena = arena,
-            .root = root,
-        };
-    }
-    pub fn jsonParseFree(self: *const @This(), allocator: Allocator) void {
-        _ = allocator;
-        self.deinit();
-    }
-
-    pub fn jsonStringify(self: @This(), options: StringifyOptions, out_stream: anytype) @TypeOf(out_stream).Error!void {
-        return self.root.jsonStringify(options, out_stream);
-    }
-};
-
 pub const ObjectMap = StringArrayHashMap(Value);
 pub const Array = ArrayList(Value);
 
@@ -183,10 +145,6 @@ pub const Value = union(enum) {
                 else => unreachable,
             }
         }
-    }
-    pub fn jsonParseFree(self: *const @This(), allocator: Allocator) void {
-        _ = self;
-        _ = allocator;
     }
 };
 

@@ -1,29 +1,31 @@
 const std = @import("std");
 const testing = std.testing;
+const ArenaAllocator = std.heap.ArenaAllocator;
 
 const parseFromSlice = @import("./static.zig").parseFromSlice;
+const parseFromSliceLeaky = @import("./static.zig").parseFromSliceLeaky;
 const parseFromTokenSource = @import("./static.zig").parseFromTokenSource;
-const parseFree = @import("./static.zig").parseFree;
+const parseFromTokenSourceLeaky = @import("./static.zig").parseFromTokenSourceLeaky;
 const ParseOptions = @import("./static.zig").ParseOptions;
 const JsonScanner = @import("./scanner.zig").Scanner;
 const jsonReader = @import("./scanner.zig").reader;
 
 test "parse" {
-    try testing.expectEqual(false, try parseFromSlice(bool, testing.allocator, "false", .{}));
-    try testing.expectEqual(true, try parseFromSlice(bool, testing.allocator, "true", .{}));
-    try testing.expectEqual(@as(u1, 1), try parseFromSlice(u1, testing.allocator, "1", .{}));
-    try testing.expectError(error.Overflow, parseFromSlice(u1, testing.allocator, "50", .{}));
-    try testing.expectEqual(@as(u64, 42), try parseFromSlice(u64, testing.allocator, "42", .{}));
-    try testing.expectEqual(@as(f64, 42), try parseFromSlice(f64, testing.allocator, "42.0", .{}));
-    try testing.expectEqual(@as(?bool, null), try parseFromSlice(?bool, testing.allocator, "null", .{}));
-    try testing.expectEqual(@as(?bool, true), try parseFromSlice(?bool, testing.allocator, "true", .{}));
+    try testing.expectEqual(false, try parseFromSliceLeaky(bool, testing.allocator, "false", .{}));
+    try testing.expectEqual(true, try parseFromSliceLeaky(bool, testing.allocator, "true", .{}));
+    try testing.expectEqual(@as(u1, 1), try parseFromSliceLeaky(u1, testing.allocator, "1", .{}));
+    try testing.expectError(error.Overflow, parseFromSliceLeaky(u1, testing.allocator, "50", .{}));
+    try testing.expectEqual(@as(u64, 42), try parseFromSliceLeaky(u64, testing.allocator, "42", .{}));
+    try testing.expectEqual(@as(f64, 42), try parseFromSliceLeaky(f64, testing.allocator, "42.0", .{}));
+    try testing.expectEqual(@as(?bool, null), try parseFromSliceLeaky(?bool, testing.allocator, "null", .{}));
+    try testing.expectEqual(@as(?bool, true), try parseFromSliceLeaky(?bool, testing.allocator, "true", .{}));
 
-    try testing.expectEqual(@as([3]u8, "foo".*), try parseFromSlice([3]u8, testing.allocator, "\"foo\"", .{}));
-    try testing.expectEqual(@as([3]u8, "foo".*), try parseFromSlice([3]u8, testing.allocator, "[102, 111, 111]", .{}));
-    try testing.expectEqual(@as([0]u8, undefined), try parseFromSlice([0]u8, testing.allocator, "[]", .{}));
+    try testing.expectEqual(@as([3]u8, "foo".*), try parseFromSliceLeaky([3]u8, testing.allocator, "\"foo\"", .{}));
+    try testing.expectEqual(@as([3]u8, "foo".*), try parseFromSliceLeaky([3]u8, testing.allocator, "[102, 111, 111]", .{}));
+    try testing.expectEqual(@as([0]u8, undefined), try parseFromSliceLeaky([0]u8, testing.allocator, "[]", .{}));
 
-    try testing.expectEqual(@as(u64, 12345678901234567890), try parseFromSlice(u64, testing.allocator, "\"12345678901234567890\"", .{}));
-    try testing.expectEqual(@as(f64, 123.456), try parseFromSlice(f64, testing.allocator, "\"123.456\"", .{}));
+    try testing.expectEqual(@as(u64, 12345678901234567890), try parseFromSliceLeaky(u64, testing.allocator, "\"12345678901234567890\"", .{}));
+    try testing.expectEqual(@as(f64, 123.456), try parseFromSliceLeaky(f64, testing.allocator, "\"123.456\"", .{}));
 }
 
 test "parse into enum" {
@@ -32,37 +34,37 @@ test "parse into enum" {
         Bar,
         @"with\\escape",
     };
-    try testing.expectEqual(@as(T, .Foo), try parseFromSlice(T, testing.allocator, "\"Foo\"", .{}));
-    try testing.expectEqual(@as(T, .Foo), try parseFromSlice(T, testing.allocator, "42", .{}));
-    try testing.expectEqual(@as(T, .@"with\\escape"), try parseFromSlice(T, testing.allocator, "\"with\\\\escape\"", .{}));
-    try testing.expectError(error.InvalidEnumTag, parseFromSlice(T, testing.allocator, "5", .{}));
-    try testing.expectError(error.InvalidEnumTag, parseFromSlice(T, testing.allocator, "\"Qux\"", .{}));
+    try testing.expectEqual(@as(T, .Foo), try parseFromSliceLeaky(T, testing.allocator, "\"Foo\"", .{}));
+    try testing.expectEqual(@as(T, .Foo), try parseFromSliceLeaky(T, testing.allocator, "42", .{}));
+    try testing.expectEqual(@as(T, .@"with\\escape"), try parseFromSliceLeaky(T, testing.allocator, "\"with\\\\escape\"", .{}));
+    try testing.expectError(error.InvalidEnumTag, parseFromSliceLeaky(T, testing.allocator, "5", .{}));
+    try testing.expectError(error.InvalidEnumTag, parseFromSliceLeaky(T, testing.allocator, "\"Qux\"", .{}));
 }
 
 test "parse into that allocates a slice" {
     {
         // string as string
-        const r = try parseFromSlice([]u8, testing.allocator, "\"foo\"", .{});
-        defer parseFree([]u8, testing.allocator, r);
-        try testing.expectEqualSlices(u8, "foo", r);
+        const parsed = try parseFromSlice([]u8, testing.allocator, "\"foo\"", .{});
+        defer parsed.deinit();
+        try testing.expectEqualSlices(u8, "foo", parsed.value);
     }
     {
         // string as array of u8 integers
-        const r = try parseFromSlice([]u8, testing.allocator, "[102, 111, 111]", .{});
-        defer parseFree([]u8, testing.allocator, r);
-        try testing.expectEqualSlices(u8, "foo", r);
+        const parsed = try parseFromSlice([]u8, testing.allocator, "[102, 111, 111]", .{});
+        defer parsed.deinit();
+        try testing.expectEqualSlices(u8, "foo", parsed.value);
     }
     {
-        const r = try parseFromSlice([]u8, testing.allocator, "\"with\\\\escape\"", .{});
-        defer parseFree([]u8, testing.allocator, r);
-        try testing.expectEqualSlices(u8, "with\\escape", r);
+        const parsed = try parseFromSlice([]u8, testing.allocator, "\"with\\\\escape\"", .{});
+        defer parsed.deinit();
+        try testing.expectEqualSlices(u8, "with\\escape", parsed.value);
     }
 }
 
 test "parse into sentinel slice" {
-    const result = try parseFromSlice([:0]const u8, testing.allocator, "\"\\n\"", .{});
-    defer parseFree([:0]const u8, testing.allocator, result);
-    try testing.expect(std.mem.eql(u8, result, "\n"));
+    const parsed = try parseFromSlice([:0]const u8, testing.allocator, "\"\\n\"", .{});
+    defer parsed.deinit();
+    try testing.expect(std.mem.eql(u8, parsed.value, "\n"));
 }
 
 test "parse into tagged union" {
@@ -72,9 +74,12 @@ test "parse into tagged union" {
         float: f64,
         string: []const u8,
     };
-    try testing.expectEqual(T{ .float = 1.5 }, try parseFromSlice(T, testing.allocator, "{\"float\":1.5}", .{}));
-    try testing.expectEqual(T{ .int = 1 }, try parseFromSlice(T, testing.allocator, "{\"int\":1}", .{}));
-    try testing.expectEqual(T{ .nothing = {} }, try parseFromSlice(T, testing.allocator, "{\"nothing\":{}}", .{}));
+    try testing.expectEqual(T{ .float = 1.5 }, try parseFromSliceLeaky(T, testing.allocator, "{\"float\":1.5}", .{}));
+    try testing.expectEqual(T{ .int = 1 }, try parseFromSliceLeaky(T, testing.allocator, "{\"int\":1}", .{}));
+    try testing.expectEqual(T{ .nothing = {} }, try parseFromSliceLeaky(T, testing.allocator, "{\"nothing\":{}}", .{}));
+    const parsed = try parseFromSlice(T, testing.allocator, "{\"string\":\"foo\"}", .{});
+    defer parsed.deinit();
+    try testing.expectEqualSlices(u8, "foo", parsed.value.string);
 }
 
 test "parse into tagged union errors" {
@@ -84,42 +89,36 @@ test "parse into tagged union errors" {
         float: f64,
         string: []const u8,
     };
-    try testing.expectError(error.UnexpectedToken, parseFromSlice(T, testing.allocator, "42", .{}));
-    try testing.expectError(error.UnexpectedToken, parseFromSlice(T, testing.allocator, "{}", .{}));
-    try testing.expectError(error.UnknownField, parseFromSlice(T, testing.allocator, "{\"bogus\":1}", .{}));
-    try testing.expectError(error.UnexpectedToken, parseFromSlice(T, testing.allocator, "{\"int\":1, \"int\":1", .{}));
-    try testing.expectError(error.UnexpectedToken, parseFromSlice(T, testing.allocator, "{\"int\":1, \"float\":1.0}", .{}));
-    try testing.expectError(error.UnexpectedToken, parseFromSlice(T, testing.allocator, "{\"nothing\":null}", .{}));
-    try testing.expectError(error.UnexpectedToken, parseFromSlice(T, testing.allocator, "{\"nothing\":{\"no\":0}}", .{}));
+    var arena = ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    try testing.expectError(error.UnexpectedToken, parseFromSliceLeaky(T, arena.allocator(), "42", .{}));
+    try testing.expectError(error.SyntaxError, parseFromSliceLeaky(T, arena.allocator(), "{\"int\":1} 42", .{}));
+    try testing.expectError(error.UnexpectedToken, parseFromSliceLeaky(T, arena.allocator(), "{}", .{}));
+    try testing.expectError(error.UnknownField, parseFromSliceLeaky(T, arena.allocator(), "{\"bogus\":1}", .{}));
+    try testing.expectError(error.UnexpectedToken, parseFromSliceLeaky(T, arena.allocator(), "{\"int\":1, \"int\":1", .{}));
+    try testing.expectError(error.UnexpectedToken, parseFromSliceLeaky(T, arena.allocator(), "{\"int\":1, \"float\":1.0}", .{}));
+    try testing.expectError(error.UnexpectedToken, parseFromSliceLeaky(T, arena.allocator(), "{\"nothing\":null}", .{}));
+    try testing.expectError(error.UnexpectedToken, parseFromSliceLeaky(T, arena.allocator(), "{\"nothing\":{\"no\":0}}", .{}));
 
     // Allocator failure
     var fail_alloc = testing.FailingAllocator.init(testing.allocator, 0);
-    const failing_allocator = fail_alloc.allocator();
-    try testing.expectError(error.OutOfMemory, parseFromSlice(T, failing_allocator, "{\"string\"\"foo\"}", .{}));
-}
-
-test "parseFree descends into tagged union" {
-    const T = union(enum) {
-        nothing,
-        int: i32,
-        float: f64,
-        string: []const u8,
-    };
-    const r = try parseFromSlice(T, testing.allocator, "{\"string\":\"foo\"}", .{});
-    try testing.expectEqualSlices(u8, "foo", r.string);
-    parseFree(T, testing.allocator, r);
+    try testing.expectError(error.OutOfMemory, parseFromSlice(T, fail_alloc.allocator(), "{\"string\"\"foo\"}", .{}));
 }
 
 test "parse into struct with no fields" {
     const T = struct {};
-    try testing.expectEqual(T{}, try parseFromSlice(T, testing.allocator, "{}", .{}));
+    const parsed = try parseFromSlice(T, testing.allocator, "{}", .{});
+    defer parsed.deinit();
+    try testing.expectEqual(T{}, parsed.value);
 }
 
 const test_const_value: usize = 123;
 
 test "parse into struct with default const pointer field" {
     const T = struct { a: *const usize = &test_const_value };
-    try testing.expectEqual(T{}, try parseFromSlice(T, testing.allocator, "{}", .{}));
+    const parsed = try parseFromSlice(T, testing.allocator, "{}", .{});
+    defer parsed.deinit();
+    try testing.expectEqual(T{}, parsed.value);
 }
 
 const test_default_usize: usize = 123;
@@ -138,10 +137,9 @@ test "freeing parsed structs with pointers to default values" {
         str_slice: []const []const u8 = &test_default_str_slice,
     };
 
-    const parsed = try parseFromSlice(T, testing.allocator, "{}", .{});
-    try testing.expectEqual(T{}, parsed);
-    // This will panic if it tries to free global constants:
-    parseFree(T, testing.allocator, parsed);
+    var parsed = try parseFromSlice(T, testing.allocator, "{}", .{});
+    try testing.expectEqual(T{}, parsed.value);
+    defer parsed.deinit();
 }
 
 test "parse into struct where destination and source lengths mismatch" {
@@ -201,8 +199,9 @@ test "parse into struct with misc fields" {
         \\  }
         \\}
     ;
-    const r = try parseFromSlice(T, testing.allocator, document_str, .{});
-    defer parseFree(T, testing.allocator, r);
+    const parsed = try parseFromSlice(T, testing.allocator, document_str, .{});
+    defer parsed.deinit();
+    const r = &parsed.value;
     try testing.expectEqual(@as(i64, 420), r.int);
     try testing.expectEqual(@as(f64, 3.14), r.float);
     try testing.expectEqual(true, r.@"with\\escape");
@@ -238,24 +237,20 @@ test "parse into struct with strings and arrays with sentinels" {
         \\  "simple_data": [4, 5, 6]
         \\}
     ;
-    const r = try parseFromSlice(T, testing.allocator, document_str, .{});
-    defer parseFree(T, testing.allocator, r);
+    const parsed = try parseFromSlice(T, testing.allocator, document_str, .{});
+    defer parsed.deinit();
 
-    try testing.expectEqualSentinel(u8, 0, "zig", r.language);
+    try testing.expectEqualSentinel(u8, 0, "zig", parsed.value.language);
 
     const data = [_:99]i32{ 1, 2, 3 };
-    try testing.expectEqualSentinel(i32, 99, data[0..data.len], r.data);
+    try testing.expectEqualSentinel(i32, 99, data[0..data.len], parsed.value.data);
 
     // Make sure that arrays who aren't supposed to have a sentinel still parse without one.
-    try testing.expectEqual(@as(?i32, null), std.meta.sentinel(@TypeOf(r.simple_data)));
-    try testing.expectEqual(@as(?u8, null), std.meta.sentinel(@TypeOf(r.language_without_sentinel)));
+    try testing.expectEqual(@as(?i32, null), std.meta.sentinel(@TypeOf(parsed.value.simple_data)));
+    try testing.expectEqual(@as(?u8, null), std.meta.sentinel(@TypeOf(parsed.value.language_without_sentinel)));
 }
 
 test "parse into struct with duplicate field" {
-    // allow allocator to detect double frees by keeping bucket in use
-    const ballast = try testing.allocator.alloc(u64, 1);
-    defer testing.allocator.free(ballast);
-
     const options_first = ParseOptions{ .duplicate_field_behavior = .use_first };
     const options_last = ParseOptions{ .duplicate_field_behavior = .use_last };
 
@@ -266,9 +261,12 @@ test "parse into struct with duplicate field" {
     try testing.expectError(error.InvalidNumber, parseFromSlice(T1, testing.allocator, str, options_first));
     try testing.expectError(error.InvalidNumber, parseFromSlice(T1, testing.allocator, str, options_last));
 
+    var arena = ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+
     const T2 = struct { a: f64 };
-    try testing.expectEqual(T2{ .a = 1.0 }, try parseFromSlice(T2, testing.allocator, str, options_first));
-    try testing.expectEqual(T2{ .a = 0.25 }, try parseFromSlice(T2, testing.allocator, str, options_last));
+    try testing.expectEqual(T2{ .a = 1.0 }, try parseFromSliceLeaky(T2, arena.allocator(), str, options_first));
+    try testing.expectEqual(T2{ .a = 0.25 }, try parseFromSliceLeaky(T2, arena.allocator(), str, options_last));
 }
 
 test "parse into struct ignoring unknown fields" {
@@ -302,11 +300,11 @@ test "parse into struct ignoring unknown fields" {
         \\  "language": "zig"
         \\}
     ;
-    const r = try parseFromSlice(T, testing.allocator, str, .{ .ignore_unknown_fields = true });
-    defer parseFree(T, testing.allocator, r);
+    const parsed = try parseFromSlice(T, testing.allocator, str, .{ .ignore_unknown_fields = true });
+    defer parsed.deinit();
 
-    try testing.expectEqual(@as(i64, 420), r.int);
-    try testing.expectEqualSlices(u8, "zig", r.language);
+    try testing.expectEqual(@as(i64, 420), parsed.value.int);
+    try testing.expectEqualSlices(u8, "zig", parsed.value.language);
 }
 
 test "parse into tuple" {
@@ -343,8 +341,9 @@ test "parse into tuple" {
         \\  {"float": 12.34}
         \\]
     ;
-    const r = try parseFromSlice(T, testing.allocator, str, .{});
-    defer parseFree(T, testing.allocator, r);
+    const parsed = try parseFromSlice(T, testing.allocator, str, .{});
+    defer parsed.deinit();
+    const r = parsed.value;
     try testing.expectEqual(@as(i64, 420), r[0]);
     try testing.expectEqual(@as(f64, 3.14), r[1]);
     try testing.expectEqual(true, r[2]);
@@ -368,10 +367,10 @@ test "parse into recursive union definition" {
         values: ParseIntoRecursiveUnionDefinitionValue,
     };
 
-    const r = try parseFromSlice(T, testing.allocator, "{\"values\":{\"array\":[{\"integer\":58}]}}", .{});
-    defer parseFree(T, testing.allocator, r);
+    const parsed = try parseFromSlice(T, testing.allocator, "{\"values\":{\"array\":[{\"integer\":58}]}}", .{});
+    defer parsed.deinit();
 
-    try testing.expectEqual(@as(i64, 58), r.values.array[0].integer);
+    try testing.expectEqual(@as(i64, 58), parsed.value.values.array[0].integer);
 }
 
 const ParseIntoDoubleRecursiveUnionValueFirst = union(enum) {
@@ -389,29 +388,37 @@ test "parse into double recursive union definition" {
         values: ParseIntoDoubleRecursiveUnionValueFirst,
     };
 
-    const r = try parseFromSlice(T, testing.allocator, "{\"values\":{\"array\":[{\"array\":[{\"integer\":58}]}]}}", .{});
-    defer parseFree(T, testing.allocator, r);
+    const parsed = try parseFromSlice(T, testing.allocator, "{\"values\":{\"array\":[{\"array\":[{\"integer\":58}]}]}}", .{});
+    defer parsed.deinit();
 
-    try testing.expectEqual(@as(i64, 58), r.values.array[0].array[0].integer);
+    try testing.expectEqual(@as(i64, 58), parsed.value.values.array[0].array[0].integer);
 }
 
 test "parse exponential into int" {
     const T = struct { int: i64 };
-    const r = try parseFromSlice(T, testing.allocator, "{ \"int\": 4.2e2 }", .{});
+    const r = try parseFromSliceLeaky(T, testing.allocator, "{ \"int\": 4.2e2 }", .{});
     try testing.expectEqual(@as(i64, 420), r.int);
-    try testing.expectError(error.InvalidNumber, parseFromSlice(T, testing.allocator, "{ \"int\": 0.042e2 }", .{}));
-    try testing.expectError(error.Overflow, parseFromSlice(T, testing.allocator, "{ \"int\": 18446744073709551616.0 }", .{}));
+    try testing.expectError(error.InvalidNumber, parseFromSliceLeaky(T, testing.allocator, "{ \"int\": 0.042e2 }", .{}));
+    try testing.expectError(error.Overflow, parseFromSliceLeaky(T, testing.allocator, "{ \"int\": 18446744073709551616.0 }", .{}));
 }
 
 test "parseFromTokenSource" {
-    var scanner = JsonScanner.initCompleteInput(testing.allocator, "123");
-    defer scanner.deinit();
-    try testing.expectEqual(@as(u32, 123), try parseFromTokenSource(u32, testing.allocator, &scanner, .{}));
+    {
+        var scanner = JsonScanner.initCompleteInput(testing.allocator, "123");
+        defer scanner.deinit();
+        var parsed = try parseFromTokenSource(u32, testing.allocator, &scanner, .{});
+        defer parsed.deinit();
+        try testing.expectEqual(@as(u32, 123), parsed.value);
+    }
 
-    var stream = std.io.fixedBufferStream("123");
-    var json_reader = jsonReader(std.testing.allocator, stream.reader());
-    defer json_reader.deinit();
-    try testing.expectEqual(@as(u32, 123), try parseFromTokenSource(u32, testing.allocator, &json_reader, .{}));
+    {
+        var stream = std.io.fixedBufferStream("123");
+        var json_reader = jsonReader(std.testing.allocator, stream.reader());
+        defer json_reader.deinit();
+        var parsed = try parseFromTokenSource(u32, testing.allocator, &json_reader, .{});
+        defer parsed.deinit();
+        try testing.expectEqual(@as(u32, 123), parsed.value);
+    }
 }
 
 test "max_value_len" {
@@ -429,9 +436,9 @@ test "parse into vector" {
         \\  "vec_i32": [4, 5, 6, 7]
         \\}
     ;
-    const r = try parseFromSlice(T, testing.allocator, s, .{});
-    defer parseFree(T, testing.allocator, r);
-    try testing.expectApproxEqAbs(@as(f32, 1.5), r.vec_f32[0], 0.0000001);
-    try testing.expectApproxEqAbs(@as(f32, 2.5), r.vec_f32[1], 0.0000001);
-    try testing.expectEqual(@Vector(4, i32){ 4, 5, 6, 7 }, r.vec_i32);
+    const parsed = try parseFromSlice(T, testing.allocator, s, .{});
+    defer parsed.deinit();
+    try testing.expectApproxEqAbs(@as(f32, 1.5), parsed.value.vec_f32[0], 0.0000001);
+    try testing.expectApproxEqAbs(@as(f32, 2.5), parsed.value.vec_f32[1], 0.0000001);
+    try testing.expectEqual(@Vector(4, i32){ 4, 5, 6, 7 }, parsed.value.vec_i32);
 }
