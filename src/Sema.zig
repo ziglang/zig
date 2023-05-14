@@ -22146,7 +22146,7 @@ fn zirMemcpy(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!void
             const len = try sema.usizeCast(block, dest_src, len_u64);
             for (0..len) |i| {
                 const elem_index = try sema.addIntUnsigned(Type.usize, i);
-                const dest_elem_ptr = try sema.elemPtr(
+                const dest_elem_ptr = try sema.elemPtrOneLayerOnly(
                     block,
                     src,
                     dest_ptr,
@@ -22155,7 +22155,7 @@ fn zirMemcpy(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!void
                     true, // init
                     false, // oob_safety
                 );
-                const src_elem_ptr = try sema.elemPtr(
+                const src_elem_ptr = try sema.elemPtrOneLayerOnly(
                     block,
                     src,
                     src_ptr,

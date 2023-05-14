@@ -65,3 +65,16 @@ fn testMemcpyDestManyPtr() !void {
     try expect(buf[3] == 'l');
     try expect(buf[4] == 'o');
 }
+
+comptime {
+    const S = struct {
+        buffer: [8]u8 = undefined,
+        fn set(self: *@This(), items: []const u8) void {
+            @memcpy(self.buffer[0..items.len], items);
+        }
+    };
+
+    var s = S{};
+    s.set("hello");
+    if (!std.mem.eql(u8, s.buffer[0..5], "hello")) @compileError("bad");
+}
