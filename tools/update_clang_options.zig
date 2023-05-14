@@ -624,9 +624,9 @@ pub fn main() anyerror!void {
         },
     };
 
-    var parser = json.Parser.init(allocator, .alloc_if_needed);
-    const tree = try parser.parse(json_text);
-    const root_map = &tree.root.object;
+    const parsed = try json.parseFromSlice(json.Value, allocator, json_text, .{});
+    defer parsed.deinit();
+    const root_map = &parsed.value.object;
 
     var all_objects = std.ArrayList(*json.ObjectMap).init(allocator);
     {
