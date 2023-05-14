@@ -102,6 +102,7 @@ pub const Value = union(enum) {
     }
 
     pub fn jsonParse(allocator: Allocator, source: anytype, options: ParseOptions) ParseError(@TypeOf(source.*))!@This() {
+        _ = options;
         // The grammar of the stack is:
         //  (.array | .object .string)*
         var stack = Array.init(allocator);
@@ -113,21 +114,21 @@ pub const Value = union(enum) {
                 stack.items[stack.items.len - 1] == .array or
                 (stack.items[stack.items.len - 2] == .object and stack.items[stack.items.len - 1] == .string));
 
-            switch (try source.nextAlloc(allocator, options.alloc_when)) {
+            switch (try source.nextAlloc(allocator, .alloc_if_needed)) {
                 inline .string, .allocated_string => |s| {
-                    return try handleCompleteValue(&stack, allocator, source, options.alloc_when, Value{ .string = s }) orelse continue;
+                    return try handleCompleteValue(&stack, allocator, source, Value{ .string = s }) orelse continue;
                 },
                 inline .number, .allocated_number => |slice| {
-                    return try handleCompleteValue(&stack, allocator, source, options.alloc_when, Value.parseFromNumberSlice(slice)) orelse continue;
+                    return try handleCompleteValue(&stack, allocator, source, Value.parseFromNumberSlice(slice)) orelse continue;
                 },
 
-                .null => return try handleCompleteValue(&stack, allocator, source, options.alloc_when, .null) orelse continue,
-                .true => return try handleCompleteValue(&stack, allocator, source, options.alloc_when, Value{ .bool = true }) orelse continue,
-                .false => return try handleCompleteValue(&stack, allocator, source, options.alloc_when, Value{ .bool = false }) orelse continue,
+                .null => return try handleCompleteValue(&stack, allocator, source, .null) orelse continue,
+                .true => return try handleCompleteValue(&stack, allocator, source, Value{ .bool = true }) orelse continue,
+                .false => return try handleCompleteValue(&stack, allocator, source, Value{ .bool = false }) orelse continue,
 
                 .object_begin => {
-                    switch (try source.nextAlloc(allocator, options.alloc_when)) {
-                        .object_end => return try handleCompleteValue(&stack, allocator, source, options.alloc_when, Value{ .object = ObjectMap.init(allocator) }) orelse continue,
+                    switch (try source.nextAlloc(allocator, .alloc_if_needed)) {
+                        .object_end => return try handleCompleteValue(&stack, allocator, source, Value{ .object = ObjectMap.init(allocator) }) orelse continue,
                         inline .string, .allocated_string => |key| {
                             try stack.appendSlice(&[_]Value{
                                 Value{ .object = ObjectMap.init(allocator) },
@@ -140,7 +141,7 @@ pub const Value = union(enum) {
                 .array_begin => {
                     try stack.append(Value{ .array = Array.init(allocator) });
                 },
-                .array_end => return try handleCompleteValue(&stack, allocator, source, options.alloc_when, stack.pop()) orelse continue,
+                .array_end => return try handleCompleteValue(&stack, allocator, source, stack.pop()) orelse continue,
 
                 else => unreachable,
             }
@@ -148,7 +149,7 @@ pub const Value = union(enum) {
     }
 };
 
-fn handleCompleteValue(stack: *Array, allocator: Allocator, source: anytype, alloc_when: AllocWhen, value_: Value) !?Value {
+fn handleCompleteValue(stack: *Array, allocator: Allocator, source: anytype, value_: Value) !?Value {
     if (stack.items.len == 0) return value_;
     var value = value_;
     while (true) {
@@ -166,7 +167,7 @@ fn handleCompleteValue(stack: *Array, allocator: Allocator, source: anytype, all
 
                 // This is an invalid state to leave the stack in,
                 // so we have to process the next token before we return.
-                switch (try source.nextAlloc(allocator, alloc_when)) {
+                switch (try source.nextAlloc(allocator, .alloc_if_needed)) {
                     .object_end => {
                         // This object is complete.
                         value = stack.pop();

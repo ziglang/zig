@@ -115,7 +115,7 @@ test "write json then parse it" {
 }
 
 fn testParse(allocator: std.mem.Allocator, json_str: []const u8) !Value {
-    return parseFromSliceLeaky(Value, allocator, json_str, .{ .alloc_when = .alloc_if_needed });
+    return parseFromSliceLeaky(Value, allocator, json_str, .{});
 }
 
 test "parsing empty string gives appropriate error" {
@@ -178,40 +178,6 @@ test "escaped characters" {
     try testing.expectEqualSlices(u8, obj.get("doublequote").?.string, "\"");
     try testing.expectEqualSlices(u8, obj.get("unicode").?.string, "ą");
     try testing.expectEqualSlices(u8, obj.get("surrogatepair").?.string, "😂");
-}
-
-test "string copy option" {
-    const input =
-        \\{
-        \\  "noescape": "aą😂",
-        \\  "simple": "\\\/\n\r\t\f\b\"",
-        \\  "unicode": "\u0105",
-        \\  "surrogatepair": "\ud83d\ude02"
-        \\}
-    ;
-
-    var arena_allocator = std.heap.ArenaAllocator.init(std.testing.allocator);
-    defer arena_allocator.deinit();
-    const allocator = arena_allocator.allocator();
-
-    const obj_nocopy = (try parseFromSliceLeaky(Value, allocator, input, .{ .alloc_when = .alloc_if_needed })).object;
-    const obj_copy = (try parseFromSliceLeaky(Value, allocator, input, .{ .alloc_when = .alloc_always })).object;
-
-    for ([_][]const u8{ "noescape", "simple", "unicode", "surrogatepair" }) |field_name| {
-        try testing.expectEqualSlices(u8, obj_nocopy.get(field_name).?.string, obj_copy.get(field_name).?.string);
-    }
-
-    const nocopy_addr = &obj_nocopy.get("noescape").?.string[0];
-    const copy_addr = &obj_copy.get("noescape").?.string[0];
-
-    var found_nocopy = false;
-    for (input, 0..) |_, index| {
-        try testing.expect(copy_addr != &input[index]);
-        if (nocopy_addr == &input[index]) {
-            found_nocopy = true;
-        }
-    }
-    try testing.expect(found_nocopy);
 }
 
 test "Value.jsonStringify" {

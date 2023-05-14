@@ -21,14 +21,6 @@ pub const ParseOptions = struct {
     /// If false, finding an unknown field returns an error.
     ignore_unknown_fields: bool = false,
 
-    /// TODO: revisit this even being an option.
-    /// Set this to `.alloc_if_needed` to enable an optimization that tries to avoid copying strings for the returned object.
-    /// Note that .alloc_if_needed cannot be used correctly with an allocator that requires freeing individual items,
-    /// because any string in the returned object may or may not have been allocated, and there is no way to know.
-    /// If you enable `.alloc_if_needed`, you *must not* call `std.json.parseFree` for the returned object.
-    /// Instead, cleaning up the memory must be done at the allocator level, e.g. by using a `std.heap.ArenaAllocator`.
-    alloc_when: AllocWhen = .alloc_always,
-
     /// Passed to json.Scanner.nextAllocMax() or json.Reader.nextAllocMax().
     /// The default for parseFromSlice() or parseFromTokenSource() with a *json.Scanner input
     /// is the length of the input slice, which means error.ValueTooLong will never be returned.
@@ -49,9 +41,8 @@ pub fn Parsed(comptime T: type) type {
     };
 }
 
-/// Parses the json document from s and returns the result.
-/// The provided allocator is used both for temporary allocations during parsing the document,
-/// and also to allocate any pointer values in the return type.
+/// Parses the json document from `s` and returns the result packaged in a `std.json.Parsed`.
+/// You must call `deinit()` of the returned object to clean up allocated resources.
 /// Note that `error.BufferUnderrun` is not actually possible to return from this function.
 pub fn parseFromSlice(
     comptime T: type,
@@ -65,7 +56,7 @@ pub fn parseFromSlice(
     return parseFromTokenSource(T, allocator, &scanner, options);
 }
 
-/// TODO: document
+/// Parses
 pub fn parseFromSliceLeaky(
     comptime T: type,
     allocator: Allocator,
@@ -162,8 +153,7 @@ fn parseInternal(
             const token = try source.nextAllocMax(allocator, .alloc_if_needed, options.max_value_len.?);
             defer freeAllocated(allocator, token);
             const slice = switch (token) {
-                .number, .string => |slice| slice,
-                .allocated_number, .allocated_string => |slice| slice,
+                inline .number, .allocated_number, .string, .allocated_string => |slice| slice,
                 else => return error.UnexpectedToken,
             };
             return try std.fmt.parseFloat(T, slice);
@@ -172,8 +162,7 @@ fn parseInternal(
             const token = try source.nextAllocMax(allocator, .alloc_if_needed, options.max_value_len.?);
             defer freeAllocated(allocator, token);
             const slice = switch (token) {
-                .number, .string => |slice| slice,
-                .allocated_number, .allocated_string => |slice| slice,
+                inline .number, .allocated_number, .string, .allocated_string=> |slice| slice,
                 else => return error.UnexpectedToken,
             };
             if (isNumberFormattedLikeAnInteger(slice))
@@ -203,8 +192,7 @@ fn parseInternal(
             const token = try source.nextAllocMax(allocator, .alloc_if_needed, options.max_value_len.?);
             defer freeAllocated(allocator, token);
             const slice = switch (token) {
-                .number, .string => |slice| slice,
-                .allocated_number, .allocated_string => |slice| slice,
+                inline .number, .allocated_number, .string, .allocated_string => |slice| slice,
                 else => return error.UnexpectedToken,
             };
             // Check for a named value.
@@ -226,8 +214,7 @@ fn parseInternal(
             var result: ?T = null;
             var name_token: ?Token = try source.nextAllocMax(allocator, .alloc_if_needed, options.max_value_len.?);
             const field_name = switch (name_token.?) {
-                .string => |slice| slice,
-                .allocated_string => |slice| slice,
+                inline .string, .allocated_string => |slice| slice,
                 else => return error.UnexpectedToken,
             };
 
@@ -288,8 +275,7 @@ fn parseInternal(
                 var name_token: ?Token = try source.nextAllocMax(allocator, .alloc_if_needed, options.max_value_len.?);
                 const field_name = switch (name_token.?) {
                     .object_end => break, // No more fields.
-                    .string => |slice| slice,
-                    .allocated_string => |slice| slice,
+                    inline .string, .allocated_string => |slice| slice,
                     else => return error.UnexpectedToken,
                 };
 
@@ -445,12 +431,20 @@ fn parseInternal(
                             if (ptrInfo.sentinel) |sentinel_ptr| {
                                 // Use our own array list so we can append the sentinel.
                                 var value_list = ArrayList(u8).init(allocator);
-                                _ = try source.allocNextIntoArrayList(&value_list, options.alloc_when);
+                                _ = try source.allocNextIntoArrayList(&value_list, .alloc_always);
                                 return try value_list.toOwnedSliceSentinel(@ptrCast(*const u8, sentinel_ptr).*);
                             }
-                            switch (try source.nextAllocMax(allocator, .alloc_always, options.max_value_len.?)) {
-                                .allocated_string => |slice| return slice,
-                                else => unreachable,
+                            if (ptrInfo.is_const) {
+                                switch (try source.nextAllocMax(allocator, .alloc_if_needed, options.max_value_len.?)) {
+                                    inline .string, .allocated_string => |slice| return slice,
+                                    else => unreachable,
+                                }
+                            } else {
+                                // Have to allocate to get a mutable copy.
+                                switch (try source.nextAllocMax(allocator, .alloc_always, options.max_value_len.?)) {
+                                    .allocated_string => |slice| return slice,
+                                    else => unreachable,
+                                }
                             }
                         },
                         else => return error.UnexpectedToken,
