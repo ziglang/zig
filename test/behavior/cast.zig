@@ -97,7 +97,6 @@ test "@intToFloat" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const S = struct {
         fn doTheTest() !void {
@@ -156,7 +155,6 @@ test "@floatToInt" {
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     try testFloatToInts();
     comptime try testFloatToInts();
@@ -208,16 +206,12 @@ test "implicitly cast indirect pointer to maybe-indirect pointer" {
 }
 
 test "@intCast comptime_int" {
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
-
     const result = @intCast(i32, 1234);
     try expect(@TypeOf(result) == i32);
     try expect(result == 1234);
 }
 
 test "@floatCast comptime_int and comptime_float" {
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
-
     {
         const result = @floatCast(f16, 1234);
         try expect(@TypeOf(result) == f16);

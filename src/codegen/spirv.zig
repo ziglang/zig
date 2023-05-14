@@ -568,6 +568,28 @@ pub const DeclGen = struct {
             try self.addBytes(std.mem.asBytes(&int_bits)[0..@intCast(usize, len)]);
         }
 
+        fn addFloat(self: *@This(), ty: Type, val: Value) !void {
+            const target = self.dg.getTarget();
+            const len = ty.abiSize(target);
+
+            // TODO: Swap endianess if the compiler is big endian.
+            switch (ty.floatBits(target)) {
+                16 => {
+                    const float_bits = val.toFloat(f16);
+                    try self.addBytes(std.mem.asBytes(&float_bits)[0..@intCast(usize, len)]);
+                },
+                32 => {
+                    const float_bits = val.toFloat(f32);
+                    try self.addBytes(std.mem.asBytes(&float_bits)[0..@intCast(usize, len)]);
+                },
+                64 => {
+                    const float_bits = val.toFloat(f64);
+                    try self.addBytes(std.mem.asBytes(&float_bits)[0..@intCast(usize, len)]);
+                },
+                else => unreachable,
+            }
+        }
+
         fn addDeclRef(self: *@This(), ty: Type, decl_index: Decl.Index) !void {
             const dg = self.dg;
 
@@ -618,6 +640,7 @@ pub const DeclGen = struct {
 
             switch (ty.zigTypeTag()) {
                 .Int => try self.addInt(ty, val),
+                .Float => try self.addFloat(ty, val),
                 .Bool => try self.addConstBool(val.toBool()),
                 .Array => switch (val.tag()) {
                     .aggregate => {
@@ -1690,6 +1713,8 @@ pub const DeclGen = struct {
 
             .bitcast         => try self.airBitcast(inst),
             .intcast, .trunc => try self.airIntcast(inst),
+            .int_to_float    => try self.airIntToFloat(inst),
+            .float_to_int    => try self.airFloatToInt(inst),
             .not             => try self.airNot(inst),
 
             .slice_ptr      => try self.airSliceField(inst, 0),
@@ -2090,6 +2115,57 @@ pub const DeclGen = struct {
                 .id_result_type = dest_ty_id,
                 .id_result = result_id,
                 .unsigned_value = operand_id,
+            }),
+        }
+        return result_id;
+    }
+
+    fn airIntToFloat(self: *DeclGen, inst: Air.Inst.Index) !?IdRef {
+        if (self.liveness.isUnused(inst)) return null;
+
+        const ty_op = self.air.instructions.items(.data)[inst].ty_op;
+        const operand_ty = self.air.typeOf(ty_op.operand);
+        const operand_id = try self.resolve(ty_op.operand);
+        const operand_info = try self.arithmeticTypeInfo(operand_ty);
+        const dest_ty = self.air.typeOfIndex(inst);
+        const dest_ty_id = try self.resolveTypeId(dest_ty);
+
+        const result_id = self.spv.allocId();
+        switch (operand_info.signedness) {
+            .signed => try self.func.body.emit(self.spv.gpa, .OpConvertSToF, .{
+                .id_result_type = dest_ty_id,
+                .id_result = result_id,
+                .signed_value = operand_id,
+            }),
+            .unsigned => try self.func.body.emit(self.spv.gpa, .OpConvertUToF, .{
+                .id_result_type = dest_ty_id,
+                .id_result = result_id,
+                .unsigned_value = operand_id,
+            }),
+        }
+        return result_id;
+    }
+
+    fn airFloatToInt(self: *DeclGen, inst: Air.Inst.Index) !?IdRef {
+        if (self.liveness.isUnused(inst)) return null;
+
+        const ty_op = self.air.instructions.items(.data)[inst].ty_op;
+        const operand_id = try self.resolve(ty_op.operand);
+        const dest_ty = self.air.typeOfIndex(inst);
+        const dest_info = try self.arithmeticTypeInfo(dest_ty);
+        const dest_ty_id = try self.resolveTypeId(dest_ty);
+
+        const result_id = self.spv.allocId();
+        switch (dest_info.signedness) {
+            .signed => try self.func.body.emit(self.spv.gpa, .OpConvertFToS, .{
+                .id_result_type = dest_ty_id,
+                .id_result = result_id,
+                .float_value = operand_id,
+            }),
+            .unsigned => try self.func.body.emit(self.spv.gpa, .OpConvertFToU, .{
+                .id_result_type = dest_ty_id,
+                .id_result = result_id,
+                .float_value = operand_id,
             }),
         }
         return result_id;
