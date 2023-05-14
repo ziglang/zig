@@ -270,10 +270,13 @@ test "Value.jsonStringify" {
     {
         var buffer: [10]u8 = undefined;
         var fbs = std.io.fixedBufferStream(&buffer);
-        var obj = ObjectMap.init(testing.allocator);
-        defer obj.deinit();
-        try obj.putNoClobber("a", .{ .string = "b" });
-        try (Value{ .object = obj }).jsonStringify(.{}, fbs.writer());
+        var obj = try Value.initObject(testing.allocator);
+        defer {
+            obj.object.clearAndFree();
+            obj.deinit(testing.allocator);
+        }
+        try obj.object.putNoClobber("a", .{ .string = "b" });
+        try obj.jsonStringify(.{}, fbs.writer());
         try testing.expectEqualSlices(u8, fbs.getWritten(), "{\"a\":\"b\"}");
     }
 }
