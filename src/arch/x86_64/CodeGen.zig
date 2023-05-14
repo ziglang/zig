@@ -5411,6 +5411,7 @@ fn airStructFieldVal(self: *Self, inst: Air.Inst.Index) !void {
         const field_ty = container_ty.structFieldType(index);
         if (!field_ty.hasRuntimeBitsIgnoreComptime()) break :result .none;
         const field_rc = regClassForType(field_ty);
+        const field_is_gp = field_rc.supersetOf(gp);
 
         const src_mcv = try self.resolveInst(operand);
         const field_off = switch (container_ty.containerLayout()) {
@@ -5443,7 +5444,7 @@ fn airStructFieldVal(self: *Self, inst: Air.Inst.Index) !void {
                     return self.fail("TODO implement struct_field_val with large packed field", .{});
                 }
 
-                const dst_reg = try self.register_manager.allocReg(inst, gp);
+                const dst_reg = try self.register_manager.allocReg(if (field_is_gp) inst else null, gp);
                 const field_extra_bits = self.regExtraBits(field_ty);
                 const load_abi_size =
                     if (field_bit_off < field_extra_bits) field_abi_size else field_abi_size * 2;
@@ -5494,7 +5495,7 @@ fn airStructFieldVal(self: *Self, inst: Air.Inst.Index) !void {
                 if (field_extra_bits > 0) try self.truncateRegister(field_ty, dst_reg);
 
                 const dst_mcv = MCValue{ .register = dst_reg };
-                break :result if (field_rc.supersetOf(gp))
+                break :result if (field_is_gp)
                     dst_mcv
                 else
                     try self.copyToRegisterWithInstTracking(inst, field_ty, dst_mcv);
