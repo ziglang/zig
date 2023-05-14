@@ -1901,17 +1901,33 @@ test "byteSwapAllFields" {
         f1: u16,
         f2: u32,
     };
+    const K = extern struct {
+        f0: u8,
+        f1: T,
+        f2: u16,
+    };
     var s = T{
         .f0 = 0x12,
         .f1 = 0x1234,
         .f2 = 0x12345678,
     };
+    var k = K{
+        .f0 = 0x12,
+        .f1 = s,
+        .f2 = 0x1234,
+    };
     byteSwapAllFields(T, &s);
+    byteSwapAllFields(K, &k);
     try std.testing.expectEqual(T{
         .f0 = 0x12,
         .f1 = 0x3412,
         .f2 = 0x78563412,
     }, s);
+    try std.testing.expectEqual(K{
+        .f0 = 0x12,
+        .f1 = s,
+        .f2 = 0x3412,
+    }, k);
 }
 
 /// Returns an iterator that iterates over the slices of `buffer` that are not
