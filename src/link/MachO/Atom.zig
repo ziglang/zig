@@ -116,7 +116,7 @@ pub fn addRelocation(macho_file: *MachO, atom_index: Index, reloc: Relocation) !
     return addRelocations(macho_file, atom_index, &[_]Relocation{reloc});
 }
 
-pub fn addRelocations(macho_file: *MachO, atom_index: Index, relocs: []Relocation) !void {
+pub fn addRelocations(macho_file: *MachO, atom_index: Index, relocs: []const Relocation) !void {
     const gpa = macho_file.base.allocator;
     const gop = try macho_file.relocs.getOrPut(gpa, atom_index);
     if (!gop.found_existing) {

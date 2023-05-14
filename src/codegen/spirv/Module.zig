@@ -40,14 +40,14 @@ pub const Fn = struct {
     /// the end of this function definition.
     body: Section = .{},
     /// The decl dependencies that this function depends on.
-    decl_deps: std.ArrayListUnmanaged(Decl.Index) = .{},
+    decl_deps: std.AutoArrayHashMapUnmanaged(Decl.Index, void) = .{},
 
     /// Reset this function without deallocating resources, so that
     /// it may be used to emit code for another function.
     pub fn reset(self: *Fn) void {
         self.prologue.reset();
         self.body.reset();
-        self.decl_deps.items.len = 0;
+        self.decl_deps.clearRetainingCapacity();
     }
 
     /// Free the resources owned by this function.
@@ -358,7 +358,7 @@ pub fn flush(self: *Module, file: std.fs.File) !void {
 pub fn addFunction(self: *Module, decl_index: Decl.Index, func: Fn) !void {
     try self.sections.functions.append(self.gpa, func.prologue);
     try self.sections.functions.append(self.gpa, func.body);
-    try self.declareDeclDeps(decl_index, func.decl_deps.items);
+    try self.declareDeclDeps(decl_index, func.decl_deps.keys());
 }
 
 /// Fetch the result-id of an OpString instruction that encodes the path of the source
@@ -393,11 +393,14 @@ pub fn resolveSourceFileName(self: *Module, decl: *ZigDecl) !IdRef {
 /// be emitted at this point.
 pub fn resolveType(self: *Module, ty: Type) !Type.Ref {
     const result = try self.type_cache.getOrPut(self.gpa, ty);
+    const index = @intToEnum(Type.Ref, result.index);
+
     if (!result.found_existing) {
-        result.value_ptr.* = try self.emitType(ty);
+        const ref = try self.emitType(ty);
+        self.type_cache.values()[result.index] = ref;
     }
 
-    return @intToEnum(Type.Ref, result.index);
+    return index;
 }
 
 pub fn resolveTypeId(self: *Module, ty: Type) !IdResultType {

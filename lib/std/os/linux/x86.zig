@@ -108,7 +108,7 @@ pub fn syscall6(
     );
 }
 
-pub fn socketcall(call: usize, args: [*]usize) usize {
+pub fn socketcall(call: usize, args: [*]const usize) usize {
     return asm volatile ("int $0x80"
         : [ret] "={eax}" (-> usize),
         : [number] "{eax}" (@enumToInt(SYS.socketcall)),

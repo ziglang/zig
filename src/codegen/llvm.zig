@@ -5865,19 +5865,34 @@ pub const FuncGen = struct {
         const array_ty = self.air.typeOf(bin_op.lhs);
         const array_llvm_val = try self.resolveInst(bin_op.lhs);
         const rhs = try self.resolveInst(bin_op.rhs);
+        const array_llvm_ty = try self.dg.lowerType(array_ty);
+        const elem_ty = array_ty.childType();
         if (isByRef(array_ty)) {
-            const array_llvm_ty = try self.dg.lowerType(array_ty);
             const indices: [2]*llvm.Value = .{ self.context.intType(32).constNull(), rhs };
-            const elem_ptr = self.builder.buildInBoundsGEP(array_llvm_ty, array_llvm_val, &indices, indices.len, "");
-            const elem_ty = array_ty.childType();
             if (isByRef(elem_ty)) {
+                const elem_ptr = self.builder.buildInBoundsGEP(array_llvm_ty, array_llvm_val, &indices, indices.len, "");
                 if (canElideLoad(self, body_tail))
                     return elem_ptr;
 
                 const target = self.dg.module.getTarget();
                 return self.loadByRef(elem_ptr, elem_ty, elem_ty.abiAlignment(target), false);
             } else {
+                const lhs_index = Air.refToIndex(bin_op.lhs).?;
                 const elem_llvm_ty = try self.dg.lowerType(elem_ty);
+                if (self.air.instructions.items(.tag)[lhs_index] == .load) {
+                    const load_data = self.air.instructions.items(.data)[lhs_index];
+                    const load_ptr = load_data.ty_op.operand;
+                    const load_ptr_tag = self.air.instructions.items(.tag)[Air.refToIndex(load_ptr).?];
+                    switch (load_ptr_tag) {
+                        .struct_field_ptr, .struct_field_ptr_index_0, .struct_field_ptr_index_1, .struct_field_ptr_index_2, .struct_field_ptr_index_3 => {
+                            const load_ptr_inst = try self.resolveInst(load_ptr);
+                            const gep = self.builder.buildInBoundsGEP(array_llvm_ty, load_ptr_inst, &indices, indices.len, "");
+                            return self.builder.buildLoad(elem_llvm_ty, gep, "");
+                        },
+                        else => {},
+                    }
+                }
+                const elem_ptr = self.builder.buildInBoundsGEP(array_llvm_ty, array_llvm_val, &indices, indices.len, "");
                 return self.builder.buildLoad(elem_llvm_ty, elem_ptr, "");
             }
         }
@@ -7034,7 +7049,7 @@ pub const FuncGen = struct {
         const rhs = try self.resolveInst(bin_op.rhs);
         const scalar_ty = self.air.typeOfIndex(inst).scalarType();
 
-        if (scalar_ty.isAnyFloat()) return self.builder.buildMinNum(lhs, rhs, "");
+        if (scalar_ty.isAnyFloat()) return self.buildFloatOp(.fmin, scalar_ty, 2, .{ lhs, rhs });
         if (scalar_ty.isSignedInt()) return self.builder.buildSMin(lhs, rhs, "");
         return self.builder.buildUMin(lhs, rhs, "");
     }
@@ -7045,7 +7060,7 @@ pub const FuncGen = struct {
         const rhs = try self.resolveInst(bin_op.rhs);
         const scalar_ty = self.air.typeOfIndex(inst).scalarType();
 
-        if (scalar_ty.isAnyFloat()) return self.builder.buildMaxNum(lhs, rhs, "");
+        if (scalar_ty.isAnyFloat()) return self.buildFloatOp(.fmax, scalar_ty, 2, .{ lhs, rhs });
         if (scalar_ty.isSignedInt()) return self.builder.buildSMax(lhs, rhs, "");
         return self.builder.buildUMax(lhs, rhs, "");
     }
@@ -7215,20 +7230,28 @@ pub const FuncGen = struct {
             return self.buildFloatOp(.floor, inst_ty, 1, .{result});
         }
         if (scalar_ty.isSignedInt()) {
-            // const d = @divTrunc(a, b);
-            // const r = @rem(a, b);
-            // return if (r == 0) d else d - ((a < 0) ^ (b < 0));
-            const result_llvm_ty = try self.dg.lowerType(inst_ty);
-            const zero = result_llvm_ty.constNull();
-            const div_trunc = self.builder.buildSDiv(lhs, rhs, "");
+            const target = self.dg.module.getTarget();
+            const inst_llvm_ty = try self.dg.lowerType(inst_ty);
+            const scalar_bit_size_minus_one = scalar_ty.bitSize(target) - 1;
+            const bit_size_minus_one = if (inst_ty.zigTypeTag() == .Vector) const_vector: {
+                const vec_len = inst_ty.vectorLen();
+                const scalar_llvm_ty = try self.dg.lowerType(scalar_ty);
+
+                const shifts = try self.gpa.alloc(*llvm.Value, vec_len);
+                defer self.gpa.free(shifts);
+
+                @memset(shifts, scalar_llvm_ty.constInt(scalar_bit_size_minus_one, .False));
+                break :const_vector llvm.constVector(shifts.ptr, vec_len);
+            } else inst_llvm_ty.constInt(scalar_bit_size_minus_one, .False);
+
+            const div = self.builder.buildSDiv(lhs, rhs, "");
             const rem = self.builder.buildSRem(lhs, rhs, "");
-            const rem_eq_0 = self.builder.buildICmp(.EQ, rem, zero, "");
-            const a_lt_0 = self.builder.buildICmp(.SLT, lhs, zero, "");
-            const b_lt_0 = self.builder.buildICmp(.SLT, rhs, zero, "");
-            const a_b_xor = self.builder.buildXor(a_lt_0, b_lt_0, "");
-            const a_b_xor_ext = self.builder.buildZExt(a_b_xor, div_trunc.typeOf(), "");
-            const d_sub_xor = self.builder.buildSub(div_trunc, a_b_xor_ext, "");
-            return self.builder.buildSelect(rem_eq_0, div_trunc, d_sub_xor, "");
+            const div_sign = self.builder.buildXor(lhs, rhs, "");
+            const div_sign_mask = self.builder.buildAShr(div_sign, bit_size_minus_one, "");
+            const zero = inst_llvm_ty.constNull();
+            const rem_nonzero = self.builder.buildICmp(.NE, rem, zero, "");
+            const correction = self.builder.buildSelect(rem_nonzero, div_sign_mask, zero, "");
+            return self.builder.buildNSWAdd(div, correction, "");
         }
         return self.builder.buildUDiv(lhs, rhs, "");
     }
@@ -7280,12 +7303,27 @@ pub const FuncGen = struct {
             return self.builder.buildSelect(ltz, c, a, "");
         }
         if (scalar_ty.isSignedInt()) {
-            const a = self.builder.buildSRem(lhs, rhs, "");
-            const b = self.builder.buildNSWAdd(a, rhs, "");
-            const c = self.builder.buildSRem(b, rhs, "");
+            const target = self.dg.module.getTarget();
+            const scalar_bit_size_minus_one = scalar_ty.bitSize(target) - 1;
+            const bit_size_minus_one = if (inst_ty.zigTypeTag() == .Vector) const_vector: {
+                const vec_len = inst_ty.vectorLen();
+                const scalar_llvm_ty = try self.dg.lowerType(scalar_ty);
+
+                const shifts = try self.gpa.alloc(*llvm.Value, vec_len);
+                defer self.gpa.free(shifts);
+
+                @memset(shifts, scalar_llvm_ty.constInt(scalar_bit_size_minus_one, .False));
+                break :const_vector llvm.constVector(shifts.ptr, vec_len);
+            } else inst_llvm_ty.constInt(scalar_bit_size_minus_one, .False);
+
+            const rem = self.builder.buildSRem(lhs, rhs, "");
+            const div_sign = self.builder.buildXor(lhs, rhs, "");
+            const div_sign_mask = self.builder.buildAShr(div_sign, bit_size_minus_one, "");
+            const rhs_masked = self.builder.buildAnd(rhs, div_sign_mask, "");
             const zero = inst_llvm_ty.constNull();
-            const ltz = self.builder.buildICmp(.SLT, lhs, zero, "");
-            return self.builder.buildSelect(ltz, c, a, "");
+            const rem_nonzero = self.builder.buildICmp(.NE, rem, zero, "");
+            const correction = self.builder.buildSelect(rem_nonzero, rhs_masked, zero, "");
+            return self.builder.buildNSWAdd(rem, correction, "");
         }
         return self.builder.buildURem(lhs, rhs, "");
     }

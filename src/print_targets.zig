@@ -40,7 +40,7 @@ pub fn cmdTargets(
 
     var bw = io.bufferedWriter(stdout);
     const w = bw.writer();
-    var jws = std.json.WriteStream(@TypeOf(w), 6).init(w);
+    var jws = std.json.writeStream(w, 6);
 
     try jws.beginObject();
 

@@ -1054,14 +1054,14 @@ fn processOneTarget(job: Job) anyerror!void {
     var json_parse_progress = progress_node.start("parse JSON", 0);
     json_parse_progress.activate();
 
-    var parser = json.Parser.init(arena, false);
+    var parser = json.Parser.init(arena, .alloc_if_needed);
     const tree = try parser.parse(json_text);
     json_parse_progress.end();
 
     var render_progress = progress_node.start("render zig code", 0);
     render_progress.activate();
 
-    const root_map = &tree.root.Object;
+    const root_map = &tree.root.object;
     var features_table = std.StringHashMap(Feature).init(arena);
     var all_features = std.ArrayList(Feature).init(arena);
     var all_cpus = std.ArrayList(Cpu).init(arena);
@@ -1070,21 +1070,21 @@ fn processOneTarget(job: Job) anyerror!void {
         root_it: while (it.next()) |kv| {
             if (kv.key_ptr.len == 0) continue;
             if (kv.key_ptr.*[0] == '!') continue;
-            if (kv.value_ptr.* != .Object) continue;
-            if (hasSuperclass(&kv.value_ptr.Object, "SubtargetFeature")) {
-                const llvm_name = kv.value_ptr.Object.get("Name").?.String;
+            if (kv.value_ptr.* != .object) continue;
+            if (hasSuperclass(&kv.value_ptr.object, "SubtargetFeature")) {
+                const llvm_name = kv.value_ptr.object.get("Name").?.string;
                 if (llvm_name.len == 0) continue;
 
                 var zig_name = try llvmNameToZigName(arena, llvm_name);
-                var desc = kv.value_ptr.Object.get("Desc").?.String;
+                var desc = kv.value_ptr.object.get("Desc").?.string;
                 var deps = std.ArrayList([]const u8).init(arena);
                 var omit = false;
                 var flatten = false;
-                const implies = kv.value_ptr.Object.get("Implies").?.Array;
+                const implies = kv.value_ptr.object.get("Implies").?.array;
                 for (implies.items) |imply| {
-                    const other_key = imply.Object.get("def").?.String;
-                    const other_obj = &root_map.getPtr(other_key).?.Object;
-                    const other_llvm_name = other_obj.get("Name").?.String;
+                    const other_key = imply.object.get("def").?.string;
+                    const other_obj = &root_map.getPtr(other_key).?.object;
+                    const other_llvm_name = other_obj.get("Name").?.string;
                     const other_zig_name = (try llvmNameToZigNameOmit(
                         arena,
                         llvm_target,
@@ -1126,17 +1126,17 @@ fn processOneTarget(job: Job) anyerror!void {
                     try all_features.append(feature);
                 }
             }
-            if (hasSuperclass(&kv.value_ptr.Object, "Processor")) {
-                const llvm_name = kv.value_ptr.Object.get("Name").?.String;
+            if (hasSuperclass(&kv.value_ptr.object, "Processor")) {
+                const llvm_name = kv.value_ptr.object.get("Name").?.string;
                 if (llvm_name.len == 0) continue;
 
                 var zig_name = try llvmNameToZigName(arena, llvm_name);
                 var deps = std.ArrayList([]const u8).init(arena);
-                const features = kv.value_ptr.Object.get("Features").?.Array;
+                const features = kv.value_ptr.object.get("Features").?.array;
                 for (features.items) |feature| {
-                    const feature_key = feature.Object.get("def").?.String;
-                    const feature_obj = &root_map.getPtr(feature_key).?.Object;
-                    const feature_llvm_name = feature_obj.get("Name").?.String;
+                    const feature_key = feature.object.get("def").?.string;
+                    const feature_obj = &root_map.getPtr(feature_key).?.object;
+                    const feature_llvm_name = feature_obj.get("Name").?.string;
                     if (feature_llvm_name.len == 0) continue;
                     const feature_zig_name = (try llvmNameToZigNameOmit(
                         arena,
@@ -1145,11 +1145,11 @@ fn processOneTarget(job: Job) anyerror!void {
                     )) orelse continue;
                     try deps.append(feature_zig_name);
                 }
-                const tune_features = kv.value_ptr.Object.get("TuneFeatures").?.Array;
+                const tune_features = kv.value_ptr.object.get("TuneFeatures").?.array;
                 for (tune_features.items) |feature| {
-                    const feature_key = feature.Object.get("def").?.String;
-                    const feature_obj = &root_map.getPtr(feature_key).?.Object;
-                    const feature_llvm_name = feature_obj.get("Name").?.String;
+                    const feature_key = feature.object.get("def").?.string;
+                    const feature_obj = &root_map.getPtr(feature_key).?.object;
+                    const feature_llvm_name = feature_obj.get("Name").?.string;
                     if (feature_llvm_name.len == 0) continue;
                     const feature_zig_name = (try llvmNameToZigNameOmit(
                         arena,
@@ -1431,8 +1431,8 @@ fn llvmNameToZigNameOmit(
 
 fn hasSuperclass(obj: *json.ObjectMap, class_name: []const u8) bool {
     const superclasses_json = obj.get("!superclasses") orelse return false;
-    for (superclasses_json.Array.items) |superclass_json| {
-        const superclass = superclass_json.String;
+    for (superclasses_json.array.items) |superclass_json| {
+        const superclass = superclass_json.string;
         if (std.mem.eql(u8, superclass, class_name)) {
             return true;
         }

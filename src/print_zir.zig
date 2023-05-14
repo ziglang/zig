@@ -267,6 +267,7 @@ const Writer = struct {
             .slice_start => try self.writeSliceStart(stream, inst),
             .slice_end => try self.writeSliceEnd(stream, inst),
             .slice_sentinel => try self.writeSliceSentinel(stream, inst),
+            .slice_length => try self.writeSliceLength(stream, inst),
 
             .union_init => try self.writeUnionInit(stream, inst),
 
@@ -752,6 +753,22 @@ const Writer = struct {
         try self.writeInstRef(stream, extra.end);
         try stream.writeAll(", ");
         try self.writeInstRef(stream, extra.sentinel);
+        try stream.writeAll(") ");
+        try self.writeSrc(stream, inst_data.src());
+    }
+
+    fn writeSliceLength(self: *Writer, stream: anytype, inst: Zir.Inst.Index) !void {
+        const inst_data = self.code.instructions.items(.data)[inst].pl_node;
+        const extra = self.code.extraData(Zir.Inst.SliceLength, inst_data.payload_index).data;
+        try self.writeInstRef(stream, extra.lhs);
+        try stream.writeAll(", ");
+        try self.writeInstRef(stream, extra.start);
+        try stream.writeAll(", ");
+        try self.writeInstRef(stream, extra.len);
+        if (extra.sentinel != .none) {
+            try stream.writeAll(", ");
+            try self.writeInstRef(stream, extra.sentinel);
+        }
         try stream.writeAll(") ");
         try self.writeSrc(stream, inst_data.src());
     }

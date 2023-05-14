@@ -2220,6 +2220,17 @@ pub const Target = struct {
                 .longdouble => return 128,
             },
 
+            .opencl => switch (c_type) {
+                .char => return 8,
+                .short, .ushort => return 16,
+                .int, .uint, .float => return 32,
+                .long, .ulong, .double => return 64,
+                .longlong, .ulonglong => return 128,
+                // Note: The OpenCL specification does not guarantee a particular size for long double,
+                // but clang uses 128 bits.
+                .longdouble => return 128,
+            },
+
             .cloudabi,
             .kfreebsd,
             .lv2,
@@ -2234,7 +2245,6 @@ pub const Target = struct {
             .contiki,
             .hermit,
             .hurd,
-            .opencl,
             .glsl450,
             .vulkan,
             .driverkit,

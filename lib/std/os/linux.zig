@@ -1519,6 +1519,28 @@ pub fn sched_getaffinity(pid: pid_t, size: usize, set: *cpu_set_t) usize {
     return 0;
 }
 
+pub fn getcpu(cpu: *u32, node: *u32) usize {
+    return syscall3(.getcpu, cpu, node, null);
+}
+
+pub fn sched_getcpu() usize {
+    var cpu: u32 = undefined;
+    const rc = syscall3(.getcpu, &cpu, null, null);
+    if (@bitCast(isize, rc) < 0) return rc;
+    return @intCast(usize, cpu);
+}
+
+/// libc has no wrapper for this syscall
+pub fn mbind(addr: ?*anyopaque, len: u32, mode: i32, nodemask: *const u32, maxnode: u32, flags: u32) usize {
+    return syscall6(.mbind, addr, len, mode, nodemask, maxnode, flags);
+}
+
+pub fn sched_setaffinity(pid: pid_t, size: usize, set: *const cpu_set_t) usize {
+    const rc = syscall3(.sched_setaffinity, @bitCast(usize, @as(isize, pid)), size, @ptrToInt(set));
+    if (@bitCast(isize, rc) < 0) return rc;
+    return 0;
+}
+
 pub fn epoll_create() usize {
     return epoll_create1(0);
 }
@@ -1629,6 +1651,14 @@ pub fn tcgetattr(fd: fd_t, termios_p: *termios) usize {
 
 pub fn tcsetattr(fd: fd_t, optional_action: TCSA, termios_p: *const termios) usize {
     return syscall3(.ioctl, @bitCast(usize, @as(isize, fd)), T.CSETS + @enumToInt(optional_action), @ptrToInt(termios_p));
+}
+
+pub fn tcgetpgrp(fd: fd_t, pgrp: *pid_t) usize {
+    return syscall3(.ioctl, @bitCast(usize, @as(isize, fd)), T.IOCGPGRP, @ptrToInt(pgrp));
+}
+
+pub fn tcsetpgrp(fd: fd_t, pgrp: *const pid_t) usize {
+    return syscall3(.ioctl, @bitCast(usize, @as(isize, fd)), T.IOCSPGRP, @ptrToInt(pgrp));
 }
 
 pub fn tcdrain(fd: fd_t) usize {
@@ -3529,12 +3559,43 @@ pub const CPU_SETSIZE = 128;
 pub const cpu_set_t = [CPU_SETSIZE / @sizeOf(usize)]usize;
 pub const cpu_count_t = std.meta.Int(.unsigned, std.math.log2(CPU_SETSIZE * 8));
 
+fn cpu_mask(s: usize) cpu_count_t {
+    var x = s & (CPU_SETSIZE * 8);
+    return @intCast(cpu_count_t, 1) << @intCast(u4, x);
+}
+
 pub fn CPU_COUNT(set: cpu_set_t) cpu_count_t {
     var sum: cpu_count_t = 0;
     for (set) |x| {
         sum += @popCount(x);
     }
     return sum;
+}
+
+pub fn CPU_ZERO(set: *cpu_set_t) void {
+    @memset(set, 0);
+}
+
+pub fn CPU_SET(cpu: usize, set: *cpu_set_t) void {
+    const x = cpu / @sizeOf(usize);
+    if (x < @sizeOf(cpu_set_t)) {
+        (set.*)[x] |= cpu_mask(x);
+    }
+}
+
+pub fn CPU_ISSET(cpu: usize, set: cpu_set_t) bool {
+    const x = cpu / @sizeOf(usize);
+    if (x < @sizeOf(cpu_set_t)) {
+        return set[x] & cpu_mask(x);
+    }
+    return false;
+}
+
+pub fn CPU_CLR(cpu: usize, set: *cpu_set_t) void {
+    const x = cpu / @sizeOf(usize);
+    if (x < @sizeOf(cpu_set_t)) {
+        (set.*)[x] &= !cpu_mask(x);
+    }
 }
 
 pub const MINSIGSTKSZ = switch (native_arch) {
