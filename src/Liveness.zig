@@ -103,16 +103,8 @@ fn LivenessPassData(comptime pass: LivenessPass) type {
             /// Every `block` currently under analysis.
             block_scopes: std.AutoHashMapUnmanaged(Air.Inst.Index, BlockScope) = .{},
 
-            /// The set of deaths which should be made to occur at the earliest possible point in
-            /// this control flow branch. These instructions die when they are last referenced in
-            /// the current branch; if unreferenced, they die at the start of the branch. Populated
-            /// when a `br` instruction is reached. If deaths are common to all branches of control
-            /// flow, they may be bubbled up to the parent branch.
-            branch_deaths: std.AutoHashMapUnmanaged(Air.Inst.Index, void) = .{},
-
-            /// The set of instructions currently alive. Instructions which must die in this branch
-            /// (i.e. those in `branch_deaths`) are not in this set, because they must die before
-            /// this point.
+            /// The set of instructions currently alive in the current control
+            /// flow branch.
             live_set: std.AutoHashMapUnmanaged(Air.Inst.Index, void) = .{},
 
             /// The extra data initialized by the `loop_analysis` pass for this pass to consume.
@@ -130,7 +122,6 @@ fn LivenessPassData(comptime pass: LivenessPass) type {
                     block.live_set.deinit(gpa);
                 }
                 self.block_scopes.deinit(gpa);
-                self.branch_deaths.deinit(gpa);
                 self.live_set.deinit(gpa);
                 self.old_extra.deinit(gpa);
             }
@@ -172,7 +163,7 @@ pub fn analyze(gpa: Allocator, air: Air) Allocator.Error!Liveness {
         data.old_extra = a.extra;
         a.extra = .{};
         try analyzeBody(&a, .main_analysis, &data, main_body);
-        assert(data.branch_deaths.count() == 0);
+        assert(data.live_set.count() == 0);
     }
 
     return .{
@@ -870,47 +861,6 @@ fn analyzeBody(
     }
 }
 
-const ControlBranchInfo = struct {
-    branch_deaths: std.AutoHashMapUnmanaged(Air.Inst.Index, void) = .{},
-    live_set: std.AutoHashMapUnmanaged(Air.Inst.Index, void) = .{},
-};
-
-/// Helper function for running `analyzeBody`, but resetting `branch_deaths` and `live_set` to their
-/// original states before returning, returning the modified versions of them. Only makes sense in
-/// the `main_analysis` pass.
-fn analyzeBodyResetBranch(
-    a: *Analysis,
-    comptime pass: LivenessPass,
-    data: *LivenessPassData(pass),
-    body: []const Air.Inst.Index,
-) !ControlBranchInfo {
-    switch (pass) {
-        .main_analysis => {},
-        else => @compileError("Liveness.analyzeBodyResetBranch only makes sense in LivenessPass.main_analysis"),
-    }
-
-    const gpa = a.gpa;
-
-    const old_branch_deaths = try data.branch_deaths.clone(a.gpa);
-    defer {
-        data.branch_deaths.deinit(gpa);
-        data.branch_deaths = old_branch_deaths;
-    }
-
-    const old_live_set = try data.live_set.clone(a.gpa);
-    defer {
-        data.live_set.deinit(gpa);
-        data.live_set = old_live_set;
-    }
-
-    try analyzeBody(a, pass, data, body);
-
-    return .{
-        .branch_deaths = data.branch_deaths.move(),
-        .live_set = data.live_set.move(),
-    };
-}
-
 fn analyzeInst(
     a: *Analysis,
     comptime pass: LivenessPass,
@@ -1325,17 +1275,13 @@ fn analyzeOperands(
             const usize_index = (inst * bpi) / @bitSizeOf(usize);
 
             // This logic must synchronize with `will_die_immediately` in `AnalyzeBigOperands.init`.
-            var immediate_death = false;
-            if (data.branch_deaths.remove(inst)) {
-                log.debug("[{}] %{}: resolved branch death to birth (immediate death)", .{ pass, inst });
-                immediate_death = true;
-                assert(!data.live_set.contains(inst));
-            } else if (data.live_set.remove(inst)) {
+            const immediate_death = if (data.live_set.remove(inst)) blk: {
                 log.debug("[{}] %{}: removed from live set", .{ pass, inst });
-            } else {
+                break :blk false;
+            } else blk: {
                 log.debug("[{}] %{}: immediate death", .{ pass, inst });
-                immediate_death = true;
-            }
+                break :blk true;
+            };
 
             var tomb_bits: Bpi = @as(Bpi, @boolToInt(immediate_death)) << (bpi - 1);
 
@@ -1362,9 +1308,6 @@ fn analyzeOperands(
                     if ((try data.live_set.fetchPut(gpa, operand, {})) == null) {
                         log.debug("[{}] %{}: added %{} to live set (operand dies here)", .{ pass, inst, operand });
                         tomb_bits |= mask;
-                        if (data.branch_deaths.remove(operand)) {
-                            log.debug("[{}] %{}: resolved branch death of %{} to this usage", .{ pass, inst, operand });
-                        }
                     }
                 }
             }
@@ -1391,17 +1334,6 @@ fn analyzeFuncEnd(
         },
 
         .main_analysis => {
-            const gpa = a.gpa;
-
-            // Note that we preserve previous branch deaths - anything that needs to die in our
-            // "parent" branch also needs to die for us.
-
-            try data.branch_deaths.ensureUnusedCapacity(gpa, data.live_set.count());
-            var it = data.live_set.keyIterator();
-            while (it.next()) |key| {
-                const alive = key.*;
-                data.branch_deaths.putAssumeCapacity(alive, {});
-            }
             data.live_set.clearRetainingCapacity();
         },
     }
@@ -1427,26 +1359,6 @@ fn analyzeInstBr(
         .main_analysis => {
             const block_scope = data.block_scopes.get(br.block_inst).?; // we should always be breaking from an enclosing block
 
-            // We mostly preserve previous branch deaths - anything that should die for our
-            // enclosing branch should die for us too. However, if our break target requires such an
-            // operand to be alive, it's actually not something we want to kill, since its "last
-            // use" (i.e. the point at which it should die) is outside of our scope.
-            var it = block_scope.live_set.keyIterator();
-            while (it.next()) |key| {
-                const alive = key.*;
-                _ = data.branch_deaths.remove(alive);
-            }
-            log.debug("[{}] %{}: preserved branch deaths are {}", .{ pass, inst, fmtInstSet(&data.branch_deaths) });
-
-            // Anything that's currently alive but our target doesn't need becomes a branch death.
-            it = data.live_set.keyIterator();
-            while (it.next()) |key| {
-                const alive = key.*;
-                if (!block_scope.live_set.contains(alive)) {
-                    _ = try data.branch_deaths.put(gpa, alive, {});
-                    log.debug("[{}] %{}: added branch death of {}", .{ pass, inst, alive });
-                }
-            }
             const new_live_set = try block_scope.live_set.clone(gpa);
             data.live_set.deinit(gpa);
             data.live_set = new_live_set;
@@ -1607,10 +1519,6 @@ fn analyzeInstLoop(
             try data.live_set.ensureUnusedCapacity(gpa, @intCast(u32, loop_live.len));
             for (loop_live) |alive| {
                 data.live_set.putAssumeCapacity(alive, {});
-                // If the loop requires a branch death operand to be alive, it's not something we
-                // want to kill: its "last use" (i.e. the point at which it should die) is the loop
-                // body itself.
-                _ = data.branch_deaths.remove(alive);
             }
 
             log.debug("[{}] %{}: block live set is {}", .{ pass, inst, fmtInstSet(&data.live_set) });
@@ -1675,61 +1583,19 @@ fn analyzeInstCondBr(
         },
 
         .main_analysis => {
-            var then_info: ControlBranchInfo = switch (inst_type) {
-                .cond_br => try analyzeBodyResetBranch(a, pass, data, then_body),
-                .@"try", .try_ptr => blk: {
-                    var branch_deaths = try data.branch_deaths.clone(gpa);
-                    errdefer branch_deaths.deinit(gpa);
-                    var live_set = try data.live_set.clone(gpa);
-                    errdefer live_set.deinit(gpa);
-                    break :blk .{
-                        .branch_deaths = branch_deaths,
-                        .live_set = live_set,
-                    };
-                },
-            };
-            defer then_info.branch_deaths.deinit(gpa);
-            defer then_info.live_set.deinit(gpa);
-
-            // If this is a `try`, the "then body" (rest of the branch) might have referenced our
-            // result. If so, we want to avoid this value being considered live while analyzing the
-            // else branch.
             switch (inst_type) {
-                .cond_br => {},
-                .@"try", .try_ptr => _ = data.live_set.remove(inst),
+                .cond_br => try analyzeBody(a, pass, data, then_body),
+                .@"try", .try_ptr => {}, // The "then body" is just the remainder of this block
             }
+            var then_live = data.live_set.move();
+            defer then_live.deinit(gpa);
 
             try analyzeBody(a, pass, data, else_body);
-            var else_info: ControlBranchInfo = .{
-                .branch_deaths = data.branch_deaths.move(),
-                .live_set = data.live_set.move(),
-            };
-            defer else_info.branch_deaths.deinit(gpa);
-            defer else_info.live_set.deinit(gpa);
+            var else_live = data.live_set.move();
+            defer else_live.deinit(gpa);
 
-            // Any queued deaths shared between both branches can be queued for us instead
-            {
-                var it = then_info.branch_deaths.keyIterator();
-                while (it.next()) |key| {
-                    const death = key.*;
-                    if (else_info.branch_deaths.remove(death)) {
-                        // We'll remove it from then_deaths below
-                        try data.branch_deaths.put(gpa, death, {});
-                    }
-                }
-                log.debug("[{}] %{}: bubbled deaths {}", .{ pass, inst, fmtInstSet(&data.branch_deaths) });
-                it = data.branch_deaths.keyIterator();
-                while (it.next()) |key| {
-                    const death = key.*;
-                    assert(then_info.branch_deaths.remove(death));
-                }
-            }
-
-            log.debug("[{}] %{}: remaining 'then' branch deaths are {}", .{ pass, inst, fmtInstSet(&then_info.branch_deaths) });
-            log.debug("[{}] %{}: remaining 'else' branch deaths are {}", .{ pass, inst, fmtInstSet(&else_info.branch_deaths) });
-
-            // Deaths that occur in one branch but not another need to be made to occur at the start
-            // of the other branch.
+            // Operands which are alive in one branch but not the other need to die at the start of
+            // the peer branch.
 
             var then_mirrored_deaths: std.ArrayListUnmanaged(Air.Inst.Index) = .{};
             defer then_mirrored_deaths.deinit(gpa);
@@ -1737,14 +1603,12 @@ fn analyzeInstCondBr(
             var else_mirrored_deaths: std.ArrayListUnmanaged(Air.Inst.Index) = .{};
             defer else_mirrored_deaths.deinit(gpa);
 
-            // Note: this invalidates `else_info.live_set`, but expands `then_info.live_set` to
-            // be their union
+            // Note: this invalidates `else_live`, but expands `then_live` to be their union
             {
-                var it = then_info.live_set.keyIterator();
+                var it = then_live.keyIterator();
                 while (it.next()) |key| {
                     const death = key.*;
-                    if (else_info.live_set.remove(death)) continue; // removing makes the loop below faster
-                    if (else_info.branch_deaths.contains(death)) continue;
+                    if (else_live.remove(death)) continue; // removing makes the loop below faster
 
                     // If this is a `try`, the "then body" (rest of the branch) might have
                     // referenced our result. We want to avoid killing this value in the else branch
@@ -1756,16 +1620,14 @@ fn analyzeInstCondBr(
 
                     try else_mirrored_deaths.append(gpa, death);
                 }
-                // Since we removed common stuff above, `else_info.live_set` is now only operands
+                // Since we removed common stuff above, `else_live` is now only operands
                 // which are *only* alive in the else branch
-                it = else_info.live_set.keyIterator();
+                it = else_live.keyIterator();
                 while (it.next()) |key| {
                     const death = key.*;
-                    if (!then_info.branch_deaths.contains(death)) {
-                        try then_mirrored_deaths.append(gpa, death);
-                    }
-                    // Make `then_info.live_set` contain the full live set (i.e. union of both)
-                    try then_info.live_set.put(gpa, death, {});
+                    try then_mirrored_deaths.append(gpa, death);
+                    // Make `then_live` contain the full live set (i.e. union of both)
+                    try then_live.put(gpa, death, {});
                 }
             }
 
@@ -1773,29 +1635,20 @@ fn analyzeInstCondBr(
             log.debug("[{}] %{}: 'else' branch mirrored deaths are {}", .{ pass, inst, fmtInstList(else_mirrored_deaths.items) });
 
             data.live_set.deinit(gpa);
-            data.live_set = then_info.live_set.move();
+            data.live_set = then_live.move(); // Really the union of both live sets
 
             log.debug("[{}] %{}: new live set is {}", .{ pass, inst, fmtInstSet(&data.live_set) });
 
-            // Write the branch deaths to `extra`
-            const then_death_count = then_info.branch_deaths.count() + @intCast(u32, then_mirrored_deaths.items.len);
-            const else_death_count = else_info.branch_deaths.count() + @intCast(u32, else_mirrored_deaths.items.len);
-
+            // Write the mirrored deaths to `extra`
+            const then_death_count = @intCast(u32, then_mirrored_deaths.items.len);
+            const else_death_count = @intCast(u32, else_mirrored_deaths.items.len);
             try a.extra.ensureUnusedCapacity(gpa, std.meta.fields(CondBr).len + then_death_count + else_death_count);
             const extra_index = a.addExtraAssumeCapacity(CondBr{
                 .then_death_count = then_death_count,
                 .else_death_count = else_death_count,
             });
             a.extra.appendSliceAssumeCapacity(then_mirrored_deaths.items);
-            {
-                var it = then_info.branch_deaths.keyIterator();
-                while (it.next()) |key| a.extra.appendAssumeCapacity(key.*);
-            }
             a.extra.appendSliceAssumeCapacity(else_mirrored_deaths.items);
-            {
-                var it = else_info.branch_deaths.keyIterator();
-                while (it.next()) |key| a.extra.appendAssumeCapacity(key.*);
-            }
             try a.special.put(gpa, inst, extra_index);
         },
     }
@@ -1838,61 +1691,24 @@ fn analyzeInstSwitchBr(
             const DeathSet = std.AutoHashMapUnmanaged(Air.Inst.Index, void);
             const DeathList = std.ArrayListUnmanaged(Air.Inst.Index);
 
-            var case_infos = try gpa.alloc(ControlBranchInfo, ncases + 1); // +1 for else
-            defer gpa.free(case_infos);
+            var case_live_sets = try gpa.alloc(std.AutoHashMapUnmanaged(Air.Inst.Index, void), ncases + 1); // +1 for else
+            defer gpa.free(case_live_sets);
 
-            @memset(case_infos, .{});
-            defer for (case_infos) |*info| {
-                info.branch_deaths.deinit(gpa);
-                info.live_set.deinit(gpa);
-            };
+            @memset(case_live_sets, .{});
+            defer for (case_live_sets) |*live_set| live_set.deinit(gpa);
 
             var air_extra_index: usize = switch_br.end;
-            for (case_infos[0..ncases]) |*info| {
+            for (case_live_sets[0..ncases]) |*live_set| {
                 const case = a.air.extraData(Air.SwitchBr.Case, air_extra_index);
                 const case_body = a.air.extra[case.end + case.data.items_len ..][0..case.data.body_len];
                 air_extra_index = case.end + case.data.items_len + case_body.len;
-                info.* = try analyzeBodyResetBranch(a, pass, data, case_body);
+                try analyzeBody(a, pass, data, case_body);
+                live_set.* = data.live_set.move();
             }
             { // else
                 const else_body = a.air.extra[air_extra_index..][0..switch_br.data.else_body_len];
                 try analyzeBody(a, pass, data, else_body);
-                case_infos[ncases] = .{
-                    .branch_deaths = data.branch_deaths.move(),
-                    .live_set = data.live_set.move(),
-                };
-            }
-
-            // Queued deaths common to all cases can be bubbled up
-            {
-                // We can't remove from the set we're iterating over, so we'll store the shared deaths here
-                // temporarily to remove them
-                var shared_deaths: DeathSet = .{};
-                defer shared_deaths.deinit(gpa);
-
-                var it = case_infos[0].branch_deaths.keyIterator();
-                while (it.next()) |key| {
-                    const death = key.*;
-                    for (case_infos[1..]) |*info| {
-                        if (!info.branch_deaths.contains(death)) break;
-                    } else try shared_deaths.put(gpa, death, {});
-                }
-
-                log.debug("[{}] %{}: bubbled deaths {}", .{ pass, inst, fmtInstSet(&shared_deaths) });
-
-                try data.branch_deaths.ensureUnusedCapacity(gpa, shared_deaths.count());
-                it = shared_deaths.keyIterator();
-                while (it.next()) |key| {
-                    const death = key.*;
-                    data.branch_deaths.putAssumeCapacity(death, {});
-                    for (case_infos) |*info| {
-                        _ = info.branch_deaths.remove(death);
-                    }
-                }
-
-                for (case_infos, 0..) |*info, i| {
-                    log.debug("[{}] %{}: case {} remaining branch deaths are {}", .{ pass, inst, i, fmtInstSet(&info.branch_deaths) });
-                }
+                case_live_sets[ncases] = data.live_set.move();
             }
 
             const mirrored_deaths = try gpa.alloc(DeathList, ncases + 1);
@@ -1905,20 +1721,20 @@ fn analyzeInstSwitchBr(
                 var all_alive: DeathSet = .{};
                 defer all_alive.deinit(gpa);
 
-                for (case_infos) |*info| {
-                    try all_alive.ensureUnusedCapacity(gpa, info.live_set.count());
-                    var it = info.live_set.keyIterator();
+                for (case_live_sets) |*live_set| {
+                    try all_alive.ensureUnusedCapacity(gpa, live_set.count());
+                    var it = live_set.keyIterator();
                     while (it.next()) |key| {
                         const alive = key.*;
                         all_alive.putAssumeCapacity(alive, {});
                     }
                 }
 
-                for (mirrored_deaths, case_infos) |*mirrored, *info| {
+                for (mirrored_deaths, case_live_sets) |*mirrored, *live_set| {
                     var it = all_alive.keyIterator();
                     while (it.next()) |key| {
                         const alive = key.*;
-                        if (!info.live_set.contains(alive) and !info.branch_deaths.contains(alive)) {
+                        if (!live_set.contains(alive)) {
                             // Should die at the start of this branch
                             try mirrored.append(gpa, alive);
                         }
@@ -1935,27 +1751,18 @@ fn analyzeInstSwitchBr(
                 log.debug("[{}] %{}: new live set is {}", .{ pass, inst, fmtInstSet(&data.live_set) });
             }
 
-            const else_death_count = case_infos[ncases].branch_deaths.count() + @intCast(u32, mirrored_deaths[ncases].items.len);
-
+            const else_death_count = @intCast(u32, mirrored_deaths[ncases].items.len);
             const extra_index = try a.addExtra(SwitchBr{
                 .else_death_count = else_death_count,
             });
-            for (mirrored_deaths[0..ncases], case_infos[0..ncases]) |mirrored, info| {
-                const num = info.branch_deaths.count() + @intCast(u32, mirrored.items.len);
+            for (mirrored_deaths[0..ncases]) |mirrored| {
+                const num = @intCast(u32, mirrored.items.len);
                 try a.extra.ensureUnusedCapacity(gpa, num + 1);
                 a.extra.appendAssumeCapacity(num);
                 a.extra.appendSliceAssumeCapacity(mirrored.items);
-                {
-                    var it = info.branch_deaths.keyIterator();
-                    while (it.next()) |key| a.extra.appendAssumeCapacity(key.*);
-                }
             }
             try a.extra.ensureUnusedCapacity(gpa, else_death_count);
             a.extra.appendSliceAssumeCapacity(mirrored_deaths[ncases].items);
-            {
-                var it = case_infos[ncases].branch_deaths.keyIterator();
-                while (it.next()) |key| a.extra.appendAssumeCapacity(key.*);
-            }
             try a.special.put(gpa, inst, extra_index);
         },
     }
@@ -1997,7 +1804,7 @@ fn AnalyzeBigOperands(comptime pass: LivenessPass) type {
 
             const will_die_immediately: bool = switch (pass) {
                 .loop_analysis => false, // track everything, since we don't have full liveness information yet
-                .main_analysis => data.branch_deaths.contains(inst) and !data.live_set.contains(inst),
+                .main_analysis => !data.live_set.contains(inst),
             };
 
             return .{
@@ -2048,9 +1855,6 @@ fn AnalyzeBigOperands(comptime pass: LivenessPass) type {
                     if ((try big.data.live_set.fetchPut(gpa, operand, {})) == null) {
                         log.debug("[{}] %{}: added %{} to live set (operand dies here)", .{ pass, big.inst, operand });
                         big.extra_tombs[extra_byte] |= @as(u32, 1) << extra_bit;
-                        if (big.data.branch_deaths.remove(operand)) {
-                            log.debug("[{}] %{}: resolved branch death of %{} to this usage", .{ pass, big.inst, operand });
-                        }
                     }
                 },
             }

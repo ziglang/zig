@@ -1519,7 +1519,7 @@ pub const Mutable = struct {
             r.positive = r_positive;
         }
 
-        if (xy_trailing != 0) {
+        if (xy_trailing != 0 and r.limbs[r.len - 1] != 0) {
             // Manually shift here since we know its limb aligned.
             mem.copyBackwards(Limb, r.limbs[xy_trailing..], r.limbs[0..r.len]);
             @memset(r.limbs[0..xy_trailing], 0);
@@ -4035,7 +4035,7 @@ fn llsquareBasecase(r: []Limb, x: []const Limb) void {
 
     for (x_norm, 0..) |v, i| {
         // Compute and add the squares
-        const overflow = llmulLimb(.add, r[2 * i ..], x[i .. i + 1], v);
+        const overflow = llmulLimb(.add, r[2 * i ..], x[i..][0..1], v);
         assert(!overflow);
     }
 }

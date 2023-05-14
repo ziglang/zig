@@ -74,8 +74,7 @@ pub fn main() !void {
 
     const registry_path = try fs.path.join(allocator, &.{ spirv_headers_root, "include", "spirv", "unified1", "spirv.core.grammar.json" });
     const registry_json = try std.fs.cwd().readFileAlloc(allocator, registry_path, std.math.maxInt(usize));
-    var tokens = std.json.TokenStream.init(registry_json);
-    const registry = try std.json.parse(g.CoreRegistry, &tokens, .{ .allocator = allocator });
+    const registry = try std.json.parseFromSlice(g.CoreRegistry, allocator, registry_json, .{});
 
     const capabilities = for (registry.operand_kinds) |opkind| {
         if (std.mem.eql(u8, opkind.kind, "Capability"))

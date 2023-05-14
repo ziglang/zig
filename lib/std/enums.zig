@@ -48,6 +48,22 @@ pub fn values(comptime E: type) []const E {
     return comptime valuesFromFields(E, @typeInfo(E).Enum.fields);
 }
 
+/// A safe alternative to @tagName() for non-exhaustive enums that doesn't
+/// panic when `e` has no tagged value.
+/// Returns the tag name for `e` or null if no tag exists.
+pub fn tagName(comptime E: type, e: E) ?[]const u8 {
+    return inline for (@typeInfo(E).Enum.fields) |f| {
+        if (@enumToInt(e) == f.value) break f.name;
+    } else null;
+}
+
+test tagName {
+    const E = enum(u8) { a, b, _ };
+    try testing.expect(tagName(E, .a) != null);
+    try testing.expectEqualStrings("a", tagName(E, .a).?);
+    try testing.expect(tagName(E, @intToEnum(E, 42)) == null);
+}
+
 /// Determines the length of a direct-mapped enum array, indexed by
 /// @intCast(usize, @enumToInt(enum_value)).
 /// If the enum is non-exhaustive, the resulting length will only be enough
@@ -731,13 +747,7 @@ pub fn EnumArray(comptime E: type, comptime V: type) type {
     return IndexedArray(EnumIndexer(E), V, mixin.EnumArrayExt);
 }
 
-/// Pass this function as the Ext parameter to Indexed* if you
-/// do not want to attach any extensions.  This parameter was
-/// originally an optional, but optional generic functions
-/// seem to be broken at the moment.
-/// TODO: Once #8169 is fixed, consider switching this param
-/// back to an optional.
-pub fn NoExtension(comptime Self: type) type {
+fn NoExtension(comptime Self: type) type {
     _ = Self;
     return NoExt;
 }
@@ -746,12 +756,12 @@ const NoExt = struct {};
 /// A set type with an Indexer mapping from keys to indices.
 /// Presence or absence is stored as a dense bitfield.  This
 /// type does no allocation and can be copied by value.
-pub fn IndexedSet(comptime I: type, comptime Ext: fn (type) type) type {
+pub fn IndexedSet(comptime I: type, comptime Ext: ?fn (type) type) type {
     comptime ensureIndexer(I);
     return struct {
         const Self = @This();
 
-        pub usingnamespace Ext(Self);
+        pub usingnamespace (Ext orelse NoExtension)(Self);
 
         /// The indexing rules for converting between keys and indices.
         pub const Indexer = I;
@@ -991,12 +1001,12 @@ test "std.enums.EnumSet const iterator" {
 /// A map from keys to values, using an index lookup.  Uses a
 /// bitfield to track presence and a dense array of values.
 /// This type does no allocation and can be copied by value.
-pub fn IndexedMap(comptime I: type, comptime V: type, comptime Ext: fn (type) type) type {
+pub fn IndexedMap(comptime I: type, comptime V: type, comptime Ext: ?fn (type) type) type {
     comptime ensureIndexer(I);
     return struct {
         const Self = @This();
 
-        pub usingnamespace Ext(Self);
+        pub usingnamespace (Ext orelse NoExtension)(Self);
 
         /// The index mapping for this map
         pub const Indexer = I;
@@ -1151,12 +1161,12 @@ pub fn IndexedMap(comptime I: type, comptime V: type, comptime Ext: fn (type) ty
 
 /// A dense array of values, using an indexed lookup.
 /// This type does no allocation and can be copied by value.
-pub fn IndexedArray(comptime I: type, comptime V: type, comptime Ext: fn (type) type) type {
+pub fn IndexedArray(comptime I: type, comptime V: type, comptime Ext: ?fn (type) type) type {
     comptime ensureIndexer(I);
     return struct {
         const Self = @This();
 
-        pub usingnamespace Ext(Self);
+        pub usingnamespace (Ext orelse NoExtension)(Self);
 
         /// The index mapping for this map
         pub const Indexer = I;

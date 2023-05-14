@@ -1701,7 +1701,7 @@ fn dnsParse(
         p += @as(usize, 1) + @boolToInt(p[0] != 0);
         const len = p[8] * @as(usize, 256) + p[9];
         if (@ptrToInt(p) + len > @ptrToInt(r.ptr) + r.len) return error.InvalidDnsPacket;
-        try callback(ctx, p[1], p[10 .. 10 + len], r);
+        try callback(ctx, p[1], p[10..][0..len], r);
         p += 10 + len;
     }
 }

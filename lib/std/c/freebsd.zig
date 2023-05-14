@@ -10,7 +10,6 @@ pub const cpuset_t = extern struct {
     __bits: [(CPU_SETSIZE + (@bitSizeOf(c_long) - 1)) / @bitSizeOf(c_long)]c_long,
 };
 
-// TODO: can eventually serve for the domainset_t's type too.
 fn __BIT_COUNT(bits: []const c_long) c_long {
     var count: c_long = 0;
     for (bits) |b| {
@@ -19,8 +18,39 @@ fn __BIT_COUNT(bits: []const c_long) c_long {
     return count;
 }
 
+fn __BIT_MASK(s: usize) c_long {
+    var x = s % CPU_SETSIZE;
+    return @bitCast(c_long, @intCast(c_ulong, 1) << @intCast(u6, x));
+}
+
 pub fn CPU_COUNT(set: cpuset_t) c_int {
     return @intCast(c_int, __BIT_COUNT(set.__bits[0..]));
+}
+
+pub fn CPU_ZERO(set: *cpuset_t) void {
+    @memset((set.*).__bits[0..], 0);
+}
+
+pub fn CPU_SET(cpu: usize, set: *cpuset_t) void {
+    const x = cpu / @sizeOf(c_long);
+    if (x < @sizeOf(cpuset_t)) {
+        (set.*).__bits[x] |= __BIT_MASK(x);
+    }
+}
+
+pub fn CPU_ISSET(cpu: usize, set: cpuset_t) void {
+    const x = cpu / @sizeOf(c_long);
+    if (x < @sizeOf(cpuset_t)) {
+        return set.__bits[x] & __BIT_MASK(x);
+    }
+    return false;
+}
+
+pub fn CPU_CLR(cpu: usize, set: *cpuset_t) void {
+    const x = cpu / @sizeOf(c_long);
+    if (x < @sizeOf(cpuset_t)) {
+        (set.*).__bits[x] &= !__BIT_MASK(x);
+    }
 }
 
 pub const cpulevel_t = c_int;
@@ -65,6 +95,8 @@ pub extern "c" fn getpid() pid_t;
 pub extern "c" fn kinfo_getfile(pid: pid_t, cntp: *c_int) ?[*]kinfo_file;
 pub extern "c" fn kinfo_getvmmap(pid: pid_t, cntp: *c_int) ?[*]kinfo_vmentry;
 pub extern "c" fn kinfo_getproc(pid: pid_t) ?[*]kinfo_proc;
+pub extern "c" fn kinfo_getvmobject(cntp: *c_int) ?[*]kinfo_vmobject;
+pub extern "c" fn kinfo_getswapvmobject(cntp: *c_int) ?[*]kinfo_vmobject;
 
 pub extern "c" fn cpuset_getaffinity(level: cpulevel_t, which: cpuwhich_t, id: id_t, setsize: usize, mask: *cpuset_t) c_int;
 pub extern "c" fn cpuset_setaffinity(level: cpulevel_t, which: cpuwhich_t, id: id_t, setsize: usize, mask: *const cpuset_t) c_int;
@@ -861,6 +893,29 @@ pub const KINFO_PROC_SIZE = switch (builtin.cpu.arch) {
 comptime {
     assert(@sizeOf(kinfo_proc) == KINFO_PROC_SIZE);
 }
+
+pub const kinfo_vmobject = extern struct {
+    structsize: c_int,
+    tpe: c_int,
+    size: u64,
+    vn_fileid: u64,
+    vn_fsid_freebsd11: u32,
+    ref_count: c_int,
+    shadow_count: c_int,
+    memattr: c_int,
+    resident: u64,
+    active: u64,
+    inactive: u64,
+    type_spec: extern union {
+        _vn_fsid: u64,
+        _backing_obj: u64,
+    },
+    me: u64,
+    _qspare: [6]u64,
+    swapped: u32,
+    _ispare: [7]u32,
+    path: [PATH_MAX]u8,
+};
 
 pub const CTL = struct {
     pub const KERN = 1;
@@ -2563,8 +2618,18 @@ pub const DOMAINSET = struct {
     pub const POLICY_MAX = DOMAINSET.POLICY_INTERLEAVE;
 };
 
+pub const DOMAINSET_SIZE = 256;
 pub const domainset_t = extern struct {
+    __bits: [(DOMAINSET_SIZE + (@sizeOf(domainset) - 1)) / @bitSizeOf(domainset)]domainset,
+};
+
+pub fn DOMAINSET_COUNT(set: domainset_t) c_int {
+    return @intCast(c_int, __BIT_COUNT(set.__bits[0..]));
+}
+
+pub const domainset = extern struct {
     link: LIST_ENTRY,
+    mask: domainset_t,
     policy: u16,
     prefer: domainid_t,
     cnt: domainid_t,
@@ -2573,3 +2638,31 @@ pub const domainset_t = extern struct {
 
 pub extern "c" fn cpuset_getdomain(level: cpulevel_t, which: cpuwhich_t, id: id_t, len: usize, domain: *domainset_t, r: *c_int) c_int;
 pub extern "c" fn cpuset_setdomain(level: cpulevel_t, which: cpuwhich_t, id: id_t, len: usize, domain: *const domainset_t, r: c_int) c_int;
+
+const ioctl_cmd = enum(u32) {
+    VOID = 0x20000000,
+    OUT = 0x40000000,
+    IN = 0x80000000,
+    INOUT = ioctl_cmd.IN | ioctl_cmd.OUT,
+    DIRMASK = ioctl_cmd.VOID | ioctl_cmd.IN | ioctl_cmd.OUT,
+};
+
+fn ioImpl(cmd: ioctl_cmd, op: u8, nr: u8, comptime IT: type) u32 {
+    return @bitCast(u32, @enumToInt(cmd) | @intCast(u32, @truncate(u8, @sizeOf(IT))) << 16 | @intCast(u32, op) << 8 | nr);
+}
+
+pub fn IO(op: u8, nr: u8) u32 {
+    return ioImpl(ioctl_cmd.VOID, op, nr, 0);
+}
+
+pub fn IOR(op: u8, nr: u8, comptime IT: type) u32 {
+    return ioImpl(ioctl_cmd.OUT, op, nr, @sizeOf(IT));
+}
+
+pub fn IOW(op: u8, nr: u8, comptime IT: type) u32 {
+    return ioImpl(ioctl_cmd.IN, op, nr, @sizeOf(IT));
+}
+
+pub fn IOWR(op: u8, nr: u8, comptime IT: type) u32 {
+    return ioImpl(ioctl_cmd.INOUT, op, nr, @sizeOf(IT));
+}

@@ -974,7 +974,7 @@ fn hexDump(out: anytype, bytes: []const u8) !void {
     var line: usize = 0;
     var offset: usize = 0;
     while (line < n16) : (line += 1) {
-        try hexDump16(out, offset, bytes[offset .. offset + 16]);
+        try hexDump16(out, offset, bytes[offset..][0..16]);
         offset += 16;
     }
 
