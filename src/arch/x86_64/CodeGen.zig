@@ -2800,8 +2800,10 @@ fn airMulDivBinOp(self: *Self, inst: Air.Inst.Index) !void {
     const result = result: {
         const tag = self.air.instructions.items(.tag)[inst];
         const dst_ty = self.air.typeOfIndex(inst);
-        if (dst_ty.zigTypeTag() == .Float)
-            break :result try self.genBinOp(inst, tag, bin_op.lhs, bin_op.rhs);
+        switch (dst_ty.zigTypeTag()) {
+            .Float, .Vector => break :result try self.genBinOp(inst, tag, bin_op.lhs, bin_op.rhs),
+            else => {},
+        }
 
         const dst_info = dst_ty.intInfo(self.target.*);
         var src_pl = Type.Payload.Bits{ .base = .{ .tag = switch (dst_info.signedness) {
@@ -6531,6 +6533,15 @@ fn genBinOp(
                         => if (self.hasFeature(.avx)) .{ .vp_b, .sub } else .{ .p_b, .sub },
                         else => null,
                     },
+                    17...32 => switch (air_tag) {
+                        .add,
+                        .addwrap,
+                        => if (self.hasFeature(.avx2)) .{ .vp_b, .add } else null,
+                        .sub,
+                        .subwrap,
+                        => if (self.hasFeature(.avx2)) .{ .vp_b, .sub } else null,
+                        else => null,
+                    },
                     else => null,
                 },
                 16 => switch (lhs_ty.vectorLen()) {
@@ -6541,6 +6552,21 @@ fn genBinOp(
                         .sub,
                         .subwrap,
                         => if (self.hasFeature(.avx)) .{ .vp_w, .sub } else .{ .p_w, .sub },
+                        .mul,
+                        .mulwrap,
+                        => if (self.hasFeature(.avx)) .{ .vp_w, .mull } else .{ .p_d, .mull },
+                        else => null,
+                    },
+                    9...16 => switch (air_tag) {
+                        .add,
+                        .addwrap,
+                        => if (self.hasFeature(.avx2)) .{ .vp_w, .add } else null,
+                        .sub,
+                        .subwrap,
+                        => if (self.hasFeature(.avx2)) .{ .vp_w, .sub } else null,
+                        .mul,
+                        .mulwrap,
+                        => if (self.hasFeature(.avx2)) .{ .vp_w, .mull } else null,
                         else => null,
                     },
                     else => null,
@@ -6553,6 +6579,26 @@ fn genBinOp(
                         .sub,
                         .subwrap,
                         => if (self.hasFeature(.avx)) .{ .vp_d, .sub } else .{ .p_d, .sub },
+                        .mul,
+                        .mulwrap,
+                        => if (self.hasFeature(.avx))
+                            .{ .vp_d, .mull }
+                        else if (self.hasFeature(.sse4_1))
+                            .{ .p_d, .mull }
+                        else
+                            null,
+                        else => null,
+                    },
+                    5...8 => switch (air_tag) {
+                        .add,
+                        .addwrap,
+                        => if (self.hasFeature(.avx2)) .{ .vp_d, .add } else null,
+                        .sub,
+                        .subwrap,
+                        => if (self.hasFeature(.avx2)) .{ .vp_d, .sub } else null,
+                        .mul,
+                        .mulwrap,
+                        => if (self.hasFeature(.avx2)) .{ .vp_d, .mull } else null,
                         else => null,
                     },
                     else => null,
@@ -6565,6 +6611,15 @@ fn genBinOp(
                         .sub,
                         .subwrap,
                         => if (self.hasFeature(.avx)) .{ .vp_q, .sub } else .{ .p_q, .sub },
+                        else => null,
+                    },
+                    3...4 => switch (air_tag) {
+                        .add,
+                        .addwrap,
+                        => if (self.hasFeature(.avx2)) .{ .vp_q, .add } else null,
+                        .sub,
+                        .subwrap,
+                        => if (self.hasFeature(.avx2)) .{ .vp_q, .sub } else null,
                         else => null,
                     },
                     else => null,

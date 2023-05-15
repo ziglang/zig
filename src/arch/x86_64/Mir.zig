@@ -453,6 +453,10 @@ pub const Inst = struct {
         /// Bitwise logical and not of packed single-precision floating-point values
         /// Bitwise logical and not of packed double-precision floating-point values
         andn,
+        /// Multiply packed signed integers and store low result
+        mull,
+        /// Multiply packed signed integers and store high result
+        mulh,
         /// Subtract packed signed integers with signed saturation
         subs,
         /// Subtract packed unsigned integers with unsigned saturation

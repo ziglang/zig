@@ -264,6 +264,7 @@ pub const Mnemonic = enum {
     movd, movq,
     paddb, paddd, paddq, paddsb, paddsw, paddusb, paddusw, paddw,
     pand, pandn, por, pxor,
+    pmulhw, pmullw,
     psubb, psubd, psubq, psubsb, psubsw, psubusb, psubusw, psubw,
     // SSE
     addps, addss,
@@ -317,6 +318,7 @@ pub const Mnemonic = enum {
     insertps,
     pextrb, pextrd, pextrq,
     pinsrb, pinsrd, pinsrq,
+    pmulld,
     roundpd, roundps, roundsd, roundss,
     // AVX
     vaddpd, vaddps, vaddsd, vaddss,
@@ -347,6 +349,7 @@ pub const Mnemonic = enum {
     vpand, vpandn,
     vpextrb, vpextrd, vpextrq, vpextrw,
     vpinsrb, vpinsrd, vpinsrq, vpinsrw,
+    vpmulhw, vpmulld, vpmullw,
     vpor,
     vpshufhw, vpshuflw,
     vpsrld, vpsrlq, vpsrlw,
