@@ -15,7 +15,7 @@ test "cast bool to int" {
     const f = false;
     try expectEqual(@as(u32, 1), @boolToInt(t));
     try expectEqual(@as(u32, 0), @boolToInt(f));
-    try expectEqual(1, @bitCast(i1, @boolToInt(t)));
+    try expectEqual(-1, @bitCast(i1, @boolToInt(t)));
     try expectEqual(0, @bitCast(i1, @boolToInt(f)));
     try expectEqual(u1, @TypeOf(@boolToInt(t)));
     try expectEqual(u1, @TypeOf(@boolToInt(f)));
@@ -25,8 +25,8 @@ test "cast bool to int" {
 fn nonConstCastBoolToInt(t: bool, f: bool) !void {
     try expectEqual(@as(u32, 1), @boolToInt(t));
     try expectEqual(@as(u32, 0), @boolToInt(f));
-    try expectEqual(1, @bitCast(i1, @boolToInt(t)));
-    try expectEqual(0, @bitCast(i1, @boolToInt(f)));
+    try expectEqual(@as(i1, -1), @bitCast(i1, @boolToInt(t)));
+    try expectEqual(@as(i1, 0), @bitCast(i1, @boolToInt(f)));
     try expectEqual(u1, @TypeOf(@boolToInt(t)));
     try expectEqual(u1, @TypeOf(@boolToInt(f)));
 }
