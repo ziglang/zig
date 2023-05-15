@@ -369,6 +369,17 @@ pub const DeclGen = struct {
                         .composite_integer,
                 };
             },
+            .Enum => blk: {
+                var buffer: Type.Payload.Bits = undefined;
+                const int_ty = ty.intTagType(&buffer);
+                const int_info = int_ty.intInfo(target);
+                break :blk ArithmeticTypeInfo{
+                    .bits = int_info.bits,
+                    .is_vector = false,
+                    .signedness = int_info.signedness,
+                    .class = .integer,
+                };
+            },
             // As of yet, there is no vector support in the self-hosted compiler.
             .Vector => self.todo("implement arithmeticTypeInfo for Vector", .{}),
             // TODO: For which types is this the case?
