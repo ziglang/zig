@@ -3417,8 +3417,7 @@ fn airRet(f: *Function, inst: Air.Inst.Index, is_ptr: bool) !CValue {
     const op_inst = Air.refToIndex(un_op);
     const op_ty = f.typeOf(un_op);
     const ret_ty = if (is_ptr) op_ty.childType(mod) else op_ty;
-    var lowered_ret_buf: LowerFnRetTyBuffer = undefined;
-    const lowered_ret_ty = lowerFnRetTy(ret_ty, &lowered_ret_buf, mod);
+    const lowered_ret_ty = try lowerFnRetTy(ret_ty, mod);
 
     if (op_inst != null and f.air.instructions.items(.tag)[op_inst.?] == .call_always_tail) {
         try reap(f, inst, &.{un_op});
@@ -4115,8 +4114,7 @@ fn airCall(
         }
         resolved_arg.* = try f.resolveInst(arg);
         if (arg_cty != try f.typeToIndex(arg_ty, .complete)) {
-            var lowered_arg_buf: LowerFnRetTyBuffer = undefined;
-            const lowered_arg_ty = lowerFnRetTy(arg_ty, &lowered_arg_buf, mod);
+            const lowered_arg_ty = try lowerFnRetTy(arg_ty, mod);
 
             const array_local = try f.allocLocal(inst, lowered_arg_ty);
             try writer.writeAll("memcpy(");
@@ -4146,8 +4144,7 @@ fn airCall(
     };
 
     const ret_ty = fn_ty.fnReturnType();
-    var lowered_ret_buf: LowerFnRetTyBuffer = undefined;
-    const lowered_ret_ty = lowerFnRetTy(ret_ty, &lowered_ret_buf, mod);
+    const lowered_ret_ty = try lowerFnRetTy(ret_ty, mod);
 
     const result_local = result: {
         if (modifier == .always_tail) {
@@ -5200,7 +5197,7 @@ fn fieldLocation(
                 const field_ty = container_ty.structFieldType(next_field_index, mod);
                 if (!field_ty.hasRuntimeBitsIgnoreComptime(mod)) continue;
 
-                break .{ .field = if (container_ty.isSimpleTuple())
+                break .{ .field = if (container_ty.isSimpleTuple(mod))
                     .{ .field = next_field_index }
                 else
                     .{ .identifier = container_ty.structFieldName(next_field_index, mod) } };
@@ -5395,16 +5392,11 @@ fn airStructFieldVal(f: *Function, inst: Air.Inst.Index) !CValue {
 
     const field_name: CValue = switch (struct_ty.ip_index) {
         .none => switch (struct_ty.tag()) {
-            .tuple, .anon_struct => if (struct_ty.isSimpleTuple())
-                .{ .field = extra.field_index }
-            else
-                .{ .identifier = struct_ty.structFieldName(extra.field_index, mod) },
-
             else => unreachable,
         },
         else => switch (mod.intern_pool.indexToKey(struct_ty.ip_index)) {
             .struct_type => switch (struct_ty.containerLayout(mod)) {
-                .Auto, .Extern => if (struct_ty.isSimpleTuple())
+                .Auto, .Extern => if (struct_ty.isSimpleTuple(mod))
                     .{ .field = extra.field_index }
                 else
                     .{ .identifier = struct_ty.structFieldName(extra.field_index, mod) },
@@ -5465,6 +5457,12 @@ fn airStructFieldVal(f: *Function, inst: Air.Inst.Index) !CValue {
                     return local;
                 },
             },
+
+            .anon_struct_type => |anon_struct_type| if (anon_struct_type.names.len == 0)
+                .{ .field = extra.field_index }
+            else
+                .{ .identifier = struct_ty.structFieldName(extra.field_index, mod) },
+
             .union_type => |union_type| field_name: {
                 const union_obj = mod.unionPtr(union_type.index);
                 if (union_obj.layout == .Packed) {
@@ -6791,7 +6789,7 @@ fn airAggregateInit(f: *Function, inst: Air.Inst.Index) !CValue {
                 if (!field_ty.hasRuntimeBitsIgnoreComptime(mod)) continue;
 
                 const a = try Assignment.start(f, writer, field_ty);
-                try f.writeCValueMember(writer, local, if (inst_ty.isSimpleTuple())
+                try f.writeCValueMember(writer, local, if (inst_ty.isSimpleTuple(mod))
                     .{ .field = field_i }
                 else
                     .{ .identifier = inst_ty.structFieldName(field_i, mod) });
@@ -7704,25 +7702,21 @@ const Vectorize = struct {
     }
 };
 
-const LowerFnRetTyBuffer = struct {
-    names: [1][]const u8,
-    types: [1]Type,
-    values: [1]Value,
-    payload: Type.Payload.AnonStruct,
-};
-fn lowerFnRetTy(ret_ty: Type, buffer: *LowerFnRetTyBuffer, mod: *Module) Type {
-    if (ret_ty.zigTypeTag(mod) == .NoReturn) return Type.noreturn;
+fn lowerFnRetTy(ret_ty: Type, mod: *Module) !Type {
+    if (ret_ty.ip_index == .noreturn_type) return Type.noreturn;
 
     if (lowersToArray(ret_ty, mod)) {
-        buffer.names = [1][]const u8{"array"};
-        buffer.types = [1]Type{ret_ty};
-        buffer.values = [1]Value{Value.@"unreachable"};
-        buffer.payload = .{ .data = .{
-            .names = &buffer.names,
-            .types = &buffer.types,
-            .values = &buffer.values,
-        } };
-        return Type.initPayload(&buffer.payload.base);
+        const names = [1]InternPool.NullTerminatedString{
+            try mod.intern_pool.getOrPutString(mod.gpa, "array"),
+        };
+        const types = [1]InternPool.Index{ret_ty.ip_index};
+        const values = [1]InternPool.Index{.none};
+        const interned = try mod.intern(.{ .anon_struct_type = .{
+            .names = &names,
+            .types = &types,
+            .values = &values,
+        } });
+        return interned.toType();
     }
 
     return if (ret_ty.hasRuntimeBitsIgnoreComptime(mod)) ret_ty else Type.void;

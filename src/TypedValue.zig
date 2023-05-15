@@ -177,13 +177,16 @@ pub fn print(
                 }
 
                 if (field_ptr.container_ty.zigTypeTag(mod) == .Struct) {
-                    switch (field_ptr.container_ty.tag()) {
-                        .tuple => return writer.print(".@\"{d}\"", .{field_ptr.field_index}),
-                        else => {
-                            const field_name = field_ptr.container_ty.structFieldName(field_ptr.field_index, mod);
-                            return writer.print(".{s}", .{field_name});
+                    switch (mod.intern_pool.indexToKey(field_ptr.container_ty.ip_index)) {
+                        .anon_struct_type => |anon_struct| {
+                            if (anon_struct.names.len == 0) {
+                                return writer.print(".@\"{d}\"", .{field_ptr.field_index});
+                            }
                         },
+                        else => {},
                     }
+                    const field_name = field_ptr.container_ty.structFieldName(field_ptr.field_index, mod);
+                    return writer.print(".{s}", .{field_name});
                 } else if (field_ptr.container_ty.zigTypeTag(mod) == .Union) {
                     const field_name = field_ptr.container_ty.unionFields(mod).keys()[field_ptr.field_index];
                     return writer.print(".{s}", .{field_name});
@@ -396,12 +399,9 @@ fn printAggregate(
         while (i < max_len) : (i += 1) {
             if (i != 0) try writer.writeAll(", ");
             switch (ty.ip_index) {
-                .none => switch (ty.tag()) {
-                    .anon_struct => try writer.print(".{s} = ", .{ty.structFieldName(i, mod)}),
-                    else => {},
-                },
+                .none => {}, // TODO make this unreachable after finishing InternPool migration
                 else => switch (mod.intern_pool.indexToKey(ty.ip_index)) {
-                    .struct_type => try writer.print(".{s} = ", .{ty.structFieldName(i, mod)}),
+                    .struct_type, .anon_struct_type => try writer.print(".{s} = ", .{ty.structFieldName(i, mod)}),
                     else => {},
                 },
             }

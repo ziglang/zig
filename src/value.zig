@@ -1889,26 +1889,28 @@ pub const Value = struct {
                 const b_field_vals = b.castTag(.aggregate).?.data;
                 assert(a_field_vals.len == b_field_vals.len);
 
-                if (ty.isSimpleTupleOrAnonStruct()) {
-                    const types = ty.tupleFields().types;
-                    assert(types.len == a_field_vals.len);
-                    for (types, 0..) |field_ty, i| {
-                        if (!(try eqlAdvanced(a_field_vals[i], field_ty, b_field_vals[i], field_ty, mod, opt_sema))) {
-                            return false;
+                switch (mod.intern_pool.indexToKey(ty.ip_index)) {
+                    .anon_struct_type => |anon_struct| {
+                        assert(anon_struct.types.len == a_field_vals.len);
+                        for (anon_struct.types, 0..) |field_ty, i| {
+                            if (!(try eqlAdvanced(a_field_vals[i], field_ty.toType(), b_field_vals[i], field_ty.toType(), mod, opt_sema))) {
+                                return false;
+                            }
                         }
-                    }
-                    return true;
-                }
-
-                if (ty.zigTypeTag(mod) == .Struct) {
-                    const fields = ty.structFields(mod).values();
-                    assert(fields.len == a_field_vals.len);
-                    for (fields, 0..) |field, i| {
-                        if (!(try eqlAdvanced(a_field_vals[i], field.ty, b_field_vals[i], field.ty, mod, opt_sema))) {
-                            return false;
+                        return true;
+                    },
+                    .struct_type => |struct_type| {
+                        const struct_obj = mod.structPtrUnwrap(struct_type.index).?;
+                        const fields = struct_obj.fields.values();
+                        assert(fields.len == a_field_vals.len);
+                        for (fields, 0..) |field, i| {
+                            if (!(try eqlAdvanced(a_field_vals[i], field.ty, b_field_vals[i], field.ty, mod, opt_sema))) {
+                                return false;
+                            }
                         }
-                    }
-                    return true;
+                        return true;
+                    },
+                    else => {},
                 }
 
                 const elem_ty = ty.childType(mod);
@@ -2016,20 +2018,6 @@ pub const Value = struct {
                 // Here we have to check for value equality, as-if `a` has been coerced to `ty`.
                 if ((try ty.onePossibleValue(mod)) != null) {
                     return true;
-                }
-                if (a_ty.castTag(.anon_struct)) |payload| {
-                    const tuple = payload.data;
-                    if (tuple.values.len != 1) {
-                        return false;
-                    }
-                    const field_name = tuple.names[0];
-                    const union_obj = mod.typeToUnion(ty).?;
-                    const field_index = @intCast(u32, union_obj.fields.getIndex(field_name) orelse return false);
-                    const tag_and_val = b.castTag(.@"union").?.data;
-                    const field_tag = try mod.enumValueFieldIndex(union_obj.tag_ty, field_index);
-                    const tag_matches = tag_and_val.tag.eql(field_tag, union_obj.tag_ty, mod);
-                    if (!tag_matches) return false;
-                    return eqlAdvanced(tag_and_val.val, union_obj.tag_ty, tuple.values[0], tuple.types[0], mod, opt_sema);
                 }
                 return false;
             },

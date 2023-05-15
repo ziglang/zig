@@ -333,13 +333,12 @@ pub const DeclState = struct {
                 // DW.AT.byte_size, DW.FORM.udata
                 try leb128.writeULEB128(dbg_info_buffer.writer(), ty.abiSize(mod));
 
-                switch (ty.tag()) {
-                    .tuple, .anon_struct => {
+                switch (mod.intern_pool.indexToKey(ty.ip_index)) {
+                    .anon_struct_type => |fields| {
                         // DW.AT.name, DW.FORM.string
                         try dbg_info_buffer.writer().print("{}\x00", .{ty.fmt(mod)});
 
-                        const fields = ty.tupleFields();
-                        for (fields.types, 0..) |field, field_index| {
+                        for (fields.types, 0..) |field_ty, field_index| {
                             // DW.AT.member
                             try dbg_info_buffer.append(@enumToInt(AbbrevKind.struct_member));
                             // DW.AT.name, DW.FORM.string
@@ -347,28 +346,30 @@ pub const DeclState = struct {
                             // DW.AT.type, DW.FORM.ref4
                             var index = dbg_info_buffer.items.len;
                             try dbg_info_buffer.resize(index + 4);
-                            try self.addTypeRelocGlobal(atom_index, field, @intCast(u32, index));
+                            try self.addTypeRelocGlobal(atom_index, field_ty.toType(), @intCast(u32, index));
                             // DW.AT.data_member_location, DW.FORM.udata
                             const field_off = ty.structFieldOffset(field_index, mod);
                             try leb128.writeULEB128(dbg_info_buffer.writer(), field_off);
                         }
                     },
-                    else => {
+                    .struct_type => |struct_type| s: {
+                        const struct_obj = mod.structPtrUnwrap(struct_type.index) orelse break :s;
                         // DW.AT.name, DW.FORM.string
                         const struct_name = try ty.nameAllocArena(arena, mod);
                         try dbg_info_buffer.ensureUnusedCapacity(struct_name.len + 1);
                         dbg_info_buffer.appendSliceAssumeCapacity(struct_name);
                         dbg_info_buffer.appendAssumeCapacity(0);
 
-                        const struct_obj = mod.typeToStruct(ty).?;
                         if (struct_obj.layout == .Packed) {
                             log.debug("TODO implement .debug_info for packed structs", .{});
                             break :blk;
                         }
 
-                        const fields = ty.structFields(mod);
-                        for (fields.keys(), 0..) |field_name, field_index| {
-                            const field = fields.get(field_name).?;
+                        for (
+                            struct_obj.fields.keys(),
+                            struct_obj.fields.values(),
+                            0..,
+                        ) |field_name, field, field_index| {
                             if (!field.ty.hasRuntimeBits(mod)) continue;
                             // DW.AT.member
                             try dbg_info_buffer.ensureUnusedCapacity(field_name.len + 2);
@@ -385,6 +386,7 @@ pub const DeclState = struct {
                             try leb128.writeULEB128(dbg_info_buffer.writer(), field_off);
                         }
                     },
+                    else => unreachable,
                 }
 
                 // DW.AT.structure_type delimit children
