@@ -2885,26 +2885,25 @@ fn wrapOperand(func: *CodeGen, operand: WValue, ty: Type) InnerError!WValue {
     return WValue{ .stack = {} };
 }
 
-fn lowerParentPtr(func: *CodeGen, ptr_val: Value, ptr_child_ty: Type) InnerError!WValue {
+fn lowerParentPtr(func: *CodeGen, ptr_val: Value, offset: u32) InnerError!WValue {
     switch (ptr_val.tag()) {
         .decl_ref_mut => {
             const decl_index = ptr_val.castTag(.decl_ref_mut).?.data.decl_index;
-            return func.lowerParentPtrDecl(ptr_val, decl_index);
+            return func.lowerParentPtrDecl(ptr_val, decl_index, offset);
         },
         .decl_ref => {
             const decl_index = ptr_val.castTag(.decl_ref).?.data;
-            return func.lowerParentPtrDecl(ptr_val, decl_index);
+            return func.lowerParentPtrDecl(ptr_val, decl_index, offset);
         },
         .variable => {
             const decl_index = ptr_val.castTag(.variable).?.data.owner_decl;
-            return func.lowerParentPtrDecl(ptr_val, decl_index);
+            return func.lowerParentPtrDecl(ptr_val, decl_index, offset);
         },
         .field_ptr => {
             const field_ptr = ptr_val.castTag(.field_ptr).?.data;
             const parent_ty = field_ptr.container_ty;
-            const parent_ptr = try func.lowerParentPtr(field_ptr.container_ptr, parent_ty);
 
-            const offset = switch (parent_ty.zigTypeTag()) {
+            const field_offset = switch (parent_ty.zigTypeTag()) {
                 .Struct => switch (parent_ty.containerLayout()) {
                     .Packed => parent_ty.packedStructFieldByteOffset(field_ptr.field_index, func.target),
                     else => parent_ty.structFieldOffset(field_ptr.field_index, func.target),
@@ -2917,8 +2916,8 @@ fn lowerParentPtr(func: *CodeGen, ptr_val: Value, ptr_child_ty: Type) InnerError
                         if (layout.payload_align > layout.tag_align) break :blk 0;
 
                         // tag is stored first so calculate offset from where payload starts
-                        const offset = @intCast(u32, std.mem.alignForwardGeneric(u64, layout.tag_size, layout.tag_align));
-                        break :blk offset;
+                        const field_offset = @intCast(u32, std.mem.alignForwardGeneric(u64, layout.tag_size, layout.tag_align));
+                        break :blk field_offset;
                     },
                 },
                 .Pointer => switch (parent_ty.ptrSize()) {
@@ -2931,43 +2930,23 @@ fn lowerParentPtr(func: *CodeGen, ptr_val: Value, ptr_child_ty: Type) InnerError
                 },
                 else => unreachable,
             };
-
-            return switch (parent_ptr) {
-                .memory => |ptr| WValue{
-                    .memory_offset = .{
-                        .pointer = ptr,
-                        .offset = @intCast(u32, offset),
-                    },
-                },
-                .memory_offset => |mem_off| WValue{
-                    .memory_offset = .{
-                        .pointer = mem_off.pointer,
-                        .offset = @intCast(u32, offset) + mem_off.offset,
-                    },
-                },
-                else => unreachable,
-            };
+            return func.lowerParentPtr(field_ptr.container_ptr, offset + @intCast(u32, field_offset));
         },
         .elem_ptr => {
             const elem_ptr = ptr_val.castTag(.elem_ptr).?.data;
             const index = elem_ptr.index;
-            const offset = index * ptr_child_ty.abiSize(func.target);
-            const array_ptr = try func.lowerParentPtr(elem_ptr.array_ptr, elem_ptr.elem_ty);
-
-            return WValue{ .memory_offset = .{
-                .pointer = array_ptr.memory,
-                .offset = @intCast(u32, offset),
-            } };
+            const elem_offset = index * elem_ptr.elem_ty.abiSize(func.target);
+            return func.lowerParentPtr(elem_ptr.array_ptr, offset + @intCast(u32, elem_offset));
         },
         .opt_payload_ptr => {
             const payload_ptr = ptr_val.castTag(.opt_payload_ptr).?.data;
-            return func.lowerParentPtr(payload_ptr.container_ptr, payload_ptr.container_ty);
+            return func.lowerParentPtr(payload_ptr.container_ptr, offset);
         },
         else => |tag| return func.fail("TODO: Implement lowerParentPtr for tag: {}", .{tag}),
     }
 }
 
-fn lowerParentPtrDecl(func: *CodeGen, ptr_val: Value, decl_index: Module.Decl.Index) InnerError!WValue {
+fn lowerParentPtrDecl(func: *CodeGen, ptr_val: Value, decl_index: Module.Decl.Index, offset: u32) InnerError!WValue {
     const module = func.bin_file.base.options.module.?;
     const decl = module.declPtr(decl_index);
     module.markDeclAlive(decl);
@@ -2976,10 +2955,10 @@ fn lowerParentPtrDecl(func: *CodeGen, ptr_val: Value, decl_index: Module.Decl.In
         .data = decl.ty,
     };
     const ptr_ty = Type.initPayload(&ptr_ty_payload.base);
-    return func.lowerDeclRefValue(.{ .ty = ptr_ty, .val = ptr_val }, decl_index);
+    return func.lowerDeclRefValue(.{ .ty = ptr_ty, .val = ptr_val }, decl_index, offset);
 }
 
-fn lowerDeclRefValue(func: *CodeGen, tv: TypedValue, decl_index: Module.Decl.Index) InnerError!WValue {
+fn lowerDeclRefValue(func: *CodeGen, tv: TypedValue, decl_index: Module.Decl.Index, offset: u32) InnerError!WValue {
     if (tv.ty.isSlice()) {
         return WValue{ .memory = try func.bin_file.lowerUnnamedConst(tv, decl_index) };
     }
@@ -2998,7 +2977,9 @@ fn lowerDeclRefValue(func: *CodeGen, tv: TypedValue, decl_index: Module.Decl.Ind
     if (decl.ty.zigTypeTag() == .Fn) {
         try func.bin_file.addTableFunction(target_sym_index);
         return WValue{ .function_index = target_sym_index };
-    } else return WValue{ .memory = target_sym_index };
+    } else if (offset == 0) {
+        return WValue{ .memory = target_sym_index };
+    } else return WValue{ .memory_offset = .{ .pointer = target_sym_index, .offset = offset } };
 }
 
 /// Converts a signed integer to its 2's complement form and returns
@@ -3025,11 +3006,11 @@ fn lowerConstant(func: *CodeGen, arg_val: Value, ty: Type) InnerError!WValue {
     if (val.isUndefDeep()) return func.emitUndefined(ty);
     if (val.castTag(.decl_ref)) |decl_ref| {
         const decl_index = decl_ref.data;
-        return func.lowerDeclRefValue(.{ .ty = ty, .val = val }, decl_index);
+        return func.lowerDeclRefValue(.{ .ty = ty, .val = val }, decl_index, 0);
     }
     if (val.castTag(.decl_ref_mut)) |decl_ref_mut| {
         const decl_index = decl_ref_mut.data.decl_index;
-        return func.lowerDeclRefValue(.{ .ty = ty, .val = val }, decl_index);
+        return func.lowerDeclRefValue(.{ .ty = ty, .val = val }, decl_index, 0);
     }
     const target = func.target;
     switch (ty.zigTypeTag()) {
@@ -3063,9 +3044,7 @@ fn lowerConstant(func: *CodeGen, arg_val: Value, ty: Type) InnerError!WValue {
             else => unreachable,
         },
         .Pointer => switch (val.tag()) {
-            .field_ptr, .elem_ptr, .opt_payload_ptr => {
-                return func.lowerParentPtr(val, ty.childType());
-            },
+            .field_ptr, .elem_ptr, .opt_payload_ptr => return func.lowerParentPtr(val, 0),
             .int_u64, .one => return WValue{ .imm32 = @intCast(u32, val.toUnsignedInt(target)) },
             .zero, .null_value => return WValue{ .imm32 = 0 },
             else => return func.fail("Wasm TODO: lowerConstant for other const pointer tag {}", .{val.tag()}),
@@ -5281,7 +5260,7 @@ fn airMemcpy(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     const src_ty = func.air.typeOf(bin_op.rhs);
     const len = switch (dst_ty.ptrSize()) {
         .Slice => try func.sliceLen(dst),
-        .One => @as(WValue, .{ .imm64 = dst_ty.childType().arrayLen() }),
+        .One => @as(WValue, .{ .imm32 = @intCast(u32, dst_ty.childType().arrayLen()) }),
         .C, .Many => unreachable,
     };
     const dst_ptr = try func.sliceOrArrayPtr(dst, dst_ty);
