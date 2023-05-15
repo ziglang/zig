@@ -5068,12 +5068,8 @@ fn airUnionInit(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
 
         const tag_int = blk: {
             const tag_ty = union_ty.unionTagTypeHypothetical(mod);
-            const enum_field_index = tag_ty.enumFieldIndex(field_name).?;
-            var tag_val_payload: Value.Payload.U32 = .{
-                .base = .{ .tag = .enum_field_index },
-                .data = @intCast(u32, enum_field_index),
-            };
-            const tag_val = Value.initPayload(&tag_val_payload.base);
+            const enum_field_index = tag_ty.enumFieldIndex(field_name, mod).?;
+            const tag_val = try mod.enumValueFieldIndex(tag_ty, enum_field_index);
             break :blk try func.lowerConstant(tag_val, tag_ty);
         };
         if (layout.payload_size == 0) {

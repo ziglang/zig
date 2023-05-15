@@ -1951,7 +1951,7 @@ pub const CType = extern union {
 
                         defer c_field_i += 1;
                         fields_pl[c_field_i] = .{
-                            .name = try if (ty.isSimpleTuple())
+                            .name = try if (ty.isSimpleTuple(mod))
                                 std.fmt.allocPrintZ(arena, "f{}", .{field_i})
                             else
                                 arena.dupeZ(u8, switch (zig_ty_tag) {
@@ -2102,7 +2102,7 @@ pub const CType = extern union {
                                     .payload => unreachable,
                                 }) or !mem.eql(
                                     u8,
-                                    if (ty.isSimpleTuple())
+                                    if (ty.isSimpleTuple(mod))
                                         std.fmt.bufPrint(&name_buf, "f{}", .{field_i}) catch unreachable
                                     else switch (zig_ty_tag) {
                                         .Struct => ty.structFieldName(field_i, mod),
@@ -2224,7 +2224,7 @@ pub const CType = extern union {
                                     .global => .global,
                                     .payload => unreachable,
                                 });
-                                hasher.update(if (ty.isSimpleTuple())
+                                hasher.update(if (ty.isSimpleTuple(mod))
                                     std.fmt.bufPrint(&name_buf, "f{}", .{field_i}) catch unreachable
                                 else switch (zig_ty_tag) {
                                     .Struct => ty.structFieldName(field_i, mod),

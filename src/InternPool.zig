@@ -137,9 +137,14 @@ pub const Key = union(enum) {
         payload_type: Index,
     },
     simple_type: SimpleType,
-    /// If `empty_struct_type` is handled separately, then this value may be
-    /// safely assumed to never be `none`.
+    /// This represents a struct that has been explicitly declared in source code,
+    /// or was created with `@Type`. It is unique and based on a declaration.
+    /// It may be a tuple, if declared like this: `struct {A, B, C}`.
     struct_type: StructType,
+    /// This is an anonymous struct or tuple type which has no corresponding
+    /// declaration. It is used for types that have no `struct` keyword in the
+    /// source code, and were not created via `@Type`.
+    anon_struct_type: AnonStructType,
     union_type: UnionType,
     opaque_type: OpaqueType,
     enum_type: EnumType,
@@ -168,7 +173,7 @@ pub const Key = union(enum) {
     /// Each element/field stored as an `Index`.
     /// In the case of sentinel-terminated arrays, the sentinel value *is* stored,
     /// so the slice length will be one more than the type's array length.
-    aggregate: Aggregate,
+    aggregate: Key.Aggregate,
     /// An instance of a union.
     un: Union,
 
@@ -222,20 +227,23 @@ pub const Key = union(enum) {
         namespace: Module.Namespace.Index,
     };
 
-    /// There are three possibilities here:
-    /// * `@TypeOf(.{})` (untyped empty struct literal)
-    ///   - namespace == .none, index == .none
-    /// * A struct which has a namepace, but no fields.
-    ///   - index == .none
-    /// * A struct which has fields as well as a namepace.
     pub const StructType = struct {
-        /// The `none` tag is used to represent two cases:
-        /// * `@TypeOf(.{})`, in which case `namespace` will also be `none`.
-        /// * A struct with no fields, in which case `namespace` will be populated.
+        /// The `none` tag is used to represent a struct with no fields.
         index: Module.Struct.OptionalIndex,
-        /// This will be `none` only in the case of `@TypeOf(.{})`
-        /// (`Index.empty_struct_type`).
+        /// May be `none` if the struct has no declarations.
         namespace: Module.Namespace.OptionalIndex,
+    };
+
+    pub const AnonStructType = struct {
+        types: []const Index,
+        /// This may be empty, indicating this is a tuple.
+        names: []const NullTerminatedString,
+        /// These elements may be `none`, indicating runtime-known.
+        values: []const Index,
+
+        pub fn isTuple(self: AnonStructType) bool {
+            return self.names.len == 0;
+        }
     };
 
     pub const UnionType = struct {
@@ -498,6 +506,12 @@ pub const Key = union(enum) {
                 std.hash.autoHash(hasher, aggregate.ty);
                 for (aggregate.fields) |field| std.hash.autoHash(hasher, field);
             },
+
+            .anon_struct_type => |anon_struct_type| {
+                for (anon_struct_type.types) |elem| std.hash.autoHash(hasher, elem);
+                for (anon_struct_type.values) |elem| std.hash.autoHash(hasher, elem);
+                for (anon_struct_type.names) |elem| std.hash.autoHash(hasher, elem);
+            },
         }
     }
 
@@ -650,6 +664,12 @@ pub const Key = union(enum) {
                 if (a_info.ty != b_info.ty) return false;
                 return std.mem.eql(Index, a_info.fields, b_info.fields);
             },
+            .anon_struct_type => |a_info| {
+                const b_info = b.anon_struct_type;
+                return std.mem.eql(Index, a_info.types, b_info.types) and
+                    std.mem.eql(Index, a_info.values, b_info.values) and
+                    std.mem.eql(NullTerminatedString, a_info.names, b_info.names);
+            },
         }
     }
 
@@ -666,6 +686,7 @@ pub const Key = union(enum) {
             .union_type,
             .opaque_type,
             .enum_type,
+            .anon_struct_type,
             => .type_type,
 
             inline .ptr,
@@ -1020,9 +1041,10 @@ pub const static_keys = [_]Key{
     .{ .simple_type = .var_args_param },
 
     // empty_struct_type
-    .{ .struct_type = .{
-        .namespace = .none,
-        .index = .none,
+    .{ .anon_struct_type = .{
+        .types = &.{},
+        .names = &.{},
+        .values = &.{},
     } },
 
     .{ .simple_value = .undefined },
@@ -1144,6 +1166,12 @@ pub const Tag = enum(u8) {
     /// Module.Struct object allocated for it.
     /// data is Module.Namespace.Index.
     type_struct_ns,
+    /// An AnonStructType which stores types, names, and values for each field.
+    /// data is extra index of `TypeStructAnon`.
+    type_struct_anon,
+    /// An AnonStructType which has only types and values for each field.
+    /// data is extra index of `TypeStructAnon`.
+    type_tuple_anon,
     /// A tagged union type.
     /// `data` is `Module.Union.Index`.
     type_union_tagged,
@@ -1249,6 +1277,26 @@ pub const Tag = enum(u8) {
     only_possible_value,
     /// data is extra index to Key.Union.
     union_value,
+    /// An instance of a struct, array, or vector.
+    /// data is extra index to `Aggregate`.
+    aggregate,
+};
+
+/// Trailing:
+/// 0. element: Index for each len
+/// len is determined by the aggregate type.
+pub const Aggregate = struct {
+    /// The type of the aggregate.
+    ty: Index,
+};
+
+/// Trailing:
+/// 0. type: Index for each fields_len
+/// 1. value: Index for each fields_len
+/// 2. name: NullTerminatedString for each fields_len
+/// The set of field names is omitted when the `Tag` is `type_tuple_anon`.
+pub const TypeStructAnon = struct {
+    fields_len: u32,
 };
 
 /// Having `SimpleType` and `SimpleValue` in separate enums makes it easier to
@@ -1572,6 +1620,7 @@ pub fn deinit(ip: *InternPool, gpa: Allocator) void {
 }
 
 pub fn indexToKey(ip: InternPool, index: Index) Key {
+    assert(index != .none);
     const item = ip.items.get(@enumToInt(index));
     const data = item.data;
     return switch (item.tag) {
@@ -1658,6 +1707,30 @@ pub fn indexToKey(ip: InternPool, index: Index) Key {
             .index = .none,
             .namespace = @intToEnum(Module.Namespace.Index, data).toOptional(),
         } },
+
+        .type_struct_anon => {
+            const type_struct_anon = ip.extraDataTrail(TypeStructAnon, data);
+            const fields_len = type_struct_anon.data.fields_len;
+            const types = ip.extra.items[type_struct_anon.end..][0..fields_len];
+            const values = ip.extra.items[type_struct_anon.end + fields_len ..][0..fields_len];
+            const names = ip.extra.items[type_struct_anon.end + 2 * fields_len ..][0..fields_len];
+            return .{ .anon_struct_type = .{
+                .types = @ptrCast([]const Index, types),
+                .values = @ptrCast([]const Index, values),
+                .names = @ptrCast([]const NullTerminatedString, names),
+            } };
+        },
+        .type_tuple_anon => {
+            const type_struct_anon = ip.extraDataTrail(TypeStructAnon, data);
+            const fields_len = type_struct_anon.data.fields_len;
+            const types = ip.extra.items[type_struct_anon.end..][0..fields_len];
+            const values = ip.extra.items[type_struct_anon.end + fields_len ..][0..fields_len];
+            return .{ .anon_struct_type = .{
+                .types = @ptrCast([]const Index, types),
+                .values = @ptrCast([]const Index, values),
+                .names = &.{},
+            } };
+        },
 
         .type_union_untagged => .{ .union_type = .{
             .index = @intToEnum(Module.Union.Index, data),
@@ -1796,6 +1869,15 @@ pub fn indexToKey(ip: InternPool, index: Index) Key {
                 } },
                 else => unreachable,
             };
+        },
+        .aggregate => {
+            const extra = ip.extraDataTrail(Aggregate, data);
+            const len = @intCast(u32, ip.aggregateTypeLen(extra.data.ty));
+            const fields = @ptrCast([]const Index, ip.extra.items[extra.end..][0..len]);
+            return .{ .aggregate = .{
+                .ty = extra.data.ty,
+                .fields = fields,
+            } };
         },
         .union_value => .{ .un = ip.extraData(Key.Union, data) },
         .enum_tag => .{ .enum_tag = ip.extraData(Key.EnumTag, data) },
@@ -1980,6 +2062,45 @@ pub fn get(ip: *InternPool, gpa: Allocator, key: Key) Allocator.Error!Index {
                 .tag = .type_struct,
                 .data = @enumToInt(Module.Struct.OptionalIndex.none),
             });
+        },
+
+        .anon_struct_type => |anon_struct_type| {
+            assert(anon_struct_type.types.len == anon_struct_type.values.len);
+            for (anon_struct_type.types) |elem| assert(elem != .none);
+
+            const fields_len = @intCast(u32, anon_struct_type.types.len);
+            if (anon_struct_type.names.len == 0) {
+                try ip.extra.ensureUnusedCapacity(
+                    gpa,
+                    @typeInfo(TypeStructAnon).Struct.fields.len + (fields_len * 2),
+                );
+                ip.items.appendAssumeCapacity(.{
+                    .tag = .type_tuple_anon,
+                    .data = ip.addExtraAssumeCapacity(TypeStructAnon{
+                        .fields_len = fields_len,
+                    }),
+                });
+                ip.extra.appendSliceAssumeCapacity(@ptrCast([]const u32, anon_struct_type.types));
+                ip.extra.appendSliceAssumeCapacity(@ptrCast([]const u32, anon_struct_type.values));
+                return @intToEnum(Index, ip.items.len - 1);
+            }
+
+            assert(anon_struct_type.names.len == anon_struct_type.types.len);
+
+            try ip.extra.ensureUnusedCapacity(
+                gpa,
+                @typeInfo(TypeStructAnon).Struct.fields.len + (fields_len * 3),
+            );
+            ip.items.appendAssumeCapacity(.{
+                .tag = .type_struct_anon,
+                .data = ip.addExtraAssumeCapacity(TypeStructAnon{
+                    .fields_len = fields_len,
+                }),
+            });
+            ip.extra.appendSliceAssumeCapacity(@ptrCast([]const u32, anon_struct_type.types));
+            ip.extra.appendSliceAssumeCapacity(@ptrCast([]const u32, anon_struct_type.values));
+            ip.extra.appendSliceAssumeCapacity(@ptrCast([]const u32, anon_struct_type.names));
+            return @intToEnum(Index, ip.items.len - 1);
         },
 
         .union_type => |union_type| {
@@ -2269,6 +2390,16 @@ pub fn get(ip: *InternPool, gpa: Allocator, key: Key) Allocator.Error!Index {
         },
 
         .aggregate => |aggregate| {
+            assert(aggregate.ty != .none);
+            for (aggregate.fields) |elem| assert(elem != .none);
+            if (aggregate.fields.len != ip.aggregateTypeLen(aggregate.ty)) {
+                std.debug.print("aggregate fields len = {d}, type len = {d}\n", .{
+                    aggregate.fields.len,
+                    ip.aggregateTypeLen(aggregate.ty),
+                });
+            }
+            assert(aggregate.fields.len == ip.aggregateTypeLen(aggregate.ty));
+
             if (aggregate.fields.len == 0) {
                 ip.items.appendAssumeCapacity(.{
                     .tag = .only_possible_value,
@@ -2276,7 +2407,19 @@ pub fn get(ip: *InternPool, gpa: Allocator, key: Key) Allocator.Error!Index {
                 });
                 return @intToEnum(Index, ip.items.len - 1);
             }
-            @panic("TODO");
+
+            try ip.extra.ensureUnusedCapacity(
+                gpa,
+                @typeInfo(Aggregate).Struct.fields.len + aggregate.fields.len,
+            );
+
+            ip.items.appendAssumeCapacity(.{
+                .tag = .aggregate,
+                .data = ip.addExtraAssumeCapacity(Aggregate{
+                    .ty = aggregate.ty,
+                }),
+            });
+            ip.extra.appendSliceAssumeCapacity(@ptrCast([]const u32, aggregate.fields));
         },
 
         .un => |un| {
@@ -2913,6 +3056,14 @@ fn dumpFallible(ip: InternPool, arena: Allocator) anyerror!void {
             .type_opaque => @sizeOf(Key.OpaqueType),
             .type_struct => @sizeOf(Module.Struct) + @sizeOf(Module.Namespace) + @sizeOf(Module.Decl),
             .type_struct_ns => @sizeOf(Module.Namespace),
+            .type_struct_anon => b: {
+                const info = ip.extraData(TypeStructAnon, data);
+                break :b @sizeOf(TypeStructAnon) + (@sizeOf(u32) * 3 * info.fields_len);
+            },
+            .type_tuple_anon => b: {
+                const info = ip.extraData(TypeStructAnon, data);
+                break :b @sizeOf(TypeStructAnon) + (@sizeOf(u32) * 2 * info.fields_len);
+            },
 
             .type_union_tagged,
             .type_union_untagged,
@@ -2941,6 +3092,12 @@ fn dumpFallible(ip: InternPool, arena: Allocator) anyerror!void {
                 break :b @sizeOf(Int) + int.limbs_len * 8;
             },
             .enum_tag => @sizeOf(Key.EnumTag),
+
+            .aggregate => b: {
+                const info = ip.extraData(Aggregate, data);
+                const fields_len = @intCast(u32, ip.aggregateTypeLen(info.ty));
+                break :b @sizeOf(Aggregate) + (@sizeOf(u32) * fields_len);
+            },
 
             .float_f16 => 0,
             .float_f32 => 0,
@@ -3078,4 +3235,14 @@ pub fn typeOf(ip: InternPool, index: Index) Index {
 pub fn toEnum(ip: InternPool, comptime E: type, i: Index) E {
     const int = ip.indexToKey(i).enum_tag.int;
     return @intToEnum(E, ip.indexToKey(int).int.storage.u64);
+}
+
+pub fn aggregateTypeLen(ip: InternPool, ty: Index) u64 {
+    return switch (ip.indexToKey(ty)) {
+        .struct_type => |struct_type| ip.structPtrConst(struct_type.index.unwrap() orelse return 0).fields.count(),
+        .anon_struct_type => |anon_struct_type| anon_struct_type.types.len,
+        .array_type => |array_type| array_type.len,
+        .vector_type => |vector_type| vector_type.len,
+        else => unreachable,
+    };
 }

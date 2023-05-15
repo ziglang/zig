@@ -682,7 +682,7 @@ pub const DeclGen = struct {
                     else => |tag| return dg.todo("pointer value of type {s}", .{@tagName(tag)}),
                 },
                 .Struct => {
-                    if (ty.isSimpleTupleOrAnonStruct()) {
+                    if (ty.isSimpleTupleOrAnonStruct(mod)) {
                         unreachable; // TODO
                     } else {
                         const struct_ty = mod.typeToStruct(ty).?;
@@ -1319,7 +1319,8 @@ pub const DeclGen = struct {
                 defer self.gpa.free(member_names);
 
                 var member_index: usize = 0;
-                for (struct_ty.fields.values(), 0..) |field, i| {
+                const struct_obj = void; // TODO
+                for (struct_obj.fields.values(), 0..) |field, i| {
                     if (field.is_comptime or !field.ty.hasRuntimeBits(mod)) continue;
 
                     member_types[member_index] = try self.resolveType(field.ty, .indirect);
@@ -1327,7 +1328,7 @@ pub const DeclGen = struct {
                     member_index += 1;
                 }
 
-                const name = try struct_ty.getFullyQualifiedName(self.module);
+                const name = try struct_obj.getFullyQualifiedName(self.module);
                 defer self.module.gpa.free(name);
 
                 return try self.spv.resolve(.{ .struct_type = .{
@@ -2090,7 +2091,7 @@ pub const DeclGen = struct {
 
         var i: usize = 0;
         while (i < mask_len) : (i += 1) {
-            const elem = try mask.elemValue(self.module, i);
+            const elem = try mask.elemValue(mod, i);
             if (elem.isUndef(mod)) {
                 self.func.body.writeOperand(spec.LiteralInteger, 0xFFFF_FFFF);
             } else {
@@ -2805,7 +2806,7 @@ pub const DeclGen = struct {
         const value = try self.resolve(bin_op.rhs);
         const ptr_ty_ref = try self.resolveType(ptr_ty, .direct);
 
-        const val_is_undef = if (try self.air.value(bin_op.rhs, mod)) |val| val.isUndefDeep() else false;
+        const val_is_undef = if (try self.air.value(bin_op.rhs, mod)) |val| val.isUndefDeep(mod) else false;
         if (val_is_undef) {
             const undef = try self.spv.constUndef(ptr_ty_ref);
             try self.store(ptr_ty, ptr, undef);

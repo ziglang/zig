@@ -7896,12 +7896,15 @@ fn resolveGenericInstantiationType(
 }
 
 fn resolveTupleLazyValues(sema: *Sema, block: *Block, src: LazySrcLoc, ty: Type) CompileError!void {
-    if (!ty.isSimpleTupleOrAnonStruct()) return;
-    const tuple = ty.tupleFields();
-    for (tuple.values, 0..) |field_val, i| {
-        try sema.resolveTupleLazyValues(block, src, tuple.types[i]);
-        if (field_val.ip_index == .unreachable_value) continue;
-        try sema.resolveLazyValue(field_val);
+    const mod = sema.mod;
+    const tuple = switch (mod.intern_pool.indexToKey(ty.ip_index)) {
+        .anon_struct_type => |tuple| tuple,
+        else => return,
+    };
+    for (tuple.types, tuple.values) |field_ty, field_val| {
+        try sema.resolveTupleLazyValues(block, src, field_ty.toType());
+        if (field_val == .none) continue;
+        try sema.resolveLazyValue(field_val.toValue());
     }
 }
 
@@ -12038,31 +12041,49 @@ fn zirHasField(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
     const unresolved_ty = try sema.resolveType(block, ty_src, extra.lhs);
     const field_name = try sema.resolveConstString(block, name_src, extra.rhs, "field name must be comptime-known");
     const ty = try sema.resolveTypeFields(unresolved_ty);
+    const ip = &mod.intern_pool;
 
     const has_field = hf: {
-        if (ty.isSlice(mod)) {
-            if (mem.eql(u8, field_name, "ptr")) break :hf true;
-            if (mem.eql(u8, field_name, "len")) break :hf true;
-            break :hf false;
+        switch (ip.indexToKey(ty.ip_index)) {
+            .ptr_type => |ptr_type| switch (ptr_type.size) {
+                .Slice => {
+                    if (mem.eql(u8, field_name, "ptr")) break :hf true;
+                    if (mem.eql(u8, field_name, "len")) break :hf true;
+                    break :hf false;
+                },
+                else => {},
+            },
+            .anon_struct_type => |anon_struct| {
+                if (anon_struct.names.len != 0) {
+                    // If the string is not interned, then the field certainly is not present.
+                    const name_interned = ip.getString(field_name).unwrap() orelse break :hf false;
+                    break :hf mem.indexOfScalar(InternPool.NullTerminatedString, anon_struct.names, name_interned) != null;
+                } else {
+                    const field_index = std.fmt.parseUnsigned(u32, field_name, 10) catch break :hf false;
+                    break :hf field_index < ty.structFieldCount(mod);
+                }
+            },
+            .struct_type => |struct_type| {
+                const struct_obj = mod.structPtrUnwrap(struct_type.index) orelse break :hf false;
+                assert(struct_obj.haveFieldTypes());
+                break :hf struct_obj.fields.contains(field_name);
+            },
+            .union_type => |union_type| {
+                const union_obj = mod.unionPtr(union_type.index);
+                assert(union_obj.haveFieldTypes());
+                break :hf union_obj.fields.contains(field_name);
+            },
+            .enum_type => |enum_type| {
+                // If the string is not interned, then the field certainly is not present.
+                const name_interned = ip.getString(field_name).unwrap() orelse break :hf false;
+                break :hf enum_type.nameIndex(ip, name_interned) != null;
+            },
+            .array_type => break :hf mem.eql(u8, field_name, "len"),
+            else => {},
         }
-        if (ty.castTag(.anon_struct)) |pl| {
-            break :hf for (pl.data.names) |name| {
-                if (mem.eql(u8, name, field_name)) break true;
-            } else false;
-        }
-        if (ty.isTuple(mod)) {
-            const field_index = std.fmt.parseUnsigned(u32, field_name, 10) catch break :hf false;
-            break :hf field_index < ty.structFieldCount(mod);
-        }
-        break :hf switch (ty.zigTypeTag(mod)) {
-            .Struct => ty.structFields(mod).contains(field_name),
-            .Union => ty.unionFields(mod).contains(field_name),
-            .Enum => ty.enumFieldIndex(field_name, mod) != null,
-            .Array => mem.eql(u8, field_name, "len"),
-            else => return sema.fail(block, ty_src, "type '{}' does not support '@hasField'", .{
-                ty.fmt(sema.mod),
-            }),
-        };
+        return sema.fail(block, ty_src, "type '{}' does not support '@hasField'", .{
+            ty.fmt(sema.mod),
+        });
     };
     if (has_field) {
         return Air.Inst.Ref.bool_true;
@@ -12632,42 +12653,48 @@ fn analyzeTupleCat(
     }
     const final_len = try sema.usizeCast(block, rhs_src, dest_fields);
 
-    const types = try sema.arena.alloc(Type, final_len);
-    const values = try sema.arena.alloc(Value, final_len);
+    const types = try sema.arena.alloc(InternPool.Index, final_len);
+    const values = try sema.arena.alloc(InternPool.Index, final_len);
 
     const opt_runtime_src = rs: {
         var runtime_src: ?LazySrcLoc = null;
         var i: u32 = 0;
         while (i < lhs_len) : (i += 1) {
-            types[i] = lhs_ty.structFieldType(i, mod);
+            types[i] = lhs_ty.structFieldType(i, mod).ip_index;
             const default_val = lhs_ty.structFieldDefaultValue(i, mod);
-            values[i] = default_val;
+            values[i] = default_val.ip_index;
             const operand_src = lhs_src; // TODO better source location
             if (default_val.ip_index == .unreachable_value) {
                 runtime_src = operand_src;
+                values[i] = .none;
             }
         }
         i = 0;
         while (i < rhs_len) : (i += 1) {
-            types[i + lhs_len] = rhs_ty.structFieldType(i, mod);
+            types[i + lhs_len] = rhs_ty.structFieldType(i, mod).ip_index;
             const default_val = rhs_ty.structFieldDefaultValue(i, mod);
-            values[i + lhs_len] = default_val;
+            values[i + lhs_len] = default_val.ip_index;
             const operand_src = rhs_src; // TODO better source location
             if (default_val.ip_index == .unreachable_value) {
                 runtime_src = operand_src;
+                values[i + lhs_len] = .none;
             }
         }
         break :rs runtime_src;
     };
 
-    const tuple_ty = try Type.Tag.tuple.create(sema.arena, .{
+    const tuple_ty = try mod.intern(.{ .anon_struct_type = .{
         .types = types,
         .values = values,
-    });
+        .names = &.{},
+    } });
 
     const runtime_src = opt_runtime_src orelse {
-        const tuple_val = try Value.Tag.aggregate.create(sema.arena, values);
-        return sema.addConstant(tuple_ty, tuple_val);
+        const tuple_val = try mod.intern(.{ .aggregate = .{
+            .ty = tuple_ty,
+            .fields = values,
+        } });
+        return sema.addConstant(tuple_ty.toType(), tuple_val.toValue());
     };
 
     try sema.requireRuntimeBlock(block, src, runtime_src);
@@ -12685,7 +12712,7 @@ fn analyzeTupleCat(
             try sema.tupleFieldValByIndex(block, operand_src, rhs, i, rhs_ty);
     }
 
-    return block.addAggregateInit(tuple_ty, element_refs);
+    return block.addAggregateInit(tuple_ty.toType(), element_refs);
 }
 
 fn zirArrayCat(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
@@ -12938,7 +12965,7 @@ fn analyzeTupleMul(
     block: *Block,
     src_node: i32,
     operand: Air.Inst.Ref,
-    factor: u64,
+    factor: usize,
 ) CompileError!Air.Inst.Ref {
     const mod = sema.mod;
     const operand_ty = sema.typeOf(operand);
@@ -12947,44 +12974,45 @@ fn analyzeTupleMul(
     const rhs_src: LazySrcLoc = .{ .node_offset_bin_rhs = src_node };
 
     const tuple_len = operand_ty.structFieldCount(mod);
-    const final_len_u64 = std.math.mul(u64, tuple_len, factor) catch
+    const final_len = std.math.mul(usize, tuple_len, factor) catch
         return sema.fail(block, rhs_src, "operation results in overflow", .{});
 
-    if (final_len_u64 == 0) {
+    if (final_len == 0) {
         return sema.addConstant(Type.empty_struct_literal, Value.empty_struct);
     }
-    const final_len = try sema.usizeCast(block, rhs_src, final_len_u64);
-
-    const types = try sema.arena.alloc(Type, final_len);
-    const values = try sema.arena.alloc(Value, final_len);
+    const types = try sema.arena.alloc(InternPool.Index, final_len);
+    const values = try sema.arena.alloc(InternPool.Index, final_len);
 
     const opt_runtime_src = rs: {
         var runtime_src: ?LazySrcLoc = null;
-        var i: u32 = 0;
-        while (i < tuple_len) : (i += 1) {
-            types[i] = operand_ty.structFieldType(i, mod);
-            values[i] = operand_ty.structFieldDefaultValue(i, mod);
+        for (0..tuple_len) |i| {
+            types[i] = operand_ty.structFieldType(i, mod).ip_index;
+            values[i] = operand_ty.structFieldDefaultValue(i, mod).ip_index;
             const operand_src = lhs_src; // TODO better source location
-            if (values[i].ip_index == .unreachable_value) {
+            if (values[i] == .unreachable_value) {
                 runtime_src = operand_src;
+                values[i] = .none; // TODO don't treat unreachable_value as special
             }
         }
-        i = 0;
-        while (i < factor) : (i += 1) {
-            mem.copyForwards(Type, types[tuple_len * i ..], types[0..tuple_len]);
-            mem.copyForwards(Value, values[tuple_len * i ..], values[0..tuple_len]);
+        for (0..factor) |i| {
+            mem.copyForwards(InternPool.Index, types[tuple_len * i ..], types[0..tuple_len]);
+            mem.copyForwards(InternPool.Index, values[tuple_len * i ..], values[0..tuple_len]);
         }
         break :rs runtime_src;
     };
 
-    const tuple_ty = try Type.Tag.tuple.create(sema.arena, .{
+    const tuple_ty = try mod.intern(.{ .anon_struct_type = .{
         .types = types,
         .values = values,
-    });
+        .names = &.{},
+    } });
 
     const runtime_src = opt_runtime_src orelse {
-        const tuple_val = try Value.Tag.aggregate.create(sema.arena, values);
-        return sema.addConstant(tuple_ty, tuple_val);
+        const tuple_val = try mod.intern(.{ .aggregate = .{
+            .ty = tuple_ty,
+            .fields = values,
+        } });
+        return sema.addConstant(tuple_ty.toType(), tuple_val.toValue());
     };
 
     try sema.requireRuntimeBlock(block, src, runtime_src);
@@ -13000,7 +13028,7 @@ fn analyzeTupleMul(
         @memcpy(element_refs[tuple_len * i ..][0..tuple_len], element_refs[0..tuple_len]);
     }
 
-    return block.addAggregateInit(tuple_ty, element_refs);
+    return block.addAggregateInit(tuple_ty.toType(), element_refs);
 }
 
 fn zirArrayMul(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
@@ -13020,7 +13048,8 @@ fn zirArrayMul(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
     if (lhs_ty.isTuple(mod)) {
         // In `**` rhs must be comptime-known, but lhs can be runtime-known
         const factor = try sema.resolveInt(block, rhs_src, extra.rhs, Type.usize, "array multiplication factor must be comptime-known");
-        return sema.analyzeTupleMul(block, inst_data.src_node, lhs, factor);
+        const factor_casted = try sema.usizeCast(block, rhs_src, factor);
+        return sema.analyzeTupleMul(block, inst_data.src_node, lhs, factor_casted);
     }
 
     // Analyze the lhs first, to catch the case that someone tried to do exponentiation
@@ -14533,19 +14562,14 @@ fn overflowArithmeticTupleType(sema: *Sema, ty: Type) !Type {
         .child = .u1_type,
     }) else Type.u1;
 
-    const types = try sema.arena.alloc(Type, 2);
-    const values = try sema.arena.alloc(Value, 2);
-    const tuple_ty = try Type.Tag.tuple.create(sema.arena, .{
-        .types = types,
-        .values = values,
-    });
-
-    types[0] = ty;
-    types[1] = ov_ty;
-    values[0] = Value.@"unreachable";
-    values[1] = Value.@"unreachable";
-
-    return tuple_ty;
+    const types = [2]InternPool.Index{ ty.ip_index, ov_ty.ip_index };
+    const values = [2]InternPool.Index{ .none, .none };
+    const tuple_ty = try mod.intern(.{ .anon_struct_type = .{
+        .types = &types,
+        .values = &values,
+        .names = &.{},
+    } });
+    return tuple_ty.toType();
 }
 
 fn analyzeArithmetic(
@@ -16506,57 +16530,66 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
             const layout = struct_ty.containerLayout(mod);
 
             const struct_field_vals = fv: {
-                if (struct_ty.isSimpleTupleOrAnonStruct()) {
-                    const tuple = struct_ty.tupleFields();
-                    const field_types = tuple.types;
-                    const struct_field_vals = try fields_anon_decl.arena().alloc(Value, field_types.len);
-                    for (struct_field_vals, 0..) |*struct_field_val, i| {
-                        const field_ty = field_types[i];
-                        const name_val = v: {
-                            var anon_decl = try block.startAnonDecl();
-                            defer anon_decl.deinit();
-                            const bytes = if (struct_ty.castTag(.anon_struct)) |payload|
-                                try anon_decl.arena().dupeZ(u8, payload.data.names[i])
-                            else
-                                try std.fmt.allocPrintZ(anon_decl.arena(), "{d}", .{i});
-                            const new_decl = try anon_decl.finish(
-                                try Type.array(anon_decl.arena(), bytes.len, Value.zero_u8, Type.u8, mod),
-                                try Value.Tag.bytes.create(anon_decl.arena(), bytes[0 .. bytes.len + 1]),
-                                0, // default alignment
-                            );
-                            break :v try Value.Tag.slice.create(fields_anon_decl.arena(), .{
-                                .ptr = try Value.Tag.decl_ref.create(fields_anon_decl.arena(), new_decl),
-                                .len = try mod.intValue(Type.usize, bytes.len),
-                            });
-                        };
+                const struct_type = switch (mod.intern_pool.indexToKey(struct_ty.ip_index)) {
+                    .anon_struct_type => |tuple| {
+                        const struct_field_vals = try fields_anon_decl.arena().alloc(Value, tuple.types.len);
+                        for (
+                            tuple.types,
+                            tuple.values,
+                            struct_field_vals,
+                            0..,
+                        ) |field_ty, field_val, *struct_field_val, i| {
+                            const name_val = v: {
+                                var anon_decl = try block.startAnonDecl();
+                                defer anon_decl.deinit();
+                                const bytes = if (tuple.names.len != 0)
+                                    // https://github.com/ziglang/zig/issues/15709
+                                    @as([]const u8, mod.intern_pool.stringToSlice(tuple.names[i]))
+                                else
+                                    try std.fmt.allocPrintZ(anon_decl.arena(), "{d}", .{i});
+                                const new_decl = try anon_decl.finish(
+                                    try Type.array(anon_decl.arena(), bytes.len, Value.zero_u8, Type.u8, mod),
+                                    try Value.Tag.bytes.create(anon_decl.arena(), bytes[0 .. bytes.len + 1]),
+                                    0, // default alignment
+                                );
+                                break :v try Value.Tag.slice.create(fields_anon_decl.arena(), .{
+                                    .ptr = try Value.Tag.decl_ref.create(fields_anon_decl.arena(), new_decl),
+                                    .len = try mod.intValue(Type.usize, bytes.len),
+                                });
+                            };
 
-                        const struct_field_fields = try fields_anon_decl.arena().create([5]Value);
-                        const field_val = tuple.values[i];
-                        const is_comptime = field_val.ip_index != .unreachable_value;
-                        const opt_default_val = if (is_comptime) field_val else null;
-                        const default_val_ptr = try sema.optRefValue(block, field_ty, opt_default_val);
-                        struct_field_fields.* = .{
-                            // name: []const u8,
-                            name_val,
-                            // type: type,
-                            try Value.Tag.ty.create(fields_anon_decl.arena(), field_ty),
-                            // default_value: ?*const anyopaque,
-                            try default_val_ptr.copy(fields_anon_decl.arena()),
-                            // is_comptime: bool,
-                            Value.makeBool(is_comptime),
-                            // alignment: comptime_int,
-                            try field_ty.lazyAbiAlignment(mod, fields_anon_decl.arena()),
-                        };
-                        struct_field_val.* = try Value.Tag.aggregate.create(fields_anon_decl.arena(), struct_field_fields);
-                    }
-                    break :fv struct_field_vals;
-                }
-                const struct_fields = struct_ty.structFields(mod);
-                const struct_field_vals = try fields_anon_decl.arena().alloc(Value, struct_fields.count());
+                            const struct_field_fields = try fields_anon_decl.arena().create([5]Value);
+                            const is_comptime = field_val != .none;
+                            const opt_default_val = if (is_comptime) field_val.toValue() else null;
+                            const default_val_ptr = try sema.optRefValue(block, field_ty.toType(), opt_default_val);
+                            struct_field_fields.* = .{
+                                // name: []const u8,
+                                name_val,
+                                // type: type,
+                                field_ty.toValue(),
+                                // default_value: ?*const anyopaque,
+                                try default_val_ptr.copy(fields_anon_decl.arena()),
+                                // is_comptime: bool,
+                                Value.makeBool(is_comptime),
+                                // alignment: comptime_int,
+                                try field_ty.toType().lazyAbiAlignment(mod, fields_anon_decl.arena()),
+                            };
+                            struct_field_val.* = try Value.Tag.aggregate.create(fields_anon_decl.arena(), struct_field_fields);
+                        }
+                        break :fv struct_field_vals;
+                    },
+                    .struct_type => |s| s,
+                    else => unreachable,
+                };
+                const struct_obj = mod.structPtrUnwrap(struct_type.index) orelse
+                    break :fv &[0]Value{};
+                const struct_field_vals = try fields_anon_decl.arena().alloc(Value, struct_obj.fields.count());
 
-                for (struct_field_vals, 0..) |*field_val, i| {
-                    const field = struct_fields.values()[i];
-                    const name = struct_fields.keys()[i];
+                for (
+                    struct_field_vals,
+                    struct_obj.fields.keys(),
+                    struct_obj.fields.values(),
+                ) |*field_val, name, field| {
                     const name_val = v: {
                         var anon_decl = try block.startAnonDecl();
                         defer anon_decl.deinit();
@@ -18013,7 +18046,7 @@ fn zirStructInit(
         try sema.requireRuntimeBlock(block, src, null);
         try sema.queueFullTypeResolution(resolved_ty);
         return block.addUnionInit(resolved_ty, field_index, init_inst);
-    } else if (resolved_ty.isAnonStruct()) {
+    } else if (resolved_ty.isAnonStruct(mod)) {
         return sema.fail(block, src, "TODO anon struct init validation", .{});
     }
     unreachable;
@@ -18034,60 +18067,54 @@ fn finishStructInit(
     var root_msg: ?*Module.ErrorMsg = null;
     errdefer if (root_msg) |msg| msg.destroy(sema.gpa);
 
-    if (struct_ty.isAnonStruct()) {
-        const struct_obj = struct_ty.castTag(.anon_struct).?.data;
-        for (struct_obj.values, 0..) |default_val, i| {
-            if (field_inits[i] != .none) continue;
+    switch (mod.intern_pool.indexToKey(struct_ty.ip_index)) {
+        .anon_struct_type => |anon_struct| {
+            for (anon_struct.types, anon_struct.values, 0..) |field_ty, default_val, i| {
+                if (field_inits[i] != .none) continue;
 
-            if (default_val.ip_index == .unreachable_value) {
-                const field_name = struct_obj.names[i];
-                const template = "missing struct field: {s}";
-                const args = .{field_name};
-                if (root_msg) |msg| {
-                    try sema.errNote(block, init_src, msg, template, args);
+                if (default_val == .none) {
+                    if (anon_struct.names.len == 0) {
+                        const template = "missing tuple field with index {d}";
+                        if (root_msg) |msg| {
+                            try sema.errNote(block, init_src, msg, template, .{i});
+                        } else {
+                            root_msg = try sema.errMsg(block, init_src, template, .{i});
+                        }
+                    } else {
+                        const field_name = mod.intern_pool.stringToSlice(anon_struct.names[i]);
+                        const template = "missing struct field: {s}";
+                        const args = .{field_name};
+                        if (root_msg) |msg| {
+                            try sema.errNote(block, init_src, msg, template, args);
+                        } else {
+                            root_msg = try sema.errMsg(block, init_src, template, args);
+                        }
+                    }
                 } else {
-                    root_msg = try sema.errMsg(block, init_src, template, args);
+                    field_inits[i] = try sema.addConstant(field_ty.toType(), default_val.toValue());
                 }
-            } else {
-                field_inits[i] = try sema.addConstant(struct_obj.types[i], default_val);
             }
-        }
-    } else if (struct_ty.isTuple(mod)) {
-        var i: u32 = 0;
-        const len = struct_ty.structFieldCount(mod);
-        while (i < len) : (i += 1) {
-            if (field_inits[i] != .none) continue;
+        },
+        .struct_type => |struct_type| {
+            const struct_obj = mod.structPtrUnwrap(struct_type.index).?;
+            for (struct_obj.fields.values(), 0..) |field, i| {
+                if (field_inits[i] != .none) continue;
 
-            const default_val = struct_ty.structFieldDefaultValue(i, mod);
-            if (default_val.ip_index == .unreachable_value) {
-                const template = "missing tuple field with index {d}";
-                if (root_msg) |msg| {
-                    try sema.errNote(block, init_src, msg, template, .{i});
+                if (field.default_val.ip_index == .unreachable_value) {
+                    const field_name = struct_obj.fields.keys()[i];
+                    const template = "missing struct field: {s}";
+                    const args = .{field_name};
+                    if (root_msg) |msg| {
+                        try sema.errNote(block, init_src, msg, template, args);
+                    } else {
+                        root_msg = try sema.errMsg(block, init_src, template, args);
+                    }
                 } else {
-                    root_msg = try sema.errMsg(block, init_src, template, .{i});
+                    field_inits[i] = try sema.addConstant(field.ty, field.default_val);
                 }
-            } else {
-                field_inits[i] = try sema.addConstant(struct_ty.structFieldType(i, mod), default_val);
             }
-        }
-    } else {
-        const struct_obj = mod.typeToStruct(struct_ty).?;
-        for (struct_obj.fields.values(), 0..) |field, i| {
-            if (field_inits[i] != .none) continue;
-
-            if (field.default_val.ip_index == .unreachable_value) {
-                const field_name = struct_obj.fields.keys()[i];
-                const template = "missing struct field: {s}";
-                const args = .{field_name};
-                if (root_msg) |msg| {
-                    try sema.errNote(block, init_src, msg, template, args);
-                } else {
-                    root_msg = try sema.errMsg(block, init_src, template, args);
-                }
-            } else {
-                field_inits[i] = try sema.addConstant(field.ty, field.default_val);
-            }
-        }
+        },
+        else => unreachable,
     }
 
     if (root_msg) |msg| {
@@ -18159,31 +18186,33 @@ fn zirStructInitAnon(
     is_ref: bool,
 ) CompileError!Air.Inst.Ref {
     const mod = sema.mod;
+    const gpa = sema.gpa;
     const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
     const src = inst_data.src();
     const extra = sema.code.extraData(Zir.Inst.StructInitAnon, inst_data.payload_index);
-    const types = try sema.arena.alloc(Type, extra.data.fields_len);
-    const values = try sema.arena.alloc(Value, types.len);
-    var fields = std.StringArrayHashMapUnmanaged(u32){};
-    defer fields.deinit(sema.gpa);
-    try fields.ensureUnusedCapacity(sema.gpa, types.len);
+    const types = try sema.arena.alloc(InternPool.Index, extra.data.fields_len);
+    const values = try sema.arena.alloc(InternPool.Index, types.len);
+    var fields = std.AutoArrayHashMap(InternPool.NullTerminatedString, u32).init(sema.arena);
+    try fields.ensureUnusedCapacity(types.len);
 
     // Find which field forces the expression to be runtime, if any.
     const opt_runtime_index = rs: {
         var runtime_index: ?usize = null;
         var extra_index = extra.end;
-        for (types, 0..) |*field_ty, i| {
+        for (types, 0..) |*field_ty, i_usize| {
+            const i = @intCast(u32, i_usize);
             const item = sema.code.extraData(Zir.Inst.StructInitAnon.Item, extra_index);
             extra_index = item.end;
 
             const name = sema.code.nullTerminatedString(item.data.field_name);
-            const gop = fields.getOrPutAssumeCapacity(name);
+            const name_ip = try mod.intern_pool.getOrPutString(gpa, name);
+            const gop = fields.getOrPutAssumeCapacity(name_ip);
             if (gop.found_existing) {
                 const msg = msg: {
                     const decl = sema.mod.declPtr(block.src_decl);
                     const field_src = mod.initSrc(src.node_offset.x, decl, i);
                     const msg = try sema.errMsg(block, field_src, "duplicate field", .{});
-                    errdefer msg.destroy(sema.gpa);
+                    errdefer msg.destroy(gpa);
 
                     const prev_source = mod.initSrc(src.node_offset.x, decl, gop.value_ptr.*);
                     try sema.errNote(block, prev_source, msg, "other field here", .{});
@@ -18191,41 +18220,44 @@ fn zirStructInitAnon(
                 };
                 return sema.failWithOwnedErrorMsg(msg);
             }
-            gop.value_ptr.* = @intCast(u32, i);
+            gop.value_ptr.* = i;
 
             const init = try sema.resolveInst(item.data.init);
-            field_ty.* = sema.typeOf(init);
-            if (types[i].zigTypeTag(mod) == .Opaque) {
+            field_ty.* = sema.typeOf(init).ip_index;
+            if (types[i].toType().zigTypeTag(mod) == .Opaque) {
                 const msg = msg: {
                     const decl = sema.mod.declPtr(block.src_decl);
                     const field_src = mod.initSrc(src.node_offset.x, decl, i);
                     const msg = try sema.errMsg(block, field_src, "opaque types have unknown size and therefore cannot be directly embedded in structs", .{});
                     errdefer msg.destroy(sema.gpa);
 
-                    try sema.addDeclaredHereNote(msg, types[i]);
+                    try sema.addDeclaredHereNote(msg, types[i].toType());
                     break :msg msg;
                 };
                 return sema.failWithOwnedErrorMsg(msg);
             }
             if (try sema.resolveMaybeUndefVal(init)) |init_val| {
-                values[i] = init_val;
+                values[i] = init_val.ip_index;
             } else {
-                values[i] = Value.@"unreachable";
+                values[i] = .none;
                 runtime_index = i;
             }
         }
         break :rs runtime_index;
     };
 
-    const tuple_ty = try Type.Tag.anon_struct.create(sema.arena, .{
-        .names = try sema.arena.dupe([]const u8, fields.keys()),
+    const tuple_ty = try mod.intern(.{ .anon_struct_type = .{
+        .names = fields.keys(),
         .types = types,
         .values = values,
-    });
+    } });
 
     const runtime_index = opt_runtime_index orelse {
-        const tuple_val = try Value.Tag.aggregate.create(sema.arena, values);
-        return sema.addConstantMaybeRef(block, tuple_ty, tuple_val, is_ref);
+        const tuple_val = try mod.intern(.{ .aggregate = .{
+            .ty = tuple_ty,
+            .fields = values,
+        } });
+        return sema.addConstantMaybeRef(block, tuple_ty.toType(), tuple_val.toValue(), is_ref);
     };
 
     sema.requireRuntimeBlock(block, .unneeded, null) catch |err| switch (err) {
@@ -18241,7 +18273,7 @@ fn zirStructInitAnon(
     if (is_ref) {
         const target = sema.mod.getTarget();
         const alloc_ty = try Type.ptr(sema.arena, sema.mod, .{
-            .pointee_type = tuple_ty,
+            .pointee_type = tuple_ty.toType(),
             .@"addrspace" = target_util.defaultAddressSpace(target, .local),
         });
         const alloc = try block.addTy(.alloc, alloc_ty);
@@ -18254,9 +18286,9 @@ fn zirStructInitAnon(
             const field_ptr_ty = try Type.ptr(sema.arena, sema.mod, .{
                 .mutable = true,
                 .@"addrspace" = target_util.defaultAddressSpace(target, .local),
-                .pointee_type = field_ty,
+                .pointee_type = field_ty.toType(),
             });
-            if (values[i].ip_index == .unreachable_value) {
+            if (values[i] == .none) {
                 const init = try sema.resolveInst(item.data.init);
                 const field_ptr = try block.addStructFieldPtr(alloc, i, field_ptr_ty);
                 _ = try block.addBinOp(.store, field_ptr, init);
@@ -18274,7 +18306,7 @@ fn zirStructInitAnon(
         element_refs[i] = try sema.resolveInst(item.data.init);
     }
 
-    return block.addAggregateInit(tuple_ty, element_refs);
+    return block.addAggregateInit(tuple_ty.toType(), element_refs);
 }
 
 fn zirArrayInit(
@@ -18400,43 +18432,47 @@ fn zirArrayInitAnon(
     const operands = sema.code.refSlice(extra.end, extra.data.operands_len);
     const mod = sema.mod;
 
-    const types = try sema.arena.alloc(Type, operands.len);
-    const values = try sema.arena.alloc(Value, operands.len);
+    const types = try sema.arena.alloc(InternPool.Index, operands.len);
+    const values = try sema.arena.alloc(InternPool.Index, operands.len);
 
     const opt_runtime_src = rs: {
         var runtime_src: ?LazySrcLoc = null;
         for (operands, 0..) |operand, i| {
             const operand_src = src; // TODO better source location
             const elem = try sema.resolveInst(operand);
-            types[i] = sema.typeOf(elem);
-            if (types[i].zigTypeTag(mod) == .Opaque) {
+            types[i] = sema.typeOf(elem).ip_index;
+            if (types[i].toType().zigTypeTag(mod) == .Opaque) {
                 const msg = msg: {
                     const msg = try sema.errMsg(block, operand_src, "opaque types have unknown size and therefore cannot be directly embedded in structs", .{});
                     errdefer msg.destroy(sema.gpa);
 
-                    try sema.addDeclaredHereNote(msg, types[i]);
+                    try sema.addDeclaredHereNote(msg, types[i].toType());
                     break :msg msg;
                 };
                 return sema.failWithOwnedErrorMsg(msg);
             }
             if (try sema.resolveMaybeUndefVal(elem)) |val| {
-                values[i] = val;
+                values[i] = val.ip_index;
             } else {
-                values[i] = Value.@"unreachable";
+                values[i] = .none;
                 runtime_src = operand_src;
             }
         }
         break :rs runtime_src;
     };
 
-    const tuple_ty = try Type.Tag.tuple.create(sema.arena, .{
+    const tuple_ty = try mod.intern(.{ .anon_struct_type = .{
         .types = types,
         .values = values,
-    });
+        .names = &.{},
+    } });
 
     const runtime_src = opt_runtime_src orelse {
-        const tuple_val = try Value.Tag.aggregate.create(sema.arena, values);
-        return sema.addConstantMaybeRef(block, tuple_ty, tuple_val, is_ref);
+        const tuple_val = try mod.intern(.{ .aggregate = .{
+            .ty = tuple_ty,
+            .fields = values,
+        } });
+        return sema.addConstantMaybeRef(block, tuple_ty.toType(), tuple_val.toValue(), is_ref);
     };
 
     try sema.requireRuntimeBlock(block, src, runtime_src);
@@ -18444,7 +18480,7 @@ fn zirArrayInitAnon(
     if (is_ref) {
         const target = sema.mod.getTarget();
         const alloc_ty = try Type.ptr(sema.arena, sema.mod, .{
-            .pointee_type = tuple_ty,
+            .pointee_type = tuple_ty.toType(),
             .@"addrspace" = target_util.defaultAddressSpace(target, .local),
         });
         const alloc = try block.addTy(.alloc, alloc_ty);
@@ -18453,9 +18489,9 @@ fn zirArrayInitAnon(
             const field_ptr_ty = try Type.ptr(sema.arena, sema.mod, .{
                 .mutable = true,
                 .@"addrspace" = target_util.defaultAddressSpace(target, .local),
-                .pointee_type = types[i],
+                .pointee_type = types[i].toType(),
             });
-            if (values[i].ip_index == .unreachable_value) {
+            if (values[i] == .none) {
                 const field_ptr = try block.addStructFieldPtr(alloc, i, field_ptr_ty);
                 _ = try block.addBinOp(.store, field_ptr, try sema.resolveInst(operand));
             }
@@ -18469,7 +18505,7 @@ fn zirArrayInitAnon(
         element_refs[i] = try sema.resolveInst(operand);
     }
 
-    return block.addAggregateInit(tuple_ty, element_refs);
+    return block.addAggregateInit(tuple_ty.toType(), element_refs);
 }
 
 fn addConstantMaybeRef(
@@ -18532,15 +18568,18 @@ fn fieldType(
         const resolved_ty = try sema.resolveTypeFields(cur_ty);
         cur_ty = resolved_ty;
         switch (cur_ty.zigTypeTag(mod)) {
-            .Struct => {
-                if (cur_ty.isAnonStruct()) {
+            .Struct => switch (mod.intern_pool.indexToKey(cur_ty.ip_index)) {
+                .anon_struct_type => |anon_struct| {
                     const field_index = try sema.anonStructFieldIndex(block, cur_ty, field_name, field_src);
-                    return sema.addType(cur_ty.tupleFields().types[field_index]);
-                }
-                const struct_obj = mod.typeToStruct(cur_ty).?;
-                const field = struct_obj.fields.get(field_name) orelse
-                    return sema.failWithBadStructFieldAccess(block, struct_obj, field_src, field_name);
-                return sema.addType(field.ty);
+                    return sema.addType(anon_struct.types[field_index].toType());
+                },
+                .struct_type => |struct_type| {
+                    const struct_obj = mod.structPtrUnwrap(struct_type.index).?;
+                    const field = struct_obj.fields.get(field_name) orelse
+                        return sema.failWithBadStructFieldAccess(block, struct_obj, field_src, field_name);
+                    return sema.addType(field.ty);
+                },
+                else => unreachable,
             },
             .Union => {
                 const union_obj = mod.typeToUnion(cur_ty).?;
@@ -24687,7 +24726,7 @@ fn structFieldPtr(
         }
         const field_index = try sema.tupleFieldIndex(block, struct_ty, field_name, field_name_src);
         return sema.tupleFieldPtr(block, src, struct_ptr, field_name_src, field_index, initializing);
-    } else if (struct_ty.isAnonStruct()) {
+    } else if (struct_ty.isAnonStruct(mod)) {
         const field_index = try sema.anonStructFieldIndex(block, struct_ty, field_name, field_name_src);
         return sema.tupleFieldPtr(block, src, struct_ptr, field_name_src, field_index, initializing);
     }
@@ -24711,11 +24750,11 @@ fn structFieldPtrByIndex(
     struct_ty: Type,
     initializing: bool,
 ) CompileError!Air.Inst.Ref {
-    if (struct_ty.isAnonStruct()) {
+    const mod = sema.mod;
+    if (struct_ty.isAnonStruct(mod)) {
         return sema.tupleFieldPtr(block, src, struct_ptr, field_src, field_index, initializing);
     }
 
-    const mod = sema.mod;
     const struct_obj = mod.typeToStruct(struct_ty).?;
     const field = struct_obj.fields.values()[field_index];
     const struct_ptr_ty = sema.typeOf(struct_ptr);
@@ -24820,45 +24859,42 @@ fn structFieldVal(
     assert(unresolved_struct_ty.zigTypeTag(mod) == .Struct);
 
     const struct_ty = try sema.resolveTypeFields(unresolved_struct_ty);
-    switch (struct_ty.ip_index) {
-        .empty_struct_type => return sema.tupleFieldVal(block, src, struct_byval, field_name, field_name_src, struct_ty),
-        .none => switch (struct_ty.tag()) {
-            .tuple => return sema.tupleFieldVal(block, src, struct_byval, field_name, field_name_src, struct_ty),
-            .anon_struct => {
+    switch (mod.intern_pool.indexToKey(struct_ty.ip_index)) {
+        .struct_type => |struct_type| {
+            const struct_obj = mod.structPtrUnwrap(struct_type.index).?;
+            if (struct_obj.is_tuple) return sema.tupleFieldVal(block, src, struct_byval, field_name, field_name_src, struct_ty);
+
+            const field_index_usize = struct_obj.fields.getIndex(field_name) orelse
+                return sema.failWithBadStructFieldAccess(block, struct_obj, field_name_src, field_name);
+            const field_index = @intCast(u32, field_index_usize);
+            const field = struct_obj.fields.values()[field_index];
+
+            if (field.is_comptime) {
+                return sema.addConstant(field.ty, field.default_val);
+            }
+
+            if (try sema.resolveMaybeUndefVal(struct_byval)) |struct_val| {
+                if (struct_val.isUndef(mod)) return sema.addConstUndef(field.ty);
+                if ((try sema.typeHasOnePossibleValue(field.ty))) |opv| {
+                    return sema.addConstant(field.ty, opv);
+                }
+
+                const field_values = struct_val.castTag(.aggregate).?.data;
+                return sema.addConstant(field.ty, field_values[field_index]);
+            }
+
+            try sema.requireRuntimeBlock(block, src, null);
+            return block.addStructFieldVal(struct_byval, field_index, field.ty);
+        },
+        .anon_struct_type => |anon_struct| {
+            if (anon_struct.names.len == 0) {
+                return sema.tupleFieldVal(block, src, struct_byval, field_name, field_name_src, struct_ty);
+            } else {
                 const field_index = try sema.anonStructFieldIndex(block, struct_ty, field_name, field_name_src);
                 return sema.tupleFieldValByIndex(block, src, struct_byval, field_index, struct_ty);
-            },
-            else => unreachable,
+            }
         },
-        else => switch (mod.intern_pool.indexToKey(struct_ty.ip_index)) {
-            .struct_type => |struct_type| {
-                const struct_obj = mod.structPtrUnwrap(struct_type.index).?;
-                if (struct_obj.is_tuple) return sema.tupleFieldVal(block, src, struct_byval, field_name, field_name_src, struct_ty);
-
-                const field_index_usize = struct_obj.fields.getIndex(field_name) orelse
-                    return sema.failWithBadStructFieldAccess(block, struct_obj, field_name_src, field_name);
-                const field_index = @intCast(u32, field_index_usize);
-                const field = struct_obj.fields.values()[field_index];
-
-                if (field.is_comptime) {
-                    return sema.addConstant(field.ty, field.default_val);
-                }
-
-                if (try sema.resolveMaybeUndefVal(struct_byval)) |struct_val| {
-                    if (struct_val.isUndef(mod)) return sema.addConstUndef(field.ty);
-                    if ((try sema.typeHasOnePossibleValue(field.ty))) |opv| {
-                        return sema.addConstant(field.ty, opv);
-                    }
-
-                    const field_values = struct_val.castTag(.aggregate).?.data;
-                    return sema.addConstant(field.ty, field_values[field_index]);
-                }
-
-                try sema.requireRuntimeBlock(block, src, null);
-                return block.addStructFieldVal(struct_byval, field_index, field.ty);
-            },
-            else => unreachable,
-        },
+        else => unreachable,
     }
 }
 
@@ -25921,7 +25957,7 @@ fn coerceExtra(
                     .Union => {
                         // pointer to anonymous struct to pointer to union
                         if (inst_ty.isSinglePointer(mod) and
-                            inst_ty.childType(mod).isAnonStruct() and
+                            inst_ty.childType(mod).isAnonStruct(mod) and
                             sema.checkPtrAttributes(dest_ty, inst_ty, &in_memory_result))
                         {
                             return sema.coerceAnonStructToUnionPtrs(block, dest_ty, dest_ty_src, inst, inst_src);
@@ -25930,7 +25966,7 @@ fn coerceExtra(
                     .Struct => {
                         // pointer to anonymous struct to pointer to struct
                         if (inst_ty.isSinglePointer(mod) and
-                            inst_ty.childType(mod).isAnonStruct() and
+                            inst_ty.childType(mod).isAnonStruct(mod) and
                             sema.checkPtrAttributes(dest_ty, inst_ty, &in_memory_result))
                         {
                             return sema.coerceAnonStructToStructPtrs(block, dest_ty, dest_ty_src, inst, inst_src) catch |err| switch (err) {
@@ -26221,7 +26257,7 @@ fn coerceExtra(
         .Union => switch (inst_ty.zigTypeTag(mod)) {
             .Enum, .EnumLiteral => return sema.coerceEnumToUnion(block, dest_ty, dest_ty_src, inst, inst_src),
             .Struct => {
-                if (inst_ty.isAnonStruct()) {
+                if (inst_ty.isAnonStruct(mod)) {
                     return sema.coerceAnonStructToUnion(block, dest_ty, dest_ty_src, inst, inst_src);
                 }
             },
@@ -28761,8 +28797,8 @@ fn coerceAnonStructToUnion(
         return sema.failWithOwnedErrorMsg(msg);
     }
 
-    const anon_struct = inst_ty.castTag(.anon_struct).?.data;
-    const field_name = anon_struct.names[0];
+    const anon_struct = mod.intern_pool.indexToKey(inst_ty.ip_index).anon_struct_type;
+    const field_name = mod.intern_pool.stringToSlice(anon_struct.names[0]);
     const init = try sema.structFieldVal(block, inst_src, inst, field_name, inst_src, inst_ty);
     return sema.unionInit(block, init, inst_src, union_ty, union_ty_src, field_name, inst_src);
 }
@@ -29000,13 +29036,14 @@ fn coerceTupleToStruct(
     @memset(field_refs, .none);
 
     const inst_ty = sema.typeOf(inst);
+    const anon_struct = mod.intern_pool.indexToKey(inst_ty.ip_index).anon_struct_type;
     var runtime_src: ?LazySrcLoc = null;
-    const field_count = inst_ty.structFieldCount(mod);
-    var field_i: u32 = 0;
-    while (field_i < field_count) : (field_i += 1) {
+    for (0..anon_struct.types.len) |field_index_usize| {
+        const field_i = @intCast(u32, field_index_usize);
         const field_src = inst_src; // TODO better source location
-        const field_name = if (inst_ty.castTag(.anon_struct)) |payload|
-            payload.data.names[field_i]
+        const field_name = if (anon_struct.names.len != 0)
+            // https://github.com/ziglang/zig/issues/15709
+            @as([]const u8, mod.intern_pool.stringToSlice(anon_struct.names[field_i]))
         else
             try std.fmt.allocPrint(sema.arena, "{d}", .{field_i});
         const field_index = try sema.structFieldIndex(block, struct_ty, field_name, field_src);
@@ -29084,21 +29121,22 @@ fn coerceTupleToTuple(
     inst_src: LazySrcLoc,
 ) !Air.Inst.Ref {
     const mod = sema.mod;
-    const dest_field_count = tuple_ty.structFieldCount(mod);
-    const field_vals = try sema.arena.alloc(Value, dest_field_count);
+    const dest_tuple = mod.intern_pool.indexToKey(tuple_ty.ip_index).anon_struct_type;
+    const field_vals = try sema.arena.alloc(InternPool.Index, dest_tuple.types.len);
     const field_refs = try sema.arena.alloc(Air.Inst.Ref, field_vals.len);
     @memset(field_refs, .none);
 
     const inst_ty = sema.typeOf(inst);
-    const inst_field_count = inst_ty.structFieldCount(mod);
-    if (inst_field_count > dest_field_count) return error.NotCoercible;
+    const src_tuple = mod.intern_pool.indexToKey(inst_ty.ip_index).anon_struct_type;
+    if (src_tuple.types.len > dest_tuple.types.len) return error.NotCoercible;
 
     var runtime_src: ?LazySrcLoc = null;
-    var field_i: u32 = 0;
-    while (field_i < inst_field_count) : (field_i += 1) {
+    for (dest_tuple.types, dest_tuple.values, 0..) |field_ty, default_val, field_index_usize| {
+        const field_i = @intCast(u32, field_index_usize);
         const field_src = inst_src; // TODO better source location
-        const field_name = if (inst_ty.castTag(.anon_struct)) |payload|
-            payload.data.names[field_i]
+        const field_name = if (src_tuple.names.len != 0)
+            // https://github.com/ziglang/zig/issues/15709
+            @as([]const u8, mod.intern_pool.stringToSlice(src_tuple.names[field_i]))
         else
             try std.fmt.allocPrint(sema.arena, "{d}", .{field_i});
 
@@ -29108,23 +29146,21 @@ fn coerceTupleToTuple(
 
         const field_index = try sema.tupleFieldIndex(block, tuple_ty, field_name, field_src);
 
-        const field_ty = tuple_ty.structFieldType(field_i, mod);
-        const default_val = tuple_ty.structFieldDefaultValue(field_i, mod);
         const elem_ref = try sema.tupleField(block, inst_src, inst, field_src, field_i);
-        const coerced = try sema.coerce(block, field_ty, elem_ref, field_src);
+        const coerced = try sema.coerce(block, field_ty.toType(), elem_ref, field_src);
         field_refs[field_index] = coerced;
-        if (default_val.ip_index != .unreachable_value) {
+        if (default_val != .none) {
             const init_val = (try sema.resolveMaybeUndefVal(coerced)) orelse {
                 return sema.failWithNeededComptime(block, field_src, "value stored in comptime field must be comptime-known");
             };
 
-            if (!init_val.eql(default_val, field_ty, sema.mod)) {
+            if (!init_val.eql(default_val.toValue(), field_ty.toType(), sema.mod)) {
                 return sema.failWithInvalidComptimeFieldStore(block, field_src, inst_ty, field_i);
             }
         }
         if (runtime_src == null) {
             if (try sema.resolveMaybeUndefVal(coerced)) |field_val| {
-                field_vals[field_index] = field_val;
+                field_vals[field_index] = field_val.ip_index;
             } else {
                 runtime_src = field_src;
             }
@@ -29135,14 +29171,16 @@ fn coerceTupleToTuple(
     var root_msg: ?*Module.ErrorMsg = null;
     errdefer if (root_msg) |msg| msg.destroy(sema.gpa);
 
-    for (field_refs, 0..) |*field_ref, i| {
+    for (
+        dest_tuple.types,
+        dest_tuple.values,
+        field_refs,
+        0..,
+    ) |field_ty, default_val, *field_ref, i| {
         if (field_ref.* != .none) continue;
 
-        const default_val = tuple_ty.structFieldDefaultValue(i, mod);
-        const field_ty = tuple_ty.structFieldType(i, mod);
-
         const field_src = inst_src; // TODO better source location
-        if (default_val.ip_index == .unreachable_value) {
+        if (default_val == .none) {
             if (tuple_ty.isTuple(mod)) {
                 const template = "missing tuple field: {d}";
                 if (root_msg) |msg| {
@@ -29164,7 +29202,7 @@ fn coerceTupleToTuple(
         if (runtime_src == null) {
             field_vals[i] = default_val;
         } else {
-            field_ref.* = try sema.addConstant(field_ty, default_val);
+            field_ref.* = try sema.addConstant(field_ty.toType(), default_val.toValue());
         }
     }
 
@@ -29181,7 +29219,10 @@ fn coerceTupleToTuple(
 
     return sema.addConstant(
         tuple_ty,
-        try Value.Tag.aggregate.create(sema.arena, field_vals),
+        (try mod.intern(.{ .aggregate = .{
+            .ty = tuple_ty.ip_index,
+            .fields = field_vals,
+        } })).toValue(),
     );
 }
 
@@ -31577,17 +31618,6 @@ pub fn resolveTypeRequiresComptime(sema: *Sema, ty: Type) CompileError!bool {
                 return sema.resolveTypeRequiresComptime(ty.optionalChild(mod));
             },
 
-            .tuple, .anon_struct => {
-                const tuple = ty.tupleFields();
-                for (tuple.types, 0..) |field_ty, i| {
-                    const have_comptime_val = tuple.values[i].ip_index != .unreachable_value;
-                    if (!have_comptime_val and try sema.resolveTypeRequiresComptime(field_ty)) {
-                        return true;
-                    }
-                }
-                return false;
-            },
-
             .error_union => return sema.resolveTypeRequiresComptime(ty.errorUnionPayload()),
             .anyframe_T => {
                 const child_ty = ty.castTag(.anyframe_T).?.data;
@@ -31676,6 +31706,16 @@ pub fn resolveTypeRequiresComptime(sema: *Sema, ty: Type) CompileError!bool {
                 }
             },
 
+            .anon_struct_type => |tuple| {
+                for (tuple.types, tuple.values) |field_ty, field_val| {
+                    const have_comptime_val = field_val != .none;
+                    if (!have_comptime_val and try sema.resolveTypeRequiresComptime(field_ty.toType())) {
+                        return true;
+                    }
+                }
+                return false;
+            },
+
             .union_type => |union_type| {
                 const union_obj = mod.unionPtr(union_type.index);
                 switch (union_obj.requires_comptime) {
@@ -31726,18 +31766,14 @@ pub fn resolveTypeFully(sema: *Sema, ty: Type) CompileError!void {
             return sema.resolveTypeFully(child_ty);
         },
         .Struct => switch (ty.ip_index) {
-            .none => switch (ty.tag()) {
-                .tuple, .anon_struct => {
-                    const tuple = ty.tupleFields();
-
-                    for (tuple.types) |field_ty| {
-                        try sema.resolveTypeFully(field_ty);
-                    }
-                },
-                else => {},
-            },
+            .none => {}, // TODO make this unreachable when all types are migrated to InternPool
             else => switch (mod.intern_pool.indexToKey(ty.ip_index)) {
                 .struct_type => return sema.resolveStructFully(ty),
+                .anon_struct_type => |tuple| {
+                    for (tuple.types) |field_ty| {
+                        try sema.resolveTypeFully(field_ty.toType());
+                    }
+                },
                 else => {},
             },
         },
@@ -33024,17 +33060,6 @@ pub fn typeHasOnePossibleValue(sema: *Sema, ty: Type) CompileError!?Value {
                 }
             },
 
-            .tuple, .anon_struct => {
-                const tuple = ty.tupleFields();
-                for (tuple.values, 0..) |val, i| {
-                    const is_comptime = val.ip_index != .unreachable_value;
-                    if (is_comptime) continue;
-                    if ((try sema.typeHasOnePossibleValue(tuple.types[i])) != null) continue;
-                    return null;
-                }
-                return Value.empty_struct;
-            },
-
             .inferred_alloc_const => unreachable,
             .inferred_alloc_mut => unreachable,
         },
@@ -33136,7 +33161,36 @@ pub fn typeHasOnePossibleValue(sema: *Sema, ty: Type) CompileError!?Value {
                         }
                     }
                 }
-                // In this case the struct has no fields and therefore has one possible value.
+                // In this case the struct has no runtime-known fields and
+                // therefore has one possible value.
+
+                // TODO: this is incorrect for structs with comptime fields, I think
+                // we should use a temporary allocator to construct an aggregate that
+                // is populated with the comptime values and then intern that value here.
+                // This TODO is repeated for anon_struct_type below, as well as
+                // in the redundant implementation of one-possible-value in type.zig.
+                const empty = try mod.intern(.{ .aggregate = .{
+                    .ty = ty.ip_index,
+                    .fields = &.{},
+                } });
+                return empty.toValue();
+            },
+
+            .anon_struct_type => |tuple| {
+                for (tuple.types, tuple.values) |field_ty, val| {
+                    const is_comptime = val != .none;
+                    if (is_comptime) continue;
+                    if ((try sema.typeHasOnePossibleValue(field_ty.toType())) != null) continue;
+                    return null;
+                }
+                // In this case the struct has no runtime-known fields and
+                // therefore has one possible value.
+
+                // TODO: this is incorrect for structs with comptime fields, I think
+                // we should use a temporary allocator to construct an aggregate that
+                // is populated with the comptime values and then intern that value here.
+                // This TODO is repeated for struct_type above, as well as
+                // in the redundant implementation of one-possible-value in type.zig.
                 const empty = try mod.intern(.{ .aggregate = .{
                     .ty = ty.ip_index,
                     .fields = &.{},
@@ -33633,17 +33687,6 @@ pub fn typeRequiresComptime(sema: *Sema, ty: Type) CompileError!bool {
                 return sema.typeRequiresComptime(ty.optionalChild(mod));
             },
 
-            .tuple, .anon_struct => {
-                const tuple = ty.tupleFields();
-                for (tuple.types, 0..) |field_ty, i| {
-                    const have_comptime_val = tuple.values[i].ip_index != .unreachable_value;
-                    if (!have_comptime_val and try sema.typeRequiresComptime(field_ty)) {
-                        return true;
-                    }
-                }
-                return false;
-            },
-
             .error_union => return sema.typeRequiresComptime(ty.errorUnionPayload()),
             .anyframe_T => {
                 const child_ty = ty.castTag(.anyframe_T).?.data;
@@ -33737,6 +33780,15 @@ pub fn typeRequiresComptime(sema: *Sema, ty: Type) CompileError!bool {
                         return false;
                     },
                 }
+            },
+            .anon_struct_type => |tuple| {
+                for (tuple.types, tuple.values) |field_ty, val| {
+                    const have_comptime_val = val != .none;
+                    if (!have_comptime_val and try sema.typeRequiresComptime(field_ty.toType())) {
+                        return true;
+                    }
+                }
+                return false;
             },
 
             .union_type => |union_type| {
@@ -33851,7 +33903,7 @@ fn structFieldIndex(
 ) !u32 {
     const mod = sema.mod;
     const struct_ty = try sema.resolveTypeFields(unresolved_struct_ty);
-    if (struct_ty.isAnonStruct()) {
+    if (struct_ty.isAnonStruct(mod)) {
         return sema.anonStructFieldIndex(block, struct_ty, field_name, field_src);
     } else {
         const struct_obj = mod.typeToStruct(struct_ty).?;
@@ -33868,9 +33920,10 @@ fn anonStructFieldIndex(
     field_name: []const u8,
     field_src: LazySrcLoc,
 ) !u32 {
-    const anon_struct = struct_ty.castTag(.anon_struct).?.data;
+    const mod = sema.mod;
+    const anon_struct = mod.intern_pool.indexToKey(struct_ty.ip_index).anon_struct_type;
     for (anon_struct.names, 0..) |name, i| {
-        if (mem.eql(u8, name, field_name)) {
+        if (mem.eql(u8, mod.intern_pool.stringToSlice(name), field_name)) {
             return @intCast(u32, i);
         }
     }
