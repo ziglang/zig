@@ -4226,9 +4226,18 @@ fn airClz(self: *Self, inst: Air.Inst.Index) !void {
 
         const src_bits = src_ty.bitSize(self.target.*);
         if (self.hasFeature(.lzcnt)) {
-            if (src_bits <= 64) {
+            if (src_bits <= 8) {
+                const wide_reg = try self.copyToTmpRegister(src_ty, mat_src_mcv);
+                try self.truncateRegister(src_ty, wide_reg);
+                try self.genBinOpMir(.{ ._, .lzcnt }, Type.u32, dst_mcv, .{ .register = wide_reg });
+                try self.genBinOpMir(
+                    .{ ._, .sub },
+                    dst_ty,
+                    dst_mcv,
+                    .{ .immediate = 8 + self.regExtraBits(src_ty) },
+                );
+            } else if (src_bits <= 64) {
                 try self.genBinOpMir(.{ ._, .lzcnt }, src_ty, dst_mcv, mat_src_mcv);
-
                 const extra_bits = self.regExtraBits(src_ty);
                 if (extra_bits > 0) {
                     try self.genBinOpMir(.{ ._, .sub }, dst_ty, dst_mcv, .{ .immediate = extra_bits });
@@ -4267,7 +4276,17 @@ fn airClz(self: *Self, inst: Air.Inst.Index) !void {
             const imm_reg = try self.copyToTmpRegister(dst_ty, .{
                 .immediate = src_bits ^ (src_bits - 1),
             });
-            try self.genBinOpMir(.{ ._, .bsr }, src_ty, dst_mcv, mat_src_mcv);
+            const imm_lock = self.register_manager.lockRegAssumeUnused(imm_reg);
+            defer self.register_manager.unlockReg(imm_lock);
+
+            if (src_bits <= 8) {
+                const wide_reg = try self.copyToTmpRegister(src_ty, mat_src_mcv);
+                const wide_lock = self.register_manager.lockRegAssumeUnused(wide_reg);
+                defer self.register_manager.unlockReg(wide_lock);
+
+                try self.truncateRegister(src_ty, wide_reg);
+                try self.genBinOpMir(.{ ._, .bsr }, Type.u16, dst_mcv, .{ .register = wide_reg });
+            } else try self.genBinOpMir(.{ ._, .bsr }, src_ty, dst_mcv, mat_src_mcv);
 
             const cmov_abi_size = @max(@intCast(u32, dst_ty.abiSize(self.target.*)), 2);
             try self.asmCmovccRegisterRegister(
@@ -4281,7 +4300,20 @@ fn airClz(self: *Self, inst: Air.Inst.Index) !void {
             const imm_reg = try self.copyToTmpRegister(dst_ty, .{
                 .immediate = @as(u64, math.maxInt(u64)) >> @intCast(u6, 64 - self.regBitSize(dst_ty)),
             });
-            try self.genBinOpMir(.{ ._, .bsr }, src_ty, dst_mcv, mat_src_mcv);
+            const imm_lock = self.register_manager.lockRegAssumeUnused(imm_reg);
+            defer self.register_manager.unlockReg(imm_lock);
+
+            const wide_reg = try self.copyToTmpRegister(src_ty, mat_src_mcv);
+            const wide_lock = self.register_manager.lockRegAssumeUnused(wide_reg);
+            defer self.register_manager.unlockReg(wide_lock);
+
+            try self.truncateRegister(src_ty, wide_reg);
+            try self.genBinOpMir(
+                .{ ._, .bsr },
+                if (src_bits <= 8) Type.u16 else src_ty,
+                dst_mcv,
+                .{ .register = wide_reg },
+            );
 
             const cmov_abi_size = @max(@intCast(u32, dst_ty.abiSize(self.target.*)), 2);
             try self.asmCmovccRegisterRegister(
@@ -4323,24 +4355,25 @@ fn airCtz(self: *Self, inst: Air.Inst.Index) !void {
 
         if (self.hasFeature(.bmi)) {
             if (src_bits <= 64) {
-                const extra_bits = self.regExtraBits(src_ty);
+                const extra_bits = self.regExtraBits(src_ty) + @as(u64, if (src_bits <= 8) 8 else 0);
+                const wide_ty = if (src_bits <= 8) Type.u16 else src_ty;
                 const masked_mcv = if (extra_bits > 0) masked: {
                     const tmp_mcv = tmp: {
                         if (src_mcv.isImmediate() or self.liveness.operandDies(inst, 0))
                             break :tmp src_mcv;
-                        try self.genSetReg(dst_reg, src_ty, src_mcv);
+                        try self.genSetReg(dst_reg, wide_ty, src_mcv);
                         break :tmp dst_mcv;
                     };
                     try self.genBinOpMir(
                         .{ ._, .@"or" },
-                        src_ty,
+                        wide_ty,
                         tmp_mcv,
                         .{ .immediate = (@as(u64, math.maxInt(u64)) >> @intCast(u6, 64 - extra_bits)) <<
                             @intCast(u6, src_bits) },
                     );
                     break :masked tmp_mcv;
                 } else mat_src_mcv;
-                try self.genBinOpMir(.{ ._, .tzcnt }, src_ty, dst_mcv, masked_mcv);
+                try self.genBinOpMir(.{ ._, .tzcnt }, wide_ty, dst_mcv, masked_mcv);
             } else if (src_bits <= 128) {
                 const tmp_reg = try self.register_manager.allocReg(null, gp);
                 const tmp_mcv = MCValue{ .register = tmp_reg };
@@ -4369,7 +4402,17 @@ fn airCtz(self: *Self, inst: Air.Inst.Index) !void {
             return self.fail("TODO airCtz of {}", .{src_ty.fmt(self.bin_file.options.module.?)});
 
         const width_reg = try self.copyToTmpRegister(dst_ty, .{ .immediate = src_bits });
-        try self.genBinOpMir(.{ ._, .bsf }, src_ty, dst_mcv, mat_src_mcv);
+        const width_lock = self.register_manager.lockRegAssumeUnused(width_reg);
+        defer self.register_manager.unlockReg(width_lock);
+
+        if (src_bits <= 8 or !math.isPowerOfTwo(src_bits)) {
+            const wide_reg = try self.copyToTmpRegister(src_ty, mat_src_mcv);
+            const wide_lock = self.register_manager.lockRegAssumeUnused(wide_reg);
+            defer self.register_manager.unlockReg(wide_lock);
+
+            try self.truncateRegister(src_ty, wide_reg);
+            try self.genBinOpMir(.{ ._, .bsf }, Type.u16, dst_mcv, .{ .register = wide_reg });
+        } else try self.genBinOpMir(.{ ._, .bsf }, src_ty, dst_mcv, mat_src_mcv);
 
         const cmov_abi_size = @max(@intCast(u32, dst_ty.abiSize(self.target.*)), 2);
         try self.asmCmovccRegisterRegister(
