@@ -1724,6 +1724,7 @@ pub const DeclGen = struct {
 
             .bitcast         => try self.airBitcast(inst),
             .intcast, .trunc => try self.airIntcast(inst),
+            .ptrtoint        => try self.airPtrToInt(inst),
             .int_to_float    => try self.airIntToFloat(inst),
             .float_to_int    => try self.airFloatToInt(inst),
             .not             => try self.airNot(inst),
@@ -1786,10 +1787,12 @@ pub const DeclGen = struct {
             .call_never_tail   => try self.airCall(inst, .never_tail),
             .call_never_inline => try self.airCall(inst, .never_inline),
 
-            .dbg_var_ptr => return,
-            .dbg_var_val => return,
-            .dbg_block_begin => return,
-            .dbg_block_end => return,
+            .dbg_inline_begin => return,
+            .dbg_inline_end   => return,
+            .dbg_var_ptr      => return,
+            .dbg_var_val      => return,
+            .dbg_block_begin  => return,
+            .dbg_block_end    => return,
             // zig fmt: on
 
             else => |tag| return self.todo("implement AIR tag {s}", .{@tagName(tag)}),
@@ -2128,6 +2131,22 @@ pub const DeclGen = struct {
                 .unsigned_value = operand_id,
             }),
         }
+        return result_id;
+    }
+
+    fn airPtrToInt(self: *DeclGen, inst: Air.Inst.Index) !?IdRef {
+        if (self.liveness.isUnused(inst)) return null;
+
+        const un_op = self.air.instructions.items(.data)[inst].un_op;
+        const operand_id = try self.resolve(un_op);
+        const result_type_id = try self.resolveTypeId(Type.usize);
+
+        const result_id = self.spv.allocId();
+        try self.func.body.emit(self.spv.gpa, .OpConvertPtrToU, .{
+            .id_result_type = result_type_id,
+            .id_result = result_id,
+            .pointer = operand_id,
+        });
         return result_id;
     }
 
