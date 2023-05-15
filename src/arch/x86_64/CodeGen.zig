@@ -6531,6 +6531,9 @@ fn genBinOp(
                         .sub,
                         .subwrap,
                         => if (self.hasFeature(.avx)) .{ .vp_b, .sub } else .{ .p_b, .sub },
+                        .bit_and => if (self.hasFeature(.avx)) .{ .vp_, .@"and" } else .{ .p_, .@"and" },
+                        .bit_or => if (self.hasFeature(.avx)) .{ .vp_, .@"or" } else .{ .p_, .@"or" },
+                        .xor => if (self.hasFeature(.avx)) .{ .vp_, .xor } else .{ .p_, .xor },
                         else => null,
                     },
                     17...32 => switch (air_tag) {
@@ -6540,6 +6543,9 @@ fn genBinOp(
                         .sub,
                         .subwrap,
                         => if (self.hasFeature(.avx2)) .{ .vp_b, .sub } else null,
+                        .bit_and => if (self.hasFeature(.avx2)) .{ .vp_, .@"and" } else null,
+                        .bit_or => if (self.hasFeature(.avx2)) .{ .vp_, .@"or" } else null,
+                        .xor => if (self.hasFeature(.avx2)) .{ .vp_, .xor } else null,
                         else => null,
                     },
                     else => null,
@@ -6555,6 +6561,9 @@ fn genBinOp(
                         .mul,
                         .mulwrap,
                         => if (self.hasFeature(.avx)) .{ .vp_w, .mull } else .{ .p_d, .mull },
+                        .bit_and => if (self.hasFeature(.avx)) .{ .vp_, .@"and" } else .{ .p_, .@"and" },
+                        .bit_or => if (self.hasFeature(.avx)) .{ .vp_, .@"or" } else .{ .p_, .@"or" },
+                        .xor => if (self.hasFeature(.avx)) .{ .vp_, .xor } else .{ .p_, .xor },
                         else => null,
                     },
                     9...16 => switch (air_tag) {
@@ -6567,6 +6576,9 @@ fn genBinOp(
                         .mul,
                         .mulwrap,
                         => if (self.hasFeature(.avx2)) .{ .vp_w, .mull } else null,
+                        .bit_and => if (self.hasFeature(.avx2)) .{ .vp_, .@"and" } else null,
+                        .bit_or => if (self.hasFeature(.avx2)) .{ .vp_, .@"or" } else null,
+                        .xor => if (self.hasFeature(.avx2)) .{ .vp_, .xor } else null,
                         else => null,
                     },
                     else => null,
@@ -6587,6 +6599,9 @@ fn genBinOp(
                             .{ .p_d, .mull }
                         else
                             null,
+                        .bit_and => if (self.hasFeature(.avx)) .{ .vp_, .@"and" } else .{ .p_, .@"and" },
+                        .bit_or => if (self.hasFeature(.avx)) .{ .vp_, .@"or" } else .{ .p_, .@"or" },
+                        .xor => if (self.hasFeature(.avx)) .{ .vp_, .xor } else .{ .p_, .xor },
                         else => null,
                     },
                     5...8 => switch (air_tag) {
@@ -6599,6 +6614,9 @@ fn genBinOp(
                         .mul,
                         .mulwrap,
                         => if (self.hasFeature(.avx2)) .{ .vp_d, .mull } else null,
+                        .bit_and => if (self.hasFeature(.avx2)) .{ .vp_, .@"and" } else null,
+                        .bit_or => if (self.hasFeature(.avx2)) .{ .vp_, .@"or" } else null,
+                        .xor => if (self.hasFeature(.avx2)) .{ .vp_, .xor } else null,
                         else => null,
                     },
                     else => null,
@@ -6611,6 +6629,9 @@ fn genBinOp(
                         .sub,
                         .subwrap,
                         => if (self.hasFeature(.avx)) .{ .vp_q, .sub } else .{ .p_q, .sub },
+                        .bit_and => if (self.hasFeature(.avx)) .{ .vp_, .@"and" } else .{ .p_, .@"and" },
+                        .bit_or => if (self.hasFeature(.avx)) .{ .vp_, .@"or" } else .{ .p_, .@"or" },
+                        .xor => if (self.hasFeature(.avx)) .{ .vp_, .xor } else .{ .p_, .xor },
                         else => null,
                     },
                     3...4 => switch (air_tag) {
@@ -6620,6 +6641,9 @@ fn genBinOp(
                         .sub,
                         .subwrap,
                         => if (self.hasFeature(.avx2)) .{ .vp_q, .sub } else null,
+                        .bit_and => if (self.hasFeature(.avx2)) .{ .vp_, .@"and" } else null,
+                        .bit_or => if (self.hasFeature(.avx2)) .{ .vp_, .@"or" } else null,
+                        .xor => if (self.hasFeature(.avx2)) .{ .vp_, .xor } else null,
                         else => null,
                     },
                     else => null,
@@ -6929,6 +6953,7 @@ fn genBinOp(
                 else => unreachable,
             },
         ),
+        .bit_and, .bit_or, .xor => {},
         .max, .min => {}, // TODO: unordered select
         else => unreachable,
     }
