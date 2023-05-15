@@ -165,34 +165,6 @@ pub fn classifySystemV(ty: Type, target: Target, ctx: Context) [8]Class {
         },
         .Vector => {
             const elem_ty = ty.childType();
-            if (ctx == .arg) {
-                const bit_size = ty.bitSize(target);
-                if (bit_size > 128) {
-                    const has_avx512 = target.cpu.features.isEnabled(@enumToInt(std.Target.x86.Feature.avx512f));
-                    if (has_avx512 and bit_size <= 512) return .{
-                        .integer, .integer, .integer, .integer,
-                        .integer, .integer, .integer, .integer,
-                    };
-                    const has_avx = target.cpu.features.isEnabled(@enumToInt(std.Target.x86.Feature.avx));
-                    if (has_avx and bit_size <= 256) return .{
-                        .integer, .integer, .integer, .integer,
-                        .none,    .none,    .none,    .none,
-                    };
-                    return memory_class;
-                }
-                if (bit_size > 80) return .{
-                    .integer, .integer, .none, .none,
-                    .none,    .none,    .none, .none,
-                };
-                if (bit_size > 64) return .{
-                    .x87,  .none, .none, .none,
-                    .none, .none, .none, .none,
-                };
-                return .{
-                    .integer, .none, .none, .none,
-                    .none,    .none, .none, .none,
-                };
-            }
             const bits = elem_ty.bitSize(target) * ty.arrayLen();
             if (bits <= 64) return .{
                 .sse,  .none, .none, .none,
@@ -202,6 +174,7 @@ pub fn classifySystemV(ty: Type, target: Target, ctx: Context) [8]Class {
                 .sse,  .sseup, .none, .none,
                 .none, .none,  .none, .none,
             };
+            if (ctx == .arg and !std.Target.x86.featureSetHas(target.cpu.features, .avx)) return memory_class;
             if (bits <= 192) return .{
                 .sse,  .sseup, .sseup, .none,
                 .none, .none,  .none,  .none,
@@ -210,6 +183,7 @@ pub fn classifySystemV(ty: Type, target: Target, ctx: Context) [8]Class {
                 .sse,  .sseup, .sseup, .sseup,
                 .none, .none,  .none,  .none,
             };
+            if (ctx == .arg and !std.Target.x86.featureSetHas(target.cpu.features, .avx512f)) return memory_class;
             if (bits <= 320) return .{
                 .sse,   .sseup, .sseup, .sseup,
                 .sseup, .none,  .none,  .none,
