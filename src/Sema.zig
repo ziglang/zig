@@ -29301,7 +29301,9 @@ fn analyzeSlice(
                         const start_val = try sema.resolveDefinedValue(block, start_src, uncasted_start) orelse {
                             break :emit_note false;
                         };
-                        const start = start_val.toUnsignedInt(sema.mod.getTarget());
+                        const start = try start_val.getUnsignedIntAdvanced(sema.mod.getTarget(), sema) orelse {
+                            break :emit_note false;
+                        };
                         const end = end: {
                             if (uncasted_end_opt == .none) {
                                 break :end 1;
@@ -29309,7 +29311,9 @@ fn analyzeSlice(
                                 const end_val = try sema.resolveDefinedValue(block, end_src, uncasted_end_opt) orelse {
                                     break :emit_note false;
                                 };
-                                break :end end_val.toUnsignedInt(sema.mod.getTarget());
+                                break :end try end_val.getUnsignedIntAdvanced(sema.mod.getTarget(), sema) orelse {
+                                    break :emit_note false;
+                                };
                             }
                         };
                         break :emit_note (start == 0) and (end == 1);
