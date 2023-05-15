@@ -3583,8 +3583,8 @@ pub const Type = struct {
                     // TODO: this is incorrect for structs with comptime fields, I think
                     // we should use a temporary allocator to construct an aggregate that
                     // is populated with the comptime values and then intern that value here.
-                    // This TODO is repeated for anon_struct_type below, as well as in
-                    // the redundant implementation of one-possible-value logic in Sema.zig.
+                    // This TODO is repeated in the redundant implementation of
+                    // one-possible-value logic in Sema.zig.
                     const empty = try mod.intern(.{ .aggregate = .{
                         .ty = ty.ip_index,
                         .fields = &.{},
@@ -3593,22 +3593,15 @@ pub const Type = struct {
                 },
 
                 .anon_struct_type => |tuple| {
-                    for (tuple.types, tuple.values) |field_ty, val| {
-                        if (val != .none) continue; // comptime field
-                        if ((try field_ty.toType().onePossibleValue(mod)) != null) continue;
-                        return null;
+                    for (tuple.values) |val| {
+                        if (val == .none) return null;
                     }
-
-                    // TODO: this is incorrect for structs with comptime fields, I think
-                    // we should use a temporary allocator to construct an aggregate that
-                    // is populated with the comptime values and then intern that value here.
-                    // This TODO is repeated for struct_type above, as well as in
-                    // the redundant implementation of one-possible-value logic in Sema.zig.
-                    const empty = try mod.intern(.{ .aggregate = .{
+                    // In this case the struct has all comptime-known fields and
+                    // therefore has one possible value.
+                    return (try mod.intern(.{ .aggregate = .{
                         .ty = ty.ip_index,
-                        .fields = &.{},
-                    } });
-                    return empty.toValue();
+                        .fields = tuple.values,
+                    } })).toValue();
                 },
 
                 .union_type => |union_type| {
@@ -4477,7 +4470,7 @@ pub const Type = struct {
                 const struct_obj = mod.structPtrUnwrap(struct_type.index) orelse return false;
                 return struct_obj.is_tuple;
             },
-            .anon_struct_type => |anon_struct_type| anon_struct_type.names.len == 0,
+            .anon_struct_type => true,
             else => false,
         };
     }

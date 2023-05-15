@@ -18237,6 +18237,7 @@ fn zirStructInitAnon(
                 return sema.failWithOwnedErrorMsg(msg);
             }
             if (try sema.resolveMaybeUndefVal(init)) |init_val| {
+                assert(init_val.ip_index != .none);
                 values[i] = init_val.ip_index;
             } else {
                 values[i] = .none;
@@ -33167,8 +33168,8 @@ pub fn typeHasOnePossibleValue(sema: *Sema, ty: Type) CompileError!?Value {
                 // TODO: this is incorrect for structs with comptime fields, I think
                 // we should use a temporary allocator to construct an aggregate that
                 // is populated with the comptime values and then intern that value here.
-                // This TODO is repeated for anon_struct_type below, as well as
-                // in the redundant implementation of one-possible-value in type.zig.
+                // This TODO is repeated in the redundant implementation of
+                // one-possible-value in type.zig.
                 const empty = try mod.intern(.{ .aggregate = .{
                     .ty = ty.ip_index,
                     .fields = &.{},
@@ -33177,25 +33178,15 @@ pub fn typeHasOnePossibleValue(sema: *Sema, ty: Type) CompileError!?Value {
             },
 
             .anon_struct_type => |tuple| {
-                for (tuple.types, tuple.values) |field_ty, val| {
-                    const is_comptime = val != .none;
-                    if (is_comptime) continue;
-                    if ((try sema.typeHasOnePossibleValue(field_ty.toType())) != null) continue;
-                    return null;
+                for (tuple.values) |val| {
+                    if (val == .none) return null;
                 }
-                // In this case the struct has no runtime-known fields and
+                // In this case the struct has all comptime-known fields and
                 // therefore has one possible value.
-
-                // TODO: this is incorrect for structs with comptime fields, I think
-                // we should use a temporary allocator to construct an aggregate that
-                // is populated with the comptime values and then intern that value here.
-                // This TODO is repeated for struct_type above, as well as
-                // in the redundant implementation of one-possible-value in type.zig.
-                const empty = try mod.intern(.{ .aggregate = .{
+                return (try mod.intern(.{ .aggregate = .{
                     .ty = ty.ip_index,
-                    .fields = &.{},
-                } });
-                return empty.toValue();
+                    .fields = tuple.values,
+                } })).toValue();
             },
 
             .union_type => |union_type| {

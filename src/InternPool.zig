@@ -1166,10 +1166,10 @@ pub const Tag = enum(u8) {
     /// Module.Struct object allocated for it.
     /// data is Module.Namespace.Index.
     type_struct_ns,
-    /// An AnonStructType which stores types, names, and values for each field.
+    /// An AnonStructType which stores types, names, and values for fields.
     /// data is extra index of `TypeStructAnon`.
     type_struct_anon,
-    /// An AnonStructType which has only types and values for each field.
+    /// An AnonStructType which has only types and values for fields.
     /// data is extra index of `TypeStructAnon`.
     type_tuple_anon,
     /// A tagged union type.
@@ -1272,7 +1272,8 @@ pub const Tag = enum(u8) {
     /// only one possible value. Not all only-possible-values are encoded this way;
     /// for example structs which have all comptime fields are not encoded this way.
     /// The set of values that are encoded this way is:
-    /// * A struct which has 0 fields.
+    /// * An array or vector which has length 0.
+    /// * A struct which has all fields comptime-known.
     /// data is Index of the type, which is known to be zero bits at runtime.
     only_possible_value,
     /// data is extra index to Key.Union.
@@ -1863,9 +1864,20 @@ pub fn indexToKey(ip: InternPool, index: Index) Key {
         .only_possible_value => {
             const ty = @intToEnum(Index, data);
             return switch (ip.indexToKey(ty)) {
+                // TODO: migrate structs to properly use the InternPool rather
+                // than using the SegmentedList trick, then the struct type will
+                // have a slice of comptime values that can be used here for when
+                // the struct has one possible value due to all fields comptime (same
+                // as the tuple case below).
                 .struct_type => .{ .aggregate = .{
                     .ty = ty,
                     .fields = &.{},
+                } },
+                // There is only one possible value precisely due to the
+                // fact that this values slice is fully populated!
+                .anon_struct_type => |anon_struct_type| .{ .aggregate = .{
+                    .ty = ty,
+                    .fields = anon_struct_type.values,
                 } },
                 else => unreachable,
             };
@@ -2392,12 +2404,6 @@ pub fn get(ip: *InternPool, gpa: Allocator, key: Key) Allocator.Error!Index {
         .aggregate => |aggregate| {
             assert(aggregate.ty != .none);
             for (aggregate.fields) |elem| assert(elem != .none);
-            if (aggregate.fields.len != ip.aggregateTypeLen(aggregate.ty)) {
-                std.debug.print("aggregate fields len = {d}, type len = {d}\n", .{
-                    aggregate.fields.len,
-                    ip.aggregateTypeLen(aggregate.ty),
-                });
-            }
             assert(aggregate.fields.len == ip.aggregateTypeLen(aggregate.ty));
 
             if (aggregate.fields.len == 0) {
@@ -2406,6 +2412,22 @@ pub fn get(ip: *InternPool, gpa: Allocator, key: Key) Allocator.Error!Index {
                     .data = @enumToInt(aggregate.ty),
                 });
                 return @intToEnum(Index, ip.items.len - 1);
+            }
+
+            switch (ip.indexToKey(aggregate.ty)) {
+                .anon_struct_type => |anon_struct_type| {
+                    if (std.mem.eql(Index, anon_struct_type.values, aggregate.fields)) {
+                        // This encoding works thanks to the fact that, as we just verified,
+                        // the type itself contains a slice of values that can be provided
+                        // in the aggregate fields.
+                        ip.items.appendAssumeCapacity(.{
+                            .tag = .only_possible_value,
+                            .data = @enumToInt(aggregate.ty),
+                        });
+                        return @intToEnum(Index, ip.items.len - 1);
+                    }
+                },
+                else => {},
             }
 
             try ip.extra.ensureUnusedCapacity(
@@ -3121,8 +3143,8 @@ fn dumpFallible(ip: InternPool, arena: Allocator) anyerror!void {
         }
     };
     counts.sort(SortContext{ .map = &counts });
-    const len = @min(50, counts.count());
-    std.debug.print("  top 50 tags:\n", .{});
+    const len = @min(25, counts.count());
+    std.debug.print("  top 25 tags:\n", .{});
     for (counts.keys()[0..len], counts.values()[0..len]) |tag, stats| {
         std.debug.print("    {s}: {d} occurrences, {d} total bytes\n", .{
             @tagName(tag), stats.count, stats.bytes,
