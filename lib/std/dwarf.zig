@@ -3,6 +3,7 @@ const std = @import("std.zig");
 const debug = std.debug;
 const fs = std.fs;
 const io = std.io;
+const os = std.os;
 const mem = std.mem;
 const math = std.math;
 const leb = @import("leb128.zig");
@@ -664,10 +665,17 @@ pub const DwarfSection = enum {
 };
 
 pub const DwarfInfo = struct {
-    endian: std.builtin.Endian,
+    pub const Section = struct {
+        data: []const u8,
+        owned: bool,
+    };
 
-    // No section memory is owned by the DwarfInfo
-    sections: [std.enums.directEnumArrayLen(DwarfSection, 0)]?[]const u8,
+    const num_sections = std.enums.directEnumArrayLen(DwarfSection, 0);
+    pub const SectionArray = [num_sections]?Section;
+    pub const null_section_array = [_]?Section{null} ** num_sections;
+
+    endian: std.builtin.Endian,
+    sections: SectionArray,
 
     // Filled later by the initializer
     abbrev_table_list: std.ArrayListUnmanaged(AbbrevTableHeader) = .{},
@@ -679,10 +687,13 @@ pub const DwarfInfo = struct {
     fde_list: std.ArrayListUnmanaged(FrameDescriptionEntry) = .{},
 
     pub fn section(di: DwarfInfo, dwarf_section: DwarfSection) ?[]const u8 {
-        return di.sections[@enumToInt(dwarf_section)];
+        return if (di.sections[@enumToInt(dwarf_section)]) |s| s.data else null;
     }
 
     pub fn deinit(di: *DwarfInfo, allocator: mem.Allocator) void {
+        for (di.sections) |s| {
+            if (s.owned) allocator.free(s.data);
+        }
         for (di.abbrev_table_list.items) |*abbrev| {
             abbrev.deinit();
         }
@@ -696,6 +707,8 @@ pub const DwarfInfo = struct {
             func.deinit(allocator);
         }
         di.func_list.deinit(allocator);
+        di.cie_map.deinit(allocator);
+        di.fde_list.deinit(allocator);
     }
 
     pub fn getSymbolName(di: *DwarfInfo, address: u64) ?[]const u8 {
@@ -1443,7 +1456,6 @@ pub const DwarfInfo = struct {
         return getStringGeneric(di.section(.debug_line_str), offset);
     }
 
-
     fn readDebugAddr(di: DwarfInfo, compile_unit: CompileUnit, index: u64) !u64 {
         const debug_addr = di.section(.debug_addr) orelse return badDwarf();
 
@@ -1470,12 +1482,13 @@ pub const DwarfInfo = struct {
         };
     }
 
-    pub fn scanAllUnwindInfo(di: *DwarfInfo, allocator: mem.Allocator) !void {
+    pub fn scanAllUnwindInfo(di: *DwarfInfo, allocator: mem.Allocator, binary_mem: []const u8) !void {
         var has_eh_frame_hdr = false;
-        if (di.section(.eh_frame)) |eh_frame_hdr| {
+        if (di.section(.eh_frame_hdr)) |eh_frame_hdr| {
             has_eh_frame_hdr = true;
 
-            // TODO: Parse this section
+            // TODO: Parse this section to get the lookup table, and skip loading the entire section
+
             _ = eh_frame_hdr;
         }
 
@@ -1494,16 +1507,14 @@ pub const DwarfInfo = struct {
                 }
 
                 const id_len = @as(u8, if (is_64) 8 else 4);
+                const id = if (is_64) try reader.readInt(u64, di.endian) else try reader.readInt(u32, di.endian);
                 const entry_bytes = eh_frame[stream.pos..][0 .. length - id_len];
-                const id = try reader.readInt(u32, di.endian);
-
-                // TODO: Get section_offset here (pass in from headers)
 
                 if (id == 0) {
                     const cie = try CommonInformationEntry.parse(
                         entry_bytes,
                         @ptrToInt(eh_frame.ptr),
-                        0,
+                        @ptrToInt(eh_frame.ptr) - @ptrToInt(binary_mem.ptr),
                         true,
                         length_offset,
                         @sizeOf(usize),
@@ -1511,12 +1522,12 @@ pub const DwarfInfo = struct {
                     );
                     try di.cie_map.put(allocator, length_offset, cie);
                 } else {
-                    const cie_offset = stream.pos - 4 - id;
+                    const cie_offset = stream.pos - id_len - id;
                     const cie = di.cie_map.get(cie_offset) orelse return badDwarf();
                     const fde = try FrameDescriptionEntry.parse(
                         entry_bytes,
                         @ptrToInt(eh_frame.ptr),
-                        0,
+                        @ptrToInt(eh_frame.ptr) - @ptrToInt(binary_mem.ptr),
                         true,
                         cie,
                         @sizeOf(usize),
@@ -1524,6 +1535,8 @@ pub const DwarfInfo = struct {
                     );
                     try di.fde_list.append(allocator, fde);
                 }
+
+                stream.pos += entry_bytes.len;
             }
 
             // TODO: Avoiding sorting if has_eh_frame_hdr exists
@@ -1536,16 +1549,116 @@ pub const DwarfInfo = struct {
         }
     }
 
+    pub fn unwindFrame(di: *const DwarfInfo, allocator: mem.Allocator, context: *UnwindContext, module_base_address: usize) !void {
+        if (context.pc == 0) return;
+
+        // TODO: Handle signal frame (ie. use_prev_instr in libunwind)
+        // TOOD: Use eh_frame_hdr to accelerate the search if available
+        //const eh_frame_hdr = di.section(.eh_frame_hdr) orelse return error.MissingDebugInfo;
+
+        // Find the FDE
+        const unmapped_pc = context.pc - module_base_address;
+        const index = std.sort.binarySearch(FrameDescriptionEntry, unmapped_pc, di.fde_list.items, {}, struct {
+            pub fn compareFn(_: void, pc: usize, mid_item: FrameDescriptionEntry) std.math.Order {
+                if (pc < mid_item.pc_begin) {
+                    return .lt;
+                } else {
+                    const range_end = mid_item.pc_begin + mid_item.pc_range;
+                    if (pc < range_end) {
+                        return .eq;
+                    }
+
+                    return .gt;
+                }
+            }
+        }.compareFn);
+
+        const fde = if (index) |i| &di.fde_list.items[i] else return error.MissingFDE;
+        const cie = di.cie_map.getPtr(fde.cie_length_offset) orelse return error.MissingCIE;
+
+        // const prev_cfa = context.cfa;
+        // const prev_pc = context.pc;
+
+        // TODO: Cache this on self so we can re-use the allocations?
+        var vm = call_frame.VirtualMachine{};
+        defer vm.deinit(allocator);
+
+        const row = try vm.runToNative(allocator, unmapped_pc, cie.*, fde.*);
+        context.cfa = switch (row.cfa.rule) {
+            .val_offset => |offset| blk: {
+                const register = row.cfa.register orelse return error.InvalidCFARule;
+                const value = mem.readIntSliceNative(usize, try abi.regBytes(&context.ucontext, register));
+
+                // TODO: Check isValidMemory?
+                break :blk try call_frame.applyOffset(value, offset);
+            },
+            .expression => |expression| {
+
+                // TODO: Evaluate expression
+                _ = expression;
+                return error.UnimplementedTODO;
+
+            },
+            else => return error.InvalidCFARule,
+        };
+
+        // Update the context with the unwound values
+        // TODO: Need old cfa and pc?
+
+        var next_ucontext = context.ucontext;
+
+        var has_next_ip = false;
+        for (vm.rowColumns(row)) |column| {
+            if (column.register) |register| {
+                const dest = try abi.regBytes(&next_ucontext, register);
+                if (register == cie.return_address_register) {
+                    has_next_ip = column.rule != .undefined;
+                }
+
+                try column.resolveValue(context.*, dest);
+            }
+        }
+
+        context.ucontext = next_ucontext;
+
+        if (has_next_ip) {
+            context.pc = mem.readIntSliceNative(usize, try abi.regBytes(&context.ucontext, @enumToInt(abi.Register.ip)));
+        } else {
+            context.pc = 0;
+        }
+
+        mem.writeIntSliceNative(usize, try abi.regBytes(&context.ucontext, @enumToInt(abi.Register.sp)), context.cfa.?);
+    }
+};
+
+pub const UnwindContext = struct {
+    cfa: ?usize,
+    pc: usize,
+    ucontext: os.ucontext_t,
+
+    pub fn init(ucontext: *const os.ucontext_t) !UnwindContext {
+        const pc = mem.readIntSliceNative(usize, try abi.regBytes(ucontext, @enumToInt(abi.Register.ip)));
+        return .{
+            .cfa = null,
+            .pc = pc,
+            .ucontext = ucontext.*,
+        };
+    }
+
+    pub fn getFp(self: *const UnwindContext) !usize {
+        return mem.readIntSliceNative(usize, try abi.regBytes(&self.ucontext, @enumToInt(abi.Register.fp)));
+    }
 };
 
 /// Initialize DWARF info. The caller has the responsibility to initialize most
-/// the DwarfInfo fields before calling.
-pub fn openDwarfDebugInfo(di: *DwarfInfo, allocator: mem.Allocator) !void {
+/// the DwarfInfo fields before calling. `binary_mem` is the raw bytes of the
+/// main binary file (not the secondary debug info file).
+pub fn openDwarfDebugInfo(di: *DwarfInfo, allocator: mem.Allocator, binary_mem: []const u8) !void {
     try di.scanAllFunctions(allocator);
     try di.scanAllCompileUnits(allocator);
 
     // Unwind info is not required
-    di.scanAllUnwindInfo(allocator) catch {};
+    di.scanAllUnwindInfo(allocator, binary_mem) catch {};
 }
 
 /// This function is to make it handy to comment out the return and make it

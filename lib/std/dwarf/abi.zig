@@ -1,4 +1,110 @@
+const builtin = @import("builtin");
 const std = @import("../std.zig");
+const os = std.os;
+const mem = std.mem;
+
+/// Maps register names to their DWARF register number.
+/// `bp`, `ip`, and `sp` are provided as aliases.
+pub const Register = switch (builtin.cpu.arch) {
+    .x86 => {
+
+        //pub const ip = Register.eip;
+        //pub const sp = Register.
+    },
+   .x86_64 => enum(u8) {
+        rax,
+        rdx,
+        rcx,
+        rbx,
+        rsi,
+        rdi,
+        rbp,
+        rsp,
+        r8,
+        r9,
+        r10,
+        r11,
+        r12,
+        r13,
+        r14,
+        r15,
+        rip,
+        xmm0,
+        xmm1,
+        xmm2,
+        xmm3,
+        xmm4,
+        xmm5,
+        xmm6,
+        xmm7,
+        xmm8,
+        xmm9,
+        xmm10,
+        xmm11,
+        xmm12,
+        xmm13,
+        xmm14,
+        xmm15,
+
+       pub const fp = Register.rbp;
+       pub const ip = Register.rip;
+       pub const sp = Register.rsp;
+    },
+    else => enum {},
+};
+
+fn RegBytesReturnType(comptime ContextPtrType: type) type {
+    const info = @typeInfo(ContextPtrType);
+    if (info != .Pointer or info.Pointer.child != os.ucontext_t) {
+        @compileError("Expected a pointer to ucontext_t, got " ++ @typeName(@TypeOf(ContextPtrType)));
+    }
+
+    return if (info.Pointer.is_const) return []const u8 else []u8;
+}
+
+/// Returns a slice containing the backing storage for `reg_number`
+pub fn regBytes(ucontext_ptr: anytype, reg_number: u8) !RegBytesReturnType(@TypeOf(ucontext_ptr)) {
+    var m = &ucontext_ptr.mcontext;
+
+    return switch (builtin.cpu.arch) {
+        .x86_64 => switch (builtin.os.tag) {
+            .linux, .netbsd, .solaris => switch (reg_number) {
+                0 => mem.asBytes(&m.gregs[os.REG.RAX]),
+                1 => mem.asBytes(&m.gregs[os.REG.RDX]),
+                2 => mem.asBytes(&m.gregs[os.REG.RCX]),
+                3 => mem.asBytes(&m.gregs[os.REG.RBX]),
+                4 => mem.asBytes(&m.gregs[os.REG.RSI]),
+                5 => mem.asBytes(&m.gregs[os.REG.RDI]),
+                6 => mem.asBytes(&m.gregs[os.REG.RBP]),
+                7 => mem.asBytes(&m.gregs[os.REG.RSP]),
+                8 => mem.asBytes(&m.gregs[os.REG.R8]),
+                9 => mem.asBytes(&m.gregs[os.REG.R9]),
+                10 => mem.asBytes(&m.gregs[os.REG.R10]),
+                11 => mem.asBytes(&m.gregs[os.REG.R11]),
+                12 => mem.asBytes(&m.gregs[os.REG.R12]),
+                13 => mem.asBytes(&m.gregs[os.REG.R13]),
+                14 => mem.asBytes(&m.gregs[os.REG.R14]),
+                15 => mem.asBytes(&m.gregs[os.REG.R15]),
+                16 => mem.asBytes(&m.gregs[os.REG.RIP]),
+                17...32 => |i| mem.asBytes(&m.fpregs.xmm[i - 17]),
+                else => error.InvalidRegister,
+            },
+            //.freebsd => @intCast(usize, ctx.mcontext.rip),
+            //.openbsd => @intCast(usize, ctx.sc_rip),
+            //.macos => @intCast(usize, ctx.mcontext.ss.rip),
+            else => error.UnimplementedOs,
+        },
+        else => error.UnimplementedArch,
+    };
+}
+
+/// Returns the ABI-defined default value this register has in the unwinding table
+/// before running any of the CIE instructions.
+pub fn getRegDefaultValue(reg_number: u8, out: []u8) void {
+    // TODO: Implement any ABI-specific rules for the default value for registers
+    _ = reg_number;
+    @memset(out, undefined);
+}
 
 fn writeUnknownReg(writer: anytype, reg_number: u8) !void {
     try writer.print("reg{}", .{reg_number});

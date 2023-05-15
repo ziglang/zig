@@ -135,8 +135,9 @@ pub fn dumpCurrentStackTrace(start_addr: ?usize) void {
 
 /// Tries to print the stack trace starting from the supplied base pointer to stderr,
 /// unbuffered, and ignores any error returned.
+/// `context` is either *const os.ucontext_t on posix, or the result of CONTEXT.getRegs() on Windows.
 /// TODO multithreaded awareness
-pub fn dumpStackTraceFromBase(bp: usize, ip: usize) void {
+pub fn dumpStackTraceFromBase(context: anytype) void {
     nosuspend {
         if (comptime builtin.target.isWasm()) {
             if (native_os == .wasi) {
@@ -156,12 +157,15 @@ pub fn dumpStackTraceFromBase(bp: usize, ip: usize) void {
         };
         const tty_config = io.tty.detectConfig(io.getStdErr());
         if (native_os == .windows) {
-            writeCurrentStackTraceWindows(stderr, debug_info, tty_config, ip) catch return;
+            writeCurrentStackTraceWindows(stderr, debug_info, tty_config, context.ip) catch return;
             return;
         }
 
-        printSourceAtAddress(debug_info, stderr, ip, tty_config) catch return;
-        var it = StackIterator.init(null, bp);
+        var it = StackIterator.initWithContext(null, debug_info, context) catch return;
+
+        // TODO: Should `it.dwarf_context.pc` be `it.getIp()`? (but then the non-dwarf case has to store ip)
+        printSourceAtAddress(debug_info, stderr, it.dwarf_context.pc, tty_config) catch return;
+
         while (it.next()) |return_address| {
             // On arm64 macOS, the address of the last frame is 0x0 rather than 0x1 as on x86_64 macOS,
             // therefore, we do a check for `return_address == 0` before subtracting 1 from it to avoid
@@ -206,6 +210,7 @@ pub fn captureStackTrace(first_address: ?usize, stack_trace: *std.builtin.StackT
         }
         stack_trace.index = slice.len;
     } else {
+        // TODO: This should use the dwarf unwinder if it's available
         var it = StackIterator.init(first_address, null);
         for (stack_trace.instruction_addresses, 0..) |*addr, i| {
             addr.* = it.next() orelse {
@@ -405,6 +410,11 @@ pub const StackIterator = struct {
     // Last known value of the frame pointer register.
     fp: usize,
 
+    // When DebugInfo and a register context is available, this iterator can unwind
+    // stacks with frames that don't use a frame pointer (ie. -fomit-frame-pointer).
+    debug_info: ?*DebugInfo,
+    dwarf_context: if (@hasDecl(os, "ucontext_t")) DW.UnwindContext else void = undefined,
+
     pub fn init(first_address: ?usize, fp: ?usize) StackIterator {
         if (native_arch == .sparc64) {
             // Flush all the register windows on stack.
@@ -416,7 +426,15 @@ pub const StackIterator = struct {
         return StackIterator{
             .first_address = first_address,
             .fp = fp orelse @frameAddress(),
+            .debug_info = null,
         };
+    }
+
+    pub fn initWithContext(first_address: ?usize, debug_info: *DebugInfo, context: *const os.ucontext_t) !StackIterator {
+        var iterator = init(first_address, null);
+        iterator.debug_info = debug_info;
+        iterator.dwarf_context = try DW.UnwindContext.init(context);
+        return iterator;
     }
 
     // Offset of the saved BP wrt the frame pointer.
@@ -500,7 +518,28 @@ pub const StackIterator = struct {
         }
     }
 
+    fn next_dwarf(self: *StackIterator) !void {
+        const module = try self.debug_info.?.getModuleForAddress(self.dwarf_context.pc);
+        if (module.getDwarfInfo()) |di| {
+            try di.unwindFrame(self.debug_info.?.allocator, &self.dwarf_context, module.base_address);
+        } else return error.MissingDebugInfo;
+    }
+
     fn next_internal(self: *StackIterator) ?usize {
+        if (self.debug_info != null)  {
+            if (self.next_dwarf()) |_| {
+                return self.dwarf_context.pc;
+            } else |err| {
+                // Fall back to fp unwinding on the first failure,
+                // as the register context won't be updated
+                self.fp = self.dwarf_context.getFp() catch 0;
+                self.debug_info = null;
+
+                // TODO: Remove
+                print("\ndwarf unwind error {}, placing fp at 0x{x}\n\n", .{err, self.fp});
+            }
+        }
+
         const fp = if (comptime native_arch.isSPARC())
             // On SPARC the offset is positive. (!)
             math.add(usize, self.fp, fp_offset) catch return null
@@ -540,6 +579,8 @@ pub fn writeCurrentStackTrace(
     if (native_os == .windows) {
         return writeCurrentStackTraceWindows(out_stream, debug_info, tty_config, start_addr);
     }
+
+    // TODO: Capture a context and use initWithContext
     var it = StackIterator.init(start_addr, null);
     while (it.next()) |return_address| {
         // On arm64 macOS, the address of the last frame is 0x0 rather than 0x1 as on x86_64 macOS,
@@ -800,12 +841,14 @@ fn readCoffDebugInfo(allocator: mem.Allocator, coff_bytes: []const u8) !ModuleDe
             // This coff file has embedded DWARF debug info
             _ = sec;
 
-            const num_sections = std.enums.directEnumArrayLen(DW.DwarfSection, 0);
-            var sections: [num_sections]?[]const u8 = [_]?[]const u8{null} ** num_sections;
-            errdefer for (sections) |section| if (section) |s| allocator.free(s);
+            var sections: DW.DwarfInfo.SectionArray = DW.DwarfInfo.null_section_array;
+            errdefer for (sections) |section| if (section) |s| if (s.owned) allocator.free(s.data);
 
             inline for (@typeInfo(DW.DwarfSection).Enum.fields, 0..) |section, i| {
-                sections[i] = try coff_obj.getSectionDataAlloc("." ++ section.name, allocator);
+                sections[i] = .{
+                    .data = try coff_obj.getSectionDataAlloc("." ++ section.name, allocator),
+                    .owned = true,
+                };
             }
 
             var dwarf = DW.DwarfInfo{
@@ -813,7 +856,7 @@ fn readCoffDebugInfo(allocator: mem.Allocator, coff_bytes: []const u8) !ModuleDe
                 .sections = sections,
             };
 
-            try DW.openDwarfDebugInfo(&dwarf, allocator);
+            try DW.openDwarfDebugInfo(&dwarf, allocator, coff_bytes);
             di.debug_data = PdbOrDwarf{ .dwarf = dwarf };
             return di;
         }
@@ -854,6 +897,8 @@ pub fn readElfDebugInfo(
     elf_filename: ?[]const u8,
     build_id: ?[]const u8,
     expected_crc: ?u32,
+    parent_sections: *DW.DwarfInfo.SectionArray,
+    parent_mapped_mem: ?[]align(mem.page_size) const u8,
 ) !ModuleDebugInfo {
     nosuspend {
 
@@ -891,10 +936,20 @@ pub fn readElfDebugInfo(
             @ptrCast(@alignCast(&mapped_mem[shoff])),
         )[0..hdr.e_shnum];
 
-        const num_sections = std.enums.directEnumArrayLen(DW.DwarfSection, 0);
-        var sections: [num_sections]?[]const u8 = [_]?[]const u8{null} ** num_sections;
-        var owned_sections: [num_sections][]const u8 = [_][]const u8{&.{}} ** num_sections;
-        errdefer for (owned_sections) |section| allocator.free(section);
+        var sections: DW.DwarfInfo.SectionArray = DW.DwarfInfo.null_section_array;
+
+        // Take ownership over any owned sections from the parent scope
+        for (parent_sections, &sections) |*parent, *section| {
+            if (parent.*) |*p| {
+                section.* = p.*;
+                p.owned = false;
+            }
+        }
+
+        errdefer for (sections) |section| if (section) |s| if (s.owned) allocator.free(s.data);
+
+        // TODO: This function should take a ptr to GNU_EH_FRAME (which is .eh_frame_hdr) from the ELF headers
+        //       and prefil sections[.eh_frame_hdr]
 
         var separate_debug_filename: ?[]const u8 = null;
         var separate_debug_crc: ?u32 = null;
@@ -920,7 +975,7 @@ pub fn readElfDebugInfo(
             if (section_index == null) continue;
 
             const section_bytes = try chopSlice(mapped_mem, shdr.sh_offset, shdr.sh_size);
-            if ((shdr.sh_flags & elf.SHF_COMPRESSED) > 0) {
+            sections[section_index.?] = if ((shdr.sh_flags & elf.SHF_COMPRESSED) > 0) blk: {
                 var section_stream = io.fixedBufferStream(section_bytes);
                 var section_reader = section_stream.reader();
                 const chdr = section_reader.readStruct(elf.Chdr) catch continue;
@@ -937,11 +992,14 @@ pub fn readElfDebugInfo(
                 const read = zlib_stream.reader().readAll(decompressed_section) catch continue;
                 assert(read == decompressed_section.len);
 
-                sections[section_index.?] = decompressed_section;
-                owned_sections[section_index.?] = decompressed_section;
-            } else {
-                sections[section_index.?] = section_bytes;
-           }
+                break :blk .{
+                    .data = decompressed_section,
+                    .owned = true,
+                };
+            } else .{
+                .data = section_bytes,
+                .owned = false,
+            };
         }
 
         const missing_debug_info =
@@ -953,6 +1011,12 @@ pub fn readElfDebugInfo(
         // Attempt to load debug info from an external file
         // See: https://sourceware.org/gdb/onlinedocs/gdb/Separate-Debug-Files.html
         if (missing_debug_info) {
+
+            // Only allow one level of debug info nesting
+            if (parent_mapped_mem) |_| {
+                return error.MissingDebugInfo;
+            }
+
             const global_debug_directories = [_][]const u8{
                 "/usr/lib/debug",
             };
@@ -977,8 +1041,9 @@ pub fn readElfDebugInfo(
                     // TODO: joinBuf would be ideal (with a fs.MAX_PATH_BYTES buffer)
                     const path = try fs.path.join(allocator, &.{ global_directory, ".build-id", &id_prefix_buf, filename });
                     defer allocator.free(path);
+                    // TODO: Remove
                     std.debug.print("  Loading external debug info from {s}\n", .{path});
-                    return readElfDebugInfo(allocator, path, null, separate_debug_crc) catch continue;
+                    return readElfDebugInfo(allocator, path, null, separate_debug_crc, &sections, mapped_mem) catch continue;
                 }
             }
 
@@ -987,14 +1052,14 @@ pub fn readElfDebugInfo(
                 if (elf_filename != null and mem.eql(u8, elf_filename.?, separate_filename)) return error.MissingDebugInfo;
 
                 // <cwd>/<gnu_debuglink>
-                if (readElfDebugInfo(allocator, separate_filename, null, separate_debug_crc)) |debug_info| return debug_info else |_| {}
+                if (readElfDebugInfo(allocator, separate_filename, null, separate_debug_crc, &sections, mapped_mem)) |debug_info| return debug_info else |_| {}
 
                 // <cwd>/.debug/<gnu_debuglink>
                 {
                     const path = try fs.path.join(allocator, &.{ ".debug", separate_filename });
                     defer allocator.free(path);
 
-                    if (readElfDebugInfo(allocator, path, null, separate_debug_crc)) |debug_info| return debug_info else |_| {}
+                    if (readElfDebugInfo(allocator, path, null, separate_debug_crc, &sections, mapped_mem)) |debug_info| return debug_info else |_| {}
                 }
 
                 var cwd_buf: [fs.MAX_PATH_BYTES]u8 = undefined;
@@ -1004,7 +1069,7 @@ pub fn readElfDebugInfo(
                 for (global_debug_directories) |global_directory| {
                     const path = try fs.path.join(allocator, &.{ global_directory, cwd_path, separate_filename });
                     defer allocator.free(path);
-                    if (readElfDebugInfo(allocator, path, null, separate_debug_crc)) |debug_info| return debug_info else |_| {}
+                    if (readElfDebugInfo(allocator, path, null, separate_debug_crc, &sections, mapped_mem)) |debug_info| return debug_info else |_| {}
                 }
             }
 
@@ -1016,13 +1081,13 @@ pub fn readElfDebugInfo(
             .sections = sections,
         };
 
-        try DW.openDwarfDebugInfo(&di, allocator);
+        try DW.openDwarfDebugInfo(&di, allocator, parent_mapped_mem orelse mapped_mem);
 
         return ModuleDebugInfo{
             .base_address = undefined,
             .dwarf = di,
-            .mapped_memory = mapped_mem,
-            .owned_sections = owned_sections,
+            .mapped_memory = parent_mapped_mem orelse mapped_mem,
+            .external_mapped_memory = if (parent_mapped_mem != null) mapped_mem else null,
         };
     }
 }
@@ -1426,7 +1491,8 @@ pub const DebugInfo = struct {
                 for (phdrs) |*phdr| {
                     if (phdr.p_type != elf.PT_LOAD) continue;
 
-                    const seg_start = info.dlpi_addr + phdr.p_vaddr;
+                    // Overflowing addition is used to handle the case of VSDOs having a p_vaddr = 0xffffffffff700000
+                    const seg_start = info.dlpi_addr +% phdr.p_vaddr;
                     const seg_end = seg_start + phdr.p_memsz;
                     if (context.address >= seg_start and context.address < seg_end) {
                         // Android libc uses NULL instead of an empty string to mark the
@@ -1436,6 +1502,8 @@ pub const DebugInfo = struct {
                         break;
                     }
                 } else return;
+
+                // TODO: Look for the GNU_EH_FRAME section and pass it to readElfDebugInfo
 
                 for (info.dlpi_phdr[0..info.dlpi_phnum]) |phdr| {
                     if (phdr.p_type != elf.PT_NOTE) continue;
@@ -1447,7 +1515,7 @@ pub const DebugInfo = struct {
                     const note_type = mem.readIntSliceNative(u32, note_bytes[8..12]);
                     if (note_type != elf.NT_GNU_BUILD_ID) continue;
                     if (!mem.eql(u8, "GNU\x00", note_bytes[12..16])) continue;
-                    context.build_id = note_bytes[16 .. 16 + desc_size];
+                    context.build_id = note_bytes[16..][0..desc_size];
                 }
 
                 // Stop the iteration
@@ -1466,7 +1534,10 @@ pub const DebugInfo = struct {
         const obj_di = try self.allocator.create(ModuleDebugInfo);
         errdefer self.allocator.destroy(obj_di);
 
-        obj_di.* = try readElfDebugInfo(self.allocator, if (ctx.name.len > 0) ctx.name else null, ctx.build_id, null);
+        var sections: DW.DwarfInfo.SectionArray = DW.DwarfInfo.null_section_array;
+        // TODO: If GNU_EH_FRAME was found, set it in sections
+
+        obj_di.* = try readElfDebugInfo(self.allocator, if (ctx.name.len > 0) ctx.name else null, ctx.build_id, null, &sections, null);
         obj_di.base_address = ctx.base_address;
 
         try self.address_map.putNoClobber(ctx.base_address, obj_di);
@@ -1491,6 +1562,7 @@ pub const ModuleDebugInfo = switch (native_os) {
     .macos, .ios, .watchos, .tvos => struct {
         base_address: usize,
         mapped_memory: []align(mem.page_size) const u8,
+        external_mapped_memory: ?[]align(mem.page_size) const u8,
         symbols: []const MachoSymbol,
         strings: [:0]const u8,
         ofiles: OFileTable,
@@ -1511,6 +1583,7 @@ pub const ModuleDebugInfo = switch (native_os) {
             self.ofiles.deinit();
             allocator.free(self.symbols);
             os.munmap(self.mapped_memory);
+            if (self.external_mapped_memory) |m| os.munmap(m);
         }
 
         fn loadOFile(self: *@This(), allocator: mem.Allocator, o_file_path: []const u8) !OFileInfo {
@@ -1723,6 +1796,12 @@ pub const ModuleDebugInfo = switch (native_os) {
                 unreachable;
             }
         }
+
+        pub fn getDwarfInfo(self: *@This()) ?*const DW.DwarfInfo {
+            // TODO: Implement
+            _ = self;
+            return null;
+        }
     },
     .uefi, .windows => struct {
         base_address: usize,
@@ -1803,25 +1882,34 @@ pub const ModuleDebugInfo = switch (native_os) {
                 .line_info = opt_line_info,
             };
         }
+
+        pub fn getDwarfInfo(self: *@This()) ?*const DW.DwarfInfo {
+            return switch (self.debug_data) {
+                .dwarf => |*dwarf| dwarf,
+                else => null,
+            };
+        }
     },
     .linux, .netbsd, .freebsd, .dragonfly, .openbsd, .haiku, .solaris => struct {
         base_address: usize,
         dwarf: DW.DwarfInfo,
         mapped_memory: []align(mem.page_size) const u8,
-        owned_sections: [num_sections][]const u8 = [_][]const u8{&.{}} ** num_sections,
-
-        const num_sections = 14;
+        external_mapped_memory: ?[]align(mem.page_size) const u8,
 
         fn deinit(self: *@This(), allocator: mem.Allocator) void {
             self.dwarf.deinit(allocator);
-            for (self.owned_sections) |section| allocator.free(section);
             os.munmap(self.mapped_memory);
+            if (self.external_mapped_memory) |m| os.munmap(m);
         }
 
         pub fn getSymbolAtAddress(self: *@This(), allocator: mem.Allocator, address: usize) !SymbolInfo {
             // Translate the VA into an address into this object
             const relocated_address = address - self.base_address;
             return getSymbolFromDwarf(allocator, relocated_address, &self.dwarf);
+        }
+
+        pub fn getDwarfInfo(self: *@This()) ?*const DW.DwarfInfo {
+            return &self.dwarf;
         }
     },
     .wasi => struct {
@@ -1835,6 +1923,11 @@ pub const ModuleDebugInfo = switch (native_os) {
             _ = allocator;
             _ = address;
             return SymbolInfo{};
+        }
+
+        pub fn getDwarfInfo(self: *@This()) ?*const DW.DwarfInfo {
+            _ = self;
+            return null;
         }
     },
     else => DW.DwarfInfo,
@@ -1992,55 +2085,69 @@ fn dumpSegfaultInfoPosix(sig: i32, addr: usize, ctx_ptr: ?*const anyopaque) void
     } catch os.abort();
 
     switch (native_arch) {
-        .x86 => {
-            const ctx: *const os.ucontext_t = @ptrCast(@alignCast(ctx_ptr));
-            const ip = @as(usize, @intCast(ctx.mcontext.gregs[os.REG.EIP]));
-            const bp = @as(usize, @intCast(ctx.mcontext.gregs[os.REG.EBP]));
-            dumpStackTraceFromBase(bp, ip);
-        },
-        .x86_64 => {
-            const ctx: *const os.ucontext_t = @ptrCast(@alignCast(ctx_ptr));
-            const ip = switch (native_os) {
-                .linux, .netbsd, .solaris => @as(usize, @intCast(ctx.mcontext.gregs[os.REG.RIP])),
-                .freebsd => @as(usize, @intCast(ctx.mcontext.rip)),
-                .openbsd => @as(usize, @intCast(ctx.sc_rip)),
-                .macos => @as(usize, @intCast(ctx.mcontext.ss.rip)),
-                else => unreachable,
-            };
-            const bp = switch (native_os) {
-                .linux, .netbsd, .solaris => @as(usize, @intCast(ctx.mcontext.gregs[os.REG.RBP])),
-                .openbsd => @as(usize, @intCast(ctx.sc_rbp)),
-                .freebsd => @as(usize, @intCast(ctx.mcontext.rbp)),
-                .macos => @as(usize, @intCast(ctx.mcontext.ss.rbp)),
-                else => unreachable,
-            };
-            dumpStackTraceFromBase(bp, ip);
-        },
-        .arm => {
-            const ctx: *const os.ucontext_t = @ptrCast(@alignCast(ctx_ptr));
-            const ip = @as(usize, @intCast(ctx.mcontext.arm_pc));
-            const bp = @as(usize, @intCast(ctx.mcontext.arm_fp));
-            dumpStackTraceFromBase(bp, ip);
-        },
-        .aarch64 => {
-            const ctx: *const os.ucontext_t = @ptrCast(@alignCast(ctx_ptr));
-            const ip = switch (native_os) {
-                .macos => @as(usize, @intCast(ctx.mcontext.ss.pc)),
-                .netbsd => @as(usize, @intCast(ctx.mcontext.gregs[os.REG.PC])),
-                .freebsd => @as(usize, @intCast(ctx.mcontext.gpregs.elr)),
-                else => @as(usize, @intCast(ctx.mcontext.pc)),
-            };
-            // x29 is the ABI-designated frame pointer
-            const bp = switch (native_os) {
-                .macos => @as(usize, @intCast(ctx.mcontext.ss.fp)),
-                .netbsd => @as(usize, @intCast(ctx.mcontext.gregs[os.REG.FP])),
-                .freebsd => @as(usize, @intCast(ctx.mcontext.gpregs.x[os.REG.FP])),
-                else => @as(usize, @intCast(ctx.mcontext.regs[29])),
-            };
-            dumpStackTraceFromBase(bp, ip);
+        .x86,
+        .x86_64,
+        .arm,
+        .aarch64,
+        => {
+            const ctx = @ptrCast(*const os.ucontext_t, @alignCast(@alignOf(os.ucontext_t), ctx_ptr));
+            dumpStackTraceFromBase(ctx);
         },
         else => {},
     }
+
+    // TODO: Move this logic to dwarf.abi.regBytes
+
+    // switch (native_arch) {
+    //     .x86 => {
+    //         const ctx = @ptrCast(*const os.ucontext_t, @alignCast(@alignOf(os.ucontext_t), ctx_ptr));
+    //         const ip = @intCast(usize, ctx.mcontext.gregs[os.REG.EIP]) ;
+    //         const bp = @intCast(usize, ctx.mcontext.gregs[os.REG.EBP]);
+    //         dumpStackTraceFromBase(bp, ip);
+    //     },
+    //     .x86_64 => {
+    //         const ctx = @ptrCast(*const os.ucontext_t, @alignCast(@alignOf(os.ucontext_t), ctx_ptr));
+    //         const ip = switch (native_os) {
+    //             .linux, .netbsd, .solaris => @intCast(usize, ctx.mcontext.gregs[os.REG.RIP]),
+    //             .freebsd => @intCast(usize, ctx.mcontext.rip),
+    //             .openbsd => @intCast(usize, ctx.sc_rip),
+    //             .macos => @intCast(usize, ctx.mcontext.ss.rip),
+    //             else => unreachable,
+    //         };
+    //         const bp = switch (native_os) {
+    //             .linux, .netbsd, .solaris => @intCast(usize, ctx.mcontext.gregs[os.REG.RBP]),
+    //             .openbsd => @intCast(usize, ctx.sc_rbp),
+    //             .freebsd => @intCast(usize, ctx.mcontext.rbp),
+    //             .macos => @intCast(usize, ctx.mcontext.ss.rbp),
+    //             else => unreachable,
+    //         };
+    //         dumpStackTraceFromBase(bp, ip);
+    //     },
+    //     .arm => {
+    //         const ctx = @ptrCast(*const os.ucontext_t, @alignCast(@alignOf(os.ucontext_t), ctx_ptr));
+    //         const ip = @intCast(usize, ctx.mcontext.arm_pc);
+    //         const bp = @intCast(usize, ctx.mcontext.arm_fp);
+    //         dumpStackTraceFromBase(bp, ip);
+    //     },
+    //     .aarch64 => {
+    //         const ctx = @ptrCast(*const os.ucontext_t, @alignCast(@alignOf(os.ucontext_t), ctx_ptr));
+    //         const ip = switch (native_os) {
+    //             .macos => @intCast(usize, ctx.mcontext.ss.pc),
+    //             .netbsd => @intCast(usize, ctx.mcontext.gregs[os.REG.PC]),
+    //             .freebsd => @intCast(usize, ctx.mcontext.gpregs.elr),
+    //             else => @intCast(usize, ctx.mcontext.pc),
+    //         };
+    //         // x29 is the ABI-designated frame pointer
+    //         const bp = switch (native_os) {
+    //             .macos => @intCast(usize, ctx.mcontext.ss.fp),
+    //             .netbsd => @intCast(usize, ctx.mcontext.gregs[os.REG.FP]),
+    //             .freebsd => @intCast(usize, ctx.mcontext.gpregs.x[os.REG.FP]),
+    //             else => @intCast(usize, ctx.mcontext.regs[29]),
+    //         };
+    //         dumpStackTraceFromBase(bp, ip);
+    //     },
+    //     else => {},
+    // }
 }
 
 fn handleSegfaultWindows(info: *windows.EXCEPTION_POINTERS) callconv(windows.WINAPI) c_long {
@@ -2105,7 +2212,7 @@ fn dumpSegfaultInfoWindows(info: *windows.EXCEPTION_POINTERS, msg: u8, label: ?[
         else => unreachable,
     } catch os.abort();
 
-    dumpStackTraceFromBase(regs.bp, regs.ip);
+    dumpStackTraceFromBase(regs);
 }
 
 pub fn dumpStackPointerAddr(prefix: []const u8) void {

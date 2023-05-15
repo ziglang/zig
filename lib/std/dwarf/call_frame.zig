@@ -1,5 +1,6 @@
 const builtin = @import("builtin");
 const std = @import("../std.zig");
+const mem = std.mem;
 const debug = std.debug;
 const leb = @import("../leb128.zig");
 const abi = @import("abi.zig");
@@ -216,10 +217,19 @@ pub const Instruction = union(Opcode) {
     }
 };
 
-/// This is a virtual machine that runs DWARF call frame instructions.
-/// See section 6.4.1 of the DWARF5 specification.
-pub const VirtualMachine = struct {
+/// Since register rules are applied (usually) during a panic,
+/// checked addition / subtraction is used so that we can return
+/// an error and fall back to FP-based unwinding.
+pub fn applyOffset(base: usize, offset: i64) !usize {
+    return if (offset >= 0)
+        try std.math.add(usize, base, @intCast(usize, offset))
+    else
+        try std.math.sub(usize, base, @intCast(usize, -offset));
+}
 
+/// This is a virtual machine that runs DWARF call frame instructions.
+pub const VirtualMachine = struct {
+    /// See section 6.4.1 of the DWARF5 specification for details on each
     const RegisterRule = union(enum) {
         // The spec says that the default rule for each column is the undefined rule.
         // However, it also allows ABI / compiler authors to specify alternate defaults, so
@@ -254,20 +264,63 @@ pub const VirtualMachine = struct {
         offset: u64 = 0,
 
         /// Special-case column that defines the CFA (Canonical Frame Address) rule.
-        /// The register field of this column defines the register that CFA is derived
-        /// from, while other columns define register rules in terms of the CFA.
+        /// The register field of this column defines the register that CFA is derived from.
         cfa: Column = .{},
+
+        /// The register fields in these columns define the register the rule applies to.
         columns: ColumnRange = .{},
 
         /// Indicates that the next write to any column in this row needs to copy
-        /// the backing column storage first.
+        /// the backing column storage first, as it may be referenced by previous rows.
         copy_on_write: bool = false,
     };
 
     pub const Column = struct {
-        /// Register can only null in the case of the CFA column
         register: ?u8 = null,
         rule: RegisterRule = .{ .default = {} },
+
+        /// Resolves the register rule and places the result into `out` (see dwarf.abi.regBytes)
+        pub fn resolveValue(self: Column, context: dwarf.UnwindContext, out: []u8) !void {
+            switch (self.rule) {
+                .default => {
+                    const register = self.register orelse return error.InvalidRegister;
+                    abi.getRegDefaultValue(register, out);
+                },
+                .undefined => {
+                    @memset(out, undefined);
+                },
+                .same_value => {},
+                .offset => |offset| {
+                    if (context.cfa) |cfa| {
+                        const ptr = @intToPtr(*const usize, try applyOffset(cfa, offset));
+
+                        // TODO: context.isValidMemory(ptr)
+                        mem.writeIntSliceNative(usize, out, ptr.*);
+                    } else return error.InvalidCFA;
+                },
+                .val_offset => |offset| {
+                    if (context.cfa) |cfa| {
+                        mem.writeIntSliceNative(usize, out, try applyOffset(cfa, offset));
+                    } else return error.InvalidCFA;
+                },
+                .register => |register| {
+                    const src = try abi.regBytes(&context.ucontext, register);
+                    if (src.len != out.len) return error.RegisterTypeMismatch;
+                    @memcpy(out, try abi.regBytes(&context.ucontext, register));
+                },
+                .expression => |expression| {
+                    // TODO
+                    _ = expression;
+                    unreachable;
+                },
+                .val_expression => |expression| {
+                    // TODO
+                    _ = expression;
+                    unreachable;
+                },
+                .architectural => return error.UnimplementedRule,
+            }
+        }
     };
 
     const ColumnRange = struct {
@@ -294,7 +347,7 @@ pub const VirtualMachine = struct {
         return self.columns.items[row.columns.start..][0..row.columns.len];
     }
 
-    /// Either retrieves or adds a column for `register` (non-CFA) in the current row
+    /// Either retrieves or adds a column for `register` (non-CFA) in the current row.
     fn getOrAddColumn(self: *VirtualMachine, allocator: std.mem.Allocator, register: u8) !*Column {
         for (self.rowColumns(self.current_row)) |*c| {
             if (c.register == register) return c;
@@ -315,7 +368,7 @@ pub const VirtualMachine = struct {
 
     /// Runs the CIE instructions, then the FDE instructions. Execution halts
     /// once the row that corresponds to `pc` is known, and it is returned.
-    pub fn unwindTo(
+    pub fn runTo(
         self: *VirtualMachine,
         allocator: std.mem.Allocator,
         pc: u64,
@@ -328,12 +381,15 @@ pub const VirtualMachine = struct {
         if (pc < fde.pc_begin or pc >= fde.pc_begin + fde.pc_range) return error.AddressOutOfRange;
 
         var prev_row: Row = self.current_row;
-        const streams = .{
-            std.io.fixedBufferStream(cie.initial_instructions),
-            std.io.fixedBufferStream(fde.instructions),
+
+        var cie_stream = std.io.fixedBufferStream(cie.initial_instructions);
+        var fde_stream = std.io.fixedBufferStream(fde.instructions);
+        var streams = [_]*std.io.FixedBufferStream([]const u8){
+            &cie_stream,
+            &fde_stream,
         };
 
-        outer: for (streams, 0..) |*stream, i| {
+        outer: for (&streams, 0..) |stream, i| {
             while (stream.pos < stream.buffer.len) {
                 const instruction = try dwarf.call_frame.Instruction.read(stream, addr_size_bytes, endian);
                 prev_row = try self.step(allocator, cie, i == 0, instruction);
@@ -346,14 +402,14 @@ pub const VirtualMachine = struct {
         return prev_row;
     }
 
-    pub fn unwindToNative(
+    pub fn runToNative(
         self: *VirtualMachine,
         allocator: std.mem.Allocator,
         pc: u64,
         cie: dwarf.CommonInformationEntry,
         fde: dwarf.FrameDescriptionEntry,
-    ) void {
-        self.stepTo(allocator, pc, cie, fde, @sizeOf(usize), builtin.target.cpu.arch.endian());
+    ) !Row {
+        return self.runTo(allocator, pc, cie, fde, @sizeOf(usize), builtin.target.cpu.arch.endian());
     }
 
     fn resolveCopyOnWrite(self: *VirtualMachine, allocator: std.mem.Allocator) !void {
@@ -451,30 +507,30 @@ pub const VirtualMachine = struct {
                 try self.resolveCopyOnWrite(allocator);
                 self.current_row.cfa = .{
                     .register = i.operands.register,
-                    .rule = .{ .offset = @intCast(i64, i.operands.offset) },
+                    .rule = .{ .val_offset = @intCast(i64, i.operands.offset) },
                 };
             },
             .def_cfa_sf => |i| {
                 try self.resolveCopyOnWrite(allocator);
                 self.current_row.cfa = .{
                     .register = i.operands.register,
-                    .rule = .{ .offset = i.operands.offset * cie.data_alignment_factor },
+                    .rule = .{ .val_offset = i.operands.offset * cie.data_alignment_factor },
                 };
             },
             .def_cfa_register => |i| {
                 try self.resolveCopyOnWrite(allocator);
-                if (self.current_row.cfa.register == null or self.current_row.cfa.rule != .offset) return error.InvalidOperation;
+                if (self.current_row.cfa.register == null or self.current_row.cfa.rule != .val_offset) return error.InvalidOperation;
                 self.current_row.cfa.register = i.operands.register;
             },
             .def_cfa_offset => |i| {
                 try self.resolveCopyOnWrite(allocator);
-                if (self.current_row.cfa.register == null or self.current_row.cfa.rule != .offset) return error.InvalidOperation;
-                self.current_row.cfa.rule = .{ .offset = @intCast(i64, i.operands.offset) };
+                if (self.current_row.cfa.register == null or self.current_row.cfa.rule != .val_offset) return error.InvalidOperation;
+                self.current_row.cfa.rule = .{ .val_offset = @intCast(i64, i.operands.offset) };
             },
             .def_cfa_offset_sf => |i| {
                 try self.resolveCopyOnWrite(allocator);
-                if (self.current_row.cfa.register == null or self.current_row.cfa.rule != .offset) return error.InvalidOperation;
-                self.current_row.cfa.rule = .{ .offset = i.operands.offset * cie.data_alignment_factor };
+                if (self.current_row.cfa.register == null or self.current_row.cfa.rule != .val_offset) return error.InvalidOperation;
+                self.current_row.cfa.rule = .{ .val_offset = i.operands.offset * cie.data_alignment_factor };
             },
             .def_cfa_expression => |i| {
                 try self.resolveCopyOnWrite(allocator);
@@ -490,9 +546,18 @@ pub const VirtualMachine = struct {
                     .expression = i.operands.block,
                 };
             },
-            .val_offset => {},
-            .val_offset_sf => {},
-            .val_expression => {},
+            .val_offset => {
+                // TODO: Implement
+                unreachable;
+            },
+            .val_offset_sf => {
+                // TODO: Implement
+                unreachable;
+            },
+            .val_expression => {
+                // TODO: Implement
+                unreachable;
+            },
         }
 
         return prev_row;
