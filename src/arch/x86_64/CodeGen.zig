@@ -6534,6 +6534,34 @@ fn genBinOp(
                         .bit_and => if (self.hasFeature(.avx)) .{ .vp_, .@"and" } else .{ .p_, .@"and" },
                         .bit_or => if (self.hasFeature(.avx)) .{ .vp_, .@"or" } else .{ .p_, .@"or" },
                         .xor => if (self.hasFeature(.avx)) .{ .vp_, .xor } else .{ .p_, .xor },
+                        .min => switch (lhs_ty.childType().intInfo(self.target.*).signedness) {
+                            .signed => if (self.hasFeature(.avx))
+                                .{ .vp_b, .mins }
+                            else if (self.hasFeature(.sse4_1))
+                                .{ .p_b, .mins }
+                            else
+                                null,
+                            .unsigned => if (self.hasFeature(.avx))
+                                .{ .vp_b, .minu }
+                            else if (self.hasFeature(.sse4_1))
+                                .{ .p_b, .minu }
+                            else
+                                null,
+                        },
+                        .max => switch (lhs_ty.childType().intInfo(self.target.*).signedness) {
+                            .signed => if (self.hasFeature(.avx))
+                                .{ .vp_b, .maxs }
+                            else if (self.hasFeature(.sse4_1))
+                                .{ .p_b, .maxs }
+                            else
+                                null,
+                            .unsigned => if (self.hasFeature(.avx))
+                                .{ .vp_b, .maxu }
+                            else if (self.hasFeature(.sse4_1))
+                                .{ .p_b, .maxu }
+                            else
+                                null,
+                        },
                         else => null,
                     },
                     17...32 => switch (air_tag) {
@@ -6546,6 +6574,14 @@ fn genBinOp(
                         .bit_and => if (self.hasFeature(.avx2)) .{ .vp_, .@"and" } else null,
                         .bit_or => if (self.hasFeature(.avx2)) .{ .vp_, .@"or" } else null,
                         .xor => if (self.hasFeature(.avx2)) .{ .vp_, .xor } else null,
+                        .min => switch (lhs_ty.childType().intInfo(self.target.*).signedness) {
+                            .signed => if (self.hasFeature(.avx2)) .{ .vp_b, .mins } else null,
+                            .unsigned => if (self.hasFeature(.avx)) .{ .vp_b, .minu } else null,
+                        },
+                        .max => switch (lhs_ty.childType().intInfo(self.target.*).signedness) {
+                            .signed => if (self.hasFeature(.avx2)) .{ .vp_b, .maxs } else null,
+                            .unsigned => if (self.hasFeature(.avx2)) .{ .vp_b, .maxu } else null,
+                        },
                         else => null,
                     },
                     else => null,
@@ -6564,6 +6600,26 @@ fn genBinOp(
                         .bit_and => if (self.hasFeature(.avx)) .{ .vp_, .@"and" } else .{ .p_, .@"and" },
                         .bit_or => if (self.hasFeature(.avx)) .{ .vp_, .@"or" } else .{ .p_, .@"or" },
                         .xor => if (self.hasFeature(.avx)) .{ .vp_, .xor } else .{ .p_, .xor },
+                        .min => switch (lhs_ty.childType().intInfo(self.target.*).signedness) {
+                            .signed => if (self.hasFeature(.avx))
+                                .{ .vp_w, .mins }
+                            else
+                                .{ .p_w, .mins },
+                            .unsigned => if (self.hasFeature(.avx))
+                                .{ .vp_w, .minu }
+                            else
+                                .{ .p_w, .minu },
+                        },
+                        .max => switch (lhs_ty.childType().intInfo(self.target.*).signedness) {
+                            .signed => if (self.hasFeature(.avx))
+                                .{ .vp_w, .maxs }
+                            else
+                                .{ .p_w, .maxs },
+                            .unsigned => if (self.hasFeature(.avx))
+                                .{ .vp_w, .maxu }
+                            else
+                                .{ .p_w, .maxu },
+                        },
                         else => null,
                     },
                     9...16 => switch (air_tag) {
@@ -6579,6 +6635,14 @@ fn genBinOp(
                         .bit_and => if (self.hasFeature(.avx2)) .{ .vp_, .@"and" } else null,
                         .bit_or => if (self.hasFeature(.avx2)) .{ .vp_, .@"or" } else null,
                         .xor => if (self.hasFeature(.avx2)) .{ .vp_, .xor } else null,
+                        .min => switch (lhs_ty.childType().intInfo(self.target.*).signedness) {
+                            .signed => if (self.hasFeature(.avx2)) .{ .vp_w, .mins } else null,
+                            .unsigned => if (self.hasFeature(.avx)) .{ .vp_w, .minu } else null,
+                        },
+                        .max => switch (lhs_ty.childType().intInfo(self.target.*).signedness) {
+                            .signed => if (self.hasFeature(.avx2)) .{ .vp_w, .maxs } else null,
+                            .unsigned => if (self.hasFeature(.avx2)) .{ .vp_w, .maxu } else null,
+                        },
                         else => null,
                     },
                     else => null,
@@ -6602,6 +6666,34 @@ fn genBinOp(
                         .bit_and => if (self.hasFeature(.avx)) .{ .vp_, .@"and" } else .{ .p_, .@"and" },
                         .bit_or => if (self.hasFeature(.avx)) .{ .vp_, .@"or" } else .{ .p_, .@"or" },
                         .xor => if (self.hasFeature(.avx)) .{ .vp_, .xor } else .{ .p_, .xor },
+                        .min => switch (lhs_ty.childType().intInfo(self.target.*).signedness) {
+                            .signed => if (self.hasFeature(.avx))
+                                .{ .vp_d, .mins }
+                            else if (self.hasFeature(.sse4_1))
+                                .{ .p_d, .mins }
+                            else
+                                null,
+                            .unsigned => if (self.hasFeature(.avx))
+                                .{ .vp_d, .minu }
+                            else if (self.hasFeature(.sse4_1))
+                                .{ .p_d, .minu }
+                            else
+                                null,
+                        },
+                        .max => switch (lhs_ty.childType().intInfo(self.target.*).signedness) {
+                            .signed => if (self.hasFeature(.avx))
+                                .{ .vp_d, .maxs }
+                            else if (self.hasFeature(.sse4_1))
+                                .{ .p_d, .maxs }
+                            else
+                                null,
+                            .unsigned => if (self.hasFeature(.avx))
+                                .{ .vp_d, .maxu }
+                            else if (self.hasFeature(.sse4_1))
+                                .{ .p_d, .maxu }
+                            else
+                                null,
+                        },
                         else => null,
                     },
                     5...8 => switch (air_tag) {
@@ -6617,6 +6709,14 @@ fn genBinOp(
                         .bit_and => if (self.hasFeature(.avx2)) .{ .vp_, .@"and" } else null,
                         .bit_or => if (self.hasFeature(.avx2)) .{ .vp_, .@"or" } else null,
                         .xor => if (self.hasFeature(.avx2)) .{ .vp_, .xor } else null,
+                        .min => switch (lhs_ty.childType().intInfo(self.target.*).signedness) {
+                            .signed => if (self.hasFeature(.avx2)) .{ .vp_d, .mins } else null,
+                            .unsigned => if (self.hasFeature(.avx)) .{ .vp_d, .minu } else null,
+                        },
+                        .max => switch (lhs_ty.childType().intInfo(self.target.*).signedness) {
+                            .signed => if (self.hasFeature(.avx2)) .{ .vp_d, .maxs } else null,
+                            .unsigned => if (self.hasFeature(.avx2)) .{ .vp_d, .maxu } else null,
+                        },
                         else => null,
                     },
                     else => null,
