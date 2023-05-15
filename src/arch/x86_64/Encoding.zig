@@ -262,7 +262,9 @@ pub const Mnemonic = enum {
     fisttp, fld,
     // MMX
     movd, movq,
+    paddb, paddd, paddq, paddsb, paddsw, paddusb, paddusw, paddw,
     pand, pandn, por, pxor,
+    psubb, psubd, psubq, psubsb, psubsw, psubusb, psubusw, psubw,
     // SSE
     addps, addss,
     andps,
@@ -341,12 +343,14 @@ pub const Mnemonic = enum {
     vmovupd, vmovups,
     vmulpd, vmulps, vmulsd, vmulss,
     vorpd, vorps,
+    vpaddb, vpaddd, vpaddq, vpaddsb, vpaddsw, vpaddusb, vpaddusw, vpaddw,
     vpand, vpandn,
     vpextrb, vpextrd, vpextrq, vpextrw,
     vpinsrb, vpinsrd, vpinsrq, vpinsrw,
     vpor,
     vpshufhw, vpshuflw,
     vpsrld, vpsrlq, vpsrlw,
+    vpsubb, vpsubd, vpsubq, vpsubsb, vpsubsw, vpsubusb, vpsubusw, vpsubw,
     vpunpckhbw, vpunpckhdq, vpunpckhqdq, vpunpckhwd,
     vpunpcklbw, vpunpckldq, vpunpcklqdq, vpunpcklwd,
     vpxor,
@@ -746,7 +750,7 @@ fn estimateInstructionLength(prefix: Prefix, encoding: Encoding, ops: []const Op
 }
 
 const mnemonic_to_encodings_map = init: {
-    @setEvalBranchQuota(25_000);
+    @setEvalBranchQuota(30_000);
     const encodings = @import("encodings.zig");
     var entries = encodings.table;
     std.sort.sort(encodings.Entry, &entries, {}, struct {

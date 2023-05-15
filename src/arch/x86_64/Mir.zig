@@ -288,6 +288,7 @@ pub const Inst = struct {
         /// Add with carry
         adc,
         /// Add
+        /// Add packed integers
         /// Add packed single-precision floating-point values
         /// Add scalar single-precision floating-point values
         /// Add packed double-precision floating-point values
@@ -420,6 +421,7 @@ pub const Inst = struct {
         /// Double precision shift right
         sh,
         /// Subtract
+        /// Subtract packed integers
         /// Subtract packed single-precision floating-point values
         /// Subtract scalar single-precision floating-point values
         /// Subtract packed double-precision floating-point values
@@ -444,9 +446,18 @@ pub const Inst = struct {
         /// Bitwise logical xor of packed double-precision floating-point values
         xor,
 
+        /// Add packed signed integers with signed saturation
+        adds,
+        /// Add packed unsigned integers with unsigned saturation
+        addus,
         /// Bitwise logical and not of packed single-precision floating-point values
         /// Bitwise logical and not of packed double-precision floating-point values
         andn,
+        /// Subtract packed signed integers with signed saturation
+        subs,
+        /// Subtract packed unsigned integers with unsigned saturation
+        subus,
+
         /// Convert packed doubleword integers to packed single-precision floating-point values
         /// Convert packed doubleword integers to packed double-precision floating-point values
         cvtpi2,

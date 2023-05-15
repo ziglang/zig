@@ -6520,6 +6520,57 @@ fn genBinOp(
         },
         .Vector => switch (lhs_ty.childType().zigTypeTag()) {
             else => null,
+            .Int => switch (lhs_ty.childType().intInfo(self.target.*).bits) {
+                8 => switch (lhs_ty.vectorLen()) {
+                    1...16 => switch (air_tag) {
+                        .add,
+                        .addwrap,
+                        => if (self.hasFeature(.avx)) .{ .vp_b, .add } else .{ .p_b, .add },
+                        .sub,
+                        .subwrap,
+                        => if (self.hasFeature(.avx)) .{ .vp_b, .sub } else .{ .p_b, .sub },
+                        else => null,
+                    },
+                    else => null,
+                },
+                16 => switch (lhs_ty.vectorLen()) {
+                    1...8 => switch (air_tag) {
+                        .add,
+                        .addwrap,
+                        => if (self.hasFeature(.avx)) .{ .vp_w, .add } else .{ .p_w, .add },
+                        .sub,
+                        .subwrap,
+                        => if (self.hasFeature(.avx)) .{ .vp_w, .sub } else .{ .p_w, .sub },
+                        else => null,
+                    },
+                    else => null,
+                },
+                32 => switch (lhs_ty.vectorLen()) {
+                    1...4 => switch (air_tag) {
+                        .add,
+                        .addwrap,
+                        => if (self.hasFeature(.avx)) .{ .vp_d, .add } else .{ .p_d, .add },
+                        .sub,
+                        .subwrap,
+                        => if (self.hasFeature(.avx)) .{ .vp_d, .sub } else .{ .p_d, .sub },
+                        else => null,
+                    },
+                    else => null,
+                },
+                64 => switch (lhs_ty.vectorLen()) {
+                    1...2 => switch (air_tag) {
+                        .add,
+                        .addwrap,
+                        => if (self.hasFeature(.avx)) .{ .vp_q, .add } else .{ .p_q, .add },
+                        .sub,
+                        .subwrap,
+                        => if (self.hasFeature(.avx)) .{ .vp_q, .sub } else .{ .p_q, .sub },
+                        else => null,
+                    },
+                    else => null,
+                },
+                else => null,
+            },
             .Float => switch (lhs_ty.childType().floatBits(self.target.*)) {
                 16 => if (self.hasFeature(.f16c)) switch (lhs_ty.vectorLen()) {
                     1 => {
@@ -6812,7 +6863,7 @@ fn genBinOp(
         );
     }
     switch (air_tag) {
-        .add, .sub, .mul, .div_float, .div_exact => {},
+        .add, .addwrap, .sub, .subwrap, .mul, .mulwrap, .div_float, .div_exact => {},
         .div_trunc, .div_floor => try self.genRound(
             lhs_ty,
             dst_reg,
@@ -9043,14 +9094,33 @@ fn genSetReg(self: *Self, dst_reg: Register, ty: Type, src_mcv: MCValue) InnerEr
                     .{ .register = try self.copyToTmpRegister(ty, src_mcv) },
                 ),
                 .sse => try self.asmRegisterRegister(
-                    switch (ty.scalarType().zigTypeTag()) {
-                        else => if (self.hasFeature(.avx)) .{ .v_, .movdqa } else .{ ._, .movdqa },
+                    if (@as(?Mir.Inst.FixedTag, switch (ty.scalarType().zigTypeTag()) {
+                        else => switch (abi_size) {
+                            1...4 => if (self.hasFeature(.avx)) .{ .v_d, .mov } else .{ ._d, .mov },
+                            5...8 => if (self.hasFeature(.avx)) .{ .v_q, .mov } else .{ ._q, .mov },
+                            9...16 => if (self.hasFeature(.avx)) .{ .v_, .movdqa } else .{ ._, .movdqa },
+                            17...32 => if (self.hasFeature(.avx)) .{ .v_, .movdqa } else null,
+                            else => null,
+                        },
                         .Float => switch (ty.floatBits(self.target.*)) {
-                            else => if (self.hasFeature(.avx)) .{ .v_, .movdqa } else .{ ._, .movdqa },
+                            16, 128 => switch (abi_size) {
+                                2...4 => if (self.hasFeature(.avx)) .{ .v_d, .mov } else .{ ._d, .mov },
+                                5...8 => if (self.hasFeature(.avx)) .{ .v_q, .mov } else .{ ._q, .mov },
+                                9...16 => if (self.hasFeature(.avx))
+                                    .{ .v_, .movdqa }
+                                else
+                                    .{ ._, .movdqa },
+                                17...32 => if (self.hasFeature(.avx)) .{ .v_, .movdqa } else null,
+                                else => null,
+                            },
                             32 => if (self.hasFeature(.avx)) .{ .v_ps, .mova } else .{ ._ps, .mova },
                             64 => if (self.hasFeature(.avx)) .{ .v_pd, .mova } else .{ ._pd, .mova },
+                            80 => null,
+                            else => unreachable,
                         },
-                    },
+                    })) |tag| tag else return self.fail("TODO implement genSetReg for {}", .{
+                        ty.fmt(self.bin_file.options.module.?),
+                    }),
                     registerAlias(dst_reg, abi_size),
                     registerAlias(src_reg, abi_size),
                 ),
