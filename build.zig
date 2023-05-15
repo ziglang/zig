@@ -28,11 +28,7 @@ pub fn build(b: *std.Build) !void {
     const use_zig_libcxx = b.option(bool, "use-zig-libcxx", "If libc++ is needed, use zig's bundled version, don't try to integrate with the system") orelse false;
 
     const test_step = b.step("test", "Run all the tests");
-    const deprecated_skip_install_lib_files = b.option(bool, "skip-install-lib-files", "deprecated. see no-lib") orelse false;
-    if (deprecated_skip_install_lib_files) {
-        std.log.warn("-Dskip-install-lib-files is deprecated in favor of -Dno-lib", .{});
-    }
-    const skip_install_lib_files = b.option(bool, "no-lib", "skip copying of lib/ files and langref to installation prefix. Useful for development") orelse deprecated_skip_install_lib_files;
+    const skip_install_lib_files = b.option(bool, "no-lib", "skip copying of lib/ files and langref to installation prefix. Useful for development") orelse false;
     const skip_install_langref = b.option(bool, "no-langref", "skip copying of langref to the installation prefix") orelse skip_install_lib_files;
 
     const docgen_exe = b.addExecutable(.{
@@ -57,12 +53,6 @@ pub fn build(b: *std.Build) !void {
 
     const docs_step = b.step("docs", "Build documentation");
     docs_step.dependOn(&docgen_cmd.step);
-
-    // This is for legacy reasons, to be removed after our CI scripts are upgraded to use
-    // the file from the install prefix instead.
-    const legacy_write_to_cache = b.addWriteFiles();
-    legacy_write_to_cache.addCopyFileToSource(langref_file, "zig-cache/langref.html");
-    docs_step.dependOn(&legacy_write_to_cache.step);
 
     const check_case_exe = b.addExecutable(.{
         .name = "check-case",
