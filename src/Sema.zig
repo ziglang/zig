@@ -29322,7 +29322,7 @@ fn analyzeSlice(
                                 block,
                                 src,
                                 msg,
-                                "perhaps you want to coerce using '@as(*[1]{}, ptr)'?",
+                                "single-item pointer can be coerced to array using '@as(*[1]{}, ptr)'",
                                 .{ptr_ptr_child_ty.childType().fmt(mod)},
                             );
                             break :msg msg;
