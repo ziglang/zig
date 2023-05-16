@@ -11162,6 +11162,12 @@ fn airAggregateInit(self: *Self, inst: Air.Inst.Index) !void {
                     const elem_off = @intCast(i32, elem_size * elem_i);
                     try self.genSetMem(.{ .frame = frame_index }, elem_off, elem_ty, mat_elem_mcv);
                 }
+                if (result_ty.sentinel()) |sentinel| try self.genSetMem(
+                    .{ .frame = frame_index },
+                    @intCast(i32, elem_size * elements.len),
+                    elem_ty,
+                    try self.genTypedValue(.{ .ty = elem_ty, .val = sentinel }),
+                );
                 break :result .{ .load_frame = .{ .index = frame_index } };
             },
             .Vector => return self.fail("TODO implement aggregate_init for vectors", .{}),
