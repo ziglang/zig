@@ -472,7 +472,7 @@ pub fn addExtraAssumeCapacity(self: *Self, extra: anytype) u32 {
 
 fn gen(self: *Self) !void {
     const mod = self.bin_file.options.module.?;
-    const cc = self.fn_type.fnCallingConvention();
+    const cc = self.fn_type.fnCallingConvention(mod);
     if (cc != .Naked) {
         // stp fp, lr, [sp, #-16]!
         _ = try self.addInst(.{
@@ -1146,7 +1146,7 @@ fn airRetPtr(self: *Self, inst: Air.Inst.Index) !void {
         .stack_offset => blk: {
             // self.ret_mcv is an address to where this function
             // should store its result into
-            const ret_ty = self.fn_type.fnReturnType();
+            const ret_ty = self.fn_type.fnReturnType(mod);
             const ptr_ty = try mod.singleMutPtrType(ret_ty);
 
             // addr_reg will contain the address of where to store the
@@ -4271,7 +4271,7 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallModifier
 
     if (info.return_value == .stack_offset) {
         log.debug("airCall: return by reference", .{});
-        const ret_ty = fn_ty.fnReturnType();
+        const ret_ty = fn_ty.fnReturnType(mod);
         const ret_abi_size = @intCast(u32, ret_ty.abiSize(mod));
         const ret_abi_align = @intCast(u32, ret_ty.abiAlignment(mod));
         const stack_offset = try self.allocMem(ret_abi_size, ret_abi_align, inst);
@@ -4428,10 +4428,10 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallModifier
 }
 
 fn airRet(self: *Self, inst: Air.Inst.Index) !void {
+    const mod = self.bin_file.options.module.?;
     const un_op = self.air.instructions.items(.data)[inst].un_op;
     const operand = try self.resolveInst(un_op);
-    const ret_ty = self.fn_type.fnReturnType();
-    const mod = self.bin_file.options.module.?;
+    const ret_ty = self.fn_type.fnReturnType(mod);
 
     switch (self.ret_mcv) {
         .none => {},
@@ -4460,10 +4460,11 @@ fn airRet(self: *Self, inst: Air.Inst.Index) !void {
 }
 
 fn airRetLoad(self: *Self, inst: Air.Inst.Index) !void {
+    const mod = self.bin_file.options.module.?;
     const un_op = self.air.instructions.items(.data)[inst].un_op;
     const ptr = try self.resolveInst(un_op);
     const ptr_ty = self.typeOf(un_op);
-    const ret_ty = self.fn_type.fnReturnType();
+    const ret_ty = self.fn_type.fnReturnType(mod);
 
     switch (self.ret_mcv) {
         .none => {},
@@ -4483,7 +4484,6 @@ fn airRetLoad(self: *Self, inst: Air.Inst.Index) !void {
             // location.
             const op_inst = Air.refToIndex(un_op).?;
             if (self.air.instructions.items(.tag)[op_inst] != .ret_ptr) {
-                const mod = self.bin_file.options.module.?;
                 const abi_size = @intCast(u32, ret_ty.abiSize(mod));
                 const abi_align = ret_ty.abiAlignment(mod);
 
@@ -6226,12 +6226,11 @@ const CallMCValues = struct {
 
 /// Caller must call `CallMCValues.deinit`.
 fn resolveCallingConventionValues(self: *Self, fn_ty: Type) !CallMCValues {
-    const cc = fn_ty.fnCallingConvention();
-    const param_types = try self.gpa.alloc(Type, fn_ty.fnParamLen());
-    defer self.gpa.free(param_types);
-    fn_ty.fnParamTypes(param_types);
+    const mod = self.bin_file.options.module.?;
+    const fn_info = mod.typeToFunc(fn_ty).?;
+    const cc = fn_info.cc;
     var result: CallMCValues = .{
-        .args = try self.gpa.alloc(MCValue, param_types.len),
+        .args = try self.gpa.alloc(MCValue, fn_info.param_types.len),
         // These undefined values must be populated before returning from this function.
         .return_value = undefined,
         .stack_byte_count = undefined,
@@ -6239,8 +6238,7 @@ fn resolveCallingConventionValues(self: *Self, fn_ty: Type) !CallMCValues {
     };
     errdefer self.gpa.free(result.args);
 
-    const ret_ty = fn_ty.fnReturnType();
-    const mod = self.bin_file.options.module.?;
+    const ret_ty = fn_ty.fnReturnType(mod);
 
     switch (cc) {
         .Naked => {
@@ -6271,8 +6269,8 @@ fn resolveCallingConventionValues(self: *Self, fn_ty: Type) !CallMCValues {
                 }
             }
 
-            for (param_types, 0..) |ty, i| {
-                const param_size = @intCast(u32, ty.abiSize(mod));
+            for (fn_info.param_types, 0..) |ty, i| {
+                const param_size = @intCast(u32, ty.toType().abiSize(mod));
                 if (param_size == 0) {
                     result.args[i] = .{ .none = {} };
                     continue;
@@ -6280,14 +6278,14 @@ fn resolveCallingConventionValues(self: *Self, fn_ty: Type) !CallMCValues {
 
                 // We round up NCRN only for non-Apple platforms which allow the 16-byte aligned
                 // values to spread across odd-numbered registers.
-                if (ty.abiAlignment(mod) == 16 and !self.target.isDarwin()) {
+                if (ty.toType().abiAlignment(mod) == 16 and !self.target.isDarwin()) {
                     // Round up NCRN to the next even number
                     ncrn += ncrn % 2;
                 }
 
                 if (std.math.divCeil(u32, param_size, 8) catch unreachable <= 8 - ncrn) {
                     if (param_size <= 8) {
-                        result.args[i] = .{ .register = self.registerAlias(c_abi_int_param_regs[ncrn], ty) };
+                        result.args[i] = .{ .register = self.registerAlias(c_abi_int_param_regs[ncrn], ty.toType()) };
                         ncrn += 1;
                     } else {
                         return self.fail("TODO MCValues with multiple registers", .{});
@@ -6298,7 +6296,7 @@ fn resolveCallingConventionValues(self: *Self, fn_ty: Type) !CallMCValues {
                     ncrn = 8;
                     // TODO Apple allows the arguments on the stack to be non-8-byte aligned provided
                     // that the entire stack space consumed by the arguments is 8-byte aligned.
-                    if (ty.abiAlignment(mod) == 8) {
+                    if (ty.toType().abiAlignment(mod) == 8) {
                         if (nsaa % 8 != 0) {
                             nsaa += 8 - (nsaa % 8);
                         }
@@ -6336,10 +6334,10 @@ fn resolveCallingConventionValues(self: *Self, fn_ty: Type) !CallMCValues {
 
             var stack_offset: u32 = 0;
 
-            for (param_types, 0..) |ty, i| {
-                if (ty.abiSize(mod) > 0) {
-                    const param_size = @intCast(u32, ty.abiSize(mod));
-                    const param_alignment = ty.abiAlignment(mod);
+            for (fn_info.param_types, 0..) |ty, i| {
+                if (ty.toType().abiSize(mod) > 0) {
+                    const param_size = @intCast(u32, ty.toType().abiSize(mod));
+                    const param_alignment = ty.toType().abiAlignment(mod);
 
                     stack_offset = std.mem.alignForwardGeneric(u32, stack_offset, param_alignment);
                     result.args[i] = .{ .stack_argument_offset = stack_offset };

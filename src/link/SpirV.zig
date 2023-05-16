@@ -131,12 +131,12 @@ pub fn updateDecl(self: *SpirV, module: *Module, decl_index: Module.Decl.Index) 
 
 pub fn updateDeclExports(
     self: *SpirV,
-    module: *Module,
+    mod: *Module,
     decl_index: Module.Decl.Index,
     exports: []const *Module.Export,
 ) !void {
-    const decl = module.declPtr(decl_index);
-    if (decl.val.tag() == .function and decl.ty.fnCallingConvention() == .Kernel) {
+    const decl = mod.declPtr(decl_index);
+    if (decl.val.tag() == .function and decl.ty.fnCallingConvention(mod) == .Kernel) {
         // TODO: Unify with resolveDecl in spirv.zig.
         const entry = try self.decl_link.getOrPut(decl_index);
         if (!entry.found_existing) {

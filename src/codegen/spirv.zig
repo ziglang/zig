@@ -1227,8 +1227,9 @@ pub const DeclGen = struct {
             },
             .Fn => switch (repr) {
                 .direct => {
+                    const fn_info = mod.typeToFunc(ty).?;
                     // TODO: Put this somewhere in Sema.zig
-                    if (ty.fnIsVarArgs())
+                    if (fn_info.is_var_args)
                         return self.fail("VarArgs functions are unsupported for SPIR-V", .{});
 
                     const param_ty_refs = try self.gpa.alloc(CacheRef, ty.fnParamLen());
@@ -1546,18 +1547,17 @@ pub const DeclGen = struct {
             assert(decl.ty.zigTypeTag(mod) == .Fn);
             const prototype_id = try self.resolveTypeId(decl.ty);
             try self.func.prologue.emit(self.spv.gpa, .OpFunction, .{
-                .id_result_type = try self.resolveTypeId(decl.ty.fnReturnType()),
+                .id_result_type = try self.resolveTypeId(decl.ty.fnReturnType(mod)),
                 .id_result = decl_id,
                 .function_control = .{}, // TODO: We can set inline here if the type requires it.
                 .function_type = prototype_id,
             });
 
-            const params = decl.ty.fnParamLen();
-            var i: usize = 0;
+            const fn_info = mod.typeToFunc(decl.ty).?;
 
-            try self.args.ensureUnusedCapacity(self.gpa, params);
-            while (i < params) : (i += 1) {
-                const param_type_id = try self.resolveTypeId(decl.ty.fnParamType(i));
+            try self.args.ensureUnusedCapacity(self.gpa, fn_info.param_types.len);
+            for (fn_info.param_types) |param_type| {
+                const param_type_id = try self.resolveTypeId(param_type.toType());
                 const arg_result_id = self.spv.allocId();
                 try self.func.prologue.emit(self.spv.gpa, .OpFunctionParameter, .{
                     .id_result_type = param_type_id,
@@ -3338,10 +3338,10 @@ pub const DeclGen = struct {
             .Pointer => return self.fail("cannot call function pointers", .{}),
             else => unreachable,
         };
-        const fn_info = zig_fn_ty.fnInfo();
+        const fn_info = mod.typeToFunc(zig_fn_ty).?;
         const return_type = fn_info.return_type;
 
-        const result_type_id = try self.resolveTypeId(return_type);
+        const result_type_id = try self.resolveTypeId(return_type.toType());
         const result_id = self.spv.allocId();
         const callee_id = try self.resolve(pl_op.operand);
 
@@ -3368,11 +3368,11 @@ pub const DeclGen = struct {
             .id_ref_3 = params[0..n_params],
         });
 
-        if (return_type.isNoReturn()) {
+        if (return_type == .noreturn_type) {
             try self.func.body.emit(self.spv.gpa, .OpUnreachable, {});
         }
 
-        if (self.liveness.isUnused(inst) or !return_type.hasRuntimeBitsIgnoreComptime(mod)) {
+        if (self.liveness.isUnused(inst) or !return_type.toType().hasRuntimeBitsIgnoreComptime(mod)) {
             return null;
         }
 

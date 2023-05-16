@@ -26,6 +26,7 @@ const Liveness = @import("../../Liveness.zig");
 const Lower = @import("Lower.zig");
 const Mir = @import("Mir.zig");
 const Module = @import("../../Module.zig");
+const InternPool = @import("../../InternPool.zig");
 const Target = std.Target;
 const Type = @import("../../type.zig").Type;
 const TypedValue = @import("../../TypedValue.zig");
@@ -697,7 +698,8 @@ pub fn generate(
         FrameAlloc.init(.{ .size = 0, .alignment = 1 }),
     );
 
-    var call_info = function.resolveCallingConventionValues(fn_type, &.{}, .args_frame) catch |err| switch (err) {
+    const fn_info = mod.typeToFunc(fn_type).?;
+    var call_info = function.resolveCallingConventionValues(fn_info, &.{}, .args_frame) catch |err| switch (err) {
         error.CodegenFail => return Result{ .fail = function.err_msg.? },
         error.OutOfRegisters => return Result{
             .fail = try ErrorMsg.create(
@@ -1566,7 +1568,7 @@ fn asmMemoryRegisterImmediate(
 
 fn gen(self: *Self) InnerError!void {
     const mod = self.bin_file.options.module.?;
-    const cc = self.fn_type.fnCallingConvention();
+    const cc = self.fn_type.fnCallingConvention(mod);
     if (cc != .Naked) {
         try self.asmRegister(.{ ._, .push }, .rbp);
         const backpatch_push_callee_preserved_regs = try self.asmPlaceholder();
@@ -8042,7 +8044,9 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallModifier
         else => unreachable,
     };
 
-    var info = try self.resolveCallingConventionValues(fn_ty, args[fn_ty.fnParamLen()..], .call_frame);
+    const fn_info = mod.typeToFunc(fn_ty).?;
+
+    var info = try self.resolveCallingConventionValues(fn_info, args[fn_info.param_types.len..], .call_frame);
     defer info.deinit(self);
 
     // We need a properly aligned and sized call frame to be able to call this function.
@@ -8083,7 +8087,7 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallModifier
     const ret_lock = switch (info.return_value.long) {
         .none, .unreach => null,
         .indirect => |reg_off| lock: {
-            const ret_ty = fn_ty.fnReturnType();
+            const ret_ty = fn_info.return_type.toType();
             const frame_index = try self.allocFrameIndex(FrameAlloc.initType(ret_ty, mod));
             try self.genSetReg(reg_off.reg, Type.usize, .{
                 .lea_frame = .{ .index = frame_index, .off = -reg_off.off },
@@ -8199,9 +8203,10 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallModifier
 }
 
 fn airRet(self: *Self, inst: Air.Inst.Index) !void {
+    const mod = self.bin_file.options.module.?;
     const un_op = self.air.instructions.items(.data)[inst].un_op;
     const operand = try self.resolveInst(un_op);
-    const ret_ty = self.fn_type.fnReturnType();
+    const ret_ty = self.fn_type.fnReturnType(mod);
     switch (self.ret_mcv.short) {
         .none => {},
         .register => try self.genCopy(ret_ty, self.ret_mcv.short, operand),
@@ -11683,18 +11688,23 @@ const CallMCValues = struct {
 /// Caller must call `CallMCValues.deinit`.
 fn resolveCallingConventionValues(
     self: *Self,
-    fn_ty: Type,
+    fn_info: InternPool.Key.FuncType,
     var_args: []const Air.Inst.Ref,
     stack_frame_base: FrameIndex,
 ) !CallMCValues {
     const mod = self.bin_file.options.module.?;
-    const cc = fn_ty.fnCallingConvention();
-    const param_len = fn_ty.fnParamLen();
-    const param_types = try self.gpa.alloc(Type, param_len + var_args.len);
+    const cc = fn_info.cc;
+    const param_types = try self.gpa.alloc(Type, fn_info.param_types.len + var_args.len);
     defer self.gpa.free(param_types);
-    fn_ty.fnParamTypes(param_types);
+
+    for (param_types[0..fn_info.param_types.len], fn_info.param_types) |*dest, src| {
+        dest.* = src.toType();
+    }
     // TODO: promote var arg types
-    for (param_types[param_len..], var_args) |*param_ty, arg| param_ty.* = self.typeOf(arg);
+    for (param_types[fn_info.param_types.len..], var_args) |*param_ty, arg| {
+        param_ty.* = self.typeOf(arg);
+    }
+
     var result: CallMCValues = .{
         .args = try self.gpa.alloc(MCValue, param_types.len),
         // These undefined values must be populated before returning from this function.
@@ -11704,7 +11714,7 @@ fn resolveCallingConventionValues(
     };
     errdefer self.gpa.free(result.args);
 
-    const ret_ty = fn_ty.fnReturnType();
+    const ret_ty = fn_info.return_type.toType();
 
     switch (cc) {
         .Naked => {

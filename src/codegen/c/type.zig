@@ -1720,7 +1720,7 @@ pub const CType = extern union {
                 .Opaque => self.init(.void),
 
                 .Fn => {
-                    const info = ty.fnInfo();
+                    const info = mod.typeToFunc(ty).?;
                     if (!info.is_generic) {
                         if (lookup.isMutable()) {
                             const param_kind: Kind = switch (kind) {
@@ -1728,10 +1728,10 @@ pub const CType = extern union {
                                 .complete, .parameter, .global => .parameter,
                                 .payload => unreachable,
                             };
-                            _ = try lookup.typeToIndex(info.return_type, param_kind);
+                            _ = try lookup.typeToIndex(info.return_type.toType(), param_kind);
                             for (info.param_types) |param_type| {
-                                if (!param_type.hasRuntimeBitsIgnoreComptime(mod)) continue;
-                                _ = try lookup.typeToIndex(param_type, param_kind);
+                                if (!param_type.toType().hasRuntimeBitsIgnoreComptime(mod)) continue;
+                                _ = try lookup.typeToIndex(param_type.toType(), param_kind);
                             }
                         }
                         self.init(if (info.is_var_args) .varargs_function else .function);
@@ -2013,7 +2013,7 @@ pub const CType = extern union {
                 .function,
                 .varargs_function,
                 => {
-                    const info = ty.fnInfo();
+                    const info = mod.typeToFunc(ty).?;
                     assert(!info.is_generic);
                     const param_kind: Kind = switch (kind) {
                         .forward, .forward_parameter => .forward_parameter,
@@ -2023,21 +2023,21 @@ pub const CType = extern union {
 
                     var c_params_len: usize = 0;
                     for (info.param_types) |param_type| {
-                        if (!param_type.hasRuntimeBitsIgnoreComptime(mod)) continue;
+                        if (!param_type.toType().hasRuntimeBitsIgnoreComptime(mod)) continue;
                         c_params_len += 1;
                     }
 
                     const params_pl = try arena.alloc(Index, c_params_len);
                     var c_param_i: usize = 0;
                     for (info.param_types) |param_type| {
-                        if (!param_type.hasRuntimeBitsIgnoreComptime(mod)) continue;
-                        params_pl[c_param_i] = store.set.typeToIndex(param_type, mod, param_kind).?;
+                        if (!param_type.toType().hasRuntimeBitsIgnoreComptime(mod)) continue;
+                        params_pl[c_param_i] = store.set.typeToIndex(param_type.toType(), mod, param_kind).?;
                         c_param_i += 1;
                     }
 
                     const fn_pl = try arena.create(Payload.Function);
                     fn_pl.* = .{ .base = .{ .tag = t }, .data = .{
-                        .return_type = store.set.typeToIndex(info.return_type, mod, param_kind).?,
+                        .return_type = store.set.typeToIndex(info.return_type.toType(), mod, param_kind).?,
                         .param_types = params_pl,
                     } };
                     return initPayload(fn_pl);
@@ -2145,7 +2145,7 @@ pub const CType = extern union {
                         => {
                             if (ty.zigTypeTag(mod) != .Fn) return false;
 
-                            const info = ty.fnInfo();
+                            const info = mod.typeToFunc(ty).?;
                             assert(!info.is_generic);
                             const data = cty.cast(Payload.Function).?.data;
                             const param_kind: Kind = switch (self.kind) {
@@ -2154,18 +2154,18 @@ pub const CType = extern union {
                                 .payload => unreachable,
                             };
 
-                            if (!self.eqlRecurse(info.return_type, data.return_type, param_kind))
+                            if (!self.eqlRecurse(info.return_type.toType(), data.return_type, param_kind))
                                 return false;
 
                             var c_param_i: usize = 0;
                             for (info.param_types) |param_type| {
-                                if (!param_type.hasRuntimeBitsIgnoreComptime(mod)) continue;
+                                if (!param_type.toType().hasRuntimeBitsIgnoreComptime(mod)) continue;
 
                                 if (c_param_i >= data.param_types.len) return false;
                                 const param_cty = data.param_types[c_param_i];
                                 c_param_i += 1;
 
-                                if (!self.eqlRecurse(param_type, param_cty, param_kind))
+                                if (!self.eqlRecurse(param_type.toType(), param_cty, param_kind))
                                     return false;
                             }
                             return c_param_i == data.param_types.len;
@@ -2258,7 +2258,7 @@ pub const CType = extern union {
                         .function,
                         .varargs_function,
                         => {
-                            const info = ty.fnInfo();
+                            const info = mod.typeToFunc(ty).?;
                             assert(!info.is_generic);
                             const param_kind: Kind = switch (self.kind) {
                                 .forward, .forward_parameter => .forward_parameter,
@@ -2266,10 +2266,10 @@ pub const CType = extern union {
                                 .payload => unreachable,
                             };
 
-                            self.updateHasherRecurse(hasher, info.return_type, param_kind);
+                            self.updateHasherRecurse(hasher, info.return_type.toType(), param_kind);
                             for (info.param_types) |param_type| {
-                                if (!param_type.hasRuntimeBitsIgnoreComptime(mod)) continue;
-                                self.updateHasherRecurse(hasher, param_type, param_kind);
+                                if (!param_type.toType().hasRuntimeBitsIgnoreComptime(mod)) continue;
+                                self.updateHasherRecurse(hasher, param_type.toType(), param_kind);
                             }
                         },
 

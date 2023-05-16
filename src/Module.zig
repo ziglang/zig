@@ -846,7 +846,7 @@ pub const Decl = struct {
     pub fn getStructIndex(decl: *Decl, mod: *Module) Struct.OptionalIndex {
         if (!decl.owns_tv) return .none;
         const ty = (decl.val.castTag(.ty) orelse return .none).data;
-        return mod.intern_pool.indexToStruct(ty.ip_index);
+        return mod.intern_pool.indexToStructType(ty.ip_index);
     }
 
     /// If the Decl has a value and it is a union, return it,
@@ -4764,7 +4764,7 @@ fn semaDecl(mod: *Module, decl_index: Decl.Index) !bool {
             decl.analysis = .complete;
             decl.generation = mod.generation;
 
-            const is_inline = decl.ty.fnCallingConvention() == .Inline;
+            const is_inline = decl.ty.fnCallingConvention(mod) == .Inline;
             if (decl.is_exported) {
                 const export_src: LazySrcLoc = .{ .token_offset = @boolToInt(decl.is_pub) };
                 if (is_inline) {
@@ -5617,6 +5617,9 @@ pub fn analyzeFnBody(mod: *Module, func: *Fn, arena: Allocator) SemaError!Air {
     const decl_arena_allocator = decl.value_arena.?.acquire(gpa, &decl_arena);
     defer decl.value_arena.?.release(&decl_arena);
 
+    const fn_ty = decl.ty;
+    const fn_ty_info = mod.typeToFunc(fn_ty).?;
+
     var sema: Sema = .{
         .mod = mod,
         .gpa = gpa,
@@ -5626,7 +5629,7 @@ pub fn analyzeFnBody(mod: *Module, func: *Fn, arena: Allocator) SemaError!Air {
         .owner_decl = decl,
         .owner_decl_index = decl_index,
         .func = func,
-        .fn_ret_ty = decl.ty.fnReturnType(),
+        .fn_ret_ty = fn_ty_info.return_type.toType(),
         .owner_func = func,
         .branch_quota = @max(func.branch_quota, Sema.default_branch_quota),
     };
@@ -5664,8 +5667,6 @@ pub fn analyzeFnBody(mod: *Module, func: *Fn, arena: Allocator) SemaError!Air {
     // This could be a generic function instantiation, however, in which case we need to
     // map the comptime parameters to constant values and only emit arg AIR instructions
     // for the runtime ones.
-    const fn_ty = decl.ty;
-    const fn_ty_info = fn_ty.fnInfo();
     const runtime_params_len = @intCast(u32, fn_ty_info.param_types.len);
     try inner_block.instructions.ensureTotalCapacityPrecise(gpa, runtime_params_len);
     try sema.air_instructions.ensureUnusedCapacity(gpa, fn_info.total_params_len * 2); // * 2 for the `addType`
@@ -5692,7 +5693,7 @@ pub fn analyzeFnBody(mod: *Module, func: *Fn, arena: Allocator) SemaError!Air {
             sema.inst_map.putAssumeCapacityNoClobber(inst, arg);
             total_param_index += 1;
             continue;
-        } else fn_ty_info.param_types[runtime_param_index];
+        } else fn_ty_info.param_types[runtime_param_index].toType();
 
         const opt_opv = sema.typeHasOnePossibleValue(param_ty) catch |err| switch (err) {
             error.NeededSourceLocation => unreachable,
@@ -6864,6 +6865,10 @@ pub fn singleConstPtrType(mod: *Module, child_type: Type) Allocator.Error!Type {
     return ptrType(mod, .{ .elem_type = child_type.ip_index, .is_const = true });
 }
 
+pub fn funcType(mod: *Module, info: InternPool.Key.FuncType) Allocator.Error!Type {
+    return (try intern(mod, .{ .func_type = info })).toType();
+}
+
 /// Supports optionals in addition to pointers.
 pub fn ptrIntValue(mod: *Module, ty: Type, x: u64) Allocator.Error!Value {
     if (ty.isPtrLikeOptional(mod)) {
@@ -6994,6 +6999,16 @@ pub fn floatValue(mod: *Module, ty: Type, x: anytype) Allocator.Error!Value {
         .storage = storage,
     } });
     return i.toValue();
+}
+
+pub fn nullValue(mod: *Module, opt_ty: Type) Allocator.Error!Value {
+    const ip = &mod.intern_pool;
+    assert(ip.isOptionalType(opt_ty.ip_index));
+    const result = try ip.get(mod.gpa, .{ .opt = .{
+        .ty = opt_ty.ip_index,
+        .val = .none,
+    } });
+    return result.toValue();
 }
 
 pub fn smallestUnsignedInt(mod: *Module, max: u64) Allocator.Error!Type {
@@ -7201,13 +7216,20 @@ pub fn namespaceDeclIndex(mod: *Module, namespace_index: Namespace.Index) Decl.I
 /// * A struct which has no fields (`struct {}`).
 /// * Not a struct.
 pub fn typeToStruct(mod: *Module, ty: Type) ?*Struct {
-    const struct_index = mod.intern_pool.indexToStruct(ty.ip_index).unwrap() orelse return null;
+    if (ty.ip_index == .none) return null;
+    const struct_index = mod.intern_pool.indexToStructType(ty.ip_index).unwrap() orelse return null;
     return mod.structPtr(struct_index);
 }
 
 pub fn typeToUnion(mod: *Module, ty: Type) ?*Union {
-    const union_index = mod.intern_pool.indexToUnion(ty.ip_index).unwrap() orelse return null;
+    if (ty.ip_index == .none) return null;
+    const union_index = mod.intern_pool.indexToUnionType(ty.ip_index).unwrap() orelse return null;
     return mod.unionPtr(union_index);
+}
+
+pub fn typeToFunc(mod: *Module, ty: Type) ?InternPool.Key.FuncType {
+    if (ty.ip_index == .none) return null;
+    return mod.intern_pool.indexToFuncType(ty.ip_index);
 }
 
 pub fn fieldSrcLoc(mod: *Module, owner_decl_index: Decl.Index, query: FieldSrcQuery) SrcLoc {
