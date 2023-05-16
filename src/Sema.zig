@@ -3416,19 +3416,12 @@ fn indexablePtrLenOrNone(
     sema: *Sema,
     block: *Block,
     src: LazySrcLoc,
-    object: Air.Inst.Ref,
+    operand: Air.Inst.Ref,
 ) CompileError!Air.Inst.Ref {
-    const object_ty = sema.typeOf(object);
-    const indexable_ty = t: {
-        const ptr_size = object_ty.ptrSizeOrNull() orelse break :t object_ty;
-        break :t switch (ptr_size) {
-            .Many => return .none,
-            .One => object_ty.childType(),
-            else => object_ty,
-        };
-    };
-    try checkIndexable(sema, block, src, indexable_ty);
-    return sema.fieldVal(block, src, object, "len", src);
+    const operand_ty = sema.typeOf(operand);
+    try checkMemOperand(sema, block, src, operand_ty);
+    if (operand_ty.ptrSize() == .Many) return .none;
+    return sema.fieldVal(block, src, operand, "len", src);
 }
 
 fn zirAllocExtended(
@@ -22080,19 +22073,25 @@ fn zirMemcpy(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!void
     const src_src: LazySrcLoc = .{ .node_offset_builtin_call_arg1 = inst_data.src_node };
     const dest_ptr = try sema.resolveInst(extra.lhs);
     const src_ptr = try sema.resolveInst(extra.rhs);
+    const dest_ty = sema.typeOf(dest_ptr);
+    const src_ty = sema.typeOf(src_ptr);
     const dest_len = try indexablePtrLenOrNone(sema, block, dest_src, dest_ptr);
     const src_len = try indexablePtrLenOrNone(sema, block, src_src, src_ptr);
     const target = sema.mod.getTarget();
+
+    if (dest_ty.isConstPtr()) {
+        return sema.fail(block, dest_src, "cannot memcpy to constant pointer", .{});
+    }
 
     if (dest_len == .none and src_len == .none) {
         const msg = msg: {
             const msg = try sema.errMsg(block, src, "unknown @memcpy length", .{});
             errdefer msg.destroy(sema.gpa);
             try sema.errNote(block, dest_src, msg, "destination type '{}' provides no length", .{
-                sema.typeOf(dest_ptr).fmt(sema.mod),
+                dest_ty.fmt(sema.mod),
             });
             try sema.errNote(block, src_src, msg, "source type '{}' provides no length", .{
-                sema.typeOf(src_ptr).fmt(sema.mod),
+                src_ty.fmt(sema.mod),
             });
             break :msg msg;
         };
@@ -22130,6 +22129,14 @@ fn zirMemcpy(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!void
             const ok = try block.addBinOp(.cmp_eq, dest_len, src_len);
             try sema.addSafetyCheck(block, ok, .memcpy_len_mismatch);
         }
+    } else if (dest_len != .none) {
+        if (try sema.resolveDefinedValue(block, dest_src, dest_len)) |dest_len_val| {
+            len_val = dest_len_val;
+        }
+    } else if (src_len != .none) {
+        if (try sema.resolveDefinedValue(block, src_src, src_len)) |src_len_val| {
+            len_val = src_len_val;
+        }
     }
 
     const runtime_src = if (try sema.resolveDefinedValue(block, dest_src, dest_ptr)) |dest_ptr_val| rs: {
@@ -22139,7 +22146,7 @@ fn zirMemcpy(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!void
             const len = try sema.usizeCast(block, dest_src, len_u64);
             for (0..len) |i| {
                 const elem_index = try sema.addIntUnsigned(Type.usize, i);
-                const dest_elem_ptr = try sema.elemPtr(
+                const dest_elem_ptr = try sema.elemPtrOneLayerOnly(
                     block,
                     src,
                     dest_ptr,
@@ -22148,7 +22155,7 @@ fn zirMemcpy(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!void
                     true, // init
                     false, // oob_safety
                 );
-                const src_elem_ptr = try sema.elemPtr(
+                const src_elem_ptr = try sema.elemPtrOneLayerOnly(
                     block,
                     src,
                     src_ptr,
@@ -22171,9 +22178,6 @@ fn zirMemcpy(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!void
             return;
         } else break :rs src_src;
     } else dest_src;
-
-    const dest_ty = sema.typeOf(dest_ptr);
-    const src_ty = sema.typeOf(src_ptr);
 
     // If in-memory coercion is not allowed, explode this memcpy call into a
     // for loop that copies element-wise.
@@ -22213,6 +22217,10 @@ fn zirMemcpy(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!void
         if (new_src_ptr_ty.isSlice()) {
             new_src_ptr = try sema.analyzeSlicePtr(block, src_src, new_src_ptr, new_src_ptr_ty);
         }
+    } else if (dest_len == .none and len_val == null) {
+        // Change the dest to a slice, since its type must have the length.
+        const dest_ptr_ptr = try sema.analyzeRef(block, dest_src, new_dest_ptr);
+        new_dest_ptr = try sema.analyzeSlice(block, dest_src, dest_ptr_ptr, .zero, src_len, .none, .unneeded, dest_src, dest_src, dest_src, false);
     }
 
     try sema.requireRuntimeBlock(block, src, runtime_src);
@@ -22262,7 +22270,11 @@ fn zirMemset(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!void
     const dest_ptr = try sema.resolveInst(extra.lhs);
     const uncoerced_elem = try sema.resolveInst(extra.rhs);
     const dest_ptr_ty = sema.typeOf(dest_ptr);
-    try checkIndexable(sema, block, dest_src, dest_ptr_ty);
+    try checkMemOperand(sema, block, dest_src, dest_ptr_ty);
+
+    if (dest_ptr_ty.isConstPtr()) {
+        return sema.fail(block, dest_src, "cannot memset constant pointer", .{});
+    }
 
     const dest_elem_ty = dest_ptr_ty.elemType2();
     const target = sema.mod.getTarget();
@@ -31098,6 +31110,27 @@ fn checkIndexable(sema: *Sema, block: *Block, src: LazySrcLoc, ty: Type) !void {
         };
         return sema.failWithOwnedErrorMsg(msg);
     }
+}
+
+fn checkMemOperand(sema: *Sema, block: *Block, src: LazySrcLoc, ty: Type) !void {
+    if (ty.zigTypeTag() == .Pointer) {
+        switch (ty.ptrSize()) {
+            .Slice, .Many, .C => return,
+            .One => {
+                const elem_ty = ty.childType();
+                if (elem_ty.zigTypeTag() == .Array) return;
+                // TODO https://github.com/ziglang/zig/issues/15479
+                // if (elem_ty.isTuple()) return;
+            },
+        }
+    }
+    const msg = msg: {
+        const msg = try sema.errMsg(block, src, "type '{}' is not an indexable pointer", .{ty.fmt(sema.mod)});
+        errdefer msg.destroy(sema.gpa);
+        try sema.errNote(block, src, msg, "operand must be a slice, a many pointer or a pointer to an array", .{});
+        break :msg msg;
+    };
+    return sema.failWithOwnedErrorMsg(msg);
 }
 
 fn resolveUnionLayout(sema: *Sema, ty: Type) CompileError!void {
