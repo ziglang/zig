@@ -739,9 +739,9 @@ inline fn table_lookup(table: *align(64) const [4][256]u32, idx0: u8, idx1: u8, 
         std.mem.doNotOptimizeAway(t);
         return [4]u32{
             t[0][idx0 / stride],
-            math.rotl(u32, t[1][idx1 / stride], 8),
-            math.rotl(u32, t[2][idx2 / stride], 16),
-            math.rotl(u32, t[3][idx3 / stride], 24),
+            math.rotl(u32, (&t[1])[idx1 / stride], 8),
+            math.rotl(u32, (&t[2])[idx2 / stride], 16),
+            math.rotl(u32, (&t[3])[idx3 / stride], 24),
         };
     }
 }
