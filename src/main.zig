@@ -705,17 +705,6 @@ const ArgsIterator = struct {
     }
 };
 
-fn cleanupTempStdinFile(
-    temp_stdin_file: ?[]const u8,
-    local_cache_directory: Compilation.Directory,
-) void {
-    if (temp_stdin_file) |file| {
-        // Some garbage may stay in the file system if removal fails; this
-        // is harmless so no warning is needed.
-        local_cache_directory.handle.deleteFile(file) catch {};
-    }
-}
-
 fn buildOutputType(
     gpa: Allocator,
     arena: Allocator,
@@ -3031,13 +3020,6 @@ fn buildOutputType(
         break :l global_cache_directory;
     };
 
-    var temp_stdin_file: ?[]const u8 = null;
-    // Note that in one of the happy paths, execve() is used to switch to clang
-    // in which case this cleanup logic does not run and this temp file is
-    // leaked. Oh well. It's a minor punishment for using `-x c` which nobody
-    // should be doing.
-    defer cleanupTempStdinFile(temp_stdin_file, local_cache_directory);
-
     for (c_source_files.items) |*src| {
         if (!mem.eql(u8, src.src_path, "-")) continue;
 
@@ -3045,21 +3027,22 @@ fn buildOutputType(
             fatal("-E or -x is required when reading from a non-regular file", .{});
 
         // "-" is stdin. Dump it to a real file.
-        const sub_path = blk: {
-            const sep = fs.path.sep_str;
-            const sub_path = try std.fmt.allocPrint(arena, "tmp" ++ sep ++ "{x}-stdin{s}", .{
-                std.crypto.random.int(u64), ext.canonicalName(target_info.target),
-            });
-            try local_cache_directory.handle.makePath("tmp");
-            var f = try local_cache_directory.handle.createFile(sub_path, .{});
-            defer f.close();
-            errdefer local_cache_directory.handle.deleteFile(sub_path) catch {};
-            try f.writeFileAll(io.getStdIn(), .{});
-            break :blk sub_path;
-        };
-        // Relative to `local_cache_directory`.
-        temp_stdin_file = sub_path;
-        // Relative to current working directory.
+        const sep = fs.path.sep_str;
+        const sub_path = try std.fmt.allocPrint(arena, "tmp" ++ sep ++ "{x}-stdin{s}", .{
+            std.crypto.random.int(u64), ext.canonicalName(target_info.target),
+        });
+        try local_cache_directory.handle.makePath("tmp");
+        // Note that in one of the happy paths, execve() is used to switch
+        // to clang in which case any cleanup logic that exists for this
+        // temporary file will not run and this temp file will be leaked.
+        // Oh well. It's a minor punishment for using `-x c` which nobody
+        // should be doing. Therefore, we make no effort to clean up. Using
+        // `-` for stdin as a source file always leaks a temp file.
+        var f = try local_cache_directory.handle.createFile(sub_path, .{});
+        defer f.close();
+        try f.writeFileAll(io.getStdIn(), .{});
+
+        // Convert `sub_path` to be relative to current working directory.
         src.src_path = try local_cache_directory.join(arena, &.{sub_path});
     }
 
