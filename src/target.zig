@@ -88,6 +88,9 @@ pub fn libCGenericName(target: std.Target) [:0]const u8 {
         .gnuabi64,
         .gnueabi,
         .gnueabihf,
+        .gnuf32,
+        .gnuf64,
+        .gnusf,
         .gnux32,
         .gnuilp32,
         => return "glibc",
@@ -160,7 +163,7 @@ pub fn canBuildLibC(target: std.Target) bool {
 pub fn cannotDynamicLink(target: std.Target) bool {
     return switch (target.os.tag) {
         .freestanding, .other => true,
-        else => false,
+        else => target.isSpirV(),
     };
 }
 
@@ -201,7 +204,7 @@ pub fn requiresPIC(target: std.Target, linking_libc: bool) bool {
 /// This is not whether the target supports Position Independent Code, but whether the -fPIC
 /// C compiler argument is valid to Clang.
 pub fn supports_fpic(target: std.Target) bool {
-    return target.os.tag != .windows;
+    return target.os.tag != .windows and target.os.tag != .uefi;
 }
 
 pub fn isSingleThreaded(target: std.Target) bool {
@@ -286,6 +289,7 @@ pub fn hasLlvmSupport(target: std.Target, ofmt: std.Target.ObjectFormat) bool {
         .x86,
         .x86_64,
         .xcore,
+        .xtensa,
         .nvptx,
         .nvptx64,
         .le32,
@@ -296,6 +300,8 @@ pub fn hasLlvmSupport(target: std.Target, ofmt: std.Target.ObjectFormat) bool {
         .hsail64,
         .spir,
         .spir64,
+        .spirv32,
+        .spirv64,
         .kalimba,
         .shave,
         .lanai,
@@ -306,10 +312,7 @@ pub fn hasLlvmSupport(target: std.Target, ofmt: std.Target.ObjectFormat) bool {
         .ve,
         => true,
 
-        .spu_2,
-        .spirv32,
-        .spirv64,
-        => false,
+        .spu_2 => false,
     };
 }
 
@@ -328,18 +331,18 @@ pub fn supportsStackProbing(target: std.Target) bool {
 }
 
 pub fn supportsStackProtector(target: std.Target) bool {
-    _ = target;
-    return true;
+    return !target.isSpirV();
 }
 
 pub fn libcProvidesStackProtector(target: std.Target) bool {
-    return !target.isMinGW() and target.os.tag != .wasi;
+    return !target.isMinGW() and target.os.tag != .wasi and !target.isSpirV();
 }
 
 pub fn supportsReturnAddress(target: std.Target) bool {
     return switch (target.cpu.arch) {
         .wasm32, .wasm64 => target.os.tag == .emscripten,
         .bpfel, .bpfeb => false,
+        .spirv32, .spirv64 => false,
         else => true,
     };
 }
@@ -372,8 +375,6 @@ pub fn is_libc_lib_name(target: std.Target, name: []const u8) bool {
             return true;
         if (eqlIgnoreCase(ignore_case, name, "pthread"))
             return true;
-        if (eqlIgnoreCase(ignore_case, name, "crypt"))
-            return true;
         if (eqlIgnoreCase(ignore_case, name, "util"))
             return true;
         if (eqlIgnoreCase(ignore_case, name, "xnet"))
@@ -381,6 +382,11 @@ pub fn is_libc_lib_name(target: std.Target, name: []const u8) bool {
         if (eqlIgnoreCase(ignore_case, name, "resolv"))
             return true;
         if (eqlIgnoreCase(ignore_case, name, "dl"))
+            return true;
+    }
+
+    if (target.abi.isMusl() or target.os.tag.isDarwin()) {
+        if (eqlIgnoreCase(ignore_case, name, "crypt"))
             return true;
     }
 
@@ -566,11 +572,9 @@ pub fn atomicPtrAlignment(
         .spirv32,
         .dxil,
         .loongarch32,
+        .xtensa,
         => 32,
 
-        .aarch64,
-        .aarch64_be,
-        .aarch64_32,
         .amdgcn,
         .bpfel,
         .bpfeb,
@@ -593,7 +597,12 @@ pub fn atomicPtrAlignment(
         .loongarch64,
         => 64,
 
-        .x86_64 => 128,
+        .aarch64,
+        .aarch64_be,
+        .aarch64_32,
+        => 128,
+
+        .x86_64 => if (std.Target.x86.featureSetHas(target.cpu.features, .cx16)) 128 else 64,
     };
 
     var buffer: Type.Payload.Bits = undefined;

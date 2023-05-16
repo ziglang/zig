@@ -1422,7 +1422,8 @@ fn foo() i32 {
 
       {#header_open|Thread Local Variables#}
       <p>A variable may be specified to be a thread-local variable using the
-      {#syntax#}threadlocal{#endsyntax#} keyword:</p>
+      {#syntax#}threadlocal{#endsyntax#} keyword,
+      which makes each thread work with a separate instance of the variable:</p>
       {#code_begin|test|test_thread_local_variables#}
 const std = @import("std");
 const assert = std.debug.assert;
@@ -2952,6 +2953,14 @@ test "basic slices" {
     const array_ptr = array[0..array.len];
     try expect(@TypeOf(array_ptr) == *[array.len]i32);
 
+    // You can perform a slice-by-length by slicing twice. This allows the compiler
+    // to perform some optimisations like recognising a comptime-known length when
+    // the start position is only known at runtime.
+    var runtime_start: usize = 1;
+    const length = 2;
+    const array_ptr_len = array[runtime_start..][0..length];
+    try expect(@TypeOf(array_ptr_len) == *[length]i32);
+
     // Using the address-of operator on a slice gives a single-item pointer,
     // while using the `ptr` field gives a many-item pointer.
     try expect(@TypeOf(slice.ptr) == [*]i32);
@@ -2982,7 +2991,7 @@ test "using slices for strings" {
     const world: []const u8 = "世界";
 
     var all_together: [100]u8 = undefined;
-    // You can use slice syntax with at least one runtime-know index on an
+    // You can use slice syntax with at least one runtime-known index on an
     // array to convert an array into a slice.
     var start : usize = 0;
     const all_together_slice = all_together[start..];
@@ -4278,7 +4287,7 @@ const expectError = std.testing.expectError;
 fn isFieldOptional(comptime T: type, field_index: usize) !bool {
     const fields = @typeInfo(T).Struct.fields;
     return switch (field_index) {
-        // This prong is analyzed `fields.len - 1` times with `idx` being an
+        // This prong is analyzed `fields.len - 1` times with `idx` being a
         // unique comptime-known value each time.
         inline 0...fields.len - 1 => |idx| @typeInfo(fields[idx].type) == .Optional,
         else => return error.IndexOutOfBounds,
@@ -4667,6 +4676,29 @@ test "for basics" {
         sum2 += @intCast(i32, i);
     }
     try expect(sum2 == 10);
+
+    // To iterate over consecutive integers, use the range syntax.
+    // Unbounded range is always a compile error.
+    var sum3 : usize = 0;
+    for (0..5) |i| {
+        sum3 += i;
+    }
+    try expect(sum3 == 10);
+}
+
+test "multi object for" {
+    const items = [_]usize{ 1, 2, 3 };
+    const items2 = [_]usize{ 4, 5, 6 };
+    var count: usize = 0;
+
+    // Iterate over multiple objects.
+    // All lengths must be equal at the start of the loop, otherwise detectable
+    // illegal behavior occurs.
+    for (items, items2) |i, j| {
+        count += i + j;
+    }
+
+    try expect(count == 21);
 }
 
 test "for reference" {
@@ -4710,8 +4742,8 @@ const expect = std.testing.expect;
 
 test "nested break" {
     var count: usize = 0;
-    outer: for ([_]i32{ 1, 2, 3, 4, 5 }) |_| {
-        for ([_]i32{ 1, 2, 3, 4, 5 }) |_| {
+    outer: for (1..6) |_| {
+        for (1..6) |_| {
             count += 1;
             break :outer;
         }
@@ -4721,8 +4753,8 @@ test "nested break" {
 
 test "nested continue" {
     var count: usize = 0;
-    outer: for ([_]i32{ 1, 2, 3, 4, 5, 6, 7, 8 }) |_| {
-        for ([_]i32{ 1, 2, 3, 4, 5 }) |_| {
+    outer: for (1..9) |_| {
+        for (1..6) |_| {
             count += 1;
             continue :outer;
         }
@@ -5160,7 +5192,8 @@ export fn sub(a: i8, b: i8) i8 { return a - b; }
 
 // The extern specifier is used to declare a function that will be resolved
 // at link time, when linking statically, or at runtime, when linking
-// dynamically.
+// dynamically. The quoted identifier after the extern keyword specifies
+// the library that has the function. (e.g. "c" -> libc.so)
 // The callconv specifier changes the calling convention of the function.
 const WINAPI: std.builtin.CallingConvention = if (native_arch == .x86) .Stdcall else .C;
 extern "kernel32" fn ExitProcess(exit_code: u32) callconv(WINAPI) noreturn;
@@ -5287,7 +5320,7 @@ test "fn reflection" {
       </p>
       <p>
       The number of unique error values across the entire compilation should determine the size of the error set type.
-      However right now it is hard coded to be a {#syntax#}u16{#endsyntax#}. See <a href="https://github.com/ziglang/zig/issues/786">#768</a>.
+      However right now it is hard coded to be a {#syntax#}u16{#endsyntax#}. See <a href="https://github.com/ziglang/zig/issues/786">#786</a>.
       </p>
       <p>
       You can {#link|coerce|Type Coercion#} an error from a subset to a superset:
@@ -5452,6 +5485,22 @@ fn doAThing(str: []u8) void {
           a default value of 13. The type of the right hand side of the binary {#syntax#}catch{#endsyntax#} operator must
               match the unwrapped error union type, or be of type {#syntax#}noreturn{#endsyntax#}.
       </p>
+     <p>
+      If you want to provide a default value with
+      {#syntax#}catch{#endsyntax#} after performing some logic, you
+      can combine {#syntax#}catch{#endsyntax#} with named {#link|Blocks#}:
+      </p>
+      {#code_begin|syntax|handle_error_with_catch_block.zig#}
+const parseU64 = @import("error_union_parsing_u64.zig").parseU64;
+
+fn doAThing(str: []u8) void {
+    const number = parseU64(str, 10) catch blk: {
+        // do things
+        break :blk 13;
+    };
+    _ = number; // number is now initialized
+}
+      {#code_end#}
       {#header_close#}
       {#header_open|try#}
       <p>Let's say you wanted to return the error if you got one, otherwise continue with the
@@ -5508,6 +5557,20 @@ fn doAThing(str: []u8) void {
         },
         // we promise that InvalidChar won't happen (or crash in debug mode if it does)
         error.InvalidChar => unreachable,
+    }
+}
+      {#end_syntax_block#}
+      <p>
+      You must use the variable capture syntax. If you don't need the
+      variable, you can capture with {#syntax#}_{#endsyntax#} and avoid the
+      {#syntax#}switch{#endsyntax#}.
+      </p>
+      {#syntax_block|zig|handle_no_error_scenarios.zig#}
+fn doADifferentThing(str: []u8) void {
+    if (parseU64(str, 10)) |number| {
+        doSomethingWithNumber(number);
+    } else |_| {
+        // do as you'd like
     }
 }
       {#end_syntax_block#}
@@ -7018,8 +7081,10 @@ test "foo" {
           <li>All variables are {#syntax#}comptime{#endsyntax#} variables.</li>
           <li>All {#syntax#}if{#endsyntax#}, {#syntax#}while{#endsyntax#}, {#syntax#}for{#endsyntax#}, and {#syntax#}switch{#endsyntax#}
           expressions are evaluated at compile-time, or emit a compile error if this is not possible.</li>
-        <li>All function calls cause the compiler to interpret the function at compile-time, emitting a
-          compile error if the function tries to do something that has global run-time side effects.</li>
+          <li>All {#syntax#}return{#endsyntax#} and {#syntax#}try{#endsyntax#} expressions are invalid (unless the function itself is called at compile-time).</li>
+          <li>All code with runtime side effects or depending on runtime values emits a compile error.</li>
+          <li>All function calls cause the compiler to interpret the function at compile-time, emitting a
+          compile error if the function tries to do something that has global runtime side effects.</li>
       </ul>
       <p>
       This means that a programmer can create a function which is called both at compile-time and run-time, with
@@ -7041,9 +7106,7 @@ test "fibonacci" {
     try expect(fibonacci(7) == 13);
 
     // test fibonacci at compile-time
-    comptime {
-        try expect(fibonacci(7) == 13);
-    }
+    try comptime expect(fibonacci(7) == 13);
 }
       {#code_end#}
       <p>
@@ -7058,9 +7121,7 @@ fn fibonacci(index: u32) u32 {
 }
 
 test "fibonacci" {
-    comptime {
-        try expect(fibonacci(7) == 13);
-    }
+    try comptime expect(fibonacci(7) == 13);
 }
       {#code_end#}
       <p>
@@ -7081,9 +7142,7 @@ fn fibonacci(index: i32) i32 {
 }
 
 test "fibonacci" {
-    comptime {
-        try assert(fibonacci(7) == 13);
-    }
+    try comptime assert(fibonacci(7) == 13);
 }
       {#code_end#}
       <p>
@@ -7113,9 +7172,7 @@ fn fibonacci(index: i32) i32 {
 }
 
 test "fibonacci" {
-    comptime {
-        try assert(fibonacci(7) == 99999);
-    }
+    try comptime assert(fibonacci(7) == 99999);
 }
       {#code_end#}
 
@@ -7457,20 +7514,20 @@ pub const STDOUT_FILENO = 1;
 
 pub fn syscall1(number: usize, arg1: usize) usize {
     return asm volatile ("syscall"
-        : [ret] "={rax}" (-> usize)
+        : [ret] "={rax}" (-> usize),
         : [number] "{rax}" (number),
-          [arg1] "{rdi}" (arg1)
+          [arg1] "{rdi}" (arg1),
         : "rcx", "r11"
     );
 }
 
 pub fn syscall3(number: usize, arg1: usize, arg2: usize, arg3: usize) usize {
     return asm volatile ("syscall"
-        : [ret] "={rax}" (-> usize)
+        : [ret] "={rax}" (-> usize),
         : [number] "{rax}" (number),
           [arg1] "{rdi}" (arg1),
           [arg2] "{rsi}" (arg2),
-          [arg3] "{rdx}" (arg3)
+          [arg3] "{rdx}" (arg3),
         : "rcx", "r11"
     );
 }
@@ -7519,14 +7576,14 @@ pub fn syscall1(number: usize, arg1: usize) usize {
     // type is the result type of the inline assembly expression.
     // If it is a value binding, then `%[ret]` syntax would be used
     // to refer to the register bound to the value.
-        (-> usize)
+        (-> usize),
     // Next is the list of inputs.
     // The constraint for these inputs means, "when the assembly code is
     // executed, $rax shall have the value of `number` and $rdi shall have
     // the value of `arg1`". Any number of input parameters is allowed,
     // including none.
         : [number] "{rax}" (number),
-            [arg1] "{rdi}" (arg1)
+            [arg1] "{rdi}" (arg1),
     // Next is the list of clobbers. These declare a set of registers whose
     // values will not be preserved by the execution of this assembly code.
     // These do not include output or input registers. The special clobber
@@ -7814,7 +7871,7 @@ comptime {
       {#header_close#}
 
       {#header_open|@breakpoint#}
-      <pre>{#syntax#}@breakpoint(){#endsyntax#}</pre>
+      <pre>{#syntax#}@breakpoint() void{#endsyntax#}</pre>
       <p>
       This function inserts a platform-specific debug trap instruction which causes
       debuggers to break there.
@@ -7933,7 +7990,7 @@ pub const CallModifier = enum {
       {#header_close#}
 
       {#header_open|@cDefine#}
-      <pre>{#syntax#}@cDefine(comptime name: []u8, value){#endsyntax#}</pre>
+      <pre>{#syntax#}@cDefine(comptime name: []u8, value) void{#endsyntax#}</pre>
       <p>
       This function can only occur inside {#syntax#}@cImport{#endsyntax#}.
       </p>
@@ -7977,7 +8034,7 @@ pub const CallModifier = enum {
       {#see_also|Import from C Header File|@cInclude|@cDefine|@cUndef#}
       {#header_close#}
       {#header_open|@cInclude#}
-      <pre>{#syntax#}@cInclude(comptime path: []u8){#endsyntax#}</pre>
+      <pre>{#syntax#}@cInclude(comptime path: []u8) void{#endsyntax#}</pre>
       <p>
       This function can only occur inside {#syntax#}@cImport{#endsyntax#}.
       </p>
@@ -7989,11 +8046,11 @@ pub const CallModifier = enum {
       {#header_close#}
 
       {#header_open|@clz#}
-      <pre>{#syntax#}@clz(operand: anytype){#endsyntax#}</pre>
+      <pre>{#syntax#}@clz(operand: anytype) anytype{#endsyntax#}</pre>
       <p>{#syntax#}@TypeOf(operand){#endsyntax#} must be an integer type or an integer vector type.</p>
       <p>{#syntax#}operand{#endsyntax#} may be an {#link|integer|Integers#} or {#link|vector|Vectors#}.</p>
       <p>
-      This function counts the number of most-significant (leading in a big-Endian sense) zeroes in an integer.
+      Counts the number of most-significant (leading in a big-endian sense) zeroes in an integer - "count leading zeroes".
       </p>
       <p>
       If {#syntax#}operand{#endsyntax#} is a {#link|comptime#}-known integer,
@@ -8068,7 +8125,7 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
       {#header_close#}
 
       {#header_open|@compileError#}
-      <pre>{#syntax#}@compileError(comptime msg: []u8){#endsyntax#}</pre>
+      <pre>{#syntax#}@compileError(comptime msg: []u8) noreturn{#endsyntax#}</pre>
       <p>
       This function, when semantically analyzed, causes a compile error with the
       message {#syntax#}msg{#endsyntax#}.
@@ -8081,7 +8138,7 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
       {#header_close#}
 
       {#header_open|@compileLog#}
-      <pre>{#syntax#}@compileLog(args: ...){#endsyntax#}</pre>
+      <pre>{#syntax#}@compileLog(args: ...) void{#endsyntax#}</pre>
       <p>
       This function prints the arguments passed to it at compile-time.
       </p>
@@ -8139,11 +8196,11 @@ test "main" {
       {#header_close#}
 
       {#header_open|@ctz#}
-      <pre>{#syntax#}@ctz(operand: anytype){#endsyntax#}</pre>
+      <pre>{#syntax#}@ctz(operand: anytype) anytype{#endsyntax#}</pre>
       <p>{#syntax#}@TypeOf(operand){#endsyntax#} must be an integer type or an integer vector type.</p>
       <p>{#syntax#}operand{#endsyntax#} may be an {#link|integer|Integers#} or {#link|vector|Vectors#}.</p>
       <p>
-      This function counts the number of least-significant (trailing in a big-Endian sense) zeroes in an integer.
+      Counts the number of least-significant (trailing in a big-endian sense) zeroes in an integer - "count trailing zeroes".
       </p>
       <p>
       If {#syntax#}operand{#endsyntax#} is a {#link|comptime#}-known integer,
@@ -8159,7 +8216,7 @@ test "main" {
       {#header_close#}
 
       {#header_open|@cUndef#}
-      <pre>{#syntax#}@cUndef(comptime name: []u8){#endsyntax#}</pre>
+      <pre>{#syntax#}@cUndef(comptime name: []u8) void{#endsyntax#}</pre>
       <p>
       This function can only occur inside {#syntax#}@cImport{#endsyntax#}.
       </p>
@@ -8370,7 +8427,7 @@ export fn @"A function name that is a complete sentence."() void {}
       {#header_close#}
 
       {#header_open|@fence#}
-      <pre>{#syntax#}@fence(order: AtomicOrder){#endsyntax#}</pre>
+      <pre>{#syntax#}@fence(order: AtomicOrder) void{#endsyntax#}</pre>
       <p>
       The {#syntax#}fence{#endsyntax#} function is used to introduce happens-before edges between operations.
       </p>
@@ -8529,14 +8586,25 @@ test "@hasDecl" {
       </p>
       <ul>
           <li>{#syntax#}@import("std"){#endsyntax#} - Zig Standard Library</li>
-          <li>{#syntax#}@import("builtin"){#endsyntax#} - Target-specific information.
+          <li>{#syntax#}@import("builtin"){#endsyntax#} - Target-specific information
               The command <code>zig build-exe --show-builtin</code> outputs the source to stdout for reference.
           </li>
-          <li>{#syntax#}@import("root"){#endsyntax#} - Points to the root source file.
-              This is usually <code>src/main.zig</code> but it depends on what file is chosen to be built.
+          <li>{#syntax#}@import("root"){#endsyntax#} - Root source file
+              This is usually <code>src/main.zig</code> but depends on what file is built.
           </li>
       </ul>
       {#see_also|Compile Variables|@embedFile#}
+      {#header_close#}
+
+      {#header_open|@inComptime#}
+      <pre>{#syntax#}@inComptime() bool{#endsyntax#}</pre>
+      <p>
+      Returns whether the builtin was run in a {#syntax#}comptime{#endsyntax#} context. The result is a compile-time constant.
+      </p>
+      <p>
+      This can be used to provide alternative, comptime-friendly implementations of functions. It should not be used, for instance, to exclude certain functions from being evaluated at comptime.
+      </p>
+      {#see_also|comptime#}
       {#header_close#}
 
       {#header_open|@intCast#}
@@ -8622,40 +8690,29 @@ test "integer cast panic" {
       {#header_close#}
 
       {#header_open|@memcpy#}
-      <pre>{#syntax#}@memcpy(noalias dest: [*]u8, noalias source: [*]const u8, byte_count: usize){#endsyntax#}</pre>
-      <p>
-      This function copies bytes from one region of memory to another. {#syntax#}dest{#endsyntax#} and
-          {#syntax#}source{#endsyntax#} are both pointers and must not overlap.
-      </p>
-      <p>
-      This function is a low level intrinsic with no safety mechanisms. Most code
-      should not use this function, instead using something like this:
-      </p>
-      <pre>{#syntax#}for (dest, source[0..byte_count]) |*d, s| d.* = s;{#endsyntax#}</pre>
-      <p>
-      The optimizer is intelligent enough to turn the above snippet into a memcpy.
-      </p>
-      <p>There is also a standard library function for this:</p>
-      <pre>{#syntax#}const mem = @import("std").mem;
-mem.copy(u8, dest[0..byte_count], source[0..byte_count]);{#endsyntax#}</pre>
+      <pre>{#syntax#}@memcpy(noalias dest, noalias source) void{#endsyntax#}</pre>
+      <p>This function copies bytes from one region of memory to another.</p>
+      <p>{#syntax#}dest{#endsyntax#} must be a mutable slice, a mutable pointer to an array, or
+        a mutable many-item {#link|pointer|Pointers#}. It may have any
+        alignment, and it may have any element type.</p>
+      <p>{#syntax#}source{#endsyntax#} must be a slice, a pointer to
+        an array, or a many-item {#link|pointer|Pointers#}. It may
+        have any alignment, and it may have any element type.</p>
+      <p>The {#syntax#}source{#endsyntax#} element type must support {#link|Type Coercion#}
+        into the {#syntax#}dest{#endsyntax#} element type. The element types may have
+        different ABI size, however, that may incur a performance penalty.</p>
+      <p>Similar to {#link|for#} loops, at least one of {#syntax#}source{#endsyntax#} and
+        {#syntax#}dest{#endsyntax#} must provide a length, and if two lengths are provided,
+        they must be equal.</p>
+      <p>Finally, the two memory regions must not overlap.</p>
       {#header_close#}
 
       {#header_open|@memset#}
-      <pre>{#syntax#}@memset(dest: [*]u8, c: u8, byte_count: usize){#endsyntax#}</pre>
-      <p>
-      This function sets a region of memory to {#syntax#}c{#endsyntax#}. {#syntax#}dest{#endsyntax#} is a pointer.
-      </p>
-      <p>
-      This function is a low level intrinsic with no safety mechanisms. Most
-      code should not use this function, instead using something like this:
-      </p>
-      <pre>{#syntax#}for (dest[0..byte_count]) |*b| b.* = c;{#endsyntax#}</pre>
-      <p>
-      The optimizer is intelligent enough to turn the above snippet into a memset.
-      </p>
-      <p>There is also a standard library function for this:</p>
-      <pre>{#syntax#}const mem = @import("std").mem;
-mem.set(u8, dest, c);{#endsyntax#}</pre>
+      <pre>{#syntax#}@memset(dest, elem) void{#endsyntax#}</pre>
+      <p>This function sets all the elements of a memory region to {#syntax#}elem{#endsyntax#}.</p>
+      <p>{#syntax#}dest{#endsyntax#} must be a mutable slice or a mutable pointer to an array.
+      It may have any alignment, and it may have any element type.</p>
+      <p>{#syntax#}elem{#endsyntax#} is coerced to the element type of {#syntax#}dest{#endsyntax#}.</p>
       {#header_close#}
 
       {#header_open|@min#}
@@ -8753,10 +8810,12 @@ test "@wasmMemoryGrow" {
       {#header_close#}
 
       {#header_open|@popCount#}
-      <pre>{#syntax#}@popCount(operand: anytype){#endsyntax#}</pre>
+      <pre>{#syntax#}@popCount(operand: anytype) anytype{#endsyntax#}</pre>
       <p>{#syntax#}@TypeOf(operand){#endsyntax#} must be an integer type.</p>
       <p>{#syntax#}operand{#endsyntax#} may be an {#link|integer|Integers#} or {#link|vector|Vectors#}.</p>
-      <p>Counts the number of bits set in an integer.</p>
+      <p>
+      Counts the number of bits set in an integer - "population count".
+      </p>
       <p>
       If {#syntax#}operand{#endsyntax#} is a {#link|comptime#}-known integer,
       the return type is {#syntax#}comptime_int{#endsyntax#}.
@@ -8767,7 +8826,7 @@ test "@wasmMemoryGrow" {
       {#header_close#}
 
       {#header_open|@prefetch#}
-      <pre>{#syntax#}@prefetch(ptr: anytype, comptime options: std.builtin.PrefetchOptions){#endsyntax#}</pre>
+      <pre>{#syntax#}@prefetch(ptr: anytype, comptime options: std.builtin.PrefetchOptions) void{#endsyntax#}</pre>
       <p>
       This builtin tells the compiler to emit a prefetch instruction if supported by the
       target CPU. If the target CPU does not support the requested prefetch instruction,
@@ -8788,6 +8847,8 @@ test "@wasmMemoryGrow" {
 pub const PrefetchOptions = struct {
     /// Whether the prefetch should prepare for a read or a write.
     rw: Rw = .read,
+    /// The data's locality in an inclusive range from 0 to 3.
+    ///
     /// 0 means no temporal locality. That is, the data can be immediately
     /// dropped from the cache after it is accessed.
     ///
@@ -8797,12 +8858,12 @@ pub const PrefetchOptions = struct {
     /// The cache that the prefetch should be preformed on.
     cache: Cache = .data,
 
-    pub const Rw = enum {
+    pub const Rw = enum(u1) {
         read,
         write,
     };
 
-    pub const Cache = enum {
+    pub const Cache = enum(u1) {
         instruction,
         data,
     };
@@ -8881,21 +8942,21 @@ pub const PrefetchOptions = struct {
       {#header_close#}
 
       {#header_open|@setAlignStack#}
-      <pre>{#syntax#}@setAlignStack(comptime alignment: u29){#endsyntax#}</pre>
+      <pre>{#syntax#}@setAlignStack(comptime alignment: u29) void{#endsyntax#}</pre>
       <p>
       Ensures that a function will have a stack alignment of at least {#syntax#}alignment{#endsyntax#} bytes.
       </p>
       {#header_close#}
 
       {#header_open|@setCold#}
-      <pre>{#syntax#}@setCold(comptime is_cold: bool){#endsyntax#}</pre>
+      <pre>{#syntax#}@setCold(comptime is_cold: bool) void{#endsyntax#}</pre>
       <p>
       Tells the optimizer that a function is rarely called.
       </p>
       {#header_close#}
 
       {#header_open|@setEvalBranchQuota#}
-      <pre>{#syntax#}@setEvalBranchQuota(comptime new_quota: u32){#endsyntax#}</pre>
+      <pre>{#syntax#}@setEvalBranchQuota(comptime new_quota: u32) void{#endsyntax#}</pre>
       <p>
       Changes the maximum number of backwards branches that compile-time code
       execution can use before giving up and making a compile error.
@@ -8930,7 +8991,7 @@ test "foo" {
       {#header_close#}
 
       {#header_open|@setFloatMode#}
-      <pre>{#syntax#}@setFloatMode(comptime mode: @import("std").builtin.FloatMode){#endsyntax#}</pre>
+      <pre>{#syntax#}@setFloatMode(comptime mode: @import("std").builtin.FloatMode) void{#endsyntax#}</pre>
       <p>
       Sets the floating point mode of the current scope. Possible values are:
       </p>
@@ -9548,6 +9609,28 @@ fn foo(comptime T: type, ptr: *T) T {
       Remove {#syntax#}volatile{#endsyntax#} qualifier from a pointer.
       </p>
       {#header_close#}
+
+      {#header_open|@workGroupId#}
+      <pre>{#syntax#}@workGroupId(comptime dimension: u32) u32{#endsyntax#}</pre>
+      <p>
+      Returns the index of the work group in the current kernel invocation in dimension {#syntax#}dimension{#endsyntax#}.
+      </p>
+      {#header_close#}
+
+      {#header_open|@workGroupSize#}
+      <pre>{#syntax#}@workGroupSize(comptime dimension: u32) u32{#endsyntax#}</pre>
+      <p>
+      Returns the number of work items that a work group has in dimension {#syntax#}dimension{#endsyntax#}.
+      </p>
+      {#header_close#}
+
+      {#header_open|@workItemId#}
+      <pre>{#syntax#}@workItemId(comptime dimension: u32) u32{#endsyntax#}</pre>
+      <p>
+      Returns the index of the work item in the work group in dimension {#syntax#}dimension{#endsyntax#}. This function returns values between {#syntax#}0{#endsyntax#} (inclusive) and {#syntax#}@workGroupSize(dimension){#endsyntax#} (exclusive).
+      </p>
+      {#header_close#}
+
       {#header_close#}
 
       {#header_open|Build Mode#}
@@ -9804,8 +9887,8 @@ pub fn main() !void {
       {#header_close#}
       {#header_open|Builtin Overflow Functions#}
       <p>
-      These builtins return a {#syntax#}bool{#endsyntax#} of whether or not overflow
-      occurred, as well as returning the overflowed bits:
+      These builtins return a tuple containing whether there was an overflow
+      (as a {#syntax#}u1{#endsyntax#}) and the possibly overflowed bits of the operation:
       </p>
       <ul>
           <li>{#link|@addWithOverflow#}</li>
@@ -10902,7 +10985,7 @@ pub const MAKELOCAL = @compileError("unable to translate C expr: unexpected toke
       </p>
       <p>{#syntax#}[*c]T{#endsyntax#} - C pointer.</p>
       <ul>
-        <li>Supports all the syntax of the other two pointer types.</li>
+        <li>Supports all the syntax of the other two pointer types ({#syntax#}*T{#endsyntax#}) and ({#syntax#}[*]T{#endsyntax#}).</li>
         <li>Coerces to other pointer types, as well as {#link|Optional Pointers#}.
             When a C pointer is coerced to a non-optional pointer, safety-checked
             {#link|Undefined Behavior#} occurs if the address is 0.
@@ -11097,6 +11180,7 @@ all your base are belong to us{#end_shell_samp#}
       {#code_begin|lib|math#}
       {#target_wasm#}
       {#link_mode_dynamic#}
+      {#additonal_option|-rdynamic#}
 extern fn print(i32) void;
 
 export fn add(a: i32, b: i32) void {
@@ -11137,8 +11221,8 @@ pub fn main() !void {
     }
 }
       {#code_end#}
-      {#shell_samp#}$ wasmtime args.wasm 123 hello
-0: args.wasm
+      {#shell_samp#}$ wasmtime wasi_args.wasm 123 hello
+0: wasi_args.wasm
 1: 123
 2: hello{#end_shell_samp#}
       <p>A more interesting example would be extracting the list of preopens from the runtime.
@@ -11163,7 +11247,7 @@ pub fn main() !void {
     }
 }
       {#code_end#}
-      {#shell_samp#}$ wasmtime --dir=. preopens.wasm
+      {#shell_samp#}$ wasmtime --dir=. wasi_preopens.wasm
 0: stdin
 1: stdout
 2: stderr
@@ -11916,6 +12000,17 @@ fn readU32Be() u32 {}
             The {#syntax#}noalias{#endsyntax#} keyword.
             <ul>
               <li>TODO add documentation for noalias</li>
+            </ul>
+          </td>
+        </tr>
+        <tr>
+          <th scope="row">
+            <pre>{#syntax#}noinline{#endsyntax#}</pre>
+          </th>
+          <td>
+            {#syntax#}noinline{#endsyntax#} disallows function to be inlined in all call sites.
+            <ul>
+              <li>See also {#link|Functions#}</li>
             </ul>
           </td>
         </tr>

@@ -23,19 +23,25 @@
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
+#if __has_builtin(__make_signed)
+
+template <class _Tp>
+using __make_signed_t = __make_signed(_Tp);
+
+#else
 typedef
     __type_list<signed char,
     __type_list<signed short,
     __type_list<signed int,
     __type_list<signed long,
     __type_list<signed long long,
-#ifndef _LIBCPP_HAS_NO_INT128
+#  ifndef _LIBCPP_HAS_NO_INT128
     __type_list<__int128_t,
-#endif
+#  endif
     __nat
-#ifndef _LIBCPP_HAS_NO_INT128
+#  ifndef _LIBCPP_HAS_NO_INT128
     >
-#endif
+#  endif
     > > > > > __signed_types;
 
 template <class _Tp, bool = is_integral<_Tp>::value || is_enum<_Tp>::value>
@@ -56,19 +62,23 @@ template <> struct __make_signed<  signed long,      true> {typedef long      ty
 template <> struct __make_signed<unsigned long,      true> {typedef long      type;};
 template <> struct __make_signed<  signed long long, true> {typedef long long type;};
 template <> struct __make_signed<unsigned long long, true> {typedef long long type;};
-#ifndef _LIBCPP_HAS_NO_INT128
+#  ifndef _LIBCPP_HAS_NO_INT128
 template <> struct __make_signed<__int128_t,         true> {typedef __int128_t type;};
 template <> struct __make_signed<__uint128_t,        true> {typedef __int128_t type;};
-#endif
+#  endif
 
 template <class _Tp>
-struct _LIBCPP_TEMPLATE_VIS make_signed
-{
-    typedef typename __apply_cv<_Tp, typename __make_signed<typename remove_cv<_Tp>::type>::type>::type type;
+using __make_signed_t = typename __apply_cv<_Tp, typename __make_signed<__remove_cv_t<_Tp> >::type>::type;
+
+#endif // __has_builtin(__make_signed)
+
+template <class _Tp>
+struct make_signed {
+  using type _LIBCPP_NODEBUG = __make_signed_t<_Tp>;
 };
 
 #if _LIBCPP_STD_VER > 11
-template <class _Tp> using make_signed_t = typename make_signed<_Tp>::type;
+template <class _Tp> using make_signed_t = __make_signed_t<_Tp>;
 #endif
 
 _LIBCPP_END_NAMESPACE_STD

@@ -230,7 +230,7 @@ pub fn SegmentedList(comptime T: type, comptime prealloc_item_count: usize) type
                 allocator.free(new_dynamic_segments);
             } else {
                 // Good thing we allocated that new memory slice.
-                mem.copy([*]T, new_dynamic_segments, self.dynamic_segments[0..new_cap_shelf_count]);
+                @memcpy(new_dynamic_segments, self.dynamic_segments[0..new_cap_shelf_count]);
                 allocator.free(self.dynamic_segments);
                 self.dynamic_segments = new_dynamic_segments;
             }
@@ -248,24 +248,21 @@ pub fn SegmentedList(comptime T: type, comptime prealloc_item_count: usize) type
 
             var i = start;
             if (end <= prealloc_item_count) {
-                mem.copy(T, dest[i - start ..], self.prealloc_segment[i..end]);
+                const src = self.prealloc_segment[i..end];
+                @memcpy(dest[i - start ..][0..src.len], src);
                 return;
             } else if (i < prealloc_item_count) {
-                mem.copy(T, dest[i - start ..], self.prealloc_segment[i..]);
+                const src = self.prealloc_segment[i..];
+                @memcpy(dest[i - start ..][0..src.len], src);
                 i = prealloc_item_count;
             }
 
             while (i < end) {
                 const shelf_index = shelfIndex(i);
                 const copy_start = boxIndex(i, shelf_index);
-                const copy_end = std.math.min(shelfSize(shelf_index), copy_start + end - i);
-
-                mem.copy(
-                    T,
-                    dest[i - start ..],
-                    self.dynamic_segments[shelf_index][copy_start..copy_end],
-                );
-
+                const copy_end = @min(shelfSize(shelf_index), copy_start + end - i);
+                const src = self.dynamic_segments[shelf_index][copy_start..copy_end];
+                @memcpy(dest[i - start ..][0..src.len], src);
                 i += (copy_end - copy_start);
             }
         }
@@ -498,11 +495,11 @@ fn testSegmentedList(comptime prealloc: usize) !void {
             control[@intCast(usize, i)] = i + 1;
         }
 
-        mem.set(i32, dest[0..], 0);
+        @memset(dest[0..], 0);
         list.writeToSlice(dest[0..], 0);
         try testing.expect(mem.eql(i32, control[0..], dest[0..]));
 
-        mem.set(i32, dest[0..], 0);
+        @memset(dest[0..], 0);
         list.writeToSlice(dest[50..], 50);
         try testing.expect(mem.eql(i32, control[50..], dest[50..]));
     }

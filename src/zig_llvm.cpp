@@ -112,7 +112,7 @@ LLVMTargetMachineRef ZigLLVMCreateTargetMachine(LLVMTargetRef T, const char *Tri
     const char *CPU, const char *Features, LLVMCodeGenOptLevel Level, LLVMRelocMode Reloc,
     LLVMCodeModel CodeModel, bool function_sections, ZigLLVMABIType float_abi, const char *abi_name)
 {
-    Optional<Reloc::Model> RM;
+    std::optional<Reloc::Model> RM;
     switch (Reloc){
         case LLVMRelocStatic:
             RM = Reloc::Static;
@@ -137,7 +137,7 @@ LLVMTargetMachineRef ZigLLVMCreateTargetMachine(LLVMTargetRef T, const char *Tri
     }
 
     bool JIT;
-    Optional<CodeModel::Model> CM = unwrap(CodeModel, JIT);
+    std::optional<CodeModel::Model> CM = unwrap(CodeModel, JIT);
 
     CodeGenOpt::Level OL;
     switch (Level) {
@@ -287,11 +287,12 @@ bool ZigLLVMTargetMachineEmitToFile(LLVMTargetMachineRef targ_machine_ref, LLVMM
 
     // Instrumentations
     PassInstrumentationCallbacks instr_callbacks;
-    StandardInstrumentations std_instrumentations(false);
+    StandardInstrumentations std_instrumentations(llvm_module.getContext(), false);
     std_instrumentations.registerCallbacks(instr_callbacks);
 
+    std::optional<PGOOptions> opt_pgo_options = {};
     PassBuilder pass_builder(&target_machine, pipeline_opts,
-                             None, &instr_callbacks);
+                             opt_pgo_options, &instr_callbacks);
 
     LoopAnalysisManager loop_am;
     FunctionAnalysisManager function_am;
@@ -415,14 +416,9 @@ ZIG_EXTERN_C LLVMTypeRef ZigLLVMTokenTypeInContext(LLVMContextRef context_ref) {
 
 
 ZIG_EXTERN_C void ZigLLVMSetOptBisectLimit(LLVMContextRef context_ref, int limit) {
-    // In LLVM15 we just have an OptBisect singleton we can edit.
-    OptBisect& bisect = getOptBisector();
-    bisect.setLimit(limit);
-
-    // In LLVM16 OptBisect will be wrapped in OptPassGate, and will need to be set per context.
-    // static OptBisect _opt_bisector;
-    // _opt_bisector.setLimit(limit);
-    // unwrap(context_ref)->setOptPassGate(_opt_bisector);
+    static OptBisect opt_bisect;
+    opt_bisect.setLimit(limit);
+    unwrap(context_ref)->setOptPassGate(opt_bisect);
 }
 
 LLVMValueRef ZigLLVMAddFunctionInAddressSpace(LLVMModuleRef M, const char *Name, LLVMTypeRef FunctionTy, unsigned AddressSpace) {
@@ -435,8 +431,8 @@ LLVMValueRef ZigLLVMBuildCall(LLVMBuilderRef B, LLVMTypeRef Ty, LLVMValueRef Fn,
         const char *Name)
 {
     FunctionType *FTy = unwrap<FunctionType>(Ty);
-    CallInst *call_inst = unwrap(B)->CreateCall(FTy, unwrap(Fn), makeArrayRef(unwrap(Args),
-                NumArgs), Name);
+    CallInst *call_inst = unwrap(B)->CreateCall(FTy, unwrap(Fn),
+        ArrayRef(unwrap(Args), NumArgs), Name);
     call_inst->setCallingConv(static_cast<CallingConv::ID>(CC));
     switch (attr) {
         case ZigLLVM_CallAttrAuto:
@@ -579,7 +575,7 @@ ZigLLVMDIType *ZigLLVMCreateDebugPointerType(ZigLLVMDIBuilder *dibuilder, ZigLLV
         uint64_t size_in_bits, uint64_t align_in_bits, const char *name)
 {
     DIType *di_type = reinterpret_cast<DIBuilder*>(dibuilder)->createPointerType(
-            reinterpret_cast<DIType*>(pointee_type), size_in_bits, align_in_bits, Optional<unsigned>(), name);
+            reinterpret_cast<DIType*>(pointee_type), size_in_bits, align_in_bits, std::optional<unsigned>(), name);
     return reinterpret_cast<ZigLLVMDIType*>(di_type);
 }
 
@@ -625,7 +621,7 @@ ZigLLVMDIEnumerator *ZigLLVMCreateDebugEnumeratorOfArbitraryPrecision(ZigLLVMDIB
     const char *name, unsigned NumWords, const uint64_t Words[], unsigned int bits, bool isUnsigned)
 {
     DIEnumerator *di_enumerator = reinterpret_cast<DIBuilder*>(dibuilder)->createEnumerator(name,
-        APSInt(APInt(bits, makeArrayRef(Words, NumWords)), isUnsigned));
+        APSInt(APInt(bits, ArrayRef(Words, NumWords)), isUnsigned));
     return reinterpret_cast<ZigLLVMDIEnumerator*>(di_enumerator);
 }
 
@@ -874,19 +870,18 @@ ZigLLVMDILocalVariable *ZigLLVMCreateAutoVariable(ZigLLVMDIBuilder *dbuilder,
     return reinterpret_cast<ZigLLVMDILocalVariable*>(result);
 }
 
-ZigLLVMDIGlobalVariable *ZigLLVMCreateGlobalVariable(ZigLLVMDIBuilder *dbuilder,
+ZigLLVMDIGlobalVariableExpression *ZigLLVMCreateGlobalVariableExpression(ZigLLVMDIBuilder *dbuilder,
     ZigLLVMDIScope *scope, const char *name, const char *linkage_name, ZigLLVMDIFile *file,
     unsigned line_no, ZigLLVMDIType *di_type, bool is_local_to_unit)
 {
-    DIGlobalVariableExpression *result = reinterpret_cast<DIBuilder*>(dbuilder)->createGlobalVariableExpression(
+    return reinterpret_cast<ZigLLVMDIGlobalVariableExpression*>(reinterpret_cast<DIBuilder*>(dbuilder)->createGlobalVariableExpression(
         reinterpret_cast<DIScope*>(scope),
         name,
         linkage_name,
         reinterpret_cast<DIFile*>(file),
         line_no,
         reinterpret_cast<DIType*>(di_type),
-        is_local_to_unit);
-    return reinterpret_cast<ZigLLVMDIGlobalVariable*>(result->getVariable());
+        is_local_to_unit));
 }
 
 ZigLLVMDILocalVariable *ZigLLVMCreateParameterVariable(ZigLLVMDIBuilder *dbuilder,
@@ -1168,9 +1163,13 @@ void ZigLLVMGetNativeTarget(ZigLLVM_ArchType *arch_type,
     free(native_triple);
 }
 
-void ZigLLVMAddModuleDebugInfoFlag(LLVMModuleRef module) {
+void ZigLLVMAddModuleDebugInfoFlag(LLVMModuleRef module, bool produce_dwarf64) {
     unwrap(module)->addModuleFlag(Module::Warning, "Debug Info Version", DEBUG_METADATA_VERSION);
     unwrap(module)->addModuleFlag(Module::Warning, "Dwarf Version", 4);
+
+    if (produce_dwarf64) {
+        unwrap(module)->addModuleFlag(Module::Warning, "DWARF64", 1);
+    }
 }
 
 void ZigLLVMAddModuleCodeViewFlag(LLVMModuleRef module) {
@@ -1237,10 +1236,6 @@ void ZigLLVMSetCallElemTypeAttr(LLVMValueRef Call, size_t arg_index, LLVMTypeRef
     Type *llvm_type = unwrap<Type>(return_type);
     call_inst->addParamAttr(arg_index,
             Attribute::get(call_inst->getContext(), Attribute::ElementType, llvm_type));
-}
-
-LLVMTypeRef ZigLLVMGetGEPResultElementType(LLVMValueRef GEP) {
-    return wrap(unwrap<GEPOperator>(GEP)->getResultElementType());
 }
 
 void ZigLLVMFunctionSetPrefixData(LLVMValueRef function, LLVMValueRef data) {
@@ -1456,6 +1451,18 @@ void ZigLLVMTakeName(LLVMValueRef new_owner, LLVMValueRef victim) {
     unwrap(new_owner)->takeName(unwrap(victim));
 }
 
+ZigLLVMDIGlobalVariable* ZigLLVMGlobalGetVariable(ZigLLVMDIGlobalVariableExpression *global_variable_expression) {
+	return reinterpret_cast<ZigLLVMDIGlobalVariable*>(reinterpret_cast<DIGlobalVariableExpression*>(global_variable_expression)->getVariable());
+}
+
+ZigLLVMDIGlobalExpression* ZigLLVMGlobalGetExpression(ZigLLVMDIGlobalVariableExpression *global_variable_expression) {
+	return reinterpret_cast<ZigLLVMDIGlobalExpression*>(reinterpret_cast<DIGlobalVariableExpression*>(global_variable_expression)->getExpression());
+}
+
+void ZigLLVMAttachMetaData(LLVMValueRef Val, ZigLLVMDIGlobalVariableExpression *global_variable_expression) {
+	unwrap<GlobalVariable>(Val)->addDebugInfo(reinterpret_cast<DIGlobalVariableExpression*>(global_variable_expression));
+}
+
 static_assert((Triple::ArchType)ZigLLVM_UnknownArch == Triple::UnknownArch, "");
 static_assert((Triple::ArchType)ZigLLVM_arm == Triple::arm, "");
 static_assert((Triple::ArchType)ZigLLVM_armeb == Triple::armeb, "");
@@ -1493,6 +1500,7 @@ static_assert((Triple::ArchType)ZigLLVM_thumbeb == Triple::thumbeb, "");
 static_assert((Triple::ArchType)ZigLLVM_x86 == Triple::x86, "");
 static_assert((Triple::ArchType)ZigLLVM_x86_64 == Triple::x86_64, "");
 static_assert((Triple::ArchType)ZigLLVM_xcore == Triple::xcore, "");
+static_assert((Triple::ArchType)ZigLLVM_xtensa == Triple::xtensa, "");
 static_assert((Triple::ArchType)ZigLLVM_nvptx == Triple::nvptx, "");
 static_assert((Triple::ArchType)ZigLLVM_nvptx64 == Triple::nvptx64, "");
 static_assert((Triple::ArchType)ZigLLVM_le32 == Triple::le32, "");
@@ -1578,6 +1586,9 @@ static_assert((Triple::EnvironmentType)ZigLLVM_GNUABIN32 == Triple::GNUABIN32, "
 static_assert((Triple::EnvironmentType)ZigLLVM_GNUABI64 == Triple::GNUABI64, "");
 static_assert((Triple::EnvironmentType)ZigLLVM_GNUEABI == Triple::GNUEABI, "");
 static_assert((Triple::EnvironmentType)ZigLLVM_GNUEABIHF == Triple::GNUEABIHF, "");
+static_assert((Triple::EnvironmentType)ZigLLVM_GNUF32 == Triple::GNUF32, "");
+static_assert((Triple::EnvironmentType)ZigLLVM_GNUF64 == Triple::GNUF64, "");
+static_assert((Triple::EnvironmentType)ZigLLVM_GNUSF == Triple::GNUSF, "");
 static_assert((Triple::EnvironmentType)ZigLLVM_GNUX32 == Triple::GNUX32, "");
 static_assert((Triple::EnvironmentType)ZigLLVM_GNUILP32 == Triple::GNUILP32, "");
 static_assert((Triple::EnvironmentType)ZigLLVM_CODE16 == Triple::CODE16, "");

@@ -90,8 +90,6 @@
 #ifndef _MACH_I386_VM_PARAM_H_
 #define _MACH_I386_VM_PARAM_H_
 
-#if defined (__i386__) || defined (__x86_64__)
-
 #if !defined(KERNEL) && !defined(__ASSEMBLER__)
 
 #include <mach/vm_page_size.h>
@@ -124,11 +122,9 @@
 
 #define VM_MIN_ADDRESS64        ((user_addr_t) 0x0000000000000000ULL)
 /*
- * Default top of user stack, grows down from here.
- * Address chosen to be 1G (3rd level page table entry) below SHARED_REGION_BASE_X86_64
- * minus additional 1Meg (1/2 1st level page table coverage) to allow a redzone after it.
+ * default top of user stack... it grows down from here
  */
-#define VM_USRSTACK64           ((user_addr_t) (0x00007FF7C0000000ull - (1024 * 1024)))
+#define VM_USRSTACK64           ((user_addr_t) 0x00007FFEEFC00000ULL)
 
 /*
  * XXX TODO: Obsolete?
@@ -157,7 +153,5 @@
 #define VM_MAX_ADDRESS          ((vm_offset_t) 0xFFE00000)
 
 
-
-#endif /* defined (__i386__) || defined (__x86_64__) */
 
 #endif  /* _MACH_I386_VM_PARAM_H_ */

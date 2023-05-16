@@ -20,8 +20,7 @@
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
-// Before AppleClang 14, __is_unsigned returned true for enums with signed underlying type.
-#if __has_builtin(__is_unsigned) && !(defined(_LIBCPP_APPLE_CLANG_VER) && _LIBCPP_APPLE_CLANG_VER < 1400)
+#if __has_builtin(__is_unsigned)
 
 template<class _Tp>
 struct _LIBCPP_TEMPLATE_VIS is_unsigned : _BoolConstant<__is_unsigned(_Tp)> { };

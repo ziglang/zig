@@ -1358,6 +1358,7 @@ pub const CType = extern union {
             else if (ty.isAbiInt()) switch (ty.tag()) {
                 .usize => self.init(.uintptr_t),
                 .isize => self.init(.intptr_t),
+                .c_char => self.init(.char),
                 .c_short => self.init(.short),
                 .c_ushort => self.init(.@"unsigned short"),
                 .c_int => self.init(.int),
@@ -1719,17 +1720,7 @@ pub const CType = extern union {
                     } else self.init(.anon_struct);
                 },
 
-                .Opaque => switch (ty.tag()) {
-                    .anyopaque => self.init(.void),
-                    .@"opaque" => {
-                        self.storage = .{ .fwd = .{
-                            .base = .{ .tag = .fwd_struct },
-                            .data = ty.getOwnerDecl(),
-                        } };
-                        self.value = .{ .cty = initPayload(&self.storage.fwd) };
-                    },
-                    else => unreachable,
-                },
+                .Opaque => self.init(.void),
 
                 .Fn => {
                     const info = ty.fnInfo();

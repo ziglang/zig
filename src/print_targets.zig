@@ -40,7 +40,7 @@ pub fn cmdTargets(
 
     var bw = io.bufferedWriter(stdout);
     const w = bw.writer();
-    var jws = std.json.WriteStream(@TypeOf(w), 6).init(w);
+    var jws = std.json.writeStream(w, 6);
 
     try jws.beginObject();
 
@@ -99,8 +99,9 @@ pub fn cmdTargets(
         for (arch.allCpuModels()) |model| {
             try jws.objectField(model.name);
             try jws.beginArray();
-            for (arch.allFeaturesList(), 0..) |feature, i| {
-                if (model.features.isEnabled(@intCast(u8, i))) {
+            for (arch.allFeaturesList(), 0..) |feature, i_usize| {
+                const index = @intCast(Target.Cpu.Feature.Set.Index, i_usize);
+                if (model.features.isEnabled(index)) {
                     try jws.arrayElem();
                     try jws.emitString(feature.name);
                 }

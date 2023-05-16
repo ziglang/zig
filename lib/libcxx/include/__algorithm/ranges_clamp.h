@@ -22,7 +22,7 @@
 #  pragma GCC system_header
 #endif
 
-#if _LIBCPP_STD_VER > 17 && !defined(_LIBCPP_HAS_NO_INCOMPLETE_RANGES)
+#if _LIBCPP_STD_VER > 17
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
@@ -33,7 +33,7 @@ struct __fn {
   template <class _Type,
             class _Proj = identity,
             indirect_strict_weak_order<projected<const _Type*, _Proj>> _Comp = ranges::less>
-  _LIBCPP_HIDE_FROM_ABI constexpr
+  _LIBCPP_NODISCARD_EXT _LIBCPP_HIDE_FROM_ABI constexpr
   const _Type& operator()(const _Type& __value,
                           const _Type& __low,
                           const _Type& __high,
@@ -60,6 +60,6 @@ inline namespace __cpo {
 
 _LIBCPP_END_NAMESPACE_STD
 
-#endif // _LIBCPP_STD_VER > 17 && !defined(_LIBCPP_HAS_NO_INCOMPLETE_RANGES)
+#endif // _LIBCPP_STD_VER > 17
 
 #endif // _LIBCPP___ALGORITHM_RANGES_CLAMP_H

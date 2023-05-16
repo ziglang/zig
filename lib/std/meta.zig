@@ -10,52 +10,11 @@ pub const TrailerFlags = @import("meta/trailer_flags.zig").TrailerFlags;
 
 const Type = std.builtin.Type;
 
-test "std.meta.TrailerFlags" {
+test {
     _ = TrailerFlags;
 }
 
-pub fn tagName(v: anytype) []const u8 {
-    const T = @TypeOf(v);
-    switch (@typeInfo(T)) {
-        .ErrorSet => return @errorName(v),
-        else => return @tagName(v),
-    }
-}
-
-test "std.meta.tagName" {
-    const E1 = enum {
-        A,
-        B,
-    };
-    const E2 = enum(u8) {
-        C = 33,
-        D,
-    };
-    const U1 = union(enum) {
-        G: u8,
-        H: u16,
-    };
-    const U2 = union(E2) {
-        C: u8,
-        D: u16,
-    };
-
-    var u1g = U1{ .G = 0 };
-    var u1h = U1{ .H = 0 };
-    var u2a = U2{ .C = 0 };
-    var u2b = U2{ .D = 0 };
-
-    try testing.expect(mem.eql(u8, tagName(E1.A), "A"));
-    try testing.expect(mem.eql(u8, tagName(E1.B), "B"));
-    try testing.expect(mem.eql(u8, tagName(E2.C), "C"));
-    try testing.expect(mem.eql(u8, tagName(E2.D), "D"));
-    try testing.expect(mem.eql(u8, tagName(error.E), "E"));
-    try testing.expect(mem.eql(u8, tagName(error.F), "F"));
-    try testing.expect(mem.eql(u8, tagName(u1g), "G"));
-    try testing.expect(mem.eql(u8, tagName(u1h), "H"));
-    try testing.expect(mem.eql(u8, tagName(u2a), "C"));
-    try testing.expect(mem.eql(u8, tagName(u2b), "D"));
-}
+pub const tagName = @compileError("deprecated; use @tagName or @errorName directly");
 
 /// Given an enum or tagged union, returns true if the comptime-supplied
 /// string matches the name of the tag value.  This match process should
@@ -549,14 +508,14 @@ test "std.meta.FieldType" {
 }
 
 pub fn fieldNames(comptime T: type) *const [fields(T).len][]const u8 {
-    comptime {
+    return comptime blk: {
         const fieldInfos = fields(T);
         var names: [fieldInfos.len][]const u8 = undefined;
         for (fieldInfos, 0..) |field, i| {
             names[i] = field.name;
         }
-        return &names;
-    }
+        break :blk &names;
+    };
 }
 
 test "std.meta.fieldNames" {
@@ -590,14 +549,14 @@ test "std.meta.fieldNames" {
 /// Given an enum or error set type, returns a pointer to an array containing all tags for that
 /// enum or error set.
 pub fn tags(comptime T: type) *const [fields(T).len]T {
-    comptime {
+    return comptime blk: {
         const fieldInfos = fields(T);
         var res: [fieldInfos.len]T = undefined;
         for (fieldInfos, 0..) |field, i| {
             res[i] = @field(T, field.name);
         }
-        return &res;
-    }
+        break :blk &res;
+    };
 }
 
 test "std.meta.tags" {
@@ -965,18 +924,33 @@ test "intToEnum with error return" {
         A,
         B,
     };
+    const E3 = enum(i8) { A, _ };
 
     var zero: u8 = 0;
     var one: u16 = 1;
     try testing.expect(intToEnum(E1, zero) catch unreachable == E1.A);
     try testing.expect(intToEnum(E2, one) catch unreachable == E2.B);
+    try testing.expect(intToEnum(E3, zero) catch unreachable == E3.A);
+    try testing.expect(intToEnum(E3, 127) catch unreachable == @intToEnum(E3, 127));
+    try testing.expect(intToEnum(E3, -128) catch unreachable == @intToEnum(E3, -128));
     try testing.expectError(error.InvalidEnumTag, intToEnum(E1, one));
+    try testing.expectError(error.InvalidEnumTag, intToEnum(E3, 128));
+    try testing.expectError(error.InvalidEnumTag, intToEnum(E3, -129));
 }
 
 pub const IntToEnumError = error{InvalidEnumTag};
 
 pub fn intToEnum(comptime EnumTag: type, tag_int: anytype) IntToEnumError!EnumTag {
-    inline for (@typeInfo(EnumTag).Enum.fields) |f| {
+    const enum_info = @typeInfo(EnumTag).Enum;
+
+    if (!enum_info.is_exhaustive) {
+        if (std.math.cast(enum_info.tag_type, tag_int)) |tag| {
+            return @intToEnum(EnumTag, tag);
+        }
+        return error.InvalidEnumTag;
+    }
+
+    inline for (enum_info.fields) |f| {
         const this_tag_value = @field(EnumTag, f.name);
         if (tag_int == @enumToInt(this_tag_value)) {
             return this_tag_value;

@@ -8,7 +8,7 @@ set -e
 ARCH="$(uname -m)"
 TARGET="$ARCH-linux-musl"
 MCPU="baseline"
-CACHE_BASENAME="zig+llvm+lld+clang-$TARGET-0.11.0-dev.971+19056cb68"
+CACHE_BASENAME="zig+llvm+lld+clang-$TARGET-0.11.0-dev.1869+df4cfc2ec"
 PREFIX="$HOME/deps/$CACHE_BASENAME"
 ZIG="$PREFIX/bin/zig"
 
@@ -60,6 +60,7 @@ stage3-debug/bin/zig build -Dtarget=arm-linux-musleabihf
 # TODO: add -fqemu back to this line
 
 stage3-debug/bin/zig build test docs \
+  --maxrss 24696061952 \
   -fwasmtime \
   -Dstatic-llvm \
   -Dtarget=native-native-musl \
@@ -67,7 +68,7 @@ stage3-debug/bin/zig build test docs \
   --zig-lib-dir "$(pwd)/../lib"
 
 # Look for HTML errors.
-tidy --drop-empty-elements no -qe "$ZIG_LOCAL_CACHE_DIR/langref.html"
+tidy --drop-empty-elements no -qe "stage3-debug/doc/langref.html"
 
 # Produce the experimental std lib documentation.
 stage3-debug/bin/zig test ../lib/std/std.zig -femit-docs -fno-emit-bin --zig-lib-dir ../lib
@@ -98,3 +99,9 @@ unset CXX
 ninja install
 
 stage3/bin/zig test ../test/behavior.zig -I../test
+stage3/bin/zig build -p stage4 \
+  -Dstatic-llvm \
+  -Dtarget=native-native-musl \
+  --search-prefix "$PREFIX" \
+  --zig-lib-dir "$(pwd)/../lib"
+stage4/bin/zig test ../test/behavior.zig -I../test

@@ -5,22 +5,26 @@ const CpuFeature = std.Target.Cpu.Feature;
 const CpuModel = std.Target.Cpu.Model;
 
 pub const Feature = enum {
+    @"32bit",
     @"64bit",
     a,
     c,
     d,
     e,
-    experimental_zbe,
-    experimental_zbf,
-    experimental_zbm,
-    experimental_zbp,
-    experimental_zbr,
-    experimental_zbt,
+    experimental_zawrs,
+    experimental_zca,
+    experimental_zcd,
+    experimental_zcf,
+    experimental_zihintntl,
+    experimental_ztso,
     experimental_zvfh,
     f,
+    forced_atomics,
+    h,
     lui_addi_fusion,
     m,
     no_default_unroll,
+    no_optimized_zero_stride_load,
     no_rvc_hints,
     relax,
     reserve_x1,
@@ -55,8 +59,15 @@ pub const Feature = enum {
     reserve_x8,
     reserve_x9,
     save_restore,
+    short_forward_branch_opt,
+    svinval,
+    svnapot,
+    svpbmt,
+    tagged_globals,
     unaligned_scalar_mem,
     v,
+    xtheadvdot,
+    xventanacondops,
     zba,
     zbb,
     zbc,
@@ -100,6 +111,7 @@ pub const Feature = enum {
     zvl4096b,
     zvl512b,
     zvl64b,
+    zvl65536b,
     zvl8192b,
 };
 
@@ -112,6 +124,11 @@ pub const all_features = blk: {
     const len = @typeInfo(Feature).Enum.fields.len;
     std.debug.assert(len <= CpuFeature.Set.needed_bit_count);
     var result: [len]CpuFeature = undefined;
+    result[@enumToInt(Feature.@"32bit")] = .{
+        .llvm_name = "32bit",
+        .description = "Implements RV32",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
     result[@enumToInt(Feature.@"64bit")] = .{
         .llvm_name = "64bit",
         .description = "Implements RV64",
@@ -139,34 +156,34 @@ pub const all_features = blk: {
         .description = "Implements RV32E (provides 16 rather than 32 GPRs)",
         .dependencies = featureSet(&[_]Feature{}),
     };
-    result[@enumToInt(Feature.experimental_zbe)] = .{
-        .llvm_name = "experimental-zbe",
-        .description = "'Zbe' (Extract-Deposit 'Zb' Instructions)",
+    result[@enumToInt(Feature.experimental_zawrs)] = .{
+        .llvm_name = "experimental-zawrs",
+        .description = "'Zawrs' (Wait on Reservation Set)",
         .dependencies = featureSet(&[_]Feature{}),
     };
-    result[@enumToInt(Feature.experimental_zbf)] = .{
-        .llvm_name = "experimental-zbf",
-        .description = "'Zbf' (Bit-Field 'Zb' Instructions)",
+    result[@enumToInt(Feature.experimental_zca)] = .{
+        .llvm_name = "experimental-zca",
+        .description = "'Zca' (part of the C extension, excluding compressed floating point loads/stores)",
         .dependencies = featureSet(&[_]Feature{}),
     };
-    result[@enumToInt(Feature.experimental_zbm)] = .{
-        .llvm_name = "experimental-zbm",
-        .description = "'Zbm' (Matrix 'Zb' Instructions)",
+    result[@enumToInt(Feature.experimental_zcd)] = .{
+        .llvm_name = "experimental-zcd",
+        .description = "'Zcd' (Compressed Double-Precision Floating-Point Instructions)",
         .dependencies = featureSet(&[_]Feature{}),
     };
-    result[@enumToInt(Feature.experimental_zbp)] = .{
-        .llvm_name = "experimental-zbp",
-        .description = "'Zbp' (Permutation 'Zb' Instructions)",
+    result[@enumToInt(Feature.experimental_zcf)] = .{
+        .llvm_name = "experimental-zcf",
+        .description = "'Zcf' (Compressed Single-Precision Floating-Point Instructions)",
         .dependencies = featureSet(&[_]Feature{}),
     };
-    result[@enumToInt(Feature.experimental_zbr)] = .{
-        .llvm_name = "experimental-zbr",
-        .description = "'Zbr' (Polynomial Reduction 'Zb' Instructions)",
+    result[@enumToInt(Feature.experimental_zihintntl)] = .{
+        .llvm_name = "experimental-zihintntl",
+        .description = "'zihintntl' (Non-Temporal Locality Hints)",
         .dependencies = featureSet(&[_]Feature{}),
     };
-    result[@enumToInt(Feature.experimental_zbt)] = .{
-        .llvm_name = "experimental-zbt",
-        .description = "'Zbt' (Ternary 'Zb' Instructions)",
+    result[@enumToInt(Feature.experimental_ztso)] = .{
+        .llvm_name = "experimental-ztso",
+        .description = "'Ztso' (Memory Model - Total Store Order)",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.experimental_zvfh)] = .{
@@ -179,6 +196,16 @@ pub const all_features = blk: {
     result[@enumToInt(Feature.f)] = .{
         .llvm_name = "f",
         .description = "'F' (Single-Precision Floating-Point)",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@enumToInt(Feature.forced_atomics)] = .{
+        .llvm_name = "forced-atomics",
+        .description = "Assume that lock-free native-width atomics are available",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@enumToInt(Feature.h)] = .{
+        .llvm_name = "h",
+        .description = "'H' (Hypervisor)",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.lui_addi_fusion)] = .{
@@ -194,6 +221,11 @@ pub const all_features = blk: {
     result[@enumToInt(Feature.no_default_unroll)] = .{
         .llvm_name = "no-default-unroll",
         .description = "Disable default unroll preference.",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@enumToInt(Feature.no_optimized_zero_stride_load)] = .{
+        .llvm_name = "no-optimized-zero-stride-load",
+        .description = "Hasn't optimized (perform fewer memory operations)zero-stride vector load",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.no_rvc_hints)] = .{
@@ -366,6 +398,31 @@ pub const all_features = blk: {
         .description = "Enable save/restore.",
         .dependencies = featureSet(&[_]Feature{}),
     };
+    result[@enumToInt(Feature.short_forward_branch_opt)] = .{
+        .llvm_name = "short-forward-branch-opt",
+        .description = "Enable short forward branch optimization",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@enumToInt(Feature.svinval)] = .{
+        .llvm_name = "svinval",
+        .description = "'Svinval' (Fine-Grained Address-Translation Cache Invalidation)",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@enumToInt(Feature.svnapot)] = .{
+        .llvm_name = "svnapot",
+        .description = "'Svnapot' (NAPOT Translation Contiguity)",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@enumToInt(Feature.svpbmt)] = .{
+        .llvm_name = "svpbmt",
+        .description = "'Svpbmt' (Page-Based Memory Types)",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@enumToInt(Feature.tagged_globals)] = .{
+        .llvm_name = "tagged-globals",
+        .description = "Use an instruction sequence for taking the address of a global that allows a memory tag in the upper address bits",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
     result[@enumToInt(Feature.unaligned_scalar_mem)] = .{
         .llvm_name = "unaligned-scalar-mem",
         .description = "Has reasonably performant unaligned scalar loads and stores",
@@ -379,6 +436,18 @@ pub const all_features = blk: {
             .zve64d,
             .zvl128b,
         }),
+    };
+    result[@enumToInt(Feature.xtheadvdot)] = .{
+        .llvm_name = "xtheadvdot",
+        .description = "'xtheadvdot' (T-Head Vector Extensions for Dot)",
+        .dependencies = featureSet(&[_]Feature{
+            .v,
+        }),
+    };
+    result[@enumToInt(Feature.xventanacondops)] = .{
+        .llvm_name = "xventanacondops",
+        .description = "'XVentanaCondOps' (Ventana Conditional Ops)",
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@enumToInt(Feature.zba)] = .{
         .llvm_name = "zba",
@@ -652,6 +721,13 @@ pub const all_features = blk: {
             .zvl32b,
         }),
     };
+    result[@enumToInt(Feature.zvl65536b)] = .{
+        .llvm_name = "zvl65536b",
+        .description = "'Zvl' (Minimum Vector Length) 65536",
+        .dependencies = featureSet(&[_]Feature{
+            .zvl32768b,
+        }),
+    };
     result[@enumToInt(Feature.zvl8192b)] = .{
         .llvm_name = "zvl8192b",
         .description = "'Zvl' (Minimum Vector Length) 8192",
@@ -672,6 +748,7 @@ pub const cpu = struct {
         .name = "baseline_rv32",
         .llvm_name = null,
         .features = featureSet(&[_]Feature{
+            .@"32bit",
             .a,
             .c,
             .d,
@@ -697,7 +774,9 @@ pub const cpu = struct {
     pub const generic_rv32 = CpuModel{
         .name = "generic_rv32",
         .llvm_name = "generic-rv32",
-        .features = featureSet(&[_]Feature{}),
+        .features = featureSet(&[_]Feature{
+            .@"32bit",
+        }),
     };
     pub const generic_rv64 = CpuModel{
         .name = "generic_rv64",
@@ -706,10 +785,17 @@ pub const cpu = struct {
             .@"64bit",
         }),
     };
+    pub const rocket = CpuModel{
+        .name = "rocket",
+        .llvm_name = "rocket",
+        .features = featureSet(&[_]Feature{}),
+    };
     pub const rocket_rv32 = CpuModel{
         .name = "rocket_rv32",
         .llvm_name = "rocket-rv32",
-        .features = featureSet(&[_]Feature{}),
+        .features = featureSet(&[_]Feature{
+            .@"32bit",
+        }),
     };
     pub const rocket_rv64 = CpuModel{
         .name = "rocket_rv64",
@@ -718,25 +804,19 @@ pub const cpu = struct {
             .@"64bit",
         }),
     };
-    pub const sifive_7_rv32 = CpuModel{
-        .name = "sifive_7_rv32",
-        .llvm_name = "sifive-7-rv32",
+    pub const sifive_7_series = CpuModel{
+        .name = "sifive_7_series",
+        .llvm_name = "sifive-7-series",
         .features = featureSet(&[_]Feature{
             .no_default_unroll,
-        }),
-    };
-    pub const sifive_7_rv64 = CpuModel{
-        .name = "sifive_7_rv64",
-        .llvm_name = "sifive-7-rv64",
-        .features = featureSet(&[_]Feature{
-            .@"64bit",
-            .no_default_unroll,
+            .short_forward_branch_opt,
         }),
     };
     pub const sifive_e20 = CpuModel{
         .name = "sifive_e20",
         .llvm_name = "sifive-e20",
         .features = featureSet(&[_]Feature{
+            .@"32bit",
             .c,
             .m,
         }),
@@ -745,6 +825,7 @@ pub const cpu = struct {
         .name = "sifive_e21",
         .llvm_name = "sifive-e21",
         .features = featureSet(&[_]Feature{
+            .@"32bit",
             .a,
             .c,
             .m,
@@ -754,6 +835,7 @@ pub const cpu = struct {
         .name = "sifive_e24",
         .llvm_name = "sifive-e24",
         .features = featureSet(&[_]Feature{
+            .@"32bit",
             .a,
             .c,
             .f,
@@ -764,6 +846,7 @@ pub const cpu = struct {
         .name = "sifive_e31",
         .llvm_name = "sifive-e31",
         .features = featureSet(&[_]Feature{
+            .@"32bit",
             .a,
             .c,
             .m,
@@ -773,6 +856,7 @@ pub const cpu = struct {
         .name = "sifive_e34",
         .llvm_name = "sifive-e34",
         .features = featureSet(&[_]Feature{
+            .@"32bit",
             .a,
             .c,
             .f,
@@ -783,11 +867,13 @@ pub const cpu = struct {
         .name = "sifive_e76",
         .llvm_name = "sifive-e76",
         .features = featureSet(&[_]Feature{
+            .@"32bit",
             .a,
             .c,
             .f,
             .m,
             .no_default_unroll,
+            .short_forward_branch_opt,
         }),
     };
     pub const sifive_s21 = CpuModel{
@@ -831,6 +917,7 @@ pub const cpu = struct {
             .d,
             .m,
             .no_default_unroll,
+            .short_forward_branch_opt,
         }),
     };
     pub const sifive_u54 = CpuModel{
@@ -852,6 +939,26 @@ pub const cpu = struct {
             .a,
             .c,
             .d,
+            .m,
+            .no_default_unroll,
+            .short_forward_branch_opt,
+        }),
+    };
+    pub const syntacore_scr1_base = CpuModel{
+        .name = "syntacore_scr1_base",
+        .llvm_name = "syntacore-scr1-base",
+        .features = featureSet(&[_]Feature{
+            .@"32bit",
+            .c,
+            .no_default_unroll,
+        }),
+    };
+    pub const syntacore_scr1_max = CpuModel{
+        .name = "syntacore_scr1_max",
+        .llvm_name = "syntacore-scr1-max",
+        .features = featureSet(&[_]Feature{
+            .@"32bit",
+            .c,
             .m,
             .no_default_unroll,
         }),

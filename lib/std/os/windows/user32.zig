@@ -28,13 +28,11 @@ const POINT = windows.POINT;
 const HCURSOR = windows.HCURSOR;
 const HBRUSH = windows.HBRUSH;
 
-fn selectSymbol(comptime function_static: anytype, function_dynamic: *const @TypeOf(function_static), comptime os: std.Target.Os.WindowsVersion) *const @TypeOf(function_static) {
-    comptime {
-        const sym_ok = builtin.os.isAtLeast(.windows, os);
-        if (sym_ok == true) return function_static;
-        if (sym_ok == null) return function_dynamic;
-        if (sym_ok == false) @compileError("Target OS range does not support function, at least " ++ @tagName(os) ++ " is required");
-    }
+inline fn selectSymbol(comptime function_static: anytype, function_dynamic: *const @TypeOf(function_static), comptime os: std.Target.Os.WindowsVersion) *const @TypeOf(function_static) {
+    const sym_ok = comptime builtin.os.isAtLeast(.windows, os);
+    if (sym_ok == true) return function_static;
+    if (sym_ok == null) return function_dynamic;
+    if (sym_ok == false) @compileError("Target OS range does not support function, at least " ++ @tagName(os) ++ " is required");
 }
 
 // === Messages ===

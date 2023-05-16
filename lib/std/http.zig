@@ -1,4 +1,10 @@
 pub const Client = @import("http/Client.zig");
+pub const Server = @import("http/Server.zig");
+pub const protocol = @import("http/protocol.zig");
+const headers = @import("http/Headers.zig");
+
+pub const Headers = headers.Headers;
+pub const Field = headers.Field;
 
 pub const Version = enum {
     @"HTTP/1.0",
@@ -6,7 +12,7 @@ pub const Version = enum {
 };
 
 /// https://developer.mozilla.org/en-US/docs/Web/HTTP/Methods
-/// https://datatracker.ietf.org/doc/html/rfc7231#section-4 Initial definiton
+/// https://datatracker.ietf.org/doc/html/rfc7231#section-4 Initial definition
 /// https://datatracker.ietf.org/doc/html/rfc5789#section-2 PATCH
 pub const Method = enum {
     GET,
@@ -122,7 +128,7 @@ pub const Status = enum(u10) {
     upgrade_required = 426, // RFC7231, Section 6.5.15
     precondition_required = 428, // RFC6585
     too_many_requests = 429, // RFC6585
-    header_fields_too_large = 431, // RFC6585
+    request_header_fields_too_large = 431, // RFC6585
     unavailable_for_legal_reasons = 451, // RFC7725
 
     internal_server_error = 500, // RFC7231, Section 6.6.1
@@ -197,7 +203,7 @@ pub const Status = enum(u10) {
             .upgrade_required => "Upgrade Required",
             .precondition_required => "Precondition Required",
             .too_many_requests => "Too Many Requests",
-            .header_fields_too_large => "Request Header Fields Too Large",
+            .request_header_fields_too_large => "Request Header Fields Too Large",
             .unavailable_for_legal_reasons => "Unavailable For Legal Reasons",
 
             // 5xx statuses
@@ -248,9 +254,19 @@ pub const Status = enum(u10) {
 
 pub const TransferEncoding = enum {
     chunked,
+    // compression is intentionally omitted here, as std.http.Client stores it as content-encoding
+};
+
+pub const ContentEncoding = enum {
     compress,
     deflate,
     gzip,
+    zstd,
+};
+
+pub const Connection = enum {
+    keep_alive,
+    close,
 };
 
 const std = @import("std.zig");

@@ -1,8 +1,8 @@
 const std = @import("std");
 
 pub fn build(b: *std.Build) void {
-    const target = b.standardTargetOptions(.{});
-    const optimize = b.standardOptimizeOption(.{});
+    const test_step = b.step("test", "Test it");
+    b.default_step = test_step;
 
     const bootloader = b.addExecutable(.{
         .name = "bootloader",
@@ -16,13 +16,11 @@ pub fn build(b: *std.Build) void {
 
     const exe = b.addTest(.{
         .root_source_file = .{ .path = "main.zig" },
-        .target = target,
-        .optimize = optimize,
+        .optimize = .Debug,
     });
     exe.addAnonymousModule("bootloader.elf", .{
         .source_file = bootloader.getOutputSource(),
     });
 
-    const test_step = b.step("test", "Test the program");
     test_step.dependOn(&exe.step);
 }

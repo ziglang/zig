@@ -45,7 +45,7 @@ test "type pun signed and unsigned as offset many pointer" {
     }
 }
 
-test "type pun signed and unsigned as array pointer" {
+test "type pun signed and unsigned as array pointer with pointer arithemtic" {
     if (true) {
         // TODO https://github.com/ziglang/zig/issues/9646
         return error.SkipZigTest;
@@ -76,6 +76,7 @@ fn bigToNativeEndian(comptime T: type, v: T) T {
 }
 test "type pun endianness" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     comptime {
         const StructOfBytes = extern struct { x: [4]u8 };
@@ -376,6 +377,8 @@ test "offset field ptr by enclosing array element size" {
 
 test "accessing reinterpreted memory of parent object" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+
     const S = extern struct {
         a: f32,
         b: [4]u8,
@@ -411,4 +414,20 @@ test "bitcast packed union to integer" {
         try testing.expectEqual(@as(u1, 1), @truncate(u1, cast_a));
         try testing.expectEqual(@as(u2, 2), cast_b);
     }
+}
+
+test "mutate entire slice at comptime" {
+    comptime {
+        var buf: [3]u8 = undefined;
+        const x: [2]u8 = .{ 1, 2 }; // Avoid RLS
+        buf[1..3].* = x;
+    }
+}
+
+test "dereference undefined pointer to zero-bit type" {
+    const p0: *void = undefined;
+    try testing.expectEqual({}, p0.*);
+
+    const p1: *[0]u32 = undefined;
+    try testing.expect(p1.*.len == 0);
 }

@@ -68,9 +68,9 @@ static StringRef ToolName;
 static StringRef Stem;
 
 static void printRanLibHelp(StringRef ToolName) {
-  outs() << "OVERVIEW: LLVM Ranlib\n\n"
-         << "This program generates an index to speed access to archives\n\n"
-         << "USAGE: " + ToolName + " <archive-file>\n\n"
+  outs() << "OVERVIEW: LLVM ranlib\n\n"
+         << "Generate an index for archives\n\n"
+         << "USAGE: " + ToolName + " archive...\n\n"
          << "OPTIONS:\n"
          << "  -h --help             - Display available options\n"
          << "  -v --version          - Display the version of this program\n"
@@ -875,8 +875,16 @@ static InsertAction computeInsertAction(ArchiveOperation Operation,
 
   if (Operation == QuickAppend || Members.empty())
     return IA_AddOldMember;
-  auto MI = find_if(
-      Members, [Name](StringRef Path) { return comparePaths(Name, Path); });
+
+  auto MI = find_if(Members, [Name](StringRef Path) {
+    if (Thin && !sys::path::is_absolute(Path)) {
+      Expected<std::string> PathOrErr =
+          computeArchiveRelativePath(ArchiveName, Path);
+      return comparePaths(Name, PathOrErr ? *PathOrErr : Path);
+    } else {
+      return comparePaths(Name, Path);
+    }
+  });
 
   if (MI == Members.end())
     return IA_AddOldMember;
@@ -1125,8 +1133,7 @@ static void performOperation(ArchiveOperation Operation,
   llvm_unreachable("Unknown operation.");
 }
 
-static int performOperation(ArchiveOperation Operation,
-                            std::vector<NewArchiveMember> *NewMembers) {
+static int performOperation(ArchiveOperation Operation) {
   // Create or open the archive object.
   ErrorOr<std::unique_ptr<MemoryBuffer>> Buf = MemoryBuffer::getFile(
       ArchiveName, /*IsText=*/false, /*RequiresNullTerminator=*/false);
@@ -1145,7 +1152,7 @@ static int performOperation(ArchiveOperation Operation,
     if (Archive->isThin())
       CompareFullPath = true;
     performOperation(Operation, Archive.get(), std::move(Buf.get()),
-                     NewMembers);
+                     /*NewMembers=*/nullptr);
     return 0;
   }
 
@@ -1160,7 +1167,7 @@ static int performOperation(ArchiveOperation Operation,
     }
   }
 
-  performOperation(Operation, nullptr, nullptr, NewMembers);
+  performOperation(Operation, nullptr, nullptr, /*NewMembers=*/nullptr);
   return 0;
 }
 
@@ -1219,7 +1226,7 @@ static void runMRIScript() {
       break;
     case MRICommand::CreateThin:
       Thin = true;
-      LLVM_FALLTHROUGH;
+      [[fallthrough]];
     case MRICommand::Create:
       Create = true;
       if (!ArchiveName.empty())
@@ -1323,7 +1330,7 @@ static int ar_main(int argc, char **argv) {
   SmallVector<const char *, 0> Argv(argv + 1, argv + argc);
   StringSaver Saver(Alloc);
 
-  cl::ExpandResponseFiles(Saver, getRspQuoting(makeArrayRef(argv, argc)), Argv);
+  cl::ExpandResponseFiles(Saver, getRspQuoting(ArrayRef(argv, argc)), Argv);
 
   // Get BitMode from enviorment variable "OBJECT_MODE" for AIX OS, if
   // specified.
@@ -1403,12 +1410,11 @@ static int ar_main(int argc, char **argv) {
     Options += *ArgIt + 1;
   }
 
-  ArchiveOperation Operation = parseCommandLine();
-  return performOperation(Operation, nullptr);
+  return performOperation(parseCommandLine());
 }
 
 static int ranlib_main(int argc, char **argv) {
-  bool ArchiveSpecified = false;
+  std::vector<StringRef> Archives;
   for (int i = 1; i < argc; ++i) {
     StringRef arg(argv[i]);
     if (handleGenericOption(arg)) {
@@ -1433,16 +1439,17 @@ static int ranlib_main(int argc, char **argv) {
         arg = arg.drop_front(1);
       }
     } else {
-      if (ArchiveSpecified)
-        fail("exactly one archive should be specified");
-      ArchiveSpecified = true;
-      ArchiveName = arg.str();
+      Archives.push_back(arg);
     }
   }
-  if (!ArchiveSpecified) {
-    badUsage("an archive name must be specified");
+
+  for (StringRef Archive : Archives) {
+    ArchiveName = Archive.str();
+    performOperation(CreateSymTab);
   }
-  return performOperation(CreateSymTab, nullptr);
+  if (Archives.empty())
+    badUsage("an archive name must be specified");
+  return 0;
 }
 
 extern "C" int ZigLlvmAr_main(int argc, char **argv);
@@ -1474,11 +1481,11 @@ int ZigLlvmAr_main(int argc, char **argv) {
   };
 
   if (Is("dlltool"))
-    return dlltoolDriverMain(makeArrayRef(argv, argc));
+    return dlltoolDriverMain(ArrayRef(argv, argc));
   if (Is("ranlib"))
     return ranlib_main(argc, argv);
   if (Is("lib"))
-    return libDriverMain(makeArrayRef(argv, argc));
+    return libDriverMain(ArrayRef(argv, argc));
   if (Is("ar"))
     return ar_main(argc, argv);
 

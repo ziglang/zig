@@ -13,7 +13,6 @@
 #include <__type_traits/add_lvalue_reference.h>
 #include <__type_traits/add_rvalue_reference.h>
 #include <__type_traits/integral_constant.h>
-#include <__type_traits/is_nothrow_assignable.h>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #  pragma GCC system_header
@@ -21,10 +20,12 @@
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
-template <class _Tp> struct _LIBCPP_TEMPLATE_VIS is_nothrow_move_assignable
-    : public is_nothrow_assignable<typename add_lvalue_reference<_Tp>::type,
-                                     typename add_rvalue_reference<_Tp>::type>
-    {};
+template <class _Tp>
+struct _LIBCPP_TEMPLATE_VIS is_nothrow_move_assignable
+    : public integral_constant<
+          bool,
+          __is_nothrow_assignable(__add_lvalue_reference_t<_Tp>, __add_rvalue_reference_t<_Tp>)> {
+};
 
 #if _LIBCPP_STD_VER > 14
 template <class _Tp>

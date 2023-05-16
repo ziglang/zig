@@ -96,7 +96,7 @@ const libcxx_files = [_][]const u8{
     "src/verbose_abort.cpp",
 };
 
-pub fn buildLibCXX(comp: *Compilation) !void {
+pub fn buildLibCXX(comp: *Compilation, prog_node: *std.Progress.Node) !void {
     if (!build_options.have_llvm) {
         return error.ZigCompilerNotBuiltWithLLVMExtensions;
     }
@@ -250,6 +250,7 @@ pub fn buildLibCXX(comp: *Compilation) !void {
         .verbose_link = comp.bin_file.options.verbose_link,
         .verbose_air = comp.verbose_air,
         .verbose_llvm_ir = comp.verbose_llvm_ir,
+        .verbose_llvm_bc = comp.verbose_llvm_bc,
         .verbose_cimport = comp.verbose_cimport,
         .verbose_llvm_cpu_features = comp.verbose_llvm_cpu_features,
         .clang_passthrough_mode = comp.clang_passthrough_mode,
@@ -258,7 +259,7 @@ pub fn buildLibCXX(comp: *Compilation) !void {
     });
     defer sub_compilation.destroy();
 
-    try sub_compilation.updateSubCompilation();
+    try comp.updateSubCompilation(sub_compilation, .libcxx, prog_node);
 
     assert(comp.libcxx_static_lib == null);
     comp.libcxx_static_lib = Compilation.CRTFile{
@@ -269,7 +270,7 @@ pub fn buildLibCXX(comp: *Compilation) !void {
     };
 }
 
-pub fn buildLibCXXABI(comp: *Compilation) !void {
+pub fn buildLibCXXABI(comp: *Compilation, prog_node: *std.Progress.Node) !void {
     if (!build_options.have_llvm) {
         return error.ZigCompilerNotBuiltWithLLVMExtensions;
     }
@@ -410,6 +411,7 @@ pub fn buildLibCXXABI(comp: *Compilation) !void {
         .verbose_link = comp.bin_file.options.verbose_link,
         .verbose_air = comp.verbose_air,
         .verbose_llvm_ir = comp.verbose_llvm_ir,
+        .verbose_llvm_bc = comp.verbose_llvm_bc,
         .verbose_cimport = comp.verbose_cimport,
         .verbose_llvm_cpu_features = comp.verbose_llvm_cpu_features,
         .clang_passthrough_mode = comp.clang_passthrough_mode,
@@ -418,7 +420,7 @@ pub fn buildLibCXXABI(comp: *Compilation) !void {
     });
     defer sub_compilation.destroy();
 
-    try sub_compilation.updateSubCompilation();
+    try comp.updateSubCompilation(sub_compilation, .libcxxabi, prog_node);
 
     assert(comp.libcxxabi_static_lib == null);
     comp.libcxxabi_static_lib = Compilation.CRTFile{

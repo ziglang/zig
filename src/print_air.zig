@@ -8,22 +8,22 @@ const Type = @import("type.zig").Type;
 const Air = @import("Air.zig");
 const Liveness = @import("Liveness.zig");
 
-pub fn dump(module: *Module, air: Air, liveness: Liveness) void {
+pub fn write(stream: anytype, module: *Module, air: Air, liveness: ?Liveness) void {
     const instruction_bytes = air.instructions.len *
         // Here we don't use @sizeOf(Air.Inst.Data) because it would include
         // the debug safety tag but we want to measure release size.
         (@sizeOf(Air.Inst.Tag) + 8);
     const extra_bytes = air.extra.len * @sizeOf(u32);
     const values_bytes = air.values.len * @sizeOf(Value);
-    const tomb_bytes = liveness.tomb_bits.len * @sizeOf(usize);
-    const liveness_extra_bytes = liveness.extra.len * @sizeOf(u32);
-    const liveness_special_bytes = liveness.special.count() * 8;
+    const tomb_bytes = if (liveness) |l| l.tomb_bits.len * @sizeOf(usize) else 0;
+    const liveness_extra_bytes = if (liveness) |l| l.extra.len * @sizeOf(u32) else 0;
+    const liveness_special_bytes = if (liveness) |l| l.special.count() * 8 else 0;
     const total_bytes = @sizeOf(Air) + instruction_bytes + extra_bytes +
         values_bytes + @sizeOf(Liveness) + liveness_extra_bytes +
         liveness_special_bytes + tomb_bytes;
 
     // zig fmt: off
-    std.debug.print(
+    stream.print(
         \\# Total AIR+Liveness bytes: {}
         \\# AIR Instructions:         {d} ({})
         \\# AIR Extra Data:           {d} ({})
@@ -38,44 +38,65 @@ pub fn dump(module: *Module, air: Air, liveness: Liveness) void {
         air.extra.len, fmtIntSizeBin(extra_bytes),
         air.values.len, fmtIntSizeBin(values_bytes),
         fmtIntSizeBin(tomb_bytes),
-        liveness.extra.len, fmtIntSizeBin(liveness_extra_bytes),
-        liveness.special.count(), fmtIntSizeBin(liveness_special_bytes),
-    });
+        if (liveness) |l| l.extra.len else 0, fmtIntSizeBin(liveness_extra_bytes),
+        if (liveness) |l| l.special.count() else 0, fmtIntSizeBin(liveness_special_bytes),
+    }) catch return;
     // zig fmt: on
-    var arena = std.heap.ArenaAllocator.init(module.gpa);
-    defer arena.deinit();
 
     var writer: Writer = .{
         .module = module,
         .gpa = module.gpa,
-        .arena = arena.allocator(),
         .air = air,
         .liveness = liveness,
         .indent = 2,
+        .skip_body = false,
     };
-    const stream = std.io.getStdErr().writer();
     writer.writeAllConstants(stream) catch return;
     stream.writeByte('\n') catch return;
     writer.writeBody(stream, air.getMainBody()) catch return;
 }
 
+pub fn writeInst(
+    stream: anytype,
+    inst: Air.Inst.Index,
+    module: *Module,
+    air: Air,
+    liveness: ?Liveness,
+) void {
+    var writer: Writer = .{
+        .module = module,
+        .gpa = module.gpa,
+        .air = air,
+        .liveness = liveness,
+        .indent = 2,
+        .skip_body = true,
+    };
+    writer.writeInst(stream, inst) catch return;
+}
+
+pub fn dump(module: *Module, air: Air, liveness: ?Liveness) void {
+    write(std.io.getStdErr().writer(), module, air, liveness);
+}
+
+pub fn dumpInst(inst: Air.Inst.Index, module: *Module, air: Air, liveness: ?Liveness) void {
+    writeInst(std.io.getStdErr().writer(), inst, module, air, liveness);
+}
+
 const Writer = struct {
     module: *Module,
     gpa: Allocator,
-    arena: Allocator,
     air: Air,
-    liveness: Liveness,
+    liveness: ?Liveness,
     indent: usize,
+    skip_body: bool,
 
     fn writeAllConstants(w: *Writer, s: anytype) @TypeOf(s).Error!void {
         for (w.air.instructions.items(.tag), 0..) |tag, i| {
-            const inst = @intCast(u32, i);
+            const inst = @intCast(Air.Inst.Index, i);
             switch (tag) {
                 .constant, .const_ty => {
-                    try s.writeByteNTimes(' ', w.indent);
-                    try s.print("%{d} ", .{inst});
                     try w.writeInst(s, inst);
-                    try s.writeAll(")\n");
+                    try s.writeByte('\n');
                 },
                 else => continue,
             }
@@ -84,21 +105,19 @@ const Writer = struct {
 
     fn writeBody(w: *Writer, s: anytype, body: []const Air.Inst.Index) @TypeOf(s).Error!void {
         for (body) |inst| {
-            try s.writeByteNTimes(' ', w.indent);
-            if (w.liveness.isUnused(inst)) {
-                try s.print("%{d}!", .{inst});
-            } else {
-                try s.print("%{d} ", .{inst});
-            }
             try w.writeInst(s, inst);
-            try s.writeAll(")\n");
+            try s.writeByte('\n');
         }
     }
 
     fn writeInst(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {
-        const tags = w.air.instructions.items(.tag);
-        const tag = tags[inst];
-        try s.print("= {s}(", .{@tagName(tags[inst])});
+        const tag = w.air.instructions.items(.tag)[inst];
+        try s.writeByteNTimes(' ', w.indent);
+        try s.print("%{d}{c}= {s}(", .{
+            inst,
+            @as(u8, if (if (w.liveness) |liveness| liveness.isUnused(inst) else false) '!' else ' '),
+            @tagName(tag),
+        });
         switch (tag) {
             .add,
             .addwrap,
@@ -127,6 +146,7 @@ const Writer = struct {
             .bool_and,
             .bool_or,
             .store,
+            .store_safe,
             .array_elem_val,
             .slice_elem_val,
             .ptr_elem_val,
@@ -156,6 +176,9 @@ const Writer = struct {
             .cmp_gte_optimized,
             .cmp_gt_optimized,
             .cmp_neq_optimized,
+            .memcpy,
+            .memset,
+            .memset_safe,
             => try w.writeBinOp(s, inst),
 
             .is_null,
@@ -254,9 +277,9 @@ const Writer = struct {
             .c_va_copy,
             => try w.writeTyOp(s, inst),
 
-            .block,
-            .loop,
-            => try w.writeBlock(s, inst),
+            .block => try w.writeBlock(s, inst),
+
+            .loop => try w.writeLoop(s, inst),
 
             .slice,
             .slice_elem_ptr,
@@ -302,8 +325,6 @@ const Writer = struct {
             .atomic_store_release => try w.writeAtomicStore(s, inst, .Release),
             .atomic_store_seq_cst => try w.writeAtomicStore(s, inst, .SeqCst),
             .atomic_rmw => try w.writeAtomicRmw(s, inst),
-            .memcpy => try w.writeMemcpy(s, inst),
-            .memset => try w.writeMemset(s, inst),
             .field_parent_ptr => try w.writeFieldParentPtr(s, inst),
             .wasm_memory_size => try w.writeWasmMemorySize(s, inst),
             .wasm_memory_grow => try w.writeWasmMemoryGrow(s, inst),
@@ -315,7 +336,13 @@ const Writer = struct {
             .vector_store_elem => try w.writeVectorStoreElem(s, inst),
 
             .dbg_block_begin, .dbg_block_end => {},
+
+            .work_item_id,
+            .work_group_size,
+            .work_group_id,
+            => try w.writeWorkDimension(s, inst),
         }
+        try s.writeByte(')');
     }
 
     fn writeBinOp(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {
@@ -370,8 +397,33 @@ const Writer = struct {
         const ty_pl = w.air.instructions.items(.data)[inst].ty_pl;
         const extra = w.air.extraData(Air.Block, ty_pl.payload);
         const body = w.air.extra[extra.end..][0..extra.data.body_len];
+        const liveness_block = if (w.liveness) |liveness|
+            liveness.getBlock(inst)
+        else
+            Liveness.BlockSlices{ .deaths = &.{} };
 
         try w.writeType(s, w.air.getRefType(ty_pl.ty));
+        if (w.skip_body) return s.writeAll(", ...");
+        try s.writeAll(", {\n");
+        const old_indent = w.indent;
+        w.indent += 2;
+        try w.writeBody(s, body);
+        w.indent = old_indent;
+        try s.writeByteNTimes(' ', w.indent);
+        try s.writeAll("}");
+
+        for (liveness_block.deaths) |operand| {
+            try s.print(" %{d}!", .{operand});
+        }
+    }
+
+    fn writeLoop(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {
+        const ty_pl = w.air.instructions.items(.data)[inst].ty_pl;
+        const extra = w.air.extraData(Air.Block, ty_pl.payload);
+        const body = w.air.extra[extra.end..][0..extra.data.body_len];
+
+        try w.writeType(s, w.air.getRefType(ty_pl.ty));
+        if (w.skip_body) return s.writeAll(", ...");
         try s.writeAll(", {\n");
         const old_indent = w.indent;
         w.indent += 2;
@@ -547,34 +599,12 @@ const Writer = struct {
         try s.print(", {s}, {s}", .{ @tagName(extra.op()), @tagName(extra.ordering()) });
     }
 
-    fn writeMemset(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {
-        const pl_op = w.air.instructions.items(.data)[inst].pl_op;
-        const extra = w.air.extraData(Air.Bin, pl_op.payload).data;
-
-        try w.writeOperand(s, inst, 0, pl_op.operand);
-        try s.writeAll(", ");
-        try w.writeOperand(s, inst, 1, extra.lhs);
-        try s.writeAll(", ");
-        try w.writeOperand(s, inst, 2, extra.rhs);
-    }
-
     fn writeFieldParentPtr(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {
         const ty_pl = w.air.instructions.items(.data)[inst].ty_pl;
         const extra = w.air.extraData(Air.FieldParentPtr, ty_pl.payload).data;
 
         try w.writeOperand(s, inst, 0, extra.field_ptr);
         try s.print(", {d}", .{extra.field_index});
-    }
-
-    fn writeMemcpy(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {
-        const pl_op = w.air.instructions.items(.data)[inst].pl_op;
-        const extra = w.air.extraData(Air.Bin, pl_op.payload).data;
-
-        try w.writeOperand(s, inst, 0, pl_op.operand);
-        try s.writeAll(", ");
-        try w.writeOperand(s, inst, 1, extra.lhs);
-        try s.writeAll(", ");
-        try w.writeOperand(s, inst, 2, extra.rhs);
     }
 
     fn writeConstant(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {
@@ -701,33 +731,71 @@ const Writer = struct {
         const pl_op = w.air.instructions.items(.data)[inst].pl_op;
         const extra = w.air.extraData(Air.Try, pl_op.payload);
         const body = w.air.extra[extra.end..][0..extra.data.body_len];
+        const liveness_condbr = if (w.liveness) |liveness|
+            liveness.getCondBr(inst)
+        else
+            Liveness.CondBrSlices{ .then_deaths = &.{}, .else_deaths = &.{} };
 
         try w.writeOperand(s, inst, 0, pl_op.operand);
+        if (w.skip_body) return s.writeAll(", ...");
         try s.writeAll(", {\n");
         const old_indent = w.indent;
         w.indent += 2;
+
+        if (liveness_condbr.else_deaths.len != 0) {
+            try s.writeByteNTimes(' ', w.indent);
+            for (liveness_condbr.else_deaths, 0..) |operand, i| {
+                if (i != 0) try s.writeAll(" ");
+                try s.print("%{d}!", .{operand});
+            }
+            try s.writeAll("\n");
+        }
         try w.writeBody(s, body);
+
         w.indent = old_indent;
         try s.writeByteNTimes(' ', w.indent);
         try s.writeAll("}");
+
+        for (liveness_condbr.then_deaths) |operand| {
+            try s.print(" %{d}!", .{operand});
+        }
     }
 
     fn writeTryPtr(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {
         const ty_pl = w.air.instructions.items(.data)[inst].ty_pl;
         const extra = w.air.extraData(Air.TryPtr, ty_pl.payload);
         const body = w.air.extra[extra.end..][0..extra.data.body_len];
+        const liveness_condbr = if (w.liveness) |liveness|
+            liveness.getCondBr(inst)
+        else
+            Liveness.CondBrSlices{ .then_deaths = &.{}, .else_deaths = &.{} };
 
         try w.writeOperand(s, inst, 0, extra.data.ptr);
 
         try s.writeAll(", ");
         try w.writeType(s, w.air.getRefType(ty_pl.ty));
+        if (w.skip_body) return s.writeAll(", ...");
         try s.writeAll(", {\n");
         const old_indent = w.indent;
         w.indent += 2;
+
+        if (liveness_condbr.else_deaths.len != 0) {
+            try s.writeByteNTimes(' ', w.indent);
+            for (liveness_condbr.else_deaths, 0..) |operand, i| {
+                if (i != 0) try s.writeAll(" ");
+                try s.print("%{d}!", .{operand});
+            }
+            try s.writeAll("\n");
+        }
         try w.writeBody(s, body);
+
         w.indent = old_indent;
         try s.writeByteNTimes(' ', w.indent);
         try s.writeAll("}");
+
+        for (liveness_condbr.then_deaths) |operand| {
+            try s.print(" %{d}!", .{operand});
+        }
     }
 
     fn writeCondBr(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {
@@ -735,9 +803,13 @@ const Writer = struct {
         const extra = w.air.extraData(Air.CondBr, pl_op.payload);
         const then_body = w.air.extra[extra.end..][0..extra.data.then_body_len];
         const else_body = w.air.extra[extra.end + then_body.len ..][0..extra.data.else_body_len];
-        const liveness_condbr = w.liveness.getCondBr(inst);
+        const liveness_condbr = if (w.liveness) |liveness|
+            liveness.getCondBr(inst)
+        else
+            Liveness.CondBrSlices{ .then_deaths = &.{}, .else_deaths = &.{} };
 
         try w.writeOperand(s, inst, 0, pl_op.operand);
+        if (w.skip_body) return s.writeAll(", ...");
         try s.writeAll(", {\n");
         const old_indent = w.indent;
         w.indent += 2;
@@ -774,13 +846,21 @@ const Writer = struct {
     fn writeSwitchBr(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {
         const pl_op = w.air.instructions.items(.data)[inst].pl_op;
         const switch_br = w.air.extraData(Air.SwitchBr, pl_op.payload);
-        const liveness = w.liveness.getSwitchBr(w.gpa, inst, switch_br.data.cases_len + 1) catch
-            @panic("out of memory");
+        const liveness = if (w.liveness) |liveness|
+            liveness.getSwitchBr(w.gpa, inst, switch_br.data.cases_len + 1) catch
+                @panic("out of memory")
+        else blk: {
+            const slice = w.gpa.alloc([]const Air.Inst.Index, switch_br.data.cases_len + 1) catch
+                @panic("out of memory");
+            @memset(slice, &.{});
+            break :blk Liveness.SwitchBrTable{ .deaths = slice };
+        };
         defer w.gpa.free(liveness.deaths);
         var extra_index: usize = switch_br.end;
         var case_i: u32 = 0;
 
         try w.writeOperand(s, inst, 0, pl_op.operand);
+        if (w.skip_body) return s.writeAll(", ...");
         const old_indent = w.indent;
         w.indent += 2;
 
@@ -837,7 +917,6 @@ const Writer = struct {
 
         try s.writeAll("\n");
         try s.writeByteNTimes(' ', old_indent);
-        try s.writeAll("}");
     }
 
     fn writeWasmMemorySize(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {
@@ -851,6 +930,11 @@ const Writer = struct {
         try w.writeOperand(s, inst, 0, pl_op.operand);
     }
 
+    fn writeWorkDimension(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {
+        const pl_op = w.air.instructions.items(.data)[inst].pl_op;
+        try s.print("{d}", .{pl_op.payload});
+    }
+
     fn writeOperand(
         w: *Writer,
         s: anytype,
@@ -859,13 +943,13 @@ const Writer = struct {
         operand: Air.Inst.Ref,
     ) @TypeOf(s).Error!void {
         const small_tomb_bits = Liveness.bpi - 1;
-        const dies = if (op_index < small_tomb_bits)
-            w.liveness.operandDies(inst, @intCast(Liveness.OperandInt, op_index))
-        else blk: {
-            var extra_index = w.liveness.special.get(inst).?;
+        const dies = if (w.liveness) |liveness| blk: {
+            if (op_index < small_tomb_bits)
+                break :blk liveness.operandDies(inst, @intCast(Liveness.OperandInt, op_index));
+            var extra_index = liveness.special.get(inst).?;
             var tomb_op_index: usize = small_tomb_bits;
             while (true) {
-                const bits = w.liveness.extra[extra_index];
+                const bits = liveness.extra[extra_index];
                 if (op_index < tomb_op_index + 31) {
                     break :blk @truncate(u1, bits >> @intCast(u5, op_index - tomb_op_index)) != 0;
                 }
@@ -873,7 +957,7 @@ const Writer = struct {
                 extra_index += 1;
                 tomb_op_index += 31;
             }
-        };
+        } else false;
         return w.writeInstRef(s, operand, dies);
     }
 
@@ -900,10 +984,7 @@ const Writer = struct {
         dies: bool,
     ) @TypeOf(s).Error!void {
         _ = w;
-        if (dies) {
-            try s.print("%{d}!", .{inst});
-        } else {
-            try s.print("%{d}", .{inst});
-        }
+        try s.print("%{d}", .{inst});
+        if (dies) try s.writeByte('!');
     }
 };

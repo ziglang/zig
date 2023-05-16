@@ -406,7 +406,7 @@ test "TailQueue concatenation" {
         }
     }
 
-    // Swap them back, this verifies that concating to an empty list works.
+    // Swap them back, this verifies that concatenating to an empty list works.
     list2.concatByMoving(&list1);
 
     // Traverse forwards.

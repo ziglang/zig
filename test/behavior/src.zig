@@ -14,10 +14,10 @@ const builtin = @import("builtin");
 const expect = std.testing.expect;
 
 test "@src" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     try doTheTest();
 }
@@ -31,4 +31,17 @@ test "@src used as a comptime parameter" {
     const T1 = S.Foo(@src());
     const T2 = S.Foo(@src());
     try expect(T1 != T2);
+}
+
+test "@src in tuple passed to anytype function" {
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
+    const S = struct {
+        fn Foo(a: anytype) u32 {
+            return a[0].line;
+        }
+    };
+    const l1 = S.Foo(.{@src()});
+    const l2 = S.Foo(.{@src()});
+    try expect(l1 != l2);
 }

@@ -87,7 +87,7 @@ fn next(self: *Isaac64) u64 {
 fn seed(self: *Isaac64, init_s: u64, comptime rounds: usize) void {
     // We ignore the multi-pass requirement since we don't currently expose full access to
     // seeding the self.m array completely.
-    mem.set(u64, self.m[0..], 0);
+    @memset(self.m[0..], 0);
     self.m[0] = init_s;
 
     // prescrambled golden ratio constants
@@ -143,7 +143,7 @@ fn seed(self: *Isaac64, init_s: u64, comptime rounds: usize) void {
         }
     }
 
-    mem.set(u64, self.r[0..], 0);
+    @memset(self.r[0..], 0);
     self.a = 0;
     self.b = 0;
     self.c = 0;

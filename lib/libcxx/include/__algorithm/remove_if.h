@@ -20,7 +20,7 @@
 _LIBCPP_BEGIN_NAMESPACE_STD
 
 template <class _ForwardIterator, class _Predicate>
-_LIBCPP_NODISCARD_EXT _LIBCPP_CONSTEXPR_AFTER_CXX17 _ForwardIterator
+_LIBCPP_NODISCARD_EXT _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 _ForwardIterator
 remove_if(_ForwardIterator __first, _ForwardIterator __last, _Predicate __pred)
 {
     __first = _VSTD::find_if<_ForwardIterator, _Predicate&>(__first, __last, __pred);

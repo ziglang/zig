@@ -5,7 +5,9 @@ const mem = std.mem;
 const Allocator = std.mem.Allocator;
 const Bundle = @import("../Bundle.zig");
 
-pub fn rescanMac(cb: *Bundle, gpa: Allocator) !void {
+pub const RescanMacError = Allocator.Error || fs.File.OpenError || fs.File.ReadError || fs.File.SeekError || Bundle.ParseCertError || error{EndOfStream};
+
+pub fn rescanMac(cb: *Bundle, gpa: Allocator) RescanMacError!void {
     cb.bytes.clearRetainingCapacity();
     cb.map.clearRetainingCapacity();
 

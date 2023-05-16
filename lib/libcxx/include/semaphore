@@ -80,31 +80,31 @@ functions. It avoids contention against users' own use of those facilities.
 
 class __atomic_semaphore_base
 {
-    __atomic_base<ptrdiff_t> __a;
+    __atomic_base<ptrdiff_t> __a_;
 
 public:
     _LIBCPP_INLINE_VISIBILITY
-    constexpr explicit __atomic_semaphore_base(ptrdiff_t __count) : __a(__count)
+    constexpr explicit __atomic_semaphore_base(ptrdiff_t __count) : __a_(__count)
     {
     }
     _LIBCPP_AVAILABILITY_SYNC _LIBCPP_INLINE_VISIBILITY
     void release(ptrdiff_t __update = 1)
     {
-        if(0 < __a.fetch_add(__update, memory_order_release))
+        if(0 < __a_.fetch_add(__update, memory_order_release))
             ;
         else if(__update > 1)
-            __a.notify_all();
+            __a_.notify_all();
         else
-            __a.notify_one();
+            __a_.notify_one();
     }
     _LIBCPP_AVAILABILITY_SYNC _LIBCPP_INLINE_VISIBILITY
     void acquire()
     {
         auto const __test_fn = [this]() -> bool {
-            auto __old = __a.load(memory_order_relaxed);
-            return (__old != 0) && __a.compare_exchange_strong(__old, __old - 1, memory_order_acquire, memory_order_relaxed);
+            auto __old = __a_.load(memory_order_relaxed);
+            return (__old != 0) && __a_.compare_exchange_strong(__old, __old - 1, memory_order_acquire, memory_order_relaxed);
         };
-        __cxx_atomic_wait(&__a.__a_, __test_fn);
+        __cxx_atomic_wait(&__a_.__a_, __test_fn);
     }
     template <class Rep, class Period>
     _LIBCPP_AVAILABILITY_SYNC _LIBCPP_INLINE_VISIBILITY
@@ -113,16 +113,16 @@ public:
         if (__rel_time == chrono::duration<Rep, Period>::zero())
             return try_acquire();
         auto const __test_fn = [this]() { return try_acquire(); };
-        return __libcpp_thread_poll_with_backoff(__test_fn, __libcpp_timed_backoff_policy(), __rel_time);
+        return std::__libcpp_thread_poll_with_backoff(__test_fn, __libcpp_timed_backoff_policy(), __rel_time);
     }
     _LIBCPP_AVAILABILITY_SYNC _LIBCPP_INLINE_VISIBILITY
     bool try_acquire()
     {
-        auto __old = __a.load(memory_order_acquire);
+        auto __old = __a_.load(memory_order_acquire);
         while (true) {
             if (__old == 0)
                 return false;
-            if (__a.compare_exchange_strong(__old, __old - 1, memory_order_acquire, memory_order_relaxed))
+            if (__a_.compare_exchange_strong(__old, __old - 1, memory_order_acquire, memory_order_relaxed))
                 return true;
         }
     }
@@ -133,7 +133,7 @@ public:
 template<ptrdiff_t __least_max_value = _LIBCPP_SEMAPHORE_MAX>
 class counting_semaphore
 {
-    __atomic_semaphore_base __semaphore;
+    __atomic_semaphore_base __semaphore_;
 
 public:
     static constexpr ptrdiff_t max() noexcept {
@@ -141,7 +141,7 @@ public:
     }
 
     _LIBCPP_INLINE_VISIBILITY
-    constexpr explicit counting_semaphore(ptrdiff_t __count) : __semaphore(__count) { }
+    constexpr explicit counting_semaphore(ptrdiff_t __count) : __semaphore_(__count) { }
     ~counting_semaphore() = default;
 
     counting_semaphore(const counting_semaphore&) = delete;
@@ -150,23 +150,23 @@ public:
     _LIBCPP_AVAILABILITY_SYNC _LIBCPP_INLINE_VISIBILITY
     void release(ptrdiff_t __update = 1)
     {
-        __semaphore.release(__update);
+        __semaphore_.release(__update);
     }
     _LIBCPP_AVAILABILITY_SYNC _LIBCPP_INLINE_VISIBILITY
     void acquire()
     {
-        __semaphore.acquire();
+        __semaphore_.acquire();
     }
     template<class Rep, class Period>
     _LIBCPP_AVAILABILITY_SYNC _LIBCPP_INLINE_VISIBILITY
     bool try_acquire_for(chrono::duration<Rep, Period> const& __rel_time)
     {
-        return __semaphore.try_acquire_for(chrono::duration_cast<chrono::nanoseconds>(__rel_time));
+        return __semaphore_.try_acquire_for(chrono::duration_cast<chrono::nanoseconds>(__rel_time));
     }
     _LIBCPP_AVAILABILITY_SYNC _LIBCPP_INLINE_VISIBILITY
     bool try_acquire()
     {
-        return __semaphore.try_acquire();
+        return __semaphore_.try_acquire();
     }
     template <class Clock, class Duration>
     _LIBCPP_AVAILABILITY_SYNC _LIBCPP_INLINE_VISIBILITY

@@ -27,7 +27,7 @@
 #  pragma GCC system_header
 #endif
 
-#if _LIBCPP_STD_VER > 17 && !defined(_LIBCPP_HAS_NO_INCOMPLETE_RANGES)
+#if _LIBCPP_STD_VER > 17
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
@@ -37,14 +37,14 @@ namespace __lower_bound {
 struct __fn {
   template <forward_iterator _Iter, sentinel_for<_Iter> _Sent, class _Type, class _Proj = identity,
             indirect_strict_weak_order<const _Type*, projected<_Iter, _Proj>> _Comp = ranges::less>
-  _LIBCPP_HIDE_FROM_ABI constexpr
+  _LIBCPP_NODISCARD_EXT _LIBCPP_HIDE_FROM_ABI constexpr
   _Iter operator()(_Iter __first, _Sent __last, const _Type& __value, _Comp __comp = {}, _Proj __proj = {}) const {
     return std::__lower_bound_impl<_RangeAlgPolicy>(__first, __last, __value, __comp, __proj);
   }
 
   template <forward_range _Range, class _Type, class _Proj = identity,
             indirect_strict_weak_order<const _Type*, projected<iterator_t<_Range>, _Proj>> _Comp = ranges::less>
-  _LIBCPP_HIDE_FROM_ABI constexpr
+  _LIBCPP_NODISCARD_EXT _LIBCPP_HIDE_FROM_ABI constexpr
   borrowed_iterator_t<_Range> operator()(_Range&& __r,
                                          const _Type& __value,
                                          _Comp __comp = {},
@@ -61,6 +61,6 @@ inline namespace __cpo {
 
 _LIBCPP_END_NAMESPACE_STD
 
-#endif // _LIBCPP_STD_VER > 17 && !defined(_LIBCPP_HAS_NO_INCOMPLETE_RANGES)
+#endif // _LIBCPP_STD_VER > 17
 
 #endif // _LIBCPP___ALGORITHM_RANGES_LOWER_BOUND_H

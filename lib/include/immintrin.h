@@ -190,6 +190,11 @@
 #endif
 
 #if !(defined(_MSC_VER) || defined(__SCE__)) || __has_feature(modules) ||      \
+    defined(__AVXIFMA__)
+#include <avxifmaintrin.h>
+#endif
+
+#if !(defined(_MSC_VER) || defined(__SCE__)) || __has_feature(modules) ||      \
     defined(__AVX512VBMI__)
 #include <avx512vbmiintrin.h>
 #endif
@@ -214,17 +219,13 @@
 #include <avx512pfintrin.h>
 #endif
 
-/*
- * FIXME: _Float16 type is legal only when HW support float16 operation.
- * We use __AVX512FP16__ to identify if float16 is supported or not, so
- * when float16 is not supported, the related header is not included.
- *
- */
-#if defined(__AVX512FP16__)
+#if !(defined(_MSC_VER) || defined(__SCE__)) || __has_feature(modules) ||      \
+    defined(__AVX512FP16__)
 #include <avx512fp16intrin.h>
 #endif
 
-#if defined(__AVX512FP16__) && defined(__AVX512VL__)
+#if !(defined(_MSC_VER) || defined(__SCE__)) || __has_feature(modules) ||      \
+    (defined(__AVX512VL__) && defined(__AVX512FP16__))
 #include <avx512vlfp16intrin.h>
 #endif
 
@@ -259,6 +260,16 @@
 #endif
 
 #if !(defined(_MSC_VER) || defined(__SCE__)) || __has_feature(modules) ||      \
+    defined(__AVXVNNIINT8__)
+#include <avxvnniint8intrin.h>
+#endif
+
+#if !(defined(_MSC_VER) || defined(__SCE__)) || __has_feature(modules) ||      \
+    defined(__AVXNECONVERT__)
+#include <avxneconvertintrin.h>
+#endif
+
+#if !(defined(_MSC_VER) || defined(__SCE__)) || __has_feature(modules) ||      \
     defined(__RDPID__)
 /// Returns the value of the IA32_TSC_AUX MSR (0xc0000103).
 ///
@@ -290,6 +301,23 @@ static __inline__ int __attribute__((__always_inline__, __nodebug__, __target__(
 _rdrand64_step(unsigned long long *__p)
 {
   return (int)__builtin_ia32_rdrand64_step(__p);
+}
+#else
+// We need to emulate the functionality of 64-bit rdrand with 2 32-bit
+// rdrand instructions.
+static __inline__ int __attribute__((__always_inline__, __nodebug__, __target__("rdrnd")))
+_rdrand64_step(unsigned long long *__p)
+{
+  unsigned int __lo, __hi;
+  unsigned int __res_lo = __builtin_ia32_rdrand32_step(&__lo);
+  unsigned int __res_hi = __builtin_ia32_rdrand32_step(&__hi);
+  if (__res_lo && __res_hi) {
+    *__p = ((unsigned long long)__hi << 32) | (unsigned long long)__lo;
+    return 1;
+  } else {
+    *__p = 0;
+    return 0;
+  }
 }
 #endif
 #endif /* __RDRND__ */
@@ -495,6 +523,10 @@ _storebe_i64(void * __P, long long __D) {
     defined(__INVPCID__)
 #include <invpcidintrin.h>
 #endif
+#if !(defined(_MSC_VER) || defined(__SCE__)) || __has_feature(modules) ||      \
+    defined(__AMX_FP16__)
+#include <amxfp16intrin.h>
+#endif
 
 #if !(defined(_MSC_VER) || defined(__SCE__)) || __has_feature(modules) ||      \
     defined(__KL__) || defined(__WIDEKL__)
@@ -502,7 +534,7 @@ _storebe_i64(void * __P, long long __D) {
 #endif
 
 #if !(defined(_MSC_VER) || defined(__SCE__)) || __has_feature(modules) ||      \
-    defined(__AMXTILE__) || defined(__AMXINT8__) || defined(__AMXBF16__)
+    defined(__AMX_TILE__) || defined(__AMX_INT8__) || defined(__AMX_BF16__)
 #include <amxintrin.h>
 #endif
 

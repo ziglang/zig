@@ -371,7 +371,9 @@ test "Parsed.checkHostName" {
     try expectEqual(false, Parsed.checkHostName("lang.org", "zig*.org"));
 }
 
-pub fn parse(cert: Certificate) !Parsed {
+pub const ParseError = der.Element.ParseElementError || ParseVersionError || ParseTimeError || ParseEnumError || ParseBitStringError;
+
+pub fn parse(cert: Certificate) ParseError!Parsed {
     const cert_bytes = cert.buffer;
     const certificate = try der.Element.parse(cert_bytes, cert.index);
     const tbs_certificate = try der.Element.parse(cert_bytes, certificate.slice.start);
@@ -514,14 +516,18 @@ pub fn contents(cert: Certificate, elem: der.Element) []const u8 {
     return cert.buffer[elem.slice.start..elem.slice.end];
 }
 
+pub const ParseBitStringError = error{ CertificateFieldHasWrongDataType, CertificateHasInvalidBitString };
+
 pub fn parseBitString(cert: Certificate, elem: der.Element) !der.Element.Slice {
     if (elem.identifier.tag != .bitstring) return error.CertificateFieldHasWrongDataType;
     if (cert.buffer[elem.slice.start] != 0) return error.CertificateHasInvalidBitString;
     return .{ .start = elem.slice.start + 1, .end = elem.slice.end };
 }
 
+pub const ParseTimeError = error{ CertificateTimeInvalid, CertificateFieldHasWrongDataType };
+
 /// Returns number of seconds since epoch.
-pub fn parseTime(cert: Certificate, elem: der.Element) !u64 {
+pub fn parseTime(cert: Certificate, elem: der.Element) ParseTimeError!u64 {
     const bytes = cert.contents(elem);
     switch (elem.identifier.tag) {
         .utc_time => {
@@ -647,34 +653,38 @@ test parseYear4 {
     try expectError(error.CertificateTimeInvalid, parseYear4("crap"));
 }
 
-pub fn parseAlgorithm(bytes: []const u8, element: der.Element) !Algorithm {
+pub fn parseAlgorithm(bytes: []const u8, element: der.Element) ParseEnumError!Algorithm {
     return parseEnum(Algorithm, bytes, element);
 }
 
-pub fn parseAlgorithmCategory(bytes: []const u8, element: der.Element) !AlgorithmCategory {
+pub fn parseAlgorithmCategory(bytes: []const u8, element: der.Element) ParseEnumError!AlgorithmCategory {
     return parseEnum(AlgorithmCategory, bytes, element);
 }
 
-pub fn parseAttribute(bytes: []const u8, element: der.Element) !Attribute {
+pub fn parseAttribute(bytes: []const u8, element: der.Element) ParseEnumError!Attribute {
     return parseEnum(Attribute, bytes, element);
 }
 
-pub fn parseNamedCurve(bytes: []const u8, element: der.Element) !NamedCurve {
+pub fn parseNamedCurve(bytes: []const u8, element: der.Element) ParseEnumError!NamedCurve {
     return parseEnum(NamedCurve, bytes, element);
 }
 
-pub fn parseExtensionId(bytes: []const u8, element: der.Element) !ExtensionId {
+pub fn parseExtensionId(bytes: []const u8, element: der.Element) ParseEnumError!ExtensionId {
     return parseEnum(ExtensionId, bytes, element);
 }
 
-fn parseEnum(comptime E: type, bytes: []const u8, element: der.Element) !E {
+pub const ParseEnumError = error{ CertificateFieldHasWrongDataType, CertificateHasUnrecognizedObjectId };
+
+fn parseEnum(comptime E: type, bytes: []const u8, element: der.Element) ParseEnumError!E {
     if (element.identifier.tag != .object_identifier)
         return error.CertificateFieldHasWrongDataType;
     const oid_bytes = bytes[element.slice.start..element.slice.end];
     return E.map.get(oid_bytes) orelse return error.CertificateHasUnrecognizedObjectId;
 }
 
-pub fn parseVersion(bytes: []const u8, version_elem: der.Element) !Version {
+pub const ParseVersionError = error{ UnsupportedCertificateVersion, CertificateFieldHasInvalidLength };
+
+pub fn parseVersion(bytes: []const u8, version_elem: der.Element) ParseVersionError!Version {
     if (@bitCast(u8, version_elem.identifier) != 0xa0)
         return .v1;
 
@@ -861,9 +871,9 @@ pub const der = struct {
             pub const empty: Slice = .{ .start = 0, .end = 0 };
         };
 
-        pub const ParseError = error{CertificateFieldHasInvalidLength};
+        pub const ParseElementError = error{CertificateFieldHasInvalidLength};
 
-        pub fn parse(bytes: []const u8, index: u32) ParseError!Element {
+        pub fn parse(bytes: []const u8, index: u32) ParseElementError!Element {
             var i = index;
             const identifier = @bitCast(Identifier, bytes[i]);
             i += 1;
@@ -918,7 +928,7 @@ pub const rsa = struct {
     pub const PSSSignature = struct {
         pub fn fromBytes(comptime modulus_len: usize, msg: []const u8) [modulus_len]u8 {
             var result = [1]u8{0} ** modulus_len;
-            std.mem.copy(u8, &result, msg);
+            std.mem.copyForwards(u8, &result, msg);
             return result;
         }
 
@@ -1015,9 +1025,9 @@ pub const rsa = struct {
             //      initial zero octets.
             var m_p = try allocator.alloc(u8, 8 + Hash.digest_length + sLen);
             defer allocator.free(m_p);
-            std.mem.copy(u8, m_p, &([_]u8{0} ** 8));
-            std.mem.copy(u8, m_p[8..], &mHash);
-            std.mem.copy(u8, m_p[(8 + Hash.digest_length)..], salt);
+            std.mem.copyForwards(u8, m_p, &([_]u8{0} ** 8));
+            std.mem.copyForwards(u8, m_p[8..], &mHash);
+            std.mem.copyForwards(u8, m_p[(8 + Hash.digest_length)..], salt);
 
             // 13.  Let H' = Hash(M'), an octet string of length hLen.
             var h_p: [Hash.digest_length]u8 = undefined;
@@ -1037,7 +1047,7 @@ pub const rsa = struct {
 
             var hash = try allocator.alloc(u8, seed.len + c.len);
             defer allocator.free(hash);
-            std.mem.copy(u8, hash, seed);
+            std.mem.copyForwards(u8, hash, seed);
             var hashed: [Hash.digest_length]u8 = undefined;
 
             while (idx < len) {
@@ -1046,10 +1056,10 @@ pub const rsa = struct {
                 c[2] = @intCast(u8, (counter >> 8) & 0xFF);
                 c[3] = @intCast(u8, counter & 0xFF);
 
-                std.mem.copy(u8, hash[seed.len..], &c);
+                std.mem.copyForwards(u8, hash[seed.len..], &c);
                 Hash.hash(hash, &hashed, .{});
 
-                std.mem.copy(u8, out[idx..], &hashed);
+                std.mem.copyForwards(u8, out[idx..], &hashed);
                 idx += hashed.len;
 
                 counter += 1;
@@ -1124,9 +1134,9 @@ pub const rsa = struct {
         return res;
     }
 
-    fn setBytes(r: *BigInt, bytes: []const u8, allcator: std.mem.Allocator) !void {
+    fn setBytes(r: *BigInt, bytes: []const u8, allocator: std.mem.Allocator) !void {
         try r.set(0);
-        var tmp = try BigInt.init(allcator);
+        var tmp = try BigInt.init(allocator);
         defer tmp.deinit();
         for (bytes) |b| {
             try r.shiftLeft(r, 8);

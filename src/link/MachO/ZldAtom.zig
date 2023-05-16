@@ -15,11 +15,13 @@ const macho = std.macho;
 const math = std.math;
 const mem = std.mem;
 const meta = std.meta;
+const trace = @import("../../tracy.zig").trace;
 
 const Allocator = mem.Allocator;
 const Arch = std.Target.Cpu.Arch;
 const AtomIndex = @import("zld.zig").AtomIndex;
 const Object = @import("Object.zig");
+const Relocation = @import("Relocation.zig");
 const SymbolWithLoc = @import("zld.zig").SymbolWithLoc;
 const Zld = @import("zld.zig").Zld;
 
@@ -163,7 +165,7 @@ pub fn scanAtomRelocs(zld: *Zld, atom_index: AtomIndex, relocs: []align(1) const
 }
 
 const RelocContext = struct {
-    base_addr: u64 = 0,
+    base_addr: i64 = 0,
     base_offset: i32 = 0,
 };
 
@@ -175,7 +177,7 @@ pub fn getRelocContext(zld: *Zld, atom_index: AtomIndex) RelocContext {
     if (object.getSourceSymbol(atom.sym_index)) |source_sym| {
         const source_sect = object.getSourceSection(source_sym.n_sect - 1);
         return .{
-            .base_addr = source_sect.addr,
+            .base_addr = @intCast(i64, source_sect.addr),
             .base_offset = @intCast(i32, source_sym.n_value - source_sect.addr),
         };
     }
@@ -183,55 +185,70 @@ pub fn getRelocContext(zld: *Zld, atom_index: AtomIndex) RelocContext {
     const sect_id = @intCast(u8, atom.sym_index - nbase);
     const source_sect = object.getSourceSection(sect_id);
     return .{
-        .base_addr = source_sect.addr,
+        .base_addr = @intCast(i64, source_sect.addr),
         .base_offset = 0,
     };
 }
 
-pub fn parseRelocTarget(zld: *Zld, atom_index: AtomIndex, rel: macho.relocation_info) SymbolWithLoc {
-    const atom = zld.getAtom(atom_index);
-    const object = &zld.objects.items[atom.getFile().?];
+pub fn parseRelocTarget(zld: *Zld, ctx: struct {
+    object_id: u32,
+    rel: macho.relocation_info,
+    code: []const u8,
+    base_addr: i64 = 0,
+    base_offset: i32 = 0,
+}) SymbolWithLoc {
+    const tracy = trace(@src());
+    defer tracy.end();
 
-    const sym_index = if (rel.r_extern == 0) sym_index: {
-        const sect_id = @intCast(u8, rel.r_symbolnum - 1);
-        const ctx = getRelocContext(zld, atom_index);
-        const atom_code = getAtomCode(zld, atom_index);
-        const rel_offset = @intCast(u32, rel.r_address - ctx.base_offset);
+    const object = &zld.objects.items[ctx.object_id];
+    log.debug("parsing reloc target in object({d}) '{s}' ", .{ ctx.object_id, object.name });
 
-        const address_in_section = if (rel.r_pcrel == 0) blk: {
-            break :blk if (rel.r_length == 3)
-                mem.readIntLittle(u64, atom_code[rel_offset..][0..8])
+    const sym_index = if (ctx.rel.r_extern == 0) sym_index: {
+        const sect_id = @intCast(u8, ctx.rel.r_symbolnum - 1);
+        const rel_offset = @intCast(u32, ctx.rel.r_address - ctx.base_offset);
+
+        const address_in_section = if (ctx.rel.r_pcrel == 0) blk: {
+            break :blk if (ctx.rel.r_length == 3)
+                mem.readIntLittle(u64, ctx.code[rel_offset..][0..8])
             else
-                mem.readIntLittle(u32, atom_code[rel_offset..][0..4]);
+                mem.readIntLittle(u32, ctx.code[rel_offset..][0..4]);
         } else blk: {
-            const correction: u3 = switch (@intToEnum(macho.reloc_type_x86_64, rel.r_type)) {
+            assert(zld.options.target.cpu.arch == .x86_64);
+            const correction: u3 = switch (@intToEnum(macho.reloc_type_x86_64, ctx.rel.r_type)) {
                 .X86_64_RELOC_SIGNED => 0,
                 .X86_64_RELOC_SIGNED_1 => 1,
                 .X86_64_RELOC_SIGNED_2 => 2,
                 .X86_64_RELOC_SIGNED_4 => 4,
                 else => unreachable,
             };
-            const addend = mem.readIntLittle(i32, atom_code[rel_offset..][0..4]);
-            const target_address = @intCast(i64, ctx.base_addr) + rel.r_address + 4 + correction + addend;
+            const addend = mem.readIntLittle(i32, ctx.code[rel_offset..][0..4]);
+            const target_address = @intCast(i64, ctx.base_addr) + ctx.rel.r_address + 4 + correction + addend;
             break :blk @intCast(u64, target_address);
         };
 
         // Find containing atom
-        const sym_index = object.getSymbolByAddress(address_in_section, sect_id);
-        break :sym_index sym_index;
-    } else object.reverse_symtab_lookup[rel.r_symbolnum];
+        log.debug("  | locating symbol by address @{x} in section {d}", .{ address_in_section, sect_id });
+        const candidate = object.getSymbolByAddress(address_in_section, sect_id);
+        // Make sure we are not dealing with a local alias.
+        const atom_index = object.getAtomIndexForSymbol(candidate) orelse break :sym_index candidate;
+        const atom = zld.getAtom(atom_index);
+        break :sym_index atom.sym_index;
+    } else object.reverse_symtab_lookup[ctx.rel.r_symbolnum];
 
-    const sym_loc = SymbolWithLoc{
-        .sym_index = sym_index,
-        .file = atom.file,
-    };
+    const sym_loc = SymbolWithLoc{ .sym_index = sym_index, .file = ctx.object_id + 1 };
     const sym = zld.getSymbol(sym_loc);
-
-    if (sym.sect() and !sym.ext()) {
-        return sym_loc;
-    } else if (object.getGlobal(sym_index)) |global_index| {
-        return zld.globals.items[global_index];
-    } else return sym_loc;
+    const target = if (sym.sect() and !sym.ext())
+        sym_loc
+    else if (object.getGlobal(sym_index)) |global_index|
+        zld.globals.items[global_index]
+    else
+        sym_loc;
+    log.debug("  | target %{d} ('{s}') in object({?d})", .{
+        target.sym_index,
+        zld.getSymbolName(target),
+        target.getFile(),
+    });
+    return target;
 }
 
 pub fn getRelocTargetAtomIndex(zld: *Zld, target: SymbolWithLoc, is_via_got: bool) ?AtomIndex {
@@ -373,7 +390,7 @@ pub fn addGotEntry(zld: *Zld, target: SymbolWithLoc) !void {
     try zld.got_table.putNoClobber(gpa, target, got_index);
 }
 
-fn addStub(zld: *Zld, target: SymbolWithLoc) !void {
+pub fn addStub(zld: *Zld, target: SymbolWithLoc) !void {
     const target_sym = zld.getSymbol(target);
     if (!target_sym.undf()) return;
     if (zld.stubs_table.contains(target)) return;
@@ -499,13 +516,25 @@ fn resolveRelocsArm64(
                     atom.getFile(),
                 });
 
-                subtractor = parseRelocTarget(zld, atom_index, rel);
+                subtractor = parseRelocTarget(zld, .{
+                    .object_id = atom.getFile().?,
+                    .rel = rel,
+                    .code = atom_code,
+                    .base_addr = context.base_addr,
+                    .base_offset = context.base_offset,
+                });
                 continue;
             },
             else => {},
         }
 
-        const target = parseRelocTarget(zld, atom_index, rel);
+        const target = parseRelocTarget(zld, .{
+            .object_id = atom.getFile().?,
+            .rel = rel,
+            .code = atom_code,
+            .base_addr = context.base_addr,
+            .base_offset = context.base_offset,
+        });
         const rel_offset = @intCast(u32, rel.r_address - context.base_offset);
 
         log.debug("  RELA({s}) @ {x} => %{d} ('{s}') in object({?})", .{
@@ -543,7 +572,7 @@ fn resolveRelocsArm64(
                     zld.getAtom(getRelocTargetAtomIndex(zld, target, is_via_got).?).getFile(),
                 });
 
-                const displacement = if (calcPcRelativeDisplacementArm64(
+                const displacement = if (Relocation.calcPcRelativeDisplacementArm64(
                     source_addr,
                     zld.getSymbol(actual_target).n_value,
                 )) |disp| blk: {
@@ -557,7 +586,7 @@ fn resolveRelocsArm64(
                         actual_target,
                     ).?);
                     log.debug("    | target_addr = 0x{x} (thunk)", .{thunk_sym.n_value});
-                    break :blk try calcPcRelativeDisplacementArm64(source_addr, thunk_sym.n_value);
+                    break :blk try Relocation.calcPcRelativeDisplacementArm64(source_addr, thunk_sym.n_value);
                 };
 
                 const code = atom_code[rel_offset..][0..4];
@@ -579,7 +608,7 @@ fn resolveRelocsArm64(
 
                 log.debug("    | target_addr = 0x{x}", .{adjusted_target_addr});
 
-                const pages = @bitCast(u21, calcNumberOfPages(source_addr, adjusted_target_addr));
+                const pages = @bitCast(u21, Relocation.calcNumberOfPages(source_addr, adjusted_target_addr));
                 const code = atom_code[rel_offset..][0..4];
                 var inst = aarch64.Instruction{
                     .pc_relative_address = mem.bytesToValue(meta.TagPayload(
@@ -599,8 +628,8 @@ fn resolveRelocsArm64(
                 log.debug("    | target_addr = 0x{x}", .{adjusted_target_addr});
 
                 const code = atom_code[rel_offset..][0..4];
-                if (isArithmeticOp(code)) {
-                    const off = try calcPageOffset(adjusted_target_addr, .arithmetic);
+                if (Relocation.isArithmeticOp(code)) {
+                    const off = try Relocation.calcPageOffset(adjusted_target_addr, .arithmetic);
                     var inst = aarch64.Instruction{
                         .add_subtract_immediate = mem.bytesToValue(meta.TagPayload(
                             aarch64.Instruction,
@@ -616,11 +645,11 @@ fn resolveRelocsArm64(
                             aarch64.Instruction.load_store_register,
                         ), code),
                     };
-                    const off = try calcPageOffset(adjusted_target_addr, switch (inst.load_store_register.size) {
+                    const off = try Relocation.calcPageOffset(adjusted_target_addr, switch (inst.load_store_register.size) {
                         0 => if (inst.load_store_register.v == 1)
-                            PageOffsetInstKind.load_store_128
+                            Relocation.PageOffsetInstKind.load_store_128
                         else
-                            PageOffsetInstKind.load_store_8,
+                            Relocation.PageOffsetInstKind.load_store_8,
                         1 => .load_store_16,
                         2 => .load_store_32,
                         3 => .load_store_64,
@@ -637,7 +666,7 @@ fn resolveRelocsArm64(
 
                 log.debug("    | target_addr = 0x{x}", .{adjusted_target_addr});
 
-                const off = try calcPageOffset(adjusted_target_addr, .load_store_64);
+                const off = try Relocation.calcPageOffset(adjusted_target_addr, .load_store_64);
                 var inst: aarch64.Instruction = .{
                     .load_store_register = mem.bytesToValue(meta.TagPayload(
                         aarch64.Instruction,
@@ -661,7 +690,7 @@ fn resolveRelocsArm64(
                     size: u2,
                 };
                 const reg_info: RegInfo = blk: {
-                    if (isArithmeticOp(code)) {
+                    if (Relocation.isArithmeticOp(code)) {
                         const inst = mem.bytesToValue(meta.TagPayload(
                             aarch64.Instruction,
                             aarch64.Instruction.add_subtract_immediate,
@@ -688,7 +717,7 @@ fn resolveRelocsArm64(
                     .load_store_register = .{
                         .rt = reg_info.rd,
                         .rn = reg_info.rn,
-                        .offset = try calcPageOffset(adjusted_target_addr, .load_store_64),
+                        .offset = try Relocation.calcPageOffset(adjusted_target_addr, .load_store_64),
                         .opc = 0b01,
                         .op1 = 0b01,
                         .v = 0,
@@ -698,7 +727,7 @@ fn resolveRelocsArm64(
                     .add_subtract_immediate = .{
                         .rd = reg_info.rd,
                         .rn = reg_info.rn,
-                        .imm12 = try calcPageOffset(adjusted_target_addr, .arithmetic),
+                        .imm12 = try Relocation.calcPageOffset(adjusted_target_addr, .arithmetic),
                         .sh = 0,
                         .s = 0,
                         .op = 0,
@@ -723,7 +752,7 @@ fn resolveRelocsArm64(
                     mem.readIntLittle(i32, atom_code[rel_offset..][0..4]);
 
                 if (rel.r_extern == 0) {
-                    const base_addr = if (target.sym_index > object.source_address_lookup.len)
+                    const base_addr = if (target.sym_index >= object.source_address_lookup.len)
                         @intCast(i64, object.getSourceSection(@intCast(u8, rel.r_symbolnum - 1)).addr)
                     else
                         object.source_address_lookup[target.sym_index];
@@ -781,19 +810,32 @@ fn resolveRelocsX86(
                     atom.getFile(),
                 });
 
-                subtractor = parseRelocTarget(zld, atom_index, rel);
+                subtractor = parseRelocTarget(zld, .{
+                    .object_id = atom.getFile().?,
+                    .rel = rel,
+                    .code = atom_code,
+                    .base_addr = context.base_addr,
+                    .base_offset = context.base_offset,
+                });
                 continue;
             },
             else => {},
         }
 
-        const target = parseRelocTarget(zld, atom_index, rel);
+        const target = parseRelocTarget(zld, .{
+            .object_id = atom.getFile().?,
+            .rel = rel,
+            .code = atom_code,
+            .base_addr = context.base_addr,
+            .base_offset = context.base_offset,
+        });
         const rel_offset = @intCast(u32, rel.r_address - context.base_offset);
 
-        log.debug("  RELA({s}) @ {x} => %{d} in object({?})", .{
+        log.debug("  RELA({s}) @ {x} => %{d} ('{s}') in object({?})", .{
             @tagName(rel_type),
             rel.r_address,
             target.sym_index,
+            zld.getSymbolName(target),
             target.getFile(),
         });
 
@@ -817,7 +859,7 @@ fn resolveRelocsX86(
                 const addend = mem.readIntLittle(i32, atom_code[rel_offset..][0..4]);
                 const adjusted_target_addr = @intCast(u64, @intCast(i64, target_addr) + addend);
                 log.debug("    | target_addr = 0x{x}", .{adjusted_target_addr});
-                const disp = try calcPcRelativeDisplacementX86(source_addr, adjusted_target_addr, 0);
+                const disp = try Relocation.calcPcRelativeDisplacementX86(source_addr, adjusted_target_addr, 0);
                 mem.writeIntLittle(i32, atom_code[rel_offset..][0..4], disp);
             },
 
@@ -827,7 +869,7 @@ fn resolveRelocsX86(
                 const addend = mem.readIntLittle(i32, atom_code[rel_offset..][0..4]);
                 const adjusted_target_addr = @intCast(u64, @intCast(i64, target_addr) + addend);
                 log.debug("    | target_addr = 0x{x}", .{adjusted_target_addr});
-                const disp = try calcPcRelativeDisplacementX86(source_addr, adjusted_target_addr, 0);
+                const disp = try Relocation.calcPcRelativeDisplacementX86(source_addr, adjusted_target_addr, 0);
                 mem.writeIntLittle(i32, atom_code[rel_offset..][0..4], disp);
             },
 
@@ -835,7 +877,7 @@ fn resolveRelocsX86(
                 const addend = mem.readIntLittle(i32, atom_code[rel_offset..][0..4]);
                 const adjusted_target_addr = @intCast(u64, @intCast(i64, target_addr) + addend);
                 log.debug("    | target_addr = 0x{x}", .{adjusted_target_addr});
-                const disp = try calcPcRelativeDisplacementX86(source_addr, adjusted_target_addr, 0);
+                const disp = try Relocation.calcPcRelativeDisplacementX86(source_addr, adjusted_target_addr, 0);
 
                 if (zld.tlv_ptr_table.get(target) == null) {
                     // We need to rewrite the opcode from movq to leaq.
@@ -860,7 +902,7 @@ fn resolveRelocsX86(
                 var addend = mem.readIntLittle(i32, atom_code[rel_offset..][0..4]) + correction;
 
                 if (rel.r_extern == 0) {
-                    const base_addr = if (target.sym_index > object.source_address_lookup.len)
+                    const base_addr = if (target.sym_index >= object.source_address_lookup.len)
                         @intCast(i64, object.getSourceSection(@intCast(u8, rel.r_symbolnum - 1)).addr)
                     else
                         object.source_address_lookup[target.sym_index];
@@ -872,7 +914,7 @@ fn resolveRelocsX86(
 
                 log.debug("    | target_addr = 0x{x}", .{adjusted_target_addr});
 
-                const disp = try calcPcRelativeDisplacementX86(source_addr, adjusted_target_addr, correction);
+                const disp = try Relocation.calcPcRelativeDisplacementX86(source_addr, adjusted_target_addr, correction);
                 mem.writeIntLittle(i32, atom_code[rel_offset..][0..4], disp);
             },
 
@@ -883,7 +925,7 @@ fn resolveRelocsX86(
                     mem.readIntLittle(i32, atom_code[rel_offset..][0..4]);
 
                 if (rel.r_extern == 0) {
-                    const base_addr = if (target.sym_index > object.source_address_lookup.len)
+                    const base_addr = if (target.sym_index >= object.source_address_lookup.len)
                         @intCast(i64, object.getSourceSection(@intCast(u8, rel.r_symbolnum - 1)).addr)
                     else
                         object.source_address_lookup[target.sym_index];
@@ -912,11 +954,6 @@ fn resolveRelocsX86(
             .X86_64_RELOC_SUBTRACTOR => unreachable,
         }
     }
-}
-
-inline fn isArithmeticOp(inst: *const [4]u8) bool {
-    const group_decode = @truncate(u5, inst[3]);
-    return ((group_decode >> 2) == 4);
 }
 
 pub fn getAtomCode(zld: *Zld, atom_index: AtomIndex) []const u8 {
@@ -963,43 +1000,6 @@ pub fn getAtomRelocs(zld: *Zld, atom_index: AtomIndex) []const macho.relocation_
     assert(!source_sect.isZerofill());
     const relocs = object.getRelocs(source_sect_id);
     return relocs[cache.start..][0..cache.len];
-}
-
-pub fn calcPcRelativeDisplacementX86(source_addr: u64, target_addr: u64, correction: u3) error{Overflow}!i32 {
-    const disp = @intCast(i64, target_addr) - @intCast(i64, source_addr + 4 + correction);
-    return math.cast(i32, disp) orelse error.Overflow;
-}
-
-pub fn calcPcRelativeDisplacementArm64(source_addr: u64, target_addr: u64) error{Overflow}!i28 {
-    const disp = @intCast(i64, target_addr) - @intCast(i64, source_addr);
-    return math.cast(i28, disp) orelse error.Overflow;
-}
-
-pub fn calcNumberOfPages(source_addr: u64, target_addr: u64) i21 {
-    const source_page = @intCast(i32, source_addr >> 12);
-    const target_page = @intCast(i32, target_addr >> 12);
-    const pages = @intCast(i21, target_page - source_page);
-    return pages;
-}
-
-const PageOffsetInstKind = enum {
-    arithmetic,
-    load_store_8,
-    load_store_16,
-    load_store_32,
-    load_store_64,
-    load_store_128,
-};
-
-pub fn calcPageOffset(target_addr: u64, kind: PageOffsetInstKind) !u12 {
-    const narrowed = @truncate(u12, target_addr);
-    return switch (kind) {
-        .arithmetic, .load_store_8 => narrowed,
-        .load_store_16 => try math.divExact(u12, narrowed, 2),
-        .load_store_32 => try math.divExact(u12, narrowed, 4),
-        .load_store_64 => try math.divExact(u12, narrowed, 8),
-        .load_store_128 => try math.divExact(u12, narrowed, 16),
-    };
 }
 
 pub fn relocRequiresGot(zld: *Zld, rel: macho.relocation_info) bool {

@@ -138,40 +138,39 @@ fn initHash(
 }
 
 fn blake2bLong(out: []u8, in: []const u8) void {
-    var b2 = Blake2b512.init(.{ .expected_out_bits = math.min(512, out.len * 8) });
+    const H = Blake2b512;
+    var outlen_bytes: [4]u8 = undefined;
+    mem.writeIntLittle(u32, &outlen_bytes, @intCast(u32, out.len));
 
-    var buffer: [Blake2b512.digest_length]u8 = undefined;
-    mem.writeIntLittle(u32, buffer[0..4], @intCast(u32, out.len));
-    b2.update(buffer[0..4]);
-    b2.update(in);
-    b2.final(&buffer);
+    var out_buf: [H.digest_length]u8 = undefined;
 
-    if (out.len <= Blake2b512.digest_length) {
-        mem.copy(u8, out, buffer[0..out.len]);
+    if (out.len <= H.digest_length) {
+        var h = H.init(.{ .expected_out_bits = out.len * 8 });
+        h.update(&outlen_bytes);
+        h.update(in);
+        h.final(&out_buf);
+        @memcpy(out, out_buf[0..out.len]);
         return;
     }
 
-    b2 = Blake2b512.init(.{});
-    mem.copy(u8, out, buffer[0..32]);
-    var out_slice = out[32..];
-    while (out_slice.len > Blake2b512.digest_length) : ({
-        out_slice = out_slice[32..];
-        b2 = Blake2b512.init(.{});
-    }) {
-        b2.update(&buffer);
-        b2.final(&buffer);
-        mem.copy(u8, out_slice, buffer[0..32]);
-    }
+    var h = H.init(.{});
+    h.update(&outlen_bytes);
+    h.update(in);
+    h.final(&out_buf);
+    var out_slice = out;
+    out_slice[0 .. H.digest_length / 2].* = out_buf[0 .. H.digest_length / 2].*;
+    out_slice = out_slice[H.digest_length / 2 ..];
 
-    var r = Blake2b512.digest_length;
-    if (out.len % Blake2b512.digest_length > 0) {
-        r = ((out.len + 31) / 32) - 2;
-        b2 = Blake2b512.init(.{ .expected_out_bits = r * 8 });
+    var in_buf: [H.digest_length]u8 = undefined;
+    while (out_slice.len > H.digest_length) {
+        in_buf = out_buf;
+        H.hash(&in_buf, &out_buf, .{});
+        out_slice[0 .. H.digest_length / 2].* = out_buf[0 .. H.digest_length / 2].*;
+        out_slice = out_slice[H.digest_length / 2 ..];
     }
-
-    b2.update(&buffer);
-    b2.final(&buffer);
-    mem.copy(u8, out_slice, buffer[0..r]);
+    in_buf = out_buf;
+    H.hash(&in_buf, &out_buf, .{ .expected_out_bits = out_slice.len * 8 });
+    @memcpy(out_slice, out_buf[0..out_slice.len]);
 }
 
 fn initBlocks(
@@ -495,7 +494,7 @@ pub fn kdf(
     if (params.t < 1 or params.p < 1) return KdfError.WeakParameters;
 
     var h0 = initHash(password, salt, params, derived_key.len, mode);
-    const memory = math.max(
+    const memory = @max(
         params.m / (sync_points * params.p) * (sync_points * params.p),
         2 * sync_points * params.p,
     );
@@ -878,7 +877,7 @@ test "kdf" {
             .hash = "1640b932f4b60e272f5d2207b9a9c626ffa1bd88d2349016",
         },
     };
-    inline for (test_vectors) |v| {
+    for (test_vectors) |v| {
         var want: [24]u8 = undefined;
         _ = try std.fmt.hexToBytes(&want, v.hash);
 

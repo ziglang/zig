@@ -4,7 +4,6 @@ const expect = std.testing.expect;
 
 test "thread local variable" {
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_llvm) switch (builtin.cpu.arch) {
@@ -12,6 +11,7 @@ test "thread local variable" {
         else => return error.SkipZigTest,
     }; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const S = struct {
         threadlocal var t: i32 = 1234;
@@ -22,7 +22,6 @@ test "thread local variable" {
 
 test "pointer to thread local array" {
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_llvm) switch (builtin.cpu.arch) {
@@ -30,6 +29,7 @@ test "pointer to thread local array" {
         else => return error.SkipZigTest,
     }; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const s = "Hello world";
     std.mem.copy(u8, buffer[0..], s);
@@ -40,7 +40,6 @@ threadlocal var buffer: [11]u8 = undefined;
 
 test "reference a global threadlocal variable" {
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_llvm) switch (builtin.cpu.arch) {
@@ -48,6 +47,7 @@ test "reference a global threadlocal variable" {
         else => return error.SkipZigTest,
     }; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     _ = nrfx_uart_rx(&g_uart0);
 }

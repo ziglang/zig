@@ -61,7 +61,7 @@ struct _FilesystemClock {
   typedef chrono::time_point<_FilesystemClock> time_point;
 
   _LIBCPP_EXPORTED_FROM_ABI
-  static _LIBCPP_CONSTEXPR_AFTER_CXX11 const bool is_steady = false;
+  static _LIBCPP_CONSTEXPR_SINCE_CXX14 const bool is_steady = false;
 
   _LIBCPP_AVAILABILITY_FILESYSTEM _LIBCPP_FUNC_VIS static time_point now() noexcept;
 

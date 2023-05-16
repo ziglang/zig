@@ -23,7 +23,7 @@ struct __is_seed_sequence
 {
     static _LIBCPP_CONSTEXPR const bool value =
               !is_convertible<_Sseq, typename _Engine::result_type>::value &&
-              !is_same<typename remove_cv<_Sseq>::type, _Engine>::value;
+              !is_same<__remove_cv_t<_Sseq>, _Engine>::value;
 };
 
 _LIBCPP_END_NAMESPACE_STD

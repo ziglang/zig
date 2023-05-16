@@ -13,6 +13,10 @@ pub const ARCH = linux.ARCH;
 pub const AT = linux.AT;
 pub const CLOCK = linux.CLOCK;
 pub const CPU_COUNT = linux.CPU_COUNT;
+pub const CPU_SET = linux.CPU_SET;
+pub const CPU_ISSET = linux.CPU_ISSET;
+pub const CPU_CLR = linux.CPU_CLR;
+pub const CPU_ZERO = linux.CPU_ZERO;
 pub const E = linux.E;
 pub const Elf_Symndx = linux.Elf_Symndx;
 pub const F = linux.F;
@@ -245,6 +249,7 @@ pub extern "c" fn setrlimit64(resource: rlimit_resource, rlim: *const rlimit) c_
 
 pub extern "c" fn getrandom(buf_ptr: [*]u8, buf_len: usize, flags: c_uint) isize;
 pub extern "c" fn sched_getaffinity(pid: c_int, size: usize, set: *cpu_set_t) c_int;
+pub extern "c" fn sched_setaffinity(pid: c_int, size: usize, set: *const cpu_set_t) c_int;
 pub extern "c" fn eventfd(initval: c_uint, flags: c_uint) c_int;
 pub extern "c" fn epoll_ctl(epfd: fd_t, op: c_uint, fd: fd_t, event: ?*epoll_event) c_int;
 pub extern "c" fn epoll_create1(flags: c_uint) c_int;
@@ -288,6 +293,12 @@ pub extern "c" fn signalfd(fd: fd_t, mask: *const sigset_t, flags: c_uint) c_int
 pub extern "c" fn prlimit(pid: pid_t, resource: rlimit_resource, new_limit: *const rlimit, old_limit: *rlimit) c_int;
 pub extern "c" fn posix_memalign(memptr: *?*anyopaque, alignment: usize, size: usize) c_int;
 pub extern "c" fn malloc_usable_size(?*const anyopaque) usize;
+
+pub extern "c" fn mincore(
+    addr: *align(std.mem.page_size) anyopaque,
+    length: usize,
+    vec: [*]u8,
+) c_int;
 
 pub extern "c" fn madvise(
     addr: *align(std.mem.page_size) anyopaque,
@@ -365,3 +376,19 @@ pub const dirent64 = struct {
     d_type: u8,
     d_name: [256]u8,
 };
+
+pub const MPOL = struct {
+    pub const F_NODE = 1 << 0;
+    pub const F_ADDR = 1 << 1;
+    pub const F_MEMS_ALLOWED = 1 << 2;
+    /// flags for SYS_mbind
+    pub const MF_STRICT = 1 << 0;
+    pub const MF_MOVE = 1 << 1;
+    pub const MF_MOVE_ALL = 1 << 2;
+    pub const MF_LAZY = 1 << 3;
+    pub const MF_INTERNAL = 1 << 4;
+    pub const MF_VALID = MPOL.MF_STRICT | MPOL.MF_MOVE | MPOL.MOVE_ALL;
+};
+
+pub extern "c" fn getcpu(cpu: *c_uint, node: *c_uint) c_int;
+pub extern "c" fn sched_getcpu() c_int;

@@ -36,7 +36,15 @@ int toupper(int c);
 
 #include <__assert> // all public C++ headers provide the assertion handler
 #include <__config>
+
 #include <ctype.h>
+
+#ifndef _LIBCPP_CTYPE_H
+#   error <cctype> tried including <ctype.h> but didn't find libc++'s <ctype.h> header. \
+          This usually means that your header search paths are not configured properly.  \
+          The header search paths should contain the C++ Standard Library headers before \
+          any C Standard Library.
+#endif
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #  pragma GCC system_header

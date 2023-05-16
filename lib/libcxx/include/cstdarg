@@ -33,7 +33,14 @@ Types:
 
 #include <__assert> // all public C++ headers provide the assertion handler
 #include <__config>
-#include <stdarg.h>
+
+// <stdarg.h> is not provided by libc++
+#if __has_include(<stdarg.h>)
+#  include <stdarg.h>
+#  ifdef _LIBCPP_STDARG_H
+#    error "If libc++ starts defining <stdarg.h>, the __has_include check should move to libc++'s <stdarg.h>"
+#  endif
+#endif
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #  pragma GCC system_header

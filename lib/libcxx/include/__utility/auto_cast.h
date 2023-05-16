@@ -11,7 +11,7 @@
 #define _LIBCPP___UTILITY_AUTO_CAST_H
 
 #include <__config>
-#include <type_traits>
+#include <__type_traits/decay.h>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #  pragma GCC system_header

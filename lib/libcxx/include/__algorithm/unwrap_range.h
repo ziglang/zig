@@ -28,7 +28,7 @@ _LIBCPP_BEGIN_NAMESPACE_STD
 // __unwrap_iter and __rewrap_iter don't work for this, because they assume that the iterator and sentinel have
 // the same type. __unwrap_range tries to get two iterators and then forward to __unwrap_iter.
 
-#if _LIBCPP_STD_VER > 17 && !defined(_LIBCPP_HAS_NO_INCOMPLETE_RANGES)
+#if _LIBCPP_STD_VER > 17
 template <class _Iter, class _Sent>
 struct __unwrap_range_impl {
   _LIBCPP_HIDE_FROM_ABI static constexpr auto __unwrap(_Iter __first, _Sent __sent)

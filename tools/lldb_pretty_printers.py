@@ -1,6 +1,6 @@
 # pretty printing for the zig language, zig standard library, and zig stage 2 compiler.
 # put commands in ~/.lldbinit to run them automatically when starting lldb
-# `command script /path/to/stage2_lldb_pretty_printers.py` to import this file
+# `command script import /path/to/zig/tools/lldb_pretty_printers.py` to import this file
 # `type category enable zig` to enable pretty printing for the zig language
 # `type category enable zig.std` to enable pretty printing for the zig standard library
 # `type category enable zig.stage2` to enable pretty printing for the zig stage 2 compiler
@@ -163,6 +163,20 @@ class zig_ErrorUnion_SynthProvider:
     def num_children(self): return 1
     def get_child_index(self, name): return 0 if name == ('payload' if self.payload else 'error_set') else -1
     def get_child_at_index(self, index): return self.payload or self.error_set if index == 0 else None
+
+class zig_TaggedUnion_SynthProvider:
+    def __init__(self, value, _=None): self.value = value
+    def update(self):
+        try:
+            self.tag = self.value.GetChildMemberWithName('tag')
+            self.payload = self.value.GetChildMemberWithName('payload').GetChildMemberWithName(self.tag.value)
+        except: pass
+    def has_children(self): return True
+    def num_children(self): return 1 + (self.payload is not None)
+    def get_child_index(self, name):
+        try: return ('tag', 'payload').index(name)
+        except: return -1
+    def get_child_at_index(self, index): return (self.tag, self.payload)[index] if index >= 0 and index < 2 else None
 
 # Define Zig Standard Library
 
@@ -606,3 +620,4 @@ def __lldb_init_module(debugger, _=None):
     add(debugger, category='zig.stage2', type='type.Type', summary=True)
     add(debugger, category='zig.stage2', type='value.Value', identifier='TagOrPayloadPtr', synth=True)
     add(debugger, category='zig.stage2', type='value.Value', summary=True)
+    add(debugger, category='zig.stage2', type='arch.x86_64.CodeGen.MCValue', identifier='zig_TaggedUnion', synth=True, inline_children=True, summary=True)

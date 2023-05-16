@@ -10,7 +10,6 @@
 #define _LIBCPP___TYPE_TRAITS_DISJUNCTION_H
 
 #include <__config>
-#include <__type_traits/conditional.h>
 #include <__type_traits/integral_constant.h>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
@@ -35,6 +34,12 @@ struct _OrImpl<false> {
   using _Result = _Res;
 };
 
+// _Or always performs lazy evaluation of its arguments.
+//
+// However, `_Or<_Pred...>` itself will evaluate its result immediately (without having to
+// be instantiated) since it is an alias, unlike `disjunction<_Pred...>`, which is a struct.
+// If you want to defer the evaluation of `_Or<_Pred...>` itself, use `_Lazy<_Or, _Pred...>`
+// or `disjunction<_Pred...>` directly.
 template <class... _Args>
 using _Or _LIBCPP_NODEBUG = typename _OrImpl<sizeof...(_Args) != 0>::template _Result<false_type, _Args...>;
 

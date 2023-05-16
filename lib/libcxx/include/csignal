@@ -42,8 +42,12 @@ int raise(int sig);
 #include <__assert> // all public C++ headers provide the assertion handler
 #include <__config>
 
+// <signal.h> is not provided by libc++
 #if __has_include(<signal.h>)
-# include <signal.h>
+#  include <signal.h>
+#  ifdef _LIBCPP_SIGNAL_H
+#    error "If libc++ starts defining <signal.h>, the __has_include check should move to libc++'s <signal.h>"
+#  endif
 #endif
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)

@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const expect = std.testing.expect;
 
 test "bool literals" {
@@ -7,6 +8,8 @@ test "bool literals" {
 }
 
 test "cast bool to int" {
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
     const t = true;
     const f = false;
     try expect(@boolToInt(t) == @as(u32, 1));

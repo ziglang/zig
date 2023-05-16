@@ -11,6 +11,7 @@
 
 #include <__config>
 #include <__type_traits/integral_constant.h>
+#include <__type_traits/is_member_function_pointer.h>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #  pragma GCC system_header
@@ -31,7 +32,7 @@ inline constexpr bool is_member_pointer_v = __is_member_pointer(_Tp);
 #else // __has_builtin(__is_member_pointer)
 
 template <class _Tp> struct _LIBCPP_TEMPLATE_VIS is_member_pointer
- : public _BoolConstant< __libcpp_is_member_pointer<typename remove_cv<_Tp>::type>::__is_member > {};
+ : public _BoolConstant< __libcpp_is_member_pointer<__remove_cv_t<_Tp> >::__is_member > {};
 
 #if _LIBCPP_STD_VER > 14
 template <class _Tp>

@@ -3,8 +3,8 @@ const builtin = @import("builtin");
 
 test "empty file level struct" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const T = @import("empty_file_level_struct.zig");
     const info = @typeInfo(T);
@@ -15,8 +15,8 @@ test "empty file level struct" {
 
 test "empty file level union" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const T = @import("empty_file_level_union.zig");
     const info = @typeInfo(T);

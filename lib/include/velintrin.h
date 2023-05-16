@@ -13,7 +13,7 @@
 typedef double __vr __attribute__((__vector_size__(2048)));
 
 // Vector mask registers
-#if __STDC_VERSION__ >= 199901L
+#if defined(__STDC_VERSION__) && __STDC_VERSION__ >= 199901L
 // For C99
 typedef _Bool __vm    __attribute__((ext_vector_type(256)));
 typedef _Bool __vm256 __attribute__((ext_vector_type(256)));

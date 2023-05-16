@@ -106,7 +106,7 @@ pub fn atomicSymLink(allocator: Allocator, existing_path: []const u8, new_path: 
     var rand_buf: [AtomicFile.RANDOM_BYTES]u8 = undefined;
     const tmp_path = try allocator.alloc(u8, dirname.len + 1 + base64_encoder.calcSize(rand_buf.len));
     defer allocator.free(tmp_path);
-    mem.copy(u8, tmp_path[0..], dirname);
+    @memcpy(tmp_path[0..dirname.len], dirname);
     tmp_path[dirname.len] = path.sep;
     while (true) {
         crypto.random.bytes(rand_buf[0..]);
@@ -244,13 +244,13 @@ pub fn makeDirAbsolute(absolute_path: []const u8) !void {
     return os.mkdir(absolute_path, default_new_dir_mode);
 }
 
-/// Same as `makeDirAbsolute` except the parameter is a null-terminated UTF8-encoded string.
+/// Same as `makeDirAbsolute` except the parameter is a null-terminated UTF-8-encoded string.
 pub fn makeDirAbsoluteZ(absolute_path_z: [*:0]const u8) !void {
     assert(path.isAbsoluteZ(absolute_path_z));
     return os.mkdirZ(absolute_path_z, default_new_dir_mode);
 }
 
-/// Same as `makeDirAbsolute` except the parameter is a null-terminated WTF-16 encoded string.
+/// Same as `makeDirAbsolute` except the parameter is a null-terminated WTF-16-encoded string.
 pub fn makeDirAbsoluteW(absolute_path_w: [*:0]const u16) !void {
     assert(path.isAbsoluteWindowsW(absolute_path_w));
     return os.mkdirW(absolute_path_w, default_new_dir_mode);
@@ -1236,6 +1236,7 @@ pub const Dir = struct {
             .capable_io_mode = std.io.default_mode,
             .intended_io_mode = flags.intended_io_mode,
         };
+        errdefer file.close();
         var io: w.IO_STATUS_BLOCK = undefined;
         const range_off: w.LARGE_INTEGER = 0;
         const range_len: w.LARGE_INTEGER = 1;
@@ -1396,6 +1397,7 @@ pub const Dir = struct {
             .capable_io_mode = std.io.default_mode,
             .intended_io_mode = flags.intended_io_mode,
         };
+        errdefer file.close();
         var io: w.IO_STATUS_BLOCK = undefined;
         const range_off: w.LARGE_INTEGER = 0;
         const range_len: w.LARGE_INTEGER = 1;
@@ -1419,14 +1421,23 @@ pub const Dir = struct {
         return file;
     }
 
+    /// Creates a single directory with a relative or absolute path.
+    /// To create multiple directories to make an entire path, see `makePath`.
+    /// To operate on only absolute paths, see `makeDirAbsolute`.
     pub fn makeDir(self: Dir, sub_path: []const u8) !void {
         try os.mkdirat(self.fd, sub_path, default_new_dir_mode);
     }
 
+    /// Creates a single directory with a relative or absolute null-terminated UTF-8-encoded path.
+    /// To create multiple directories to make an entire path, see `makePath`.
+    /// To operate on only absolute paths, see `makeDirAbsoluteZ`.
     pub fn makeDirZ(self: Dir, sub_path: [*:0]const u8) !void {
         try os.mkdiratZ(self.fd, sub_path, default_new_dir_mode);
     }
 
+    /// Creates a single directory with a relative or absolute null-terminated WTF-16-encoded path.
+    /// To create multiple directories to make an entire path, see `makePath`.
+    /// To operate on only absolute paths, see `makeDirAbsoluteW`.
     pub fn makeDirW(self: Dir, sub_path: [*:0]const u16) !void {
         try os.mkdiratW(self.fd, sub_path, default_new_dir_mode);
     }
@@ -1530,9 +1541,9 @@ pub const Dir = struct {
             return error.NameTooLong;
         }
 
-        mem.copy(u8, out_buffer, out_path);
-
-        return out_buffer[0..out_path.len];
+        const result = out_buffer[0..out_path.len];
+        @memcpy(result, out_path);
+        return result;
     }
 
     /// Windows-only. Same as `Dir.realpath` except `pathname` is WTF16 encoded.
@@ -1582,9 +1593,9 @@ pub const Dir = struct {
             return error.NameTooLong;
         }
 
-        mem.copy(u8, out_buffer, out_path);
-
-        return out_buffer[0..out_path.len];
+        const result = out_buffer[0..out_path.len];
+        @memcpy(result, out_path);
+        return result;
     }
 
     /// Same as `Dir.realpath` except caller must free the returned memory.
@@ -2201,7 +2212,7 @@ pub const Dir = struct {
             var need_to_retry: bool = false;
             parent_dir.deleteDir(name) catch |err| switch (err) {
                 error.FileNotFound => {},
-                error.DirNotEmpty => need_to_retry = false,
+                error.DirNotEmpty => need_to_retry = true,
                 else => |e| return e,
             };
 
@@ -2335,8 +2346,9 @@ pub const Dir = struct {
                             if (cleanup_dir_parent) |*d| d.close();
                             cleanup_dir_parent = iterable_dir;
                             iterable_dir = new_dir;
-                            mem.copy(u8, &dir_name_buf, entry.name);
-                            dir_name = dir_name_buf[0..entry.name.len];
+                            const result = dir_name_buf[0..entry.name.len];
+                            @memcpy(result, entry.name);
+                            dir_name = result;
                             continue :scan_dir;
                         } else {
                             if (iterable_dir.dir.deleteFile(entry.name)) {
@@ -2463,7 +2475,7 @@ pub const Dir = struct {
     pub const AccessError = os.AccessError;
 
     /// Test accessing `path`.
-    /// `path` is UTF8-encoded.
+    /// `path` is UTF-8-encoded.
     /// Be careful of Time-Of-Check-Time-Of-Use race conditions when using this function.
     /// For example, instead of testing if a file exists and then opening it, just
     /// open it and handle the error for file not found.
@@ -2736,14 +2748,14 @@ pub fn openFileAbsoluteZ(absolute_path_c: [*:0]const u8, flags: File.OpenFlags) 
     return cwd().openFileZ(absolute_path_c, flags);
 }
 
-/// Same as `openFileAbsolute` but the path parameter is WTF-16 encoded.
+/// Same as `openFileAbsolute` but the path parameter is WTF-16-encoded.
 pub fn openFileAbsoluteW(absolute_path_w: []const u16, flags: File.OpenFlags) File.OpenError!File {
     assert(path.isAbsoluteWindowsWTF16(absolute_path_w));
     return cwd().openFileW(absolute_path_w, flags);
 }
 
 /// Test accessing `path`.
-/// `path` is UTF8-encoded.
+/// `path` is UTF-8-encoded.
 /// Be careful of Time-Of-Check-Time-Of-Use race conditions when using this function.
 /// For example, instead of testing if a file exists and then opening it, just
 /// open it and handle the error for file not found.
@@ -2904,6 +2916,7 @@ pub const OpenSelfExeError = error{
     /// On Windows, file paths cannot contain these characters:
     /// '/', '*', '?', '"', '<', '>', '|'
     BadPathName,
+    Overflow,
     Unexpected,
 } || os.OpenError || SelfExePathError || os.FlockError;
 
@@ -2962,8 +2975,9 @@ pub fn selfExePath(out_buffer: []u8) SelfExePathError![]u8 {
         var real_path_buf: [MAX_PATH_BYTES]u8 = undefined;
         const real_path = try std.os.realpathZ(&symlink_path_buf, &real_path_buf);
         if (real_path.len > out_buffer.len) return error.NameTooLong;
-        std.mem.copy(u8, out_buffer, real_path);
-        return out_buffer[0..real_path.len];
+        const result = out_buffer[0..real_path.len];
+        @memcpy(result, real_path);
+        return result;
     }
     switch (builtin.os.tag) {
         .linux => return os.readlinkZ("/proc/self/exe", out_buffer),
@@ -2982,7 +2996,14 @@ pub fn selfExePath(out_buffer: []u8) SelfExePathError![]u8 {
             // TODO could this slice from 0 to out_len instead?
             return mem.sliceTo(out_buffer, 0);
         },
-        .openbsd, .haiku => {
+        .haiku => {
+            // The only possible issue when looking for the self image path is
+            // when the buffer is too short.
+            if (os.find_path(os.B_APP_IMAGE_SYMBOL, os.path_base_directory.B_FIND_IMAGE_PATH, null, out_buffer.ptr, out_buffer.len) != 0)
+                return error.Overflow;
+            return mem.sliceTo(out_buffer, 0);
+        },
+        .openbsd => {
             // OpenBSD doesn't support getting the path of a running process, so try to guess it
             if (os.argv.len == 0)
                 return error.FileNotFound;
@@ -2994,8 +3015,9 @@ pub fn selfExePath(out_buffer: []u8) SelfExePathError![]u8 {
                 const real_path = try os.realpathZ(os.argv[0], &real_path_buf);
                 if (real_path.len > out_buffer.len)
                     return error.NameTooLong;
-                mem.copy(u8, out_buffer, real_path);
-                return out_buffer[0..real_path.len];
+                const result = out_buffer[0..real_path.len];
+                @memcpy(result, real_path);
+                return result;
             } else if (argv0.len != 0) {
                 // argv[0] is not empty (and not a path): search it inside PATH
                 const PATH = std.os.getenvZ("PATH") orelse return error.FileNotFound;
@@ -3012,8 +3034,9 @@ pub fn selfExePath(out_buffer: []u8) SelfExePathError![]u8 {
                         // found a file, and hope it is the right file
                         if (real_path.len > out_buffer.len)
                             return error.NameTooLong;
-                        mem.copy(u8, out_buffer, real_path);
-                        return out_buffer[0..real_path.len];
+                        const result = out_buffer[0..real_path.len];
+                        @memcpy(result, real_path);
+                        return result;
                     } else |_| continue;
                 }
             }

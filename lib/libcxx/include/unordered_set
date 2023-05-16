@@ -470,14 +470,12 @@ template <class Value, class Hash, class Pred, class Alloc>
 #include <__iterator/erase_if_container.h>
 #include <__iterator/iterator_traits.h>
 #include <__memory/addressof.h>
+#include <__memory/allocator.h>
+#include <__memory_resource/polymorphic_allocator.h>
 #include <__node_handle>
+#include <__type_traits/is_allocator.h>
 #include <__utility/forward.h>
 #include <version>
-
-#ifndef _LIBCPP_REMOVE_TRANSITIVE_INCLUDES
-#  include <functional>
-#  include <iterator>
-#endif
 
 // standard-mandated includes
 
@@ -517,7 +515,11 @@ public:
     static_assert((is_same<value_type, typename allocator_type::value_type>::value),
                   "Invalid allocator::value_type");
 
-private:
+    static_assert(is_same<allocator_type, __rebind_alloc<allocator_traits<allocator_type>, value_type> >::value,
+                  "[allocator.requirements] states that rebinding an allocator to the same type should result in the "
+                  "original allocator");
+
+  private:
     typedef __hash_table<value_type, hasher, key_equal, allocator_type> __table;
 
     __table __table_;
@@ -611,7 +613,7 @@ public:
 #endif // _LIBCPP_CXX03_LANG
     _LIBCPP_INLINE_VISIBILITY
     ~unordered_set() {
-        static_assert(sizeof(__diagnose_unordered_container_requirements<_Value, _Hash, _Pred>(0)), "");
+        static_assert(sizeof(std::__diagnose_unordered_container_requirements<_Value, _Hash, _Pred>(0)), "");
     }
 
     _LIBCPP_INLINE_VISIBILITY
@@ -1130,7 +1132,7 @@ inline _LIBCPP_INLINE_VISIBILITY
 #endif
 
 template <class _Value, class _Hash, class _Pred, class _Alloc>
-bool
+_LIBCPP_HIDE_FROM_ABI bool
 operator==(const unordered_set<_Value, _Hash, _Pred, _Alloc>& __x,
            const unordered_set<_Value, _Hash, _Pred, _Alloc>& __y)
 {
@@ -1265,7 +1267,7 @@ public:
 #endif // _LIBCPP_CXX03_LANG
     _LIBCPP_INLINE_VISIBILITY
     ~unordered_multiset() {
-        static_assert(sizeof(__diagnose_unordered_container_requirements<_Value, _Hash, _Pred>(0)), "");
+        static_assert(sizeof(std::__diagnose_unordered_container_requirements<_Value, _Hash, _Pred>(0)), "");
     }
 
     _LIBCPP_INLINE_VISIBILITY
@@ -1768,7 +1770,7 @@ inline _LIBCPP_INLINE_VISIBILITY
 #endif
 
 template <class _Value, class _Hash, class _Pred, class _Alloc>
-bool
+_LIBCPP_HIDE_FROM_ABI bool
 operator==(const unordered_multiset<_Value, _Hash, _Pred, _Alloc>& __x,
            const unordered_multiset<_Value, _Hash, _Pred, _Alloc>& __y)
 {
@@ -1800,5 +1802,23 @@ operator!=(const unordered_multiset<_Value, _Hash, _Pred, _Alloc>& __x,
 }
 
 _LIBCPP_END_NAMESPACE_STD
+
+#if _LIBCPP_STD_VER > 14
+_LIBCPP_BEGIN_NAMESPACE_STD
+namespace pmr {
+template <class _KeyT, class _HashT = std::hash<_KeyT>, class _PredT = std::equal_to<_KeyT>>
+using unordered_set = std::unordered_set<_KeyT, _HashT, _PredT, polymorphic_allocator<_KeyT>>;
+
+template <class _KeyT, class _HashT = std::hash<_KeyT>, class _PredT = std::equal_to<_KeyT>>
+using unordered_multiset = std::unordered_multiset<_KeyT, _HashT, _PredT, polymorphic_allocator<_KeyT>>;
+} // namespace pmr
+_LIBCPP_END_NAMESPACE_STD
+#endif
+
+#if !defined(_LIBCPP_REMOVE_TRANSITIVE_INCLUDES) && _LIBCPP_STD_VER <= 20
+#  include <concepts>
+#  include <functional>
+#  include <iterator>
+#endif
 
 #endif // _LIBCPP_UNORDERED_SET

@@ -6,7 +6,7 @@ set -e
 ZIGDIR="$(pwd)"
 TARGET="$ARCH-macos-none"
 MCPU="baseline"
-CACHE_BASENAME="zig+llvm+lld+clang-$TARGET-0.11.0-dev.1416+8484df5bd"
+CACHE_BASENAME="zig+llvm+lld+clang-$TARGET-0.11.0-dev.2441+eb19f73af"
 PREFIX="$HOME/$CACHE_BASENAME"
 JOBS="-j3"
 
@@ -62,13 +62,14 @@ stage3/bin/zig build \
   --prefix stage4 \
   -Denable-llvm \
   -Dno-lib \
-  -Drelease \
+  -Doptimize=ReleaseFast \
   -Dstrip \
   -Dtarget=$TARGET \
   -Duse-zig-libcxx \
   -Dversion-string="$(stage3/bin/zig version)"
 
-# diff returns an error code if the files differ.
-echo "If the following command fails, it means nondeterminism has been"
-echo "introduced, making stage3 and stage4 no longer byte-for-byte identical."
-diff stage3/bin/zig stage4/bin/zig
+# Disabled due to https://github.com/ziglang/zig/issues/15197
+## diff returns an error code if the files differ.
+#echo "If the following command fails, it means nondeterminism has been"
+#echo "introduced, making stage3 and stage4 no longer byte-for-byte identical."
+#diff stage3/bin/zig stage4/bin/zig

@@ -158,6 +158,8 @@ pub const Node = extern union {
         vector_zero_init,
         /// @shuffle(type, a, b, mask)
         shuffle,
+        /// @extern(ty, .{ .name = n })
+        builtin_extern,
 
         /// @import("std").zig.c_translation.MacroArithmetic.<op>(lhs, rhs)
         macro_arithmetic,
@@ -373,6 +375,7 @@ pub const Node = extern union {
                 .field_access => Payload.FieldAccess,
                 .string_slice => Payload.StringSlice,
                 .shuffle => Payload.Shuffle,
+                .builtin_extern => Payload.Extern,
                 .macro_arithmetic => Payload.MacroArithmetic,
             };
         }
@@ -718,6 +721,14 @@ pub const Payload = struct {
         },
     };
 
+    pub const Extern = struct {
+        base: Payload,
+        data: struct {
+            type: Node,
+            name: Node,
+        },
+    };
+
     pub const MacroArithmetic = struct {
         base: Payload,
         data: struct {
@@ -834,7 +845,7 @@ const Context = struct {
         };
     }
 
-    fn addNode(c: *Context, elem: std.zig.Ast.NodeList.Elem) Allocator.Error!NodeIndex {
+    fn addNode(c: *Context, elem: std.zig.Ast.Node) Allocator.Error!NodeIndex {
         const result = @intCast(NodeIndex, c.nodes.len);
         try c.nodes.append(c.gpa, elem);
         return result;
@@ -1407,6 +1418,22 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
                 payload.a,
                 payload.b,
                 payload.mask_vector,
+            });
+        },
+        .builtin_extern => {
+            const payload = node.castTag(.builtin_extern).?.data;
+
+            var info_inits: [1]Payload.ContainerInitDot.Initializer = .{
+                .{ .name = "name", .value = payload.name },
+            };
+            var info_payload: Payload.ContainerInitDot = .{
+                .base = .{ .tag = .container_init_dot },
+                .data = &info_inits,
+            };
+
+            return renderBuiltinCall(c, "@extern", &.{
+                payload.type,
+                .{ .ptr_otherwise = &info_payload.base },
             });
         },
         .macro_arithmetic => {
@@ -2348,6 +2375,7 @@ fn renderNodeGrouped(c: *Context, node: Node) !NodeIndex {
         .div_exact,
         .offset_of,
         .shuffle,
+        .builtin_extern,
         .static_local_var,
         .mut_str,
         .macro_arithmetic,

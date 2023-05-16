@@ -5,6 +5,8 @@ const expect = testing.expect;
 const expectEqual = testing.expectEqual;
 
 test "params" {
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
     try expect(testParamsAdd(22, 11) == 33);
 }
 fn testParamsAdd(a: i32, b: i32) i32 {
@@ -12,6 +14,8 @@ fn testParamsAdd(a: i32, b: i32) i32 {
 }
 
 test "local variables" {
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
     testLocVars(2);
 }
 fn testLocVars(b: i32) void {
@@ -20,6 +24,8 @@ fn testLocVars(b: i32) void {
 }
 
 test "mutable local variables" {
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
     var zero: i32 = 0;
     try expect(zero == 0);
 
@@ -51,6 +57,8 @@ test "weird function name" {
 }
 
 test "assign inline fn to const variable" {
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
     const a = inlineFn;
     a();
 }
@@ -68,6 +76,8 @@ fn outer(y: u32) *const fn (u32) u32 {
 }
 
 test "return inner function which references comptime variable of outer function" {
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
     var func = outer(10);
     try expect(func(3) == 7);
 }
@@ -96,10 +106,10 @@ test "discard the result of a function that returns a struct" {
 }
 
 test "inline function call that calls optional function pointer, return pointer at callsite interacts correctly with callsite return type" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const S = struct {
         field: u32,
@@ -145,6 +155,7 @@ fn fnWithUnreachable() noreturn {
 
 test "extern struct with stdcallcc fn pointer" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const S = extern struct {
         ptr: *const fn () callconv(if (builtin.target.cpu.arch == .x86) .Stdcall else .C) i32,
@@ -175,12 +186,14 @@ test "function with complex callconv and return type expressions" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     try expect(fComplexCallconvRet(3).x == 9);
 }
 
 test "pass by non-copying value" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     try expect(addPointCoords(Point{ .x = 1, .y = 2 }) == 3);
 }
@@ -196,6 +209,7 @@ fn addPointCoords(pt: Point) i32 {
 
 test "pass by non-copying value through var arg" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     try expect((try addPointCoordsVar(Point{ .x = 1, .y = 2 })) == 3);
 }
@@ -207,6 +221,7 @@ fn addPointCoordsVar(pt: anytype) !i32 {
 
 test "pass by non-copying value as method" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     var pt = Point2{ .x = 1, .y = 2 };
     try expect(pt.addPointCoords() == 3);
@@ -223,6 +238,7 @@ const Point2 = struct {
 
 test "pass by non-copying value as method, which is generic" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     var pt = Point3{ .x = 1, .y = 2 };
     try expect(pt.addPointCoords(i32) == 3);
@@ -240,6 +256,7 @@ const Point3 = struct {
 
 test "pass by non-copying value as method, at comptime" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     comptime {
         var pt = Point2{ .x = 1, .y = 2 };
@@ -251,6 +268,7 @@ test "implicit cast fn call result to optional in field result" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const S = struct {
         fn entry() !void {
@@ -275,9 +293,9 @@ test "implicit cast fn call result to optional in field result" {
 }
 
 test "void parameters" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     try voidFun(1, void{}, 2, {});
 }
@@ -300,10 +318,10 @@ fn acceptsString(foo: []u8) void {
 }
 
 test "function pointers" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const fns = [_]*const @TypeOf(fn1){
         &fn1,
@@ -338,10 +356,10 @@ fn numberLiteralArg(a: anytype) !void {
 }
 
 test "function call with anon list literal" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const S = struct {
         fn doTheTest() !void {
@@ -359,10 +377,10 @@ test "function call with anon list literal" {
 }
 
 test "function call with anon list literal - 2D" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const S = struct {
         fn doTheTest() !void {
@@ -381,6 +399,8 @@ test "function call with anon list literal - 2D" {
 }
 
 test "ability to give comptime types and non comptime types to same parameter" {
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
     const S = struct {
         fn doTheTest() !void {
             var x: i32 = 1;
@@ -398,6 +418,8 @@ test "ability to give comptime types and non comptime types to same parameter" {
 }
 
 test "function with inferred error set but returning no error" {
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
     const S = struct {
         fn foo() !void {}
     };
@@ -408,6 +430,7 @@ test "function with inferred error set but returning no error" {
 
 test "import passed byref to function in return type" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const S = struct {
         fn get() @import("std").ArrayListUnmanaged(i32) {
@@ -424,6 +447,7 @@ test "implicit cast function to function ptr" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const S1 = struct {
         export fn someFunctionThatReturnsAValue() c_int {
@@ -442,6 +466,7 @@ test "implicit cast function to function ptr" {
 test "method call with optional and error union first param" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const S = struct {
         x: i32 = 1234,
@@ -458,11 +483,29 @@ test "method call with optional and error union first param" {
     try s.errUnion();
 }
 
+test "method call with optional pointer first param" {
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
+    const S = struct {
+        x: i32 = 1234,
+
+        fn method(s: ?*@This()) !void {
+            try expect(s.?.x == 1234);
+        }
+    };
+    var s: S = .{};
+    try s.method();
+    const s_ptr = &s;
+    try s_ptr.method();
+}
+
 test "using @ptrCast on function pointers" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const S = struct {
         const A = struct { data: [4]u8 };
@@ -500,6 +543,7 @@ test "function returns function returning type" {
 
 test "peer type resolution of inferred error set with non-void payload" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const S = struct {
         fn openDataFile(mode: enum { read, write }) !u32 {

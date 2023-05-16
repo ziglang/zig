@@ -126,7 +126,6 @@ pub fn updateFunc(self: *C, module: *Module, func: *Module.Fn, air: Air, livenes
             .indent_writer = undefined, // set later so we can get a pointer to object.code
         },
         .lazy_fns = lazy_fns.*,
-        .arena = std.heap.ArenaAllocator.init(gpa),
     };
 
     function.object.indent_writer = .{ .underlying_writer = function.object.code.writer() };

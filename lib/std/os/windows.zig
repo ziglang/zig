@@ -105,41 +105,53 @@ pub fn OpenFile(sub_path_w: []const u16, options: OpenFileOptions) OpenError!HAN
     // If we're not following symlinks, we need to ensure we don't pass in any synchronization flags such as FILE_SYNCHRONOUS_IO_NONALERT.
     const flags: ULONG = if (options.follow_symlinks) file_or_dir_flag | blocking_flag else file_or_dir_flag | FILE_OPEN_REPARSE_POINT;
 
-    const rc = ntdll.NtCreateFile(
-        &result,
-        options.access_mask,
-        &attr,
-        &io,
-        null,
-        FILE_ATTRIBUTE_NORMAL,
-        options.share_access,
-        options.creation,
-        flags,
-        null,
-        0,
-    );
-    switch (rc) {
-        .SUCCESS => {
-            if (std.io.is_async and options.io_mode == .evented) {
-                _ = CreateIoCompletionPort(result, std.event.Loop.instance.?.os_data.io_port, undefined, undefined) catch undefined;
-            }
-            return result;
-        },
-        .OBJECT_NAME_INVALID => unreachable,
-        .OBJECT_NAME_NOT_FOUND => return error.FileNotFound,
-        .OBJECT_PATH_NOT_FOUND => return error.FileNotFound,
-        .NO_MEDIA_IN_DEVICE => return error.NoDevice,
-        .INVALID_PARAMETER => unreachable,
-        .SHARING_VIOLATION => return error.AccessDenied,
-        .ACCESS_DENIED => return error.AccessDenied,
-        .PIPE_BUSY => return error.PipeBusy,
-        .OBJECT_PATH_SYNTAX_BAD => unreachable,
-        .OBJECT_NAME_COLLISION => return error.PathAlreadyExists,
-        .FILE_IS_A_DIRECTORY => return error.IsDir,
-        .NOT_A_DIRECTORY => return error.NotDir,
-        .USER_MAPPED_FILE => return error.AccessDenied,
-        .INVALID_HANDLE => unreachable,
-        else => return unexpectedStatus(rc),
+    while (true) {
+        const rc = ntdll.NtCreateFile(
+            &result,
+            options.access_mask,
+            &attr,
+            &io,
+            null,
+            FILE_ATTRIBUTE_NORMAL,
+            options.share_access,
+            options.creation,
+            flags,
+            null,
+            0,
+        );
+        switch (rc) {
+            .SUCCESS => {
+                if (std.io.is_async and options.io_mode == .evented) {
+                    _ = CreateIoCompletionPort(result, std.event.Loop.instance.?.os_data.io_port, undefined, undefined) catch undefined;
+                }
+                return result;
+            },
+            .OBJECT_NAME_INVALID => unreachable,
+            .OBJECT_NAME_NOT_FOUND => return error.FileNotFound,
+            .OBJECT_PATH_NOT_FOUND => return error.FileNotFound,
+            .NO_MEDIA_IN_DEVICE => return error.NoDevice,
+            .INVALID_PARAMETER => unreachable,
+            .SHARING_VIOLATION => return error.AccessDenied,
+            .ACCESS_DENIED => return error.AccessDenied,
+            .PIPE_BUSY => return error.PipeBusy,
+            .OBJECT_PATH_SYNTAX_BAD => unreachable,
+            .OBJECT_NAME_COLLISION => return error.PathAlreadyExists,
+            .FILE_IS_A_DIRECTORY => return error.IsDir,
+            .NOT_A_DIRECTORY => return error.NotDir,
+            .USER_MAPPED_FILE => return error.AccessDenied,
+            .INVALID_HANDLE => unreachable,
+            .DELETE_PENDING => {
+                // This error means that there *was* a file in this location on
+                // the file system, but it was deleted. However, the OS is not
+                // finished with the deletion operation, and so this CreateFile
+                // call has failed. There is not really a sane way to handle
+                // this other than retrying the creation after the OS finishes
+                // the deletion.
+                std.time.sleep(std.time.ns_per_ms);
+                continue;
+            },
+            else => return unexpectedStatus(rc),
+        }
     }
 }
 
@@ -742,10 +754,10 @@ pub fn CreateSymbolicLink(
         .Flags = if (dir) |_| SYMLINK_FLAG_RELATIVE else 0,
     };
 
-    std.mem.copy(u8, buffer[0..], std.mem.asBytes(&symlink_data));
-    @memcpy(buffer[@sizeOf(SYMLINK_DATA)..], @ptrCast([*]const u8, target_path), target_path.len * 2);
+    @memcpy(buffer[0..@sizeOf(SYMLINK_DATA)], std.mem.asBytes(&symlink_data));
+    @memcpy(buffer[@sizeOf(SYMLINK_DATA)..][0 .. target_path.len * 2], @ptrCast([*]const u8, target_path));
     const paths_start = @sizeOf(SYMLINK_DATA) + target_path.len * 2;
-    @memcpy(buffer[paths_start..].ptr, @ptrCast([*]const u8, target_path), target_path.len * 2);
+    @memcpy(buffer[paths_start..][0 .. target_path.len * 2], @ptrCast([*]const u8, target_path));
     _ = try DeviceIoControl(symlink_handle, FSCTL_SET_REPARSE_POINT, buffer[0..buf_len], null);
 }
 
@@ -823,14 +835,14 @@ pub fn ReadLink(dir: ?HANDLE, sub_path_w: []const u16, out_buffer: []u8) ReadLin
             const len = buf.SubstituteNameLength >> 1;
             const path_buf = @as([*]const u16, &buf.PathBuffer);
             const is_relative = buf.Flags & SYMLINK_FLAG_RELATIVE != 0;
-            return parseReadlinkPath(path_buf[offset .. offset + len], is_relative, out_buffer);
+            return parseReadlinkPath(path_buf[offset..][0..len], is_relative, out_buffer);
         },
         IO_REPARSE_TAG_MOUNT_POINT => {
             const buf = @ptrCast(*const MOUNT_POINT_REPARSE_BUFFER, @alignCast(@alignOf(MOUNT_POINT_REPARSE_BUFFER), &reparse_struct.DataBuffer[0]));
             const offset = buf.SubstituteNameOffset >> 1;
             const len = buf.SubstituteNameLength >> 1;
             const path_buf = @as([*]const u16, &buf.PathBuffer);
-            return parseReadlinkPath(path_buf[offset .. offset + len], false, out_buffer);
+            return parseReadlinkPath(path_buf[offset..][0..len], false, out_buffer);
         },
         else => |value| {
             std.debug.print("unsupported symlink type: {}", .{value});
@@ -858,6 +870,7 @@ pub const DeleteFileError = error{
     Unexpected,
     NotDir,
     IsDir,
+    DirNotEmpty,
 };
 
 pub const DeleteFileOptions = struct {
@@ -867,9 +880,9 @@ pub const DeleteFileOptions = struct {
 
 pub fn DeleteFile(sub_path_w: []const u16, options: DeleteFileOptions) DeleteFileError!void {
     const create_options_flags: ULONG = if (options.remove_dir)
-        FILE_DELETE_ON_CLOSE | FILE_DIRECTORY_FILE | FILE_OPEN_REPARSE_POINT
+        FILE_DIRECTORY_FILE | FILE_OPEN_REPARSE_POINT
     else
-        FILE_DELETE_ON_CLOSE | FILE_NON_DIRECTORY_FILE | FILE_OPEN_REPARSE_POINT; // would we ever want to delete the target instead?
+        FILE_NON_DIRECTORY_FILE | FILE_OPEN_REPARSE_POINT; // would we ever want to delete the target instead?
 
     const path_len_bytes = @intCast(u16, sub_path_w.len * 2);
     var nt_name = UNICODE_STRING{
@@ -912,7 +925,7 @@ pub fn DeleteFile(sub_path_w: []const u16, options: DeleteFileOptions) DeleteFil
         0,
     );
     switch (rc) {
-        .SUCCESS => return CloseHandle(tmp_handle),
+        .SUCCESS => {},
         .OBJECT_NAME_INVALID => unreachable,
         .OBJECT_NAME_NOT_FOUND => return error.FileNotFound,
         .OBJECT_PATH_NOT_FOUND => return error.FileNotFound,
@@ -920,7 +933,28 @@ pub fn DeleteFile(sub_path_w: []const u16, options: DeleteFileOptions) DeleteFil
         .FILE_IS_A_DIRECTORY => return error.IsDir,
         .NOT_A_DIRECTORY => return error.NotDir,
         .SHARING_VIOLATION => return error.FileBusy,
+        .ACCESS_DENIED => return error.AccessDenied,
+        .DELETE_PENDING => return,
+        else => return unexpectedStatus(rc),
+    }
+    var file_dispo = FILE_DISPOSITION_INFORMATION{
+        .DeleteFile = TRUE,
+    };
+    rc = ntdll.NtSetInformationFile(
+        tmp_handle,
+        &io,
+        &file_dispo,
+        @sizeOf(FILE_DISPOSITION_INFORMATION),
+        .FileDispositionInformation,
+    );
+    CloseHandle(tmp_handle);
+    switch (rc) {
+        .SUCCESS => return,
+        .DIRECTORY_NOT_EMPTY => return error.DirNotEmpty,
+        .INVALID_PARAMETER => unreachable,
         .CANNOT_DELETE => return error.AccessDenied,
+        .MEDIA_WRITE_PROTECTED => return error.AccessDenied,
+        .ACCESS_DENIED => return error.AccessDenied,
         else => return unexpectedStatus(rc),
     }
 }
@@ -1145,7 +1179,7 @@ pub fn GetFinalPathNameByHandle(
             var input_struct = @ptrCast(*MOUNTMGR_MOUNT_POINT, &input_buf[0]);
             input_struct.DeviceNameOffset = @sizeOf(MOUNTMGR_MOUNT_POINT);
             input_struct.DeviceNameLength = @intCast(USHORT, volume_name_u16.len * 2);
-            @memcpy(input_buf[@sizeOf(MOUNTMGR_MOUNT_POINT)..], @ptrCast([*]const u8, volume_name_u16.ptr), volume_name_u16.len * 2);
+            @memcpy(input_buf[@sizeOf(MOUNTMGR_MOUNT_POINT)..][0 .. volume_name_u16.len * 2], @ptrCast([*]const u8, volume_name_u16.ptr));
 
             DeviceIoControl(mgmt_handle, IOCTL_MOUNTMGR_QUERY_POINTS, &input_buf, &output_buf) catch |err| switch (err) {
                 error.AccessDenied => unreachable,
@@ -1174,8 +1208,8 @@ pub fn GetFinalPathNameByHandle(
 
                     if (out_buffer.len < drive_letter.len + file_name_u16.len) return error.NameTooLong;
 
-                    mem.copy(u16, out_buffer, drive_letter);
-                    mem.copy(u16, out_buffer[drive_letter.len..], file_name_u16);
+                    @memcpy(out_buffer[0..drive_letter.len], drive_letter);
+                    mem.copyForwards(u16, out_buffer[drive_letter.len..][0..file_name_u16.len], file_name_u16);
                     const total_len = drive_letter.len + file_name_u16.len;
 
                     // Validate that DOS does not contain any spurious nul bytes.
@@ -1216,23 +1250,6 @@ test "GetFinalPathNameByHandle" {
     //check with exactly-sufficient size
     _ = try GetFinalPathNameByHandle(handle, .{ .volume_name = .Nt }, buffer[0..required_len_in_u16]);
     _ = try GetFinalPathNameByHandle(handle, .{ .volume_name = .Dos }, buffer[0..required_len_in_u16]);
-}
-
-pub const QueryInformationFileError = error{Unexpected};
-
-pub fn QueryInformationFile(
-    handle: HANDLE,
-    info_class: FILE_INFORMATION_CLASS,
-    out_buffer: []u8,
-) QueryInformationFileError!void {
-    var io: IO_STATUS_BLOCK = undefined;
-    const len_bytes = std.math.cast(u32, out_buffer.len) orelse unreachable;
-    const rc = ntdll.NtQueryInformationFile(handle, &io, out_buffer.ptr, len_bytes, info_class);
-    switch (rc) {
-        .SUCCESS => {},
-        .INVALID_PARAMETER => unreachable,
-        else => return unexpectedStatus(rc),
-    }
 }
 
 pub const GetFileSizeError = error{Unexpected};
@@ -1519,6 +1536,24 @@ pub fn VirtualProtect(lpAddress: ?LPVOID, dwSize: SIZE_T, flNewProtect: DWORD, l
     }
 }
 
+pub fn VirtualProtectEx(handle: HANDLE, addr: ?LPVOID, size: SIZE_T, new_prot: DWORD) VirtualProtectError!DWORD {
+    var old_prot: DWORD = undefined;
+    var out_addr = addr;
+    var out_size = size;
+    switch (ntdll.NtProtectVirtualMemory(
+        handle,
+        &out_addr,
+        &out_size,
+        new_prot,
+        &old_prot,
+    )) {
+        .SUCCESS => return old_prot,
+        .INVALID_ADDRESS => return error.InvalidAddress,
+        // TODO: map errors
+        else => |rc| return std.os.windows.unexpectedStatus(rc),
+    }
+}
+
 pub const VirtualQueryError = error{Unexpected};
 
 pub fn VirtualQuery(lpAddress: ?LPVOID, lpBuffer: PMEMORY_BASIC_INFORMATION, dwLength: SIZE_T) VirtualQueryError!SIZE_T {
@@ -1711,21 +1746,6 @@ pub fn HeapDestroy(hHeap: HANDLE) void {
 
 pub fn LocalFree(hMem: HLOCAL) void {
     assert(kernel32.LocalFree(hMem) == null);
-}
-
-pub const GetFileInformationByHandleError = error{Unexpected};
-
-pub fn GetFileInformationByHandle(
-    hFile: HANDLE,
-) GetFileInformationByHandleError!BY_HANDLE_FILE_INFORMATION {
-    var info: BY_HANDLE_FILE_INFORMATION = undefined;
-    const rc = ntdll.GetFileInformationByHandle(hFile, &info);
-    if (rc == 0) {
-        switch (kernel32.GetLastError()) {
-            else => |err| return unexpectedError(err),
-        }
-    }
-    return info;
 }
 
 pub const SetFileTimeError = error{Unexpected};
@@ -1992,7 +2012,7 @@ pub fn sliceToPrefixedFileW(s: []const u8) !PathSpace {
     }
     const prefix_u16 = [_]u16{ '\\', '?', '?', '\\' };
     const start_index = if (prefix_index > 0 or !std.fs.path.isAbsolute(s)) 0 else blk: {
-        mem.copy(u16, path_space.data[0..], prefix_u16[0..]);
+        path_space.data[0..prefix_u16.len].* = prefix_u16;
         break :blk prefix_u16.len;
     };
     path_space.len = start_index + try std.unicode.utf8ToUtf16Le(path_space.data[start_index..], s);
@@ -2005,7 +2025,7 @@ pub fn sliceToPrefixedFileW(s: []const u8) !PathSpace {
                 std.debug.assert(temp_path.len == path_space.len);
                 temp_path.data[path_space.len] = 0;
                 path_space.len = prefix_u16.len + try getFullPathNameW(&temp_path.data, path_space.data[prefix_u16.len..]);
-                mem.copy(u16, &path_space.data, &prefix_u16);
+                path_space.data[0..prefix_u16.len].* = prefix_u16;
                 std.debug.assert(path_space.data[path_space.len] == 0);
                 return path_space;
             }
@@ -2033,12 +2053,12 @@ pub fn wToPrefixedFileW(s: []const u16) !PathSpace {
 
     const start_index = if (mem.startsWith(u16, s, &[_]u16{ '\\', '?' })) 0 else blk: {
         const prefix = [_]u16{ '\\', '?', '?', '\\' };
-        mem.copy(u16, path_space.data[0..], &prefix);
+        path_space.data[0..prefix.len].* = prefix;
         break :blk prefix.len;
     };
     path_space.len = start_index + s.len;
     if (path_space.len > path_space.data.len) return error.NameTooLong;
-    mem.copy(u16, path_space.data[start_index..], s);
+    @memcpy(path_space.data[start_index..][0..s.len], s);
     // > File I/O functions in the Windows API convert "/" to "\" as part of
     // > converting the name to an NT-style name, except when using the "\\?\"
     // > prefix as detailed in the following sections.
@@ -2094,7 +2114,7 @@ pub fn loadWinsockExtensionFunction(comptime T: type, sock: ws2_32.SOCKET, guid:
 /// and you get an unexpected error.
 pub fn unexpectedError(err: Win32Error) std.os.UnexpectedError {
     if (std.os.unexpected_error_tracing) {
-        // 614 is the length of the longest windows error desciption
+        // 614 is the length of the longest windows error description
         var buf_wstr: [614]WCHAR = undefined;
         var buf_utf8: [614]u8 = undefined;
         const len = kernel32.FormatMessageW(
@@ -2470,6 +2490,33 @@ pub const FILE_INFORMATION_CLASS = enum(c_int) {
     FileStorageReserveIdInformation,
     FileCaseSensitiveInformationForceAccessCheck,
     FileMaximumInformation,
+};
+
+pub const FILE_DISPOSITION_INFORMATION = extern struct {
+    DeleteFile: BOOLEAN,
+};
+
+pub const FILE_FS_DEVICE_INFORMATION = extern struct {
+    DeviceType: DEVICE_TYPE,
+    Characteristics: ULONG,
+};
+
+pub const FS_INFORMATION_CLASS = enum(c_int) {
+    FileFsVolumeInformation = 1,
+    FileFsLabelInformation,
+    FileFsSizeInformation,
+    FileFsDeviceInformation,
+    FileFsAttributeInformation,
+    FileFsControlInformation,
+    FileFsFullSizeInformation,
+    FileFsObjectIdInformation,
+    FileFsDriverPathInformation,
+    FileFsVolumeFlagsInformation,
+    FileFsSectorSizeInformation,
+    FileFsDataCopyInformation,
+    FileFsMetadataSizeInformation,
+    FileFsFullSizeInformationEx,
+    FileFsMaximumInformation,
 };
 
 pub const OVERLAPPED = extern struct {
@@ -3944,6 +3991,20 @@ pub const PSAPI_WS_WATCH_INFORMATION = extern struct {
     FaultingVa: LPVOID,
 };
 
+pub const VM_COUNTERS = extern struct {
+    PeakVirtualSize: SIZE_T,
+    VirtualSize: SIZE_T,
+    PageFaultCount: ULONG,
+    PeakWorkingSetSize: SIZE_T,
+    WorkingSetSize: SIZE_T,
+    QuotaPeakPagedPoolUsage: SIZE_T,
+    QuotaPagedPoolUsage: SIZE_T,
+    QuotaPeakNonPagedPoolUsage: SIZE_T,
+    QuotaNonPagedPoolUsage: SIZE_T,
+    PagefileUsage: SIZE_T,
+    PeakPagefileUsage: SIZE_T,
+};
+
 pub const PROCESS_MEMORY_COUNTERS = extern struct {
     cb: DWORD,
     PageFaultCount: DWORD,
@@ -3970,6 +4031,24 @@ pub const PROCESS_MEMORY_COUNTERS_EX = extern struct {
     PeakPagefileUsage: SIZE_T,
     PrivateUsage: SIZE_T,
 };
+
+pub const GetProcessMemoryInfoError = error{
+    AccessDenied,
+    InvalidHandle,
+    Unexpected,
+};
+
+pub fn GetProcessMemoryInfo(hProcess: HANDLE) GetProcessMemoryInfoError!VM_COUNTERS {
+    var vmc: VM_COUNTERS = undefined;
+    const rc = ntdll.NtQueryInformationProcess(hProcess, .ProcessVmCounters, &vmc, @sizeOf(VM_COUNTERS), null);
+    switch (rc) {
+        .SUCCESS => return vmc,
+        .ACCESS_DENIED => return error.AccessDenied,
+        .INVALID_HANDLE => return error.InvalidHandle,
+        .INVALID_PARAMETER => unreachable,
+        else => return unexpectedStatus(rc),
+    }
+}
 
 pub const PERFORMANCE_INFORMATION = extern struct {
     cb: DWORD,
@@ -4422,3 +4501,212 @@ pub const MODULEENTRY32 = extern struct {
     szModule: [MAX_MODULE_NAME32 + 1]CHAR,
     szExePath: [MAX_PATH]CHAR,
 };
+
+pub const SYSTEM_INFORMATION_CLASS = enum(c_int) {
+    SystemBasicInformation = 0,
+    SystemPerformanceInformation = 2,
+    SystemTimeOfDayInformation = 3,
+    SystemProcessInformation = 5,
+    SystemProcessorPerformanceInformation = 8,
+    SystemInterruptInformation = 23,
+    SystemExceptionInformation = 33,
+    SystemRegistryQuotaInformation = 37,
+    SystemLookasideInformation = 45,
+    SystemCodeIntegrityInformation = 103,
+    SystemPolicyInformation = 134,
+};
+
+pub const SYSTEM_BASIC_INFORMATION = extern struct {
+    Reserved: ULONG,
+    TimerResolution: ULONG,
+    PageSize: ULONG,
+    NumberOfPhysicalPages: ULONG,
+    LowestPhysicalPageNumber: ULONG,
+    HighestPhysicalPageNumber: ULONG,
+    AllocationGranularity: ULONG,
+    MinimumUserModeAddress: ULONG_PTR,
+    MaximumUserModeAddress: ULONG_PTR,
+    ActiveProcessorsAffinityMask: KAFFINITY,
+    NumberOfProcessors: UCHAR,
+};
+
+pub const THREADINFOCLASS = enum(c_int) {
+    ThreadBasicInformation,
+    ThreadTimes,
+    ThreadPriority,
+    ThreadBasePriority,
+    ThreadAffinityMask,
+    ThreadImpersonationToken,
+    ThreadDescriptorTableEntry,
+    ThreadEnableAlignmentFaultFixup,
+    ThreadEventPair_Reusable,
+    ThreadQuerySetWin32StartAddress,
+    ThreadZeroTlsCell,
+    ThreadPerformanceCount,
+    ThreadAmILastThread,
+    ThreadIdealProcessor,
+    ThreadPriorityBoost,
+    ThreadSetTlsArrayAddress,
+    ThreadIsIoPending,
+    // Windows 2000+ from here
+    ThreadHideFromDebugger,
+    // Windows XP+ from here
+    ThreadBreakOnTermination,
+    ThreadSwitchLegacyState,
+    ThreadIsTerminated,
+    // Windows Vista+ from here
+    ThreadLastSystemCall,
+    ThreadIoPriority,
+    ThreadCycleTime,
+    ThreadPagePriority,
+    ThreadActualBasePriority,
+    ThreadTebInformation,
+    ThreadCSwitchMon,
+    // Windows 7+ from here
+    ThreadCSwitchPmu,
+    ThreadWow64Context,
+    ThreadGroupInformation,
+    ThreadUmsInformation,
+    ThreadCounterProfiling,
+    ThreadIdealProcessorEx,
+    // Windows 8+ from here
+    ThreadCpuAccountingInformation,
+    // Windows 8.1+ from here
+    ThreadSuspendCount,
+    // Windows 10+ from here
+    ThreadHeterogeneousCpuPolicy,
+    ThreadContainerId,
+    ThreadNameInformation,
+    ThreadSelectedCpuSets,
+    ThreadSystemThreadInformation,
+    ThreadActualGroupAffinity,
+};
+
+pub const PROCESSINFOCLASS = enum(c_int) {
+    ProcessBasicInformation,
+    ProcessQuotaLimits,
+    ProcessIoCounters,
+    ProcessVmCounters,
+    ProcessTimes,
+    ProcessBasePriority,
+    ProcessRaisePriority,
+    ProcessDebugPort,
+    ProcessExceptionPort,
+    ProcessAccessToken,
+    ProcessLdtInformation,
+    ProcessLdtSize,
+    ProcessDefaultHardErrorMode,
+    ProcessIoPortHandlers,
+    ProcessPooledUsageAndLimits,
+    ProcessWorkingSetWatch,
+    ProcessUserModeIOPL,
+    ProcessEnableAlignmentFaultFixup,
+    ProcessPriorityClass,
+    ProcessWx86Information,
+    ProcessHandleCount,
+    ProcessAffinityMask,
+    ProcessPriorityBoost,
+    ProcessDeviceMap,
+    ProcessSessionInformation,
+    ProcessForegroundInformation,
+    ProcessWow64Information,
+    ProcessImageFileName,
+    ProcessLUIDDeviceMapsEnabled,
+    ProcessBreakOnTermination,
+    ProcessDebugObjectHandle,
+    ProcessDebugFlags,
+    ProcessHandleTracing,
+    ProcessIoPriority,
+    ProcessExecuteFlags,
+    ProcessTlsInformation,
+    ProcessCookie,
+    ProcessImageInformation,
+    ProcessCycleTime,
+    ProcessPagePriority,
+    ProcessInstrumentationCallback,
+    ProcessThreadStackAllocation,
+    ProcessWorkingSetWatchEx,
+    ProcessImageFileNameWin32,
+    ProcessImageFileMapping,
+    ProcessAffinityUpdateMode,
+    ProcessMemoryAllocationMode,
+    ProcessGroupInformation,
+    ProcessTokenVirtualizationEnabled,
+    ProcessConsoleHostProcess,
+    ProcessWindowInformation,
+    MaxProcessInfoClass,
+};
+
+pub const PROCESS_BASIC_INFORMATION = extern struct {
+    ExitStatus: NTSTATUS,
+    PebBaseAddress: *PEB,
+    AffinityMask: ULONG_PTR,
+    BasePriority: KPRIORITY,
+    UniqueProcessId: ULONG_PTR,
+    InheritedFromUniqueProcessId: ULONG_PTR,
+};
+
+pub const ReadMemoryError = error{
+    Unexpected,
+};
+
+pub fn ReadProcessMemory(handle: HANDLE, addr: ?LPVOID, buffer: []u8) ReadMemoryError![]u8 {
+    var nread: usize = 0;
+    switch (ntdll.NtReadVirtualMemory(
+        handle,
+        addr,
+        buffer.ptr,
+        buffer.len,
+        &nread,
+    )) {
+        .SUCCESS => return buffer[0..nread],
+        // TODO: map errors
+        else => |rc| return unexpectedStatus(rc),
+    }
+}
+
+pub const WriteMemoryError = error{
+    Unexpected,
+};
+
+pub fn WriteProcessMemory(handle: HANDLE, addr: ?LPVOID, buffer: []const u8) WriteMemoryError!usize {
+    var nwritten: usize = 0;
+    switch (ntdll.NtWriteVirtualMemory(
+        handle,
+        addr,
+        @ptrCast(*const anyopaque, buffer.ptr),
+        buffer.len,
+        &nwritten,
+    )) {
+        .SUCCESS => return nwritten,
+        // TODO: map errors
+        else => |rc| return unexpectedStatus(rc),
+    }
+}
+
+pub const ProcessBaseAddressError = GetProcessMemoryInfoError || ReadMemoryError;
+
+/// Returns the base address of the process loaded into memory.
+pub fn ProcessBaseAddress(handle: HANDLE) ProcessBaseAddressError!HMODULE {
+    var info: PROCESS_BASIC_INFORMATION = undefined;
+    var nread: DWORD = 0;
+    const rc = ntdll.NtQueryInformationProcess(
+        handle,
+        .ProcessBasicInformation,
+        &info,
+        @sizeOf(PROCESS_BASIC_INFORMATION),
+        &nread,
+    );
+    switch (rc) {
+        .SUCCESS => {},
+        .ACCESS_DENIED => return error.AccessDenied,
+        .INVALID_HANDLE => return error.InvalidHandle,
+        .INVALID_PARAMETER => unreachable,
+        else => return unexpectedStatus(rc),
+    }
+
+    var peb_buf: [@sizeOf(PEB)]u8 align(@alignOf(PEB)) = undefined;
+    const peb_out = try ReadProcessMemory(handle, info.PebBaseAddress, &peb_buf);
+    const ppeb = @ptrCast(*const PEB, @alignCast(@alignOf(PEB), peb_out.ptr));
+    return ppeb.ImageBaseAddress;
+}

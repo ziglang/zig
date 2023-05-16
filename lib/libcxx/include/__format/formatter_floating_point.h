@@ -10,17 +10,16 @@
 #ifndef _LIBCPP___FORMAT_FORMATTER_FLOATING_POINT_H
 #define _LIBCPP___FORMAT_FORMATTER_FLOATING_POINT_H
 
-#include <__algorithm/copy.h>
 #include <__algorithm/copy_n.h>
-#include <__algorithm/fill_n.h>
 #include <__algorithm/find.h>
+#include <__algorithm/max.h>
 #include <__algorithm/min.h>
 #include <__algorithm/rotate.h>
 #include <__algorithm/transform.h>
 #include <__concepts/arithmetic.h>
 #include <__concepts/same_as.h>
 #include <__config>
-#include <__format/format_fwd.h>
+#include <__format/concepts.h>
 #include <__format/format_parse_context.h>
 #include <__format/formatter.h>
 #include <__format/formatter_integral.h>
@@ -103,7 +102,7 @@ template <class _Tp>
 struct __traits;
 
 template <floating_point _Fp>
-static constexpr size_t __float_buffer_size(int __precision) {
+_LIBCPP_HIDE_FROM_ABI constexpr size_t __float_buffer_size(int __precision) {
   using _Traits = __traits<_Fp>;
   return 4 + _Traits::__max_integral + __precision + _Traits::__max_fractional_value;
 }
@@ -183,6 +182,7 @@ public:
   _LIBCPP_HIDE_FROM_ABI int __precision() const { return __precision_; }
   _LIBCPP_HIDE_FROM_ABI int __num_trailing_zeros() const { return __num_trailing_zeros_; }
   _LIBCPP_HIDE_FROM_ABI void __remove_trailing_zeros() { __num_trailing_zeros_ = 0; }
+  _LIBCPP_HIDE_FROM_ABI void __add_trailing_zeros(int __zeros) { __num_trailing_zeros_ += __zeros; }
 
 private:
   int __precision_;
@@ -216,7 +216,7 @@ struct __float_result {
 /// \returns a pointer to the exponent or __last when not found.
 constexpr inline _LIBCPP_HIDE_FROM_ABI char* __find_exponent(char* __first, char* __last) {
   ptrdiff_t __size = __last - __first;
-  if (__size > 4) {
+  if (__size >= 4) {
     __first = __last - _VSTD::min(__size, ptrdiff_t(6));
     for (; __first != __last - 3; ++__first) {
       if (*__first == 'e')
@@ -454,7 +454,10 @@ _LIBCPP_HIDE_FROM_ABI __float_result __format_buffer(
   char* __first = __formatter::__insert_sign(__buffer.begin(), __negative, __sign);
   switch (__type) {
   case __format_spec::__type::__default:
-    return __formatter::__format_buffer_default(__buffer, __value, __first);
+    if (__has_precision)
+      return __formatter::__format_buffer_general_lower_case(__buffer, __value, __buffer.__precision(), __first);
+    else
+      return __formatter::__format_buffer_default(__buffer, __value, __first);
 
   case __format_spec::__type::__hexfloat_lower_case:
     return __formatter::__format_buffer_hexadecimal_lower_case(
@@ -494,7 +497,7 @@ _LIBCPP_HIDE_FROM_ABI _OutIt __format_locale_specific_form(
     const __float_result& __result,
     _VSTD::locale __loc,
     __format_spec::__parsed_specifications<_CharT> __specs) {
-  const auto& __np = use_facet<numpunct<_CharT>>(__loc);
+  const auto& __np = std::use_facet<numpunct<_CharT>>(__loc);
   string __grouping = __np.grouping();
   char* __first = __result.__integral;
   // When no radix point or exponent are present __last will be __result.__last.
@@ -528,13 +531,13 @@ _LIBCPP_HIDE_FROM_ABI _OutIt __format_locale_specific_form(
   // sign and (zero padding or alignment)
   if (__zero_padding && __first != __buffer.begin())
     *__out_it++ = *__buffer.begin();
-  __out_it = _VSTD::fill_n(_VSTD::move(__out_it), __padding.__before_, __specs.__fill_);
+  __out_it = __formatter::__fill(_VSTD::move(__out_it), __padding.__before_, __specs.__fill_);
   if (!__zero_padding && __first != __buffer.begin())
     *__out_it++ = *__buffer.begin();
 
   // integral part
   if (__grouping.empty()) {
-    __out_it = _VSTD::copy_n(__first, __digits, _VSTD::move(__out_it));
+    __out_it = __formatter::__copy(__first, __digits, _VSTD::move(__out_it));
   } else {
     auto __r = __grouping.rbegin();
     auto __e = __grouping.rend() - 1;
@@ -546,7 +549,7 @@ _LIBCPP_HIDE_FROM_ABI _OutIt __format_locale_specific_form(
     // This loop achieves that process by testing the termination condition
     // midway in the loop.
     while (true) {
-      __out_it = _VSTD::copy_n(__first, *__r, _VSTD::move(__out_it));
+      __out_it = __formatter::__copy(__first, *__r, _VSTD::move(__out_it));
       __first += *__r;
 
       if (__r == __e)
@@ -560,16 +563,16 @@ _LIBCPP_HIDE_FROM_ABI _OutIt __format_locale_specific_form(
   // fractional part
   if (__result.__radix_point != __result.__last) {
     *__out_it++ = __np.decimal_point();
-    __out_it = _VSTD::copy(__result.__radix_point + 1, __result.__exponent, _VSTD::move(__out_it));
-    __out_it = _VSTD::fill_n(_VSTD::move(__out_it), __buffer.__num_trailing_zeros(), _CharT('0'));
+    __out_it    = __formatter::__copy(__result.__radix_point + 1, __result.__exponent, _VSTD::move(__out_it));
+    __out_it    = __formatter::__fill(_VSTD::move(__out_it), __buffer.__num_trailing_zeros(), _CharT('0'));
   }
 
   // exponent
   if (__result.__exponent != __result.__last)
-    __out_it = _VSTD::copy(__result.__exponent, __result.__last, _VSTD::move(__out_it));
+    __out_it = __formatter::__copy(__result.__exponent, __result.__last, _VSTD::move(__out_it));
 
   // alignment
-  return _VSTD::fill_n(_VSTD::move(__out_it), __padding.__after_, __specs.__fill_);
+  return __formatter::__fill(_VSTD::move(__out_it), __padding.__after_, __specs.__fill_);
 }
 #  endif // _LIBCPP_HAS_NO_LOCALIZATION
 
@@ -625,20 +628,51 @@ __format_floating_point(_Tp __value, auto& __ctx, __format_spec::__parsed_specif
   __float_result __result = __formatter::__format_buffer(
       __buffer, __value, __negative, (__specs.__has_precision()), __specs.__std_.__sign_, __specs.__std_.__type_);
 
-  if (__specs.__std_.__alternate_form_ && __result.__radix_point == __result.__last) {
-    *__result.__last++ = '.';
+  if (__specs.__std_.__alternate_form_) {
+    if (__result.__radix_point == __result.__last) {
+      *__result.__last++ = '.';
 
-    // When there is an exponent the point needs to be moved before the
-    // exponent. When there's no exponent the rotate does nothing. Since
-    // rotate tests whether the operation is a nop, call it unconditionally.
-    _VSTD::rotate(__result.__exponent, __result.__last - 1, __result.__last);
-    __result.__radix_point = __result.__exponent;
+      // When there is an exponent the point needs to be moved before the
+      // exponent. When there's no exponent the rotate does nothing. Since
+      // rotate tests whether the operation is a nop, call it unconditionally.
+      _VSTD::rotate(__result.__exponent, __result.__last - 1, __result.__last);
+      __result.__radix_point = __result.__exponent;
 
-    // The radix point is always placed before the exponent.
-    // - No exponent needs to point to the new last.
-    // - An exponent needs to move one position to the right.
-    // So it's safe to increment the value unconditionally.
-    ++__result.__exponent;
+      // The radix point is always placed before the exponent.
+      // - No exponent needs to point to the new last.
+      // - An exponent needs to move one position to the right.
+      // So it's safe to increment the value unconditionally.
+      ++__result.__exponent;
+    }
+
+    // [format.string.std]/6
+    //   In addition, for g and G conversions, trailing zeros are not removed
+    //   from the result.
+    //
+    // If the type option for a floating-point type is none it may use the
+    // general formatting, but it's not a g or G conversion. So in that case
+    // the formatting should not append trailing zeros.
+    bool __is_general = __specs.__std_.__type_ == __format_spec::__type::__general_lower_case ||
+                        __specs.__std_.__type_ == __format_spec::__type::__general_upper_case;
+
+    if (__is_general) {
+      // https://en.cppreference.com/w/c/io/fprintf
+      // Let P equal the precision if nonzero, 6 if the precision is not
+      // specified, or 1 if the precision is 0. Then, if a conversion with
+      // style E would have an exponent of X:
+      int __p = _VSTD::max(1, (__specs.__has_precision() ? __specs.__precision_ : 6));
+      if (__result.__exponent == __result.__last)
+        // if P > X >= -4, the conversion is with style f or F and precision P - 1 - X.
+        // By including the radix point it calculates P - (1 + X)
+        __p -= __result.__radix_point - __result.__integral;
+      else
+        // otherwise, the conversion is with style e or E and precision P - 1.
+        --__p;
+
+      ptrdiff_t __precision = (__result.__exponent - __result.__radix_point) - 1;
+      if (__precision < __p)
+        __buffer.__add_trailing_zeros(__p - __precision);
+    }
   }
 
 #  ifndef _LIBCPP_HAS_NO_LOCALIZATION
@@ -651,14 +685,15 @@ __format_floating_point(_Tp __value, auto& __ctx, __format_spec::__parsed_specif
   if (__size + __num_trailing_zeros >= __specs.__width_) {
     if (__num_trailing_zeros && __result.__exponent != __result.__last)
       // Insert trailing zeros before exponent character.
-      return _VSTD::copy(
+      return __formatter::__copy(
           __result.__exponent,
           __result.__last,
-          _VSTD::fill_n(
-              _VSTD::copy(__buffer.begin(), __result.__exponent, __ctx.out()), __num_trailing_zeros, _CharT('0')));
+          __formatter::__fill(__formatter::__copy(__buffer.begin(), __result.__exponent, __ctx.out()),
+                              __num_trailing_zeros,
+                              _CharT('0')));
 
-    return _VSTD::fill_n(
-        _VSTD::copy(__buffer.begin(), __result.__last, __ctx.out()), __num_trailing_zeros, _CharT('0'));
+    return __formatter::__fill(
+        __formatter::__copy(__buffer.begin(), __result.__last, __ctx.out()), __num_trailing_zeros, _CharT('0'));
   }
 
   auto __out_it = __ctx.out();
@@ -684,7 +719,7 @@ __format_floating_point(_Tp __value, auto& __ctx, __format_spec::__parsed_specif
 
 } // namespace __formatter
 
-template <__formatter::__char_type _CharT>
+template <__fmt_char_type _CharT>
 struct _LIBCPP_TEMPLATE_VIS __formatter_floating_point {
 public:
   _LIBCPP_HIDE_FROM_ABI constexpr auto
@@ -702,13 +737,13 @@ public:
   __format_spec::__parser<_CharT> __parser_;
 };
 
-template <__formatter::__char_type _CharT>
+template <__fmt_char_type _CharT>
 struct _LIBCPP_TEMPLATE_VIS _LIBCPP_AVAILABILITY_FORMAT formatter<float, _CharT>
     : public __formatter_floating_point<_CharT> {};
-template <__formatter::__char_type _CharT>
+template <__fmt_char_type _CharT>
 struct _LIBCPP_TEMPLATE_VIS _LIBCPP_AVAILABILITY_FORMAT formatter<double, _CharT>
     : public __formatter_floating_point<_CharT> {};
-template <__formatter::__char_type _CharT>
+template <__fmt_char_type _CharT>
 struct _LIBCPP_TEMPLATE_VIS _LIBCPP_AVAILABILITY_FORMAT formatter<long double, _CharT>
     : public __formatter_floating_point<_CharT> {};
 

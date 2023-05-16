@@ -12,7 +12,6 @@
 #include <__config>
 #include <__type_traits/add_pointer.h>
 #include <__type_traits/conditional.h>
-#include <__type_traits/integral_constant.h>
 #include <__type_traits/is_array.h>
 #include <__type_traits/is_function.h>
 #include <__type_traits/is_referenceable.h>
@@ -26,9 +25,15 @@
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
+#if __has_builtin(__decay)
+template <class _Tp>
+struct decay {
+  using type _LIBCPP_NODEBUG = __decay(_Tp);
+};
+#else
 template <class _Up, bool>
 struct __decay {
-    typedef _LIBCPP_NODEBUG typename remove_cv<_Up>::type type;
+    typedef _LIBCPP_NODEBUG __remove_cv_t<_Up> type;
 };
 
 template <class _Up>
@@ -37,12 +42,12 @@ public:
     typedef _LIBCPP_NODEBUG typename conditional
                      <
                          is_array<_Up>::value,
-                         typename remove_extent<_Up>::type*,
+                         __add_pointer_t<__remove_extent_t<_Up> >,
                          typename conditional
                          <
                               is_function<_Up>::value,
                               typename add_pointer<_Up>::type,
-                              typename remove_cv<_Up>::type
+                              __remove_cv_t<_Up>
                          >::type
                      >::type type;
 };
@@ -51,10 +56,11 @@ template <class _Tp>
 struct _LIBCPP_TEMPLATE_VIS decay
 {
 private:
-    typedef _LIBCPP_NODEBUG typename remove_reference<_Tp>::type _Up;
+    typedef _LIBCPP_NODEBUG __libcpp_remove_reference_t<_Tp> _Up;
 public:
-    typedef _LIBCPP_NODEBUG typename __decay<_Up, __is_referenceable<_Up>::value>::type type;
+  typedef _LIBCPP_NODEBUG typename __decay<_Up, __libcpp_is_referenceable<_Up>::value>::type type;
 };
+#endif // __has_builtin(__decay)
 
 #if _LIBCPP_STD_VER > 11
 template <class _Tp> using decay_t = typename decay<_Tp>::type;

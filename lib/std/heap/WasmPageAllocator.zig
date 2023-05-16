@@ -153,7 +153,7 @@ fn freePages(start: usize, end: usize) void {
 
             extended.data = @intToPtr([*]u128, new_end * mem.page_size)[0 .. mem.page_size / @sizeOf(u128)];
             // Since this is the first page being freed and we consume it, assume *nothing* is free.
-            mem.set(u128, extended.data, PageStatus.none_free);
+            @memset(extended.data, PageStatus.none_free);
         }
         const clamped_start = @max(extendedOffset(), start);
         extended.recycle(clamped_start - extendedOffset(), new_end - clamped_start);

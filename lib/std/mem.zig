@@ -114,7 +114,7 @@ pub fn validationWrap(allocator: anytype) ValidationAllocator(@TypeOf(allocator)
 
 /// An allocator helper function.  Adjusts an allocation length satisfy `len_align`.
 /// `full_len` should be the full capacity of the allocation which may be greater
-/// than the `len` that was requsted.  This function should only be used by allocators
+/// than the `len` that was requested.  This function should only be used by allocators
 /// that are unaffected by `len_align`.
 pub fn alignAllocLen(full_len: usize, alloc_len: usize, len_align: u29) usize {
     assert(alloc_len > 0);
@@ -192,17 +192,15 @@ test "Allocator.resize" {
     }
 }
 
+/// Deprecated: use `@memcpy` if the arguments do not overlap, or
+/// `copyForwards` if they do.
+pub const copy = copyForwards;
+
 /// Copy all of source into dest at position 0.
 /// dest.len must be >= source.len.
 /// If the slices overlap, dest.ptr must be <= src.ptr.
-pub fn copy(comptime T: type, dest: []T, source: []const T) void {
-    // TODO instead of manually doing this check for the whole array
-    // and turning off runtime safety, the compiler should detect loops like
-    // this and automatically omit safety checks for loops
-    @setRuntimeSafety(false);
-    assert(dest.len >= source.len);
-    for (source, 0..) |s, i|
-        dest[i] = s;
+pub fn copyForwards(comptime T: type, dest: []T, source: []const T) void {
+    for (dest[0..source.len], source) |*d, s| d.* = s;
 }
 
 /// Copy all of source into dest at position 0.
@@ -221,18 +219,14 @@ pub fn copyBackwards(comptime T: type, dest: []T, source: []const T) void {
     }
 }
 
-/// Sets all elements of `dest` to `value`.
-pub fn set(comptime T: type, dest: []T, value: T) void {
-    for (dest) |*d|
-        d.* = value;
-}
+pub const set = @compileError("deprecated; use @memset instead");
 
 /// Generally, Zig users are encouraged to explicitly initialize all fields of a struct explicitly rather than using this function.
 /// However, it is recognized that there are sometimes use cases for initializing all fields to a "zero" value. For example, when
 /// interfacing with a C API where this practice is more common and relied upon. If you are performing code review and see this
 /// function used, examine closely - it may be a code smell.
 /// Zero initializes the type.
-/// This can be used to zero initialize a any type for which it makes sense. Structs will be initialized recursively.
+/// This can be used to zero-initialize any type for which it makes sense. Structs will be initialized recursively.
 pub fn zeroes(comptime T: type) T {
     switch (@typeInfo(T)) {
         .ComptimeInt, .Int, .ComptimeFloat, .Float => {
@@ -254,7 +248,7 @@ pub fn zeroes(comptime T: type) T {
             if (@sizeOf(T) == 0) return undefined;
             if (struct_info.layout == .Extern) {
                 var item: T = undefined;
-                set(u8, asBytes(&item), 0);
+                @memset(asBytes(&item), 0);
                 return item;
             } else {
                 var structure: T = undefined;
@@ -433,7 +427,7 @@ pub fn zeroInit(comptime T: type, init: anytype) T {
                 .Struct => |init_info| {
                     if (init_info.is_tuple) {
                         if (init_info.fields.len > struct_info.fields.len) {
-                            @compileError("Tuple initializer has more elments than there are fields in `" ++ @typeName(T) ++ "`");
+                            @compileError("Tuple initializer has more elements than there are fields in `" ++ @typeName(T) ++ "`");
                         }
                     } else {
                         inline for (init_info.fields) |field| {
@@ -443,7 +437,7 @@ pub fn zeroInit(comptime T: type, init: anytype) T {
                         }
                     }
 
-                    var value: T = undefined;
+                    var value: T = if (struct_info.layout == .Extern) zeroes(T) else undefined;
 
                     inline for (struct_info.fields, 0..) |field, i| {
                         if (field.is_comptime) {
@@ -611,8 +605,8 @@ test "lessThan" {
 pub fn eql(comptime T: type, a: []const T, b: []const T) bool {
     if (a.len != b.len) return false;
     if (a.ptr == b.ptr) return true;
-    for (a, 0..) |item, index| {
-        if (b[index] != item) return false;
+    for (a, b) |a_elem, b_elem| {
+        if (a_elem != b_elem) return false;
     }
     return true;
 }
@@ -674,7 +668,7 @@ test "Span" {
 
 /// Takes a sentinel-terminated pointer and returns a slice, iterating over the
 /// memory to find the sentinel and determine the length.
-/// Ponter attributes such as const are preserved.
+/// Pointer attributes such as const are preserved.
 /// `[*c]` pointers are assumed to be non-null and 0-terminated.
 pub fn span(ptr: anytype) Span(@TypeOf(ptr)) {
     if (@typeInfo(@TypeOf(ptr)) == .Optional) {
@@ -1017,6 +1011,54 @@ pub fn indexOfAnyPos(comptime T: type, slice: []const T, start_index: usize, val
         }
     }
     return null;
+}
+
+/// Find the first item in `slice` which is not contained in `values`.
+///
+/// Comparable to `strspn` in the C standard library.
+pub fn indexOfNone(comptime T: type, slice: []const T, values: []const T) ?usize {
+    return indexOfNonePos(T, slice, 0, values);
+}
+
+/// Find the last item in `slice` which is not contained in `values`.
+///
+/// Like `strspn` in the C standard library, but searches from the end.
+pub fn lastIndexOfNone(comptime T: type, slice: []const T, values: []const T) ?usize {
+    var i: usize = slice.len;
+    outer: while (i != 0) {
+        i -= 1;
+        for (values) |value| {
+            if (slice[i] == value) continue :outer;
+        }
+        return i;
+    }
+    return null;
+}
+
+/// Find the first item in `slice[start_index..]` which is not contained in `values`.
+/// The returned index will be relative to the start of `slice`, and never less than `start_index`.
+///
+/// Comparable to `strspn` in the C standard library.
+pub fn indexOfNonePos(comptime T: type, slice: []const T, start_index: usize, values: []const T) ?usize {
+    var i: usize = start_index;
+    outer: while (i < slice.len) : (i += 1) {
+        for (values) |value| {
+            if (slice[i] == value) continue :outer;
+        }
+        return i;
+    }
+    return null;
+}
+
+test "indexOfNone" {
+    try testing.expect(indexOfNone(u8, "abc123", "123").? == 0);
+    try testing.expect(lastIndexOfNone(u8, "abc123", "123").? == 2);
+    try testing.expect(indexOfNone(u8, "123abc", "123").? == 3);
+    try testing.expect(lastIndexOfNone(u8, "123abc", "123").? == 5);
+    try testing.expect(indexOfNone(u8, "123123", "123") == null);
+    try testing.expect(indexOfNone(u8, "333333", "123") == null);
+
+    try testing.expect(indexOfNonePos(u8, "abc123", 3, "321") == null);
 }
 
 pub fn indexOf(comptime T: type, haystack: []const T, needle: []const T) ?usize {
@@ -1509,6 +1551,8 @@ test "comptime read/write int" {
 }
 
 test "readIntBig and readIntLittle" {
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
+
     try testing.expect(readIntSliceBig(u0, &[_]u8{}) == 0x0);
     try testing.expect(readIntSliceLittle(u0, &[_]u8{}) == 0x0);
 
@@ -1670,9 +1714,9 @@ pub fn writeIntSliceLittle(comptime T: type, buffer: []u8, value: T) void {
     assert(buffer.len >= @divExact(@typeInfo(T).Int.bits, 8));
 
     if (@typeInfo(T).Int.bits == 0) {
-        return set(u8, buffer, 0);
+        return @memset(buffer, 0);
     } else if (@typeInfo(T).Int.bits == 8) {
-        set(u8, buffer, 0);
+        @memset(buffer, 0);
         buffer[0] = @bitCast(u8, value);
         return;
     }
@@ -1694,9 +1738,9 @@ pub fn writeIntSliceBig(comptime T: type, buffer: []u8, value: T) void {
     assert(buffer.len >= @divExact(@typeInfo(T).Int.bits, 8));
 
     if (@typeInfo(T).Int.bits == 0) {
-        return set(u8, buffer, 0);
+        return @memset(buffer, 0);
     } else if (@typeInfo(T).Int.bits == 8) {
-        set(u8, buffer, 0);
+        @memset(buffer, 0);
         buffer[buffer.len - 1] = @bitCast(u8, value);
         return;
     }
@@ -1800,6 +1844,8 @@ pub fn writeVarPackedInt(bytes: []u8, bit_offset: usize, bit_count: usize, value
 }
 
 test "writeIntBig and writeIntLittle" {
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
+
     var buf0: [0]u8 = undefined;
     var buf1: [1]u8 = undefined;
     var buf2: [2]u8 = undefined;
@@ -1837,7 +1883,7 @@ test "writeIntBig and writeIntLittle" {
 }
 
 /// Swap the byte order of all the members of the fields of a struct
-/// (Changing their endianess)
+/// (Changing their endianness)
 pub fn byteSwapAllFields(comptime S: type, ptr: *S) void {
     if (@typeInfo(S) != .Struct) @compileError("byteSwapAllFields expects a struct as the first argument");
     inline for (std.meta.fields(S)) |f| {
@@ -2707,7 +2753,7 @@ fn testReadIntImpl() !void {
     }
 }
 
-test "writeIntSlice" {
+test writeIntSlice {
     try testWriteIntImpl();
     comptime try testWriteIntImpl();
 }
@@ -2994,52 +3040,107 @@ test "reverse" {
 }
 
 fn ReverseIterator(comptime T: type) type {
-    const info: struct { Child: type, Pointer: type } = blk: {
+    const Pointer = blk: {
         switch (@typeInfo(T)) {
-            .Pointer => |info| switch (info.size) {
-                .Slice => break :blk .{
-                    .Child = info.child,
-                    .Pointer = @Type(.{ .Pointer = .{
-                        .size = .Many,
-                        .is_const = info.is_const,
-                        .is_volatile = info.is_volatile,
-                        .alignment = info.alignment,
-                        .address_space = info.address_space,
-                        .child = info.child,
-                        .is_allowzero = info.is_allowzero,
-                        .sentinel = info.sentinel,
-                    } }),
+            .Pointer => |ptr_info| switch (ptr_info.size) {
+                .One => switch (@typeInfo(ptr_info.child)) {
+                    .Array => |array_info| {
+                        var new_ptr_info = ptr_info;
+                        new_ptr_info.size = .Many;
+                        new_ptr_info.child = array_info.child;
+                        new_ptr_info.sentinel = array_info.sentinel;
+                        break :blk @Type(.{ .Pointer = new_ptr_info });
+                    },
+                    else => {},
+                },
+                .Slice => {
+                    var new_ptr_info = ptr_info;
+                    new_ptr_info.size = .Many;
+                    break :blk @Type(.{ .Pointer = new_ptr_info });
                 },
                 else => {},
             },
             else => {},
         }
-        @compileError("reverse iterator expects slice, found " ++ @typeName(T));
+        @compileError("expected slice or pointer to array, found '" ++ @typeName(T) ++ "'");
     };
+    const Element = std.meta.Elem(Pointer);
+    const ElementPointer = @TypeOf(&@as(Pointer, undefined)[0]);
     return struct {
-        ptr: info.Pointer,
+        ptr: Pointer,
         index: usize,
-        pub fn next(self: *@This()) ?info.Child {
+        pub fn next(self: *@This()) ?Element {
             if (self.index == 0) return null;
             self.index -= 1;
             return self.ptr[self.index];
         }
+        pub fn nextPtr(self: *@This()) ?ElementPointer {
+            if (self.index == 0) return null;
+            self.index -= 1;
+            return &self.ptr[self.index];
+        }
     };
 }
 
-/// Iterate over a slice in reverse.
+/// Iterates over a slice in reverse.
 pub fn reverseIterator(slice: anytype) ReverseIterator(@TypeOf(slice)) {
-    return .{ .ptr = slice.ptr, .index = slice.len };
+    const T = @TypeOf(slice);
+    if (comptime trait.isPtrTo(.Array)(T)) {
+        return .{ .ptr = slice, .index = slice.len };
+    } else {
+        comptime assert(trait.isSlice(T));
+        return .{ .ptr = slice.ptr, .index = slice.len };
+    }
 }
 
 test "reverseIterator" {
-    const slice: []const i32 = &[_]i32{ 5, 3, 1, 2 };
-    var it = reverseIterator(slice);
-    try testing.expectEqual(@as(?i32, 2), it.next());
-    try testing.expectEqual(@as(?i32, 1), it.next());
-    try testing.expectEqual(@as(?i32, 3), it.next());
-    try testing.expectEqual(@as(?i32, 5), it.next());
-    try testing.expectEqual(@as(?i32, null), it.next());
+    {
+        var it = reverseIterator("abc");
+        try testing.expectEqual(@as(?u8, 'c'), it.next());
+        try testing.expectEqual(@as(?u8, 'b'), it.next());
+        try testing.expectEqual(@as(?u8, 'a'), it.next());
+        try testing.expectEqual(@as(?u8, null), it.next());
+    }
+    {
+        var array = [2]i32{ 3, 7 };
+        const slice: []const i32 = &array;
+        var it = reverseIterator(slice);
+        try testing.expectEqual(@as(?i32, 7), it.next());
+        try testing.expectEqual(@as(?i32, 3), it.next());
+        try testing.expectEqual(@as(?i32, null), it.next());
+
+        it = reverseIterator(slice);
+        try testing.expect(trait.isConstPtr(@TypeOf(it.nextPtr().?)));
+        try testing.expectEqual(@as(?i32, 7), it.nextPtr().?.*);
+        try testing.expectEqual(@as(?i32, 3), it.nextPtr().?.*);
+        try testing.expectEqual(@as(?*const i32, null), it.nextPtr());
+
+        var mut_slice: []i32 = &array;
+        var mut_it = reverseIterator(mut_slice);
+        mut_it.nextPtr().?.* += 1;
+        mut_it.nextPtr().?.* += 2;
+        try testing.expectEqual([2]i32{ 5, 8 }, array);
+    }
+    {
+        var array = [2]i32{ 3, 7 };
+        const ptr_to_array: *const [2]i32 = &array;
+        var it = reverseIterator(ptr_to_array);
+        try testing.expectEqual(@as(?i32, 7), it.next());
+        try testing.expectEqual(@as(?i32, 3), it.next());
+        try testing.expectEqual(@as(?i32, null), it.next());
+
+        it = reverseIterator(ptr_to_array);
+        try testing.expect(trait.isConstPtr(@TypeOf(it.nextPtr().?)));
+        try testing.expectEqual(@as(?i32, 7), it.nextPtr().?.*);
+        try testing.expectEqual(@as(?i32, 3), it.nextPtr().?.*);
+        try testing.expectEqual(@as(?*const i32, null), it.nextPtr());
+
+        var mut_ptr_to_array: *[2]i32 = &array;
+        var mut_it = reverseIterator(mut_ptr_to_array);
+        mut_it.nextPtr().?.* += 1;
+        mut_it.nextPtr().?.* += 2;
+        try testing.expectEqual([2]i32{ 5, 8 }, array);
+    }
 }
 
 /// In-place rotation of the values in an array ([0 1 2 3] becomes [1 2 3 0] if we rotate by 1)
@@ -3070,7 +3171,7 @@ pub fn replace(comptime T: type, input: []const T, needle: []const T, replacemen
     var replacements: usize = 0;
     while (slide < input.len) {
         if (mem.startsWith(T, input[slide..], needle)) {
-            mem.copy(T, output[i .. i + replacement.len], replacement);
+            @memcpy(output[i..][0..replacement.len], replacement);
             i += replacement.len;
             slide += needle.len;
             replacements += 1;
@@ -3115,7 +3216,7 @@ test "replace" {
     try testing.expectEqualStrings(expected, output[0..expected.len]);
 }
 
-/// Replace all occurences of `needle` with `replacement`.
+/// Replace all occurrences of `needle` with `replacement`.
 pub fn replaceScalar(comptime T: type, slice: []T, needle: T, replacement: T) void {
     for (slice, 0..) |e, i| {
         if (e == needle) {
@@ -3442,8 +3543,7 @@ fn BytesAsValueReturnType(comptime T: type, comptime B: type) type {
     if (comptime !trait.is(.Pointer)(B) or
         (meta.Child(B) != [size]u8 and meta.Child(B) != [size:0]u8))
     {
-        comptime var buf: [100]u8 = undefined;
-        @compileError(std.fmt.bufPrint(&buf, "expected *[{}]u8, passed " ++ @typeName(B), .{size}) catch unreachable);
+        @compileError(std.fmt.comptimePrint("expected *[{}]u8, passed " ++ @typeName(B), .{size}));
     }
 
     return CopyPtrAttrs(B, .One, T);
@@ -3962,6 +4062,8 @@ pub fn alignInSlice(slice: anytype, comptime new_alignment: usize) ?AlignedSlice
 }
 
 test "read/write(Var)PackedInt" {
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
+
     switch (builtin.cpu.arch) {
         // This test generates too much code to execute on WASI.
         // LLVM backend fails with "too many locals: locals exceed maximum"

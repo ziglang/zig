@@ -941,7 +941,7 @@ fn printIndicatorLine(source: []const u8, indicator_index: usize) void {
 fn printWithVisibleNewlines(source: []const u8) void {
     var i: usize = 0;
     while (std.mem.indexOfScalar(u8, source[i..], '\n')) |nl| : (i += nl + 1) {
-        printLine(source[i .. i + nl]);
+        printLine(source[i..][0..nl]);
     }
     print("{s}␃\n", .{source[i..]}); // End of Text symbol (ETX)
 }

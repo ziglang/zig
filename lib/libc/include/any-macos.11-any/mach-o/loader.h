@@ -1274,8 +1274,6 @@ struct build_tool_version {
 #define PLATFORM_WATCHOSSIMULATOR 9
 #define PLATFORM_DRIVERKIT 10
 
-
-
 /* Known values for the tool field above. */
 #define TOOL_CLANG 1
 #define TOOL_SWIFT 2
@@ -1458,8 +1456,6 @@ struct dyld_info_command {
 #define EXPORT_SYMBOL_FLAGS_WEAK_DEFINITION			0x04
 #define EXPORT_SYMBOL_FLAGS_REEXPORT				0x08
 #define EXPORT_SYMBOL_FLAGS_STUB_AND_RESOLVER			0x10
-#define EXPORT_SYMBOL_FLAGS_STATIC_RESOLVER			0x20
-
 
 /*
  * The linker_option_command contains linker options embedded in object files.

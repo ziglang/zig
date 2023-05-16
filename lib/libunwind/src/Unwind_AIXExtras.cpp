@@ -38,7 +38,7 @@ char *getFuncNameFromTBTable(uintptr_t Pc, uint16_t &NameLen,
   if (TBTable->tb.fixedparms || TBTable->tb.floatparms)
     p++;
 
-  // If the tb_offset field exisits, get the offset from the start of
+  // If the tb_offset field exists, get the offset from the start of
   // the function to pc. Skip the field.
   if (TBTable->tb.has_tboff) {
     unw_word_t StartIp =

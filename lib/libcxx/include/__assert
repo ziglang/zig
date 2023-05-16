@@ -17,13 +17,9 @@
 #  pragma GCC system_header
 #endif
 
-// This is for backwards compatibility with code that might have been enabling
-// assertions through the Debug mode previously.
-// TODO: In LLVM 16, make it an error to define _LIBCPP_DEBUG
+// TODO: Remove in LLVM 17.
 #if defined(_LIBCPP_DEBUG)
-# ifndef _LIBCPP_ENABLE_ASSERTIONS
-#   define _LIBCPP_ENABLE_ASSERTIONS 1
-# endif
+#   error "Defining _LIBCPP_DEBUG is not supported anymore. Please use _LIBCPP_ENABLE_DEBUG_MODE instead."
 #endif
 
 // Automatically enable assertions when the debug mode is enabled.
@@ -45,7 +41,7 @@
 # define _LIBCPP_ASSERT(expression, message)                                        \
     (__builtin_expect(static_cast<bool>(expression), 1) ?                           \
       (void)0 :                                                                     \
-      ::std::__libcpp_verbose_abort("%s:%d: assertion %s failed: %s", __FILE__, __LINE__, #expression, message))
+      _LIBCPP_VERBOSE_ABORT("%s:%d: assertion %s failed: %s", __FILE__, __LINE__, #expression, message))
 #elif !defined(_LIBCPP_ASSERTIONS_DISABLE_ASSUME) && __has_builtin(__builtin_assume)
 # define _LIBCPP_ASSERT(expression, message)                                        \
     (_LIBCPP_DIAGNOSTIC_PUSH                                                        \

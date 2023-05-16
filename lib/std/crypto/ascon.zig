@@ -34,7 +34,7 @@ pub fn State(comptime endian: builtin.Endian) type {
         /// Initialize the state from a slice of bytes.
         pub fn init(initial_state: [block_bytes]u8) Self {
             var state = Self{ .st = undefined };
-            mem.copy(u8, state.asBytes(), &initial_state);
+            @memcpy(state.asBytes(), &initial_state);
             state.endianSwap();
             return state;
         }
@@ -87,7 +87,7 @@ pub fn State(comptime endian: builtin.Endian) type {
             }
             if (i < bytes.len) {
                 var padded = [_]u8{0} ** 8;
-                mem.copy(u8, padded[0 .. bytes.len - i], bytes[i..]);
+                @memcpy(padded[0 .. bytes.len - i], bytes[i..]);
                 self.st[i / 8] = mem.readInt(u64, padded[0..], endian);
             }
         }
@@ -109,7 +109,7 @@ pub fn State(comptime endian: builtin.Endian) type {
             }
             if (i < bytes.len) {
                 var padded = [_]u8{0} ** 8;
-                mem.copy(u8, padded[0 .. bytes.len - i], bytes[i..]);
+                @memcpy(padded[0 .. bytes.len - i], bytes[i..]);
                 self.st[i / 8] ^= mem.readInt(u64, padded[0..], endian);
             }
         }
@@ -123,7 +123,7 @@ pub fn State(comptime endian: builtin.Endian) type {
             if (i < out.len) {
                 var padded = [_]u8{0} ** 8;
                 mem.writeInt(u64, padded[0..], self.st[i / 8], endian);
-                mem.copy(u8, out[i..], padded[0 .. out.len - i]);
+                @memcpy(out[i..], padded[0 .. out.len - i]);
             }
         }
 
@@ -138,16 +138,16 @@ pub fn State(comptime endian: builtin.Endian) type {
             }
             if (i < in.len) {
                 var padded = [_]u8{0} ** 8;
-                mem.copy(u8, padded[0 .. in.len - i], in[i..]);
+                @memcpy(padded[0 .. in.len - i], in[i..]);
                 const x = mem.readIntNative(u64, &padded) ^ mem.nativeTo(u64, self.st[i / 8], endian);
                 mem.writeIntNative(u64, &padded, x);
-                mem.copy(u8, out[i..], padded[0 .. in.len - i]);
+                @memcpy(out[i..], padded[0 .. in.len - i]);
             }
         }
 
         /// Set the words storing the bytes of a given range to zero.
         pub fn clear(self: *Self, from: usize, to: usize) void {
-            mem.set(u64, self.st[from / 8 .. (to + 7) / 8], 0);
+            @memset(self.st[from / 8 .. (to + 7) / 8], 0);
         }
 
         /// Clear the entire state, disabling compiler optimizations.
@@ -166,6 +166,17 @@ pub fn State(comptime endian: builtin.Endian) type {
         /// Apply a full-round permutation to the state.
         pub inline fn permute(state: *Self) void {
             state.permuteR(12);
+        }
+
+        /// Apply a permutation to the state and prevent backtracking.
+        /// The rate is expressed in bytes and must be a multiple of the word size (8).
+        pub inline fn permuteRatchet(state: *Self, comptime rounds: u4, comptime rate: u6) void {
+            const capacity = block_bytes - rate;
+            debug.assert(capacity > 0 and capacity % 8 == 0); // capacity must be a multiple of 64 bits
+            var mask: [capacity / 8]u64 = undefined;
+            inline for (&mask, state.st[state.st.len - mask.len ..]) |*m, x| m.* = x;
+            state.permuteR(rounds);
+            inline for (mask, state.st[state.st.len - mask.len ..]) |m, *x| x.* ^= m;
         }
 
         // Core Ascon permutation.

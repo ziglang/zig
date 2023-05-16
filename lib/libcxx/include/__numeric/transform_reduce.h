@@ -22,7 +22,7 @@ _LIBCPP_BEGIN_NAMESPACE_STD
 
 #if _LIBCPP_STD_VER > 14
 template <class _InputIterator, class _Tp, class _BinaryOp, class _UnaryOp>
-_LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX17 _Tp transform_reduce(_InputIterator __first,
+_LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_SINCE_CXX20 _Tp transform_reduce(_InputIterator __first,
                                                                              _InputIterator __last, _Tp __init,
                                                                              _BinaryOp __b, _UnaryOp __u) {
   for (; __first != __last; ++__first)
@@ -31,7 +31,7 @@ _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX17 _Tp transform_reduce(_In
 }
 
 template <class _InputIterator1, class _InputIterator2, class _Tp, class _BinaryOp1, class _BinaryOp2>
-_LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX17 _Tp transform_reduce(_InputIterator1 __first1,
+_LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_SINCE_CXX20 _Tp transform_reduce(_InputIterator1 __first1,
                                                                              _InputIterator1 __last1,
                                                                              _InputIterator2 __first2, _Tp __init,
                                                                              _BinaryOp1 __b1, _BinaryOp2 __b2) {
@@ -41,7 +41,7 @@ _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX17 _Tp transform_reduce(_In
 }
 
 template <class _InputIterator1, class _InputIterator2, class _Tp>
-_LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX17 _Tp transform_reduce(_InputIterator1 __first1,
+_LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_SINCE_CXX20 _Tp transform_reduce(_InputIterator1 __first1,
                                                                              _InputIterator1 __last1,
                                                                              _InputIterator2 __first2, _Tp __init) {
   return _VSTD::transform_reduce(__first1, __last1, __first2, _VSTD::move(__init), _VSTD::plus<>(),

@@ -58,6 +58,7 @@ pub const Tag = enum {
     has_decl,
     has_field,
     import,
+    in_comptime,
     int_cast,
     int_to_enum,
     int_to_error,
@@ -118,6 +119,9 @@ pub const Tag = enum {
     union_init,
     Vector,
     volatile_cast,
+    work_item_id,
+    work_group_size,
+    work_group_id,
 };
 
 pub const MemLocRequirement = enum {
@@ -558,6 +562,13 @@ pub const list = list: {
             },
         },
         .{
+            "@inComptime",
+            .{
+                .tag = .in_comptime,
+                .param_count = 0,
+            },
+        },
+        .{
             "@intCast",
             .{
                 .tag = .int_cast,
@@ -597,28 +608,28 @@ pub const list = list: {
             "@max",
             .{
                 .tag = .max,
-                .param_count = 2,
+                .param_count = null,
             },
         },
         .{
             "@memcpy",
             .{
                 .tag = .memcpy,
-                .param_count = 3,
+                .param_count = 2,
             },
         },
         .{
             "@memset",
             .{
                 .tag = .memset,
-                .param_count = 3,
+                .param_count = 2,
             },
         },
         .{
             "@min",
             .{
                 .tag = .min,
-                .param_count = 2,
+                .param_count = null,
             },
         },
         .{
@@ -977,6 +988,26 @@ pub const list = list: {
             "@volatileCast",
             .{
                 .tag = .volatile_cast,
+                .param_count = 1,
+            },
+        },
+        .{
+            "@workItemId", .{
+                .tag = .work_item_id,
+                .param_count = 1,
+            },
+        },
+        .{
+            "@workGroupSize",
+            .{
+                .tag = .work_group_size,
+                .param_count = 1,
+            },
+        },
+        .{
+            "@workGroupId",
+            .{
+                .tag = .work_group_id,
                 .param_count = 1,
             },
         },

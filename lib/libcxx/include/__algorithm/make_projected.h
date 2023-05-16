@@ -93,7 +93,7 @@ __make_projected(_Pred& __pred, _Proj&) {
 
 _LIBCPP_END_NAMESPACE_STD
 
-#if _LIBCPP_STD_VER > 17 && !defined(_LIBCPP_HAS_NO_INCOMPLETE_RANGES)
+#if _LIBCPP_STD_VER > 17
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
@@ -121,6 +121,6 @@ decltype(auto) __make_projected_comp(_Comp& __comp, _Proj1& __proj1, _Proj2& __p
 
 _LIBCPP_END_NAMESPACE_STD
 
-#endif // _LIBCPP_STD_VER > 17 && !defined(_LIBCPP_HAS_NO_INCOMPLETE_RANGES)
+#endif // _LIBCPP_STD_VER > 17
 
 #endif // _LIBCPP___ALGORITHM_MAKE_PROJECTED_H

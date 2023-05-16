@@ -167,7 +167,7 @@ public:
     strstreambuf& operator=(strstreambuf&& __rhs);
 #endif // _LIBCPP_CXX03_LANG
 
-    virtual ~strstreambuf();
+    ~strstreambuf() override;
 
     void swap(strstreambuf& __rhs);
 
@@ -176,13 +176,13 @@ public:
     int pcount() const;
 
 protected:
-    virtual int_type overflow (int_type __c = EOF);
-    virtual int_type pbackfail(int_type __c = EOF);
-    virtual int_type underflow();
-    virtual pos_type seekoff(off_type __off, ios_base::seekdir __way,
-                             ios_base::openmode __which = ios_base::in | ios_base::out);
-    virtual pos_type seekpos(pos_type __sp,
-                             ios_base::openmode __which = ios_base::in | ios_base::out);
+    int_type overflow (int_type __c = EOF) override;
+    int_type pbackfail(int_type __c = EOF) override;
+    int_type underflow() override;
+    pos_type seekoff(off_type __off, ios_base::seekdir __way,
+                     ios_base::openmode __which = ios_base::in | ios_base::out) override;
+    pos_type seekpos(pos_type __sp,
+                     ios_base::openmode __which = ios_base::in | ios_base::out) override;
 
 private:
     typedef unsigned __mode_type;
@@ -272,7 +272,7 @@ public:
     }
 #endif // _LIBCPP_CXX03_LANG
 
-    virtual ~istrstream();
+    ~istrstream() override;
 
     _LIBCPP_INLINE_VISIBILITY
     void swap(istrstream& __rhs)
@@ -321,7 +321,7 @@ public:
     }
 #endif // _LIBCPP_CXX03_LANG
 
-    virtual ~ostrstream();
+    ~ostrstream() override;
 
     _LIBCPP_INLINE_VISIBILITY
     void swap(ostrstream& __rhs)
@@ -381,7 +381,7 @@ public:
     }
 #endif // _LIBCPP_CXX03_LANG
 
-    virtual ~strstream();
+    ~strstream() override;
 
     _LIBCPP_INLINE_VISIBILITY
     void swap(strstream& __rhs)

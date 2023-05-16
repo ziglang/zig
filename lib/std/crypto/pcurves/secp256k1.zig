@@ -51,7 +51,7 @@ pub const Secp256k1 = struct {
         };
 
         /// Compute r1 and r2 so that k = r1 + r2*lambda (mod L).
-        pub fn splitScalar(s: [32]u8, endian: std.builtin.Endian) SplitScalar {
+        pub fn splitScalar(s: [32]u8, endian: std.builtin.Endian) NonCanonicalError!SplitScalar {
             const b1_neg_s = comptime s: {
                 var buf: [32]u8 = undefined;
                 mem.writeIntLittle(u256, &buf, 303414439467246543595250775667605759171);
@@ -73,15 +73,15 @@ pub const Secp256k1 = struct {
             var buf: [32]u8 = undefined;
 
             mem.writeIntLittle(u256, &buf, c1);
-            const c1x = scalar.mul(buf, b1_neg_s, .Little) catch unreachable;
+            const c1x = try scalar.mul(buf, b1_neg_s, .Little);
 
             mem.writeIntLittle(u256, &buf, c2);
-            const c2x = scalar.mul(buf, b2_neg_s, .Little) catch unreachable;
+            const c2x = try scalar.mul(buf, b2_neg_s, .Little);
 
-            const r2 = scalar.add(c1x, c2x, .Little) catch unreachable;
+            const r2 = try scalar.add(c1x, c2x, .Little);
 
-            var r1 = scalar.mul(r2, lambda_s, .Little) catch unreachable;
-            r1 = scalar.sub(s, r1, .Little) catch unreachable;
+            var r1 = try scalar.mul(r2, lambda_s, .Little);
+            r1 = try scalar.sub(s, r1, .Little);
 
             return SplitScalar{ .r1 = r1, .r2 = r2 };
         }
@@ -158,7 +158,7 @@ pub const Secp256k1 = struct {
         var out: [33]u8 = undefined;
         const xy = p.affineCoordinates();
         out[0] = if (xy.y.isOdd()) 3 else 2;
-        mem.copy(u8, out[1..], &xy.x.toBytes(.Big));
+        out[1..].* = xy.x.toBytes(.Big);
         return out;
     }
 
@@ -167,8 +167,8 @@ pub const Secp256k1 = struct {
         var out: [65]u8 = undefined;
         out[0] = 4;
         const xy = p.affineCoordinates();
-        mem.copy(u8, out[1..33], &xy.x.toBytes(.Big));
-        mem.copy(u8, out[33..65], &xy.y.toBytes(.Big));
+        out[1..33].* = xy.x.toBytes(.Big);
+        out[33..65].* = xy.y.toBytes(.Big);
         return out;
     }
 
@@ -435,7 +435,7 @@ pub const Secp256k1 = struct {
 
     /// Multiply an elliptic curve point by a *PUBLIC* scalar *IN VARIABLE TIME*
     /// This can be used for signature verification.
-    pub fn mulPublic(p: Secp256k1, s_: [32]u8, endian: std.builtin.Endian) IdentityElementError!Secp256k1 {
+    pub fn mulPublic(p: Secp256k1, s_: [32]u8, endian: std.builtin.Endian) (IdentityElementError || NonCanonicalError)!Secp256k1 {
         const s = if (endian == .Little) s_ else Fe.orderSwap(s_);
         const zero = comptime scalar.Scalar.zero.toBytes(.Little);
         if (mem.eql(u8, &zero, &s)) {
@@ -443,7 +443,7 @@ pub const Secp256k1 = struct {
         }
         const pc = precompute(p, 8);
         var lambda_p = try pcMul(&pc, Endormorphism.lambda_s, true);
-        var split_scalar = Endormorphism.splitScalar(s, .Little);
+        var split_scalar = try Endormorphism.splitScalar(s, .Little);
         var px = p;
 
         // If a key is negative, flip the sign to keep it half-sized,
@@ -551,6 +551,8 @@ pub const AffineCoordinates = struct {
     }
 };
 
-test "secp256k1" {
+test {
+    if (@import("builtin").zig_backend == .stage2_c) return error.SkipZigTest;
+
     _ = @import("tests/secp256k1.zig");
 }

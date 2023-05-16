@@ -472,7 +472,7 @@ pub fn preadv(fd: i32, iov: [*]const iovec, count: usize, offset: i64) usize {
         @bitCast(usize, @as(isize, fd)),
         @ptrToInt(iov),
         count,
-        // Kernel expects the offset is splitted into largest natural word-size.
+        // Kernel expects the offset is split into largest natural word-size.
         // See following link for detail:
         // https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/commit/?id=601cc11d054ae4b5e9b5babec3d8e4667a2cb9b5
         @truncate(usize, offset_u),
@@ -944,6 +944,16 @@ pub fn waitpid(pid: pid_t, status: *u32, flags: u32) usize {
     return syscall4(.wait4, @bitCast(usize, @as(isize, pid)), @ptrToInt(status), flags, 0);
 }
 
+pub fn wait4(pid: pid_t, status: *u32, flags: u32, usage: ?*rusage) usize {
+    return syscall4(
+        .wait4,
+        @bitCast(usize, @as(isize, pid)),
+        @ptrToInt(status),
+        flags,
+        @ptrToInt(usage),
+    );
+}
+
 pub fn waitid(id_type: P, id: i32, infop: *siginfo_t, flags: u32) usize {
     return syscall5(.waitid, @enumToInt(id_type), @bitCast(usize, @as(isize, id)), @ptrToInt(infop), flags, 0);
 }
@@ -1174,7 +1184,7 @@ pub fn sigaction(sig: u6, noalias act: ?*const Sigaction, noalias oact: ?*Sigact
             .mask = undefined,
             .restorer = @ptrCast(k_sigaction_funcs.restorer, restorer_fn),
         };
-        @memcpy(@ptrCast([*]u8, &ksa.mask), @ptrCast([*]const u8, &new.mask), mask_size);
+        @memcpy(@ptrCast([*]u8, &ksa.mask)[0..mask_size], @ptrCast([*]const u8, &new.mask));
     }
 
     const ksa_arg = if (act != null) @ptrToInt(&ksa) else 0;
@@ -1190,7 +1200,7 @@ pub fn sigaction(sig: u6, noalias act: ?*const Sigaction, noalias oact: ?*Sigact
     if (oact) |old| {
         old.handler.handler = oldksa.handler;
         old.flags = @truncate(c_uint, oldksa.flags);
-        @memcpy(@ptrCast([*]u8, &old.mask), @ptrCast([*]const u8, &oldksa.mask), mask_size);
+        @memcpy(@ptrCast([*]u8, &old.mask)[0..mask_size], @ptrCast([*]const u8, &oldksa.mask));
     }
 
     return 0;
@@ -1505,7 +1515,29 @@ pub fn sched_yield() usize {
 pub fn sched_getaffinity(pid: pid_t, size: usize, set: *cpu_set_t) usize {
     const rc = syscall3(.sched_getaffinity, @bitCast(usize, @as(isize, pid)), size, @ptrToInt(set));
     if (@bitCast(isize, rc) < 0) return rc;
-    if (rc < size) @memset(@ptrCast([*]u8, set) + rc, 0, size - rc);
+    if (rc < size) @memset(@ptrCast([*]u8, set)[rc..size], 0);
+    return 0;
+}
+
+pub fn getcpu(cpu: *u32, node: *u32) usize {
+    return syscall3(.getcpu, cpu, node, null);
+}
+
+pub fn sched_getcpu() usize {
+    var cpu: u32 = undefined;
+    const rc = syscall3(.getcpu, &cpu, null, null);
+    if (@bitCast(isize, rc) < 0) return rc;
+    return @intCast(usize, cpu);
+}
+
+/// libc has no wrapper for this syscall
+pub fn mbind(addr: ?*anyopaque, len: u32, mode: i32, nodemask: *const u32, maxnode: u32, flags: u32) usize {
+    return syscall6(.mbind, addr, len, mode, nodemask, maxnode, flags);
+}
+
+pub fn sched_setaffinity(pid: pid_t, size: usize, set: *const cpu_set_t) usize {
+    const rc = syscall3(.sched_setaffinity, @bitCast(usize, @as(isize, pid)), size, @ptrToInt(set));
+    if (@bitCast(isize, rc) < 0) return rc;
     return 0;
 }
 
@@ -1621,6 +1653,14 @@ pub fn tcsetattr(fd: fd_t, optional_action: TCSA, termios_p: *const termios) usi
     return syscall3(.ioctl, @bitCast(usize, @as(isize, fd)), T.CSETS + @enumToInt(optional_action), @ptrToInt(termios_p));
 }
 
+pub fn tcgetpgrp(fd: fd_t, pgrp: *pid_t) usize {
+    return syscall3(.ioctl, @bitCast(usize, @as(isize, fd)), T.IOCGPGRP, @ptrToInt(pgrp));
+}
+
+pub fn tcsetpgrp(fd: fd_t, pgrp: *const pid_t) usize {
+    return syscall3(.ioctl, @bitCast(usize, @as(isize, fd)), T.IOCSPGRP, @ptrToInt(pgrp));
+}
+
 pub fn tcdrain(fd: fd_t) usize {
     return syscall3(.ioctl, @bitCast(usize, @as(isize, fd)), T.CSBRK, 1);
 }
@@ -1689,6 +1729,10 @@ pub fn prlimit(pid: pid_t, resource: rlimit_resource, new_limit: ?*const rlimit,
     );
 }
 
+pub fn mincore(address: [*]u8, len: usize, vec: [*]u8) usize {
+    return syscall3(.mincore, @ptrToInt(address), len, @ptrToInt(vec));
+}
+
 pub fn madvise(address: [*]u8, len: usize, advice: u32) usize {
     return syscall3(.madvise, @ptrToInt(address), len, advice);
 }
@@ -1716,26 +1760,26 @@ pub fn pidfd_send_signal(pidfd: fd_t, sig: i32, info: ?*siginfo_t, flags: u32) u
     );
 }
 
-pub fn process_vm_readv(pid: pid_t, local: [*]const iovec, local_count: usize, remote: [*]const iovec, remote_count: usize, flags: usize) usize {
+pub fn process_vm_readv(pid: pid_t, local: []iovec, remote: []const iovec_const, flags: usize) usize {
     return syscall6(
         .process_vm_readv,
         @bitCast(usize, @as(isize, pid)),
-        @ptrToInt(local),
-        local_count,
-        @ptrToInt(remote),
-        remote_count,
+        @ptrToInt(local.ptr),
+        local.len,
+        @ptrToInt(remote.ptr),
+        remote.len,
         flags,
     );
 }
 
-pub fn process_vm_writev(pid: pid_t, local: [*]const iovec, local_count: usize, remote: [*]const iovec, remote_count: usize, flags: usize) usize {
+pub fn process_vm_writev(pid: pid_t, local: []const iovec_const, remote: []const iovec_const, flags: usize) usize {
     return syscall6(
         .process_vm_writev,
         @bitCast(usize, @as(isize, pid)),
-        @ptrToInt(local),
-        local_count,
-        @ptrToInt(remote),
-        remote_count,
+        @ptrToInt(local.ptr),
+        local.len,
+        @ptrToInt(remote.ptr),
+        remote.len,
         flags,
     );
 }
@@ -1818,6 +1862,23 @@ pub fn perf_event_open(
 
 pub fn seccomp(operation: u32, flags: u32, args: ?*const anyopaque) usize {
     return syscall3(.seccomp, operation, flags, @ptrToInt(args));
+}
+
+pub fn ptrace(
+    req: u32,
+    pid: pid_t,
+    addr: usize,
+    data: usize,
+    addr2: usize,
+) usize {
+    return syscall5(
+        .ptrace,
+        req,
+        @bitCast(usize, @as(isize, pid)),
+        addr,
+        data,
+        addr2,
+    );
 }
 
 pub const E = switch (native_arch) {
@@ -3433,7 +3494,10 @@ pub const CAP = struct {
     pub const WAKE_ALARM = 35;
     pub const BLOCK_SUSPEND = 36;
     pub const AUDIT_READ = 37;
-    pub const LAST_CAP = AUDIT_READ;
+    pub const PERFMON = 38;
+    pub const BPF = 39;
+    pub const CHECKPOINT_RESTORE = 40;
+    pub const LAST_CAP = CHECKPOINT_RESTORE;
 
     pub fn valid(x: u8) bool {
         return x >= 0 and x <= LAST_CAP;
@@ -3495,12 +3559,43 @@ pub const CPU_SETSIZE = 128;
 pub const cpu_set_t = [CPU_SETSIZE / @sizeOf(usize)]usize;
 pub const cpu_count_t = std.meta.Int(.unsigned, std.math.log2(CPU_SETSIZE * 8));
 
+fn cpu_mask(s: usize) cpu_count_t {
+    var x = s & (CPU_SETSIZE * 8);
+    return @intCast(cpu_count_t, 1) << @intCast(u4, x);
+}
+
 pub fn CPU_COUNT(set: cpu_set_t) cpu_count_t {
     var sum: cpu_count_t = 0;
     for (set) |x| {
         sum += @popCount(x);
     }
     return sum;
+}
+
+pub fn CPU_ZERO(set: *cpu_set_t) void {
+    @memset(set, 0);
+}
+
+pub fn CPU_SET(cpu: usize, set: *cpu_set_t) void {
+    const x = cpu / @sizeOf(usize);
+    if (x < @sizeOf(cpu_set_t)) {
+        (set.*)[x] |= cpu_mask(x);
+    }
+}
+
+pub fn CPU_ISSET(cpu: usize, set: cpu_set_t) bool {
+    const x = cpu / @sizeOf(usize);
+    if (x < @sizeOf(cpu_set_t)) {
+        return set[x] & cpu_mask(x);
+    }
+    return false;
+}
+
+pub fn CPU_CLR(cpu: usize, set: *cpu_set_t) void {
+    const x = cpu / @sizeOf(usize);
+    if (x < @sizeOf(cpu_set_t)) {
+        (set.*)[x] &= !cpu_mask(x);
+    }
 }
 
 pub const MINSIGSTKSZ = switch (native_arch) {
@@ -3878,7 +3973,7 @@ pub const io_uring_cqe = extern struct {
 /// If set, the upper 16 bits are the buffer ID
 pub const IORING_CQE_F_BUFFER = 1 << 0;
 /// If set, parent SQE will generate more CQE entries.
-/// Avaiable since Linux 5.13.
+/// Available since Linux 5.13.
 pub const IORING_CQE_F_MORE = 1 << 1;
 /// If set, more data to read after socket recv
 pub const IORING_CQE_F_SOCK_NONEMPTY = 1 << 2;
@@ -3970,7 +4065,7 @@ pub const io_uring_probe = extern struct {
     ops_len: u8,
 
     resv: u16,
-    resv2: u32[3],
+    resv2: [3]u32,
 
     // Followed by up to `ops_len` io_uring_probe_op structures
 };
@@ -3988,7 +4083,7 @@ pub const io_uring_restriction = extern struct {
         sqe_flags: u8,
     },
     resv: u8,
-    resv2: u32[3],
+    resv2: [3]u32,
 };
 
 /// io_uring_restriction->opcode values
@@ -4200,7 +4295,7 @@ pub const tcp_fastopen_client_fail = enum {
 pub const TCPI_OPT_TIMESTAMPS = 1;
 pub const TCPI_OPT_SACK = 2;
 pub const TCPI_OPT_WSCALE = 4;
-/// ECN was negociated at TCP session init
+/// ECN was negotiated at TCP session init
 pub const TCPI_OPT_ECN = 8;
 /// we received at least one packet with ECT
 pub const TCPI_OPT_ECN_SEEN = 16;
@@ -5720,4 +5815,41 @@ pub const AUDIT = struct {
             return res;
         }
     };
+};
+
+pub const PTRACE = struct {
+    pub const TRACEME = 0;
+    pub const PEEKTEXT = 1;
+    pub const PEEKDATA = 2;
+    pub const PEEKUSER = 3;
+    pub const POKETEXT = 4;
+    pub const POKEDATA = 5;
+    pub const POKEUSER = 6;
+    pub const CONT = 7;
+    pub const KILL = 8;
+    pub const SINGLESTEP = 9;
+    pub const GETREGS = 12;
+    pub const SETREGS = 13;
+    pub const GETFPREGS = 14;
+    pub const SETFPREGS = 15;
+    pub const ATTACH = 16;
+    pub const DETACH = 17;
+    pub const GETFPXREGS = 18;
+    pub const SETFPXREGS = 19;
+    pub const SYSCALL = 24;
+    pub const SETOPTIONS = 0x4200;
+    pub const GETEVENTMSG = 0x4201;
+    pub const GETSIGINFO = 0x4202;
+    pub const SETSIGINFO = 0x4203;
+    pub const GETREGSET = 0x4204;
+    pub const SETREGSET = 0x4205;
+    pub const SEIZE = 0x4206;
+    pub const INTERRUPT = 0x4207;
+    pub const LISTEN = 0x4208;
+    pub const PEEKSIGINFO = 0x4209;
+    pub const GETSIGMASK = 0x420a;
+    pub const SETSIGMASK = 0x420b;
+    pub const SECCOMP_GET_FILTER = 0x420c;
+    pub const SECCOMP_GET_METADATA = 0x420d;
+    pub const GET_SYSCALL_INFO = 0x420e;
 };

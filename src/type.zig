@@ -47,6 +47,7 @@ pub const Type = extern union {
             .i128,
             .usize,
             .isize,
+            .c_char,
             .c_short,
             .c_ushort,
             .c_int,
@@ -546,6 +547,7 @@ pub const Type = extern union {
             // Detect that e.g. u64 != usize, even if the bits match on a particular target.
             .usize,
             .isize,
+            .c_char,
             .c_short,
             .c_ushort,
             .c_int,
@@ -662,6 +664,9 @@ pub const Type = extern union {
                     return false;
 
                 if (a_info.is_generic != b_info.is_generic)
+                    return false;
+
+                if (a_info.is_noinline != b_info.is_noinline)
                     return false;
 
                 if (a_info.noalias_bits != b_info.noalias_bits)
@@ -946,6 +951,7 @@ pub const Type = extern union {
 
             .usize,
             .isize,
+            .c_char,
             .c_short,
             .c_ushort,
             .c_int,
@@ -1071,6 +1077,7 @@ pub const Type = extern union {
                 }
                 std.hash.autoHash(hasher, fn_info.is_var_args);
                 std.hash.autoHash(hasher, fn_info.is_generic);
+                std.hash.autoHash(hasher, fn_info.is_noinline);
                 std.hash.autoHash(hasher, fn_info.noalias_bits);
 
                 std.hash.autoHash(hasher, fn_info.param_types.len);
@@ -1292,6 +1299,7 @@ pub const Type = extern union {
             .i128,
             .usize,
             .isize,
+            .c_char,
             .c_short,
             .c_ushort,
             .c_int,
@@ -1450,6 +1458,7 @@ pub const Type = extern union {
                     .alignment = payload.alignment,
                     .is_var_args = payload.is_var_args,
                     .is_generic = payload.is_generic,
+                    .is_noinline = payload.is_noinline,
                     .comptime_params = comptime_params.ptr,
                     .align_is_generic = payload.align_is_generic,
                     .cc_is_generic = payload.cc_is_generic,
@@ -1584,6 +1593,7 @@ pub const Type = extern union {
                 .i128,
                 .usize,
                 .isize,
+                .c_char,
                 .c_short,
                 .c_ushort,
                 .c_int,
@@ -1974,6 +1984,7 @@ pub const Type = extern union {
             .i128,
             .usize,
             .isize,
+            .c_char,
             .c_short,
             .c_ushort,
             .c_int,
@@ -2063,6 +2074,9 @@ pub const Type = extern union {
 
             .function => {
                 const fn_info = ty.fnInfo();
+                if (fn_info.is_noinline) {
+                    try writer.writeAll("noinline ");
+                }
                 try writer.writeAll("fn(");
                 for (fn_info.param_types, 0..) |param_ty, i| {
                     if (i != 0) try writer.writeAll(", ");
@@ -2290,6 +2304,7 @@ pub const Type = extern union {
             .i64 => return Value.initTag(.i64_type),
             .usize => return Value.initTag(.usize_type),
             .isize => return Value.initTag(.isize_type),
+            .c_char => return Value.initTag(.c_char_type),
             .c_short => return Value.initTag(.c_short_type),
             .c_ushort => return Value.initTag(.c_ushort_type),
             .c_int => return Value.initTag(.c_int_type),
@@ -2376,6 +2391,7 @@ pub const Type = extern union {
             .i128,
             .usize,
             .isize,
+            .c_char,
             .c_short,
             .c_ushort,
             .c_int,
@@ -2603,6 +2619,7 @@ pub const Type = extern union {
             .i128,
             .usize,
             .isize,
+            .c_char,
             .c_short,
             .c_ushort,
             .c_int,
@@ -2938,6 +2955,7 @@ pub const Type = extern union {
             .anyframe_T,
             => return AbiAlignmentAdvanced{ .scalar = @divExact(target.cpu.arch.ptrBitWidth(), 8) },
 
+            .c_char => return AbiAlignmentAdvanced{ .scalar = target.c_type_alignment(.char) },
             .c_short => return AbiAlignmentAdvanced{ .scalar = target.c_type_alignment(.short) },
             .c_ushort => return AbiAlignmentAdvanced{ .scalar = target.c_type_alignment(.ushort) },
             .c_int => return AbiAlignmentAdvanced{ .scalar = target.c_type_alignment(.int) },
@@ -3435,6 +3453,7 @@ pub const Type = extern union {
                 else => return AbiSizeAdvanced{ .scalar = @divExact(target.cpu.arch.ptrBitWidth(), 8) },
             },
 
+            .c_char => return AbiSizeAdvanced{ .scalar = target.c_type_byte_size(.char) },
             .c_short => return AbiSizeAdvanced{ .scalar = target.c_type_byte_size(.short) },
             .c_ushort => return AbiSizeAdvanced{ .scalar = target.c_type_byte_size(.ushort) },
             .c_int => return AbiSizeAdvanced{ .scalar = target.c_type_byte_size(.int) },
@@ -3577,12 +3596,12 @@ pub const Type = extern union {
 
     fn intAbiSize(bits: u16, target: Target) u64 {
         const alignment = intAbiAlignment(bits, target);
-        return std.mem.alignForwardGeneric(u64, (bits + 7) / 8, alignment);
+        return std.mem.alignForwardGeneric(u64, @intCast(u16, (@as(u17, bits) + 7) / 8), alignment);
     }
 
     fn intAbiAlignment(bits: u16, target: Target) u32 {
         return @min(
-            std.math.ceilPowerOfTwoPromote(u16, (bits + 7) / 8),
+            std.math.ceilPowerOfTwoPromote(u16, @intCast(u16, (@as(u17, bits) + 7) / 8)),
             target.maxIntAlignment(),
         );
     }
@@ -3742,6 +3761,7 @@ pub const Type = extern union {
             .manyptr_const_u8_sentinel_0,
             => return target.cpu.arch.ptrBitWidth(),
 
+            .c_char => return target.c_type_bit_size(.char),
             .c_short => return target.c_type_bit_size(.short),
             .c_ushort => return target.c_type_bit_size(.ushort),
             .c_int => return target.c_type_bit_size(.int),
@@ -3831,9 +3851,14 @@ pub const Type = extern union {
         };
     }
 
-    /// Asserts the `Type` is a pointer.
-    pub fn ptrSize(self: Type) std.builtin.Type.Pointer.Size {
-        return switch (self.tag()) {
+    /// Asserts `ty` is a pointer.
+    pub fn ptrSize(ty: Type) std.builtin.Type.Pointer.Size {
+        return ptrSizeOrNull(ty).?;
+    }
+
+    /// Returns `null` if `ty` is not a pointer.
+    pub fn ptrSizeOrNull(ty: Type) ?std.builtin.Type.Pointer.Size {
+        return switch (ty.tag()) {
             .const_slice,
             .mut_slice,
             .const_slice_u8,
@@ -3858,9 +3883,9 @@ pub const Type = extern union {
             .inferred_alloc_mut,
             => .One,
 
-            .pointer => self.castTag(.pointer).?.data.size,
+            .pointer => ty.castTag(.pointer).?.data.size,
 
-            else => unreachable,
+            else => null,
         };
     }
 
@@ -4553,6 +4578,7 @@ pub const Type = extern union {
             .int_signed,
             .i8,
             .isize,
+            .c_char,
             .c_short,
             .c_int,
             .c_long,
@@ -4625,6 +4651,7 @@ pub const Type = extern union {
             .i128 => return .{ .signedness = .signed, .bits = 128 },
             .usize => return .{ .signedness = .unsigned, .bits = target.cpu.arch.ptrBitWidth() },
             .isize => return .{ .signedness = .signed, .bits = target.cpu.arch.ptrBitWidth() },
+            .c_char => return .{ .signedness = .signed, .bits = target.c_type_bit_size(.char) },
             .c_short => return .{ .signedness = .signed, .bits = target.c_type_bit_size(.short) },
             .c_ushort => return .{ .signedness = .unsigned, .bits = target.c_type_bit_size(.ushort) },
             .c_int => return .{ .signedness = .signed, .bits = target.c_type_bit_size(.int) },
@@ -4664,6 +4691,7 @@ pub const Type = extern union {
         return switch (self.tag()) {
             .usize,
             .isize,
+            .c_char,
             .c_short,
             .c_ushort,
             .c_int,
@@ -4747,7 +4775,7 @@ pub const Type = extern union {
             .fn_ccc_void_no_args => return,
             .function => {
                 const payload = self.castTag(.function).?.data;
-                std.mem.copy(Type, types, payload.param_types);
+                @memcpy(types[0..payload.param_types.len], payload.param_types);
             },
 
             else => unreachable,
@@ -4796,9 +4824,12 @@ pub const Type = extern union {
     }
 
     /// Asserts the type is a function.
-    pub fn fnCallingConventionAllowsZigTypes(cc: std.builtin.CallingConvention) bool {
+    pub fn fnCallingConventionAllowsZigTypes(target: Target, cc: std.builtin.CallingConvention) bool {
         return switch (cc) {
-            .Unspecified, .Async, .Inline, .PtxKernel => true,
+            .Unspecified, .Async, .Inline => true,
+            // For now we want to authorize PTX kernel to use zig objects, even if we end up exposing the ABI.
+            // The goal is to experiment with more integrated CPU/GPU code.
+            .Kernel => target.cpu.arch == .nvptx or target.cpu.arch == .nvptx64,
             else => false,
         };
     }
@@ -4840,6 +4871,7 @@ pub const Type = extern union {
                 .alignment = 0,
                 .is_var_args = false,
                 .is_generic = false,
+                .is_noinline = false,
                 .align_is_generic = false,
                 .cc_is_generic = false,
                 .section_is_generic = false,
@@ -4854,6 +4886,7 @@ pub const Type = extern union {
                 .alignment = 0,
                 .is_var_args = false,
                 .is_generic = false,
+                .is_noinline = false,
                 .align_is_generic = false,
                 .cc_is_generic = false,
                 .section_is_generic = false,
@@ -4868,6 +4901,7 @@ pub const Type = extern union {
                 .alignment = 0,
                 .is_var_args = false,
                 .is_generic = false,
+                .is_noinline = false,
                 .align_is_generic = false,
                 .cc_is_generic = false,
                 .section_is_generic = false,
@@ -4882,6 +4916,7 @@ pub const Type = extern union {
                 .alignment = 0,
                 .is_var_args = false,
                 .is_generic = false,
+                .is_noinline = false,
                 .align_is_generic = false,
                 .cc_is_generic = false,
                 .section_is_generic = false,
@@ -4918,6 +4953,7 @@ pub const Type = extern union {
             .i128,
             .usize,
             .isize,
+            .c_char,
             .c_short,
             .c_ushort,
             .c_int,
@@ -4961,6 +4997,7 @@ pub const Type = extern union {
             .i128,
             .usize,
             .isize,
+            .c_char,
             .c_short,
             .c_ushort,
             .c_int,
@@ -5152,6 +5189,7 @@ pub const Type = extern union {
             .i128,
             .usize,
             .isize,
+            .c_char,
             .c_short,
             .c_ushort,
             .c_int,
@@ -5395,8 +5433,18 @@ pub const Type = extern union {
         }
     }
 
+    // Works for vectors and vectors of integers.
+    pub fn maxInt(ty: Type, arena: Allocator, target: Target) !Value {
+        const scalar = try maxIntScalar(ty.scalarType(), arena, target);
+        if (ty.zigTypeTag() == .Vector and scalar.tag() != .the_only_possible_value) {
+            return Value.Tag.repeated.create(arena, scalar);
+        } else {
+            return scalar;
+        }
+    }
+
     /// Asserts that self.zigTypeTag() == .Int.
-    pub fn maxInt(self: Type, arena: Allocator, target: Target) !Value {
+    pub fn maxIntScalar(self: Type, arena: Allocator, target: Target) !Value {
         assert(self.zigTypeTag() == .Int);
         const info = self.intInfo(target);
 
@@ -5990,6 +6038,7 @@ pub const Type = extern union {
         i128,
         usize,
         isize,
+        c_char,
         c_short,
         c_ushort,
         c_int,
@@ -6115,6 +6164,7 @@ pub const Type = extern union {
                 .i128,
                 .usize,
                 .isize,
+                .c_char,
                 .c_short,
                 .c_ushort,
                 .c_int,
@@ -6339,6 +6389,7 @@ pub const Type = extern union {
                 cc: std.builtin.CallingConvention,
                 is_var_args: bool,
                 is_generic: bool,
+                is_noinline: bool,
                 align_is_generic: bool,
                 cc_is_generic: bool,
                 section_is_generic: bool,
@@ -6682,7 +6733,17 @@ pub const Type = extern union {
 
     pub fn smallestUnsignedInt(arena: Allocator, max: u64) !Type {
         const bits = smallestUnsignedBits(max);
-        return switch (bits) {
+        return intWithBits(arena, false, bits);
+    }
+
+    pub fn intWithBits(arena: Allocator, sign: bool, bits: u16) !Type {
+        return if (sign) switch (bits) {
+            8 => initTag(.i8),
+            16 => initTag(.i16),
+            32 => initTag(.i32),
+            64 => initTag(.i64),
+            else => return Tag.int_signed.create(arena, bits),
+        } else switch (bits) {
             1 => initTag(.u1),
             8 => initTag(.u8),
             16 => initTag(.u16),
@@ -6690,6 +6751,61 @@ pub const Type = extern union {
             64 => initTag(.u64),
             else => return Tag.int_unsigned.create(arena, bits),
         };
+    }
+
+    /// Given a value representing an integer, returns the number of bits necessary to represent
+    /// this value in an integer. If `sign` is true, returns the number of bits necessary in a
+    /// twos-complement integer; otherwise in an unsigned integer.
+    /// Asserts that `val` is not undef. If `val` is negative, asserts that `sign` is true.
+    pub fn intBitsForValue(target: Target, val: Value, sign: bool) u16 {
+        assert(!val.isUndef());
+        switch (val.tag()) {
+            .int_big_positive => {
+                const limbs = val.castTag(.int_big_positive).?.data;
+                const big: std.math.big.int.Const = .{ .limbs = limbs, .positive = true };
+                return @intCast(u16, big.bitCountAbs() + @boolToInt(sign));
+            },
+            .int_big_negative => {
+                const limbs = val.castTag(.int_big_negative).?.data;
+                // Zero is still a possibility, in which case unsigned is fine
+                for (limbs) |limb| {
+                    if (limb != 0) break;
+                } else return 0; // val == 0
+                assert(sign);
+                const big: std.math.big.int.Const = .{ .limbs = limbs, .positive = false };
+                return @intCast(u16, big.bitCountTwosComp());
+            },
+            .int_i64 => {
+                const x = val.castTag(.int_i64).?.data;
+                if (x >= 0) return smallestUnsignedBits(@intCast(u64, x));
+                assert(sign);
+                return smallestUnsignedBits(@intCast(u64, -x - 1)) + 1;
+            },
+            else => {
+                const x = val.toUnsignedInt(target);
+                return smallestUnsignedBits(x) + @boolToInt(sign);
+            },
+        }
+    }
+
+    /// Returns the smallest possible integer type containing both `min` and `max`. Asserts that neither
+    /// value is undef.
+    /// TODO: if #3806 is implemented, this becomes trivial
+    pub fn intFittingRange(target: Target, arena: Allocator, min: Value, max: Value) !Type {
+        assert(!min.isUndef());
+        assert(!max.isUndef());
+
+        if (std.debug.runtime_safety) {
+            assert(Value.order(min, max, target).compare(.lte));
+        }
+
+        const sign = min.orderAgainstZero() == .lt;
+
+        const min_val_bits = intBitsForValue(target, min, sign);
+        const max_val_bits = intBitsForValue(target, max, sign);
+        const bits = @max(min_val_bits, max_val_bits);
+
+        return intWithBits(arena, sign, bits);
     }
 
     /// This is only used for comptime asserts. Bump this number when you make a change

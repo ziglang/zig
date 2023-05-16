@@ -19,7 +19,7 @@ pub const CRTFile = enum {
     uuid_lib,
 };
 
-pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile) !void {
+pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile, prog_node: *std.Progress.Node) !void {
     if (!build_options.have_llvm) {
         return error.ZigCompilerNotBuiltWithLLVMExtensions;
     }
@@ -41,7 +41,7 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile) !void {
                 //"-D_UNICODE",
                 //"-DWPRFLAG=1",
             });
-            return comp.build_crt_file("crt2", .Obj, &[1]Compilation.CSourceFile{
+            return comp.build_crt_file("crt2", .Obj, .@"mingw-w64 crt2.o", prog_node, &.{
                 .{
                     .src_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{
                         "libc", "mingw", "crt", "crtexe.c",
@@ -60,7 +60,7 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile) !void {
                 "-U__CRTDLL__",
                 "-D__MSVCRT__",
             });
-            return comp.build_crt_file("dllcrt2", .Obj, &[1]Compilation.CSourceFile{
+            return comp.build_crt_file("dllcrt2", .Obj, .@"mingw-w64 dllcrt2.o", prog_node, &.{
                 .{
                     .src_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{
                         "libc", "mingw", "crt", "crtdll.c",
@@ -100,7 +100,7 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile) !void {
                     .extra_flags = args.items,
                 };
             }
-            return comp.build_crt_file("mingw32", .Lib, &c_source_files);
+            return comp.build_crt_file("mingw32", .Lib, .@"mingw-w64 mingw32.lib", prog_node, &c_source_files);
         },
 
         .msvcrt_os_lib => {
@@ -148,7 +148,7 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile) !void {
                     };
                 }
             }
-            return comp.build_crt_file("msvcrt-os", .Lib, c_source_files.items);
+            return comp.build_crt_file("msvcrt-os", .Lib, .@"mingw-w64 msvcrt-os.lib", prog_node, c_source_files.items);
         },
 
         .mingwex_lib => {
@@ -211,7 +211,7 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile) !void {
             } else {
                 @panic("unsupported arch");
             }
-            return comp.build_crt_file("mingwex", .Lib, c_source_files.items);
+            return comp.build_crt_file("mingwex", .Lib, .@"mingw-w64 mingwex.lib", prog_node, c_source_files.items);
         },
 
         .uuid_lib => {
@@ -244,7 +244,7 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile) !void {
                     .extra_flags = extra_flags,
                 };
             }
-            return comp.build_crt_file("uuid", .Lib, &c_source_files);
+            return comp.build_crt_file("uuid", .Lib, .@"mingw-w64 uuid.lib", prog_node, &c_source_files);
         },
     }
 }

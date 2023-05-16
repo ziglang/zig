@@ -165,15 +165,14 @@ basic_ostream<wchar_t, traits>& operator<<(basic_ostream<wchar_t, traits>&, cons
 
 #include <__assert> // all public C++ headers provide the assertion handler
 #include <__config>
+#include <__memory/shared_ptr.h>
+#include <__memory/unique_ptr.h>
 #include <bitset>
 #include <ios>
 #include <locale>
+#include <new>
 #include <streambuf>
 #include <version>
-
-#ifndef _LIBCPP_REMOVE_TRANSITIVE_INCLUDES
-#  include <iterator>
-#endif
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #  pragma GCC system_header
@@ -197,7 +196,7 @@ public:
     inline _LIBCPP_HIDE_FROM_ABI_AFTER_V1
     explicit basic_ostream(basic_streambuf<char_type, traits_type>* __sb)
     { this->init(__sb); }
-    virtual ~basic_ostream();
+    ~basic_ostream() override;
 protected:
     inline _LIBCPP_INLINE_VISIBILITY
     basic_ostream(basic_ostream&& __rhs);
@@ -413,7 +412,7 @@ basic_ostream<_CharT, _Traits>::operator<<(bool __n)
         if (__s)
         {
             typedef num_put<char_type, ostreambuf_iterator<char_type, traits_type> > _Fp;
-            const _Fp& __f = use_facet<_Fp>(this->getloc());
+            const _Fp& __f = std::use_facet<_Fp>(this->getloc());
             if (__f.put(*this, *this, this->fill(), __n).failed())
                 this->setstate(ios_base::badbit | ios_base::failbit);
         }
@@ -440,7 +439,7 @@ basic_ostream<_CharT, _Traits>::operator<<(short __n)
         {
             ios_base::fmtflags __flags = ios_base::flags() & ios_base::basefield;
             typedef num_put<char_type, ostreambuf_iterator<char_type, traits_type> > _Fp;
-            const _Fp& __f = use_facet<_Fp>(this->getloc());
+            const _Fp& __f = std::use_facet<_Fp>(this->getloc());
             if (__f.put(*this, *this, this->fill(),
                         __flags == ios_base::oct || __flags == ios_base::hex ?
                         static_cast<long>(static_cast<unsigned short>(__n))  :
@@ -469,7 +468,7 @@ basic_ostream<_CharT, _Traits>::operator<<(unsigned short __n)
         if (__s)
         {
             typedef num_put<char_type, ostreambuf_iterator<char_type, traits_type> > _Fp;
-            const _Fp& __f = use_facet<_Fp>(this->getloc());
+            const _Fp& __f = std::use_facet<_Fp>(this->getloc());
             if (__f.put(*this, *this, this->fill(), static_cast<unsigned long>(__n)).failed())
                 this->setstate(ios_base::badbit | ios_base::failbit);
         }
@@ -496,7 +495,7 @@ basic_ostream<_CharT, _Traits>::operator<<(int __n)
         {
             ios_base::fmtflags __flags = ios_base::flags() & ios_base::basefield;
             typedef num_put<char_type, ostreambuf_iterator<char_type, traits_type> > _Fp;
-            const _Fp& __f = use_facet<_Fp>(this->getloc());
+            const _Fp& __f = std::use_facet<_Fp>(this->getloc());
             if (__f.put(*this, *this, this->fill(),
                         __flags == ios_base::oct || __flags == ios_base::hex ?
                         static_cast<long>(static_cast<unsigned int>(__n))  :
@@ -525,7 +524,7 @@ basic_ostream<_CharT, _Traits>::operator<<(unsigned int __n)
         if (__s)
         {
             typedef num_put<char_type, ostreambuf_iterator<char_type, traits_type> > _Fp;
-            const _Fp& __f = use_facet<_Fp>(this->getloc());
+            const _Fp& __f = std::use_facet<_Fp>(this->getloc());
             if (__f.put(*this, *this, this->fill(), static_cast<unsigned long>(__n)).failed())
                 this->setstate(ios_base::badbit | ios_base::failbit);
         }
@@ -551,7 +550,7 @@ basic_ostream<_CharT, _Traits>::operator<<(long __n)
         if (__s)
         {
             typedef num_put<char_type, ostreambuf_iterator<char_type, traits_type> > _Fp;
-            const _Fp& __f = use_facet<_Fp>(this->getloc());
+            const _Fp& __f = std::use_facet<_Fp>(this->getloc());
             if (__f.put(*this, *this, this->fill(), __n).failed())
                 this->setstate(ios_base::badbit | ios_base::failbit);
         }
@@ -577,7 +576,7 @@ basic_ostream<_CharT, _Traits>::operator<<(unsigned long __n)
         if (__s)
         {
             typedef num_put<char_type, ostreambuf_iterator<char_type, traits_type> > _Fp;
-            const _Fp& __f = use_facet<_Fp>(this->getloc());
+            const _Fp& __f = std::use_facet<_Fp>(this->getloc());
             if (__f.put(*this, *this, this->fill(), __n).failed())
                 this->setstate(ios_base::badbit | ios_base::failbit);
         }
@@ -603,7 +602,7 @@ basic_ostream<_CharT, _Traits>::operator<<(long long __n)
         if (__s)
         {
             typedef num_put<char_type, ostreambuf_iterator<char_type, traits_type> > _Fp;
-            const _Fp& __f = use_facet<_Fp>(this->getloc());
+            const _Fp& __f = std::use_facet<_Fp>(this->getloc());
             if (__f.put(*this, *this, this->fill(), __n).failed())
                 this->setstate(ios_base::badbit | ios_base::failbit);
         }
@@ -629,7 +628,7 @@ basic_ostream<_CharT, _Traits>::operator<<(unsigned long long __n)
         if (__s)
         {
             typedef num_put<char_type, ostreambuf_iterator<char_type, traits_type> > _Fp;
-            const _Fp& __f = use_facet<_Fp>(this->getloc());
+            const _Fp& __f = std::use_facet<_Fp>(this->getloc());
             if (__f.put(*this, *this, this->fill(), __n).failed())
                 this->setstate(ios_base::badbit | ios_base::failbit);
         }
@@ -655,7 +654,7 @@ basic_ostream<_CharT, _Traits>::operator<<(float __n)
         if (__s)
         {
             typedef num_put<char_type, ostreambuf_iterator<char_type, traits_type> > _Fp;
-            const _Fp& __f = use_facet<_Fp>(this->getloc());
+            const _Fp& __f = std::use_facet<_Fp>(this->getloc());
             if (__f.put(*this, *this, this->fill(), static_cast<double>(__n)).failed())
                 this->setstate(ios_base::badbit | ios_base::failbit);
         }
@@ -681,7 +680,7 @@ basic_ostream<_CharT, _Traits>::operator<<(double __n)
         if (__s)
         {
             typedef num_put<char_type, ostreambuf_iterator<char_type, traits_type> > _Fp;
-            const _Fp& __f = use_facet<_Fp>(this->getloc());
+            const _Fp& __f = std::use_facet<_Fp>(this->getloc());
             if (__f.put(*this, *this, this->fill(), __n).failed())
                 this->setstate(ios_base::badbit | ios_base::failbit);
         }
@@ -707,7 +706,7 @@ basic_ostream<_CharT, _Traits>::operator<<(long double __n)
         if (__s)
         {
             typedef num_put<char_type, ostreambuf_iterator<char_type, traits_type> > _Fp;
-            const _Fp& __f = use_facet<_Fp>(this->getloc());
+            const _Fp& __f = std::use_facet<_Fp>(this->getloc());
             if (__f.put(*this, *this, this->fill(), __n).failed())
                 this->setstate(ios_base::badbit | ios_base::failbit);
         }
@@ -733,7 +732,7 @@ basic_ostream<_CharT, _Traits>::operator<<(const void* __n)
         if (__s)
         {
             typedef num_put<char_type, ostreambuf_iterator<char_type, traits_type> > _Fp;
-            const _Fp& __f = use_facet<_Fp>(this->getloc());
+            const _Fp& __f = std::use_facet<_Fp>(this->getloc());
             if (__f.put(*this, *this, this->fill(), __n).failed())
                 this->setstate(ios_base::badbit | ios_base::failbit);
         }
@@ -748,7 +747,7 @@ basic_ostream<_CharT, _Traits>::operator<<(const void* __n)
 }
 
 template<class _CharT, class _Traits>
-basic_ostream<_CharT, _Traits>&
+_LIBCPP_HIDE_FROM_ABI basic_ostream<_CharT, _Traits>&
 __put_character_sequence(basic_ostream<_CharT, _Traits>& __os,
                           const _CharT* __str, size_t __len)
 {
@@ -760,14 +759,14 @@ __put_character_sequence(basic_ostream<_CharT, _Traits>& __os,
         if (__s)
         {
             typedef ostreambuf_iterator<_CharT, _Traits> _Ip;
-            if (__pad_and_output(_Ip(__os),
-                                 __str,
-                                 (__os.flags() & ios_base::adjustfield) == ios_base::left ?
-                                     __str + __len :
-                                     __str,
-                                 __str + __len,
-                                 __os,
-                                 __os.fill()).failed())
+            if (std::__pad_and_output(_Ip(__os),
+                                      __str,
+                                      (__os.flags() & ios_base::adjustfield) == ios_base::left ?
+                                          __str + __len :
+                                          __str,
+                                      __str + __len,
+                                      __os,
+                                      __os.fill()).failed())
                 __os.setstate(ios_base::badbit | ios_base::failbit);
         }
 #ifndef _LIBCPP_NO_EXCEPTIONS
@@ -782,14 +781,14 @@ __put_character_sequence(basic_ostream<_CharT, _Traits>& __os,
 
 
 template<class _CharT, class _Traits>
-basic_ostream<_CharT, _Traits>&
+_LIBCPP_HIDE_FROM_ABI basic_ostream<_CharT, _Traits>&
 operator<<(basic_ostream<_CharT, _Traits>& __os, _CharT __c)
 {
     return _VSTD::__put_character_sequence(__os, &__c, 1);
 }
 
 template<class _CharT, class _Traits>
-basic_ostream<_CharT, _Traits>&
+_LIBCPP_HIDE_FROM_ABI basic_ostream<_CharT, _Traits>&
 operator<<(basic_ostream<_CharT, _Traits>& __os, char __cn)
 {
 #ifndef _LIBCPP_NO_EXCEPTIONS
@@ -801,14 +800,14 @@ operator<<(basic_ostream<_CharT, _Traits>& __os, char __cn)
         {
             _CharT __c = __os.widen(__cn);
             typedef ostreambuf_iterator<_CharT, _Traits> _Ip;
-            if (__pad_and_output(_Ip(__os),
-                                 &__c,
-                                 (__os.flags() & ios_base::adjustfield) == ios_base::left ?
-                                     &__c + 1 :
-                                     &__c,
-                                 &__c + 1,
-                                 __os,
-                                 __os.fill()).failed())
+            if (std::__pad_and_output(_Ip(__os),
+                                      &__c,
+                                      (__os.flags() & ios_base::adjustfield) == ios_base::left ?
+                                          &__c + 1 :
+                                          &__c,
+                                      &__c + 1,
+                                      __os,
+                                      __os.fill()).failed())
                 __os.setstate(ios_base::badbit | ios_base::failbit);
         }
 #ifndef _LIBCPP_NO_EXCEPTIONS
@@ -822,35 +821,35 @@ operator<<(basic_ostream<_CharT, _Traits>& __os, char __cn)
 }
 
 template<class _Traits>
-basic_ostream<char, _Traits>&
+_LIBCPP_HIDE_FROM_ABI basic_ostream<char, _Traits>&
 operator<<(basic_ostream<char, _Traits>& __os, char __c)
 {
     return _VSTD::__put_character_sequence(__os, &__c, 1);
 }
 
 template<class _Traits>
-basic_ostream<char, _Traits>&
+_LIBCPP_HIDE_FROM_ABI basic_ostream<char, _Traits>&
 operator<<(basic_ostream<char, _Traits>& __os, signed char __c)
 {
     return _VSTD::__put_character_sequence(__os, (char *) &__c, 1);
 }
 
 template<class _Traits>
-basic_ostream<char, _Traits>&
+_LIBCPP_HIDE_FROM_ABI basic_ostream<char, _Traits>&
 operator<<(basic_ostream<char, _Traits>& __os, unsigned char __c)
 {
     return _VSTD::__put_character_sequence(__os, (char *) &__c, 1);
 }
 
 template<class _CharT, class _Traits>
-basic_ostream<_CharT, _Traits>&
+_LIBCPP_HIDE_FROM_ABI basic_ostream<_CharT, _Traits>&
 operator<<(basic_ostream<_CharT, _Traits>& __os, const _CharT* __str)
 {
     return _VSTD::__put_character_sequence(__os, __str, _Traits::length(__str));
 }
 
 template<class _CharT, class _Traits>
-basic_ostream<_CharT, _Traits>&
+_LIBCPP_HIDE_FROM_ABI basic_ostream<_CharT, _Traits>&
 operator<<(basic_ostream<_CharT, _Traits>& __os, const char* __strn)
 {
 #ifndef _LIBCPP_NO_EXCEPTIONS
@@ -875,14 +874,14 @@ operator<<(basic_ostream<_CharT, _Traits>& __os, const char* __strn)
             }
             for (_CharT* __p = __wb; *__strn != '\0'; ++__strn, ++__p)
                 *__p = __os.widen(*__strn);
-            if (__pad_and_output(_Ip(__os),
-                                 __wb,
-                                 (__os.flags() & ios_base::adjustfield) == ios_base::left ?
-                                     __wb + __len :
-                                     __wb,
-                                 __wb + __len,
-                                 __os,
-                                 __os.fill()).failed())
+            if (std::__pad_and_output(_Ip(__os),
+                                      __wb,
+                                      (__os.flags() & ios_base::adjustfield) == ios_base::left ?
+                                          __wb + __len :
+                                          __wb,
+                                      __wb + __len,
+                                      __os,
+                                      __os.fill()).failed())
                 __os.setstate(ios_base::badbit | ios_base::failbit);
         }
 #ifndef _LIBCPP_NO_EXCEPTIONS
@@ -896,14 +895,14 @@ operator<<(basic_ostream<_CharT, _Traits>& __os, const char* __strn)
 }
 
 template<class _Traits>
-basic_ostream<char, _Traits>&
+_LIBCPP_HIDE_FROM_ABI basic_ostream<char, _Traits>&
 operator<<(basic_ostream<char, _Traits>& __os, const char* __str)
 {
     return _VSTD::__put_character_sequence(__os, __str, _Traits::length(__str));
 }
 
 template<class _Traits>
-basic_ostream<char, _Traits>&
+_LIBCPP_HIDE_FROM_ABI basic_ostream<char, _Traits>&
 operator<<(basic_ostream<char, _Traits>& __os, const signed char* __str)
 {
     const char *__s = (const char *) __str;
@@ -911,7 +910,7 @@ operator<<(basic_ostream<char, _Traits>& __os, const signed char* __str)
 }
 
 template<class _Traits>
-basic_ostream<char, _Traits>&
+_LIBCPP_HIDE_FROM_ABI basic_ostream<char, _Traits>&
 operator<<(basic_ostream<char, _Traits>& __os, const unsigned char* __str)
 {
     const char *__s = (const char *) __str;
@@ -1032,7 +1031,7 @@ basic_ostream<_CharT, _Traits>::seekp(off_type __off, ios_base::seekdir __dir)
 }
 
 template <class _CharT, class _Traits>
-inline
+_LIBCPP_HIDE_FROM_ABI inline
 basic_ostream<_CharT, _Traits>&
 endl(basic_ostream<_CharT, _Traits>& __os)
 {
@@ -1042,7 +1041,7 @@ endl(basic_ostream<_CharT, _Traits>& __os)
 }
 
 template <class _CharT, class _Traits>
-inline
+_LIBCPP_HIDE_FROM_ABI inline
 basic_ostream<_CharT, _Traits>&
 ends(basic_ostream<_CharT, _Traits>& __os)
 {
@@ -1051,7 +1050,7 @@ ends(basic_ostream<_CharT, _Traits>& __os)
 }
 
 template <class _CharT, class _Traits>
-inline
+_LIBCPP_HIDE_FROM_ABI inline
 basic_ostream<_CharT, _Traits>&
 flush(basic_ostream<_CharT, _Traits>& __os)
 {
@@ -1064,7 +1063,7 @@ struct __is_ostreamable : false_type { };
 
 template <class _Stream, class _Tp>
 struct __is_ostreamable<_Stream, _Tp, decltype(
-    declval<_Stream>() << declval<_Tp>(), void()
+    std::declval<_Stream>() << std::declval<_Tp>(), void()
 )> : true_type { };
 
 template <class _Stream, class _Tp, class = typename enable_if<
@@ -1087,7 +1086,7 @@ operator<<(basic_ostream<_CharT, _Traits>& __os,
 }
 
 template<class _CharT, class _Traits>
-basic_ostream<_CharT, _Traits>&
+_LIBCPP_HIDE_FROM_ABI basic_ostream<_CharT, _Traits>&
 operator<<(basic_ostream<_CharT, _Traits>& __os,
            basic_string_view<_CharT, _Traits> __sv)
 {
@@ -1114,7 +1113,7 @@ template<class _CharT, class _Traits, class _Yp, class _Dp>
 inline _LIBCPP_INLINE_VISIBILITY
 typename enable_if
 <
-    is_same<void, typename __void_t<decltype((declval<basic_ostream<_CharT, _Traits>&>() << declval<typename unique_ptr<_Yp, _Dp>::pointer>()))>::type>::value,
+    is_same<void, __void_t<decltype((std::declval<basic_ostream<_CharT, _Traits>&>() << std::declval<typename unique_ptr<_Yp, _Dp>::pointer>()))> >::value,
     basic_ostream<_CharT, _Traits>&
 >::type
 operator<<(basic_ostream<_CharT, _Traits>& __os, unique_ptr<_Yp, _Dp> const& __p)
@@ -1123,12 +1122,12 @@ operator<<(basic_ostream<_CharT, _Traits>& __os, unique_ptr<_Yp, _Dp> const& __p
 }
 
 template <class _CharT, class _Traits, size_t _Size>
-basic_ostream<_CharT, _Traits>&
+_LIBCPP_HIDE_FROM_ABI basic_ostream<_CharT, _Traits>&
 operator<<(basic_ostream<_CharT, _Traits>& __os, const bitset<_Size>& __x)
 {
     return __os << __x.template to_string<_CharT, _Traits>
-                        (use_facet<ctype<_CharT> >(__os.getloc()).widen('0'),
-                         use_facet<ctype<_CharT> >(__os.getloc()).widen('1'));
+                        (std::use_facet<ctype<_CharT> >(__os.getloc()).widen('0'),
+                         std::use_facet<ctype<_CharT> >(__os.getloc()).widen('1'));
 }
 
 #if _LIBCPP_STD_VER > 17
@@ -1188,5 +1187,11 @@ extern template class _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS basic_ostream<wchar_t>;
 #endif
 
 _LIBCPP_END_NAMESPACE_STD
+
+#if !defined(_LIBCPP_REMOVE_TRANSITIVE_INCLUDES) && _LIBCPP_STD_VER <= 20
+#  include <concepts>
+#  include <iterator>
+#  include <type_traits>
+#endif
 
 #endif // _LIBCPP_OSTREAM

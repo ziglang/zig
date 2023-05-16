@@ -63,197 +63,29 @@ namespace std {
 
 #include <__assert> // all public C++ headers provide the assertion handler
 #include <__bit/bit_cast.h>
+#include <__bit/bit_ceil.h>
+#include <__bit/bit_floor.h>
+#include <__bit/bit_log2.h>
+#include <__bit/bit_width.h>
+#include <__bit/blsr.h>
 #include <__bit/byteswap.h>
-#include <__bits> // __libcpp_clz
-#include <__concepts/arithmetic.h>
+#include <__bit/countl.h>
+#include <__bit/countr.h>
+#include <__bit/endian.h>
+#include <__bit/has_single_bit.h>
+#include <__bit/popcount.h>
+#include <__bit/rotate.h>
 #include <__config>
-#include <limits>
-#include <type_traits>
 #include <version>
-
-#ifndef _LIBCPP_REMOVE_TRANSITIVE_INCLUDES
-#  include <iosfwd>
-#endif
-
-#if defined(_LIBCPP_COMPILER_MSVC)
-#  include <intrin.h>
-#endif
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #  pragma GCC system_header
 #endif
 
-_LIBCPP_PUSH_MACROS
-#include <__undef_macros>
-
-_LIBCPP_BEGIN_NAMESPACE_STD
-
-template<class _Tp>
-_LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_AFTER_CXX11
-_Tp __rotr(_Tp __t, unsigned int __cnt) _NOEXCEPT
-{
-    static_assert(__libcpp_is_unsigned_integer<_Tp>::value, "__rotr requires an unsigned integer type");
-    const unsigned int __dig = numeric_limits<_Tp>::digits;
-    if ((__cnt % __dig) == 0)
-        return __t;
-    return (__t >> (__cnt % __dig)) | (__t << (__dig - (__cnt % __dig)));
-}
-
-template<class _Tp>
-_LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_AFTER_CXX11
-int __countl_zero(_Tp __t) _NOEXCEPT
-{
-    static_assert(__libcpp_is_unsigned_integer<_Tp>::value, "__countl_zero requires an unsigned integer type");
-    if (__t == 0)
-        return numeric_limits<_Tp>::digits;
-
-    if      (sizeof(_Tp) <= sizeof(unsigned int))
-        return std::__libcpp_clz(static_cast<unsigned int>(__t))
-              - (numeric_limits<unsigned int>::digits - numeric_limits<_Tp>::digits);
-    else if (sizeof(_Tp) <= sizeof(unsigned long))
-        return std::__libcpp_clz(static_cast<unsigned long>(__t))
-              - (numeric_limits<unsigned long>::digits - numeric_limits<_Tp>::digits);
-    else if (sizeof(_Tp) <= sizeof(unsigned long long))
-        return std::__libcpp_clz(static_cast<unsigned long long>(__t))
-              - (numeric_limits<unsigned long long>::digits - numeric_limits<_Tp>::digits);
-    else
-    {
-        int __ret = 0;
-        int __iter = 0;
-        const unsigned int __ulldigits = numeric_limits<unsigned long long>::digits;
-        while (true) {
-            __t = std::__rotr(__t, __ulldigits);
-            if ((__iter = std::__countl_zero(static_cast<unsigned long long>(__t))) != __ulldigits)
-                break;
-            __ret += __iter;
-            }
-        return __ret + __iter;
-    }
-}
-
-#if _LIBCPP_STD_VER > 17
-
-template <__libcpp_unsigned_integer _Tp>
-_LIBCPP_HIDE_FROM_ABI constexpr _Tp rotl(_Tp __t, unsigned int __cnt) noexcept {
-  const unsigned int __dig = numeric_limits<_Tp>::digits;
-  if ((__cnt % __dig) == 0)
-    return __t;
-  return (__t << (__cnt % __dig)) | (__t >> (__dig - (__cnt % __dig)));
-}
-
-template <__libcpp_unsigned_integer _Tp>
-_LIBCPP_HIDE_FROM_ABI constexpr _Tp rotr(_Tp __t, unsigned int __cnt) noexcept {
-  return std::__rotr(__t, __cnt);
-}
-
-template <__libcpp_unsigned_integer _Tp>
-_LIBCPP_HIDE_FROM_ABI constexpr int countl_zero(_Tp __t) noexcept {
-  return std::__countl_zero(__t);
-}
-
-template <__libcpp_unsigned_integer _Tp>
-_LIBCPP_HIDE_FROM_ABI constexpr int countl_one(_Tp __t) noexcept {
-  return __t != numeric_limits<_Tp>::max() ? std::countl_zero(static_cast<_Tp>(~__t)) : numeric_limits<_Tp>::digits;
-}
-
-template <__libcpp_unsigned_integer _Tp>
-_LIBCPP_HIDE_FROM_ABI constexpr int countr_zero(_Tp __t) noexcept {
-  if (__t == 0)
-    return numeric_limits<_Tp>::digits;
-
-  if (sizeof(_Tp) <= sizeof(unsigned int))
-    return std::__libcpp_ctz(static_cast<unsigned int>(__t));
-  else if (sizeof(_Tp) <= sizeof(unsigned long))
-    return std::__libcpp_ctz(static_cast<unsigned long>(__t));
-  else if (sizeof(_Tp) <= sizeof(unsigned long long))
-    return std::__libcpp_ctz(static_cast<unsigned long long>(__t));
-  else {
-    int __ret = 0;
-    const unsigned int __ulldigits = numeric_limits<unsigned long long>::digits;
-    while (static_cast<unsigned long long>(__t) == 0uLL) {
-      __ret += __ulldigits;
-      __t >>= __ulldigits;
-    }
-    return __ret + std::__libcpp_ctz(static_cast<unsigned long long>(__t));
-  }
-}
-
-template <__libcpp_unsigned_integer _Tp>
-_LIBCPP_HIDE_FROM_ABI constexpr int countr_one(_Tp __t) noexcept {
-  return __t != numeric_limits<_Tp>::max() ? std::countr_zero(static_cast<_Tp>(~__t)) : numeric_limits<_Tp>::digits;
-}
-
-template <__libcpp_unsigned_integer _Tp>
-_LIBCPP_HIDE_FROM_ABI constexpr int popcount(_Tp __t) noexcept {
-  if (sizeof(_Tp) <= sizeof(unsigned int))
-    return std::__libcpp_popcount(static_cast<unsigned int>(__t));
-  else if (sizeof(_Tp) <= sizeof(unsigned long))
-    return std::__libcpp_popcount(static_cast<unsigned long>(__t));
-  else if (sizeof(_Tp) <= sizeof(unsigned long long))
-    return std::__libcpp_popcount(static_cast<unsigned long long>(__t));
-  else {
-    int __ret = 0;
-    while (__t != 0) {
-      __ret += std::__libcpp_popcount(static_cast<unsigned long long>(__t));
-      __t >>= numeric_limits<unsigned long long>::digits;
-    }
-    return __ret;
-  }
-}
-
-template <__libcpp_unsigned_integer _Tp>
-_LIBCPP_HIDE_FROM_ABI constexpr bool has_single_bit(_Tp __t) noexcept {
-  return __t != 0 && (((__t & (__t - 1)) == 0));
-}
-
-// integral log base 2
-template <__libcpp_unsigned_integer _Tp>
-_LIBCPP_HIDE_FROM_ABI constexpr _Tp __bit_log2(_Tp __t) noexcept {
-  return numeric_limits<_Tp>::digits - 1 - std::countl_zero(__t);
-}
-
-template <__libcpp_unsigned_integer _Tp>
-_LIBCPP_HIDE_FROM_ABI constexpr _Tp bit_floor(_Tp __t) noexcept {
-  return __t == 0 ? 0 : _Tp{1} << std::__bit_log2(__t);
-}
-
-template <__libcpp_unsigned_integer _Tp>
-_LIBCPP_HIDE_FROM_ABI constexpr _Tp bit_ceil(_Tp __t) noexcept {
-  if (__t < 2)
-    return 1;
-  const unsigned __n = numeric_limits<_Tp>::digits - std::countl_zero((_Tp)(__t - 1u));
-  _LIBCPP_ASSERT(__n != numeric_limits<_Tp>::digits, "Bad input to bit_ceil");
-
-  if constexpr (sizeof(_Tp) >= sizeof(unsigned))
-    return _Tp{1} << __n;
-  else {
-    const unsigned __extra = numeric_limits<unsigned>::digits - numeric_limits<_Tp>::digits;
-    const unsigned __retVal = 1u << (__n + __extra);
-    return (_Tp)(__retVal >> __extra);
-  }
-}
-
-template <__libcpp_unsigned_integer _Tp>
-_LIBCPP_HIDE_FROM_ABI constexpr int bit_width(_Tp __t) noexcept {
-  return __t == 0 ? 0 : std::__bit_log2(__t) + 1;
-}
-
-enum class endian {
-  little = 0xDEAD,
-  big = 0xFACE,
-#  if defined(_LIBCPP_LITTLE_ENDIAN)
-  native = little
-#  elif defined(_LIBCPP_BIG_ENDIAN)
-  native = big
-#  else
-  native = 0xCAFE
-#  endif
-};
-
-#endif // _LIBCPP_STD_VER > 17
-
-_LIBCPP_END_NAMESPACE_STD
-
-_LIBCPP_POP_MACROS
+#if !defined(_LIBCPP_REMOVE_TRANSITIVE_INCLUDES) && _LIBCPP_STD_VER <= 20
+#  include <iosfwd>
+#  include <limits>
+#  include <type_traits>
+#endif
 
 #endif // _LIBCPP_BIT

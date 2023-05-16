@@ -43,7 +43,7 @@ pub const IsapA128A = struct {
                 }
             } else {
                 var padded = [_]u8{0} ** 8;
-                mem.copy(u8, padded[0..left], m[i..]);
+                @memcpy(padded[0..left], m[i..]);
                 padded[left] = 0x80;
                 isap.st.addBytes(&padded);
                 isap.st.permute();

@@ -460,6 +460,9 @@ pub const Expr = opaque {
 
     pub const evaluateAsConstantExpr = ZigClangExpr_EvaluateAsConstantExpr;
     extern fn ZigClangExpr_EvaluateAsConstantExpr(*const Expr, *ExprEvalResult, Expr_ConstantExprKind, *const ASTContext) bool;
+
+    pub const castToStringLiteral = ZigClangExpr_castToStringLiteral;
+    extern fn ZigClangExpr_castToStringLiteral(*const Expr) ?*const StringLiteral;
 };
 
 pub const FieldDecl = opaque {
@@ -662,8 +665,8 @@ pub const MacroQualifiedType = opaque {
 };
 
 pub const TypeOfType = opaque {
-    pub const getUnderlyingType = ZigClangTypeOfType_getUnderlyingType;
-    extern fn ZigClangTypeOfType_getUnderlyingType(*const TypeOfType) QualType;
+    pub const getUnmodifiedType = ZigClangTypeOfType_getUnmodifiedType;
+    extern fn ZigClangTypeOfType_getUnmodifiedType(*const TypeOfType) QualType;
 };
 
 pub const TypeOfExprType = opaque {
@@ -1053,6 +1056,12 @@ pub const InitListExpr = opaque {
     pub const getArrayFiller = ZigClangInitListExpr_getArrayFiller;
     extern fn ZigClangInitListExpr_getArrayFiller(*const InitListExpr) *const Expr;
 
+    pub const hasArrayFiller = ZigClangInitListExpr_hasArrayFiller;
+    extern fn ZigClangInitListExpr_hasArrayFiller(*const InitListExpr) bool;
+
+    pub const isStringLiteralInit = ZigClangInitListExpr_isStringLiteralInit;
+    extern fn ZigClangInitListExpr_isStringLiteralInit(*const InitListExpr) bool;
+
     pub const getNumInits = ZigClangInitListExpr_getNumInits;
     extern fn ZigClangInitListExpr_getNumInits(*const InitListExpr) c_uint;
 
@@ -1199,6 +1208,7 @@ const StmtClass = enum(c_int) {
     OMPCriticalDirectiveClass,
     OMPDepobjDirectiveClass,
     OMPDispatchDirectiveClass,
+    OMPErrorDirectiveClass,
     OMPFlushDirectiveClass,
     OMPInteropDirectiveClass,
     OMPDistributeDirectiveClass,
@@ -1303,6 +1313,7 @@ const StmtClass = enum(c_int) {
     CXXNewExprClass,
     CXXNoexceptExprClass,
     CXXNullPtrLiteralExprClass,
+    CXXParenListInitExprClass,
     CXXPseudoDestructorExprClass,
     CXXRewrittenBinaryOperatorClass,
     CXXScalarValueInitExprClass,
@@ -1484,11 +1495,13 @@ pub const DeclKind = enum(c_int) {
     FileScopeAsm,
     Friend,
     FriendTemplate,
+    ImplicitConceptSpecialization,
     Import,
     LifetimeExtendedTemporary,
     LinkageSpec,
     Using,
     UsingEnum,
+    HLSLBuffer,
     Label,
     Namespace,
     NamespaceAlias,
@@ -1557,6 +1570,7 @@ pub const DeclKind = enum(c_int) {
     PragmaDetectMismatch,
     RequiresExprBody,
     StaticAssert,
+    TopLevelStmt,
     TranslationUnit,
 };
 

@@ -488,10 +488,7 @@ test "deleteDir" {
     dir.close();
 
     // deleting a non-empty directory
-    // TODO: Re-enable this check on Windows, see https://github.com/ziglang/zig/issues/5537
-    if (builtin.os.tag != .windows) {
-        try testing.expectError(error.DirNotEmpty, tmp_dir.dir.deleteDir("test_dir"));
-    }
+    try testing.expectError(error.DirNotEmpty, tmp_dir.dir.deleteDir("test_dir"));
 
     dir = try tmp_dir.dir.openDir("test_dir", .{});
     try dir.deleteFile("test_file");
@@ -1124,17 +1121,31 @@ test "open file with exclusive lock twice, make sure second lock waits" {
 test "open file with exclusive nonblocking lock twice (absolute paths)" {
     if (builtin.os.tag == .wasi) return error.SkipZigTest;
 
-    const allocator = testing.allocator;
+    var random_bytes: [12]u8 = undefined;
+    std.crypto.random.bytes(&random_bytes);
 
-    const cwd = try std.process.getCwdAlloc(allocator);
-    defer allocator.free(cwd);
-    const file_paths: [2][]const u8 = .{ cwd, "zig-test-absolute-paths.txt" };
-    const filename = try fs.path.resolve(allocator, &file_paths);
-    defer allocator.free(filename);
+    var random_b64: [fs.base64_encoder.calcSize(random_bytes.len)]u8 = undefined;
+    _ = fs.base64_encoder.encode(&random_b64, &random_bytes);
 
-    const file1 = try fs.createFileAbsolute(filename, .{ .lock = .Exclusive, .lock_nonblocking = true });
+    const sub_path = random_b64 ++ "-zig-test-absolute-paths.txt";
 
-    const file2 = fs.createFileAbsolute(filename, .{ .lock = .Exclusive, .lock_nonblocking = true });
+    const gpa = testing.allocator;
+
+    const cwd = try std.process.getCwdAlloc(gpa);
+    defer gpa.free(cwd);
+
+    const filename = try fs.path.resolve(gpa, &[_][]const u8{ cwd, sub_path });
+    defer gpa.free(filename);
+
+    const file1 = try fs.createFileAbsolute(filename, .{
+        .lock = .Exclusive,
+        .lock_nonblocking = true,
+    });
+
+    const file2 = fs.createFileAbsolute(filename, .{
+        .lock = .Exclusive,
+        .lock_nonblocking = true,
+    });
     file1.close();
     try testing.expectError(error.WouldBlock, file2);
 
@@ -1403,4 +1414,38 @@ test "File.PermissionsUnix" {
     const permissions_unix = File.PermissionsUnix.unixNew(0o754);
     try testing.expect(permissions_unix.unixHas(.user, .execute));
     try testing.expect(!permissions_unix.unixHas(.other, .execute));
+}
+
+test "delete a read-only file on windows" {
+    if (builtin.os.tag != .windows) return error.SkipZigTest;
+
+    var tmp = tmpDir(.{});
+    defer tmp.cleanup();
+    const file = try tmp.dir.createFile("test_file", .{ .read = true });
+    // Create a file and make it read-only
+    const metadata = try file.metadata();
+    var permissions = metadata.permissions();
+    permissions.setReadOnly(true);
+    try file.setPermissions(permissions);
+    try testing.expectError(error.AccessDenied, tmp.dir.deleteFile("test_file"));
+    // Now make the file not read-only
+    permissions.setReadOnly(false);
+    try file.setPermissions(permissions);
+    file.close();
+    try tmp.dir.deleteFile("test_file");
+}
+
+test "delete a setAsCwd directory on Windows" {
+    if (builtin.os.tag != .windows) return error.SkipZigTest;
+
+    var tmp = tmpDir(.{});
+    // Set tmp dir as current working directory.
+    try tmp.dir.setAsCwd();
+    tmp.dir.close();
+    try testing.expectError(error.FileBusy, tmp.parent_dir.deleteTree(&tmp.sub_path));
+    // Now set the parent dir as the current working dir for clean up.
+    try tmp.parent_dir.setAsCwd();
+    try tmp.parent_dir.deleteTree(&tmp.sub_path);
+    // Close the parent "tmp" so we don't leak the HANDLE.
+    tmp.parent_dir.close();
 }

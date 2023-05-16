@@ -40,6 +40,7 @@ pub const Value = extern union {
         i128_type,
         usize_type,
         isize_type,
+        c_char_type,
         c_short_type,
         c_ushort_type,
         c_int_type,
@@ -210,6 +211,7 @@ pub const Value = extern union {
                 .i128_type,
                 .usize_type,
                 .isize_type,
+                .c_char_type,
                 .c_short_type,
                 .c_ushort_type,
                 .c_int_type,
@@ -413,6 +415,7 @@ pub const Value = extern union {
             .i128_type,
             .usize_type,
             .isize_type,
+            .c_char_type,
             .c_short_type,
             .c_ushort_type,
             .c_int_type,
@@ -679,6 +682,7 @@ pub const Value = extern union {
             .i128_type => return out_stream.writeAll("i128"),
             .isize_type => return out_stream.writeAll("isize"),
             .usize_type => return out_stream.writeAll("usize"),
+            .c_char_type => return out_stream.writeAll("c_char"),
             .c_short_type => return out_stream.writeAll("c_short"),
             .c_ushort_type => return out_stream.writeAll("c_ushort"),
             .c_int_type => return out_stream.writeAll("c_int"),
@@ -871,7 +875,7 @@ pub const Value = extern union {
             .repeated => {
                 const byte = @intCast(u8, val.castTag(.repeated).?.data.toUnsignedInt(target));
                 const result = try allocator.alloc(u8, @intCast(usize, ty.arrayLen()));
-                std.mem.set(u8, result, byte);
+                @memset(result, byte);
                 return result;
             },
             .decl_ref => {
@@ -919,6 +923,7 @@ pub const Value = extern union {
             .i128_type => Type.initTag(.i128),
             .usize_type => Type.initTag(.usize),
             .isize_type => Type.initTag(.isize),
+            .c_char_type => Type.initTag(.c_char),
             .c_short_type => Type.initTag(.c_short),
             .c_ushort_type => Type.initTag(.c_ushort),
             .c_int_type => Type.initTag(.c_int),
@@ -1113,6 +1118,14 @@ pub const Value = extern union {
             .bool_true,
             => return BigIntMutable.init(&space.limbs, 1).toConst(),
 
+            .enum_field_index => {
+                const index = val.castTag(.enum_field_index).?.data;
+                return BigIntMutable.init(&space.limbs, index).toConst();
+            },
+            .runtime_value => {
+                const sub_val = val.castTag(.runtime_value).?.data;
+                return sub_val.toBigIntAdvanced(space, target, opt_sema);
+            },
             .int_u64 => return BigIntMutable.init(&space.limbs, val.castTag(.int_u64).?.data).toConst(),
             .int_i64 => return BigIntMutable.init(&space.limbs, val.castTag(.int_i64).?.data).toConst(),
             .int_big_positive => return val.castTag(.int_big_positive).?.asBigInt(),
@@ -1265,12 +1278,16 @@ pub const Value = extern union {
     ///
     /// Asserts that buffer.len >= ty.abiSize(). The buffer is allowed to extend past
     /// the end of the value in memory.
-    pub fn writeToMemory(val: Value, ty: Type, mod: *Module, buffer: []u8) error{ReinterpretDeclRef}!void {
+    pub fn writeToMemory(val: Value, ty: Type, mod: *Module, buffer: []u8) error{
+        ReinterpretDeclRef,
+        IllDefinedMemoryLayout,
+        Unimplemented,
+    }!void {
         const target = mod.getTarget();
         const endian = target.cpu.arch.endian();
         if (val.isUndef()) {
             const size = @intCast(usize, ty.abiSize(target));
-            std.mem.set(u8, buffer[0..size], 0xaa);
+            @memset(buffer[0..size], 0xaa);
             return;
         }
         switch (ty.zigTypeTag()) {
@@ -1332,7 +1349,7 @@ pub const Value = extern union {
                 return writeToPackedMemory(val, ty, mod, buffer[0..byte_count], 0);
             },
             .Struct => switch (ty.containerLayout()) {
-                .Auto => unreachable, // Sema is supposed to have emitted a compile error already
+                .Auto => return error.IllDefinedMemoryLayout,
                 .Extern => {
                     const fields = ty.structFields().values();
                     const field_vals = val.castTag(.aggregate).?.data;
@@ -1353,19 +1370,30 @@ pub const Value = extern union {
                 std.mem.writeInt(Int, buffer[0..@sizeOf(Int)], @intCast(Int, int), endian);
             },
             .Union => switch (ty.containerLayout()) {
-                .Auto => unreachable,
-                .Extern => @panic("TODO implement writeToMemory for extern unions"),
+                .Auto => return error.IllDefinedMemoryLayout,
+                .Extern => return error.Unimplemented,
                 .Packed => {
                     const byte_count = (@intCast(usize, ty.bitSize(target)) + 7) / 8;
                     return writeToPackedMemory(val, ty, mod, buffer[0..byte_count], 0);
                 },
             },
             .Pointer => {
-                assert(!ty.isSlice()); // No well defined layout.
+                if (ty.isSlice()) return error.IllDefinedMemoryLayout;
                 if (val.isDeclRef()) return error.ReinterpretDeclRef;
                 return val.writeToMemory(Type.usize, mod, buffer);
             },
-            else => @panic("TODO implement writeToMemory for more types"),
+            .Optional => {
+                if (!ty.isPtrLikeOptional()) return error.IllDefinedMemoryLayout;
+                var buf: Type.Payload.ElemType = undefined;
+                const child = ty.optionalChild(&buf);
+                const opt_val = val.optionalValue();
+                if (opt_val) |some| {
+                    return some.writeToMemory(child, mod, buffer);
+                } else {
+                    return writeToMemory(Value.zero, Type.usize, mod, buffer);
+                }
+            },
+            else => return error.Unimplemented,
         }
     }
 
@@ -1470,6 +1498,17 @@ pub const Value = extern union {
                 assert(!ty.isSlice()); // No well defined layout.
                 if (val.isDeclRef()) return error.ReinterpretDeclRef;
                 return val.writeToPackedMemory(Type.usize, mod, buffer, bit_offset);
+            },
+            .Optional => {
+                assert(ty.isPtrLikeOptional());
+                var buf: Type.Payload.ElemType = undefined;
+                const child = ty.optionalChild(&buf);
+                const opt_val = val.optionalValue();
+                if (opt_val) |some| {
+                    return some.writeToPackedMemory(child, mod, buffer, bit_offset);
+                } else {
+                    return writeToPackedMemory(Value.zero, Type.usize, mod, buffer, bit_offset);
+                }
             },
             else => @panic("TODO implement writeToPackedMemory for more types"),
         }
@@ -1579,6 +1618,12 @@ pub const Value = extern union {
                 assert(!ty.isSlice()); // No well defined layout.
                 return readFromMemory(Type.usize, mod, buffer, arena);
             },
+            .Optional => {
+                assert(ty.isPtrLikeOptional());
+                var buf: Type.Payload.ElemType = undefined;
+                const child = ty.optionalChild(&buf);
+                return readFromMemory(child, mod, buffer, arena);
+            },
             else => @panic("TODO implement readFromMemory for more types"),
         }
     }
@@ -1669,6 +1714,12 @@ pub const Value = extern union {
             .Pointer => {
                 assert(!ty.isSlice()); // No well defined layout.
                 return readFromPackedMemory(Type.usize, mod, buffer, bit_offset, arena);
+            },
+            .Optional => {
+                assert(ty.isPtrLikeOptional());
+                var buf: Type.Payload.ElemType = undefined;
+                const child = ty.optionalChild(&buf);
+                return readFromPackedMemory(child, mod, buffer, bit_offset, arena);
             },
             else => @panic("TODO implement readFromPackedMemory for more types"),
         }
@@ -1945,6 +1996,13 @@ pub const Value = extern union {
             .variable,
             => .gt,
 
+            .enum_field_index => return std.math.order(lhs.castTag(.enum_field_index).?.data, 0),
+            .runtime_value => {
+                // This is needed to correctly handle hashing the value.
+                // Checks in Sema should prevent direct comparisons from reaching here.
+                const val = lhs.castTag(.runtime_value).?.data;
+                return val.orderAgainstZeroAdvanced(opt_sema);
+            },
             .int_u64 => std.math.order(lhs.castTag(.int_u64).?.data, 0),
             .int_i64 => std.math.order(lhs.castTag(.int_i64).?.data, 0),
             .int_big_positive => lhs.castTag(.int_big_positive).?.asBigInt().orderAgainstScalar(0),
@@ -2731,6 +2789,7 @@ pub const Value = extern union {
             .field_ptr => isComptimeMutablePtr(val.castTag(.field_ptr).?.data.container_ptr),
             .eu_payload_ptr => isComptimeMutablePtr(val.castTag(.eu_payload_ptr).?.data.container_ptr),
             .opt_payload_ptr => isComptimeMutablePtr(val.castTag(.opt_payload_ptr).?.data.container_ptr),
+            .slice => isComptimeMutablePtr(val.castTag(.slice).?.data.ptr),
 
             else => false,
         };
@@ -2948,6 +3007,15 @@ pub const Value = extern union {
                 const data = val.castTag(.elem_ptr).?.data;
                 return data.array_ptr.elemValueAdvanced(mod, index + data.index, arena, buffer);
             },
+            .field_ptr => {
+                const data = val.castTag(.field_ptr).?.data;
+                if (data.container_ptr.pointerDecl()) |decl_index| {
+                    const container_decl = mod.declPtr(decl_index);
+                    const field_type = data.container_ty.structFieldType(data.field_index);
+                    const field_val = container_decl.val.fieldValue(field_type, data.field_index);
+                    return field_val.elemValueAdvanced(mod, index, arena, buffer);
+                } else unreachable;
+            },
 
             // The child type of arrays which have only one possible value need
             // to have only one possible value itself.
@@ -3144,13 +3212,32 @@ pub const Value = extern union {
     /// TODO: check for cases such as array that is not marked undef but all the element
     /// values are marked undef, or struct that is not marked undef but all fields are marked
     /// undef, etc.
-    pub fn anyUndef(self: Value) bool {
-        if (self.castTag(.aggregate)) |aggregate| {
-            for (aggregate.data) |val| {
-                if (val.anyUndef()) return true;
-            }
+    pub fn anyUndef(self: Value, mod: *Module) bool {
+        switch (self.tag()) {
+            .slice => {
+                const payload = self.castTag(.slice).?;
+                const len = payload.data.len.toUnsignedInt(mod.getTarget());
+
+                var elem_value_buf: ElemValueBuffer = undefined;
+                var i: usize = 0;
+                while (i < len) : (i += 1) {
+                    const elem_val = payload.data.ptr.elemValueBuffer(mod, i, &elem_value_buf);
+                    if (elem_val.anyUndef(mod)) return true;
+                }
+            },
+
+            .aggregate => {
+                const payload = self.castTag(.aggregate).?;
+                for (payload.data) |val| {
+                    if (val.anyUndef(mod)) return true;
+                }
+            },
+
+            .undef => return true,
+            else => {},
         }
-        return self.isUndef();
+
+        return false;
     }
 
     /// Asserts the value is not undefined and not unreachable.
@@ -5297,6 +5384,36 @@ pub const Value = extern union {
             },
             else => unreachable,
         }
+    }
+
+    /// If the value is represented in-memory as a series of bytes that all
+    /// have the same value, return that byte value, otherwise null.
+    pub fn hasRepeatedByteRepr(val: Value, ty: Type, mod: *Module, value_buffer: *Payload.U64) !?Value {
+        const target = mod.getTarget();
+        const abi_size = std.math.cast(usize, ty.abiSize(target)) orelse return null;
+        assert(abi_size >= 1);
+        const byte_buffer = try mod.gpa.alloc(u8, abi_size);
+        defer mod.gpa.free(byte_buffer);
+
+        writeToMemory(val, ty, mod, byte_buffer) catch |err| switch (err) {
+            error.ReinterpretDeclRef => return null,
+            // TODO: The writeToMemory function was originally created for the purpose
+            // of comptime pointer casting. However, it is now additionally being used
+            // for checking the actual memory layout that will be generated by machine
+            // code late in compilation. So, this error handling is too aggressive and
+            // causes some false negatives, causing less-than-ideal code generation.
+            error.IllDefinedMemoryLayout => return null,
+            error.Unimplemented => return null,
+        };
+        const first_byte = byte_buffer[0];
+        for (byte_buffer[1..]) |byte| {
+            if (byte != first_byte) return null;
+        }
+        value_buffer.* = .{
+            .base = .{ .tag = .int_u64 },
+            .data = first_byte,
+        };
+        return initPayload(&value_buffer.base);
     }
 
     /// This type is not copyable since it may contain pointers to its inner data.

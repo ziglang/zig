@@ -9,53 +9,135 @@
 #ifndef _LIBCPP___ALGORITHM_COPY_BACKWARD_H
 #define _LIBCPP___ALGORITHM_COPY_BACKWARD_H
 
-#include <__algorithm/copy.h>
+#include <__algorithm/copy_move_common.h>
 #include <__algorithm/iterator_operations.h>
-#include <__algorithm/ranges_copy.h>
-#include <__algorithm/unwrap_iter.h>
-#include <__concepts/same_as.h>
+#include <__algorithm/min.h>
 #include <__config>
-#include <__iterator/iterator_traits.h>
-#include <__iterator/reverse_iterator.h>
-#include <__ranges/subrange.h>
+#include <__iterator/segmented_iterator.h>
+#include <__type_traits/common_type.h>
+#include <__type_traits/is_copy_constructible.h>
 #include <__utility/move.h>
 #include <__utility/pair.h>
-#include <type_traits>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #  pragma GCC system_header
 #endif
 
+_LIBCPP_PUSH_MACROS
+#include <__undef_macros>
+
 _LIBCPP_BEGIN_NAMESPACE_STD
 
-template <class _AlgPolicy, class _InputIterator, class _OutputIterator,
-          __enable_if_t<is_same<_AlgPolicy, _ClassicAlgPolicy>::value, int> = 0>
-inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_AFTER_CXX11 pair<_InputIterator, _OutputIterator>
-__copy_backward(_InputIterator __first, _InputIterator __last, _OutputIterator __result) {
-  auto __ret = std::__copy(
-      __unconstrained_reverse_iterator<_InputIterator>(__last),
-      __unconstrained_reverse_iterator<_InputIterator>(__first),
-      __unconstrained_reverse_iterator<_OutputIterator>(__result));
-  return pair<_InputIterator, _OutputIterator>(__ret.first.base(), __ret.second.base());
-}
+template <class _AlgPolicy, class _InIter, class _Sent, class _OutIter>
+_LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 pair<_InIter, _OutIter>
+__copy_backward(_InIter __first, _Sent __last, _OutIter __result);
 
-#if _LIBCPP_STD_VER > 17 && !defined(_LIBCPP_HAS_NO_INCOMPLETE_RANGES)
-template <class _AlgPolicy, class _Iter1, class _Sent1, class _Iter2,
-          __enable_if_t<is_same<_AlgPolicy, _RangeAlgPolicy>::value, int> = 0>
-_LIBCPP_HIDE_FROM_ABI constexpr pair<_Iter1, _Iter2> __copy_backward(_Iter1 __first, _Sent1 __last, _Iter2 __result) {
-  auto __last_iter     = _IterOps<_AlgPolicy>::next(__first, std::move(__last));
-  auto __reverse_range = std::__reverse_range(std::ranges::subrange(std::move(__first), __last_iter));
-  auto __ret           = ranges::copy(std::move(__reverse_range), std::make_reverse_iterator(__result));
-  return std::make_pair(__last_iter, __ret.out.base());
+template <class _AlgPolicy>
+struct __copy_backward_loop {
+  template <class _InIter, class _Sent, class _OutIter>
+  _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX14 pair<_InIter, _OutIter>
+  operator()(_InIter __first, _Sent __last, _OutIter __result) const {
+    auto __last_iter          = _IterOps<_AlgPolicy>::next(__first, __last);
+    auto __original_last_iter = __last_iter;
+
+    while (__first != __last_iter) {
+      *--__result = *--__last_iter;
+    }
+
+    return std::make_pair(std::move(__original_last_iter), std::move(__result));
+  }
+
+  template <class _InIter, class _OutIter, __enable_if_t<__is_segmented_iterator<_InIter>::value, int> = 0>
+  _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX14 pair<_InIter, _OutIter>
+  operator()(_InIter __first, _InIter __last, _OutIter __result) const {
+    using _Traits = __segmented_iterator_traits<_InIter>;
+    auto __sfirst = _Traits::__segment(__first);
+    auto __slast  = _Traits::__segment(__last);
+    if (__sfirst == __slast) {
+      auto __iters =
+          std::__copy_backward<_AlgPolicy>(_Traits::__local(__first), _Traits::__local(__last), std::move(__result));
+      return std::make_pair(__last, __iters.second);
+    }
+
+    __result =
+        std::__copy_backward<_AlgPolicy>(_Traits::__begin(__slast), _Traits::__local(__last), std::move(__result))
+            .second;
+    --__slast;
+    while (__sfirst != __slast) {
+      __result =
+          std::__copy_backward<_AlgPolicy>(_Traits::__begin(__slast), _Traits::__end(__slast), std::move(__result))
+              .second;
+      --__slast;
+    }
+    __result = std::__copy_backward<_AlgPolicy>(_Traits::__local(__first), _Traits::__end(__slast), std::move(__result))
+                   .second;
+    return std::make_pair(__last, std::move(__result));
+  }
+
+  template <class _InIter,
+            class _OutIter,
+            __enable_if_t<__is_cpp17_random_access_iterator<_InIter>::value &&
+                              !__is_segmented_iterator<_InIter>::value && __is_segmented_iterator<_OutIter>::value,
+                          int> = 0>
+  _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX14 pair<_InIter, _OutIter>
+  operator()(_InIter __first, _InIter __last, _OutIter __result) {
+    using _Traits           = __segmented_iterator_traits<_OutIter>;
+    auto __orig_last        = __last;
+    auto __segment_iterator = _Traits::__segment(__result);
+
+    // When the range contains no elements, __result might not be a valid iterator
+    if (__first == __last)
+      return std::make_pair(__first, __result);
+
+    auto __local_last = _Traits::__local(__result);
+    while (true) {
+      using _DiffT = typename common_type<__iter_diff_t<_InIter>, __iter_diff_t<_OutIter> >::type;
+
+      auto __local_first = _Traits::__begin(__segment_iterator);
+      auto __size        = std::min<_DiffT>(__local_last - __local_first, __last - __first);
+      auto __iter        = std::__copy_backward<_AlgPolicy>(__last - __size, __last, __local_last).second;
+      __last -= __size;
+
+      if (__first == __last)
+        return std::make_pair(std::move(__orig_last), _Traits::__compose(__segment_iterator, std::move(__iter)));
+      --__segment_iterator;
+      __local_last = _Traits::__end(__segment_iterator);
+    }
+  }
+};
+
+struct __copy_backward_trivial {
+  // At this point, the iterators have been unwrapped so any `contiguous_iterator` has been unwrapped to a pointer.
+  template <class _In, class _Out,
+            __enable_if_t<__can_lower_copy_assignment_to_memmove<_In, _Out>::value, int> = 0>
+  _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX14 pair<_In*, _Out*>
+  operator()(_In* __first, _In* __last, _Out* __result) const {
+    return std::__copy_backward_trivial_impl(__first, __last, __result);
+  }
+};
+
+template <class _AlgPolicy, class _BidirectionalIterator1, class _Sentinel, class _BidirectionalIterator2>
+_LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 pair<_BidirectionalIterator1, _BidirectionalIterator2>
+__copy_backward(_BidirectionalIterator1 __first, _Sentinel __last, _BidirectionalIterator2 __result) {
+  return std::__dispatch_copy_or_move<_AlgPolicy, __copy_backward_loop<_AlgPolicy>, __copy_backward_trivial>(
+      std::move(__first), std::move(__last), std::move(__result));
 }
-#endif // _LIBCPP_STD_VER > 17 && !defined(_LIBCPP_HAS_NO_INCOMPLETE_RANGES)
 
 template <class _BidirectionalIterator1, class _BidirectionalIterator2>
-inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_AFTER_CXX17 _BidirectionalIterator2
-copy_backward(_BidirectionalIterator1 __first, _BidirectionalIterator1 __last, _BidirectionalIterator2 __result) {
-  return std::__copy_backward<_ClassicAlgPolicy>(__first, __last, __result).second;
+inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20
+_BidirectionalIterator2
+copy_backward(_BidirectionalIterator1 __first, _BidirectionalIterator1 __last,
+              _BidirectionalIterator2 __result)
+{
+  static_assert(std::is_copy_constructible<_BidirectionalIterator1>::value &&
+                std::is_copy_constructible<_BidirectionalIterator1>::value, "Iterators must be copy constructible.");
+
+  return std::__copy_backward<_ClassicAlgPolicy>(
+      std::move(__first), std::move(__last), std::move(__result)).second;
 }
 
 _LIBCPP_END_NAMESPACE_STD
+
+_LIBCPP_POP_MACROS
 
 #endif // _LIBCPP___ALGORITHM_COPY_BACKWARD_H

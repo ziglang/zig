@@ -16,9 +16,30 @@ const testing = std.testing;
 /// var a_clone = a; // creates a copy - the structure doesn't use any internal pointers
 /// ```
 pub fn BoundedArray(comptime T: type, comptime buffer_capacity: usize) type {
+    return BoundedArrayAligned(T, @alignOf(T), buffer_capacity);
+}
+
+/// A structure with an array, length and alignment, that can be used as a
+/// slice.
+///
+/// Useful to pass around small explicitly-aligned arrays whose exact size is
+/// only known at runtime, but whose maximum size is known at comptime, without
+/// requiring an `Allocator`.
+/// ```zig
+//  var a = try BoundedArrayAligned(u8, 16, 2).init(0);
+//  try a.append(255);
+//  try a.append(255);
+//  const b = @ptrCast(*const [1]u16, a.constSlice().ptr);
+//  try testing.expectEqual(@as(u16, 65535), b[0]);
+/// ```
+pub fn BoundedArrayAligned(
+    comptime T: type,
+    comptime alignment: u29,
+    comptime buffer_capacity: usize,
+) type {
     return struct {
         const Self = @This();
-        buffer: [buffer_capacity]T = undefined,
+        buffer: [buffer_capacity]T align(alignment) = undefined,
         len: usize = 0,
 
         /// Set the actual length of the slice.
@@ -30,15 +51,15 @@ pub fn BoundedArray(comptime T: type, comptime buffer_capacity: usize) type {
 
         /// View the internal array as a slice whose size was previously set.
         pub fn slice(self: anytype) switch (@TypeOf(&self.buffer)) {
-            *[buffer_capacity]T => []T,
-            *const [buffer_capacity]T => []const T,
+            *align(alignment) [buffer_capacity]T => []align(alignment) T,
+            *align(alignment) const [buffer_capacity]T => []align(alignment) const T,
             else => unreachable,
         } {
             return self.buffer[0..self.len];
         }
 
         /// View the internal array as a constant slice whose size was previously set.
-        pub fn constSlice(self: *const Self) []const T {
+        pub fn constSlice(self: *const Self) []align(alignment) const T {
             return self.slice();
         }
 
@@ -52,7 +73,7 @@ pub fn BoundedArray(comptime T: type, comptime buffer_capacity: usize) type {
         /// Copy the content of an existing slice.
         pub fn fromSlice(m: []const T) error{Overflow}!Self {
             var list = try init(m.len);
-            std.mem.copy(T, list.slice(), m);
+            @memcpy(list.slice(), m);
             return list;
         }
 
@@ -94,7 +115,7 @@ pub fn BoundedArray(comptime T: type, comptime buffer_capacity: usize) type {
 
         /// Resize the slice, adding `n` new elements, which have `undefined` values.
         /// The return value is a slice pointing to the uninitialized elements.
-        pub fn addManyAsArray(self: *Self, comptime n: usize) error{Overflow}!*[n]T {
+        pub fn addManyAsArray(self: *Self, comptime n: usize) error{Overflow}!*align(alignment) [n]T {
             const prev_len = self.len;
             try self.resize(self.len + n);
             return self.slice()[prev_len..][0..n];
@@ -118,7 +139,7 @@ pub fn BoundedArray(comptime T: type, comptime buffer_capacity: usize) type {
         /// This can be useful for writing directly into it.
         /// Note that such an operation must be followed up with a
         /// call to `resize()`
-        pub fn unusedCapacitySlice(self: *Self) []T {
+        pub fn unusedCapacitySlice(self: *Self) []align(alignment) T {
             return self.buffer[self.len..];
         }
 
@@ -144,10 +165,10 @@ pub fn BoundedArray(comptime T: type, comptime buffer_capacity: usize) type {
             try self.ensureUnusedCapacity(items.len);
             self.len += items.len;
             mem.copyBackwards(T, self.slice()[i + items.len .. self.len], self.constSlice()[i .. self.len - items.len]);
-            mem.copy(T, self.slice()[i .. i + items.len], items);
+            @memcpy(self.slice()[i..][0..items.len], items);
         }
 
-        /// Replace range of elements `slice[start..start+len]` with `new_items`.
+        /// Replace range of elements `slice[start..][0..len]` with `new_items`.
         /// Grows slice if `len < new_items.len`.
         /// Shrinks slice if `len > new_items.len`.
         pub fn replaceRange(
@@ -160,14 +181,14 @@ pub fn BoundedArray(comptime T: type, comptime buffer_capacity: usize) type {
             var range = self.slice()[start..after_range];
 
             if (range.len == new_items.len) {
-                mem.copy(T, range, new_items);
+                @memcpy(range[0..new_items.len], new_items);
             } else if (range.len < new_items.len) {
                 const first = new_items[0..range.len];
                 const rest = new_items[range.len..];
-                mem.copy(T, range, first);
+                @memcpy(range[0..first.len], first);
                 try self.insertSlice(after_range, rest);
             } else {
-                mem.copy(T, range, new_items);
+                @memcpy(range[0..new_items.len], new_items);
                 const after_subrange = start + new_items.len;
                 for (self.constSlice()[after_range..], 0..) |item, i| {
                     self.slice()[after_subrange..][i] = item;
@@ -222,9 +243,9 @@ pub fn BoundedArray(comptime T: type, comptime buffer_capacity: usize) type {
         /// Append the slice of items to the slice, asserting the capacity is already
         /// enough to store the new items.
         pub fn appendSliceAssumeCapacity(self: *Self, items: []const T) void {
-            const oldlen = self.len;
+            const old_len = self.len;
             self.len += items.len;
-            mem.copy(T, self.slice()[oldlen..], items);
+            @memcpy(self.slice()[old_len..][0..items.len], items);
         }
 
         /// Append a value to the slice `n` times.
@@ -232,7 +253,7 @@ pub fn BoundedArray(comptime T: type, comptime buffer_capacity: usize) type {
         pub fn appendNTimes(self: *Self, value: T, n: usize) error{Overflow}!void {
             const old_len = self.len;
             try self.resize(old_len + n);
-            mem.set(T, self.slice()[old_len..self.len], value);
+            @memset(self.slice()[old_len..self.len], value);
         }
 
         /// Append a value to the slice `n` times.
@@ -241,7 +262,7 @@ pub fn BoundedArray(comptime T: type, comptime buffer_capacity: usize) type {
             const old_len = self.len;
             self.len += n;
             assert(self.len <= buffer_capacity);
-            mem.set(T, self.slice()[old_len..self.len], value);
+            @memset(self.slice()[old_len..self.len], value);
         }
 
         pub const Writer = if (T != u8)
@@ -308,7 +329,7 @@ test "BoundedArray" {
     try testing.expectEqual(a.popOrNull(), 0);
     try testing.expectEqual(a.popOrNull(), null);
     var unused = a.unusedCapacitySlice();
-    mem.set(u8, unused[0..8], 2);
+    @memset(unused[0..8], 2);
     unused[8] = 3;
     unused[9] = 4;
     try testing.expectEqual(unused.len, a.capacity());
@@ -364,4 +385,16 @@ test "BoundedArray" {
     const s = "hello, this is a test string";
     try w.writeAll(s);
     try testing.expectEqualStrings(s, a.constSlice());
+}
+
+test "BoundedArrayAligned" {
+    var a = try BoundedArrayAligned(u8, 16, 4).init(0);
+    try a.append(0);
+    try a.append(0);
+    try a.append(255);
+    try a.append(255);
+
+    const b = @ptrCast(*const [2]u16, a.constSlice().ptr);
+    try testing.expectEqual(@as(u16, 0), b[0]);
+    try testing.expectEqual(@as(u16, 65535), b[1]);
 }

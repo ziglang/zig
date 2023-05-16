@@ -254,11 +254,11 @@ pub const Value = opaque {
     pub const addFunctionAttr = ZigLLVMAddFunctionAttr;
     extern fn ZigLLVMAddFunctionAttr(Fn: *Value, attr_name: [*:0]const u8, attr_value: [*:0]const u8) void;
 
-    pub const getGEPResultElementType = ZigLLVMGetGEPResultElementType;
-    extern fn ZigLLVMGetGEPResultElementType(GEP: *Value) *Type;
-
     pub const addByValAttr = ZigLLVMAddByValAttr;
     extern fn ZigLLVMAddByValAttr(Fn: *Value, ArgNo: c_uint, type: *Type) void;
+
+    pub const attachMetaData = ZigLLVMAttachMetaData;
+    extern fn ZigLLVMAttachMetaData(GlobalVar: *Value, DIG: *DIGlobalVariableExpression) void;
 };
 
 pub const Type = opaque {
@@ -409,7 +409,7 @@ pub const Module = opaque {
     extern fn LLVMSetTarget(M: *Module, Triple: [*:0]const u8) void;
 
     pub const addModuleDebugInfoFlag = ZigLLVMAddModuleDebugInfoFlag;
-    extern fn ZigLLVMAddModuleDebugInfoFlag(module: *Module) void;
+    extern fn ZigLLVMAddModuleDebugInfoFlag(module: *Module, dwarf64: bool) void;
 
     pub const addModuleCodeViewFlag = ZigLLVMAddModuleCodeViewFlag;
     extern fn ZigLLVMAddModuleCodeViewFlag(module: *Module) void;
@@ -422,6 +422,9 @@ pub const Module = opaque {
 
     pub const printModuleToFile = LLVMPrintModuleToFile;
     extern fn LLVMPrintModuleToFile(M: *Module, Filename: [*:0]const u8, ErrorMessage: *[*:0]const u8) Bool;
+
+    pub const writeBitcodeToFile = LLVMWriteBitcodeToFile;
+    extern fn LLVMWriteBitcodeToFile(M: *Module, Path: [*:0]const u8) c_int;
 };
 
 pub const lookupIntrinsicID = LLVMLookupIntrinsicID;
@@ -1133,6 +1136,7 @@ pub extern fn LLVMInitializeSystemZTargetInfo() void;
 pub extern fn LLVMInitializeWebAssemblyTargetInfo() void;
 pub extern fn LLVMInitializeX86TargetInfo() void;
 pub extern fn LLVMInitializeXCoreTargetInfo() void;
+pub extern fn LLVMInitializeXtensaTargetInfo() void;
 pub extern fn LLVMInitializeM68kTargetInfo() void;
 pub extern fn LLVMInitializeCSKYTargetInfo() void;
 pub extern fn LLVMInitializeVETargetInfo() void;
@@ -1155,6 +1159,7 @@ pub extern fn LLVMInitializeSystemZTarget() void;
 pub extern fn LLVMInitializeWebAssemblyTarget() void;
 pub extern fn LLVMInitializeX86Target() void;
 pub extern fn LLVMInitializeXCoreTarget() void;
+pub extern fn LLVMInitializeXtensaTarget() void;
 pub extern fn LLVMInitializeM68kTarget() void;
 pub extern fn LLVMInitializeVETarget() void;
 pub extern fn LLVMInitializeCSKYTarget() void;
@@ -1177,6 +1182,7 @@ pub extern fn LLVMInitializeSystemZTargetMC() void;
 pub extern fn LLVMInitializeWebAssemblyTargetMC() void;
 pub extern fn LLVMInitializeX86TargetMC() void;
 pub extern fn LLVMInitializeXCoreTargetMC() void;
+pub extern fn LLVMInitializeXtensaTargetMC() void;
 pub extern fn LLVMInitializeM68kTargetMC() void;
 pub extern fn LLVMInitializeCSKYTargetMC() void;
 pub extern fn LLVMInitializeVETargetMC() void;
@@ -1199,6 +1205,7 @@ pub extern fn LLVMInitializeSystemZAsmPrinter() void;
 pub extern fn LLVMInitializeWebAssemblyAsmPrinter() void;
 pub extern fn LLVMInitializeX86AsmPrinter() void;
 pub extern fn LLVMInitializeXCoreAsmPrinter() void;
+pub extern fn LLVMInitializeXtensaAsmPrinter() void;
 pub extern fn LLVMInitializeM68kAsmPrinter() void;
 pub extern fn LLVMInitializeVEAsmPrinter() void;
 pub extern fn LLVMInitializeARCAsmPrinter() void;
@@ -1218,6 +1225,7 @@ pub extern fn LLVMInitializeSparcAsmParser() void;
 pub extern fn LLVMInitializeSystemZAsmParser() void;
 pub extern fn LLVMInitializeWebAssemblyAsmParser() void;
 pub extern fn LLVMInitializeX86AsmParser() void;
+pub extern fn LLVMInitializeXtensaAsmParser() void;
 pub extern fn LLVMInitializeM68kAsmParser() void;
 pub extern fn LLVMInitializeCSKYAsmParser() void;
 pub extern fn LLVMInitializeVEAsmParser() void;
@@ -1333,6 +1341,7 @@ pub const ArchType = enum(c_int) {
     x86,
     x86_64,
     xcore,
+    xtensa,
     nvptx,
     nvptx64,
     le32,
@@ -1427,6 +1436,8 @@ pub const AtomicRMWBinOp = enum(c_int) {
     UMin,
     FAdd,
     FSub,
+    FMax,
+    FMin,
 };
 
 pub const TypeKind = enum(c_int) {
@@ -1582,6 +1593,7 @@ pub const address_space = struct {
 pub const DIEnumerator = opaque {};
 pub const DILocalVariable = opaque {};
 pub const DILocation = opaque {};
+pub const DIGlobalExpression = opaque {};
 
 pub const DIGlobalVariable = opaque {
     pub const toNode = ZigLLVMGlobalVariableToNode;
@@ -1589,6 +1601,13 @@ pub const DIGlobalVariable = opaque {
 
     pub const replaceLinkageName = ZigLLVMGlobalVariableReplaceLinkageName;
     extern fn ZigLLVMGlobalVariableReplaceLinkageName(global_variable: *DIGlobalVariable, linkage_name: *MDString) void;
+};
+pub const DIGlobalVariableExpression = opaque {
+    pub const getVariable = ZigLLVMGlobalGetVariable;
+    extern fn ZigLLVMGlobalGetVariable(global_variable: *DIGlobalVariableExpression) *DIGlobalVariable;
+
+    pub const getExpression = ZigLLVMGlobalGetExpression;
+    extern fn ZigLLVMGlobalGetExpression(global_variable: *DIGlobalVariableExpression) *DIGlobalExpression;
 };
 pub const DIType = opaque {
     pub const toScope = ZigLLVMTypeToScope;
@@ -1797,8 +1816,8 @@ pub const DIBuilder = opaque {
         flags: c_uint,
     ) *DILocalVariable;
 
-    pub const createGlobalVariable = ZigLLVMCreateGlobalVariable;
-    extern fn ZigLLVMCreateGlobalVariable(
+    pub const createGlobalVariableExpression = ZigLLVMCreateGlobalVariableExpression;
+    extern fn ZigLLVMCreateGlobalVariableExpression(
         dib: *DIBuilder,
         scope: *DIScope,
         name: [*:0]const u8,
@@ -1807,7 +1826,7 @@ pub const DIBuilder = opaque {
         line_no: c_uint,
         di_type: *DIType,
         is_local_to_unit: bool,
-    ) *DIGlobalVariable;
+    ) *DIGlobalVariableExpression;
 
     pub const createParameterVariable = ZigLLVMCreateParameterVariable;
     extern fn ZigLLVMCreateParameterVariable(

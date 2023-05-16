@@ -10,11 +10,9 @@
 #define _LIBCPP___TYPE_TRAITS_IS_MOVE_ASSIGNABLE_H
 
 #include <__config>
-#include <__type_traits/add_const.h>
 #include <__type_traits/add_lvalue_reference.h>
 #include <__type_traits/add_rvalue_reference.h>
 #include <__type_traits/integral_constant.h>
-#include <__type_traits/is_assignable.h>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #  pragma GCC system_header
@@ -22,9 +20,11 @@
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
-template <class _Tp> struct _LIBCPP_TEMPLATE_VIS is_move_assignable
-    : public is_assignable<typename add_lvalue_reference<_Tp>::type,
-                           typename add_rvalue_reference<_Tp>::type> {};
+template <class _Tp>
+struct _LIBCPP_TEMPLATE_VIS is_move_assignable
+    : public integral_constant<
+          bool,
+          __is_assignable(__add_lvalue_reference_t<_Tp>, __add_rvalue_reference_t<_Tp>)> {};
 
 #if _LIBCPP_STD_VER > 14
 template <class _Tp>

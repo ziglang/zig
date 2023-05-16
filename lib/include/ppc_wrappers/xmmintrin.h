@@ -35,7 +35,7 @@
 #ifndef XMMINTRIN_H_
 #define XMMINTRIN_H_
 
-#if defined(__ppc64__) &&                                                      \
+#if defined(__powerpc64__) &&                                                  \
     (defined(__linux__) || defined(__FreeBSD__) || defined(_AIX))
 
 /* Define four value permute mask */
@@ -1821,7 +1821,7 @@ extern __inline void
 
 #else
 #include_next <xmmintrin.h>
-#endif /* defined(__ppc64__) &&
+#endif /* defined(__powerpc64__) &&                                            \
         *   (defined(__linux__) || defined(__FreeBSD__) || defined(_AIX)) */
 
 #endif /* XMMINTRIN_H_ */

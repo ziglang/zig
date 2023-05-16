@@ -71,12 +71,6 @@ const Sha256Params = Sha2Params32{
 
 const v4u32 = @Vector(4, u32);
 
-// TODO: Remove once https://github.com/ziglang/zig/issues/868 is resolved.
-fn isComptime() bool {
-    var a: u8 = 0;
-    return @typeInfo(@TypeOf(.{a})).Struct.fields[0].is_comptime;
-}
-
 /// SHA-224
 pub const Sha224 = Sha2x32(Sha224Params);
 
@@ -124,7 +118,7 @@ fn Sha2x32(comptime params: Sha2Params32) type {
             // Partial buffer exists from previous update. Copy into buffer then hash.
             if (d.buf_len != 0 and d.buf_len + b.len >= 64) {
                 off += 64 - d.buf_len;
-                mem.copy(u8, d.buf[d.buf_len..], b[0..off]);
+                @memcpy(d.buf[d.buf_len..][0..off], b[0..off]);
 
                 d.round(&d.buf);
                 d.buf_len = 0;
@@ -136,7 +130,8 @@ fn Sha2x32(comptime params: Sha2Params32) type {
             }
 
             // Copy any remainder for next pass.
-            mem.copy(u8, d.buf[d.buf_len..], b[off..]);
+            const b_slice = b[off..];
+            @memcpy(d.buf[d.buf_len..][0..b_slice.len], b_slice);
             d.buf_len += @intCast(u8, b[off..].len);
 
             d.total_len += b.len;
@@ -149,7 +144,7 @@ fn Sha2x32(comptime params: Sha2Params32) type {
 
         pub fn final(d: *Self, out: *[digest_length]u8) void {
             // The buffer here will never be completely full.
-            mem.set(u8, d.buf[d.buf_len..], 0);
+            @memset(d.buf[d.buf_len..], 0);
 
             // Append padding bits.
             d.buf[d.buf_len] = 0x80;
@@ -158,7 +153,7 @@ fn Sha2x32(comptime params: Sha2Params32) type {
             // > 448 mod 512 so need to add an extra round to wrap around.
             if (64 - d.buf_len < 8) {
                 d.round(&d.buf);
-                mem.set(u8, d.buf[0..], 0);
+                @memset(d.buf[0..], 0);
             }
 
             // Append message length.
@@ -203,9 +198,9 @@ fn Sha2x32(comptime params: Sha2Params32) type {
                 s[i] = mem.readIntBig(u32, mem.asBytes(elem));
             }
 
-            if (!isComptime()) {
+            if (!@inComptime()) {
                 switch (builtin.cpu.arch) {
-                    .aarch64 => if (comptime std.Target.aarch64.featureSetHas(builtin.cpu.features, .sha2)) {
+                    .aarch64 => if (builtin.zig_backend != .stage2_c and comptime std.Target.aarch64.featureSetHas(builtin.cpu.features, .sha2)) {
                         var x: v4u32 = d.s[0..4].*;
                         var y: v4u32 = d.s[4..8].*;
                         const s_v = @ptrCast(*[16]v4u32, &s);
@@ -242,7 +237,8 @@ fn Sha2x32(comptime params: Sha2Params32) type {
                         d.s[4..8].* = y +% @as(v4u32, d.s[4..8].*);
                         return;
                     },
-                    .x86_64 => if (comptime std.Target.x86.featureSetHas(builtin.cpu.features, .sha)) {
+                    // C backend doesn't currently support passing vectors to inline asm.
+                    .x86_64 => if (builtin.zig_backend != .stage2_c and comptime std.Target.x86.featureSetHas(builtin.cpu.features, .sha)) {
                         var x: v4u32 = [_]u32{ d.s[5], d.s[4], d.s[1], d.s[0] };
                         var y: v4u32 = [_]u32{ d.s[7], d.s[6], d.s[3], d.s[2] };
                         const s_v = @ptrCast(*[16]v4u32, &s);
@@ -614,7 +610,7 @@ fn Sha2x64(comptime params: Sha2Params64) type {
             // Partial buffer exists from previous update. Copy into buffer then hash.
             if (d.buf_len != 0 and d.buf_len + b.len >= 128) {
                 off += 128 - d.buf_len;
-                mem.copy(u8, d.buf[d.buf_len..], b[0..off]);
+                @memcpy(d.buf[d.buf_len..][0..off], b[0..off]);
 
                 d.round(&d.buf);
                 d.buf_len = 0;
@@ -626,7 +622,8 @@ fn Sha2x64(comptime params: Sha2Params64) type {
             }
 
             // Copy any remainder for next pass.
-            mem.copy(u8, d.buf[d.buf_len..], b[off..]);
+            const b_slice = b[off..];
+            @memcpy(d.buf[d.buf_len..][0..b_slice.len], b_slice);
             d.buf_len += @intCast(u8, b[off..].len);
 
             d.total_len += b.len;
@@ -639,7 +636,7 @@ fn Sha2x64(comptime params: Sha2Params64) type {
 
         pub fn final(d: *Self, out: *[digest_length]u8) void {
             // The buffer here will never be completely full.
-            mem.set(u8, d.buf[d.buf_len..], 0);
+            @memset(d.buf[d.buf_len..], 0);
 
             // Append padding bits.
             d.buf[d.buf_len] = 0x80;
@@ -648,7 +645,7 @@ fn Sha2x64(comptime params: Sha2Params64) type {
             // > 896 mod 1024 so need to add an extra round to wrap around.
             if (128 - d.buf_len < 16) {
                 d.round(d.buf[0..]);
-                mem.set(u8, d.buf[0..], 0);
+                @memset(d.buf[0..], 0);
             }
 
             // Append message length.

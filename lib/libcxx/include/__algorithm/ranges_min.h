@@ -26,7 +26,7 @@
 #  pragma GCC system_header
 #endif
 
-#if _LIBCPP_STD_VER > 17 && !defined(_LIBCPP_HAS_NO_INCOMPLETE_RANGES)
+#if _LIBCPP_STD_VER > 17
 
 _LIBCPP_PUSH_MACROS
 #include <__undef_macros>
@@ -38,14 +38,14 @@ namespace __min {
 struct __fn {
   template <class _Tp, class _Proj = identity,
             indirect_strict_weak_order<projected<const _Tp*, _Proj>> _Comp = ranges::less>
-  _LIBCPP_HIDE_FROM_ABI constexpr
+  _LIBCPP_NODISCARD_EXT _LIBCPP_HIDE_FROM_ABI constexpr
   const _Tp& operator()(const _Tp& __a, const _Tp& __b, _Comp __comp = {}, _Proj __proj = {}) const {
     return std::invoke(__comp, std::invoke(__proj, __b), std::invoke(__proj, __a)) ? __b : __a;
   }
 
   template <copyable _Tp, class _Proj = identity,
             indirect_strict_weak_order<projected<const _Tp*, _Proj>> _Comp = ranges::less>
-  _LIBCPP_HIDE_FROM_ABI constexpr
+  _LIBCPP_NODISCARD_EXT _LIBCPP_HIDE_FROM_ABI constexpr
   _Tp operator()(initializer_list<_Tp> __il, _Comp __comp = {}, _Proj __proj = {}) const {
     _LIBCPP_ASSERT(__il.begin() != __il.end(), "initializer_list must contain at least one element");
     return *ranges::__min_element_impl(__il.begin(), __il.end(), __comp, __proj);
@@ -54,7 +54,7 @@ struct __fn {
   template <input_range _Rp, class _Proj = identity,
             indirect_strict_weak_order<projected<iterator_t<_Rp>, _Proj>> _Comp = ranges::less>
     requires indirectly_copyable_storable<iterator_t<_Rp>, range_value_t<_Rp>*>
-  _LIBCPP_HIDE_FROM_ABI constexpr
+  _LIBCPP_NODISCARD_EXT _LIBCPP_HIDE_FROM_ABI constexpr
   range_value_t<_Rp> operator()(_Rp&& __r, _Comp __comp = {}, _Proj __proj = {}) const {
     auto __first = ranges::begin(__r);
     auto __last = ranges::end(__r);
@@ -84,6 +84,6 @@ _LIBCPP_END_NAMESPACE_STD
 
 _LIBCPP_POP_MACROS
 
-#endif // _LIBCPP_STD_VER > 17 && && !defined(_LIBCPP_HAS_NO_INCOMPLETE_RANGES)
+#endif // _LIBCPP_STD_VER > 17 &&
 
 #endif // _LIBCPP___ALGORITHM_RANGES_MIN_H

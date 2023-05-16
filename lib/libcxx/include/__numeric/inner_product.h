@@ -20,7 +20,7 @@
 _LIBCPP_BEGIN_NAMESPACE_STD
 
 template <class _InputIterator1, class _InputIterator2, class _Tp>
-_LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX17
+_LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_SINCE_CXX20
 _Tp
 inner_product(_InputIterator1 __first1, _InputIterator1 __last1, _InputIterator2 __first2, _Tp __init)
 {
@@ -34,7 +34,7 @@ inner_product(_InputIterator1 __first1, _InputIterator1 __last1, _InputIterator2
 }
 
 template <class _InputIterator1, class _InputIterator2, class _Tp, class _BinaryOperation1, class _BinaryOperation2>
-_LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX17
+_LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_SINCE_CXX20
 _Tp
 inner_product(_InputIterator1 __first1, _InputIterator1 __last1, _InputIterator2 __first2,
               _Tp __init, _BinaryOperation1 __binary_op1, _BinaryOperation2 __binary_op2)

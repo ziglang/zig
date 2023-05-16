@@ -224,6 +224,8 @@ storage-class-specifier const error_category& iostream_category() noexcept;
 #include <version>
 
 // standard-mandated includes
+
+// [ios.syn]
 #include <iosfwd>
 
 #if !defined(_LIBCPP_HAS_NO_ATOMIC_HEADER)
@@ -441,7 +443,7 @@ public:
     explicit failure(const string& __msg, const error_code& __ec = io_errc::stream);
     explicit failure(const char* __msg, const error_code& __ec = io_errc::stream);
     failure(const failure&) _NOEXCEPT = default;
-    virtual ~failure() _NOEXCEPT;
+    ~failure() _NOEXCEPT override;
 };
 
 _LIBCPP_NORETURN inline _LIBCPP_INLINE_VISIBILITY
@@ -641,7 +643,7 @@ public:
     // 27.5.4.1 Constructor/destructor:
     _LIBCPP_INLINE_VISIBILITY
     explicit basic_ios(basic_streambuf<char_type,traits_type>* __sb);
-    virtual ~basic_ios();
+    ~basic_ios() override;
 
     // 27.5.4.2 Members:
     _LIBCPP_INLINE_VISIBILITY
@@ -764,7 +766,7 @@ inline _LIBCPP_INLINE_VISIBILITY
 char
 basic_ios<_CharT, _Traits>::narrow(char_type __c, char __dfault) const
 {
-    return use_facet<ctype<char_type> >(getloc()).narrow(__c, __dfault);
+    return std::use_facet<ctype<char_type> >(getloc()).narrow(__c, __dfault);
 }
 
 template <class _CharT, class _Traits>
@@ -772,7 +774,7 @@ inline _LIBCPP_INLINE_VISIBILITY
 _CharT
 basic_ios<_CharT, _Traits>::widen(char __c) const
 {
-    return use_facet<ctype<char_type> >(getloc()).widen(__c);
+    return std::use_facet<ctype<char_type> >(getloc()).widen(__c);
 }
 
 template <class _CharT, class _Traits>
@@ -842,7 +844,7 @@ basic_ios<_CharT, _Traits>::set_rdbuf(basic_streambuf<char_type, traits_type>* _
     ios_base::set_rdbuf(__sb);
 }
 
-inline
+_LIBCPP_HIDE_FROM_ABI inline
 ios_base&
 boolalpha(ios_base& __str)
 {
@@ -850,7 +852,7 @@ boolalpha(ios_base& __str)
     return __str;
 }
 
-inline
+_LIBCPP_HIDE_FROM_ABI inline
 ios_base&
 noboolalpha(ios_base& __str)
 {
@@ -858,7 +860,7 @@ noboolalpha(ios_base& __str)
     return __str;
 }
 
-inline
+_LIBCPP_HIDE_FROM_ABI inline
 ios_base&
 showbase(ios_base& __str)
 {
@@ -866,7 +868,7 @@ showbase(ios_base& __str)
     return __str;
 }
 
-inline
+_LIBCPP_HIDE_FROM_ABI inline
 ios_base&
 noshowbase(ios_base& __str)
 {
@@ -874,7 +876,7 @@ noshowbase(ios_base& __str)
     return __str;
 }
 
-inline
+_LIBCPP_HIDE_FROM_ABI inline
 ios_base&
 showpoint(ios_base& __str)
 {
@@ -882,7 +884,7 @@ showpoint(ios_base& __str)
     return __str;
 }
 
-inline
+_LIBCPP_HIDE_FROM_ABI inline
 ios_base&
 noshowpoint(ios_base& __str)
 {
@@ -890,7 +892,7 @@ noshowpoint(ios_base& __str)
     return __str;
 }
 
-inline
+_LIBCPP_HIDE_FROM_ABI inline
 ios_base&
 showpos(ios_base& __str)
 {
@@ -898,7 +900,7 @@ showpos(ios_base& __str)
     return __str;
 }
 
-inline
+_LIBCPP_HIDE_FROM_ABI inline
 ios_base&
 noshowpos(ios_base& __str)
 {
@@ -906,7 +908,7 @@ noshowpos(ios_base& __str)
     return __str;
 }
 
-inline
+_LIBCPP_HIDE_FROM_ABI inline
 ios_base&
 skipws(ios_base& __str)
 {
@@ -914,7 +916,7 @@ skipws(ios_base& __str)
     return __str;
 }
 
-inline
+_LIBCPP_HIDE_FROM_ABI inline
 ios_base&
 noskipws(ios_base& __str)
 {
@@ -922,7 +924,7 @@ noskipws(ios_base& __str)
     return __str;
 }
 
-inline
+_LIBCPP_HIDE_FROM_ABI inline
 ios_base&
 uppercase(ios_base& __str)
 {
@@ -930,7 +932,7 @@ uppercase(ios_base& __str)
     return __str;
 }
 
-inline
+_LIBCPP_HIDE_FROM_ABI inline
 ios_base&
 nouppercase(ios_base& __str)
 {
@@ -938,7 +940,7 @@ nouppercase(ios_base& __str)
     return __str;
 }
 
-inline
+_LIBCPP_HIDE_FROM_ABI inline
 ios_base&
 unitbuf(ios_base& __str)
 {
@@ -946,7 +948,7 @@ unitbuf(ios_base& __str)
     return __str;
 }
 
-inline
+_LIBCPP_HIDE_FROM_ABI inline
 ios_base&
 nounitbuf(ios_base& __str)
 {
@@ -954,7 +956,7 @@ nounitbuf(ios_base& __str)
     return __str;
 }
 
-inline
+_LIBCPP_HIDE_FROM_ABI inline
 ios_base&
 internal(ios_base& __str)
 {
@@ -962,7 +964,7 @@ internal(ios_base& __str)
     return __str;
 }
 
-inline
+_LIBCPP_HIDE_FROM_ABI inline
 ios_base&
 left(ios_base& __str)
 {
@@ -970,7 +972,7 @@ left(ios_base& __str)
     return __str;
 }
 
-inline
+_LIBCPP_HIDE_FROM_ABI inline
 ios_base&
 right(ios_base& __str)
 {
@@ -978,7 +980,7 @@ right(ios_base& __str)
     return __str;
 }
 
-inline
+_LIBCPP_HIDE_FROM_ABI inline
 ios_base&
 dec(ios_base& __str)
 {
@@ -986,7 +988,7 @@ dec(ios_base& __str)
     return __str;
 }
 
-inline
+_LIBCPP_HIDE_FROM_ABI inline
 ios_base&
 hex(ios_base& __str)
 {
@@ -994,7 +996,7 @@ hex(ios_base& __str)
     return __str;
 }
 
-inline
+_LIBCPP_HIDE_FROM_ABI inline
 ios_base&
 oct(ios_base& __str)
 {
@@ -1002,7 +1004,7 @@ oct(ios_base& __str)
     return __str;
 }
 
-inline
+_LIBCPP_HIDE_FROM_ABI inline
 ios_base&
 fixed(ios_base& __str)
 {
@@ -1010,7 +1012,7 @@ fixed(ios_base& __str)
     return __str;
 }
 
-inline
+_LIBCPP_HIDE_FROM_ABI inline
 ios_base&
 scientific(ios_base& __str)
 {
@@ -1018,7 +1020,7 @@ scientific(ios_base& __str)
     return __str;
 }
 
-inline
+_LIBCPP_HIDE_FROM_ABI inline
 ios_base&
 hexfloat(ios_base& __str)
 {
@@ -1026,7 +1028,7 @@ hexfloat(ios_base& __str)
     return __str;
 }
 
-inline
+_LIBCPP_HIDE_FROM_ABI inline
 ios_base&
 defaultfloat(ios_base& __str)
 {
@@ -1035,5 +1037,18 @@ defaultfloat(ios_base& __str)
 }
 
 _LIBCPP_END_NAMESPACE_STD
+
+#if !defined(_LIBCPP_REMOVE_TRANSITIVE_INCLUDES) && _LIBCPP_STD_VER <= 20
+#  include <concepts>
+#  include <cstddef>
+#  include <cstdlib>
+#  include <cstring>
+#  include <initializer_list>
+#  include <limits>
+#  include <new>
+#  include <stdexcept>
+#  include <type_traits>
+#  include <typeinfo>
+#endif
 
 #endif // _LIBCPP_IOS

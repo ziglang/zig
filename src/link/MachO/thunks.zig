@@ -17,6 +17,7 @@ const aarch64 = @import("../../arch/aarch64/bits.zig");
 const Allocator = mem.Allocator;
 const Atom = @import("ZldAtom.zig");
 const AtomIndex = @import("zld.zig").AtomIndex;
+const Relocation = @import("Relocation.zig");
 const SymbolWithLoc = @import("zld.zig").SymbolWithLoc;
 const Zld = @import("zld.zig").Zld;
 
@@ -225,11 +226,20 @@ fn scanRelocs(
         break :blk @intCast(i32, source_sym.n_value - source_sect.addr);
     } else 0;
 
+    const code = Atom.getAtomCode(zld, atom_index);
     const relocs = Atom.getAtomRelocs(zld, atom_index);
+    const ctx = Atom.getRelocContext(zld, atom_index);
+
     for (relocs) |rel| {
         if (!relocNeedsThunk(rel)) continue;
 
-        const target = Atom.parseRelocTarget(zld, atom_index, rel);
+        const target = Atom.parseRelocTarget(zld, .{
+            .object_id = atom.getFile().?,
+            .rel = rel,
+            .code = code,
+            .base_offset = ctx.base_offset,
+            .base_addr = ctx.base_addr,
+        });
         if (isReachable(zld, atom_index, rel, base_offset, target, allocated)) continue;
 
         log.debug("{x}: source = {s}@{x}, target = {s}@{x} unreachable", .{
@@ -308,7 +318,7 @@ fn isReachable(
     const source_addr = source_sym.n_value + @intCast(u32, rel.r_address - base_offset);
     const is_via_got = Atom.relocRequiresGot(zld, rel);
     const target_addr = Atom.getRelocTargetAddress(zld, target, is_via_got, false) catch unreachable;
-    _ = Atom.calcPcRelativeDisplacementArm64(source_addr, target_addr) catch
+    _ = Relocation.calcPcRelativeDisplacementArm64(source_addr, target_addr) catch
         return false;
 
     return true;
@@ -355,9 +365,9 @@ pub fn writeThunkCode(zld: *Zld, atom_index: AtomIndex, writer: anytype) !void {
         if (atom_index == target_atom_index) break zld.getSymbol(target).n_value;
     } else unreachable;
 
-    const pages = Atom.calcNumberOfPages(source_addr, target_addr);
+    const pages = Relocation.calcNumberOfPages(source_addr, target_addr);
     try writer.writeIntLittle(u32, aarch64.Instruction.adrp(.x16, pages).toU32());
-    const off = try Atom.calcPageOffset(target_addr, .arithmetic);
+    const off = try Relocation.calcPageOffset(target_addr, .arithmetic);
     try writer.writeIntLittle(u32, aarch64.Instruction.add(.x16, .x16, off, false).toU32());
     try writer.writeIntLittle(u32, aarch64.Instruction.br(.x16).toU32());
 }

@@ -50,7 +50,7 @@ inline constexpr bool is_member_function_pointer_v = __is_member_function_pointe
 #else // __has_builtin(__is_member_function_pointer)
 
 template <class _Tp> struct _LIBCPP_TEMPLATE_VIS is_member_function_pointer
-    : public _BoolConstant< __libcpp_is_member_pointer<typename remove_cv<_Tp>::type>::__is_func > {};
+    : public _BoolConstant< __libcpp_is_member_pointer<__remove_cv_t<_Tp> >::__is_func > {};
 
 #if _LIBCPP_STD_VER > 14
 template <class _Tp>

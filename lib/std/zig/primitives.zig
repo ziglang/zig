@@ -11,6 +11,7 @@ pub const names = std.ComptimeStringMap(void, .{
     .{"c_long"},
     .{"c_longdouble"},
     .{"c_longlong"},
+    .{"c_char"},
     .{"c_short"},
     .{"c_uint"},
     .{"c_ulong"},

@@ -6,11 +6,15 @@
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
+
 #ifndef _LIBCPP___RANGES_TAKE_VIEW_H
 #define _LIBCPP___RANGES_TAKE_VIEW_H
 
 #include <__algorithm/min.h>
 #include <__algorithm/ranges_min.h>
+#include <__assert>
+#include <__concepts/constructible.h>
+#include <__concepts/convertible_to.h>
 #include <__config>
 #include <__functional/bind_back.h>
 #include <__fwd/span.h>
@@ -30,10 +34,10 @@
 #include <__ranges/size.h>
 #include <__ranges/subrange.h>
 #include <__ranges/view_interface.h>
+#include <__type_traits/maybe_const.h>
 #include <__utility/auto_cast.h>
 #include <__utility/forward.h>
 #include <__utility/move.h>
-#include <concepts>
 #include <type_traits>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
@@ -45,7 +49,7 @@ _LIBCPP_PUSH_MACROS
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
-#if _LIBCPP_STD_VER > 17 && !defined(_LIBCPP_HAS_NO_INCOMPLETE_RANGES)
+#if _LIBCPP_STD_VER > 17
 
 namespace ranges {
 
@@ -60,9 +64,10 @@ public:
   _LIBCPP_HIDE_FROM_ABI
   take_view() requires default_initializable<_View> = default;
 
-  _LIBCPP_HIDE_FROM_ABI
-  constexpr take_view(_View __base, range_difference_t<_View> __count)
-    : __base_(std::move(__base)), __count_(__count) {}
+  _LIBCPP_HIDE_FROM_ABI constexpr take_view(_View __base, range_difference_t<_View> __count)
+      : __base_(std::move(__base)), __count_(__count) {
+    _LIBCPP_ASSERT(__count >= 0, "count has to be greater than or equal to zero");
+  }
 
   _LIBCPP_HIDE_FROM_ABI
   constexpr _View base() const& requires copy_constructible<_View> { return __base_; }
@@ -225,6 +230,7 @@ struct __passthrough_type<basic_string_view<_CharT, _Traits>> {
 };
 
 template <class _Iter, class _Sent, subrange_kind _Kind>
+  requires requires{typename subrange<_Iter>;}
 struct __passthrough_type<subrange<_Iter, _Sent, _Kind>> {
   using type = subrange<_Iter>;
 };
@@ -328,7 +334,7 @@ inline namespace __cpo {
 
 } // namespace ranges
 
-#endif // _LIBCPP_STD_VER > 17 && !defined(_LIBCPP_HAS_NO_INCOMPLETE_RANGES)
+#endif // _LIBCPP_STD_VER > 17
 
 _LIBCPP_END_NAMESPACE_STD
 

@@ -71,6 +71,7 @@ private:
     const basic_format_arg<_Context>* __args_;
   };
 };
+_LIBCPP_CTAD_SUPPORTED_FOR_TYPE(basic_format_args);
 
 #endif //_LIBCPP_STD_VER > 17
 

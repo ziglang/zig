@@ -18,20 +18,20 @@ const tmp_dir_name = "docgen_tmp";
 const test_out_path = tmp_dir_name ++ fs.path.sep_str ++ "test" ++ exe_ext;
 
 const usage =
-    \\Usage: docgen [--zig] [--skip-code-test] input output"
+    \\Usage: docgen [--zig] [--skip-code-tests] input output"
     \\
     \\   Generates an HTML document from a docgen template.
     \\
     \\Options:
     \\   -h, --help             Print this help and exit
-    \\   --skip-code-test       Skip the doctests
+    \\   --skip-code-tests      Skip the doctests
     \\
 ;
 
-fn errorf(comptime format: []const u8, args: anytype) noreturn {
+fn fatal(comptime format: []const u8, args: anytype) noreturn {
     const stderr = io.getStdErr().writer();
 
-    stderr.print("error: " ++ format, args) catch {};
+    stderr.print("error: " ++ format ++ "\n", args) catch {};
     process.exit(1);
 }
 
@@ -45,6 +45,7 @@ pub fn main() !void {
     if (!args_it.skip()) @panic("expected self arg");
 
     var zig_exe: []const u8 = "zig";
+    var opt_zig_lib_dir: ?[]const u8 = null;
     var do_code_tests = true;
     var files = [_][]const u8{ "", "" };
 
@@ -59,24 +60,29 @@ pub fn main() !void {
                 if (args_it.next()) |param| {
                     zig_exe = param;
                 } else {
-                    errorf("expected parameter after --zig\n", .{});
+                    fatal("expected parameter after --zig", .{});
+                }
+            } else if (mem.eql(u8, arg, "--zig-lib-dir")) {
+                if (args_it.next()) |param| {
+                    opt_zig_lib_dir = param;
+                } else {
+                    fatal("expected parameter after --zig-lib-dir", .{});
                 }
             } else if (mem.eql(u8, arg, "--skip-code-tests")) {
                 do_code_tests = false;
             } else {
-                errorf("unrecognized option: '{s}'\n", .{arg});
+                fatal("unrecognized option: '{s}'", .{arg});
             }
         } else {
             if (i > 1) {
-                errorf("too many arguments\n", .{});
+                fatal("too many arguments", .{});
             }
             files[i] = arg;
             i += 1;
         }
     }
     if (i < 2) {
-        errorf("not enough arguments\n", .{});
-        process.exit(1);
+        fatal("not enough arguments", .{});
     }
 
     var in_file = try fs.cwd().openFile(files[0], .{ .mode = .read_only });
@@ -95,7 +101,7 @@ pub fn main() !void {
     try fs.cwd().makePath(tmp_dir_name);
     defer fs.cwd().deleteTree(tmp_dir_name) catch {};
 
-    try genHtml(allocator, &tokenizer, &toc, buffered_writer.writer(), zig_exe, do_code_tests);
+    try genHtml(allocator, &tokenizer, &toc, buffered_writer.writer(), zig_exe, opt_zig_lib_dir, do_code_tests);
     try buffered_writer.flush();
 }
 
@@ -319,10 +325,10 @@ const Code = struct {
     link_objects: []const []const u8,
     target_str: ?[]const u8,
     link_libc: bool,
-    backend_stage1: bool,
     link_mode: ?std.builtin.LinkMode,
     disable_cache: bool,
     verbose_cimport: bool,
+    additional_options: []const []const u8,
 
     const Id = union(enum) {
         Test,
@@ -589,7 +595,8 @@ fn genToc(allocator: Allocator, tokenizer: *Tokenizer) !Toc {
                     var link_mode: ?std.builtin.LinkMode = null;
                     var disable_cache = false;
                     var verbose_cimport = false;
-                    var backend_stage1 = false;
+                    var additional_options = std.ArrayList([]const u8).init(allocator);
+                    defer additional_options.deinit();
 
                     const source_token = while (true) {
                         const content_tok = try eatToken(tokenizer, Token.Id.Content);
@@ -622,8 +629,10 @@ fn genToc(allocator: Allocator, tokenizer: *Tokenizer) !Toc {
                             link_libc = true;
                         } else if (mem.eql(u8, end_tag_name, "link_mode_dynamic")) {
                             link_mode = .Dynamic;
-                        } else if (mem.eql(u8, end_tag_name, "backend_stage1")) {
-                            backend_stage1 = true;
+                        } else if (mem.eql(u8, end_tag_name, "additonal_option")) {
+                            _ = try eatToken(tokenizer, Token.Id.Separator);
+                            const option = try eatToken(tokenizer, Token.Id.TagContent);
+                            try additional_options.append(tokenizer.buffer[option.start..option.end]);
                         } else if (mem.eql(u8, end_tag_name, "code_end")) {
                             _ = try eatToken(tokenizer, Token.Id.BracketClose);
                             break content_tok;
@@ -647,10 +656,10 @@ fn genToc(allocator: Allocator, tokenizer: *Tokenizer) !Toc {
                             .link_objects = try link_objects.toOwnedSlice(),
                             .target_str = target_str,
                             .link_libc = link_libc,
-                            .backend_stage1 = backend_stage1,
                             .link_mode = link_mode,
                             .disable_cache = disable_cache,
                             .verbose_cimport = verbose_cimport,
+                            .additional_options = try additional_options.toOwnedSlice(),
                         },
                     });
                     tokenizer.code_node_count += 1;
@@ -1268,9 +1277,10 @@ fn genHtml(
     toc: *Toc,
     out: anytype,
     zig_exe: []const u8,
+    opt_zig_lib_dir: ?[]const u8,
     do_code_tests: bool,
 ) !void {
-    var progress = Progress{};
+    var progress = Progress{ .dont_print_on_dumb = true };
     const root_node = progress.start("Generating docgen examples", toc.nodes.len);
     defer root_node.end();
 
@@ -1278,7 +1288,7 @@ fn genHtml(
     try env_map.put("ZIG_DEBUG_COLOR", "1");
 
     const host = try std.zig.system.NativeTargetInfo.detect(.{});
-    const builtin_code = try getBuiltinCode(allocator, &env_map, zig_exe);
+    const builtin_code = try getBuiltinCode(allocator, &env_map, zig_exe, opt_zig_lib_dir);
 
     for (toc.nodes) |node| {
         defer root_node.completeOne();
@@ -1365,11 +1375,14 @@ fn genHtml(
                         var build_args = std.ArrayList([]const u8).init(allocator);
                         defer build_args.deinit();
                         try build_args.appendSlice(&[_][]const u8{
-                            zig_exe,          "build-exe",
-                            "--name",         code.name,
-                            "--color",        "on",
-                            "--enable-cache", tmp_source_file_name,
+                            zig_exe,       "build-exe",
+                            "--name",      code.name,
+                            "--color",     "on",
+                            name_plus_ext,
                         });
+                        if (opt_zig_lib_dir) |zig_lib_dir| {
+                            try build_args.appendSlice(&.{ "--zig-lib-dir", zig_lib_dir });
+                        }
 
                         try shell_out.print("$ zig build-exe {s} ", .{name_plus_ext});
 
@@ -1382,20 +1395,12 @@ fn genHtml(
                         }
                         for (code.link_objects) |link_object| {
                             const name_with_ext = try std.fmt.allocPrint(allocator, "{s}{s}", .{ link_object, obj_ext });
-                            const full_path_object = try fs.path.join(
-                                allocator,
-                                &[_][]const u8{ tmp_dir_name, name_with_ext },
-                            );
-                            try build_args.append(full_path_object);
+                            try build_args.append(name_with_ext);
                             try shell_out.print("{s} ", .{name_with_ext});
                         }
                         if (code.link_libc) {
                             try build_args.append("-lc");
                             try shell_out.print("-lc ", .{});
-                        }
-                        if (code.backend_stage1) {
-                            try build_args.append("-fstage1");
-                            try shell_out.print("-fstage1", .{});
                         }
                         const target = try std.zig.CrossTarget.parse(.{
                             .arch_os_abi = code.target_str orelse "native",
@@ -1408,6 +1413,10 @@ fn genHtml(
                             try build_args.append("--verbose-cimport");
                             try shell_out.print("--verbose-cimport ", .{});
                         }
+                        for (code.additional_options) |option| {
+                            try build_args.append(option);
+                            try shell_out.print("{s} ", .{option});
+                        }
 
                         try shell_out.print("\n", .{});
 
@@ -1415,6 +1424,7 @@ fn genHtml(
                             const result = try ChildProcess.exec(.{
                                 .allocator = allocator,
                                 .argv = build_args.items,
+                                .cwd = tmp_dir_name,
                                 .env_map = &env_map,
                                 .max_output_bytes = max_doc_file_size,
                             });
@@ -1439,7 +1449,7 @@ fn genHtml(
                             try shell_out.writeAll(colored_stderr);
                             break :code_block;
                         }
-                        const exec_result = exec(allocator, &env_map, build_args.items) catch
+                        const exec_result = exec(allocator, &env_map, tmp_dir_name, build_args.items) catch
                             return parseError(tokenizer, code.source_token, "example failed to compile", .{});
 
                         if (code.verbose_cimport) {
@@ -1458,14 +1468,9 @@ fn genHtml(
                             }
                         }
 
-                        const path_to_exe_dir = mem.trim(u8, exec_result.stdout, " \r\n");
-                        const path_to_exe_basename = try std.fmt.allocPrint(allocator, "{s}{s}", .{
+                        const path_to_exe = try std.fmt.allocPrint(allocator, "./{s}{s}", .{
                             code.name,
                             target.exeFileExt(),
-                        });
-                        const path_to_exe = try fs.path.join(allocator, &[_][]const u8{
-                            path_to_exe_dir,
-                            path_to_exe_basename,
                         });
                         const run_args = &[_][]const u8{path_to_exe};
 
@@ -1476,6 +1481,7 @@ fn genHtml(
                                 .allocator = allocator,
                                 .argv = run_args,
                                 .env_map = &env_map,
+                                .cwd = tmp_dir_name,
                                 .max_output_bytes = max_doc_file_size,
                             });
                             switch (result.term) {
@@ -1492,7 +1498,7 @@ fn genHtml(
                             }
                             break :blk result;
                         } else blk: {
-                            break :blk exec(allocator, &env_map, run_args) catch return parseError(tokenizer, code.source_token, "example crashed", .{});
+                            break :blk exec(allocator, &env_map, tmp_dir_name, run_args) catch return parseError(tokenizer, code.source_token, "example crashed", .{});
                         };
 
                         const escaped_stderr = try escapeHtml(allocator, result.stderr);
@@ -1512,8 +1518,12 @@ fn genHtml(
                         defer test_args.deinit();
 
                         try test_args.appendSlice(&[_][]const u8{
-                            zig_exe, "test", tmp_source_file_name,
+                            zig_exe,              "test",
+                            tmp_source_file_name,
                         });
+                        if (opt_zig_lib_dir) |zig_lib_dir| {
+                            try test_args.appendSlice(&.{ "--zig-lib-dir", zig_lib_dir });
+                        }
                         try shell_out.print("$ zig test {s}.zig ", .{code.name});
 
                         switch (code.mode) {
@@ -1528,10 +1538,6 @@ fn genHtml(
                         if (code.link_libc) {
                             try test_args.append("-lc");
                             try shell_out.print("-lc ", .{});
-                        }
-                        if (code.backend_stage1) {
-                            try test_args.append("-fstage1");
-                            try shell_out.print("-fstage1", .{});
                         }
                         if (code.target_str) |triple| {
                             try test_args.appendSlice(&[_][]const u8{ "-target", triple });
@@ -1553,7 +1559,7 @@ fn genHtml(
                                 },
                             }
                         }
-                        const result = exec(allocator, &env_map, test_args.items) catch
+                        const result = exec(allocator, &env_map, null, test_args.items) catch
                             return parseError(tokenizer, code.source_token, "test failed", .{});
                         const escaped_stderr = try escapeHtml(allocator, result.stderr);
                         const escaped_stdout = try escapeHtml(allocator, result.stdout);
@@ -1564,12 +1570,13 @@ fn genHtml(
                         defer test_args.deinit();
 
                         try test_args.appendSlice(&[_][]const u8{
-                            zig_exe,
-                            "test",
-                            "--color",
-                            "on",
+                            zig_exe,              "test",
+                            "--color",            "on",
                             tmp_source_file_name,
                         });
+                        if (opt_zig_lib_dir) |zig_lib_dir| {
+                            try test_args.appendSlice(&.{ "--zig-lib-dir", zig_lib_dir });
+                        }
                         try shell_out.print("$ zig test {s}.zig ", .{code.name});
 
                         switch (code.mode) {
@@ -1582,10 +1589,6 @@ fn genHtml(
                         if (code.link_libc) {
                             try test_args.append("-lc");
                             try shell_out.print("-lc ", .{});
-                        }
-                        if (code.backend_stage1) {
-                            try test_args.append("-fstage1");
-                            try shell_out.print("-fstage1", .{});
                         }
                         const result = try ChildProcess.exec(.{
                             .allocator = allocator,
@@ -1624,8 +1627,12 @@ fn genHtml(
                         defer test_args.deinit();
 
                         try test_args.appendSlice(&[_][]const u8{
-                            zig_exe, "test", tmp_source_file_name,
+                            zig_exe,              "test",
+                            tmp_source_file_name,
                         });
+                        if (opt_zig_lib_dir) |zig_lib_dir| {
+                            try test_args.appendSlice(&.{ "--zig-lib-dir", zig_lib_dir });
+                        }
                         var mode_arg: []const u8 = "";
                         switch (code.mode) {
                             .Debug => {},
@@ -1684,17 +1691,17 @@ fn genHtml(
                         defer build_args.deinit();
 
                         try build_args.appendSlice(&[_][]const u8{
-                            zig_exe,
-                            "build-obj",
+                            zig_exe,              "build-obj",
+                            "--color",            "on",
+                            "--name",             code.name,
                             tmp_source_file_name,
-                            "--color",
-                            "on",
-                            "--name",
-                            code.name,
                             try std.fmt.allocPrint(allocator, "-femit-bin={s}{c}{s}", .{
                                 tmp_dir_name, fs.path.sep, name_plus_obj_ext,
                             }),
                         });
+                        if (opt_zig_lib_dir) |zig_lib_dir| {
+                            try build_args.appendSlice(&.{ "--zig-lib-dir", zig_lib_dir });
+                        }
 
                         try shell_out.print("$ zig build-obj {s}.zig ", .{code.name});
 
@@ -1709,6 +1716,10 @@ fn genHtml(
                         if (code.target_str) |triple| {
                             try build_args.appendSlice(&[_][]const u8{ "-target", triple });
                             try shell_out.print("-target {s} ", .{triple});
+                        }
+                        for (code.additional_options) |option| {
+                            try build_args.append(option);
+                            try shell_out.print("{s} ", .{option});
                         }
 
                         if (maybe_error_match) |error_match| {
@@ -1743,7 +1754,7 @@ fn genHtml(
                             const colored_stderr = try termColor(allocator, escaped_stderr);
                             try shell_out.print("\n{s} ", .{colored_stderr});
                         } else {
-                            _ = exec(allocator, &env_map, build_args.items) catch return parseError(tokenizer, code.source_token, "example failed to compile", .{});
+                            _ = exec(allocator, &env_map, null, build_args.items) catch return parseError(tokenizer, code.source_token, "example failed to compile", .{});
                         }
                         try shell_out.writeAll("\n");
                     },
@@ -1758,13 +1769,15 @@ fn genHtml(
                         defer test_args.deinit();
 
                         try test_args.appendSlice(&[_][]const u8{
-                            zig_exe,
-                            "build-lib",
+                            zig_exe,              "build-lib",
                             tmp_source_file_name,
                             try std.fmt.allocPrint(allocator, "-femit-bin={s}{s}{s}", .{
                                 tmp_dir_name, fs.path.sep_str, bin_basename,
                             }),
                         });
+                        if (opt_zig_lib_dir) |zig_lib_dir| {
+                            try test_args.appendSlice(&.{ "--zig-lib-dir", zig_lib_dir });
+                        }
                         try shell_out.print("$ zig build-lib {s}.zig ", .{code.name});
 
                         switch (code.mode) {
@@ -1790,7 +1803,11 @@ fn genHtml(
                                 },
                             }
                         }
-                        const result = exec(allocator, &env_map, test_args.items) catch return parseError(tokenizer, code.source_token, "test failed", .{});
+                        for (code.additional_options) |option| {
+                            try test_args.append(option);
+                            try shell_out.print("{s} ", .{option});
+                        }
+                        const result = exec(allocator, &env_map, null, test_args.items) catch return parseError(tokenizer, code.source_token, "test failed", .{});
                         const escaped_stderr = try escapeHtml(allocator, result.stderr);
                         const escaped_stdout = try escapeHtml(allocator, result.stdout);
                         try shell_out.print("\n{s}{s}\n", .{ escaped_stderr, escaped_stdout });
@@ -1805,11 +1822,17 @@ fn genHtml(
     }
 }
 
-fn exec(allocator: Allocator, env_map: *process.EnvMap, args: []const []const u8) !ChildProcess.ExecResult {
+fn exec(
+    allocator: Allocator,
+    env_map: *process.EnvMap,
+    cwd: ?[]const u8,
+    args: []const []const u8,
+) !ChildProcess.ExecResult {
     const result = try ChildProcess.exec(.{
         .allocator = allocator,
         .argv = args,
         .env_map = env_map,
+        .cwd = cwd,
         .max_output_bytes = max_doc_file_size,
     });
     switch (result.term) {
@@ -1829,9 +1852,23 @@ fn exec(allocator: Allocator, env_map: *process.EnvMap, args: []const []const u8
     return result;
 }
 
-fn getBuiltinCode(allocator: Allocator, env_map: *process.EnvMap, zig_exe: []const u8) ![]const u8 {
-    const result = try exec(allocator, env_map, &[_][]const u8{ zig_exe, "build-obj", "--show-builtin" });
-    return result.stdout;
+fn getBuiltinCode(
+    allocator: Allocator,
+    env_map: *process.EnvMap,
+    zig_exe: []const u8,
+    opt_zig_lib_dir: ?[]const u8,
+) ![]const u8 {
+    if (opt_zig_lib_dir) |zig_lib_dir| {
+        const result = try exec(allocator, env_map, null, &.{
+            zig_exe, "build-obj", "--show-builtin", "--zig-lib-dir", zig_lib_dir,
+        });
+        return result.stdout;
+    } else {
+        const result = try exec(allocator, env_map, null, &.{
+            zig_exe, "build-obj", "--show-builtin",
+        });
+        return result.stdout;
+    }
 }
 
 fn dumpArgs(args: []const []const u8) void {

@@ -19,38 +19,16 @@
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
-#ifndef _LIBCPP_CXX03_LANG
+#if _LIBCPP_STD_VER > 14
 
 namespace __itoa {
 
-/// Contains the charconv helper tables.
-///
-/// In C++17 these could be inline constexpr variable, but libc++ supports
-/// charconv for integrals in C++11 mode.
-template <class = void>
-struct __table {
-  static const char __base_2_lut[64];
-  static const char __base_8_lut[128];
-  static const char __base_16_lut[512];
-
-  static const uint32_t __pow10_32[10];
-  static const uint64_t __pow10_64[20];
-#  ifndef _LIBCPP_HAS_NO_INT128
-  // TODO FMT Reduce the number of entries in this table.
-  static const __uint128_t __pow10_128[40];
-  static const int __pow10_128_offset = 0;
-#  endif
-  static const char __digits_base_10[200];
-};
-
-template <class _Tp>
-const char __table<_Tp>::__base_2_lut[64] = {
+inline constexpr char __base_2_lut[64] = {
     '0', '0', '0', '0', '0', '0', '0', '1', '0', '0', '1', '0', '0', '0', '1', '1', '0', '1', '0', '0', '0', '1',
     '0', '1', '0', '1', '1', '0', '0', '1', '1', '1', '1', '0', '0', '0', '1', '0', '0', '1', '1', '0', '1', '0',
     '1', '0', '1', '1', '1', '1', '0', '0', '1', '1', '0', '1', '1', '1', '1', '0', '1', '1', '1', '1'};
 
-template <class _Tp>
-const char __table<_Tp>::__base_8_lut[128] = {
+inline constexpr char __base_8_lut[128] = {
     '0', '0', '0', '1', '0', '2', '0', '3', '0', '4', '0', '5', '0', '6', '0', '7', '1', '0', '1', '1', '1', '2',
     '1', '3', '1', '4', '1', '5', '1', '6', '1', '7', '2', '0', '2', '1', '2', '2', '2', '3', '2', '4', '2', '5',
     '2', '6', '2', '7', '3', '0', '3', '1', '3', '2', '3', '3', '3', '4', '3', '5', '3', '6', '3', '7', '4', '0',
@@ -58,8 +36,7 @@ const char __table<_Tp>::__base_8_lut[128] = {
     '5', '4', '5', '5', '5', '6', '5', '7', '6', '0', '6', '1', '6', '2', '6', '3', '6', '4', '6', '5', '6', '6',
     '6', '7', '7', '0', '7', '1', '7', '2', '7', '3', '7', '4', '7', '5', '7', '6', '7', '7'};
 
-template <class _Tp>
-const char __table<_Tp>::__base_16_lut[512] = {
+inline constexpr char __base_16_lut[512] = {
     '0', '0', '0', '1', '0', '2', '0', '3', '0', '4', '0', '5', '0', '6', '0', '7', '0', '8', '0', '9', '0', 'a', '0',
     'b', '0', 'c', '0', 'd', '0', 'e', '0', 'f', '1', '0', '1', '1', '1', '2', '1', '3', '1', '4', '1', '5', '1', '6',
     '1', '7', '1', '8', '1', '9', '1', 'a', '1', 'b', '1', 'c', '1', 'd', '1', 'e', '1', 'f', '2', '0', '2', '1', '2',
@@ -84,13 +61,11 @@ const char __table<_Tp>::__base_16_lut[512] = {
     '1', 'f', '2', 'f', '3', 'f', '4', 'f', '5', 'f', '6', 'f', '7', 'f', '8', 'f', '9', 'f', 'a', 'f', 'b', 'f', 'c',
     'f', 'd', 'f', 'e', 'f', 'f'};
 
-template <class _Tp>
-const uint32_t __table<_Tp>::__pow10_32[10] = {
+inline constexpr uint32_t __pow10_32[10] = {
     UINT32_C(0),      UINT32_C(10),      UINT32_C(100),      UINT32_C(1000),      UINT32_C(10000),
     UINT32_C(100000), UINT32_C(1000000), UINT32_C(10000000), UINT32_C(100000000), UINT32_C(1000000000)};
 
-template <class _Tp>
-const uint64_t __table<_Tp>::__pow10_64[20] = {UINT64_C(0),
+inline constexpr uint64_t __pow10_64[20] = {UINT64_C(0),
                                                UINT64_C(10),
                                                UINT64_C(100),
                                                UINT64_C(1000),
@@ -112,8 +87,8 @@ const uint64_t __table<_Tp>::__pow10_64[20] = {UINT64_C(0),
                                                UINT64_C(10000000000000000000)};
 
 #  ifndef _LIBCPP_HAS_NO_INT128
-template <class _Tp>
-const __uint128_t __table<_Tp>::__pow10_128[40] = {
+inline constexpr int __pow10_128_offset = 0;
+inline constexpr __uint128_t __pow10_128[40] = {
     UINT64_C(0),
     UINT64_C(10),
     UINT64_C(100),
@@ -156,8 +131,7 @@ const __uint128_t __table<_Tp>::__pow10_128[40] = {
     (__uint128_t(UINT64_C(10000000000000000000)) * UINT64_C(10000000000000000000)) * 10};
 #  endif
 
-template <class _Tp>
-const char __table<_Tp>::__digits_base_10[200] = {
+inline constexpr char __digits_base_10[200] = {
     // clang-format off
     '0', '0', '0', '1', '0', '2', '0', '3', '0', '4', '0', '5', '0', '6', '0', '7', '0', '8', '0', '9',
     '1', '0', '1', '1', '1', '2', '1', '3', '1', '4', '1', '5', '1', '6', '1', '7', '1', '8', '1', '9',
@@ -173,7 +147,7 @@ const char __table<_Tp>::__digits_base_10[200] = {
 
 } // namespace __itoa
 
-#endif // _LIBCPP_CXX03_LANG
+#endif // _LIBCPP_STD_VER > 14
 
 _LIBCPP_END_NAMESPACE_STD
 

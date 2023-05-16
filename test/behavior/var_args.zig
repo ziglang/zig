@@ -14,6 +14,8 @@ fn add(args: anytype) i32 {
 }
 
 test "add arbitrary args" {
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
     try expect(add(.{ @as(i32, 1), @as(i32, 2), @as(i32, 3), @as(i32, 4) }) == 10);
     try expect(add(.{@as(i32, 1234)}) == 1234);
     try expect(add(.{}) == 0);
@@ -30,6 +32,7 @@ test "send void arg to var args" {
 test "pass args directly" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     try expect(addSomeStuff(.{ @as(i32, 1), @as(i32, 2), @as(i32, 3), @as(i32, 4) }) == 10);
     try expect(addSomeStuff(.{@as(i32, 1234)}) == 1234);
@@ -43,6 +46,7 @@ fn addSomeStuff(args: anytype) i32 {
 test "runtime parameter before var args" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     try expect((try extraFn(10, .{})) == 0);
     try expect((try extraFn(10, .{false})) == 1);
@@ -95,9 +99,11 @@ fn doNothingWithFirstArg(args: anytype) void {
 
 test "simple variadic function" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
     if (builtin.cpu.arch == .aarch64 and builtin.os.tag != .macos) {
         // https://github.com/ziglang/zig/issues/14096
         return error.SkipZigTest;
@@ -143,9 +149,11 @@ test "simple variadic function" {
 
 test "variadic functions" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
     if (builtin.cpu.arch == .aarch64 and builtin.os.tag != .macos) {
         // https://github.com/ziglang/zig/issues/14096
         return error.SkipZigTest;
@@ -189,6 +197,7 @@ test "copy VaList" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
     if (builtin.cpu.arch == .aarch64 and builtin.os.tag != .macos) {
         // https://github.com/ziglang/zig/issues/14096
         return error.SkipZigTest;
@@ -214,4 +223,31 @@ test "copy VaList" {
     try std.testing.expectEqual(@as(c_int, 0), S.add(0));
     try std.testing.expectEqual(@as(c_int, 3), S.add(1, @as(c_int, 1)));
     try std.testing.expectEqual(@as(c_int, 9), S.add(2, @as(c_int, 1), @as(c_int, 2)));
+}
+
+test "unused VaList arg" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (builtin.cpu.arch == .aarch64 and builtin.os.tag != .macos) {
+        // https://github.com/ziglang/zig/issues/14096
+        return error.SkipZigTest;
+    }
+    if (builtin.cpu.arch == .x86_64 and builtin.os.tag == .windows) return error.SkipZigTest; // TODO
+
+    const S = struct {
+        fn thirdArg(dummy: c_int, ...) callconv(.C) c_int {
+            _ = dummy;
+
+            var ap = @cVaStart();
+            defer @cVaEnd(&ap);
+
+            _ = @cVaArg(&ap, c_int);
+            return @cVaArg(&ap, c_int);
+        }
+    };
+    const x = S.thirdArg(0, @as(c_int, 1), @as(c_int, 2));
+    try std.testing.expectEqual(@as(c_int, 2), x);
 }

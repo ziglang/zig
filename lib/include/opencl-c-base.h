@@ -74,6 +74,25 @@
 #define __opencl_c_atomic_scope_all_devices 1
 #define __opencl_c_read_write_images 1
 #endif // defined(__SPIR__)
+
+// Undefine any feature macros that have been explicitly disabled using
+// an __undef_<feature> macro.
+#ifdef __undef___opencl_c_work_group_collective_functions
+#undef __opencl_c_work_group_collective_functions
+#endif
+#ifdef __undef___opencl_c_atomic_order_seq_cst
+#undef __opencl_c_atomic_order_seq_cst
+#endif
+#ifdef __undef___opencl_c_atomic_scope_device
+#undef __opencl_c_atomic_scope_device
+#endif
+#ifdef __undef___opencl_c_atomic_scope_all_devices
+#undef __opencl_c_atomic_scope_all_devices
+#endif
+#ifdef __undef___opencl_c_read_write_images
+#undef __opencl_c_read_write_images
+#endif
+
 #endif // (__OPENCL_CPP_VERSION__ == 202100 || __OPENCL_C_VERSION__ == 300)
 
 #if !defined(__opencl_c_generic_address_space)

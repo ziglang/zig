@@ -5,6 +5,7 @@
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
+
 #ifndef _LIBCPP_SRC_INCLUDE_APPLE_AVAILABILITY_H
 #define _LIBCPP_SRC_INCLUDE_APPLE_AVAILABILITY_H
 

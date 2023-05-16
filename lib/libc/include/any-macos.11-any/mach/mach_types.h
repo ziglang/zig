@@ -218,7 +218,6 @@ typedef exception_handler_t     exception_port_t;
 typedef exception_handler_array_t exception_port_arrary_t;
 typedef char vfs_path_t[4096];
 typedef char nspace_path_t[1024]; /* 1024 == PATH_MAX */
-typedef char nspace_name_t[1024]; /* 1024 == PATH_MAX */
 typedef char suid_cred_path_t[1024];
 typedef uint32_t suid_cred_uid_t;
 
@@ -262,15 +261,11 @@ typedef unsigned int            mach_task_flavor_t;
 #define TASK_FLAVOR_INSPECT     2    /* a task_inspect_t */
 #define TASK_FLAVOR_NAME        3    /* a task_name_t */
 
-#define TASK_FLAVOR_MAX         TASK_FLAVOR_NAME
-
 /* capability strictly _DECREASING_ */
 typedef unsigned int            mach_thread_flavor_t;
 #define THREAD_FLAVOR_CONTROL   0    /* a thread_t */
 #define THREAD_FLAVOR_READ      1    /* a thread_read_t */
 #define THREAD_FLAVOR_INSPECT   2    /* a thread_inspect_t */
-
-#define THREAD_FLAVOR_MAX       THREAD_FLAVOR_INSPECT
 
 /* DEPRECATED */
 typedef natural_t               ledger_item_t;

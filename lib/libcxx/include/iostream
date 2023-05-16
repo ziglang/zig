@@ -38,6 +38,8 @@ extern wostream wclog;
 #include <version>
 
 // standard-mandated includes
+
+// [iostream.syn]
 #include <ios>
 #include <istream>
 #include <ostream>

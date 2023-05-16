@@ -221,7 +221,7 @@ discrete_distribution<_IntType>::operator()(_URNG& __g, const param_type& __p)
 }
 
 template <class _CharT, class _Traits, class _IT>
-basic_ostream<_CharT, _Traits>&
+_LIBCPP_HIDE_FROM_ABI basic_ostream<_CharT, _Traits>&
 operator<<(basic_ostream<_CharT, _Traits>& __os,
            const discrete_distribution<_IT>& __x)
 {
@@ -239,7 +239,7 @@ operator<<(basic_ostream<_CharT, _Traits>& __os,
 }
 
 template <class _CharT, class _Traits, class _IT>
-basic_istream<_CharT, _Traits>&
+_LIBCPP_HIDE_FROM_ABI basic_istream<_CharT, _Traits>&
 operator>>(basic_istream<_CharT, _Traits>& __is,
            discrete_distribution<_IT>& __x)
 {

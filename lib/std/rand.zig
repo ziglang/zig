@@ -18,11 +18,12 @@ const maxInt = std.math.maxInt;
 pub const DefaultPrng = Xoshiro256;
 
 /// Cryptographically secure random numbers.
-pub const DefaultCsprng = Ascon;
+pub const DefaultCsprng = ChaCha;
 
 pub const Ascon = @import("rand/Ascon.zig");
+pub const ChaCha = @import("rand/ChaCha.zig");
+
 pub const Isaac64 = @import("rand/Isaac64.zig");
-pub const Xoodoo = @import("rand/Xoodoo.zig");
 pub const Pcg = @import("rand/Pcg.zig");
 pub const Xoroshiro128 = @import("rand/Xoroshiro128.zig");
 pub const Xoshiro256 = @import("rand/Xoshiro256.zig");
@@ -388,6 +389,8 @@ pub const Random = struct {
 
     /// Randomly selects an index into `proportions`, where the likelihood of each
     /// index is weighted by that proportion.
+    /// It is more likely for the index of the last proportion to be returned
+    /// than the index of the first proportion in the slice, and vice versa.
     ///
     /// This is useful for selecting an item from a slice where weights are not equal.
     /// `T` must be a numeric type capable of holding the sum of `proportions`.

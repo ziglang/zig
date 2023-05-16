@@ -66,7 +66,7 @@ pub const FailingAllocator = struct {
         const self = @ptrCast(*FailingAllocator, @alignCast(@alignOf(FailingAllocator), ctx));
         if (self.index == self.fail_index) {
             if (!self.has_induced_failure) {
-                mem.set(usize, &self.stack_addresses, 0);
+                @memset(&self.stack_addresses, 0);
                 var stack_trace = std.builtin.StackTrace{
                     .instruction_addresses = &self.stack_addresses,
                     .index = 0,

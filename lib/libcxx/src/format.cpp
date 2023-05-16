@@ -10,6 +10,8 @@
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
+#ifndef _LIBCPP_INLINE_FORMAT_ERROR_DTOR
 format_error::~format_error() noexcept = default;
+#endif
 
 _LIBCPP_END_NAMESPACE_STD

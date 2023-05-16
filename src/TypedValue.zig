@@ -92,6 +92,7 @@ pub fn print(
         .i128_type => return writer.writeAll("i128"),
         .isize_type => return writer.writeAll("isize"),
         .usize_type => return writer.writeAll("usize"),
+        .c_char_type => return writer.writeAll("c_char"),
         .c_short_type => return writer.writeAll("c_short"),
         .c_ushort_type => return writer.writeAll("c_ushort"),
         .c_int_type => return writer.writeAll("c_int"),

@@ -12,6 +12,7 @@ const Allocator = mem.Allocator;
 const AtomIndex = @import("zld.zig").AtomIndex;
 const Atom = @import("ZldAtom.zig");
 const SymbolWithLoc = @import("zld.zig").SymbolWithLoc;
+const SymbolResolver = @import("zld.zig").SymbolResolver;
 const UnwindInfo = @import("UnwindInfo.zig");
 const Zld = @import("zld.zig").Zld;
 
@@ -19,7 +20,7 @@ const N_DEAD = @import("zld.zig").N_DEAD;
 
 const AtomTable = std.AutoHashMap(AtomIndex, void);
 
-pub fn gcAtoms(zld: *Zld) !void {
+pub fn gcAtoms(zld: *Zld, resolver: *const SymbolResolver) !void {
     const gpa = zld.gpa;
 
     var arena = std.heap.ArenaAllocator.init(gpa);
@@ -31,27 +32,36 @@ pub fn gcAtoms(zld: *Zld) !void {
     var alive = AtomTable.init(arena.allocator());
     try alive.ensureTotalCapacity(@intCast(u32, zld.atoms.items.len));
 
-    try collectRoots(zld, &roots);
+    try collectRoots(zld, &roots, resolver);
     try mark(zld, roots, &alive);
     prune(zld, alive);
 }
 
-fn collectRoots(zld: *Zld, roots: *AtomTable) !void {
+fn addRoot(zld: *Zld, roots: *AtomTable, file: u32, sym_loc: SymbolWithLoc) !void {
+    const sym = zld.getSymbol(sym_loc);
+    assert(!sym.undf());
+    const object = &zld.objects.items[file];
+    const atom_index = object.getAtomIndexForSymbol(sym_loc.sym_index).?; // panic here means fatal error
+    log.debug("root(ATOM({d}, %{d}, {d}))", .{
+        atom_index,
+        zld.getAtom(atom_index).sym_index,
+        file,
+    });
+    _ = try roots.getOrPut(atom_index);
+}
+
+fn collectRoots(zld: *Zld, roots: *AtomTable, resolver: *const SymbolResolver) !void {
     log.debug("collecting roots", .{});
 
     switch (zld.options.output_mode) {
         .Exe => {
             // Add entrypoint as GC root
             const global: SymbolWithLoc = zld.getEntryPoint();
-            const object = zld.objects.items[global.getFile().?];
-            const atom_index = object.getAtomIndexForSymbol(global.sym_index).?; // panic here means fatal error
-            _ = try roots.getOrPut(atom_index);
-
-            log.debug("root(ATOM({d}, %{d}, {?d}))", .{
-                atom_index,
-                zld.getAtom(atom_index).sym_index,
-                zld.getAtom(atom_index).getFile(),
-            });
+            if (global.getFile()) |file| {
+                try addRoot(zld, roots, file, global);
+            } else {
+                assert(zld.getSymbol(global).undf()); // Stub as our entrypoint is in a dylib.
+            }
         },
         else => |other| {
             assert(other == .Lib);
@@ -60,18 +70,20 @@ fn collectRoots(zld: *Zld, roots: *AtomTable) !void {
                 const sym = zld.getSymbol(global);
                 if (sym.undf()) continue;
 
-                const file = global.getFile() orelse continue; // synthetic globals are atomless
-                const object = zld.objects.items[file];
-                const atom_index = object.getAtomIndexForSymbol(global.sym_index).?; // panic here means fatal error
-                _ = try roots.getOrPut(atom_index);
-
-                log.debug("root(ATOM({d}, %{d}, {?d}))", .{
-                    atom_index,
-                    zld.getAtom(atom_index).sym_index,
-                    zld.getAtom(atom_index).getFile(),
-                });
+                if (global.getFile()) |file| {
+                    try addRoot(zld, roots, file, global);
+                }
             }
         },
+    }
+
+    // Add all symbols force-defined by the user.
+    for (zld.options.force_undefined_symbols.keys()) |sym_name| {
+        const global_index = resolver.table.get(sym_name).?;
+        const global = zld.globals.items[global_index];
+        const sym = zld.getSymbol(global);
+        assert(!sym.undf());
+        try addRoot(zld, roots, global.getFile().?, global);
     }
 
     for (zld.objects.items) |object| {
@@ -102,7 +114,7 @@ fn collectRoots(zld: *Zld, roots: *AtomTable) !void {
             };
 
             if (is_gc_root) {
-                try roots.putNoClobber(atom_index, {});
+                _ = try roots.getOrPut(atom_index);
 
                 log.debug("root(ATOM({d}, %{d}, {?d}))", .{
                     atom_index,
@@ -130,14 +142,29 @@ fn markLive(zld: *Zld, atom_index: AtomIndex, alive: *AtomTable) void {
     const header = zld.sections.items(.header)[sym.n_sect - 1];
     if (header.isZerofill()) return;
 
+    const code = Atom.getAtomCode(zld, atom_index);
     const relocs = Atom.getAtomRelocs(zld, atom_index);
+    const ctx = Atom.getRelocContext(zld, atom_index);
+
     for (relocs) |rel| {
         const target = switch (cpu_arch) {
             .aarch64 => switch (@intToEnum(macho.reloc_type_arm64, rel.r_type)) {
                 .ARM64_RELOC_ADDEND => continue,
-                else => Atom.parseRelocTarget(zld, atom_index, rel),
+                else => Atom.parseRelocTarget(zld, .{
+                    .object_id = atom.getFile().?,
+                    .rel = rel,
+                    .code = code,
+                    .base_offset = ctx.base_offset,
+                    .base_addr = ctx.base_addr,
+                }),
             },
-            .x86_64 => Atom.parseRelocTarget(zld, atom_index, rel),
+            .x86_64 => Atom.parseRelocTarget(zld, .{
+                .object_id = atom.getFile().?,
+                .rel = rel,
+                .code = code,
+                .base_offset = ctx.base_offset,
+                .base_addr = ctx.base_addr,
+            }),
             else => unreachable,
         };
         const target_sym = zld.getSymbol(target);
@@ -175,14 +202,29 @@ fn refersLive(zld: *Zld, atom_index: AtomIndex, alive: AtomTable) bool {
     const header = zld.sections.items(.header)[sym.n_sect - 1];
     assert(!header.isZerofill());
 
+    const code = Atom.getAtomCode(zld, atom_index);
     const relocs = Atom.getAtomRelocs(zld, atom_index);
+    const ctx = Atom.getRelocContext(zld, atom_index);
+
     for (relocs) |rel| {
         const target = switch (cpu_arch) {
             .aarch64 => switch (@intToEnum(macho.reloc_type_arm64, rel.r_type)) {
                 .ARM64_RELOC_ADDEND => continue,
-                else => Atom.parseRelocTarget(zld, atom_index, rel),
+                else => Atom.parseRelocTarget(zld, .{
+                    .object_id = atom.getFile().?,
+                    .rel = rel,
+                    .code = code,
+                    .base_offset = ctx.base_offset,
+                    .base_addr = ctx.base_addr,
+                }),
             },
-            .x86_64 => Atom.parseRelocTarget(zld, atom_index, rel),
+            .x86_64 => Atom.parseRelocTarget(zld, .{
+                .object_id = atom.getFile().?,
+                .rel = rel,
+                .code = code,
+                .base_offset = ctx.base_offset,
+                .base_addr = ctx.base_addr,
+            }),
             else => unreachable,
         };
 
@@ -283,13 +325,12 @@ fn markUnwindRecords(zld: *Zld, object_id: u32, alive: *AtomTable) !void {
             try markEhFrameRecord(zld, object_id, atom_index, alive);
         } else {
             if (UnwindInfo.getPersonalityFunctionReloc(zld, object_id, record_id)) |rel| {
-                const target = UnwindInfo.parseRelocTarget(
-                    zld,
-                    object_id,
-                    rel,
-                    mem.asBytes(&record),
-                    @intCast(i32, record_id * @sizeOf(macho.compact_unwind_entry)),
-                );
+                const target = Atom.parseRelocTarget(zld, .{
+                    .object_id = object_id,
+                    .rel = rel,
+                    .code = mem.asBytes(&record),
+                    .base_offset = @intCast(i32, record_id * @sizeOf(macho.compact_unwind_entry)),
+                });
                 const target_sym = zld.getSymbol(target);
                 if (!target_sym.undf()) {
                     const target_object = zld.objects.items[target.getFile().?];
@@ -299,13 +340,12 @@ fn markUnwindRecords(zld: *Zld, object_id: u32, alive: *AtomTable) !void {
             }
 
             if (UnwindInfo.getLsdaReloc(zld, object_id, record_id)) |rel| {
-                const target = UnwindInfo.parseRelocTarget(
-                    zld,
-                    object_id,
-                    rel,
-                    mem.asBytes(&record),
-                    @intCast(i32, record_id * @sizeOf(macho.compact_unwind_entry)),
-                );
+                const target = Atom.parseRelocTarget(zld, .{
+                    .object_id = object_id,
+                    .rel = rel,
+                    .code = mem.asBytes(&record),
+                    .base_offset = @intCast(i32, record_id * @sizeOf(macho.compact_unwind_entry)),
+                });
                 const target_object = zld.objects.items[target.getFile().?];
                 const target_atom_index = target_object.getAtomIndexForSymbol(target.sym_index).?;
                 markLive(zld, target_atom_index, alive);
@@ -333,13 +373,12 @@ fn markEhFrameRecord(zld: *Zld, object_id: u32, atom_index: AtomIndex, alive: *A
             // Mark FDE references which should include any referenced LSDA record
             const relocs = eh_frame.getRelocs(zld, object_id, fde_offset);
             for (relocs) |rel| {
-                const target = UnwindInfo.parseRelocTarget(
-                    zld,
-                    object_id,
-                    rel,
-                    fde.data,
-                    @intCast(i32, fde_offset) + 4,
-                );
+                const target = Atom.parseRelocTarget(zld, .{
+                    .object_id = object_id,
+                    .rel = rel,
+                    .code = fde.data,
+                    .base_offset = @intCast(i32, fde_offset) + 4,
+                });
                 const target_sym = zld.getSymbol(target);
                 if (!target_sym.undf()) blk: {
                     const target_object = zld.objects.items[target.getFile().?];

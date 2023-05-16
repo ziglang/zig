@@ -67,6 +67,7 @@ const RUNTIME_FUNCTION = windows.RUNTIME_FUNCTION;
 const KNONVOLATILE_CONTEXT_POINTERS = windows.KNONVOLATILE_CONTEXT_POINTERS;
 const EXCEPTION_ROUTINE = windows.EXCEPTION_ROUTINE;
 const MODULEENTRY32 = windows.MODULEENTRY32;
+const ULONGLONG = windows.ULONGLONG;
 
 pub extern "kernel32" fn AddVectoredExceptionHandler(First: c_ulong, Handler: ?VECTORED_EXCEPTION_HANDLER) callconv(WINAPI) ?*anyopaque;
 pub extern "kernel32" fn RemoveVectoredExceptionHandler(Handle: HANDLE) callconv(WINAPI) c_ulong;
@@ -200,11 +201,6 @@ pub extern "kernel32" fn GetModuleHandleW(lpModuleName: ?[*:0]const WCHAR) callc
 
 pub extern "kernel32" fn GetLastError() callconv(WINAPI) Win32Error;
 pub extern "kernel32" fn SetLastError(dwErrCode: Win32Error) callconv(WINAPI) void;
-
-pub extern "kernel32" fn GetFileInformationByHandle(
-    hFile: HANDLE,
-    lpFileInformation: *BY_HANDLE_FILE_INFORMATION,
-) callconv(WINAPI) BOOL;
 
 pub extern "kernel32" fn GetFileInformationByHandleEx(
     in_hFile: HANDLE,
@@ -457,3 +453,5 @@ pub extern "kernel32" fn RegOpenKeyExW(
     samDesired: REGSAM,
     phkResult: *HKEY,
 ) callconv(WINAPI) LSTATUS;
+
+pub extern "kernel32" fn GetPhysicallyInstalledSystemMemory(TotalMemoryInKilobytes: *ULONGLONG) BOOL;

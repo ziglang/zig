@@ -40,7 +40,7 @@ struct __is_convertible_test : public false_type {};
 
 template <class _From, class _To>
 struct __is_convertible_test<_From, _To,
-    decltype(__is_convertible_imp::__test_convert<_To>(declval<_From>()))> : public true_type
+    decltype(__is_convertible_imp::__test_convert<_To>(std::declval<_From>()))> : public true_type
 {};
 
 template <class _Tp, bool _IsArray =    is_array<_Tp>::value,
@@ -53,7 +53,7 @@ template <class _Tp> struct __is_array_function_or_void<_Tp, false, false, true>
 }
 
 template <class _Tp,
-    unsigned = __is_convertible_imp::__is_array_function_or_void<typename remove_reference<_Tp>::type>::value>
+    unsigned = __is_convertible_imp::__is_array_function_or_void<__libcpp_remove_reference_t<_Tp> >::value>
 struct __is_convertible_check
 {
     static const size_t __v = 0;

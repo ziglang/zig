@@ -897,13 +897,13 @@ pub const IO_Uring = struct {
         self: *IO_Uring,
         user_data: u64,
         buffers: [*]u8,
-        buffers_count: usize,
         buffer_size: usize,
+        buffers_count: usize,
         group_id: usize,
         buffer_id: usize,
     ) !*linux.io_uring_sqe {
         const sqe = try self.get_sqe();
-        io_uring_prep_provide_buffers(sqe, buffers, buffers_count, buffer_size, group_id, buffer_id);
+        io_uring_prep_provide_buffers(sqe, buffers, buffer_size, buffers_count, group_id, buffer_id);
         sqe.user_data = user_data;
         return sqe;
     }
@@ -1576,8 +1576,8 @@ pub fn io_uring_prep_linkat(
 pub fn io_uring_prep_provide_buffers(
     sqe: *linux.io_uring_sqe,
     buffers: [*]u8,
-    num: usize,
     buffer_len: usize,
+    num: usize,
     group_id: usize,
     buffer_id: usize,
 ) void {
@@ -1728,10 +1728,12 @@ test "writev/fsync/readv" {
     };
     defer ring.deinit();
 
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
     const path = "test_io_uring_writev_fsync_readv";
-    const file = try std.fs.cwd().createFile(path, .{ .read = true, .truncate = true });
+    const file = try tmp.dir.createFile(path, .{ .read = true, .truncate = true });
     defer file.close();
-    defer std.fs.cwd().deleteFile(path) catch {};
     const fd = file.handle;
 
     const buffer_write = [_]u8{42} ** 128;
@@ -1796,10 +1798,11 @@ test "write/read" {
     };
     defer ring.deinit();
 
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
     const path = "test_io_uring_write_read";
-    const file = try std.fs.cwd().createFile(path, .{ .read = true, .truncate = true });
+    const file = try tmp.dir.createFile(path, .{ .read = true, .truncate = true });
     defer file.close();
-    defer std.fs.cwd().deleteFile(path) catch {};
     const fd = file.handle;
 
     const buffer_write = [_]u8{97} ** 20;
@@ -1842,22 +1845,30 @@ test "write_fixed/read_fixed" {
     };
     defer ring.deinit();
 
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
     const path = "test_io_uring_write_read_fixed";
-    const file = try std.fs.cwd().createFile(path, .{ .read = true, .truncate = true });
+    const file = try tmp.dir.createFile(path, .{ .read = true, .truncate = true });
     defer file.close();
-    defer std.fs.cwd().deleteFile(path) catch {};
     const fd = file.handle;
 
     var raw_buffers: [2][11]u8 = undefined;
     // First buffer will be written to the file.
-    std.mem.set(u8, &raw_buffers[0], 'z');
-    std.mem.copy(u8, &raw_buffers[0], "foobar");
+    @memset(&raw_buffers[0], 'z');
+    raw_buffers[0][0.."foobar".len].* = "foobar".*;
 
     var buffers = [2]os.iovec{
         .{ .iov_base = &raw_buffers[0], .iov_len = raw_buffers[0].len },
         .{ .iov_base = &raw_buffers[1], .iov_len = raw_buffers[1].len },
     };
-    try ring.register_buffers(&buffers);
+    ring.register_buffers(&buffers) catch |err| switch (err) {
+        error.SystemResources => {
+            // See https://github.com/ziglang/zig/issues/15362
+            return error.SkipZigTest;
+        },
+        else => |e| return e,
+    };
 
     const sqe_write = try ring.write_fixed(0x45454545, fd, &buffers[0], 3, 0);
     try testing.expectEqual(linux.IORING_OP.WRITE_FIXED, sqe_write.opcode);
@@ -1899,8 +1910,10 @@ test "openat" {
     };
     defer ring.deinit();
 
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
     const path = "test_io_uring_openat";
-    defer std.fs.cwd().deleteFile(path) catch {};
 
     // Workaround for LLVM bug: https://github.com/ziglang/zig/issues/12014
     const path_addr = if (builtin.zig_backend == .stage2_llvm) p: {
@@ -1910,12 +1923,12 @@ test "openat" {
 
     const flags: u32 = os.O.CLOEXEC | os.O.RDWR | os.O.CREAT;
     const mode: os.mode_t = 0o666;
-    const sqe_openat = try ring.openat(0x33333333, linux.AT.FDCWD, path, flags, mode);
+    const sqe_openat = try ring.openat(0x33333333, tmp.dir.fd, path, flags, mode);
     try testing.expectEqual(linux.io_uring_sqe{
         .opcode = .OPENAT,
         .flags = 0,
         .ioprio = 0,
-        .fd = linux.AT.FDCWD,
+        .fd = tmp.dir.fd,
         .off = 0,
         .addr = path_addr,
         .len = mode,
@@ -1931,12 +1944,6 @@ test "openat" {
     const cqe_openat = try ring.copy_cqe();
     try testing.expectEqual(@as(u64, 0x33333333), cqe_openat.user_data);
     if (cqe_openat.err() == .INVAL) return error.SkipZigTest;
-    // AT.FDCWD is not fully supported before kernel 5.6:
-    // See https://lore.kernel.org/io-uring/20200207155039.12819-1-axboe@kernel.dk/T/
-    // We use IORING_FEAT_RW_CUR_POS to know if we are pre-5.6 since that feature was added in 5.6.
-    if (cqe_openat.err() == .BADF and (ring.features & linux.IORING_FEAT_RW_CUR_POS) == 0) {
-        return error.SkipZigTest;
-    }
     if (cqe_openat.res <= 0) std.debug.print("\ncqe_openat.res={}\n", .{cqe_openat.res});
     try testing.expect(cqe_openat.res > 0);
     try testing.expectEqual(@as(u32, 0), cqe_openat.flags);
@@ -1954,10 +1961,12 @@ test "close" {
     };
     defer ring.deinit();
 
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
     const path = "test_io_uring_close";
-    const file = try std.fs.cwd().createFile(path, .{});
+    const file = try tmp.dir.createFile(path, .{});
     errdefer file.close();
-    defer std.fs.cwd().deleteFile(path) catch {};
 
     const sqe_close = try ring.close(0x44444444, file.handle);
     try testing.expectEqual(linux.IORING_OP.CLOSE, sqe_close.opcode);
@@ -1975,6 +1984,11 @@ test "close" {
 
 test "accept/connect/send/recv" {
     if (builtin.os.tag != .linux) return error.SkipZigTest;
+
+    if (true) {
+        // https://github.com/ziglang/zig/issues/14907
+        return error.SkipZigTest;
+    }
 
     var ring = IO_Uring.init(16, 0) catch |err| switch (err) {
         error.SystemOutdated => return error.SkipZigTest,
@@ -2017,6 +2031,11 @@ test "accept/connect/send/recv" {
 test "sendmsg/recvmsg" {
     if (builtin.os.tag != .linux) return error.SkipZigTest;
 
+    if (true) {
+        // https://github.com/ziglang/zig/issues/14907
+        return error.SkipZigTest;
+    }
+
     var ring = IO_Uring.init(2, 0) catch |err| switch (err) {
         error.SystemOutdated => return error.SkipZigTest,
         error.PermissionDenied => return error.SkipZigTest,
@@ -2024,6 +2043,7 @@ test "sendmsg/recvmsg" {
     };
     defer ring.deinit();
 
+    if (true) @compileError("don't hard code port numbers in unit tests"); // https://github.com/ziglang/zig/issues/14907
     const address_server = try net.Address.parseIp4("127.0.0.1", 3131);
 
     const server = try os.socket(address_server.any.family, os.SOCK.DGRAM, 0);
@@ -2223,6 +2243,11 @@ test "timeout_remove" {
 test "accept/connect/recv/link_timeout" {
     if (builtin.os.tag != .linux) return error.SkipZigTest;
 
+    if (true) {
+        // https://github.com/ziglang/zig/issues/14907
+        return error.SkipZigTest;
+    }
+
     var ring = IO_Uring.init(16, 0) catch |err| switch (err) {
         error.SystemOutdated => return error.SkipZigTest,
         error.PermissionDenied => return error.SkipZigTest,
@@ -2279,10 +2304,12 @@ test "fallocate" {
     };
     defer ring.deinit();
 
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
     const path = "test_io_uring_fallocate";
-    const file = try std.fs.cwd().createFile(path, .{ .truncate = true, .mode = 0o666 });
+    const file = try tmp.dir.createFile(path, .{ .truncate = true, .mode = 0o666 });
     defer file.close();
-    defer std.fs.cwd().deleteFile(path) catch {};
 
     try testing.expectEqual(@as(u64, 0), (try file.stat()).size);
 
@@ -2323,10 +2350,11 @@ test "statx" {
     };
     defer ring.deinit();
 
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
     const path = "test_io_uring_statx";
-    const file = try std.fs.cwd().createFile(path, .{ .truncate = true, .mode = 0o666 });
+    const file = try tmp.dir.createFile(path, .{ .truncate = true, .mode = 0o666 });
     defer file.close();
-    defer std.fs.cwd().deleteFile(path) catch {};
 
     try testing.expectEqual(@as(u64, 0), (try file.stat()).size);
 
@@ -2335,14 +2363,14 @@ test "statx" {
     var buf: linux.Statx = undefined;
     const sqe = try ring.statx(
         0xaaaaaaaa,
-        linux.AT.FDCWD,
+        tmp.dir.fd,
         path,
         0,
         linux.STATX_SIZE,
         &buf,
     );
     try testing.expectEqual(linux.IORING_OP.STATX, sqe.opcode);
-    try testing.expectEqual(@as(i32, linux.AT.FDCWD), sqe.fd);
+    try testing.expectEqual(@as(i32, tmp.dir.fd), sqe.fd);
     try testing.expectEqual(@as(u32, 1), try ring.submit());
 
     const cqe = try ring.copy_cqe();
@@ -2355,8 +2383,6 @@ test "statx" {
         // The filesystem containing the file referred to by fd does not support this operation;
         // or the mode is not supported by the filesystem containing the file referred to by fd:
         .OPNOTSUPP => return error.SkipZigTest,
-        // The kernel is too old to support FDCWD for dir_fd
-        .BADF => return error.SkipZigTest,
         else => |errno| std.debug.panic("unhandled errno: {}", .{errno}),
     }
     try testing.expectEqual(linux.io_uring_cqe{
@@ -2371,6 +2397,11 @@ test "statx" {
 
 test "accept/connect/recv/cancel" {
     if (builtin.os.tag != .linux) return error.SkipZigTest;
+
+    if (true) {
+        // https://github.com/ziglang/zig/issues/14907
+        return error.SkipZigTest;
+    }
 
     var ring = IO_Uring.init(16, 0) catch |err| switch (err) {
         error.SystemOutdated => return error.SkipZigTest,
@@ -2509,6 +2540,11 @@ test "register_files_update" {
 test "shutdown" {
     if (builtin.os.tag != .linux) return error.SkipZigTest;
 
+    if (true) {
+        // https://github.com/ziglang/zig/issues/14907
+        return error.SkipZigTest;
+    }
+
     var ring = IO_Uring.init(16, 0) catch |err| switch (err) {
         error.SystemOutdated => return error.SkipZigTest,
         error.PermissionDenied => return error.SkipZigTest,
@@ -2516,6 +2552,7 @@ test "shutdown" {
     };
     defer ring.deinit();
 
+    if (true) @compileError("don't hard code port numbers in unit tests"); // https://github.com/ziglang/zig/issues/14907
     const address = try net.Address.parseIp4("127.0.0.1", 3131);
 
     // Socket bound, expect shutdown to work
@@ -2579,28 +2616,28 @@ test "renameat" {
     const old_path = "test_io_uring_renameat_old";
     const new_path = "test_io_uring_renameat_new";
 
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
     // Write old file with data
 
-    const old_file = try std.fs.cwd().createFile(old_path, .{ .truncate = true, .mode = 0o666 });
-    defer {
-        old_file.close();
-        std.fs.cwd().deleteFile(new_path) catch {};
-    }
+    const old_file = try tmp.dir.createFile(old_path, .{ .truncate = true, .mode = 0o666 });
+    defer old_file.close();
     try old_file.writeAll("hello");
 
     // Submit renameat
 
     var sqe = try ring.renameat(
         0x12121212,
-        linux.AT.FDCWD,
+        tmp.dir.fd,
         old_path,
-        linux.AT.FDCWD,
+        tmp.dir.fd,
         new_path,
         0,
     );
     try testing.expectEqual(linux.IORING_OP.RENAMEAT, sqe.opcode);
-    try testing.expectEqual(@as(i32, linux.AT.FDCWD), sqe.fd);
-    try testing.expectEqual(@as(i32, linux.AT.FDCWD), @bitCast(i32, sqe.len));
+    try testing.expectEqual(@as(i32, tmp.dir.fd), sqe.fd);
+    try testing.expectEqual(@as(i32, tmp.dir.fd), @bitCast(i32, sqe.len));
     try testing.expectEqual(@as(u32, 1), try ring.submit());
 
     const cqe = try ring.copy_cqe();
@@ -2618,7 +2655,7 @@ test "renameat" {
 
     // Validate that the old file doesn't exist anymore
     {
-        _ = std.fs.cwd().openFile(old_path, .{}) catch |err| switch (err) {
+        _ = tmp.dir.openFile(old_path, .{}) catch |err| switch (err) {
             error.FileNotFound => {},
             else => std.debug.panic("unexpected error: {}", .{err}),
         };
@@ -2626,7 +2663,7 @@ test "renameat" {
 
     // Validate that the new file exists with the proper content
     {
-        const new_file = try std.fs.cwd().openFile(new_path, .{});
+        const new_file = try tmp.dir.openFile(new_path, .{});
         defer new_file.close();
 
         var new_file_data: [16]u8 = undefined;
@@ -2647,22 +2684,24 @@ test "unlinkat" {
 
     const path = "test_io_uring_unlinkat";
 
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
     // Write old file with data
 
-    const file = try std.fs.cwd().createFile(path, .{ .truncate = true, .mode = 0o666 });
+    const file = try tmp.dir.createFile(path, .{ .truncate = true, .mode = 0o666 });
     defer file.close();
-    defer std.fs.cwd().deleteFile(path) catch {};
 
     // Submit unlinkat
 
     var sqe = try ring.unlinkat(
         0x12121212,
-        linux.AT.FDCWD,
+        tmp.dir.fd,
         path,
         0,
     );
     try testing.expectEqual(linux.IORING_OP.UNLINKAT, sqe.opcode);
-    try testing.expectEqual(@as(i32, linux.AT.FDCWD), sqe.fd);
+    try testing.expectEqual(@as(i32, tmp.dir.fd), sqe.fd);
     try testing.expectEqual(@as(u32, 1), try ring.submit());
 
     const cqe = try ring.copy_cqe();
@@ -2679,7 +2718,7 @@ test "unlinkat" {
     }, cqe);
 
     // Validate that the file doesn't exist anymore
-    _ = std.fs.cwd().openFile(path, .{}) catch |err| switch (err) {
+    _ = tmp.dir.openFile(path, .{}) catch |err| switch (err) {
         error.FileNotFound => {},
         else => std.debug.panic("unexpected error: {}", .{err}),
     };
@@ -2695,20 +2734,21 @@ test "mkdirat" {
     };
     defer ring.deinit();
 
-    const path = "test_io_uring_mkdirat";
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
 
-    defer std.fs.cwd().deleteDir(path) catch {};
+    const path = "test_io_uring_mkdirat";
 
     // Submit mkdirat
 
     var sqe = try ring.mkdirat(
         0x12121212,
-        linux.AT.FDCWD,
+        tmp.dir.fd,
         path,
         0o0755,
     );
     try testing.expectEqual(linux.IORING_OP.MKDIRAT, sqe.opcode);
-    try testing.expectEqual(@as(i32, linux.AT.FDCWD), sqe.fd);
+    try testing.expectEqual(@as(i32, tmp.dir.fd), sqe.fd);
     try testing.expectEqual(@as(u32, 1), try ring.submit());
 
     const cqe = try ring.copy_cqe();
@@ -2725,7 +2765,7 @@ test "mkdirat" {
     }, cqe);
 
     // Validate that the directory exist
-    _ = try std.fs.cwd().openDir(path, .{});
+    _ = try tmp.dir.openDir(path, .{});
 }
 
 test "symlinkat" {
@@ -2738,26 +2778,25 @@ test "symlinkat" {
     };
     defer ring.deinit();
 
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
     const path = "test_io_uring_symlinkat";
     const link_path = "test_io_uring_symlinkat_link";
 
-    const file = try std.fs.cwd().createFile(path, .{ .truncate = true, .mode = 0o666 });
-    defer {
-        file.close();
-        std.fs.cwd().deleteFile(path) catch {};
-        std.fs.cwd().deleteFile(link_path) catch {};
-    }
+    const file = try tmp.dir.createFile(path, .{ .truncate = true, .mode = 0o666 });
+    defer file.close();
 
     // Submit symlinkat
 
     var sqe = try ring.symlinkat(
         0x12121212,
         path,
-        linux.AT.FDCWD,
+        tmp.dir.fd,
         link_path,
     );
     try testing.expectEqual(linux.IORING_OP.SYMLINKAT, sqe.opcode);
-    try testing.expectEqual(@as(i32, linux.AT.FDCWD), sqe.fd);
+    try testing.expectEqual(@as(i32, tmp.dir.fd), sqe.fd);
     try testing.expectEqual(@as(u32, 1), try ring.submit());
 
     const cqe = try ring.copy_cqe();
@@ -2774,7 +2813,7 @@ test "symlinkat" {
     }, cqe);
 
     // Validate that the symlink exist
-    _ = try std.fs.cwd().openFile(link_path, .{});
+    _ = try tmp.dir.openFile(link_path, .{});
 }
 
 test "linkat" {
@@ -2787,32 +2826,31 @@ test "linkat" {
     };
     defer ring.deinit();
 
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
     const first_path = "test_io_uring_linkat_first";
     const second_path = "test_io_uring_linkat_second";
 
     // Write file with data
 
-    const first_file = try std.fs.cwd().createFile(first_path, .{ .truncate = true, .mode = 0o666 });
-    defer {
-        first_file.close();
-        std.fs.cwd().deleteFile(first_path) catch {};
-        std.fs.cwd().deleteFile(second_path) catch {};
-    }
+    const first_file = try tmp.dir.createFile(first_path, .{ .truncate = true, .mode = 0o666 });
+    defer first_file.close();
     try first_file.writeAll("hello");
 
     // Submit linkat
 
     var sqe = try ring.linkat(
         0x12121212,
-        linux.AT.FDCWD,
+        tmp.dir.fd,
         first_path,
-        linux.AT.FDCWD,
+        tmp.dir.fd,
         second_path,
         0,
     );
     try testing.expectEqual(linux.IORING_OP.LINKAT, sqe.opcode);
-    try testing.expectEqual(@as(i32, linux.AT.FDCWD), sqe.fd);
-    try testing.expectEqual(@as(i32, linux.AT.FDCWD), @bitCast(i32, sqe.len));
+    try testing.expectEqual(@as(i32, tmp.dir.fd), sqe.fd);
+    try testing.expectEqual(@as(i32, tmp.dir.fd), @bitCast(i32, sqe.len));
     try testing.expectEqual(@as(u32, 1), try ring.submit());
 
     const cqe = try ring.copy_cqe();
@@ -2829,7 +2867,7 @@ test "linkat" {
     }, cqe);
 
     // Validate the second file
-    const second_file = try std.fs.cwd().openFile(second_path, .{});
+    const second_file = try tmp.dir.openFile(second_path, .{});
     defer second_file.close();
 
     var second_file_data: [16]u8 = undefined;
@@ -2860,7 +2898,7 @@ test "provide_buffers: read" {
     // Provide 4 buffers
 
     {
-        const sqe = try ring.provide_buffers(0xcccccccc, @ptrCast([*]u8, &buffers), buffers.len, buffer_len, group_id, buffer_id);
+        const sqe = try ring.provide_buffers(0xcccccccc, @ptrCast([*]u8, &buffers), buffer_len, buffers.len, group_id, buffer_id);
         try testing.expectEqual(linux.IORING_OP.PROVIDE_BUFFERS, sqe.opcode);
         try testing.expectEqual(@as(i32, buffers.len), sqe.fd);
         try testing.expectEqual(@as(u32, buffers[0].len), sqe.len);
@@ -2928,12 +2966,12 @@ test "provide_buffers: read" {
     // Provide 1 buffer again
 
     // Deliberately put something we don't expect in the buffers
-    mem.set(u8, mem.sliceAsBytes(&buffers), 42);
+    @memset(mem.sliceAsBytes(&buffers), 42);
 
     const reprovided_buffer_id = 2;
 
     {
-        _ = try ring.provide_buffers(0xabababab, @ptrCast([*]u8, &buffers[reprovided_buffer_id]), 1, buffer_len, group_id, reprovided_buffer_id);
+        _ = try ring.provide_buffers(0xabababab, @ptrCast([*]u8, &buffers[reprovided_buffer_id]), buffer_len, 1, group_id, reprovided_buffer_id);
         try testing.expectEqual(@as(u32, 1), try ring.submit());
 
         const cqe = try ring.copy_cqe();
@@ -2992,7 +3030,7 @@ test "remove_buffers" {
     // Provide 4 buffers
 
     {
-        _ = try ring.provide_buffers(0xcccccccc, @ptrCast([*]u8, &buffers), buffers.len, buffer_len, group_id, buffer_id);
+        _ = try ring.provide_buffers(0xcccccccc, @ptrCast([*]u8, &buffers), buffer_len, buffers.len, group_id, buffer_id);
         try testing.expectEqual(@as(u32, 1), try ring.submit());
 
         const cqe = try ring.copy_cqe();
@@ -3060,6 +3098,11 @@ test "remove_buffers" {
 test "provide_buffers: accept/connect/send/recv" {
     if (builtin.os.tag != .linux) return error.SkipZigTest;
 
+    if (true) {
+        // https://github.com/ziglang/zig/issues/14907
+        return error.SkipZigTest;
+    }
+
     var ring = IO_Uring.init(16, 0) catch |err| switch (err) {
         error.SystemOutdated => return error.SkipZigTest,
         error.PermissionDenied => return error.SkipZigTest,
@@ -3076,7 +3119,7 @@ test "provide_buffers: accept/connect/send/recv" {
     // Provide 4 buffers
 
     {
-        const sqe = try ring.provide_buffers(0xcccccccc, @ptrCast([*]u8, &buffers), buffers.len, buffer_len, group_id, buffer_id);
+        const sqe = try ring.provide_buffers(0xcccccccc, @ptrCast([*]u8, &buffers), buffer_len, buffers.len, group_id, buffer_id);
         try testing.expectEqual(linux.IORING_OP.PROVIDE_BUFFERS, sqe.opcode);
         try testing.expectEqual(@as(i32, buffers.len), sqe.fd);
         try testing.expectEqual(@as(u32, buffer_len), sqe.len);
@@ -3112,7 +3155,7 @@ test "provide_buffers: accept/connect/send/recv" {
     // Do 4 recv which should consume all buffers
 
     // Deliberately put something we don't expect in the buffers
-    mem.set(u8, mem.sliceAsBytes(&buffers), 1);
+    @memset(mem.sliceAsBytes(&buffers), 1);
 
     var i: usize = 0;
     while (i < buffers.len) : (i += 1) {
@@ -3170,7 +3213,7 @@ test "provide_buffers: accept/connect/send/recv" {
     const reprovided_buffer_id = 2;
 
     {
-        _ = try ring.provide_buffers(0xabababab, @ptrCast([*]u8, &buffers[reprovided_buffer_id]), 1, buffer_len, group_id, reprovided_buffer_id);
+        _ = try ring.provide_buffers(0xabababab, @ptrCast([*]u8, &buffers[reprovided_buffer_id]), buffer_len, 1, group_id, reprovided_buffer_id);
         try testing.expectEqual(@as(u32, 1), try ring.submit());
 
         const cqe = try ring.copy_cqe();
@@ -3192,7 +3235,7 @@ test "provide_buffers: accept/connect/send/recv" {
     // Final recv which should work
 
     // Deliberately put something we don't expect in the buffers
-    mem.set(u8, mem.sliceAsBytes(&buffers), 1);
+    @memset(mem.sliceAsBytes(&buffers), 1);
 
     {
         var sqe = try ring.recv(0xdfdfdfdf, socket_test_harness.client, .{ .buffer_selection = .{ .group_id = group_id, .len = buffer_len } }, 0);
@@ -3236,6 +3279,7 @@ const SocketTestHarness = struct {
 fn createSocketTestHarness(ring: *IO_Uring) !SocketTestHarness {
     // Create a TCP server socket
 
+    if (true) @compileError("don't hard code port numbers in unit tests"); // https://github.com/ziglang/zig/issues/14907
     const address = try net.Address.parseIp4("127.0.0.1", 3131);
     const kernel_backlog = 1;
     const listener_socket = try os.socket(address.any.family, os.SOCK.STREAM | os.SOCK.CLOEXEC, 0);

@@ -12,8 +12,10 @@
 
 #include <__chrono/duration.h>
 #include <__config>
+#include <__type_traits/common_type.h>
+#include <__type_traits/enable_if.h>
+#include <__type_traits/is_convertible.h>
 #include <limits>
-#include <type_traits>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #  pragma GCC system_header
@@ -41,12 +43,12 @@ private:
     duration __d_;
 
 public:
-    _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX11 time_point() : __d_(duration::zero()) {}
-    _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX11 explicit time_point(const duration& __d) : __d_(__d) {}
+    _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_SINCE_CXX14 time_point() : __d_(duration::zero()) {}
+    _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_SINCE_CXX14 explicit time_point(const duration& __d) : __d_(__d) {}
 
     // conversions
     template <class _Duration2>
-    _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX11
+    _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_SINCE_CXX14
     time_point(const time_point<clock, _Duration2>& __t,
         typename enable_if
         <
@@ -56,12 +58,12 @@ public:
 
     // observer
 
-    _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX11 duration time_since_epoch() const {return __d_;}
+    _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_SINCE_CXX14 duration time_since_epoch() const {return __d_;}
 
     // arithmetic
 
-    _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX14 time_point& operator+=(const duration& __d) {__d_ += __d; return *this;}
-    _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX14 time_point& operator-=(const duration& __d) {__d_ -= __d; return *this;}
+    _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_SINCE_CXX17 time_point& operator+=(const duration& __d) {__d_ += __d; return *this;}
+    _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_SINCE_CXX17 time_point& operator-=(const duration& __d) {__d_ -= __d; return *this;}
 
     // special values
 
@@ -81,7 +83,7 @@ struct _LIBCPP_TEMPLATE_VIS common_type<chrono::time_point<_Clock, _Duration1>,
 namespace chrono {
 
 template <class _ToDuration, class _Clock, class _Duration>
-inline _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX11
+inline _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_SINCE_CXX14
 time_point<_Clock, _ToDuration>
 time_point_cast(const time_point<_Clock, _Duration>& __t)
 {
@@ -98,7 +100,7 @@ typename enable_if
 >::type
 floor(const time_point<_Clock, _Duration>& __t)
 {
-    return time_point<_Clock, _ToDuration>{floor<_ToDuration>(__t.time_since_epoch())};
+    return time_point<_Clock, _ToDuration>{chrono::floor<_ToDuration>(__t.time_since_epoch())};
 }
 
 template <class _ToDuration, class _Clock, class _Duration>
@@ -110,7 +112,7 @@ typename enable_if
 >::type
 ceil(const time_point<_Clock, _Duration>& __t)
 {
-    return time_point<_Clock, _ToDuration>{ceil<_ToDuration>(__t.time_since_epoch())};
+    return time_point<_Clock, _ToDuration>{chrono::ceil<_ToDuration>(__t.time_since_epoch())};
 }
 
 template <class _ToDuration, class _Clock, class _Duration>
@@ -122,7 +124,7 @@ typename enable_if
 >::type
 round(const time_point<_Clock, _Duration>& __t)
 {
-    return time_point<_Clock, _ToDuration>{round<_ToDuration>(__t.time_since_epoch())};
+    return time_point<_Clock, _ToDuration>{chrono::round<_ToDuration>(__t.time_since_epoch())};
 }
 
 template <class _Rep, class _Period>
@@ -141,7 +143,7 @@ abs(duration<_Rep, _Period> __d)
 // time_point ==
 
 template <class _Clock, class _Duration1, class _Duration2>
-inline _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX11
+inline _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_SINCE_CXX14
 bool
 operator==(const time_point<_Clock, _Duration1>& __lhs, const time_point<_Clock, _Duration2>& __rhs)
 {
@@ -151,7 +153,7 @@ operator==(const time_point<_Clock, _Duration1>& __lhs, const time_point<_Clock,
 // time_point !=
 
 template <class _Clock, class _Duration1, class _Duration2>
-inline _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX11
+inline _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_SINCE_CXX14
 bool
 operator!=(const time_point<_Clock, _Duration1>& __lhs, const time_point<_Clock, _Duration2>& __rhs)
 {
@@ -161,7 +163,7 @@ operator!=(const time_point<_Clock, _Duration1>& __lhs, const time_point<_Clock,
 // time_point <
 
 template <class _Clock, class _Duration1, class _Duration2>
-inline _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX11
+inline _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_SINCE_CXX14
 bool
 operator<(const time_point<_Clock, _Duration1>& __lhs, const time_point<_Clock, _Duration2>& __rhs)
 {
@@ -171,7 +173,7 @@ operator<(const time_point<_Clock, _Duration1>& __lhs, const time_point<_Clock, 
 // time_point >
 
 template <class _Clock, class _Duration1, class _Duration2>
-inline _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX11
+inline _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_SINCE_CXX14
 bool
 operator>(const time_point<_Clock, _Duration1>& __lhs, const time_point<_Clock, _Duration2>& __rhs)
 {
@@ -181,7 +183,7 @@ operator>(const time_point<_Clock, _Duration1>& __lhs, const time_point<_Clock, 
 // time_point <=
 
 template <class _Clock, class _Duration1, class _Duration2>
-inline _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX11
+inline _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_SINCE_CXX14
 bool
 operator<=(const time_point<_Clock, _Duration1>& __lhs, const time_point<_Clock, _Duration2>& __rhs)
 {
@@ -191,7 +193,7 @@ operator<=(const time_point<_Clock, _Duration1>& __lhs, const time_point<_Clock,
 // time_point >=
 
 template <class _Clock, class _Duration1, class _Duration2>
-inline _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX11
+inline _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_SINCE_CXX14
 bool
 operator>=(const time_point<_Clock, _Duration1>& __lhs, const time_point<_Clock, _Duration2>& __rhs)
 {
@@ -201,7 +203,7 @@ operator>=(const time_point<_Clock, _Duration1>& __lhs, const time_point<_Clock,
 // time_point operator+(time_point x, duration y);
 
 template <class _Clock, class _Duration1, class _Rep2, class _Period2>
-inline _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX11
+inline _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_SINCE_CXX14
 time_point<_Clock, typename common_type<_Duration1, duration<_Rep2, _Period2> >::type>
 operator+(const time_point<_Clock, _Duration1>& __lhs, const duration<_Rep2, _Period2>& __rhs)
 {
@@ -212,7 +214,7 @@ operator+(const time_point<_Clock, _Duration1>& __lhs, const duration<_Rep2, _Pe
 // time_point operator+(duration x, time_point y);
 
 template <class _Rep1, class _Period1, class _Clock, class _Duration2>
-inline _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX11
+inline _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_SINCE_CXX14
 time_point<_Clock, typename common_type<duration<_Rep1, _Period1>, _Duration2>::type>
 operator+(const duration<_Rep1, _Period1>& __lhs, const time_point<_Clock, _Duration2>& __rhs)
 {
@@ -222,7 +224,7 @@ operator+(const duration<_Rep1, _Period1>& __lhs, const time_point<_Clock, _Dura
 // time_point operator-(time_point x, duration y);
 
 template <class _Clock, class _Duration1, class _Rep2, class _Period2>
-inline _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX11
+inline _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_SINCE_CXX14
 time_point<_Clock, typename common_type<_Duration1, duration<_Rep2, _Period2> >::type>
 operator-(const time_point<_Clock, _Duration1>& __lhs, const duration<_Rep2, _Period2>& __rhs)
 {
@@ -233,7 +235,7 @@ operator-(const time_point<_Clock, _Duration1>& __lhs, const duration<_Rep2, _Pe
 // duration operator-(time_point x, time_point y);
 
 template <class _Clock, class _Duration1, class _Duration2>
-inline _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_AFTER_CXX11
+inline _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_SINCE_CXX14
 typename common_type<_Duration1, _Duration2>::type
 operator-(const time_point<_Clock, _Duration1>& __lhs, const time_point<_Clock, _Duration2>& __rhs)
 {

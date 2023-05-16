@@ -17,10 +17,24 @@
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
+#if __has_builtin(__remove_volatile)
+template <class _Tp>
+struct remove_volatile {
+  using type _LIBCPP_NODEBUG = __remove_volatile(_Tp);
+};
+
+template <class _Tp>
+using __remove_volatile_t = __remove_volatile(_Tp);
+#else
 template <class _Tp> struct _LIBCPP_TEMPLATE_VIS remove_volatile               {typedef _Tp type;};
 template <class _Tp> struct _LIBCPP_TEMPLATE_VIS remove_volatile<volatile _Tp> {typedef _Tp type;};
+
+template <class _Tp>
+using __remove_volatile_t = typename remove_volatile<_Tp>::type;
+#endif // __has_builtin(__remove_volatile)
+
 #if _LIBCPP_STD_VER > 11
-template <class _Tp> using remove_volatile_t = typename remove_volatile<_Tp>::type;
+template <class _Tp> using remove_volatile_t = __remove_volatile_t<_Tp>;
 #endif
 
 _LIBCPP_END_NAMESPACE_STD

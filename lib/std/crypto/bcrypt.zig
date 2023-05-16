@@ -416,8 +416,8 @@ pub fn bcrypt(
 ) [dk_length]u8 {
     var state = State{};
     var password_buf: [73]u8 = undefined;
-    const trimmed_len = math.min(password.len, password_buf.len - 1);
-    mem.copy(u8, password_buf[0..], password[0..trimmed_len]);
+    const trimmed_len = @min(password.len, password_buf.len - 1);
+    @memcpy(password_buf[0..trimmed_len], password[0..trimmed_len]);
     password_buf[trimmed_len] = 0;
     var passwordZ = password_buf[0 .. trimmed_len + 1];
     state.expand(salt[0..], passwordZ);
@@ -626,7 +626,7 @@ const CryptFormatHasher = struct {
         crypto.random.bytes(&salt);
 
         const hash = crypt_format.strHashInternal(password, salt, params);
-        mem.copy(u8, buf, &hash);
+        @memcpy(buf[0..hash.len], &hash);
 
         return buf[0..pwhash_str_length];
     }

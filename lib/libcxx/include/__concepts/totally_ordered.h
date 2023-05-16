@@ -12,7 +12,8 @@
 #include <__concepts/boolean_testable.h>
 #include <__concepts/equality_comparable.h>
 #include <__config>
-#include <type_traits>
+#include <__type_traits/common_reference.h>
+#include <__type_traits/make_const_lvalue_ref.h>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #  pragma GCC system_header

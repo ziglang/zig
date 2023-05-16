@@ -9,4 +9,4 @@ export fn entry() void {
 // target=native
 //
 // :3:38: error: enum 'builtin.OptimizeMode' has no member named 'x86'
-// :?:18: note: enum declared here
+// : note: enum declared here

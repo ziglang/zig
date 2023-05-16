@@ -24,6 +24,11 @@ const ArenaAllocator = std.heap.ArenaAllocator;
 test "chdir smoke test" {
     if (native_os == .wasi) return error.SkipZigTest;
 
+    if (true) {
+        // https://github.com/ziglang/zig/issues/14968
+        return error.SkipZigTest;
+    }
+
     // Get current working directory path
     var old_cwd_buf: [fs.MAX_PATH_BYTES]u8 = undefined;
     const old_cwd = try os.getcwd(old_cwd_buf[0..]);
@@ -173,6 +178,10 @@ test "openat smoke test" {
 test "symlink with relative paths" {
     if (native_os == .wasi and builtin.link_libc) return error.SkipZigTest;
 
+    if (true) {
+        // https://github.com/ziglang/zig/issues/14968
+        return error.SkipZigTest;
+    }
     const cwd = fs.cwd();
     cwd.deleteFile("file.txt") catch {};
     cwd.deleteFile("symlinked") catch {};
@@ -228,6 +237,10 @@ test "link with relative paths" {
         .wasi, .linux, .solaris => {},
         else => return error.SkipZigTest,
     }
+    if (true) {
+        // https://github.com/ziglang/zig/issues/14968
+        return error.SkipZigTest;
+    }
     var cwd = fs.cwd();
 
     cwd.deleteFile("example.txt") catch {};
@@ -266,6 +279,10 @@ test "linkat with different directories" {
     switch (native_os) {
         .wasi, .linux, .solaris => {},
         else => return error.SkipZigTest,
+    }
+    if (true) {
+        // https://github.com/ziglang/zig/issues/14968
+        return error.SkipZigTest;
     }
     var cwd = fs.cwd();
     var tmp = tmpDir(.{});
@@ -485,8 +502,7 @@ fn iter_fn(info: *dl_phdr_info, size: usize, counter: *usize) IterFnError!void {
 }
 
 test "dl_iterate_phdr" {
-    if (native_os == .windows or native_os == .wasi or native_os == .macos)
-        return error.SkipZigTest;
+    if (builtin.object_format != .elf) return error.SkipZigTest;
 
     var counter: usize = 0;
     try os.dl_iterate_phdr(&counter, IterFnError, iter_fn);
@@ -571,7 +587,7 @@ test "mmap" {
         try testing.expect(mem.eql(u8, data, &[_]u8{0x00} ** 1234));
 
         // Make sure the memory is writeable as requested
-        std.mem.set(u8, data, 0x55);
+        @memset(data, 0x55);
         try testing.expect(mem.eql(u8, data, &[_]u8{0x55} ** 1234));
     }
 
@@ -779,6 +795,11 @@ test "sigaction" {
     // https://github.com/ziglang/zig/issues/7427
     if (native_os == .linux and builtin.target.cpu.arch == .x86)
         return error.SkipZigTest;
+
+    // https://github.com/ziglang/zig/issues/15381
+    if (native_os == .macos and builtin.target.cpu.arch == .x86_64) {
+        return error.SkipZigTest;
+    }
 
     const S = struct {
         var handler_called_count: u32 = 0;
@@ -1080,6 +1101,8 @@ test "isatty" {
     defer tmp.cleanup();
 
     var file = try tmp.dir.createFile("foo", .{});
+    defer file.close();
+
     try expectEqual(os.isatty(file.handle), false);
 }
 

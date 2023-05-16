@@ -256,8 +256,8 @@ _mm512_maskz_broadcastq_epi64 (__mmask8 __M, __m128i __A)
 static __inline __m512 __DEFAULT_FN_ATTRS512
 _mm512_setzero_ps(void)
 {
-  return __extension__ (__m512){ 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
-                                 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0 };
+  return __extension__ (__m512){ 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f,
+                                 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f };
 }
 
 #define _mm512_setzero _mm512_setzero_ps

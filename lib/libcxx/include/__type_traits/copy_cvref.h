@@ -29,13 +29,13 @@ struct __copy_cvref
 template <class _From, class _To>
 struct __copy_cvref<_From&, _To>
 {
-    using type = typename add_lvalue_reference<__copy_cv_t<_From, _To> >::type;
+    using type = __add_lvalue_reference_t<__copy_cv_t<_From, _To> >;
 };
 
 template <class _From, class _To>
 struct __copy_cvref<_From&&, _To>
 {
-    using type = typename add_rvalue_reference<__copy_cv_t<_From, _To> >::type;
+    using type = __add_rvalue_reference_t<__copy_cv_t<_From, _To> >;
 };
 
 template <class _From, class _To>

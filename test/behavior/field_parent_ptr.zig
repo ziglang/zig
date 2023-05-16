@@ -2,17 +2,19 @@ const expect = @import("std").testing.expect;
 const builtin = @import("builtin");
 
 test "@fieldParentPtr non-first field" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
     try testParentFieldPtr(&foo.c);
     comptime try testParentFieldPtr(&foo.c);
 }
 
 test "@fieldParentPtr first field" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
     try testParentFieldPtrFirst(&foo.a);
     comptime try testParentFieldPtrFirst(&foo.a);
 }
@@ -48,10 +50,10 @@ fn testParentFieldPtrFirst(a: *const bool) !void {
 }
 
 test "@fieldParentPtr untagged union" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     try testFieldParentPtrUnion(&bar.c);
     comptime try testFieldParentPtrUnion(&bar.c);
@@ -75,10 +77,10 @@ fn testFieldParentPtrUnion(c: *const i32) !void {
 }
 
 test "@fieldParentPtr tagged union" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     try testFieldParentPtrTaggedUnion(&bar_tagged.c);
     comptime try testFieldParentPtrTaggedUnion(&bar_tagged.c);
@@ -102,10 +104,10 @@ fn testFieldParentPtrTaggedUnion(c: *const i32) !void {
 }
 
 test "@fieldParentPtr extern union" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     try testFieldParentPtrExternUnion(&bar_extern.c);
     comptime try testFieldParentPtrExternUnion(&bar_extern.c);

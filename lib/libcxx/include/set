@@ -480,15 +480,13 @@ erase_if(multiset<Key, Compare, Allocator>& c, Predicate pred);  // C++20
 #include <__iterator/erase_if_container.h>
 #include <__iterator/iterator_traits.h>
 #include <__iterator/reverse_iterator.h>
+#include <__memory/allocator.h>
+#include <__memory_resource/polymorphic_allocator.h>
 #include <__node_handle>
 #include <__tree>
+#include <__type_traits/is_allocator.h>
 #include <__utility/forward.h>
 #include <version>
-
-#ifndef _LIBCPP_REMOVE_TRANSITIVE_INCLUDES
-#  include <functional>
-#  include <iterator>
-#endif
 
 // standard-mandated includes
 
@@ -532,6 +530,10 @@ public:
 private:
     typedef __tree<value_type, value_compare, allocator_type> __base;
     typedef allocator_traits<allocator_type>                  __alloc_traits;
+
+    static_assert(is_same<allocator_type, __rebind_alloc<__alloc_traits, value_type> >::value,
+                  "[allocator.requirements] states that rebinding an allocator to the same type should result in the "
+                  "original allocator");
 
     __base __tree_;
 
@@ -1066,6 +1068,10 @@ private:
     typedef __tree<value_type, value_compare, allocator_type> __base;
     typedef allocator_traits<allocator_type>                  __alloc_traits;
 
+    static_assert(is_same<allocator_type, __rebind_alloc<__alloc_traits, value_type> >::value,
+                  "[allocator.requirements] states that rebinding an allocator to the same type should result in the "
+                  "original allocator");
+
     __base __tree_;
 
 public:
@@ -1577,5 +1583,23 @@ inline _LIBCPP_INLINE_VISIBILITY
 #endif
 
 _LIBCPP_END_NAMESPACE_STD
+
+#if _LIBCPP_STD_VER > 14
+_LIBCPP_BEGIN_NAMESPACE_STD
+namespace pmr {
+template <class _KeyT, class _CompareT = std::less<_KeyT>>
+using set = std::set<_KeyT, _CompareT, polymorphic_allocator<_KeyT>>;
+
+template <class _KeyT, class _CompareT = std::less<_KeyT>>
+using multiset = std::multiset<_KeyT, _CompareT, polymorphic_allocator<_KeyT>>;
+} // namespace pmr
+_LIBCPP_END_NAMESPACE_STD
+#endif
+
+#if !defined(_LIBCPP_REMOVE_TRANSITIVE_INCLUDES) && _LIBCPP_STD_VER <= 20
+#  include <concepts>
+#  include <functional>
+#  include <iterator>
+#endif
 
 #endif // _LIBCPP_SET

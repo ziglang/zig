@@ -383,10 +383,10 @@ pub const XSalsa20Poly1305 = struct {
         debug.assert(c.len == m.len);
         const extended = extend(rounds, k, npub);
         var block0 = [_]u8{0} ** 64;
-        const mlen0 = math.min(32, m.len);
-        mem.copy(u8, block0[32..][0..mlen0], m[0..mlen0]);
+        const mlen0 = @min(32, m.len);
+        @memcpy(block0[32..][0..mlen0], m[0..mlen0]);
         Salsa20.xor(block0[0..], block0[0..], 0, extended.key, extended.nonce);
-        mem.copy(u8, c[0..mlen0], block0[32..][0..mlen0]);
+        @memcpy(c[0..mlen0], block0[32..][0..mlen0]);
         Salsa20.xor(c[mlen0..], m[mlen0..], 1, extended.key, extended.nonce);
         var mac = Poly1305.init(block0[0..32]);
         mac.update(ad);
@@ -405,7 +405,7 @@ pub const XSalsa20Poly1305 = struct {
         const extended = extend(rounds, k, npub);
         var block0 = [_]u8{0} ** 64;
         const mlen0 = math.min(32, c.len);
-        mem.copy(u8, block0[32..][0..mlen0], c[0..mlen0]);
+        @memcpy(block0[32..][0..mlen0], c[0..mlen0]);
         Salsa20.xor(block0[0..], block0[0..], 0, extended.key, extended.nonce);
         var mac = Poly1305.init(block0[0..32]);
         mac.update(ad);
@@ -420,7 +420,7 @@ pub const XSalsa20Poly1305 = struct {
             utils.secureZero(u8, &computedTag);
             return error.AuthenticationFailed;
         }
-        mem.copy(u8, m[0..mlen0], block0[32..][0..mlen0]);
+        @memcpy(m[0..mlen0], block0[32..][0..mlen0]);
         Salsa20.xor(m[mlen0..], c[mlen0..], 1, extended.key, extended.nonce);
     }
 };
@@ -533,7 +533,7 @@ pub const SealedBox = struct {
         debug.assert(c.len == m.len + seal_length);
         var ekp = try KeyPair.create(null);
         const nonce = createNonce(ekp.public_key, public_key);
-        mem.copy(u8, c[0..public_length], ekp.public_key[0..]);
+        c[0..public_length].* = ekp.public_key;
         try Box.seal(c[Box.public_length..], m, nonce, public_key, ekp.secret_key);
         utils.secureZero(u8, ekp.secret_key[0..]);
     }

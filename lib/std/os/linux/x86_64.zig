@@ -109,7 +109,7 @@ pub const restore = restore_rt;
 
 pub fn restore_rt() callconv(.Naked) void {
     switch (@import("builtin").zig_backend) {
-        .stage2_c => return asm volatile (
+        .stage2_c => asm volatile (
             \\ movl %[number], %%eax
             \\ syscall
             \\ retq
@@ -117,12 +117,15 @@ pub fn restore_rt() callconv(.Naked) void {
             : [number] "i" (@enumToInt(SYS.rt_sigreturn)),
             : "rcx", "r11", "memory"
         ),
-        else => return asm volatile ("syscall"
+        else => asm volatile (
+            \\ syscall
+            \\ retq
             :
             : [number] "{rax}" (@enumToInt(SYS.rt_sigreturn)),
             : "rcx", "r11", "memory"
         ),
     }
+    unreachable;
 }
 
 pub const mode_t = usize;

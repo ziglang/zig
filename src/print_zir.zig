@@ -195,7 +195,6 @@ const Writer = struct {
             .embed_file,
             .error_name,
             .panic,
-            .panic_comptime,
             .set_runtime_safety,
             .sqrt,
             .sin,
@@ -268,6 +267,7 @@ const Writer = struct {
             .slice_start => try self.writeSliceStart(stream, inst),
             .slice_end => try self.writeSliceEnd(stream, inst),
             .slice_sentinel => try self.writeSliceSentinel(stream, inst),
+            .slice_length => try self.writeSliceLength(stream, inst),
 
             .union_init => try self.writeUnionInit(stream, inst),
 
@@ -278,8 +278,6 @@ const Writer = struct {
             .atomic_load => try self.writeAtomicLoad(stream, inst),
             .atomic_store => try self.writeAtomicStore(stream, inst),
             .atomic_rmw => try self.writeAtomicRmw(stream, inst),
-            .memcpy => try self.writeMemcpy(stream, inst),
-            .memset => try self.writeMemset(stream, inst),
             .shuffle => try self.writeShuffle(stream, inst),
             .mul_add => try self.writeMulAdd(stream, inst),
             .field_parent_ptr => try self.writeFieldParentPtr(stream, inst),
@@ -347,6 +345,8 @@ const Writer = struct {
             .vector_type,
             .max,
             .min,
+            .memcpy,
+            .memset,
             .elem_ptr_node,
             .elem_val_node,
             .elem_ptr,
@@ -365,13 +365,12 @@ const Writer = struct {
             .call => try self.writeCall(stream, inst),
 
             .block,
+            .block_comptime,
             .block_inline,
             .suspend_block,
             .loop,
             .validate_struct_init,
-            .validate_struct_init_comptime,
             .validate_array_init,
-            .validate_array_init_comptime,
             .c_import,
             .typeof_builtin,
             => try self.writeBlock(stream, inst),
@@ -468,6 +467,8 @@ const Writer = struct {
             .frame_address,
             .breakpoint,
             .c_va_start,
+            .in_comptime,
+            .errdefer_err_code,
             => try self.writeExtNode(stream, extended),
 
             .builtin_src => {
@@ -483,6 +484,8 @@ const Writer = struct {
 
             .compile_log => try self.writeNodeMultiOp(stream, extended),
             .typeof_peer => try self.writeTypeofPeer(stream, extended),
+            .min_multi => try self.writeNodeMultiOp(stream, extended),
+            .max_multi => try self.writeNodeMultiOp(stream, extended),
 
             .select => try self.writeSelect(stream, extended),
 
@@ -512,6 +515,9 @@ const Writer = struct {
             .c_va_end,
             .const_cast,
             .volatile_cast,
+            .work_item_id,
+            .work_group_size,
+            .work_group_id,
             => {
                 const inst_data = self.code.extraData(Zir.Inst.UnNode, extended.operand).data;
                 const src = LazySrcLoc.nodeOffset(inst_data.node);
@@ -680,7 +686,7 @@ const Writer = struct {
         const limbs = try self.gpa.alloc(std.math.big.Limb, inst_data.len);
         defer self.gpa.free(limbs);
 
-        mem.copy(u8, mem.sliceAsBytes(limbs), limb_bytes);
+        @memcpy(mem.sliceAsBytes(limbs), limb_bytes);
         const big_int: std.math.big.int.Const = .{
             .limbs = limbs,
             .positive = true,
@@ -751,6 +757,22 @@ const Writer = struct {
         try self.writeSrc(stream, inst_data.src());
     }
 
+    fn writeSliceLength(self: *Writer, stream: anytype, inst: Zir.Inst.Index) !void {
+        const inst_data = self.code.instructions.items(.data)[inst].pl_node;
+        const extra = self.code.extraData(Zir.Inst.SliceLength, inst_data.payload_index).data;
+        try self.writeInstRef(stream, extra.lhs);
+        try stream.writeAll(", ");
+        try self.writeInstRef(stream, extra.start);
+        try stream.writeAll(", ");
+        try self.writeInstRef(stream, extra.len);
+        if (extra.sentinel != .none) {
+            try stream.writeAll(", ");
+            try self.writeInstRef(stream, extra.sentinel);
+        }
+        try stream.writeAll(") ");
+        try self.writeSrc(stream, inst_data.src());
+    }
+
     fn writeUnionInit(self: *Writer, stream: anytype, inst: Zir.Inst.Index) !void {
         const inst_data = self.code.instructions.items(.data)[inst].pl_node;
         const extra = self.code.extraData(Zir.Inst.UnionInit, inst_data.payload_index).data;
@@ -808,7 +830,6 @@ const Writer = struct {
 
         try self.writeFlag(stream, "nodiscard ", extra.flags.ensure_result_used);
         try self.writeFlag(stream, "nosuspend ", extra.flags.is_nosuspend);
-        try self.writeFlag(stream, "comptime ", extra.flags.is_comptime);
 
         try self.writeInstRef(stream, extra.modifier);
         try stream.writeAll(", ");
@@ -995,32 +1016,6 @@ const Writer = struct {
         try self.writeInstRef(stream, extra.operand);
         try stream.writeAll(", ");
         try self.writeInstRef(stream, extra.ordering);
-        try stream.writeAll(") ");
-        try self.writeSrc(stream, inst_data.src());
-    }
-
-    fn writeMemcpy(self: *Writer, stream: anytype, inst: Zir.Inst.Index) !void {
-        const inst_data = self.code.instructions.items(.data)[inst].pl_node;
-        const extra = self.code.extraData(Zir.Inst.Memcpy, inst_data.payload_index).data;
-
-        try self.writeInstRef(stream, extra.dest);
-        try stream.writeAll(", ");
-        try self.writeInstRef(stream, extra.source);
-        try stream.writeAll(", ");
-        try self.writeInstRef(stream, extra.byte_count);
-        try stream.writeAll(") ");
-        try self.writeSrc(stream, inst_data.src());
-    }
-
-    fn writeMemset(self: *Writer, stream: anytype, inst: Zir.Inst.Index) !void {
-        const inst_data = self.code.instructions.items(.data)[inst].pl_node;
-        const extra = self.code.extraData(Zir.Inst.Memset, inst_data.payload_index).data;
-
-        try self.writeInstRef(stream, extra.dest);
-        try stream.writeAll(", ");
-        try self.writeInstRef(stream, extra.byte);
-        try stream.writeAll(", ");
-        try self.writeInstRef(stream, extra.byte_count);
         try stream.writeAll(") ");
         try self.writeSrc(stream, inst_data.src());
     }
@@ -2321,8 +2316,9 @@ const Writer = struct {
 
     fn writeBreak(self: *Writer, stream: anytype, inst: Zir.Inst.Index) !void {
         const inst_data = self.code.instructions.items(.data)[inst].@"break";
+        const extra = self.code.extraData(Zir.Inst.Break, inst_data.payload_index).data;
 
-        try self.writeInstIndex(stream, inst_data.block_inst);
+        try self.writeInstIndex(stream, extra.block_inst);
         try stream.writeAll(", ");
         try self.writeInstRef(stream, inst_data.operand);
         try stream.writeAll(")");

@@ -49,7 +49,7 @@ const WeakParametersError = std.crypto.errors.WeakParametersError;
 ///         Larger iteration counts improve security by increasing the time required to compute
 ///         the dk. It is common to tune this parameter to achieve approximately 100ms.
 ///
-/// Prf: Pseudo-random function to use. A common choice is `std.crypto.auth.hmac.HmacSha256`.
+/// Prf: Pseudo-random function to use. A common choice is `std.crypto.auth.hmac.sha2.HmacSha256`.
 pub fn pbkdf2(dk: []u8, password: []const u8, salt: []const u8, rounds: u32, comptime Prf: type) (WeakParametersError || OutputTooLongError)!void {
     if (rounds < 1) return error.WeakParameters;
 
@@ -129,13 +129,13 @@ pub fn pbkdf2(dk: []u8, password: []const u8, salt: []const u8, rounds: u32, com
         const offset = block * h_len;
         const block_len = if (block != blocks_count - 1) h_len else r;
         const dk_block: []u8 = dk[offset..][0..block_len];
-        mem.copy(u8, dk_block, prev_block[0..dk_block.len]);
+        @memcpy(dk_block, prev_block[0..dk_block.len]);
 
         var i: u32 = 1;
         while (i < rounds) : (i += 1) {
             // U_c = PRF (P, U_{c-1})
             Prf.create(&new_block, prev_block[0..], password);
-            mem.copy(u8, prev_block[0..], new_block[0..]);
+            prev_block = new_block;
 
             // F (P, S, c, i) = U_1 \xor U_2 \xor ... \xor U_c
             for (dk_block, 0..) |_, j| {

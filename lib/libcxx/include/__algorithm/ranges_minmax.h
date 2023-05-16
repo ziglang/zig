@@ -23,13 +23,14 @@
 #include <__ranges/concepts.h>
 #include <__utility/forward.h>
 #include <__utility/move.h>
+#include <__utility/pair.h>
 #include <initializer_list>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #  pragma GCC system_header
 #endif
 
-#if _LIBCPP_STD_VER > 17 && !defined(_LIBCPP_HAS_NO_INCOMPLETE_RANGES)
+#if _LIBCPP_STD_VER > 17
 
 _LIBCPP_PUSH_MACROS
 #include <__undef_macros>
@@ -44,7 +45,7 @@ namespace __minmax {
 struct __fn {
   template <class _Type, class _Proj = identity,
             indirect_strict_weak_order<projected<const _Type*, _Proj>> _Comp = ranges::less>
-  _LIBCPP_HIDE_FROM_ABI constexpr ranges::minmax_result<const _Type&>
+  _LIBCPP_NODISCARD_EXT _LIBCPP_HIDE_FROM_ABI constexpr ranges::minmax_result<const _Type&>
   operator()(const _Type& __a, const _Type& __b, _Comp __comp = {}, _Proj __proj = {}) const {
     if (std::invoke(__comp, std::invoke(__proj, __b), std::invoke(__proj, __a)))
       return {__b, __a};
@@ -53,7 +54,7 @@ struct __fn {
 
   template <copyable _Type, class _Proj = identity,
             indirect_strict_weak_order<projected<const _Type*, _Proj>> _Comp = ranges::less>
-  _LIBCPP_HIDE_FROM_ABI constexpr
+  _LIBCPP_NODISCARD_EXT _LIBCPP_HIDE_FROM_ABI constexpr
   ranges::minmax_result<_Type> operator()(initializer_list<_Type> __il, _Comp __comp = {}, _Proj __proj = {}) const {
     _LIBCPP_ASSERT(__il.begin() != __il.end(), "initializer_list has to contain at least one element");
     auto __iters = std::__minmax_element_impl(__il.begin(), __il.end(), __comp, __proj);
@@ -63,7 +64,7 @@ struct __fn {
   template <input_range _Range, class _Proj = identity,
             indirect_strict_weak_order<projected<iterator_t<_Range>, _Proj>> _Comp = ranges::less>
     requires indirectly_copyable_storable<iterator_t<_Range>, range_value_t<_Range>*>
-  _LIBCPP_HIDE_FROM_ABI constexpr
+  _LIBCPP_NODISCARD_EXT _LIBCPP_HIDE_FROM_ABI constexpr
   ranges::minmax_result<range_value_t<_Range>> operator()(_Range&& __r, _Comp __comp = {}, _Proj __proj = {}) const {
     auto __first = ranges::begin(__r);
     auto __last = ranges::end(__r);
@@ -128,6 +129,6 @@ _LIBCPP_END_NAMESPACE_STD
 
 _LIBCPP_POP_MACROS
 
-#endif // _LIBCPP_STD_VER > 17 && !defined(_LIBCPP_HAS_NO_INCOMPLETE_RANGES)
+#endif // _LIBCPP_STD_VER > 17
 
 #endif // _LIBCPP___ALGORITHM_RANGES_MINMAX_H

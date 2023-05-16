@@ -9,6 +9,7 @@ pub fn main() void {
 // run
 // backend=llvm
 // target=x86_64-linux-gnu
+// link_libc=1
 //
 // f64: 2.000000
 // f32: 10.000000

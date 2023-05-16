@@ -12,6 +12,7 @@
 #include <__config>
 #include <__memory/allocator_traits.h>
 #include <__type_traits/integral_constant.h>
+#include <__type_traits/is_swappable.h>
 #include <__utility/swap.h>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
@@ -21,7 +22,7 @@
 _LIBCPP_BEGIN_NAMESPACE_STD
 
 template <typename _Alloc>
-_LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_AFTER_CXX11 void __swap_allocator(_Alloc& __a1, _Alloc& __a2, true_type)
+_LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX14 void __swap_allocator(_Alloc& __a1, _Alloc& __a2, true_type)
 #if _LIBCPP_STD_VER > 11
     _NOEXCEPT
 #else
@@ -33,11 +34,11 @@ _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_AFTER_CXX11 void __swap_allocator(_Alloc
 }
 
 template <typename _Alloc>
-inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_AFTER_CXX11 void
+inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX14 void
 __swap_allocator(_Alloc&, _Alloc&, false_type) _NOEXCEPT {}
 
 template <typename _Alloc>
-inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_AFTER_CXX11 void __swap_allocator(_Alloc& __a1, _Alloc& __a2)
+inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX14 void __swap_allocator(_Alloc& __a1, _Alloc& __a2)
 #if _LIBCPP_STD_VER > 11
     _NOEXCEPT
 #else

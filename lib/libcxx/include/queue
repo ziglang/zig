@@ -231,11 +231,9 @@ template <class T, class Container, class Compare>
 #include <vector>
 #include <version>
 
-#ifndef _LIBCPP_REMOVE_TRANSITIVE_INCLUDES
-#  include <functional>
-#endif
-
 // standard-mandated includes
+
+// [queue.syn]
 #include <compare>
 #include <initializer_list>
 
@@ -383,6 +381,8 @@ public:
         using _VSTD::swap;
         swap(c, __q.c);
     }
+
+    _LIBCPP_NODISCARD _LIBCPP_HIDE_FROM_ABI const _Container& __get_container() const { return c; }
 
     template <class _T1, class _C1>
     friend
@@ -635,6 +635,8 @@ public:
     void swap(priority_queue& __q)
         _NOEXCEPT_(__is_nothrow_swappable<container_type>::value &&
                    __is_nothrow_swappable<value_compare>::value);
+
+    _LIBCPP_NODISCARD _LIBCPP_HIDE_FROM_ABI const _Container& __get_container() const { return c; }
 };
 
 #if _LIBCPP_STD_VER >= 17
@@ -959,5 +961,10 @@ struct _LIBCPP_TEMPLATE_VIS uses_allocator<priority_queue<_Tp, _Container, _Comp
 };
 
 _LIBCPP_END_NAMESPACE_STD
+
+#if !defined(_LIBCPP_REMOVE_TRANSITIVE_INCLUDES) && _LIBCPP_STD_VER <= 20
+#  include <concepts>
+#  include <functional>
+#endif
 
 #endif // _LIBCPP_QUEUE
