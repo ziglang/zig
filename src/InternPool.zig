@@ -148,6 +148,7 @@ pub const Key = union(enum) {
     union_type: UnionType,
     opaque_type: OpaqueType,
     enum_type: EnumType,
+    func_type: FuncType,
 
     /// Typed `undefined`. This will never be `none`; untyped `undefined` is represented
     /// via `simple_value` and has a named `Index` tag for it.
@@ -185,6 +186,13 @@ pub const Key = union(enum) {
         /// If zero use pointee_type.abiAlignment()
         /// When creating pointer types, if alignment is equal to pointee type
         /// abi alignment, this value should be set to 0 instead.
+        ///
+        /// Please don't change this to u32 or u29. If you want to save bits,
+        /// migrate the rest of the codebase to use the `Alignment` type rather
+        /// than using byte units. The LLVM backend can only handle `c_uint`
+        /// byte units; we can emit a semantic analysis error if alignment that
+        /// overflows that amount is attempted to be used, but it shouldn't
+        /// affect the other backends.
         alignment: u64 = 0,
         /// If this is non-zero it means the pointer points to a sub-byte
         /// range of data, which is backed by a "host integer" with this
@@ -358,6 +366,44 @@ pub const Key = union(enum) {
         }
     };
 
+    pub const FuncType = struct {
+        param_types: []Index,
+        return_type: Index,
+        /// Tells whether a parameter is comptime. See `paramIsComptime` helper
+        /// method for accessing this.
+        comptime_bits: u32,
+        /// Tells whether a parameter is noalias. See `paramIsNoalias` helper
+        /// method for accessing this.
+        noalias_bits: u32,
+        /// If zero use default target function code alignment.
+        ///
+        /// Please don't change this to u32 or u29. If you want to save bits,
+        /// migrate the rest of the codebase to use the `Alignment` type rather
+        /// than using byte units. The LLVM backend can only handle `c_uint`
+        /// byte units; we can emit a semantic analysis error if alignment that
+        /// overflows that amount is attempted to be used, but it shouldn't
+        /// affect the other backends.
+        alignment: u64,
+        cc: std.builtin.CallingConvention,
+        is_var_args: bool,
+        is_generic: bool,
+        is_noinline: bool,
+        align_is_generic: bool,
+        cc_is_generic: bool,
+        section_is_generic: bool,
+        addrspace_is_generic: bool,
+
+        pub fn paramIsComptime(self: @This(), i: u5) bool {
+            assert(i < self.param_types.len);
+            return @truncate(u1, self.comptime_bits >> i) != 0;
+        }
+
+        pub fn paramIsNoalias(self: @This(), i: u5) bool {
+            assert(i < self.param_types.len);
+            return @truncate(u1, self.noalias_bits >> i) != 0;
+        }
+    };
+
     pub const Int = struct {
         ty: Index,
         storage: Storage,
@@ -511,6 +557,18 @@ pub const Key = union(enum) {
                 for (anon_struct_type.types) |elem| std.hash.autoHash(hasher, elem);
                 for (anon_struct_type.values) |elem| std.hash.autoHash(hasher, elem);
                 for (anon_struct_type.names) |elem| std.hash.autoHash(hasher, elem);
+            },
+
+            .func_type => |func_type| {
+                for (func_type.param_types) |param_type| std.hash.autoHash(hasher, param_type);
+                std.hash.autoHash(hasher, func_type.return_type);
+                std.hash.autoHash(hasher, func_type.comptime_bits);
+                std.hash.autoHash(hasher, func_type.noalias_bits);
+                std.hash.autoHash(hasher, func_type.alignment);
+                std.hash.autoHash(hasher, func_type.cc);
+                std.hash.autoHash(hasher, func_type.is_var_args);
+                std.hash.autoHash(hasher, func_type.is_generic);
+                std.hash.autoHash(hasher, func_type.is_noinline);
             },
         }
     }
@@ -670,6 +728,20 @@ pub const Key = union(enum) {
                     std.mem.eql(Index, a_info.values, b_info.values) and
                     std.mem.eql(NullTerminatedString, a_info.names, b_info.names);
             },
+
+            .func_type => |a_info| {
+                const b_info = b.func_type;
+
+                return std.mem.eql(Index, a_info.param_types, b_info.param_types) and
+                    a_info.return_type == b_info.return_type and
+                    a_info.comptime_bits == b_info.comptime_bits and
+                    a_info.noalias_bits == b_info.noalias_bits and
+                    a_info.alignment == b_info.alignment and
+                    a_info.cc == b_info.cc and
+                    a_info.is_var_args == b_info.is_var_args and
+                    a_info.is_generic == b_info.is_generic and
+                    a_info.is_noinline == b_info.is_noinline;
+            },
         }
     }
 
@@ -687,6 +759,7 @@ pub const Key = union(enum) {
             .opaque_type,
             .enum_type,
             .anon_struct_type,
+            .func_type,
             => .type_type,
 
             inline .ptr,
@@ -734,7 +807,6 @@ pub const Index = enum(u32) {
     pub const last_value: Index = .empty_struct;
 
     u1_type,
-    u5_type,
     u8_type,
     i8_type,
     u16_type,
@@ -811,10 +883,10 @@ pub const Index = enum(u32) {
     one,
     /// `1` (usize)
     one_usize,
-    /// `1` (u5)
-    one_u5,
-    /// `4` (u5)
-    four_u5,
+    /// `1` (u8)
+    one_u8,
+    /// `4` (u8)
+    four_u8,
     /// `-1` (comptime_int)
     negative_one,
     /// `std.builtin.CallingConvention.C`
@@ -878,12 +950,6 @@ pub const static_keys = [_]Key{
     .{ .int_type = .{
         .signedness = .unsigned,
         .bits = 1,
-    } },
-
-    // u5_type
-    .{ .int_type = .{
-        .signedness = .unsigned,
-        .bits = 5,
     } },
 
     .{ .int_type = .{
@@ -1074,14 +1140,14 @@ pub const static_keys = [_]Key{
         .storage = .{ .u64 = 1 },
     } },
 
-    // one_u5
+    // one_u8
     .{ .int = .{
-        .ty = .u5_type,
+        .ty = .u8_type,
         .storage = .{ .u64 = 1 },
     } },
-    // four_u5
+    // four_u8
     .{ .int = .{
-        .ty = .u5_type,
+        .ty = .u8_type,
         .storage = .{ .u64 = 4 },
     } },
     // negative_one
@@ -1092,12 +1158,12 @@ pub const static_keys = [_]Key{
     // calling_convention_c
     .{ .enum_tag = .{
         .ty = .calling_convention_type,
-        .int = .one_u5,
+        .int = .one_u8,
     } },
     // calling_convention_inline
     .{ .enum_tag = .{
         .ty = .calling_convention_type,
-        .int = .four_u5,
+        .int = .four_u8,
     } },
 
     .{ .simple_value = .void },
@@ -1181,6 +1247,9 @@ pub const Tag = enum(u8) {
     /// An untagged union type which has a safety tag.
     /// `data` is `Module.Union.Index`.
     type_union_safety,
+    /// A function body type.
+    /// `data` is extra index to `TypeFunction`.
+    type_function,
 
     /// Typed `undefined`.
     /// `data` is `Index` of the type.
@@ -1284,6 +1353,29 @@ pub const Tag = enum(u8) {
 };
 
 /// Trailing:
+/// 0. param_type: Index for each params_len
+pub const TypeFunction = struct {
+    params_len: u32,
+    return_type: Index,
+    comptime_bits: u32,
+    noalias_bits: u32,
+    flags: Flags,
+
+    pub const Flags = packed struct(u32) {
+        alignment: Alignment,
+        cc: std.builtin.CallingConvention,
+        is_var_args: bool,
+        is_generic: bool,
+        is_noinline: bool,
+        align_is_generic: bool,
+        cc_is_generic: bool,
+        section_is_generic: bool,
+        addrspace_is_generic: bool,
+        _: u11 = 0,
+    };
+};
+
+/// Trailing:
 /// 0. element: Index for each len
 /// len is determined by the aggregate type.
 pub const Aggregate = struct {
@@ -1371,24 +1463,6 @@ pub const Pointer = struct {
     flags: Flags,
     packed_offset: PackedOffset,
 
-    /// Stored as a power-of-two, with one special value to indicate none.
-    pub const Alignment = enum(u6) {
-        none = std.math.maxInt(u6),
-        _,
-
-        pub fn toByteUnits(a: Alignment, default: u64) u64 {
-            return switch (a) {
-                .none => default,
-                _ => @as(u64, 1) << @enumToInt(a),
-            };
-        }
-
-        pub fn fromByteUnits(n: u64) Alignment {
-            if (n == 0) return .none;
-            return @intToEnum(Alignment, @ctz(n));
-        }
-    };
-
     pub const Flags = packed struct(u32) {
         size: Size,
         alignment: Alignment,
@@ -1407,6 +1481,24 @@ pub const Pointer = struct {
     pub const Size = std.builtin.Type.Pointer.Size;
     pub const AddressSpace = std.builtin.AddressSpace;
     pub const VectorIndex = Key.PtrType.VectorIndex;
+};
+
+/// Stored as a power-of-two, with one special value to indicate none.
+pub const Alignment = enum(u6) {
+    none = std.math.maxInt(u6),
+    _,
+
+    pub fn toByteUnits(a: Alignment, default: u64) u64 {
+        return switch (a) {
+            .none => default,
+            _ => @as(u64, 1) << @enumToInt(a),
+        };
+    }
+
+    pub fn fromByteUnits(n: u64) Alignment {
+        if (n == 0) return .none;
+        return @intToEnum(Alignment, @ctz(n));
+    }
 };
 
 /// Used for non-sentineled arrays that have length fitting in u32, as well as
@@ -1765,6 +1857,7 @@ pub fn indexToKey(ip: InternPool, index: Index) Key {
         },
         .type_enum_explicit => indexToKeyEnum(ip, data, .explicit),
         .type_enum_nonexhaustive => indexToKeyEnum(ip, data, .nonexhaustive),
+        .type_function => .{ .func_type = indexToKeyFuncType(ip, data) },
 
         .undef => .{ .undef = @intToEnum(Index, data) },
         .opt_null => .{ .opt = .{
@@ -1896,6 +1989,29 @@ pub fn indexToKey(ip: InternPool, index: Index) Key {
     };
 }
 
+fn indexToKeyFuncType(ip: InternPool, data: u32) Key.FuncType {
+    const type_function = ip.extraDataTrail(TypeFunction, data);
+    const param_types = @ptrCast(
+        []Index,
+        ip.extra.items[type_function.end..][0..type_function.data.params_len],
+    );
+    return .{
+        .param_types = param_types,
+        .return_type = type_function.data.return_type,
+        .comptime_bits = type_function.data.comptime_bits,
+        .noalias_bits = type_function.data.noalias_bits,
+        .alignment = type_function.data.flags.alignment.toByteUnits(0),
+        .cc = type_function.data.flags.cc,
+        .is_var_args = type_function.data.flags.is_var_args,
+        .is_generic = type_function.data.flags.is_generic,
+        .is_noinline = type_function.data.flags.is_noinline,
+        .align_is_generic = type_function.data.flags.align_is_generic,
+        .cc_is_generic = type_function.data.flags.cc_is_generic,
+        .section_is_generic = type_function.data.flags.section_is_generic,
+        .addrspace_is_generic = type_function.data.flags.addrspace_is_generic,
+    };
+}
+
 /// Asserts the integer tag type is already present in the InternPool.
 fn getEnumIntTagType(ip: InternPool, fields_len: u32) Index {
     return ip.getAssumeExists(.{ .int_type = .{
@@ -1977,7 +2093,7 @@ pub fn get(ip: *InternPool, gpa: Allocator, key: Key) Allocator.Error!Index {
                     .child = ptr_type.elem_type,
                     .sentinel = ptr_type.sentinel,
                     .flags = .{
-                        .alignment = Pointer.Alignment.fromByteUnits(ptr_type.alignment),
+                        .alignment = Alignment.fromByteUnits(ptr_type.alignment),
                         .is_const = ptr_type.is_const,
                         .is_volatile = ptr_type.is_volatile,
                         .is_allowzero = ptr_type.is_allowzero,
@@ -2161,6 +2277,37 @@ pub fn get(ip: *InternPool, gpa: Allocator, key: Key) Allocator.Error!Index {
                 .explicit => return finishGetEnum(ip, gpa, enum_type, .type_enum_explicit),
                 .nonexhaustive => return finishGetEnum(ip, gpa, enum_type, .type_enum_nonexhaustive),
             }
+        },
+
+        .func_type => |func_type| {
+            assert(func_type.return_type != .none);
+            for (func_type.param_types) |param_type| assert(param_type != .none);
+
+            const params_len = @intCast(u32, func_type.param_types.len);
+
+            try ip.extra.ensureUnusedCapacity(gpa, @typeInfo(TypeFunction).Struct.fields.len +
+                params_len);
+            ip.items.appendAssumeCapacity(.{
+                .tag = .type_function,
+                .data = ip.addExtraAssumeCapacity(TypeFunction{
+                    .params_len = params_len,
+                    .return_type = func_type.return_type,
+                    .comptime_bits = func_type.comptime_bits,
+                    .noalias_bits = func_type.noalias_bits,
+                    .flags = .{
+                        .alignment = Alignment.fromByteUnits(func_type.alignment),
+                        .cc = func_type.cc,
+                        .is_var_args = func_type.is_var_args,
+                        .is_generic = func_type.is_generic,
+                        .is_noinline = func_type.is_noinline,
+                        .align_is_generic = func_type.align_is_generic,
+                        .cc_is_generic = func_type.cc_is_generic,
+                        .section_is_generic = func_type.section_is_generic,
+                        .addrspace_is_generic = func_type.addrspace_is_generic,
+                    },
+                }),
+            });
+            ip.extra.appendSliceAssumeCapacity(@ptrCast([]const u32, func_type.param_types));
         },
 
         .extern_func => @panic("TODO"),
@@ -2736,6 +2883,7 @@ fn addExtraAssumeCapacity(ip: *InternPool, extra: anytype) u32 {
             OptionalMapIndex => @enumToInt(@field(extra, field.name)),
             i32 => @bitCast(u32, @field(extra, field.name)),
             Pointer.Flags => @bitCast(u32, @field(extra, field.name)),
+            TypeFunction.Flags => @bitCast(u32, @field(extra, field.name)),
             Pointer.PackedOffset => @bitCast(u32, @field(extra, field.name)),
             Pointer.VectorIndex => @enumToInt(@field(extra, field.name)),
             else => @compileError("bad field type: " ++ @typeName(field.type)),
@@ -2797,6 +2945,7 @@ fn extraDataTrail(ip: InternPool, comptime T: type, index: usize) struct { data:
             OptionalMapIndex => @intToEnum(OptionalMapIndex, int32),
             i32 => @bitCast(i32, int32),
             Pointer.Flags => @bitCast(Pointer.Flags, int32),
+            TypeFunction.Flags => @bitCast(TypeFunction.Flags, int32),
             Pointer.PackedOffset => @bitCast(Pointer.PackedOffset, int32),
             Pointer.VectorIndex => @intToEnum(Pointer.VectorIndex, int32),
             else => @compileError("bad field type: " ++ @typeName(field.type)),
@@ -2988,23 +3137,33 @@ pub fn getCoercedInts(ip: *InternPool, gpa: Allocator, int: Key.Int, new_ty: Ind
     }
 }
 
-pub fn indexToStruct(ip: *InternPool, val: Index) Module.Struct.OptionalIndex {
+pub fn indexToStructType(ip: InternPool, val: Index) Module.Struct.OptionalIndex {
+    assert(val != .none);
     const tags = ip.items.items(.tag);
-    if (val == .none) return .none;
     if (tags[@enumToInt(val)] != .type_struct) return .none;
     const datas = ip.items.items(.data);
     return @intToEnum(Module.Struct.Index, datas[@enumToInt(val)]).toOptional();
 }
 
-pub fn indexToUnion(ip: *InternPool, val: Index) Module.Union.OptionalIndex {
+pub fn indexToUnionType(ip: InternPool, val: Index) Module.Union.OptionalIndex {
+    assert(val != .none);
     const tags = ip.items.items(.tag);
-    if (val == .none) return .none;
     switch (tags[@enumToInt(val)]) {
         .type_union_tagged, .type_union_untagged, .type_union_safety => {},
         else => return .none,
     }
     const datas = ip.items.items(.data);
     return @intToEnum(Module.Union.Index, datas[@enumToInt(val)]).toOptional();
+}
+
+pub fn indexToFuncType(ip: InternPool, val: Index) ?Key.FuncType {
+    assert(val != .none);
+    const tags = ip.items.items(.tag);
+    const datas = ip.items.items(.data);
+    switch (tags[@enumToInt(val)]) {
+        .type_function => return indexToKeyFuncType(ip, datas[@enumToInt(val)]),
+        else => return null,
+    }
 }
 
 pub fn isOptionalType(ip: InternPool, ty: Index) bool {
@@ -3091,6 +3250,11 @@ fn dumpFallible(ip: InternPool, arena: Allocator) anyerror!void {
             .type_union_untagged,
             .type_union_safety,
             => @sizeOf(Module.Union) + @sizeOf(Module.Namespace) + @sizeOf(Module.Decl),
+
+            .type_function => b: {
+                const info = ip.extraData(TypeFunction, data);
+                break :b @sizeOf(TypeFunction) + (@sizeOf(u32) * info.params_len);
+            },
 
             .undef => 0,
             .simple_type => 0,

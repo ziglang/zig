@@ -1430,7 +1430,7 @@ pub fn updateDeclExports(
                 .x86 => std.builtin.CallingConvention.Stdcall,
                 else => std.builtin.CallingConvention.C,
             };
-            const decl_cc = exported_decl.ty.fnCallingConvention();
+            const decl_cc = exported_decl.ty.fnCallingConvention(mod);
             if (decl_cc == .C and mem.eql(u8, exp.options.name, "main") and
                 self.base.options.link_libc)
             {

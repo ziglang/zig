@@ -845,7 +845,6 @@ pub const Inst = struct {
 
     pub const Ref = enum(u32) {
         u1_type = @enumToInt(InternPool.Index.u1_type),
-        u5_type = @enumToInt(InternPool.Index.u5_type),
         u8_type = @enumToInt(InternPool.Index.u8_type),
         i8_type = @enumToInt(InternPool.Index.i8_type),
         u16_type = @enumToInt(InternPool.Index.u16_type),
@@ -914,8 +913,8 @@ pub const Inst = struct {
         zero_u8 = @enumToInt(InternPool.Index.zero_u8),
         one = @enumToInt(InternPool.Index.one),
         one_usize = @enumToInt(InternPool.Index.one_usize),
-        one_u5 = @enumToInt(InternPool.Index.one_u5),
-        four_u5 = @enumToInt(InternPool.Index.four_u5),
+        one_u8 = @enumToInt(InternPool.Index.one_u8),
+        four_u8 = @enumToInt(InternPool.Index.four_u8),
         negative_one = @enumToInt(InternPool.Index.negative_one),
         calling_convention_c = @enumToInt(InternPool.Index.calling_convention_c),
         calling_convention_inline = @enumToInt(InternPool.Index.calling_convention_inline),
@@ -1383,7 +1382,7 @@ pub fn typeOfIndex(air: Air, inst: Air.Inst.Index, ip: InternPool) Type {
 
         .call, .call_always_tail, .call_never_tail, .call_never_inline => {
             const callee_ty = air.typeOf(datas[inst].pl_op.operand, ip);
-            return callee_ty.fnReturnType();
+            return callee_ty.fnReturnTypeIp(ip);
         },
 
         .slice_elem_val, .ptr_elem_val, .array_elem_val => {

@@ -1081,7 +1081,7 @@ fn genDeclRef(
 
     // TODO this feels clunky. Perhaps we should check for it in `genTypedValue`?
     if (tv.ty.castPtrToFn(mod)) |fn_ty| {
-        if (fn_ty.fnInfo().is_generic) {
+        if (mod.typeToFunc(fn_ty).?.is_generic) {
             return GenResult.mcv(.{ .immediate = fn_ty.abiAlignment(mod) });
         }
     } else if (tv.ty.zigTypeTag(mod) == .Pointer) {

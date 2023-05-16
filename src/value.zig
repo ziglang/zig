@@ -602,6 +602,11 @@ pub const Value = struct {
         return result;
     }
 
+    pub fn toIntern(val: Value) InternPool.Index {
+        assert(val.ip_index != .none);
+        return val.ip_index;
+    }
+
     /// Asserts that the value is representable as a type.
     pub fn toType(self: Value) Type {
         if (self.ip_index != .none) return self.ip_index.toType();

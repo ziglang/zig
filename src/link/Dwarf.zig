@@ -1022,7 +1022,7 @@ pub fn initDeclState(self: *Dwarf, mod: *Module, decl_index: Module.Decl.Index) 
             const decl_name_with_null = decl_name[0 .. decl_name.len + 1];
             try dbg_info_buffer.ensureUnusedCapacity(25 + decl_name_with_null.len);
 
-            const fn_ret_type = decl.ty.fnReturnType();
+            const fn_ret_type = decl.ty.fnReturnType(mod);
             const fn_ret_has_bits = fn_ret_type.hasRuntimeBits(mod);
             if (fn_ret_has_bits) {
                 dbg_info_buffer.appendAssumeCapacity(@enumToInt(AbbrevKind.subprogram));

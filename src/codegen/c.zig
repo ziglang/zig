@@ -1507,7 +1507,7 @@ pub const DeclGen = struct {
         const fn_decl = mod.declPtr(fn_decl_index);
         const fn_cty_idx = try dg.typeToIndex(fn_decl.ty, kind);
 
-        const fn_info = fn_decl.ty.fnInfo();
+        const fn_info = mod.typeToFunc(fn_decl.ty).?;
         if (fn_info.cc == .Naked) {
             switch (kind) {
                 .forward => try w.writeAll("zig_naked_decl "),
@@ -1517,7 +1517,7 @@ pub const DeclGen = struct {
         }
         if (fn_decl.val.castTag(.function)) |func_payload|
             if (func_payload.data.is_cold) try w.writeAll("zig_cold ");
-        if (fn_info.return_type.ip_index == .noreturn_type) try w.writeAll("zig_noreturn ");
+        if (fn_info.return_type == .noreturn_type) try w.writeAll("zig_noreturn ");
 
         const trailing = try renderTypePrefix(
             dg.decl_index,
@@ -3455,7 +3455,7 @@ fn airRet(f: *Function, inst: Air.Inst.Index, is_ptr: bool) !CValue {
     } else {
         try reap(f, inst, &.{un_op});
         // Not even allowed to return void in a naked function.
-        if (if (f.object.dg.decl) |decl| decl.ty.fnCallingConvention() != .Naked else true)
+        if (if (f.object.dg.decl) |decl| decl.ty.fnCallingConvention(mod) != .Naked else true)
             try writer.writeAll("return;\n");
     }
     return .none;
@@ -4094,7 +4094,7 @@ fn airCall(
 ) !CValue {
     const mod = f.object.dg.module;
     // Not even allowed to call panic in a naked function.
-    if (f.object.dg.decl) |decl| if (decl.ty.fnCallingConvention() == .Naked) return .none;
+    if (f.object.dg.decl) |decl| if (decl.ty.fnCallingConvention(mod) == .Naked) return .none;
 
     const gpa = f.object.dg.gpa;
     const writer = f.object.writer();
@@ -4143,7 +4143,7 @@ fn airCall(
         else => unreachable,
     };
 
-    const ret_ty = fn_ty.fnReturnType();
+    const ret_ty = fn_ty.fnReturnType(mod);
     const lowered_ret_ty = try lowerFnRetTy(ret_ty, mod);
 
     const result_local = result: {
@@ -4622,8 +4622,9 @@ fn airFence(f: *Function, inst: Air.Inst.Index) !CValue {
 }
 
 fn airUnreach(f: *Function) !CValue {
+    const mod = f.object.dg.module;
     // Not even allowed to call unreachable in a naked function.
-    if (f.object.dg.decl) |decl| if (decl.ty.fnCallingConvention() == .Naked) return .none;
+    if (f.object.dg.decl) |decl| if (decl.ty.fnCallingConvention(mod) == .Naked) return .none;
 
     try f.object.writer().writeAll("zig_unreachable();\n");
     return .none;

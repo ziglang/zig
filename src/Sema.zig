@@ -5850,6 +5850,7 @@ pub fn analyzeExport(
 }
 
 fn zirSetAlignStack(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstData) CompileError!void {
+    const mod = sema.mod;
     const extra = sema.code.extraData(Zir.Inst.UnNode, extended.operand).data;
     const operand_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = extra.node };
     const src = LazySrcLoc.nodeOffset(extra.node);
@@ -5862,8 +5863,8 @@ fn zirSetAlignStack(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.Inst
     const func = sema.func orelse
         return sema.fail(block, src, "@setAlignStack outside function body", .{});
 
-    const fn_owner_decl = sema.mod.declPtr(func.owner_decl);
-    switch (fn_owner_decl.ty.fnCallingConvention()) {
+    const fn_owner_decl = mod.declPtr(func.owner_decl);
+    switch (fn_owner_decl.ty.fnCallingConvention(mod)) {
         .Naked => return sema.fail(block, src, "@setAlignStack in naked function", .{}),
         .Inline => return sema.fail(block, src, "@setAlignStack in inline function", .{}),
         else => if (block.inlining != null) {
@@ -5871,7 +5872,7 @@ fn zirSetAlignStack(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.Inst
         },
     }
 
-    const gop = try sema.mod.align_stack_fns.getOrPut(sema.mod.gpa, func);
+    const gop = try mod.align_stack_fns.getOrPut(mod.gpa, func);
     if (gop.found_existing) {
         const msg = msg: {
             const msg = try sema.errMsg(block, src, "multiple @setAlignStack in the same function body", .{});
@@ -6378,7 +6379,7 @@ fn zirCall(
     var input_is_error = false;
     const block_index = @intCast(Air.Inst.Index, block.instructions.items.len);
 
-    const func_ty_info = func_ty.fnInfo();
+    const func_ty_info = mod.typeToFunc(func_ty).?;
     const fn_params_len = func_ty_info.param_types.len;
     const parent_comptime = block.is_comptime;
     // `extra_index` and `arg_index` are separate since the bound function is passed as the first argument.
@@ -6393,7 +6394,7 @@ fn zirCall(
 
         // Generate args to comptime params in comptime block.
         defer block.is_comptime = parent_comptime;
-        if (arg_index < fn_params_len and func_ty_info.comptime_params[arg_index]) {
+        if (arg_index < fn_params_len and func_ty_info.paramIsComptime(@intCast(u5, arg_index))) {
             block.is_comptime = true;
             // TODO set comptime_reason
         }
@@ -6402,10 +6403,10 @@ fn zirCall(
             if (arg_index >= fn_params_len)
                 break :inst Air.Inst.Ref.var_args_param_type;
 
-            if (func_ty_info.param_types[arg_index].isGenericPoison())
+            if (func_ty_info.param_types[arg_index] == .generic_poison_type)
                 break :inst Air.Inst.Ref.generic_poison_type;
 
-            break :inst try sema.addType(func_ty_info.param_types[arg_index]);
+            break :inst try sema.addType(func_ty_info.param_types[arg_index].toType());
         });
 
         const resolved = try sema.resolveBody(block, args_body[arg_start..arg_end], inst);
@@ -6506,7 +6507,7 @@ fn checkCallArgumentCount(
         return sema.fail(block, func_src, "type '{}' not a function", .{callee_ty.fmt(sema.mod)});
     };
 
-    const func_ty_info = func_ty.fnInfo();
+    const func_ty_info = mod.typeToFunc(func_ty).?;
     const fn_params_len = func_ty_info.param_types.len;
     const args_len = total_args - @boolToInt(member_fn);
     if (func_ty_info.is_var_args) {
@@ -6562,7 +6563,7 @@ fn callBuiltin(
         std.debug.panic("type '{}' is not a function calling builtin fn", .{callee_ty.fmt(sema.mod)});
     };
 
-    const func_ty_info = func_ty.fnInfo();
+    const func_ty_info = mod.typeToFunc(func_ty).?;
     const fn_params_len = func_ty_info.param_types.len;
     if (args.len != fn_params_len or (func_ty_info.is_var_args and args.len < fn_params_len)) {
         std.debug.panic("parameter count mismatch calling builtin fn, expected {d}, found {d}", .{ fn_params_len, args.len });
@@ -6573,7 +6574,7 @@ fn callBuiltin(
 const GenericCallAdapter = struct {
     generic_fn: *Module.Fn,
     precomputed_hash: u64,
-    func_ty_info: Type.Payload.Function.Data,
+    func_ty_info: InternPool.Key.FuncType,
     args: []const Arg,
     module: *Module,
 
@@ -6656,7 +6657,7 @@ fn analyzeCall(
     const mod = sema.mod;
 
     const callee_ty = sema.typeOf(func);
-    const func_ty_info = func_ty.fnInfo();
+    const func_ty_info = mod.typeToFunc(func_ty).?;
     const fn_params_len = func_ty_info.param_types.len;
     const cc = func_ty_info.cc;
     if (cc == .Naked) {
@@ -6704,7 +6705,7 @@ fn analyzeCall(
     var comptime_reason_buf: Block.ComptimeReason = undefined;
     var comptime_reason: ?*const Block.ComptimeReason = null;
     if (!is_comptime_call) {
-        if (sema.typeRequiresComptime(func_ty_info.return_type)) |ct| {
+        if (sema.typeRequiresComptime(func_ty_info.return_type.toType())) |ct| {
             is_comptime_call = ct;
             if (ct) {
                 // stage1 can't handle doing this directly
@@ -6712,7 +6713,7 @@ fn analyzeCall(
                     .block = block,
                     .func = func,
                     .func_src = func_src,
-                    .return_ty = func_ty_info.return_type,
+                    .return_ty = func_ty_info.return_type.toType(),
                 } };
                 comptime_reason = &comptime_reason_buf;
             }
@@ -6750,7 +6751,7 @@ fn analyzeCall(
                     .block = block,
                     .func = func,
                     .func_src = func_src,
-                    .return_ty = func_ty_info.return_type,
+                    .return_ty = func_ty_info.return_type.toType(),
                 } };
                 comptime_reason = &comptime_reason_buf;
             },
@@ -6875,9 +6876,9 @@ fn analyzeCall(
         // comptime state.
         var should_memoize = true;
 
-        var new_fn_info = fn_owner_decl.ty.fnInfo();
-        new_fn_info.param_types = try sema.arena.alloc(Type, new_fn_info.param_types.len);
-        new_fn_info.comptime_params = (try sema.arena.alloc(bool, new_fn_info.param_types.len)).ptr;
+        var new_fn_info = mod.typeToFunc(fn_owner_decl.ty).?;
+        new_fn_info.param_types = try sema.arena.alloc(InternPool.Index, new_fn_info.param_types.len);
+        new_fn_info.comptime_bits = 0;
 
         // This will have return instructions analyzed as break instructions to
         // the block_inst above. Here we are performing "comptime/inline semantic analysis"
@@ -6970,7 +6971,7 @@ fn analyzeCall(
             }
             break :blk bare_return_type;
         };
-        new_fn_info.return_type = fn_ret_ty;
+        new_fn_info.return_type = fn_ret_ty.ip_index;
         const parent_fn_ret_ty = sema.fn_ret_ty;
         sema.fn_ret_ty = fn_ret_ty;
         defer sema.fn_ret_ty = parent_fn_ret_ty;
@@ -6993,7 +6994,7 @@ fn analyzeCall(
                 }
             }
 
-            const new_func_resolved_ty = try Type.Tag.function.create(sema.arena, new_fn_info);
+            const new_func_resolved_ty = try mod.funcType(new_fn_info);
             if (!is_comptime_call and !block.is_typeof) {
                 try sema.emitDbgInline(block, parent_func.?, module_fn, new_func_resolved_ty, .dbg_inline_begin);
 
@@ -7081,13 +7082,14 @@ fn analyzeCall(
         assert(!func_ty_info.is_generic);
 
         const args = try sema.arena.alloc(Air.Inst.Ref, uncasted_args.len);
+        const fn_info = mod.typeToFunc(func_ty).?;
         for (uncasted_args, 0..) |uncasted_arg, i| {
             if (i < fn_params_len) {
                 const opts: CoerceOpts = .{ .param_src = .{
                     .func_inst = func,
                     .param_i = @intCast(u32, i),
                 } };
-                const param_ty = func_ty.fnParamType(i);
+                const param_ty = fn_info.param_types[i].toType();
                 args[i] = sema.analyzeCallArg(
                     block,
                     .unneeded,
@@ -7126,8 +7128,8 @@ fn analyzeCall(
 
         if (call_dbg_node) |some| try sema.zirDbgStmt(block, some);
 
-        try sema.queueFullTypeResolution(func_ty_info.return_type);
-        if (sema.owner_func != null and func_ty_info.return_type.isError(mod)) {
+        try sema.queueFullTypeResolution(func_ty_info.return_type.toType());
+        if (sema.owner_func != null and func_ty_info.return_type.toType().isError(mod)) {
             sema.owner_func.?.calls_or_awaits_errorable_fn = true;
         }
 
@@ -7155,7 +7157,7 @@ fn analyzeCall(
                 try sema.ensureResultUsed(block, sema.typeOf(func_inst), call_src);
             }
             return sema.handleTailCall(block, call_src, func_ty, func_inst);
-        } else if (block.wantSafety() and func_ty_info.return_type.isNoReturn()) {
+        } else if (block.wantSafety() and func_ty_info.return_type == .noreturn_type) {
             // Function pointers and extern functions aren't guaranteed to
             // actually be noreturn so we add a safety check for them.
             check: {
@@ -7171,7 +7173,7 @@ fn analyzeCall(
 
             try sema.safetyPanic(block, .noreturn_returned);
             return Air.Inst.Ref.unreachable_value;
-        } else if (func_ty_info.return_type.isNoReturn()) {
+        } else if (func_ty_info.return_type == .noreturn_type) {
             _ = try block.addNoOp(.unreach);
             return Air.Inst.Ref.unreachable_value;
         }
@@ -7208,13 +7210,13 @@ fn analyzeInlineCallArg(
     param_block: *Block,
     arg_src: LazySrcLoc,
     inst: Zir.Inst.Index,
-    new_fn_info: Type.Payload.Function.Data,
+    new_fn_info: InternPool.Key.FuncType,
     arg_i: *usize,
     uncasted_args: []const Air.Inst.Ref,
     is_comptime_call: bool,
     should_memoize: *bool,
     memoized_call_key: Module.MemoizedCall.Key,
-    raw_param_types: []const Type,
+    raw_param_types: []const InternPool.Index,
     func_inst: Air.Inst.Ref,
     has_comptime_args: *bool,
 ) !void {
@@ -7233,13 +7235,14 @@ fn analyzeInlineCallArg(
             const param_body = sema.code.extra[extra.end..][0..extra.data.body_len];
             const param_ty = param_ty: {
                 const raw_param_ty = raw_param_types[arg_i.*];
-                if (!raw_param_ty.isGenericPoison()) break :param_ty raw_param_ty;
+                if (raw_param_ty != .generic_poison_type) break :param_ty raw_param_ty;
                 const param_ty_inst = try sema.resolveBody(param_block, param_body, inst);
-                break :param_ty try sema.analyzeAsType(param_block, param_src, param_ty_inst);
+                const param_ty = try sema.analyzeAsType(param_block, param_src, param_ty_inst);
+                break :param_ty param_ty.toIntern();
             };
             new_fn_info.param_types[arg_i.*] = param_ty;
             const uncasted_arg = uncasted_args[arg_i.*];
-            if (try sema.typeRequiresComptime(param_ty)) {
+            if (try sema.typeRequiresComptime(param_ty.toType())) {
                 _ = sema.resolveConstMaybeUndefVal(arg_block, arg_src, uncasted_arg, "argument to parameter with comptime-only type must be comptime-known") catch |err| {
                     if (err == error.AnalysisFail and param_block.comptime_reason != null) try param_block.comptime_reason.?.explain(sema, sema.err);
                     return err;
@@ -7247,7 +7250,7 @@ fn analyzeInlineCallArg(
             } else if (!is_comptime_call and zir_tags[inst] == .param_comptime) {
                 _ = try sema.resolveConstMaybeUndefVal(arg_block, arg_src, uncasted_arg, "parameter is comptime");
             }
-            const casted_arg = sema.coerceExtra(arg_block, param_ty, uncasted_arg, arg_src, .{ .param_src = .{
+            const casted_arg = sema.coerceExtra(arg_block, param_ty.toType(), uncasted_arg, arg_src, .{ .param_src = .{
                 .func_inst = func_inst,
                 .param_i = @intCast(u32, arg_i.*),
             } }) catch |err| switch (err) {
@@ -7276,7 +7279,7 @@ fn analyzeInlineCallArg(
                 }
                 should_memoize.* = should_memoize.* and !arg_val.canMutateComptimeVarState();
                 memoized_call_key.args[arg_i.*] = .{
-                    .ty = param_ty,
+                    .ty = param_ty.toType(),
                     .val = arg_val,
                 };
             } else {
@@ -7292,7 +7295,7 @@ fn analyzeInlineCallArg(
         .param_anytype, .param_anytype_comptime => {
             // No coercion needed.
             const uncasted_arg = uncasted_args[arg_i.*];
-            new_fn_info.param_types[arg_i.*] = sema.typeOf(uncasted_arg);
+            new_fn_info.param_types[arg_i.*] = sema.typeOf(uncasted_arg).toIntern();
 
             if (is_comptime_call) {
                 sema.inst_map.putAssumeCapacityNoClobber(inst, uncasted_arg);
@@ -7357,7 +7360,7 @@ fn analyzeGenericCallArg(
     uncasted_arg: Air.Inst.Ref,
     comptime_arg: TypedValue,
     runtime_args: []Air.Inst.Ref,
-    new_fn_info: Type.Payload.Function.Data,
+    new_fn_info: InternPool.Key.FuncType,
     runtime_i: *u32,
 ) !void {
     const mod = sema.mod;
@@ -7365,7 +7368,7 @@ fn analyzeGenericCallArg(
         comptime_arg.ty.hasRuntimeBits(mod) and
         !(try sema.typeRequiresComptime(comptime_arg.ty));
     if (is_runtime) {
-        const param_ty = new_fn_info.param_types[runtime_i.*];
+        const param_ty = new_fn_info.param_types[runtime_i.*].toType();
         const casted_arg = try sema.coerce(block, param_ty, uncasted_arg, arg_src);
         try sema.queueFullTypeResolution(param_ty);
         runtime_args[runtime_i.*] = casted_arg;
@@ -7387,7 +7390,7 @@ fn instantiateGenericCall(
     func: Air.Inst.Ref,
     func_src: LazySrcLoc,
     call_src: LazySrcLoc,
-    func_ty_info: Type.Payload.Function.Data,
+    func_ty_info: InternPool.Key.FuncType,
     ensure_result_used: bool,
     uncasted_args: []const Air.Inst.Ref,
     call_tag: Air.Inst.Tag,
@@ -7431,14 +7434,14 @@ fn instantiateGenericCall(
             var is_anytype = false;
             switch (zir_tags[inst]) {
                 .param => {
-                    is_comptime = func_ty_info.paramIsComptime(i);
+                    is_comptime = func_ty_info.paramIsComptime(@intCast(u5, i));
                 },
                 .param_comptime => {
                     is_comptime = true;
                 },
                 .param_anytype => {
                     is_anytype = true;
-                    is_comptime = func_ty_info.paramIsComptime(i);
+                    is_comptime = func_ty_info.paramIsComptime(@intCast(u5, i));
                 },
                 .param_anytype_comptime => {
                     is_anytype = true;
@@ -7609,7 +7612,7 @@ fn instantiateGenericCall(
     // Make a runtime call to the new function, making sure to omit the comptime args.
     const comptime_args = callee.comptime_args.?;
     const func_ty = mod.declPtr(callee.owner_decl).ty;
-    const new_fn_info = func_ty.fnInfo();
+    const new_fn_info = mod.typeToFunc(func_ty).?;
     const runtime_args_len = @intCast(u32, new_fn_info.param_types.len);
     const runtime_args = try sema.arena.alloc(Air.Inst.Ref, runtime_args_len);
     {
@@ -7647,12 +7650,12 @@ fn instantiateGenericCall(
             total_i += 1;
         }
 
-        try sema.queueFullTypeResolution(new_fn_info.return_type);
+        try sema.queueFullTypeResolution(new_fn_info.return_type.toType());
     }
 
     if (call_dbg_node) |some| try sema.zirDbgStmt(block, some);
 
-    if (sema.owner_func != null and new_fn_info.return_type.isError(mod)) {
+    if (sema.owner_func != null and new_fn_info.return_type.toType().isError(mod)) {
         sema.owner_func.?.calls_or_awaits_errorable_fn = true;
     }
 
@@ -7677,7 +7680,7 @@ fn instantiateGenericCall(
     if (call_tag == .call_always_tail) {
         return sema.handleTailCall(block, call_src, func_ty, result);
     }
-    if (new_fn_info.return_type.isNoReturn()) {
+    if (new_fn_info.return_type == .noreturn_type) {
         _ = try block.addNoOp(.unreach);
         return Air.Inst.Ref.unreachable_value;
     }
@@ -7695,7 +7698,7 @@ fn resolveGenericInstantiationType(
     module_fn: *Module.Fn,
     new_module_func: *Module.Fn,
     namespace: Namespace.Index,
-    func_ty_info: Type.Payload.Function.Data,
+    func_ty_info: InternPool.Key.FuncType,
     call_src: LazySrcLoc,
     bound_arg_src: ?LazySrcLoc,
 ) !*Module.Fn {
@@ -7755,14 +7758,14 @@ fn resolveGenericInstantiationType(
         var is_anytype = false;
         switch (zir_tags[inst]) {
             .param => {
-                is_comptime = func_ty_info.paramIsComptime(arg_i);
+                is_comptime = func_ty_info.paramIsComptime(@intCast(u5, arg_i));
             },
             .param_comptime => {
                 is_comptime = true;
             },
             .param_anytype => {
                 is_anytype = true;
-                is_comptime = func_ty_info.paramIsComptime(arg_i);
+                is_comptime = func_ty_info.paramIsComptime(@intCast(u5, arg_i));
             },
             .param_anytype_comptime => {
                 is_anytype = true;
@@ -7822,13 +7825,13 @@ fn resolveGenericInstantiationType(
         var is_comptime = false;
         switch (zir_tags[inst]) {
             .param => {
-                is_comptime = func_ty_info.paramIsComptime(arg_i);
+                is_comptime = func_ty_info.paramIsComptime(@intCast(u5, arg_i));
             },
             .param_comptime => {
                 is_comptime = true;
             },
             .param_anytype => {
-                is_comptime = func_ty_info.paramIsComptime(arg_i);
+                is_comptime = func_ty_info.paramIsComptime(@intCast(u5, arg_i));
             },
             .param_anytype_comptime => {
                 is_comptime = true;
@@ -7868,8 +7871,8 @@ fn resolveGenericInstantiationType(
     new_decl.ty = try child_sema.typeOf(new_func_inst).copy(new_decl_arena_allocator);
     // If the call evaluated to a return type that requires comptime, never mind
     // our generic instantiation. Instead we need to perform a comptime call.
-    const new_fn_info = new_decl.ty.fnInfo();
-    if (try sema.typeRequiresComptime(new_fn_info.return_type)) {
+    const new_fn_info = mod.typeToFunc(new_decl.ty).?;
+    if (try sema.typeRequiresComptime(new_fn_info.return_type.toType())) {
         return error.ComptimeReturn;
     }
     // Similarly, if the call evaluated to a generic type we need to instead
@@ -8969,19 +8972,19 @@ fn funcCommon(
         // the instantiation, which can depend on comptime parameters.
         // Related proposal: https://github.com/ziglang/zig/issues/11834
         const cc_resolved = cc orelse .Unspecified;
-        const param_types = try sema.arena.alloc(Type, block.params.items.len);
-        const comptime_params = try sema.arena.alloc(bool, block.params.items.len);
-        for (block.params.items, 0..) |param, i| {
+        const param_types = try sema.arena.alloc(InternPool.Index, block.params.items.len);
+        var comptime_bits: u32 = 0;
+        for (param_types, block.params.items, 0..) |*dest_param_ty, param, i| {
             const is_noalias = blk: {
                 const index = std.math.cast(u5, i) orelse break :blk false;
                 break :blk @truncate(u1, noalias_bits >> index) != 0;
             };
-            param_types[i] = param.ty;
+            dest_param_ty.* = param.ty.toIntern();
             sema.analyzeParameter(
                 block,
                 .unneeded,
                 param,
-                comptime_params,
+                &comptime_bits,
                 i,
                 &is_generic,
                 cc_resolved,
@@ -8994,7 +8997,7 @@ fn funcCommon(
                         block,
                         Module.paramSrc(src_node_offset, mod, decl, i),
                         param,
-                        comptime_params,
+                        &comptime_bits,
                         i,
                         &is_generic,
                         cc_resolved,
@@ -9019,7 +9022,7 @@ fn funcCommon(
             else => |e| return e,
         };
 
-        const return_type = if (!inferred_error_set or ret_poison)
+        const return_type: Type = if (!inferred_error_set or ret_poison)
             bare_return_type
         else blk: {
             try sema.validateErrorUnionPayloadType(block, bare_return_type, ret_ty_src);
@@ -9047,7 +9050,9 @@ fn funcCommon(
             };
             return sema.failWithOwnedErrorMsg(msg);
         }
-        if (!ret_poison and !Type.fnCallingConventionAllowsZigTypes(target, cc_resolved) and !try sema.validateExternType(return_type, .ret_ty)) {
+        if (!ret_poison and !target_util.fnCallConvAllowsZigTypes(target, cc_resolved) and
+            !try sema.validateExternType(return_type, .ret_ty))
+        {
             const msg = msg: {
                 const msg = try sema.errMsg(block, ret_ty_src, "return type '{}' not allowed in function with calling convention '{s}'", .{
                     return_type.fmt(sema.mod), @tagName(cc_resolved),
@@ -9141,8 +9146,7 @@ fn funcCommon(
             return sema.fail(block, cc_src, "'noinline' function cannot have callconv 'Inline'", .{});
         }
         if (is_generic and sema.no_partial_func_ty) return error.GenericPoison;
-        for (comptime_params) |ct| is_generic = is_generic or ct;
-        is_generic = is_generic or ret_ty_requires_comptime;
+        is_generic = is_generic or comptime_bits != 0 or ret_ty_requires_comptime;
 
         if (!is_generic and sema.wantErrorReturnTracing(return_type)) {
             // Make sure that StackTrace's fields are resolved so that the backend can
@@ -9151,10 +9155,11 @@ fn funcCommon(
             _ = try sema.resolveTypeFields(unresolved_stack_trace_ty);
         }
 
-        break :fn_ty try Type.Tag.function.create(sema.arena, .{
+        break :fn_ty try mod.funcType(.{
             .param_types = param_types,
-            .comptime_params = comptime_params.ptr,
-            .return_type = return_type,
+            .noalias_bits = noalias_bits,
+            .comptime_bits = comptime_bits,
+            .return_type = return_type.toIntern(),
             .cc = cc_resolved,
             .cc_is_generic = cc == null,
             .alignment = alignment orelse 0,
@@ -9164,7 +9169,6 @@ fn funcCommon(
             .is_var_args = var_args,
             .is_generic = is_generic,
             .is_noinline = is_noinline,
-            .noalias_bits = noalias_bits,
         });
     };
 
@@ -9203,7 +9207,7 @@ fn funcCommon(
         return sema.addType(fn_ty);
     }
 
-    const is_inline = fn_ty.fnCallingConvention() == .Inline;
+    const is_inline = fn_ty.fnCallingConvention(mod) == .Inline;
     const anal_state: Module.Fn.Analysis = if (is_inline) .inline_only else .none;
 
     const comptime_args: ?[*]TypedValue = if (sema.comptime_args_fn_inst == func_inst) blk: {
@@ -9243,7 +9247,7 @@ fn analyzeParameter(
     block: *Block,
     param_src: LazySrcLoc,
     param: Block.Param,
-    comptime_params: []bool,
+    comptime_bits: *u32,
     i: usize,
     is_generic: *bool,
     cc: std.builtin.CallingConvention,
@@ -9252,14 +9256,16 @@ fn analyzeParameter(
 ) !void {
     const mod = sema.mod;
     const requires_comptime = try sema.typeRequiresComptime(param.ty);
-    comptime_params[i] = param.is_comptime or requires_comptime;
+    if (param.is_comptime or requires_comptime) {
+        comptime_bits.* |= @as(u32, 1) << @intCast(u5, i); // TODO: handle cast error
+    }
     const this_generic = param.ty.isGenericPoison();
     is_generic.* = is_generic.* or this_generic;
     const target = mod.getTarget();
-    if (param.is_comptime and !Type.fnCallingConventionAllowsZigTypes(target, cc)) {
+    if (param.is_comptime and !target_util.fnCallConvAllowsZigTypes(target, cc)) {
         return sema.fail(block, param_src, "comptime parameters not allowed in function with calling convention '{s}'", .{@tagName(cc)});
     }
-    if (this_generic and !sema.no_partial_func_ty and !Type.fnCallingConventionAllowsZigTypes(target, cc)) {
+    if (this_generic and !sema.no_partial_func_ty and !target_util.fnCallConvAllowsZigTypes(target, cc)) {
         return sema.fail(block, param_src, "generic parameters not allowed in function with calling convention '{s}'", .{@tagName(cc)});
     }
     if (!param.ty.isValidParamType(mod)) {
@@ -9275,7 +9281,7 @@ fn analyzeParameter(
         };
         return sema.failWithOwnedErrorMsg(msg);
     }
-    if (!this_generic and !Type.fnCallingConventionAllowsZigTypes(target, cc) and !try sema.validateExternType(param.ty, .param_ty)) {
+    if (!this_generic and !target_util.fnCallConvAllowsZigTypes(target, cc) and !try sema.validateExternType(param.ty, .param_ty)) {
         const msg = msg: {
             const msg = try sema.errMsg(block, param_src, "parameter of type '{}' not allowed in function with calling convention '{s}'", .{
                 param.ty.fmt(mod), @tagName(cc),
@@ -15986,22 +15992,18 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
         ),
         .Fn => {
             // TODO: look into memoizing this result.
-            const info = ty.fnInfo();
+            const info = mod.typeToFunc(ty).?;
 
             var params_anon_decl = try block.startAnonDecl();
             defer params_anon_decl.deinit();
 
             const param_vals = try params_anon_decl.arena().alloc(Value, info.param_types.len);
-            for (param_vals, 0..) |*param_val, i| {
-                const param_ty = info.param_types[i];
-                const is_generic = param_ty.isGenericPoison();
-                const param_ty_val = if (is_generic)
-                    Value.null
-                else
-                    try Value.Tag.opt_payload.create(
-                        params_anon_decl.arena(),
-                        try Value.Tag.ty.create(params_anon_decl.arena(), try param_ty.copy(params_anon_decl.arena())),
-                    );
+            for (param_vals, info.param_types, 0..) |*param_val, param_ty, i| {
+                const is_generic = param_ty == .generic_poison_type;
+                const param_ty_val = try mod.intern_pool.get(mod.gpa, .{ .opt = .{
+                    .ty = try mod.intern_pool.get(mod.gpa, .{ .opt_type = .type_type }),
+                    .val = if (is_generic) .none else param_ty,
+                } });
 
                 const is_noalias = blk: {
                     const index = std.math.cast(u5, i) orelse break :blk false;
@@ -16015,7 +16017,7 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                     // is_noalias: bool,
                     Value.makeBool(is_noalias),
                     // type: ?type,
-                    param_ty_val,
+                    param_ty_val.toValue(),
                 };
                 param_val.* = try Value.Tag.aggregate.create(params_anon_decl.arena(), param_fields);
             }
@@ -16059,13 +16061,10 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                 });
             };
 
-            const ret_ty_opt = if (!info.return_type.isGenericPoison())
-                try Value.Tag.opt_payload.create(
-                    sema.arena,
-                    try Value.Tag.ty.create(sema.arena, info.return_type),
-                )
-            else
-                Value.null;
+            const ret_ty_opt = try mod.intern_pool.get(mod.gpa, .{ .opt = .{
+                .ty = try mod.intern_pool.get(mod.gpa, .{ .opt_type = .type_type }),
+                .val = if (info.return_type == .generic_poison_type) .none else info.return_type,
+            } });
 
             const callconv_ty = try sema.getBuiltinType("CallingConvention");
 
@@ -16080,7 +16079,7 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                 // is_var_args: bool,
                 Value.makeBool(info.is_var_args),
                 // return_type: ?type,
-                ret_ty_opt,
+                ret_ty_opt.toValue(),
                 // args: []const Fn.Param,
                 args_val,
             };
@@ -17788,7 +17787,7 @@ fn zirPtrType(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
         if (inst_data.size != .One) {
             return sema.fail(block, elem_ty_src, "function pointers must be single pointers", .{});
         }
-        const fn_align = elem_ty.fnInfo().alignment;
+        const fn_align = mod.typeToFunc(elem_ty).?.alignment;
         if (inst_data.flags.has_align and abi_align != 0 and fn_align != 0 and
             abi_align != fn_align)
         {
@@ -18939,7 +18938,7 @@ fn zirReify(
                 if (ptr_size != .One) {
                     return sema.fail(block, src, "function pointers must be single pointers", .{});
                 }
-                const fn_align = elem_ty.fnInfo().alignment;
+                const fn_align = mod.typeToFunc(elem_ty).?.alignment;
                 if (abi_align != 0 and fn_align != 0 and
                     abi_align != fn_align)
                 {
@@ -19483,12 +19482,10 @@ fn zirReify(
             const args_slice_val = args_val.castTag(.slice).?.data;
             const args_len = try sema.usizeCast(block, src, args_slice_val.len.toUnsignedInt(mod));
 
-            const param_types = try sema.arena.alloc(Type, args_len);
-            const comptime_params = try sema.arena.alloc(bool, args_len);
+            const param_types = try sema.arena.alloc(InternPool.Index, args_len);
 
             var noalias_bits: u32 = 0;
-            var i: usize = 0;
-            while (i < args_len) : (i += 1) {
+            for (param_types, 0..) |*param_type, i| {
                 const arg = try args_slice_val.ptr.elemValue(mod, i);
                 const arg_val = arg.castTag(.aggregate).?.data;
                 // TODO use reflection instead of magic numbers here
@@ -19505,25 +19502,22 @@ fn zirReify(
 
                 const param_type_val = param_type_opt_val.optionalValue(mod) orelse
                     return sema.fail(block, src, "Type.Fn.Param.arg_type must be non-null for @Type", .{});
-                const param_type = try param_type_val.toType().copy(sema.arena);
+                param_type.* = param_type_val.ip_index;
 
                 if (arg_is_noalias) {
-                    if (!param_type.isPtrAtRuntime(mod)) {
+                    if (!param_type.toType().isPtrAtRuntime(mod)) {
                         return sema.fail(block, src, "non-pointer parameter declared noalias", .{});
                     }
                     noalias_bits |= @as(u32, 1) << (std.math.cast(u5, i) orelse
                         return sema.fail(block, src, "this compiler implementation only supports 'noalias' on the first 32 parameters", .{}));
                 }
-
-                param_types[i] = param_type;
-                comptime_params[i] = false;
             }
 
-            var fn_info = Type.Payload.Function.Data{
+            const ty = try mod.funcType(.{
                 .param_types = param_types,
-                .comptime_params = comptime_params.ptr,
+                .comptime_bits = 0,
                 .noalias_bits = noalias_bits,
-                .return_type = try return_type.toType().copy(sema.arena),
+                .return_type = return_type.toIntern(),
                 .alignment = alignment,
                 .cc = cc,
                 .is_var_args = is_var_args,
@@ -19533,9 +19527,7 @@ fn zirReify(
                 .cc_is_generic = false,
                 .section_is_generic = false,
                 .addrspace_is_generic = false,
-            };
-
-            const ty = try Type.Tag.function.create(sema.arena, fn_info);
+            });
             return sema.addType(ty);
         },
         .Frame => return sema.failWithUseOfAsync(block, src),
@@ -23435,7 +23427,7 @@ fn explainWhyTypeIsComptimeInner(
         .Pointer => {
             const elem_ty = ty.elemType2(mod);
             if (elem_ty.zigTypeTag(mod) == .Fn) {
-                const fn_info = elem_ty.fnInfo();
+                const fn_info = mod.typeToFunc(elem_ty).?;
                 if (fn_info.is_generic) {
                     try mod.errNoteNonLazy(src_loc, msg, "function is generic", .{});
                 }
@@ -23443,7 +23435,7 @@ fn explainWhyTypeIsComptimeInner(
                     .Inline => try mod.errNoteNonLazy(src_loc, msg, "function has inline calling convention", .{}),
                     else => {},
                 }
-                if (fn_info.return_type.comptimeOnly(mod)) {
+                if (fn_info.return_type.toType().comptimeOnly(mod)) {
                     try mod.errNoteNonLazy(src_loc, msg, "function has a comptime-only return type", .{});
                 }
                 return;
@@ -23543,10 +23535,10 @@ fn validateExternType(
             const target = sema.mod.getTarget();
             // For now we want to authorize PTX kernel to use zig objects, even if we end up exposing the ABI.
             // The goal is to experiment with more integrated CPU/GPU code.
-            if (ty.fnCallingConvention() == .Kernel and (target.cpu.arch == .nvptx or target.cpu.arch == .nvptx64)) {
+            if (ty.fnCallingConvention(mod) == .Kernel and (target.cpu.arch == .nvptx or target.cpu.arch == .nvptx64)) {
                 return true;
             }
-            return !Type.fnCallingConventionAllowsZigTypes(target, ty.fnCallingConvention());
+            return !target_util.fnCallConvAllowsZigTypes(target, ty.fnCallingConvention(mod));
         },
         .Enum => {
             return sema.validateExternType(try ty.intTagType(mod), position);
@@ -23619,7 +23611,7 @@ fn explainWhyTypeIsNotExtern(
                 try mod.errNoteNonLazy(src_loc, msg, "use '*const ' to make a function pointer type", .{});
                 return;
             }
-            switch (ty.fnCallingConvention()) {
+            switch (ty.fnCallingConvention(mod)) {
                 .Unspecified => try mod.errNoteNonLazy(src_loc, msg, "extern function must specify calling convention", .{}),
                 .Async => try mod.errNoteNonLazy(src_loc, msg, "async function cannot be extern", .{}),
                 .Inline => try mod.errNoteNonLazy(src_loc, msg, "inline function cannot be extern", .{}),
@@ -24548,10 +24540,10 @@ fn fieldCallBind(
                     try sema.addReferencedBy(block, src, decl_idx);
                     const decl_val = try sema.analyzeDeclVal(block, src, decl_idx);
                     const decl_type = sema.typeOf(decl_val);
-                    if (decl_type.zigTypeTag(mod) == .Fn and
-                        decl_type.fnParamLen() >= 1)
-                    {
-                        const first_param_type = decl_type.fnParamType(0);
+                    if (mod.typeToFunc(decl_type)) |func_type| f: {
+                        if (func_type.param_types.len == 0) break :f;
+
+                        const first_param_type = func_type.param_types[0].toType();
                         // zig fmt: off
                         if (first_param_type.isGenericPoison() or (
                                 first_param_type.zigTypeTag(mod) == .Pointer and
@@ -27090,8 +27082,9 @@ fn coerceInMemoryAllowedFns(
     dest_src: LazySrcLoc,
     src_src: LazySrcLoc,
 ) !InMemoryCoercionResult {
-    const dest_info = dest_ty.fnInfo();
-    const src_info = src_ty.fnInfo();
+    const mod = sema.mod;
+    const dest_info = mod.typeToFunc(dest_ty).?;
+    const src_info = mod.typeToFunc(src_ty).?;
 
     if (dest_info.is_var_args != src_info.is_var_args) {
         return InMemoryCoercionResult{ .fn_var_args = dest_info.is_var_args };
@@ -27108,13 +27101,13 @@ fn coerceInMemoryAllowedFns(
         } };
     }
 
-    if (!src_info.return_type.isNoReturn()) {
-        const rt = try sema.coerceInMemoryAllowed(block, dest_info.return_type, src_info.return_type, false, target, dest_src, src_src);
+    if (src_info.return_type != .noreturn_type) {
+        const rt = try sema.coerceInMemoryAllowed(block, dest_info.return_type.toType(), src_info.return_type.toType(), false, target, dest_src, src_src);
         if (rt != .ok) {
             return InMemoryCoercionResult{ .fn_return_type = .{
                 .child = try rt.dupe(sema.arena),
-                .actual = src_info.return_type,
-                .wanted = dest_info.return_type,
+                .actual = src_info.return_type.toType(),
+                .wanted = dest_info.return_type.toType(),
             } };
         }
     }
@@ -27134,22 +27127,23 @@ fn coerceInMemoryAllowedFns(
     }
 
     for (dest_info.param_types, 0..) |dest_param_ty, i| {
-        const src_param_ty = src_info.param_types[i];
+        const src_param_ty = src_info.param_types[i].toType();
 
-        if (dest_info.comptime_params[i] != src_info.comptime_params[i]) {
+        const i_small = @intCast(u5, i);
+        if (dest_info.paramIsComptime(i_small) != src_info.paramIsComptime(i_small)) {
             return InMemoryCoercionResult{ .fn_param_comptime = .{
                 .index = i,
-                .wanted = dest_info.comptime_params[i],
+                .wanted = dest_info.paramIsComptime(i_small),
             } };
         }
 
         // Note: Cast direction is reversed here.
-        const param = try sema.coerceInMemoryAllowed(block, src_param_ty, dest_param_ty, false, target, dest_src, src_src);
+        const param = try sema.coerceInMemoryAllowed(block, src_param_ty, dest_param_ty.toType(), false, target, dest_src, src_src);
         if (param != .ok) {
             return InMemoryCoercionResult{ .fn_param = .{
                 .child = try param.dupe(sema.arena),
                 .actual = src_param_ty,
-                .wanted = dest_param_ty,
+                .wanted = dest_param_ty.toType(),
                 .index = i,
             } };
         }
@@ -31205,17 +31199,17 @@ fn resolvePeerTypes(
     return chosen_ty;
 }
 
-pub fn resolveFnTypes(sema: *Sema, fn_info: Type.Payload.Function.Data) CompileError!void {
+pub fn resolveFnTypes(sema: *Sema, fn_info: InternPool.Key.FuncType) CompileError!void {
     const mod = sema.mod;
-    try sema.resolveTypeFully(fn_info.return_type);
+    try sema.resolveTypeFully(fn_info.return_type.toType());
 
-    if (mod.comp.bin_file.options.error_return_tracing and fn_info.return_type.isError(mod)) {
+    if (mod.comp.bin_file.options.error_return_tracing and fn_info.return_type.toType().isError(mod)) {
         // Ensure the type exists so that backends can assume that.
         _ = try sema.getBuiltinType("StackTrace");
     }
 
     for (fn_info.param_types) |param_ty| {
-        try sema.resolveTypeFully(param_ty);
+        try sema.resolveTypeFully(param_ty.toType());
     }
 }
 
@@ -31286,16 +31280,16 @@ pub fn resolveTypeLayout(sema: *Sema, ty: Type) CompileError!void {
             return sema.resolveTypeLayout(payload_ty);
         },
         .Fn => {
-            const info = ty.fnInfo();
+            const info = mod.typeToFunc(ty).?;
             if (info.is_generic) {
                 // Resolving of generic function types is deferred to when
                 // the function is instantiated.
                 return;
             }
             for (info.param_types) |param_ty| {
-                try sema.resolveTypeLayout(param_ty);
+                try sema.resolveTypeLayout(param_ty.toType());
             }
-            try sema.resolveTypeLayout(info.return_type);
+            try sema.resolveTypeLayout(info.return_type.toType());
         },
         else => {},
     }
@@ -31615,15 +31609,13 @@ pub fn resolveTypeRequiresComptime(sema: *Sema, ty: Type) CompileError!bool {
             .error_set_merged,
             => false,
 
-            .function => true,
-
             .inferred_alloc_mut => unreachable,
             .inferred_alloc_const => unreachable,
 
             .pointer => {
                 const child_ty = ty.childType(mod);
                 if (child_ty.zigTypeTag(mod) == .Fn) {
-                    return child_ty.fnInfo().is_generic;
+                    return mod.typeToFunc(child_ty).?.is_generic;
                 } else {
                     return sema.resolveTypeRequiresComptime(child_ty);
                 }
@@ -31644,7 +31636,7 @@ pub fn resolveTypeRequiresComptime(sema: *Sema, ty: Type) CompileError!bool {
             .ptr_type => |ptr_type| {
                 const child_ty = ptr_type.elem_type.toType();
                 if (child_ty.zigTypeTag(mod) == .Fn) {
-                    return child_ty.fnInfo().is_generic;
+                    return mod.typeToFunc(child_ty).?.is_generic;
                 } else {
                     return sema.resolveTypeRequiresComptime(child_ty);
                 }
@@ -31653,6 +31645,8 @@ pub fn resolveTypeRequiresComptime(sema: *Sema, ty: Type) CompileError!bool {
             .vector_type => |vector_type| return sema.resolveTypeRequiresComptime(vector_type.child.toType()),
             .opt_type => |child| return sema.resolveTypeRequiresComptime(child.toType()),
             .error_union_type => |error_union_type| return sema.resolveTypeRequiresComptime(error_union_type.payload_type.toType()),
+            .func_type => true,
+
             .simple_type => |t| switch (t) {
                 .f16,
                 .f32,
@@ -31799,16 +31793,16 @@ pub fn resolveTypeFully(sema: *Sema, ty: Type) CompileError!void {
         },
         .ErrorUnion => return sema.resolveTypeFully(ty.errorUnionPayload()),
         .Fn => {
-            const info = ty.fnInfo();
+            const info = mod.typeToFunc(ty).?;
             if (info.is_generic) {
                 // Resolving of generic function types is deferred to when
                 // the function is instantiated.
                 return;
             }
             for (info.param_types) |param_ty| {
-                try sema.resolveTypeFully(param_ty);
+                try sema.resolveTypeFully(param_ty.toType());
             }
-            try sema.resolveTypeFully(info.return_type);
+            try sema.resolveTypeFully(info.return_type.toType());
         },
         else => {},
     }
@@ -31881,7 +31875,6 @@ pub fn resolveTypeFields(sema: *Sema, ty: Type) CompileError!Type {
         .none => return ty,
 
         .u1_type,
-        .u5_type,
         .u8_type,
         .i8_type,
         .u16_type,
@@ -31941,8 +31934,8 @@ pub fn resolveTypeFields(sema: *Sema, ty: Type) CompileError!Type {
         .zero_u8 => unreachable,
         .one => unreachable,
         .one_usize => unreachable,
-        .one_u5 => unreachable,
-        .four_u5 => unreachable,
+        .one_u8 => unreachable,
+        .four_u8 => unreachable,
         .negative_one => unreachable,
         .calling_convention_c => unreachable,
         .calling_convention_inline => unreachable,
@@ -32083,14 +32076,14 @@ fn resolveInferredErrorSet(
     // `*Module.Fn`. Not only is the function not relevant to the inferred error set
     // in this case, it may be a generic function which would cause an assertion failure
     // if we called `ensureFuncBodyAnalyzed` on it here.
-    const ies_func_owner_decl = sema.mod.declPtr(ies.func.owner_decl);
-    const ies_func_info = ies_func_owner_decl.ty.fnInfo();
+    const ies_func_owner_decl = mod.declPtr(ies.func.owner_decl);
+    const ies_func_info = mod.typeToFunc(ies_func_owner_decl.ty).?;
     // if ies declared by a inline function with generic return type, the return_type should be generic_poison,
     // because inline function does not create a new declaration, and the ies has been filled with analyzeCall,
     // so here we can simply skip this case.
-    if (ies_func_info.return_type.isGenericPoison()) {
+    if (ies_func_info.return_type == .generic_poison_type) {
         assert(ies_func_info.cc == .Inline);
-    } else if (ies_func_info.return_type.errorUnionSet().castTag(.error_set_inferred).?.data == ies) {
+    } else if (ies_func_info.return_type.toType().errorUnionSet().castTag(.error_set_inferred).?.data == ies) {
         if (ies_func_info.is_generic) {
             const msg = msg: {
                 const msg = try sema.errMsg(block, src, "unable to resolve inferred error set of generic function", .{});
@@ -32285,7 +32278,7 @@ fn semaStructFields(mod: *Module, struct_obj: *Module.Struct) CompileError!void 
 
                     const prev_field_index = struct_obj.fields.getIndex(field_name).?;
                     const prev_field_src = mod.fieldSrcLoc(struct_obj.owner_decl, .{ .index = prev_field_index });
-                    try sema.mod.errNoteNonLazy(prev_field_src, msg, "other field here", .{});
+                    try mod.errNoteNonLazy(prev_field_src, msg, "other field here", .{});
                     try sema.errNote(&block_scope, src, msg, "struct declared here", .{});
                     break :msg msg;
                 };
@@ -32387,7 +32380,7 @@ fn semaStructFields(mod: *Module, struct_obj: *Module.Struct) CompileError!void 
                     .index = field_i,
                     .range = .type,
                 });
-                const msg = try sema.errMsg(&block_scope, ty_src.lazy, "extern structs cannot contain fields of type '{}'", .{field.ty.fmt(sema.mod)});
+                const msg = try sema.errMsg(&block_scope, ty_src.lazy, "extern structs cannot contain fields of type '{}'", .{field.ty.fmt(mod)});
                 errdefer msg.destroy(sema.gpa);
 
                 try sema.explainWhyTypeIsNotExtern(msg, ty_src, field.ty, .struct_field);
@@ -32402,7 +32395,7 @@ fn semaStructFields(mod: *Module, struct_obj: *Module.Struct) CompileError!void 
                     .index = field_i,
                     .range = .type,
                 });
-                const msg = try sema.errMsg(&block_scope, ty_src.lazy, "packed structs cannot contain fields of type '{}'", .{field.ty.fmt(sema.mod)});
+                const msg = try sema.errMsg(&block_scope, ty_src.lazy, "packed structs cannot contain fields of type '{}'", .{field.ty.fmt(mod)});
                 errdefer msg.destroy(sema.gpa);
 
                 try sema.explainWhyTypeIsNotPacked(msg, ty_src, field.ty);
@@ -32580,7 +32573,7 @@ fn semaUnionFields(mod: *Module, union_obj: *Module.Union) CompileError!void {
             // The provided type is an integer type and we must construct the enum tag type here.
             int_tag_ty = provided_ty;
             if (int_tag_ty.zigTypeTag(mod) != .Int and int_tag_ty.zigTypeTag(mod) != .ComptimeInt) {
-                return sema.fail(&block_scope, tag_ty_src, "expected integer tag type, found '{}'", .{int_tag_ty.fmt(sema.mod)});
+                return sema.fail(&block_scope, tag_ty_src, "expected integer tag type, found '{}'", .{int_tag_ty.fmt(mod)});
             }
 
             if (fields_len > 0) {
@@ -32590,7 +32583,7 @@ fn semaUnionFields(mod: *Module, union_obj: *Module.Union) CompileError!void {
                         const msg = try sema.errMsg(&block_scope, tag_ty_src, "specified integer tag type cannot represent every field", .{});
                         errdefer msg.destroy(sema.gpa);
                         try sema.errNote(&block_scope, tag_ty_src, msg, "type '{}' cannot fit values in range 0...{d}", .{
-                            int_tag_ty.fmt(sema.mod),
+                            int_tag_ty.fmt(mod),
                             fields_len - 1,
                         });
                         break :msg msg;
@@ -32605,7 +32598,7 @@ fn semaUnionFields(mod: *Module, union_obj: *Module.Union) CompileError!void {
             union_obj.tag_ty = provided_ty;
             const enum_type = switch (mod.intern_pool.indexToKey(union_obj.tag_ty.ip_index)) {
                 .enum_type => |x| x,
-                else => return sema.fail(&block_scope, tag_ty_src, "expected enum tag type, found '{}'", .{union_obj.tag_ty.fmt(sema.mod)}),
+                else => return sema.fail(&block_scope, tag_ty_src, "expected enum tag type, found '{}'", .{union_obj.tag_ty.fmt(mod)}),
             };
             // The fields of the union must match the enum exactly.
             // A flag per field is used to check for missing and extraneous fields.
@@ -32705,7 +32698,7 @@ fn semaUnionFields(mod: *Module, union_obj: *Module.Union) CompileError!void {
                 const field_src = mod.fieldSrcLoc(union_obj.owner_decl, .{ .index = field_i }).lazy;
                 const other_field_src = mod.fieldSrcLoc(union_obj.owner_decl, .{ .index = gop.index }).lazy;
                 const msg = msg: {
-                    const msg = try sema.errMsg(&block_scope, field_src, "enum tag value {} already taken", .{copied_val.fmtValue(int_tag_ty, sema.mod)});
+                    const msg = try sema.errMsg(&block_scope, field_src, "enum tag value {} already taken", .{copied_val.fmtValue(int_tag_ty, mod)});
                     errdefer msg.destroy(gpa);
                     try sema.errNote(&block_scope, other_field_src, msg, "other occurrence here", .{});
                     break :msg msg;
@@ -32751,7 +32744,7 @@ fn semaUnionFields(mod: *Module, union_obj: *Module.Union) CompileError!void {
 
                 const prev_field_index = union_obj.fields.getIndex(field_name).?;
                 const prev_field_src = mod.fieldSrcLoc(union_obj.owner_decl, .{ .index = prev_field_index }).lazy;
-                try sema.mod.errNoteNonLazy(prev_field_src.toSrcLoc(decl, mod), msg, "other field here", .{});
+                try mod.errNoteNonLazy(prev_field_src.toSrcLoc(decl, mod), msg, "other field here", .{});
                 try sema.errNote(&block_scope, src, msg, "union declared here", .{});
                 break :msg msg;
             };
@@ -32766,7 +32759,7 @@ fn semaUnionFields(mod: *Module, union_obj: *Module.Union) CompileError!void {
                         .range = .type,
                     }).lazy;
                     const msg = try sema.errMsg(&block_scope, ty_src, "no field named '{s}' in enum '{}'", .{
-                        field_name, union_obj.tag_ty.fmt(sema.mod),
+                        field_name, union_obj.tag_ty.fmt(mod),
                     });
                     errdefer msg.destroy(sema.gpa);
                     try sema.addDeclaredHereNote(msg, union_obj.tag_ty);
@@ -32800,7 +32793,7 @@ fn semaUnionFields(mod: *Module, union_obj: *Module.Union) CompileError!void {
                     .index = field_i,
                     .range = .type,
                 });
-                const msg = try sema.errMsg(&block_scope, ty_src.lazy, "extern unions cannot contain fields of type '{}'", .{field_ty.fmt(sema.mod)});
+                const msg = try sema.errMsg(&block_scope, ty_src.lazy, "extern unions cannot contain fields of type '{}'", .{field_ty.fmt(mod)});
                 errdefer msg.destroy(sema.gpa);
 
                 try sema.explainWhyTypeIsNotExtern(msg, ty_src, field_ty, .union_field);
@@ -32815,7 +32808,7 @@ fn semaUnionFields(mod: *Module, union_obj: *Module.Union) CompileError!void {
                     .index = field_i,
                     .range = .type,
                 });
-                const msg = try sema.errMsg(&block_scope, ty_src.lazy, "packed unions cannot contain fields of type '{}'", .{field_ty.fmt(sema.mod)});
+                const msg = try sema.errMsg(&block_scope, ty_src.lazy, "packed unions cannot contain fields of type '{}'", .{field_ty.fmt(mod)});
                 errdefer msg.destroy(sema.gpa);
 
                 try sema.explainWhyTypeIsNotPacked(msg, ty_src, field_ty);
@@ -33060,7 +33053,6 @@ pub fn typeHasOnePossibleValue(sema: *Sema, ty: Type) CompileError!?Value {
             .error_set,
             .error_set_merged,
             .error_union,
-            .function,
             .error_set_inferred,
             .anyframe_T,
             .pointer,
@@ -33087,7 +33079,12 @@ pub fn typeHasOnePossibleValue(sema: *Sema, ty: Type) CompileError!?Value {
                     return null;
                 }
             },
-            .ptr_type => null,
+
+            .ptr_type,
+            .error_union_type,
+            .func_type,
+            => null,
+
             .array_type => |array_type| {
                 if (array_type.len == 0)
                     return Value.initTag(.empty_array);
@@ -33102,13 +33099,13 @@ pub fn typeHasOnePossibleValue(sema: *Sema, ty: Type) CompileError!?Value {
                 return null;
             },
             .opt_type => |child| {
-                if (child.toType().isNoReturn()) {
-                    return Value.null;
+                if (child == .noreturn_type) {
+                    return try mod.nullValue(ty);
                 } else {
                     return null;
                 }
             },
-            .error_union_type => null,
+
             .simple_type => |t| switch (t) {
                 .f16,
                 .f32,
@@ -33674,15 +33671,13 @@ pub fn typeRequiresComptime(sema: *Sema, ty: Type) CompileError!bool {
             .error_set_merged,
             => false,
 
-            .function => true,
-
             .inferred_alloc_mut => unreachable,
             .inferred_alloc_const => unreachable,
 
             .pointer => {
                 const child_ty = ty.childType(mod);
                 if (child_ty.zigTypeTag(mod) == .Fn) {
-                    return child_ty.fnInfo().is_generic;
+                    return mod.typeToFunc(child_ty).?.is_generic;
                 } else {
                     return sema.typeRequiresComptime(child_ty);
                 }
@@ -33703,7 +33698,7 @@ pub fn typeRequiresComptime(sema: *Sema, ty: Type) CompileError!bool {
             .ptr_type => |ptr_type| {
                 const child_ty = ptr_type.elem_type.toType();
                 if (child_ty.zigTypeTag(mod) == .Fn) {
-                    return child_ty.fnInfo().is_generic;
+                    return mod.typeToFunc(child_ty).?.is_generic;
                 } else {
                     return sema.typeRequiresComptime(child_ty);
                 }
@@ -33714,6 +33709,8 @@ pub fn typeRequiresComptime(sema: *Sema, ty: Type) CompileError!bool {
             .error_union_type => |error_union_type| {
                 return sema.typeRequiresComptime(error_union_type.payload_type.toType());
             },
+            .func_type => true,
+
             .simple_type => |t| return switch (t) {
                 .f16,
                 .f32,
@@ -33870,7 +33867,8 @@ fn unionFieldAlignment(sema: *Sema, field: Module.Union.Field) !u32 {
 
 /// Synchronize logic with `Type.isFnOrHasRuntimeBits`.
 pub fn fnHasRuntimeBits(sema: *Sema, ty: Type) CompileError!bool {
-    const fn_info = ty.fnInfo();
+    const mod = sema.mod;
+    const fn_info = mod.typeToFunc(ty).?;
     if (fn_info.is_generic) return false;
     if (fn_info.is_var_args) return true;
     switch (fn_info.cc) {
@@ -33878,7 +33876,7 @@ pub fn fnHasRuntimeBits(sema: *Sema, ty: Type) CompileError!bool {
         .Inline => return false,
         else => {},
     }
-    if (try sema.typeRequiresComptime(fn_info.return_type)) {
+    if (try sema.typeRequiresComptime(fn_info.return_type.toType())) {
         return false;
     }
     return true;

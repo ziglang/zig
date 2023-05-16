@@ -143,7 +143,7 @@ pub const Mode = OptimizeMode;
 
 /// This data structure is used by the Zig language code generation and
 /// therefore must be kept in sync with the compiler implementation.
-pub const CallingConvention = enum {
+pub const CallingConvention = enum(u8) {
     /// This is the default Zig calling convention used when not using `export` on `fn`
     /// and no other calling convention is specified.
     Unspecified,

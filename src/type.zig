@@ -42,8 +42,6 @@ pub const Type = struct {
                 .error_set_merged,
                 => return .ErrorSet,
 
-                .function => return .Fn,
-
                 .pointer,
                 .inferred_alloc_const,
                 .inferred_alloc_mut,
@@ -66,6 +64,7 @@ pub const Type = struct {
                 .union_type => return .Union,
                 .opaque_type => return .Opaque,
                 .enum_type => return .Enum,
+                .func_type => return .Fn,
                 .simple_type => |s| switch (s) {
                     .f16,
                     .f32,
@@ -344,53 +343,6 @@ pub const Type = struct {
                 return true;
             },
 
-            .function => {
-                if (b.zigTypeTag(mod) != .Fn) return false;
-
-                const a_info = a.fnInfo();
-                const b_info = b.fnInfo();
-
-                if (!a_info.return_type.isGenericPoison() and
-                    !b_info.return_type.isGenericPoison() and
-                    !eql(a_info.return_type, b_info.return_type, mod))
-                    return false;
-
-                if (a_info.is_var_args != b_info.is_var_args)
-                    return false;
-
-                if (a_info.is_generic != b_info.is_generic)
-                    return false;
-
-                if (a_info.is_noinline != b_info.is_noinline)
-                    return false;
-
-                if (a_info.noalias_bits != b_info.noalias_bits)
-                    return false;
-
-                if (!a_info.cc_is_generic and a_info.cc != b_info.cc)
-                    return false;
-
-                if (!a_info.align_is_generic and a_info.alignment != b_info.alignment)
-                    return false;
-
-                if (a_info.param_types.len != b_info.param_types.len)
-                    return false;
-
-                for (a_info.param_types, 0..) |a_param_ty, i| {
-                    const b_param_ty = b_info.param_types[i];
-                    if (a_info.comptime_params[i] != b_info.comptime_params[i])
-                        return false;
-
-                    if (a_param_ty.isGenericPoison()) continue;
-                    if (b_param_ty.isGenericPoison()) continue;
-
-                    if (!eql(a_param_ty, b_param_ty, mod))
-                        return false;
-                }
-
-                return true;
-            },
-
             .pointer,
             .inferred_alloc_const,
             .inferred_alloc_mut,
@@ -501,32 +453,6 @@ pub const Type = struct {
                 std.hash.autoHash(hasher, ies);
             },
 
-            .function => {
-                std.hash.autoHash(hasher, std.builtin.TypeId.Fn);
-
-                const fn_info = ty.fnInfo();
-                if (!fn_info.return_type.isGenericPoison()) {
-                    hashWithHasher(fn_info.return_type, hasher, mod);
-                }
-                if (!fn_info.align_is_generic) {
-                    std.hash.autoHash(hasher, fn_info.alignment);
-                }
-                if (!fn_info.cc_is_generic) {
-                    std.hash.autoHash(hasher, fn_info.cc);
-                }
-                std.hash.autoHash(hasher, fn_info.is_var_args);
-                std.hash.autoHash(hasher, fn_info.is_generic);
-                std.hash.autoHash(hasher, fn_info.is_noinline);
-                std.hash.autoHash(hasher, fn_info.noalias_bits);
-
-                std.hash.autoHash(hasher, fn_info.param_types.len);
-                for (fn_info.param_types, 0..) |param_ty, i| {
-                    std.hash.autoHash(hasher, fn_info.paramIsComptime(i));
-                    if (param_ty.isGenericPoison()) continue;
-                    hashWithHasher(param_ty, hasher, mod);
-                }
-            },
-
             .pointer,
             .inferred_alloc_const,
             .inferred_alloc_mut,
@@ -631,30 +557,6 @@ pub const Type = struct {
                 };
             },
 
-            .function => {
-                const payload = self.castTag(.function).?.data;
-                const param_types = try allocator.alloc(Type, payload.param_types.len);
-                for (payload.param_types, 0..) |param_ty, i| {
-                    param_types[i] = try param_ty.copy(allocator);
-                }
-                const other_comptime_params = payload.comptime_params[0..payload.param_types.len];
-                const comptime_params = try allocator.dupe(bool, other_comptime_params);
-                return Tag.function.create(allocator, .{
-                    .return_type = try payload.return_type.copy(allocator),
-                    .param_types = param_types,
-                    .cc = payload.cc,
-                    .alignment = payload.alignment,
-                    .is_var_args = payload.is_var_args,
-                    .is_generic = payload.is_generic,
-                    .is_noinline = payload.is_noinline,
-                    .comptime_params = comptime_params.ptr,
-                    .align_is_generic = payload.align_is_generic,
-                    .cc_is_generic = payload.cc_is_generic,
-                    .section_is_generic = payload.section_is_generic,
-                    .addrspace_is_generic = payload.addrspace_is_generic,
-                    .noalias_bits = payload.noalias_bits,
-                });
-            },
             .pointer => {
                 const payload = self.castTag(.pointer).?.data;
                 const sent: ?Value = if (payload.sentinel) |some|
@@ -766,32 +668,6 @@ pub const Type = struct {
         while (true) {
             const t = ty.tag();
             switch (t) {
-                .function => {
-                    const payload = ty.castTag(.function).?.data;
-                    try writer.writeAll("fn(");
-                    for (payload.param_types, 0..) |param_type, i| {
-                        if (i != 0) try writer.writeAll(", ");
-                        try param_type.dump("", .{}, writer);
-                    }
-                    if (payload.is_var_args) {
-                        if (payload.param_types.len != 0) {
-                            try writer.writeAll(", ");
-                        }
-                        try writer.writeAll("...");
-                    }
-                    try writer.writeAll(") ");
-                    if (payload.alignment != 0) {
-                        try writer.print("align({d}) ", .{payload.alignment});
-                    }
-                    if (payload.cc != .Unspecified) {
-                        try writer.writeAll("callconv(.");
-                        try writer.writeAll(@tagName(payload.cc));
-                        try writer.writeAll(") ");
-                    }
-                    ty = payload.return_type;
-                    continue;
-                },
-
                 .anyframe_T => {
                     const return_type = ty.castTag(.anyframe_T).?.data;
                     try writer.print("anyframe->", .{});
@@ -907,48 +783,6 @@ pub const Type = struct {
                     const owner_decl = mod.declPtr(func.owner_decl);
                     try owner_decl.renderFullyQualifiedName(mod, writer);
                     try writer.writeAll(")).Fn.return_type.?).ErrorUnion.error_set");
-                },
-
-                .function => {
-                    const fn_info = ty.fnInfo();
-                    if (fn_info.is_noinline) {
-                        try writer.writeAll("noinline ");
-                    }
-                    try writer.writeAll("fn(");
-                    for (fn_info.param_types, 0..) |param_ty, i| {
-                        if (i != 0) try writer.writeAll(", ");
-                        if (fn_info.paramIsComptime(i)) {
-                            try writer.writeAll("comptime ");
-                        }
-                        if (std.math.cast(u5, i)) |index| if (@truncate(u1, fn_info.noalias_bits >> index) != 0) {
-                            try writer.writeAll("noalias ");
-                        };
-                        if (param_ty.isGenericPoison()) {
-                            try writer.writeAll("anytype");
-                        } else {
-                            try print(param_ty, writer, mod);
-                        }
-                    }
-                    if (fn_info.is_var_args) {
-                        if (fn_info.param_types.len != 0) {
-                            try writer.writeAll(", ");
-                        }
-                        try writer.writeAll("...");
-                    }
-                    try writer.writeAll(") ");
-                    if (fn_info.alignment != 0) {
-                        try writer.print("align({d}) ", .{fn_info.alignment});
-                    }
-                    if (fn_info.cc != .Unspecified) {
-                        try writer.writeAll("callconv(.");
-                        try writer.writeAll(@tagName(fn_info.cc));
-                        try writer.writeAll(") ");
-                    }
-                    if (fn_info.return_type.isGenericPoison()) {
-                        try writer.writeAll("anytype");
-                    } else {
-                        try print(fn_info.return_type, writer, mod);
-                    }
                 },
 
                 .error_union => {
@@ -1158,6 +992,48 @@ pub const Type = struct {
                     const decl = mod.declPtr(enum_type.decl);
                     try decl.renderFullyQualifiedName(mod, writer);
                 },
+                .func_type => |fn_info| {
+                    if (fn_info.is_noinline) {
+                        try writer.writeAll("noinline ");
+                    }
+                    try writer.writeAll("fn(");
+                    for (fn_info.param_types, 0..) |param_ty, i| {
+                        if (i != 0) try writer.writeAll(", ");
+                        if (std.math.cast(u5, i)) |index| {
+                            if (fn_info.paramIsComptime(index)) {
+                                try writer.writeAll("comptime ");
+                            }
+                            if (fn_info.paramIsNoalias(index)) {
+                                try writer.writeAll("noalias ");
+                            }
+                        }
+                        if (param_ty == .generic_poison_type) {
+                            try writer.writeAll("anytype");
+                        } else {
+                            try print(param_ty.toType(), writer, mod);
+                        }
+                    }
+                    if (fn_info.is_var_args) {
+                        if (fn_info.param_types.len != 0) {
+                            try writer.writeAll(", ");
+                        }
+                        try writer.writeAll("...");
+                    }
+                    try writer.writeAll(") ");
+                    if (fn_info.alignment != 0) {
+                        try writer.print("align({d}) ", .{fn_info.alignment});
+                    }
+                    if (fn_info.cc != .Unspecified) {
+                        try writer.writeAll("callconv(.");
+                        try writer.writeAll(@tagName(fn_info.cc));
+                        try writer.writeAll(") ");
+                    }
+                    if (fn_info.return_type == .generic_poison_type) {
+                        try writer.writeAll("anytype");
+                    } else {
+                        try print(fn_info.return_type.toType(), writer, mod);
+                    }
+                },
 
                 // values, not types
                 .undef => unreachable,
@@ -1172,6 +1048,11 @@ pub const Type = struct {
                 .aggregate => unreachable,
             },
         }
+    }
+
+    pub fn toIntern(ty: Type) InternPool.Index {
+        assert(ty.ip_index != .none);
+        return ty.ip_index;
     }
 
     pub fn toValue(self: Type, allocator: Allocator) Allocator.Error!Value {
@@ -1223,19 +1104,13 @@ pub const Type = struct {
                     if (ignore_comptime_only) {
                         return true;
                     } else if (ty.childType(mod).zigTypeTag(mod) == .Fn) {
-                        return !ty.childType(mod).fnInfo().is_generic;
+                        return !mod.typeToFunc(ty.childType(mod)).?.is_generic;
                     } else if (strat == .sema) {
                         return !(try strat.sema.typeRequiresComptime(ty));
                     } else {
                         return !comptimeOnly(ty, mod);
                     }
                 },
-
-                // These are false because they are comptime-only types.
-                // These are function *bodies*, not pointers.
-                // Special exceptions have to be made when emitting functions due to
-                // this returning false.
-                .function => return false,
 
                 .optional => {
                     const child_ty = ty.optionalChild(mod);
@@ -1262,7 +1137,7 @@ pub const Type = struct {
                     // to comptime-only types do not, with the exception of function pointers.
                     if (ignore_comptime_only) return true;
                     const child_ty = ptr_type.elem_type.toType();
-                    if (child_ty.zigTypeTag(mod) == .Fn) return !child_ty.fnInfo().is_generic;
+                    if (child_ty.zigTypeTag(mod) == .Fn) return !mod.typeToFunc(child_ty).?.is_generic;
                     if (strat == .sema) return !(try strat.sema.typeRequiresComptime(ty));
                     return !comptimeOnly(ty, mod);
                 },
@@ -1293,6 +1168,13 @@ pub const Type = struct {
                     }
                 },
                 .error_union_type => @panic("TODO"),
+
+                // These are function *bodies*, not pointers.
+                // They return false here because they are comptime-only types.
+                // Special exceptions have to be made when emitting functions due to
+                // this returning false.
+                .func_type => false,
+
                 .simple_type => |t| switch (t) {
                     .f16,
                     .f32,
@@ -1436,8 +1318,6 @@ pub const Type = struct {
                 .error_set_single,
                 .error_set_inferred,
                 .error_set_merged,
-                // These are function bodies, not function pointers.
-                .function,
                 .error_union,
                 .anyframe_T,
                 => false,
@@ -1448,12 +1328,21 @@ pub const Type = struct {
                 .optional => ty.isPtrLikeOptional(mod),
             },
             else => switch (mod.intern_pool.indexToKey(ty.ip_index)) {
-                .int_type => true,
-                .ptr_type => true,
+                .int_type,
+                .ptr_type,
+                .vector_type,
+                => true,
+
+                .error_union_type,
+                .anon_struct_type,
+                .opaque_type,
+                // These are function bodies, not function pointers.
+                .func_type,
+                => false,
+
                 .array_type => |array_type| array_type.child.toType().hasWellDefinedLayout(mod),
-                .vector_type => true,
                 .opt_type => |child| child.toType().isPtrLikeOptional(mod),
-                .error_union_type => false,
+
                 .simple_type => |t| switch (t) {
                     .f16,
                     .f32,
@@ -1509,12 +1398,10 @@ pub const Type = struct {
                     };
                     return struct_obj.layout != .Auto;
                 },
-                .anon_struct_type => false,
                 .union_type => |union_type| switch (union_type.runtime_tag) {
                     .none, .safety => mod.unionPtr(union_type.index).layout != .Auto,
                     .tagged => false,
                 },
-                .opaque_type => false,
                 .enum_type => |enum_type| switch (enum_type.tag_mode) {
                     .auto => false,
                     .explicit, .nonexhaustive => true,
@@ -1546,7 +1433,7 @@ pub const Type = struct {
     pub fn isFnOrHasRuntimeBits(ty: Type, mod: *Module) bool {
         switch (ty.zigTypeTag(mod)) {
             .Fn => {
-                const fn_info = ty.fnInfo();
+                const fn_info = mod.typeToFunc(ty).?;
                 if (fn_info.is_generic) return false;
                 if (fn_info.is_var_args) return true;
                 switch (fn_info.cc) {
@@ -1555,7 +1442,7 @@ pub const Type = struct {
                     .Inline => return false,
                     else => {},
                 }
-                if (fn_info.return_type.comptimeOnly(mod)) return false;
+                if (fn_info.return_type.toType().comptimeOnly(mod)) return false;
                 return true;
             },
             else => return ty.hasRuntimeBits(mod),
@@ -1707,13 +1594,6 @@ pub const Type = struct {
         switch (ty.ip_index) {
             .empty_struct_type => return AbiAlignmentAdvanced{ .scalar = 0 },
             .none => switch (ty.tag()) {
-                // represents machine code; not a pointer
-                .function => {
-                    const alignment = ty.castTag(.function).?.data.alignment;
-                    if (alignment != 0) return AbiAlignmentAdvanced{ .scalar = alignment };
-                    return AbiAlignmentAdvanced{ .scalar = target_util.defaultFunctionAlignment(target) };
-                },
-
                 .pointer,
                 .anyframe_T,
                 => return AbiAlignmentAdvanced{ .scalar = @divExact(target.ptrBitWidth(), 8) },
@@ -1753,6 +1633,13 @@ pub const Type = struct {
 
                 .opt_type => return abiAlignmentAdvancedOptional(ty, mod, strat),
                 .error_union_type => return abiAlignmentAdvancedErrorUnion(ty, mod, strat),
+                // represents machine code; not a pointer
+                .func_type => |func_type| {
+                    const alignment = @intCast(u32, func_type.alignment);
+                    if (alignment != 0) return AbiAlignmentAdvanced{ .scalar = alignment };
+                    return AbiAlignmentAdvanced{ .scalar = target_util.defaultFunctionAlignment(target) };
+                },
+
                 .simple_type => |t| switch (t) {
                     .bool,
                     .atomic_order,
@@ -2086,7 +1973,6 @@ pub const Type = struct {
             .empty_struct_type => return AbiSizeAdvanced{ .scalar = 0 },
 
             .none => switch (ty.tag()) {
-                .function => unreachable, // represents machine code; not a pointer
                 .inferred_alloc_const => unreachable,
                 .inferred_alloc_mut => unreachable,
 
@@ -2187,6 +2073,7 @@ pub const Type = struct {
 
                 .opt_type => return ty.abiSizeAdvancedOptional(mod, strat),
                 .error_union_type => @panic("TODO"),
+                .func_type => unreachable, // represents machine code; not a pointer
                 .simple_type => |t| switch (t) {
                     .bool,
                     .atomic_order,
@@ -2408,7 +2295,6 @@ pub const Type = struct {
 
         switch (ty.ip_index) {
             .none => switch (ty.tag()) {
-                .function => unreachable, // represents machine code; not a pointer
                 .inferred_alloc_const => unreachable,
                 .inferred_alloc_mut => unreachable,
 
@@ -2453,6 +2339,7 @@ pub const Type = struct {
                 },
                 .opt_type => @panic("TODO"),
                 .error_union_type => @panic("TODO"),
+                .func_type => unreachable, // represents machine code; not a pointer
                 .simple_type => |t| switch (t) {
                     .f16 => return 16,
                     .f32 => return 32,
@@ -3271,6 +3158,7 @@ pub const Type = struct {
 
                 .opt_type => unreachable,
                 .error_union_type => unreachable,
+                .func_type => unreachable,
                 .simple_type => unreachable, // handled via Index enum tag above
 
                 .union_type => unreachable,
@@ -3356,54 +3244,22 @@ pub const Type = struct {
         };
     }
 
-    /// Asserts the type is a function.
-    pub fn fnParamLen(self: Type) usize {
-        return self.castTag(.function).?.data.param_types.len;
-    }
-
-    /// Asserts the type is a function. The length of the slice must be at least the length
-    /// given by `fnParamLen`.
-    pub fn fnParamTypes(self: Type, types: []Type) void {
-        const payload = self.castTag(.function).?.data;
-        @memcpy(types[0..payload.param_types.len], payload.param_types);
-    }
-
-    /// Asserts the type is a function.
-    pub fn fnParamType(self: Type, index: usize) Type {
-        switch (self.tag()) {
-            .function => {
-                const payload = self.castTag(.function).?.data;
-                return payload.param_types[index];
-            },
-
-            else => unreachable,
-        }
-    }
-
     /// Asserts the type is a function or a function pointer.
-    pub fn fnReturnType(ty: Type) Type {
-        const fn_ty = switch (ty.tag()) {
-            .pointer => ty.castTag(.pointer).?.data.pointee_type,
-            .function => ty,
+    pub fn fnReturnType(ty: Type, mod: *Module) Type {
+        return fnReturnTypeIp(ty, mod.intern_pool);
+    }
+
+    pub fn fnReturnTypeIp(ty: Type, ip: InternPool) Type {
+        return switch (ip.indexToKey(ty.ip_index)) {
+            .ptr_type => |ptr_type| ip.indexToKey(ptr_type.elem_type).func_type.return_type,
+            .func_type => |func_type| func_type.return_type,
             else => unreachable,
-        };
-        return fn_ty.castTag(.function).?.data.return_type;
+        }.toType();
     }
 
     /// Asserts the type is a function.
-    pub fn fnCallingConvention(self: Type) std.builtin.CallingConvention {
-        return self.castTag(.function).?.data.cc;
-    }
-
-    /// Asserts the type is a function.
-    pub fn fnCallingConventionAllowsZigTypes(target: Target, cc: std.builtin.CallingConvention) bool {
-        return switch (cc) {
-            .Unspecified, .Async, .Inline => true,
-            // For now we want to authorize PTX kernel to use zig objects, even if we end up exposing the ABI.
-            // The goal is to experiment with more integrated CPU/GPU code.
-            .Kernel => target.cpu.arch == .nvptx or target.cpu.arch == .nvptx64,
-            else => false,
-        };
+    pub fn fnCallingConvention(ty: Type, mod: *Module) std.builtin.CallingConvention {
+        return mod.intern_pool.indexToKey(ty.ip_index).func_type.cc;
     }
 
     pub fn isValidParamType(self: Type, mod: *const Module) bool {
@@ -3421,12 +3277,8 @@ pub const Type = struct {
     }
 
     /// Asserts the type is a function.
-    pub fn fnIsVarArgs(self: Type) bool {
-        return self.castTag(.function).?.data.is_var_args;
-    }
-
-    pub fn fnInfo(ty: Type) Payload.Function.Data {
-        return ty.castTag(.function).?.data;
+    pub fn fnIsVarArgs(ty: Type, mod: *Module) bool {
+        return mod.intern_pool.indexToKey(ty.ip_index).func_type.is_var_args;
     }
 
     pub fn isNumeric(ty: Type, mod: *const Module) bool {
@@ -3474,7 +3326,6 @@ pub const Type = struct {
                 .error_set_single,
                 .error_set,
                 .error_set_merged,
-                .function,
                 .error_set_inferred,
                 .anyframe_T,
                 .pointer,
@@ -3500,7 +3351,12 @@ pub const Type = struct {
                         return null;
                     }
                 },
-                .ptr_type => return null,
+
+                .ptr_type,
+                .error_union_type,
+                .func_type,
+                => return null,
+
                 .array_type => |array_type| {
                     if (array_type.len == 0)
                         return Value.initTag(.empty_array);
@@ -3514,13 +3370,13 @@ pub const Type = struct {
                     return null;
                 },
                 .opt_type => |child| {
-                    if (child.toType().isNoReturn()) {
-                        return Value.null;
+                    if (child == .noreturn_type) {
+                        return try mod.nullValue(ty);
                     } else {
                         return null;
                     }
                 },
-                .error_union_type => return null,
+
                 .simple_type => |t| switch (t) {
                     .f16,
                     .f32,
@@ -3682,9 +3538,6 @@ pub const Type = struct {
                 .error_set_merged,
                 => false,
 
-                // These are function bodies, not function pointers.
-                .function => true,
-
                 .inferred_alloc_mut => unreachable,
                 .inferred_alloc_const => unreachable,
 
@@ -3721,6 +3574,9 @@ pub const Type = struct {
                 .vector_type => |vector_type| vector_type.child.toType().comptimeOnly(mod),
                 .opt_type => |child| child.toType().comptimeOnly(mod),
                 .error_union_type => |error_union_type| error_union_type.payload_type.toType().comptimeOnly(mod),
+                // These are function bodies, not function pointers.
+                .func_type => true,
+
                 .simple_type => |t| switch (t) {
                     .f16,
                     .f32,
@@ -4367,6 +4223,10 @@ pub const Type = struct {
         return ty.ip_index == .generic_poison_type;
     }
 
+    pub fn isBoundFn(ty: Type) bool {
+        return ty.ip_index == .none and ty.tag() == .bound_fn;
+    }
+
     /// This enum does not directly correspond to `std.builtin.TypeId` because
     /// it has extra enum tags in it, as a way of using less memory. For example,
     /// even though Zig recognizes `*align(10) i32` and `*i32` both as Pointer types
@@ -4383,7 +4243,6 @@ pub const Type = struct {
         // After this, the tag requires a payload.
 
         pointer,
-        function,
         optional,
         error_union,
         anyframe_T,
@@ -4411,7 +4270,6 @@ pub const Type = struct {
                 .error_set_merged => Payload.ErrorSetMerged,
 
                 .pointer => Payload.Pointer,
-                .function => Payload.Function,
                 .error_union => Payload.ErrorUnion,
                 .error_set_single => Payload.Name,
             };
@@ -4506,36 +4364,6 @@ pub const Type = struct {
         pub const Bits = struct {
             base: Payload,
             data: u16,
-        };
-
-        pub const Function = struct {
-            pub const base_tag = Tag.function;
-
-            base: Payload = Payload{ .tag = base_tag },
-            data: Data,
-
-            // TODO look into optimizing this memory to take fewer bytes
-            pub const Data = struct {
-                param_types: []Type,
-                comptime_params: [*]bool,
-                return_type: Type,
-                /// If zero use default target function code alignment.
-                alignment: u32,
-                noalias_bits: u32,
-                cc: std.builtin.CallingConvention,
-                is_var_args: bool,
-                is_generic: bool,
-                is_noinline: bool,
-                align_is_generic: bool,
-                cc_is_generic: bool,
-                section_is_generic: bool,
-                addrspace_is_generic: bool,
-
-                pub fn paramIsComptime(self: @This(), i: usize) bool {
-                    assert(i < self.param_types.len);
-                    return self.comptime_params[i];
-                }
-            };
         };
 
         pub const ErrorSet = struct {

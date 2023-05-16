@@ -1145,7 +1145,7 @@ fn ensureAllocLocal(func: *CodeGen, ty: Type) InnerError!WValue {
 fn genFunctype(
     gpa: Allocator,
     cc: std.builtin.CallingConvention,
-    params: []const Type,
+    params: []const InternPool.Index,
     return_type: Type,
     mod: *Module,
 ) !wasm.Type {
@@ -1170,7 +1170,8 @@ fn genFunctype(
     }
 
     // param types
-    for (params) |param_type| {
+    for (params) |param_type_ip| {
+        const param_type = param_type_ip.toType();
         if (!param_type.hasRuntimeBitsIgnoreComptime(mod)) continue;
 
         switch (cc) {
@@ -1234,9 +1235,9 @@ pub fn generate(
 }
 
 fn genFunc(func: *CodeGen) InnerError!void {
-    const fn_info = func.decl.ty.fnInfo();
     const mod = func.bin_file.base.options.module.?;
-    var func_type = try genFunctype(func.gpa, fn_info.cc, fn_info.param_types, fn_info.return_type, mod);
+    const fn_info = mod.typeToFunc(func.decl.ty).?;
+    var func_type = try genFunctype(func.gpa, fn_info.cc, fn_info.param_types, fn_info.return_type.toType(), mod);
     defer func_type.deinit(func.gpa);
     _ = try func.bin_file.storeDeclType(func.decl_index, func_type);
 
@@ -1345,10 +1346,8 @@ const CallWValues = struct {
 
 fn resolveCallingConventionValues(func: *CodeGen, fn_ty: Type) InnerError!CallWValues {
     const mod = func.bin_file.base.options.module.?;
-    const cc = fn_ty.fnCallingConvention();
-    const param_types = try func.gpa.alloc(Type, fn_ty.fnParamLen());
-    defer func.gpa.free(param_types);
-    fn_ty.fnParamTypes(param_types);
+    const fn_info = mod.typeToFunc(fn_ty).?;
+    const cc = fn_info.cc;
     var result: CallWValues = .{
         .args = &.{},
         .return_value = .none,
@@ -1360,8 +1359,7 @@ fn resolveCallingConventionValues(func: *CodeGen, fn_ty: Type) InnerError!CallWV
 
     // Check if we store the result as a pointer to the stack rather than
     // by value
-    const fn_info = fn_ty.fnInfo();
-    if (firstParamSRet(fn_info.cc, fn_info.return_type, mod)) {
+    if (firstParamSRet(fn_info.cc, fn_info.return_type.toType(), mod)) {
         // the sret arg will be passed as first argument, therefore we
         // set the `return_value` before allocating locals for regular args.
         result.return_value = .{ .local = .{ .value = func.local_index, .references = 1 } };
@@ -1370,8 +1368,8 @@ fn resolveCallingConventionValues(func: *CodeGen, fn_ty: Type) InnerError!CallWV
 
     switch (cc) {
         .Unspecified => {
-            for (param_types) |ty| {
-                if (!ty.hasRuntimeBitsIgnoreComptime(mod)) {
+            for (fn_info.param_types) |ty| {
+                if (!ty.toType().hasRuntimeBitsIgnoreComptime(mod)) {
                     continue;
                 }
 
@@ -1380,8 +1378,8 @@ fn resolveCallingConventionValues(func: *CodeGen, fn_ty: Type) InnerError!CallWV
             }
         },
         .C => {
-            for (param_types) |ty| {
-                const ty_classes = abi.classifyType(ty, mod);
+            for (fn_info.param_types) |ty| {
+                const ty_classes = abi.classifyType(ty.toType(), mod);
                 for (ty_classes) |class| {
                     if (class == .none) continue;
                     try args.append(.{ .local = .{ .value = func.local_index, .references = 1 } });
@@ -2095,11 +2093,11 @@ fn genBody(func: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
 }
 
 fn airRet(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
+    const mod = func.bin_file.base.options.module.?;
     const un_op = func.air.instructions.items(.data)[inst].un_op;
     const operand = try func.resolveInst(un_op);
-    const fn_info = func.decl.ty.fnInfo();
-    const ret_ty = fn_info.return_type;
-    const mod = func.bin_file.base.options.module.?;
+    const fn_info = mod.typeToFunc(func.decl.ty).?;
+    const ret_ty = fn_info.return_type.toType();
 
     // result must be stored in the stack and we return a pointer
     // to the stack instead
@@ -2146,8 +2144,8 @@ fn airRetPtr(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
             break :result try func.allocStack(Type.usize); // create pointer to void
         }
 
-        const fn_info = func.decl.ty.fnInfo();
-        if (firstParamSRet(fn_info.cc, fn_info.return_type, mod)) {
+        const fn_info = mod.typeToFunc(func.decl.ty).?;
+        if (firstParamSRet(fn_info.cc, fn_info.return_type.toType(), mod)) {
             break :result func.return_value;
         }
 
@@ -2163,12 +2161,12 @@ fn airRetLoad(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     const operand = try func.resolveInst(un_op);
     const ret_ty = func.typeOf(un_op).childType(mod);
 
-    const fn_info = func.decl.ty.fnInfo();
+    const fn_info = mod.typeToFunc(func.decl.ty).?;
     if (!ret_ty.hasRuntimeBitsIgnoreComptime(mod)) {
         if (ret_ty.isError(mod)) {
             try func.addImm32(0);
         }
-    } else if (!firstParamSRet(fn_info.cc, fn_info.return_type, mod)) {
+    } else if (!firstParamSRet(fn_info.cc, fn_info.return_type.toType(), mod)) {
         // leave on the stack
         _ = try func.load(operand, ret_ty, 0);
     }
@@ -2191,9 +2189,9 @@ fn airCall(func: *CodeGen, inst: Air.Inst.Index, modifier: std.builtin.CallModif
         .Pointer => ty.childType(mod),
         else => unreachable,
     };
-    const ret_ty = fn_ty.fnReturnType();
-    const fn_info = fn_ty.fnInfo();
-    const first_param_sret = firstParamSRet(fn_info.cc, fn_info.return_type, mod);
+    const ret_ty = fn_ty.fnReturnType(mod);
+    const fn_info = mod.typeToFunc(fn_ty).?;
+    const first_param_sret = firstParamSRet(fn_info.cc, fn_info.return_type.toType(), mod);
 
     const callee: ?Decl.Index = blk: {
         const func_val = (try func.air.value(pl_op.operand, mod)) orelse break :blk null;
@@ -2203,8 +2201,8 @@ fn airCall(func: *CodeGen, inst: Air.Inst.Index, modifier: std.builtin.CallModif
             break :blk function.data.owner_decl;
         } else if (func_val.castTag(.extern_fn)) |extern_fn| {
             const ext_decl = mod.declPtr(extern_fn.data.owner_decl);
-            const ext_info = ext_decl.ty.fnInfo();
-            var func_type = try genFunctype(func.gpa, ext_info.cc, ext_info.param_types, ext_info.return_type, mod);
+            const ext_info = mod.typeToFunc(ext_decl.ty).?;
+            var func_type = try genFunctype(func.gpa, ext_info.cc, ext_info.param_types, ext_info.return_type.toType(), mod);
             defer func_type.deinit(func.gpa);
             const atom_index = try func.bin_file.getOrCreateAtomForDecl(extern_fn.data.owner_decl);
             const atom = func.bin_file.getAtomPtr(atom_index);
@@ -2235,7 +2233,7 @@ fn airCall(func: *CodeGen, inst: Air.Inst.Index, modifier: std.builtin.CallModif
         const arg_ty = func.typeOf(arg);
         if (!arg_ty.hasRuntimeBitsIgnoreComptime(mod)) continue;
 
-        try func.lowerArg(fn_ty.fnInfo().cc, arg_ty, arg_val);
+        try func.lowerArg(mod.typeToFunc(fn_ty).?.cc, arg_ty, arg_val);
     }
 
     if (callee) |direct| {
@@ -2248,7 +2246,7 @@ fn airCall(func: *CodeGen, inst: Air.Inst.Index, modifier: std.builtin.CallModif
         const operand = try func.resolveInst(pl_op.operand);
         try func.emitWValue(operand);
 
-        var fn_type = try genFunctype(func.gpa, fn_info.cc, fn_info.param_types, fn_info.return_type, mod);
+        var fn_type = try genFunctype(func.gpa, fn_info.cc, fn_info.param_types, fn_info.return_type.toType(), mod);
         defer fn_type.deinit(func.gpa);
 
         const fn_type_index = try func.bin_file.putOrGetFuncType(fn_type);
@@ -2264,7 +2262,7 @@ fn airCall(func: *CodeGen, inst: Air.Inst.Index, modifier: std.builtin.CallModif
         } else if (first_param_sret) {
             break :result_value sret;
             // TODO: Make this less fragile and optimize
-        } else if (fn_ty.fnInfo().cc == .C and ret_ty.zigTypeTag(mod) == .Struct or ret_ty.zigTypeTag(mod) == .Union) {
+        } else if (mod.typeToFunc(fn_ty).?.cc == .C and ret_ty.zigTypeTag(mod) == .Struct or ret_ty.zigTypeTag(mod) == .Union) {
             const result_local = try func.allocLocal(ret_ty);
             try func.addLabel(.local_set, result_local.local.value);
             const scalar_type = abi.scalarType(ret_ty, mod);
@@ -2528,7 +2526,7 @@ fn airArg(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     const mod = func.bin_file.base.options.module.?;
     const arg_index = func.arg_index;
     const arg = func.args[arg_index];
-    const cc = func.decl.ty.fnInfo().cc;
+    const cc = mod.typeToFunc(func.decl.ty).?.cc;
     const arg_ty = func.typeOfIndex(inst);
     if (cc == .C) {
         const arg_classes = abi.classifyType(arg_ty, mod);
@@ -2647,9 +2645,9 @@ fn binOpBigInt(func: *CodeGen, lhs: WValue, rhs: WValue, ty: Type, op: Op) Inner
     }
 
     switch (op) {
-        .mul => return func.callIntrinsic("__multi3", &.{ ty, ty }, ty, &.{ lhs, rhs }),
-        .shr => return func.callIntrinsic("__lshrti3", &.{ ty, Type.i32 }, ty, &.{ lhs, rhs }),
-        .shl => return func.callIntrinsic("__ashlti3", &.{ ty, Type.i32 }, ty, &.{ lhs, rhs }),
+        .mul => return func.callIntrinsic("__multi3", &.{ ty.toIntern(), ty.toIntern() }, ty, &.{ lhs, rhs }),
+        .shr => return func.callIntrinsic("__lshrti3", &.{ ty.toIntern(), .i32_type }, ty, &.{ lhs, rhs }),
+        .shl => return func.callIntrinsic("__ashlti3", &.{ ty.toIntern(), .i32_type }, ty, &.{ lhs, rhs }),
         .xor => {
             const result = try func.allocStack(ty);
             try func.emitWValue(result);
@@ -2839,7 +2837,7 @@ fn floatOp(func: *CodeGen, float_op: FloatOp, ty: Type, args: []const WValue) In
     };
 
     // fma requires three operands
-    var param_types_buffer: [3]Type = .{ ty, ty, ty };
+    var param_types_buffer: [3]InternPool.Index = .{ ty.ip_index, ty.ip_index, ty.ip_index };
     const param_types = param_types_buffer[0..args.len];
     return func.callIntrinsic(fn_name, param_types, ty, args);
 }
@@ -5298,7 +5296,7 @@ fn fpext(func: *CodeGen, operand: WValue, given: Type, wanted: Type) InnerError!
         // call __extendhfsf2(f16) f32
         const f32_result = try func.callIntrinsic(
             "__extendhfsf2",
-            &.{Type.f16},
+            &.{.f16_type},
             Type.f32,
             &.{operand},
         );
@@ -5316,7 +5314,7 @@ fn fpext(func: *CodeGen, operand: WValue, given: Type, wanted: Type) InnerError!
         target_util.compilerRtFloatAbbrev(wanted_bits),
     }) catch unreachable;
 
-    return func.callIntrinsic(fn_name, &.{given}, wanted, &.{operand});
+    return func.callIntrinsic(fn_name, &.{given.ip_index}, wanted, &.{operand});
 }
 
 fn airFptrunc(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
@@ -5347,7 +5345,7 @@ fn fptrunc(func: *CodeGen, operand: WValue, given: Type, wanted: Type) InnerErro
         } else operand;
 
         // call __truncsfhf2(f32) f16
-        return func.callIntrinsic("__truncsfhf2", &.{Type.f32}, Type.f16, &.{op});
+        return func.callIntrinsic("__truncsfhf2", &.{.f32_type}, Type.f16, &.{op});
     }
 
     var fn_name_buf: [12]u8 = undefined;
@@ -5356,7 +5354,7 @@ fn fptrunc(func: *CodeGen, operand: WValue, given: Type, wanted: Type) InnerErro
         target_util.compilerRtFloatAbbrev(wanted_bits),
     }) catch unreachable;
 
-    return func.callIntrinsic(fn_name, &.{given}, wanted, &.{operand});
+    return func.callIntrinsic(fn_name, &.{given.ip_index}, wanted, &.{operand});
 }
 
 fn airErrUnionPayloadPtrSet(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
@@ -5842,7 +5840,7 @@ fn airMulWithOverflow(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
 
         const bin_op = try func.callIntrinsic(
             "__multi3",
-            &[_]Type{Type.i64} ** 4,
+            &[_]InternPool.Index{.i64_type} ** 4,
             Type.i128,
             &.{ lhs, lhs_shifted, rhs, rhs_shifted },
         );
@@ -5866,19 +5864,19 @@ fn airMulWithOverflow(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
 
         const mul1 = try func.callIntrinsic(
             "__multi3",
-            &[_]Type{Type.i64} ** 4,
+            &[_]InternPool.Index{.i64_type} ** 4,
             Type.i128,
             &.{ lhs_lsb, zero, rhs_msb, zero },
         );
         const mul2 = try func.callIntrinsic(
             "__multi3",
-            &[_]Type{Type.i64} ** 4,
+            &[_]InternPool.Index{.i64_type} ** 4,
             Type.i128,
             &.{ rhs_lsb, zero, lhs_msb, zero },
         );
         const mul3 = try func.callIntrinsic(
             "__multi3",
-            &[_]Type{Type.i64} ** 4,
+            &[_]InternPool.Index{.i64_type} ** 4,
             Type.i128,
             &.{ lhs_msb, zero, rhs_msb, zero },
         );
@@ -5977,7 +5975,7 @@ fn airMulAdd(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         // call to compiler-rt `fn fmaf(f32, f32, f32) f32`
         var result = try func.callIntrinsic(
             "fmaf",
-            &.{ Type.f32, Type.f32, Type.f32 },
+            &.{ .f32_type, .f32_type, .f32_type },
             Type.f32,
             &.{ rhs_ext, lhs_ext, addend_ext },
         );
@@ -6707,7 +6705,7 @@ fn airShlSat(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
 fn callIntrinsic(
     func: *CodeGen,
     name: []const u8,
-    param_types: []const Type,
+    param_types: []const InternPool.Index,
     return_type: Type,
     args: []const WValue,
 ) InnerError!WValue {
@@ -6735,8 +6733,8 @@ fn callIntrinsic(
     // Lower all arguments to the stack before we call our function
     for (args, 0..) |arg, arg_i| {
         assert(!(want_sret_param and arg == .stack));
-        assert(param_types[arg_i].hasRuntimeBitsIgnoreComptime(mod));
-        try func.lowerArg(.C, param_types[arg_i], arg);
+        assert(param_types[arg_i].toType().hasRuntimeBitsIgnoreComptime(mod));
+        try func.lowerArg(.C, param_types[arg_i].toType(), arg);
     }
 
     // Actually call our intrinsic
@@ -6938,7 +6936,7 @@ fn getTagNameFunction(func: *CodeGen, enum_ty: Type) InnerError!u32 {
     try writer.writeByte(std.wasm.opcode(.end));
 
     const slice_ty = Type.const_slice_u8_sentinel_0;
-    const func_type = try genFunctype(arena, .Unspecified, &.{int_tag_ty}, slice_ty, mod);
+    const func_type = try genFunctype(arena, .Unspecified, &.{int_tag_ty.ip_index}, slice_ty, mod);
     return func.bin_file.createFunction(func_name, func_type, &body_list, &relocs);
 }
 

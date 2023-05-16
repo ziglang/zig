@@ -363,7 +363,8 @@ pub fn generate(
 }
 
 fn gen(self: *Self) !void {
-    const cc = self.fn_type.fnCallingConvention();
+    const mod = self.bin_file.options.module.?;
+    const cc = self.fn_type.fnCallingConvention(mod);
     if (cc != .Naked) {
         // TODO Finish function prologue and epilogue for sparc64.
 
@@ -4458,12 +4459,11 @@ fn realStackOffset(off: u32) u32 {
 
 /// Caller must call `CallMCValues.deinit`.
 fn resolveCallingConventionValues(self: *Self, fn_ty: Type, role: RegisterView) !CallMCValues {
-    const cc = fn_ty.fnCallingConvention();
-    const param_types = try self.gpa.alloc(Type, fn_ty.fnParamLen());
-    defer self.gpa.free(param_types);
-    fn_ty.fnParamTypes(param_types);
+    const mod = self.bin_file.options.module.?;
+    const fn_info = mod.typeToFunc(fn_ty).?;
+    const cc = fn_info.cc;
     var result: CallMCValues = .{
-        .args = try self.gpa.alloc(MCValue, param_types.len),
+        .args = try self.gpa.alloc(MCValue, fn_info.param_types.len),
         // These undefined values must be populated before returning from this function.
         .return_value = undefined,
         .stack_byte_count = undefined,
@@ -4471,8 +4471,7 @@ fn resolveCallingConventionValues(self: *Self, fn_ty: Type, role: RegisterView) 
     };
     errdefer self.gpa.free(result.args);
 
-    const ret_ty = fn_ty.fnReturnType();
-    const mod = self.bin_file.options.module.?;
+    const ret_ty = fn_ty.fnReturnType(mod);
 
     switch (cc) {
         .Naked => {
@@ -4495,8 +4494,8 @@ fn resolveCallingConventionValues(self: *Self, fn_ty: Type, role: RegisterView) 
                 .callee => abi.c_abi_int_param_regs_callee_view,
             };
 
-            for (param_types, 0..) |ty, i| {
-                const param_size = @intCast(u32, ty.abiSize(mod));
+            for (fn_info.param_types, 0..) |ty, i| {
+                const param_size = @intCast(u32, ty.toType().abiSize(mod));
                 if (param_size <= 8) {
                     if (next_register < argument_registers.len) {
                         result.args[i] = .{ .register = argument_registers[next_register] };
@@ -4580,7 +4579,8 @@ fn resolveInst(self: *Self, ref: Air.Inst.Ref) InnerError!MCValue {
 }
 
 fn ret(self: *Self, mcv: MCValue) !void {
-    const ret_ty = self.fn_type.fnReturnType();
+    const mod = self.bin_file.options.module.?;
+    const ret_ty = self.fn_type.fnReturnType(mod);
     try self.setRegOrMem(ret_ty, self.ret_mcv, mcv);
 
     // Just add space for a branch instruction, patch this later

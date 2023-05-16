@@ -649,3 +649,14 @@ pub fn compilerRtIntAbbrev(bits: u16) []const u8 {
         else => "o", // Non-standard
     };
 }
+
+pub fn fnCallConvAllowsZigTypes(target: std.Target, cc: std.builtin.CallingConvention) bool {
+    return switch (cc) {
+        .Unspecified, .Async, .Inline => true,
+        // For now we want to authorize PTX kernel to use zig objects, even if
+        // we end up exposing the ABI. The goal is to experiment with more
+        // integrated CPU/GPU code.
+        .Kernel => target.cpu.arch == .nvptx or target.cpu.arch == .nvptx64,
+        else => false,
+    };
+}
