@@ -4957,9 +4957,6 @@ pub fn importFile(
     if (!mem.endsWith(u8, import_string, ".zig")) {
         return error.PackageNotFound;
     }
-    if (std.fs.path.isAbsolute(import_string)) {
-        return error.ImportAbsolutePath;
-    }
     const gpa = mod.gpa;
 
     // The resolved path is used as the key in the import table, to detect if
@@ -4992,10 +4989,13 @@ pub fn importFile(
             break :p try gpa.dupe(u8, resolved_path[resolved_root_path.len + 1 ..]);
         }
         if (mem.eql(u8, resolved_root_path, ".") and
-            !isUpDir(resolved_path) and
-            !std.fs.path.isAbsolute(resolved_path))
+            !isUpDir(resolved_path))
         {
-            break :p try gpa.dupe(u8, resolved_path);
+            if (std.fs.path.isAbsolute(resolved_path)) {
+                return error.ImportAbsolutePath;
+            } else {
+                break :p try gpa.dupe(u8, resolved_path);
+            }
         }
         return error.ImportOutsidePkgPath;
     };
