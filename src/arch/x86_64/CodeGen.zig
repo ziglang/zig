@@ -8171,24 +8171,105 @@ fn airCmp(self: *Self, inst: Air.Inst.Index, op: math.CompareOperator) !void {
     const result = MCValue{
         .eflags = switch (ty.zigTypeTag()) {
             else => result: {
-                var flipped = false;
-                const dst_mcv: MCValue = if (lhs_mcv.isRegister() or lhs_mcv.isMemory())
-                    lhs_mcv
-                else if (rhs_mcv.isRegister() or rhs_mcv.isMemory()) dst: {
-                    flipped = true;
-                    break :dst rhs_mcv;
-                } else .{ .register = try self.copyToTmpRegister(ty, lhs_mcv) };
-                const dst_lock = switch (dst_mcv) {
-                    .register => |reg| self.register_manager.lockReg(reg),
-                    else => null,
-                };
-                defer if (dst_lock) |lock| self.register_manager.unlockReg(lock);
-                const src_mcv = if (flipped) lhs_mcv else rhs_mcv;
+                const abi_size = @intCast(u16, ty.abiSize(self.target.*));
+                const may_flip: enum {
+                    may_flip,
+                    must_flip,
+                    must_not_flip,
+                } = if (abi_size > 8) switch (op) {
+                    .lt, .gte => .must_not_flip,
+                    .lte, .gt => .must_flip,
+                    .eq, .neq => .may_flip,
+                } else .may_flip;
 
-                try self.genBinOpMir(.{ ._, .cmp }, ty, dst_mcv, src_mcv);
+                const flipped = switch (may_flip) {
+                    .may_flip => !lhs_mcv.isRegister() and !lhs_mcv.isMemory(),
+                    .must_flip => true,
+                    .must_not_flip => false,
+                };
+                const unmat_dst_mcv = if (flipped) rhs_mcv else lhs_mcv;
+                const dst_mcv = if (unmat_dst_mcv.isRegister() or
+                    (abi_size <= 8 and unmat_dst_mcv.isMemory())) unmat_dst_mcv else dst: {
+                    const dst_mcv = try self.allocTempRegOrMem(ty, true);
+                    try self.genCopy(ty, dst_mcv, unmat_dst_mcv);
+                    break :dst dst_mcv;
+                };
+                const dst_lock =
+                    if (dst_mcv.getReg()) |reg| self.register_manager.lockReg(reg) else null;
+                defer if (dst_lock) |lock| self.register_manager.unlockReg(lock);
+
+                const src_mcv = if (flipped) lhs_mcv else rhs_mcv;
+                const src_lock =
+                    if (src_mcv.getReg()) |reg| self.register_manager.lockReg(reg) else null;
+                defer if (src_lock) |lock| self.register_manager.unlockReg(lock);
+
                 break :result Condition.fromCompareOperator(
                     if (ty.isAbiInt()) ty.intInfo(self.target.*).signedness else .unsigned,
-                    if (flipped) op.reverse() else op,
+                    result_op: {
+                        const flipped_op = if (flipped) op.reverse() else op;
+                        if (abi_size > 8) switch (flipped_op) {
+                            .lt, .gte => {},
+                            .lte, .gt => unreachable,
+                            .eq, .neq => {
+                                const dst_addr_mcv: MCValue = switch (dst_mcv) {
+                                    .memory, .indirect, .load_frame => dst_mcv.address(),
+                                    else => .{ .register = try self.copyToTmpRegister(
+                                        Type.usize,
+                                        dst_mcv.address(),
+                                    ) },
+                                };
+                                const dst_addr_lock = if (dst_addr_mcv.getReg()) |reg|
+                                    self.register_manager.lockReg(reg)
+                                else
+                                    null;
+                                defer if (dst_addr_lock) |lock| self.register_manager.unlockReg(lock);
+
+                                const src_addr_mcv: MCValue = switch (src_mcv) {
+                                    .memory, .indirect, .load_frame => src_mcv.address(),
+                                    else => .{ .register = try self.copyToTmpRegister(
+                                        Type.usize,
+                                        src_mcv.address(),
+                                    ) },
+                                };
+                                const src_addr_lock = if (src_addr_mcv.getReg()) |reg|
+                                    self.register_manager.lockReg(reg)
+                                else
+                                    null;
+                                defer if (src_addr_lock) |lock| self.register_manager.unlockReg(lock);
+
+                                const regs = try self.register_manager.allocRegs(2, .{ null, null }, gp);
+                                const acc_reg = regs[0].to64();
+                                const locks = self.register_manager.lockRegsAssumeUnused(2, regs);
+                                defer for (locks) |lock| self.register_manager.unlockReg(lock);
+
+                                const limbs_len = std.math.divCeil(u16, abi_size, 8) catch unreachable;
+                                var limb_i: u16 = 0;
+                                while (limb_i < limbs_len) : (limb_i += 1) {
+                                    const tmp_reg = regs[@min(limb_i, 1)].to64();
+                                    try self.genSetReg(
+                                        tmp_reg,
+                                        Type.usize,
+                                        dst_addr_mcv.offset(limb_i * 8).deref(),
+                                    );
+                                    try self.genBinOpMir(
+                                        .{ ._, .xor },
+                                        Type.usize,
+                                        .{ .register = tmp_reg },
+                                        src_addr_mcv.offset(limb_i * 8).deref(),
+                                    );
+                                    if (limb_i > 0) try self.asmRegisterRegister(
+                                        .{ ._, .@"or" },
+                                        acc_reg,
+                                        tmp_reg,
+                                    );
+                                }
+                                try self.asmRegisterRegister(.{ ._, .@"test" }, acc_reg, acc_reg);
+                                break :result_op flipped_op;
+                            },
+                        };
+                        try self.genBinOpMir(.{ ._, .cmp }, ty, dst_mcv, src_mcv);
+                        break :result_op flipped_op;
+                    },
                 );
             },
             .Float => result: {
@@ -10006,7 +10087,7 @@ fn airBitCast(self: *Self, inst: Air.Inst.Index) !void {
             if (src_ty.isAbiInt()) src_ty.intInfo(self.target.*).signedness else .unsigned;
         const abi_size = @intCast(u16, dst_ty.abiSize(self.target.*));
         const bit_size = @intCast(u16, dst_ty.bitSize(self.target.*));
-        const dst_limbs_len = std.math.divCeil(u16, bit_size, 64) catch unreachable;
+        const dst_limbs_len = math.divCeil(u16, bit_size, 64) catch unreachable;
         if (dst_signedness != src_signedness and abi_size * 8 > bit_size) {
             const high_reg = if (dst_mcv.isRegister())
                 dst_mcv.getReg().?
@@ -10071,7 +10152,7 @@ fn airIntToFloat(self: *Self, inst: Air.Inst.Index) !void {
         if (src_ty.isAbiInt()) src_ty.intInfo(self.target.*).signedness else .unsigned;
     const dst_ty = self.air.typeOfIndex(inst);
 
-    const src_size = std.math.divCeil(u32, @max(switch (src_signedness) {
+    const src_size = math.divCeil(u32, @max(switch (src_signedness) {
         .signed => src_bits,
         .unsigned => src_bits + 1,
     }, 32), 8) catch unreachable;
@@ -10124,7 +10205,7 @@ fn airFloatToInt(self: *Self, inst: Air.Inst.Index) !void {
     const dst_signedness =
         if (dst_ty.isAbiInt()) dst_ty.intInfo(self.target.*).signedness else .unsigned;
 
-    const dst_size = std.math.divCeil(u32, @max(switch (dst_signedness) {
+    const dst_size = math.divCeil(u32, @max(switch (dst_signedness) {
         .signed => dst_bits,
         .unsigned => dst_bits + 1,
     }, 32), 8) catch unreachable;
