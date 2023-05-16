@@ -57,8 +57,18 @@ const csprngs = [_]Rng{
         .init_u8s = &[_]u8{0} ** 32,
     },
     Rng{
-        .ty = rand.ChaCha,
-        .name = "chacha",
+        .ty = rand.chacha.Csprng(std.crypto.stream.chacha.ChaCha8IETF, .{}),
+        .name = "chacha8",
+        .init_u8s = &[_]u8{0} ** 32,
+    },
+    Rng{
+        .ty = rand.chacha.Csprng(std.crypto.stream.chacha.ChaCha12IETF, .{}),
+        .name = "chacha12",
+        .init_u8s = &[_]u8{0} ** 32,
+    },
+    Rng{
+        .ty = rand.chacha.Csprng(std.crypto.stream.chacha.ChaCha20IETF, .{}),
+        .name = "chacha20",
         .init_u8s = &[_]u8{0} ** 32,
     },
 };

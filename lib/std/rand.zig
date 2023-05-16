@@ -21,7 +21,9 @@ pub const DefaultPrng = Xoshiro256;
 pub const DefaultCsprng = ChaCha;
 
 pub const Ascon = @import("rand/Ascon.zig");
-pub const ChaCha = @import("rand/ChaCha.zig");
+
+pub const chacha = @import("rand/chacha.zig");
+pub const ChaCha = chacha.Csprng(std.crypto.stream.chacha.ChaCha8IETF, .{});
 
 pub const Isaac64 = @import("rand/Isaac64.zig");
 pub const Pcg = @import("rand/Pcg.zig");
