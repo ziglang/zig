@@ -30419,6 +30419,15 @@ fn resolvePeerTypes(
 
                         seen_const = seen_const or !chosen_info.mutable or !cand_info.mutable;
 
+                        // [:s]const T and []T to []const T
+                        if (cand_info.size == .Slice and chosen_info.size == .Slice and
+                            cand_info.mutable != chosen_info.mutable and
+                            (cand_info.sentinel == null) != (chosen_info.sentinel == null)) {
+                            // Resolve to whichever type doesn't have a sentinel.
+                            if (cand_info.sentinel == null) chosen = candidate;
+                            continue;
+                        }
+
                         // *[N]T to [*]T
                         // *[N]T to []T
                         if ((cand_info.size == .Many or cand_info.size == .Slice) and
