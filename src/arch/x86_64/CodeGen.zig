@@ -1271,6 +1271,27 @@ fn asmRegisterRegisterRegister(
     });
 }
 
+fn asmRegisterRegisterRegisterRegister(
+    self: *Self,
+    tag: Mir.Inst.FixedTag,
+    reg1: Register,
+    reg2: Register,
+    reg3: Register,
+    reg4: Register,
+) !void {
+    _ = try self.addInst(.{
+        .tag = tag[1],
+        .ops = .rrrr,
+        .data = .{ .rrrr = .{
+            .fixes = tag[0],
+            .r1 = reg1,
+            .r2 = reg2,
+            .r3 = reg3,
+            .r4 = reg4,
+        } },
+    });
+}
+
 fn asmRegisterRegisterRegisterImmediate(
     self: *Self,
     tag: Mir.Inst.FixedTag,
@@ -6224,12 +6245,26 @@ fn genBinOp(
     lhs_air: Air.Inst.Ref,
     rhs_air: Air.Inst.Ref,
 ) !MCValue {
-    const lhs_mcv = try self.resolveInst(lhs_air);
-    const rhs_mcv = try self.resolveInst(rhs_air);
     const lhs_ty = self.air.typeOf(lhs_air);
     const rhs_ty = self.air.typeOf(rhs_air);
     const abi_size = @intCast(u32, lhs_ty.abiSize(self.target.*));
 
+    const maybe_mask_reg = switch (air_tag) {
+        else => null,
+        .max, .min => if (lhs_ty.scalarType().isRuntimeFloat()) registerAlias(
+            if (!self.hasFeature(.avx) and self.hasFeature(.sse4_1)) mask: {
+                try self.register_manager.getReg(.xmm0, null);
+                break :mask .xmm0;
+            } else try self.register_manager.allocReg(null, sse),
+            abi_size,
+        ) else null,
+    };
+    const mask_lock =
+        if (maybe_mask_reg) |mask_reg| self.register_manager.lockRegAssumeUnused(mask_reg) else null;
+    defer if (mask_lock) |lock| self.register_manager.unlockReg(lock);
+
+    const lhs_mcv = try self.resolveInst(lhs_air);
+    const rhs_mcv = try self.resolveInst(rhs_air);
     switch (lhs_mcv) {
         .immediate => |imm| switch (imm) {
             0 => switch (air_tag) {
@@ -6300,7 +6335,16 @@ fn genBinOp(
     };
     defer if (dst_lock) |lock| self.register_manager.unlockReg(lock);
 
-    const src_mcv = if (flipped) lhs_mcv else rhs_mcv;
+    const unmat_src_mcv = if (flipped) lhs_mcv else rhs_mcv;
+    const src_mcv: MCValue = if (maybe_mask_reg) |mask_reg|
+        if (self.hasFeature(.avx) and unmat_src_mcv.isRegister() and maybe_inst != null and
+            self.liveness.operandDies(maybe_inst.?, if (flipped) 0 else 1)) unmat_src_mcv else src: {
+            try self.genSetReg(mask_reg, rhs_ty, unmat_src_mcv);
+            break :src .{ .register = mask_reg };
+        }
+    else
+        unmat_src_mcv;
+
     if (!vec_op) {
         switch (air_tag) {
             .add,
@@ -7009,18 +7053,26 @@ fn genBinOp(
     })) |tag| tag else return self.fail("TODO implement genBinOp for {s} {}", .{
         @tagName(air_tag), lhs_ty.fmt(self.bin_file.options.module.?),
     });
+
+    const lhs_copy_reg = if (maybe_mask_reg) |_| registerAlias(
+        if (copied_to_dst) try self.copyToTmpRegister(lhs_ty, dst_mcv) else lhs_mcv.getReg().?,
+        abi_size,
+    ) else null;
+    const lhs_copy_lock = if (lhs_copy_reg) |reg| self.register_manager.lockReg(reg) else null;
+    defer if (lhs_copy_lock) |lock| self.register_manager.unlockReg(lock);
+
     if (self.hasFeature(.avx)) {
-        const src1_alias =
+        const lhs_reg =
             if (copied_to_dst) dst_reg else registerAlias(lhs_mcv.getReg().?, abi_size);
         if (src_mcv.isMemory()) try self.asmRegisterRegisterMemory(
             mir_tag,
             dst_reg,
-            src1_alias,
+            lhs_reg,
             src_mcv.mem(Memory.PtrSize.fromSize(abi_size)),
         ) else try self.asmRegisterRegisterRegister(
             mir_tag,
             dst_reg,
-            src1_alias,
+            lhs_reg,
             registerAlias(if (src_mcv.isRegister())
                 src_mcv.getReg().?
             else
@@ -7041,9 +7093,10 @@ fn genBinOp(
                 try self.copyToTmpRegister(rhs_ty, src_mcv), abi_size),
         );
     }
+
     switch (air_tag) {
         .add, .addwrap, .sub, .subwrap, .mul, .mulwrap, .div_float, .div_exact => {},
-        .div_trunc, .div_floor => try self.genRound(
+        .div_trunc, .div_floor => if (self.hasFeature(.sse4_1)) try self.genRound(
             lhs_ty,
             dst_reg,
             .{ .register = dst_reg },
@@ -7052,11 +7105,240 @@ fn genBinOp(
                 .div_floor => 0b1_0_01,
                 else => unreachable,
             },
-        ),
+        ) else return self.fail("TODO implement genBinOp for {s} {} without sse4_1 feature", .{
+            @tagName(air_tag), lhs_ty.fmt(self.bin_file.options.module.?),
+        }),
         .bit_and, .bit_or, .xor => {},
-        .max, .min => {}, // TODO: unordered select
+        .max, .min => if (maybe_mask_reg) |mask_reg| if (self.hasFeature(.avx)) {
+            const rhs_copy_reg = registerAlias(src_mcv.getReg().?, abi_size);
+
+            try self.asmRegisterRegisterRegisterImmediate(
+                if (@as(?Mir.Inst.FixedTag, switch (lhs_ty.zigTypeTag()) {
+                    .Float => switch (lhs_ty.floatBits(self.target.*)) {
+                        32 => .{ .v_ss, .cmp },
+                        64 => .{ .v_sd, .cmp },
+                        16, 80, 128 => null,
+                        else => unreachable,
+                    },
+                    .Vector => switch (lhs_ty.childType().zigTypeTag()) {
+                        .Float => switch (lhs_ty.childType().floatBits(self.target.*)) {
+                            32 => switch (lhs_ty.vectorLen()) {
+                                1 => .{ .v_ss, .cmp },
+                                2...8 => .{ .v_ps, .cmp },
+                                else => null,
+                            },
+                            64 => switch (lhs_ty.vectorLen()) {
+                                1 => .{ .v_sd, .cmp },
+                                2...4 => .{ .v_pd, .cmp },
+                                else => null,
+                            },
+                            16, 80, 128 => null,
+                            else => unreachable,
+                        },
+                        else => unreachable,
+                    },
+                    else => unreachable,
+                })) |tag| tag else return self.fail("TODO implement genBinOp for {s} {}", .{
+                    @tagName(air_tag), lhs_ty.fmt(self.bin_file.options.module.?),
+                }),
+                mask_reg,
+                rhs_copy_reg,
+                rhs_copy_reg,
+                Immediate.u(3), // unord
+            );
+            try self.asmRegisterRegisterRegisterRegister(
+                if (@as(?Mir.Inst.FixedTag, switch (lhs_ty.zigTypeTag()) {
+                    .Float => switch (lhs_ty.floatBits(self.target.*)) {
+                        32 => .{ .v_ps, .blendv },
+                        64 => .{ .v_pd, .blendv },
+                        16, 80, 128 => null,
+                        else => unreachable,
+                    },
+                    .Vector => switch (lhs_ty.childType().zigTypeTag()) {
+                        .Float => switch (lhs_ty.childType().floatBits(self.target.*)) {
+                            32 => switch (lhs_ty.vectorLen()) {
+                                1...8 => .{ .v_ps, .blendv },
+                                else => null,
+                            },
+                            64 => switch (lhs_ty.vectorLen()) {
+                                1...4 => .{ .v_pd, .blendv },
+                                else => null,
+                            },
+                            16, 80, 128 => null,
+                            else => unreachable,
+                        },
+                        else => unreachable,
+                    },
+                    else => unreachable,
+                })) |tag| tag else return self.fail("TODO implement genBinOp for {s} {}", .{
+                    @tagName(air_tag), lhs_ty.fmt(self.bin_file.options.module.?),
+                }),
+                dst_reg,
+                dst_reg,
+                lhs_copy_reg.?,
+                mask_reg,
+            );
+        } else {
+            const has_blend = self.hasFeature(.sse4_1);
+            try self.asmRegisterRegisterImmediate(
+                if (@as(?Mir.Inst.FixedTag, switch (lhs_ty.zigTypeTag()) {
+                    .Float => switch (lhs_ty.floatBits(self.target.*)) {
+                        32 => .{ ._ss, .cmp },
+                        64 => .{ ._sd, .cmp },
+                        16, 80, 128 => null,
+                        else => unreachable,
+                    },
+                    .Vector => switch (lhs_ty.childType().zigTypeTag()) {
+                        .Float => switch (lhs_ty.childType().floatBits(self.target.*)) {
+                            32 => switch (lhs_ty.vectorLen()) {
+                                1 => .{ ._ss, .cmp },
+                                2...4 => .{ ._ps, .cmp },
+                                else => null,
+                            },
+                            64 => switch (lhs_ty.vectorLen()) {
+                                1 => .{ ._sd, .cmp },
+                                2 => .{ ._pd, .cmp },
+                                else => null,
+                            },
+                            16, 80, 128 => null,
+                            else => unreachable,
+                        },
+                        else => unreachable,
+                    },
+                    else => unreachable,
+                })) |tag| tag else return self.fail("TODO implement genBinOp for {s} {}", .{
+                    @tagName(air_tag), lhs_ty.fmt(self.bin_file.options.module.?),
+                }),
+                mask_reg,
+                mask_reg,
+                Immediate.u(if (has_blend) 3 else 7), // unord, ord
+            );
+            if (has_blend) try self.asmRegisterRegisterRegister(
+                if (@as(?Mir.Inst.FixedTag, switch (lhs_ty.zigTypeTag()) {
+                    .Float => switch (lhs_ty.floatBits(self.target.*)) {
+                        32 => .{ ._ps, .blendv },
+                        64 => .{ ._pd, .blendv },
+                        16, 80, 128 => null,
+                        else => unreachable,
+                    },
+                    .Vector => switch (lhs_ty.childType().zigTypeTag()) {
+                        .Float => switch (lhs_ty.childType().floatBits(self.target.*)) {
+                            32 => switch (lhs_ty.vectorLen()) {
+                                1...4 => .{ ._ps, .blendv },
+                                else => null,
+                            },
+                            64 => switch (lhs_ty.vectorLen()) {
+                                1...2 => .{ ._pd, .blendv },
+                                else => null,
+                            },
+                            16, 80, 128 => null,
+                            else => unreachable,
+                        },
+                        else => unreachable,
+                    },
+                    else => unreachable,
+                })) |tag| tag else return self.fail("TODO implement genBinOp for {s} {}", .{
+                    @tagName(air_tag), lhs_ty.fmt(self.bin_file.options.module.?),
+                }),
+                dst_reg,
+                lhs_copy_reg.?,
+                mask_reg,
+            ) else {
+                try self.asmRegisterRegister(
+                    if (@as(?Mir.Inst.FixedTag, switch (lhs_ty.zigTypeTag()) {
+                        .Float => switch (lhs_ty.floatBits(self.target.*)) {
+                            32 => .{ ._ps, .@"and" },
+                            64 => .{ ._pd, .@"and" },
+                            16, 80, 128 => null,
+                            else => unreachable,
+                        },
+                        .Vector => switch (lhs_ty.childType().zigTypeTag()) {
+                            .Float => switch (lhs_ty.childType().floatBits(self.target.*)) {
+                                32 => switch (lhs_ty.vectorLen()) {
+                                    1...4 => .{ ._ps, .@"and" },
+                                    else => null,
+                                },
+                                64 => switch (lhs_ty.vectorLen()) {
+                                    1...2 => .{ ._pd, .@"and" },
+                                    else => null,
+                                },
+                                16, 80, 128 => null,
+                                else => unreachable,
+                            },
+                            else => unreachable,
+                        },
+                        else => unreachable,
+                    })) |tag| tag else return self.fail("TODO implement genBinOp for {s} {}", .{
+                        @tagName(air_tag), lhs_ty.fmt(self.bin_file.options.module.?),
+                    }),
+                    dst_reg,
+                    mask_reg,
+                );
+                try self.asmRegisterRegister(
+                    if (@as(?Mir.Inst.FixedTag, switch (lhs_ty.zigTypeTag()) {
+                        .Float => switch (lhs_ty.floatBits(self.target.*)) {
+                            32 => .{ ._ps, .andn },
+                            64 => .{ ._pd, .andn },
+                            16, 80, 128 => null,
+                            else => unreachable,
+                        },
+                        .Vector => switch (lhs_ty.childType().zigTypeTag()) {
+                            .Float => switch (lhs_ty.childType().floatBits(self.target.*)) {
+                                32 => switch (lhs_ty.vectorLen()) {
+                                    1...4 => .{ ._ps, .andn },
+                                    else => null,
+                                },
+                                64 => switch (lhs_ty.vectorLen()) {
+                                    1...2 => .{ ._pd, .andn },
+                                    else => null,
+                                },
+                                16, 80, 128 => null,
+                                else => unreachable,
+                            },
+                            else => unreachable,
+                        },
+                        else => unreachable,
+                    })) |tag| tag else return self.fail("TODO implement genBinOp for {s} {}", .{
+                        @tagName(air_tag), lhs_ty.fmt(self.bin_file.options.module.?),
+                    }),
+                    mask_reg,
+                    lhs_copy_reg.?,
+                );
+                try self.asmRegisterRegister(
+                    if (@as(?Mir.Inst.FixedTag, switch (lhs_ty.zigTypeTag()) {
+                        .Float => switch (lhs_ty.floatBits(self.target.*)) {
+                            32 => .{ ._ps, .@"or" },
+                            64 => .{ ._pd, .@"or" },
+                            16, 80, 128 => null,
+                            else => unreachable,
+                        },
+                        .Vector => switch (lhs_ty.childType().zigTypeTag()) {
+                            .Float => switch (lhs_ty.childType().floatBits(self.target.*)) {
+                                32 => switch (lhs_ty.vectorLen()) {
+                                    1...4 => .{ ._ps, .@"or" },
+                                    else => null,
+                                },
+                                64 => switch (lhs_ty.vectorLen()) {
+                                    1...2 => .{ ._pd, .@"or" },
+                                    else => null,
+                                },
+                                16, 80, 128 => null,
+                                else => unreachable,
+                            },
+                            else => unreachable,
+                        },
+                        else => unreachable,
+                    })) |tag| tag else return self.fail("TODO implement genBinOp for {s} {}", .{
+                        @tagName(air_tag), lhs_ty.fmt(self.bin_file.options.module.?),
+                    }),
+                    dst_reg,
+                    mask_reg,
+                );
+            }
+        },
         else => unreachable,
     }
+
     return dst_mcv;
 }
 
@@ -9282,7 +9564,7 @@ fn genSetReg(self: *Self, dst_reg: Register, ty: Type, src_mcv: MCValue) InnerEr
                             17...32 => if (self.hasFeature(.avx)) .{ .v_, .movdqa } else null,
                             else => null,
                         },
-                        .Float => switch (ty.floatBits(self.target.*)) {
+                        .Float => switch (ty.scalarType().floatBits(self.target.*)) {
                             16, 128 => switch (abi_size) {
                                 2...4 => if (self.hasFeature(.avx)) .{ .v_d, .mov } else .{ ._d, .mov },
                                 5...8 => if (self.hasFeature(.avx)) .{ .v_q, .mov } else .{ ._q, .mov },
