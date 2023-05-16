@@ -23636,7 +23636,7 @@ fn panicIndexOutOfBounds(
     try sema.safetyCheckFormatted(parent_block, ok, "panicOutOfBounds", &.{ index, len });
 }
 
-fn panicStartLargerThanEnd(
+fn panicStartGreaterThanEnd(
     sema: *Sema,
     parent_block: *Block,
     start: Air.Inst.Ref,
@@ -29490,8 +29490,10 @@ fn analyzeSlice(
     const slice_sentinel = if (sentinel_opt != .none) sentinel else null;
 
     // requirement: start <= end
+    var need_start_gt_end_check = true;
     if (try sema.resolveDefinedValue(block, end_src, end)) |end_val| {
         if (try sema.resolveDefinedValue(block, start_src, start)) |start_val| {
+            need_start_gt_end_check = false;
             if (!by_length and !(try sema.compareAll(start_val, .lte, end_val, Type.usize))) {
                 return sema.fail(
                     block,
@@ -29545,9 +29547,9 @@ fn analyzeSlice(
         }
     }
 
-    if (!by_length and block.wantSafety() and !block.is_comptime) {
+    if (!by_length and block.wantSafety() and !block.is_comptime and need_start_gt_end_check) {
         // requirement: start <= end
-        try sema.panicStartLargerThanEnd(block, start, end);
+        try sema.panicStartGreaterThanEnd(block, start, end);
     }
     const new_len = if (by_length)
         try sema.coerce(block, Type.usize, uncasted_end_opt, end_src)
