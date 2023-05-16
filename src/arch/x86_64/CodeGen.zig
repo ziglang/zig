@@ -3250,34 +3250,7 @@ fn airMulWithOverflow(self: *Self, inst: Air.Inst.Index) !void {
                 self.regExtraBits(dst_ty)
             else
                 dst_info.bits % 64;
-            const partial_mcv = if (dst_info.signedness == .signed and extra_bits > 0) dst: {
-                const rhs_lock: ?RegisterLock = switch (rhs) {
-                    .register => |reg| self.register_manager.lockRegAssumeUnused(reg),
-                    else => null,
-                };
-                defer if (rhs_lock) |lock| self.register_manager.unlockReg(lock);
-
-                const dst_reg: Register = blk: {
-                    if (lhs.isRegister()) break :blk lhs.register;
-                    break :blk try self.copyToTmpRegister(dst_ty, lhs);
-                };
-                const dst_mcv = MCValue{ .register = dst_reg };
-                const dst_reg_lock = self.register_manager.lockRegAssumeUnused(dst_reg);
-                defer self.register_manager.unlockReg(dst_reg_lock);
-
-                const rhs_mcv: MCValue = blk: {
-                    if (rhs.isRegister() or rhs.isMemory()) break :blk rhs;
-                    break :blk MCValue{ .register = try self.copyToTmpRegister(dst_ty, rhs) };
-                };
-                const rhs_mcv_lock: ?RegisterLock = switch (rhs_mcv) {
-                    .register => |reg| self.register_manager.lockReg(reg),
-                    else => null,
-                };
-                defer if (rhs_mcv_lock) |lock| self.register_manager.unlockReg(lock);
-
-                try self.genIntMulComplexOpMir(Type.isize, dst_mcv, rhs_mcv);
-                break :dst dst_mcv;
-            } else try self.genMulDivBinOp(.mul, null, dst_ty, src_ty, lhs, rhs);
+            const partial_mcv = try self.genMulDivBinOp(.mul, null, dst_ty, src_ty, lhs, rhs);
 
             switch (partial_mcv) {
                 .register => |reg| if (extra_bits == 0) {
@@ -3290,9 +3263,7 @@ fn airMulWithOverflow(self: *Self, inst: Air.Inst.Index) !void {
                     break :result .{ .load_frame = .{ .index = frame_index } };
                 },
                 else => {
-                    // For now, this is the only supported multiply that doesn't fit in a register,
-                    // so cc being set is impossible.
-
+                    // For now, this is the only supported multiply that doesn't fit in a register.
                     assert(dst_info.bits <= 128 and src_pl.data == 64);
 
                     const frame_index =
@@ -3308,7 +3279,7 @@ fn airMulWithOverflow(self: *Self, inst: Air.Inst.Index) !void {
                             .{ .frame = frame_index },
                             @intCast(i32, tuple_ty.structFieldOffset(1, self.target.*)),
                             tuple_ty.structFieldType(1),
-                            .{ .immediate = 0 },
+                            .{ .immediate = 0 }, // cc being set is impossible
                         );
                     } else try self.genSetFrameTruncatedOverflowCompare(
                         tuple_ty,
@@ -5586,31 +5557,13 @@ fn airStructFieldVal(self: *Self, inst: Air.Inst.Index) !void {
                 const dst_lock = self.register_manager.lockReg(dst_reg);
                 defer if (dst_lock) |lock| self.register_manager.unlockReg(lock);
 
-                // Shift by struct_field_offset.
                 try self.genShiftBinOpMir(
                     .{ ._r, .sh },
                     Type.usize,
                     dst_mcv,
                     .{ .immediate = field_off },
                 );
-
-                // Mask to field_bit_size bits
-                const field_bit_size = field_ty.bitSize(self.target.*);
-                const mask = ~@as(u64, 0) >> @intCast(u6, 64 - field_bit_size);
-
-                const tmp_reg = try self.copyToTmpRegister(Type.usize, .{ .immediate = mask });
-                try self.genBinOpMir(.{ ._, .@"and" }, Type.usize, dst_mcv, .{ .register = tmp_reg });
-
-                const signedness =
-                    if (field_ty.isAbiInt()) field_ty.intInfo(self.target.*).signedness else .unsigned;
-                const field_byte_size = @intCast(u32, field_ty.abiSize(self.target.*));
-                if (signedness == .signed and field_byte_size < 8) {
-                    try self.asmRegisterRegister(
-                        if (field_byte_size >= 4) .{ ._d, .movsx } else .{ ._, .movsx },
-                        dst_mcv.register,
-                        registerAlias(dst_mcv.register, field_byte_size),
-                    );
-                }
+                if (self.regExtraBits(field_ty) > 0) try self.truncateRegister(field_ty, dst_reg);
 
                 break :result if (field_rc.supersetOf(gp))
                     dst_mcv
