@@ -1440,7 +1440,9 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
     if (self.emit_llvm_bc.getArg(b, "emit-llvm-bc")) |arg| try zig_args.append(arg);
     if (self.emit_llvm_ir.getArg(b, "emit-llvm-ir")) |arg| try zig_args.append(arg);
 
-    if (self.emit_h) try zig_args.append("-femit-h");
+    if (self.emit_h) {
+      try zig_args.append(try std.fmt.allocPrint(b.allocator, "-femit-h={s}", .{ self.out_h_filename }));
+    }
 
     try addFlag(&zig_args, "strip", self.strip);
     try addFlag(&zig_args, "unwind-tables", self.unwind_tables);

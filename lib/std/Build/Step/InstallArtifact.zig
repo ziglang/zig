@@ -57,9 +57,6 @@ pub fn create(owner: *std.Build, artifact: *Step.Compile) *InstallArtifact {
     if (self.pdb_dir) |pdb_dir| {
         owner.pushInstalledFile(pdb_dir, artifact.out_pdb_filename);
     }
-    if (self.h_dir) |h_dir| {
-        owner.pushInstalledFile(h_dir, artifact.out_h_filename);
-    }
     return self;
 }
 
@@ -110,16 +107,6 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
         const p = fs.Dir.updateFile(cwd, full_src_path, cwd, full_pdb_path, .{}) catch |err| {
             return step.fail("unable to update file from '{s}' to '{s}': {s}", .{
                 full_src_path, full_pdb_path, @errorName(err),
-            });
-        };
-        all_cached = all_cached and p == .fresh;
-    }
-    if (self.h_dir) |h_dir| {
-        const full_src_path = self.artifact.getOutputHSource().getPath(src_builder);
-        const full_h_path = dest_builder.getInstallPath(h_dir, self.artifact.out_h_filename);
-        const p = fs.Dir.updateFile(cwd, full_src_path, cwd, full_h_path, .{}) catch |err| {
-            return step.fail("unable to update file from '{s}' to '{s}': {s}", .{
-                full_src_path, full_h_path, @errorName(err),
             });
         };
         all_cached = all_cached and p == .fresh;
