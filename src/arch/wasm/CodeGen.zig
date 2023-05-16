@@ -4464,7 +4464,9 @@ fn airMemset(func: *CodeGen, inst: Air.Inst.Index, safety: bool) InnerError!void
         .One => @as(WValue, .{ .imm32 = @intCast(u32, ptr_ty.childType().arrayLen()) }),
         .C, .Many => unreachable,
     };
-    try func.memset(ptr, len, value);
+
+    const dst_ptr = try func.sliceOrArrayPtr(ptr, ptr_ty);
+    try func.memset(dst_ptr, len, value);
 
     func.finishAir(inst, .none, &.{ bin_op.lhs, bin_op.rhs });
 }
