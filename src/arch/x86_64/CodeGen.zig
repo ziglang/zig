@@ -2224,6 +2224,10 @@ fn getFrameAddrAlignment(self: *Self, frame_addr: FrameAddr) u32 {
     return @min(alloc_align, @bitCast(u32, frame_addr.off) & (alloc_align - 1));
 }
 
+fn getFrameAddrSize(self: *Self, frame_addr: FrameAddr) u32 {
+    return self.frame_allocs.get(@enumToInt(frame_addr.index)).abi_size - @intCast(u31, frame_addr.off);
+}
+
 fn allocFrameIndex(self: *Self, alloc: FrameAlloc) !FrameIndex {
     const frame_allocs_slice = self.frame_allocs.slice();
     const frame_size = frame_allocs_slice.items(.abi_size);
@@ -2615,87 +2619,90 @@ fn airFpext(self: *Self, inst: Air.Inst.Index) !void {
 
 fn airIntCast(self: *Self, inst: Air.Inst.Index) !void {
     const ty_op = self.air.instructions.items(.data)[inst].ty_op;
+    const result: MCValue = result: {
+        const src_ty = self.air.typeOf(ty_op.operand);
+        const src_int_info = src_ty.intInfo(self.target.*);
 
-    const src_ty = self.air.typeOf(ty_op.operand);
-    const src_int_info = src_ty.intInfo(self.target.*);
-    const src_abi_size = @intCast(u32, src_ty.abiSize(self.target.*));
-    const src_mcv = try self.resolveInst(ty_op.operand);
-    const src_lock = switch (src_mcv) {
-        .register => |reg| self.register_manager.lockRegAssumeUnused(reg),
-        else => null,
-    };
-    defer if (src_lock) |lock| self.register_manager.unlockReg(lock);
+        const dst_ty = self.air.typeOfIndex(inst);
+        const dst_int_info = dst_ty.intInfo(self.target.*);
+        const abi_size = @intCast(u32, dst_ty.abiSize(self.target.*));
 
-    const dst_ty = self.air.typeOfIndex(inst);
-    const dst_int_info = dst_ty.intInfo(self.target.*);
-    const dst_abi_size = @intCast(u32, dst_ty.abiSize(self.target.*));
-    const dst_mcv = if (dst_abi_size <= src_abi_size and
-        self.reuseOperand(inst, ty_op.operand, 0, src_mcv))
-        src_mcv
-    else
-        try self.allocRegOrMem(inst, true);
+        const min_ty = if (dst_int_info.bits < src_int_info.bits) dst_ty else src_ty;
+        const extend = switch (src_int_info.signedness) {
+            .signed => dst_int_info,
+            .unsigned => src_int_info,
+        }.signedness;
 
-    const min_ty = if (dst_int_info.bits < src_int_info.bits) dst_ty else src_ty;
-    const signedness: std.builtin.Signedness = if (dst_int_info.signedness == .signed and
-        src_int_info.signedness == .signed) .signed else .unsigned;
-    switch (dst_mcv) {
-        .register => |dst_reg| {
-            const min_abi_size = @min(dst_abi_size, src_abi_size);
-            const tag: Mir.Inst.FixedTag = switch (signedness) {
-                .signed => if (min_abi_size >= 4) .{ ._d, .movsx } else .{ ._, .movsx },
-                .unsigned => if (min_abi_size >= 4) .{ ._, .mov } else .{ ._, .movzx },
-            };
-            const dst_alias = switch (tag[1]) {
-                .movsx => dst_reg.to64(),
-                .mov, .movzx => if (min_abi_size > 4) dst_reg.to64() else dst_reg.to32(),
-                else => unreachable,
-            };
-            switch (src_mcv) {
-                .register => |src_reg| {
-                    try self.asmRegisterRegister(
-                        tag,
-                        dst_alias,
-                        registerAlias(src_reg, min_abi_size),
-                    );
-                },
-                .memory, .indirect, .load_frame => try self.asmRegisterMemory(
-                    tag,
-                    dst_alias,
-                    src_mcv.mem(Memory.PtrSize.fromSize(min_abi_size)),
-                ),
-                else => return self.fail("TODO airIntCast from {s} to {s}", .{
-                    @tagName(src_mcv),
-                    @tagName(dst_mcv),
-                }),
-            }
-            if (self.regExtraBits(min_ty) > 0) try self.truncateRegister(min_ty, dst_reg);
-        },
-        else => {
+        const src_mcv = try self.resolveInst(ty_op.operand);
+        const src_storage_bits = switch (src_mcv) {
+            .register, .register_offset => 64,
+            .load_frame => |frame_addr| self.getFrameAddrSize(frame_addr) * 8,
+            else => src_int_info.bits,
+        };
+
+        const dst_mcv = if (dst_int_info.bits <= src_storage_bits and
+            self.reuseOperand(inst, ty_op.operand, 0, src_mcv)) src_mcv else dst: {
+            const dst_mcv = try self.allocRegOrMem(inst, true);
             try self.genCopy(min_ty, dst_mcv, src_mcv);
-            const extra = dst_abi_size * 8 - dst_int_info.bits;
-            if (extra > 0) {
-                try self.genShiftBinOpMir(
-                    switch (signedness) {
-                        .signed => .{ ._l, .sa },
-                        .unsigned => .{ ._l, .sh },
-                    },
-                    dst_ty,
-                    dst_mcv,
-                    .{ .immediate = extra },
-                );
-                try self.genShiftBinOpMir(
-                    switch (signedness) {
-                        .signed => .{ ._r, .sa },
-                        .unsigned => .{ ._r, .sh },
-                    },
-                    dst_ty,
-                    dst_mcv,
-                    .{ .immediate = extra },
-                );
-            }
-        },
-    }
-    return self.finishAir(inst, dst_mcv, .{ ty_op.operand, .none, .none });
+            break :dst dst_mcv;
+        };
+
+        if (dst_int_info.bits <= src_int_info.bits) break :result if (dst_mcv.isRegister())
+            .{ .register = registerAlias(dst_mcv.getReg().?, abi_size) }
+        else
+            dst_mcv;
+
+        if (dst_mcv.isRegister()) {
+            try self.truncateRegister(src_ty, dst_mcv.getReg().?);
+            break :result .{ .register = registerAlias(dst_mcv.getReg().?, abi_size) };
+        }
+
+        const src_limbs_len = std.math.divCeil(u16, src_int_info.bits, 64) catch unreachable;
+        const dst_limbs_len = std.math.divCeil(u16, dst_int_info.bits, 64) catch unreachable;
+
+        const high_mcv = dst_mcv.address().offset((src_limbs_len - 1) * 8).deref();
+        const high_reg = try self.copyToTmpRegister(switch (src_int_info.signedness) {
+            .signed => Type.isize,
+            .unsigned => Type.usize,
+        }, high_mcv);
+        const high_lock = self.register_manager.lockRegAssumeUnused(high_reg);
+        defer self.register_manager.unlockReg(high_lock);
+
+        const high_bits = src_int_info.bits % 64;
+        if (high_bits > 0) {
+            var high_pl = Type.Payload.Bits{
+                .base = .{ .tag = switch (extend) {
+                    .signed => .int_signed,
+                    .unsigned => .int_unsigned,
+                } },
+                .data = high_bits,
+            };
+            const high_ty = Type.initPayload(&high_pl.base);
+            try self.truncateRegister(high_ty, high_reg);
+            try self.genCopy(Type.usize, high_mcv, .{ .register = high_reg });
+        }
+
+        if (dst_limbs_len > src_limbs_len) try self.genInlineMemset(
+            dst_mcv.address().offset(src_limbs_len * 8),
+            switch (extend) {
+                .signed => extend: {
+                    const extend_mcv = MCValue{ .register = high_reg };
+                    try self.genShiftBinOpMir(
+                        .{ ._r, .sa },
+                        Type.isize,
+                        extend_mcv,
+                        .{ .immediate = 63 },
+                    );
+                    break :extend extend_mcv;
+                },
+                .unsigned => .{ .immediate = 0 },
+            },
+            .{ .immediate = (dst_limbs_len - src_limbs_len) * 8 },
+        );
+
+        break :result dst_mcv;
+    };
+    return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
 }
 
 fn airTrunc(self: *Self, inst: Air.Inst.Index) !void {
@@ -9879,63 +9886,6 @@ fn genSetMem(self: *Self, base: Memory.Base, disp: i32, ty: Type, src_mcv: MCVal
     }
 }
 
-/// Like `genInlineMemcpy` but copies value from a register to an address via dereferencing
-/// of destination register.
-/// Boils down to MOV r/m64, r64.
-fn genInlineMemcpyRegisterRegister(
-    self: *Self,
-    ty: Type,
-    dst_reg: Register,
-    src_reg: Register,
-    offset: i32,
-) InnerError!void {
-    assert(dst_reg.bitSize() == 64);
-
-    const dst_reg_lock = self.register_manager.lockReg(dst_reg);
-    defer if (dst_reg_lock) |lock| self.register_manager.unlockReg(lock);
-
-    const src_reg_lock = self.register_manager.lockReg(src_reg);
-    defer if (src_reg_lock) |lock| self.register_manager.unlockReg(lock);
-
-    const abi_size = @intCast(u32, ty.abiSize(self.target.*));
-
-    if (!math.isPowerOfTwo(abi_size)) {
-        const tmp_reg = try self.copyToTmpRegister(ty, .{ .register = src_reg });
-
-        var next_offset = offset;
-        var remainder = abi_size;
-        while (remainder > 0) {
-            const nearest_power_of_two = @as(u6, 1) << math.log2_int(u3, @intCast(u3, remainder));
-            try self.asmMemoryRegister(
-                .{ ._, .mov },
-                Memory.sib(Memory.PtrSize.fromSize(nearest_power_of_two), .{
-                    .base = dst_reg,
-                    .disp = -next_offset,
-                }),
-                registerAlias(tmp_reg, nearest_power_of_two),
-            );
-
-            if (nearest_power_of_two > 1) {
-                try self.genShiftBinOpMir(.{ ._r, .sh }, ty, .{ .register = tmp_reg }, .{
-                    .immediate = nearest_power_of_two * 8,
-                });
-            }
-
-            remainder -= nearest_power_of_two;
-            next_offset -= nearest_power_of_two;
-        }
-    } else {
-        try self.asmMemoryRegister(
-            switch (src_reg.class()) {
-                .general_purpose, .segment => .{ ._, .mov },
-                .sse => .{ ._ss, .mov },
-            },
-            Memory.sib(Memory.PtrSize.fromSize(abi_size), .{ .base = dst_reg, .disp = -offset }),
-            registerAlias(src_reg, abi_size),
-        );
-    }
-}
-
 fn genInlineMemcpy(self: *Self, dst_ptr: MCValue, src_ptr: MCValue, len: MCValue) InnerError!void {
     try self.spillRegisters(&.{ .rdi, .rsi, .rcx });
     try self.genSetReg(.rdi, Type.usize, dst_ptr);
@@ -10036,20 +9986,56 @@ fn airBitCast(self: *Self, inst: Air.Inst.Index) !void {
     const result = result: {
         const dst_rc = regClassForType(dst_ty);
         const src_rc = regClassForType(src_ty);
-        const operand = try self.resolveInst(ty_op.operand);
-        if (dst_rc.supersetOf(src_rc) and self.reuseOperand(inst, ty_op.operand, 0, operand))
-            break :result operand;
+        const src_mcv = try self.resolveInst(ty_op.operand);
+        if (dst_rc.supersetOf(src_rc) and self.reuseOperand(inst, ty_op.operand, 0, src_mcv))
+            break :result src_mcv;
 
-        const operand_lock = switch (operand) {
-            .register => |reg| self.register_manager.lockReg(reg),
-            .register_overflow => |ro| self.register_manager.lockReg(ro.reg),
-            else => null,
-        };
-        defer if (operand_lock) |lock| self.register_manager.unlockReg(lock);
+        const src_lock = if (src_mcv.getReg()) |reg| self.register_manager.lockReg(reg) else null;
+        defer if (src_lock) |lock| self.register_manager.unlockReg(lock);
 
-        const dest = try self.allocRegOrMem(inst, true);
-        try self.genCopy(if (!dest.isMemory() or operand.isMemory()) dst_ty else src_ty, dest, operand);
-        break :result dest;
+        const dst_mcv = try self.allocRegOrMem(inst, true);
+        try self.genCopy(
+            if (!dst_mcv.isMemory() or src_mcv.isMemory()) dst_ty else src_ty,
+            dst_mcv,
+            src_mcv,
+        );
+
+        const dst_signedness =
+            if (dst_ty.isAbiInt()) dst_ty.intInfo(self.target.*).signedness else .unsigned;
+        const src_signedness =
+            if (src_ty.isAbiInt()) src_ty.intInfo(self.target.*).signedness else .unsigned;
+        const abi_size = @intCast(u16, dst_ty.abiSize(self.target.*));
+        const bit_size = @intCast(u16, dst_ty.bitSize(self.target.*));
+        const dst_limbs_len = std.math.divCeil(u16, bit_size, 64) catch unreachable;
+        if (dst_signedness != src_signedness and abi_size * 8 > bit_size) {
+            const high_reg = if (dst_mcv.isRegister())
+                dst_mcv.getReg().?
+            else
+                try self.copyToTmpRegister(
+                    Type.usize,
+                    dst_mcv.address().offset((dst_limbs_len - 1) * 8).deref(),
+                );
+            const high_lock = self.register_manager.lockReg(high_reg);
+            defer if (high_lock) |lock| self.register_manager.unlockReg(lock);
+
+            var high_pl = Type.Payload.Bits{
+                .base = .{ .tag = switch (dst_signedness) {
+                    .signed => .int_signed,
+                    .unsigned => .int_unsigned,
+                } },
+                .data = bit_size % 64,
+            };
+            const high_ty = Type.initPayload(&high_pl.base);
+
+            try self.truncateRegister(high_ty, high_reg);
+            if (!dst_mcv.isRegister()) try self.genCopy(
+                Type.usize,
+                dst_mcv.address().offset((dst_limbs_len - 1) * 8).deref(),
+                .{ .register = high_reg },
+            );
+        }
+
+        break :result dst_mcv;
     };
     return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
 }
