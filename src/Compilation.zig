@@ -3981,7 +3981,7 @@ fn updateCObject(comp: *Compilation, c_object: *CObject, c_obj_prog_node: *std.P
 
         // We can't know the digest until we do the C compiler invocation,
         // so we need a temporary filename.
-        const out_obj_path = try comp.local_cache_directory.tmpFilePath(arena, o_basename);
+        const out_obj_path = try comp.tmpFilePath(arena, o_basename);
         var zig_cache_tmp_dir = try comp.local_cache_directory.handle.makeOpenPath("tmp", .{});
         defer zig_cache_tmp_dir.close();
 
@@ -4127,6 +4127,16 @@ fn updateCObject(comp: *Compilation, c_object: *CObject, c_obj_prog_node: *std.P
             .lock = man.toOwnedLock(),
         },
     };
+}
+
+pub fn tmpFilePath(comp: *Compilation, ally: Allocator, suffix: []const u8) error{OutOfMemory}![]const u8 {
+    const s = std.fs.path.sep_str;
+    const rand_int = std.crypto.random.int(u64);
+    if (comp.local_cache_directory.path) |p| {
+        return std.fmt.allocPrint(ally, "{s}" ++ s ++ "tmp" ++ s ++ "{x}-{s}", .{ p, rand_int, suffix });
+    } else {
+        return std.fmt.allocPrint(ally, "tmp" ++ s ++ "{x}-{s}", .{ rand_int, suffix });
+    }
 }
 
 pub fn addTranslateCCArgs(
@@ -4588,13 +4598,26 @@ pub const FileExt = enum {
         };
     }
 
-    // maximum length of @tagName(ext: FileExt)
-    pub const max_len = blk: {
-        var max: u16 = 0;
-        inline for (std.meta.tags(FileExt)) |ext|
-            max = std.math.max(@tagName(ext).len, max);
-        break :blk max;
-    };
+    pub fn canonicalName(ext: FileExt, target: Target) [:0]const u8 {
+        return switch (ext) {
+            .c => ".c",
+            .cpp => ".cpp",
+            .cu => ".cu",
+            .h => ".h",
+            .m => ".m",
+            .mm => ".mm",
+            .ll => ".ll",
+            .bc => ".bc",
+            .assembly => ".s",
+            .assembly_with_cpp => ".S",
+            .shared_library => target.dynamicLibSuffix(),
+            .object => target.ofmt.fileExt(target.cpu.arch),
+            .static_library => target.staticLibSuffix(),
+            .zig => ".zig",
+            .def => ".def",
+            .unknown => "",
+        };
+    }
 };
 
 pub fn hasObjectExt(filename: []const u8) bool {

@@ -31,16 +31,6 @@ pub const Directory = struct {
         }
     }
 
-    pub fn tmpFilePath(self: Directory, ally: Allocator, suffix: []const u8) error{OutOfMemory}![]const u8 {
-        const s = std.fs.path.sep_str;
-        const rand_int = std.crypto.random.int(u64);
-        if (self.path) |p| {
-            return std.fmt.allocPrint(ally, "{s}" ++ s ++ "tmp" ++ s ++ "{x}-{s}", .{ p, rand_int, suffix });
-        } else {
-            return std.fmt.allocPrint(ally, "tmp" ++ s ++ "{x}-{s}", .{ rand_int, suffix });
-        }
-    }
-
     /// Whether or not the handle should be closed, or the path should be freed
     /// is determined by usage, however this function is provided for convenience
     /// if it happens to be what the caller needs.

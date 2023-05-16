@@ -705,6 +705,17 @@ const ArgsIterator = struct {
     }
 };
 
+fn cleanupTempStdinFile(
+    temp_stdin_file: ?[]const u8,
+    local_cache_directory: Compilation.Directory,
+) void {
+    if (temp_stdin_file) |file| {
+        // Some garbage may stay in the file system if removal fails; this
+        // is harmless so no warning is needed.
+        local_cache_directory.handle.deleteFile(file) catch {};
+    }
+}
+
 fn buildOutputType(
     gpa: Allocator,
     arena: Allocator,
@@ -3021,15 +3032,11 @@ fn buildOutputType(
     };
 
     var temp_stdin_file: ?[]const u8 = null;
-    defer {
-        if (temp_stdin_file) |file| {
-            // some garbage may stay in the file system if removal fails.
-            // Alternatively, we could tell the user that the removal failed,
-            // but it's not as much of a deal: it's a temporary cache directory
-            // at all.
-            local_cache_directory.handle.deleteFile(file) catch {};
-        }
-    }
+    // Note that in one of the happy paths, execve() is used to switch to clang
+    // in which case this cleanup logic does not run and this temp file is
+    // leaked. Oh well. It's a minor punishment for using `-x c` which nobody
+    // should be doing.
+    defer cleanupTempStdinFile(temp_stdin_file, local_cache_directory);
 
     for (c_source_files.items) |*src| {
         if (!mem.eql(u8, src.src_path, "-")) continue;
@@ -3038,21 +3045,22 @@ fn buildOutputType(
             fatal("-E or -x is required when reading from a non-regular file", .{});
 
         // "-" is stdin. Dump it to a real file.
-        const new_file = blk: {
-            var buf: ["stdin.".len + Compilation.FileExt.max_len]u8 = undefined;
-            const fname = try std.fmt.bufPrint(&buf, "stdin.{s}", .{@tagName(ext)});
-            const new_name = try local_cache_directory.tmpFilePath(arena, fname);
-
+        const sub_path = blk: {
+            const sep = fs.path.sep_str;
+            const sub_path = try std.fmt.allocPrint(arena, "tmp" ++ sep ++ "{x}-stdin{s}", .{
+                std.crypto.random.int(u64), ext.canonicalName(target_info.target),
+            });
             try local_cache_directory.handle.makePath("tmp");
-            var outfile = try local_cache_directory.handle.createFile(new_name, .{});
-            defer outfile.close();
-            errdefer local_cache_directory.handle.deleteFile(new_name) catch {};
-
-            try outfile.writeFileAll(io.getStdIn(), .{});
-            break :blk new_name;
+            var f = try local_cache_directory.handle.createFile(sub_path, .{});
+            defer f.close();
+            errdefer local_cache_directory.handle.deleteFile(sub_path) catch {};
+            try f.writeFileAll(io.getStdIn(), .{});
+            break :blk sub_path;
         };
-        temp_stdin_file = new_file;
-        src.src_path = new_file;
+        // Relative to `local_cache_directory`.
+        temp_stdin_file = sub_path;
+        // Relative to current working directory.
+        src.src_path = try local_cache_directory.join(arena, &.{sub_path});
     }
 
     if (build_options.have_llvm and emit_asm != .no) {
@@ -3908,7 +3916,7 @@ fn cmdTranslateC(comp: *Compilation, arena: Allocator, fancy_output: ?*Translate
 
             const c_src_basename = fs.path.basename(c_source_file.src_path);
             const dep_basename = try std.fmt.allocPrint(arena, "{s}.d", .{c_src_basename});
-            const out_dep_path = try comp.local_cache_directory.tmpFilePath(arena, dep_basename);
+            const out_dep_path = try comp.tmpFilePath(arena, dep_basename);
             break :blk out_dep_path;
         };
 

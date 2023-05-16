@@ -777,52 +777,6 @@ pub fn addCliTests(b: *std.Build) *Step {
         step.dependOn(&cleanup.step);
     }
 
-    // Test `zig cc -x c -`
-    // Test author was not able to figure out how to start a child process and
-    // give an fd to it's stdin. fork/exec works, but we are limiting ourselves
-    // to POSIX.
-    //
-    // TODO: the "zig cc <..." step should be a RunStep.create(...)
-    // However, how do I create a command (RunStep) that invokes a command
-    // with a specific file descriptor in the stdin?
-    //if (builtin.os.tag != .windows) {
-    //    const tmp_path = b.makeTempPath();
-    //    var dir = std.fs.cwd().openDir(tmp_path, .{}) catch @panic("unhandled");
-    //    dir.writeFile("truth.c", "int main() { return 42; }") catch @panic("unhandled");
-    //    var infile = dir.openFile("truth.c", .{}) catch @panic("unhandled");
-
-    //    const outfile = std.fs.path.joinZ(
-    //        b.allocator,
-    //        &[_][]const u8{ tmp_path, "truth" },
-    //    ) catch @panic("unhandled");
-
-    //    const pid_result = std.os.fork() catch @panic("unhandled");
-    //    if (pid_result == 0) { // child
-    //        std.os.dup2(infile.handle, std.os.STDIN_FILENO) catch @panic("unhandled");
-    //        const argv = &[_:null]?[*:0]const u8{
-    //            b.zig_exe, "cc",
-    //            "-o",      outfile,
-    //            "-x",      "c",
-    //            "-",
-    //        };
-    //        const envp = &[_:null]?[*:0]const u8{
-    //            std.fmt.allocPrintZ(b.allocator, "ZIG_GLOBAL_CACHE_DIR={s}", .{tmp_path}) catch @panic("unhandled"),
-    //        };
-    //        const err = std.os.execveZ(b.zig_exe, argv, envp);
-    //        std.debug.print("execve error: {any}\n", .{err});
-    //        std.os.exit(1);
-    //    }
-
-    //    const res = std.os.waitpid(pid_result, 0);
-    //    assert(0 == res.status);
-
-    //    // run the compiled executable and check if it's telling the truth.
-    //    _ = exec(b.allocator, tmp_path, 42, &[_][]const u8{outfile}) catch @panic("unhandled");
-
-    //    const cleanup = b.addRemoveDirTree(tmp_path);
-    //    step.dependOn(&cleanup.step);
-    //}
-
     {
         // Test `zig fmt`.
         // This test must use a temporary directory rather than a cache
@@ -1199,51 +1153,4 @@ pub fn addCases(
         cases_dir_path,
         check_case_exe,
     );
-}
-
-fn exec(
-    allocator: std.mem.Allocator,
-    cwd: []const u8,
-    expect_code: u8,
-    argv: []const []const u8,
-) !std.ChildProcess.ExecResult {
-    const max_output_size = 100 * 1024;
-    const result = std.ChildProcess.exec(.{
-        .allocator = allocator,
-        .argv = argv,
-        .cwd = cwd,
-        .max_output_bytes = max_output_size,
-    }) catch |err| {
-        std.debug.print("The following command failed:\n", .{});
-        printCmd(cwd, argv);
-        return err;
-    };
-    switch (result.term) {
-        .Exited => |code| {
-            if (code != expect_code) {
-                std.debug.print(
-                    "The following command exited with error code {}, expected {}:\n",
-                    .{ code, expect_code },
-                );
-                printCmd(cwd, argv);
-                std.debug.print("stderr:\n{s}\n", .{result.stderr});
-                return error.CommandFailed;
-            }
-        },
-        else => {
-            std.debug.print("The following command terminated unexpectedly:\n", .{});
-            printCmd(cwd, argv);
-            std.debug.print("stderr:\n{s}\n", .{result.stderr});
-            return error.CommandFailed;
-        },
-    }
-    return result;
-}
-
-fn printCmd(cwd: []const u8, argv: []const []const u8) void {
-    std.debug.print("cd {s} && ", .{cwd});
-    for (argv) |arg| {
-        std.debug.print("{s} ", .{arg});
-    }
-    std.debug.print("\n", .{});
 }
