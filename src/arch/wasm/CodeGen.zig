@@ -2604,6 +2604,7 @@ fn binOpBigInt(func: *CodeGen, lhs: WValue, rhs: WValue, ty: Type, op: Op) Inner
     switch (op) {
         .mul => return func.callIntrinsic("__multi3", &.{ ty, ty }, ty, &.{ lhs, rhs }),
         .shr => return func.callIntrinsic("__lshrti3", &.{ ty, Type.i32 }, ty, &.{ lhs, rhs }),
+        .shl => return func.callIntrinsic("__ashlti3", &.{ ty, Type.i32 }, ty, &.{ lhs, rhs }),
         .xor => {
             const result = try func.allocStack(ty);
             try func.emitWValue(result);
