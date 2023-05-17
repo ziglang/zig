@@ -109,6 +109,7 @@ test "binarySearch" {
 
 /// Stable in-place sort. O(n) best case, O(pow(n, 2)) worst case.
 /// O(1) memory (no allocator required).
+/// Sorts in ascending order with respect to the given `lessThan` function.
 /// This can be expressed in terms of `insertionSortContext` but the glue
 /// code is slightly longer than the direct implementation.
 pub fn insertionSort(
@@ -130,6 +131,7 @@ pub fn insertionSort(
 
 /// Stable in-place sort. O(n) best case, O(pow(n, 2)) worst case.
 /// O(1) memory (no allocator required).
+/// Sorts in ascending order with respect to the given `context.lessThan` function.
 pub fn insertionSortContext(len: usize, context: anytype) void {
     var i: usize = 1;
     while (i < len) : (i += 1) {
@@ -229,6 +231,7 @@ const Pull = struct {
 
 /// Stable in-place sort. O(n) best case, O(n*log(n)) worst case and average case.
 /// O(1) memory (no allocator required).
+/// Sorts in ascending order with respect to the given `lessThan` function.
 /// Currently implemented as block sort.
 pub fn sort(
     comptime T: type,
