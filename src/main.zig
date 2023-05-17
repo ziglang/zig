@@ -281,12 +281,8 @@ pub fn mainArgs(gpa: Allocator, arena: Allocator, args: []const []const u8) !voi
         mem.eql(u8, cmd, "ar"))
     {
         return process.exit(try llvmArMain(arena, args));
-    } else if (mem.eql(u8, cmd, "cc")) {
-        return buildOutputType(gpa, arena, args, .cc);
-    } else if (mem.eql(u8, cmd, "c++")) {
-        return buildOutputType(gpa, arena, args, .cpp);
-    } else if (mem.eql(u8, cmd, "translate-c")) {
-        return buildOutputType(gpa, arena, args, .translate_c);
+    } else if (mem.eql(u8, cmd, "build")) {
+        return cmdBuild(gpa, arena, cmd_args);
     } else if (mem.eql(u8, cmd, "clang") or
         mem.eql(u8, cmd, "-cc1") or mem.eql(u8, cmd, "-cc1as"))
     {
@@ -296,8 +292,14 @@ pub fn mainArgs(gpa: Allocator, arena: Allocator, args: []const []const u8) !voi
         mem.eql(u8, cmd, "wasm-ld"))
     {
         return process.exit(try lldMain(arena, args, true));
-    } else if (mem.eql(u8, cmd, "build")) {
-        return cmdBuild(gpa, arena, cmd_args);
+    } else if (build_options.omit_pkg_fetching_code) {
+        @panic("only a few subcommands are supported in a zig2.c build");
+    } else if (mem.eql(u8, cmd, "cc")) {
+        return buildOutputType(gpa, arena, args, .cc);
+    } else if (mem.eql(u8, cmd, "c++")) {
+        return buildOutputType(gpa, arena, args, .cpp);
+    } else if (mem.eql(u8, cmd, "translate-c")) {
+        return buildOutputType(gpa, arena, args, .translate_c);
     } else if (mem.eql(u8, cmd, "fmt")) {
         return cmdFmt(gpa, arena, cmd_args);
     } else if (mem.eql(u8, cmd, "objcopy")) {
