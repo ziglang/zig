@@ -181,6 +181,7 @@ const TypeId = enum {
     @"enum",
     string,
     list,
+    build_id,
 };
 
 const TopLevelStep = struct {
@@ -832,13 +833,13 @@ pub fn option(self: *Build, comptime T: type, name_raw: []const u8, description_
                 } else if (mem.eql(u8, s, "false")) {
                     return false;
                 } else {
-                    log.err("Expected -D{s} to be a boolean, but received '{s}'\n", .{ name, s });
+                    log.err("Expected -D{s} to be a boolean, but received '{s}'", .{ name, s });
                     self.markInvalidUserInput();
                     return null;
                 }
             },
             .list, .map => {
-                log.err("Expected -D{s} to be a boolean, but received a {s}.\n", .{
+                log.err("Expected -D{s} to be a boolean, but received a {s}.", .{
                     name, @tagName(option_ptr.value),
                 });
                 self.markInvalidUserInput();
@@ -847,7 +848,7 @@ pub fn option(self: *Build, comptime T: type, name_raw: []const u8, description_
         },
         .int => switch (option_ptr.value) {
             .flag, .list, .map => {
-                log.err("Expected -D{s} to be an integer, but received a {s}.\n", .{
+                log.err("Expected -D{s} to be an integer, but received a {s}.", .{
                     name, @tagName(option_ptr.value),
                 });
                 self.markInvalidUserInput();
@@ -856,12 +857,12 @@ pub fn option(self: *Build, comptime T: type, name_raw: []const u8, description_
             .scalar => |s| {
                 const n = std.fmt.parseInt(T, s, 10) catch |err| switch (err) {
                     error.Overflow => {
-                        log.err("-D{s} value {s} cannot fit into type {s}.\n", .{ name, s, @typeName(T) });
+                        log.err("-D{s} value {s} cannot fit into type {s}.", .{ name, s, @typeName(T) });
                         self.markInvalidUserInput();
                         return null;
                     },
                     else => {
-                        log.err("Expected -D{s} to be an integer of type {s}.\n", .{ name, @typeName(T) });
+                        log.err("Expected -D{s} to be an integer of type {s}.", .{ name, @typeName(T) });
                         self.markInvalidUserInput();
                         return null;
                     },
@@ -871,7 +872,7 @@ pub fn option(self: *Build, comptime T: type, name_raw: []const u8, description_
         },
         .float => switch (option_ptr.value) {
             .flag, .map, .list => {
-                log.err("Expected -D{s} to be a float, but received a {s}.\n", .{
+                log.err("Expected -D{s} to be a float, but received a {s}.", .{
                     name, @tagName(option_ptr.value),
                 });
                 self.markInvalidUserInput();
@@ -879,7 +880,7 @@ pub fn option(self: *Build, comptime T: type, name_raw: []const u8, description_
             },
             .scalar => |s| {
                 const n = std.fmt.parseFloat(T, s) catch {
-                    log.err("Expected -D{s} to be a float of type {s}.\n", .{ name, @typeName(T) });
+                    log.err("Expected -D{s} to be a float of type {s}.", .{ name, @typeName(T) });
                     self.markInvalidUserInput();
                     return null;
                 };
@@ -888,7 +889,7 @@ pub fn option(self: *Build, comptime T: type, name_raw: []const u8, description_
         },
         .@"enum" => switch (option_ptr.value) {
             .flag, .map, .list => {
-                log.err("Expected -D{s} to be an enum, but received a {s}.\n", .{
+                log.err("Expected -D{s} to be an enum, but received a {s}.", .{
                     name, @tagName(option_ptr.value),
                 });
                 self.markInvalidUserInput();
@@ -898,7 +899,7 @@ pub fn option(self: *Build, comptime T: type, name_raw: []const u8, description_
                 if (std.meta.stringToEnum(T, s)) |enum_lit| {
                     return enum_lit;
                 } else {
-                    log.err("Expected -D{s} to be of type {s}.\n", .{ name, @typeName(T) });
+                    log.err("Expected -D{s} to be of type {s}.", .{ name, @typeName(T) });
                     self.markInvalidUserInput();
                     return null;
                 }
@@ -906,7 +907,7 @@ pub fn option(self: *Build, comptime T: type, name_raw: []const u8, description_
         },
         .string => switch (option_ptr.value) {
             .flag, .list, .map => {
-                log.err("Expected -D{s} to be a string, but received a {s}.\n", .{
+                log.err("Expected -D{s} to be a string, but received a {s}.", .{
                     name, @tagName(option_ptr.value),
                 });
                 self.markInvalidUserInput();
@@ -914,9 +915,27 @@ pub fn option(self: *Build, comptime T: type, name_raw: []const u8, description_
             },
             .scalar => |s| return s,
         },
+        .build_id => switch (option_ptr.value) {
+            .flag, .map, .list => {
+                log.err("Expected -D{s} to be an enum, but received a {s}.", .{
+                    name, @tagName(option_ptr.value),
+                });
+                self.markInvalidUserInput();
+                return null;
+            },
+            .scalar => |s| {
+                if (Step.Compile.BuildId.parse(s)) |build_id| {
+                    return build_id;
+                } else |err| {
+                    log.err("unable to parse option '-D{s}': {s}", .{ name, @errorName(err) });
+                    self.markInvalidUserInput();
+                    return null;
+                }
+            },
+        },
         .list => switch (option_ptr.value) {
             .flag, .map => {
-                log.err("Expected -D{s} to be a list, but received a {s}.\n", .{
+                log.err("Expected -D{s} to be a list, but received a {s}.", .{
                     name, @tagName(option_ptr.value),
                 });
                 self.markInvalidUserInput();
@@ -1183,15 +1202,18 @@ pub fn addUserInputFlag(self: *Build, name_raw: []const u8) !bool {
 }
 
 fn typeToEnum(comptime T: type) TypeId {
-    return switch (@typeInfo(T)) {
-        .Int => .int,
-        .Float => .float,
-        .Bool => .bool,
-        .Enum => .@"enum",
-        else => switch (T) {
-            []const u8 => .string,
-            []const []const u8 => .list,
-            else => @compileError("Unsupported type: " ++ @typeName(T)),
+    return switch (T) {
+        Step.Compile.BuildId => .build_id,
+        else => return switch (@typeInfo(T)) {
+            .Int => .int,
+            .Float => .float,
+            .Bool => .bool,
+            .Enum => .@"enum",
+            else => switch (T) {
+                []const u8 => .string,
+                []const []const u8 => .list,
+                else => @compileError("Unsupported type: " ++ @typeName(T)),
+            },
         },
     };
 }

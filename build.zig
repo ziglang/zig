@@ -165,8 +165,14 @@ pub fn build(b: *std.Build) !void {
     exe.strip = strip;
     exe.pie = pie;
     exe.sanitize_thread = sanitize_thread;
-    exe.build_id = b.option(bool, "build-id", "Include a build id note") orelse false;
     exe.entitlements = entitlements;
+
+    exe.build_id = b.option(
+        std.Build.Step.Compile.BuildId,
+        "build-id",
+        "Request creation of '.note.gnu.build-id' section",
+    );
+
     b.installArtifact(exe);
 
     test_step.dependOn(&exe.step);

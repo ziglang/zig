@@ -22,6 +22,7 @@ const LibCInstallation = @import("libc_installation.zig").LibCInstallation;
 const wasi_libc = @import("wasi_libc.zig");
 const translate_c = @import("translate_c.zig");
 const clang = @import("clang.zig");
+const BuildId = std.Build.CompileStep.BuildId;
 const Cache = std.Build.Cache;
 const target_util = @import("target.zig");
 const crash_report = @import("crash_report.zig");
@@ -493,8 +494,10 @@ const usage_build_generic =
     \\  -fno-each-lib-rpath            Prevent adding rpath for each used dynamic library
     \\  -fallow-shlib-undefined        Allows undefined symbols in shared libraries
     \\  -fno-allow-shlib-undefined     Disallows undefined symbols in shared libraries
-    \\  -fbuild-id                     Helps coordinate stripped binaries with debug symbols
-    \\  -fno-build-id                  (default) Saves a bit of time linking
+    \\  --build-id[=style]             At a minor link-time expense, coordinates stripped binaries
+    \\      fast, uuid, sha1, md5      with debug symbols via a '.note.gnu.build-id' section
+    \\      0x[hexstring]              Maximum 32 bytes
+    \\      none                       (default) Disable build-id
     \\  --eh-frame-hdr                 Enable C++ exception handling by passing --eh-frame-hdr to linker
     \\  --emit-relocs                  Enable output of relocation sections for post build tools
     \\  -z [arg]                       Set linker extension flags
@@ -817,7 +820,7 @@ fn buildOutputType(
     var link_eh_frame_hdr = false;
     var link_emit_relocs = false;
     var each_lib_rpath: ?bool = null;
-    var build_id: ?bool = null;
+    var build_id: ?BuildId = null;
     var sysroot: ?[]const u8 = null;
     var libc_paths_file: ?[]const u8 = try optionalStringEnvVar(arena, "ZIG_LIBC");
     var machine_code_model: std.builtin.CodeModel = .default;
@@ -1202,10 +1205,6 @@ fn buildOutputType(
                         each_lib_rpath = true;
                     } else if (mem.eql(u8, arg, "-fno-each-lib-rpath")) {
                         each_lib_rpath = false;
-                    } else if (mem.eql(u8, arg, "-fbuild-id")) {
-                        build_id = true;
-                    } else if (mem.eql(u8, arg, "-fno-build-id")) {
-                        build_id = false;
                     } else if (mem.eql(u8, arg, "--test-cmd-bin")) {
                         try test_exec_args.append(null);
                     } else if (mem.eql(u8, arg, "--test-evented-io")) {
@@ -1446,6 +1445,15 @@ fn buildOutputType(
                         linker_gc_sections = true;
                     } else if (mem.eql(u8, arg, "--no-gc-sections")) {
                         linker_gc_sections = false;
+                    } else if (mem.eql(u8, arg, "--build-id")) {
+                        build_id = .fast;
+                    } else if (mem.startsWith(u8, arg, "--build-id=")) {
+                        const style = arg["--build-id=".len..];
+                        build_id = BuildId.parse(style) catch |err| {
+                            fatal("unable to parse --build-id style '{s}': {s}", .{
+                                style, @errorName(err),
+                            });
+                        };
                     } else if (mem.eql(u8, arg, "--debug-compile-errors")) {
                         if (!crash_report.is_enabled) {
                             std.log.warn("Zig was compiled in a release mode. --debug-compile-errors has no effect.", .{});
@@ -1684,9 +1692,12 @@ fn buildOutputType(
                                 if (mem.indexOfScalar(u8, linker_arg, '=')) |equals_pos| {
                                     const key = linker_arg[0..equals_pos];
                                     const value = linker_arg[equals_pos + 1 ..];
-                                    if (mem.eql(u8, key, "build-id")) {
-                                        build_id = true;
-                                        warn("ignoring build-id style argument: '{s}'", .{value});
+                                    if (mem.eql(u8, key, "--build-id")) {
+                                        build_id = BuildId.parse(value) catch |err| {
+                                            fatal("unable to parse --build-id style '{s}': {s}", .{
+                                                value, @errorName(err),
+                                            });
+                                        };
                                         continue;
                                     } else if (mem.eql(u8, key, "--sort-common")) {
                                         // this ignores --sort=common=<anything>; ignoring plain --sort-common
@@ -1698,7 +1709,9 @@ fn buildOutputType(
                                     continue;
                                 }
                             }
-                            if (mem.eql(u8, linker_arg, "--as-needed")) {
+                            if (mem.eql(u8, linker_arg, "--build-id")) {
+                                build_id = .fast;
+                            } else if (mem.eql(u8, linker_arg, "--as-needed")) {
                                 needed = false;
                             } else if (mem.eql(u8, linker_arg, "--no-as-needed")) {
                                 needed = true;
