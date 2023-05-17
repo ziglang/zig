@@ -10214,14 +10214,30 @@ fn airCmpxchg(self: *Self, inst: Air.Inst.Index) !void {
 
     const exp_mcv = try self.resolveInst(extra.expected_value);
     if (val_abi_size > 8) {
-        try self.genSetReg(.rax, Type.usize, exp_mcv);
-        try self.genSetReg(.rdx, Type.usize, exp_mcv.address().offset(8).deref());
+        const exp_addr_mcv: MCValue = switch (exp_mcv) {
+            .memory, .indirect, .load_frame => exp_mcv.address(),
+            else => .{ .register = try self.copyToTmpRegister(Type.usize, exp_mcv.address()) },
+        };
+        const exp_addr_lock =
+            if (exp_addr_mcv.getReg()) |reg| self.register_manager.lockReg(reg) else null;
+        defer if (exp_addr_lock) |lock| self.register_manager.unlockReg(lock);
+
+        try self.genSetReg(.rax, Type.usize, exp_addr_mcv.deref());
+        try self.genSetReg(.rdx, Type.usize, exp_addr_mcv.offset(8).deref());
     } else try self.genSetReg(.rax, val_ty, exp_mcv);
 
     const new_mcv = try self.resolveInst(extra.new_value);
     const new_reg = if (val_abi_size > 8) new: {
-        try self.genSetReg(.rbx, Type.usize, new_mcv);
-        try self.genSetReg(.rcx, Type.usize, new_mcv.address().offset(8).deref());
+        const new_addr_mcv: MCValue = switch (new_mcv) {
+            .memory, .indirect, .load_frame => new_mcv.address(),
+            else => .{ .register = try self.copyToTmpRegister(Type.usize, new_mcv.address()) },
+        };
+        const new_addr_lock =
+            if (new_addr_mcv.getReg()) |reg| self.register_manager.lockReg(reg) else null;
+        defer if (new_addr_lock) |lock| self.register_manager.unlockReg(lock);
+
+        try self.genSetReg(.rbx, Type.usize, new_addr_mcv.deref());
+        try self.genSetReg(.rcx, Type.usize, new_addr_mcv.offset(8).deref());
         break :new null;
     } else try self.copyToTmpRegister(val_ty, new_mcv);
     const new_lock = if (new_reg) |reg| self.register_manager.lockRegAssumeUnused(reg) else null;
