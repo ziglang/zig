@@ -1796,11 +1796,11 @@ fn buildOutputType(
                         try clang_argv.append("-v");
                     },
                     .dry_run => {
+                        // This flag means "dry run". Clang will not actually output anything
+                        // to the file system.
                         verbose_link = true;
+                        disable_c_depfile = true;
                         try clang_argv.append("-###");
-                        // This flag is supposed to mean "dry run" but currently this
-                        // will actually still execute. The tracking issue for this is
-                        // https://github.com/ziglang/zig/issues/7170
                     },
                     .for_linker => try linker_args.append(it.only_arg),
                     .linker_input_z => {
