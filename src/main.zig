@@ -494,7 +494,10 @@ const usage_build_generic =
     \\  -fno-each-lib-rpath            Prevent adding rpath for each used dynamic library
     \\  -fallow-shlib-undefined        Allows undefined symbols in shared libraries
     \\  -fno-allow-shlib-undefined     Disallows undefined symbols in shared libraries
-    \\  --build-id[=style]             Generate a build ID note
+    \\  --build-id[=style]             At a minor link-time expense, coordinates stripped binaries
+    \\      fast, uuid, sha1, md5      with debug symbols via a '.note.gnu.build-id' section
+    \\      0x[hexstring]              Maximum 32 bytes
+    \\      none                       (default) Disable build-id
     \\  --eh-frame-hdr                 Enable C++ exception handling by passing --eh-frame-hdr to linker
     \\  --emit-relocs                  Enable output of relocation sections for post build tools
     \\  -z [arg]                       Set linker extension flags
@@ -1445,11 +1448,11 @@ fn buildOutputType(
                     } else if (mem.eql(u8, arg, "--build-id")) {
                         build_id = .fast;
                     } else if (mem.startsWith(u8, arg, "--build-id=")) {
-                        const value = arg["--build-id=".len..];
-                        build_id = BuildId.parse(arena, value) catch |err| switch (err) {
-                            error.InvalidHexInt => fatal("failed to parse hex value {s}", .{value}),
-                            error.InvalidBuildId => fatal("invalid --build-id={s}", .{value}),
-                            error.OutOfMemory => fatal("OOM", .{}),
+                        const style = arg["--build-id=".len..];
+                        build_id = BuildId.parse(style) catch |err| {
+                            fatal("unable to parse --build-id style '{s}': {s}", .{
+                                style, @errorName(err),
+                            });
                         };
                     } else if (mem.eql(u8, arg, "--debug-compile-errors")) {
                         if (!crash_report.is_enabled) {
@@ -1689,7 +1692,14 @@ fn buildOutputType(
                                 if (mem.indexOfScalar(u8, linker_arg, '=')) |equals_pos| {
                                     const key = linker_arg[0..equals_pos];
                                     const value = linker_arg[equals_pos + 1 ..];
-                                    if (mem.eql(u8, key, "--sort-common")) {
+                                    if (mem.eql(u8, key, "--build-id")) {
+                                        build_id = BuildId.parse(value) catch |err| {
+                                            fatal("unable to parse --build-id style '{s}': {s}", .{
+                                                value, @errorName(err),
+                                            });
+                                        };
+                                        continue;
+                                    } else if (mem.eql(u8, key, "--sort-common")) {
                                         // this ignores --sort=common=<anything>; ignoring plain --sort-common
                                         // is done below.
                                         continue;
@@ -1699,7 +1709,9 @@ fn buildOutputType(
                                     continue;
                                 }
                             }
-                            if (mem.eql(u8, linker_arg, "--as-needed")) {
+                            if (mem.eql(u8, linker_arg, "--build-id")) {
+                                build_id = .fast;
+                            } else if (mem.eql(u8, linker_arg, "--as-needed")) {
                                 needed = false;
                             } else if (mem.eql(u8, linker_arg, "--no-as-needed")) {
                                 needed = true;
@@ -1731,15 +1743,6 @@ fn buildOutputType(
                                 search_strategy = .paths_first;
                             } else if (mem.eql(u8, linker_arg, "-search_dylibs_first")) {
                                 search_strategy = .dylibs_first;
-                            } else if (mem.eql(u8, linker_arg, "--build-id")) {
-                                build_id = .fast;
-                            } else if (mem.startsWith(u8, linker_arg, "--build-id=")) {
-                                const value = linker_arg["--build-id=".len..];
-                                build_id = BuildId.parse(arena, value) catch |err| switch (err) {
-                                    error.InvalidHexInt => fatal("failed to parse hex value {s}", .{value}),
-                                    error.InvalidBuildId => fatal("invalid --build-id={s}", .{value}),
-                                    error.OutOfMemory => fatal("OOM", .{}),
-                                };
                             } else {
                                 try linker_args.append(linker_arg);
                             }

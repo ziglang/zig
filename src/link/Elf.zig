@@ -1399,8 +1399,7 @@ fn linkWithLLD(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !v
         man.hash.add(self.base.options.each_lib_rpath);
         if (self.base.options.output_mode == .Exe) {
             man.hash.add(stack_size);
-            if (self.base.options.build_id) |build_id|
-                build_id.hash(&man.hash.hasher);
+            man.hash.add(self.base.options.build_id);
         }
         man.hash.addListOfBytes(self.base.options.symbol_wrap_set.keys());
         man.hash.add(self.base.options.skip_linker_dependencies);
@@ -1543,12 +1542,18 @@ fn linkWithLLD(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !v
             try argv.append("-z");
             try argv.append(try std.fmt.allocPrint(arena, "stack-size={d}", .{stack_size}));
 
-            if (self.base.options.build_id) |build_id| {
-                const fmt_str = "--build-id={s}{s}";
-                try argv.append(switch (build_id) {
-                    .hexstring => |str| try std.fmt.allocPrint(arena, fmt_str, .{ "0x", str }),
-                    .none, .fast, .uuid, .sha1, .md5 => try std.fmt.allocPrint(arena, fmt_str, .{ "", @tagName(build_id) }),
-                });
+            switch (self.base.options.build_id) {
+                .none => {},
+                .fast, .uuid, .sha1, .md5 => {
+                    try argv.append(try std.fmt.allocPrint(arena, "--build-id={s}", .{
+                        @tagName(self.base.options.build_id),
+                    }));
+                },
+                .hexstring => |hs| {
+                    try argv.append(try std.fmt.allocPrint(arena, "--build-id=0x{s}", .{
+                        std.fmt.fmtSliceHexLower(hs.toSlice()),
+                    }));
+                },
             }
         }
 

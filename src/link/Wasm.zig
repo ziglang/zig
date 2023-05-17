@@ -3163,8 +3163,7 @@ fn linkWithZld(wasm: *Wasm, comp: *Compilation, prog_node: *std.Progress.Node) l
         try man.addOptionalFile(compiler_rt_path);
         man.hash.addOptionalBytes(options.entry);
         man.hash.addOptional(options.stack_size_override);
-        if (wasm.base.options.build_id) |build_id|
-            build_id.hash(&man.hash.hasher);
+        man.hash.add(wasm.base.options.build_id);
         man.hash.add(options.import_memory);
         man.hash.add(options.import_table);
         man.hash.add(options.export_table);
@@ -3798,27 +3797,29 @@ fn writeToFile(
     if (!wasm.base.options.strip) {
         // The build id must be computed on the main sections only,
         // so we have to do it now, before the debug sections.
-        if (wasm.base.options.build_id) |build_id| {
-            switch (build_id) {
-                .none => {},
-                .fast => {
-                    var id: [16]u8 = undefined;
-                    std.crypto.hash.sha3.TurboShake128(null).hash(binary_bytes.items, &id, .{});
-                    var uuid: [36]u8 = undefined;
-                    _ = try std.fmt.bufPrint(&uuid, "{s}-{s}-{s}-{s}-{s}", .{
-                        std.fmt.fmtSliceHexLower(id[0..4]),
-                        std.fmt.fmtSliceHexLower(id[4..6]),
-                        std.fmt.fmtSliceHexLower(id[6..8]),
-                        std.fmt.fmtSliceHexLower(id[8..10]),
-                        std.fmt.fmtSliceHexLower(id[10..]),
-                    });
-                    try emitBuildIdSection(&binary_bytes, &uuid);
-                },
-                .hexstring => |str| {
-                    try emitBuildIdSection(&binary_bytes, str);
-                },
-                else => |mode| log.err("build-id '{s}' is not supported for WASM", .{@tagName(mode)}),
-            }
+        switch (wasm.base.options.build_id) {
+            .none => {},
+            .fast => {
+                var id: [16]u8 = undefined;
+                std.crypto.hash.sha3.TurboShake128(null).hash(binary_bytes.items, &id, .{});
+                var uuid: [36]u8 = undefined;
+                _ = try std.fmt.bufPrint(&uuid, "{s}-{s}-{s}-{s}-{s}", .{
+                    std.fmt.fmtSliceHexLower(id[0..4]),
+                    std.fmt.fmtSliceHexLower(id[4..6]),
+                    std.fmt.fmtSliceHexLower(id[6..8]),
+                    std.fmt.fmtSliceHexLower(id[8..10]),
+                    std.fmt.fmtSliceHexLower(id[10..]),
+                });
+                try emitBuildIdSection(&binary_bytes, &uuid);
+            },
+            .hexstring => |hs| {
+                var buffer: [32 * 2]u8 = undefined;
+                const str = std.fmt.bufPrint(&buffer, "{s}", .{
+                    std.fmt.fmtSliceHexLower(hs.toSlice()),
+                }) catch unreachable;
+                try emitBuildIdSection(&binary_bytes, str);
+            },
+            else => |mode| log.err("build-id '{s}' is not supported for WASM", .{@tagName(mode)}),
         }
 
         // if (wasm.dwarf) |*dwarf| {
@@ -4211,8 +4212,7 @@ fn linkWithLLD(wasm: *Wasm, comp: *Compilation, prog_node: *std.Progress.Node) !
         try man.addOptionalFile(compiler_rt_path);
         man.hash.addOptionalBytes(wasm.base.options.entry);
         man.hash.addOptional(wasm.base.options.stack_size_override);
-        if (wasm.base.options.build_id) |build_id|
-            build_id.hash(&man.hash.hasher);
+        man.hash.add(wasm.base.options.build_id);
         man.hash.add(wasm.base.options.import_memory);
         man.hash.add(wasm.base.options.import_table);
         man.hash.add(wasm.base.options.export_table);
