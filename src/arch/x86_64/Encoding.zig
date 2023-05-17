@@ -263,6 +263,7 @@ pub const Mnemonic = enum {
     fisttp, fld,
     // MMX
     movd, movq,
+    packssdw, packsswb, packuswb,
     paddb, paddd, paddq, paddsb, paddsw, paddusb, paddusw, paddw,
     pand, pandn, por, pxor,
     pmulhw, pmullw,
@@ -319,6 +320,7 @@ pub const Mnemonic = enum {
     blendpd, blendps, blendvpd, blendvps,
     extractps,
     insertps,
+    packusdw,
     pextrb, pextrd, pextrq,
     pinsrb, pinsrd, pinsrq,
     pmaxsb, pmaxsd, pmaxud, pmaxuw, pminsb, pminsd, pminud, pminuw,
@@ -351,6 +353,7 @@ pub const Mnemonic = enum {
     vmovupd, vmovups,
     vmulpd, vmulps, vmulsd, vmulss,
     vorpd, vorps,
+    vpackssdw, vpacksswb, vpackusdw, vpackuswb,
     vpaddb, vpaddd, vpaddq, vpaddsb, vpaddsw, vpaddusb, vpaddusw, vpaddw,
     vpand, vpandn,
     vpextrb, vpextrd, vpextrq, vpextrw,

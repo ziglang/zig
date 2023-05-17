@@ -2709,28 +2709,112 @@ fn airTrunc(self: *Self, inst: Air.Inst.Index) !void {
     const ty_op = self.air.instructions.items(.data)[inst].ty_op;
 
     const dst_ty = self.air.typeOfIndex(inst);
-    const dst_abi_size = dst_ty.abiSize(self.target.*);
-    if (dst_abi_size > 8) {
-        return self.fail("TODO implement trunc for abi sizes larger than 8", .{});
-    }
+    const dst_abi_size = @intCast(u32, dst_ty.abiSize(self.target.*));
+    const src_ty = self.air.typeOf(ty_op.operand);
+    const src_abi_size = @intCast(u32, src_ty.abiSize(self.target.*));
 
-    const src_mcv = try self.resolveInst(ty_op.operand);
-    const src_lock = switch (src_mcv) {
-        .register => |reg| self.register_manager.lockRegAssumeUnused(reg),
-        else => null,
+    const result = result: {
+        const src_mcv = try self.resolveInst(ty_op.operand);
+        const src_lock =
+            if (src_mcv.getReg()) |reg| self.register_manager.lockRegAssumeUnused(reg) else null;
+        defer if (src_lock) |lock| self.register_manager.unlockReg(lock);
+
+        const dst_mcv = if (src_mcv.isRegister() and self.reuseOperand(inst, ty_op.operand, 0, src_mcv))
+            src_mcv
+        else
+            try self.copyToRegisterWithInstTracking(inst, dst_ty, src_mcv);
+
+        if (dst_ty.zigTypeTag() == .Vector) {
+            assert(src_ty.zigTypeTag() == .Vector and dst_ty.vectorLen() == src_ty.vectorLen());
+            const dst_info = dst_ty.childType().intInfo(self.target.*);
+            const src_info = src_ty.childType().intInfo(self.target.*);
+            const mir_tag = if (@as(?Mir.Inst.FixedTag, switch (dst_info.bits) {
+                8 => switch (src_info.bits) {
+                    16 => switch (dst_ty.vectorLen()) {
+                        1...8 => if (self.hasFeature(.avx)) .{ .vp_b, .ackusw } else .{ .p_b, .ackusw },
+                        9...16 => if (self.hasFeature(.avx2)) .{ .vp_b, .ackusw } else null,
+                        else => null,
+                    },
+                    else => null,
+                },
+                16 => switch (src_info.bits) {
+                    32 => switch (dst_ty.vectorLen()) {
+                        1...4 => if (self.hasFeature(.avx))
+                            .{ .vp_w, .ackusd }
+                        else if (self.hasFeature(.sse4_1))
+                            .{ .p_w, .ackusd }
+                        else
+                            null,
+                        5...8 => if (self.hasFeature(.avx2)) .{ .vp_w, .ackusd } else null,
+                        else => null,
+                    },
+                    else => null,
+                },
+                else => null,
+            })) |tag| tag else return self.fail("TODO implement airTrunc for {}", .{
+                dst_ty.fmt(self.bin_file.options.module.?),
+            });
+
+            var mask_pl = Value.Payload.U64{
+                .base = .{ .tag = .int_u64 },
+                .data = @as(u64, math.maxInt(u64)) >> @intCast(u6, 64 - dst_info.bits),
+            };
+            const mask_val = Value.initPayload(&mask_pl.base);
+
+            var splat_pl = Value.Payload.SubValue{
+                .base = .{ .tag = .repeated },
+                .data = mask_val,
+            };
+            const splat_val = Value.initPayload(&splat_pl.base);
+
+            var full_pl = Type.Payload.Array{
+                .base = .{ .tag = .vector },
+                .data = .{
+                    .len = @divExact(@as(u64, if (src_abi_size > 16) 256 else 128), src_info.bits),
+                    .elem_type = src_ty.childType(),
+                },
+            };
+            const full_ty = Type.initPayload(&full_pl.base);
+            const full_abi_size = @intCast(u32, full_ty.abiSize(self.target.*));
+
+            const splat_mcv = try self.genTypedValue(.{ .ty = full_ty, .val = splat_val });
+            const splat_addr_mcv: MCValue = switch (splat_mcv) {
+                .memory, .indirect, .load_frame => splat_mcv.address(),
+                else => .{ .register = try self.copyToTmpRegister(Type.usize, splat_mcv.address()) },
+            };
+
+            const dst_reg = registerAlias(dst_mcv.getReg().?, src_abi_size);
+            if (self.hasFeature(.avx)) {
+                try self.asmRegisterRegisterMemory(
+                    .{ .vp_, .@"and" },
+                    dst_reg,
+                    dst_reg,
+                    splat_addr_mcv.deref().mem(Memory.PtrSize.fromSize(full_abi_size)),
+                );
+                try self.asmRegisterRegisterRegister(mir_tag, dst_reg, dst_reg, dst_reg);
+            } else {
+                try self.asmRegisterMemory(
+                    .{ .p_, .@"and" },
+                    dst_reg,
+                    splat_addr_mcv.deref().mem(Memory.PtrSize.fromSize(full_abi_size)),
+                );
+                try self.asmRegisterRegister(mir_tag, dst_reg, dst_reg);
+            }
+            break :result dst_mcv;
+        }
+
+        if (dst_abi_size > 8) {
+            return self.fail("TODO implement trunc for abi sizes larger than 8", .{});
+        }
+
+        // when truncating a `u16` to `u5`, for example, those top 3 bits in the result
+        // have to be removed. this only happens if the dst if not a power-of-two size.
+        if (self.regExtraBits(dst_ty) > 0)
+            try self.truncateRegister(dst_ty, dst_mcv.register.to64());
+
+        break :result dst_mcv;
     };
-    defer if (src_lock) |lock| self.register_manager.unlockReg(lock);
-
-    const dst_mcv = if (src_mcv.isRegister() and self.reuseOperand(inst, ty_op.operand, 0, src_mcv))
-        src_mcv
-    else
-        try self.copyToRegisterWithInstTracking(inst, dst_ty, src_mcv);
-
-    // when truncating a `u16` to `u5`, for example, those top 3 bits in the result
-    // have to be removed. this only happens if the dst if not a power-of-two size.
-    if (self.regExtraBits(dst_ty) > 0) try self.truncateRegister(dst_ty, dst_mcv.register.to64());
-
-    return self.finishAir(inst, dst_mcv, .{ ty_op.operand, .none, .none });
+    return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
 }
 
 fn airBoolToInt(self: *Self, inst: Air.Inst.Index) !void {
@@ -11081,8 +11165,8 @@ fn airSelect(self: *Self, inst: Air.Inst.Index) !void {
 }
 
 fn airShuffle(self: *Self, inst: Air.Inst.Index) !void {
-    const ty_op = self.air.instructions.items(.data)[inst].ty_op;
-    _ = ty_op;
+    const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
+    _ = ty_pl;
     return self.fail("TODO implement airShuffle for x86_64", .{});
     //return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
 }

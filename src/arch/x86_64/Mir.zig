@@ -446,6 +446,12 @@ pub const Inst = struct {
         /// Bitwise logical xor of packed double-precision floating-point values
         xor,
 
+        /// Pack with signed saturation
+        ackssw,
+        /// Pack with signed saturation
+        ackssd,
+        /// Pack with unsigned saturation
+        ackusw,
         /// Add packed signed integers with signed saturation
         adds,
         /// Add packed unsigned integers with unsigned saturation
@@ -596,6 +602,8 @@ pub const Inst = struct {
         /// Replicate single floating-point values
         movsldup,
 
+        /// Pack with unsigned saturation
+        ackusd,
         /// Blend packed single-precision floating-point values
         /// Blend scalar single-precision floating-point values
         /// Blend packed double-precision floating-point values
