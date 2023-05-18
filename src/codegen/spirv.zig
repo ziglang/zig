@@ -726,6 +726,10 @@ pub const DeclGen = struct {
                         try self.lower(ptr_ty, slice.ptr);
                         try self.addInt(Type.usize, slice.len);
                     },
+                    .null_value, .zero => try self.addNullPtr(try dg.resolveType(ty, .indirect)),
+                    .int_u64, .one, .int_big_positive, .lazy_align, .lazy_size => {
+                        try self.addInt(Type.usize, val);
+                    },
                     else => |tag| return dg.todo("pointer value of type {s}", .{@tagName(tag)}),
                 },
                 .Struct => {
