@@ -29198,6 +29198,8 @@ fn analyzeIsNonErrComptimeOnly(
             if (ies.errors.count() != 0) break :blk;
             if (maybe_operand_val == null) {
                 // Try to avoid resolving inferred error set if possible.
+                if (ies.errors.count() != 0) break :blk;
+                if (ies.is_anyerror) break :blk;
                 for (ies.inferred_error_sets.keys()) |other_ies| {
                     if (ies == other_ies) continue;
                     try sema.resolveInferredErrorSet(block, src, other_ies);
@@ -29209,10 +29211,11 @@ fn analyzeIsNonErrComptimeOnly(
 
                     if (other_ies.errors.count() != 0) break :blk;
                 }
-                if (!ies.is_resolved and ies.func.state == .in_progress) {
-                    // Calling resolveInferredErrorSet would immediately fail
-                    // so we'll have to rely on runtime checks.
-                    return Air.Inst.Ref.none;
+                if (ies.func == sema.owner_func) {
+                    // We're checking the inferred errorset of the current function and none of
+                    // its child inferred error sets contained any errors meaning that any value
+                    // so far with this type can't contain errors either.
+                    return Air.Inst.Ref.bool_true;
                 }
                 try sema.resolveInferredErrorSet(block, src, ies);
                 if (ies.is_anyerror) break :blk;
