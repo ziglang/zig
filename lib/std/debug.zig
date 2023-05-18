@@ -2183,6 +2183,9 @@ pub fn dumpStackPointerAddr(prefix: []const u8) void {
 }
 
 test "manage resources correctly" {
+    // Skip on stripped builds (ReleaseSmall)
+    if (builtin.strip_debug_info) return error.SkipZigTest;
+
     if (builtin.os.tag == .wasi) return error.SkipZigTest;
 
     if (builtin.os.tag == .windows and builtin.cpu.arch == .x86_64) {
