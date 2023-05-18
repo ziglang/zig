@@ -5354,7 +5354,7 @@ fn scanDecl(iter: *ScanDeclIter, decl_sub_index: usize, flags: u4) Allocator.Err
         const msg = try ErrorMsg.create(
             gpa,
             src_loc,
-            "found test declaration with duplicate name: {s}",
+            "duplicate test name: {s}",
             .{decl_name},
         );
         errdefer msg.destroy(gpa);
