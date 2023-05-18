@@ -1738,6 +1738,8 @@ pub const DeclGen = struct {
 
             .shuffle => try self.airShuffle(inst),
 
+            .ptr_add => try self.airPtrAdd(inst),
+
             .bit_and  => try self.airBinOpSimple(inst, .OpBitwiseAnd),
             .bit_or   => try self.airBinOpSimple(inst, .OpBitwiseOr),
             .xor      => try self.airBinOpSimple(inst, .OpBitwiseXor),
@@ -2118,6 +2120,33 @@ pub const DeclGen = struct {
             .indexes = indexes,
         });
         return result_id;
+    }
+
+    fn airPtrAdd(self: *DeclGen, inst: Air.Inst.Index) !?IdRef {
+        if (self.liveness.isUnused(inst)) return null;
+        const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
+        const bin_op = self.air.extraData(Air.Bin, ty_pl.payload).data;
+        const ptr_id = try self.resolve(bin_op.lhs);
+        const offset_id = try self.resolve(bin_op.rhs);
+        const ptr_ty = self.air.typeOf(bin_op.lhs);
+        const result_ty = self.air.typeOfIndex(inst);
+        const result_ty_ref = try self.resolveType(result_ty, .direct);
+
+        switch (ptr_ty.ptrSize()) {
+            .One => {
+                // Pointer to array
+                // TODO: Is this correct?
+                return try self.accessChain(result_ty_ref, ptr_id, &.{offset_id});
+            },
+            .C, .Many => {
+                return try self.ptrAccessChain(result_ty_ref, ptr_id, offset_id, &.{});
+            },
+            .Slice => {
+                // TODO: This is probably incorrect. A slice should be returned here, though this is what llvm does.
+                const slice_ptr_id = try self.extractField(result_ty, ptr_id, 0);
+                return try self.ptrAccessChain(result_ty_ref, slice_ptr_id, offset_id, &.{});
+            },
+        }
     }
 
     fn cmp(
