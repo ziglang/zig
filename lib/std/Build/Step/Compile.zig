@@ -433,7 +433,7 @@ pub fn create(owner: *std.Build, options: Options) *Compile {
 
     const self = owner.allocator.create(Compile) catch @panic("OOM");
     self.* = Compile{
-        .strip = null,
+        .strip = if (options.optimize == .ReleaseSmall) true else null,
         .unwind_tables = null,
         .verbose_link = false,
         .verbose_cc = false,
