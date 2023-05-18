@@ -235,6 +235,10 @@ pub const HashHelper = struct {
                     .none => {},
                 }
             },
+            std.Build.Step.Compile.BuildId => switch (x) {
+                .none, .fast, .uuid, .sha1, .md5 => hh.add(std.meta.activeTag(x)),
+                .hexstring => |hex_string| hh.addBytes(hex_string.toSlice()),
+            },
             else => switch (@typeInfo(@TypeOf(x))) {
                 .Bool, .Int, .Enum, .Array => hh.addBytes(mem.asBytes(&x)),
                 else => @compileError("unable to hash type " ++ @typeName(@TypeOf(x))),

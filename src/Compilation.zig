@@ -29,6 +29,7 @@ const wasi_libc = @import("wasi_libc.zig");
 const fatal = @import("main.zig").fatal;
 const clangMain = @import("main.zig").clangMain;
 const Module = @import("Module.zig");
+const BuildId = std.Build.CompileStep.BuildId;
 const Cache = std.Build.Cache;
 const translate_c = @import("translate_c.zig");
 const clang = @import("clang.zig");
@@ -563,7 +564,7 @@ pub const InitOptions = struct {
     linker_print_map: bool = false,
     linker_opt_bisect_limit: i32 = -1,
     each_lib_rpath: ?bool = null,
-    build_id: ?bool = null,
+    build_id: ?BuildId = null,
     disable_c_depfile: bool = false,
     linker_z_nodelete: bool = false,
     linker_z_notext: bool = false,
@@ -797,7 +798,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
         const unwind_tables = options.want_unwind_tables orelse
             (link_libunwind or target_util.needUnwindTables(options.target));
         const link_eh_frame_hdr = options.link_eh_frame_hdr or unwind_tables;
-        const build_id = options.build_id orelse false;
+        const build_id = options.build_id orelse .none;
 
         // Make a decision on whether to use LLD or our own linker.
         const use_lld = options.use_lld orelse blk: {
@@ -828,7 +829,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
                 options.output_mode == .Lib or
                 options.linker_script != null or options.version_script != null or
                 options.emit_implib != null or
-                build_id or
+                build_id != .none or
                 options.symbol_wrap_set.count() > 0)
             {
                 break :blk true;
@@ -2055,7 +2056,7 @@ pub fn update(comp: *Compilation, main_progress_node: *std.Progress.Node) !void 
         return;
     }
 
-    if (!build_options.only_c and !build_options.omit_pkg_fetching_code) {
+    if (!build_options.only_c and !build_options.only_core_functionality) {
         if (comp.emit_docs) |doc_location| {
             if (comp.bin_file.options.module) |module| {
                 var autodoc = Autodoc.init(module, doc_location);
@@ -4595,6 +4596,27 @@ pub const FileExt = enum {
             .def,
             .unknown,
             => false,
+        };
+    }
+
+    pub fn canonicalName(ext: FileExt, target: Target) [:0]const u8 {
+        return switch (ext) {
+            .c => ".c",
+            .cpp => ".cpp",
+            .cu => ".cu",
+            .h => ".h",
+            .m => ".m",
+            .mm => ".mm",
+            .ll => ".ll",
+            .bc => ".bc",
+            .assembly => ".s",
+            .assembly_with_cpp => ".S",
+            .shared_library => target.dynamicLibSuffix(),
+            .object => target.ofmt.fileExt(target.cpu.arch),
+            .static_library => target.staticLibSuffix(),
+            .zig => ".zig",
+            .def => ".def",
+            .unknown => "",
         };
     }
 };
