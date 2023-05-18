@@ -281,12 +281,8 @@ pub fn mainArgs(gpa: Allocator, arena: Allocator, args: []const []const u8) !voi
         mem.eql(u8, cmd, "ar"))
     {
         return process.exit(try llvmArMain(arena, args));
-    } else if (mem.eql(u8, cmd, "cc")) {
-        return buildOutputType(gpa, arena, args, .cc);
-    } else if (mem.eql(u8, cmd, "c++")) {
-        return buildOutputType(gpa, arena, args, .cpp);
-    } else if (mem.eql(u8, cmd, "translate-c")) {
-        return buildOutputType(gpa, arena, args, .translate_c);
+    } else if (mem.eql(u8, cmd, "build")) {
+        return cmdBuild(gpa, arena, cmd_args);
     } else if (mem.eql(u8, cmd, "clang") or
         mem.eql(u8, cmd, "-cc1") or mem.eql(u8, cmd, "-cc1as"))
     {
@@ -296,8 +292,14 @@ pub fn mainArgs(gpa: Allocator, arena: Allocator, args: []const []const u8) !voi
         mem.eql(u8, cmd, "wasm-ld"))
     {
         return process.exit(try lldMain(arena, args, true));
-    } else if (mem.eql(u8, cmd, "build")) {
-        return cmdBuild(gpa, arena, cmd_args);
+    } else if (build_options.only_core_functionality) {
+        @panic("only a few subcommands are supported in a zig2.c build");
+    } else if (mem.eql(u8, cmd, "cc")) {
+        return buildOutputType(gpa, arena, args, .cc);
+    } else if (mem.eql(u8, cmd, "c++")) {
+        return buildOutputType(gpa, arena, args, .cpp);
+    } else if (mem.eql(u8, cmd, "translate-c")) {
+        return buildOutputType(gpa, arena, args, .translate_c);
     } else if (mem.eql(u8, cmd, "fmt")) {
         return cmdFmt(gpa, arena, cmd_args);
     } else if (mem.eql(u8, cmd, "objcopy")) {
@@ -678,7 +680,7 @@ const ArgMode = union(enum) {
 
 /// Avoid dragging networking into zig2.c because it adds dependencies on some
 /// linker symbols that are annoying to satisfy while bootstrapping.
-const Ip4Address = if (build_options.omit_pkg_fetching_code) void else std.net.Ip4Address;
+const Ip4Address = if (build_options.only_core_functionality) void else std.net.Ip4Address;
 
 const Listen = union(enum) {
     none,
@@ -1177,7 +1179,7 @@ fn buildOutputType(
                         if (mem.eql(u8, next_arg, "-")) {
                             listen = .stdio;
                         } else {
-                            if (build_options.omit_pkg_fetching_code) unreachable;
+                            if (build_options.only_core_functionality) unreachable;
                             // example: --listen 127.0.0.1:9000
                             var it = std.mem.split(u8, next_arg, ":");
                             const host = it.next().?;
@@ -3266,7 +3268,7 @@ fn buildOutputType(
             return cleanExit();
         },
         .ip4 => |ip4_addr| {
-            if (build_options.omit_pkg_fetching_code) unreachable;
+            if (build_options.only_core_functionality) unreachable;
 
             var server = std.net.StreamServer.init(.{
                 .reuse_address = true,
@@ -4413,7 +4415,7 @@ pub fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !voi
             .root_src_directory = build_directory,
             .root_src_path = build_zig_basename,
         };
-        if (!build_options.omit_pkg_fetching_code) {
+        if (!build_options.only_core_functionality) {
             var http_client: std.http.Client = .{ .allocator = gpa };
             defer http_client.deinit();
 
