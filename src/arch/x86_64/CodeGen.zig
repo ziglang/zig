@@ -2967,20 +2967,43 @@ fn airAddSat(self: *Self, inst: Air.Inst.Index) !void {
     defer self.register_manager.unlockReg(limit_lock);
 
     const reg_bits = self.regBitSize(ty);
+    const reg_extra_bits = self.regExtraBits(ty);
     const cc: Condition = if (ty.isSignedInt()) cc: {
+        if (reg_extra_bits > 0) {
+            try self.genShiftBinOpMir(.{ ._l, .sa }, ty, dst_mcv, .{ .immediate = reg_extra_bits });
+        }
         try self.genSetReg(limit_reg, ty, dst_mcv);
         try self.genShiftBinOpMir(.{ ._r, .sa }, ty, limit_mcv, .{ .immediate = reg_bits - 1 });
         try self.genBinOpMir(.{ ._, .xor }, ty, limit_mcv, .{
             .immediate = (@as(u64, 1) << @intCast(u6, reg_bits - 1)) - 1,
         });
+        if (reg_extra_bits > 0) {
+            const shifted_rhs_reg = try self.copyToTmpRegister(ty, rhs_mcv);
+            const shifted_rhs_mcv = MCValue{ .register = shifted_rhs_reg };
+            const shifted_rhs_lock = self.register_manager.lockRegAssumeUnused(shifted_rhs_reg);
+            defer self.register_manager.unlockReg(shifted_rhs_lock);
+
+            try self.genShiftBinOpMir(
+                .{ ._l, .sa },
+                ty,
+                shifted_rhs_mcv,
+                .{ .immediate = reg_extra_bits },
+            );
+            try self.genBinOpMir(.{ ._, .add }, ty, dst_mcv, shifted_rhs_mcv);
+        } else try self.genBinOpMir(.{ ._, .add }, ty, dst_mcv, rhs_mcv);
         break :cc .o;
     } else cc: {
         try self.genSetReg(limit_reg, ty, .{
-            .immediate = @as(u64, math.maxInt(u64)) >> @intCast(u6, 64 - reg_bits),
+            .immediate = @as(u64, math.maxInt(u64)) >> @intCast(u6, 64 - ty.bitSize(self.target.*)),
         });
+
+        try self.genBinOpMir(.{ ._, .add }, ty, dst_mcv, rhs_mcv);
+        if (reg_extra_bits > 0) {
+            try self.genBinOpMir(.{ ._, .cmp }, ty, dst_mcv, limit_mcv);
+            break :cc .a;
+        }
         break :cc .c;
     };
-    try self.genBinOpMir(.{ ._, .add }, ty, dst_mcv, rhs_mcv);
 
     const cmov_abi_size = @max(@intCast(u32, ty.abiSize(self.target.*)), 2);
     try self.asmCmovccRegisterRegister(
@@ -2988,6 +3011,10 @@ fn airAddSat(self: *Self, inst: Air.Inst.Index) !void {
         registerAlias(limit_reg, cmov_abi_size),
         cc,
     );
+
+    if (reg_extra_bits > 0 and ty.isSignedInt()) {
+        try self.genShiftBinOpMir(.{ ._r, .sa }, ty, dst_mcv, .{ .immediate = reg_extra_bits });
+    }
 
     return self.finishAir(inst, dst_mcv, .{ bin_op.lhs, bin_op.rhs, .none });
 }
@@ -3018,18 +3045,36 @@ fn airSubSat(self: *Self, inst: Air.Inst.Index) !void {
     defer self.register_manager.unlockReg(limit_lock);
 
     const reg_bits = self.regBitSize(ty);
+    const reg_extra_bits = self.regExtraBits(ty);
     const cc: Condition = if (ty.isSignedInt()) cc: {
+        if (reg_extra_bits > 0) {
+            try self.genShiftBinOpMir(.{ ._l, .sa }, ty, dst_mcv, .{ .immediate = reg_extra_bits });
+        }
         try self.genSetReg(limit_reg, ty, dst_mcv);
         try self.genShiftBinOpMir(.{ ._r, .sa }, ty, limit_mcv, .{ .immediate = reg_bits - 1 });
         try self.genBinOpMir(.{ ._, .xor }, ty, limit_mcv, .{
             .immediate = (@as(u64, 1) << @intCast(u6, reg_bits - 1)) - 1,
         });
+        if (reg_extra_bits > 0) {
+            const shifted_rhs_reg = try self.copyToTmpRegister(ty, rhs_mcv);
+            const shifted_rhs_mcv = MCValue{ .register = shifted_rhs_reg };
+            const shifted_rhs_lock = self.register_manager.lockRegAssumeUnused(shifted_rhs_reg);
+            defer self.register_manager.unlockReg(shifted_rhs_lock);
+
+            try self.genShiftBinOpMir(
+                .{ ._l, .sa },
+                ty,
+                shifted_rhs_mcv,
+                .{ .immediate = reg_extra_bits },
+            );
+            try self.genBinOpMir(.{ ._, .sub }, ty, dst_mcv, shifted_rhs_mcv);
+        } else try self.genBinOpMir(.{ ._, .sub }, ty, dst_mcv, rhs_mcv);
         break :cc .o;
     } else cc: {
         try self.genSetReg(limit_reg, ty, .{ .immediate = 0 });
+        try self.genBinOpMir(.{ ._, .sub }, ty, dst_mcv, rhs_mcv);
         break :cc .c;
     };
-    try self.genBinOpMir(.{ ._, .sub }, ty, dst_mcv, rhs_mcv);
 
     const cmov_abi_size = @max(@intCast(u32, ty.abiSize(self.target.*)), 2);
     try self.asmCmovccRegisterRegister(
@@ -3037,6 +3082,10 @@ fn airSubSat(self: *Self, inst: Air.Inst.Index) !void {
         registerAlias(limit_reg, cmov_abi_size),
         cc,
     );
+
+    if (reg_extra_bits > 0 and ty.isSignedInt()) {
+        try self.genShiftBinOpMir(.{ ._r, .sa }, ty, dst_mcv, .{ .immediate = reg_extra_bits });
+    }
 
     return self.finishAir(inst, dst_mcv, .{ bin_op.lhs, bin_op.rhs, .none });
 }
