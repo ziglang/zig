@@ -1752,7 +1752,7 @@ pub const DeclGen = struct {
 
             .shl => try self.airShift(inst, .OpShiftLeftLogical),
 
-            .bitcast         => try self.airBitcast(inst),
+            .bitcast         => try self.airBitCast(inst),
             .intcast, .trunc => try self.airIntCast(inst),
             .ptrtoint        => try self.airPtrToInt(inst),
             .int_to_float    => try self.airIntToFloat(inst),
@@ -2269,22 +2269,41 @@ pub const DeclGen = struct {
         return try self.cmp(op, bool_ty_id, ty, lhs_id, rhs_id);
     }
 
-    fn bitcast(self: *DeclGen, target_type_id: IdResultType, value_id: IdRef) !IdRef {
+    fn bitCast(
+        self: *DeclGen,
+        dst_ty: Type,
+        src_ty: Type,
+        src_id: IdRef,
+    ) !IdRef {
+        const dst_ty_ref = try self.resolveType(dst_ty, .direct);
         const result_id = self.spv.allocId();
-        try self.func.body.emit(self.spv.gpa, .OpBitcast, .{
-            .id_result_type = target_type_id,
-            .id_result = result_id,
-            .operand = value_id,
-        });
+
+        // TODO: Some more cases are missing here
+        //   See fn bitCast in llvm.zig
+
+        if (src_ty.zigTypeTag() == .Int and dst_ty.isPtrAtRuntime()) {
+            try self.func.body.emit(self.spv.gpa, .OpConvertUToPtr, .{
+                .id_result_type = self.typeId(dst_ty_ref),
+                .id_result = result_id,
+                .integer_value = src_id,
+            });
+        } else {
+            try self.func.body.emit(self.spv.gpa, .OpBitcast, .{
+                .id_result_type = self.typeId(dst_ty_ref),
+                .id_result = result_id,
+                .operand = src_id,
+            });
+        }
         return result_id;
     }
 
-    fn airBitcast(self: *DeclGen, inst: Air.Inst.Index) !?IdRef {
+    fn airBitCast(self: *DeclGen, inst: Air.Inst.Index) !?IdRef {
         if (self.liveness.isUnused(inst)) return null;
         const ty_op = self.air.instructions.items(.data)[inst].ty_op;
         const operand_id = try self.resolve(ty_op.operand);
-        const result_type_id = try self.resolveTypeId(self.air.typeOfIndex(inst));
-        return try self.bitcast(result_type_id, operand_id);
+        const operand_ty = self.air.typeOf(ty_op.operand);
+        const result_ty = self.air.typeOfIndex(inst);
+        return try self.bitCast(result_ty, operand_ty, operand_id);
     }
 
     fn airIntCast(self: *DeclGen, inst: Air.Inst.Index) !?IdRef {

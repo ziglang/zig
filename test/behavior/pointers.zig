@@ -5,7 +5,6 @@ const expect = testing.expect;
 const expectError = testing.expectError;
 
 test "dereference pointer" {
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
     comptime try testDerefPtr();
     try testDerefPtr();
 }
@@ -53,7 +52,6 @@ fn PtrOf(comptime T: type) type {
 
 test "implicit cast single item pointer to C pointer and back" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     var y: u8 = 11;
     var x: [*c]u8 = &y;
@@ -70,7 +68,6 @@ test "initialize const optional C pointer to null" {
 
 test "assigning integer to C pointer" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     var x: i32 = 0;
     var y: i32 = 1;
