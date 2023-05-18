@@ -1814,10 +1814,8 @@ fn genInst(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         .subwrap => func.airWrapBinOp(inst, .sub),
         .mul => func.airBinOp(inst, .mul),
         .mulwrap => func.airWrapBinOp(inst, .mul),
-        .div_float,
-        .div_exact,
-        .div_trunc,
-        => func.airDiv(inst),
+        .div_float, .div_exact => func.airDiv(inst),
+        .div_trunc => func.airDivTrunc(inst),
         .div_floor => func.airDivFloor(inst),
         .bit_and => func.airBinOp(inst, .@"and"),
         .bit_or => func.airBinOp(inst, .@"or"),
@@ -6136,6 +6134,26 @@ fn airDiv(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     else
         try (try func.binOp(lhs, rhs, ty, .div)).toLocal(func, ty);
     func.finishAir(inst, result, &.{ bin_op.lhs, bin_op.rhs });
+}
+
+fn airDivTrunc(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
+    const bin_op = func.air.instructions.items(.data)[inst].bin_op;
+
+    const ty = func.air.typeOfIndex(inst);
+    const lhs = try func.resolveInst(bin_op.lhs);
+    const rhs = try func.resolveInst(bin_op.rhs);
+
+    const div_result = if (ty.isSignedInt())
+        try func.divSigned(lhs, rhs, ty)
+    else
+        try (try func.binOp(lhs, rhs, ty, .div)).toLocal(func, ty);
+
+    if (ty.isAnyFloat()) {
+        const trunc_result = try (try func.floatOp(.trunc, ty, &.{div_result})).toLocal(func, ty);
+        return func.finishAir(inst, trunc_result, &.{ bin_op.lhs, bin_op.rhs });
+    }
+
+    return func.finishAir(inst, div_result, &.{ bin_op.lhs, bin_op.rhs });
 }
 
 fn airDivFloor(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
