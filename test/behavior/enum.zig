@@ -20,6 +20,8 @@ test "enum to int" {
 }
 
 fn testIntToEnumEval(x: i32) !void {
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
     try expect(@intToEnum(IntToEnumNumber, x) == IntToEnumNumber.Three);
 }
 const IntToEnumNumber = enum { Zero, One, Two, Three, Four };

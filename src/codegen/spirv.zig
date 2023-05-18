@@ -369,17 +369,6 @@ pub const DeclGen = struct {
                         .composite_integer,
                 };
             },
-            .Enum => blk: {
-                var buffer: Type.Payload.Bits = undefined;
-                const int_ty = ty.intTagType(&buffer);
-                const int_info = int_ty.intInfo(target);
-                break :blk ArithmeticTypeInfo{
-                    .bits = int_info.bits,
-                    .is_vector = false,
-                    .signedness = int_info.signedness,
-                    .class = .integer,
-                };
-            },
             // As of yet, there is no vector support in the self-hosted compiler.
             .Vector => self.todo("implement arithmeticTypeInfo for Vector", .{}),
             // TODO: For which types is this the case?
@@ -1742,12 +1731,12 @@ pub const DeclGen = struct {
             .struct_field_ptr_index_2 => try self.airStructFieldPtrIndex(inst, 2),
             .struct_field_ptr_index_3 => try self.airStructFieldPtrIndex(inst, 3),
 
-            .cmp_eq  => try self.airCmp(inst, .OpFOrdEqual,            .OpLogicalEqual,      .OpIEqual),
-            .cmp_neq => try self.airCmp(inst, .OpFOrdNotEqual,         .OpLogicalNotEqual,   .OpINotEqual),
-            .cmp_gt  => try self.airCmp(inst, .OpFOrdGreaterThan,      .OpSGreaterThan,      .OpUGreaterThan),
-            .cmp_gte => try self.airCmp(inst, .OpFOrdGreaterThanEqual, .OpSGreaterThanEqual, .OpUGreaterThanEqual),
-            .cmp_lt  => try self.airCmp(inst, .OpFOrdLessThan,         .OpSLessThan,         .OpULessThan),
-            .cmp_lte => try self.airCmp(inst, .OpFOrdLessThanEqual,    .OpSLessThanEqual,    .OpULessThanEqual),
+            .cmp_eq  => try self.airCmp(inst, .eq),
+            .cmp_neq => try self.airCmp(inst, .neq),
+            .cmp_gt  => try self.airCmp(inst, .gt),
+            .cmp_gte => try self.airCmp(inst, .gte),
+            .cmp_lt  => try self.airCmp(inst, .lt),
+            .cmp_lte => try self.airCmp(inst, .lte),
 
             .arg     => self.airArg(),
             .alloc   => try self.airAlloc(inst),
@@ -2039,56 +2028,120 @@ pub const DeclGen = struct {
         return result_id;
     }
 
-    fn airCmp(self: *DeclGen, inst: Air.Inst.Index, comptime fop: Opcode, comptime sop: Opcode, comptime uop: Opcode) !?IdRef {
+    fn cmp(
+        self: *DeclGen,
+        comptime op: std.math.CompareOperator,
+        bool_ty_id: IdRef,
+        ty: Type,
+        lhs_id: IdRef,
+        rhs_id: IdRef,
+    ) !IdRef {
+        var cmp_lhs_id = lhs_id;
+        var cmp_rhs_id = rhs_id;
+        const opcode: Opcode = opcode: {
+            var int_buffer: Type.Payload.Bits = undefined;
+            const op_ty = switch (ty.zigTypeTag()) {
+                .Int, .Bool, .Float => ty,
+                .Enum => ty.intTagType(&int_buffer),
+                .ErrorSet => Type.u16,
+                .Pointer => blk: {
+                    // Note that while SPIR-V offers OpPtrEqual and OpPtrNotEqual, they are
+                    // currently not implemented in the SPIR-V LLVM translator. Thus, we emit these using
+                    // OpConvertPtrToU...
+                    cmp_lhs_id = self.spv.allocId();
+                    cmp_rhs_id = self.spv.allocId();
+
+                    const usize_ty_id = self.typeId(try self.sizeType());
+
+                    try self.func.body.emit(self.spv.gpa, .OpConvertPtrToU, .{
+                        .id_result_type = usize_ty_id,
+                        .id_result = cmp_lhs_id,
+                        .pointer = lhs_id,
+                    });
+
+                    try self.func.body.emit(self.spv.gpa, .OpConvertPtrToU, .{
+                        .id_result_type = usize_ty_id,
+                        .id_result = cmp_rhs_id,
+                        .pointer = rhs_id,
+                    });
+
+                    break :blk Type.usize;
+                },
+                .Optional => unreachable, // TODO
+                else => unreachable,
+            };
+
+            const info = try self.arithmeticTypeInfo(op_ty);
+            const signedness = switch (info.class) {
+                .composite_integer => {
+                    return self.todo("binary operations for composite integers", .{});
+                },
+                .float => break :opcode switch (op) {
+                    .eq => .OpFOrdEqual,
+                    .neq => .OpFOrdNotEqual,
+                    .lt => .OpFOrdLessThan,
+                    .lte => .OpFOrdLessThanEqual,
+                    .gt => .OpFOrdGreaterThan,
+                    .gte => .OpFOrdGreaterThanEqual,
+                },
+                .bool => break :opcode switch (op) {
+                    .eq => .OpIEqual,
+                    .neq => .OpINotEqual,
+                    else => unreachable,
+                },
+                .strange_integer => sign: {
+                    const op_ty_ref = try self.resolveType(op_ty, .direct);
+                    // Mask operands before performing comparison.
+                    cmp_lhs_id = try self.maskStrangeInt(op_ty_ref, cmp_lhs_id, info.bits);
+                    cmp_rhs_id = try self.maskStrangeInt(op_ty_ref, cmp_rhs_id, info.bits);
+                    break :sign info.signedness;
+                },
+                .integer => info.signedness,
+            };
+
+            break :opcode switch (signedness) {
+                .unsigned => switch (op) {
+                    .eq => .OpIEqual,
+                    .neq => .OpINotEqual,
+                    .lt => .OpULessThan,
+                    .lte => .OpULessThanEqual,
+                    .gt => .OpUGreaterThan,
+                    .gte => .OpUGreaterThanEqual,
+                },
+                .signed => switch (op) {
+                    .eq => .OpIEqual,
+                    .neq => .OpINotEqual,
+                    .lt => .OpSLessThan,
+                    .lte => .OpSLessThanEqual,
+                    .gt => .OpSGreaterThan,
+                    .gte => .OpSGreaterThanEqual,
+                },
+            };
+        };
+
+        const result_id = self.spv.allocId();
+        try self.func.body.emitRaw(self.spv.gpa, opcode, 4);
+        self.func.body.writeOperand(spec.IdResultType, bool_ty_id);
+        self.func.body.writeOperand(spec.IdResult, result_id);
+        self.func.body.writeOperand(spec.IdResultType, cmp_lhs_id);
+        self.func.body.writeOperand(spec.IdResultType, cmp_rhs_id);
+        return result_id;
+    }
+
+    fn airCmp(
+        self: *DeclGen,
+        inst: Air.Inst.Index,
+        comptime op: std.math.CompareOperator,
+    ) !?IdRef {
         if (self.liveness.isUnused(inst)) return null;
         const bin_op = self.air.instructions.items(.data)[inst].bin_op;
-        var lhs_id = try self.resolve(bin_op.lhs);
-        var rhs_id = try self.resolve(bin_op.rhs);
-        const result_id = self.spv.allocId();
-        const result_type_id = try self.resolveTypeId(Type.bool);
-        const op_ty = self.air.typeOf(bin_op.lhs);
-        assert(op_ty.eql(self.air.typeOf(bin_op.rhs), self.module));
+        const lhs_id = try self.resolve(bin_op.lhs);
+        const rhs_id = try self.resolve(bin_op.rhs);
+        const bool_ty_id = try self.resolveTypeId(Type.bool);
+        const ty = self.air.typeOf(bin_op.lhs);
+        assert(ty.eql(self.air.typeOf(bin_op.rhs), self.module));
 
-        // Comparisons are generally applicable to both scalar and vector operations in SPIR-V,
-        // but int and float versions of operations require different opcodes.
-        const info = try self.arithmeticTypeInfo(op_ty);
-
-        const opcode_index: usize = switch (info.class) {
-            .composite_integer => {
-                return self.todo("binary operations for composite integers", .{});
-            },
-            .float => 0,
-            .bool => 1,
-            .strange_integer => blk: {
-                const op_ty_ref = try self.resolveType(op_ty, .direct);
-                lhs_id = try self.maskStrangeInt(op_ty_ref, lhs_id, info.bits);
-                rhs_id = try self.maskStrangeInt(op_ty_ref, rhs_id, info.bits);
-                break :blk switch (info.signedness) {
-                    .signed => @as(usize, 1),
-                    .unsigned => @as(usize, 2),
-                };
-            },
-            .integer => switch (info.signedness) {
-                .signed => @as(usize, 1),
-                .unsigned => @as(usize, 2),
-            },
-        };
-
-        const operands = .{
-            .id_result_type = result_type_id,
-            .id_result = result_id,
-            .operand_1 = lhs_id,
-            .operand_2 = rhs_id,
-        };
-
-        switch (opcode_index) {
-            0 => try self.func.body.emit(self.spv.gpa, fop, operands),
-            1 => try self.func.body.emit(self.spv.gpa, sop, operands),
-            2 => try self.func.body.emit(self.spv.gpa, uop, operands),
-            else => unreachable,
-        }
-
-        return result_id;
+        return try self.cmp(op, bool_ty_id, ty, lhs_id, rhs_id);
     }
 
     fn bitcast(self: *DeclGen, target_type_id: IdResultType, value_id: IdRef) !IdRef {
