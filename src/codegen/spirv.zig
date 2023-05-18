@@ -442,6 +442,43 @@ pub const DeclGen = struct {
         }
     }
 
+    /// Construct a struct at runtime.
+    /// result_ty_ref must be a struct type.
+    fn constructStruct(self: *DeclGen, result_ty_ref: SpvType.Ref, constituents: []const IdRef) !IdRef {
+        // The Khronos LLVM-SPIRV translator crashes because it cannot construct structs which'
+        // operands are not constant.
+        // See https://github.com/KhronosGroup/SPIRV-LLVM-Translator/issues/1349
+        // For now, just initialize the struct by setting the fields manually...
+        // TODO: Make this OpCompositeConstruct when we can
+        const ptr_composite_id = try self.alloc(result_ty_ref, null);
+        // Note: using 32-bit ints here because usize crashes the translator as well
+        const index_ty_ref = try self.intType(.unsigned, 32);
+        const spv_composite_ty = self.spv.typeRefType(result_ty_ref);
+        const members = spv_composite_ty.payload(.@"struct").members;
+        for (constituents, members, 0..) |constitent_id, member, index| {
+            const index_id = try self.constInt(index_ty_ref, index);
+            const ptr_id = self.spv.allocId();
+            const ptr_member_ty_ref = try self.spv.ptrType(member.ty, .Generic, 0);
+            try self.func.body.emit(self.spv.gpa, .OpInBoundsAccessChain, .{
+                .id_result_type = self.typeId(ptr_member_ty_ref),
+                .id_result = ptr_id,
+                .base = ptr_composite_id,
+                .indexes = &.{index_id},
+            });
+            try self.func.body.emit(self.spv.gpa, .OpStore, .{
+                .pointer = ptr_id,
+                .object = constitent_id,
+            });
+        }
+        const result_id = self.spv.allocId();
+        try self.func.body.emit(self.spv.gpa, .OpLoad, .{
+            .id_result_type = self.typeId(result_ty_ref),
+            .id_result = result_id,
+            .pointer = ptr_composite_id,
+        });
+        return result_id;
+    }
+
     const IndirectConstantLowering = struct {
         const undef = 0xAA;
 
@@ -1582,6 +1619,20 @@ pub const DeclGen = struct {
         }
     }
 
+    fn boolToInt(self: *DeclGen, result_ty_ref: SpvType.Ref, condition_id: IdRef) !IdRef {
+        const zero_id = try self.constInt(result_ty_ref, 0);
+        const one_id = try self.constInt(result_ty_ref, 1);
+        const result_id = self.spv.allocId();
+        try self.func.body.emit(self.spv.gpa, .OpSelect, .{
+            .id_result_type = self.typeId(result_ty_ref),
+            .id_result = result_id,
+            .condition = condition_id,
+            .object_1 = one_id,
+            .object_2 = zero_id,
+        });
+        return result_id;
+    }
+
     /// Convert representation from indirect (in memory) to direct (in 'register')
     /// This converts the argument type from resolveType(ty, .indirect) to resolveType(ty, .direct).
     fn convertToDirect(self: *DeclGen, ty: Type, operand_id: IdRef) !IdRef {
@@ -1610,17 +1661,7 @@ pub const DeclGen = struct {
         return switch (ty.zigTypeTag()) {
             .Bool => blk: {
                 const indirect_bool_ty_ref = try self.resolveType(ty, .indirect);
-                const zero_id = try self.constInt(indirect_bool_ty_ref, 0);
-                const one_id = try self.constInt(indirect_bool_ty_ref, 1);
-                const result_id = self.spv.allocId();
-                try self.func.body.emit(self.spv.gpa, .OpSelect, .{
-                    .id_result_type = self.typeId(indirect_bool_ty_ref),
-                    .id_result = result_id,
-                    .condition = operand_id,
-                    .object_1 = one_id,
-                    .object_2 = zero_id,
-                });
-                break :blk result_id;
+                break :blk self.boolToInt(indirect_bool_ty_ref, operand_id);
             },
             else => operand_id,
         };
@@ -1933,64 +1974,83 @@ pub const DeclGen = struct {
             .float, .bool => unreachable,
         }
 
-        // The operand type must be the same as the result type in SPIR-V.
+        // The operand type must be the same as the result type in SPIR-V, which
+        // is the same as in Zig.
         const operand_ty_ref = try self.resolveType(operand_ty, .direct);
         const operand_ty_id = self.typeId(operand_ty_ref);
 
-        const op_result_id = blk: {
-            // Construct the SPIR-V result type.
-            // It is almost the same as the zig one, except that the fields must be the same type
-            // and they must be unsigned.
-            const overflow_result_ty_ref = try self.spv.simpleStructType(&.{
-                .{ .ty = operand_ty_ref, .name = "res" },
-                .{ .ty = operand_ty_ref, .name = "ov" },
-            });
-            const result_id = self.spv.allocId();
-            try self.func.body.emit(self.spv.gpa, .OpIAddCarry, .{
-                .id_result_type = self.typeId(overflow_result_ty_ref),
-                .id_result = result_id,
-                .operand_1 = lhs,
-                .operand_2 = rhs,
-            });
-            break :blk result_id;
-        };
+        const bool_ty_ref = try self.resolveType(Type.bool, .direct);
 
-        // Now convert the SPIR-V flavor result into a Zig-flavor result.
-        // First, extract the two fields.
-        const unsigned_result = try self.extractField(operand_ty, op_result_id, 0);
-        const overflow = try self.extractField(operand_ty, op_result_id, 1);
+        const ov_ty = result_ty.tupleFields().types[1];
+        // Note: result is stored in a struct, so indirect representation.
+        const ov_ty_ref = try self.resolveType(ov_ty, .indirect);
 
-        // We need to convert the results to the types that Zig expects here.
-        // The `result` is the same type except unsigned, so we can just bitcast that.
-        // TODO: This can be removed in Kernels as there are only unsigned ints. Maybe for
-        // shaders as well?
-        const result = try self.bitcast(operand_ty_id, unsigned_result);
-
-        // The overflow needs to be converted into whatever is used to represent it in Zig.
-        const casted_overflow = blk: {
-            const ov_ty = result_ty.tupleFields().types[1];
-            const ov_ty_id = try self.resolveTypeId(ov_ty);
-            const result_id = self.spv.allocId();
-            try self.func.body.emit(self.spv.gpa, .OpUConvert, .{
-                .id_result_type = ov_ty_id,
-                .id_result = result_id,
-                .unsigned_value = overflow,
-            });
-            break :blk result_id;
-        };
-
-        // TODO: If copying this function for borrow, make sure to convert -1 to 1 as appropriate.
-
-        // Finally, construct the Zig type.
-        // Layout is result, overflow.
-        const result_id = self.spv.allocId();
-        const constituents = [_]IdRef{ result, casted_overflow };
-        try self.func.body.emit(self.spv.gpa, .OpCompositeConstruct, .{
+        // TODO: Operations other than addition.
+        const value_id = self.spv.allocId();
+        try self.func.body.emit(self.spv.gpa, .OpIAdd, .{
             .id_result_type = operand_ty_id,
-            .id_result = result_id,
-            .constituents = &constituents,
+            .id_result = value_id,
+            .operand_1 = lhs,
+            .operand_2 = rhs,
         });
-        return result_id;
+
+        const overflowed_id = switch (info.signedness) {
+            .unsigned => blk: {
+                // Overflow happened if the result is smaller than either of the operands. It doesn't matter which.
+                const overflowed_id = self.spv.allocId();
+                try self.func.body.emit(self.spv.gpa, .OpULessThan, .{
+                    .id_result_type = self.typeId(bool_ty_ref),
+                    .id_result = overflowed_id,
+                    .operand_1 = value_id,
+                    .operand_2 = lhs,
+                });
+                break :blk overflowed_id;
+            },
+            .signed => blk: {
+                // Overflow happened if:
+                // - rhs is negative and value > lhs
+                // - rhs is positive and value < lhs
+                // This can be shortened to:
+                //   (rhs < 0 && value > lhs) || (rhs >= 0 && value <= lhs)
+                // = (rhs < 0) == (value > lhs)
+                // Note that signed overflow is also wrapping in spir-v.
+
+                const rhs_lt_zero_id = self.spv.allocId();
+                const zero_id = try self.constInt(operand_ty_ref, 0);
+                try self.func.body.emit(self.spv.gpa, .OpSLessThan, .{
+                    .id_result_type = self.typeId(bool_ty_ref),
+                    .id_result = rhs_lt_zero_id,
+                    .operand_1 = rhs,
+                    .operand_2 = zero_id,
+                });
+
+                const value_gt_lhs_id = self.spv.allocId();
+                try self.func.body.emit(self.spv.gpa, .OpSGreaterThan, .{
+                    .id_result_type = self.typeId(bool_ty_ref),
+                    .id_result = value_gt_lhs_id,
+                    .operand_1 = value_id,
+                    .operand_2 = lhs,
+                });
+
+                const overflowed_id = self.spv.allocId();
+                try self.func.body.emit(self.spv.gpa, .OpLogicalEqual, .{
+                    .id_result_type = self.typeId(bool_ty_ref),
+                    .id_result = overflowed_id,
+                    .operand_1 = rhs_lt_zero_id,
+                    .operand_2 = value_gt_lhs_id,
+                });
+                break :blk overflowed_id;
+            },
+        };
+
+        // Construct the struct that Zig wants as result.
+        // The value should already be the correct type.
+        const ov_id = try self.boolToInt(ov_ty_ref, overflowed_id);
+        const result_ty_ref = try self.resolveType(result_ty, .direct);
+        return try self.constructStruct(result_ty_ref, &.{
+            value_id,
+            ov_id,
+        });
     }
 
     fn airShuffle(self: *DeclGen, inst: Air.Inst.Index) !?IdRef {
@@ -2463,76 +2523,45 @@ pub const DeclGen = struct {
         return result_id;
     }
 
-    fn variable(
+    // Allocate a function-local variable, with possible initializer.
+    // This function returns a pointer to a variable of type `ty_ref`,
+    // which is in the Generic address space. The variable is actually
+    // placed in the Function address space.
+    fn alloc(
         self: *DeclGen,
-        comptime context: enum { function, global },
-        result_id: IdRef,
-        ptr_ty_ref: SpvType.Ref,
+        ty_ref: SpvType.Ref,
         initializer: ?IdRef,
-    ) !void {
-        const storage_class = self.spv.typeRefType(ptr_ty_ref).payload(.pointer).storage_class;
-        const actual_storage_class = switch (storage_class) {
-            .Generic => switch (context) {
-                .function => .Function,
-                .global => .CrossWorkgroup,
-            },
-            else => storage_class,
-        };
-        const actual_ptr_ty_ref = switch (storage_class) {
-            .Generic => try self.spv.changePtrStorageClass(ptr_ty_ref, actual_storage_class),
-            else => ptr_ty_ref,
-        };
-        const alloc_result_id = switch (storage_class) {
-            .Generic => self.spv.allocId(),
-            else => result_id,
-        };
+    ) !IdRef {
+        const fn_ptr_ty_ref = try self.spv.ptrType(ty_ref, .Function, 0);
+        const general_ptr_ty_ref = try self.spv.ptrType(ty_ref, .Generic, 0);
 
-        const section = switch (actual_storage_class) {
-            .Generic => unreachable,
-            // SPIR-V requires that OpVariable declarations for locals go into the first block, so we are just going to
-            // directly generate them into func.prologue instead of the body.
-            .Function => &self.func.prologue,
-            else => &self.spv.sections.types_globals_constants,
-        };
-        try section.emit(self.spv.gpa, .OpVariable, .{
-            .id_result_type = self.typeId(actual_ptr_ty_ref),
-            .id_result = alloc_result_id,
-            .storage_class = actual_storage_class,
+        // SPIR-V requires that OpVariable declarations for locals go into the first block, so we are just going to
+        // directly generate them into func.prologue instead of the body.
+        const var_id = self.spv.allocId();
+        try self.func.prologue.emit(self.spv.gpa, .OpVariable, .{
+            .id_result_type = self.typeId(fn_ptr_ty_ref),
+            .id_result = var_id,
+            .storage_class = .Function,
             .initializer = initializer,
         });
 
-        if (storage_class != .Generic) {
-            return;
-        }
-
-        // Now we need to convert the pointer.
-        // If this is a function local, we need to perform the conversion at runtime. Otherwise, we can do
-        // it ahead of time using OpSpecConstantOp.
-        switch (actual_storage_class) {
-            .Function => try self.func.body.emit(self.spv.gpa, .OpPtrCastToGeneric, .{
-                .id_result_type = self.typeId(ptr_ty_ref),
-                .id_result = result_id,
-                .pointer = alloc_result_id,
-            }),
-            // TODO: Can we do without this cast or move it to runtime?
-            else => {
-                const const_ptr_id = try self.makePointerConstant(section, actual_ptr_ty_ref, alloc_result_id);
-                try section.emitSpecConstantOp(self.spv.gpa, .OpPtrCastToGeneric, .{
-                    .id_result_type = self.typeId(ptr_ty_ref),
-                    .id_result = result_id,
-                    .pointer = const_ptr_id,
-                });
-            },
-        }
+        // Convert to a generic pointer
+        const result_id = self.spv.allocId();
+        try self.func.body.emit(self.spv.gpa, .OpPtrCastToGeneric, .{
+            .id_result_type = self.typeId(general_ptr_ty_ref),
+            .id_result = result_id,
+            .pointer = var_id,
+        });
+        return result_id;
     }
 
     fn airAlloc(self: *DeclGen, inst: Air.Inst.Index) !?IdRef {
         if (self.liveness.isUnused(inst)) return null;
-        const ty = self.air.typeOfIndex(inst);
-        const result_ty_ref = try self.resolveType(ty, .direct);
-        const result_id = self.spv.allocId();
-        try self.variable(.function, result_id, result_ty_ref, null);
-        return result_id;
+        const ptr_ty = self.air.typeOfIndex(inst);
+        assert(ptr_ty.ptrAddressSpace() == .generic);
+        const child_ty = ptr_ty.childType();
+        const child_ty_ref = try self.resolveType(child_ty, .indirect);
+        return try self.alloc(child_ty_ref, null);
     }
 
     fn airArg(self: *DeclGen) IdRef {
@@ -2819,13 +2848,7 @@ pub const DeclGen = struct {
         }
 
         const err_union_ty_ref = try self.resolveType(err_union_ty, .direct);
-        const result_id = self.spv.allocId();
-        try self.func.body.emit(self.spv.gpa, .OpCompositeConstruct, .{
-            .id_result_type = self.typeId(err_union_ty_ref),
-            .id_result = result_id,
-            .constituents = members.slice(),
-        });
-        return result_id;
+        return try self.constructStruct(err_union_ty_ref, members.slice());
     }
 
     fn airIsNull(self: *DeclGen, inst: Air.Inst.Index, pred: enum { is_null, is_non_null }) !?IdRef {
@@ -2925,14 +2948,8 @@ pub const DeclGen = struct {
         }
 
         const optional_ty_ref = try self.resolveType(optional_ty, .direct);
-        const result_id = self.spv.allocId();
         const members = [_]IdRef{ operand_id, try self.constBool(true, .indirect) };
-        try self.func.body.emit(self.spv.gpa, .OpCompositeConstruct, .{
-            .id_result_type = self.typeId(optional_ty_ref),
-            .id_result = result_id,
-            .constituents = &members,
-        });
-        return result_id;
+        return try self.constructStruct(optional_ty_ref, &members);
     }
 
     fn airSwitchBr(self: *DeclGen, inst: Air.Inst.Index) !void {

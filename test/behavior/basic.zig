@@ -82,8 +82,6 @@ test "type equality" {
 }
 
 test "pointer dereferencing" {
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
-
     var x = @as(i32, 3);
     const y = &x;
 
@@ -293,8 +291,6 @@ test "function closes over local const" {
 }
 
 test "volatile load and store" {
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
-
     var number: i32 = 1234;
     const ptr = @as(*volatile i32, &number);
     ptr.* += 1;
@@ -466,7 +462,6 @@ fn nine() u8 {
 test "struct inside function" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     try testStructInFn();
     comptime try testStructInFn();
@@ -691,7 +686,6 @@ test "string concatenation" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const a = "OK" ++ " IT " ++ "WORKED";
     const b = "OK IT WORKED";
@@ -1130,7 +1124,6 @@ test "returning an opaque type from a function" {
 test "orelse coercion as function argument" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const Loc = struct { start: i32 = -1 };
     const Container = struct {
