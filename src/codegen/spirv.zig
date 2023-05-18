@@ -372,7 +372,8 @@ pub const DeclGen = struct {
             // As of yet, there is no vector support in the self-hosted compiler.
             .Vector => self.todo("implement arithmeticTypeInfo for Vector", .{}),
             // TODO: For which types is this the case?
-            else => self.todo("implement arithmeticTypeInfo for {}", .{ty.fmt(self.module)}),
+            // else => self.todo("implement arithmeticTypeInfo for {}", .{ty.fmt(self.module)}),
+            else => unreachable,
         };
     }
 
@@ -1712,7 +1713,7 @@ pub const DeclGen = struct {
             .shl => try self.airShift(inst, .OpShiftLeftLogical),
 
             .bitcast         => try self.airBitcast(inst),
-            .intcast, .trunc => try self.airIntcast(inst),
+            .intcast, .trunc => try self.airIntCast(inst),
             .ptrtoint        => try self.airPtrToInt(inst),
             .int_to_float    => try self.airIntToFloat(inst),
             .float_to_int    => try self.airFloatToInt(inst),
@@ -2162,14 +2163,18 @@ pub const DeclGen = struct {
         return try self.bitcast(result_type_id, operand_id);
     }
 
-    fn airIntcast(self: *DeclGen, inst: Air.Inst.Index) !?IdRef {
+    fn airIntCast(self: *DeclGen, inst: Air.Inst.Index) !?IdRef {
         if (self.liveness.isUnused(inst)) return null;
 
         const ty_op = self.air.instructions.items(.data)[inst].ty_op;
         const operand_id = try self.resolve(ty_op.operand);
         const dest_ty = self.air.typeOfIndex(inst);
-        const dest_info = try self.arithmeticTypeInfo(dest_ty);
         const dest_ty_id = try self.resolveTypeId(dest_ty);
+
+        const target = self.getTarget();
+        const dest_info = dest_ty.intInfo(target);
+
+        // TODO: Masking?
 
         const result_id = self.spv.allocId();
         switch (dest_info.signedness) {
