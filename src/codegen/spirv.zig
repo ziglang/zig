@@ -1630,7 +1630,6 @@ pub const DeclGen = struct {
     /// Convert representation from indirect (in memory) to direct (in 'register')
     /// This converts the argument type from resolveType(ty, .indirect) to resolveType(ty, .direct).
     fn convertToDirect(self: *DeclGen, ty: Type, operand_id: IdRef) !IdRef {
-        // const direct_ty_ref = try self.resolveType(ty, .direct);
         return switch (ty.zigTypeTag()) {
             .Bool => blk: {
                 const direct_bool_ty_ref = try self.resolveType(ty, .direct);
@@ -2370,11 +2369,7 @@ pub const DeclGen = struct {
         const ty_op = self.air.instructions.items(.data)[inst].ty_op;
         const field_ty = self.air.typeOfIndex(inst);
         const operand_id = try self.resolve(ty_op.operand);
-        return try self.extractField(
-            field_ty,
-            operand_id,
-            field,
-        );
+        return try self.extractField(field_ty, operand_id, field);
     }
 
     fn airSliceElemPtr(self: *DeclGen, inst: Air.Inst.Index) !?IdRef {
@@ -2382,23 +2377,14 @@ pub const DeclGen = struct {
         const slice_ty = self.air.typeOf(bin_op.lhs);
         if (!slice_ty.isVolatilePtr() and self.liveness.isUnused(inst)) return null;
 
-        const slice = try self.resolve(bin_op.lhs);
-        const index = try self.resolve(bin_op.rhs);
+        const slice_id = try self.resolve(bin_op.lhs);
+        const index_id = try self.resolve(bin_op.rhs);
 
-        const ptr_ty_ref = try self.resolveType(self.air.typeOfIndex(inst), .direct);
+        const ptr_ty = self.air.typeOfIndex(inst);
+        const ptr_ty_ref = try self.resolveType(ptr_ty, .direct);
 
-        const slice_ptr = blk: {
-            const result_id = self.spv.allocId();
-            try self.func.body.emit(self.spv.gpa, .OpCompositeExtract, .{
-                .id_result_type = self.typeId(ptr_ty_ref),
-                .id_result = result_id,
-                .composite = slice,
-                .indexes = &.{0},
-            });
-            break :blk result_id;
-        };
-
-        return try self.ptrAccessChain(ptr_ty_ref, slice_ptr, index, &.{});
+        const slice_ptr = try self.extractField(ptr_ty, slice_id, 0);
+        return try self.ptrAccessChain(ptr_ty_ref, slice_ptr, index_id, &.{});
     }
 
     fn airSliceElemVal(self: *DeclGen, inst: Air.Inst.Index) !?IdRef {
@@ -2406,24 +2392,15 @@ pub const DeclGen = struct {
         const slice_ty = self.air.typeOf(bin_op.lhs);
         if (!slice_ty.isVolatilePtr() and self.liveness.isUnused(inst)) return null;
 
-        const slice = try self.resolve(bin_op.lhs);
-        const index = try self.resolve(bin_op.rhs);
+        const slice_id = try self.resolve(bin_op.lhs);
+        const index_id = try self.resolve(bin_op.rhs);
 
         var slice_buf: Type.SlicePtrFieldTypeBuffer = undefined;
-        const ptr_ty_ref = try self.resolveType(slice_ty.slicePtrFieldType(&slice_buf), .direct);
+        const ptr_ty = slice_ty.slicePtrFieldType(&slice_buf);
+        const ptr_ty_ref = try self.resolveType(ptr_ty, .direct);
 
-        const slice_ptr = blk: {
-            const result_id = self.spv.allocId();
-            try self.func.body.emit(self.spv.gpa, .OpCompositeExtract, .{
-                .id_result_type = self.typeId(ptr_ty_ref),
-                .id_result = result_id,
-                .composite = slice,
-                .indexes = &.{0},
-            });
-            break :blk result_id;
-        };
-
-        const elem_ptr = try self.ptrAccessChain(ptr_ty_ref, slice_ptr, index, &.{});
+        const slice_ptr = try self.extractField(ptr_ty, slice_id, 0);
+        const elem_ptr = try self.ptrAccessChain(ptr_ty_ref, slice_ptr, index_id, &.{});
         return try self.load(slice_ty, elem_ptr);
     }
 
@@ -2459,24 +2436,15 @@ pub const DeclGen = struct {
         const struct_field = self.air.extraData(Air.StructField, ty_pl.payload).data;
 
         const struct_ty = self.air.typeOf(struct_field.struct_operand);
-        const object = try self.resolve(struct_field.struct_operand);
+        const object_id = try self.resolve(struct_field.struct_operand);
         const field_index = struct_field.field_index;
         const field_ty = struct_ty.structFieldType(field_index);
-        const field_ty_id = try self.resolveTypeId(field_ty);
 
         if (!field_ty.hasRuntimeBitsIgnoreComptime()) return null;
 
         assert(struct_ty.zigTypeTag() == .Struct); // Cannot do unions yet.
 
-        const result_id = self.spv.allocId();
-        const indexes = [_]u32{field_index};
-        try self.func.body.emit(self.spv.gpa, .OpCompositeExtract, .{
-            .id_result_type = field_ty_id,
-            .id_result = result_id,
-            .composite = object,
-            .indexes = &indexes,
-        });
-        return result_id;
+        return try self.extractField(field_ty, object_id, field_index);
     }
 
     fn structFieldPtr(
