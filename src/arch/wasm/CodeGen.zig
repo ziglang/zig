@@ -1605,10 +1605,16 @@ fn memcpy(func: *CodeGen, dst: WValue, src: WValue, len: WValue) !void {
         else => {},
     }
 
-    // TODO: We should probably lower this to a call to compiler_rt
-    // But for now, we implement it manually
-    var offset = try func.ensureAllocLocal(Type.usize); // local for counter
+    // allocate a local for the offset, and set it to 0.
+    // This to ensure that inside loops we correctly re-set the counter.
+    var offset = try func.allocLocal(Type.usize); // local for counter
     defer offset.free(func);
+    switch (func.arch()) {
+        .wasm32 => try func.addImm32(0),
+        .wasm64 => try func.addImm64(0),
+        else => unreachable,
+    }
+    try func.addLabel(.local_set, offset.local.value);
 
     // outer block to jump to when loop is done
     try func.startBlock(.block, wasm.block_empty);
@@ -3301,19 +3307,23 @@ fn airCondBr(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     {
         func.branches.appendAssumeCapacity(.{});
         try func.currentBranch().values.ensureUnusedCapacity(func.gpa, @intCast(u32, liveness_condbr.else_deaths.len));
+        defer {
+            var else_stack = func.branches.pop();
+            else_stack.deinit(func.gpa);
+        }
         try func.genBody(else_body);
         try func.endBlock();
-        var else_stack = func.branches.pop();
-        else_stack.deinit(func.gpa);
     }
 
     // Outer block that matches the condition
     {
         func.branches.appendAssumeCapacity(.{});
         try func.currentBranch().values.ensureUnusedCapacity(func.gpa, @intCast(u32, liveness_condbr.then_deaths.len));
+        defer {
+            var then_stack = func.branches.pop();
+            then_stack.deinit(func.gpa);
+        }
         try func.genBody(then_body);
-        var then_stack = func.branches.pop();
-        then_stack.deinit(func.gpa);
     }
 
     func.finishAir(inst, .none, &.{});
@@ -3829,20 +3839,24 @@ fn airSwitchBr(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         }
         func.branches.appendAssumeCapacity(.{});
         try func.currentBranch().values.ensureUnusedCapacity(func.gpa, liveness.deaths[index].len);
+        defer {
+            var case_branch = func.branches.pop();
+            case_branch.deinit(func.gpa);
+        }
         try func.genBody(case.body);
         try func.endBlock();
-        var case_branch = func.branches.pop();
-        case_branch.deinit(func.gpa);
     }
 
     if (has_else_body) {
         func.branches.appendAssumeCapacity(.{});
         const else_deaths = liveness.deaths.len - 1;
         try func.currentBranch().values.ensureUnusedCapacity(func.gpa, liveness.deaths[else_deaths].len);
+        defer {
+            var else_branch = func.branches.pop();
+            else_branch.deinit(func.gpa);
+        }
         try func.genBody(else_body);
         try func.endBlock();
-        var else_branch = func.branches.pop();
-        else_branch.deinit(func.gpa);
     }
     func.finishAir(inst, .none, &.{});
 }
@@ -3971,7 +3985,7 @@ fn airWrapErrUnionErr(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         // write 'undefined' to the payload
         const payload_ptr = try func.buildPointerOffset(err_union, @intCast(u32, errUnionPayloadOffset(pl_ty, func.target)), .new);
         const len = @intCast(u32, err_ty.errorUnionPayload().abiSize(func.target));
-        try func.memset(payload_ptr, .{ .imm32 = len }, .{ .imm32 = 0xaaaaaaaa });
+        try func.memset(Type.u8, payload_ptr, .{ .imm32 = len }, .{ .imm32 = 0xaa });
 
         break :result err_union;
     };
@@ -4466,8 +4480,13 @@ fn airMemset(func: *CodeGen, inst: Air.Inst.Index, safety: bool) InnerError!void
         .C, .Many => unreachable,
     };
 
+    const elem_ty = if (ptr_ty.ptrSize() == .One)
+        ptr_ty.childType().childType()
+    else
+        ptr_ty.childType();
+
     const dst_ptr = try func.sliceOrArrayPtr(ptr, ptr_ty);
-    try func.memset(dst_ptr, len, value);
+    try func.memset(elem_ty, dst_ptr, len, value);
 
     func.finishAir(inst, .none, &.{ bin_op.lhs, bin_op.rhs });
 }
@@ -4476,10 +4495,12 @@ fn airMemset(func: *CodeGen, inst: Air.Inst.Index, safety: bool) InnerError!void
 /// When the user has enabled the bulk_memory feature, we lower
 /// this to wasm's memset instruction. When the feature is not present,
 /// we implement it manually.
-fn memset(func: *CodeGen, ptr: WValue, len: WValue, value: WValue) InnerError!void {
+fn memset(func: *CodeGen, elem_ty: Type, ptr: WValue, len: WValue, value: WValue) InnerError!void {
+    const abi_size = @intCast(u32, elem_ty.abiSize(func.target));
+
     // When bulk_memory is enabled, we lower it to wasm's memset instruction.
-    // If not, we lower it ourselves
-    if (std.Target.wasm.featureSetHas(func.target.cpu.features, .bulk_memory)) {
+    // If not, we lower it ourselves.
+    if (std.Target.wasm.featureSetHas(func.target.cpu.features, .bulk_memory) and abi_size == 1) {
         try func.lowerToStack(ptr);
         try func.emitWValue(value);
         try func.emitWValue(len);
@@ -4487,74 +4508,79 @@ fn memset(func: *CodeGen, ptr: WValue, len: WValue, value: WValue) InnerError!vo
         return;
     }
 
-    // When the length is comptime-known we do the loop at codegen, rather
-    // than emitting a runtime loop into the binary
-    switch (len) {
-        .imm32, .imm64 => {
-            const length = switch (len) {
-                .imm32 => |val| val,
-                .imm64 => |val| val,
-                else => unreachable,
-            };
-
-            var offset: u32 = 0;
-            const base = ptr.offset();
-            while (offset < length) : (offset += 1) {
-                try func.emitWValue(ptr);
-                try func.emitWValue(value);
-                switch (func.arch()) {
-                    .wasm32 => {
-                        try func.addMemArg(.i32_store8, .{ .offset = base + offset, .alignment = 1 });
-                    },
-                    .wasm64 => {
-                        try func.addMemArg(.i64_store8, .{ .offset = base + offset, .alignment = 1 });
-                    },
-                    else => unreachable,
-                }
-            }
-        },
-        else => {
-            // TODO: We should probably lower this to a call to compiler_rt
-            // But for now, we implement it manually
-            const offset = try func.ensureAllocLocal(Type.usize); // local for counter
-            // outer block to jump to when loop is done
-            try func.startBlock(.block, wasm.block_empty);
-            try func.startBlock(.loop, wasm.block_empty);
-            try func.emitWValue(offset);
+    const final_len = switch (len) {
+        .imm32 => |val| WValue{ .imm32 = val * abi_size },
+        .imm64 => |val| WValue{ .imm64 = val * abi_size },
+        else => if (abi_size != 1) blk: {
+            const new_len = try func.ensureAllocLocal(Type.usize);
             try func.emitWValue(len);
             switch (func.arch()) {
-                .wasm32 => try func.addTag(.i32_eq),
-                .wasm64 => try func.addTag(.i64_eq),
+                .wasm32 => {
+                    try func.emitWValue(.{ .imm32 = abi_size });
+                    try func.addTag(.i32_mul);
+                },
+                .wasm64 => {
+                    try func.emitWValue(.{ .imm64 = abi_size });
+                    try func.addTag(.i64_mul);
+                },
                 else => unreachable,
             }
-            try func.addLabel(.br_if, 1); // jump out of loop into outer block (finished)
-            try func.emitWValue(ptr);
-            try func.emitWValue(offset);
-            switch (func.arch()) {
-                .wasm32 => try func.addTag(.i32_add),
-                .wasm64 => try func.addTag(.i64_add),
-                else => unreachable,
-            }
-            try func.emitWValue(value);
-            const mem_store_op: Mir.Inst.Tag = switch (func.arch()) {
-                .wasm32 => .i32_store8,
-                .wasm64 => .i64_store8,
-                else => unreachable,
-            };
-            try func.addMemArg(mem_store_op, .{ .offset = ptr.offset(), .alignment = 1 });
-            try func.emitWValue(offset);
-            try func.addImm32(1);
-            switch (func.arch()) {
-                .wasm32 => try func.addTag(.i32_add),
-                .wasm64 => try func.addTag(.i64_add),
-                else => unreachable,
-            }
-            try func.addLabel(.local_set, offset.local.value);
-            try func.addLabel(.br, 0); // jump to start of loop
-            try func.endBlock();
-            try func.endBlock();
-        },
+            try func.addLabel(.local_set, new_len.local.value);
+            break :blk new_len;
+        } else len,
+    };
+
+    var end_ptr = try func.allocLocal(Type.usize);
+    defer end_ptr.free(func);
+    var new_ptr = try func.buildPointerOffset(ptr, 0, .new);
+    defer new_ptr.free(func);
+
+    // get the loop conditional: if current pointer address equals final pointer's address
+    try func.lowerToStack(ptr);
+    try func.emitWValue(final_len);
+    switch (func.arch()) {
+        .wasm32 => try func.addTag(.i32_add),
+        .wasm64 => try func.addTag(.i64_add),
+        else => unreachable,
     }
+    try func.addLabel(.local_set, end_ptr.local.value);
+
+    // outer block to jump to when loop is done
+    try func.startBlock(.block, wasm.block_empty);
+    try func.startBlock(.loop, wasm.block_empty);
+
+    // check for codition for loop end
+    try func.emitWValue(new_ptr);
+    try func.emitWValue(end_ptr);
+    switch (func.arch()) {
+        .wasm32 => try func.addTag(.i32_eq),
+        .wasm64 => try func.addTag(.i64_eq),
+        else => unreachable,
+    }
+    try func.addLabel(.br_if, 1); // jump out of loop into outer block (finished)
+
+    // store the value at the current position of the pointer
+    try func.store(new_ptr, value, elem_ty, 0);
+
+    // move the pointer to the next element
+    try func.emitWValue(new_ptr);
+    switch (func.arch()) {
+        .wasm32 => {
+            try func.emitWValue(.{ .imm32 = abi_size });
+            try func.addTag(.i32_add);
+        },
+        .wasm64 => {
+            try func.emitWValue(.{ .imm64 = abi_size });
+            try func.addTag(.i64_add);
+        },
+        else => unreachable,
+    }
+    try func.addLabel(.local_set, new_ptr.local.value);
+
+    // end of loop
+    try func.addLabel(.br, 0); // jump to start of loop
+    try func.endBlock();
+    try func.endBlock();
 }
 
 fn airArrayElemVal(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
@@ -6007,10 +6033,12 @@ fn lowerTry(
         const liveness = func.liveness.getCondBr(inst);
         try func.branches.append(func.gpa, .{});
         try func.currentBranch().values.ensureUnusedCapacity(func.gpa, liveness.else_deaths.len + liveness.then_deaths.len);
+        defer {
+            var branch = func.branches.pop();
+            branch.deinit(func.gpa);
+        }
         try func.genBody(body);
         try func.endBlock();
-        var branch = func.branches.pop();
-        branch.deinit(func.gpa);
     }
 
     // if we reach here it means error was not set, and we want the payload
