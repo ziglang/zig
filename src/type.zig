@@ -50,21 +50,20 @@ pub const Type = struct {
                 .optional => return .Optional,
 
                 .error_union => return .ErrorUnion,
-
-                .anyframe_T => return .AnyFrame,
             },
-            else => switch (mod.intern_pool.indexToKey(ty.ip_index)) {
-                .int_type => return .Int,
-                .ptr_type => return .Pointer,
-                .array_type => return .Array,
-                .vector_type => return .Vector,
-                .opt_type => return .Optional,
-                .error_union_type => return .ErrorUnion,
-                .struct_type, .anon_struct_type => return .Struct,
-                .union_type => return .Union,
-                .opaque_type => return .Opaque,
-                .enum_type => return .Enum,
-                .func_type => return .Fn,
+            else => return switch (mod.intern_pool.indexToKey(ty.ip_index)) {
+                .int_type => .Int,
+                .ptr_type => .Pointer,
+                .array_type => .Array,
+                .vector_type => .Vector,
+                .opt_type => .Optional,
+                .error_union_type => .ErrorUnion,
+                .struct_type, .anon_struct_type => .Struct,
+                .union_type => .Union,
+                .opaque_type => .Opaque,
+                .enum_type => .Enum,
+                .func_type => .Fn,
+                .anyframe_type => .AnyFrame,
                 .simple_type => |s| switch (s) {
                     .f16,
                     .f32,
@@ -72,7 +71,7 @@ pub const Type = struct {
                     .f80,
                     .f128,
                     .c_longdouble,
-                    => return .Float,
+                    => .Float,
 
                     .usize,
                     .isize,
@@ -85,20 +84,19 @@ pub const Type = struct {
                     .c_ulong,
                     .c_longlong,
                     .c_ulonglong,
-                    => return .Int,
+                    => .Int,
 
-                    .anyopaque => return .Opaque,
-                    .bool => return .Bool,
-                    .void => return .Void,
-                    .type => return .Type,
-                    .anyerror => return .ErrorSet,
-                    .comptime_int => return .ComptimeInt,
-                    .comptime_float => return .ComptimeFloat,
-                    .noreturn => return .NoReturn,
-                    .@"anyframe" => return .AnyFrame,
-                    .null => return .Null,
-                    .undefined => return .Undefined,
-                    .enum_literal => return .EnumLiteral,
+                    .anyopaque => .Opaque,
+                    .bool => .Bool,
+                    .void => .Void,
+                    .type => .Type,
+                    .anyerror => .ErrorSet,
+                    .comptime_int => .ComptimeInt,
+                    .comptime_float => .ComptimeFloat,
+                    .noreturn => .NoReturn,
+                    .null => .Null,
+                    .undefined => .Undefined,
+                    .enum_literal => .EnumLiteral,
 
                     .atomic_order,
                     .atomic_rmw_op,
@@ -107,14 +105,14 @@ pub const Type = struct {
                     .float_mode,
                     .reduce_op,
                     .call_modifier,
-                    => return .Enum,
+                    => .Enum,
 
                     .prefetch_options,
                     .export_options,
                     .extern_options,
-                    => return .Struct,
+                    => .Struct,
 
-                    .type_info => return .Union,
+                    .type_info => .Union,
 
                     .generic_poison => return error.GenericPoison,
                     .var_args_param => unreachable,
@@ -408,11 +406,6 @@ pub const Type = struct {
 
                 return true;
             },
-
-            .anyframe_T => {
-                if (b.zigTypeTag(mod) != .AnyFrame) return false;
-                return a.elemType2(mod).eql(b.elemType2(mod), mod);
-            },
         }
     }
 
@@ -488,11 +481,6 @@ pub const Type = struct {
                 const payload_ty = ty.errorUnionPayload();
                 hashWithHasher(payload_ty, hasher, mod);
             },
-
-            .anyframe_T => {
-                std.hash.autoHash(hasher, std.builtin.TypeId.AnyFrame);
-                hashWithHasher(ty.childType(mod), hasher, mod);
-            },
         }
     }
 
@@ -542,9 +530,7 @@ pub const Type = struct {
             .inferred_alloc_mut,
             => unreachable,
 
-            .optional,
-            .anyframe_T,
-            => {
+            .optional => {
                 const payload = self.cast(Payload.ElemType).?;
                 const new_payload = try allocator.create(Payload.ElemType);
                 new_payload.* = .{
@@ -668,12 +654,6 @@ pub const Type = struct {
         while (true) {
             const t = ty.tag();
             switch (t) {
-                .anyframe_T => {
-                    const return_type = ty.castTag(.anyframe_T).?.data;
-                    try writer.print("anyframe->", .{});
-                    ty = return_type;
-                    continue;
-                },
                 .optional => {
                     const child_type = ty.castTag(.optional).?.data;
                     try writer.writeByte('?');
@@ -837,11 +817,6 @@ pub const Type = struct {
                     const child_type = ty.castTag(.optional).?.data;
                     try writer.writeByte('?');
                     try print(child_type, writer, mod);
-                },
-                .anyframe_T => {
-                    const return_type = ty.castTag(.anyframe_T).?.data;
-                    try writer.print("anyframe->", .{});
-                    try print(return_type, writer, mod);
                 },
                 .error_set => {
                     const names = ty.castTag(.error_set).?.data.names.keys();
@@ -1034,6 +1009,11 @@ pub const Type = struct {
                         try print(fn_info.return_type.toType(), writer, mod);
                     }
                 },
+                .anyframe_type => |child| {
+                    if (child == .none) return writer.writeAll("anyframe");
+                    try writer.writeAll("anyframe->");
+                    return print(child.toType(), writer, mod);
+                },
 
                 // values, not types
                 .undef => unreachable,
@@ -1098,9 +1078,7 @@ pub const Type = struct {
 
                 // Pointers to zero-bit types still have a runtime address; however, pointers
                 // to comptime-only types do not, with the exception of function pointers.
-                .anyframe_T,
-                .pointer,
-                => {
+                .pointer => {
                     if (ignore_comptime_only) {
                         return true;
                     } else if (ty.childType(mod).zigTypeTag(mod) == .Fn) {
@@ -1141,6 +1119,7 @@ pub const Type = struct {
                     if (strat == .sema) return !(try strat.sema.typeRequiresComptime(ty));
                     return !comptimeOnly(ty, mod);
                 },
+                .anyframe_type => true,
                 .array_type => |array_type| {
                     if (array_type.sentinel != .none) {
                         return array_type.child.toType().hasRuntimeBitsAdvanced(mod, ignore_comptime_only, strat);
@@ -1195,7 +1174,6 @@ pub const Type = struct {
                     .c_longdouble,
                     .bool,
                     .anyerror,
-                    .@"anyframe",
                     .anyopaque,
                     .atomic_order,
                     .atomic_rmw_op,
@@ -1319,7 +1297,6 @@ pub const Type = struct {
                 .error_set_inferred,
                 .error_set_merged,
                 .error_union,
-                .anyframe_T,
                 => false,
 
                 .inferred_alloc_mut => unreachable,
@@ -1336,6 +1313,7 @@ pub const Type = struct {
                 .error_union_type,
                 .anon_struct_type,
                 .opaque_type,
+                .anyframe_type,
                 // These are function bodies, not function pointers.
                 .func_type,
                 => false,
@@ -1366,7 +1344,6 @@ pub const Type = struct {
                     => true,
 
                     .anyerror,
-                    .@"anyframe",
                     .anyopaque,
                     .atomic_order,
                     .atomic_rmw_op,
@@ -1594,9 +1571,7 @@ pub const Type = struct {
         switch (ty.ip_index) {
             .empty_struct_type => return AbiAlignmentAdvanced{ .scalar = 0 },
             .none => switch (ty.tag()) {
-                .pointer,
-                .anyframe_T,
-                => return AbiAlignmentAdvanced{ .scalar = @divExact(target.ptrBitWidth(), 8) },
+                .pointer => return AbiAlignmentAdvanced{ .scalar = @divExact(target.ptrBitWidth(), 8) },
 
                 // TODO revisit this when we have the concept of the error tag type
                 .error_set_inferred,
@@ -1617,7 +1592,7 @@ pub const Type = struct {
                     if (int_type.bits == 0) return AbiAlignmentAdvanced{ .scalar = 0 };
                     return AbiAlignmentAdvanced{ .scalar = intAbiAlignment(int_type.bits, target) };
                 },
-                .ptr_type => {
+                .ptr_type, .anyframe_type => {
                     return AbiAlignmentAdvanced{ .scalar = @divExact(target.ptrBitWidth(), 8) };
                 },
                 .array_type => |array_type| {
@@ -1657,7 +1632,6 @@ pub const Type = struct {
                     .isize,
                     .export_options,
                     .extern_options,
-                    .@"anyframe",
                     => return AbiAlignmentAdvanced{ .scalar = @divExact(target.ptrBitWidth(), 8) },
 
                     .c_char => return AbiAlignmentAdvanced{ .scalar = target.c_type_alignment(.char) },
@@ -1976,8 +1950,6 @@ pub const Type = struct {
                 .inferred_alloc_const => unreachable,
                 .inferred_alloc_mut => unreachable,
 
-                .anyframe_T => return AbiSizeAdvanced{ .scalar = @divExact(target.ptrBitWidth(), 8) },
-
                 .pointer => switch (ty.castTag(.pointer).?.data.size) {
                     .Slice => return AbiSizeAdvanced{ .scalar = @divExact(target.ptrBitWidth(), 8) * 2 },
                     else => return AbiSizeAdvanced{ .scalar = @divExact(target.ptrBitWidth(), 8) },
@@ -2039,6 +2011,8 @@ pub const Type = struct {
                     .Slice => return .{ .scalar = @divExact(target.ptrBitWidth(), 8) * 2 },
                     else => return .{ .scalar = @divExact(target.ptrBitWidth(), 8) },
                 },
+                .anyframe_type => return AbiSizeAdvanced{ .scalar = @divExact(target.ptrBitWidth(), 8) },
+
                 .array_type => |array_type| {
                     const len = array_type.len + @boolToInt(array_type.sentinel != .none);
                     switch (try array_type.child.toType().abiSizeAdvanced(mod, strat)) {
@@ -2102,7 +2076,6 @@ pub const Type = struct {
 
                     .usize,
                     .isize,
-                    .@"anyframe",
                     => return AbiSizeAdvanced{ .scalar = @divExact(target.ptrBitWidth(), 8) },
 
                     .c_char => return AbiSizeAdvanced{ .scalar = target.c_type_byte_size(.char) },
@@ -2298,8 +2271,6 @@ pub const Type = struct {
                 .inferred_alloc_const => unreachable,
                 .inferred_alloc_mut => unreachable,
 
-                .anyframe_T => return target.ptrBitWidth(),
-
                 .pointer => switch (ty.castTag(.pointer).?.data.size) {
                     .Slice => return target.ptrBitWidth() * 2,
                     else => return target.ptrBitWidth(),
@@ -2323,6 +2294,8 @@ pub const Type = struct {
                     .Slice => return target.ptrBitWidth() * 2,
                     else => return target.ptrBitWidth() * 2,
                 },
+                .anyframe_type => return target.ptrBitWidth(),
+
                 .array_type => |array_type| {
                     const len = array_type.len + @boolToInt(array_type.sentinel != .none);
                     if (len == 0) return 0;
@@ -2349,7 +2322,6 @@ pub const Type = struct {
 
                     .usize,
                     .isize,
-                    .@"anyframe",
                     => return target.ptrBitWidth(),
 
                     .c_char => return target.c_type_bit_size(.char),
@@ -2777,14 +2749,16 @@ pub const Type = struct {
                 },
                 .optional => ty.castTag(.optional).?.data.childType(mod),
 
-                .anyframe_T => ty.castTag(.anyframe_T).?.data,
-
                 else => unreachable,
             },
             else => switch (mod.intern_pool.indexToKey(ty.ip_index)) {
                 .ptr_type => |ptr_type| switch (ptr_type.size) {
                     .One => ptr_type.elem_type.toType().shallowElemType(mod),
                     .Many, .C, .Slice => ptr_type.elem_type.toType(),
+                },
+                .anyframe_type => |child| {
+                    assert(child != .none);
+                    return child.toType();
                 },
                 .vector_type => |vector_type| vector_type.child.toType(),
                 .array_type => |array_type| array_type.child.toType(),
@@ -3154,6 +3128,7 @@ pub const Type = struct {
                 .anon_struct_type => unreachable,
 
                 .ptr_type => unreachable,
+                .anyframe_type => unreachable,
                 .array_type => unreachable,
 
                 .opt_type => unreachable,
@@ -3327,7 +3302,6 @@ pub const Type = struct {
                 .error_set,
                 .error_set_merged,
                 .error_set_inferred,
-                .anyframe_T,
                 .pointer,
                 => return null,
 
@@ -3355,6 +3329,7 @@ pub const Type = struct {
                 .ptr_type,
                 .error_union_type,
                 .func_type,
+                .anyframe_type,
                 => return null,
 
                 .array_type => |array_type| {
@@ -3401,7 +3376,6 @@ pub const Type = struct {
                     .anyerror,
                     .comptime_int,
                     .comptime_float,
-                    .@"anyframe",
                     .enum_literal,
                     .atomic_order,
                     .atomic_rmw_op,
@@ -3555,10 +3529,6 @@ pub const Type = struct {
                 },
 
                 .error_union => return ty.errorUnionPayload().comptimeOnly(mod),
-                .anyframe_T => {
-                    const child_ty = ty.castTag(.anyframe_T).?.data;
-                    return child_ty.comptimeOnly(mod);
-                },
             },
             else => switch (mod.intern_pool.indexToKey(ty.ip_index)) {
                 .int_type => false,
@@ -3569,6 +3539,10 @@ pub const Type = struct {
                     } else {
                         return child_ty.comptimeOnly(mod);
                     }
+                },
+                .anyframe_type => |child| {
+                    if (child == .none) return false;
+                    return child.toType().comptimeOnly(mod);
                 },
                 .array_type => |array_type| array_type.child.toType().comptimeOnly(mod),
                 .vector_type => |vector_type| vector_type.child.toType().comptimeOnly(mod),
@@ -3599,7 +3573,6 @@ pub const Type = struct {
                     .bool,
                     .void,
                     .anyerror,
-                    .@"anyframe",
                     .noreturn,
                     .generic_poison,
                     .atomic_order,
@@ -4245,7 +4218,6 @@ pub const Type = struct {
         pointer,
         optional,
         error_union,
-        anyframe_T,
         error_set,
         error_set_single,
         /// The type is the inferred error set of a specific function.
@@ -4261,9 +4233,7 @@ pub const Type = struct {
                 .inferred_alloc_mut,
                 => @compileError("Type Tag " ++ @tagName(t) ++ " has no payload"),
 
-                .optional,
-                .anyframe_T,
-                => Payload.ElemType,
+                .optional => Payload.ElemType,
 
                 .error_set => Payload.ErrorSet,
                 .error_set_inferred => Payload.ErrorSetInferred,
