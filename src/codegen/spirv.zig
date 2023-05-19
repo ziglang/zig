@@ -1743,6 +1743,7 @@ pub const DeclGen = struct {
             .shuffle => try self.airShuffle(inst),
 
             .ptr_add => try self.airPtrAdd(inst),
+            .ptr_sub => try self.airPtrSub(inst),
 
             .bit_and  => try self.airBinOpSimple(inst, .OpBitwiseAnd),
             .bit_or   => try self.airBinOpSimple(inst, .OpBitwiseOr),
@@ -2126,14 +2127,7 @@ pub const DeclGen = struct {
         return result_id;
     }
 
-    fn airPtrAdd(self: *DeclGen, inst: Air.Inst.Index) !?IdRef {
-        if (self.liveness.isUnused(inst)) return null;
-        const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
-        const bin_op = self.air.extraData(Air.Bin, ty_pl.payload).data;
-        const ptr_id = try self.resolve(bin_op.lhs);
-        const offset_id = try self.resolve(bin_op.rhs);
-        const ptr_ty = self.air.typeOf(bin_op.lhs);
-        const result_ty = self.air.typeOfIndex(inst);
+    fn ptrAdd(self: *DeclGen, result_ty: Type, ptr_ty: Type, ptr_id: IdRef, offset_id: IdRef) !IdRef {
         const result_ty_ref = try self.resolveType(result_ty, .direct);
 
         switch (ptr_ty.ptrSize()) {
@@ -2151,6 +2145,38 @@ pub const DeclGen = struct {
                 return try self.ptrAccessChain(result_ty_ref, slice_ptr_id, offset_id, &.{});
             },
         }
+    }
+
+    fn airPtrAdd(self: *DeclGen, inst: Air.Inst.Index) !?IdRef {
+        if (self.liveness.isUnused(inst)) return null;
+        const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
+        const bin_op = self.air.extraData(Air.Bin, ty_pl.payload).data;
+        const ptr_id = try self.resolve(bin_op.lhs);
+        const offset_id = try self.resolve(bin_op.rhs);
+        const ptr_ty = self.air.typeOf(bin_op.lhs);
+        const result_ty = self.air.typeOfIndex(inst);
+
+        return try self.ptrAdd(result_ty, ptr_ty, ptr_id, offset_id);
+    }
+
+    fn airPtrSub(self: *DeclGen, inst: Air.Inst.Index) !?IdRef {
+        if (self.liveness.isUnused(inst)) return null;
+        const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
+        const bin_op = self.air.extraData(Air.Bin, ty_pl.payload).data;
+        const ptr_id = try self.resolve(bin_op.lhs);
+        const ptr_ty = self.air.typeOf(bin_op.lhs);
+        const offset_id = try self.resolve(bin_op.rhs);
+        const offset_ty = self.air.typeOf(bin_op.rhs);
+        const offset_ty_ref = try self.resolveType(offset_ty, .direct);
+        const result_ty = self.air.typeOfIndex(inst);
+
+        const negative_offset_id = self.spv.allocId();
+        try self.func.body.emit(self.spv.gpa, .OpSNegate, .{
+            .id_result_type = self.typeId(offset_ty_ref),
+            .id_result = negative_offset_id,
+            .operand = offset_id,
+        });
+        return try self.ptrAdd(result_ty, ptr_ty, ptr_id, negative_offset_id);
     }
 
     fn cmp(
