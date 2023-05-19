@@ -2586,6 +2586,8 @@ pub const sigevent = extern struct {
     },
 };
 
+pub const timer_t = *opaque {};
+
 pub const MIN = struct {
     pub const INCORE = 0x1;
     pub const REFERENCED = 0x2;
