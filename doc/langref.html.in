@@ -2911,7 +2911,7 @@ test "function alignment" {
       pointer into a more aligned pointer. This is a no-op at runtime, but inserts a
       {#link|safety check|Incorrect Pointer Alignment#}:
       </p>
-      {#code_begin|test_safety|test_incorrect_pointer_alignment|incorrect alignment#}
+      {#code_begin|test_safety|test_incorrect_pointer_alignment|not aligned#}
 const std = @import("std");
 
 test "pointer alignment safety" {

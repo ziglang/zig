@@ -20850,7 +20850,7 @@ fn zirPtrFromInt(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!
             );
             const remainder = try block.addBinOp(.bit_and, operand_coerced, align_minus_1);
             const is_aligned = try block.addBinOp(.cmp_eq, remainder, .zero_usize);
-            try sema.addSafetyCheck(block, is_aligned, .incorrect_alignment);
+            try sema.panicIncorrectAlignment(block, is_aligned, operand_coerced, align_minus_1);
         }
     }
     return block.addBitCast(ptr_ty, operand_coerced);
@@ -21299,7 +21299,7 @@ fn ptrCastFull(
             const len_zero = try block.addBinOp(.cmp_eq, len, .zero_usize);
             break :ok try block.addBinOp(.bit_or, len_zero, is_aligned);
         } else is_aligned;
-        try sema.addSafetyCheck(block, ok, .incorrect_alignment);
+        try sema.panicIncorrectAlignment(block, ok, ptr_int, align_minus_1);
     }
 
     // If we're going from an array pointer to a slice, this will only be the pointer part!
@@ -25072,6 +25072,21 @@ fn panicMemcpyLenMismatch(
         return try sema.addSafetyCheck(parent_block, ok, .memcpy_len_mismatch);
     }
     try sema.safetyCheckFormatted(parent_block, ok, "panicMemcpyLenMismatch", &.{ dst_len, src_len });
+}
+
+fn panicIncorrectAlignment(
+    sema: *Sema,
+    parent_block: *Block,
+    ok: Air.Inst.Ref,
+    ptr_addr: Air.Inst.Ref,
+    expected_alignment_minus_1: Air.Inst.Ref,
+) !void {
+    assert(!parent_block.is_comptime and parent_block.wantSafety());
+
+    if (!sema.mod.comp.formatted_panics) {
+        return try sema.addSafetyCheck(parent_block, ok, .incorrect_alignment);
+    }
+    try sema.safetyCheckFormatted(parent_block, ok, "panicIncorrectAlignment", &.{ ptr_addr, expected_alignment_minus_1 });
 }
 
 fn safetyCheckFormatted(

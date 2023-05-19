@@ -850,11 +850,16 @@ pub fn panicMemcpyLenMismatch(dst: usize, src: usize) noreturn {
     std.debug.panicExtra(null, @returnAddress(), "@memcpy arguments have non-equal lengths: dst={d}, src={d}", .{ dst, src });
 }
 
+pub fn panicIncorrectAlignment(ptr_addr: usize, expected_alignment_minus_1: u29) noreturn {
+    @setCold(true);
+    std.debug.panicExtra(null, @returnAddress(), "pointer address 0x{x} is not aligned to {} bytes", .{ ptr_addr, expected_alignment_minus_1 + 1 });
+}
+
 pub const panic_messages = struct {
     pub const unreach = "reached unreachable code";
     pub const unwrap_null = "attempt to use null value";
     pub const cast_to_null = "cast causes pointer to be null";
-    pub const incorrect_alignment = "incorrect alignment";
+    pub const incorrect_alignment = "incorrect pointer address alignment";
     pub const invalid_error_code = "invalid error code";
     pub const cast_truncated_data = "integer cast truncated bits";
     pub const negative_to_unsigned = "attempt to cast negative value to unsigned integer";

@@ -2,7 +2,7 @@ const std = @import("std");
 
 pub fn panic(message: []const u8, stack_trace: ?*std.builtin.StackTrace, _: ?usize) noreturn {
     _ = stack_trace;
-    if (std.mem.eql(u8, message, "incorrect alignment")) {
+    if (std.mem.eql(u8, message, "pointer address 0x5 is not aligned to 4 bytes")) {
         std.process.exit(0);
     }
     std.process.exit(1);
