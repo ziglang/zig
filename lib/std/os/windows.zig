@@ -2397,12 +2397,36 @@ pub const FILE_NAME_INFORMATION = extern struct {
     FileName: [1]WCHAR,
 };
 
-pub const FILE_RENAME_INFORMATION = extern struct {
-    ReplaceIfExists: BOOLEAN,
-    RootDirectory: ?HANDLE,
-    FileNameLength: ULONG,
-    FileName: [1]WCHAR,
-};
+// FILE_RENAME_INFORMATION.anon1.Flags
+pub const FILE_RENAME_REPLACE_IF_EXISTS = 0x00000001;
+pub const FILE_RENAME_POSIX_SEMANTICS = 0x00000002;
+pub const FILE_RENAME_SUPPRESS_PIN_STATE_INHERITANCE = 0x00000004;
+pub const FILE_RENAME_SUPPRESS_STORAGE_RESERVE_INHERITANCE = 0x00000008;
+pub const FILE_RENAME_NO_INCREASE_AVAILABLE_SPACE = 0x00000010;
+pub const FILE_RENAME_NO_DECREASE_AVAILABLE_SPACE = 0x00000020;
+pub const FILE_RENAME_PRESERVE_AVAILABLE_SPACE = 0x00000030;
+pub const FILE_RENAME_IGNORE_READONLY_ATTRIBUTE = 0x00000040;
+pub const FILE_RENAME_FORCE_RESIZE_TARGET_SR = 0x00000080;
+pub const FILE_RENAME_FORCE_RESIZE_SOURCE_SR = 0x00000100;
+pub const FILE_RENAME_FORCE_RESIZE_SR = 0x00000180;
+
+pub const FILE_RENAME_INFORMATION = if (builtin.target.os.version_range.windows.min.isAtLeast(.win10_rs1))
+    extern struct {
+        anon1: union {
+            ReplaceIfExists: BOOLEAN,
+            Flags: ULONG,
+        },
+        RootDirectory: ?HANDLE,
+        FileNameLength: ULONG,
+        FileName: [1]WCHAR,
+    }
+else
+    extern struct {
+        ReplaceIfExists: BOOLEAN,
+        RootDirectory: ?HANDLE,
+        FileNameLength: ULONG,
+        FileName: [1]WCHAR,
+    };
 
 pub const IO_STATUS_BLOCK = extern struct {
     // "DUMMYUNIONNAME" expands to "u"
