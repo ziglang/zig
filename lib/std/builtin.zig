@@ -832,7 +832,7 @@ pub fn panicUnwrapError(st: ?*StackTrace, err: anyerror) noreturn {
 
 pub fn panicOutOfBounds(index: usize, len: usize) noreturn {
     @setCold(true);
-    std.debug.panicExtra(null, @returnAddress(), "index out of bounds: index {d}, len {d}", .{ index, len });
+    std.debug.panicExtra(null, @returnAddress(), "index out of bounds: index={d}, len={d}", .{ index, len });
 }
 
 pub fn panicStartGreaterThanEnd(start: usize, end: usize) noreturn {
