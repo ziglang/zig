@@ -570,6 +570,10 @@ pub const Inst = struct {
         /// Returns a pointer to the subslice.
         /// Uses the `pl_node` field. AST node is the slice syntax. Payload is `SliceSentinel`.
         slice_sentinel,
+        /// Slice operation `array_ptr[start..][0..len]`. Optional sentinel.
+        /// Returns a pointer to the subslice.
+        /// Uses the `pl_node` field. AST node is the slice syntax. Payload is `SliceLength`.
+        slice_length,
         /// Write a value to a pointer. For loading, see `load`.
         /// Source location is assumed to be same as previous instruction.
         /// Uses the `bin` union field.
@@ -1135,6 +1139,7 @@ pub const Inst = struct {
                 .slice_start,
                 .slice_end,
                 .slice_sentinel,
+                .slice_length,
                 .import,
                 .typeof_log2_int_type,
                 .resolve_inferred_alloc,
@@ -1430,6 +1435,7 @@ pub const Inst = struct {
                 .slice_start,
                 .slice_end,
                 .slice_sentinel,
+                .slice_length,
                 .import,
                 .typeof_log2_int_type,
                 .switch_capture,
@@ -1667,6 +1673,7 @@ pub const Inst = struct {
                 .slice_start = .pl_node,
                 .slice_end = .pl_node,
                 .slice_sentinel = .pl_node,
+                .slice_length = .pl_node,
                 .store = .bin,
                 .store_node = .pl_node,
                 .store_to_block_ptr = .bin,
@@ -1979,7 +1986,7 @@ pub const Inst = struct {
         /// `operand` is `src_node: i32`.
         breakpoint,
         /// Implements the `@select` builtin.
-        /// operand` is payload index to `Select`.
+        /// `operand` is payload index to `Select`.
         select,
         /// Implement builtin `@errToInt`.
         /// `operand` is payload index to `UnNode`.
@@ -1999,7 +2006,7 @@ pub const Inst = struct {
         /// `operand` is payload index to `Cmpxchg`.
         cmpxchg,
         /// Implement the builtin `@addrSpaceCast`
-        /// `Operand` is payload index to `BinNode`. `lhs` is dest type, `rhs` is operand.
+        /// `operand` is payload index to `BinNode`. `lhs` is dest type, `rhs` is operand.
         addrspace_cast,
         /// Implement builtin `@cVaArg`.
         /// `operand` is payload index to `BinNode`.
@@ -2031,6 +2038,9 @@ pub const Inst = struct {
         /// Implements the `@inComptime` builtin.
         /// `operand` is `src_node: i32`.
         in_comptime,
+        /// Used as a placeholder for the capture of an `errdefer`.
+        /// This is replaced by Sema with the captured value.
+        errdefer_err_code,
 
         pub const InstData = struct {
             opcode: Extended,
@@ -2975,6 +2985,14 @@ pub const Inst = struct {
         start: Ref,
         end: Ref,
         sentinel: Ref,
+    };
+
+    pub const SliceLength = struct {
+        lhs: Ref,
+        start: Ref,
+        len: Ref,
+        sentinel: Ref,
+        start_src_node_offset: i32,
     };
 
     /// The meaning of these operands depends on the corresponding `Tag`.

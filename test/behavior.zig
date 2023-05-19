@@ -150,6 +150,7 @@ test {
     _ = @import("behavior/comptime_memory.zig");
     _ = @import("behavior/const_slice_child.zig");
     _ = @import("behavior/decltest.zig");
+    _ = @import("behavior/duplicated_test_names.zig");
     _ = @import("behavior/defer.zig");
     _ = @import("behavior/empty_tuple_fields.zig");
     _ = @import("behavior/empty_union.zig");
@@ -240,7 +241,8 @@ test {
         builtin.zig_backend != .stage2_x86_64 and
         builtin.zig_backend != .stage2_aarch64 and
         builtin.zig_backend != .stage2_wasm and
-        builtin.zig_backend != .stage2_c)
+        builtin.zig_backend != .stage2_c and
+        builtin.zig_backend != .stage2_spirv64)
     {
         _ = @import("behavior/bugs/13063.zig");
         _ = @import("behavior/bugs/11227.zig");

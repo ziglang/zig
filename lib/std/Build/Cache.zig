@@ -145,6 +145,8 @@ pub const bin_digest_len = 16;
 pub const hex_digest_len = bin_digest_len * 2;
 pub const BinDigest = [bin_digest_len]u8;
 
+/// This is currently just an arbitrary non-empty string that can't match another manifest line.
+const manifest_header = "0";
 const manifest_file_size_max = 50 * 1024 * 1024;
 
 /// The type used for hashing file contents. Currently, this is SipHash128(1, 3), because it
@@ -152,8 +154,15 @@ const manifest_file_size_max = 50 * 1024 * 1024;
 /// fastest options right now.
 pub const Hasher = crypto.auth.siphash.SipHash128(1, 3);
 
-/// Initial state, that can be copied.
-pub const hasher_init: Hasher = Hasher.init(&[_]u8{0} ** Hasher.key_length);
+/// Initial state with random bytes, that can be copied.
+/// Refresh this with new random bytes when the manifest
+/// format is modified in a non-backwards-compatible way.
+pub const hasher_init: Hasher = Hasher.init(&[_]u8{
+    0x33, 0x52, 0xa2, 0x84,
+    0xcf, 0x17, 0x56, 0x57,
+    0x01, 0xbb, 0xcd, 0xe4,
+    0x77, 0xd6, 0xf0, 0x60,
+});
 
 pub const File = struct {
     prefixed_path: ?PrefixedPath,
@@ -225,6 +234,10 @@ pub const HashHelper = struct {
                     },
                     .none => {},
                 }
+            },
+            std.Build.Step.Compile.BuildId => switch (x) {
+                .none, .fast, .uuid, .sha1, .md5 => hh.add(std.meta.activeTag(x)),
+                .hexstring => |hex_string| hh.addBytes(hex_string.toSlice()),
             },
             else => switch (@typeInfo(@TypeOf(x))) {
                 .Bool, .Int, .Enum, .Array => hh.addBytes(mem.asBytes(&x)),
@@ -391,208 +404,179 @@ pub const Manifest = struct {
         @memcpy(manifest_file_path[0..self.hex_digest.len], &self.hex_digest);
         manifest_file_path[hex_digest_len..][0..ext.len].* = ext.*;
 
-        if (self.files.items.len == 0) {
-            // If there are no file inputs, we check if the manifest file exists instead of
-            // comparing the hashes on the files used for the cached item
-            while (true) {
-                if (self.cache.manifest_dir.openFile(&manifest_file_path, .{
-                    .mode = .read_write,
-                    .lock = .Exclusive,
-                    .lock_nonblocking = self.want_shared_lock,
-                })) |manifest_file| {
-                    self.manifest_file = manifest_file;
-                    self.have_exclusive_lock = true;
+        while (true) {
+            if (self.cache.manifest_dir.createFile(&manifest_file_path, .{
+                .read = true,
+                .truncate = false,
+                .lock = .Exclusive,
+                .lock_nonblocking = self.want_shared_lock,
+            })) |manifest_file| {
+                self.manifest_file = manifest_file;
+                self.have_exclusive_lock = true;
+                break;
+            } else |err| switch (err) {
+                error.WouldBlock => {
+                    self.manifest_file = try self.cache.manifest_dir.openFile(&manifest_file_path, .{
+                        .mode = .read_write,
+                        .lock = .Shared,
+                    });
                     break;
-                } else |open_err| switch (open_err) {
-                    error.WouldBlock => {
-                        self.manifest_file = try self.cache.manifest_dir.openFile(&manifest_file_path, .{
-                            .lock = .Shared,
-                        });
-                        break;
-                    },
-                    error.FileNotFound => {
-                        if (self.cache.manifest_dir.createFile(&manifest_file_path, .{
-                            .read = true,
-                            .truncate = false,
-                            .lock = .Exclusive,
-                            .lock_nonblocking = self.want_shared_lock,
-                        })) |manifest_file| {
-                            self.manifest_file = manifest_file;
-                            self.manifest_dirty = true;
-                            self.have_exclusive_lock = true;
-                            return false; // cache miss; exclusive lock already held
-                        } else |err| switch (err) {
-                            // There are no dir components, so you would think
-                            // that this was unreachable, however we have
-                            // observed on macOS two processes racing to do
-                            // openat() with O_CREAT manifest in ENOENT.
-                            error.WouldBlock, error.FileNotFound => continue,
-                            else => |e| return e,
-                        }
-                    },
-                    else => |e| return e,
-                }
-            }
-        } else {
-            while (true) {
-                if (self.cache.manifest_dir.createFile(&manifest_file_path, .{
-                    .read = true,
-                    .truncate = false,
-                    .lock = .Exclusive,
-                    .lock_nonblocking = self.want_shared_lock,
-                })) |manifest_file| {
-                    self.manifest_file = manifest_file;
-                    self.have_exclusive_lock = true;
-                    break;
-                } else |err| switch (err) {
-                    error.WouldBlock => {
-                        self.manifest_file = try self.cache.manifest_dir.openFile(&manifest_file_path, .{
-                            .lock = .Shared,
-                        });
-                        break;
-                    },
-                    // There are no dir components, so you would think that this was
-                    // unreachable, however we have observed on macOS two processes racing
-                    // to do openat() with O_CREAT manifest in ENOENT.
-                    error.FileNotFound => continue,
-                    else => |e| return e,
-                }
+                },
+                // There are no dir components, so you would think that this was
+                // unreachable, however we have observed on macOS two processes racing
+                // to do openat() with O_CREAT manifest in ENOENT.
+                error.FileNotFound => continue,
+                else => |e| return e,
             }
         }
 
         self.want_refresh_timestamp = true;
 
-        const file_contents = try self.manifest_file.?.reader().readAllAlloc(gpa, manifest_file_size_max);
-        defer gpa.free(file_contents);
+        while (true) {
+            const file_contents = try self.manifest_file.?.reader().readAllAlloc(gpa, manifest_file_size_max);
+            defer gpa.free(file_contents);
 
-        const input_file_count = self.files.items.len;
-        var any_file_changed = false;
-        var line_iter = mem.tokenize(u8, file_contents, "\n");
-        var idx: usize = 0;
-        while (line_iter.next()) |line| {
-            defer idx += 1;
-
-            const cache_hash_file = if (idx < input_file_count) &self.files.items[idx] else blk: {
-                const new = try self.files.addOne(gpa);
-                new.* = .{
-                    .prefixed_path = null,
-                    .contents = null,
-                    .max_file_size = null,
-                    .stat = undefined,
-                    .bin_digest = undefined,
-                };
-                break :blk new;
-            };
-
-            var iter = mem.tokenize(u8, line, " ");
-            const size = iter.next() orelse return error.InvalidFormat;
-            const inode = iter.next() orelse return error.InvalidFormat;
-            const mtime_nsec_str = iter.next() orelse return error.InvalidFormat;
-            const digest_str = iter.next() orelse return error.InvalidFormat;
-            const prefix_str = iter.next() orelse return error.InvalidFormat;
-            const file_path = iter.rest();
-
-            cache_hash_file.stat.size = fmt.parseInt(u64, size, 10) catch return error.InvalidFormat;
-            cache_hash_file.stat.inode = fmt.parseInt(fs.File.INode, inode, 10) catch return error.InvalidFormat;
-            cache_hash_file.stat.mtime = fmt.parseInt(i64, mtime_nsec_str, 10) catch return error.InvalidFormat;
-            _ = fmt.hexToBytes(&cache_hash_file.bin_digest, digest_str) catch return error.InvalidFormat;
-            const prefix = fmt.parseInt(u8, prefix_str, 10) catch return error.InvalidFormat;
-            if (prefix >= self.cache.prefixes_len) return error.InvalidFormat;
-
-            if (file_path.len == 0) {
-                return error.InvalidFormat;
+            const input_file_count = self.files.items.len;
+            var any_file_changed = false;
+            var line_iter = mem.tokenize(u8, file_contents, "\n");
+            var idx: usize = 0;
+            if (if (line_iter.next()) |line| !std.mem.eql(u8, line, manifest_header) else true) {
+                if (try self.upgradeToExclusiveLock()) continue;
+                self.manifest_dirty = true;
+                while (idx < input_file_count) : (idx += 1) {
+                    const ch_file = &self.files.items[idx];
+                    self.populateFileHash(ch_file) catch |err| {
+                        self.failed_file_index = idx;
+                        return err;
+                    };
+                }
+                return false;
             }
-            if (cache_hash_file.prefixed_path) |pp| {
-                if (pp.prefix != prefix or !mem.eql(u8, file_path, pp.sub_path)) {
+            while (line_iter.next()) |line| {
+                defer idx += 1;
+
+                const cache_hash_file = if (idx < input_file_count) &self.files.items[idx] else blk: {
+                    const new = try self.files.addOne(gpa);
+                    new.* = .{
+                        .prefixed_path = null,
+                        .contents = null,
+                        .max_file_size = null,
+                        .stat = undefined,
+                        .bin_digest = undefined,
+                    };
+                    break :blk new;
+                };
+
+                var iter = mem.tokenize(u8, line, " ");
+                const size = iter.next() orelse return error.InvalidFormat;
+                const inode = iter.next() orelse return error.InvalidFormat;
+                const mtime_nsec_str = iter.next() orelse return error.InvalidFormat;
+                const digest_str = iter.next() orelse return error.InvalidFormat;
+                const prefix_str = iter.next() orelse return error.InvalidFormat;
+                const file_path = iter.rest();
+
+                cache_hash_file.stat.size = fmt.parseInt(u64, size, 10) catch return error.InvalidFormat;
+                cache_hash_file.stat.inode = fmt.parseInt(fs.File.INode, inode, 10) catch return error.InvalidFormat;
+                cache_hash_file.stat.mtime = fmt.parseInt(i64, mtime_nsec_str, 10) catch return error.InvalidFormat;
+                _ = fmt.hexToBytes(&cache_hash_file.bin_digest, digest_str) catch return error.InvalidFormat;
+                const prefix = fmt.parseInt(u8, prefix_str, 10) catch return error.InvalidFormat;
+                if (prefix >= self.cache.prefixes_len) return error.InvalidFormat;
+
+                if (file_path.len == 0) {
                     return error.InvalidFormat;
                 }
-            }
+                if (cache_hash_file.prefixed_path) |pp| {
+                    if (pp.prefix != prefix or !mem.eql(u8, file_path, pp.sub_path)) {
+                        return error.InvalidFormat;
+                    }
+                }
 
-            if (cache_hash_file.prefixed_path == null) {
-                cache_hash_file.prefixed_path = .{
-                    .prefix = prefix,
-                    .sub_path = try gpa.dupe(u8, file_path),
+                if (cache_hash_file.prefixed_path == null) {
+                    cache_hash_file.prefixed_path = .{
+                        .prefix = prefix,
+                        .sub_path = try gpa.dupe(u8, file_path),
+                    };
+                }
+
+                const pp = cache_hash_file.prefixed_path.?;
+                const dir = self.cache.prefixes()[pp.prefix].handle;
+                const this_file = dir.openFile(pp.sub_path, .{ .mode = .read_only }) catch |err| switch (err) {
+                    error.FileNotFound => {
+                        if (try self.upgradeToExclusiveLock()) continue;
+                        return false;
+                    },
+                    else => return error.CacheUnavailable,
                 };
+                defer this_file.close();
+
+                const actual_stat = this_file.stat() catch |err| {
+                    self.failed_file_index = idx;
+                    return err;
+                };
+                const size_match = actual_stat.size == cache_hash_file.stat.size;
+                const mtime_match = actual_stat.mtime == cache_hash_file.stat.mtime;
+                const inode_match = actual_stat.inode == cache_hash_file.stat.inode;
+
+                if (!size_match or !mtime_match or !inode_match) {
+                    self.manifest_dirty = true;
+
+                    cache_hash_file.stat = .{
+                        .size = actual_stat.size,
+                        .mtime = actual_stat.mtime,
+                        .inode = actual_stat.inode,
+                    };
+
+                    if (self.isProblematicTimestamp(cache_hash_file.stat.mtime)) {
+                        // The actual file has an unreliable timestamp, force it to be hashed
+                        cache_hash_file.stat.mtime = 0;
+                        cache_hash_file.stat.inode = 0;
+                    }
+
+                    var actual_digest: BinDigest = undefined;
+                    hashFile(this_file, &actual_digest) catch |err| {
+                        self.failed_file_index = idx;
+                        return err;
+                    };
+
+                    if (!mem.eql(u8, &cache_hash_file.bin_digest, &actual_digest)) {
+                        cache_hash_file.bin_digest = actual_digest;
+                        // keep going until we have the input file digests
+                        any_file_changed = true;
+                    }
+                }
+
+                if (!any_file_changed) {
+                    self.hash.hasher.update(&cache_hash_file.bin_digest);
+                }
             }
 
-            const pp = cache_hash_file.prefixed_path.?;
-            const dir = self.cache.prefixes()[pp.prefix].handle;
-            const this_file = dir.openFile(pp.sub_path, .{ .mode = .read_only }) catch |err| switch (err) {
-                error.FileNotFound => {
-                    try self.upgradeToExclusiveLock();
-                    return false;
-                },
-                else => return error.CacheUnavailable,
-            };
-            defer this_file.close();
+            if (any_file_changed) {
+                if (try self.upgradeToExclusiveLock()) continue;
+                // cache miss
+                // keep the manifest file open
+                self.unhit(bin_digest, input_file_count);
+                return false;
+            }
 
-            const actual_stat = this_file.stat() catch |err| {
-                self.failed_file_index = idx;
-                return err;
-            };
-            const size_match = actual_stat.size == cache_hash_file.stat.size;
-            const mtime_match = actual_stat.mtime == cache_hash_file.stat.mtime;
-            const inode_match = actual_stat.inode == cache_hash_file.stat.inode;
-
-            if (!size_match or !mtime_match or !inode_match) {
+            if (idx < input_file_count) {
+                if (try self.upgradeToExclusiveLock()) continue;
                 self.manifest_dirty = true;
-
-                cache_hash_file.stat = .{
-                    .size = actual_stat.size,
-                    .mtime = actual_stat.mtime,
-                    .inode = actual_stat.inode,
-                };
-
-                if (self.isProblematicTimestamp(cache_hash_file.stat.mtime)) {
-                    // The actual file has an unreliable timestamp, force it to be hashed
-                    cache_hash_file.stat.mtime = 0;
-                    cache_hash_file.stat.inode = 0;
+                while (idx < input_file_count) : (idx += 1) {
+                    const ch_file = &self.files.items[idx];
+                    self.populateFileHash(ch_file) catch |err| {
+                        self.failed_file_index = idx;
+                        return err;
+                    };
                 }
-
-                var actual_digest: BinDigest = undefined;
-                hashFile(this_file, &actual_digest) catch |err| {
-                    self.failed_file_index = idx;
-                    return err;
-                };
-
-                if (!mem.eql(u8, &cache_hash_file.bin_digest, &actual_digest)) {
-                    cache_hash_file.bin_digest = actual_digest;
-                    // keep going until we have the input file digests
-                    any_file_changed = true;
-                }
+                return false;
             }
 
-            if (!any_file_changed) {
-                self.hash.hasher.update(&cache_hash_file.bin_digest);
+            if (self.want_shared_lock) {
+                try self.downgradeToSharedLock();
             }
-        }
 
-        if (any_file_changed) {
-            // cache miss
-            // keep the manifest file open
-            self.unhit(bin_digest, input_file_count);
-            try self.upgradeToExclusiveLock();
-            return false;
+            return true;
         }
-
-        if (idx < input_file_count) {
-            self.manifest_dirty = true;
-            while (idx < input_file_count) : (idx += 1) {
-                const ch_file = &self.files.items[idx];
-                self.populateFileHash(ch_file) catch |err| {
-                    self.failed_file_index = idx;
-                    return err;
-                };
-            }
-            try self.upgradeToExclusiveLock();
-            return false;
-        }
-
-        if (self.want_shared_lock) {
-            try self.downgradeToSharedLock();
-        }
-
-        return true;
     }
 
     pub fn unhit(self: *Manifest, bin_digest: BinDigest, input_file_count: usize) void {
@@ -854,19 +838,13 @@ pub const Manifest = struct {
             defer contents.deinit();
 
             const writer = contents.writer();
-            var encoded_digest: [hex_digest_len]u8 = undefined;
-
+            try writer.writeAll(manifest_header ++ "\n");
             for (self.files.items) |file| {
-                _ = fmt.bufPrint(
-                    &encoded_digest,
-                    "{s}",
-                    .{fmt.fmtSliceHexLower(&file.bin_digest)},
-                ) catch unreachable;
-                try writer.print("{d} {d} {d} {s} {d} {s}\n", .{
+                try writer.print("{d} {d} {d} {} {d} {s}\n", .{
                     file.stat.size,
                     file.stat.inode,
                     file.stat.mtime,
-                    &encoded_digest,
+                    fmt.fmtSliceHexLower(&file.bin_digest),
                     file.prefixed_path.?.prefix,
                     file.prefixed_path.?.sub_path,
                 });
@@ -895,8 +873,8 @@ pub const Manifest = struct {
         self.have_exclusive_lock = false;
     }
 
-    fn upgradeToExclusiveLock(self: *Manifest) !void {
-        if (self.have_exclusive_lock) return;
+    fn upgradeToExclusiveLock(self: *Manifest) !bool {
+        if (self.have_exclusive_lock) return false;
         assert(self.manifest_file != null);
 
         // WASI does not currently support flock, so we bypass it here.
@@ -910,6 +888,7 @@ pub const Manifest = struct {
             try manifest_file.lock(.Exclusive);
         }
         self.have_exclusive_lock = true;
+        return true;
     }
 
     /// Obtain only the data needed to maintain a lock on the manifest file.

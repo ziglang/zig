@@ -3596,12 +3596,12 @@ pub const Type = extern union {
 
     fn intAbiSize(bits: u16, target: Target) u64 {
         const alignment = intAbiAlignment(bits, target);
-        return std.mem.alignForwardGeneric(u64, (bits + 7) / 8, alignment);
+        return std.mem.alignForwardGeneric(u64, @intCast(u16, (@as(u17, bits) + 7) / 8), alignment);
     }
 
     fn intAbiAlignment(bits: u16, target: Target) u32 {
         return @min(
-            std.math.ceilPowerOfTwoPromote(u16, (bits + 7) / 8),
+            std.math.ceilPowerOfTwoPromote(u16, @intCast(u16, (@as(u17, bits) + 7) / 8)),
             target.maxIntAlignment(),
         );
     }
@@ -5433,8 +5433,18 @@ pub const Type = extern union {
         }
     }
 
+    // Works for vectors and vectors of integers.
+    pub fn maxInt(ty: Type, arena: Allocator, target: Target) !Value {
+        const scalar = try maxIntScalar(ty.scalarType(), arena, target);
+        if (ty.zigTypeTag() == .Vector and scalar.tag() != .the_only_possible_value) {
+            return Value.Tag.repeated.create(arena, scalar);
+        } else {
+            return scalar;
+        }
+    }
+
     /// Asserts that self.zigTypeTag() == .Int.
-    pub fn maxInt(self: Type, arena: Allocator, target: Target) !Value {
+    pub fn maxIntScalar(self: Type, arena: Allocator, target: Target) !Value {
         assert(self.zigTypeTag() == .Int);
         const info = self.intInfo(target);
 

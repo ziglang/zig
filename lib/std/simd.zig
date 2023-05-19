@@ -12,7 +12,7 @@ pub fn suggestVectorSizeForCpu(comptime T: type, comptime cpu: std.Target.Cpu) ?
     const element_bit_size = @max(8, std.math.ceilPowerOfTwo(u16, @bitSizeOf(T)) catch unreachable);
     const vector_bit_size: u16 = blk: {
         if (cpu.arch.isX86()) {
-            if (T == bool and std.Target.x86.featureSetHas(.prefer_mask_registers)) return 64;
+            if (T == bool and std.Target.x86.featureSetHas(cpu.features, .prefer_mask_registers)) return 64;
             if (std.Target.x86.featureSetHas(cpu.features, .avx512f) and !std.Target.x86.featureSetHasAny(cpu.features, .{ .prefer_256_bit, .prefer_128_bit })) break :blk 512;
             if (std.Target.x86.featureSetHasAny(cpu.features, .{ .prefer_256_bit, .avx2 }) and !std.Target.x86.featureSetHas(cpu.features, .prefer_128_bit)) break :blk 256;
             if (std.Target.x86.featureSetHas(cpu.features, .sse)) break :blk 128;

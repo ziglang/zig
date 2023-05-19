@@ -1741,6 +1741,22 @@ test "std.hash_map clone" {
     try expectEqual(b.get(1).?, 1);
     try expectEqual(b.get(2).?, 2);
     try expectEqual(b.get(3).?, 3);
+
+    var original = AutoHashMap(i32, i32).init(std.testing.allocator);
+    defer original.deinit();
+
+    var i: u8 = 0;
+    while (i < 10) : (i += 1) {
+        try original.putNoClobber(i, i * 10);
+    }
+
+    var copy = try original.clone();
+    defer copy.deinit();
+
+    i = 0;
+    while (i < 10) : (i += 1) {
+        try testing.expect(copy.get(i).? == i * 10);
+    }
 }
 
 test "std.hash_map ensureTotalCapacity with existing elements" {
@@ -2070,24 +2086,6 @@ test "std.hash_map basic hash map usage" {
     try testing.expect(map.get(2) == null);
 
     try testing.expect(map.remove(3) == true);
-}
-
-test "std.hash_map clone" {
-    var original = AutoHashMap(i32, i32).init(std.testing.allocator);
-    defer original.deinit();
-
-    var i: u8 = 0;
-    while (i < 10) : (i += 1) {
-        try original.putNoClobber(i, i * 10);
-    }
-
-    var copy = try original.clone();
-    defer copy.deinit();
-
-    i = 0;
-    while (i < 10) : (i += 1) {
-        try testing.expect(copy.get(i).? == i * 10);
-    }
 }
 
 test "std.hash_map getOrPutAdapted" {

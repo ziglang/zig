@@ -148,7 +148,7 @@ pub fn format(
         comptime assert(fmt[i] == '}');
         i += 1;
 
-        const placeholder = comptime parsePlaceholder(fmt[fmt_begin..fmt_end].*);
+        const placeholder = comptime Placeholder.parse(fmt[fmt_begin..fmt_end].*);
         const arg_pos = comptime switch (placeholder.arg) {
             .none => null,
             .number => |pos| pos,
@@ -205,102 +205,102 @@ pub fn format(
     }
 }
 
-fn parsePlaceholder(comptime str: anytype) Placeholder {
-    comptime var parser = Parser{ .buf = &str };
-
-    // Parse the positional argument number
-    const arg = comptime parser.specifier() catch |err|
-        @compileError(@errorName(err));
-
-    // Parse the format specifier
-    const specifier_arg = comptime parser.until(':');
-
-    // Skip the colon, if present
-    if (comptime parser.char()) |ch| {
-        if (ch != ':') {
-            @compileError("expected : or }, found '" ++ [1]u8{ch} ++ "'");
-        }
-    }
-
-    // Parse the fill character
-    // The fill parameter requires the alignment parameter to be specified
-    // too
-    const fill = comptime if (parser.peek(1)) |ch|
-        switch (ch) {
-            '<', '^', '>' => parser.char().?,
-            else => ' ',
-        }
-    else
-        ' ';
-
-    // Parse the alignment parameter
-    const alignment: Alignment = comptime if (parser.peek(0)) |ch| init: {
-        switch (ch) {
-            '<', '^', '>' => _ = parser.char(),
-            else => {},
-        }
-        break :init switch (ch) {
-            '<' => .Left,
-            '^' => .Center,
-            else => .Right,
-        };
-    } else .Right;
-
-    // Parse the width parameter
-    const width = comptime parser.specifier() catch |err|
-        @compileError(@errorName(err));
-
-    // Skip the dot, if present
-    if (comptime parser.char()) |ch| {
-        if (ch != '.') {
-            @compileError("expected . or }, found '" ++ [1]u8{ch} ++ "'");
-        }
-    }
-
-    // Parse the precision parameter
-    const precision = comptime parser.specifier() catch |err|
-        @compileError(@errorName(err));
-
-    if (comptime parser.char()) |ch| {
-        @compileError("extraneous trailing character '" ++ [1]u8{ch} ++ "'");
-    }
-
-    return Placeholder{
-        .specifier_arg = cacheString(specifier_arg[0..specifier_arg.len].*),
-        .fill = fill,
-        .alignment = alignment,
-        .arg = arg,
-        .width = width,
-        .precision = precision,
-    };
-}
-
 fn cacheString(str: anytype) []const u8 {
     return &str;
 }
 
-const Placeholder = struct {
+pub const Placeholder = struct {
     specifier_arg: []const u8,
     fill: u8,
     alignment: Alignment,
     arg: Specifier,
     width: Specifier,
     precision: Specifier,
+
+    pub fn parse(comptime str: anytype) Placeholder {
+        comptime var parser = Parser{ .buf = &str };
+
+        // Parse the positional argument number
+        const arg = comptime parser.specifier() catch |err|
+            @compileError(@errorName(err));
+
+        // Parse the format specifier
+        const specifier_arg = comptime parser.until(':');
+
+        // Skip the colon, if present
+        if (comptime parser.char()) |ch| {
+            if (ch != ':') {
+                @compileError("expected : or }, found '" ++ [1]u8{ch} ++ "'");
+            }
+        }
+
+        // Parse the fill character
+        // The fill parameter requires the alignment parameter to be specified
+        // too
+        const fill = comptime if (parser.peek(1)) |ch|
+            switch (ch) {
+                '<', '^', '>' => parser.char().?,
+                else => ' ',
+            }
+        else
+            ' ';
+
+        // Parse the alignment parameter
+        const alignment: Alignment = comptime if (parser.peek(0)) |ch| init: {
+            switch (ch) {
+                '<', '^', '>' => _ = parser.char(),
+                else => {},
+            }
+            break :init switch (ch) {
+                '<' => .Left,
+                '^' => .Center,
+                else => .Right,
+            };
+        } else .Right;
+
+        // Parse the width parameter
+        const width = comptime parser.specifier() catch |err|
+            @compileError(@errorName(err));
+
+        // Skip the dot, if present
+        if (comptime parser.char()) |ch| {
+            if (ch != '.') {
+                @compileError("expected . or }, found '" ++ [1]u8{ch} ++ "'");
+            }
+        }
+
+        // Parse the precision parameter
+        const precision = comptime parser.specifier() catch |err|
+            @compileError(@errorName(err));
+
+        if (comptime parser.char()) |ch| {
+            @compileError("extraneous trailing character '" ++ [1]u8{ch} ++ "'");
+        }
+
+        return Placeholder{
+            .specifier_arg = cacheString(specifier_arg[0..specifier_arg.len].*),
+            .fill = fill,
+            .alignment = alignment,
+            .arg = arg,
+            .width = width,
+            .precision = precision,
+        };
+    }
 };
 
-const Specifier = union(enum) {
+pub const Specifier = union(enum) {
     none,
     number: usize,
     named: []const u8,
 };
 
-const Parser = struct {
+pub const Parser = struct {
     buf: []const u8,
     pos: usize = 0,
 
     // Returns a decimal number or null if the current character is not a
     // digit
-    fn number(self: *@This()) ?usize {
+    pub fn number(self: *@This()) ?usize {
         var r: ?usize = null;
 
         while (self.pos < self.buf.len) : (self.pos += 1) {
@@ -319,7 +319,7 @@ const Parser = struct {
 
     // Returns a substring of the input starting from the current position
     // and ending where `ch` is found or until the end if not found
-    fn until(self: *@This(), ch: u8) []const u8 {
+    pub fn until(self: *@This(), ch: u8) []const u8 {
         const start = self.pos;
 
         if (start >= self.buf.len)
@@ -332,7 +332,7 @@ const Parser = struct {
     }
 
     // Returns one character, if available
-    fn char(self: *@This()) ?u8 {
+    pub fn char(self: *@This()) ?u8 {
         if (self.pos < self.buf.len) {
             const ch = self.buf[self.pos];
             self.pos += 1;
@@ -341,7 +341,7 @@ const Parser = struct {
         return null;
     }
 
-    fn maybe(self: *@This(), val: u8) bool {
+    pub fn maybe(self: *@This(), val: u8) bool {
         if (self.pos < self.buf.len and self.buf[self.pos] == val) {
             self.pos += 1;
             return true;
@@ -351,7 +351,7 @@ const Parser = struct {
 
     // Returns a decimal number or null if the current character is not a
     // digit
-    fn specifier(self: *@This()) !Specifier {
+    pub fn specifier(self: *@This()) !Specifier {
         if (self.maybe('[')) {
             const arg_name = self.until(']');
 
@@ -367,24 +367,24 @@ const Parser = struct {
     }
 
     // Returns the n-th next character or null if that's past the end
-    fn peek(self: *@This(), n: usize) ?u8 {
+    pub fn peek(self: *@This(), n: usize) ?u8 {
         return if (self.pos + n < self.buf.len) self.buf[self.pos + n] else null;
     }
 };
 
-const ArgSetType = u32;
+pub const ArgSetType = u32;
 const max_format_args = @typeInfo(ArgSetType).Int.bits;
 
-const ArgState = struct {
+pub const ArgState = struct {
     next_arg: usize = 0,
     used_args: ArgSetType = 0,
     args_len: usize,
 
-    fn hasUnusedArgs(self: *@This()) bool {
+    pub fn hasUnusedArgs(self: *@This()) bool {
         return @popCount(self.used_args) != self.args_len;
     }
 
-    fn nextArg(self: *@This(), arg_index: ?usize) ?usize {
+    pub fn nextArg(self: *@This(), arg_index: ?usize) ?usize {
         const next_index = arg_index orelse init: {
             const arg = self.next_arg;
             self.next_arg += 1;
@@ -430,7 +430,7 @@ pub fn formatAddress(value: anytype, options: FormatOptions, writer: anytype) @T
 // This ANY const is a workaround for: https://github.com/ziglang/zig/issues/7948
 const ANY = "any";
 
-fn defaultSpec(comptime T: type) [:0]const u8 {
+pub fn defaultSpec(comptime T: type) [:0]const u8 {
     switch (@typeInfo(T)) {
         .Array => |_| return ANY,
         .Pointer => |ptr_info| switch (ptr_info.size) {
@@ -1699,7 +1699,7 @@ pub const ParseIntError = error{
     /// The result cannot fit in the type specified
     Overflow,
 
-    /// The input was empty or had a byte that was not a digit
+    /// The input was empty or contained an invalid character
     InvalidCharacter,
 };
 
@@ -1903,6 +1903,56 @@ test "parseUnsigned" {
 
     // test empty string error
     try std.testing.expectError(error.InvalidCharacter, parseUnsigned(u8, "", 10));
+}
+
+/// Parses a number like '2G', '2Gi', or '2GiB'.
+pub fn parseIntSizeSuffix(buf: []const u8, radix: u8) ParseIntError!usize {
+    var without_B = buf;
+    if (mem.endsWith(u8, buf, "B")) without_B.len -= 1;
+    var without_i = without_B;
+    var base: usize = 1000;
+    if (mem.endsWith(u8, without_B, "i")) {
+        without_i.len -= 1;
+        base = 1024;
+    }
+    if (without_i.len == 0) return error.InvalidCharacter;
+    const orders_of_magnitude: usize = switch (without_i[without_i.len - 1]) {
+        'k', 'K' => 1,
+        'M' => 2,
+        'G' => 3,
+        'T' => 4,
+        'P' => 5,
+        'E' => 6,
+        'Z' => 7,
+        'Y' => 8,
+        'R' => 9,
+        'Q' => 10,
+        else => 0,
+    };
+    var without_suffix = without_i;
+    if (orders_of_magnitude > 0) {
+        without_suffix.len -= 1;
+    } else if (without_i.len != without_B.len) {
+        return error.InvalidCharacter;
+    }
+    const multiplier = math.powi(usize, base, orders_of_magnitude) catch |err| switch (err) {
+        error.Underflow => unreachable,
+        error.Overflow => return error.Overflow,
+    };
+    const number = try std.fmt.parseInt(usize, without_suffix, radix);
+    return math.mul(usize, number, multiplier);
+}
+
+test "parseIntSizeSuffix" {
+    try std.testing.expect(try parseIntSizeSuffix("2", 10) == 2);
+    try std.testing.expect(try parseIntSizeSuffix("2B", 10) == 2);
+    try std.testing.expect(try parseIntSizeSuffix("2kB", 10) == 2000);
+    try std.testing.expect(try parseIntSizeSuffix("2k", 10) == 2000);
+    try std.testing.expect(try parseIntSizeSuffix("2KiB", 10) == 2048);
+    try std.testing.expect(try parseIntSizeSuffix("2Ki", 10) == 2048);
+    try std.testing.expect(try parseIntSizeSuffix("aKiB", 16) == 10240);
+    try std.testing.expect(parseIntSizeSuffix("", 10) == error.InvalidCharacter);
+    try std.testing.expect(parseIntSizeSuffix("2iB", 10) == error.InvalidCharacter);
 }
 
 pub const parseFloat = @import("fmt/parse_float.zig").parseFloat;
@@ -2244,8 +2294,8 @@ test "struct" {
             field: u8,
         };
         const value = Struct{ .field = 42 };
-        try expectFmt("struct: Struct{ .field = 42 }\n", "struct: {}\n", .{value});
-        try expectFmt("struct: Struct{ .field = 42 }\n", "struct: {}\n", .{&value});
+        try expectFmt("struct: fmt.test.struct.Struct{ .field = 42 }\n", "struct: {}\n", .{value});
+        try expectFmt("struct: fmt.test.struct.Struct{ .field = 42 }\n", "struct: {}\n", .{&value});
     }
     {
         const Struct = struct {
@@ -2253,8 +2303,24 @@ test "struct" {
             b: u1,
         };
         const value = Struct{ .a = 0, .b = 1 };
-        try expectFmt("struct: Struct{ .a = 0, .b = 1 }\n", "struct: {}\n", .{value});
+        try expectFmt("struct: fmt.test.struct.Struct{ .a = 0, .b = 1 }\n", "struct: {}\n", .{value});
     }
+
+    const S = struct {
+        a: u32,
+        b: anyerror,
+    };
+
+    const inst = S{
+        .a = 456,
+        .b = error.Unused,
+    };
+
+    try expectFmt("fmt.test.struct.S{ .a = 456, .b = error.Unused }", "{}", .{inst});
+    // Tuples
+    try expectFmt("{ }", "{}", .{.{}});
+    try expectFmt("{ -1 }", "{}", .{.{-1}});
+    try expectFmt("{ -1, 42, 2.5e+04 }", "{}", .{.{ -1, 42, 0.25e5 }});
 }
 
 test "enum" {
@@ -2263,13 +2329,26 @@ test "enum" {
         Two,
     };
     const value = Enum.Two;
-    try expectFmt("enum: Enum.Two\n", "enum: {}\n", .{value});
-    try expectFmt("enum: Enum.Two\n", "enum: {}\n", .{&value});
-    try expectFmt("enum: Enum.One\n", "enum: {}\n", .{Enum.One});
-    try expectFmt("enum: Enum.Two\n", "enum: {}\n", .{Enum.Two});
+    try expectFmt("enum: fmt.test.enum.Enum.Two\n", "enum: {}\n", .{value});
+    try expectFmt("enum: fmt.test.enum.Enum.Two\n", "enum: {}\n", .{&value});
+    try expectFmt("enum: fmt.test.enum.Enum.One\n", "enum: {}\n", .{Enum.One});
+    try expectFmt("enum: fmt.test.enum.Enum.Two\n", "enum: {}\n", .{Enum.Two});
 
     // test very large enum to verify ct branch quota is large enough
-    try expectFmt("enum: os.windows.win32error.Win32Error.INVALID_FUNCTION\n", "enum: {}\n", .{std.os.windows.Win32Error.INVALID_FUNCTION});
+    // TODO: https://github.com/ziglang/zig/issues/15609
+    if (!((builtin.cpu.arch == .wasm32) and builtin.mode == .Debug)) {
+        try expectFmt("enum: os.windows.win32error.Win32Error.INVALID_FUNCTION\n", "enum: {}\n", .{std.os.windows.Win32Error.INVALID_FUNCTION});
+    }
+
+    const E = enum {
+        One,
+        Two,
+        Three,
+    };
+
+    const inst = E.Two;
+
+    try expectFmt("fmt.test.enum.E.Two", "{}", .{inst});
 }
 
 test "non-exhaustive enum" {
@@ -2445,24 +2524,6 @@ test "custom" {
     try expectFmt("dim: 10.200x2.220\n", "dim: {d}\n", .{value});
 }
 
-test "struct" {
-    const S = struct {
-        a: u32,
-        b: anyerror,
-    };
-
-    const inst = S{
-        .a = 456,
-        .b = error.Unused,
-    };
-
-    try expectFmt("fmt.test.struct.S{ .a = 456, .b = error.Unused }", "{}", .{inst});
-    // Tuples
-    try expectFmt("{ }", "{}", .{.{}});
-    try expectFmt("{ -1 }", "{}", .{.{-1}});
-    try expectFmt("{ -1, 42, 2.5e+04 }", "{}", .{.{ -1, 42, 0.25e5 }});
-}
-
 test "union" {
     const TU = union(enum) {
         float: f32,
@@ -2491,18 +2552,6 @@ test "union" {
 
     const eu_result = try bufPrint(buf[0..], "{}", .{eu_inst});
     try std.testing.expect(mem.eql(u8, eu_result[0..18], "fmt.test.union.EU@"));
-}
-
-test "enum" {
-    const E = enum {
-        One,
-        Two,
-        Three,
-    };
-
-    const inst = E.Two;
-
-    try expectFmt("fmt.test.enum.E.Two", "{}", .{inst});
 }
 
 test "struct.self-referential" {

@@ -3797,8 +3797,29 @@ fn writeToFile(
     if (!wasm.base.options.strip) {
         // The build id must be computed on the main sections only,
         // so we have to do it now, before the debug sections.
-        if (wasm.base.options.build_id) {
-            try emitBuildIdSection(&binary_bytes);
+        switch (wasm.base.options.build_id) {
+            .none => {},
+            .fast => {
+                var id: [16]u8 = undefined;
+                std.crypto.hash.sha3.TurboShake128(null).hash(binary_bytes.items, &id, .{});
+                var uuid: [36]u8 = undefined;
+                _ = try std.fmt.bufPrint(&uuid, "{s}-{s}-{s}-{s}-{s}", .{
+                    std.fmt.fmtSliceHexLower(id[0..4]),
+                    std.fmt.fmtSliceHexLower(id[4..6]),
+                    std.fmt.fmtSliceHexLower(id[6..8]),
+                    std.fmt.fmtSliceHexLower(id[8..10]),
+                    std.fmt.fmtSliceHexLower(id[10..]),
+                });
+                try emitBuildIdSection(&binary_bytes, &uuid);
+            },
+            .hexstring => |hs| {
+                var buffer: [32 * 2]u8 = undefined;
+                const str = std.fmt.bufPrint(&buffer, "{s}", .{
+                    std.fmt.fmtSliceHexLower(hs.toSlice()),
+                }) catch unreachable;
+                try emitBuildIdSection(&binary_bytes, str);
+            },
+            else => |mode| log.err("build-id '{s}' is not supported for WASM", .{@tagName(mode)}),
         }
 
         // if (wasm.dwarf) |*dwarf| {
@@ -3942,25 +3963,17 @@ fn emitProducerSection(binary_bytes: *std.ArrayList(u8)) !void {
     );
 }
 
-fn emitBuildIdSection(binary_bytes: *std.ArrayList(u8)) !void {
+fn emitBuildIdSection(binary_bytes: *std.ArrayList(u8), build_id: []const u8) !void {
     const header_offset = try reserveCustomSectionHeader(binary_bytes);
 
     const writer = binary_bytes.writer();
-    const build_id = "build_id";
-    try leb.writeULEB128(writer, @intCast(u32, build_id.len));
-    try writer.writeAll(build_id);
-
-    var id: [16]u8 = undefined;
-    std.crypto.hash.sha3.TurboShake128(null).hash(binary_bytes.items, &id, .{});
-    var uuid: [36]u8 = undefined;
-    _ = try std.fmt.bufPrint(&uuid, "{s}-{s}-{s}-{s}-{s}", .{
-        std.fmt.fmtSliceHexLower(id[0..4]),  std.fmt.fmtSliceHexLower(id[4..6]), std.fmt.fmtSliceHexLower(id[6..8]),
-        std.fmt.fmtSliceHexLower(id[8..10]), std.fmt.fmtSliceHexLower(id[10..]),
-    });
+    const hdr_build_id = "build_id";
+    try leb.writeULEB128(writer, @intCast(u32, hdr_build_id.len));
+    try writer.writeAll(hdr_build_id);
 
     try leb.writeULEB128(writer, @as(u32, 1));
-    try leb.writeULEB128(writer, @as(u32, uuid.len));
-    try writer.writeAll(&uuid);
+    try leb.writeULEB128(writer, @intCast(u32, build_id.len));
+    try writer.writeAll(build_id);
 
     try writeCustomSectionHeader(
         binary_bytes.items,

@@ -822,7 +822,7 @@ fn runCommand(
         .zig_test => {
             const prefix: []const u8 = p: {
                 if (result.stdio.test_metadata) |tm| {
-                    if (tm.next_index <= tm.names.len) {
+                    if (tm.next_index > 0 and tm.next_index <= tm.names.len) {
                         const name = tm.testName(tm.next_index - 1);
                         break :p b.fmt("while executing test '{s}', ", .{name});
                     }

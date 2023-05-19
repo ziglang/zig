@@ -485,6 +485,11 @@ pub const AF = struct {
     pub const MAX = 37;
 };
 
+pub const accept_filter_arg = extern struct {
+    af_name: [16]u8,
+    af_args: [240]u8,
+};
+
 pub const in_port_t = u16;
 pub const sa_family_t = u8;
 

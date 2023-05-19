@@ -489,11 +489,19 @@ fn fetchAndUnpack(
         try req.start();
         try req.wait();
 
+        if (req.response.status != .ok) {
+            return report.fail(dep.url_tok, "Expected response status '200 OK' got '{} {s}'", .{
+                @enumToInt(req.response.status),
+                req.response.status.phrase() orelse "",
+            });
+        }
+
         const content_type = req.response.headers.getFirstValue("Content-Type") orelse
-            return report.fail(dep.url_tok, "missing Content-Type for '{s}'", .{uri.path});
+            return report.fail(dep.url_tok, "Missing 'Content-Type' header", .{});
 
         if (ascii.eqlIgnoreCase(content_type, "application/gzip") or
-            ascii.eqlIgnoreCase(content_type, "application/x-gzip"))
+            ascii.eqlIgnoreCase(content_type, "application/x-gzip") or
+            ascii.eqlIgnoreCase(content_type, "application/tar+gzip"))
         {
             // I observed the gzip stream to read 1 byte at a time, so I am using a
             // buffered reader on the front of it.
@@ -502,8 +510,18 @@ fn fetchAndUnpack(
             // I have not checked what buffer sizes the xz decompression implementation uses
             // by default, so the same logic applies for buffering the reader as for gzip.
             try unpackTarball(gpa, &req, tmp_directory.handle, std.compress.xz);
+        } else if (ascii.eqlIgnoreCase(content_type, "application/octet-stream")) {
+            // support gitlab tarball urls such as https://gitlab.com/<namespace>/<project>/-/archive/<sha>/<project>-<sha>.tar.gz
+            // whose content-disposition header is: 'attachment; filename="<project>-<sha>.tar.gz"'
+            const content_disposition = req.response.headers.getFirstValue("Content-Disposition") orelse
+                return report.fail(dep.url_tok, "Missing 'Content-Disposition' header for Content-Type=application/octet-stream", .{});
+            if (mem.startsWith(u8, content_disposition, "attachment;") and
+                mem.endsWith(u8, content_disposition, ".tar.gz\""))
+            {
+                try unpackTarball(gpa, &req, tmp_directory.handle, std.compress.gzip);
+            } else return report.fail(dep.url_tok, "Unsupported 'Content-Disposition' header value: '{s}' for Content-Type=application/octet-stream", .{content_disposition});
         } else {
-            return report.fail(dep.url_tok, "unknown file extension for path '{s}'", .{uri.path});
+            return report.fail(dep.url_tok, "Unsupported 'Content-Type' header value: '{s}'", .{content_type});
         }
 
         // TODO: delete files not included in the package prior to computing the package hash.

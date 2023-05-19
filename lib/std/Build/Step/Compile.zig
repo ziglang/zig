@@ -116,7 +116,7 @@ each_lib_rpath: ?bool = null,
 /// As an example, the bloaty project refuses to work unless its inputs have
 /// build ids, in order to prevent accidental mismatches.
 /// The default is to not include this section because it slows down linking.
-build_id: ?bool = null,
+build_id: ?BuildId = null,
 
 /// Create a .eh_frame_hdr section and a PT_GNU_EH_FRAME segment in the ELF
 /// file.
@@ -286,6 +286,82 @@ pub const Options = struct {
     single_threaded: ?bool = null,
     use_llvm: ?bool = null,
     use_lld: ?bool = null,
+};
+
+pub const BuildId = union(enum) {
+    none,
+    fast,
+    uuid,
+    sha1,
+    md5,
+    hexstring: HexString,
+
+    pub fn eql(a: BuildId, b: BuildId) bool {
+        const a_tag = std.meta.activeTag(a);
+        const b_tag = std.meta.activeTag(b);
+        if (a_tag != b_tag) return false;
+        return switch (a) {
+            .none, .fast, .uuid, .sha1, .md5 => true,
+            .hexstring => |a_hexstring| mem.eql(u8, a_hexstring.toSlice(), b.hexstring.toSlice()),
+        };
+    }
+
+    pub const HexString = struct {
+        bytes: [32]u8,
+        len: u8,
+
+        /// Result is byte values, *not* hex-encoded.
+        pub fn toSlice(hs: *const HexString) []const u8 {
+            return hs.bytes[0..hs.len];
+        }
+    };
+
+    /// Input is byte values, *not* hex-encoded.
+    /// Asserts `bytes` fits inside `HexString`
+    pub fn initHexString(bytes: []const u8) BuildId {
+        var result: BuildId = .{ .hexstring = .{
+            .bytes = undefined,
+            .len = @intCast(u8, bytes.len),
+        } };
+        @memcpy(result.hexstring.bytes[0..bytes.len], bytes);
+        return result;
+    }
+
+    /// Converts UTF-8 text to a `BuildId`.
+    pub fn parse(text: []const u8) !BuildId {
+        if (mem.eql(u8, text, "none")) {
+            return .none;
+        } else if (mem.eql(u8, text, "fast")) {
+            return .fast;
+        } else if (mem.eql(u8, text, "uuid")) {
+            return .uuid;
+        } else if (mem.eql(u8, text, "sha1") or mem.eql(u8, text, "tree")) {
+            return .sha1;
+        } else if (mem.eql(u8, text, "md5")) {
+            return .md5;
+        } else if (mem.startsWith(u8, text, "0x")) {
+            var result: BuildId = .{ .hexstring = undefined };
+            const slice = try std.fmt.hexToBytes(&result.hexstring.bytes, text[2..]);
+            result.hexstring.len = @intCast(u8, slice.len);
+            return result;
+        }
+        return error.InvalidBuildIdStyle;
+    }
+
+    test parse {
+        try std.testing.expectEqual(BuildId.md5, try parse("md5"));
+        try std.testing.expectEqual(BuildId.none, try parse("none"));
+        try std.testing.expectEqual(BuildId.fast, try parse("fast"));
+        try std.testing.expectEqual(BuildId.uuid, try parse("uuid"));
+        try std.testing.expectEqual(BuildId.sha1, try parse("sha1"));
+        try std.testing.expectEqual(BuildId.sha1, try parse("tree"));
+
+        try std.testing.expect(BuildId.initHexString("").eql(try parse("0x")));
+        try std.testing.expect(BuildId.initHexString("\x12\x34\x56").eql(try parse("0x123456")));
+        try std.testing.expectError(error.InvalidLength, parse("0x12-34"));
+        try std.testing.expectError(error.InvalidCharacter, parse("0xfoobbb"));
+        try std.testing.expectError(error.InvalidBuildIdStyle, parse("yaddaxxx"));
+    }
 };
 
 pub const Kind = enum {
@@ -1810,7 +1886,15 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
 
     try addFlag(&zig_args, "valgrind", self.valgrind_support);
     try addFlag(&zig_args, "each-lib-rpath", self.each_lib_rpath);
-    try addFlag(&zig_args, "build-id", self.build_id);
+
+    if (self.build_id) |build_id| {
+        try zig_args.append(switch (build_id) {
+            .hexstring => |hs| b.fmt("--build-id=0x{s}", .{
+                std.fmt.fmtSliceHexLower(hs.toSlice()),
+            }),
+            .none, .fast, .uuid, .sha1, .md5 => b.fmt("--build-id={s}", .{@tagName(build_id)}),
+        });
+    }
 
     if (self.zig_lib_dir) |dir| {
         try zig_args.append("--zig-lib-dir");

@@ -45,7 +45,7 @@ test "type pun signed and unsigned as offset many pointer" {
     }
 }
 
-test "type pun signed and unsigned as array pointer" {
+test "type pun signed and unsigned as array pointer with pointer arithemtic" {
     if (true) {
         // TODO https://github.com/ziglang/zig/issues/9646
         return error.SkipZigTest;

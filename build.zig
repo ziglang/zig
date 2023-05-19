@@ -28,11 +28,7 @@ pub fn build(b: *std.Build) !void {
     const use_zig_libcxx = b.option(bool, "use-zig-libcxx", "If libc++ is needed, use zig's bundled version, don't try to integrate with the system") orelse false;
 
     const test_step = b.step("test", "Run all the tests");
-    const deprecated_skip_install_lib_files = b.option(bool, "skip-install-lib-files", "deprecated. see no-lib") orelse false;
-    if (deprecated_skip_install_lib_files) {
-        std.log.warn("-Dskip-install-lib-files is deprecated in favor of -Dno-lib", .{});
-    }
-    const skip_install_lib_files = b.option(bool, "no-lib", "skip copying of lib/ files and langref to installation prefix. Useful for development") orelse deprecated_skip_install_lib_files;
+    const skip_install_lib_files = b.option(bool, "no-lib", "skip copying of lib/ files and langref to installation prefix. Useful for development") orelse false;
     const skip_install_langref = b.option(bool, "no-langref", "skip copying of langref to the installation prefix") orelse skip_install_lib_files;
 
     const docgen_exe = b.addExecutable(.{
@@ -57,12 +53,6 @@ pub fn build(b: *std.Build) !void {
 
     const docs_step = b.step("docs", "Build documentation");
     docs_step.dependOn(&docgen_cmd.step);
-
-    // This is for legacy reasons, to be removed after our CI scripts are upgraded to use
-    // the file from the install prefix instead.
-    const legacy_write_to_cache = b.addWriteFiles();
-    legacy_write_to_cache.addCopyFileToSource(langref_file, "zig-cache/langref.html");
-    docs_step.dependOn(&legacy_write_to_cache.step);
 
     const check_case_exe = b.addExecutable(.{
         .name = "check-case",
@@ -175,8 +165,14 @@ pub fn build(b: *std.Build) !void {
     exe.strip = strip;
     exe.pie = pie;
     exe.sanitize_thread = sanitize_thread;
-    exe.build_id = b.option(bool, "build-id", "Include a build id note") orelse false;
     exe.entitlements = entitlements;
+
+    exe.build_id = b.option(
+        std.Build.Step.Compile.BuildId,
+        "build-id",
+        "Request creation of '.note.gnu.build-id' section",
+    );
+
     b.installArtifact(exe);
 
     test_step.dependOn(&exe.step);
@@ -201,7 +197,7 @@ pub fn build(b: *std.Build) !void {
     exe_options.addOption(bool, "llvm_has_xtensa", llvm_has_xtensa);
     exe_options.addOption(bool, "force_gpa", force_gpa);
     exe_options.addOption(bool, "only_c", only_c);
-    exe_options.addOption(bool, "omit_pkg_fetching_code", only_c);
+    exe_options.addOption(bool, "only_core_functionality", only_c);
 
     if (link_libc) {
         exe.linkLibC();
@@ -357,7 +353,7 @@ pub fn build(b: *std.Build) !void {
     test_cases_options.addOption(bool, "llvm_has_xtensa", llvm_has_xtensa);
     test_cases_options.addOption(bool, "force_gpa", force_gpa);
     test_cases_options.addOption(bool, "only_c", only_c);
-    test_cases_options.addOption(bool, "omit_pkg_fetching_code", true);
+    test_cases_options.addOption(bool, "only_core_functionality", true);
     test_cases_options.addOption(bool, "enable_qemu", b.enable_qemu);
     test_cases_options.addOption(bool, "enable_wine", b.enable_wine);
     test_cases_options.addOption(bool, "enable_wasmtime", b.enable_wasmtime);
@@ -509,7 +505,7 @@ fn addWasiUpdateStep(b: *std.Build, version: [:0]const u8) !void {
     exe_options.addOption(bool, "enable_tracy_callstack", false);
     exe_options.addOption(bool, "enable_tracy_allocation", false);
     exe_options.addOption(bool, "value_tracing", false);
-    exe_options.addOption(bool, "omit_pkg_fetching_code", true);
+    exe_options.addOption(bool, "only_core_functionality", true);
 
     const run_opt = b.addSystemCommand(&.{
         "wasm-opt",

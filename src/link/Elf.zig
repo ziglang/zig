@@ -1542,8 +1542,18 @@ fn linkWithLLD(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !v
             try argv.append("-z");
             try argv.append(try std.fmt.allocPrint(arena, "stack-size={d}", .{stack_size}));
 
-            if (self.base.options.build_id) {
-                try argv.append("--build-id");
+            switch (self.base.options.build_id) {
+                .none => {},
+                .fast, .uuid, .sha1, .md5 => {
+                    try argv.append(try std.fmt.allocPrint(arena, "--build-id={s}", .{
+                        @tagName(self.base.options.build_id),
+                    }));
+                },
+                .hexstring => |hs| {
+                    try argv.append(try std.fmt.allocPrint(arena, "--build-id=0x{s}", .{
+                        std.fmt.fmtSliceHexLower(hs.toSlice()),
+                    }));
+                },
             }
         }
 

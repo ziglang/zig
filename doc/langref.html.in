@@ -2953,6 +2953,14 @@ test "basic slices" {
     const array_ptr = array[0..array.len];
     try expect(@TypeOf(array_ptr) == *[array.len]i32);
 
+    // You can perform a slice-by-length by slicing twice. This allows the compiler
+    // to perform some optimisations like recognising a comptime-known length when
+    // the start position is only known at runtime.
+    var runtime_start: usize = 1;
+    const length = 2;
+    const array_ptr_len = array[runtime_start..][0..length];
+    try expect(@TypeOf(array_ptr_len) == *[length]i32);
+
     // Using the address-of operator on a slice gives a single-item pointer,
     // while using the `ptr` field gives a many-item pointer.
     try expect(@TypeOf(slice.ptr) == [*]i32);
@@ -2983,7 +2991,7 @@ test "using slices for strings" {
     const world: []const u8 = "世界";
 
     var all_together: [100]u8 = undefined;
-    // You can use slice syntax with at least one runtime-know index on an
+    // You can use slice syntax with at least one runtime-known index on an
     // array to convert an array into a slice.
     var start : usize = 0;
     const all_together_slice = all_together[start..];
@@ -5312,7 +5320,7 @@ test "fn reflection" {
       </p>
       <p>
       The number of unique error values across the entire compilation should determine the size of the error set type.
-      However right now it is hard coded to be a {#syntax#}u16{#endsyntax#}. See <a href="https://github.com/ziglang/zig/issues/786">#768</a>.
+      However right now it is hard coded to be a {#syntax#}u16{#endsyntax#}. See <a href="https://github.com/ziglang/zig/issues/786">#786</a>.
       </p>
       <p>
       You can {#link|coerce|Type Coercion#} an error from a subset to a superset:
@@ -8687,10 +8695,9 @@ test "integer cast panic" {
       <p>{#syntax#}dest{#endsyntax#} must be a mutable slice, a mutable pointer to an array, or
         a mutable many-item {#link|pointer|Pointers#}. It may have any
         alignment, and it may have any element type.</p>
-      <p>Likewise, {#syntax#}source{#endsyntax#} must be a mutable slice, a
-        mutable pointer to an array, or a mutable many-item
-        {#link|pointer|Pointers#}. It may have any alignment, and it may have any
-        element type.</p>
+      <p>{#syntax#}source{#endsyntax#} must be a slice, a pointer to
+        an array, or a many-item {#link|pointer|Pointers#}. It may
+        have any alignment, and it may have any element type.</p>
       <p>The {#syntax#}source{#endsyntax#} element type must support {#link|Type Coercion#}
         into the {#syntax#}dest{#endsyntax#} element type. The element types may have
         different ABI size, however, that may incur a performance penalty.</p>
@@ -11214,8 +11221,8 @@ pub fn main() !void {
     }
 }
       {#code_end#}
-      {#shell_samp#}$ wasmtime args.wasm 123 hello
-0: args.wasm
+      {#shell_samp#}$ wasmtime wasi_args.wasm 123 hello
+0: wasi_args.wasm
 1: 123
 2: hello{#end_shell_samp#}
       <p>A more interesting example would be extracting the list of preopens from the runtime.
@@ -11240,7 +11247,7 @@ pub fn main() !void {
     }
 }
       {#code_end#}
-      {#shell_samp#}$ wasmtime --dir=. preopens.wasm
+      {#shell_samp#}$ wasmtime --dir=. wasi_preopens.wasm
 0: stdin
 1: stdout
 2: stderr

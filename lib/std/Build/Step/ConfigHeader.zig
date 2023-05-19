@@ -306,7 +306,9 @@ fn render_cmake(
         }
         var it = std.mem.tokenize(u8, line[1..], " \t\r");
         const cmakedefine = it.next().?;
-        if (!std.mem.eql(u8, cmakedefine, "cmakedefine")) {
+        if (!std.mem.eql(u8, cmakedefine, "cmakedefine") and
+            !std.mem.eql(u8, cmakedefine, "cmakedefine01"))
+        {
             try output.appendSlice(line);
             try output.appendSlice("\n");
             continue;

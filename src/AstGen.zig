@@ -849,10 +849,35 @@ fn expr(gz: *GenZir, scope: *Scope, ri: ResultInfo, node: Ast.Node.Index) InnerE
             return rvalue(gz, ri, result, node);
         },
         .slice => {
+            const extra = tree.extraData(node_datas[node].rhs, Ast.Node.Slice);
+            const lhs_node = node_datas[node].lhs;
+            const lhs_tag = node_tags[lhs_node];
+            const lhs_is_slice_sentinel = lhs_tag == .slice_sentinel;
+            const lhs_is_open_slice = lhs_tag == .slice_open or
+                (lhs_is_slice_sentinel and tree.extraData(node_datas[lhs_node].rhs, Ast.Node.SliceSentinel).end == 0);
+            if (lhs_is_open_slice and nodeIsTriviallyZero(tree, extra.start)) {
+                const lhs = try expr(gz, scope, .{ .rl = .ref }, node_datas[lhs_node].lhs);
+
+                const start = if (lhs_is_slice_sentinel) start: {
+                    const lhs_extra = tree.extraData(node_datas[lhs_node].rhs, Ast.Node.SliceSentinel);
+                    break :start try expr(gz, scope, .{ .rl = .{ .coerced_ty = .usize_type } }, lhs_extra.start);
+                } else try expr(gz, scope, .{ .rl = .{ .coerced_ty = .usize_type } }, node_datas[lhs_node].rhs);
+
+                const cursor = maybeAdvanceSourceCursorToMainToken(gz, node);
+                const len = if (extra.end != 0) try expr(gz, scope, .{ .rl = .{ .coerced_ty = .usize_type } }, extra.end) else .none;
+                try emitDbgStmt(gz, cursor);
+                const result = try gz.addPlNode(.slice_length, node, Zir.Inst.SliceLength{
+                    .lhs = lhs,
+                    .start = start,
+                    .len = len,
+                    .start_src_node_offset = gz.nodeIndexToRelative(lhs_node),
+                    .sentinel = .none,
+                });
+                return rvalue(gz, ri, result, node);
+            }
             const lhs = try expr(gz, scope, .{ .rl = .ref }, node_datas[node].lhs);
 
             const cursor = maybeAdvanceSourceCursorToMainToken(gz, node);
-            const extra = tree.extraData(node_datas[node].rhs, Ast.Node.Slice);
             const start = try expr(gz, scope, .{ .rl = .{ .coerced_ty = .usize_type } }, extra.start);
             const end = try expr(gz, scope, .{ .rl = .{ .coerced_ty = .usize_type } }, extra.end);
             try emitDbgStmt(gz, cursor);
@@ -864,10 +889,36 @@ fn expr(gz: *GenZir, scope: *Scope, ri: ResultInfo, node: Ast.Node.Index) InnerE
             return rvalue(gz, ri, result, node);
         },
         .slice_sentinel => {
+            const extra = tree.extraData(node_datas[node].rhs, Ast.Node.SliceSentinel);
+            const lhs_node = node_datas[node].lhs;
+            const lhs_tag = node_tags[lhs_node];
+            const lhs_is_slice_sentinel = lhs_tag == .slice_sentinel;
+            const lhs_is_open_slice = lhs_tag == .slice_open or
+                (lhs_is_slice_sentinel and tree.extraData(node_datas[lhs_node].rhs, Ast.Node.SliceSentinel).end == 0);
+            if (lhs_is_open_slice and nodeIsTriviallyZero(tree, extra.start)) {
+                const lhs = try expr(gz, scope, .{ .rl = .ref }, node_datas[lhs_node].lhs);
+
+                const start = if (lhs_is_slice_sentinel) start: {
+                    const lhs_extra = tree.extraData(node_datas[lhs_node].rhs, Ast.Node.SliceSentinel);
+                    break :start try expr(gz, scope, .{ .rl = .{ .coerced_ty = .usize_type } }, lhs_extra.start);
+                } else try expr(gz, scope, .{ .rl = .{ .coerced_ty = .usize_type } }, node_datas[lhs_node].rhs);
+
+                const cursor = maybeAdvanceSourceCursorToMainToken(gz, node);
+                const len = if (extra.end != 0) try expr(gz, scope, .{ .rl = .{ .coerced_ty = .usize_type } }, extra.end) else .none;
+                const sentinel = try expr(gz, scope, .{ .rl = .none }, extra.sentinel);
+                try emitDbgStmt(gz, cursor);
+                const result = try gz.addPlNode(.slice_length, node, Zir.Inst.SliceLength{
+                    .lhs = lhs,
+                    .start = start,
+                    .len = len,
+                    .start_src_node_offset = gz.nodeIndexToRelative(lhs_node),
+                    .sentinel = sentinel,
+                });
+                return rvalue(gz, ri, result, node);
+            }
             const lhs = try expr(gz, scope, .{ .rl = .ref }, node_datas[node].lhs);
 
             const cursor = maybeAdvanceSourceCursorToMainToken(gz, node);
-            const extra = tree.extraData(node_datas[node].rhs, Ast.Node.SliceSentinel);
             const start = try expr(gz, scope, .{ .rl = .{ .coerced_ty = .usize_type } }, extra.start);
             const end = if (extra.end != 0) try expr(gz, scope, .{ .rl = .{ .coerced_ty = .usize_type } }, extra.end) else .none;
             const sentinel = try expr(gz, scope, .{ .rl = .none }, extra.sentinel);
@@ -2557,6 +2608,7 @@ fn addEnsureResult(gz: *GenZir, maybe_unused_result: Zir.Inst.Ref, statement: As
             .slice_start,
             .slice_end,
             .slice_sentinel,
+            .slice_length,
             .import,
             .switch_block,
             .switch_cond,
@@ -2905,7 +2957,15 @@ fn deferStmt(
     const sub_scope = if (!have_err_code) &defer_gen.base else blk: {
         try gz.addDbgBlockBegin();
         const ident_name = try gz.astgen.identAsString(payload_token);
-        remapped_err_code = @intCast(u32, try gz.astgen.instructions.addOne(gz.astgen.gpa));
+        remapped_err_code = @intCast(Zir.Inst.Index, gz.astgen.instructions.len);
+        try gz.astgen.instructions.append(gz.astgen.gpa, .{
+            .tag = .extended,
+            .data = .{ .extended = .{
+                .opcode = .errdefer_err_code,
+                .small = undefined,
+                .operand = undefined,
+            } },
+        });
         const remapped_err_code_ref = Zir.indexToRef(remapped_err_code);
         local_val_scope = .{
             .parent = &defer_gen.base,
@@ -7614,14 +7674,16 @@ fn failWithNumberError(astgen: *AstGen, err: std.zig.number_literal.Error, token
         .invalid_digit => |info| return astgen.failOff(token, @intCast(u32, info.i), "invalid digit '{c}' for {s} base", .{ bytes[info.i], @tagName(info.base) }),
         .invalid_digit_exponent => |i| return astgen.failOff(token, @intCast(u32, i), "invalid digit '{c}' in exponent", .{bytes[i]}),
         .duplicate_exponent => |i| return astgen.failOff(token, @intCast(u32, i), "duplicate exponent", .{}),
-        .invalid_hex_exponent => |i| return astgen.failOff(token, @intCast(u32, i), "hex exponent in decimal float", .{}),
         .exponent_after_underscore => |i| return astgen.failOff(token, @intCast(u32, i), "expected digit before exponent", .{}),
         .special_after_underscore => |i| return astgen.failOff(token, @intCast(u32, i), "expected digit before '{c}'", .{bytes[i]}),
         .trailing_special => |i| return astgen.failOff(token, @intCast(u32, i), "expected digit after '{c}'", .{bytes[i - 1]}),
         .trailing_underscore => |i| return astgen.failOff(token, @intCast(u32, i), "trailing digit separator", .{}),
         .duplicate_period => unreachable, // Validated by tokenizer
         .invalid_character => unreachable, // Validated by tokenizer
-        .invalid_exponent_sign => unreachable, // Validated by tokenizer
+        .invalid_exponent_sign => |i| {
+            assert(bytes.len >= 2 and bytes[0] == '0' and bytes[1] == 'x'); // Validated by tokenizer
+            return astgen.failOff(token, @intCast(u32, i), "sign '{c}' cannot follow digit '{c}' in hex base", .{ bytes[i], bytes[i - 1] });
+        },
     }
 }
 
@@ -8262,7 +8324,7 @@ fn builtinCall(
         .trap => {
             try emitDbgNode(gz, node);
             _ = try gz.addNode(.trap, node);
-            return rvalue(gz, ri, .void_value, node);
+            return rvalue(gz, ri, .unreachable_value, node);
         },
         .error_to_int => {
             const operand = try expr(gz, scope, .{ .rl = .none }, params[0]);
