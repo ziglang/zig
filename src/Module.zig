@@ -6869,6 +6869,12 @@ pub fn funcType(mod: *Module, info: InternPool.Key.FuncType) Allocator.Error!Typ
     return (try intern(mod, .{ .func_type = info })).toType();
 }
 
+/// Use this for `anyframe->T` only.
+/// For `anyframe`, use the `InternPool.Index.anyframe` tag directly.
+pub fn anyframeType(mod: *Module, payload_ty: Type) Allocator.Error!Type {
+    return (try intern(mod, .{ .anyframe_type = payload_ty.toIntern() })).toType();
+}
+
 /// Supports optionals in addition to pointers.
 pub fn ptrIntValue(mod: *Module, ty: Type, x: u64) Allocator.Error!Value {
     if (ty.isPtrLikeOptional(mod)) {

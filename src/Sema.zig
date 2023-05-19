@@ -8042,9 +8042,10 @@ fn zirAnyframeType(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileErro
     if (true) {
         return sema.failWithUseOfAsync(block, inst_data.src());
     }
+    const mod = sema.mod;
     const operand_src: LazySrcLoc = .{ .node_offset_anyframe_type = inst_data.src_node };
     const return_type = try sema.resolveType(block, operand_src, inst_data.operand);
-    const anyframe_type = try Type.Tag.anyframe_T.create(sema.arena, return_type);
+    const anyframe_type = try mod.anyframeType(return_type);
 
     return sema.addType(anyframe_type);
 }
@@ -31612,10 +31613,6 @@ pub fn resolveTypeRequiresComptime(sema: *Sema, ty: Type) CompileError!bool {
             },
 
             .error_union => return sema.resolveTypeRequiresComptime(ty.errorUnionPayload()),
-            .anyframe_T => {
-                const child_ty = ty.castTag(.anyframe_T).?.data;
-                return sema.resolveTypeRequiresComptime(child_ty);
-            },
         },
         else => switch (mod.intern_pool.indexToKey(ty.ip_index)) {
             .int_type => false,
@@ -31626,6 +31623,10 @@ pub fn resolveTypeRequiresComptime(sema: *Sema, ty: Type) CompileError!bool {
                 } else {
                     return sema.resolveTypeRequiresComptime(child_ty);
                 }
+            },
+            .anyframe_type => |child| {
+                if (child == .none) return false;
+                return sema.resolveTypeRequiresComptime(child.toType());
             },
             .array_type => |array_type| return sema.resolveTypeRequiresComptime(array_type.child.toType()),
             .vector_type => |vector_type| return sema.resolveTypeRequiresComptime(vector_type.child.toType()),
@@ -31655,7 +31656,6 @@ pub fn resolveTypeRequiresComptime(sema: *Sema, ty: Type) CompileError!bool {
                 .bool,
                 .void,
                 .anyerror,
-                .@"anyframe",
                 .noreturn,
                 .generic_poison,
                 .var_args_param,
@@ -33040,7 +33040,6 @@ pub fn typeHasOnePossibleValue(sema: *Sema, ty: Type) CompileError!?Value {
             .error_set_merged,
             .error_union,
             .error_set_inferred,
-            .anyframe_T,
             .pointer,
             => return null,
 
@@ -33069,6 +33068,7 @@ pub fn typeHasOnePossibleValue(sema: *Sema, ty: Type) CompileError!?Value {
             .ptr_type,
             .error_union_type,
             .func_type,
+            .anyframe_type,
             => null,
 
             .array_type => |array_type| {
@@ -33116,7 +33116,6 @@ pub fn typeHasOnePossibleValue(sema: *Sema, ty: Type) CompileError!?Value {
                 .anyerror,
                 .comptime_int,
                 .comptime_float,
-                .@"anyframe",
                 .enum_literal,
                 .atomic_order,
                 .atomic_rmw_op,
@@ -33674,10 +33673,6 @@ pub fn typeRequiresComptime(sema: *Sema, ty: Type) CompileError!bool {
             },
 
             .error_union => return sema.typeRequiresComptime(ty.errorUnionPayload()),
-            .anyframe_T => {
-                const child_ty = ty.castTag(.anyframe_T).?.data;
-                return sema.typeRequiresComptime(child_ty);
-            },
         },
         else => switch (mod.intern_pool.indexToKey(ty.ip_index)) {
             .int_type => return false,
@@ -33688,6 +33683,10 @@ pub fn typeRequiresComptime(sema: *Sema, ty: Type) CompileError!bool {
                 } else {
                     return sema.typeRequiresComptime(child_ty);
                 }
+            },
+            .anyframe_type => |child| {
+                if (child == .none) return false;
+                return sema.typeRequiresComptime(child.toType());
             },
             .array_type => |array_type| return sema.typeRequiresComptime(array_type.child.toType()),
             .vector_type => |vector_type| return sema.typeRequiresComptime(vector_type.child.toType()),
@@ -33719,7 +33718,6 @@ pub fn typeRequiresComptime(sema: *Sema, ty: Type) CompileError!bool {
                 .bool,
                 .void,
                 .anyerror,
-                .@"anyframe",
                 .noreturn,
                 .generic_poison,
                 .atomic_order,

@@ -132,6 +132,9 @@ pub const Key = union(enum) {
     array_type: ArrayType,
     vector_type: VectorType,
     opt_type: Index,
+    /// `anyframe->T`. The payload is the child type, which may be `none` to indicate
+    /// `anyframe`.
+    anyframe_type: Index,
     error_union_type: struct {
         error_set_type: Index,
         payload_type: Index,
@@ -503,6 +506,7 @@ pub const Key = union(enum) {
             .array_type,
             .vector_type,
             .opt_type,
+            .anyframe_type,
             .error_union_type,
             .simple_type,
             .simple_value,
@@ -597,7 +601,11 @@ pub const Key = union(enum) {
             },
             .opt_type => |a_info| {
                 const b_info = b.opt_type;
-                return std.meta.eql(a_info, b_info);
+                return a_info == b_info;
+            },
+            .anyframe_type => |a_info| {
+                const b_info = b.anyframe_type;
+                return a_info == b_info;
             },
             .error_union_type => |a_info| {
                 const b_info = b.error_union_type;
@@ -752,6 +760,7 @@ pub const Key = union(enum) {
             .array_type,
             .vector_type,
             .opt_type,
+            .anyframe_type,
             .error_union_type,
             .simple_type,
             .struct_type,
@@ -1037,7 +1046,7 @@ pub const static_keys = [_]Key{
     .{ .simple_type = .comptime_int },
     .{ .simple_type = .comptime_float },
     .{ .simple_type = .noreturn },
-    .{ .simple_type = .@"anyframe" },
+    .{ .anyframe_type = .none },
     .{ .simple_type = .null },
     .{ .simple_type = .undefined },
     .{ .simple_type = .enum_literal },
@@ -1203,6 +1212,10 @@ pub const Tag = enum(u8) {
     /// An optional type.
     /// data is the child type.
     type_optional,
+    /// The type `anyframe->T`.
+    /// data is the child type.
+    /// If the child type is `none`, the type is `anyframe`.
+    type_anyframe,
     /// An error union type.
     /// data is payload to ErrorUnion.
     type_error_union,
@@ -1421,7 +1434,6 @@ pub const SimpleType = enum(u32) {
     comptime_int,
     comptime_float,
     noreturn,
-    @"anyframe",
     null,
     undefined,
     enum_literal,
@@ -1781,6 +1793,7 @@ pub fn indexToKey(ip: InternPool, index: Index) Key {
         },
 
         .type_optional => .{ .opt_type = @intToEnum(Index, data) },
+        .type_anyframe => .{ .anyframe_type = @intToEnum(Index, data) },
 
         .type_error_union => @panic("TODO"),
 
@@ -2144,10 +2157,18 @@ pub fn get(ip: *InternPool, gpa: Allocator, key: Key) Allocator.Error!Index {
                 }),
             });
         },
-        .opt_type => |opt_type| {
+        .opt_type => |payload_type| {
+            assert(payload_type != .none);
             ip.items.appendAssumeCapacity(.{
                 .tag = .type_optional,
-                .data = @enumToInt(opt_type),
+                .data = @enumToInt(payload_type),
+            });
+        },
+        .anyframe_type => |payload_type| {
+            // payload_type might be none, indicating the type is `anyframe`.
+            ip.items.appendAssumeCapacity(.{
+                .tag = .type_anyframe,
+                .data = @enumToInt(payload_type),
             });
         },
         .error_union_type => |error_union_type| {
@@ -3063,7 +3084,7 @@ pub fn childType(ip: InternPool, i: Index) Index {
         .ptr_type => |ptr_type| ptr_type.elem_type,
         .vector_type => |vector_type| vector_type.child,
         .array_type => |array_type| array_type.child,
-        .opt_type => |child| child,
+        .opt_type, .anyframe_type => |child| child,
         else => unreachable,
     };
 }
@@ -3231,6 +3252,7 @@ fn dumpFallible(ip: InternPool, arena: Allocator) anyerror!void {
             .type_pointer => @sizeOf(Pointer),
             .type_slice => 0,
             .type_optional => 0,
+            .type_anyframe => 0,
             .type_error_union => @sizeOf(ErrorUnion),
             .type_enum_explicit, .type_enum_nonexhaustive => @sizeOf(EnumExplicit),
             .type_enum_auto => @sizeOf(EnumAuto),
