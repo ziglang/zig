@@ -39,8 +39,6 @@ fn testBreakOuter() !void {
 }
 
 test "continue outer for loop" {
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
-
     try testContinueOuter();
     comptime try testContinueOuter();
 }

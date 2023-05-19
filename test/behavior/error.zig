@@ -22,7 +22,6 @@ test "error values" {
 }
 
 test "redefinition of error values allowed" {
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
     shouldBeNotEqual(error.AnError, error.SecondError);
 }
 fn shouldBeNotEqual(a: anyerror, b: anyerror) void {

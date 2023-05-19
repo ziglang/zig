@@ -47,8 +47,6 @@ test "inline variable gets result of const if" {
 }
 
 test "static function evaluation" {
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
-
     try expect(statically_added_number == 3);
 }
 const statically_added_number = staticAdd(1, 2);

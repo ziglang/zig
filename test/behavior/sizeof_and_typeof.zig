@@ -154,7 +154,6 @@ test "@TypeOf() has no runtime side effects" {
 
 test "branching logic inside @TypeOf" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const S = struct {
         var data: i32 = 0;

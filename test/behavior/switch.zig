@@ -348,8 +348,6 @@ fn returnsFalse() bool {
     }
 }
 test "switch on const enum with var" {
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
-
     try expect(!returnsFalse());
 }
 

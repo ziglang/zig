@@ -385,8 +385,6 @@ test "generic function with generic function parameter" {
 }
 
 test "recursive inline call with comptime known argument" {
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
-
     const S = struct {
         inline fn foo(x: i32) i32 {
             if (x <= 0) {

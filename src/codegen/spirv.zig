@@ -1765,6 +1765,7 @@ pub const DeclGen = struct {
             .slice_elem_ptr => try self.airSliceElemPtr(inst),
             .slice_elem_val => try self.airSliceElemVal(inst),
             .ptr_elem_ptr   => try self.airPtrElemPtr(inst),
+            .ptr_elem_val   => try self.airPtrElemVal(inst),
 
             .struct_field_val => try self.airStructFieldVal(inst),
 
@@ -2482,29 +2483,52 @@ pub const DeclGen = struct {
         return try self.load(slice_ty, elem_ptr);
     }
 
+    fn ptrElemPtr(self: *DeclGen, ptr_ty: Type, ptr_id: IdRef, index_id: IdRef) !IdRef {
+        // Construct new pointer type for the resulting pointer
+        const elem_ty = ptr_ty.elemType2(); // use elemType() so that we get T for *[N]T.
+        const elem_ty_ref = try self.resolveType(elem_ty, .direct);
+        const elem_ptr_ty_ref = try self.spv.ptrType(elem_ty_ref, spvStorageClass(ptr_ty.ptrAddressSpace()), 0);
+        if (ptr_ty.isSinglePointer()) {
+            // Pointer-to-array. In this case, the resulting pointer is not of the same type
+            // as the ptr_ty (we want a *T, not a *[N]T), and hence we need to use accessChain.
+            return try self.accessChain(elem_ptr_ty_ref, ptr_id, &.{index_id});
+        } else {
+            // Resulting pointer type is the same as the ptr_ty, so use ptrAccessChain
+            return try self.ptrAccessChain(elem_ptr_ty_ref, ptr_id, index_id, &.{});
+        }
+    }
+
     fn airPtrElemPtr(self: *DeclGen, inst: Air.Inst.Index) !?IdRef {
         if (self.liveness.isUnused(inst)) return null;
 
         const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
         const bin_op = self.air.extraData(Air.Bin, ty_pl.payload).data;
         const ptr_ty = self.air.typeOf(bin_op.lhs);
-        const result_ty = self.air.typeOfIndex(inst);
         const elem_ty = ptr_ty.childType();
         // TODO: Make this return a null ptr or something
         if (!elem_ty.hasRuntimeBitsIgnoreComptime()) return null;
 
-        const result_ty_ref = try self.resolveType(result_ty, .direct);
-        const base_ptr = try self.resolve(bin_op.lhs);
-        const rhs = try self.resolve(bin_op.rhs);
+        const ptr_id = try self.resolve(bin_op.lhs);
+        const index_id = try self.resolve(bin_op.rhs);
+        return try self.ptrElemPtr(ptr_ty, ptr_id, index_id);
+    }
 
-        if (ptr_ty.isSinglePointer()) {
-            // Pointer-to-array. In this case, the resulting pointer is not of the same type
-            // as the ptr_ty, and hence we need to use accessChain.
-            return try self.accessChain(result_ty_ref, base_ptr, &.{rhs});
-        } else {
-            // Resulting pointer type is the same as the ptr_ty, so use ptrAccessChain
-            return try self.ptrAccessChain(result_ty_ref, base_ptr, rhs, &.{});
-        }
+    fn airPtrElemVal(self: *DeclGen, inst: Air.Inst.Index) !?IdRef {
+        const bin_op = self.air.instructions.items(.data)[inst].bin_op;
+        const ptr_ty = self.air.typeOf(bin_op.lhs);
+        const ptr_id = try self.resolve(bin_op.lhs);
+        const index_id = try self.resolve(bin_op.rhs);
+
+        const elem_ptr_id = try self.ptrElemPtr(ptr_ty, ptr_id, index_id);
+
+        // If we have a pointer-to-array, construct an element pointer to use with load()
+        // If we pass ptr_ty directly, it will attempt to load the entire array rather than
+        // just an element.
+        var elem_ptr_info = ptr_ty.ptrInfo();
+        elem_ptr_info.data.size = .One;
+        const elem_ptr_ty = Type.initPayload(&elem_ptr_info.base);
+
+        return try self.load(elem_ptr_ty, elem_ptr_id);
     }
 
     fn airStructFieldVal(self: *DeclGen, inst: Air.Inst.Index) !?IdRef {

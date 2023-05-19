@@ -121,8 +121,6 @@ test "struct byval assign" {
 }
 
 test "call struct static method" {
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
-
     const result = StructWithNoFields.add(3, 4);
     try expect(result == 7);
 }

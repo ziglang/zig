@@ -421,7 +421,6 @@ test "optional of noreturn used with orelse" {
 }
 
 test "orelse on C pointer" {
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     // TODO https://github.com/ziglang/zig/issues/6597
     const foo: [*c]const u8 = "hey";

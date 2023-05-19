@@ -215,8 +215,6 @@ test "alignment and size of structs with 128-bit fields" {
 }
 
 test "@ptrCast preserves alignment of bigger source" {
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
-
     var x: u32 align(16) = 1234;
     const ptr = @ptrCast(*u8, &x);
     try expect(@TypeOf(ptr) == *align(16) u8);

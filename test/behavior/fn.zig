@@ -12,8 +12,6 @@ fn testParamsAdd(a: i32, b: i32) i32 {
 }
 
 test "local variables" {
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
-
     testLocVars(2);
 }
 fn testLocVars(b: i32) void {

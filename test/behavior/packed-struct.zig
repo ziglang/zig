@@ -93,7 +93,6 @@ test "flags in packed structs" {
 
 test "consistent size of packed structs" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const TxData1 = packed struct { data: u8, _23: u23, full: bool = false };
     const TxData2 = packed struct { data: u9, _22: u22, full: bool = false };
