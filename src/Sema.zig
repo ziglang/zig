@@ -24784,6 +24784,8 @@ fn explainWhyTypeIsNotPacked(
 }
 
 fn prepareSimplePanic(sema: *Sema, block: *Block) !void {
+    assert(!block.is_comptime);
+
     const mod = sema.mod;
 
     if (mod.panic_func_index == .none) {
@@ -24821,6 +24823,9 @@ fn prepareSimplePanic(sema: *Sema, block: *Block) !void {
 /// instructions. This function ensures the panic function will be available to
 /// be called during that time.
 fn preparePanicId(sema: *Sema, block: *Block, panic_id: Module.PanicId) !Module.Decl.Index {
+    assert(!block.is_comptime);
+    assert(block.wantSafety());
+
     const mod = sema.mod;
     const gpa = sema.gpa;
     if (mod.panic_messages[@intFromEnum(panic_id)].unwrap()) |x| return x;
@@ -24845,8 +24850,10 @@ fn addSafetyCheck(
     ok: Air.Inst.Ref,
     panic_id: Module.PanicId,
 ) !void {
-    const gpa = sema.gpa;
     assert(!parent_block.is_comptime);
+    assert(parent_block.wantSafety());
+
+    const gpa = sema.gpa;
 
     var fail_block: Block = .{
         .parent = parent_block,
@@ -24857,6 +24864,7 @@ fn addSafetyCheck(
         .instructions = .{},
         .inlining = parent_block.inlining,
         .is_comptime = false,
+        .want_safety = true,
     };
 
     defer fail_block.instructions.deinit(gpa);
@@ -24871,6 +24879,9 @@ fn addSafetyCheckExtra(
     ok: Air.Inst.Ref,
     fail_block: *Block,
 ) !void {
+    assert(!parent_block.is_comptime);
+    assert(parent_block.wantSafety());
+
     const gpa = sema.gpa;
 
     try parent_block.instructions.ensureUnusedCapacity(gpa, 1);
@@ -24921,6 +24932,8 @@ fn addSafetyCheckExtra(
 }
 
 fn panicWithMsg(sema: *Sema, block: *Block, msg_inst: Air.Inst.Ref) !void {
+    assert(!block.is_comptime);
+
     const mod = sema.mod;
 
     if (!mod.backendSupportsFeature(.panic_fn)) {
@@ -24950,6 +24963,8 @@ fn panicUnwrapError(
     is_non_err_tag: Air.Inst.Tag,
 ) !void {
     assert(!parent_block.is_comptime);
+    assert(parent_block.wantSafety());
+
     const ok = try parent_block.addUnOp(is_non_err_tag, operand);
     if (!sema.mod.comp.formatted_panics) {
         return sema.addSafetyCheck(parent_block, ok, .unwrap_error);
@@ -24991,6 +25006,8 @@ fn panicIndexOutOfBounds(
     cmp_op: Air.Inst.Tag,
 ) !void {
     assert(!parent_block.is_comptime);
+    assert(parent_block.wantSafety());
+
     const ok = try parent_block.addBinOp(cmp_op, index, len);
     if (!sema.mod.comp.formatted_panics) {
         return sema.addSafetyCheck(parent_block, ok, .index_out_of_bounds);
@@ -25005,6 +25022,8 @@ fn panicInactiveUnionField(
     wanted_tag: Air.Inst.Ref,
 ) !void {
     assert(!parent_block.is_comptime);
+    assert(parent_block.wantSafety());
+
     const ok = try parent_block.addBinOp(.cmp_eq, active_tag, wanted_tag);
     if (!sema.mod.comp.formatted_panics) {
         return sema.addSafetyCheck(parent_block, ok, .inactive_union_field);
@@ -25021,7 +25040,10 @@ fn panicSentinelMismatch(
     sentinel_index: Air.Inst.Ref,
 ) !void {
     assert(!parent_block.is_comptime);
+    assert(parent_block.wantSafety());
+
     const mod = sema.mod;
+
     const expected_sentinel_val = maybe_sentinel orelse return;
     const expected_sentinel = try sema.addConstant(expected_sentinel_val);
 
@@ -25065,7 +25087,8 @@ fn panicMemcpyLenMismatch(
     dst_len: Air.Inst.Ref,
     src_len: Air.Inst.Ref,
 ) !void {
-    assert(!parent_block.is_comptime and parent_block.wantSafety());
+    assert(!parent_block.is_comptime);
+    assert(parent_block.wantSafety());
 
     const ok = try parent_block.addBinOp(.cmp_eq, dst_len, src_len);
     if (!sema.mod.comp.formatted_panics) {
@@ -25081,7 +25104,8 @@ fn panicIncorrectAlignment(
     ptr_addr: Air.Inst.Ref,
     expected_alignment_minus_1: Air.Inst.Ref,
 ) !void {
-    assert(!parent_block.is_comptime and parent_block.wantSafety());
+    assert(!parent_block.is_comptime);
+    assert(parent_block.wantSafety());
 
     if (!sema.mod.comp.formatted_panics) {
         return try sema.addSafetyCheck(parent_block, ok, .incorrect_alignment);
@@ -25096,7 +25120,10 @@ fn safetyCheckFormatted(
     func: []const u8,
     args: []const Air.Inst.Ref,
 ) CompileError!void {
+    assert(!parent_block.is_comptime);
+    assert(parent_block.wantSafety());
     assert(sema.mod.comp.formatted_panics);
+
     const gpa = sema.gpa;
 
     var fail_block: Block = .{
@@ -25122,6 +25149,9 @@ fn safetyCheckFormatted(
 }
 
 fn safetyPanic(sema: *Sema, block: *Block, panic_id: Module.PanicId) CompileError!void {
+    assert(!block.is_comptime);
+    assert(block.wantSafety());
+
     const msg_decl_index = try sema.preparePanicId(block, panic_id);
     const msg_inst = try sema.analyzeDeclVal(block, sema.src, msg_decl_index);
     try sema.panicWithMsg(block, msg_inst);
