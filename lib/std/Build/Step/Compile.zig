@@ -433,7 +433,7 @@ pub fn create(owner: *std.Build, options: Options) *Compile {
 
     const self = owner.allocator.create(Compile) catch @panic("OOM");
     self.* = Compile{
-        .strip = if (options.optimize == .ReleaseSmall) true else null,
+        .strip = null,
         .unwind_tables = null,
         .verbose_link = false,
         .verbose_cc = false,
@@ -691,7 +691,7 @@ pub fn isStaticLibrary(self: *Compile) bool {
 pub fn producesPdbFile(self: *Compile) bool {
     if (!self.target.isWindows() and !self.target.isUefi()) return false;
     if (self.target.getObjectFormat() == .c) return false;
-    if (self.strip == true) return false;
+    if (self.strip == true or (self.strip == null and self.optimize == .ReleaseSmall)) return false;
     return self.isDynamicLibrary() or self.kind == .exe or self.kind == .@"test";
 }
 
