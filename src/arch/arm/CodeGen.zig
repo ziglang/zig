@@ -2432,8 +2432,7 @@ fn airSliceElemVal(self: *Self, inst: Air.Inst.Index) !void {
     const bin_op = self.air.instructions.items(.data)[inst].bin_op;
     const slice_ty = self.typeOf(bin_op.lhs);
     const result: MCValue = if (!slice_ty.isVolatilePtr(mod) and self.liveness.isUnused(inst)) .dead else result: {
-        var buf: Type.SlicePtrFieldTypeBuffer = undefined;
-        const ptr_ty = slice_ty.slicePtrFieldType(&buf, mod);
+        const ptr_ty = slice_ty.slicePtrFieldType(mod);
 
         const slice_mcv = try self.resolveInst(bin_op.lhs);
         const base_mcv = slicePtr(slice_mcv);

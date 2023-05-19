@@ -42,7 +42,6 @@ pub const Type = struct {
                 .error_set_merged,
                 => return .ErrorSet,
 
-                .pointer,
                 .inferred_alloc_const,
                 .inferred_alloc_mut,
                 => return .Pointer,
@@ -250,17 +249,9 @@ pub const Type = struct {
         return elem_ty;
     }
 
+    /// Asserts the type is a pointer.
     pub fn ptrIsMutable(ty: Type, mod: *const Module) bool {
-        return switch (ty.ip_index) {
-            .none => switch (ty.tag()) {
-                .pointer => ty.castTag(.pointer).?.data.mutable,
-                else => unreachable,
-            },
-            else => switch (mod.intern_pool.indexToKey(ty.ip_index)) {
-                .ptr_type => |ptr_type| !ptr_type.is_const,
-                else => unreachable,
-            },
-        };
+        return !mod.intern_pool.indexToKey(ty.ip_index).ptr_type.is_const;
     }
 
     pub const ArrayInfo = struct {
@@ -277,22 +268,19 @@ pub const Type = struct {
         };
     }
 
-    pub fn ptrInfo(ty: Type, mod: *const Module) Payload.Pointer.Data {
-        return switch (ty.ip_index) {
-            .none => switch (ty.tag()) {
-                .pointer => ty.castTag(.pointer).?.data,
-
+    pub fn ptrInfoIp(ty: Type, ip: InternPool) InternPool.Key.PtrType {
+        return switch (ip.indexToKey(ty.ip_index)) {
+            .ptr_type => |p| p,
+            .opt_type => |child| switch (ip.indexToKey(child)) {
+                .ptr_type => |p| p,
                 else => unreachable,
             },
-            else => switch (mod.intern_pool.indexToKey(ty.ip_index)) {
-                .ptr_type => |p| Payload.Pointer.Data.fromKey(p),
-                .opt_type => |child| switch (mod.intern_pool.indexToKey(child)) {
-                    .ptr_type => |p| Payload.Pointer.Data.fromKey(p),
-                    else => unreachable,
-                },
-                else => unreachable,
-            },
+            else => unreachable,
         };
+    }
+
+    pub fn ptrInfo(ty: Type, mod: *const Module) Payload.Pointer.Data {
+        return Payload.Pointer.Data.fromKey(ptrInfoIp(ty, mod.intern_pool));
     }
 
     pub fn eql(a: Type, b: Type, mod: *Module) bool {
@@ -335,7 +323,6 @@ pub const Type = struct {
                 return true;
             },
 
-            .pointer,
             .inferred_alloc_const,
             .inferred_alloc_mut,
             => {
@@ -434,7 +421,6 @@ pub const Type = struct {
                 std.hash.autoHash(hasher, ies);
             },
 
-            .pointer,
             .inferred_alloc_const,
             .inferred_alloc_mut,
             => {
@@ -512,26 +498,6 @@ pub const Type = struct {
             .inferred_alloc_mut,
             => unreachable,
 
-            .pointer => {
-                const payload = self.castTag(.pointer).?.data;
-                const sent: ?Value = if (payload.sentinel) |some|
-                    try some.copy(allocator)
-                else
-                    null;
-                return Tag.pointer.create(allocator, .{
-                    .pointee_type = try payload.pointee_type.copy(allocator),
-                    .sentinel = sent,
-                    .@"align" = payload.@"align",
-                    .@"addrspace" = payload.@"addrspace",
-                    .bit_offset = payload.bit_offset,
-                    .host_size = payload.host_size,
-                    .vector_index = payload.vector_index,
-                    .@"allowzero" = payload.@"allowzero",
-                    .mutable = payload.mutable,
-                    .@"volatile" = payload.@"volatile",
-                    .size = payload.size,
-                });
-            },
             .error_union => {
                 const payload = self.castTag(.error_union).?.data;
                 return Tag.error_union.create(allocator, .{
@@ -623,41 +589,6 @@ pub const Type = struct {
         while (true) {
             const t = ty.tag();
             switch (t) {
-                .pointer => {
-                    const payload = ty.castTag(.pointer).?.data;
-                    if (payload.sentinel) |some| switch (payload.size) {
-                        .One, .C => unreachable,
-                        .Many => try writer.print("[*:{}]", .{some.fmtDebug()}),
-                        .Slice => try writer.print("[:{}]", .{some.fmtDebug()}),
-                    } else switch (payload.size) {
-                        .One => try writer.writeAll("*"),
-                        .Many => try writer.writeAll("[*]"),
-                        .C => try writer.writeAll("[*c]"),
-                        .Slice => try writer.writeAll("[]"),
-                    }
-                    if (payload.@"align" != 0 or payload.host_size != 0 or payload.vector_index != .none) {
-                        try writer.print("align({d}", .{payload.@"align"});
-
-                        if (payload.bit_offset != 0 or payload.host_size != 0) {
-                            try writer.print(":{d}:{d}", .{ payload.bit_offset, payload.host_size });
-                        }
-                        if (payload.vector_index == .runtime) {
-                            try writer.writeAll(":?");
-                        } else if (payload.vector_index != .none) {
-                            try writer.print(":{d}", .{@enumToInt(payload.vector_index)});
-                        }
-                        try writer.writeAll(") ");
-                    }
-                    if (payload.@"addrspace" != .generic) {
-                        try writer.print("addrspace(.{s}) ", .{@tagName(payload.@"addrspace")});
-                    }
-                    if (!payload.mutable) try writer.writeAll("const ");
-                    if (payload.@"volatile") try writer.writeAll("volatile ");
-                    if (payload.@"allowzero" and payload.size != .C) try writer.writeAll("allowzero ");
-
-                    ty = payload.pointee_type;
-                    continue;
-                },
                 .error_union => {
                     const payload = ty.castTag(.error_union).?.data;
                     try payload.error_set.dump("", .{}, writer);
@@ -732,47 +663,6 @@ pub const Type = struct {
                     try print(error_union.error_set, writer, mod);
                     try writer.writeAll("!");
                     try print(error_union.payload, writer, mod);
-                },
-
-                .pointer => {
-                    const info = ty.ptrInfo(mod);
-
-                    if (info.sentinel) |s| switch (info.size) {
-                        .One, .C => unreachable,
-                        .Many => try writer.print("[*:{}]", .{s.fmtValue(info.pointee_type, mod)}),
-                        .Slice => try writer.print("[:{}]", .{s.fmtValue(info.pointee_type, mod)}),
-                    } else switch (info.size) {
-                        .One => try writer.writeAll("*"),
-                        .Many => try writer.writeAll("[*]"),
-                        .C => try writer.writeAll("[*c]"),
-                        .Slice => try writer.writeAll("[]"),
-                    }
-                    if (info.@"align" != 0 or info.host_size != 0 or info.vector_index != .none) {
-                        if (info.@"align" != 0) {
-                            try writer.print("align({d}", .{info.@"align"});
-                        } else {
-                            const alignment = info.pointee_type.abiAlignment(mod);
-                            try writer.print("align({d}", .{alignment});
-                        }
-
-                        if (info.bit_offset != 0 or info.host_size != 0) {
-                            try writer.print(":{d}:{d}", .{ info.bit_offset, info.host_size });
-                        }
-                        if (info.vector_index == .runtime) {
-                            try writer.writeAll(":?");
-                        } else if (info.vector_index != .none) {
-                            try writer.print(":{d}", .{@enumToInt(info.vector_index)});
-                        }
-                        try writer.writeAll(") ");
-                    }
-                    if (info.@"addrspace" != .generic) {
-                        try writer.print("addrspace(.{s}) ", .{@tagName(info.@"addrspace")});
-                    }
-                    if (!info.mutable) try writer.writeAll("const ");
-                    if (info.@"volatile") try writer.writeAll("volatile ");
-                    if (info.@"allowzero" and info.size != .C) try writer.writeAll("allowzero ");
-
-                    try print(info.pointee_type, writer, mod);
                 },
 
                 .error_set => {
@@ -951,8 +841,8 @@ pub const Type = struct {
                         try writer.writeAll("...");
                     }
                     try writer.writeAll(") ");
-                    if (fn_info.alignment != 0) {
-                        try writer.print("align({d}) ", .{fn_info.alignment});
+                    if (fn_info.alignment.toByteUnitsOptional()) |a| {
+                        try writer.print("align({d}) ", .{a});
                     }
                     if (fn_info.cc != .Unspecified) {
                         try writer.writeAll("callconv(.");
@@ -1031,20 +921,6 @@ pub const Type = struct {
                 .error_set,
                 .error_set_merged,
                 => return true,
-
-                // Pointers to zero-bit types still have a runtime address; however, pointers
-                // to comptime-only types do not, with the exception of function pointers.
-                .pointer => {
-                    if (ignore_comptime_only) {
-                        return true;
-                    } else if (ty.childType(mod).zigTypeTag(mod) == .Fn) {
-                        return !mod.typeToFunc(ty.childType(mod)).?.is_generic;
-                    } else if (strat == .sema) {
-                        return !(try strat.sema.typeRequiresComptime(ty));
-                    } else {
-                        return !comptimeOnly(ty, mod);
-                    }
-                },
 
                 .inferred_alloc_const => unreachable,
                 .inferred_alloc_mut => unreachable,
@@ -1231,8 +1107,6 @@ pub const Type = struct {
             .empty_struct_type => false,
 
             .none => switch (ty.tag()) {
-                .pointer => true,
-
                 .error_set,
                 .error_set_single,
                 .error_set_inferred,
@@ -1410,51 +1284,27 @@ pub const Type = struct {
     }
 
     pub fn ptrAlignmentAdvanced(ty: Type, mod: *Module, opt_sema: ?*Sema) !u32 {
-        switch (ty.ip_index) {
-            .none => switch (ty.tag()) {
-                .pointer => {
-                    const ptr_info = ty.castTag(.pointer).?.data;
-                    if (ptr_info.@"align" != 0) {
-                        return ptr_info.@"align";
-                    } else if (opt_sema) |sema| {
-                        const res = try ptr_info.pointee_type.abiAlignmentAdvanced(mod, .{ .sema = sema });
-                        return res.scalar;
-                    } else {
-                        return (ptr_info.pointee_type.abiAlignmentAdvanced(mod, .eager) catch unreachable).scalar;
-                    }
-                },
-
-                else => unreachable,
+        return switch (mod.intern_pool.indexToKey(ty.ip_index)) {
+            .ptr_type => |ptr_type| {
+                if (ptr_type.alignment.toByteUnitsOptional()) |a| {
+                    return @intCast(u32, a);
+                } else if (opt_sema) |sema| {
+                    const res = try ptr_type.elem_type.toType().abiAlignmentAdvanced(mod, .{ .sema = sema });
+                    return res.scalar;
+                } else {
+                    return (ptr_type.elem_type.toType().abiAlignmentAdvanced(mod, .eager) catch unreachable).scalar;
+                }
             },
-            else => switch (mod.intern_pool.indexToKey(ty.ip_index)) {
-                .ptr_type => |ptr_type| {
-                    if (ptr_type.alignment != 0) {
-                        return @intCast(u32, ptr_type.alignment);
-                    } else if (opt_sema) |sema| {
-                        const res = try ptr_type.elem_type.toType().abiAlignmentAdvanced(mod, .{ .sema = sema });
-                        return res.scalar;
-                    } else {
-                        return (ptr_type.elem_type.toType().abiAlignmentAdvanced(mod, .eager) catch unreachable).scalar;
-                    }
-                },
-                .opt_type => |child| return child.toType().ptrAlignmentAdvanced(mod, opt_sema),
-                else => unreachable,
-            },
-        }
+            .opt_type => |child| child.toType().ptrAlignmentAdvanced(mod, opt_sema),
+            else => unreachable,
+        };
     }
 
     pub fn ptrAddressSpace(ty: Type, mod: *const Module) std.builtin.AddressSpace {
-        return switch (ty.ip_index) {
-            .none => switch (ty.tag()) {
-                .pointer => ty.castTag(.pointer).?.data.@"addrspace",
-
-                else => unreachable,
-            },
-            else => switch (mod.intern_pool.indexToKey(ty.ip_index)) {
-                .ptr_type => |ptr_type| ptr_type.address_space,
-                .opt_type => |child| mod.intern_pool.indexToKey(child).ptr_type.address_space,
-                else => unreachable,
-            },
+        return switch (mod.intern_pool.indexToKey(ty.ip_index)) {
+            .ptr_type => |ptr_type| ptr_type.address_space,
+            .opt_type => |child| mod.intern_pool.indexToKey(child).ptr_type.address_space,
+            else => unreachable,
         };
     }
 
@@ -1504,7 +1354,6 @@ pub const Type = struct {
         switch (ty.ip_index) {
             .empty_struct_type => return AbiAlignmentAdvanced{ .scalar = 0 },
             .none => switch (ty.tag()) {
-                .pointer => return AbiAlignmentAdvanced{ .scalar = @divExact(target.ptrBitWidth(), 8) },
 
                 // TODO revisit this when we have the concept of the error tag type
                 .error_set_inferred,
@@ -1541,10 +1390,11 @@ pub const Type = struct {
                 .opt_type => return abiAlignmentAdvancedOptional(ty, mod, strat),
                 .error_union_type => return abiAlignmentAdvancedErrorUnion(ty, mod, strat),
                 // represents machine code; not a pointer
-                .func_type => |func_type| {
-                    const alignment = @intCast(u32, func_type.alignment);
-                    if (alignment != 0) return AbiAlignmentAdvanced{ .scalar = alignment };
-                    return AbiAlignmentAdvanced{ .scalar = target_util.defaultFunctionAlignment(target) };
+                .func_type => |func_type| return AbiAlignmentAdvanced{
+                    .scalar = if (func_type.alignment.toByteUnitsOptional()) |a|
+                        @intCast(u32, a)
+                    else
+                        target_util.defaultFunctionAlignment(target),
                 },
 
                 .simple_type => |t| switch (t) {
@@ -1882,11 +1732,6 @@ pub const Type = struct {
                 .inferred_alloc_const => unreachable,
                 .inferred_alloc_mut => unreachable,
 
-                .pointer => switch (ty.castTag(.pointer).?.data.size) {
-                    .Slice => return AbiSizeAdvanced{ .scalar = @divExact(target.ptrBitWidth(), 8) * 2 },
-                    else => return AbiSizeAdvanced{ .scalar = @divExact(target.ptrBitWidth(), 8) },
-                },
-
                 // TODO revisit this when we have the concept of the error tag type
                 .error_set_inferred,
                 .error_set,
@@ -2201,11 +2046,6 @@ pub const Type = struct {
                 .inferred_alloc_const => unreachable,
                 .inferred_alloc_mut => unreachable,
 
-                .pointer => switch (ty.castTag(.pointer).?.data.size) {
-                    .Slice => return target.ptrBitWidth() * 2,
-                    else => return target.ptrBitWidth(),
-                },
-
                 .error_set,
                 .error_set_single,
                 .error_set_inferred,
@@ -2384,8 +2224,6 @@ pub const Type = struct {
                 .inferred_alloc_mut,
                 => true,
 
-                .pointer => ty.castTag(.pointer).?.data.size == .One,
-
                 else => false,
             },
             else => return switch (mod.intern_pool.indexToKey(ty.ip_index)) {
@@ -2408,8 +2246,6 @@ pub const Type = struct {
                 .inferred_alloc_mut,
                 => .One,
 
-                .pointer => ty.castTag(.pointer).?.data.size,
-
                 else => null,
             },
             else => switch (mod.intern_pool.indexToKey(ty.ip_index)) {
@@ -2421,10 +2257,7 @@ pub const Type = struct {
 
     pub fn isSlice(ty: Type, mod: *const Module) bool {
         return switch (ty.ip_index) {
-            .none => switch (ty.tag()) {
-                .pointer => ty.castTag(.pointer).?.data.size == .Slice,
-                else => false,
-            },
+            .none => false,
             else => switch (mod.intern_pool.indexToKey(ty.ip_index)) {
                 .ptr_type => |ptr_type| ptr_type.size == .Slice,
                 else => false,
@@ -2432,50 +2265,14 @@ pub const Type = struct {
         };
     }
 
-    pub const SlicePtrFieldTypeBuffer = union {
-        pointer: Payload.Pointer,
-    };
-
-    pub fn slicePtrFieldType(ty: Type, buffer: *SlicePtrFieldTypeBuffer, mod: *const Module) Type {
-        switch (ty.ip_index) {
-            .none => switch (ty.tag()) {
-                .pointer => {
-                    const payload = ty.castTag(.pointer).?.data;
-                    assert(payload.size == .Slice);
-
-                    buffer.* = .{
-                        .pointer = .{
-                            .data = .{
-                                .pointee_type = payload.pointee_type,
-                                .sentinel = payload.sentinel,
-                                .@"align" = payload.@"align",
-                                .@"addrspace" = payload.@"addrspace",
-                                .bit_offset = payload.bit_offset,
-                                .host_size = payload.host_size,
-                                .vector_index = payload.vector_index,
-                                .@"allowzero" = payload.@"allowzero",
-                                .mutable = payload.mutable,
-                                .@"volatile" = payload.@"volatile",
-                                .size = .Many,
-                            },
-                        },
-                    };
-                    return Type.initPayload(&buffer.pointer.base);
-                },
-
-                else => unreachable,
-            },
-            else => return mod.intern_pool.slicePtrType(ty.ip_index).toType(),
-        }
+    pub fn slicePtrFieldType(ty: Type, mod: *const Module) Type {
+        return mod.intern_pool.slicePtrType(ty.ip_index).toType();
     }
 
     pub fn isConstPtr(ty: Type, mod: *const Module) bool {
         return switch (ty.ip_index) {
-            .none => switch (ty.tag()) {
-                .pointer => !ty.castTag(.pointer).?.data.mutable,
-                else => false,
-            },
-            else => switch (mod.intern_pool.indexToKey(ty.ip_index)) {
+            .none => false,
+            else => return switch (mod.intern_pool.indexToKey(ty.ip_index)) {
                 .ptr_type => |ptr_type| ptr_type.is_const,
                 else => false,
             },
@@ -2488,10 +2285,7 @@ pub const Type = struct {
 
     pub fn isVolatilePtrIp(ty: Type, ip: InternPool) bool {
         return switch (ty.ip_index) {
-            .none => switch (ty.tag()) {
-                .pointer => ty.castTag(.pointer).?.data.@"volatile",
-                else => false,
-            },
+            .none => false,
             else => switch (ip.indexToKey(ty.ip_index)) {
                 .ptr_type => |ptr_type| ptr_type.is_volatile,
                 else => false,
@@ -2501,12 +2295,10 @@ pub const Type = struct {
 
     pub fn isAllowzeroPtr(ty: Type, mod: *const Module) bool {
         return switch (ty.ip_index) {
-            .none => switch (ty.tag()) {
-                .pointer => ty.castTag(.pointer).?.data.@"allowzero",
-                else => ty.zigTypeTag(mod) == .Optional,
-            },
+            .none => false,
             else => switch (mod.intern_pool.indexToKey(ty.ip_index)) {
                 .ptr_type => |ptr_type| ptr_type.is_allowzero,
+                .opt_type => true,
                 else => false,
             },
         };
@@ -2514,10 +2306,7 @@ pub const Type = struct {
 
     pub fn isCPtr(ty: Type, mod: *const Module) bool {
         return switch (ty.ip_index) {
-            .none => switch (ty.tag()) {
-                .pointer => ty.castTag(.pointer).?.data.size == .C,
-                else => false,
-            },
+            .none => false,
             else => switch (mod.intern_pool.indexToKey(ty.ip_index)) {
                 .ptr_type => |ptr_type| ptr_type.size == .C,
                 else => false,
@@ -2526,16 +2315,9 @@ pub const Type = struct {
     }
 
     pub fn isPtrAtRuntime(ty: Type, mod: *const Module) bool {
-        switch (ty.ip_index) {
-            .none => switch (ty.tag()) {
-                .pointer => switch (ty.castTag(.pointer).?.data.size) {
-                    .Slice => return false,
-                    .One, .Many, .C => return true,
-                },
-
-                else => return false,
-            },
-            else => return switch (mod.intern_pool.indexToKey(ty.ip_index)) {
+        return switch (ty.ip_index) {
+            .none => false,
+            else => switch (mod.intern_pool.indexToKey(ty.ip_index)) {
                 .ptr_type => |ptr_type| switch (ptr_type.size) {
                     .Slice => false,
                     .One, .Many, .C => true,
@@ -2549,7 +2331,7 @@ pub const Type = struct {
                 },
                 else => false,
             },
-        }
+        };
     }
 
     /// For pointer-like optionals, returns true, otherwise returns the allowzero property
@@ -2563,47 +2345,43 @@ pub const Type = struct {
 
     /// See also `isPtrLikeOptional`.
     pub fn optionalReprIsPayload(ty: Type, mod: *const Module) bool {
-        if (ty.ip_index != .none) return switch (mod.intern_pool.indexToKey(ty.ip_index)) {
-            .opt_type => |child| switch (child.toType().zigTypeTag(mod)) {
-                .Pointer => {
-                    const info = child.toType().ptrInfo(mod);
-                    switch (info.size) {
-                        .C => return false,
-                        else => return !info.@"allowzero",
-                    }
+        return switch (ty.ip_index) {
+            .none => false,
+            else => switch (mod.intern_pool.indexToKey(ty.ip_index)) {
+                .opt_type => |child| switch (child.toType().zigTypeTag(mod)) {
+                    .Pointer => {
+                        const info = child.toType().ptrInfo(mod);
+                        return switch (info.size) {
+                            .C => false,
+                            else => !info.@"allowzero",
+                        };
+                    },
+                    .ErrorSet => true,
+                    else => false,
                 },
-                .ErrorSet => true,
                 else => false,
             },
-            else => false,
         };
-        switch (ty.tag()) {
-            .pointer => return ty.castTag(.pointer).?.data.size == .C,
-
-            else => return false,
-        }
     }
 
     /// Returns true if the type is optional and would be lowered to a single pointer
     /// address value, using 0 for null. Note that this returns true for C pointers.
     /// This function must be kept in sync with `Sema.typePtrOrOptionalPtrTy`.
     pub fn isPtrLikeOptional(ty: Type, mod: *const Module) bool {
-        if (ty.ip_index != .none) return switch (mod.intern_pool.indexToKey(ty.ip_index)) {
-            .ptr_type => |ptr_type| ptr_type.size == .C,
-            .opt_type => |child| switch (mod.intern_pool.indexToKey(child)) {
-                .ptr_type => |ptr_type| switch (ptr_type.size) {
-                    .Slice, .C => false,
-                    .Many, .One => !ptr_type.is_allowzero,
+        return switch (ty.ip_index) {
+            .none => false,
+            else => switch (mod.intern_pool.indexToKey(ty.ip_index)) {
+                .ptr_type => |ptr_type| ptr_type.size == .C,
+                .opt_type => |child| switch (mod.intern_pool.indexToKey(child)) {
+                    .ptr_type => |ptr_type| switch (ptr_type.size) {
+                        .Slice, .C => false,
+                        .Many, .One => !ptr_type.is_allowzero,
+                    },
+                    else => false,
                 },
                 else => false,
             },
-            else => false,
         };
-        switch (ty.tag()) {
-            .pointer => return ty.castTag(.pointer).?.data.size == .C,
-
-            else => return false,
-        }
     }
 
     /// For *[N]T,  returns [N]T.
@@ -2614,14 +2392,7 @@ pub const Type = struct {
     }
 
     pub fn childTypeIp(ty: Type, ip: InternPool) Type {
-        return switch (ty.ip_index) {
-            .none => switch (ty.tag()) {
-                .pointer => ty.castTag(.pointer).?.data.pointee_type,
-
-                else => unreachable,
-            },
-            else => ip.childType(ty.ip_index).toType(),
-        };
+        return ip.childType(ty.ip_index).toType();
     }
 
     /// For *[N]T,       returns T.
@@ -2634,34 +2405,19 @@ pub const Type = struct {
     /// For []T,         returns T.
     /// For anyframe->T, returns T.
     pub fn elemType2(ty: Type, mod: *const Module) Type {
-        return switch (ty.ip_index) {
-            .none => switch (ty.tag()) {
-                .pointer => {
-                    const info = ty.castTag(.pointer).?.data;
-                    const child_ty = info.pointee_type;
-                    if (info.size == .One) {
-                        return child_ty.shallowElemType(mod);
-                    } else {
-                        return child_ty;
-                    }
-                },
-
-                else => unreachable,
+        return switch (mod.intern_pool.indexToKey(ty.ip_index)) {
+            .ptr_type => |ptr_type| switch (ptr_type.size) {
+                .One => ptr_type.elem_type.toType().shallowElemType(mod),
+                .Many, .C, .Slice => ptr_type.elem_type.toType(),
             },
-            else => switch (mod.intern_pool.indexToKey(ty.ip_index)) {
-                .ptr_type => |ptr_type| switch (ptr_type.size) {
-                    .One => ptr_type.elem_type.toType().shallowElemType(mod),
-                    .Many, .C, .Slice => ptr_type.elem_type.toType(),
-                },
-                .anyframe_type => |child| {
-                    assert(child != .none);
-                    return child.toType();
-                },
-                .vector_type => |vector_type| vector_type.child.toType(),
-                .array_type => |array_type| array_type.child.toType(),
-                .opt_type => |child| mod.intern_pool.childType(child).toType(),
-                else => unreachable,
+            .anyframe_type => |child| {
+                assert(child != .none);
+                return child.toType();
             },
+            .vector_type => |vector_type| vector_type.child.toType(),
+            .array_type => |array_type| array_type.child.toType(),
+            .opt_type => |child| mod.intern_pool.childType(child).toType(),
+            else => unreachable,
         };
     }
 
@@ -2683,21 +2439,13 @@ pub const Type = struct {
     /// Asserts that the type is an optional.
     /// Note that for C pointers this returns the type unmodified.
     pub fn optionalChild(ty: Type, mod: *const Module) Type {
-        return switch (ty.ip_index) {
-            .none => switch (ty.tag()) {
-                .pointer, // here we assume it is a C pointer
-                => return ty,
-
-                else => unreachable,
+        return switch (mod.intern_pool.indexToKey(ty.ip_index)) {
+            .opt_type => |child| child.toType(),
+            .ptr_type => |ptr_type| b: {
+                assert(ptr_type.size == .C);
+                break :b ty;
             },
-            else => switch (mod.intern_pool.indexToKey(ty.ip_index)) {
-                .opt_type => |child| child.toType(),
-                .ptr_type => |ptr_type| b: {
-                    assert(ptr_type.size == .C);
-                    break :b ty;
-                },
-                else => unreachable,
-            },
+            else => unreachable,
         };
     }
 
@@ -2921,23 +2669,16 @@ pub const Type = struct {
 
     /// Asserts the type is an array, pointer or vector.
     pub fn sentinel(ty: Type, mod: *const Module) ?Value {
-        return switch (ty.ip_index) {
-            .none => switch (ty.tag()) {
-                .pointer => ty.castTag(.pointer).?.data.sentinel,
+        return switch (mod.intern_pool.indexToKey(ty.ip_index)) {
+            .vector_type,
+            .struct_type,
+            .anon_struct_type,
+            => null,
 
-                else => unreachable,
-            },
-            else => switch (mod.intern_pool.indexToKey(ty.ip_index)) {
-                .vector_type,
-                .struct_type,
-                .anon_struct_type,
-                => null,
+            .array_type => |t| if (t.sentinel != .none) t.sentinel.toValue() else null,
+            .ptr_type => |t| if (t.sentinel != .none) t.sentinel.toValue() else null,
 
-                .array_type => |t| if (t.sentinel != .none) t.sentinel.toValue() else null,
-                .ptr_type => |t| if (t.sentinel != .none) t.sentinel.toValue() else null,
-
-                else => unreachable,
-            },
+            else => unreachable,
         };
     }
 
@@ -3196,7 +2937,6 @@ pub const Type = struct {
                 .error_set,
                 .error_set_merged,
                 .error_set_inferred,
-                .pointer,
                 => return null,
 
                 .inferred_alloc_const => unreachable,
@@ -3399,15 +3139,6 @@ pub const Type = struct {
 
                 .inferred_alloc_mut => unreachable,
                 .inferred_alloc_const => unreachable,
-
-                .pointer => {
-                    const child_ty = ty.childType(mod);
-                    if (child_ty.zigTypeTag(mod) == .Fn) {
-                        return false;
-                    } else {
-                        return child_ty.comptimeOnly(mod);
-                    }
-                },
 
                 .error_union => return ty.errorUnionPayload().comptimeOnly(mod),
             },
@@ -4096,7 +3827,6 @@ pub const Type = struct {
         inferred_alloc_const, // See last_no_payload_tag below.
         // After this, the tag requires a payload.
 
-        pointer,
         error_union,
         error_set,
         error_set_single,
@@ -4117,7 +3847,6 @@ pub const Type = struct {
                 .error_set_inferred => Payload.ErrorSetInferred,
                 .error_set_merged => Payload.ErrorSetMerged,
 
-                .pointer => Payload.Pointer,
                 .error_union => Payload.ErrorUnion,
                 .error_set_single => Payload.Name,
             };
@@ -4230,10 +3959,8 @@ pub const Type = struct {
             data: *Module.Fn.InferredErrorSet,
         };
 
+        /// TODO: remove this data structure since we have `InternPool.Key.PtrType`.
         pub const Pointer = struct {
-            pub const base_tag = Tag.pointer;
-
-            base: Payload = Payload{ .tag = base_tag },
             data: Data,
 
             pub const Data = struct {
@@ -4270,7 +3997,7 @@ pub const Type = struct {
                     return .{
                         .pointee_type = p.elem_type.toType(),
                         .sentinel = if (p.sentinel != .none) p.sentinel.toValue() else null,
-                        .@"align" = @intCast(u32, p.alignment),
+                        .@"align" = @intCast(u32, p.alignment.toByteUnits(0)),
                         .@"addrspace" = p.address_space,
                         .bit_offset = p.bit_offset,
                         .host_size = p.host_size,
@@ -4368,11 +4095,11 @@ pub const Type = struct {
     pub const err_int = Type.u16;
 
     pub fn ptr(arena: Allocator, mod: *Module, data: Payload.Pointer.Data) !Type {
-        var d = data;
+        // TODO: update callsites of this function to directly call mod.ptrType
+        // and then delete this function.
+        _ = arena;
 
-        if (d.size == .C) {
-            d.@"allowzero" = true;
-        }
+        var d = data;
 
         // Canonicalize non-zero alignment. If it matches the ABI alignment of the pointee
         // type, we change it to 0 here. If this causes an assertion trip because the
@@ -4396,32 +4123,19 @@ pub const Type = struct {
             }
         }
 
-        ip: {
-            if (d.pointee_type.ip_index == .none) break :ip;
-
-            if (d.sentinel) |s| {
-                switch (s.ip_index) {
-                    .none, .null_value => break :ip,
-                    else => {},
-                }
-            }
-
-            return mod.ptrType(.{
-                .elem_type = d.pointee_type.ip_index,
-                .sentinel = if (d.sentinel) |s| s.ip_index else .none,
-                .alignment = d.@"align",
-                .host_size = d.host_size,
-                .bit_offset = d.bit_offset,
-                .vector_index = d.vector_index,
-                .size = d.size,
-                .is_const = !d.mutable,
-                .is_volatile = d.@"volatile",
-                .is_allowzero = d.@"allowzero",
-                .address_space = d.@"addrspace",
-            });
-        }
-
-        return Type.Tag.pointer.create(arena, d);
+        return mod.ptrType(.{
+            .elem_type = d.pointee_type.ip_index,
+            .sentinel = if (d.sentinel) |s| s.ip_index else .none,
+            .alignment = InternPool.Alignment.fromByteUnits(d.@"align"),
+            .host_size = d.host_size,
+            .bit_offset = d.bit_offset,
+            .vector_index = d.vector_index,
+            .size = d.size,
+            .is_const = !d.mutable,
+            .is_volatile = d.@"volatile",
+            .is_allowzero = d.@"allowzero",
+            .address_space = d.@"addrspace",
+        });
     }
 
     pub fn array(

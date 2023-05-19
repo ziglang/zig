@@ -566,8 +566,7 @@ pub const DeclGen = struct {
                 try writer.writeAll("){ .ptr = ");
             }
 
-            var buf: Type.SlicePtrFieldTypeBuffer = undefined;
-            try dg.renderValue(writer, ty.slicePtrFieldType(&buf, mod), val.slicePtr(), .Initializer);
+            try dg.renderValue(writer, ty.slicePtrFieldType(mod), val.slicePtr(), .Initializer);
 
             const len_val = try mod.intValue(Type.usize, val.sliceLen(mod));
 
@@ -631,11 +630,7 @@ pub const DeclGen = struct {
                 // Ensure complete type definition is visible before accessing fields.
                 _ = try dg.typeToIndex(field_ptr.container_ty, .complete);
 
-                var container_ptr_pl: Type.Payload.Pointer = .{
-                    .data = ptr_ty.ptrInfo(mod),
-                };
-                container_ptr_pl.data.pointee_type = field_ptr.container_ty;
-                const container_ptr_ty = Type.initPayload(&container_ptr_pl.base);
+                const container_ptr_ty = try mod.adjustPtrTypeChild(ptr_ty, field_ptr.container_ty);
 
                 switch (fieldLocation(
                     field_ptr.container_ty,
@@ -661,11 +656,7 @@ pub const DeclGen = struct {
                         try dg.writeCValue(writer, field);
                     },
                     .byte_offset => |byte_offset| {
-                        var u8_ptr_pl: Type.Payload.Pointer = .{
-                            .data = ptr_ty.ptrInfo(mod),
-                        };
-                        u8_ptr_pl.data.pointee_type = Type.u8;
-                        const u8_ptr_ty = Type.initPayload(&u8_ptr_pl.base);
+                        const u8_ptr_ty = try mod.adjustPtrTypeChild(ptr_ty, Type.u8);
 
                         const byte_offset_val = try mod.intValue(Type.usize, byte_offset);
 
@@ -788,8 +779,7 @@ pub const DeclGen = struct {
                     }
 
                     try writer.writeAll("{(");
-                    var buf: Type.SlicePtrFieldTypeBuffer = undefined;
-                    const ptr_ty = ty.slicePtrFieldType(&buf, mod);
+                    const ptr_ty = ty.slicePtrFieldType(mod);
                     try dg.renderType(writer, ptr_ty);
                     return writer.print("){x}, {0x}}}", .{try dg.fmtIntLiteral(Type.usize, val, .Other)});
                 } else {
@@ -1068,10 +1058,9 @@ pub const DeclGen = struct {
                         }
 
                         const slice = val.castTag(.slice).?.data;
-                        var buf: Type.SlicePtrFieldTypeBuffer = undefined;
 
                         try writer.writeByte('{');
-                        try dg.renderValue(writer, ty.slicePtrFieldType(&buf, mod), slice.ptr, initializer_type);
+                        try dg.renderValue(writer, ty.slicePtrFieldType(mod), slice.ptr, initializer_type);
                         try writer.writeAll(", ");
                         try dg.renderValue(writer, Type.usize, slice.len, initializer_type);
                         try writer.writeByte('}');
@@ -1536,8 +1525,8 @@ pub const DeclGen = struct {
 
         switch (kind) {
             .forward => {},
-            .complete => if (fn_info.alignment > 0)
-                try w.print(" zig_align_fn({})", .{fn_info.alignment}),
+            .complete => if (fn_info.alignment.toByteUnitsOptional()) |a|
+                try w.print(" zig_align_fn({})", .{a}),
             else => unreachable,
         }
 
@@ -1561,8 +1550,8 @@ pub const DeclGen = struct {
         );
 
         switch (kind) {
-            .forward => if (fn_info.alignment > 0)
-                try w.print(" zig_align_fn({})", .{fn_info.alignment}),
+            .forward => if (fn_info.alignment.toByteUnitsOptional()) |a|
+                try w.print(" zig_align_fn({})", .{a}),
             .complete => {},
             else => unreachable,
         }
@@ -4062,8 +4051,7 @@ fn airSlice(f: *Function, inst: Air.Inst.Index) !CValue {
     try reap(f, inst, &.{ bin_op.lhs, bin_op.rhs });
 
     const inst_ty = f.typeOfIndex(inst);
-    var buf: Type.SlicePtrFieldTypeBuffer = undefined;
-    const ptr_ty = inst_ty.slicePtrFieldType(&buf, mod);
+    const ptr_ty = inst_ty.slicePtrFieldType(mod);
 
     const writer = f.object.writer();
     const local = try f.allocLocal(inst, inst_ty);
@@ -5047,7 +5035,6 @@ fn airIsNull(
     const operand_ty = f.typeOf(un_op);
     const optional_ty = if (is_ptr) operand_ty.childType(mod) else operand_ty;
     const payload_ty = optional_ty.optionalChild(mod);
-    var slice_ptr_buf: Type.SlicePtrFieldTypeBuffer = undefined;
 
     const rhs = if (!payload_ty.hasRuntimeBitsIgnoreComptime(mod))
         TypedValue{ .ty = Type.bool, .val = Value.true }
@@ -5058,7 +5045,7 @@ fn airIsNull(
         TypedValue{ .ty = payload_ty, .val = try mod.intValue(payload_ty, 0) }
     else if (payload_ty.isSlice(mod) and optional_ty.optionalReprIsPayload(mod)) rhs: {
         try writer.writeAll(".ptr");
-        const slice_ptr_ty = payload_ty.slicePtrFieldType(&slice_ptr_buf, mod);
+        const slice_ptr_ty = payload_ty.slicePtrFieldType(mod);
         break :rhs TypedValue{ .ty = slice_ptr_ty, .val = Value.null };
     } else rhs: {
         try writer.writeAll(".is_null");
@@ -5278,11 +5265,7 @@ fn airFieldParentPtr(f: *Function, inst: Air.Inst.Index) !CValue {
     switch (fieldLocation(container_ty, field_ptr_ty, extra.field_index, mod)) {
         .begin => try f.writeCValue(writer, field_ptr_val, .Initializer),
         .field => |field| {
-            var u8_ptr_pl: Type.Payload.Pointer = .{
-                .data = field_ptr_ty.ptrInfo(mod),
-            };
-            u8_ptr_pl.data.pointee_type = Type.u8;
-            const u8_ptr_ty = Type.initPayload(&u8_ptr_pl.base);
+            const u8_ptr_ty = try mod.adjustPtrTypeChild(field_ptr_ty, Type.u8);
 
             try writer.writeAll("((");
             try f.renderType(writer, u8_ptr_ty);
@@ -5295,11 +5278,7 @@ fn airFieldParentPtr(f: *Function, inst: Air.Inst.Index) !CValue {
             try writer.writeAll("))");
         },
         .byte_offset => |byte_offset| {
-            var u8_ptr_pl: Type.Payload.Pointer = .{
-                .data = field_ptr_ty.ptrInfo(mod),
-            };
-            u8_ptr_pl.data.pointee_type = Type.u8;
-            const u8_ptr_ty = Type.initPayload(&u8_ptr_pl.base);
+            const u8_ptr_ty = try mod.adjustPtrTypeChild(field_ptr_ty, Type.u8);
 
             const byte_offset_val = try mod.intValue(Type.usize, byte_offset);
 
@@ -5347,11 +5326,7 @@ fn fieldPtr(
             try f.writeCValueDerefMember(writer, container_ptr_val, field);
         },
         .byte_offset => |byte_offset| {
-            var u8_ptr_pl: Type.Payload.Pointer = .{
-                .data = field_ptr_ty.ptrInfo(mod),
-            };
-            u8_ptr_pl.data.pointee_type = Type.u8;
-            const u8_ptr_ty = Type.initPayload(&u8_ptr_pl.base);
+            const u8_ptr_ty = try mod.adjustPtrTypeChild(field_ptr_ty, Type.u8);
 
             const byte_offset_val = try mod.intValue(Type.usize, byte_offset);
 
@@ -5794,8 +5769,7 @@ fn airArrayToSlice(f: *Function, inst: Air.Inst.Index) !CValue {
     // Unfortunately, C does not support any equivalent to
     // &(*(void *)p)[0], although LLVM does via GetElementPtr
     if (operand == .undef) {
-        var buf: Type.SlicePtrFieldTypeBuffer = undefined;
-        try f.writeCValue(writer, .{ .undef = inst_ty.slicePtrFieldType(&buf, mod) }, .Initializer);
+        try f.writeCValue(writer, .{ .undef = inst_ty.slicePtrFieldType(mod) }, .Initializer);
     } else if (array_ty.hasRuntimeBitsIgnoreComptime(mod)) {
         try writer.writeAll("&(");
         try f.writeCValueDeref(writer, operand);

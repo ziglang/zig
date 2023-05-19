@@ -1591,40 +1591,30 @@ pub const Object = struct {
             },
             .Pointer => {
                 // Normalize everything that the debug info does not represent.
-                const ptr_info = ty.ptrInfo(mod);
+                const ptr_info = ty.ptrInfoIp(mod.intern_pool);
 
-                if (ptr_info.sentinel != null or
-                    ptr_info.@"addrspace" != .generic or
+                if (ptr_info.sentinel != .none or
+                    ptr_info.address_space != .generic or
                     ptr_info.bit_offset != 0 or
                     ptr_info.host_size != 0 or
                     ptr_info.vector_index != .none or
-                    ptr_info.@"allowzero" or
-                    !ptr_info.mutable or
-                    ptr_info.@"volatile" or
+                    ptr_info.is_allowzero or
+                    ptr_info.is_const or
+                    ptr_info.is_volatile or
                     ptr_info.size == .Many or ptr_info.size == .C or
-                    !ptr_info.pointee_type.hasRuntimeBitsIgnoreComptime(mod))
+                    !ptr_info.elem_type.toType().hasRuntimeBitsIgnoreComptime(mod))
                 {
-                    var payload: Type.Payload.Pointer = .{
-                        .data = .{
-                            .pointee_type = ptr_info.pointee_type,
-                            .sentinel = null,
-                            .@"align" = ptr_info.@"align",
-                            .@"addrspace" = .generic,
-                            .bit_offset = 0,
-                            .host_size = 0,
-                            .@"allowzero" = false,
-                            .mutable = true,
-                            .@"volatile" = false,
-                            .size = switch (ptr_info.size) {
-                                .Many, .C, .One => .One,
-                                .Slice => .Slice,
-                            },
+                    const bland_ptr_ty = try mod.ptrType(.{
+                        .elem_type = if (!ptr_info.elem_type.toType().hasRuntimeBitsIgnoreComptime(mod))
+                            .anyopaque_type
+                        else
+                            ptr_info.elem_type,
+                        .alignment = ptr_info.alignment,
+                        .size = switch (ptr_info.size) {
+                            .Many, .C, .One => .One,
+                            .Slice => .Slice,
                         },
-                    };
-                    if (!ptr_info.pointee_type.hasRuntimeBitsIgnoreComptime(mod)) {
-                        payload.data.pointee_type = Type.anyopaque;
-                    }
-                    const bland_ptr_ty = Type.initPayload(&payload.base);
+                    });
                     const ptr_di_ty = try o.lowerDebugType(bland_ptr_ty, resolve);
                     // The recursive call to `lowerDebugType` means we can't use `gop` anymore.
                     try o.di_type_map.putContext(gpa, ty, AnnotatedDITypePtr.init(ptr_di_ty, resolve), .{ .mod = o.module });
@@ -1632,8 +1622,7 @@ pub const Object = struct {
                 }
 
                 if (ty.isSlice(mod)) {
-                    var buf: Type.SlicePtrFieldTypeBuffer = undefined;
-                    const ptr_ty = ty.slicePtrFieldType(&buf, mod);
+                    const ptr_ty = ty.slicePtrFieldType(mod);
                     const len_ty = Type.usize;
 
                     const name = try ty.nameAlloc(gpa, o.module);
@@ -1711,7 +1700,7 @@ pub const Object = struct {
                     return full_di_ty;
                 }
 
-                const elem_di_ty = try o.lowerDebugType(ptr_info.pointee_type, .fwd);
+                const elem_di_ty = try o.lowerDebugType(ptr_info.elem_type.toType(), .fwd);
                 const name = try ty.nameAlloc(gpa, o.module);
                 defer gpa.free(name);
                 const ptr_di_ty = dib.createPointerType(
@@ -2625,8 +2614,8 @@ pub const DeclGen = struct {
             },
         }
 
-        if (fn_info.alignment != 0) {
-            llvm_fn.setAlignment(@intCast(c_uint, fn_info.alignment));
+        if (fn_info.alignment.toByteUnitsOptional()) |a| {
+            llvm_fn.setAlignment(@intCast(c_uint, a));
         }
 
         // Function attributes that are independent of analysis results of the function body.
@@ -2819,8 +2808,7 @@ pub const DeclGen = struct {
             .Bool => return dg.context.intType(1),
             .Pointer => {
                 if (t.isSlice(mod)) {
-                    var buf: Type.SlicePtrFieldTypeBuffer = undefined;
-                    const ptr_type = t.slicePtrFieldType(&buf, mod);
+                    const ptr_type = t.slicePtrFieldType(mod);
 
                     const fields: [2]*llvm.Type = .{
                         try dg.lowerType(ptr_type),
@@ -3176,11 +3164,10 @@ pub const DeclGen = struct {
             },
             .slice => {
                 const param_ty = fn_info.param_types[it.zig_index - 1].toType();
-                var buf: Type.SlicePtrFieldTypeBuffer = undefined;
                 const ptr_ty = if (param_ty.zigTypeTag(mod) == .Optional)
-                    param_ty.optionalChild(mod).slicePtrFieldType(&buf, mod)
+                    param_ty.optionalChild(mod).slicePtrFieldType(mod)
                 else
-                    param_ty.slicePtrFieldType(&buf, mod);
+                    param_ty.slicePtrFieldType(mod);
                 const ptr_llvm_ty = try dg.lowerType(ptr_ty);
                 const len_llvm_ty = try dg.lowerType(Type.usize);
 
@@ -3368,10 +3355,9 @@ pub const DeclGen = struct {
                     },
                     .slice => {
                         const slice = tv.val.castTag(.slice).?.data;
-                        var buf: Type.SlicePtrFieldTypeBuffer = undefined;
                         const fields: [2]*llvm.Value = .{
                             try dg.lowerValue(.{
-                                .ty = tv.ty.slicePtrFieldType(&buf, mod),
+                                .ty = tv.ty.slicePtrFieldType(mod),
                                 .val = slice.ptr,
                             }),
                             try dg.lowerValue(.{
@@ -4171,8 +4157,7 @@ pub const DeclGen = struct {
     ) Error!*llvm.Value {
         const mod = self.module;
         if (tv.ty.isSlice(mod)) {
-            var buf: Type.SlicePtrFieldTypeBuffer = undefined;
-            const ptr_ty = tv.ty.slicePtrFieldType(&buf, mod);
+            const ptr_ty = tv.ty.slicePtrFieldType(mod);
             const fields: [2]*llvm.Value = .{
                 try self.lowerValue(.{
                     .ty = ptr_ty,
@@ -6043,17 +6028,14 @@ pub const FuncGen = struct {
                 const field_ptr = self.builder.buildStructGEP(struct_llvm_ty, struct_llvm_val, llvm_field.index, "");
                 const field_ptr_ty = try mod.ptrType(.{
                     .elem_type = llvm_field.ty.ip_index,
-                    .alignment = llvm_field.alignment,
+                    .alignment = InternPool.Alignment.fromNonzeroByteUnits(llvm_field.alignment),
                 });
                 if (isByRef(field_ty, mod)) {
                     if (canElideLoad(self, body_tail))
                         return field_ptr;
 
-                    const field_alignment = if (llvm_field.alignment != 0)
-                        llvm_field.alignment
-                    else
-                        llvm_field.ty.abiAlignment(mod);
-                    return self.loadByRef(field_ptr, field_ty, field_alignment, false);
+                    assert(llvm_field.alignment != 0);
+                    return self.loadByRef(field_ptr, field_ty, llvm_field.alignment, false);
                 } else {
                     return self.load(field_ptr, field_ptr_ty);
                 }
@@ -6151,7 +6133,7 @@ pub const FuncGen = struct {
         const fn_ty = try mod.funcType(.{
             .param_types = &.{},
             .return_type = .void_type,
-            .alignment = 0,
+            .alignment = .none,
             .noalias_bits = 0,
             .comptime_bits = 0,
             .cc = .Unspecified,
@@ -6655,8 +6637,7 @@ pub const FuncGen = struct {
                 operand;
             if (payload_ty.isSlice(mod)) {
                 const slice_ptr = self.builder.buildExtractValue(loaded, 0, "");
-                var slice_buf: Type.SlicePtrFieldTypeBuffer = undefined;
-                const ptr_ty = try self.dg.lowerType(payload_ty.slicePtrFieldType(&slice_buf, mod));
+                const ptr_ty = try self.dg.lowerType(payload_ty.slicePtrFieldType(mod));
                 return self.builder.buildICmp(pred, slice_ptr, ptr_ty.constNull(), "");
             }
             return self.builder.buildICmp(pred, loaded, optional_llvm_ty.constNull(), "");
@@ -6923,7 +6904,7 @@ pub const FuncGen = struct {
         const field_ptr = self.builder.buildStructGEP(struct_llvm_ty, self.err_ret_trace.?, llvm_field.index, "");
         const field_ptr_ty = try mod.ptrType(.{
             .elem_type = llvm_field.ty.ip_index,
-            .alignment = llvm_field.alignment,
+            .alignment = InternPool.Alignment.fromNonzeroByteUnits(llvm_field.alignment),
         });
         return self.load(field_ptr, field_ptr_ty);
     }
@@ -9319,14 +9300,12 @@ pub const FuncGen = struct {
                         const llvm_i = llvmField(result_ty, i, mod).?.index;
                         indices[1] = llvm_u32.constInt(llvm_i, .False);
                         const field_ptr = self.builder.buildInBoundsGEP(llvm_result_ty, alloca_inst, &indices, indices.len, "");
-                        var field_ptr_payload: Type.Payload.Pointer = .{
-                            .data = .{
-                                .pointee_type = self.typeOf(elem),
-                                .@"align" = result_ty.structFieldAlign(i, mod),
-                                .@"addrspace" = .generic,
-                            },
-                        };
-                        const field_ptr_ty = Type.initPayload(&field_ptr_payload.base);
+                        const field_ptr_ty = try mod.ptrType(.{
+                            .elem_type = self.typeOf(elem).toIntern(),
+                            .alignment = InternPool.Alignment.fromNonzeroByteUnits(
+                                result_ty.structFieldAlign(i, mod),
+                            ),
+                        });
                         try self.store(field_ptr, field_ptr_ty, llvm_elem, .NotAtomic);
                     }
 
@@ -9350,13 +9329,9 @@ pub const FuncGen = struct {
                 const alloca_inst = self.buildAlloca(llvm_result_ty, result_ty.abiAlignment(mod));
 
                 const array_info = result_ty.arrayInfo(mod);
-                var elem_ptr_payload: Type.Payload.Pointer = .{
-                    .data = .{
-                        .pointee_type = array_info.elem_type,
-                        .@"addrspace" = .generic,
-                    },
-                };
-                const elem_ptr_ty = Type.initPayload(&elem_ptr_payload.base);
+                const elem_ptr_ty = try mod.ptrType(.{
+                    .elem_type = array_info.elem_type.toIntern(),
+                });
 
                 for (elements, 0..) |elem, i| {
                     const indices: [2]*llvm.Value = .{
@@ -9476,14 +9451,10 @@ pub const FuncGen = struct {
         // tag and the payload.
         const index_type = self.context.intType(32);
 
-        var field_ptr_payload: Type.Payload.Pointer = .{
-            .data = .{
-                .pointee_type = field.ty,
-                .@"align" = field_align,
-                .@"addrspace" = .generic,
-            },
-        };
-        const field_ptr_ty = Type.initPayload(&field_ptr_payload.base);
+        const field_ptr_ty = try mod.ptrType(.{
+            .elem_type = field.ty.toIntern(),
+            .alignment = InternPool.Alignment.fromNonzeroByteUnits(field_align),
+        });
         if (layout.tag_size == 0) {
             const indices: [3]*llvm.Value = .{
                 index_type.constNull(),

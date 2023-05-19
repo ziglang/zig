@@ -6532,8 +6532,7 @@ pub fn populateTestFunctions(
         try mod.ensureDeclAnalyzed(decl_index);
     }
     const decl = mod.declPtr(decl_index);
-    var buf: Type.SlicePtrFieldTypeBuffer = undefined;
-    const tmp_test_fn_ty = decl.ty.slicePtrFieldType(&buf, mod).childType(mod);
+    const tmp_test_fn_ty = decl.ty.slicePtrFieldType(mod).childType(mod);
 
     const array_decl_index = d: {
         // Add mod.test_functions to an array decl then make the test_functions
@@ -6843,26 +6842,29 @@ pub fn ptrType(mod: *Module, info: InternPool.Key.PtrType) Allocator.Error!Type 
 }
 
 pub fn singleMutPtrType(mod: *Module, child_type: Type) Allocator.Error!Type {
-    if (child_type.ip_index == .none) {
-        // TODO remove this after all types can be represented via the InternPool
-        return Type.Tag.pointer.create(mod.tmp_hack_arena.allocator(), .{
-            .pointee_type = child_type,
-            .@"addrspace" = .generic,
-        });
-    }
     return ptrType(mod, .{ .elem_type = child_type.ip_index });
 }
 
 pub fn singleConstPtrType(mod: *Module, child_type: Type) Allocator.Error!Type {
-    if (child_type.ip_index == .none) {
-        // TODO remove this after all types can be represented via the InternPool
-        return Type.Tag.pointer.create(mod.tmp_hack_arena.allocator(), .{
-            .pointee_type = child_type,
-            .mutable = false,
-            .@"addrspace" = .generic,
-        });
-    }
     return ptrType(mod, .{ .elem_type = child_type.ip_index, .is_const = true });
+}
+
+pub fn adjustPtrTypeChild(mod: *Module, ptr_ty: Type, new_child: Type) Allocator.Error!Type {
+    const info = ptr_ty.ptrInfoIp(mod.intern_pool);
+    return mod.ptrType(.{
+        .elem_type = new_child.toIntern(),
+
+        .sentinel = info.sentinel,
+        .alignment = info.alignment,
+        .host_size = info.host_size,
+        .bit_offset = info.bit_offset,
+        .vector_index = info.vector_index,
+        .size = info.size,
+        .is_const = info.is_const,
+        .is_volatile = info.is_volatile,
+        .is_allowzero = info.is_allowzero,
+        .address_space = info.address_space,
+    });
 }
 
 pub fn funcType(mod: *Module, info: InternPool.Key.FuncType) Allocator.Error!Type {

@@ -347,8 +347,7 @@ pub fn generateSymbol(
                     const slice = typed_value.val.castTag(.slice).?.data;
 
                     // generate ptr
-                    var buf: Type.SlicePtrFieldTypeBuffer = undefined;
-                    const slice_ptr_field_type = typed_value.ty.slicePtrFieldType(&buf, mod);
+                    const slice_ptr_field_type = typed_value.ty.slicePtrFieldType(mod);
                     switch (try generateSymbol(bin_file, src_loc, .{
                         .ty = slice_ptr_field_type,
                         .val = slice.ptr,
@@ -850,10 +849,9 @@ fn lowerParentPtr(
                 reloc_info.offset(@intCast(u32, switch (field_ptr.container_ty.zigTypeTag(mod)) {
                     .Pointer => offset: {
                         assert(field_ptr.container_ty.isSlice(mod));
-                        var buf: Type.SlicePtrFieldTypeBuffer = undefined;
                         break :offset switch (field_ptr.field_index) {
                             0 => 0,
-                            1 => field_ptr.container_ty.slicePtrFieldType(&buf, mod).abiSize(mod),
+                            1 => field_ptr.container_ty.slicePtrFieldType(mod).abiSize(mod),
                             else => unreachable,
                         };
                     },
@@ -952,8 +950,7 @@ fn lowerDeclRef(
     const mod = bin_file.options.module.?;
     if (typed_value.ty.isSlice(mod)) {
         // generate ptr
-        var buf: Type.SlicePtrFieldTypeBuffer = undefined;
-        const slice_ptr_field_type = typed_value.ty.slicePtrFieldType(&buf, mod);
+        const slice_ptr_field_type = typed_value.ty.slicePtrFieldType(mod);
         switch (try generateSymbol(bin_file, src_loc, .{
             .ty = slice_ptr_field_type,
             .val = typed_value.val,
