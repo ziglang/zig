@@ -186,17 +186,11 @@ pub const Key = union(enum) {
     pub const PtrType = struct {
         elem_type: Index,
         sentinel: Index = .none,
-        /// If zero use pointee_type.abiAlignment()
-        /// When creating pointer types, if alignment is equal to pointee type
-        /// abi alignment, this value should be set to 0 instead.
-        ///
-        /// Please don't change this to u32 or u29. If you want to save bits,
-        /// migrate the rest of the codebase to use the `Alignment` type rather
-        /// than using byte units. The LLVM backend can only handle `c_uint`
-        /// byte units; we can emit a semantic analysis error if alignment that
-        /// overflows that amount is attempted to be used, but it shouldn't
-        /// affect the other backends.
-        alignment: u64 = 0,
+        /// `none` indicates the ABI alignment of the pointee_type. In this
+        /// case, this field *must* be set to `none`, otherwise the
+        /// `InternPool` equality and hashing functions will return incorrect
+        /// results.
+        alignment: Alignment = .none,
         /// If this is non-zero it means the pointer points to a sub-byte
         /// range of data, which is backed by a "host integer" with this
         /// number of bytes.
@@ -378,15 +372,11 @@ pub const Key = union(enum) {
         /// Tells whether a parameter is noalias. See `paramIsNoalias` helper
         /// method for accessing this.
         noalias_bits: u32,
-        /// If zero use default target function code alignment.
-        ///
-        /// Please don't change this to u32 or u29. If you want to save bits,
-        /// migrate the rest of the codebase to use the `Alignment` type rather
-        /// than using byte units. The LLVM backend can only handle `c_uint`
-        /// byte units; we can emit a semantic analysis error if alignment that
-        /// overflows that amount is attempted to be used, but it shouldn't
-        /// affect the other backends.
-        alignment: u64,
+        /// `none` indicates the function has the default alignment for
+        /// function code on the target. In this case, this field *must* be set
+        /// to `none`, otherwise the `InternPool` equality and hashing
+        /// functions will return incorrect results.
+        alignment: Alignment,
         cc: std.builtin.CallingConvention,
         is_var_args: bool,
         is_generic: bool,
@@ -1500,6 +1490,13 @@ pub const Alignment = enum(u6) {
     none = std.math.maxInt(u6),
     _,
 
+    pub fn toByteUnitsOptional(a: Alignment) ?u64 {
+        return switch (a) {
+            .none => null,
+            _ => @as(u64, 1) << @enumToInt(a),
+        };
+    }
+
     pub fn toByteUnits(a: Alignment, default: u64) u64 {
         return switch (a) {
             .none => default,
@@ -1509,7 +1506,13 @@ pub const Alignment = enum(u6) {
 
     pub fn fromByteUnits(n: u64) Alignment {
         if (n == 0) return .none;
+        assert(std.math.isPowerOfTwo(n));
         return @intToEnum(Alignment, @ctz(n));
+    }
+
+    pub fn fromNonzeroByteUnits(n: u64) Alignment {
+        assert(n != 0);
+        return fromByteUnits(n);
     }
 };
 
@@ -1773,7 +1776,7 @@ pub fn indexToKey(ip: InternPool, index: Index) Key {
             return .{ .ptr_type = .{
                 .elem_type = ptr_info.child,
                 .sentinel = ptr_info.sentinel,
-                .alignment = ptr_info.flags.alignment.toByteUnits(0),
+                .alignment = ptr_info.flags.alignment,
                 .size = ptr_info.flags.size,
                 .is_const = ptr_info.flags.is_const,
                 .is_volatile = ptr_info.flags.is_volatile,
@@ -2013,7 +2016,7 @@ fn indexToKeyFuncType(ip: InternPool, data: u32) Key.FuncType {
         .return_type = type_function.data.return_type,
         .comptime_bits = type_function.data.comptime_bits,
         .noalias_bits = type_function.data.noalias_bits,
-        .alignment = type_function.data.flags.alignment.toByteUnits(0),
+        .alignment = type_function.data.flags.alignment,
         .cc = type_function.data.flags.cc,
         .is_var_args = type_function.data.flags.is_var_args,
         .is_generic = type_function.data.flags.is_generic,
@@ -2100,16 +2103,18 @@ pub fn get(ip: *InternPool, gpa: Allocator, key: Key) Allocator.Error!Index {
                 return @intToEnum(Index, ip.items.len - 1);
             }
 
+            const is_allowzero = ptr_type.is_allowzero or ptr_type.size == .C;
+
             ip.items.appendAssumeCapacity(.{
                 .tag = .type_pointer,
                 .data = try ip.addExtra(gpa, Pointer{
                     .child = ptr_type.elem_type,
                     .sentinel = ptr_type.sentinel,
                     .flags = .{
-                        .alignment = Alignment.fromByteUnits(ptr_type.alignment),
+                        .alignment = ptr_type.alignment,
                         .is_const = ptr_type.is_const,
                         .is_volatile = ptr_type.is_volatile,
-                        .is_allowzero = ptr_type.is_allowzero,
+                        .is_allowzero = is_allowzero,
                         .size = ptr_type.size,
                         .address_space = ptr_type.address_space,
                         .vector_index = ptr_type.vector_index,
@@ -2316,7 +2321,7 @@ pub fn get(ip: *InternPool, gpa: Allocator, key: Key) Allocator.Error!Index {
                     .comptime_bits = func_type.comptime_bits,
                     .noalias_bits = func_type.noalias_bits,
                     .flags = .{
-                        .alignment = Alignment.fromByteUnits(func_type.alignment),
+                        .alignment = func_type.alignment,
                         .cc = func_type.cc,
                         .is_var_args = func_type.is_var_args,
                         .is_generic = func_type.is_generic,

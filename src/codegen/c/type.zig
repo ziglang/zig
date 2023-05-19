@@ -1431,8 +1431,7 @@ pub const CType = extern union {
                                 .complete, .parameter, .global => try lookup.typeToIndex(ty, .forward),
                                 .payload => unreachable,
                             }) |fwd_idx| {
-                                var buf: Type.SlicePtrFieldTypeBuffer = undefined;
-                                const ptr_ty = ty.slicePtrFieldType(&buf, mod);
+                                const ptr_ty = ty.slicePtrFieldType(mod);
                                 if (try lookup.typeToIndex(ptr_ty, kind)) |ptr_idx| {
                                     self.storage = .{ .anon = undefined };
                                     self.storage.anon.fields[0] = .{

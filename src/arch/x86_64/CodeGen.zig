@@ -4052,8 +4052,7 @@ fn genSliceElemPtr(self: *Self, lhs: Air.Inst.Ref, rhs: Air.Inst.Ref) !MCValue {
 
     const elem_ty = slice_ty.childType(mod);
     const elem_size = elem_ty.abiSize(mod);
-    var buf: Type.SlicePtrFieldTypeBuffer = undefined;
-    const slice_ptr_field_type = slice_ty.slicePtrFieldType(&buf, mod);
+    const slice_ptr_field_type = slice_ty.slicePtrFieldType(mod);
 
     const index_ty = self.typeOf(rhs);
     const index_mcv = try self.resolveInst(rhs);
@@ -4082,8 +4081,7 @@ fn airSliceElemVal(self: *Self, inst: Air.Inst.Index) !void {
     const bin_op = self.air.instructions.items(.data)[inst].bin_op;
     const slice_ty = self.typeOf(bin_op.lhs);
 
-    var buf: Type.SlicePtrFieldTypeBuffer = undefined;
-    const slice_ptr_field_type = slice_ty.slicePtrFieldType(&buf, mod);
+    const slice_ptr_field_type = slice_ty.slicePtrFieldType(mod);
     const elem_ptr = try self.genSliceElemPtr(bin_op.lhs, bin_op.rhs);
     const dst_mcv = try self.allocRegOrMem(inst, false);
     try self.load(dst_mcv, slice_ptr_field_type, elem_ptr);
@@ -4281,11 +4279,7 @@ fn airSetUnionTag(self: *Self, inst: Air.Inst.Index) !void {
         break :blk MCValue{ .register = reg };
     } else ptr;
 
-    var ptr_tag_pl: Type.Payload.Pointer = .{
-        .data = ptr_union_ty.ptrInfo(mod),
-    };
-    ptr_tag_pl.data.pointee_type = tag_ty;
-    const ptr_tag_ty = Type.initPayload(&ptr_tag_pl.base);
+    const ptr_tag_ty = try mod.adjustPtrTypeChild(ptr_union_ty, tag_ty);
     try self.store(ptr_tag_ty, adjusted_ptr, tag);
 
     return self.finishAir(inst, .none, .{ bin_op.lhs, bin_op.rhs, .none });
@@ -8671,9 +8665,8 @@ fn isNull(self: *Self, inst: Air.Inst.Index, opt_ty: Type, opt_mcv: MCValue) !MC
 
     const pl_ty = opt_ty.optionalChild(mod);
 
-    var ptr_buf: Type.SlicePtrFieldTypeBuffer = undefined;
     const some_info: struct { off: i32, ty: Type } = if (opt_ty.optionalReprIsPayload(mod))
-        .{ .off = 0, .ty = if (pl_ty.isSlice(mod)) pl_ty.slicePtrFieldType(&ptr_buf, mod) else pl_ty }
+        .{ .off = 0, .ty = if (pl_ty.isSlice(mod)) pl_ty.slicePtrFieldType(mod) else pl_ty }
     else
         .{ .off = @intCast(i32, pl_ty.abiSize(mod)), .ty = Type.bool };
 
@@ -8763,9 +8756,8 @@ fn isNullPtr(self: *Self, inst: Air.Inst.Index, ptr_ty: Type, ptr_mcv: MCValue) 
     const opt_ty = ptr_ty.childType(mod);
     const pl_ty = opt_ty.optionalChild(mod);
 
-    var ptr_buf: Type.SlicePtrFieldTypeBuffer = undefined;
     const some_info: struct { off: i32, ty: Type } = if (opt_ty.optionalReprIsPayload(mod))
-        .{ .off = 0, .ty = if (pl_ty.isSlice(mod)) pl_ty.slicePtrFieldType(&ptr_buf, mod) else pl_ty }
+        .{ .off = 0, .ty = if (pl_ty.isSlice(mod)) pl_ty.slicePtrFieldType(mod) else pl_ty }
     else
         .{ .off = @intCast(i32, pl_ty.abiSize(mod)), .ty = Type.bool };
 
@@ -10803,8 +10795,7 @@ fn airMemset(self: *Self, inst: Air.Inst.Index, safety: bool) !void {
     // here to elide it.
     switch (dst_ptr_ty.ptrSize(mod)) {
         .Slice => {
-            var buf: Type.SlicePtrFieldTypeBuffer = undefined;
-            const slice_ptr_ty = dst_ptr_ty.slicePtrFieldType(&buf, mod);
+            const slice_ptr_ty = dst_ptr_ty.slicePtrFieldType(mod);
 
             // TODO: this only handles slices stored in the stack
             const ptr = dst_ptr;

@@ -9163,7 +9163,7 @@ fn funcCommon(
             .return_type = return_type.toIntern(),
             .cc = cc_resolved,
             .cc_is_generic = cc == null,
-            .alignment = alignment orelse 0,
+            .alignment = if (alignment) |a| InternPool.Alignment.fromByteUnits(a) else .none,
             .align_is_generic = alignment == null,
             .section_is_generic = section == .generic,
             .addrspace_is_generic = address_space == null,
@@ -17740,10 +17740,10 @@ fn zirPtrType(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
         extra_i += 1;
         const coerced = try sema.coerce(block, elem_ty, try sema.resolveInst(ref), sentinel_src);
         const val = try sema.resolveConstValue(block, sentinel_src, coerced, "pointer sentinel value must be comptime-known");
-        break :blk val;
-    } else null;
+        break :blk val.toIntern();
+    } else .none;
 
-    const abi_align: u32 = if (inst_data.flags.has_align) blk: {
+    const abi_align: InternPool.Alignment = if (inst_data.flags.has_align) blk: {
         const ref = @intToEnum(Zir.Inst.Ref, sema.code.extra[extra_i]);
         extra_i += 1;
         const coerced = try sema.coerce(block, Type.u32, try sema.resolveInst(ref), align_src);
@@ -17752,13 +17752,13 @@ fn zirPtrType(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
         // which case we can make this 0 without resolving it.
         if (val.castTag(.lazy_align)) |payload| {
             if (payload.data.eql(elem_ty, sema.mod)) {
-                break :blk 0;
+                break :blk .none;
             }
         }
         const abi_align = @intCast(u32, (try val.getUnsignedIntAdvanced(mod, sema)).?);
         try sema.validateAlign(block, align_src, abi_align);
-        break :blk abi_align;
-    } else 0;
+        break :blk InternPool.Alignment.fromByteUnits(abi_align);
+    } else .none;
 
     const address_space: std.builtin.AddressSpace = if (inst_data.flags.has_addrspace) blk: {
         const ref = @intToEnum(Zir.Inst.Ref, sema.code.extra[extra_i]);
@@ -17789,7 +17789,7 @@ fn zirPtrType(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
             return sema.fail(block, elem_ty_src, "function pointers must be single pointers", .{});
         }
         const fn_align = mod.typeToFunc(elem_ty).?.alignment;
-        if (inst_data.flags.has_align and abi_align != 0 and fn_align != 0 and
+        if (inst_data.flags.has_align and abi_align != .none and fn_align != .none and
             abi_align != fn_align)
         {
             return sema.fail(block, align_src, "function pointer alignment disagrees with function alignment", .{});
@@ -17815,16 +17815,16 @@ fn zirPtrType(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
         }
     }
 
-    const ty = try Type.ptr(sema.arena, sema.mod, .{
-        .pointee_type = elem_ty,
+    const ty = try mod.ptrType(.{
+        .elem_type = elem_ty.toIntern(),
         .sentinel = sentinel,
-        .@"align" = abi_align,
-        .@"addrspace" = address_space,
+        .alignment = abi_align,
+        .address_space = address_space,
         .bit_offset = bit_offset,
         .host_size = host_size,
-        .mutable = inst_data.flags.is_mutable,
-        .@"allowzero" = inst_data.flags.is_allowzero,
-        .@"volatile" = inst_data.flags.is_volatile,
+        .is_const = !inst_data.flags.is_mutable,
+        .is_allowzero = inst_data.flags.is_allowzero,
+        .is_volatile = inst_data.flags.is_volatile,
         .size = inst_data.size,
     });
     return sema.addType(ty);
@@ -18905,10 +18905,13 @@ fn zirReify(
             if (!try sema.intFitsInType(alignment_val, Type.u32, null)) {
                 return sema.fail(block, src, "alignment must fit in 'u32'", .{});
             }
-            const abi_align = @intCast(u29, (try alignment_val.getUnsignedIntAdvanced(mod, sema)).?);
+
+            const abi_align = InternPool.Alignment.fromByteUnits(
+                (try alignment_val.getUnsignedIntAdvanced(mod, sema)).?,
+            );
 
             const unresolved_elem_ty = child_val.toType();
-            const elem_ty = if (abi_align == 0)
+            const elem_ty = if (abi_align == .none)
                 unresolved_elem_ty
             else t: {
                 const elem_ty = try sema.resolveTypeFields(unresolved_elem_ty);
@@ -18918,18 +18921,21 @@ fn zirReify(
 
             const ptr_size = mod.toEnum(std.builtin.Type.Pointer.Size, size_val);
 
-            var actual_sentinel: ?Value = null;
-            if (!sentinel_val.isNull(mod)) {
-                if (ptr_size == .One or ptr_size == .C) {
-                    return sema.fail(block, src, "sentinels are only allowed on slices and unknown-length pointers", .{});
+            const actual_sentinel: InternPool.Index = s: {
+                if (!sentinel_val.isNull(mod)) {
+                    if (ptr_size == .One or ptr_size == .C) {
+                        return sema.fail(block, src, "sentinels are only allowed on slices and unknown-length pointers", .{});
+                    }
+                    const sentinel_ptr_val = sentinel_val.castTag(.opt_payload).?.data;
+                    const ptr_ty = try Type.ptr(sema.arena, mod, .{
+                        .@"addrspace" = .generic,
+                        .pointee_type = try elem_ty.copy(sema.arena),
+                    });
+                    const sent_val = (try sema.pointerDeref(block, src, sentinel_ptr_val, ptr_ty)).?;
+                    break :s sent_val.toIntern();
                 }
-                const sentinel_ptr_val = sentinel_val.castTag(.opt_payload).?.data;
-                const ptr_ty = try Type.ptr(sema.arena, mod, .{
-                    .@"addrspace" = .generic,
-                    .pointee_type = try elem_ty.copy(sema.arena),
-                });
-                actual_sentinel = (try sema.pointerDeref(block, src, sentinel_ptr_val, ptr_ty)).?;
-            }
+                break :s .none;
+            };
 
             if (elem_ty.zigTypeTag(mod) == .NoReturn) {
                 return sema.fail(block, src, "pointer to noreturn not allowed", .{});
@@ -18938,7 +18944,7 @@ fn zirReify(
                     return sema.fail(block, src, "function pointers must be single pointers", .{});
                 }
                 const fn_align = mod.typeToFunc(elem_ty).?.alignment;
-                if (abi_align != 0 and fn_align != 0 and
+                if (abi_align != .none and fn_align != .none and
                     abi_align != fn_align)
                 {
                     return sema.fail(block, src, "function pointer alignment disagrees with function alignment", .{});
@@ -18964,14 +18970,14 @@ fn zirReify(
                 }
             }
 
-            const ty = try Type.ptr(sema.arena, mod, .{
+            const ty = try mod.ptrType(.{
                 .size = ptr_size,
-                .mutable = !is_const_val.toBool(mod),
-                .@"volatile" = is_volatile_val.toBool(mod),
-                .@"align" = abi_align,
-                .@"addrspace" = mod.toEnum(std.builtin.AddressSpace, address_space_val),
-                .pointee_type = try elem_ty.copy(sema.arena),
-                .@"allowzero" = is_allowzero_val.toBool(mod),
+                .is_const = is_const_val.toBool(mod),
+                .is_volatile = is_volatile_val.toBool(mod),
+                .alignment = abi_align,
+                .address_space = mod.toEnum(std.builtin.AddressSpace, address_space_val),
+                .elem_type = elem_ty.toIntern(),
+                .is_allowzero = is_allowzero_val.toBool(mod),
                 .sentinel = actual_sentinel,
             });
             return sema.addType(ty);
@@ -19470,9 +19476,9 @@ fn zirReify(
                 }
                 const alignment = @intCast(u29, alignment_val.toUnsignedInt(mod));
                 if (alignment == target_util.defaultFunctionAlignment(target)) {
-                    break :alignment 0;
+                    break :alignment .none;
                 } else {
-                    break :alignment alignment;
+                    break :alignment InternPool.Alignment.fromByteUnits(alignment);
                 }
             };
             const return_type = return_type_val.optionalValue(mod) orelse
@@ -24281,8 +24287,7 @@ fn fieldPtr(
             const attr_ptr_ty = if (is_pointer_to) object_ty else object_ptr_ty;
 
             if (mem.eql(u8, field_name, "ptr")) {
-                const buf = try sema.arena.create(Type.SlicePtrFieldTypeBuffer);
-                const slice_ptr_ty = inner_ty.slicePtrFieldType(buf, mod);
+                const slice_ptr_ty = inner_ty.slicePtrFieldType(mod);
 
                 const result_ty = try Type.ptr(sema.arena, mod, .{
                     .pointee_type = slice_ptr_ty,
@@ -27904,7 +27909,7 @@ fn beginComptimePtrMutation(
                                         sema,
                                         block,
                                         src,
-                                        parent.ty.slicePtrFieldType(try sema.arena.create(Type.SlicePtrFieldTypeBuffer), mod),
+                                        parent.ty.slicePtrFieldType(mod),
                                         &val_ptr.castTag(.slice).?.data.ptr,
                                         ptr_elem_ty,
                                         parent.decl_ref_mut,
@@ -27971,7 +27976,7 @@ fn beginComptimePtrMutation(
                                 sema,
                                 block,
                                 src,
-                                parent.ty.slicePtrFieldType(try sema.arena.create(Type.SlicePtrFieldTypeBuffer), mod),
+                                parent.ty.slicePtrFieldType(mod),
                                 &val_ptr.castTag(.slice).?.data.ptr,
                                 ptr_elem_ty,
                                 parent.decl_ref_mut,
@@ -28353,7 +28358,7 @@ fn beginComptimePtrLoad(
                     const slice_val = tv.val.castTag(.slice).?.data;
                     deref.pointee = switch (field_index) {
                         Value.Payload.Slice.ptr_index => TypedValue{
-                            .ty = field_ptr.container_ty.slicePtrFieldType(try sema.arena.create(Type.SlicePtrFieldTypeBuffer), mod),
+                            .ty = field_ptr.container_ty.slicePtrFieldType(mod),
                             .val = slice_val.ptr,
                         },
                         Value.Payload.Slice.len_index => TypedValue{
@@ -29444,8 +29449,7 @@ fn analyzeSlicePtr(
     slice_ty: Type,
 ) CompileError!Air.Inst.Ref {
     const mod = sema.mod;
-    const buf = try sema.arena.create(Type.SlicePtrFieldTypeBuffer);
-    const result_ty = slice_ty.slicePtrFieldType(buf, mod);
+    const result_ty = slice_ty.slicePtrFieldType(mod);
     if (try sema.resolveMaybeUndefVal(slice)) |val| {
         if (val.isUndef(mod)) return sema.addConstUndef(result_ty);
         return sema.addConstant(result_ty, val.slicePtr());
@@ -31597,15 +31601,6 @@ pub fn resolveTypeRequiresComptime(sema: *Sema, ty: Type) CompileError!bool {
             .inferred_alloc_mut => unreachable,
             .inferred_alloc_const => unreachable,
 
-            .pointer => {
-                const child_ty = ty.childType(mod);
-                if (child_ty.zigTypeTag(mod) == .Fn) {
-                    return mod.typeToFunc(child_ty).?.is_generic;
-                } else {
-                    return sema.resolveTypeRequiresComptime(child_ty);
-                }
-            },
-
             .error_union => return sema.resolveTypeRequiresComptime(ty.errorUnionPayload()),
         },
         else => switch (mod.intern_pool.indexToKey(ty.ip_index)) {
@@ -33034,7 +33029,6 @@ pub fn typeHasOnePossibleValue(sema: *Sema, ty: Type) CompileError!?Value {
             .error_set_merged,
             .error_union,
             .error_set_inferred,
-            .pointer,
             => return null,
 
             .inferred_alloc_const => unreachable,
@@ -33590,12 +33584,6 @@ fn typePtrOrOptionalPtrTy(sema: *Sema, ty: Type) !?Type {
     };
 
     switch (ty.tag()) {
-        .pointer => switch (ty.ptrSize(mod)) {
-            .Slice => return null,
-            .C => return ty.optionalChild(mod),
-            else => return ty,
-        },
-
         .inferred_alloc_const => unreachable,
         .inferred_alloc_mut => unreachable,
 
@@ -33623,15 +33611,6 @@ pub fn typeRequiresComptime(sema: *Sema, ty: Type) CompileError!bool {
 
             .inferred_alloc_mut => unreachable,
             .inferred_alloc_const => unreachable,
-
-            .pointer => {
-                const child_ty = ty.childType(mod);
-                if (child_ty.zigTypeTag(mod) == .Fn) {
-                    return mod.typeToFunc(child_ty).?.is_generic;
-                } else {
-                    return sema.typeRequiresComptime(child_ty);
-                }
-            },
 
             .error_union => return sema.typeRequiresComptime(ty.errorUnionPayload()),
         },

@@ -669,8 +669,7 @@ pub const DeclGen = struct {
                     .slice => {
                         const slice = val.castTag(.slice).?.data;
 
-                        var buf: Type.SlicePtrFieldTypeBuffer = undefined;
-                        const ptr_ty = ty.slicePtrFieldType(&buf, mod);
+                        const ptr_ty = ty.slicePtrFieldType(mod);
 
                         try self.lower(ptr_ty, slice.ptr);
                         try self.addInt(Type.usize, slice.len);
@@ -2991,9 +2990,8 @@ pub const DeclGen = struct {
         if (optional_ty.optionalReprIsPayload(mod)) {
             // Pointer payload represents nullability: pointer or slice.
 
-            var ptr_buf: Type.SlicePtrFieldTypeBuffer = undefined;
             const ptr_ty = if (payload_ty.isSlice(mod))
-                payload_ty.slicePtrFieldType(&ptr_buf, mod)
+                payload_ty.slicePtrFieldType(mod)
             else
                 payload_ty;
 
