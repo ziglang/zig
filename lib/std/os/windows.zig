@@ -2397,7 +2397,7 @@ pub const FILE_NAME_INFORMATION = extern struct {
     FileName: [1]WCHAR,
 };
 
-// FILE_RENAME_INFORMATION.anon1.Flags
+// FILE_RENAME_INFORMATION.Flags
 pub const FILE_RENAME_REPLACE_IF_EXISTS = 0x00000001;
 pub const FILE_RENAME_POSIX_SEMANTICS = 0x00000002;
 pub const FILE_RENAME_SUPPRESS_PIN_STATE_INHERITANCE = 0x00000004;
@@ -2412,10 +2412,7 @@ pub const FILE_RENAME_FORCE_RESIZE_SR = 0x00000180;
 
 pub const FILE_RENAME_INFORMATION = if (builtin.target.os.version_range.windows.min.isAtLeast(.win10_rs1))
     extern struct {
-        anon1: extern union {
-            ReplaceIfExists: BOOLEAN,
-            Flags: ULONG,
-        },
+        Flags: ULONG,
         RootDirectory: ?HANDLE,
         FileNameLength: ULONG,
         FileName: [1]WCHAR,

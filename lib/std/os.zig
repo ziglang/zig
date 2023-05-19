@@ -2683,9 +2683,7 @@ pub fn renameatW(
         var flags: windows.ULONG = windows.FILE_RENAME_POSIX_SEMANTICS | windows.FILE_RENAME_IGNORE_READONLY_ATTRIBUTE;
         if (ReplaceIfExists == windows.TRUE) flags |= windows.FILE_RENAME_REPLACE_IF_EXISTS;
         rename_info.* = .{
-            .anon1 = .{
-                .Flags = flags,
-            },
+            .Flags = flags,
             .RootDirectory = if (std.fs.path.isAbsoluteWindowsWTF16(new_path_w)) null else new_dir_fd,
             .FileNameLength = @intCast(u32, new_path_w.len * 2), // already checked error.NameTooLong
             .FileName = undefined,
