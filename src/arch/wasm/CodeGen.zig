@@ -4893,8 +4893,15 @@ fn airAggregateInit(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
                     const struct_obj = result_ty.castTag(.@"struct").?.data;
                     const fields = struct_obj.fields.values();
                     const backing_type = struct_obj.backing_int_ty;
-                    // we ensure a new local is created so it's zero-initialized
-                    const result = try func.ensureAllocLocal(backing_type);
+
+                    // ensure the result is zero'd
+                    const result = try func.allocLocal(backing_type);
+                    if (struct_obj.backing_int_ty.bitSize(func.target) <= 32)
+                        try func.addImm32(0)
+                    else
+                        try func.addImm64(0);
+                    try func.addLabel(.local_set, result.local.value);
+
                     var current_bit: u16 = 0;
                     for (elements, 0..) |elem, elem_index| {
                         const field = fields[elem_index];
