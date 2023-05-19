@@ -5,8 +5,6 @@ const expect = testing.expect;
 const expectEqual = testing.expectEqual;
 
 test "one param, explicit comptime" {
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
-
     var x: usize = 0;
     x += checkSize(i32);
     x += checkSize(bool);

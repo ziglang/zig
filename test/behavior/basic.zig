@@ -583,7 +583,7 @@ test "comptime cast fn to ptr" {
 }
 
 test "equality compare fn ptrs" {
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest; // Test passes but should not
 
     var a = &emptyFn;
     try expect(a == a);

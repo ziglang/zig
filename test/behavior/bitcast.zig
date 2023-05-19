@@ -9,7 +9,6 @@ const native_endian = builtin.target.cpu.arch.endian();
 
 test "@bitCast iX -> uX (32, 64)" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const bit_values = [_]usize{ 32, 64 };
 

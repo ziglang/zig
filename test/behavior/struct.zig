@@ -11,7 +11,6 @@ top_level_field: i32,
 test "top level fields" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     var instance = @This(){
         .top_level_field = 1234,

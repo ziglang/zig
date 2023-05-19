@@ -16,7 +16,6 @@ fn expectError(expected_err: anyerror, observed_err_union: anytype) !void {
 }
 
 test "error values" {
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
     const a = @errorToInt(error.err1);
     const b = @errorToInt(error.err2);
     try expect(a != b);

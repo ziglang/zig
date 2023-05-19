@@ -1467,8 +1467,6 @@ test "packed union in packed struct" {
 }
 
 test "Namespace-like union" {
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
-
     const DepType = enum {
         git,
         http,

@@ -7,7 +7,6 @@ const native_endian = builtin.cpu.arch.endian();
 
 test "flags in packed structs" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const Flags1 = packed struct {
         // first 8 bits

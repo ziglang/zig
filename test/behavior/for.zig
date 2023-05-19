@@ -22,8 +22,6 @@ test "continue in for loop" {
 }
 
 test "break from outer for loop" {
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
-
     try testBreakOuter();
     comptime try testBreakOuter();
 }
