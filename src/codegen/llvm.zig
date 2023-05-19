@@ -1426,19 +1426,25 @@ pub const Object = struct {
         if (gop.found_existing) {
             return @ptrCast(*llvm.DIFile, gop.value_ptr.*);
         }
+        // The split between directory and sub_path is actually important because
+        // the sub_path is the sometimes the only thing that will shown to user.
+        // For std lib, we want to make clear that files come from std lib and not user code.
+        const std_lib = std.mem.endsWith(u8, file.pkg.root_src_directory.path orelse "", "lib/zig/std");
         const dir_path_z = d: {
             var buffer: [std.fs.MAX_PATH_BYTES]u8 = undefined;
             const dir_path = file.pkg.root_src_directory.path orelse ".";
-            const resolved_dir_path = if (std.fs.path.isAbsolute(dir_path))
+            var resolved_dir_path = if (std.fs.path.isAbsolute(dir_path))
                 dir_path
             else
                 std.os.realpath(dir_path, &buffer) catch dir_path; // If realpath fails, fallback to whatever dir_path was
-            break :d try std.fs.path.joinZ(gpa, &.{
-                resolved_dir_path, std.fs.path.dirname(file.sub_file_path) orelse "",
-            });
+            if (std.mem.endsWith(u8, resolved_dir_path, "/zig/std")) {
+                resolved_dir_path = resolved_dir_path[0 .. resolved_dir_path.len - 8];
+            }
+            break :d try gpa.dupeZ(u8, resolved_dir_path);
         };
         defer gpa.free(dir_path_z);
-        const sub_file_path_z = try gpa.dupeZ(u8, std.fs.path.basename(file.sub_file_path));
+
+        const sub_file_path_z = if (std_lib) try std.fs.path.joinZ(gpa, &.{ "zig/std", file.sub_file_path }) else try gpa.dupeZ(u8, file.sub_file_path);
         defer gpa.free(sub_file_path_z);
         const di_file = o.di_builder.?.createFile(sub_file_path_z, dir_path_z);
         gop.value_ptr.* = di_file.toNode();
