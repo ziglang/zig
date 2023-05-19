@@ -2412,7 +2412,7 @@ pub const FILE_RENAME_FORCE_RESIZE_SR = 0x00000180;
 
 pub const FILE_RENAME_INFORMATION = if (builtin.target.os.version_range.windows.min.isAtLeast(.win10_rs1))
     extern struct {
-        anon1: union {
+        anon1: extern union {
             ReplaceIfExists: BOOLEAN,
             Flags: ULONG,
         },

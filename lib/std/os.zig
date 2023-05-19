@@ -2708,7 +2708,7 @@ pub fn renameatW(
             &io_status_block,
             rename_info,
             @intCast(u32, struct_len), // already checked for error.NameTooLong
-            .FileRenameInformation,
+            .FileRenameInformationEx,
         );
     } else {
         windows.ntdll.NtSetInformationFile(
