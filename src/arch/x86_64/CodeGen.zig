@@ -10154,18 +10154,22 @@ fn airBitCast(self: *Self, inst: Air.Inst.Index) !void {
         const dst_rc = regClassForType(dst_ty);
         const src_rc = regClassForType(src_ty);
         const src_mcv = try self.resolveInst(ty_op.operand);
-        if (dst_rc.supersetOf(src_rc) and self.reuseOperand(inst, ty_op.operand, 0, src_mcv))
-            break :result src_mcv;
 
         const src_lock = if (src_mcv.getReg()) |reg| self.register_manager.lockReg(reg) else null;
         defer if (src_lock) |lock| self.register_manager.unlockReg(lock);
 
-        const dst_mcv = try self.allocRegOrMem(inst, true);
-        try self.genCopy(
-            if (!dst_mcv.isMemory() or src_mcv.isMemory()) dst_ty else src_ty,
-            dst_mcv,
-            src_mcv,
-        );
+        const dst_mcv = if (dst_rc.supersetOf(src_rc) and
+            self.reuseOperand(inst, ty_op.operand, 0, src_mcv))
+            src_mcv
+        else dst: {
+            const dst_mcv = try self.allocRegOrMem(inst, true);
+            try self.genCopy(
+                if (!dst_mcv.isMemory() or src_mcv.isMemory()) dst_ty else src_ty,
+                dst_mcv,
+                src_mcv,
+            );
+            break :dst dst_mcv;
+        };
 
         const dst_signedness =
             if (dst_ty.isAbiInt()) dst_ty.intInfo(self.target.*).signedness else .unsigned;
