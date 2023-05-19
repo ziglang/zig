@@ -446,6 +446,12 @@ pub const Inst = struct {
         /// Bitwise logical xor of packed double-precision floating-point values
         xor,
 
+        /// Pack with signed saturation
+        ackssw,
+        /// Pack with signed saturation
+        ackssd,
+        /// Pack with unsigned saturation
+        ackusw,
         /// Add packed signed integers with signed saturation
         adds,
         /// Add packed unsigned integers with unsigned saturation
@@ -596,6 +602,18 @@ pub const Inst = struct {
         /// Replicate single floating-point values
         movsldup,
 
+        /// Pack with unsigned saturation
+        ackusd,
+        /// Blend packed single-precision floating-point values
+        /// Blend scalar single-precision floating-point values
+        /// Blend packed double-precision floating-point values
+        /// Blend scalar double-precision floating-point values
+        blend,
+        /// Variable blend packed single-precision floating-point values
+        /// Variable blend scalar single-precision floating-point values
+        /// Variable blend packed double-precision floating-point values
+        /// Variable blend scalar double-precision floating-point values
+        blendv,
         /// Extract packed floating-point values
         extract,
         /// Insert scalar single-precision floating-point value
@@ -651,6 +669,9 @@ pub const Inst = struct {
         /// Register, register, register operands.
         /// Uses `rrr` payload.
         rrr,
+        /// Register, register, register, register operands.
+        /// Uses `rrrr` payload.
+        rrrr,
         /// Register, register, register, immediate (byte) operands.
         /// Uses `rrri` payload.
         rrri,
@@ -869,6 +890,13 @@ pub const Inst = struct {
             r1: Register,
             r2: Register,
             r3: Register,
+        },
+        rrrr: struct {
+            fixes: Fixes = ._,
+            r1: Register,
+            r2: Register,
+            r3: Register,
+            r4: Register,
         },
         rrri: struct {
             fixes: Fixes = ._,
