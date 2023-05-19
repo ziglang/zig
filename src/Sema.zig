@@ -18589,12 +18589,10 @@ fn fieldType(
                 return sema.addType(field.ty);
             },
             .Optional => {
-                if (cur_ty.castTag(.optional)) |some| {
-                    // Struct/array init through optional requires the child type to not be a pointer.
-                    // If the child of .optional is a pointer it'll error on the next loop.
-                    cur_ty = some.data;
-                    continue;
-                }
+                // Struct/array init through optional requires the child type to not be a pointer.
+                // If the child of .optional is a pointer it'll error on the next loop.
+                cur_ty = mod.intern_pool.indexToKey(cur_ty.ip_index).opt_type.toType();
+                continue;
             },
             .ErrorUnion => {
                 cur_ty = cur_ty.errorUnionPayload();
@@ -20380,7 +20378,7 @@ fn zirAlignCast(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!A
     ptr_info.@"align" = dest_align;
     var dest_ty = try Type.ptr(sema.arena, sema.mod, ptr_info);
     if (ptr_ty.zigTypeTag(mod) == .Optional) {
-        dest_ty = try Type.Tag.optional.create(sema.arena, dest_ty);
+        dest_ty = try mod.optionalType(dest_ty.toIntern());
     }
 
     if (try sema.resolveDefinedValue(block, ptr_src, ptr)) |val| {
@@ -31608,10 +31606,6 @@ pub fn resolveTypeRequiresComptime(sema: *Sema, ty: Type) CompileError!bool {
                 }
             },
 
-            .optional => {
-                return sema.resolveTypeRequiresComptime(ty.optionalChild(mod));
-            },
-
             .error_union => return sema.resolveTypeRequiresComptime(ty.errorUnionPayload()),
         },
         else => switch (mod.intern_pool.indexToKey(ty.ip_index)) {
@@ -33043,15 +33037,6 @@ pub fn typeHasOnePossibleValue(sema: *Sema, ty: Type) CompileError!?Value {
             .pointer,
             => return null,
 
-            .optional => {
-                const child_ty = ty.optionalChild(mod);
-                if (child_ty.isNoReturn()) {
-                    return Value.null;
-                } else {
-                    return null;
-                }
-            },
-
             .inferred_alloc_const => unreachable,
             .inferred_alloc_mut => unreachable,
         },
@@ -33614,26 +33599,6 @@ fn typePtrOrOptionalPtrTy(sema: *Sema, ty: Type) !?Type {
         .inferred_alloc_const => unreachable,
         .inferred_alloc_mut => unreachable,
 
-        .optional => {
-            const child_type = ty.optionalChild(mod);
-            if (child_type.zigTypeTag(mod) != .Pointer) return null;
-
-            const info = child_type.ptrInfo(mod);
-            switch (info.size) {
-                .Slice, .C => return null,
-                .Many, .One => {
-                    if (info.@"allowzero") return null;
-
-                    // optionals of zero sized types behave like bools, not pointers
-                    if ((try sema.typeHasOnePossibleValue(child_type)) != null) {
-                        return null;
-                    }
-
-                    return child_type;
-                },
-            }
-        },
-
         else => return null,
     }
 }
@@ -33668,10 +33633,6 @@ pub fn typeRequiresComptime(sema: *Sema, ty: Type) CompileError!bool {
                 }
             },
 
-            .optional => {
-                return sema.typeRequiresComptime(ty.optionalChild(mod));
-            },
-
             .error_union => return sema.typeRequiresComptime(ty.errorUnionPayload()),
         },
         else => switch (mod.intern_pool.indexToKey(ty.ip_index)) {
@@ -33691,6 +33652,7 @@ pub fn typeRequiresComptime(sema: *Sema, ty: Type) CompileError!bool {
             .array_type => |array_type| return sema.typeRequiresComptime(array_type.child.toType()),
             .vector_type => |vector_type| return sema.typeRequiresComptime(vector_type.child.toType()),
             .opt_type => |child| return sema.typeRequiresComptime(child.toType()),
+
             .error_union_type => |error_union_type| {
                 return sema.typeRequiresComptime(error_union_type.payload_type.toType());
             },

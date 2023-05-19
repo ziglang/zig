@@ -47,8 +47,6 @@ pub const Type = struct {
                 .inferred_alloc_mut,
                 => return .Pointer,
 
-                .optional => return .Optional,
-
                 .error_union => return .ErrorUnion,
             },
             else => return switch (mod.intern_pool.indexToKey(ty.ip_index)) {
@@ -283,10 +281,6 @@ pub const Type = struct {
         return switch (ty.ip_index) {
             .none => switch (ty.tag()) {
                 .pointer => ty.castTag(.pointer).?.data,
-                .optional => b: {
-                    const child_type = ty.optionalChild(mod);
-                    break :b child_type.ptrInfo(mod);
-                },
 
                 else => unreachable,
             },
@@ -387,12 +381,6 @@ pub const Type = struct {
                 return true;
             },
 
-            .optional => {
-                if (b.zigTypeTag(mod) != .Optional) return false;
-
-                return a.optionalChild(mod).eql(b.optionalChild(mod), mod);
-            },
-
             .error_union => {
                 if (b.zigTypeTag(mod) != .ErrorUnion) return false;
 
@@ -466,12 +454,6 @@ pub const Type = struct {
                 std.hash.autoHash(hasher, info.size);
             },
 
-            .optional => {
-                std.hash.autoHash(hasher, std.builtin.TypeId.Optional);
-
-                hashWithHasher(ty.optionalChild(mod), hasher, mod);
-            },
-
             .error_union => {
                 std.hash.autoHash(hasher, std.builtin.TypeId.ErrorUnion);
 
@@ -529,19 +511,6 @@ pub const Type = struct {
             .inferred_alloc_const,
             .inferred_alloc_mut,
             => unreachable,
-
-            .optional => {
-                const payload = self.cast(Payload.ElemType).?;
-                const new_payload = try allocator.create(Payload.ElemType);
-                new_payload.* = .{
-                    .base = .{ .tag = payload.base.tag },
-                    .data = try payload.data.copy(allocator),
-                };
-                return Type{
-                    .ip_index = .none,
-                    .legacy = .{ .ptr_otherwise = &new_payload.base },
-                };
-            },
 
             .pointer => {
                 const payload = self.castTag(.pointer).?.data;
@@ -654,13 +623,6 @@ pub const Type = struct {
         while (true) {
             const t = ty.tag();
             switch (t) {
-                .optional => {
-                    const child_type = ty.castTag(.optional).?.data;
-                    try writer.writeByte('?');
-                    ty = child_type;
-                    continue;
-                },
-
                 .pointer => {
                     const payload = ty.castTag(.pointer).?.data;
                     if (payload.sentinel) |some| switch (payload.size) {
@@ -813,11 +775,6 @@ pub const Type = struct {
                     try print(info.pointee_type, writer, mod);
                 },
 
-                .optional => {
-                    const child_type = ty.castTag(.optional).?.data;
-                    try writer.writeByte('?');
-                    try print(child_type, writer, mod);
-                },
                 .error_set => {
                     const names = ty.castTag(.error_set).?.data.names.keys();
                     try writer.writeAll("error{");
@@ -911,8 +868,7 @@ pub const Type = struct {
                 },
                 .opt_type => |child| {
                     try writer.writeByte('?');
-                    try print(child.toType(), writer, mod);
-                    return;
+                    return print(child.toType(), writer, mod);
                 },
                 .error_union_type => |error_union_type| {
                     try print(error_union_type.error_set_type.toType(), writer, mod);
@@ -1087,21 +1043,6 @@ pub const Type = struct {
                         return !(try strat.sema.typeRequiresComptime(ty));
                     } else {
                         return !comptimeOnly(ty, mod);
-                    }
-                },
-
-                .optional => {
-                    const child_ty = ty.optionalChild(mod);
-                    if (child_ty.isNoReturn()) {
-                        // Then the optional is comptime-known to be null.
-                        return false;
-                    }
-                    if (ignore_comptime_only) {
-                        return true;
-                    } else if (strat == .sema) {
-                        return !(try strat.sema.typeRequiresComptime(child_ty));
-                    } else {
-                        return !comptimeOnly(child_ty, mod);
                     }
                 },
 
@@ -1301,8 +1242,6 @@ pub const Type = struct {
 
                 .inferred_alloc_mut => unreachable,
                 .inferred_alloc_const => unreachable,
-
-                .optional => ty.isPtrLikeOptional(mod),
             },
             else => switch (mod.intern_pool.indexToKey(ty.ip_index)) {
                 .int_type,
@@ -1319,7 +1258,7 @@ pub const Type = struct {
                 => false,
 
                 .array_type => |array_type| array_type.child.toType().hasWellDefinedLayout(mod),
-                .opt_type => |child| child.toType().isPtrLikeOptional(mod),
+                .opt_type => ty.isPtrLikeOptional(mod),
 
                 .simple_type => |t| switch (t) {
                     .f16,
@@ -1484,7 +1423,6 @@ pub const Type = struct {
                         return (ptr_info.pointee_type.abiAlignmentAdvanced(mod, .eager) catch unreachable).scalar;
                     }
                 },
-                .optional => return ty.castTag(.optional).?.data.ptrAlignmentAdvanced(mod, opt_sema),
 
                 else => unreachable,
             },
@@ -1509,11 +1447,6 @@ pub const Type = struct {
         return switch (ty.ip_index) {
             .none => switch (ty.tag()) {
                 .pointer => ty.castTag(.pointer).?.data.@"addrspace",
-
-                .optional => {
-                    const child_type = ty.optionalChild(mod);
-                    return child_type.ptrAddressSpace(mod);
-                },
 
                 else => unreachable,
             },
@@ -1580,7 +1513,6 @@ pub const Type = struct {
                 .error_set_merged,
                 => return AbiAlignmentAdvanced{ .scalar = 2 },
 
-                .optional => return abiAlignmentAdvancedOptional(ty, mod, strat),
                 .error_union => return abiAlignmentAdvancedErrorUnion(ty, mod, strat),
 
                 .inferred_alloc_const,
@@ -1962,8 +1894,6 @@ pub const Type = struct {
                 .error_set_single,
                 => return AbiSizeAdvanced{ .scalar = 2 },
 
-                .optional => return ty.abiSizeAdvancedOptional(mod, strat),
-
                 .error_union => {
                     // This code needs to be kept in sync with the equivalent switch prong
                     // in abiAlignmentAdvanced.
@@ -2282,7 +2212,7 @@ pub const Type = struct {
                 .error_set_merged,
                 => return 16, // TODO revisit this when we have the concept of the error tag type
 
-                .optional, .error_union => {
+                .error_union => {
                     // Optionals and error unions are not packed so their bitsize
                     // includes padding bits.
                     return (try abiSizeAdvanced(ty, mod, strat)).scalar * 8;
@@ -2310,7 +2240,11 @@ pub const Type = struct {
                     const elem_bit_size = try bitSizeAdvanced(child_ty, mod, opt_sema);
                     return elem_bit_size * vector_type.len;
                 },
-                .opt_type => @panic("TODO"),
+                .opt_type => {
+                    // Optionals and error unions are not packed so their bitsize
+                    // includes padding bits.
+                    return (try abiSizeAdvanced(ty, mod, strat)).scalar * 8;
+                },
                 .error_union_type => @panic("TODO"),
                 .func_type => unreachable, // represents machine code; not a pointer
                 .simple_type => |t| switch (t) {
@@ -2499,7 +2433,6 @@ pub const Type = struct {
     }
 
     pub const SlicePtrFieldTypeBuffer = union {
-        elem_type: Payload.ElemType,
         pointer: Payload.Pointer,
     };
 
@@ -2600,16 +2533,6 @@ pub const Type = struct {
                     .One, .Many, .C => return true,
                 },
 
-                .optional => {
-                    const child_type = ty.optionalChild(mod);
-                    if (child_type.zigTypeTag(mod) != .Pointer) return false;
-                    const info = child_type.ptrInfo(mod);
-                    switch (info.size) {
-                        .Slice, .C => return false,
-                        .Many, .One => return !info.@"allowzero",
-                    }
-                },
-
                 else => return false,
             },
             else => return switch (mod.intern_pool.indexToKey(ty.ip_index)) {
@@ -2655,21 +2578,6 @@ pub const Type = struct {
             else => false,
         };
         switch (ty.tag()) {
-            .optional => {
-                const child_ty = ty.castTag(.optional).?.data;
-                switch (child_ty.zigTypeTag(mod)) {
-                    .Pointer => {
-                        const info = child_ty.ptrInfo(mod);
-                        switch (info.size) {
-                            .C => return false,
-                            .Slice, .Many, .One => return !info.@"allowzero",
-                        }
-                    },
-                    .ErrorSet => return true,
-                    else => return false,
-                }
-            },
-
             .pointer => return ty.castTag(.pointer).?.data.size == .C,
 
             else => return false,
@@ -2692,16 +2600,6 @@ pub const Type = struct {
             else => false,
         };
         switch (ty.tag()) {
-            .optional => {
-                const child_ty = ty.castTag(.optional).?.data;
-                if (child_ty.zigTypeTag(mod) != .Pointer) return false;
-                const info = child_ty.ptrInfo(mod);
-                switch (info.size) {
-                    .Slice, .C => return false,
-                    .Many, .One => return !info.@"allowzero",
-                }
-            },
-
             .pointer => return ty.castTag(.pointer).?.data.size == .C,
 
             else => return false,
@@ -2747,7 +2645,6 @@ pub const Type = struct {
                         return child_ty;
                     }
                 },
-                .optional => ty.castTag(.optional).?.data.childType(mod),
 
                 else => unreachable,
             },
@@ -2784,13 +2681,10 @@ pub const Type = struct {
     }
 
     /// Asserts that the type is an optional.
-    /// Resulting `Type` will have inner memory referencing `buf`.
     /// Note that for C pointers this returns the type unmodified.
     pub fn optionalChild(ty: Type, mod: *const Module) Type {
         return switch (ty.ip_index) {
             .none => switch (ty.tag()) {
-                .optional => ty.castTag(.optional).?.data,
-
                 .pointer, // here we assume it is a C pointer
                 => return ty,
 
@@ -3305,15 +3199,6 @@ pub const Type = struct {
                 .pointer,
                 => return null,
 
-                .optional => {
-                    const child_ty = ty.optionalChild(mod);
-                    if (child_ty.isNoReturn()) {
-                        return Value.null;
-                    } else {
-                        return null;
-                    }
-                },
-
                 .inferred_alloc_const => unreachable,
                 .inferred_alloc_mut => unreachable,
             },
@@ -3522,10 +3407,6 @@ pub const Type = struct {
                     } else {
                         return child_ty.comptimeOnly(mod);
                     }
-                },
-
-                .optional => {
-                    return ty.optionalChild(mod).comptimeOnly(mod);
                 },
 
                 .error_union => return ty.errorUnionPayload().comptimeOnly(mod),
@@ -4216,7 +4097,6 @@ pub const Type = struct {
         // After this, the tag requires a payload.
 
         pointer,
-        optional,
         error_union,
         error_set,
         error_set_single,
@@ -4232,8 +4112,6 @@ pub const Type = struct {
                 .inferred_alloc_const,
                 .inferred_alloc_mut,
                 => @compileError("Type Tag " ++ @tagName(t) ++ " has no payload"),
-
-                .optional => Payload.ElemType,
 
                 .error_set => Payload.ErrorSet,
                 .error_set_inferred => Payload.ErrorSetInferred,
@@ -4324,11 +4202,6 @@ pub const Type = struct {
         pub const Len = struct {
             base: Payload,
             data: u64,
-        };
-
-        pub const ElemType = struct {
-            base: Payload,
-            data: Type,
         };
 
         pub const Bits = struct {
@@ -4570,11 +4443,11 @@ pub const Type = struct {
     }
 
     pub fn optional(arena: Allocator, child_type: Type, mod: *Module) Allocator.Error!Type {
-        if (child_type.ip_index != .none) {
-            return mod.optionalType(child_type.ip_index);
-        } else {
-            return Type.Tag.optional.create(arena, child_type);
-        }
+        // TODO: update callsites of this function to directly call
+        // mod.optionalType and then delete this function.
+        _ = arena;
+
+        return mod.optionalType(child_type.ip_index);
     }
 
     pub fn errorUnion(
