@@ -1767,7 +1767,9 @@ pub fn resolveConstString(
 }
 
 pub fn resolveType(sema: *Sema, block: *Block, src: LazySrcLoc, zir_ref: Zir.Inst.Ref) !Type {
+    assert(zir_ref != .var_args_param);
     const air_inst = try sema.resolveInst(zir_ref);
+    assert(air_inst != .var_args_param);
     const ty = try sema.analyzeAsType(block, src, air_inst);
     if (ty.tag() == .generic_poison) return error.GenericPoison;
     return ty;
@@ -6329,12 +6331,6 @@ fn zirCall(
         const arg_end = sema.code.extra[extra.end + extra_index];
         defer arg_start = arg_end;
 
-        const param_ty = if (arg_index >= fn_params_len or
-            func_ty_info.param_types[arg_index].tag() == .generic_poison)
-            Type.initTag(.var_args_param)
-        else
-            func_ty_info.param_types[arg_index];
-
         // Generate args to comptime params in comptime block.
         defer block.is_comptime = parent_comptime;
         if (arg_index < fn_params_len and func_ty_info.comptime_params[arg_index]) {
@@ -6342,8 +6338,15 @@ fn zirCall(
             // TODO set comptime_reason
         }
 
-        const param_ty_inst = try sema.addType(param_ty);
-        sema.inst_map.putAssumeCapacity(inst, param_ty_inst);
+        sema.inst_map.putAssumeCapacity(inst, inst: {
+            if (arg_index >= fn_params_len)
+                break :inst Air.Inst.Ref.var_args_param;
+
+            if (func_ty_info.param_types[arg_index].tag() == .generic_poison)
+                break :inst Air.Inst.Ref.generic_poison_type;
+
+            break :inst try sema.addType(func_ty_info.param_types[arg_index]);
+        });
 
         const resolved = try sema.resolveBody(block, args_body[arg_start..arg_end], inst);
         const resolved_ty = sema.typeOf(resolved);
@@ -9401,16 +9404,19 @@ fn analyzeAs(
     zir_operand: Zir.Inst.Ref,
     no_cast_to_comptime_int: bool,
 ) CompileError!Air.Inst.Ref {
+    const operand = try sema.resolveInst(zir_operand);
+    if (zir_dest_type == .var_args_param) return operand;
+    const dest_ty = sema.resolveType(block, src, zir_dest_type) catch |err| switch (err) {
+        error.GenericPoison => return operand,
+        else => |e| return e,
+    };
+    if (dest_ty.zigTypeTag() == .NoReturn) {
+        return sema.fail(block, src, "cannot cast to noreturn", .{});
+    }
     const is_ret = if (Zir.refToIndex(zir_dest_type)) |ptr_index|
         sema.code.instructions.items(.tag)[ptr_index] == .ret_type
     else
         false;
-    const dest_ty = try sema.resolveType(block, src, zir_dest_type);
-    const operand = try sema.resolveInst(zir_operand);
-    if (dest_ty.tag() == .var_args_param) return operand;
-    if (dest_ty.zigTypeTag() == .NoReturn) {
-        return sema.fail(block, src, "cannot cast to noreturn", .{});
-    }
     return sema.coerceExtra(block, dest_ty, operand, src, .{ .is_ret = is_ret, .no_cast_to_comptime_int = no_cast_to_comptime_int }) catch |err| switch (err) {
         error.NotCoercible => unreachable,
         else => |e| return e,
@@ -18300,8 +18306,14 @@ fn zirFieldType(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!A
     const extra = sema.code.extraData(Zir.Inst.FieldType, inst_data.payload_index).data;
     const ty_src = inst_data.src();
     const field_name_src: LazySrcLoc = .{ .node_offset_field_name = inst_data.src_node };
-    const aggregate_ty = try sema.resolveType(block, ty_src, extra.container_type);
-    if (aggregate_ty.tag() == .var_args_param) return sema.addType(aggregate_ty);
+    const aggregate_ty = sema.resolveType(block, ty_src, extra.container_type) catch |err| switch (err) {
+        // Since this is a ZIR instruction that returns a type, encountering
+        // generic poison should not result in a failed compilation, but the
+        // generic poison type. This prevents unnecessary failures when
+        // constructing types at compile-time.
+        error.GenericPoison => return Air.Inst.Ref.generic_poison_type,
+        else => |e| return e,
+    };
     const field_name = sema.code.nullTerminatedString(extra.name_start);
     return sema.fieldType(block, aggregate_ty, field_name, field_name_src, ty_src);
 }
@@ -24253,8 +24265,7 @@ fn fieldCallBind(
                         const first_param_type = decl_type.fnParamType(0);
                         const first_param_tag = first_param_type.tag();
                         // zig fmt: off
-                        if (first_param_tag == .var_args_param or
-                            first_param_tag == .generic_poison or (
+                        if (first_param_tag == .generic_poison or (
                                 first_param_type.zigTypeTag() == .Pointer and
                                 (first_param_type.ptrSize() == .One or
                                 first_param_type.ptrSize() == .C) and
@@ -25405,7 +25416,6 @@ fn coerceExtra(
     opts: CoerceOpts,
 ) CoersionError!Air.Inst.Ref {
     switch (dest_ty_unresolved.tag()) {
-        .var_args_param => return sema.coerceVarArgParam(block, inst, inst_src),
         .generic_poison => return inst,
         else => {},
     }
@@ -31269,7 +31279,6 @@ pub fn resolveTypeRequiresComptime(sema: *Sema, ty: Type) CompileError!bool {
         .function,
         => true,
 
-        .var_args_param => unreachable,
         .inferred_alloc_mut => unreachable,
         .inferred_alloc_const => unreachable,
         .bound_fn => unreachable,
@@ -32634,7 +32643,6 @@ pub fn typeHasOnePossibleValue(sema: *Sema, ty: Type) CompileError!?Value {
         .anyerror_void_error_union,
         .error_set_inferred,
         .@"opaque",
-        .var_args_param,
         .manyptr_u8,
         .manyptr_const_u8,
         .manyptr_const_u8_sentinel_0,
@@ -33298,7 +33306,6 @@ pub fn typeRequiresComptime(sema: *Sema, ty: Type) CompileError!bool {
         .function,
         => true,
 
-        .var_args_param => unreachable,
         .inferred_alloc_mut => unreachable,
         .inferred_alloc_const => unreachable,
         .bound_fn => unreachable,

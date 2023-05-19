@@ -158,7 +158,6 @@ pub const Type = extern union {
             => return .Union,
 
             .bound_fn => unreachable,
-            .var_args_param => unreachable, // can be any type
         }
     }
 
@@ -935,7 +934,6 @@ pub const Type = extern union {
             .type_info => unreachable, // needed to resolve the type before now
 
             .bound_fn => unreachable,
-            .var_args_param => unreachable, // can be any type
         }
     }
 
@@ -1245,7 +1243,6 @@ pub const Type = extern union {
             .type_info => unreachable, // needed to resolve the type before now
 
             .bound_fn => unreachable,
-            .var_args_param => unreachable, // can be any type
         }
     }
 
@@ -1335,7 +1332,6 @@ pub const Type = extern union {
             .anyerror_void_error_union,
             .inferred_alloc_const,
             .inferred_alloc_mut,
-            .var_args_param,
             .empty_struct_literal,
             .manyptr_u8,
             .manyptr_const_u8,
@@ -1617,7 +1613,6 @@ pub const Type = extern union {
                 .comptime_int,
                 .comptime_float,
                 .noreturn,
-                .var_args_param,
                 .bound_fn,
                 => return writer.writeAll(@tagName(t)),
 
@@ -1954,7 +1949,6 @@ pub const Type = extern union {
             .inferred_alloc_const => unreachable,
             .inferred_alloc_mut => unreachable,
             .generic_poison => unreachable,
-            .var_args_param => unreachable,
             .bound_fn => unreachable,
 
             // TODO get rid of these Type.Tag values.
@@ -2595,7 +2589,6 @@ pub const Type = extern union {
 
             .inferred_alloc_const => unreachable,
             .inferred_alloc_mut => unreachable,
-            .var_args_param => unreachable,
             .generic_poison => unreachable,
         }
     }
@@ -2708,7 +2701,6 @@ pub const Type = extern union {
             .enum_nonexhaustive,
             => !ty.cast(Payload.EnumFull).?.data.tag_ty_inferred,
 
-            .var_args_param => unreachable,
             .inferred_alloc_mut => unreachable,
             .inferred_alloc_const => unreachable,
             .bound_fn => unreachable,
@@ -3190,7 +3182,6 @@ pub const Type = extern union {
             .noreturn,
             .inferred_alloc_const,
             .inferred_alloc_mut,
-            .var_args_param,
             .bound_fn,
             => unreachable,
 
@@ -3295,7 +3286,6 @@ pub const Type = extern union {
             .noreturn => unreachable,
             .inferred_alloc_const => unreachable,
             .inferred_alloc_mut => unreachable,
-            .var_args_param => unreachable,
             .generic_poison => unreachable,
             .modifier => unreachable, // missing call to resolveTypeFields
             .prefetch_options => unreachable, // missing call to resolveTypeFields
@@ -3639,7 +3629,6 @@ pub const Type = extern union {
             .inferred_alloc_const => unreachable,
             .inferred_alloc_mut => unreachable,
             .@"opaque" => unreachable,
-            .var_args_param => unreachable,
             .generic_poison => unreachable,
             .bound_fn => unreachable,
 
@@ -4171,8 +4160,6 @@ pub const Type = extern union {
 
             .single_const_pointer_to_comptime_int => Type.initTag(.comptime_int),
             .pointer => ty.castTag(.pointer).?.data.pointee_type,
-
-            .var_args_param => ty,
 
             else => unreachable,
         };
@@ -5032,7 +5019,6 @@ pub const Type = extern union {
             .anyerror_void_error_union,
             .error_set_inferred,
             .@"opaque",
-            .var_args_param,
             .manyptr_u8,
             .manyptr_const_u8,
             .manyptr_const_u8_sentinel_0,
@@ -5257,7 +5243,6 @@ pub const Type = extern union {
             .function,
             => true,
 
-            .var_args_param => unreachable,
             .inferred_alloc_mut => unreachable,
             .inferred_alloc_const => unreachable,
             .bound_fn => unreachable,
@@ -6088,9 +6073,6 @@ pub const Type = extern union {
         const_slice_u8_sentinel_0,
         anyerror_void_error_union,
         generic_poison,
-        /// This is a special type for variadic parameters of a function call.
-        /// Casts to it will validate that the type can be passed to a c calling convention function.
-        var_args_param,
         /// Same as `empty_struct` except it has an empty namespace.
         empty_struct_literal,
         /// This is a special value that tracks a set of types that have been stored
@@ -6201,7 +6183,6 @@ pub const Type = extern union {
                 .generic_poison,
                 .inferred_alloc_const,
                 .inferred_alloc_mut,
-                .var_args_param,
                 .empty_struct_literal,
                 .manyptr_u8,
                 .manyptr_const_u8,
