@@ -5591,6 +5591,41 @@ pub fn sched_setaffinity(pid: pid_t, cpus: []usize) SchedSetAffinityError!cpu_se
     }
 }
 
+pub const SchedGetCpuError = UnexpectedError;
+
+pub fn sched_getcpu() i32!SchedGetCpuError {
+    if (builtin.cpu.arch == .x86_64) {
+        switch (builtin.os.tag) {
+            .linux => {
+                switch (errno(linux.sched_getcpu())) {
+                    .SUCCESS => return {},
+                    else => |err| return unexpectedErrno(err),
+                }
+            },
+            .freebsd => {
+                if (comptime builtin.os.version_range.semver.max.order(.{ .major = 13, .minor = 0 }) == .gt) {
+                    switch (errno(freebsd.sched_getcpu())) {
+                        .SUCCESS => return {},
+                        else => |err| return unexpectedErrno(err),
+                    }
+                }
+            },
+            // TODO windows
+            else => {
+                var cpu: i32 = undefined;
+                asm volatile ("rdtscp"
+                    : [_] "=c" (cpu),
+                    :
+                    : "eax", "edx"
+                );
+                return cpu;
+            },
+        }
+    } else {
+        return 0;
+    }
+}
+
 /// Used to convert a slice to a null terminated slice on the stack.
 /// TODO https://github.com/ziglang/zig/issues/287
 pub fn toPosixPath(file_path: []const u8) ![MAX_PATH_BYTES - 1:0]u8 {
