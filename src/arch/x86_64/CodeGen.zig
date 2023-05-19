@@ -2935,6 +2935,10 @@ fn airAddSat(self: *Self, inst: Air.Inst.Index) !void {
     const mod = self.bin_file.options.module.?;
     const bin_op = self.air.instructions.items(.data)[inst].bin_op;
     const ty = self.typeOf(bin_op.lhs);
+    if (ty.zigTypeTag(mod) == .Vector or ty.abiSize(mod) > 8) return self.fail(
+        "TODO implement addMulSat for {}",
+        .{ty.fmt(mod)},
+    );
 
     const lhs_mcv = try self.resolveInst(bin_op.lhs);
     const dst_mcv = if (lhs_mcv.isRegister() and self.reuseOperand(inst, bin_op.lhs, 0, lhs_mcv))
@@ -3014,6 +3018,10 @@ fn airSubSat(self: *Self, inst: Air.Inst.Index) !void {
     const mod = self.bin_file.options.module.?;
     const bin_op = self.air.instructions.items(.data)[inst].bin_op;
     const ty = self.typeOf(bin_op.lhs);
+    if (ty.zigTypeTag(mod) == .Vector or ty.abiSize(mod) > 8) return self.fail(
+        "TODO implement addMulSat for {}",
+        .{ty.fmt(mod)},
+    );
 
     const lhs_mcv = try self.resolveInst(bin_op.lhs);
     const dst_mcv = if (lhs_mcv.isRegister() and self.reuseOperand(inst, bin_op.lhs, 0, lhs_mcv))
@@ -3086,6 +3094,10 @@ fn airMulSat(self: *Self, inst: Air.Inst.Index) !void {
     const mod = self.bin_file.options.module.?;
     const bin_op = self.air.instructions.items(.data)[inst].bin_op;
     const ty = self.typeOf(bin_op.lhs);
+    if (ty.zigTypeTag(mod) == .Vector or ty.abiSize(mod) > 8) return self.fail(
+        "TODO implement addMulSat for {}",
+        .{ty.fmt(mod)},
+    );
 
     try self.spillRegisters(&.{ .rax, .rdx });
     const reg_locks = self.register_manager.lockRegs(2, .{ .rax, .rdx });
@@ -6346,8 +6358,9 @@ fn genBinOp(
     const lhs_ty = self.typeOf(lhs_air);
     const rhs_ty = self.typeOf(rhs_air);
     const abi_size: u32 = @intCast(lhs_ty.abiSize(mod));
-    if (lhs_ty.scalarType(mod).isRuntimeFloat() and
-        lhs_ty.scalarType(mod).floatBits(self.target.*) == 80)
+    if ((lhs_ty.scalarType(mod).isRuntimeFloat() and
+        lhs_ty.scalarType(mod).floatBits(self.target.*) == 80) or
+        lhs_ty.abiSize(mod) > @as(u6, if (self.hasFeature(.avx)) 32 else 16))
         return self.fail("TODO implement genBinOp for {s} {}", .{
             @tagName(air_tag), lhs_ty.fmt(mod),
         });
