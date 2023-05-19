@@ -6361,6 +6361,9 @@ fn genBinOp(
             } else try self.register_manager.allocReg(null, sse),
             abi_size,
         ) else null,
+        .rem, .mod => return self.fail("TODO implement genBinOp for {s} {}", .{
+            @tagName(air_tag), lhs_ty.fmt(self.bin_file.options.module.?),
+        }),
     };
     const mask_lock =
         if (maybe_mask_reg) |mask_reg| self.register_manager.lockRegAssumeUnused(mask_reg) else null;
