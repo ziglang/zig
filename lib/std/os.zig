@@ -2690,7 +2690,7 @@ pub fn renameatW(
         };
     } else {
         rename_info.* = .{
-            .ReplaceIfExists = ReplaceIfExists,
+            .Flags = ReplaceIfExists,
             .RootDirectory = if (std.fs.path.isAbsoluteWindowsWTF16(new_path_w)) null else new_dir_fd,
             .FileNameLength = @intCast(u32, new_path_w.len * 2), // already checked error.NameTooLong
             .FileName = undefined,

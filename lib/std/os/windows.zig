@@ -2410,20 +2410,13 @@ pub const FILE_RENAME_FORCE_RESIZE_TARGET_SR = 0x00000080;
 pub const FILE_RENAME_FORCE_RESIZE_SOURCE_SR = 0x00000100;
 pub const FILE_RENAME_FORCE_RESIZE_SR = 0x00000180;
 
-pub const FILE_RENAME_INFORMATION = if (builtin.target.os.version_range.windows.min.isAtLeast(.win10_rs1))
+pub const FILE_RENAME_INFORMATION =
     extern struct {
-        Flags: ULONG,
-        RootDirectory: ?HANDLE,
-        FileNameLength: ULONG,
-        FileName: [1]WCHAR,
-    }
-else
-    extern struct {
-        ReplaceIfExists: BOOLEAN,
-        RootDirectory: ?HANDLE,
-        FileNameLength: ULONG,
-        FileName: [1]WCHAR,
-    };
+    Flags: if (builtin.target.os.version_range.windows.min.isAtLeast(.win10_rs1)) ULONG else BOOLEAN,
+    RootDirectory: ?HANDLE,
+    FileNameLength: ULONG,
+    FileName: [1]WCHAR,
+};
 
 pub const IO_STATUS_BLOCK = extern struct {
     // "DUMMYUNIONNAME" expands to "u"
