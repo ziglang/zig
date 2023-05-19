@@ -23457,8 +23457,7 @@ fn zirMemcpy(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!void
         }
 
         if (block.wantSafety()) {
-            const ok = try block.addBinOp(.cmp_eq, dest_len, src_len);
-            try sema.addSafetyCheck(block, ok, .memcpy_len_mismatch);
+            try sema.panicMemcpyLenMismatch(block, dest_len, src_len);
         }
     } else if (dest_len != .none) {
         if (try sema.resolveDefinedValue(block, dest_src, dest_len)) |dest_len_val| {
@@ -25058,6 +25057,21 @@ fn panicSentinelMismatch(
         return sema.addSafetyCheck(parent_block, ok, .sentinel_mismatch);
     }
     try sema.safetyCheckFormatted(parent_block, ok, "panicSentinelMismatch", &.{ expected_sentinel, actual_sentinel });
+}
+
+fn panicMemcpyLenMismatch(
+    sema: *Sema,
+    parent_block: *Block,
+    dst_len: Air.Inst.Ref,
+    src_len: Air.Inst.Ref,
+) !void {
+    assert(!parent_block.is_comptime and parent_block.wantSafety());
+
+    const ok = try parent_block.addBinOp(.cmp_eq, dst_len, src_len);
+    if (!sema.mod.comp.formatted_panics) {
+        return try sema.addSafetyCheck(parent_block, ok, .memcpy_len_mismatch);
+    }
+    try sema.safetyCheckFormatted(parent_block, ok, "panicMemcpyLenMismatch", &.{ dst_len, src_len });
 }
 
 fn safetyCheckFormatted(

@@ -845,6 +845,11 @@ pub fn panicInactiveUnionField(active: anytype, wanted: @TypeOf(active)) noretur
     std.debug.panicExtra(null, @returnAddress(), "access of union field '{s}' while field '{s}' is active", .{ @tagName(wanted), @tagName(active) });
 }
 
+pub fn panicMemcpyLenMismatch(dst: usize, src: usize) noreturn {
+    @setCold(true);
+    std.debug.panicExtra(null, @returnAddress(), "@memcpy arguments have non-equal lengths: dst={d}, src={d}", .{ dst, src });
+}
+
 pub const panic_messages = struct {
     pub const unreach = "reached unreachable code";
     pub const unwrap_null = "attempt to use null value";

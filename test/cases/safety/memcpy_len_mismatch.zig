@@ -2,7 +2,7 @@ const std = @import("std");
 
 pub fn panic(message: []const u8, stack_trace: ?*std.builtin.StackTrace, _: ?usize) noreturn {
     _ = stack_trace;
-    if (std.mem.eql(u8, message, "@memcpy arguments have non-equal lengths")) {
+    if (std.mem.eql(u8, message, "@memcpy arguments have non-equal lengths: dst=5, src=4")) {
         std.process.exit(0);
     }
     std.process.exit(1);
