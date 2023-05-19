@@ -2681,7 +2681,7 @@ pub fn renameatW(
 
     if (builtin.target.os.version_range.windows.min.isAtLeast(.win10_rs1)) {
         var flags: windows.ULONG = windows.FILE_RENAME_POSIX_SEMANTICS | windows.FILE_RENAME_IGNORE_READONLY_ATTRIBUTE;
-        if (ReplaceIfExists) flags |= windows.FILE_RENAME_REPLACE_IF_EXISTS;
+        if (ReplaceIfExists == windows.TRUE) flags |= windows.FILE_RENAME_REPLACE_IF_EXISTS;
         rename_info.* = .{
             .anon1 = .{
                 .Flags = flags,
