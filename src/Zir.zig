@@ -2163,6 +2163,10 @@ pub const Inst = struct {
         /// Used for generic parameters where the type and value
         /// is not known until generic function instantiation.
         generic_poison,
+        /// This is a special type for variadic parameters of a function call.
+        /// Casts to it will validate that the type can be passed to a c
+        /// calling convention function.
+        var_args_param,
 
         _,
 
@@ -2474,6 +2478,7 @@ pub const Inst = struct {
                 .ty = Type.initTag(.generic_poison),
                 .val = Value.initTag(.generic_poison),
             },
+            .var_args_param = undefined,
         });
     };
 

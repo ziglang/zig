@@ -747,15 +747,23 @@ pub fn generateSymbol(
         .Vector => switch (typed_value.val.tag()) {
             .bytes => {
                 const bytes = typed_value.val.castTag(.bytes).?.data;
-                const len = @intCast(usize, typed_value.ty.arrayLen());
-                try code.ensureUnusedCapacity(len);
+                const len = math.cast(usize, typed_value.ty.arrayLen()) orelse return error.Overflow;
+                const padding = math.cast(usize, typed_value.ty.abiSize(target) - len) orelse
+                    return error.Overflow;
+                try code.ensureUnusedCapacity(len + padding);
                 code.appendSliceAssumeCapacity(bytes[0..len]);
+                if (padding > 0) try code.writer().writeByteNTimes(0, padding);
                 return Result.ok;
             },
             .aggregate => {
                 const elem_vals = typed_value.val.castTag(.aggregate).?.data;
                 const elem_ty = typed_value.ty.elemType();
-                const len = @intCast(usize, typed_value.ty.arrayLen());
+                const len = math.cast(usize, typed_value.ty.arrayLen()) orelse return error.Overflow;
+                const padding = math.cast(usize, typed_value.ty.abiSize(target) -
+                    (math.divCeil(u64, elem_ty.bitSize(target) * len, 8) catch |err| switch (err) {
+                    error.DivisionByZero => unreachable,
+                    else => |e| return e,
+                })) orelse return error.Overflow;
                 for (elem_vals[0..len]) |elem_val| {
                     switch (try generateSymbol(bin_file, src_loc, .{
                         .ty = elem_ty,
@@ -765,13 +773,18 @@ pub fn generateSymbol(
                         .fail => |em| return Result{ .fail = em },
                     }
                 }
+                if (padding > 0) try code.writer().writeByteNTimes(0, padding);
                 return Result.ok;
             },
             .repeated => {
                 const array = typed_value.val.castTag(.repeated).?.data;
                 const elem_ty = typed_value.ty.childType();
                 const len = typed_value.ty.arrayLen();
-
+                const padding = math.cast(usize, typed_value.ty.abiSize(target) -
+                    (math.divCeil(u64, elem_ty.bitSize(target) * len, 8) catch |err| switch (err) {
+                    error.DivisionByZero => unreachable,
+                    else => |e| return e,
+                })) orelse return error.Overflow;
                 var index: u64 = 0;
                 while (index < len) : (index += 1) {
                     switch (try generateSymbol(bin_file, src_loc, .{
@@ -782,13 +795,17 @@ pub fn generateSymbol(
                         .fail => |em| return Result{ .fail = em },
                     }
                 }
+                if (padding > 0) try code.writer().writeByteNTimes(0, padding);
                 return Result.ok;
             },
             .str_lit => {
                 const str_lit = typed_value.val.castTag(.str_lit).?.data;
                 const bytes = mod.string_literal_bytes.items[str_lit.index..][0..str_lit.len];
-                try code.ensureUnusedCapacity(str_lit.len);
+                const padding = math.cast(usize, typed_value.ty.abiSize(target) - str_lit.len) orelse
+                    return error.Overflow;
+                try code.ensureUnusedCapacity(str_lit.len + padding);
                 code.appendSliceAssumeCapacity(bytes);
+                if (padding > 0) try code.writer().writeByteNTimes(0, padding);
                 return Result.ok;
             },
             else => unreachable,

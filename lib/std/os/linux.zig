@@ -1590,6 +1590,43 @@ pub fn timerfd_settime(fd: i32, flags: u32, new_value: *const itimerspec, old_va
     return syscall4(.timerfd_settime, @bitCast(usize, @as(isize, fd)), flags, @ptrToInt(new_value), @ptrToInt(old_value));
 }
 
+pub const sigevent = extern struct {
+    value: sigval,
+    signo: i32,
+    inotify: i32,
+    libc_priv_impl: opaque {},
+};
+
+// Flags for sigevent sigev_inotify's field
+pub const SIGEV = enum(i32) {
+    NONE = 0,
+    SIGNAL = 1,
+    THREAD = 2,
+    THREAD_ID = 4,
+};
+
+pub const timer_t = ?*anyopaque;
+
+pub fn timer_create(clockid: i32, sevp: *sigevent, timerid: *timer_t) usize {
+    var t: timer_t = undefined;
+    const rc = syscall3(.timer_create, @bitCast(usize, @as(isize, clockid)), @ptrToInt(sevp), @ptrToInt(&t));
+    if (@bitCast(isize, rc) < 0) return rc;
+    timerid.* = t;
+    return rc;
+}
+
+pub fn timer_delete(timerid: timer_t) usize {
+    return syscall1(.timer_delete, timerid);
+}
+
+pub fn timer_gettime(timerid: timer_t, curr_value: *itimerspec) usize {
+    return syscall2(.timer_gettime, @ptrToInt(timerid), @ptrToInt(curr_value));
+}
+
+pub fn timer_settime(timerid: timer_t, flags: i32, new_value: *const itimerspec, old_value: ?*itimerspec) usize {
+    return syscall4(.timer_settime, @ptrToInt(timerid), @bitCast(usize, @as(isize, flags)), @ptrToInt(new_value), @ptrToInt(old_value));
+}
+
 // Flags for the 'setitimer' system call
 pub const ITIMER = enum(i32) {
     REAL = 0,

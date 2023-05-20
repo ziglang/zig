@@ -8324,7 +8324,7 @@ fn builtinCall(
         .trap => {
             try emitDbgNode(gz, node);
             _ = try gz.addNode(.trap, node);
-            return rvalue(gz, ri, .void_value, node);
+            return rvalue(gz, ri, .unreachable_value, node);
         },
         .error_to_int => {
             const operand = try expr(gz, scope, .{ .rl = .none }, params[0]);
