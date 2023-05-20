@@ -331,12 +331,12 @@ const Code = struct {
     additional_options: []const []const u8,
 
     const Id = union(enum) {
-        Test,
-        TestError: []const u8,
-        TestSafety: []const u8,
-        Exe: ExpectedOutcome,
-        Obj: ?[]const u8,
-        Lib,
+        @"test",
+        test_error: []const u8,
+        test_safety: []const u8,
+        exe: ExpectedOutcome,
+        obj: ?[]const u8,
+        lib,
     };
 };
 
@@ -563,25 +563,25 @@ fn genToc(allocator: Allocator, tokenizer: *Tokenizer) !Toc {
                     var code_kind_id: Code.Id = undefined;
                     var just_check_syntax = false;
                     if (mem.eql(u8, code_kind_str, "exe")) {
-                        code_kind_id = Code.Id{ .Exe = .succeed };
+                        code_kind_id = Code.Id{ .exe = .succeed };
                     } else if (mem.eql(u8, code_kind_str, "exe_err")) {
-                        code_kind_id = Code.Id{ .Exe = .fail };
+                        code_kind_id = Code.Id{ .exe = .fail };
                     } else if (mem.eql(u8, code_kind_str, "exe_build_err")) {
-                        code_kind_id = Code.Id{ .Exe = .build_fail };
+                        code_kind_id = Code.Id{ .exe = .build_fail };
                     } else if (mem.eql(u8, code_kind_str, "test")) {
-                        code_kind_id = Code.Id.Test;
+                        code_kind_id = .@"test";
                     } else if (mem.eql(u8, code_kind_str, "test_err")) {
-                        code_kind_id = Code.Id{ .TestError = error_str };
+                        code_kind_id = Code.Id{ .test_error = error_str };
                     } else if (mem.eql(u8, code_kind_str, "test_safety")) {
-                        code_kind_id = Code.Id{ .TestSafety = error_str };
+                        code_kind_id = Code.Id{ .test_safety = error_str };
                     } else if (mem.eql(u8, code_kind_str, "obj")) {
-                        code_kind_id = Code.Id{ .Obj = null };
+                        code_kind_id = Code.Id{ .obj = null };
                     } else if (mem.eql(u8, code_kind_str, "obj_err")) {
-                        code_kind_id = Code.Id{ .Obj = error_str };
+                        code_kind_id = Code.Id{ .obj = error_str };
                     } else if (mem.eql(u8, code_kind_str, "lib")) {
-                        code_kind_id = Code.Id.Lib;
+                        code_kind_id = Code.Id.lib;
                     } else if (mem.eql(u8, code_kind_str, "syntax")) {
-                        code_kind_id = Code.Id{ .Obj = null };
+                        code_kind_id = Code.Id{ .obj = null };
                         just_check_syntax = true;
                     } else {
                         return parseError(tokenizer, code_kind_tok, "unrecognized code kind: {s}", .{code_kind_str});
@@ -1371,7 +1371,7 @@ fn genHtml(
                 var shell_out = shell_buffer.writer();
 
                 switch (code.id) {
-                    Code.Id.Exe => |expected_outcome| code_block: {
+                    .exe => |expected_outcome| code_block: {
                         var build_args = std.ArrayList([]const u8).init(allocator);
                         defer build_args.deinit();
                         try build_args.appendSlice(&[_][]const u8{
@@ -1513,7 +1513,7 @@ fn genHtml(
                         }
                         try shell_out.writeAll("\n");
                     },
-                    Code.Id.Test => {
+                    .@"test" => {
                         var test_args = std.ArrayList([]const u8).init(allocator);
                         defer test_args.deinit();
 
@@ -1565,7 +1565,7 @@ fn genHtml(
                         const escaped_stdout = try escapeHtml(allocator, result.stdout);
                         try shell_out.print("\n{s}{s}\n", .{ escaped_stderr, escaped_stdout });
                     },
-                    Code.Id.TestError => |error_match| {
+                    .test_error => |error_match| {
                         var test_args = std.ArrayList([]const u8).init(allocator);
                         defer test_args.deinit();
 
@@ -1621,8 +1621,7 @@ fn genHtml(
                         const colored_stderr = try termColor(allocator, escaped_stderr);
                         try shell_out.print("\n{s}\n", .{colored_stderr});
                     },
-
-                    Code.Id.TestSafety => |error_match| {
+                    .test_safety => |error_match| {
                         var test_args = std.ArrayList([]const u8).init(allocator);
                         defer test_args.deinit();
 
@@ -1685,7 +1684,7 @@ fn genHtml(
                             colored_stderr,
                         });
                     },
-                    Code.Id.Obj => |maybe_error_match| {
+                    .obj => |maybe_error_match| {
                         const name_plus_obj_ext = try std.fmt.allocPrint(allocator, "{s}{s}", .{ code.name, obj_ext });
                         var build_args = std.ArrayList([]const u8).init(allocator);
                         defer build_args.deinit();
@@ -1758,7 +1757,7 @@ fn genHtml(
                         }
                         try shell_out.writeAll("\n");
                     },
-                    Code.Id.Lib => {
+                    .lib => {
                         const bin_basename = try std.zig.binNameAlloc(allocator, .{
                             .root_name = code.name,
                             .target = builtin.target,
