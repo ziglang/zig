@@ -21909,10 +21909,18 @@ fn analyzeMinMax(
         }
     }
 
+    const opt_runtime_idx = runtime_known.findFirstSet();
+
     const comptime_refined_ty: ?Type = if (cur_minmax) |ct_minmax_ref| refined: {
         // Refine the comptime-known result type based on the operation
         const val = (try sema.resolveMaybeUndefVal(ct_minmax_ref)).?;
         const orig_ty = sema.typeOf(ct_minmax_ref);
+
+        if (opt_runtime_idx == null and orig_ty.eql(Type.comptime_int, mod)) {
+            // If all arguments were `comptime_int`, and there are no runtime args, we'll preserve that type
+            break :refined orig_ty;
+        }
+
         const refined_ty = if (orig_ty.zigTypeTag() == .Vector) blk: {
             const elem_ty = orig_ty.childType();
             const len = orig_ty.vectorLen();
@@ -21951,7 +21959,7 @@ fn analyzeMinMax(
         break :refined refined_ty;
     } else null;
 
-    const runtime_idx = runtime_known.findFirstSet() orelse return cur_minmax.?;
+    const runtime_idx = opt_runtime_idx orelse return cur_minmax.?;
     const runtime_src = operand_srcs[runtime_idx];
     try sema.requireRuntimeBlock(block, src, runtime_src);
 
