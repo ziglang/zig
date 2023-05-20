@@ -506,7 +506,12 @@ pub const Key = union(enum) {
 
     pub const Aggregate = struct {
         ty: Index,
-        fields: []const Index,
+        storage: Storage,
+
+        pub const Storage = union(enum) {
+            elems: []const Index,
+            repeated_elem: Index,
+        };
     };
 
     pub fn hash32(key: Key) u32 {
@@ -578,7 +583,14 @@ pub const Key = union(enum) {
 
             .aggregate => |aggregate| {
                 std.hash.autoHash(hasher, aggregate.ty);
-                for (aggregate.fields) |field| std.hash.autoHash(hasher, field);
+                std.hash.autoHash(hasher, @as(
+                    @typeInfo(Key.Aggregate.Storage).Union.tag_type.?,
+                    aggregate.storage,
+                ));
+                switch (aggregate.storage) {
+                    .elems => |elems| for (elems) |elem| std.hash.autoHash(hasher, elem),
+                    .repeated_elem => |elem| std.hash.autoHash(hasher, elem),
+                }
             },
 
             .error_set_type => |error_set_type| {
@@ -756,7 +768,14 @@ pub const Key = union(enum) {
             .aggregate => |a_info| {
                 const b_info = b.aggregate;
                 if (a_info.ty != b_info.ty) return false;
-                return std.mem.eql(Index, a_info.fields, b_info.fields);
+
+                const StorageTag = @typeInfo(Key.Aggregate.Storage).Union.tag_type.?;
+                if (@as(StorageTag, a_info.storage) != @as(StorageTag, b_info.storage)) return false;
+
+                return switch (a_info.storage) {
+                    .elems => |a_elems| std.mem.eql(Index, a_elems, b_info.storage.elems),
+                    .repeated_elem => |a_elem| a_elem == b_info.storage.repeated_elem,
+                };
             },
             .anon_struct_type => |a_info| {
                 const b_info = b.anon_struct_type;
@@ -1407,6 +1426,9 @@ pub const Tag = enum(u8) {
     /// An instance of a struct, array, or vector.
     /// data is extra index to `Aggregate`.
     aggregate,
+    /// An instance of an array or vector with every element being the same value.
+    /// data is extra index to `Repeated`.
+    repeated,
 };
 
 /// Trailing:
@@ -1444,6 +1466,13 @@ pub const TypeFunction = struct {
 pub const Aggregate = struct {
     /// The type of the aggregate.
     ty: Index,
+};
+
+pub const Repeated = struct {
+    /// The type of the aggregate.
+    ty: Index,
+    /// The value of every element.
+    elem_val: Index,
 };
 
 /// Trailing:
@@ -2049,13 +2078,13 @@ pub fn indexToKey(ip: InternPool, index: Index) Key {
                 // as the tuple case below).
                 .struct_type => .{ .aggregate = .{
                     .ty = ty,
-                    .fields = &.{},
+                    .storage = .{ .elems = &.{} },
                 } },
                 // There is only one possible value precisely due to the
                 // fact that this values slice is fully populated!
                 .anon_struct_type => |anon_struct_type| .{ .aggregate = .{
                     .ty = ty,
-                    .fields = anon_struct_type.values,
+                    .storage = .{ .elems = anon_struct_type.values },
                 } },
                 else => unreachable,
             };
@@ -2066,7 +2095,14 @@ pub fn indexToKey(ip: InternPool, index: Index) Key {
             const fields = @ptrCast([]const Index, ip.extra.items[extra.end..][0..len]);
             return .{ .aggregate = .{
                 .ty = extra.data.ty,
-                .fields = fields,
+                .storage = .{ .elems = fields },
+            } };
+        },
+        .repeated => {
+            const extra = ip.extraData(Repeated, data);
+            return .{ .aggregate = .{
+                .ty = extra.ty,
+                .storage = .{ .repeated_elem = extra.elem_val },
             } };
         },
         .union_value => .{ .un = ip.extraData(Key.Union, data) },
@@ -2663,10 +2699,18 @@ pub fn get(ip: *InternPool, gpa: Allocator, key: Key) Allocator.Error!Index {
 
         .aggregate => |aggregate| {
             assert(aggregate.ty != .none);
-            for (aggregate.fields) |elem| assert(elem != .none);
-            assert(aggregate.fields.len == ip.aggregateTypeLen(aggregate.ty));
+            const aggregate_len = ip.aggregateTypeLen(aggregate.ty);
+            switch (aggregate.storage) {
+                .elems => |elems| {
+                    assert(elems.len == aggregate_len);
+                    for (elems) |elem| assert(elem != .none);
+                },
+                .repeated_elem => |elem| {
+                    assert(elem != .none);
+                },
+            }
 
-            if (aggregate.fields.len == 0) {
+            if (aggregate_len == 0) {
                 ip.items.appendAssumeCapacity(.{
                     .tag = .only_possible_value,
                     .data = @enumToInt(aggregate.ty),
@@ -2676,7 +2720,12 @@ pub fn get(ip: *InternPool, gpa: Allocator, key: Key) Allocator.Error!Index {
 
             switch (ip.indexToKey(aggregate.ty)) {
                 .anon_struct_type => |anon_struct_type| {
-                    if (std.mem.eql(Index, anon_struct_type.values, aggregate.fields)) {
+                    if (switch (aggregate.storage) {
+                        .elems => |elems| std.mem.eql(Index, anon_struct_type.values, elems),
+                        .repeated_elem => |elem| for (anon_struct_type.values) |value| {
+                            if (value != elem) break false;
+                        } else true,
+                    }) {
                         // This encoding works thanks to the fact that, as we just verified,
                         // the type itself contains a slice of values that can be provided
                         // in the aggregate fields.
@@ -2690,9 +2739,33 @@ pub fn get(ip: *InternPool, gpa: Allocator, key: Key) Allocator.Error!Index {
                 else => {},
             }
 
+            if (switch (aggregate.storage) {
+                .elems => |elems| for (elems[1..]) |elem| {
+                    if (elem != elems[0]) break false;
+                } else true,
+                .repeated_elem => true,
+            }) {
+                try ip.extra.ensureUnusedCapacity(
+                    gpa,
+                    @typeInfo(Repeated).Struct.fields.len,
+                );
+
+                ip.items.appendAssumeCapacity(.{
+                    .tag = .repeated,
+                    .data = ip.addExtraAssumeCapacity(Repeated{
+                        .ty = aggregate.ty,
+                        .elem_val = switch (aggregate.storage) {
+                            .elems => |elems| elems[0],
+                            .repeated_elem => |elem| elem,
+                        },
+                    }),
+                });
+                return @intToEnum(Index, ip.items.len - 1);
+            }
+
             try ip.extra.ensureUnusedCapacity(
                 gpa,
-                @typeInfo(Aggregate).Struct.fields.len + aggregate.fields.len,
+                @typeInfo(Aggregate).Struct.fields.len + aggregate_len,
             );
 
             ip.items.appendAssumeCapacity(.{
@@ -2701,7 +2774,7 @@ pub fn get(ip: *InternPool, gpa: Allocator, key: Key) Allocator.Error!Index {
                     .ty = aggregate.ty,
                 }),
             });
-            ip.extra.appendSliceAssumeCapacity(@ptrCast([]const u32, aggregate.fields));
+            ip.extra.appendSliceAssumeCapacity(@ptrCast([]const u32, aggregate.storage.elems));
         },
 
         .un => |un| {
@@ -3417,6 +3490,7 @@ fn dumpFallible(ip: InternPool, arena: Allocator) anyerror!void {
                 const fields_len = @intCast(u32, ip.aggregateTypeLen(info.ty));
                 break :b @sizeOf(Aggregate) + (@sizeOf(u32) * fields_len);
             },
+            .repeated => @sizeOf(Repeated),
 
             .float_f16 => 0,
             .float_f32 => 0,

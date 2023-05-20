@@ -2665,7 +2665,10 @@ pub const Value = struct {
                 else => unreachable,
             },
             else => return switch (mod.intern_pool.indexToKey(val.ip_index)) {
-                .aggregate => |aggregate| aggregate.fields[index].toValue(),
+                .aggregate => |aggregate| switch (aggregate.storage) {
+                    .elems => |elems| elems[index],
+                    .repeated_elem => |elem| elem,
+                }.toValue(),
                 else => unreachable,
             },
         }
@@ -2753,8 +2756,11 @@ pub const Value = struct {
             else => switch (mod.intern_pool.indexToKey(val.ip_index)) {
                 .undef => return true,
                 .simple_value => |v| if (v == .undefined) return true,
-                .aggregate => |aggregate| for (aggregate.fields) |field| {
-                    if (try anyUndef(field.toValue(), mod)) return true;
+                .aggregate => |aggregate| switch (aggregate.storage) {
+                    .elems => |elems| for (elems) |elem| {
+                        if (try anyUndef(elem.toValue(), mod)) return true;
+                    },
+                    .repeated_elem => |elem| if (try anyUndef(elem.toValue(), mod)) return true,
                 },
                 else => {},
             },

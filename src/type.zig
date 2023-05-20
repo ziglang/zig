@@ -2738,7 +2738,7 @@ pub const Type = struct {
                     // one-possible-value logic in Sema.zig.
                     const empty = try mod.intern(.{ .aggregate = .{
                         .ty = ty.ip_index,
-                        .fields = &.{},
+                        .storage = .{ .elems = &.{} },
                     } });
                     return empty.toValue();
                 },
@@ -2751,7 +2751,7 @@ pub const Type = struct {
                     // therefore has one possible value.
                     return (try mod.intern(.{ .aggregate = .{
                         .ty = ty.ip_index,
-                        .fields = tuple.values,
+                        .storage = .{ .elems = tuple.values },
                     } })).toValue();
                 },
 
