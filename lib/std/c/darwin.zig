@@ -4044,6 +4044,40 @@ fn HostCount(comptime HT: type) mach_msg_type_number_t {
     return @intCast(mach_msg_type_number_t, @sizeOf(HT) / @sizeOf(integer_t));
 }
 
+pub const Host = extern struct {
+    fn InfoImpl(info: anytype, flavor: host_flavor_t, count_value: mach_msg_type_number_t) MachError!bool {
+        var count = count_value;
+        switch (getKernError(host_info(mach_host_self(), flavor, @ptrCast(host_info_t, &info), &count))) {
+            .SUCCESS => return true,
+            else => |err| return unexpectedKernError(err),
+        }
+    }
+
+    pub fn VmInfo() MachError!vm_statistics_data_t {
+        var info: vm_statistics_data_t = undefined;
+        try InfoImpl(info, HOST.VM_INFO, HOST.VM_INFO_COUNT);
+        return info;
+    }
+
+    pub fn LoadInfo() MachError!host_cpu_load_info_data_t {
+        var info: host_cpu_load_info_data_t = undefined;
+        try InfoImpl(info, HOST.CPU_LOAD_INFO, HOST.CPU_LOAD_INFO_COUNT);
+        return info;
+    }
+
+    pub fn CanHasDebugger() MachError!host_can_has_debugger_info_data_t {
+        var info: host_can_has_debugger_info_data_t = undefined;
+        try InfoImpl(info, HOST.CAN_HAS_DEBUGGER, HOST.CAN_HAS_DEBUGGER_COUNT);
+        return info;
+    }
+
+    pub fn PreferredUserArch() MachError!host_preferred_user_arch_data_t {
+        var info: host_preferred_user_arch_data_t = undefined;
+        try InfoImpl(info, HOST.PREFERRED_USER_ARCH, HOST.PREFERRED_USER_ARCH_COUNT);
+        return info;
+    }
+};
+
 pub const HOST = struct {
     pub const BASIC_INFO = 1;
     pub const SCHED_INFO = 3;
