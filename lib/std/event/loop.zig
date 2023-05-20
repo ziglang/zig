@@ -169,7 +169,7 @@ pub const Loop = struct {
                 .handle = undefined,
                 .overlapped = ResumeNode.overlapped_init,
             },
-            .fs_end_request = .{ .data = .{ .msg = .end, .finish = .NoAction } },
+            .fs_end_request = .{ .data = .{ .msg = .end, .finish = .no_action } },
             .fs_queue = std.atomic.Queue(Request).init(),
             .fs_thread = undefined,
             .fs_thread_wakeup = .{},
@@ -1019,7 +1019,7 @@ pub const Loop = struct {
                         .result = undefined,
                     },
                 },
-                .finish = .{ .TickNode = .{ .data = @frame() } },
+                .finish = .{ .tick_node = .{ .data = @frame() } },
             },
         };
         suspend {
@@ -1041,7 +1041,7 @@ pub const Loop = struct {
                         .result = undefined,
                     },
                 },
-                .finish = .{ .TickNode = .{ .data = @frame() } },
+                .finish = .{ .tick_node = .{ .data = @frame() } },
             },
         };
         suspend {
@@ -1055,7 +1055,7 @@ pub const Loop = struct {
         var req_node = Request.Node{
             .data = .{
                 .msg = .{ .close = .{ .fd = fd } },
-                .finish = .{ .TickNode = .{ .data = @frame() } },
+                .finish = .{ .tick_node = .{ .data = @frame() } },
             },
         };
         suspend {
@@ -1076,7 +1076,7 @@ pub const Loop = struct {
                             .result = undefined,
                         },
                     },
-                    .finish = .{ .TickNode = .{ .data = @frame() } },
+                    .finish = .{ .tick_node = .{ .data = @frame() } },
                 },
             };
             suspend {
@@ -1109,7 +1109,7 @@ pub const Loop = struct {
                             .result = undefined,
                         },
                     },
-                    .finish = .{ .TickNode = .{ .data = @frame() } },
+                    .finish = .{ .tick_node = .{ .data = @frame() } },
                 },
             };
             suspend {
@@ -1143,7 +1143,7 @@ pub const Loop = struct {
                             .result = undefined,
                         },
                     },
-                    .finish = .{ .TickNode = .{ .data = @frame() } },
+                    .finish = .{ .tick_node = .{ .data = @frame() } },
                 },
             };
             suspend {
@@ -1177,7 +1177,7 @@ pub const Loop = struct {
                             .result = undefined,
                         },
                     },
-                    .finish = .{ .TickNode = .{ .data = @frame() } },
+                    .finish = .{ .tick_node = .{ .data = @frame() } },
                 },
             };
             suspend {
@@ -1210,7 +1210,7 @@ pub const Loop = struct {
                             .result = undefined,
                         },
                     },
-                    .finish = .{ .TickNode = .{ .data = @frame() } },
+                    .finish = .{ .tick_node = .{ .data = @frame() } },
                 },
             };
             suspend {
@@ -1243,7 +1243,7 @@ pub const Loop = struct {
                             .result = undefined,
                         },
                     },
-                    .finish = .{ .TickNode = .{ .data = @frame() } },
+                    .finish = .{ .tick_node = .{ .data = @frame() } },
                 },
             };
             suspend {
@@ -1277,7 +1277,7 @@ pub const Loop = struct {
                             .result = undefined,
                         },
                     },
-                    .finish = .{ .TickNode = .{ .data = @frame() } },
+                    .finish = .{ .tick_node = .{ .data = @frame() } },
                 },
             };
             suspend {
@@ -1311,7 +1311,7 @@ pub const Loop = struct {
                             .result = undefined,
                         },
                     },
-                    .finish = .{ .TickNode = .{ .data = @frame() } },
+                    .finish = .{ .tick_node = .{ .data = @frame() } },
                 },
             };
             suspend {
@@ -1391,7 +1391,7 @@ pub const Loop = struct {
                         .result = undefined,
                     },
                 },
-                .finish = .{ .TickNode = .{ .data = @frame() } },
+                .finish = .{ .tick_node = .{ .data = @frame() } },
             },
         };
         suspend {
@@ -1549,8 +1549,8 @@ pub const Loop = struct {
                     .close => |*msg| os.close(msg.fd),
                 }
                 switch (node.data.finish) {
-                    .TickNode => |*tick_node| self.onNextTick(tick_node),
-                    .NoAction => {},
+                    .tick_node => |*tick_node| self.onNextTick(tick_node),
+                    .no_action => {},
                 }
                 self.finishOneEvent();
             }
@@ -1586,8 +1586,8 @@ pub const Loop = struct {
         pub const Node = std.atomic.Queue(Request).Node;
 
         pub const Finish = union(enum) {
-            TickNode: Loop.NextTickNode,
-            NoAction,
+            tick_node: Loop.NextTickNode,
+            no_action,
         };
 
         pub const Msg = union(enum) {
