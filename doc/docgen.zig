@@ -129,18 +129,18 @@ const Tokenizer = struct {
     code_node_count: usize,
 
     const State = enum {
-        Start,
-        LBracket,
-        Hash,
-        TagName,
-        Eof,
+        start,
+        l_bracket,
+        hash,
+        tag_name,
+        eof,
     };
 
     fn init(source_file_name: []const u8, buffer: []const u8) Tokenizer {
         return Tokenizer{
             .buffer = buffer,
             .index = 0,
-            .state = State.Start,
+            .state = .start,
             .source_file_name = source_file_name,
             .code_node_count = 0,
         };
@@ -155,33 +155,33 @@ const Tokenizer = struct {
         while (self.index < self.buffer.len) : (self.index += 1) {
             const c = self.buffer[self.index];
             switch (self.state) {
-                State.Start => switch (c) {
+                .start => switch (c) {
                     '{' => {
-                        self.state = State.LBracket;
+                        self.state = .l_bracket;
                     },
                     else => {
                         result.id = .content;
                     },
                 },
-                State.LBracket => switch (c) {
+                .l_bracket => switch (c) {
                     '#' => {
                         if (result.id != .eof) {
                             self.index -= 1;
-                            self.state = State.Start;
+                            self.state = .start;
                             break;
                         } else {
                             result.id = .bracket_open;
                             self.index += 1;
-                            self.state = State.TagName;
+                            self.state = .tag_name;
                             break;
                         }
                     },
                     else => {
                         result.id = .content;
-                        self.state = State.Start;
+                        self.state = .start;
                     },
                 },
-                State.TagName => switch (c) {
+                .tag_name => switch (c) {
                     '|' => {
                         if (result.id != .eof) {
                             break;
@@ -192,40 +192,40 @@ const Tokenizer = struct {
                         }
                     },
                     '#' => {
-                        self.state = State.Hash;
+                        self.state = .hash;
                     },
                     else => {
                         result.id = .tag_content;
                     },
                 },
-                State.Hash => switch (c) {
+                .hash => switch (c) {
                     '}' => {
                         if (result.id != .eof) {
                             self.index -= 1;
-                            self.state = State.TagName;
+                            self.state = .tag_name;
                             break;
                         } else {
                             result.id = .bracket_close;
                             self.index += 1;
-                            self.state = State.Start;
+                            self.state = .start;
                             break;
                         }
                     },
                     else => {
                         result.id = .tag_content;
-                        self.state = State.TagName;
+                        self.state = .tag_name;
                     },
                 },
-                State.Eof => unreachable,
+                .eof => unreachable,
             }
         } else {
             switch (self.state) {
-                State.Start, State.LBracket, State.Eof => {},
+                .start, .l_bracket, .eof => {},
                 else => {
                     result.id = .invalid;
                 },
             }
-            self.state = State.Eof;
+            self.state = .eof;
         }
         result.end = self.index;
         return result;
