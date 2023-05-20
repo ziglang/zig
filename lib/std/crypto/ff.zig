@@ -108,7 +108,7 @@ pub fn Uint(comptime max_bits: comptime_int) type {
             var x: T = 0;
             var i = self.limbs_count() - 1;
             while (true) : (i -= 1) {
-                if (@bitSizeOf(T) > t_bits and math.shr(T, x, @bitSizeOf(T) - t_bits) != 0) {
+                if (@bitSizeOf(T) >= t_bits and math.shr(T, x, @bitSizeOf(T) - t_bits) != 0) {
                     return error.Overflow;
                 }
                 x = math.shl(T, x, t_bits);
