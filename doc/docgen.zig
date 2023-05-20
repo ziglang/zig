@@ -111,13 +111,13 @@ const Token = struct {
     end: usize,
 
     const Id = enum {
-        Invalid,
-        Content,
-        BracketOpen,
-        TagContent,
-        Separator,
-        BracketClose,
-        Eof,
+        invalid,
+        content,
+        bracket_open,
+        tag_content,
+        separator,
+        bracket_close,
+        eof,
     };
 };
 
@@ -148,7 +148,7 @@ const Tokenizer = struct {
 
     fn next(self: *Tokenizer) Token {
         var result = Token{
-            .id = Token.Id.Eof,
+            .id = .eof,
             .start = self.index,
             .end = undefined,
         };
@@ -160,33 +160,33 @@ const Tokenizer = struct {
                         self.state = State.LBracket;
                     },
                     else => {
-                        result.id = Token.Id.Content;
+                        result.id = .content;
                     },
                 },
                 State.LBracket => switch (c) {
                     '#' => {
-                        if (result.id != Token.Id.Eof) {
+                        if (result.id != .eof) {
                             self.index -= 1;
                             self.state = State.Start;
                             break;
                         } else {
-                            result.id = Token.Id.BracketOpen;
+                            result.id = .bracket_open;
                             self.index += 1;
                             self.state = State.TagName;
                             break;
                         }
                     },
                     else => {
-                        result.id = Token.Id.Content;
+                        result.id = .content;
                         self.state = State.Start;
                     },
                 },
                 State.TagName => switch (c) {
                     '|' => {
-                        if (result.id != Token.Id.Eof) {
+                        if (result.id != .eof) {
                             break;
                         } else {
-                            result.id = Token.Id.Separator;
+                            result.id = .separator;
                             self.index += 1;
                             break;
                         }
@@ -195,24 +195,24 @@ const Tokenizer = struct {
                         self.state = State.Hash;
                     },
                     else => {
-                        result.id = Token.Id.TagContent;
+                        result.id = .tag_content;
                     },
                 },
                 State.Hash => switch (c) {
                     '}' => {
-                        if (result.id != Token.Id.Eof) {
+                        if (result.id != .eof) {
                             self.index -= 1;
                             self.state = State.TagName;
                             break;
                         } else {
-                            result.id = Token.Id.BracketClose;
+                            result.id = .bracket_close;
                             self.index += 1;
                             self.state = State.Start;
                             break;
                         }
                     },
                     else => {
-                        result.id = Token.Id.TagContent;
+                        result.id = .tag_content;
                         self.state = State.TagName;
                     },
                 },
@@ -222,7 +222,7 @@ const Tokenizer = struct {
             switch (self.state) {
                 State.Start, State.LBracket, State.Eof => {},
                 else => {
-                    result.id = Token.Id.Invalid;
+                    result.id = .invalid;
                 },
             }
             self.state = State.Eof;
@@ -404,38 +404,38 @@ fn genToc(allocator: Allocator, tokenizer: *Tokenizer) !Toc {
     while (true) {
         const token = tokenizer.next();
         switch (token.id) {
-            Token.Id.Eof => {
+            .eof => {
                 if (header_stack_size != 0) {
                     return parseError(tokenizer, token, "unbalanced headers", .{});
                 }
                 try toc.writeAll("    </ul>\n");
                 break;
             },
-            Token.Id.Content => {
+            .content => {
                 try nodes.append(Node{ .Content = tokenizer.buffer[token.start..token.end] });
             },
-            Token.Id.BracketOpen => {
-                const tag_token = try eatToken(tokenizer, Token.Id.TagContent);
+            .bracket_open => {
+                const tag_token = try eatToken(tokenizer, .tag_content);
                 const tag_name = tokenizer.buffer[tag_token.start..tag_token.end];
 
                 if (mem.eql(u8, tag_name, "nav")) {
-                    _ = try eatToken(tokenizer, Token.Id.BracketClose);
+                    _ = try eatToken(tokenizer, .bracket_close);
 
                     try nodes.append(Node.Nav);
                 } else if (mem.eql(u8, tag_name, "builtin")) {
-                    _ = try eatToken(tokenizer, Token.Id.BracketClose);
+                    _ = try eatToken(tokenizer, .bracket_close);
                     try nodes.append(Node{ .Builtin = tag_token });
                 } else if (mem.eql(u8, tag_name, "header_open")) {
-                    _ = try eatToken(tokenizer, Token.Id.Separator);
-                    const content_token = try eatToken(tokenizer, Token.Id.TagContent);
+                    _ = try eatToken(tokenizer, .separator);
+                    const content_token = try eatToken(tokenizer, .tag_content);
                     const content = tokenizer.buffer[content_token.start..content_token.end];
                     var columns: ?u8 = null;
                     while (true) {
                         const bracket_tok = tokenizer.next();
                         switch (bracket_tok.id) {
-                            .BracketClose => break,
-                            .Separator => continue,
-                            .TagContent => {
+                            .bracket_close => break,
+                            .separator => continue,
+                            .tag_content => {
                                 const param = tokenizer.buffer[bracket_tok.start..bracket_tok.end];
                                 if (mem.eql(u8, param, "2col")) {
                                     columns = 2;
@@ -486,7 +486,7 @@ fn genToc(allocator: Allocator, tokenizer: *Tokenizer) !Toc {
                         return parseError(tokenizer, tag_token, "unbalanced close header", .{});
                     }
                     header_stack_size -= 1;
-                    _ = try eatToken(tokenizer, Token.Id.BracketClose);
+                    _ = try eatToken(tokenizer, .bracket_close);
 
                     if (last_action == Action.Close) {
                         try toc.writeByteNTimes(' ', 8 + header_stack_size * 4);
@@ -502,15 +502,15 @@ fn genToc(allocator: Allocator, tokenizer: *Tokenizer) !Toc {
                     while (true) {
                         const see_also_tok = tokenizer.next();
                         switch (see_also_tok.id) {
-                            Token.Id.TagContent => {
+                            .tag_content => {
                                 const content = tokenizer.buffer[see_also_tok.start..see_also_tok.end];
                                 try list.append(SeeAlsoItem{
                                     .name = content,
                                     .token = see_also_tok,
                                 });
                             },
-                            Token.Id.Separator => {},
-                            Token.Id.BracketClose => {
+                            .separator => {},
+                            .bracket_close => {
                                 try nodes.append(Node{ .SeeAlso = try list.toOwnedSlice() });
                                 break;
                             },
@@ -518,17 +518,17 @@ fn genToc(allocator: Allocator, tokenizer: *Tokenizer) !Toc {
                         }
                     }
                 } else if (mem.eql(u8, tag_name, "link")) {
-                    _ = try eatToken(tokenizer, Token.Id.Separator);
-                    const name_tok = try eatToken(tokenizer, Token.Id.TagContent);
+                    _ = try eatToken(tokenizer, .separator);
+                    const name_tok = try eatToken(tokenizer, .tag_content);
                     const name = tokenizer.buffer[name_tok.start..name_tok.end];
 
                     const url_name = blk: {
                         const tok = tokenizer.next();
                         switch (tok.id) {
-                            Token.Id.BracketClose => break :blk name,
-                            Token.Id.Separator => {
-                                const explicit_text = try eatToken(tokenizer, Token.Id.TagContent);
-                                _ = try eatToken(tokenizer, Token.Id.BracketClose);
+                            .bracket_close => break :blk name,
+                            .separator => {
+                                const explicit_text = try eatToken(tokenizer, .tag_content);
+                                _ = try eatToken(tokenizer, .bracket_close);
                                 break :blk tokenizer.buffer[explicit_text.start..explicit_text.end];
                             },
                             else => return parseError(tokenizer, tok, "invalid link token", .{}),
@@ -543,20 +543,20 @@ fn genToc(allocator: Allocator, tokenizer: *Tokenizer) !Toc {
                         },
                     });
                 } else if (mem.eql(u8, tag_name, "code_begin")) {
-                    _ = try eatToken(tokenizer, Token.Id.Separator);
-                    const code_kind_tok = try eatToken(tokenizer, Token.Id.TagContent);
-                    _ = try eatToken(tokenizer, Token.Id.Separator);
-                    const name_tok = try eatToken(tokenizer, Token.Id.TagContent);
+                    _ = try eatToken(tokenizer, .separator);
+                    const code_kind_tok = try eatToken(tokenizer, .tag_content);
+                    _ = try eatToken(tokenizer, .separator);
+                    const name_tok = try eatToken(tokenizer, .tag_content);
                     const name = tokenizer.buffer[name_tok.start..name_tok.end];
                     var error_str: []const u8 = "";
                     const maybe_sep = tokenizer.next();
                     switch (maybe_sep.id) {
-                        Token.Id.Separator => {
-                            const error_tok = try eatToken(tokenizer, Token.Id.TagContent);
+                        .separator => {
+                            const error_tok = try eatToken(tokenizer, .tag_content);
                             error_str = tokenizer.buffer[error_tok.start..error_tok.end];
-                            _ = try eatToken(tokenizer, Token.Id.BracketClose);
+                            _ = try eatToken(tokenizer, .bracket_close);
                         },
-                        Token.Id.BracketClose => {},
+                        .bracket_close => {},
                         else => return parseError(tokenizer, token, "invalid token", .{}),
                     }
                     const code_kind_str = tokenizer.buffer[code_kind_tok.start..code_kind_tok.end];
@@ -599,9 +599,9 @@ fn genToc(allocator: Allocator, tokenizer: *Tokenizer) !Toc {
                     defer additional_options.deinit();
 
                     const source_token = while (true) {
-                        const content_tok = try eatToken(tokenizer, Token.Id.Content);
-                        _ = try eatToken(tokenizer, Token.Id.BracketOpen);
-                        const end_code_tag = try eatToken(tokenizer, Token.Id.TagContent);
+                        const content_tok = try eatToken(tokenizer, .content);
+                        _ = try eatToken(tokenizer, .bracket_open);
+                        const end_code_tag = try eatToken(tokenizer, .tag_content);
                         const end_tag_name = tokenizer.buffer[end_code_tag.start..end_code_tag.end];
                         if (mem.eql(u8, end_tag_name, "code_release_fast")) {
                             mode = .ReleaseFast;
@@ -612,8 +612,8 @@ fn genToc(allocator: Allocator, tokenizer: *Tokenizer) !Toc {
                         } else if (mem.eql(u8, end_tag_name, "code_verbose_cimport")) {
                             verbose_cimport = true;
                         } else if (mem.eql(u8, end_tag_name, "code_link_object")) {
-                            _ = try eatToken(tokenizer, Token.Id.Separator);
-                            const obj_tok = try eatToken(tokenizer, Token.Id.TagContent);
+                            _ = try eatToken(tokenizer, .separator);
+                            const obj_tok = try eatToken(tokenizer, .tag_content);
                             try link_objects.append(tokenizer.buffer[obj_tok.start..obj_tok.end]);
                         } else if (mem.eql(u8, end_tag_name, "target_windows")) {
                             target_str = "x86_64-windows";
@@ -630,11 +630,11 @@ fn genToc(allocator: Allocator, tokenizer: *Tokenizer) !Toc {
                         } else if (mem.eql(u8, end_tag_name, "link_mode_dynamic")) {
                             link_mode = .Dynamic;
                         } else if (mem.eql(u8, end_tag_name, "additonal_option")) {
-                            _ = try eatToken(tokenizer, Token.Id.Separator);
-                            const option = try eatToken(tokenizer, Token.Id.TagContent);
+                            _ = try eatToken(tokenizer, .separator);
+                            const option = try eatToken(tokenizer, .tag_content);
                             try additional_options.append(tokenizer.buffer[option.start..option.end]);
                         } else if (mem.eql(u8, end_tag_name, "code_end")) {
-                            _ = try eatToken(tokenizer, Token.Id.BracketClose);
+                            _ = try eatToken(tokenizer, .bracket_close);
                             break content_tok;
                         } else {
                             return parseError(
@@ -644,7 +644,7 @@ fn genToc(allocator: Allocator, tokenizer: *Tokenizer) !Toc {
                                 .{end_tag_name},
                             );
                         }
-                        _ = try eatToken(tokenizer, Token.Id.BracketClose);
+                        _ = try eatToken(tokenizer, .bracket_close);
                     } else unreachable; // TODO issue #707
                     try nodes.append(Node{
                         .Code = Code{
@@ -664,10 +664,10 @@ fn genToc(allocator: Allocator, tokenizer: *Tokenizer) !Toc {
                     });
                     tokenizer.code_node_count += 1;
                 } else if (mem.eql(u8, tag_name, "syntax")) {
-                    _ = try eatToken(tokenizer, Token.Id.BracketClose);
-                    const content_tok = try eatToken(tokenizer, Token.Id.Content);
-                    _ = try eatToken(tokenizer, Token.Id.BracketOpen);
-                    const end_syntax_tag = try eatToken(tokenizer, Token.Id.TagContent);
+                    _ = try eatToken(tokenizer, .bracket_close);
+                    const content_tok = try eatToken(tokenizer, .content);
+                    _ = try eatToken(tokenizer, .bracket_open);
+                    const end_syntax_tag = try eatToken(tokenizer, .tag_content);
                     const end_tag_name = tokenizer.buffer[end_syntax_tag.start..end_syntax_tag.end];
                     if (!mem.eql(u8, end_tag_name, "endsyntax")) {
                         return parseError(
@@ -677,13 +677,13 @@ fn genToc(allocator: Allocator, tokenizer: *Tokenizer) !Toc {
                             .{end_tag_name},
                         );
                     }
-                    _ = try eatToken(tokenizer, Token.Id.BracketClose);
+                    _ = try eatToken(tokenizer, .bracket_close);
                     try nodes.append(Node{ .InlineSyntax = content_tok });
                 } else if (mem.eql(u8, tag_name, "shell_samp")) {
-                    _ = try eatToken(tokenizer, Token.Id.BracketClose);
-                    const content_tok = try eatToken(tokenizer, Token.Id.Content);
-                    _ = try eatToken(tokenizer, Token.Id.BracketOpen);
-                    const end_syntax_tag = try eatToken(tokenizer, Token.Id.TagContent);
+                    _ = try eatToken(tokenizer, .bracket_close);
+                    const content_tok = try eatToken(tokenizer, .content);
+                    _ = try eatToken(tokenizer, .bracket_open);
+                    const end_syntax_tag = try eatToken(tokenizer, .tag_content);
                     const end_tag_name = tokenizer.buffer[end_syntax_tag.start..end_syntax_tag.end];
                     if (!mem.eql(u8, end_tag_name, "end_shell_samp")) {
                         return parseError(
@@ -693,20 +693,20 @@ fn genToc(allocator: Allocator, tokenizer: *Tokenizer) !Toc {
                             .{end_tag_name},
                         );
                     }
-                    _ = try eatToken(tokenizer, Token.Id.BracketClose);
+                    _ = try eatToken(tokenizer, .bracket_close);
                     try nodes.append(Node{ .Shell = content_tok });
                 } else if (mem.eql(u8, tag_name, "syntax_block")) {
-                    _ = try eatToken(tokenizer, Token.Id.Separator);
-                    const source_type_tok = try eatToken(tokenizer, Token.Id.TagContent);
+                    _ = try eatToken(tokenizer, .separator);
+                    const source_type_tok = try eatToken(tokenizer, .tag_content);
                     var name: []const u8 = "sample_code";
                     const maybe_sep = tokenizer.next();
                     switch (maybe_sep.id) {
-                        Token.Id.Separator => {
-                            const name_tok = try eatToken(tokenizer, Token.Id.TagContent);
+                        .separator => {
+                            const name_tok = try eatToken(tokenizer, .tag_content);
                             name = tokenizer.buffer[name_tok.start..name_tok.end];
-                            _ = try eatToken(tokenizer, Token.Id.BracketClose);
+                            _ = try eatToken(tokenizer, .bracket_close);
                         },
-                        Token.Id.BracketClose => {},
+                        .bracket_close => {},
                         else => return parseError(tokenizer, token, "invalid token", .{}),
                     }
                     const source_type_str = tokenizer.buffer[source_type_tok.start..source_type_tok.end];
@@ -723,12 +723,12 @@ fn genToc(allocator: Allocator, tokenizer: *Tokenizer) !Toc {
                         return parseError(tokenizer, source_type_tok, "unrecognized code kind: {s}", .{source_type_str});
                     }
                     const source_token = while (true) {
-                        const content_tok = try eatToken(tokenizer, Token.Id.Content);
-                        _ = try eatToken(tokenizer, Token.Id.BracketOpen);
-                        const end_code_tag = try eatToken(tokenizer, Token.Id.TagContent);
+                        const content_tok = try eatToken(tokenizer, .content);
+                        _ = try eatToken(tokenizer, .bracket_open);
+                        const end_code_tag = try eatToken(tokenizer, .tag_content);
                         const end_tag_name = tokenizer.buffer[end_code_tag.start..end_code_tag.end];
                         if (mem.eql(u8, end_tag_name, "end_syntax_block")) {
-                            _ = try eatToken(tokenizer, Token.Id.BracketClose);
+                            _ = try eatToken(tokenizer, .bracket_close);
                             break content_tok;
                         } else {
                             return parseError(
@@ -738,7 +738,7 @@ fn genToc(allocator: Allocator, tokenizer: *Tokenizer) !Toc {
                                 .{end_tag_name},
                             );
                         }
-                        _ = try eatToken(tokenizer, Token.Id.BracketClose);
+                        _ = try eatToken(tokenizer, .bracket_close);
                     };
                     try nodes.append(Node{ .SyntaxBlock = SyntaxBlock{ .source_type = source_type, .name = name, .source_token = source_token } });
                 } else {
