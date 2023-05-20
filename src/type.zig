@@ -3148,8 +3148,13 @@ pub const Type = struct {
     pub fn enumTagFieldIndex(ty: Type, enum_tag: Value, mod: *Module) ?u32 {
         const ip = &mod.intern_pool;
         const enum_type = ip.indexToKey(ty.ip_index).enum_type;
-        assert(ip.typeOf(enum_tag.ip_index) == enum_type.tag_ty);
-        return enum_type.tagValueIndex(ip, enum_tag.ip_index);
+        const int_tag = switch (ip.indexToKey(enum_tag.ip_index)) {
+            .int => enum_tag.ip_index,
+            .enum_tag => |info| info.int,
+            else => unreachable,
+        };
+        assert(ip.typeOf(int_tag) == enum_type.tag_ty);
+        return enum_type.tagValueIndex(ip, int_tag);
     }
 
     pub fn structFields(ty: Type, mod: *Module) Module.Struct.Fields {
