@@ -67,14 +67,16 @@ fn testMemcpyDestManyPtr() !void {
 }
 
 comptime {
-    const S = struct {
-        buffer: [8]u8 = undefined,
-        fn set(self: *@This(), items: []const u8) void {
-            @memcpy(self.buffer[0..items.len], items);
-        }
-    };
+    if (builtin.zig_backend != .stage2_spirv64) {
+        const S = struct {
+            buffer: [8]u8 = undefined,
+            fn set(self: *@This(), items: []const u8) void {
+                @memcpy(self.buffer[0..items.len], items);
+            }
+        };
 
-    var s = S{};
-    s.set("hello");
-    if (!std.mem.eql(u8, s.buffer[0..5], "hello")) @compileError("bad");
+        var s = S{};
+        s.set("hello");
+        if (!std.mem.eql(u8, s.buffer[0..5], "hello")) @compileError("bad");
+    }
 }

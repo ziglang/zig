@@ -8,7 +8,6 @@ const expectEqualStrings = std.testing.expectEqualStrings;
 test "passing an optional integer as a parameter" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const S = struct {
         fn entry() bool {
@@ -422,7 +421,6 @@ test "optional of noreturn used with orelse" {
 }
 
 test "orelse on C pointer" {
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     // TODO https://github.com/ziglang/zig/issues/6597
     const foo: [*c]const u8 = "hey";

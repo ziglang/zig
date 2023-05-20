@@ -5,8 +5,6 @@ const expect = testing.expect;
 const expectEqual = testing.expectEqual;
 
 test "params" {
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
-
     try expect(testParamsAdd(22, 11) == 33);
 }
 fn testParamsAdd(a: i32, b: i32) i32 {
@@ -14,8 +12,6 @@ fn testParamsAdd(a: i32, b: i32) i32 {
 }
 
 test "local variables" {
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
-
     testLocVars(2);
 }
 fn testLocVars(b: i32) void {

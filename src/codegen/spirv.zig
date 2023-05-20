@@ -242,7 +242,7 @@ pub const DeclGen = struct {
                 return self.spv.declPtr(spv_decl_index).result_id;
             }
 
-            return try self.constant(ty, val);
+            return try self.constant(ty, val, .direct);
         }
         const index = Air.refToIndex(inst).?;
         return self.inst_results.get(index).?; // Assertion means instruction does not dominate usage.
@@ -369,21 +369,11 @@ pub const DeclGen = struct {
                         .composite_integer,
                 };
             },
-            .Enum => blk: {
-                var buffer: Type.Payload.Bits = undefined;
-                const int_ty = ty.intTagType(&buffer);
-                const int_info = int_ty.intInfo(target);
-                break :blk ArithmeticTypeInfo{
-                    .bits = int_info.bits,
-                    .is_vector = false,
-                    .signedness = int_info.signedness,
-                    .class = .integer,
-                };
-            },
             // As of yet, there is no vector support in the self-hosted compiler.
             .Vector => self.todo("implement arithmeticTypeInfo for Vector", .{}),
             // TODO: For which types is this the case?
-            else => self.todo("implement arithmeticTypeInfo for {}", .{ty.fmt(self.module)}),
+            // else => self.todo("implement arithmeticTypeInfo for {}", .{ty.fmt(self.module)}),
+            else => unreachable,
         };
     }
 
@@ -450,6 +440,37 @@ pub const DeclGen = struct {
                 return result_id;
             },
         }
+    }
+
+    /// Construct a struct at runtime.
+    /// result_ty_ref must be a struct type.
+    fn constructStruct(self: *DeclGen, result_ty_ref: SpvType.Ref, constituents: []const IdRef) !IdRef {
+        // The Khronos LLVM-SPIRV translator crashes because it cannot construct structs which'
+        // operands are not constant.
+        // See https://github.com/KhronosGroup/SPIRV-LLVM-Translator/issues/1349
+        // For now, just initialize the struct by setting the fields manually...
+        // TODO: Make this OpCompositeConstruct when we can
+        const ptr_composite_id = try self.alloc(result_ty_ref, null);
+        // Note: using 32-bit ints here because usize crashes the translator as well
+        const index_ty_ref = try self.intType(.unsigned, 32);
+        const spv_composite_ty = self.spv.typeRefType(result_ty_ref);
+        const members = spv_composite_ty.payload(.@"struct").members;
+        for (constituents, members, 0..) |constitent_id, member, index| {
+            const index_id = try self.constInt(index_ty_ref, index);
+            const ptr_member_ty_ref = try self.spv.ptrType(member.ty, .Generic, 0);
+            const ptr_id = try self.accessChain(ptr_member_ty_ref, ptr_composite_id, &.{index_id});
+            try self.func.body.emit(self.spv.gpa, .OpStore, .{
+                .pointer = ptr_id,
+                .object = constitent_id,
+            });
+        }
+        const result_id = self.spv.allocId();
+        try self.func.body.emit(self.spv.gpa, .OpLoad, .{
+            .id_result_type = self.typeId(result_ty_ref),
+            .id_result = result_id,
+            .pointer = ptr_composite_id,
+        });
+        return result_id;
     }
 
     const IndirectConstantLowering = struct {
@@ -704,6 +725,10 @@ pub const DeclGen = struct {
 
                         try self.lower(ptr_ty, slice.ptr);
                         try self.addInt(Type.usize, slice.len);
+                    },
+                    .null_value, .zero => try self.addNullPtr(try dg.resolveType(ty, .indirect)),
+                    .int_u64, .one, .int_big_positive, .lazy_align, .lazy_size => {
+                        try self.addInt(Type.usize, val);
                     },
                     else => |tag| return dg.todo("pointer value of type {s}", .{@tagName(tag)}),
                 },
@@ -996,14 +1021,16 @@ pub const DeclGen = struct {
     /// the constant is more complicated however, it needs to be lowered to an indirect constant, which
     /// is then loaded using OpLoad. Such values are loaded into the UniformConstant storage class by default.
     /// This function should only be called during function code generation.
-    fn constant(self: *DeclGen, ty: Type, val: Value) !IdRef {
+    fn constant(self: *DeclGen, ty: Type, val: Value, repr: Repr) !IdRef {
         const target = self.getTarget();
         const section = &self.spv.sections.types_globals_constants;
-        const result_ty_ref = try self.resolveType(ty, .direct);
+        const result_ty_ref = try self.resolveType(ty, repr);
         const result_ty_id = self.typeId(result_ty_ref);
-        const result_id = self.spv.allocId();
+
+        log.debug("constant: ty = {}, val = {}", .{ ty.fmt(self.module), val.fmtValue(ty, self.module) });
 
         if (val.isUndef()) {
+            const result_id = self.spv.allocId();
             try section.emit(self.spv.gpa, .OpUndef, .{
                 .id_result_type = result_ty_id,
                 .id_result = result_id,
@@ -1014,24 +1041,76 @@ pub const DeclGen = struct {
         switch (ty.zigTypeTag()) {
             .Int => {
                 if (ty.isSignedInt()) {
-                    try self.genConstInt(result_ty_ref, result_id, val.toSignedInt(target));
+                    return try self.constInt(result_ty_ref, val.toSignedInt(target));
                 } else {
-                    try self.genConstInt(result_ty_ref, result_id, val.toUnsignedInt(target));
+                    return try self.constInt(result_ty_ref, val.toUnsignedInt(target));
                 }
             },
-            .Bool => {
-                const operands = .{ .id_result_type = result_ty_id, .id_result = result_id };
-                if (val.toBool()) {
-                    try section.emit(self.spv.gpa, .OpConstantTrue, operands);
-                } else {
-                    try section.emit(self.spv.gpa, .OpConstantFalse, operands);
+            .Bool => switch (repr) {
+                .direct => {
+                    const result_id = self.spv.allocId();
+                    const operands = .{ .id_result_type = result_ty_id, .id_result = result_id };
+                    if (val.toBool()) {
+                        try section.emit(self.spv.gpa, .OpConstantTrue, operands);
+                    } else {
+                        try section.emit(self.spv.gpa, .OpConstantFalse, operands);
+                    }
+                    return result_id;
+                },
+                .indirect => return try self.constInt(result_ty_ref, @boolToInt(val.toBool())),
+            },
+            .Float => {
+                const result_id = self.spv.allocId();
+                switch (ty.floatBits(target)) {
+                    16 => try self.spv.emitConstant(result_ty_id, result_id, .{ .float32 = val.toFloat(f16) }),
+                    32 => try self.spv.emitConstant(result_ty_id, result_id, .{ .float32 = val.toFloat(f32) }),
+                    64 => try self.spv.emitConstant(result_ty_id, result_id, .{ .float64 = val.toFloat(f64) }),
+                    80, 128 => unreachable, // TODO
+                    else => unreachable,
                 }
+                return result_id;
+            },
+            .ErrorSet => {
+                const value = switch (val.tag()) {
+                    .@"error" => blk: {
+                        const err_name = val.castTag(.@"error").?.data.name;
+                        const kv = try self.module.getErrorValue(err_name);
+                        break :blk @intCast(u16, kv.value);
+                    },
+                    .zero => 0,
+                    else => unreachable,
+                };
+
+                return try self.constInt(result_ty_ref, value);
+            },
+            .ErrorUnion => {
+                const payload_ty = ty.errorUnionPayload();
+                const is_pl = val.errorUnionIsPayload();
+                const error_val = if (!is_pl) val else Value.initTag(.zero);
+
+                const eu_layout = self.errorUnionLayout(payload_ty);
+                if (!eu_layout.payload_has_bits) {
+                    return try self.constant(Type.anyerror, error_val, repr);
+                }
+
+                const payload_val = if (val.castTag(.eu_payload)) |pl| pl.data else Value.initTag(.undef);
+
+                var members: [2]IdRef = undefined;
+                if (eu_layout.error_first) {
+                    members[0] = try self.constant(Type.anyerror, error_val, .indirect);
+                    members[1] = try self.constant(payload_ty, payload_val, .indirect);
+                } else {
+                    members[0] = try self.constant(payload_ty, payload_val, .indirect);
+                    members[1] = try self.constant(Type.anyerror, error_val, .indirect);
+                }
+                return try self.spv.constComposite(result_ty_ref, &members);
             },
             // TODO: We can handle most pointers here (decl refs etc), because now they emit an extra
             // OpVariable that is not really required.
             else => {
                 // The value cannot be generated directly, so generate it as an indirect constant,
                 // and then perform an OpLoad.
+                const result_id = self.spv.allocId();
                 const alignment = ty.abiAlignment(target);
                 const spv_decl_index = try self.spv.allocDecl(.global);
 
@@ -1053,10 +1132,9 @@ pub const DeclGen = struct {
                 });
                 // TODO: Convert bools? This logic should hook into `load`. It should be a dead
                 // path though considering .Bool is handled above.
+                return result_id;
             },
         }
-
-        return result_id;
     }
 
     /// Turn a Zig type into a SPIR-V Type, and return its type result-id.
@@ -1592,10 +1670,23 @@ pub const DeclGen = struct {
         }
     }
 
+    fn boolToInt(self: *DeclGen, result_ty_ref: SpvType.Ref, condition_id: IdRef) !IdRef {
+        const zero_id = try self.constInt(result_ty_ref, 0);
+        const one_id = try self.constInt(result_ty_ref, 1);
+        const result_id = self.spv.allocId();
+        try self.func.body.emit(self.spv.gpa, .OpSelect, .{
+            .id_result_type = self.typeId(result_ty_ref),
+            .id_result = result_id,
+            .condition = condition_id,
+            .object_1 = one_id,
+            .object_2 = zero_id,
+        });
+        return result_id;
+    }
+
     /// Convert representation from indirect (in memory) to direct (in 'register')
     /// This converts the argument type from resolveType(ty, .indirect) to resolveType(ty, .direct).
     fn convertToDirect(self: *DeclGen, ty: Type, operand_id: IdRef) !IdRef {
-        // const direct_ty_ref = try self.resolveType(ty, .direct);
         return switch (ty.zigTypeTag()) {
             .Bool => blk: {
                 const direct_bool_ty_ref = try self.resolveType(ty, .direct);
@@ -1620,17 +1711,7 @@ pub const DeclGen = struct {
         return switch (ty.zigTypeTag()) {
             .Bool => blk: {
                 const indirect_bool_ty_ref = try self.resolveType(ty, .indirect);
-                const zero_id = try self.constInt(indirect_bool_ty_ref, 0);
-                const one_id = try self.constInt(indirect_bool_ty_ref, 1);
-                const result_id = self.spv.allocId();
-                try self.func.body.emit(self.spv.gpa, .OpSelect, .{
-                    .id_result_type = self.typeId(indirect_bool_ty_ref),
-                    .id_result = result_id,
-                    .condition = operand_id,
-                    .object_1 = one_id,
-                    .object_2 = zero_id,
-                });
-                break :blk result_id;
+                break :blk self.boolToInt(indirect_bool_ty_ref, operand_id);
             },
             else => operand_id,
         };
@@ -1714,6 +1795,9 @@ pub const DeclGen = struct {
 
             .shuffle => try self.airShuffle(inst),
 
+            .ptr_add => try self.airPtrAdd(inst),
+            .ptr_sub => try self.airPtrSub(inst),
+
             .bit_and  => try self.airBinOpSimple(inst, .OpBitwiseAnd),
             .bit_or   => try self.airBinOpSimple(inst, .OpBitwiseOr),
             .xor      => try self.airBinOpSimple(inst, .OpBitwiseXor),
@@ -1722,8 +1806,8 @@ pub const DeclGen = struct {
 
             .shl => try self.airShift(inst, .OpShiftLeftLogical),
 
-            .bitcast         => try self.airBitcast(inst),
-            .intcast, .trunc => try self.airIntcast(inst),
+            .bitcast         => try self.airBitCast(inst),
+            .intcast, .trunc => try self.airIntCast(inst),
             .ptrtoint        => try self.airPtrToInt(inst),
             .int_to_float    => try self.airIntToFloat(inst),
             .float_to_int    => try self.airFloatToInt(inst),
@@ -1734,6 +1818,7 @@ pub const DeclGen = struct {
             .slice_elem_ptr => try self.airSliceElemPtr(inst),
             .slice_elem_val => try self.airSliceElemVal(inst),
             .ptr_elem_ptr   => try self.airPtrElemPtr(inst),
+            .ptr_elem_val   => try self.airPtrElemVal(inst),
 
             .get_union_tag => try self.airGetUnionTag(inst),
             .struct_field_val => try self.airStructFieldVal(inst),
@@ -1743,12 +1828,12 @@ pub const DeclGen = struct {
             .struct_field_ptr_index_2 => try self.airStructFieldPtrIndex(inst, 2),
             .struct_field_ptr_index_3 => try self.airStructFieldPtrIndex(inst, 3),
 
-            .cmp_eq  => try self.airCmp(inst, .OpFOrdEqual,            .OpLogicalEqual,      .OpIEqual),
-            .cmp_neq => try self.airCmp(inst, .OpFOrdNotEqual,         .OpLogicalNotEqual,   .OpINotEqual),
-            .cmp_gt  => try self.airCmp(inst, .OpFOrdGreaterThan,      .OpSGreaterThan,      .OpUGreaterThan),
-            .cmp_gte => try self.airCmp(inst, .OpFOrdGreaterThanEqual, .OpSGreaterThanEqual, .OpUGreaterThanEqual),
-            .cmp_lt  => try self.airCmp(inst, .OpFOrdLessThan,         .OpSLessThan,         .OpULessThan),
-            .cmp_lte => try self.airCmp(inst, .OpFOrdLessThanEqual,    .OpSLessThanEqual,    .OpULessThanEqual),
+            .cmp_eq  => try self.airCmp(inst, .eq),
+            .cmp_neq => try self.airCmp(inst, .neq),
+            .cmp_gt  => try self.airCmp(inst, .gt),
+            .cmp_gte => try self.airCmp(inst, .gte),
+            .cmp_lt  => try self.airCmp(inst, .lt),
+            .cmp_lte => try self.airCmp(inst, .lte),
 
             .arg     => self.airArg(),
             .alloc   => try self.airAlloc(inst),
@@ -1944,64 +2029,83 @@ pub const DeclGen = struct {
             .float, .bool => unreachable,
         }
 
-        // The operand type must be the same as the result type in SPIR-V.
+        // The operand type must be the same as the result type in SPIR-V, which
+        // is the same as in Zig.
         const operand_ty_ref = try self.resolveType(operand_ty, .direct);
         const operand_ty_id = self.typeId(operand_ty_ref);
 
-        const op_result_id = blk: {
-            // Construct the SPIR-V result type.
-            // It is almost the same as the zig one, except that the fields must be the same type
-            // and they must be unsigned.
-            const overflow_result_ty_ref = try self.spv.simpleStructType(&.{
-                .{ .ty = operand_ty_ref, .name = "res" },
-                .{ .ty = operand_ty_ref, .name = "ov" },
-            });
-            const result_id = self.spv.allocId();
-            try self.func.body.emit(self.spv.gpa, .OpIAddCarry, .{
-                .id_result_type = self.typeId(overflow_result_ty_ref),
-                .id_result = result_id,
-                .operand_1 = lhs,
-                .operand_2 = rhs,
-            });
-            break :blk result_id;
-        };
+        const bool_ty_ref = try self.resolveType(Type.bool, .direct);
 
-        // Now convert the SPIR-V flavor result into a Zig-flavor result.
-        // First, extract the two fields.
-        const unsigned_result = try self.extractField(operand_ty, op_result_id, 0);
-        const overflow = try self.extractField(operand_ty, op_result_id, 1);
+        const ov_ty = result_ty.tupleFields().types[1];
+        // Note: result is stored in a struct, so indirect representation.
+        const ov_ty_ref = try self.resolveType(ov_ty, .indirect);
 
-        // We need to convert the results to the types that Zig expects here.
-        // The `result` is the same type except unsigned, so we can just bitcast that.
-        // TODO: This can be removed in Kernels as there are only unsigned ints. Maybe for
-        // shaders as well?
-        const result = try self.bitcast(operand_ty_id, unsigned_result);
-
-        // The overflow needs to be converted into whatever is used to represent it in Zig.
-        const casted_overflow = blk: {
-            const ov_ty = result_ty.tupleFields().types[1];
-            const ov_ty_id = try self.resolveTypeId(ov_ty);
-            const result_id = self.spv.allocId();
-            try self.func.body.emit(self.spv.gpa, .OpUConvert, .{
-                .id_result_type = ov_ty_id,
-                .id_result = result_id,
-                .unsigned_value = overflow,
-            });
-            break :blk result_id;
-        };
-
-        // TODO: If copying this function for borrow, make sure to convert -1 to 1 as appropriate.
-
-        // Finally, construct the Zig type.
-        // Layout is result, overflow.
-        const result_id = self.spv.allocId();
-        const constituents = [_]IdRef{ result, casted_overflow };
-        try self.func.body.emit(self.spv.gpa, .OpCompositeConstruct, .{
+        // TODO: Operations other than addition.
+        const value_id = self.spv.allocId();
+        try self.func.body.emit(self.spv.gpa, .OpIAdd, .{
             .id_result_type = operand_ty_id,
-            .id_result = result_id,
-            .constituents = &constituents,
+            .id_result = value_id,
+            .operand_1 = lhs,
+            .operand_2 = rhs,
         });
-        return result_id;
+
+        const overflowed_id = switch (info.signedness) {
+            .unsigned => blk: {
+                // Overflow happened if the result is smaller than either of the operands. It doesn't matter which.
+                const overflowed_id = self.spv.allocId();
+                try self.func.body.emit(self.spv.gpa, .OpULessThan, .{
+                    .id_result_type = self.typeId(bool_ty_ref),
+                    .id_result = overflowed_id,
+                    .operand_1 = value_id,
+                    .operand_2 = lhs,
+                });
+                break :blk overflowed_id;
+            },
+            .signed => blk: {
+                // Overflow happened if:
+                // - rhs is negative and value > lhs
+                // - rhs is positive and value < lhs
+                // This can be shortened to:
+                //   (rhs < 0 && value > lhs) || (rhs >= 0 && value <= lhs)
+                // = (rhs < 0) == (value > lhs)
+                // Note that signed overflow is also wrapping in spir-v.
+
+                const rhs_lt_zero_id = self.spv.allocId();
+                const zero_id = try self.constInt(operand_ty_ref, 0);
+                try self.func.body.emit(self.spv.gpa, .OpSLessThan, .{
+                    .id_result_type = self.typeId(bool_ty_ref),
+                    .id_result = rhs_lt_zero_id,
+                    .operand_1 = rhs,
+                    .operand_2 = zero_id,
+                });
+
+                const value_gt_lhs_id = self.spv.allocId();
+                try self.func.body.emit(self.spv.gpa, .OpSGreaterThan, .{
+                    .id_result_type = self.typeId(bool_ty_ref),
+                    .id_result = value_gt_lhs_id,
+                    .operand_1 = value_id,
+                    .operand_2 = lhs,
+                });
+
+                const overflowed_id = self.spv.allocId();
+                try self.func.body.emit(self.spv.gpa, .OpLogicalEqual, .{
+                    .id_result_type = self.typeId(bool_ty_ref),
+                    .id_result = overflowed_id,
+                    .operand_1 = rhs_lt_zero_id,
+                    .operand_2 = value_gt_lhs_id,
+                });
+                break :blk overflowed_id;
+            },
+        };
+
+        // Construct the struct that Zig wants as result.
+        // The value should already be the correct type.
+        const ov_id = try self.boolToInt(ov_ty_ref, overflowed_id);
+        const result_ty_ref = try self.resolveType(result_ty, .direct);
+        return try self.constructStruct(result_ty_ref, &.{
+            value_id,
+            ov_id,
+        });
     }
 
     fn airShuffle(self: *DeclGen, inst: Air.Inst.Index) !?IdRef {
@@ -2040,84 +2144,261 @@ pub const DeclGen = struct {
         return result_id;
     }
 
-    fn airCmp(self: *DeclGen, inst: Air.Inst.Index, comptime fop: Opcode, comptime sop: Opcode, comptime uop: Opcode) !?IdRef {
-        if (self.liveness.isUnused(inst)) return null;
-        const bin_op = self.air.instructions.items(.data)[inst].bin_op;
-        var lhs_id = try self.resolve(bin_op.lhs);
-        var rhs_id = try self.resolve(bin_op.rhs);
+    /// AccessChain is essentially PtrAccessChain with 0 as initial argument. The effective
+    /// difference lies in whether the resulting type of the first dereference will be the
+    /// same as that of the base pointer, or that of a dereferenced base pointer. AccessChain
+    /// is the latter and PtrAccessChain is the former.
+    fn accessChain(
+        self: *DeclGen,
+        result_ty_ref: SpvType.Ref,
+        base: IdRef,
+        indexes: []const IdRef,
+    ) !IdRef {
         const result_id = self.spv.allocId();
-        const result_type_id = try self.resolveTypeId(Type.bool);
-        const op_ty = self.air.typeOf(bin_op.lhs);
-        assert(op_ty.eql(self.air.typeOf(bin_op.rhs), self.module));
-
-        // Comparisons are generally applicable to both scalar and vector operations in SPIR-V,
-        // but int and float versions of operations require different opcodes.
-        const info = try self.arithmeticTypeInfo(op_ty);
-
-        const opcode_index: usize = switch (info.class) {
-            .composite_integer => {
-                return self.todo("binary operations for composite integers", .{});
-            },
-            .float => 0,
-            .bool => 1,
-            .strange_integer => blk: {
-                const op_ty_ref = try self.resolveType(op_ty, .direct);
-                lhs_id = try self.maskStrangeInt(op_ty_ref, lhs_id, info.bits);
-                rhs_id = try self.maskStrangeInt(op_ty_ref, rhs_id, info.bits);
-                break :blk switch (info.signedness) {
-                    .signed => @as(usize, 1),
-                    .unsigned => @as(usize, 2),
-                };
-            },
-            .integer => switch (info.signedness) {
-                .signed => @as(usize, 1),
-                .unsigned => @as(usize, 2),
-            },
-        };
-
-        const operands = .{
-            .id_result_type = result_type_id,
+        try self.func.body.emit(self.spv.gpa, .OpInBoundsAccessChain, .{
+            .id_result_type = self.typeId(result_ty_ref),
             .id_result = result_id,
-            .operand_1 = lhs_id,
-            .operand_2 = rhs_id,
-        };
-
-        switch (opcode_index) {
-            0 => try self.func.body.emit(self.spv.gpa, fop, operands),
-            1 => try self.func.body.emit(self.spv.gpa, sop, operands),
-            2 => try self.func.body.emit(self.spv.gpa, uop, operands),
-            else => unreachable,
-        }
-
-        return result_id;
-    }
-
-    fn bitcast(self: *DeclGen, target_type_id: IdResultType, value_id: IdRef) !IdRef {
-        const result_id = self.spv.allocId();
-        try self.func.body.emit(self.spv.gpa, .OpBitcast, .{
-            .id_result_type = target_type_id,
-            .id_result = result_id,
-            .operand = value_id,
+            .base = base,
+            .indexes = indexes,
         });
         return result_id;
     }
 
-    fn airBitcast(self: *DeclGen, inst: Air.Inst.Index) !?IdRef {
+    fn ptrAccessChain(
+        self: *DeclGen,
+        result_ty_ref: SpvType.Ref,
+        base: IdRef,
+        element: IdRef,
+        indexes: []const IdRef,
+    ) !IdRef {
+        const result_id = self.spv.allocId();
+        try self.func.body.emit(self.spv.gpa, .OpInBoundsPtrAccessChain, .{
+            .id_result_type = self.typeId(result_ty_ref),
+            .id_result = result_id,
+            .base = base,
+            .element = element,
+            .indexes = indexes,
+        });
+        return result_id;
+    }
+
+    fn ptrAdd(self: *DeclGen, result_ty: Type, ptr_ty: Type, ptr_id: IdRef, offset_id: IdRef) !IdRef {
+        const result_ty_ref = try self.resolveType(result_ty, .direct);
+
+        switch (ptr_ty.ptrSize()) {
+            .One => {
+                // Pointer to array
+                // TODO: Is this correct?
+                return try self.accessChain(result_ty_ref, ptr_id, &.{offset_id});
+            },
+            .C, .Many => {
+                return try self.ptrAccessChain(result_ty_ref, ptr_id, offset_id, &.{});
+            },
+            .Slice => {
+                // TODO: This is probably incorrect. A slice should be returned here, though this is what llvm does.
+                const slice_ptr_id = try self.extractField(result_ty, ptr_id, 0);
+                return try self.ptrAccessChain(result_ty_ref, slice_ptr_id, offset_id, &.{});
+            },
+        }
+    }
+
+    fn airPtrAdd(self: *DeclGen, inst: Air.Inst.Index) !?IdRef {
+        if (self.liveness.isUnused(inst)) return null;
+        const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
+        const bin_op = self.air.extraData(Air.Bin, ty_pl.payload).data;
+        const ptr_id = try self.resolve(bin_op.lhs);
+        const offset_id = try self.resolve(bin_op.rhs);
+        const ptr_ty = self.air.typeOf(bin_op.lhs);
+        const result_ty = self.air.typeOfIndex(inst);
+
+        return try self.ptrAdd(result_ty, ptr_ty, ptr_id, offset_id);
+    }
+
+    fn airPtrSub(self: *DeclGen, inst: Air.Inst.Index) !?IdRef {
+        if (self.liveness.isUnused(inst)) return null;
+        const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
+        const bin_op = self.air.extraData(Air.Bin, ty_pl.payload).data;
+        const ptr_id = try self.resolve(bin_op.lhs);
+        const ptr_ty = self.air.typeOf(bin_op.lhs);
+        const offset_id = try self.resolve(bin_op.rhs);
+        const offset_ty = self.air.typeOf(bin_op.rhs);
+        const offset_ty_ref = try self.resolveType(offset_ty, .direct);
+        const result_ty = self.air.typeOfIndex(inst);
+
+        const negative_offset_id = self.spv.allocId();
+        try self.func.body.emit(self.spv.gpa, .OpSNegate, .{
+            .id_result_type = self.typeId(offset_ty_ref),
+            .id_result = negative_offset_id,
+            .operand = offset_id,
+        });
+        return try self.ptrAdd(result_ty, ptr_ty, ptr_id, negative_offset_id);
+    }
+
+    fn cmp(
+        self: *DeclGen,
+        comptime op: std.math.CompareOperator,
+        bool_ty_id: IdRef,
+        ty: Type,
+        lhs_id: IdRef,
+        rhs_id: IdRef,
+    ) !IdRef {
+        var cmp_lhs_id = lhs_id;
+        var cmp_rhs_id = rhs_id;
+        const opcode: Opcode = opcode: {
+            var int_buffer: Type.Payload.Bits = undefined;
+            const op_ty = switch (ty.zigTypeTag()) {
+                .Int, .Bool, .Float => ty,
+                .Enum => ty.intTagType(&int_buffer),
+                .ErrorSet => Type.u16,
+                .Pointer => blk: {
+                    // Note that while SPIR-V offers OpPtrEqual and OpPtrNotEqual, they are
+                    // currently not implemented in the SPIR-V LLVM translator. Thus, we emit these using
+                    // OpConvertPtrToU...
+                    cmp_lhs_id = self.spv.allocId();
+                    cmp_rhs_id = self.spv.allocId();
+
+                    const usize_ty_id = self.typeId(try self.sizeType());
+
+                    try self.func.body.emit(self.spv.gpa, .OpConvertPtrToU, .{
+                        .id_result_type = usize_ty_id,
+                        .id_result = cmp_lhs_id,
+                        .pointer = lhs_id,
+                    });
+
+                    try self.func.body.emit(self.spv.gpa, .OpConvertPtrToU, .{
+                        .id_result_type = usize_ty_id,
+                        .id_result = cmp_rhs_id,
+                        .pointer = rhs_id,
+                    });
+
+                    break :blk Type.usize;
+                },
+                .Optional => unreachable, // TODO
+                else => unreachable,
+            };
+
+            const info = try self.arithmeticTypeInfo(op_ty);
+            const signedness = switch (info.class) {
+                .composite_integer => {
+                    return self.todo("binary operations for composite integers", .{});
+                },
+                .float => break :opcode switch (op) {
+                    .eq => .OpFOrdEqual,
+                    .neq => .OpFOrdNotEqual,
+                    .lt => .OpFOrdLessThan,
+                    .lte => .OpFOrdLessThanEqual,
+                    .gt => .OpFOrdGreaterThan,
+                    .gte => .OpFOrdGreaterThanEqual,
+                },
+                .bool => break :opcode switch (op) {
+                    .eq => .OpIEqual,
+                    .neq => .OpINotEqual,
+                    else => unreachable,
+                },
+                .strange_integer => sign: {
+                    const op_ty_ref = try self.resolveType(op_ty, .direct);
+                    // Mask operands before performing comparison.
+                    cmp_lhs_id = try self.maskStrangeInt(op_ty_ref, cmp_lhs_id, info.bits);
+                    cmp_rhs_id = try self.maskStrangeInt(op_ty_ref, cmp_rhs_id, info.bits);
+                    break :sign info.signedness;
+                },
+                .integer => info.signedness,
+            };
+
+            break :opcode switch (signedness) {
+                .unsigned => switch (op) {
+                    .eq => .OpIEqual,
+                    .neq => .OpINotEqual,
+                    .lt => .OpULessThan,
+                    .lte => .OpULessThanEqual,
+                    .gt => .OpUGreaterThan,
+                    .gte => .OpUGreaterThanEqual,
+                },
+                .signed => switch (op) {
+                    .eq => .OpIEqual,
+                    .neq => .OpINotEqual,
+                    .lt => .OpSLessThan,
+                    .lte => .OpSLessThanEqual,
+                    .gt => .OpSGreaterThan,
+                    .gte => .OpSGreaterThanEqual,
+                },
+            };
+        };
+
+        const result_id = self.spv.allocId();
+        try self.func.body.emitRaw(self.spv.gpa, opcode, 4);
+        self.func.body.writeOperand(spec.IdResultType, bool_ty_id);
+        self.func.body.writeOperand(spec.IdResult, result_id);
+        self.func.body.writeOperand(spec.IdResultType, cmp_lhs_id);
+        self.func.body.writeOperand(spec.IdResultType, cmp_rhs_id);
+        return result_id;
+    }
+
+    fn airCmp(
+        self: *DeclGen,
+        inst: Air.Inst.Index,
+        comptime op: std.math.CompareOperator,
+    ) !?IdRef {
+        if (self.liveness.isUnused(inst)) return null;
+        const bin_op = self.air.instructions.items(.data)[inst].bin_op;
+        const lhs_id = try self.resolve(bin_op.lhs);
+        const rhs_id = try self.resolve(bin_op.rhs);
+        const bool_ty_id = try self.resolveTypeId(Type.bool);
+        const ty = self.air.typeOf(bin_op.lhs);
+        assert(ty.eql(self.air.typeOf(bin_op.rhs), self.module));
+
+        return try self.cmp(op, bool_ty_id, ty, lhs_id, rhs_id);
+    }
+
+    fn bitCast(
+        self: *DeclGen,
+        dst_ty: Type,
+        src_ty: Type,
+        src_id: IdRef,
+    ) !IdRef {
+        const dst_ty_ref = try self.resolveType(dst_ty, .direct);
+        const result_id = self.spv.allocId();
+
+        // TODO: Some more cases are missing here
+        //   See fn bitCast in llvm.zig
+
+        if (src_ty.zigTypeTag() == .Int and dst_ty.isPtrAtRuntime()) {
+            try self.func.body.emit(self.spv.gpa, .OpConvertUToPtr, .{
+                .id_result_type = self.typeId(dst_ty_ref),
+                .id_result = result_id,
+                .integer_value = src_id,
+            });
+        } else {
+            try self.func.body.emit(self.spv.gpa, .OpBitcast, .{
+                .id_result_type = self.typeId(dst_ty_ref),
+                .id_result = result_id,
+                .operand = src_id,
+            });
+        }
+        return result_id;
+    }
+
+    fn airBitCast(self: *DeclGen, inst: Air.Inst.Index) !?IdRef {
         if (self.liveness.isUnused(inst)) return null;
         const ty_op = self.air.instructions.items(.data)[inst].ty_op;
         const operand_id = try self.resolve(ty_op.operand);
-        const result_type_id = try self.resolveTypeId(self.air.typeOfIndex(inst));
-        return try self.bitcast(result_type_id, operand_id);
+        const operand_ty = self.air.typeOf(ty_op.operand);
+        const result_ty = self.air.typeOfIndex(inst);
+        return try self.bitCast(result_ty, operand_ty, operand_id);
     }
 
-    fn airIntcast(self: *DeclGen, inst: Air.Inst.Index) !?IdRef {
+    fn airIntCast(self: *DeclGen, inst: Air.Inst.Index) !?IdRef {
         if (self.liveness.isUnused(inst)) return null;
 
         const ty_op = self.air.instructions.items(.data)[inst].ty_op;
         const operand_id = try self.resolve(ty_op.operand);
         const dest_ty = self.air.typeOfIndex(inst);
-        const dest_info = try self.arithmeticTypeInfo(dest_ty);
         const dest_ty_id = try self.resolveTypeId(dest_ty);
+
+        const target = self.getTarget();
+        const dest_info = dest_ty.intInfo(target);
+
+        // TODO: Masking?
 
         const result_id = self.spv.allocId();
         switch (dest_info.signedness) {
@@ -2221,11 +2502,7 @@ pub const DeclGen = struct {
         const ty_op = self.air.instructions.items(.data)[inst].ty_op;
         const field_ty = self.air.typeOfIndex(inst);
         const operand_id = try self.resolve(ty_op.operand);
-        return try self.extractField(
-            field_ty,
-            operand_id,
-            field,
-        );
+        return try self.extractField(field_ty, operand_id, field);
     }
 
     fn airSliceElemPtr(self: *DeclGen, inst: Air.Inst.Index) !?IdRef {
@@ -2233,30 +2510,14 @@ pub const DeclGen = struct {
         const slice_ty = self.air.typeOf(bin_op.lhs);
         if (!slice_ty.isVolatilePtr() and self.liveness.isUnused(inst)) return null;
 
-        const slice = try self.resolve(bin_op.lhs);
-        const index = try self.resolve(bin_op.rhs);
+        const slice_id = try self.resolve(bin_op.lhs);
+        const index_id = try self.resolve(bin_op.rhs);
 
-        const spv_ptr_ty = try self.resolveTypeId(self.air.typeOfIndex(inst));
+        const ptr_ty = self.air.typeOfIndex(inst);
+        const ptr_ty_ref = try self.resolveType(ptr_ty, .direct);
 
-        const slice_ptr = blk: {
-            const result_id = self.spv.allocId();
-            try self.func.body.emit(self.spv.gpa, .OpCompositeExtract, .{
-                .id_result_type = spv_ptr_ty,
-                .id_result = result_id,
-                .composite = slice,
-                .indexes = &.{0},
-            });
-            break :blk result_id;
-        };
-
-        const result_id = self.spv.allocId();
-        try self.func.body.emit(self.spv.gpa, .OpInBoundsPtrAccessChain, .{
-            .id_result_type = spv_ptr_ty,
-            .id_result = result_id,
-            .base = slice_ptr,
-            .element = index,
-        });
-        return result_id;
+        const slice_ptr = try self.extractField(ptr_ty, slice_id, 0);
+        return try self.ptrAccessChain(ptr_ty_ref, slice_ptr, index_id, &.{});
     }
 
     fn airSliceElemVal(self: *DeclGen, inst: Air.Inst.Index) !?IdRef {
@@ -2264,35 +2525,31 @@ pub const DeclGen = struct {
         const slice_ty = self.air.typeOf(bin_op.lhs);
         if (!slice_ty.isVolatilePtr() and self.liveness.isUnused(inst)) return null;
 
-        const slice = try self.resolve(bin_op.lhs);
-        const index = try self.resolve(bin_op.rhs);
+        const slice_id = try self.resolve(bin_op.lhs);
+        const index_id = try self.resolve(bin_op.rhs);
 
         var slice_buf: Type.SlicePtrFieldTypeBuffer = undefined;
-        const ptr_ty_id = try self.resolveTypeId(slice_ty.slicePtrFieldType(&slice_buf));
+        const ptr_ty = slice_ty.slicePtrFieldType(&slice_buf);
+        const ptr_ty_ref = try self.resolveType(ptr_ty, .direct);
 
-        const slice_ptr = blk: {
-            const result_id = self.spv.allocId();
-            try self.func.body.emit(self.spv.gpa, .OpCompositeExtract, .{
-                .id_result_type = ptr_ty_id,
-                .id_result = result_id,
-                .composite = slice,
-                .indexes = &.{0},
-            });
-            break :blk result_id;
-        };
-
-        const elem_ptr = blk: {
-            const result_id = self.spv.allocId();
-            try self.func.body.emit(self.spv.gpa, .OpInBoundsPtrAccessChain, .{
-                .id_result_type = ptr_ty_id,
-                .id_result = result_id,
-                .base = slice_ptr,
-                .element = index,
-            });
-            break :blk result_id;
-        };
-
+        const slice_ptr = try self.extractField(ptr_ty, slice_id, 0);
+        const elem_ptr = try self.ptrAccessChain(ptr_ty_ref, slice_ptr, index_id, &.{});
         return try self.load(slice_ty, elem_ptr);
+    }
+
+    fn ptrElemPtr(self: *DeclGen, ptr_ty: Type, ptr_id: IdRef, index_id: IdRef) !IdRef {
+        // Construct new pointer type for the resulting pointer
+        const elem_ty = ptr_ty.elemType2(); // use elemType() so that we get T for *[N]T.
+        const elem_ty_ref = try self.resolveType(elem_ty, .direct);
+        const elem_ptr_ty_ref = try self.spv.ptrType(elem_ty_ref, spvStorageClass(ptr_ty.ptrAddressSpace()), 0);
+        if (ptr_ty.isSinglePointer()) {
+            // Pointer-to-array. In this case, the resulting pointer is not of the same type
+            // as the ptr_ty (we want a *T, not a *[N]T), and hence we need to use accessChain.
+            return try self.accessChain(elem_ptr_ty_ref, ptr_id, &.{index_id});
+        } else {
+            // Resulting pointer type is the same as the ptr_ty, so use ptrAccessChain
+            return try self.ptrAccessChain(elem_ptr_ty_ref, ptr_id, index_id, &.{});
+        }
     }
 
     fn airPtrElemPtr(self: *DeclGen, inst: Air.Inst.Index) !?IdRef {
@@ -2301,24 +2558,31 @@ pub const DeclGen = struct {
         const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
         const bin_op = self.air.extraData(Air.Bin, ty_pl.payload).data;
         const ptr_ty = self.air.typeOf(bin_op.lhs);
-        const result_ty = self.air.typeOfIndex(inst);
         const elem_ty = ptr_ty.childType();
         // TODO: Make this return a null ptr or something
         if (!elem_ty.hasRuntimeBitsIgnoreComptime()) return null;
 
-        const result_type_id = try self.resolveTypeId(result_ty);
-        const base_ptr = try self.resolve(bin_op.lhs);
-        const rhs = try self.resolve(bin_op.rhs);
+        const ptr_id = try self.resolve(bin_op.lhs);
+        const index_id = try self.resolve(bin_op.rhs);
+        return try self.ptrElemPtr(ptr_ty, ptr_id, index_id);
+    }
 
-        const result_id = self.spv.allocId();
-        const indexes = [_]IdRef{rhs};
-        try self.func.body.emit(self.spv.gpa, .OpInBoundsAccessChain, .{
-            .id_result_type = result_type_id,
-            .id_result = result_id,
-            .base = base_ptr,
-            .indexes = &indexes,
-        });
-        return result_id;
+    fn airPtrElemVal(self: *DeclGen, inst: Air.Inst.Index) !?IdRef {
+        const bin_op = self.air.instructions.items(.data)[inst].bin_op;
+        const ptr_ty = self.air.typeOf(bin_op.lhs);
+        const ptr_id = try self.resolve(bin_op.lhs);
+        const index_id = try self.resolve(bin_op.rhs);
+
+        const elem_ptr_id = try self.ptrElemPtr(ptr_ty, ptr_id, index_id);
+
+        // If we have a pointer-to-array, construct an element pointer to use with load()
+        // If we pass ptr_ty directly, it will attempt to load the entire array rather than
+        // just an element.
+        var elem_ptr_info = ptr_ty.ptrInfo();
+        elem_ptr_info.data.size = .One;
+        const elem_ptr_ty = Type.initPayload(&elem_ptr_info.base);
+
+        return try self.load(elem_ptr_ty, elem_ptr_id);
     }
 
     fn airGetUnionTag(self: *DeclGen, inst: Air.Inst.Index) !?IdRef {
@@ -2344,24 +2608,15 @@ pub const DeclGen = struct {
         const struct_field = self.air.extraData(Air.StructField, ty_pl.payload).data;
 
         const struct_ty = self.air.typeOf(struct_field.struct_operand);
-        const object = try self.resolve(struct_field.struct_operand);
+        const object_id = try self.resolve(struct_field.struct_operand);
         const field_index = struct_field.field_index;
         const field_ty = struct_ty.structFieldType(field_index);
-        const field_ty_id = try self.resolveTypeId(field_ty);
 
         if (!field_ty.hasRuntimeBitsIgnoreComptime()) return null;
 
         assert(struct_ty.zigTypeTag() == .Struct); // Cannot do unions yet.
 
-        const result_id = self.spv.allocId();
-        const indexes = [_]u32{field_index};
-        try self.func.body.emit(self.spv.gpa, .OpCompositeExtract, .{
-            .id_result_type = field_ty_id,
-            .id_result = result_id,
-            .composite = object,
-            .indexes = &indexes,
-        });
-        return result_id;
+        return try self.extractField(field_ty, object_id, field_index);
     }
 
     fn structFieldPtr(
@@ -2379,16 +2634,8 @@ pub const DeclGen = struct {
                     const u32_ty_id = self.typeId(try self.intType(.unsigned, 32));
                     const field_index_id = self.spv.allocId();
                     try self.spv.emitConstant(u32_ty_id, field_index_id, .{ .uint32 = field_index });
-                    const result_id = self.spv.allocId();
-                    const result_type_id = try self.resolveTypeId(result_ptr_ty);
-                    const indexes = [_]IdRef{field_index_id};
-                    try self.func.body.emit(self.spv.gpa, .OpInBoundsAccessChain, .{
-                        .id_result_type = result_type_id,
-                        .id_result = result_id,
-                        .base = object_ptr,
-                        .indexes = &indexes,
-                    });
-                    return result_id;
+                    const result_ty_ref = try self.resolveType(result_ptr_ty, .direct);
+                    return try self.accessChain(result_ty_ref, object_ptr, &.{field_index_id});
                 },
             },
             else => unreachable, // TODO
@@ -2422,76 +2669,45 @@ pub const DeclGen = struct {
         return result_id;
     }
 
-    fn variable(
+    // Allocate a function-local variable, with possible initializer.
+    // This function returns a pointer to a variable of type `ty_ref`,
+    // which is in the Generic address space. The variable is actually
+    // placed in the Function address space.
+    fn alloc(
         self: *DeclGen,
-        comptime context: enum { function, global },
-        result_id: IdRef,
-        ptr_ty_ref: SpvType.Ref,
+        ty_ref: SpvType.Ref,
         initializer: ?IdRef,
-    ) !void {
-        const storage_class = self.spv.typeRefType(ptr_ty_ref).payload(.pointer).storage_class;
-        const actual_storage_class = switch (storage_class) {
-            .Generic => switch (context) {
-                .function => .Function,
-                .global => .CrossWorkgroup,
-            },
-            else => storage_class,
-        };
-        const actual_ptr_ty_ref = switch (storage_class) {
-            .Generic => try self.spv.changePtrStorageClass(ptr_ty_ref, actual_storage_class),
-            else => ptr_ty_ref,
-        };
-        const alloc_result_id = switch (storage_class) {
-            .Generic => self.spv.allocId(),
-            else => result_id,
-        };
+    ) !IdRef {
+        const fn_ptr_ty_ref = try self.spv.ptrType(ty_ref, .Function, 0);
+        const general_ptr_ty_ref = try self.spv.ptrType(ty_ref, .Generic, 0);
 
-        const section = switch (actual_storage_class) {
-            .Generic => unreachable,
-            // SPIR-V requires that OpVariable declarations for locals go into the first block, so we are just going to
-            // directly generate them into func.prologue instead of the body.
-            .Function => &self.func.prologue,
-            else => &self.spv.sections.types_globals_constants,
-        };
-        try section.emit(self.spv.gpa, .OpVariable, .{
-            .id_result_type = self.typeId(actual_ptr_ty_ref),
-            .id_result = alloc_result_id,
-            .storage_class = actual_storage_class,
+        // SPIR-V requires that OpVariable declarations for locals go into the first block, so we are just going to
+        // directly generate them into func.prologue instead of the body.
+        const var_id = self.spv.allocId();
+        try self.func.prologue.emit(self.spv.gpa, .OpVariable, .{
+            .id_result_type = self.typeId(fn_ptr_ty_ref),
+            .id_result = var_id,
+            .storage_class = .Function,
             .initializer = initializer,
         });
 
-        if (storage_class != .Generic) {
-            return;
-        }
-
-        // Now we need to convert the pointer.
-        // If this is a function local, we need to perform the conversion at runtime. Otherwise, we can do
-        // it ahead of time using OpSpecConstantOp.
-        switch (actual_storage_class) {
-            .Function => try self.func.body.emit(self.spv.gpa, .OpPtrCastToGeneric, .{
-                .id_result_type = self.typeId(ptr_ty_ref),
-                .id_result = result_id,
-                .pointer = alloc_result_id,
-            }),
-            // TODO: Can we do without this cast or move it to runtime?
-            else => {
-                const const_ptr_id = try self.makePointerConstant(section, actual_ptr_ty_ref, alloc_result_id);
-                try section.emitSpecConstantOp(self.spv.gpa, .OpPtrCastToGeneric, .{
-                    .id_result_type = self.typeId(ptr_ty_ref),
-                    .id_result = result_id,
-                    .pointer = const_ptr_id,
-                });
-            },
-        }
+        // Convert to a generic pointer
+        const result_id = self.spv.allocId();
+        try self.func.body.emit(self.spv.gpa, .OpPtrCastToGeneric, .{
+            .id_result_type = self.typeId(general_ptr_ty_ref),
+            .id_result = result_id,
+            .pointer = var_id,
+        });
+        return result_id;
     }
 
     fn airAlloc(self: *DeclGen, inst: Air.Inst.Index) !?IdRef {
         if (self.liveness.isUnused(inst)) return null;
-        const ty = self.air.typeOfIndex(inst);
-        const result_ty_ref = try self.resolveType(ty, .direct);
-        const result_id = self.spv.allocId();
-        try self.variable(.function, result_id, result_ty_ref, null);
-        return result_id;
+        const ptr_ty = self.air.typeOfIndex(inst);
+        assert(ptr_ty.ptrAddressSpace() == .generic);
+        const child_ty = ptr_ty.childType();
+        const child_ty_ref = try self.resolveType(child_ty, .indirect);
+        return try self.alloc(child_ty_ref, null);
     }
 
     fn airArg(self: *DeclGen) IdRef {
@@ -2778,13 +2994,7 @@ pub const DeclGen = struct {
         }
 
         const err_union_ty_ref = try self.resolveType(err_union_ty, .direct);
-        const result_id = self.spv.allocId();
-        try self.func.body.emit(self.spv.gpa, .OpCompositeConstruct, .{
-            .id_result_type = self.typeId(err_union_ty_ref),
-            .id_result = result_id,
-            .constituents = members.slice(),
-        });
-        return result_id;
+        return try self.constructStruct(err_union_ty_ref, members.slice());
     }
 
     fn airIsNull(self: *DeclGen, inst: Air.Inst.Index, pred: enum { is_null, is_non_null }) !?IdRef {
@@ -2884,14 +3094,8 @@ pub const DeclGen = struct {
         }
 
         const optional_ty_ref = try self.resolveType(optional_ty, .direct);
-        const result_id = self.spv.allocId();
         const members = [_]IdRef{ operand_id, try self.constBool(true, .indirect) };
-        try self.func.body.emit(self.spv.gpa, .OpCompositeConstruct, .{
-            .id_result_type = self.typeId(optional_ty_ref),
-            .id_result = result_id,
-            .constituents = &members,
-        });
-        return result_id;
+        return try self.constructStruct(optional_ty_ref, &members);
     }
 
     fn airSwitchBr(self: *DeclGen, inst: Air.Inst.Index) !void {

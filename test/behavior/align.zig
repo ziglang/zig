@@ -33,8 +33,6 @@ test "default alignment allows unspecified in type syntax" {
 }
 
 test "implicitly decreasing pointer alignment" {
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
-
     const a: u32 align(4) = 3;
     const b: u32 align(8) = 4;
     try expect(addUnaligned(&a, &b) == 7);
@@ -45,8 +43,6 @@ fn addUnaligned(a: *align(1) const u32, b: *align(1) const u32) u32 {
 }
 
 test "@alignCast pointers" {
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
-
     var x: u32 align(4) = 1;
     expectsOnly1(&x);
     try expect(x == 2);
@@ -219,8 +215,6 @@ test "alignment and size of structs with 128-bit fields" {
 }
 
 test "@ptrCast preserves alignment of bigger source" {
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
-
     var x: u32 align(16) = 1234;
     const ptr = @ptrCast(*u8, &x);
     try expect(@TypeOf(ptr) == *align(16) u8);

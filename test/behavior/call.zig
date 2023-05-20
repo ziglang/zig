@@ -109,7 +109,6 @@ test "result location of function call argument through runtime condition and st
 
 test "function call with 40 arguments" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const S = struct {
         fn doTheTest(thirty_nine: i32) !void {
@@ -374,8 +373,6 @@ test "Enum constructed by @Type passed as generic argument" {
 }
 
 test "generic function with generic function parameter" {
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
-
     const S = struct {
         fn f(comptime a: fn (anytype) anyerror!void, b: anytype) anyerror!void {
             try a(b);
@@ -388,8 +385,6 @@ test "generic function with generic function parameter" {
 }
 
 test "recursive inline call with comptime known argument" {
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
-
     const S = struct {
         inline fn foo(x: i32) i32 {
             if (x <= 0) {
