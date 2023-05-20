@@ -179,8 +179,8 @@ test "Dir.Iterator" {
     }
 
     try testing.expect(entries.items.len == 2); // note that the Iterator skips '.' and '..'
-    try testing.expect(contains(&entries, .{ .name = "some_file", .kind = .File }));
-    try testing.expect(contains(&entries, .{ .name = "some_dir", .kind = .Directory }));
+    try testing.expect(contains(&entries, .{ .name = "some_file", .kind = .file }));
+    try testing.expect(contains(&entries, .{ .name = "some_dir", .kind = .directory }));
 }
 
 test "Dir.Iterator many entries" {
@@ -214,7 +214,7 @@ test "Dir.Iterator many entries" {
     i = 0;
     while (i < num) : (i += 1) {
         const name = try std.fmt.bufPrint(&buf, "{}", .{i});
-        try testing.expect(contains(&entries, .{ .name = name, .kind = .File }));
+        try testing.expect(contains(&entries, .{ .name = name, .kind = .file }));
     }
 }
 
@@ -246,8 +246,8 @@ test "Dir.Iterator twice" {
         }
 
         try testing.expect(entries.items.len == 2); // note that the Iterator skips '.' and '..'
-        try testing.expect(contains(&entries, .{ .name = "some_file", .kind = .File }));
-        try testing.expect(contains(&entries, .{ .name = "some_dir", .kind = .Directory }));
+        try testing.expect(contains(&entries, .{ .name = "some_file", .kind = .file }));
+        try testing.expect(contains(&entries, .{ .name = "some_dir", .kind = .directory }));
     }
 }
 
@@ -280,8 +280,8 @@ test "Dir.Iterator reset" {
         }
 
         try testing.expect(entries.items.len == 2); // note that the Iterator skips '.' and '..'
-        try testing.expect(contains(&entries, .{ .name = "some_file", .kind = .File }));
-        try testing.expect(contains(&entries, .{ .name = "some_dir", .kind = .Directory }));
+        try testing.expect(contains(&entries, .{ .name = "some_file", .kind = .file }));
+        try testing.expect(contains(&entries, .{ .name = "some_dir", .kind = .directory }));
 
         iter.reset();
     }
@@ -428,7 +428,7 @@ test "directory operations on files" {
     // ensure the file still exists and is a file as a sanity check
     file = try tmp_dir.dir.openFile(test_file_name, .{});
     const stat = try file.stat();
-    try testing.expect(stat.kind == .File);
+    try testing.expect(stat.kind == .file);
     file.close();
 }
 
@@ -664,7 +664,7 @@ test "renameAbsolute" {
     try testing.expectError(error.FileNotFound, tmp_dir.dir.openFile(test_file_name, .{}));
     file = try tmp_dir.dir.openFile(renamed_test_file_name, .{});
     const stat = try file.stat();
-    try testing.expect(stat.kind == .File);
+    try testing.expect(stat.kind == .file);
     file.close();
 
     // Renaming directories
@@ -1348,7 +1348,7 @@ test "File.Metadata" {
     defer file.close();
 
     const metadata = try file.metadata();
-    try testing.expect(metadata.kind() == .File);
+    try testing.expect(metadata.kind() == .file);
     try testing.expect(metadata.size() == 0);
     _ = metadata.accessed();
     _ = metadata.modified();

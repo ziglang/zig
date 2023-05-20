@@ -169,7 +169,7 @@ pub fn addCertsFromDir(cb: *Bundle, gpa: Allocator, iterable_dir: fs.IterableDir
     var it = iterable_dir.iterate();
     while (try it.next()) |entry| {
         switch (entry.kind) {
-            .File, .SymLink => {},
+            .file, .sym_link => {},
             else => continue,
         }
 

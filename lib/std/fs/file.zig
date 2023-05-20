@@ -35,17 +35,17 @@ pub const File = struct {
     pub const Gid = os.gid_t;
 
     pub const Kind = enum {
-        BlockDevice,
-        CharacterDevice,
-        Directory,
-        NamedPipe,
-        SymLink,
-        File,
-        UnixDomainSocket,
-        Whiteout,
-        Door,
-        EventPort,
-        Unknown,
+        block_device,
+        character_device,
+        directory,
+        named_pipe,
+        sym_link,
+        file,
+        unix_domain_socket,
+        whiteout,
+        door,
+        event_port,
+        unknown,
     };
 
     /// This is the default mode given to POSIX operating systems for creating
@@ -329,32 +329,32 @@ pub const File = struct {
             const mtime = st.mtime();
             const ctime = st.ctime();
             const kind: Kind = if (builtin.os.tag == .wasi and !builtin.link_libc) switch (st.filetype) {
-                .BLOCK_DEVICE => Kind.BlockDevice,
-                .CHARACTER_DEVICE => Kind.CharacterDevice,
-                .DIRECTORY => Kind.Directory,
-                .SYMBOLIC_LINK => Kind.SymLink,
-                .REGULAR_FILE => Kind.File,
-                .SOCKET_STREAM, .SOCKET_DGRAM => Kind.UnixDomainSocket,
-                else => Kind.Unknown,
+                .BLOCK_DEVICE => .block_device,
+                .CHARACTER_DEVICE => .character_device,
+                .DIRECTORY => .directory,
+                .SYMBOLIC_LINK => .sym_link,
+                .REGULAR_FILE => .file,
+                .SOCKET_STREAM, .SOCKET_DGRAM => .unix_domain_socket,
+                else => .unknown,
             } else blk: {
                 const m = st.mode & os.S.IFMT;
                 switch (m) {
-                    os.S.IFBLK => break :blk Kind.BlockDevice,
-                    os.S.IFCHR => break :blk Kind.CharacterDevice,
-                    os.S.IFDIR => break :blk Kind.Directory,
-                    os.S.IFIFO => break :blk Kind.NamedPipe,
-                    os.S.IFLNK => break :blk Kind.SymLink,
-                    os.S.IFREG => break :blk Kind.File,
-                    os.S.IFSOCK => break :blk Kind.UnixDomainSocket,
+                    os.S.IFBLK => break :blk .block_device,
+                    os.S.IFCHR => break :blk .character_device,
+                    os.S.IFDIR => break :blk .directory,
+                    os.S.IFIFO => break :blk .named_pipe,
+                    os.S.IFLNK => break :blk .sym_link,
+                    os.S.IFREG => break :blk .file,
+                    os.S.IFSOCK => break :blk .unix_domain_socket,
                     else => {},
                 }
                 if (builtin.os.tag == .solaris) switch (m) {
-                    os.S.IFDOOR => break :blk Kind.Door,
-                    os.S.IFPORT => break :blk Kind.EventPort,
+                    os.S.IFDOOR => break :blk .door,
+                    os.S.IFPORT => break :blk .event_port,
                     else => {},
                 };
 
-                break :blk .Unknown;
+                break :blk .unknown;
             };
 
             return Stat{
@@ -391,7 +391,7 @@ pub const File = struct {
                 .inode = info.InternalInformation.IndexNumber,
                 .size = @bitCast(u64, info.StandardInformation.EndOfFile),
                 .mode = 0,
-                .kind = if (info.StandardInformation.Directory == 0) .File else .Directory,
+                .kind = if (info.StandardInformation.Directory == 0) .file else .directory,
                 .atime = windows.fromSysTime(info.BasicInformation.LastAccessTime),
                 .mtime = windows.fromSysTime(info.BasicInformation.LastWriteTime),
                 .ctime = windows.fromSysTime(info.BasicInformation.CreationTime),
@@ -609,7 +609,7 @@ pub const File = struct {
         }
 
         /// Returns the `Kind` of file.
-        /// On Windows, can only return: `.File`, `.Directory`, `.SymLink` or `.Unknown`
+        /// On Windows, can only return: `.file`, `.directory`, `.sym_link` or `.unknown`
         pub fn kind(self: Self) Kind {
             return self.inner.kind();
         }
@@ -652,35 +652,35 @@ pub const File = struct {
         /// Returns the `Kind` of the file
         pub fn kind(self: Self) Kind {
             if (builtin.os.tag == .wasi and !builtin.link_libc) return switch (self.stat.filetype) {
-                .BLOCK_DEVICE => Kind.BlockDevice,
-                .CHARACTER_DEVICE => Kind.CharacterDevice,
-                .DIRECTORY => Kind.Directory,
-                .SYMBOLIC_LINK => Kind.SymLink,
-                .REGULAR_FILE => Kind.File,
-                .SOCKET_STREAM, .SOCKET_DGRAM => Kind.UnixDomainSocket,
-                else => Kind.Unknown,
+                .BLOCK_DEVICE => .block_device,
+                .CHARACTER_DEVICE => .character_device,
+                .DIRECTORY => .directory,
+                .SYMBOLIC_LINK => .sym_link,
+                .REGULAR_FILE => .file,
+                .SOCKET_STREAM, .SOCKET_DGRAM => .unix_domain_socket,
+                else => .unknown,
             };
 
             const m = self.stat.mode & os.S.IFMT;
 
             switch (m) {
-                os.S.IFBLK => return Kind.BlockDevice,
-                os.S.IFCHR => return Kind.CharacterDevice,
-                os.S.IFDIR => return Kind.Directory,
-                os.S.IFIFO => return Kind.NamedPipe,
-                os.S.IFLNK => return Kind.SymLink,
-                os.S.IFREG => return Kind.File,
-                os.S.IFSOCK => return Kind.UnixDomainSocket,
+                os.S.IFBLK => return .block_device,
+                os.S.IFCHR => return .character_device,
+                os.S.IFDIR => return .directory,
+                os.S.IFIFO => return .named_pipe,
+                os.S.IFLNK => return .sym_link,
+                os.S.IFREG => return .file,
+                os.S.IFSOCK => return .unix_domain_socket,
                 else => {},
             }
 
             if (builtin.os.tag == .solaris) switch (m) {
-                os.S.IFDOOR => return Kind.Door,
-                os.S.IFPORT => return Kind.EventPort,
+                os.S.IFDOOR => return .door,
+                os.S.IFPORT => return .event_port,
                 else => {},
             };
 
-            return .Unknown;
+            return .unknown;
         }
 
         /// Returns the last time the file was accessed in nanoseconds since UTC 1970-01-01
@@ -738,17 +738,17 @@ pub const File = struct {
             const m = self.statx.mode & os.S.IFMT;
 
             switch (m) {
-                os.S.IFBLK => return Kind.BlockDevice,
-                os.S.IFCHR => return Kind.CharacterDevice,
-                os.S.IFDIR => return Kind.Directory,
-                os.S.IFIFO => return Kind.NamedPipe,
-                os.S.IFLNK => return Kind.SymLink,
-                os.S.IFREG => return Kind.File,
-                os.S.IFSOCK => return Kind.UnixDomainSocket,
+                os.S.IFBLK => return .block_device,
+                os.S.IFCHR => return .character_device,
+                os.S.IFDIR => return .directory,
+                os.S.IFIFO => return .named_pipe,
+                os.S.IFLNK => return .sym_link,
+                os.S.IFREG => return .file,
+                os.S.IFSOCK => return .unix_domain_socket,
                 else => {},
             }
 
-            return .Unknown;
+            return .unknown;
         }
 
         /// Returns the last time the file was accessed in nanoseconds since UTC 1970-01-01
@@ -790,18 +790,18 @@ pub const File = struct {
         }
 
         /// Returns the `Kind` of the file.
-        /// Can only return: `.File`, `.Directory`, `.SymLink` or `.Unknown`
+        /// Can only return: `.file`, `.directory`, `.sym_link` or `.unknown`
         pub fn kind(self: Self) Kind {
             if (self.attributes & windows.FILE_ATTRIBUTE_REPARSE_POINT != 0) {
                 if (self.reparse_tag & 0x20000000 != 0) {
-                    return .SymLink;
+                    return .sym_link;
                 }
             } else if (self.attributes & windows.FILE_ATTRIBUTE_DIRECTORY != 0) {
-                return .Directory;
+                return .directory;
             } else {
-                return .File;
+                return .file;
             }
-            return .Unknown;
+            return .unknown;
         }
 
         /// Returns the last time the file was accessed in nanoseconds since UTC 1970-01-01
