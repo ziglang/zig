@@ -336,7 +336,7 @@ test "Dir.realpath smoke test" {
     var tmp_dir = tmpDir(.{});
     defer tmp_dir.cleanup();
 
-    var file = try tmp_dir.dir.createFile("test_file", .{ .lock = File.Lock.Shared });
+    var file = try tmp_dir.dir.createFile("test_file", .{ .lock = .shared });
     // We need to close the file immediately as otherwise on Windows we'll end up
     // with a sharing violation.
     file.close();
@@ -1035,10 +1035,10 @@ test "open file with exclusive nonblocking lock twice" {
     var tmp = tmpDir(.{});
     defer tmp.cleanup();
 
-    const file1 = try tmp.dir.createFile(filename, .{ .lock = .Exclusive, .lock_nonblocking = true });
+    const file1 = try tmp.dir.createFile(filename, .{ .lock = .exclusive, .lock_nonblocking = true });
     defer file1.close();
 
-    const file2 = tmp.dir.createFile(filename, .{ .lock = .Exclusive, .lock_nonblocking = true });
+    const file2 = tmp.dir.createFile(filename, .{ .lock = .exclusive, .lock_nonblocking = true });
     try testing.expectError(error.WouldBlock, file2);
 }
 
@@ -1050,10 +1050,10 @@ test "open file with shared and exclusive nonblocking lock" {
     var tmp = tmpDir(.{});
     defer tmp.cleanup();
 
-    const file1 = try tmp.dir.createFile(filename, .{ .lock = .Shared, .lock_nonblocking = true });
+    const file1 = try tmp.dir.createFile(filename, .{ .lock = .shared, .lock_nonblocking = true });
     defer file1.close();
 
-    const file2 = tmp.dir.createFile(filename, .{ .lock = .Exclusive, .lock_nonblocking = true });
+    const file2 = tmp.dir.createFile(filename, .{ .lock = .exclusive, .lock_nonblocking = true });
     try testing.expectError(error.WouldBlock, file2);
 }
 
@@ -1065,10 +1065,10 @@ test "open file with exclusive and shared nonblocking lock" {
     var tmp = tmpDir(.{});
     defer tmp.cleanup();
 
-    const file1 = try tmp.dir.createFile(filename, .{ .lock = .Exclusive, .lock_nonblocking = true });
+    const file1 = try tmp.dir.createFile(filename, .{ .lock = .exclusive, .lock_nonblocking = true });
     defer file1.close();
 
-    const file2 = tmp.dir.createFile(filename, .{ .lock = .Shared, .lock_nonblocking = true });
+    const file2 = tmp.dir.createFile(filename, .{ .lock = .shared, .lock_nonblocking = true });
     try testing.expectError(error.WouldBlock, file2);
 }
 
@@ -1085,13 +1085,13 @@ test "open file with exclusive lock twice, make sure second lock waits" {
     var tmp = tmpDir(.{});
     defer tmp.cleanup();
 
-    const file = try tmp.dir.createFile(filename, .{ .lock = .Exclusive });
+    const file = try tmp.dir.createFile(filename, .{ .lock = .exclusive });
     errdefer file.close();
 
     const S = struct {
         fn checkFn(dir: *fs.Dir, started: *std.Thread.ResetEvent, locked: *std.Thread.ResetEvent) !void {
             started.set();
-            const file1 = try dir.createFile(filename, .{ .lock = .Exclusive });
+            const file1 = try dir.createFile(filename, .{ .lock = .exclusive });
 
             locked.set();
             file1.close();
@@ -1138,12 +1138,12 @@ test "open file with exclusive nonblocking lock twice (absolute paths)" {
     defer gpa.free(filename);
 
     const file1 = try fs.createFileAbsolute(filename, .{
-        .lock = .Exclusive,
+        .lock = .exclusive,
         .lock_nonblocking = true,
     });
 
     const file2 = fs.createFileAbsolute(filename, .{
-        .lock = .Exclusive,
+        .lock = .exclusive,
         .lock_nonblocking = true,
     });
     file1.close();

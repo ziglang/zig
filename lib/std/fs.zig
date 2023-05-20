@@ -1157,9 +1157,9 @@ pub const Dir = struct {
             else
                 0;
             os_flags |= switch (flags.lock) {
-                .None => @as(u32, 0),
-                .Shared => os.O.SHLOCK | nonblocking_lock_flag,
-                .Exclusive => os.O.EXLOCK | nonblocking_lock_flag,
+                .none => @as(u32, 0),
+                .shared => os.O.SHLOCK | nonblocking_lock_flag,
+                .exclusive => os.O.EXLOCK | nonblocking_lock_flag,
             };
         }
         if (@hasDecl(os.O, "LARGEFILE")) {
@@ -1182,13 +1182,13 @@ pub const Dir = struct {
         // WASI doesn't have os.flock so we intetinally check OS prior to the inner if block
         // since it is not compiltime-known and we need to avoid undefined symbol in Wasm.
         if (builtin.target.os.tag != .wasi) {
-            if (!has_flock_open_flags and flags.lock != .None) {
+            if (!has_flock_open_flags and flags.lock != .none) {
                 // TODO: integrate async I/O
                 const lock_nonblocking = if (flags.lock_nonblocking) os.LOCK.NB else @as(i32, 0);
                 try os.flock(fd, switch (flags.lock) {
-                    .None => unreachable,
-                    .Shared => os.LOCK.SH | lock_nonblocking,
-                    .Exclusive => os.LOCK.EX | lock_nonblocking,
+                    .none => unreachable,
+                    .shared => os.LOCK.SH | lock_nonblocking,
+                    .exclusive => os.LOCK.EX | lock_nonblocking,
                 });
             }
         }
@@ -1241,9 +1241,9 @@ pub const Dir = struct {
         const range_off: w.LARGE_INTEGER = 0;
         const range_len: w.LARGE_INTEGER = 1;
         const exclusive = switch (flags.lock) {
-            .None => return file,
-            .Shared => false,
-            .Exclusive => true,
+            .none => return file,
+            .shared => false,
+            .exclusive => true,
         };
         try w.LockFile(
             file.handle,
@@ -1320,9 +1320,9 @@ pub const Dir = struct {
         else
             0;
         const lock_flag: u32 = if (has_flock_open_flags) switch (flags.lock) {
-            .None => @as(u32, 0),
-            .Shared => os.O.SHLOCK | nonblocking_lock_flag,
-            .Exclusive => os.O.EXLOCK | nonblocking_lock_flag,
+            .none => @as(u32, 0),
+            .shared => os.O.SHLOCK | nonblocking_lock_flag,
+            .exclusive => os.O.EXLOCK | nonblocking_lock_flag,
         } else 0;
 
         const O_LARGEFILE = if (@hasDecl(os.O, "LARGEFILE")) os.O.LARGEFILE else 0;
@@ -1339,13 +1339,13 @@ pub const Dir = struct {
         // WASI doesn't have os.flock so we intetinally check OS prior to the inner if block
         // since it is not compiltime-known and we need to avoid undefined symbol in Wasm.
         if (builtin.target.os.tag != .wasi) {
-            if (!has_flock_open_flags and flags.lock != .None) {
+            if (!has_flock_open_flags and flags.lock != .none) {
                 // TODO: integrate async I/O
                 const lock_nonblocking = if (flags.lock_nonblocking) os.LOCK.NB else @as(i32, 0);
                 try os.flock(fd, switch (flags.lock) {
-                    .None => unreachable,
-                    .Shared => os.LOCK.SH | lock_nonblocking,
-                    .Exclusive => os.LOCK.EX | lock_nonblocking,
+                    .none => unreachable,
+                    .shared => os.LOCK.SH | lock_nonblocking,
+                    .exclusive => os.LOCK.EX | lock_nonblocking,
                 });
             }
         }
@@ -1402,9 +1402,9 @@ pub const Dir = struct {
         const range_off: w.LARGE_INTEGER = 0;
         const range_len: w.LARGE_INTEGER = 1;
         const exclusive = switch (flags.lock) {
-            .None => return file,
-            .Shared => false,
-            .Exclusive => true,
+            .none => return file,
+            .shared => false,
+            .exclusive => true,
         };
         try w.LockFile(
             file.handle,

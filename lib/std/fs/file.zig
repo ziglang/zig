@@ -81,7 +81,11 @@ pub const File = struct {
         read_write,
     };
 
-    pub const Lock = enum { None, Shared, Exclusive };
+    pub const Lock = enum {
+        none,
+        shared,
+        exclusive,
+    };
 
     pub const OpenFlags = struct {
         mode: OpenMode = .read_only,
@@ -110,7 +114,7 @@ pub const File = struct {
         /// * Windows
         ///
         /// [1]: https://www.kernel.org/doc/Documentation/filesystems/mandatory-locking.txt
-        lock: Lock = .None,
+        lock: Lock = .none,
 
         /// Sets whether or not to wait until the file is locked to return. If set to true,
         /// `error.WouldBlock` will be returned. Otherwise, the file will wait until the file
@@ -174,7 +178,7 @@ pub const File = struct {
         /// * Windows
         ///
         /// [1]: https://www.kernel.org/doc/Documentation/filesystems/mandatory-locking.txt
-        lock: Lock = .None,
+        lock: Lock = .none,
 
         /// Sets whether or not to wait until the file is locked to return. If set to true,
         /// `error.WouldBlock` will be returned. Otherwise, the file will wait until the file
@@ -1465,9 +1469,9 @@ pub const File = struct {
         if (is_windows) {
             var io_status_block: windows.IO_STATUS_BLOCK = undefined;
             const exclusive = switch (l) {
-                .None => return,
-                .Shared => false,
-                .Exclusive => true,
+                .none => return,
+                .shared => false,
+                .exclusive => true,
             };
             return windows.LockFile(
                 file.handle,
@@ -1486,9 +1490,9 @@ pub const File = struct {
             };
         } else {
             return os.flock(file.handle, switch (l) {
-                .None => os.LOCK.UN,
-                .Shared => os.LOCK.SH,
-                .Exclusive => os.LOCK.EX,
+                .none => os.LOCK.UN,
+                .shared => os.LOCK.SH,
+                .exclusive => os.LOCK.EX,
             }) catch |err| switch (err) {
                 error.WouldBlock => unreachable, // non-blocking=false
                 else => |e| return e,
@@ -1532,9 +1536,9 @@ pub const File = struct {
         if (is_windows) {
             var io_status_block: windows.IO_STATUS_BLOCK = undefined;
             const exclusive = switch (l) {
-                .None => return,
-                .Shared => false,
-                .Exclusive => true,
+                .none => return,
+                .shared => false,
+                .exclusive => true,
             };
             windows.LockFile(
                 file.handle,
@@ -1553,9 +1557,9 @@ pub const File = struct {
             };
         } else {
             os.flock(file.handle, switch (l) {
-                .None => os.LOCK.UN,
-                .Shared => os.LOCK.SH | os.LOCK.NB,
-                .Exclusive => os.LOCK.EX | os.LOCK.NB,
+                .none => os.LOCK.UN,
+                .shared => os.LOCK.SH | os.LOCK.NB,
+                .exclusive => os.LOCK.EX | os.LOCK.NB,
             }) catch |err| switch (err) {
                 error.WouldBlock => return false,
                 else => |e| return e,
