@@ -1067,7 +1067,7 @@ pub const rsa = struct {
 
             // Exponent must be odd and greater than 2.
             // Also, it must be less than 2^32 to mitigate DoS attacks.
-            // Windows CryptoAPI doesn't support values larger than 32 bits [1]], so it is
+            // Windows CryptoAPI doesn't support values larger than 32 bits [1], so it is
             // unlikely that exponents larger than 32 bits are being used for anything
             // Windows commonly does.
             // [1] https://learn.microsoft.com/en-us/windows/win32/api/wincrypt/ns-wincrypt-rsapubkey
