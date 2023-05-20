@@ -3363,125 +3363,223 @@ pub const DeclGen = struct {
                 },
                 else => switch (mod.intern_pool.indexToKey(tv.val.ip_index)) {
                     .int => |int| return lowerIntAsPtr(dg, int),
+                    .ptr => |ptr| {
+                        const ptr_val = switch (ptr.addr) {
+                            .@"var" => |@"var"| ptr: {
+                                const decl = dg.module.declPtr(@"var".owner_decl);
+                                dg.module.markDeclAlive(decl);
+
+                                const llvm_wanted_addrspace = toLlvmAddressSpace(decl.@"addrspace", target);
+                                const llvm_actual_addrspace = toLlvmGlobalAddressSpace(decl.@"addrspace", target);
+
+                                const val = try dg.resolveGlobalDecl(@"var".owner_decl);
+                                const addrspace_casted_ptr = if (llvm_actual_addrspace != llvm_wanted_addrspace)
+                                    val.constAddrSpaceCast(dg.context.pointerType(llvm_wanted_addrspace))
+                                else
+                                    val;
+                                break :ptr addrspace_casted_ptr;
+                            },
+                            .decl => |decl| try lowerDeclRefValue(dg, tv, decl),
+                            .mut_decl => |mut_decl| try lowerDeclRefValue(dg, tv, mut_decl.decl),
+                            .int => |int| lowerIntAsPtr(dg, mod.intern_pool.indexToKey(int).int),
+                        };
+                        switch (ptr.len) {
+                            .none => return ptr_val,
+                            else => {
+                                const fields: [2]*llvm.Value = .{
+                                    ptr_val,
+                                    try dg.lowerValue(.{ .ty = Type.usize, .val = ptr.len.toValue() }),
+                                };
+                                return dg.context.constStruct(&fields, fields.len, .False);
+                            },
+                        }
+                    },
                     else => unreachable,
                 },
             },
-            .Array => switch (tv.val.tag()) {
-                .bytes => {
-                    const bytes = tv.val.castTag(.bytes).?.data;
-                    return dg.context.constString(
-                        bytes.ptr,
-                        @intCast(c_uint, tv.ty.arrayLenIncludingSentinel(mod)),
-                        .True, // Don't null terminate. Bytes has the sentinel, if any.
-                    );
-                },
-                .str_lit => {
-                    const str_lit = tv.val.castTag(.str_lit).?.data;
-                    const bytes = dg.module.string_literal_bytes.items[str_lit.index..][0..str_lit.len];
-                    if (tv.ty.sentinel(mod)) |sent_val| {
-                        const byte = @intCast(u8, sent_val.toUnsignedInt(mod));
-                        if (byte == 0 and bytes.len > 0) {
+            .Array => switch (tv.val.ip_index) {
+                .none => switch (tv.val.tag()) {
+                    .bytes => {
+                        const bytes = tv.val.castTag(.bytes).?.data;
+                        return dg.context.constString(
+                            bytes.ptr,
+                            @intCast(c_uint, tv.ty.arrayLenIncludingSentinel(mod)),
+                            .True, // Don't null terminate. Bytes has the sentinel, if any.
+                        );
+                    },
+                    .str_lit => {
+                        const str_lit = tv.val.castTag(.str_lit).?.data;
+                        const bytes = dg.module.string_literal_bytes.items[str_lit.index..][0..str_lit.len];
+                        if (tv.ty.sentinel(mod)) |sent_val| {
+                            const byte = @intCast(u8, sent_val.toUnsignedInt(mod));
+                            if (byte == 0 and bytes.len > 0) {
+                                return dg.context.constString(
+                                    bytes.ptr,
+                                    @intCast(c_uint, bytes.len),
+                                    .False, // Yes, null terminate.
+                                );
+                            }
+                            var array = std.ArrayList(u8).init(dg.gpa);
+                            defer array.deinit();
+                            try array.ensureUnusedCapacity(bytes.len + 1);
+                            array.appendSliceAssumeCapacity(bytes);
+                            array.appendAssumeCapacity(byte);
+                            return dg.context.constString(
+                                array.items.ptr,
+                                @intCast(c_uint, array.items.len),
+                                .True, // Don't null terminate.
+                            );
+                        } else {
                             return dg.context.constString(
                                 bytes.ptr,
                                 @intCast(c_uint, bytes.len),
-                                .False, // Yes, null terminate.
+                                .True, // Don't null terminate. `bytes` has the sentinel, if any.
                             );
                         }
-                        var array = std.ArrayList(u8).init(dg.gpa);
-                        defer array.deinit();
-                        try array.ensureUnusedCapacity(bytes.len + 1);
-                        array.appendSliceAssumeCapacity(bytes);
-                        array.appendAssumeCapacity(byte);
-                        return dg.context.constString(
-                            array.items.ptr,
-                            @intCast(c_uint, array.items.len),
-                            .True, // Don't null terminate.
-                        );
-                    } else {
-                        return dg.context.constString(
-                            bytes.ptr,
-                            @intCast(c_uint, bytes.len),
-                            .True, // Don't null terminate. `bytes` has the sentinel, if any.
-                        );
-                    }
-                },
-                .aggregate => {
-                    const elem_vals = tv.val.castTag(.aggregate).?.data;
-                    const elem_ty = tv.ty.childType(mod);
-                    const gpa = dg.gpa;
-                    const len = @intCast(usize, tv.ty.arrayLenIncludingSentinel(mod));
-                    const llvm_elems = try gpa.alloc(*llvm.Value, len);
-                    defer gpa.free(llvm_elems);
-                    var need_unnamed = false;
-                    for (elem_vals[0..len], 0..) |elem_val, i| {
-                        llvm_elems[i] = try dg.lowerValue(.{ .ty = elem_ty, .val = elem_val });
-                        need_unnamed = need_unnamed or dg.isUnnamedType(elem_ty, llvm_elems[i]);
-                    }
-                    if (need_unnamed) {
-                        return dg.context.constStruct(
-                            llvm_elems.ptr,
-                            @intCast(c_uint, llvm_elems.len),
-                            .True,
-                        );
-                    } else {
-                        const llvm_elem_ty = try dg.lowerType(elem_ty);
-                        return llvm_elem_ty.constArray(
-                            llvm_elems.ptr,
-                            @intCast(c_uint, llvm_elems.len),
-                        );
-                    }
-                },
-                .repeated => {
-                    const val = tv.val.castTag(.repeated).?.data;
-                    const elem_ty = tv.ty.childType(mod);
-                    const sentinel = tv.ty.sentinel(mod);
-                    const len = @intCast(usize, tv.ty.arrayLen(mod));
-                    const len_including_sent = len + @boolToInt(sentinel != null);
-                    const gpa = dg.gpa;
-                    const llvm_elems = try gpa.alloc(*llvm.Value, len_including_sent);
-                    defer gpa.free(llvm_elems);
-
-                    var need_unnamed = false;
-                    if (len != 0) {
-                        for (llvm_elems[0..len]) |*elem| {
-                            elem.* = try dg.lowerValue(.{ .ty = elem_ty, .val = val });
+                    },
+                    .aggregate => {
+                        const elem_vals = tv.val.castTag(.aggregate).?.data;
+                        const elem_ty = tv.ty.childType(mod);
+                        const gpa = dg.gpa;
+                        const len = @intCast(usize, tv.ty.arrayLenIncludingSentinel(mod));
+                        const llvm_elems = try gpa.alloc(*llvm.Value, len);
+                        defer gpa.free(llvm_elems);
+                        var need_unnamed = false;
+                        for (elem_vals[0..len], 0..) |elem_val, i| {
+                            llvm_elems[i] = try dg.lowerValue(.{ .ty = elem_ty, .val = elem_val });
+                            need_unnamed = need_unnamed or dg.isUnnamedType(elem_ty, llvm_elems[i]);
                         }
-                        need_unnamed = need_unnamed or dg.isUnnamedType(elem_ty, llvm_elems[0]);
-                    }
+                        if (need_unnamed) {
+                            return dg.context.constStruct(
+                                llvm_elems.ptr,
+                                @intCast(c_uint, llvm_elems.len),
+                                .True,
+                            );
+                        } else {
+                            const llvm_elem_ty = try dg.lowerType(elem_ty);
+                            return llvm_elem_ty.constArray(
+                                llvm_elems.ptr,
+                                @intCast(c_uint, llvm_elems.len),
+                            );
+                        }
+                    },
+                    .repeated => {
+                        const val = tv.val.castTag(.repeated).?.data;
+                        const elem_ty = tv.ty.childType(mod);
+                        const sentinel = tv.ty.sentinel(mod);
+                        const len = @intCast(usize, tv.ty.arrayLen(mod));
+                        const len_including_sent = len + @boolToInt(sentinel != null);
+                        const gpa = dg.gpa;
+                        const llvm_elems = try gpa.alloc(*llvm.Value, len_including_sent);
+                        defer gpa.free(llvm_elems);
 
-                    if (sentinel) |sent| {
-                        llvm_elems[len] = try dg.lowerValue(.{ .ty = elem_ty, .val = sent });
-                        need_unnamed = need_unnamed or dg.isUnnamedType(elem_ty, llvm_elems[len]);
-                    }
+                        var need_unnamed = false;
+                        if (len != 0) {
+                            for (llvm_elems[0..len]) |*elem| {
+                                elem.* = try dg.lowerValue(.{ .ty = elem_ty, .val = val });
+                            }
+                            need_unnamed = need_unnamed or dg.isUnnamedType(elem_ty, llvm_elems[0]);
+                        }
 
-                    if (need_unnamed) {
-                        return dg.context.constStruct(
-                            llvm_elems.ptr,
-                            @intCast(c_uint, llvm_elems.len),
-                            .True,
-                        );
-                    } else {
-                        const llvm_elem_ty = try dg.lowerType(elem_ty);
-                        return llvm_elem_ty.constArray(
-                            llvm_elems.ptr,
-                            @intCast(c_uint, llvm_elems.len),
-                        );
-                    }
+                        if (sentinel) |sent| {
+                            llvm_elems[len] = try dg.lowerValue(.{ .ty = elem_ty, .val = sent });
+                            need_unnamed = need_unnamed or dg.isUnnamedType(elem_ty, llvm_elems[len]);
+                        }
+
+                        if (need_unnamed) {
+                            return dg.context.constStruct(
+                                llvm_elems.ptr,
+                                @intCast(c_uint, llvm_elems.len),
+                                .True,
+                            );
+                        } else {
+                            const llvm_elem_ty = try dg.lowerType(elem_ty);
+                            return llvm_elem_ty.constArray(
+                                llvm_elems.ptr,
+                                @intCast(c_uint, llvm_elems.len),
+                            );
+                        }
+                    },
+                    .empty_array_sentinel => {
+                        const elem_ty = tv.ty.childType(mod);
+                        const sent_val = tv.ty.sentinel(mod).?;
+                        const sentinel = try dg.lowerValue(.{ .ty = elem_ty, .val = sent_val });
+                        const llvm_elems: [1]*llvm.Value = .{sentinel};
+                        const need_unnamed = dg.isUnnamedType(elem_ty, llvm_elems[0]);
+                        if (need_unnamed) {
+                            return dg.context.constStruct(&llvm_elems, llvm_elems.len, .True);
+                        } else {
+                            const llvm_elem_ty = try dg.lowerType(elem_ty);
+                            return llvm_elem_ty.constArray(&llvm_elems, llvm_elems.len);
+                        }
+                    },
+                    else => unreachable,
                 },
-                .empty_array_sentinel => {
-                    const elem_ty = tv.ty.childType(mod);
-                    const sent_val = tv.ty.sentinel(mod).?;
-                    const sentinel = try dg.lowerValue(.{ .ty = elem_ty, .val = sent_val });
-                    const llvm_elems: [1]*llvm.Value = .{sentinel};
-                    const need_unnamed = dg.isUnnamedType(elem_ty, llvm_elems[0]);
-                    if (need_unnamed) {
-                        return dg.context.constStruct(&llvm_elems, llvm_elems.len, .True);
-                    } else {
-                        const llvm_elem_ty = try dg.lowerType(elem_ty);
-                        return llvm_elem_ty.constArray(&llvm_elems, llvm_elems.len);
-                    }
+                else => switch (mod.intern_pool.indexToKey(tv.val.ip_index)) {
+                    .aggregate => |aggregate| switch (aggregate.storage) {
+                        .elems => |elem_vals| {
+                            const elem_ty = tv.ty.childType(mod);
+                            const gpa = dg.gpa;
+                            const llvm_elems = try gpa.alloc(*llvm.Value, elem_vals.len);
+                            defer gpa.free(llvm_elems);
+                            var need_unnamed = false;
+                            for (elem_vals, 0..) |elem_val, i| {
+                                llvm_elems[i] = try dg.lowerValue(.{ .ty = elem_ty, .val = elem_val.toValue() });
+                                need_unnamed = need_unnamed or dg.isUnnamedType(elem_ty, llvm_elems[i]);
+                            }
+                            if (need_unnamed) {
+                                return dg.context.constStruct(
+                                    llvm_elems.ptr,
+                                    @intCast(c_uint, llvm_elems.len),
+                                    .True,
+                                );
+                            } else {
+                                const llvm_elem_ty = try dg.lowerType(elem_ty);
+                                return llvm_elem_ty.constArray(
+                                    llvm_elems.ptr,
+                                    @intCast(c_uint, llvm_elems.len),
+                                );
+                            }
+                        },
+                        .repeated_elem => |val| {
+                            const elem_ty = tv.ty.childType(mod);
+                            const sentinel = tv.ty.sentinel(mod);
+                            const len = @intCast(usize, tv.ty.arrayLen(mod));
+                            const len_including_sent = len + @boolToInt(sentinel != null);
+                            const gpa = dg.gpa;
+                            const llvm_elems = try gpa.alloc(*llvm.Value, len_including_sent);
+                            defer gpa.free(llvm_elems);
+
+                            var need_unnamed = false;
+                            if (len != 0) {
+                                for (llvm_elems[0..len]) |*elem| {
+                                    elem.* = try dg.lowerValue(.{ .ty = elem_ty, .val = val.toValue() });
+                                }
+                                need_unnamed = need_unnamed or dg.isUnnamedType(elem_ty, llvm_elems[0]);
+                            }
+
+                            if (sentinel) |sent| {
+                                llvm_elems[len] = try dg.lowerValue(.{ .ty = elem_ty, .val = sent });
+                                need_unnamed = need_unnamed or dg.isUnnamedType(elem_ty, llvm_elems[len]);
+                            }
+
+                            if (need_unnamed) {
+                                return dg.context.constStruct(
+                                    llvm_elems.ptr,
+                                    @intCast(c_uint, llvm_elems.len),
+                                    .True,
+                                );
+                            } else {
+                                const llvm_elem_ty = try dg.lowerType(elem_ty);
+                                return llvm_elem_ty.constArray(
+                                    llvm_elems.ptr,
+                                    @intCast(c_uint, llvm_elems.len),
+                                );
+                            }
+                        },
+                    },
+                    else => unreachable,
                 },
-                else => unreachable,
             },
             .Optional => {
                 comptime assert(optional_layout_version == 3);
@@ -3494,15 +3592,22 @@ pub const DeclGen = struct {
                     return non_null_bit;
                 }
                 const llvm_ty = try dg.lowerType(tv.ty);
-                if (tv.ty.optionalReprIsPayload(mod)) {
-                    if (tv.val.castTag(.opt_payload)) |payload| {
-                        return dg.lowerValue(.{ .ty = payload_ty, .val = payload.data });
-                    } else if (is_pl) {
-                        return dg.lowerValue(.{ .ty = payload_ty, .val = tv.val });
-                    } else {
-                        return llvm_ty.constNull();
-                    }
-                }
+                if (tv.ty.optionalReprIsPayload(mod)) return switch (tv.val.ip_index) {
+                    .none => if (tv.val.castTag(.opt_payload)) |payload|
+                        try dg.lowerValue(.{ .ty = payload_ty, .val = payload.data })
+                    else if (is_pl)
+                        try dg.lowerValue(.{ .ty = payload_ty, .val = tv.val })
+                    else
+                        llvm_ty.constNull(),
+                    .null_value => llvm_ty.constNull(),
+                    else => switch (mod.intern_pool.indexToKey(tv.val.ip_index)) {
+                        .opt => |opt| switch (opt.val) {
+                            .none => llvm_ty.constNull(),
+                            else => dg.lowerValue(.{ .ty = payload_ty, .val = opt.val.toValue() }),
+                        },
+                        else => unreachable,
+                    },
+                };
                 assert(payload_ty.zigTypeTag(mod) != .Fn);
 
                 const llvm_field_count = llvm_ty.countStructElementTypes();
@@ -3589,7 +3694,6 @@ pub const DeclGen = struct {
             },
             .Struct => {
                 const llvm_struct_ty = try dg.lowerType(tv.ty);
-                const field_vals = tv.val.castTag(.aggregate).?.data;
                 const gpa = dg.gpa;
 
                 const struct_type = switch (mod.intern_pool.indexToKey(tv.ty.ip_index)) {
@@ -3623,7 +3727,7 @@ pub const DeclGen = struct {
 
                             const field_llvm_val = try dg.lowerValue(.{
                                 .ty = field_ty.toType(),
-                                .val = field_vals[i],
+                                .val = try tv.val.fieldValue(field_ty.toType(), mod, i),
                             });
 
                             need_unnamed = need_unnamed or dg.isUnnamedType(field_ty.toType(), field_llvm_val);
@@ -3669,13 +3773,12 @@ pub const DeclGen = struct {
                     comptime assert(Type.packed_struct_layout_version == 2);
                     var running_int: *llvm.Value = int_llvm_ty.constNull();
                     var running_bits: u16 = 0;
-                    for (field_vals, 0..) |field_val, i| {
-                        const field = fields[i];
+                    for (fields, 0..) |field, i| {
                         if (!field.ty.hasRuntimeBitsIgnoreComptime(mod)) continue;
 
                         const non_int_val = try dg.lowerValue(.{
                             .ty = field.ty,
-                            .val = field_val,
+                            .val = try tv.val.fieldValue(field.ty, mod, i),
                         });
                         const ty_bit_size = @intCast(u16, field.ty.bitSize(mod));
                         const small_int_ty = dg.context.intType(ty_bit_size);
@@ -3722,7 +3825,7 @@ pub const DeclGen = struct {
 
                     const field_llvm_val = try dg.lowerValue(.{
                         .ty = field.ty,
-                        .val = field_vals[field_and_index.index],
+                        .val = try tv.val.fieldValue(field.ty, mod, field_and_index.index),
                     });
 
                     need_unnamed = need_unnamed or dg.isUnnamedType(field.ty, field_llvm_val);
@@ -3756,7 +3859,13 @@ pub const DeclGen = struct {
             },
             .Union => {
                 const llvm_union_ty = try dg.lowerType(tv.ty);
-                const tag_and_val = tv.val.castTag(.@"union").?.data;
+                const tag_and_val: Value.Payload.Union.Data = switch (tv.val.ip_index) {
+                    .none => tv.val.castTag(.@"union").?.data,
+                    else => switch (mod.intern_pool.indexToKey(tv.val.ip_index)) {
+                        .un => |un| .{ .tag = un.tag.toValue(), .val = un.val.toValue() },
+                        else => unreachable,
+                    },
+                };
 
                 const layout = tv.ty.unionGetLayout(mod);
 

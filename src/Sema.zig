@@ -13072,25 +13072,32 @@ fn zirArrayMul(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
             // as zero-filling a byte array.
             if (lhs_len == 1) {
                 const elem_val = try lhs_sub_val.elemValue(mod, 0);
-                break :v try Value.Tag.repeated.create(sema.arena, elem_val);
+                break :v try mod.intern(.{ .aggregate = .{
+                    .ty = result_ty.ip_index,
+                    .storage = .{ .repeated_elem = elem_val.ip_index },
+                } });
             }
 
-            const element_vals = try sema.arena.alloc(Value, final_len_including_sent);
+            const element_vals = try sema.arena.alloc(InternPool.Index, final_len_including_sent);
             var elem_i: usize = 0;
             while (elem_i < result_len) {
                 var lhs_i: usize = 0;
                 while (lhs_i < lhs_len) : (lhs_i += 1) {
                     const elem_val = try lhs_sub_val.elemValue(mod, lhs_i);
-                    element_vals[elem_i] = elem_val;
+                    assert(elem_val.ip_index != .none);
+                    element_vals[elem_i] = elem_val.ip_index;
                     elem_i += 1;
                 }
             }
             if (lhs_info.sentinel) |sent_val| {
-                element_vals[result_len] = sent_val;
+                element_vals[result_len] = sent_val.ip_index;
             }
-            break :v try Value.Tag.aggregate.create(sema.arena, element_vals);
+            break :v try mod.intern(.{ .aggregate = .{
+                .ty = result_ty.ip_index,
+                .storage = .{ .elems = element_vals },
+            } });
         };
-        return sema.addConstantMaybeRef(block, result_ty, val, ptr_addrspace != null);
+        return sema.addConstantMaybeRef(block, result_ty, val.toValue(), ptr_addrspace != null);
     }
 
     try sema.requireRuntimeBlock(block, src, lhs_src);
@@ -18111,12 +18118,16 @@ fn finishStructInit(
     } else null;
 
     const runtime_index = opt_runtime_index orelse {
-        const values = try sema.arena.alloc(Value, field_inits.len);
-        for (field_inits, 0..) |field_init, i| {
-            values[i] = (sema.resolveMaybeUndefVal(field_init) catch unreachable).?;
+        const elems = try sema.arena.alloc(InternPool.Index, field_inits.len);
+        for (elems, field_inits, 0..) |*elem, field_init, field_i| {
+            elem.* = try (sema.resolveMaybeUndefVal(field_init) catch unreachable).?
+                .intern(struct_ty.structFieldType(field_i, mod), mod);
         }
-        const struct_val = try Value.Tag.aggregate.create(sema.arena, values);
-        return sema.addConstantMaybeRef(block, struct_ty, struct_val, is_ref);
+        const struct_val = try mod.intern(.{ .aggregate = .{
+            .ty = struct_ty.ip_index,
+            .storage = .{ .elems = elems },
+        } });
+        return sema.addConstantMaybeRef(block, struct_ty, struct_val.toValue(), is_ref);
     };
 
     if (is_ref) {
@@ -18195,21 +18206,20 @@ fn zirStructInitAnon(
 
             const init = try sema.resolveInst(item.data.init);
             field_ty.* = sema.typeOf(init).ip_index;
-            if (types[i].toType().zigTypeTag(mod) == .Opaque) {
+            if (field_ty.toType().zigTypeTag(mod) == .Opaque) {
                 const msg = msg: {
                     const decl = sema.mod.declPtr(block.src_decl);
                     const field_src = mod.initSrc(src.node_offset.x, decl, i);
                     const msg = try sema.errMsg(block, field_src, "opaque types have unknown size and therefore cannot be directly embedded in structs", .{});
                     errdefer msg.destroy(sema.gpa);
 
-                    try sema.addDeclaredHereNote(msg, types[i].toType());
+                    try sema.addDeclaredHereNote(msg, field_ty.toType());
                     break :msg msg;
                 };
                 return sema.failWithOwnedErrorMsg(msg);
             }
             if (try sema.resolveMaybeUndefVal(init)) |init_val| {
-                assert(init_val.ip_index != .none);
-                values[i] = init_val.ip_index;
+                values[i] = try init_val.intern(field_ty.toType(), mod);
             } else {
                 values[i] = .none;
                 runtime_index = i;
@@ -24881,9 +24891,7 @@ fn structFieldVal(
                 if ((try sema.typeHasOnePossibleValue(field.ty))) |opv| {
                     return sema.addConstant(field.ty, opv);
                 }
-
-                const field_values = struct_val.castTag(.aggregate).?.data;
-                return sema.addConstant(field.ty, field_values[field_index]);
+                return sema.addConstant(field.ty, try struct_val.fieldValue(field.ty, mod, field_index));
             }
 
             try sema.requireRuntimeBlock(block, src, null);
@@ -27915,7 +27923,24 @@ fn beginComptimePtrMutation(
                             ptr_elem_ty,
                             parent.decl_ref_mut,
                         ),
+                        .repeated => {
+                            const arena = parent.beginArena(sema.mod);
+                            defer parent.finishArena(sema.mod);
 
+                            const elems = try arena.alloc(Value, parent.ty.structFieldCount(mod));
+                            @memset(elems, val_ptr.castTag(.repeated).?.data);
+                            val_ptr.* = try Value.Tag.aggregate.create(arena, elems);
+
+                            return beginComptimePtrMutationInner(
+                                sema,
+                                block,
+                                src,
+                                parent.ty.structFieldType(field_index, mod),
+                                &elems[field_index],
+                                ptr_elem_ty,
+                                parent.decl_ref_mut,
+                            );
+                        },
                         .@"union" => {
                             // We need to set the active field of the union.
                             const union_tag_ty = field_ptr.container_ty.unionTagTypeHypothetical(mod);
@@ -28097,6 +28122,13 @@ fn beginComptimePtrMutationInner(
     const mod = sema.mod;
     const target = mod.getTarget();
     const coerce_ok = (try sema.coerceInMemoryAllowed(block, ptr_elem_ty, decl_ty, true, target, src, src)) == .ok;
+
+    const decl = mod.declPtr(decl_ref_mut.decl_index);
+    var decl_arena: std.heap.ArenaAllocator = undefined;
+    const allocator = decl.value_arena.?.acquire(mod.gpa, &decl_arena);
+    defer decl.value_arena.?.release(&decl_arena);
+    decl_val.* = try decl_val.unintern(allocator, mod);
+
     if (coerce_ok) {
         return ComptimePtrMutationKit{
             .decl_ref_mut = decl_ref_mut,
@@ -28402,6 +28434,27 @@ fn beginComptimePtrLoad(
         },
         else => switch (mod.intern_pool.indexToKey(ptr_val.ip_index)) {
             .int => return error.RuntimeLoad,
+            .ptr => |ptr| switch (ptr.addr) {
+                .@"var", .int => return error.RuntimeLoad,
+                .decl, .mut_decl => blk: {
+                    const decl_index = switch (ptr.addr) {
+                        .decl => |decl| decl,
+                        .mut_decl => |mut_decl| mut_decl.decl,
+                        else => unreachable,
+                    };
+                    const decl = mod.declPtr(decl_index);
+                    const decl_tv = try decl.typedValue();
+                    if (decl_tv.val.tagIsVariable()) return error.RuntimeLoad;
+
+                    const layout_defined = decl.ty.hasWellDefinedLayout(mod);
+                    break :blk ComptimePtrLoadKit{
+                        .parent = if (layout_defined) .{ .tv = decl_tv, .byte_offset = 0 } else null,
+                        .pointee = decl_tv,
+                        .is_mutable = false,
+                        .ty_without_well_defined_layout = if (!layout_defined) decl.ty else null,
+                    };
+                },
+            },
             else => unreachable,
         },
     };
@@ -29415,7 +29468,7 @@ fn analyzeSlicePtr(
     const result_ty = slice_ty.slicePtrFieldType(mod);
     if (try sema.resolveMaybeUndefVal(slice)) |val| {
         if (val.isUndef(mod)) return sema.addConstUndef(result_ty);
-        return sema.addConstant(result_ty, val.slicePtr());
+        return sema.addConstant(result_ty, val.slicePtr(mod));
     }
     try sema.requireRuntimeBlock(block, slice_src, null);
     return block.addTyOp(.slice_ptr, result_ty, slice);
