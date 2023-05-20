@@ -1680,14 +1680,14 @@ pub const CType = extern union {
                         .complete, .parameter, .global => try lookup.typeToIndex(ty, .forward),
                         .payload => unreachable,
                     }) |fwd_idx| {
-                        const payload_ty = ty.errorUnionPayload();
+                        const payload_ty = ty.errorUnionPayload(mod);
                         if (try lookup.typeToIndex(payload_ty, switch (kind) {
                             .forward, .forward_parameter => .forward,
                             .complete, .parameter => .complete,
                             .global => .global,
                             .payload => unreachable,
                         })) |payload_idx| {
-                            const error_ty = ty.errorUnionSet();
+                            const error_ty = ty.errorUnionSet(mod);
                             if (payload_idx == Tag.void.toIndex()) {
                                 try self.initType(error_ty, kind, lookup);
                             } else if (try lookup.typeToIndex(error_ty, kind)) |error_idx| {

@@ -36,17 +36,9 @@ pub const Type = struct {
     pub fn zigTypeTagOrPoison(ty: Type, mod: *const Module) error{GenericPoison}!std.builtin.TypeId {
         switch (ty.ip_index) {
             .none => switch (ty.tag()) {
-                .error_set,
-                .error_set_single,
-                .error_set_inferred,
-                .error_set_merged,
-                => return .ErrorSet,
-
                 .inferred_alloc_const,
                 .inferred_alloc_mut,
                 => return .Pointer,
-
-                .error_union => return .ErrorUnion,
             },
             else => return switch (mod.intern_pool.indexToKey(ty.ip_index)) {
                 .int_type => .Int,
@@ -55,6 +47,7 @@ pub const Type = struct {
                 .vector_type => .Vector,
                 .opt_type => .Optional,
                 .error_union_type => .ErrorUnion,
+                .error_set_type, .inferred_error_set_type => .ErrorSet,
                 .struct_type, .anon_struct_type => .Struct,
                 .union_type => .Union,
                 .opaque_type => .Opaque,
@@ -130,9 +123,9 @@ pub const Type = struct {
         }
     }
 
-    pub fn baseZigTypeTag(self: Type, mod: *const Module) std.builtin.TypeId {
+    pub fn baseZigTypeTag(self: Type, mod: *Module) std.builtin.TypeId {
         return switch (self.zigTypeTag(mod)) {
-            .ErrorUnion => self.errorUnionPayload().baseZigTypeTag(mod),
+            .ErrorUnion => self.errorUnionPayload(mod).baseZigTypeTag(mod),
             .Optional => {
                 return self.optionalChild(mod).baseZigTypeTag(mod);
             },
@@ -294,35 +287,6 @@ pub const Type = struct {
         if (a.legacy.tag_if_small_enough == b.legacy.tag_if_small_enough) return true;
 
         switch (a.tag()) {
-            .error_set_inferred => {
-                // Inferred error sets are only equal if both are inferred
-                // and they share the same pointer.
-                const a_ies = a.castTag(.error_set_inferred).?.data;
-                const b_ies = (b.castTag(.error_set_inferred) orelse return false).data;
-                return a_ies == b_ies;
-            },
-
-            .error_set,
-            .error_set_single,
-            .error_set_merged,
-            => {
-                switch (b.tag()) {
-                    .error_set, .error_set_single, .error_set_merged => {},
-                    else => return false,
-                }
-
-                // Two resolved sets match if their error set names match.
-                // Since they are pre-sorted we compare them element-wise.
-                const a_set = a.errorSetNames();
-                const b_set = b.errorSetNames();
-                if (a_set.len != b_set.len) return false;
-                for (a_set, 0..) |a_item, i| {
-                    const b_item = b_set[i];
-                    if (!std.mem.eql(u8, a_item, b_item)) return false;
-                }
-                return true;
-            },
-
             .inferred_alloc_const,
             .inferred_alloc_mut,
             => {
@@ -367,20 +331,6 @@ pub const Type = struct {
 
                 return true;
             },
-
-            .error_union => {
-                if (b.zigTypeTag(mod) != .ErrorUnion) return false;
-
-                const a_set = a.errorUnionSet();
-                const b_set = b.errorUnionSet();
-                if (!a_set.eql(b_set, mod)) return false;
-
-                const a_payload = a.errorUnionPayload();
-                const b_payload = b.errorUnionPayload();
-                if (!a_payload.eql(b_payload, mod)) return false;
-
-                return true;
-            },
         }
     }
 
@@ -399,28 +349,6 @@ pub const Type = struct {
             return;
         }
         switch (ty.tag()) {
-            .error_set,
-            .error_set_single,
-            .error_set_merged,
-            => {
-                // all are treated like an "error set" for hashing
-                std.hash.autoHash(hasher, std.builtin.TypeId.ErrorSet);
-                std.hash.autoHash(hasher, Tag.error_set);
-
-                const names = ty.errorSetNames();
-                std.hash.autoHash(hasher, names.len);
-                assert(std.sort.isSorted([]const u8, names, u8, std.mem.lessThan));
-                for (names) |name| hasher.update(name);
-            },
-
-            .error_set_inferred => {
-                // inferred error sets are compared using their data pointer
-                const ies: *Module.Fn.InferredErrorSet = ty.castTag(.error_set_inferred).?.data;
-                std.hash.autoHash(hasher, std.builtin.TypeId.ErrorSet);
-                std.hash.autoHash(hasher, Tag.error_set_inferred);
-                std.hash.autoHash(hasher, ies);
-            },
-
             .inferred_alloc_const,
             .inferred_alloc_mut,
             => {
@@ -438,16 +366,6 @@ pub const Type = struct {
                 std.hash.autoHash(hasher, info.mutable);
                 std.hash.autoHash(hasher, info.@"volatile");
                 std.hash.autoHash(hasher, info.size);
-            },
-
-            .error_union => {
-                std.hash.autoHash(hasher, std.builtin.TypeId.ErrorUnion);
-
-                const set_ty = ty.errorUnionSet();
-                hashWithHasher(set_ty, hasher, mod);
-
-                const payload_ty = ty.errorUnionPayload();
-                hashWithHasher(payload_ty, hasher, mod);
             },
         }
     }
@@ -483,52 +401,6 @@ pub const Type = struct {
             return a.eql(b, self.mod);
         }
     };
-
-    pub fn copy(self: Type, allocator: Allocator) error{OutOfMemory}!Type {
-        if (self.ip_index != .none) {
-            return Type{ .ip_index = self.ip_index, .legacy = undefined };
-        }
-        if (@enumToInt(self.legacy.tag_if_small_enough) < Tag.no_payload_count) {
-            return Type{
-                .ip_index = .none,
-                .legacy = .{ .tag_if_small_enough = self.legacy.tag_if_small_enough },
-            };
-        } else switch (self.legacy.ptr_otherwise.tag) {
-            .inferred_alloc_const,
-            .inferred_alloc_mut,
-            => unreachable,
-
-            .error_union => {
-                const payload = self.castTag(.error_union).?.data;
-                return Tag.error_union.create(allocator, .{
-                    .error_set = try payload.error_set.copy(allocator),
-                    .payload = try payload.payload.copy(allocator),
-                });
-            },
-            .error_set_merged => {
-                const names = self.castTag(.error_set_merged).?.data.keys();
-                var duped_names = Module.ErrorSet.NameMap{};
-                try duped_names.ensureTotalCapacity(allocator, names.len);
-                for (names) |name| {
-                    duped_names.putAssumeCapacityNoClobber(name, {});
-                }
-                return Tag.error_set_merged.create(allocator, duped_names);
-            },
-            .error_set => return self.copyPayloadShallow(allocator, Payload.ErrorSet),
-            .error_set_inferred => return self.copyPayloadShallow(allocator, Payload.ErrorSetInferred),
-            .error_set_single => return self.copyPayloadShallow(allocator, Payload.Name),
-        }
-    }
-
-    fn copyPayloadShallow(self: Type, allocator: Allocator, comptime T: type) error{OutOfMemory}!Type {
-        const payload = self.cast(T).?;
-        const new_payload = try allocator.create(T);
-        new_payload.* = payload.*;
-        return Type{
-            .ip_index = .none,
-            .legacy = .{ .ptr_otherwise = &new_payload.base },
-        };
-    }
 
     pub fn format(ty: Type, comptime unused_fmt_string: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
         _ = ty;
@@ -575,62 +447,7 @@ pub const Type = struct {
     ) @TypeOf(writer).Error!void {
         _ = options;
         comptime assert(unused_format_string.len == 0);
-        if (start_type.ip_index != .none) {
-            return writer.print("(intern index: {d})", .{@enumToInt(start_type.ip_index)});
-        }
-        if (true) {
-            // This is disabled to work around a stage2 bug where this function recursively
-            // causes more generic function instantiations resulting in an infinite loop
-            // in the compiler.
-            try writer.writeAll("[TODO fix internal compiler bug regarding dump]");
-            return;
-        }
-        var ty = start_type;
-        while (true) {
-            const t = ty.tag();
-            switch (t) {
-                .error_union => {
-                    const payload = ty.castTag(.error_union).?.data;
-                    try payload.error_set.dump("", .{}, writer);
-                    try writer.writeAll("!");
-                    ty = payload.payload;
-                    continue;
-                },
-                .error_set => {
-                    const names = ty.castTag(.error_set).?.data.names.keys();
-                    try writer.writeAll("error{");
-                    for (names, 0..) |name, i| {
-                        if (i != 0) try writer.writeByte(',');
-                        try writer.writeAll(name);
-                    }
-                    try writer.writeAll("}");
-                    return;
-                },
-                .error_set_inferred => {
-                    const func = ty.castTag(.error_set_inferred).?.data.func;
-                    return writer.print("({s} func={d})", .{
-                        @tagName(t), func.owner_decl,
-                    });
-                },
-                .error_set_merged => {
-                    const names = ty.castTag(.error_set_merged).?.data.keys();
-                    try writer.writeAll("error{");
-                    for (names, 0..) |name, i| {
-                        if (i != 0) try writer.writeByte(',');
-                        try writer.writeAll(name);
-                    }
-                    try writer.writeAll("}");
-                    return;
-                },
-                .error_set_single => {
-                    const name = ty.castTag(.error_set_single).?.data;
-                    return writer.print("error{{{s}}}", .{name});
-                },
-                .inferred_alloc_const => return writer.writeAll("(inferred_alloc_const)"),
-                .inferred_alloc_mut => return writer.writeAll("(inferred_alloc_mut)"),
-            }
-            unreachable;
-        }
+        return writer.print("{any}", .{start_type.ip_index});
     }
 
     pub const nameAllocArena = nameAlloc;
@@ -648,45 +465,6 @@ pub const Type = struct {
             .none => switch (ty.tag()) {
                 .inferred_alloc_const => unreachable,
                 .inferred_alloc_mut => unreachable,
-
-                .error_set_inferred => {
-                    const func = ty.castTag(.error_set_inferred).?.data.func;
-
-                    try writer.writeAll("@typeInfo(@typeInfo(@TypeOf(");
-                    const owner_decl = mod.declPtr(func.owner_decl);
-                    try owner_decl.renderFullyQualifiedName(mod, writer);
-                    try writer.writeAll(")).Fn.return_type.?).ErrorUnion.error_set");
-                },
-
-                .error_union => {
-                    const error_union = ty.castTag(.error_union).?.data;
-                    try print(error_union.error_set, writer, mod);
-                    try writer.writeAll("!");
-                    try print(error_union.payload, writer, mod);
-                },
-
-                .error_set => {
-                    const names = ty.castTag(.error_set).?.data.names.keys();
-                    try writer.writeAll("error{");
-                    for (names, 0..) |name, i| {
-                        if (i != 0) try writer.writeByte(',');
-                        try writer.writeAll(name);
-                    }
-                    try writer.writeAll("}");
-                },
-                .error_set_single => {
-                    const name = ty.castTag(.error_set_single).?.data;
-                    return writer.print("error{{{s}}}", .{name});
-                },
-                .error_set_merged => {
-                    const names = ty.castTag(.error_set_merged).?.data.keys();
-                    try writer.writeAll("error{");
-                    for (names, 0..) |name, i| {
-                        if (i != 0) try writer.writeByte(',');
-                        try writer.writeAll(name);
-                    }
-                    try writer.writeAll("}");
-                },
             },
             else => switch (mod.intern_pool.indexToKey(ty.ip_index)) {
                 .int_type => |int_type| {
@@ -765,6 +543,24 @@ pub const Type = struct {
                     try writer.writeByte('!');
                     try print(error_union_type.payload_type.toType(), writer, mod);
                     return;
+                },
+                .inferred_error_set_type => |index| {
+                    const ies = mod.inferredErrorSetPtr(index);
+                    const func = ies.func;
+
+                    try writer.writeAll("@typeInfo(@typeInfo(@TypeOf(");
+                    const owner_decl = mod.declPtr(func.owner_decl);
+                    try owner_decl.renderFullyQualifiedName(mod, writer);
+                    try writer.writeAll(")).Fn.return_type.?).ErrorUnion.error_set");
+                },
+                .error_set_type => |error_set_type| {
+                    const names = error_set_type.names;
+                    try writer.writeAll("error{");
+                    for (names, 0..) |name, i| {
+                        if (i != 0) try writer.writeByte(',');
+                        try writer.writeAll(mod.intern_pool.stringToSlice(name));
+                    }
+                    try writer.writeAll("}");
                 },
                 .simple_type => |s| return writer.writeAll(@tagName(s)),
                 .struct_type => |struct_type| {
@@ -881,13 +677,8 @@ pub const Type = struct {
         return ty.ip_index;
     }
 
-    pub fn toValue(self: Type, allocator: Allocator) Allocator.Error!Value {
-        if (self.ip_index != .none) return self.ip_index.toValue();
-        switch (self.tag()) {
-            .inferred_alloc_const => unreachable,
-            .inferred_alloc_mut => unreachable,
-            else => return Value.Tag.ty.create(allocator, self),
-        }
+    pub fn toValue(self: Type) Value {
+        return self.toIntern().toValue();
     }
 
     const RuntimeBitsError = Module.CompileError || error{NeedLazy};
@@ -914,14 +705,6 @@ pub const Type = struct {
             .empty_struct_type => return false,
 
             .none => switch (ty.tag()) {
-                .error_set_inferred,
-
-                .error_set_single,
-                .error_union,
-                .error_set,
-                .error_set_merged,
-                => return true,
-
                 .inferred_alloc_const => unreachable,
                 .inferred_alloc_mut => unreachable,
             },
@@ -951,7 +734,7 @@ pub const Type = struct {
                 },
                 .opt_type => |child| {
                     const child_ty = child.toType();
-                    if (child_ty.isNoReturn()) {
+                    if (child_ty.isNoReturn(mod)) {
                         // Then the optional is comptime-known to be null.
                         return false;
                     }
@@ -963,7 +746,10 @@ pub const Type = struct {
                         return !comptimeOnly(child_ty, mod);
                     }
                 },
-                .error_union_type => @panic("TODO"),
+                .error_union_type,
+                .error_set_type,
+                .inferred_error_set_type,
+                => true,
 
                 // These are function *bodies*, not pointers.
                 // They return false here because they are comptime-only types.
@@ -1103,112 +889,99 @@ pub const Type = struct {
     /// readFrom/writeToMemory are supported only for types with a well-
     /// defined memory layout
     pub fn hasWellDefinedLayout(ty: Type, mod: *Module) bool {
-        return switch (ty.ip_index) {
-            .empty_struct_type => false,
+        return switch (mod.intern_pool.indexToKey(ty.ip_index)) {
+            .int_type,
+            .ptr_type,
+            .vector_type,
+            => true,
 
-            .none => switch (ty.tag()) {
-                .error_set,
-                .error_set_single,
-                .error_set_inferred,
-                .error_set_merged,
-                .error_union,
-                => false,
+            .error_union_type,
+            .error_set_type,
+            .inferred_error_set_type,
+            .anon_struct_type,
+            .opaque_type,
+            .anyframe_type,
+            // These are function bodies, not function pointers.
+            .func_type,
+            => false,
 
-                .inferred_alloc_mut => unreachable,
-                .inferred_alloc_const => unreachable,
-            },
-            else => switch (mod.intern_pool.indexToKey(ty.ip_index)) {
-                .int_type,
-                .ptr_type,
-                .vector_type,
+            .array_type => |array_type| array_type.child.toType().hasWellDefinedLayout(mod),
+            .opt_type => ty.isPtrLikeOptional(mod),
+
+            .simple_type => |t| switch (t) {
+                .f16,
+                .f32,
+                .f64,
+                .f80,
+                .f128,
+                .usize,
+                .isize,
+                .c_char,
+                .c_short,
+                .c_ushort,
+                .c_int,
+                .c_uint,
+                .c_long,
+                .c_ulong,
+                .c_longlong,
+                .c_ulonglong,
+                .c_longdouble,
+                .bool,
+                .void,
                 => true,
 
-                .error_union_type,
-                .anon_struct_type,
-                .opaque_type,
-                .anyframe_type,
-                // These are function bodies, not function pointers.
-                .func_type,
+                .anyerror,
+                .anyopaque,
+                .atomic_order,
+                .atomic_rmw_op,
+                .calling_convention,
+                .address_space,
+                .float_mode,
+                .reduce_op,
+                .call_modifier,
+                .prefetch_options,
+                .export_options,
+                .extern_options,
+                .type,
+                .comptime_int,
+                .comptime_float,
+                .noreturn,
+                .null,
+                .undefined,
+                .enum_literal,
+                .type_info,
+                .generic_poison,
                 => false,
 
-                .array_type => |array_type| array_type.child.toType().hasWellDefinedLayout(mod),
-                .opt_type => ty.isPtrLikeOptional(mod),
-
-                .simple_type => |t| switch (t) {
-                    .f16,
-                    .f32,
-                    .f64,
-                    .f80,
-                    .f128,
-                    .usize,
-                    .isize,
-                    .c_char,
-                    .c_short,
-                    .c_ushort,
-                    .c_int,
-                    .c_uint,
-                    .c_long,
-                    .c_ulong,
-                    .c_longlong,
-                    .c_ulonglong,
-                    .c_longdouble,
-                    .bool,
-                    .void,
-                    => true,
-
-                    .anyerror,
-                    .anyopaque,
-                    .atomic_order,
-                    .atomic_rmw_op,
-                    .calling_convention,
-                    .address_space,
-                    .float_mode,
-                    .reduce_op,
-                    .call_modifier,
-                    .prefetch_options,
-                    .export_options,
-                    .extern_options,
-                    .type,
-                    .comptime_int,
-                    .comptime_float,
-                    .noreturn,
-                    .null,
-                    .undefined,
-                    .enum_literal,
-                    .type_info,
-                    .generic_poison,
-                    => false,
-
-                    .var_args_param => unreachable,
-                },
-                .struct_type => |struct_type| {
-                    const struct_obj = mod.structPtrUnwrap(struct_type.index) orelse {
-                        // Struct with no fields has a well-defined layout of no bits.
-                        return true;
-                    };
-                    return struct_obj.layout != .Auto;
-                },
-                .union_type => |union_type| switch (union_type.runtime_tag) {
-                    .none, .safety => mod.unionPtr(union_type.index).layout != .Auto,
-                    .tagged => false,
-                },
-                .enum_type => |enum_type| switch (enum_type.tag_mode) {
-                    .auto => false,
-                    .explicit, .nonexhaustive => true,
-                },
-
-                // values, not types
-                .undef => unreachable,
-                .un => unreachable,
-                .simple_value => unreachable,
-                .extern_func => unreachable,
-                .int => unreachable,
-                .float => unreachable,
-                .ptr => unreachable,
-                .opt => unreachable,
-                .enum_tag => unreachable,
-                .aggregate => unreachable,
+                .var_args_param => unreachable,
             },
+            .struct_type => |struct_type| {
+                const struct_obj = mod.structPtrUnwrap(struct_type.index) orelse {
+                    // Struct with no fields has a well-defined layout of no bits.
+                    return true;
+                };
+                return struct_obj.layout != .Auto;
+            },
+            .union_type => |union_type| switch (union_type.runtime_tag) {
+                .none, .safety => mod.unionPtr(union_type.index).layout != .Auto,
+                .tagged => false,
+            },
+            .enum_type => |enum_type| switch (enum_type.tag_mode) {
+                .auto => false,
+                .explicit, .nonexhaustive => true,
+            },
+
+            // values, not types
+            .undef => unreachable,
+            .un => unreachable,
+            .simple_value => unreachable,
+            .extern_func => unreachable,
+            .int => unreachable,
+            .float => unreachable,
+            .ptr => unreachable,
+            .opt => unreachable,
+            .enum_tag => unreachable,
+            .aggregate => unreachable,
         };
     }
 
@@ -1247,35 +1020,8 @@ pub const Type = struct {
         };
     }
 
-    pub fn isNoReturn(ty: Type) bool {
-        switch (@enumToInt(ty.ip_index)) {
-            @enumToInt(InternPool.Index.first_type)...@enumToInt(InternPool.Index.noreturn_type) - 1 => return false,
-
-            @enumToInt(InternPool.Index.noreturn_type) => return true,
-
-            @enumToInt(InternPool.Index.noreturn_type) + 1...@enumToInt(InternPool.Index.last_type) => return false,
-
-            @enumToInt(InternPool.Index.first_value)...@enumToInt(InternPool.Index.last_value) => unreachable,
-            @enumToInt(InternPool.Index.generic_poison) => unreachable,
-
-            // TODO add empty error sets here
-            // TODO add enums with no fields here
-            else => return false,
-
-            @enumToInt(InternPool.Index.none) => switch (ty.tag()) {
-                .error_set => {
-                    const err_set_obj = ty.castTag(.error_set).?.data;
-                    const names = err_set_obj.names.keys();
-                    return names.len == 0;
-                },
-                .error_set_merged => {
-                    const name_map = ty.castTag(.error_set_merged).?.data;
-                    const names = name_map.keys();
-                    return names.len == 0;
-                },
-                else => return false,
-            },
-        }
+    pub fn isNoReturn(ty: Type, mod: *Module) bool {
+        return mod.intern_pool.isNoReturn(ty.ip_index);
     }
 
     /// Returns 0 if the pointer is naturally aligned and the element type is 0-bit.
@@ -1353,21 +1099,6 @@ pub const Type = struct {
 
         switch (ty.ip_index) {
             .empty_struct_type => return AbiAlignmentAdvanced{ .scalar = 0 },
-            .none => switch (ty.tag()) {
-
-                // TODO revisit this when we have the concept of the error tag type
-                .error_set_inferred,
-                .error_set_single,
-                .error_set,
-                .error_set_merged,
-                => return AbiAlignmentAdvanced{ .scalar = 2 },
-
-                .error_union => return abiAlignmentAdvancedErrorUnion(ty, mod, strat),
-
-                .inferred_alloc_const,
-                .inferred_alloc_mut,
-                => unreachable,
-            },
             else => switch (mod.intern_pool.indexToKey(ty.ip_index)) {
                 .int_type => |int_type| {
                     if (int_type.bits == 0) return AbiAlignmentAdvanced{ .scalar = 0 };
@@ -1388,7 +1119,11 @@ pub const Type = struct {
                 },
 
                 .opt_type => return abiAlignmentAdvancedOptional(ty, mod, strat),
-                .error_union_type => return abiAlignmentAdvancedErrorUnion(ty, mod, strat),
+                .error_union_type => |info| return abiAlignmentAdvancedErrorUnion(ty, mod, strat, info.payload_type.toType()),
+
+                // TODO revisit this when we have the concept of the error tag type
+                .error_set_type, .inferred_error_set_type => return AbiAlignmentAdvanced{ .scalar = 2 },
+
                 // represents machine code; not a pointer
                 .func_type => |func_type| return AbiAlignmentAdvanced{
                     .scalar = if (func_type.alignment.toByteUnitsOptional()) |a|
@@ -1572,14 +1307,14 @@ pub const Type = struct {
         ty: Type,
         mod: *Module,
         strat: AbiAlignmentAdvancedStrat,
+        payload_ty: Type,
     ) Module.CompileError!AbiAlignmentAdvanced {
         // This code needs to be kept in sync with the equivalent switch prong
         // in abiSizeAdvanced.
-        const data = ty.castTag(.error_union).?.data;
         const code_align = abiAlignment(Type.anyerror, mod);
         switch (strat) {
             .eager, .sema => {
-                if (!(data.payload.hasRuntimeBitsAdvanced(mod, false, strat) catch |err| switch (err) {
+                if (!(payload_ty.hasRuntimeBitsAdvanced(mod, false, strat) catch |err| switch (err) {
                     error.NeedLazy => return AbiAlignmentAdvanced{ .val = try Value.Tag.lazy_align.create(strat.lazy, ty) },
                     else => |e| return e,
                 })) {
@@ -1587,11 +1322,11 @@ pub const Type = struct {
                 }
                 return AbiAlignmentAdvanced{ .scalar = @max(
                     code_align,
-                    (try data.payload.abiAlignmentAdvanced(mod, strat)).scalar,
+                    (try payload_ty.abiAlignmentAdvanced(mod, strat)).scalar,
                 ) };
             },
             .lazy => |arena| {
-                switch (try data.payload.abiAlignmentAdvanced(mod, strat)) {
+                switch (try payload_ty.abiAlignmentAdvanced(mod, strat)) {
                     .scalar => |payload_align| {
                         return AbiAlignmentAdvanced{
                             .scalar = @max(code_align, payload_align),
@@ -1728,55 +1463,6 @@ pub const Type = struct {
         switch (ty.ip_index) {
             .empty_struct_type => return AbiSizeAdvanced{ .scalar = 0 },
 
-            .none => switch (ty.tag()) {
-                .inferred_alloc_const => unreachable,
-                .inferred_alloc_mut => unreachable,
-
-                // TODO revisit this when we have the concept of the error tag type
-                .error_set_inferred,
-                .error_set,
-                .error_set_merged,
-                .error_set_single,
-                => return AbiSizeAdvanced{ .scalar = 2 },
-
-                .error_union => {
-                    // This code needs to be kept in sync with the equivalent switch prong
-                    // in abiAlignmentAdvanced.
-                    const data = ty.castTag(.error_union).?.data;
-                    const code_size = abiSize(Type.anyerror, mod);
-                    if (!(data.payload.hasRuntimeBitsAdvanced(mod, false, strat) catch |err| switch (err) {
-                        error.NeedLazy => return AbiSizeAdvanced{ .val = try Value.Tag.lazy_size.create(strat.lazy, ty) },
-                        else => |e| return e,
-                    })) {
-                        // Same as anyerror.
-                        return AbiSizeAdvanced{ .scalar = code_size };
-                    }
-                    const code_align = abiAlignment(Type.anyerror, mod);
-                    const payload_align = abiAlignment(data.payload, mod);
-                    const payload_size = switch (try data.payload.abiSizeAdvanced(mod, strat)) {
-                        .scalar => |elem_size| elem_size,
-                        .val => switch (strat) {
-                            .sema => unreachable,
-                            .eager => unreachable,
-                            .lazy => |arena| return AbiSizeAdvanced{ .val = try Value.Tag.lazy_size.create(arena, ty) },
-                        },
-                    };
-
-                    var size: u64 = 0;
-                    if (code_align > payload_align) {
-                        size += code_size;
-                        size = std.mem.alignForwardGeneric(u64, size, payload_align);
-                        size += payload_size;
-                        size = std.mem.alignForwardGeneric(u64, size, code_align);
-                    } else {
-                        size += payload_size;
-                        size = std.mem.alignForwardGeneric(u64, size, code_align);
-                        size += code_size;
-                        size = std.mem.alignForwardGeneric(u64, size, payload_align);
-                    }
-                    return AbiSizeAdvanced{ .scalar = size };
-                },
-            },
             else => switch (mod.intern_pool.indexToKey(ty.ip_index)) {
                 .int_type => |int_type| {
                     if (int_type.bits == 0) return AbiSizeAdvanced{ .scalar = 0 };
@@ -1821,7 +1507,47 @@ pub const Type = struct {
                 },
 
                 .opt_type => return ty.abiSizeAdvancedOptional(mod, strat),
-                .error_union_type => @panic("TODO"),
+
+                // TODO revisit this when we have the concept of the error tag type
+                .error_set_type, .inferred_error_set_type => return AbiSizeAdvanced{ .scalar = 2 },
+
+                .error_union_type => |error_union_type| {
+                    const payload_ty = error_union_type.payload_type.toType();
+                    // This code needs to be kept in sync with the equivalent switch prong
+                    // in abiAlignmentAdvanced.
+                    const code_size = abiSize(Type.anyerror, mod);
+                    if (!(payload_ty.hasRuntimeBitsAdvanced(mod, false, strat) catch |err| switch (err) {
+                        error.NeedLazy => return AbiSizeAdvanced{ .val = try Value.Tag.lazy_size.create(strat.lazy, ty) },
+                        else => |e| return e,
+                    })) {
+                        // Same as anyerror.
+                        return AbiSizeAdvanced{ .scalar = code_size };
+                    }
+                    const code_align = abiAlignment(Type.anyerror, mod);
+                    const payload_align = abiAlignment(payload_ty, mod);
+                    const payload_size = switch (try payload_ty.abiSizeAdvanced(mod, strat)) {
+                        .scalar => |elem_size| elem_size,
+                        .val => switch (strat) {
+                            .sema => unreachable,
+                            .eager => unreachable,
+                            .lazy => |arena| return AbiSizeAdvanced{ .val = try Value.Tag.lazy_size.create(arena, ty) },
+                        },
+                    };
+
+                    var size: u64 = 0;
+                    if (code_align > payload_align) {
+                        size += code_size;
+                        size = std.mem.alignForwardGeneric(u64, size, payload_align);
+                        size += payload_size;
+                        size = std.mem.alignForwardGeneric(u64, size, code_align);
+                    } else {
+                        size += payload_size;
+                        size = std.mem.alignForwardGeneric(u64, size, code_align);
+                        size += code_size;
+                        size = std.mem.alignForwardGeneric(u64, size, payload_align);
+                    }
+                    return AbiSizeAdvanced{ .scalar = size };
+                },
                 .func_type => unreachable, // represents machine code; not a pointer
                 .simple_type => |t| switch (t) {
                     .bool,
@@ -1982,7 +1708,7 @@ pub const Type = struct {
     ) Module.CompileError!AbiSizeAdvanced {
         const child_ty = ty.optionalChild(mod);
 
-        if (child_ty.isNoReturn()) {
+        if (child_ty.isNoReturn(mod)) {
             return AbiSizeAdvanced{ .scalar = 0 };
         }
 
@@ -2041,147 +1767,137 @@ pub const Type = struct {
 
         const strat: AbiAlignmentAdvancedStrat = if (opt_sema) |sema| .{ .sema = sema } else .eager;
 
-        switch (ty.ip_index) {
-            .none => switch (ty.tag()) {
-                .inferred_alloc_const => unreachable,
-                .inferred_alloc_mut => unreachable,
-
-                .error_set,
-                .error_set_single,
-                .error_set_inferred,
-                .error_set_merged,
-                => return 16, // TODO revisit this when we have the concept of the error tag type
-
-                .error_union => {
-                    // Optionals and error unions are not packed so their bitsize
-                    // includes padding bits.
-                    return (try abiSizeAdvanced(ty, mod, strat)).scalar * 8;
-                },
+        switch (mod.intern_pool.indexToKey(ty.ip_index)) {
+            .int_type => |int_type| return int_type.bits,
+            .ptr_type => |ptr_type| switch (ptr_type.size) {
+                .Slice => return target.ptrBitWidth() * 2,
+                else => return target.ptrBitWidth() * 2,
             },
-            else => switch (mod.intern_pool.indexToKey(ty.ip_index)) {
-                .int_type => |int_type| return int_type.bits,
-                .ptr_type => |ptr_type| switch (ptr_type.size) {
-                    .Slice => return target.ptrBitWidth() * 2,
-                    else => return target.ptrBitWidth() * 2,
-                },
-                .anyframe_type => return target.ptrBitWidth(),
+            .anyframe_type => return target.ptrBitWidth(),
 
-                .array_type => |array_type| {
-                    const len = array_type.len + @boolToInt(array_type.sentinel != .none);
-                    if (len == 0) return 0;
-                    const elem_ty = array_type.child.toType();
-                    const elem_size = std.math.max(elem_ty.abiAlignment(mod), elem_ty.abiSize(mod));
-                    if (elem_size == 0) return 0;
-                    const elem_bit_size = try bitSizeAdvanced(elem_ty, mod, opt_sema);
-                    return (len - 1) * 8 * elem_size + elem_bit_size;
-                },
-                .vector_type => |vector_type| {
-                    const child_ty = vector_type.child.toType();
-                    const elem_bit_size = try bitSizeAdvanced(child_ty, mod, opt_sema);
-                    return elem_bit_size * vector_type.len;
-                },
-                .opt_type => {
-                    // Optionals and error unions are not packed so their bitsize
-                    // includes padding bits.
-                    return (try abiSizeAdvanced(ty, mod, strat)).scalar * 8;
-                },
-                .error_union_type => @panic("TODO"),
-                .func_type => unreachable, // represents machine code; not a pointer
-                .simple_type => |t| switch (t) {
-                    .f16 => return 16,
-                    .f32 => return 32,
-                    .f64 => return 64,
-                    .f80 => return 80,
-                    .f128 => return 128,
+            .array_type => |array_type| {
+                const len = array_type.len + @boolToInt(array_type.sentinel != .none);
+                if (len == 0) return 0;
+                const elem_ty = array_type.child.toType();
+                const elem_size = std.math.max(elem_ty.abiAlignment(mod), elem_ty.abiSize(mod));
+                if (elem_size == 0) return 0;
+                const elem_bit_size = try bitSizeAdvanced(elem_ty, mod, opt_sema);
+                return (len - 1) * 8 * elem_size + elem_bit_size;
+            },
+            .vector_type => |vector_type| {
+                const child_ty = vector_type.child.toType();
+                const elem_bit_size = try bitSizeAdvanced(child_ty, mod, opt_sema);
+                return elem_bit_size * vector_type.len;
+            },
+            .opt_type => {
+                // Optionals and error unions are not packed so their bitsize
+                // includes padding bits.
+                return (try abiSizeAdvanced(ty, mod, strat)).scalar * 8;
+            },
 
-                    .usize,
-                    .isize,
-                    => return target.ptrBitWidth(),
+            // TODO revisit this when we have the concept of the error tag type
+            .error_set_type, .inferred_error_set_type => return 16,
 
-                    .c_char => return target.c_type_bit_size(.char),
-                    .c_short => return target.c_type_bit_size(.short),
-                    .c_ushort => return target.c_type_bit_size(.ushort),
-                    .c_int => return target.c_type_bit_size(.int),
-                    .c_uint => return target.c_type_bit_size(.uint),
-                    .c_long => return target.c_type_bit_size(.long),
-                    .c_ulong => return target.c_type_bit_size(.ulong),
-                    .c_longlong => return target.c_type_bit_size(.longlong),
-                    .c_ulonglong => return target.c_type_bit_size(.ulonglong),
-                    .c_longdouble => return target.c_type_bit_size(.longdouble),
+            .error_union_type => {
+                // Optionals and error unions are not packed so their bitsize
+                // includes padding bits.
+                return (try abiSizeAdvanced(ty, mod, strat)).scalar * 8;
+            },
+            .func_type => unreachable, // represents machine code; not a pointer
+            .simple_type => |t| switch (t) {
+                .f16 => return 16,
+                .f32 => return 32,
+                .f64 => return 64,
+                .f80 => return 80,
+                .f128 => return 128,
 
-                    .bool => return 1,
-                    .void => return 0,
+                .usize,
+                .isize,
+                => return target.ptrBitWidth(),
 
-                    // TODO revisit this when we have the concept of the error tag type
-                    .anyerror => return 16,
+                .c_char => return target.c_type_bit_size(.char),
+                .c_short => return target.c_type_bit_size(.short),
+                .c_ushort => return target.c_type_bit_size(.ushort),
+                .c_int => return target.c_type_bit_size(.int),
+                .c_uint => return target.c_type_bit_size(.uint),
+                .c_long => return target.c_type_bit_size(.long),
+                .c_ulong => return target.c_type_bit_size(.ulong),
+                .c_longlong => return target.c_type_bit_size(.longlong),
+                .c_ulonglong => return target.c_type_bit_size(.ulonglong),
+                .c_longdouble => return target.c_type_bit_size(.longdouble),
 
-                    .anyopaque => unreachable,
-                    .type => unreachable,
-                    .comptime_int => unreachable,
-                    .comptime_float => unreachable,
-                    .noreturn => unreachable,
-                    .null => unreachable,
-                    .undefined => unreachable,
-                    .enum_literal => unreachable,
-                    .generic_poison => unreachable,
-                    .var_args_param => unreachable,
+                .bool => return 1,
+                .void => return 0,
 
-                    .atomic_order => unreachable, // missing call to resolveTypeFields
-                    .atomic_rmw_op => unreachable, // missing call to resolveTypeFields
-                    .calling_convention => unreachable, // missing call to resolveTypeFields
-                    .address_space => unreachable, // missing call to resolveTypeFields
-                    .float_mode => unreachable, // missing call to resolveTypeFields
-                    .reduce_op => unreachable, // missing call to resolveTypeFields
-                    .call_modifier => unreachable, // missing call to resolveTypeFields
-                    .prefetch_options => unreachable, // missing call to resolveTypeFields
-                    .export_options => unreachable, // missing call to resolveTypeFields
-                    .extern_options => unreachable, // missing call to resolveTypeFields
-                    .type_info => unreachable, // missing call to resolveTypeFields
-                },
-                .struct_type => |struct_type| {
-                    const struct_obj = mod.structPtrUnwrap(struct_type.index) orelse return 0;
-                    if (struct_obj.layout != .Packed) {
-                        return (try ty.abiSizeAdvanced(mod, strat)).scalar * 8;
-                    }
-                    if (opt_sema) |sema| _ = try sema.resolveTypeLayout(ty);
-                    assert(struct_obj.haveLayout());
-                    return try struct_obj.backing_int_ty.bitSizeAdvanced(mod, opt_sema);
-                },
+                // TODO revisit this when we have the concept of the error tag type
+                .anyerror => return 16,
 
-                .anon_struct_type => {
-                    if (opt_sema) |sema| _ = try sema.resolveTypeFields(ty);
+                .anyopaque => unreachable,
+                .type => unreachable,
+                .comptime_int => unreachable,
+                .comptime_float => unreachable,
+                .noreturn => unreachable,
+                .null => unreachable,
+                .undefined => unreachable,
+                .enum_literal => unreachable,
+                .generic_poison => unreachable,
+                .var_args_param => unreachable,
+
+                .atomic_order => unreachable, // missing call to resolveTypeFields
+                .atomic_rmw_op => unreachable, // missing call to resolveTypeFields
+                .calling_convention => unreachable, // missing call to resolveTypeFields
+                .address_space => unreachable, // missing call to resolveTypeFields
+                .float_mode => unreachable, // missing call to resolveTypeFields
+                .reduce_op => unreachable, // missing call to resolveTypeFields
+                .call_modifier => unreachable, // missing call to resolveTypeFields
+                .prefetch_options => unreachable, // missing call to resolveTypeFields
+                .export_options => unreachable, // missing call to resolveTypeFields
+                .extern_options => unreachable, // missing call to resolveTypeFields
+                .type_info => unreachable, // missing call to resolveTypeFields
+            },
+            .struct_type => |struct_type| {
+                const struct_obj = mod.structPtrUnwrap(struct_type.index) orelse return 0;
+                if (struct_obj.layout != .Packed) {
                     return (try ty.abiSizeAdvanced(mod, strat)).scalar * 8;
-                },
-
-                .union_type => |union_type| {
-                    if (opt_sema) |sema| _ = try sema.resolveTypeFields(ty);
-                    if (ty.containerLayout(mod) != .Packed) {
-                        return (try ty.abiSizeAdvanced(mod, strat)).scalar * 8;
-                    }
-                    const union_obj = mod.unionPtr(union_type.index);
-                    assert(union_obj.haveFieldTypes());
-
-                    var size: u64 = 0;
-                    for (union_obj.fields.values()) |field| {
-                        size = @max(size, try bitSizeAdvanced(field.ty, mod, opt_sema));
-                    }
-                    return size;
-                },
-                .opaque_type => unreachable,
-                .enum_type => |enum_type| return bitSizeAdvanced(enum_type.tag_ty.toType(), mod, opt_sema),
-
-                // values, not types
-                .undef => unreachable,
-                .un => unreachable,
-                .simple_value => unreachable,
-                .extern_func => unreachable,
-                .int => unreachable,
-                .float => unreachable,
-                .ptr => unreachable,
-                .opt => unreachable,
-                .enum_tag => unreachable,
-                .aggregate => unreachable,
+                }
+                if (opt_sema) |sema| _ = try sema.resolveTypeLayout(ty);
+                assert(struct_obj.haveLayout());
+                return try struct_obj.backing_int_ty.bitSizeAdvanced(mod, opt_sema);
             },
+
+            .anon_struct_type => {
+                if (opt_sema) |sema| _ = try sema.resolveTypeFields(ty);
+                return (try ty.abiSizeAdvanced(mod, strat)).scalar * 8;
+            },
+
+            .union_type => |union_type| {
+                if (opt_sema) |sema| _ = try sema.resolveTypeFields(ty);
+                if (ty.containerLayout(mod) != .Packed) {
+                    return (try ty.abiSizeAdvanced(mod, strat)).scalar * 8;
+                }
+                const union_obj = mod.unionPtr(union_type.index);
+                assert(union_obj.haveFieldTypes());
+
+                var size: u64 = 0;
+                for (union_obj.fields.values()) |field| {
+                    size = @max(size, try bitSizeAdvanced(field.ty, mod, opt_sema));
+                }
+                return size;
+            },
+            .opaque_type => unreachable,
+            .enum_type => |enum_type| return bitSizeAdvanced(enum_type.tag_ty.toType(), mod, opt_sema),
+
+            // values, not types
+            .undef => unreachable,
+            .un => unreachable,
+            .simple_value => unreachable,
+            .extern_func => unreachable,
+            .int => unreachable,
+            .float => unreachable,
+            .ptr => unreachable,
+            .opt => unreachable,
+            .enum_tag => unreachable,
+            .aggregate => unreachable,
         }
     }
 
@@ -2210,7 +1926,7 @@ pub const Type = struct {
                 return payload_ty.layoutIsResolved(mod);
             },
             .ErrorUnion => {
-                const payload_ty = ty.errorUnionPayload();
+                const payload_ty = ty.errorUnionPayload(mod);
                 return payload_ty.layoutIsResolved(mod);
             },
             else => return true,
@@ -2223,8 +1939,6 @@ pub const Type = struct {
                 .inferred_alloc_const,
                 .inferred_alloc_mut,
                 => true,
-
-                else => false,
             },
             else => return switch (mod.intern_pool.indexToKey(ty.ip_index)) {
                 .ptr_type => |ptr_info| ptr_info.size == .One,
@@ -2245,8 +1959,6 @@ pub const Type = struct {
                 .inferred_alloc_const,
                 .inferred_alloc_mut,
                 => .One,
-
-                else => null,
             },
             else => switch (mod.intern_pool.indexToKey(ty.ip_index)) {
                 .ptr_type => |ptr_info| ptr_info.size,
@@ -2534,69 +2246,43 @@ pub const Type = struct {
     }
 
     /// Asserts that the type is an error union.
-    pub fn errorUnionPayload(ty: Type) Type {
-        return switch (ty.ip_index) {
-            .anyerror_void_error_union_type => Type.void,
-            .none => switch (ty.tag()) {
-                .error_union => ty.castTag(.error_union).?.data.payload,
-                else => unreachable,
-            },
-            else => @panic("TODO"),
-        };
+    pub fn errorUnionPayload(ty: Type, mod: *Module) Type {
+        return mod.intern_pool.indexToKey(ty.ip_index).error_union_type.payload_type.toType();
     }
 
-    pub fn errorUnionSet(ty: Type) Type {
-        return switch (ty.ip_index) {
-            .anyerror_void_error_union_type => Type.anyerror,
-            .none => switch (ty.tag()) {
-                .error_union => ty.castTag(.error_union).?.data.error_set,
-                else => unreachable,
-            },
-            else => @panic("TODO"),
-        };
+    /// Asserts that the type is an error union.
+    pub fn errorUnionSet(ty: Type, mod: *Module) Type {
+        return mod.intern_pool.indexToKey(ty.ip_index).error_union_type.error_set_type.toType();
     }
 
     /// Returns false for unresolved inferred error sets.
-    pub fn errorSetIsEmpty(ty: Type, mod: *const Module) bool {
-        switch (ty.ip_index) {
-            .none => switch (ty.tag()) {
-                .error_set_inferred => {
-                    const inferred_error_set = ty.castTag(.error_set_inferred).?.data;
+    pub fn errorSetIsEmpty(ty: Type, mod: *Module) bool {
+        return switch (ty.ip_index) {
+            .anyerror_type => false,
+            else => switch (mod.intern_pool.indexToKey(ty.ip_index)) {
+                .error_set_type => |error_set_type| error_set_type.names.len == 0,
+                .inferred_error_set_type => |index| {
+                    const inferred_error_set = mod.inferredErrorSetPtr(index);
                     // Can't know for sure.
                     if (!inferred_error_set.is_resolved) return false;
                     if (inferred_error_set.is_anyerror) return false;
                     return inferred_error_set.errors.count() == 0;
                 },
-                .error_set_single => return false,
-                .error_set => {
-                    const err_set_obj = ty.castTag(.error_set).?.data;
-                    return err_set_obj.names.count() == 0;
-                },
-                .error_set_merged => {
-                    const name_map = ty.castTag(.error_set_merged).?.data;
-                    return name_map.count() == 0;
-                },
                 else => unreachable,
             },
-            .anyerror_type => return false,
-            else => switch (mod.intern_pool.indexToKey(ty.ip_index)) {
-                else => @panic("TODO"),
-            },
-        }
+        };
     }
 
     /// Returns true if it is an error set that includes anyerror, false otherwise.
     /// Note that the result may be a false negative if the type did not get error set
     /// resolution prior to this call.
-    pub fn isAnyError(ty: Type) bool {
+    pub fn isAnyError(ty: Type, mod: *Module) bool {
         return switch (ty.ip_index) {
-            .none => switch (ty.tag()) {
-                .error_set_inferred => ty.castTag(.error_set_inferred).?.data.is_anyerror,
+            .anyerror_type => true,
+            else => switch (mod.intern_pool.indexToKey(ty.ip_index)) {
+                .inferred_error_set_type => |i| mod.inferredErrorSetPtr(i).is_anyerror,
                 else => false,
             },
-            .anyerror_type => true,
-            // TODO handle error_set_inferred here
-            else => false,
         };
     }
 
@@ -2610,30 +2296,50 @@ pub const Type = struct {
     /// Returns whether ty, which must be an error set, includes an error `name`.
     /// Might return a false negative if `ty` is an inferred error set and not fully
     /// resolved yet.
-    pub fn errorSetHasField(ty: Type, name: []const u8) bool {
-        if (ty.isAnyError()) {
-            return true;
-        }
+    pub fn errorSetHasFieldIp(
+        ip: *const InternPool,
+        ty: InternPool.Index,
+        name: InternPool.NullTerminatedString,
+    ) bool {
+        return switch (ty) {
+            .anyerror_type => true,
+            else => switch (ip.indexToKey(ty)) {
+                .error_set_type => |error_set_type| {
+                    return error_set_type.nameIndex(ip, name) != null;
+                },
+                .inferred_error_set_type => |index| {
+                    const ies = ip.inferredErrorSetPtrConst(index);
+                    if (ies.is_anyerror) return true;
+                    return ies.errors.contains(name);
+                },
+                else => unreachable,
+            },
+        };
+    }
 
-        switch (ty.tag()) {
-            .error_set_single => {
-                const data = ty.castTag(.error_set_single).?.data;
-                return std.mem.eql(u8, data, name);
+    /// Returns whether ty, which must be an error set, includes an error `name`.
+    /// Might return a false negative if `ty` is an inferred error set and not fully
+    /// resolved yet.
+    pub fn errorSetHasField(ty: Type, name: []const u8, mod: *Module) bool {
+        const ip = &mod.intern_pool;
+        return switch (ty.ip_index) {
+            .anyerror_type => true,
+            else => switch (ip.indexToKey(ty.ip_index)) {
+                .error_set_type => |error_set_type| {
+                    // If the string is not interned, then the field certainly is not present.
+                    const field_name_interned = ip.getString(name).unwrap() orelse return false;
+                    return error_set_type.nameIndex(ip, field_name_interned) != null;
+                },
+                .inferred_error_set_type => |index| {
+                    const ies = ip.inferredErrorSetPtr(index);
+                    if (ies.is_anyerror) return true;
+                    // If the string is not interned, then the field certainly is not present.
+                    const field_name_interned = ip.getString(name).unwrap() orelse return false;
+                    return ies.errors.contains(field_name_interned);
+                },
+                else => unreachable,
             },
-            .error_set_inferred => {
-                const data = ty.castTag(.error_set_inferred).?.data;
-                return data.errors.contains(name);
-            },
-            .error_set_merged => {
-                const data = ty.castTag(.error_set_merged).?.data;
-                return data.contains(name);
-            },
-            .error_set => {
-                const data = ty.castTag(.error_set).?.data;
-                return data.names.contains(name);
-            },
-            else => unreachable,
-        }
+        };
     }
 
     /// Asserts the type is an array or vector or struct.
@@ -2727,14 +2433,6 @@ pub const Type = struct {
         var ty = starting_ty;
 
         while (true) switch (ty.ip_index) {
-            .none => switch (ty.tag()) {
-                .error_set, .error_set_single, .error_set_inferred, .error_set_merged => {
-                    // TODO revisit this when error sets support custom int types
-                    return .{ .signedness = .unsigned, .bits = 16 };
-                },
-
-                else => unreachable,
-            },
             .anyerror_type => {
                 // TODO revisit this when error sets support custom int types
                 return .{ .signedness = .unsigned, .bits = 16 };
@@ -2759,6 +2457,9 @@ pub const Type = struct {
                 },
                 .enum_type => |enum_type| ty = enum_type.tag_ty.toType(),
                 .vector_type => |vector_type| ty = vector_type.child.toType(),
+
+                // TODO revisit this when error sets support custom int types
+                .error_set_type, .inferred_error_set_type => return .{ .signedness = .unsigned, .bits = 16 },
 
                 .anon_struct_type => unreachable,
 
@@ -2932,13 +2633,6 @@ pub const Type = struct {
             .empty_struct_type => return Value.empty_struct,
 
             .none => switch (ty.tag()) {
-                .error_union,
-                .error_set_single,
-                .error_set,
-                .error_set_merged,
-                .error_set_inferred,
-                => return null,
-
                 .inferred_alloc_const => unreachable,
                 .inferred_alloc_mut => unreachable,
             },
@@ -2955,6 +2649,8 @@ pub const Type = struct {
                 .error_union_type,
                 .func_type,
                 .anyframe_type,
+                .error_set_type,
+                .inferred_error_set_type,
                 => return null,
 
                 .array_type => |array_type| {
@@ -3130,18 +2826,6 @@ pub const Type = struct {
         return switch (ty.ip_index) {
             .empty_struct_type => false,
 
-            .none => switch (ty.tag()) {
-                .error_set,
-                .error_set_single,
-                .error_set_inferred,
-                .error_set_merged,
-                => false,
-
-                .inferred_alloc_mut => unreachable,
-                .inferred_alloc_const => unreachable,
-
-                .error_union => return ty.errorUnionPayload().comptimeOnly(mod),
-            },
             else => switch (mod.intern_pool.indexToKey(ty.ip_index)) {
                 .int_type => false,
                 .ptr_type => |ptr_type| {
@@ -3160,6 +2844,11 @@ pub const Type = struct {
                 .vector_type => |vector_type| vector_type.child.toType().comptimeOnly(mod),
                 .opt_type => |child| child.toType().comptimeOnly(mod),
                 .error_union_type => |error_union_type| error_union_type.payload_type.toType().comptimeOnly(mod),
+
+                .error_set_type,
+                .inferred_error_set_type,
+                => false,
+
                 // These are function bodies, not function pointers.
                 .func_type => true,
 
@@ -3418,43 +3107,17 @@ pub const Type = struct {
     }
 
     // Asserts that `ty` is an error set and not `anyerror`.
-    pub fn errorSetNames(ty: Type) []const []const u8 {
-        return switch (ty.tag()) {
-            .error_set_single => blk: {
-                // Work around coercion problems
-                const tmp: *const [1][]const u8 = &ty.castTag(.error_set_single).?.data;
-                break :blk tmp;
-            },
-            .error_set_merged => ty.castTag(.error_set_merged).?.data.keys(),
-            .error_set => ty.castTag(.error_set).?.data.names.keys(),
-            .error_set_inferred => {
-                const inferred_error_set = ty.castTag(.error_set_inferred).?.data;
+    pub fn errorSetNames(ty: Type, mod: *Module) []const InternPool.NullTerminatedString {
+        return switch (mod.intern_pool.indexToKey(ty.ip_index)) {
+            .error_set_type => |x| x.names,
+            .inferred_error_set_type => |index| {
+                const inferred_error_set = mod.inferredErrorSetPtr(index);
                 assert(inferred_error_set.is_resolved);
                 assert(!inferred_error_set.is_anyerror);
                 return inferred_error_set.errors.keys();
             },
             else => unreachable,
         };
-    }
-
-    /// Merge lhs with rhs.
-    /// Asserts that lhs and rhs are both error sets and are resolved.
-    pub fn errorSetMerge(lhs: Type, arena: Allocator, rhs: Type) !Type {
-        const lhs_names = lhs.errorSetNames();
-        const rhs_names = rhs.errorSetNames();
-        var names: Module.ErrorSet.NameMap = .{};
-        try names.ensureUnusedCapacity(arena, lhs_names.len);
-        for (lhs_names) |name| {
-            names.putAssumeCapacityNoClobber(name, {});
-        }
-        for (rhs_names) |name| {
-            try names.put(arena, name, {});
-        }
-
-        // names must be sorted
-        Module.ErrorSet.sortNames(&names);
-
-        return try Tag.error_set_merged.create(arena, names);
     }
 
     pub fn enumFields(ty: Type, mod: *Module) []const InternPool.NullTerminatedString {
@@ -3748,30 +3411,19 @@ pub const Type = struct {
     }
 
     pub fn declSrcLocOrNull(ty: Type, mod: *Module) ?Module.SrcLoc {
-        switch (ty.ip_index) {
-            .empty_struct_type => return null,
-            .none => switch (ty.tag()) {
-                .error_set => {
-                    const error_set = ty.castTag(.error_set).?.data;
-                    return error_set.srcLoc(mod);
-                },
-
-                else => return null,
+        return switch (mod.intern_pool.indexToKey(ty.ip_index)) {
+            .struct_type => |struct_type| {
+                const struct_obj = mod.structPtrUnwrap(struct_type.index).?;
+                return struct_obj.srcLoc(mod);
             },
-            else => return switch (mod.intern_pool.indexToKey(ty.ip_index)) {
-                .struct_type => |struct_type| {
-                    const struct_obj = mod.structPtrUnwrap(struct_type.index).?;
-                    return struct_obj.srcLoc(mod);
-                },
-                .union_type => |union_type| {
-                    const union_obj = mod.unionPtr(union_type.index);
-                    return union_obj.srcLoc(mod);
-                },
-                .opaque_type => |opaque_type| mod.opaqueSrcLoc(opaque_type),
-                .enum_type => |enum_type| mod.declPtr(enum_type.decl).srcLoc(mod),
-                else => null,
+            .union_type => |union_type| {
+                const union_obj = mod.unionPtr(union_type.index);
+                return union_obj.srcLoc(mod);
             },
-        }
+            .opaque_type => |opaque_type| mod.opaqueSrcLoc(opaque_type),
+            .enum_type => |enum_type| mod.declPtr(enum_type.decl).srcLoc(mod),
+            else => null,
+        };
     }
 
     pub fn getOwnerDecl(ty: Type, mod: *Module) Module.Decl.Index {
@@ -3779,37 +3431,23 @@ pub const Type = struct {
     }
 
     pub fn getOwnerDeclOrNull(ty: Type, mod: *Module) ?Module.Decl.Index {
-        switch (ty.ip_index) {
-            .none => switch (ty.tag()) {
-                .error_set => {
-                    const error_set = ty.castTag(.error_set).?.data;
-                    return error_set.owner_decl;
-                },
-
-                else => return null,
+        return switch (mod.intern_pool.indexToKey(ty.ip_index)) {
+            .struct_type => |struct_type| {
+                const struct_obj = mod.structPtrUnwrap(struct_type.index) orelse return null;
+                return struct_obj.owner_decl;
             },
-            else => return switch (mod.intern_pool.indexToKey(ty.ip_index)) {
-                .struct_type => |struct_type| {
-                    const struct_obj = mod.structPtrUnwrap(struct_type.index) orelse return null;
-                    return struct_obj.owner_decl;
-                },
-                .union_type => |union_type| {
-                    const union_obj = mod.unionPtr(union_type.index);
-                    return union_obj.owner_decl;
-                },
-                .opaque_type => |opaque_type| opaque_type.decl,
-                .enum_type => |enum_type| enum_type.decl,
-                else => null,
+            .union_type => |union_type| {
+                const union_obj = mod.unionPtr(union_type.index);
+                return union_obj.owner_decl;
             },
-        }
+            .opaque_type => |opaque_type| opaque_type.decl,
+            .enum_type => |enum_type| enum_type.decl,
+            else => null,
+        };
     }
 
     pub fn isGenericPoison(ty: Type) bool {
         return ty.ip_index == .generic_poison_type;
-    }
-
-    pub fn isBoundFn(ty: Type) bool {
-        return ty.ip_index == .none and ty.tag() == .bound_fn;
     }
 
     /// This enum does not directly correspond to `std.builtin.TypeId` because
@@ -3827,54 +3465,8 @@ pub const Type = struct {
         inferred_alloc_const, // See last_no_payload_tag below.
         // After this, the tag requires a payload.
 
-        error_union,
-        error_set,
-        error_set_single,
-        /// The type is the inferred error set of a specific function.
-        error_set_inferred,
-        error_set_merged,
-
         pub const last_no_payload_tag = Tag.inferred_alloc_const;
         pub const no_payload_count = @enumToInt(last_no_payload_tag) + 1;
-
-        pub fn Type(comptime t: Tag) type {
-            return switch (t) {
-                .inferred_alloc_const,
-                .inferred_alloc_mut,
-                => @compileError("Type Tag " ++ @tagName(t) ++ " has no payload"),
-
-                .error_set => Payload.ErrorSet,
-                .error_set_inferred => Payload.ErrorSetInferred,
-                .error_set_merged => Payload.ErrorSetMerged,
-
-                .error_union => Payload.ErrorUnion,
-                .error_set_single => Payload.Name,
-            };
-        }
-
-        pub fn init(comptime t: Tag) file_struct.Type {
-            comptime std.debug.assert(@enumToInt(t) < Tag.no_payload_count);
-            return file_struct.Type{
-                .ip_index = .none,
-                .legacy = .{ .tag_if_small_enough = t },
-            };
-        }
-
-        pub fn create(comptime t: Tag, ally: Allocator, data: Data(t)) error{OutOfMemory}!file_struct.Type {
-            const p = try ally.create(t.Type());
-            p.* = .{
-                .base = .{ .tag = t },
-                .data = data,
-            };
-            return file_struct.Type{
-                .ip_index = .none,
-                .legacy = .{ .ptr_otherwise = &p.base },
-            };
-        }
-
-        pub fn Data(comptime t: Tag) type {
-            return std.meta.fieldInfo(t.Type(), .data).type;
-        }
     };
 
     pub fn isTuple(ty: Type, mod: *Module) bool {
@@ -3928,37 +3520,6 @@ pub const Type = struct {
     pub const Payload = struct {
         tag: Tag,
 
-        pub const Len = struct {
-            base: Payload,
-            data: u64,
-        };
-
-        pub const Bits = struct {
-            base: Payload,
-            data: u16,
-        };
-
-        pub const ErrorSet = struct {
-            pub const base_tag = Tag.error_set;
-
-            base: Payload = Payload{ .tag = base_tag },
-            data: *Module.ErrorSet,
-        };
-
-        pub const ErrorSetMerged = struct {
-            pub const base_tag = Tag.error_set_merged;
-
-            base: Payload = Payload{ .tag = base_tag },
-            data: Module.ErrorSet.NameMap,
-        };
-
-        pub const ErrorSetInferred = struct {
-            pub const base_tag = Tag.error_set_inferred;
-
-            base: Payload = Payload{ .tag = base_tag },
-            data: *Module.Fn.InferredErrorSet,
-        };
-
         /// TODO: remove this data structure since we have `InternPool.Key.PtrType`.
         pub const Pointer = struct {
             data: Data,
@@ -4009,27 +3570,6 @@ pub const Type = struct {
                     };
                 }
             };
-        };
-
-        pub const ErrorUnion = struct {
-            pub const base_tag = Tag.error_union;
-
-            base: Payload = Payload{ .tag = base_tag },
-            data: struct {
-                error_set: Type,
-                payload: Type,
-            },
-        };
-
-        pub const Decl = struct {
-            base: Payload,
-            data: *Module.Decl,
-        };
-
-        pub const Name = struct {
-            base: Payload,
-            /// memory is owned by `Module`
-            data: []const u8,
         };
     };
 
@@ -4162,19 +3702,6 @@ pub const Type = struct {
         _ = arena;
 
         return mod.optionalType(child_type.ip_index);
-    }
-
-    pub fn errorUnion(
-        arena: Allocator,
-        error_set: Type,
-        payload: Type,
-        mod: *Module,
-    ) Allocator.Error!Type {
-        assert(error_set.zigTypeTag(mod) == .ErrorSet);
-        return Type.Tag.error_union.create(arena, .{
-            .error_set = error_set,
-            .payload = payload,
-        });
     }
 
     pub fn smallestUnsignedBits(max: u64) u16 {

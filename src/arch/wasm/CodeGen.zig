@@ -1264,7 +1264,7 @@ fn genFunc(func: *CodeGen) InnerError!void {
     if (func_type.returns.len != 0 and func.air.instructions.len > 0) {
         const inst = @intCast(u32, func.air.instructions.len - 1);
         const last_inst_ty = func.typeOfIndex(inst);
-        if (!last_inst_ty.hasRuntimeBitsIgnoreComptime(mod) or last_inst_ty.isNoReturn()) {
+        if (!last_inst_ty.hasRuntimeBitsIgnoreComptime(mod) or last_inst_ty.isNoReturn(mod)) {
             try func.addTag(.@"unreachable");
         }
     }
@@ -1757,7 +1757,7 @@ fn isByRef(ty: Type, mod: *Module) bool {
         .Int => return ty.intInfo(mod).bits > 64,
         .Float => return ty.floatBits(target) > 64,
         .ErrorUnion => {
-            const pl_ty = ty.errorUnionPayload();
+            const pl_ty = ty.errorUnionPayload(mod);
             if (!pl_ty.hasRuntimeBitsIgnoreComptime(mod)) {
                 return false;
             }
@@ -2256,7 +2256,7 @@ fn airCall(func: *CodeGen, inst: Air.Inst.Index, modifier: std.builtin.CallModif
     const result_value = result_value: {
         if (!ret_ty.hasRuntimeBitsIgnoreComptime(mod) and !ret_ty.isError(mod)) {
             break :result_value WValue{ .none = {} };
-        } else if (ret_ty.isNoReturn()) {
+        } else if (ret_ty.isNoReturn(mod)) {
             try func.addTag(.@"unreachable");
             break :result_value WValue{ .none = {} };
         } else if (first_param_sret) {
@@ -2346,7 +2346,7 @@ fn store(func: *CodeGen, lhs: WValue, rhs: WValue, ty: Type, offset: u32) InnerE
     const abi_size = ty.abiSize(mod);
     switch (ty.zigTypeTag(mod)) {
         .ErrorUnion => {
-            const pl_ty = ty.errorUnionPayload();
+            const pl_ty = ty.errorUnionPayload(mod);
             if (!pl_ty.hasRuntimeBitsIgnoreComptime(mod)) {
                 return func.store(lhs, rhs, Type.anyerror, 0);
             }
@@ -3111,8 +3111,8 @@ fn lowerConstant(func: *CodeGen, arg_val: Value, ty: Type) InnerError!WValue {
             else => return WValue{ .imm32 = 0 },
         },
         .ErrorUnion => {
-            const error_type = ty.errorUnionSet();
-            const payload_type = ty.errorUnionPayload();
+            const error_type = ty.errorUnionSet(mod);
+            const payload_type = ty.errorUnionPayload(mod);
             if (!payload_type.hasRuntimeBitsIgnoreComptime(mod)) {
                 // We use the error type directly as the type.
                 const is_pl = val.errorUnionIsPayload();
@@ -3916,10 +3916,10 @@ fn airIsErr(func: *CodeGen, inst: Air.Inst.Index, opcode: wasm.Opcode) InnerErro
     const un_op = func.air.instructions.items(.data)[inst].un_op;
     const operand = try func.resolveInst(un_op);
     const err_union_ty = func.typeOf(un_op);
-    const pl_ty = err_union_ty.errorUnionPayload();
+    const pl_ty = err_union_ty.errorUnionPayload(mod);
 
     const result = result: {
-        if (err_union_ty.errorUnionSet().errorSetIsEmpty(mod)) {
+        if (err_union_ty.errorUnionSet(mod).errorSetIsEmpty(mod)) {
             switch (opcode) {
                 .i32_ne => break :result WValue{ .imm32 = 0 },
                 .i32_eq => break :result WValue{ .imm32 = 1 },
@@ -3953,7 +3953,7 @@ fn airUnwrapErrUnionPayload(func: *CodeGen, inst: Air.Inst.Index, op_is_ptr: boo
     const operand = try func.resolveInst(ty_op.operand);
     const op_ty = func.typeOf(ty_op.operand);
     const err_ty = if (op_is_ptr) op_ty.childType(mod) else op_ty;
-    const payload_ty = err_ty.errorUnionPayload();
+    const payload_ty = err_ty.errorUnionPayload(mod);
 
     const result = result: {
         if (!payload_ty.hasRuntimeBitsIgnoreComptime(mod)) {
@@ -3981,10 +3981,10 @@ fn airUnwrapErrUnionError(func: *CodeGen, inst: Air.Inst.Index, op_is_ptr: bool)
     const operand = try func.resolveInst(ty_op.operand);
     const op_ty = func.typeOf(ty_op.operand);
     const err_ty = if (op_is_ptr) op_ty.childType(mod) else op_ty;
-    const payload_ty = err_ty.errorUnionPayload();
+    const payload_ty = err_ty.errorUnionPayload(mod);
 
     const result = result: {
-        if (err_ty.errorUnionSet().errorSetIsEmpty(mod)) {
+        if (err_ty.errorUnionSet(mod).errorSetIsEmpty(mod)) {
             break :result WValue{ .imm32 = 0 };
         }
 
@@ -4031,7 +4031,7 @@ fn airWrapErrUnionErr(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
 
     const operand = try func.resolveInst(ty_op.operand);
     const err_ty = func.air.getRefType(ty_op.ty);
-    const pl_ty = err_ty.errorUnionPayload();
+    const pl_ty = err_ty.errorUnionPayload(mod);
 
     const result = result: {
         if (!pl_ty.hasRuntimeBitsIgnoreComptime(mod)) {
@@ -4044,7 +4044,7 @@ fn airWrapErrUnionErr(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
 
         // write 'undefined' to the payload
         const payload_ptr = try func.buildPointerOffset(err_union, @intCast(u32, errUnionPayloadOffset(pl_ty, mod)), .new);
-        const len = @intCast(u32, err_ty.errorUnionPayload().abiSize(mod));
+        const len = @intCast(u32, err_ty.errorUnionPayload(mod).abiSize(mod));
         try func.memset(Type.u8, payload_ptr, .{ .imm32 = len }, .{ .imm32 = 0xaa });
 
         break :result err_union;
@@ -5362,7 +5362,7 @@ fn airErrUnionPayloadPtrSet(func: *CodeGen, inst: Air.Inst.Index) InnerError!voi
     const ty_op = func.air.instructions.items(.data)[inst].ty_op;
 
     const err_set_ty = func.typeOf(ty_op.operand).childType(mod);
-    const payload_ty = err_set_ty.errorUnionPayload();
+    const payload_ty = err_set_ty.errorUnionPayload(mod);
     const operand = try func.resolveInst(ty_op.operand);
 
     // set error-tag to '0' to annotate error union is non-error
@@ -6177,10 +6177,10 @@ fn lowerTry(
         return func.fail("TODO: lowerTry for pointers", .{});
     }
 
-    const pl_ty = err_union_ty.errorUnionPayload();
+    const pl_ty = err_union_ty.errorUnionPayload(mod);
     const pl_has_bits = pl_ty.hasRuntimeBitsIgnoreComptime(mod);
 
-    if (!err_union_ty.errorUnionSet().errorSetIsEmpty(mod)) {
+    if (!err_union_ty.errorUnionSet(mod).errorSetIsEmpty(mod)) {
         // Block we can jump out of when error is not set
         try func.startBlock(.block, wasm.block_empty);
 
@@ -6742,7 +6742,7 @@ fn callIntrinsic(
 
     if (!return_type.hasRuntimeBitsIgnoreComptime(mod)) {
         return WValue.none;
-    } else if (return_type.isNoReturn()) {
+    } else if (return_type.isNoReturn(mod)) {
         try func.addTag(.@"unreachable");
         return WValue.none;
     } else if (want_sret_param) {
@@ -6941,20 +6941,21 @@ fn getTagNameFunction(func: *CodeGen, enum_ty: Type) InnerError!u32 {
 }
 
 fn airErrorSetHasValue(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
+    const mod = func.bin_file.base.options.module.?;
     const ty_op = func.air.instructions.items(.data)[inst].ty_op;
 
     const operand = try func.resolveInst(ty_op.operand);
     const error_set_ty = func.air.getRefType(ty_op.ty);
     const result = try func.allocLocal(Type.bool);
 
-    const names = error_set_ty.errorSetNames();
+    const names = error_set_ty.errorSetNames(mod);
     var values = try std.ArrayList(u32).initCapacity(func.gpa, names.len);
     defer values.deinit();
 
-    const mod = func.bin_file.base.options.module.?;
     var lowest: ?u32 = null;
     var highest: ?u32 = null;
-    for (names) |name| {
+    for (names) |name_ip| {
+        const name = mod.intern_pool.stringToSlice(name_ip);
         const err_int = mod.global_error_set.get(name).?;
         if (lowest) |*l| {
             if (err_int < l.*) {

@@ -18,6 +18,7 @@ const LinkBlock = File.LinkBlock;
 const LinkFn = File.LinkFn;
 const LinkerLoad = @import("../codegen.zig").LinkerLoad;
 const Module = @import("../Module.zig");
+const InternPool = @import("../InternPool.zig");
 const StringTable = @import("strtab.zig").StringTable;
 const Type = @import("../type.zig").Type;
 const Value = @import("../value.zig").Value;
@@ -518,9 +519,9 @@ pub const DeclState = struct {
                 );
             },
             .ErrorUnion => {
-                const error_ty = ty.errorUnionSet();
-                const payload_ty = ty.errorUnionPayload();
-                const payload_align = if (payload_ty.isNoReturn()) 0 else payload_ty.abiAlignment(mod);
+                const error_ty = ty.errorUnionSet(mod);
+                const payload_ty = ty.errorUnionPayload(mod);
+                const payload_align = if (payload_ty.isNoReturn(mod)) 0 else payload_ty.abiAlignment(mod);
                 const error_align = Type.anyerror.abiAlignment(mod);
                 const abi_size = ty.abiSize(mod);
                 const payload_off = if (error_align >= payload_align) Type.anyerror.abiSize(mod) else 0;
@@ -534,7 +535,7 @@ pub const DeclState = struct {
                 const name = try ty.nameAllocArena(arena, mod);
                 try dbg_info_buffer.writer().print("{s}\x00", .{name});
 
-                if (!payload_ty.isNoReturn()) {
+                if (!payload_ty.isNoReturn(mod)) {
                     // DW.AT.member
                     try dbg_info_buffer.ensureUnusedCapacity(7);
                     dbg_info_buffer.appendAssumeCapacity(@enumToInt(AbbrevKind.struct_member));
@@ -1266,10 +1267,11 @@ pub fn commitDeclState(
             const symbol = &decl_state.abbrev_table.items[sym_index];
             const ty = symbol.type;
             const deferred: bool = blk: {
-                if (ty.isAnyError()) break :blk true;
-                switch (ty.tag()) {
-                    .error_set_inferred => {
-                        if (!ty.castTag(.error_set_inferred).?.data.is_resolved) break :blk true;
+                if (ty.isAnyError(mod)) break :blk true;
+                switch (mod.intern_pool.indexToKey(ty.ip_index)) {
+                    .inferred_error_set_type => |ies_index| {
+                        const ies = mod.inferredErrorSetPtr(ies_index);
+                        if (!ies.is_resolved) break :blk true;
                     },
                     else => {},
                 }
@@ -1290,10 +1292,11 @@ pub fn commitDeclState(
             const symbol = decl_state.abbrev_table.items[target];
             const ty = symbol.type;
             const deferred: bool = blk: {
-                if (ty.isAnyError()) break :blk true;
-                switch (ty.tag()) {
-                    .error_set_inferred => {
-                        if (!ty.castTag(.error_set_inferred).?.data.is_resolved) break :blk true;
+                if (ty.isAnyError(mod)) break :blk true;
+                switch (mod.intern_pool.indexToKey(ty.ip_index)) {
+                    .inferred_error_set_type => |ies_index| {
+                        const ies = mod.inferredErrorSetPtr(ies_index);
+                        if (!ies.is_resolved) break :blk true;
                     },
                     else => {},
                 }
@@ -2529,18 +2532,22 @@ pub fn flushModule(self: *Dwarf, module: *Module) !void {
         defer arena_alloc.deinit();
         const arena = arena_alloc.allocator();
 
-        const error_set = try arena.create(Module.ErrorSet);
-        const error_ty = try Type.Tag.error_set.create(arena, error_set);
-        var names = Module.ErrorSet.NameMap{};
-        try names.ensureUnusedCapacity(arena, module.global_error_set.count());
-        var it = module.global_error_set.keyIterator();
-        while (it.next()) |key| {
-            names.putAssumeCapacityNoClobber(key.*, {});
+        // TODO: don't create a zig type for this, just make the dwarf info
+        // without touching the zig type system.
+        const names = try arena.alloc(InternPool.NullTerminatedString, module.global_error_set.count());
+        {
+            var it = module.global_error_set.keyIterator();
+            var i: usize = 0;
+            while (it.next()) |key| : (i += 1) {
+                names[i] = module.intern_pool.getString(key.*).unwrap().?;
+            }
         }
-        error_set.names = names;
 
+        std.mem.sort(InternPool.NullTerminatedString, names, {}, InternPool.NullTerminatedString.indexLessThan);
+
+        const error_ty = try module.intern(.{ .error_set_type = .{ .names = names } });
         var dbg_info_buffer = std.ArrayList(u8).init(arena);
-        try addDbgInfoErrorSet(arena, module, error_ty, self.target, &dbg_info_buffer);
+        try addDbgInfoErrorSet(arena, module, error_ty.toType(), self.target, &dbg_info_buffer);
 
         const di_atom_index = try self.createAtom(.di_atom);
         log.debug("updateDeclDebugInfoAllocation in flushModule", .{});
@@ -2684,8 +2691,9 @@ fn addDbgInfoErrorSet(
     // DW.AT.const_value, DW.FORM.data8
     mem.writeInt(u64, dbg_info_buffer.addManyAsArrayAssumeCapacity(8), 0, target_endian);
 
-    const error_names = ty.errorSetNames();
-    for (error_names) |error_name| {
+    const error_names = ty.errorSetNames(mod);
+    for (error_names) |error_name_ip| {
+        const error_name = mod.intern_pool.stringToSlice(error_name_ip);
         const kv = mod.getErrorValue(error_name) catch unreachable;
         // DW.AT.enumerator
         try dbg_info_buffer.ensureUnusedCapacity(error_name.len + 2 + @sizeOf(u64));

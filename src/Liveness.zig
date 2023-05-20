@@ -1416,7 +1416,7 @@ fn analyzeInstBlock(
 
             // If the block is noreturn, block deaths not only aren't useful, they're impossible to
             // find: there could be more stuff alive after the block than before it!
-            if (!a.air.getRefType(ty_pl.ty).isNoReturn()) {
+            if (!a.intern_pool.isNoReturn(a.air.getRefType(ty_pl.ty).ip_index)) {
                 // The block kills the difference in the live sets
                 const block_scope = data.block_scopes.get(inst).?;
                 const num_deaths = data.live_set.count() - block_scope.live_set.count();

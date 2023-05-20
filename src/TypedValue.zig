@@ -27,13 +27,13 @@ pub const Managed = struct {
 /// Assumes arena allocation. Does a recursive copy.
 pub fn copy(self: TypedValue, arena: Allocator) error{OutOfMemory}!TypedValue {
     return TypedValue{
-        .ty = try self.ty.copy(arena),
+        .ty = self.ty,
         .val = try self.val.copy(arena),
     };
 }
 
 pub fn eql(a: TypedValue, b: TypedValue, mod: *Module) bool {
-    if (!a.ty.eql(b.ty, mod)) return false;
+    if (a.ty.ip_index != b.ty.ip_index) return false;
     return a.val.eql(b.val, a.ty, mod);
 }
 
@@ -286,7 +286,7 @@ pub fn print(
             .@"error" => return writer.print("error.{s}", .{val.castTag(.@"error").?.data.name}),
             .eu_payload => {
                 val = val.castTag(.eu_payload).?.data;
-                ty = ty.errorUnionPayload();
+                ty = ty.errorUnionPayload(mod);
             },
             .opt_payload => {
                 val = val.castTag(.opt_payload).?.data;

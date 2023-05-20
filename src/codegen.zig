@@ -139,7 +139,7 @@ pub fn generateLazySymbol(
         return generateLazyFunction(bin_file, src_loc, lazy_sym, code, debug_output);
     }
 
-    if (lazy_sym.ty.isAnyError()) {
+    if (lazy_sym.ty.isAnyError(mod)) {
         alignment.* = 4;
         const err_names = mod.error_name_list.items;
         mem.writeInt(u32, try code.addManyAsArray(4), @intCast(u32, err_names.len), endian);
@@ -670,8 +670,8 @@ pub fn generateSymbol(
             return Result.ok;
         },
         .ErrorUnion => {
-            const error_ty = typed_value.ty.errorUnionSet();
-            const payload_ty = typed_value.ty.errorUnionPayload();
+            const error_ty = typed_value.ty.errorUnionSet(mod);
+            const payload_ty = typed_value.ty.errorUnionPayload(mod);
             const is_payload = typed_value.val.errorUnionIsPayload();
 
             if (!payload_ty.hasRuntimeBitsIgnoreComptime(mod)) {
@@ -894,7 +894,7 @@ fn lowerParentPtr(
         },
         .eu_payload_ptr => {
             const eu_payload_ptr = parent_ptr.castTag(.eu_payload_ptr).?.data;
-            const pl_ty = eu_payload_ptr.container_ty.errorUnionPayload();
+            const pl_ty = eu_payload_ptr.container_ty.errorUnionPayload(mod);
             return lowerParentPtr(
                 bin_file,
                 src_loc,
@@ -1249,8 +1249,8 @@ pub fn genTypedValue(
             }
         },
         .ErrorUnion => {
-            const error_type = typed_value.ty.errorUnionSet();
-            const payload_type = typed_value.ty.errorUnionPayload();
+            const error_type = typed_value.ty.errorUnionSet(mod);
+            const payload_type = typed_value.ty.errorUnionPayload(mod);
             const is_pl = typed_value.val.errorUnionIsPayload();
 
             if (!payload_type.hasRuntimeBitsIgnoreComptime(mod)) {

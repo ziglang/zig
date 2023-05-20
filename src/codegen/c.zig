@@ -465,7 +465,7 @@ pub const Function = struct {
                     }),
                 },
                 .data = switch (key) {
-                    .tag_name => .{ .tag_name = try data.tag_name.copy(arena) },
+                    .tag_name => .{ .tag_name = data.tag_name },
                     .never_tail => .{ .never_tail = data.never_tail },
                     .never_inline => .{ .never_inline = data.never_inline },
                 },
@@ -862,8 +862,8 @@ pub const DeclGen = struct {
                     return writer.writeByte('}');
                 },
                 .ErrorUnion => {
-                    const payload_ty = ty.errorUnionPayload();
-                    const error_ty = ty.errorUnionSet();
+                    const payload_ty = ty.errorUnionPayload(mod);
+                    const error_ty = ty.errorUnionSet(mod);
 
                     if (!payload_ty.hasRuntimeBitsIgnoreComptime(mod)) {
                         return dg.renderValue(writer, error_ty, val, location);
@@ -1252,8 +1252,8 @@ pub const DeclGen = struct {
                 }
             },
             .ErrorUnion => {
-                const payload_ty = ty.errorUnionPayload();
-                const error_ty = ty.errorUnionSet();
+                const payload_ty = ty.errorUnionPayload(mod);
+                const error_ty = ty.errorUnionSet(mod);
                 const error_val = if (val.errorUnionIsPayload()) try mod.intValue(Type.anyerror, 0) else val;
 
                 if (!payload_ty.hasRuntimeBitsIgnoreComptime(mod)) {
@@ -4252,6 +4252,7 @@ fn airDbgVar(f: *Function, inst: Air.Inst.Index) !CValue {
 }
 
 fn airBlock(f: *Function, inst: Air.Inst.Index) !CValue {
+    const mod = f.object.dg.module;
     const ty_pl = f.air.instructions.items(.data)[inst].ty_pl;
     const extra = f.air.extraData(Air.Block, ty_pl.payload);
     const body = f.air.extra[extra.end..][0..extra.data.body_len];
@@ -4284,7 +4285,7 @@ fn airBlock(f: *Function, inst: Air.Inst.Index) !CValue {
     try f.object.indent_writer.insertNewline();
 
     // noreturn blocks have no `br` instructions reaching them, so we don't want a label
-    if (!f.typeOfIndex(inst).isNoReturn()) {
+    if (!f.typeOfIndex(inst).isNoReturn(mod)) {
         // label must be followed by an expression, include an empty one.
         try writer.print("zig_block_{d}:;\n", .{block_id});
     }
@@ -4322,10 +4323,10 @@ fn lowerTry(
     const inst_ty = f.typeOfIndex(inst);
     const liveness_condbr = f.liveness.getCondBr(inst);
     const writer = f.object.writer();
-    const payload_ty = err_union_ty.errorUnionPayload();
+    const payload_ty = err_union_ty.errorUnionPayload(mod);
     const payload_has_bits = payload_ty.hasRuntimeBitsIgnoreComptime(mod);
 
-    if (!err_union_ty.errorUnionSet().errorSetIsEmpty(mod)) {
+    if (!err_union_ty.errorUnionSet(mod).errorSetIsEmpty(mod)) {
         try writer.writeAll("if (");
         if (!payload_has_bits) {
             if (is_ptr)
@@ -5500,8 +5501,8 @@ fn airUnwrapErrUnionErr(f: *Function, inst: Air.Inst.Index) !CValue {
 
     const operand_is_ptr = operand_ty.zigTypeTag(mod) == .Pointer;
     const error_union_ty = if (operand_is_ptr) operand_ty.childType(mod) else operand_ty;
-    const error_ty = error_union_ty.errorUnionSet();
-    const payload_ty = error_union_ty.errorUnionPayload();
+    const error_ty = error_union_ty.errorUnionSet(mod);
+    const payload_ty = error_union_ty.errorUnionPayload(mod);
     const local = try f.allocLocal(inst, inst_ty);
 
     if (!payload_ty.hasRuntimeBits(mod) and operand == .local and operand.local == local.new_local) {
@@ -5539,7 +5540,7 @@ fn airUnwrapErrUnionPay(f: *Function, inst: Air.Inst.Index, is_ptr: bool) !CValu
     const error_union_ty = if (is_ptr) operand_ty.childType(mod) else operand_ty;
 
     const writer = f.object.writer();
-    if (!error_union_ty.errorUnionPayload().hasRuntimeBits(mod)) {
+    if (!error_union_ty.errorUnionPayload(mod).hasRuntimeBits(mod)) {
         if (!is_ptr) return .none;
 
         const local = try f.allocLocal(inst, inst_ty);
@@ -5601,9 +5602,9 @@ fn airWrapErrUnionErr(f: *Function, inst: Air.Inst.Index) !CValue {
     const ty_op = f.air.instructions.items(.data)[inst].ty_op;
 
     const inst_ty = f.typeOfIndex(inst);
-    const payload_ty = inst_ty.errorUnionPayload();
+    const payload_ty = inst_ty.errorUnionPayload(mod);
     const repr_is_err = !payload_ty.hasRuntimeBitsIgnoreComptime(mod);
-    const err_ty = inst_ty.errorUnionSet();
+    const err_ty = inst_ty.errorUnionSet(mod);
     const err = try f.resolveInst(ty_op.operand);
     try reap(f, inst, &.{ty_op.operand});
 
@@ -5642,8 +5643,8 @@ fn airErrUnionPayloadPtrSet(f: *Function, inst: Air.Inst.Index) !CValue {
     const operand = try f.resolveInst(ty_op.operand);
     const error_union_ty = f.typeOf(ty_op.operand).childType(mod);
 
-    const error_ty = error_union_ty.errorUnionSet();
-    const payload_ty = error_union_ty.errorUnionPayload();
+    const error_ty = error_union_ty.errorUnionSet(mod);
+    const payload_ty = error_union_ty.errorUnionPayload(mod);
 
     // First, set the non-error value.
     if (!payload_ty.hasRuntimeBitsIgnoreComptime(mod)) {
@@ -5691,10 +5692,10 @@ fn airWrapErrUnionPay(f: *Function, inst: Air.Inst.Index) !CValue {
     const ty_op = f.air.instructions.items(.data)[inst].ty_op;
 
     const inst_ty = f.typeOfIndex(inst);
-    const payload_ty = inst_ty.errorUnionPayload();
+    const payload_ty = inst_ty.errorUnionPayload(mod);
     const payload = try f.resolveInst(ty_op.operand);
     const repr_is_err = !payload_ty.hasRuntimeBitsIgnoreComptime(mod);
-    const err_ty = inst_ty.errorUnionSet();
+    const err_ty = inst_ty.errorUnionSet(mod);
     try reap(f, inst, &.{ty_op.operand});
 
     const writer = f.object.writer();
@@ -5729,8 +5730,8 @@ fn airIsErr(f: *Function, inst: Air.Inst.Index, is_ptr: bool, operator: []const 
     const operand_ty = f.typeOf(un_op);
     const local = try f.allocLocal(inst, Type.bool);
     const err_union_ty = if (is_ptr) operand_ty.childType(mod) else operand_ty;
-    const payload_ty = err_union_ty.errorUnionPayload();
-    const error_ty = err_union_ty.errorUnionSet();
+    const payload_ty = err_union_ty.errorUnionPayload(mod);
+    const error_ty = err_union_ty.errorUnionSet(mod);
 
     try f.writeCValue(writer, local, .Other);
     try writer.writeAll(" = ");

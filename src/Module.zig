@@ -960,38 +960,6 @@ pub const EmitH = struct {
     fwd_decl: ArrayListUnmanaged(u8) = .{},
 };
 
-/// Represents the data that an explicit error set syntax provides.
-pub const ErrorSet = struct {
-    /// The Decl that corresponds to the error set itself.
-    owner_decl: Decl.Index,
-    /// The string bytes are stored in the owner Decl arena.
-    /// These must be in sorted order. See sortNames.
-    names: NameMap,
-
-    pub const NameMap = std.StringArrayHashMapUnmanaged(void);
-
-    pub fn srcLoc(self: ErrorSet, mod: *Module) SrcLoc {
-        const owner_decl = mod.declPtr(self.owner_decl);
-        return .{
-            .file_scope = owner_decl.getFileScope(mod),
-            .parent_decl_node = owner_decl.src_node,
-            .lazy = LazySrcLoc.nodeOffset(0),
-        };
-    }
-
-    /// sort the NameMap. This should be called whenever the map is modified.
-    /// alloc should be the allocator used for the NameMap data.
-    pub fn sortNames(names: *NameMap) void {
-        const Context = struct {
-            keys: [][]const u8,
-            pub fn lessThan(ctx: @This(), a_index: usize, b_index: usize) bool {
-                return std.mem.lessThan(u8, ctx.keys[a_index], ctx.keys[b_index]);
-            }
-        };
-        names.sort(Context{ .keys = names.keys() });
-    }
-};
-
 pub const PropertyBoolean = enum { no, yes, unknown, wip };
 
 /// Represents the data that a struct declaration provides.
@@ -1530,13 +1498,6 @@ pub const Fn = struct {
     is_noinline: bool,
     calls_or_awaits_errorable_fn: bool = false,
 
-    /// Any inferred error sets that this function owns, both its own inferred error set and
-    /// inferred error sets of any inline/comptime functions called. Not to be confused
-    /// with inferred error sets of generic instantiations of this function, which are
-    /// *not* tracked here - they are tracked in the new `Fn` object created for the
-    /// instantiations.
-    inferred_error_sets: InferredErrorSetList = .{},
-
     pub const Analysis = enum {
         /// This function has not yet undergone analysis, because we have not
         /// seen a potential runtime call. It may be analyzed in future.
@@ -1568,10 +1529,10 @@ pub const Fn = struct {
         /// direct additions via `return error.Foo;`, and possibly also errors that
         /// are returned from any dependent functions. When the inferred error set is
         /// fully resolved, this map contains all the errors that the function might return.
-        errors: ErrorSet.NameMap = .{},
+        errors: NameMap = .{},
 
         /// Other inferred error sets which this inferred error set should include.
-        inferred_error_sets: std.AutoArrayHashMapUnmanaged(*InferredErrorSet, void) = .{},
+        inferred_error_sets: std.AutoArrayHashMapUnmanaged(InferredErrorSet.Index, void) = .{},
 
         /// Whether the function returned anyerror. This is true if either of
         /// the dependent functions returns anyerror.
@@ -1581,51 +1542,59 @@ pub const Fn = struct {
         /// can skip resolving any dependents of this inferred error set.
         is_resolved: bool = false,
 
-        pub fn addErrorSet(self: *InferredErrorSet, gpa: Allocator, err_set_ty: Type) !void {
+        pub const NameMap = std.AutoArrayHashMapUnmanaged(InternPool.NullTerminatedString, void);
+
+        pub const Index = enum(u32) {
+            _,
+
+            pub fn toOptional(i: Index) OptionalIndex {
+                return @intToEnum(OptionalIndex, @enumToInt(i));
+            }
+        };
+
+        pub const OptionalIndex = enum(u32) {
+            none = std.math.maxInt(u32),
+            _,
+
+            pub fn init(oi: ?Index) OptionalIndex {
+                return @intToEnum(OptionalIndex, @enumToInt(oi orelse return .none));
+            }
+
+            pub fn unwrap(oi: OptionalIndex) ?Index {
+                if (oi == .none) return null;
+                return @intToEnum(Index, @enumToInt(oi));
+            }
+        };
+
+        pub fn addErrorSet(
+            self: *InferredErrorSet,
+            err_set_ty: Type,
+            ip: *InternPool,
+            gpa: Allocator,
+        ) !void {
             switch (err_set_ty.ip_index) {
                 .anyerror_type => {
                     self.is_anyerror = true;
                 },
-                .none => switch (err_set_ty.tag()) {
-                    .error_set => {
-                        const names = err_set_ty.castTag(.error_set).?.data.names.keys();
-                        for (names) |name| {
+                else => switch (ip.indexToKey(err_set_ty.ip_index)) {
+                    .error_set_type => |error_set_type| {
+                        for (error_set_type.names) |name| {
                             try self.errors.put(gpa, name, {});
                         }
                     },
-                    .error_set_single => {
-                        const name = err_set_ty.castTag(.error_set_single).?.data;
-                        try self.errors.put(gpa, name, {});
-                    },
-                    .error_set_inferred => {
-                        const ies = err_set_ty.castTag(.error_set_inferred).?.data;
-                        try self.inferred_error_sets.put(gpa, ies, {});
-                    },
-                    .error_set_merged => {
-                        const names = err_set_ty.castTag(.error_set_merged).?.data.keys();
-                        for (names) |name| {
-                            try self.errors.put(gpa, name, {});
-                        }
+                    .inferred_error_set_type => |ies_index| {
+                        try self.inferred_error_sets.put(gpa, ies_index, {});
                     },
                     else => unreachable,
                 },
-                else => @panic("TODO"),
             }
         }
     };
 
-    pub const InferredErrorSetList = std.SinglyLinkedList(InferredErrorSet);
-    pub const InferredErrorSetListNode = InferredErrorSetList.Node;
-
+    /// TODO: remove this function
     pub fn deinit(func: *Fn, gpa: Allocator) void {
-        var it = func.inferred_error_sets.first;
-        while (it) |node| {
-            const next = node.next;
-            node.data.errors.deinit(gpa);
-            node.data.inferred_error_sets.deinit(gpa);
-            gpa.destroy(node);
-            it = next;
-        }
+        _ = func;
+        _ = gpa;
     }
 
     pub fn isAnytypeParam(func: Fn, mod: *Module, index: u32) bool {
@@ -3508,6 +3477,10 @@ pub fn structPtr(mod: *Module, index: Struct.Index) *Struct {
     return mod.intern_pool.structPtr(index);
 }
 
+pub fn inferredErrorSetPtr(mod: *Module, index: Fn.InferredErrorSet.Index) *Fn.InferredErrorSet {
+    return mod.intern_pool.inferredErrorSetPtr(index);
+}
+
 /// This one accepts an index from the InternPool and asserts that it is not
 /// the anonymous empty struct type.
 pub fn structPtrUnwrap(mod: *Module, index: Struct.OptionalIndex) ?*Struct {
@@ -4722,7 +4695,7 @@ fn semaDecl(mod: *Module, decl_index: Decl.Index) !bool {
                 decl_tv.ty.fmt(mod),
             });
         }
-        const ty = try decl_tv.val.toType().copy(decl_arena_allocator);
+        const ty = decl_tv.val.toType();
         if (ty.getNamespace(mod) == null) {
             return sema.fail(&block_scope, ty_src, "type {} has no namespace", .{ty.fmt(mod)});
         }
@@ -4756,7 +4729,7 @@ fn semaDecl(mod: *Module, decl_index: Decl.Index) !bool {
             }
             decl.clearValues(mod);
 
-            decl.ty = try decl_tv.ty.copy(decl_arena_allocator);
+            decl.ty = decl_tv.ty;
             decl.val = try decl_tv.val.copy(decl_arena_allocator);
             // linksection, align, and addrspace were already set by Sema
             decl.has_tv = true;
@@ -4823,7 +4796,7 @@ fn semaDecl(mod: *Module, decl_index: Decl.Index) !bool {
         },
     }
 
-    decl.ty = try decl_tv.ty.copy(decl_arena_allocator);
+    decl.ty = decl_tv.ty;
     decl.val = try decl_tv.val.copy(decl_arena_allocator);
     decl.@"align" = blk: {
         const align_ref = decl.zirAlignRef(mod);
@@ -6599,7 +6572,7 @@ pub fn populateTestFunctions(
             // This copy accesses the old Decl Type/Value so it must be done before `clearValues`.
             const new_ty = try Type.ptr(arena, mod, .{
                 .size = .Slice,
-                .pointee_type = try tmp_test_fn_ty.copy(arena),
+                .pointee_type = tmp_test_fn_ty,
                 .mutable = false,
                 .@"addrspace" = .generic,
             });
@@ -6875,6 +6848,42 @@ pub fn funcType(mod: *Module, info: InternPool.Key.FuncType) Allocator.Error!Typ
 /// For `anyframe`, use the `InternPool.Index.anyframe` tag directly.
 pub fn anyframeType(mod: *Module, payload_ty: Type) Allocator.Error!Type {
     return (try intern(mod, .{ .anyframe_type = payload_ty.toIntern() })).toType();
+}
+
+pub fn errorUnionType(mod: *Module, error_set_ty: Type, payload_ty: Type) Allocator.Error!Type {
+    return (try intern(mod, .{ .error_union_type = .{
+        .error_set_type = error_set_ty.toIntern(),
+        .payload_type = payload_ty.toIntern(),
+    } })).toType();
+}
+
+pub fn singleErrorSetType(mod: *Module, name: []const u8) Allocator.Error!Type {
+    const gpa = mod.gpa;
+    const ip = &mod.intern_pool;
+    return singleErrorSetTypeNts(mod, try ip.getOrPutString(gpa, name));
+}
+
+pub fn singleErrorSetTypeNts(mod: *Module, name: InternPool.NullTerminatedString) Allocator.Error!Type {
+    const gpa = mod.gpa;
+    const ip = &mod.intern_pool;
+    const names = [1]InternPool.NullTerminatedString{name};
+    const i = try ip.get(gpa, .{ .error_set_type = .{ .names = &names } });
+    return i.toType();
+}
+
+/// Sorts `names` in place.
+pub fn errorSetFromUnsortedNames(
+    mod: *Module,
+    names: []InternPool.NullTerminatedString,
+) Allocator.Error!Type {
+    std.mem.sort(
+        InternPool.NullTerminatedString,
+        names,
+        {},
+        InternPool.NullTerminatedString.indexLessThan,
+    );
+    const new_ty = try mod.intern(.{ .error_set_type = .{ .names = names } });
+    return new_ty.toType();
 }
 
 /// Supports optionals in addition to pointers.
@@ -7238,6 +7247,16 @@ pub fn typeToUnion(mod: *Module, ty: Type) ?*Union {
 pub fn typeToFunc(mod: *Module, ty: Type) ?InternPool.Key.FuncType {
     if (ty.ip_index == .none) return null;
     return mod.intern_pool.indexToFuncType(ty.ip_index);
+}
+
+pub fn typeToInferredErrorSet(mod: *Module, ty: Type) ?*Fn.InferredErrorSet {
+    const index = typeToInferredErrorSetIndex(mod, ty).unwrap() orelse return null;
+    return mod.inferredErrorSetPtr(index);
+}
+
+pub fn typeToInferredErrorSetIndex(mod: *Module, ty: Type) Fn.InferredErrorSet.OptionalIndex {
+    if (ty.ip_index == .none) return .none;
+    return mod.intern_pool.indexToInferredErrorSetType(ty.ip_index);
 }
 
 pub fn fieldSrcLoc(mod: *Module, owner_decl_index: Decl.Index, query: FieldSrcQuery) SrcLoc {

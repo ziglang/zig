@@ -801,7 +801,7 @@ pub const DeclGen = struct {
                     },
                 },
                 .ErrorUnion => {
-                    const payload_ty = ty.errorUnionPayload();
+                    const payload_ty = ty.errorUnionPayload(mod);
                     const is_pl = val.errorUnionIsPayload();
                     const error_val = if (!is_pl) val else try mod.intValue(Type.anyerror, 0);
 
@@ -1365,7 +1365,7 @@ pub const DeclGen = struct {
             .Union => return try self.resolveUnionType(ty, null),
             .ErrorSet => return try self.intType(.unsigned, 16),
             .ErrorUnion => {
-                const payload_ty = ty.errorUnionPayload();
+                const payload_ty = ty.errorUnionPayload(mod);
                 const error_ty_ref = try self.resolveType(Type.anyerror, .indirect);
 
                 const eu_layout = self.errorUnionLayout(payload_ty);
@@ -2875,7 +2875,7 @@ pub const DeclGen = struct {
 
         const eu_layout = self.errorUnionLayout(payload_ty);
 
-        if (!err_union_ty.errorUnionSet().errorSetIsEmpty(mod)) {
+        if (!err_union_ty.errorUnionSet(mod).errorSetIsEmpty(mod)) {
             const err_id = if (eu_layout.payload_has_bits)
                 try self.extractField(Type.anyerror, err_union_id, eu_layout.errorFieldIndex())
             else
@@ -2929,12 +2929,12 @@ pub const DeclGen = struct {
         const err_union_ty = self.typeOf(ty_op.operand);
         const err_ty_ref = try self.resolveType(Type.anyerror, .direct);
 
-        if (err_union_ty.errorUnionSet().errorSetIsEmpty(mod)) {
+        if (err_union_ty.errorUnionSet(mod).errorSetIsEmpty(mod)) {
             // No error possible, so just return undefined.
             return try self.spv.constUndef(err_ty_ref);
         }
 
-        const payload_ty = err_union_ty.errorUnionPayload();
+        const payload_ty = err_union_ty.errorUnionPayload(mod);
         const eu_layout = self.errorUnionLayout(payload_ty);
 
         if (!eu_layout.payload_has_bits) {
@@ -2948,9 +2948,10 @@ pub const DeclGen = struct {
     fn airWrapErrUnionErr(self: *DeclGen, inst: Air.Inst.Index) !?IdRef {
         if (self.liveness.isUnused(inst)) return null;
 
+        const mod = self.module;
         const ty_op = self.air.instructions.items(.data)[inst].ty_op;
         const err_union_ty = self.typeOfIndex(inst);
-        const payload_ty = err_union_ty.errorUnionPayload();
+        const payload_ty = err_union_ty.errorUnionPayload(mod);
         const operand_id = try self.resolve(ty_op.operand);
         const eu_layout = self.errorUnionLayout(payload_ty);
 

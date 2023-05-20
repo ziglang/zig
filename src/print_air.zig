@@ -370,7 +370,6 @@ const Writer = struct {
             .none => switch (ty.tag()) {
                 .inferred_alloc_const => try s.writeAll("(inferred_alloc_const)"),
                 .inferred_alloc_mut => try s.writeAll("(inferred_alloc_mut)"),
-                else => try ty.print(s, w.module),
             },
             else => try ty.print(s, w.module),
         }

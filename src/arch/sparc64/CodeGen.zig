@@ -2707,12 +2707,12 @@ fn airUnionInit(self: *Self, inst: Air.Inst.Index) !void {
 }
 
 fn airUnwrapErrErr(self: *Self, inst: Air.Inst.Index) !void {
+    const mod = self.bin_file.options.module.?;
     const ty_op = self.air.instructions.items(.data)[inst].ty_op;
     const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
         const error_union_ty = self.typeOf(ty_op.operand);
-        const payload_ty = error_union_ty.errorUnionPayload();
+        const payload_ty = error_union_ty.errorUnionPayload(mod);
         const mcv = try self.resolveInst(ty_op.operand);
-        const mod = self.bin_file.options.module.?;
         if (!payload_ty.hasRuntimeBits(mod)) break :result mcv;
 
         return self.fail("TODO implement unwrap error union error for non-empty payloads", .{});
@@ -2721,11 +2721,11 @@ fn airUnwrapErrErr(self: *Self, inst: Air.Inst.Index) !void {
 }
 
 fn airUnwrapErrPayload(self: *Self, inst: Air.Inst.Index) !void {
+    const mod = self.bin_file.options.module.?;
     const ty_op = self.air.instructions.items(.data)[inst].ty_op;
     const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
         const error_union_ty = self.typeOf(ty_op.operand);
-        const payload_ty = error_union_ty.errorUnionPayload();
-        const mod = self.bin_file.options.module.?;
+        const payload_ty = error_union_ty.errorUnionPayload(mod);
         if (!payload_ty.hasRuntimeBits(mod)) break :result MCValue.none;
 
         return self.fail("TODO implement unwrap error union payload for non-empty payloads", .{});
@@ -2735,12 +2735,12 @@ fn airUnwrapErrPayload(self: *Self, inst: Air.Inst.Index) !void {
 
 /// E to E!T
 fn airWrapErrUnionErr(self: *Self, inst: Air.Inst.Index) !void {
+    const mod = self.bin_file.options.module.?;
     const ty_op = self.air.instructions.items(.data)[inst].ty_op;
     const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
         const error_union_ty = self.air.getRefType(ty_op.ty);
-        const payload_ty = error_union_ty.errorUnionPayload();
+        const payload_ty = error_union_ty.errorUnionPayload(mod);
         const mcv = try self.resolveInst(ty_op.operand);
-        const mod = self.bin_file.options.module.?;
         if (!payload_ty.hasRuntimeBits(mod)) break :result mcv;
 
         return self.fail("TODO implement wrap errunion error for non-empty payloads", .{});
@@ -3529,8 +3529,8 @@ fn ensureProcessDeathCapacity(self: *Self, additional_count: usize) !void {
 /// Given an error union, returns the payload
 fn errUnionPayload(self: *Self, error_union_mcv: MCValue, error_union_ty: Type) !MCValue {
     const mod = self.bin_file.options.module.?;
-    const err_ty = error_union_ty.errorUnionSet();
-    const payload_ty = error_union_ty.errorUnionPayload();
+    const err_ty = error_union_ty.errorUnionSet(mod);
+    const payload_ty = error_union_ty.errorUnionPayload(mod);
     if (err_ty.errorSetIsEmpty(mod)) {
         return error_union_mcv;
     }
@@ -4168,8 +4168,8 @@ fn getResolvedInstValue(self: *Self, inst: Air.Inst.Index) MCValue {
 
 fn isErr(self: *Self, ty: Type, operand: MCValue) !MCValue {
     const mod = self.bin_file.options.module.?;
-    const error_type = ty.errorUnionSet();
-    const payload_type = ty.errorUnionPayload();
+    const error_type = ty.errorUnionSet(mod);
+    const payload_type = ty.errorUnionPayload(mod);
 
     if (!error_type.hasRuntimeBits(mod)) {
         return MCValue{ .immediate = 0 }; // always false

@@ -3065,8 +3065,8 @@ fn errUnionErr(
     maybe_inst: ?Air.Inst.Index,
 ) !MCValue {
     const mod = self.bin_file.options.module.?;
-    const err_ty = error_union_ty.errorUnionSet();
-    const payload_ty = error_union_ty.errorUnionPayload();
+    const err_ty = error_union_ty.errorUnionSet(mod);
+    const payload_ty = error_union_ty.errorUnionPayload(mod);
     if (err_ty.errorSetIsEmpty(mod)) {
         return MCValue{ .immediate = 0 };
     }
@@ -3145,8 +3145,8 @@ fn errUnionPayload(
     maybe_inst: ?Air.Inst.Index,
 ) !MCValue {
     const mod = self.bin_file.options.module.?;
-    const err_ty = error_union_ty.errorUnionSet();
-    const payload_ty = error_union_ty.errorUnionPayload();
+    const err_ty = error_union_ty.errorUnionSet(mod);
+    const payload_ty = error_union_ty.errorUnionPayload(mod);
     if (err_ty.errorSetIsEmpty(mod)) {
         return try error_union_bind.resolveToMcv(self);
     }
@@ -3305,8 +3305,8 @@ fn airWrapErrUnionPayload(self: *Self, inst: Air.Inst.Index) !void {
     const ty_op = self.air.instructions.items(.data)[inst].ty_op;
     const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
         const error_union_ty = self.air.getRefType(ty_op.ty);
-        const error_ty = error_union_ty.errorUnionSet();
-        const payload_ty = error_union_ty.errorUnionPayload();
+        const error_ty = error_union_ty.errorUnionSet(mod);
+        const payload_ty = error_union_ty.errorUnionPayload(mod);
         const operand = try self.resolveInst(ty_op.operand);
         if (!payload_ty.hasRuntimeBitsIgnoreComptime(mod)) break :result operand;
 
@@ -3329,8 +3329,8 @@ fn airWrapErrUnionErr(self: *Self, inst: Air.Inst.Index) !void {
     const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
         const mod = self.bin_file.options.module.?;
         const error_union_ty = self.air.getRefType(ty_op.ty);
-        const error_ty = error_union_ty.errorUnionSet();
-        const payload_ty = error_union_ty.errorUnionPayload();
+        const error_ty = error_union_ty.errorUnionSet(mod);
+        const payload_ty = error_union_ty.errorUnionPayload(mod);
         const operand = try self.resolveInst(ty_op.operand);
         if (!payload_ty.hasRuntimeBitsIgnoreComptime(mod)) break :result operand;
 
@@ -4893,7 +4893,7 @@ fn isErr(
     error_union_ty: Type,
 ) !MCValue {
     const mod = self.bin_file.options.module.?;
-    const error_type = error_union_ty.errorUnionSet();
+    const error_type = error_union_ty.errorUnionSet(mod);
 
     if (error_type.errorSetIsEmpty(mod)) {
         return MCValue{ .immediate = 0 }; // always false
