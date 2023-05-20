@@ -62,9 +62,9 @@ pub const Loop = struct {
         pub const Overlapped = @TypeOf(overlapped_init);
 
         pub const Id = enum {
-            Basic,
-            Stop,
-            EventFd,
+            basic,
+            stop,
+            event_fd,
         };
 
         pub const EventFd = switch (builtin.os.tag) {
@@ -165,7 +165,7 @@ pub const Loop = struct {
             .available_eventfd_resume_nodes = std.atomic.Stack(ResumeNode.EventFd).init(),
             .eventfd_resume_nodes = undefined,
             .final_resume_node = ResumeNode{
-                .id = ResumeNode.Id.Stop,
+                .id = .stop,
                 .handle = undefined,
                 .overlapped = ResumeNode.overlapped_init,
             },
@@ -224,7 +224,7 @@ pub const Loop = struct {
                     eventfd_node.* = std.atomic.Stack(ResumeNode.EventFd).Node{
                         .data = ResumeNode.EventFd{
                             .base = ResumeNode{
-                                .id = .EventFd,
+                                .id = .event_fd,
                                 .handle = undefined,
                                 .overlapped = ResumeNode.overlapped_init,
                             },
@@ -282,7 +282,7 @@ pub const Loop = struct {
                     eventfd_node.* = std.atomic.Stack(ResumeNode.EventFd).Node{
                         .data = ResumeNode.EventFd{
                             .base = ResumeNode{
-                                .id = ResumeNode.Id.EventFd,
+                                .id = .event_fd,
                                 .handle = undefined,
                                 .overlapped = ResumeNode.overlapped_init,
                             },
@@ -347,7 +347,7 @@ pub const Loop = struct {
                     eventfd_node.* = std.atomic.Stack(ResumeNode.EventFd).Node{
                         .data = ResumeNode.EventFd{
                             .base = ResumeNode{
-                                .id = ResumeNode.Id.EventFd,
+                                .id = .event_fd,
                                 .handle = undefined,
                                 .overlapped = ResumeNode.overlapped_init,
                             },
@@ -413,7 +413,7 @@ pub const Loop = struct {
                     eventfd_node.* = std.atomic.Stack(ResumeNode.EventFd).Node{
                         .data = ResumeNode.EventFd{
                             .base = ResumeNode{
-                                .id = ResumeNode.Id.EventFd,
+                                .id = .event_fd,
                                 .handle = undefined,
                                 .overlapped = ResumeNode.overlapped_init,
                             },
@@ -503,7 +503,7 @@ pub const Loop = struct {
         assert(flags & os.linux.EPOLL.ONESHOT == os.linux.EPOLL.ONESHOT);
         var resume_node = ResumeNode.Basic{
             .base = ResumeNode{
-                .id = .Basic,
+                .id = .basic,
                 .handle = @frame(),
                 .overlapped = ResumeNode.overlapped_init,
             },
@@ -590,7 +590,7 @@ pub const Loop = struct {
     pub fn bsdWaitKev(self: *Loop, ident: usize, filter: i16, flags: u16) void {
         var resume_node = ResumeNode.Basic{
             .base = ResumeNode{
-                .id = ResumeNode.Id.Basic,
+                .id = .basic,
                 .handle = @frame(),
                 .overlapped = ResumeNode.overlapped_init,
             },
@@ -1419,9 +1419,9 @@ pub const Loop = struct {
                         const handle = resume_node.handle;
                         const resume_node_id = resume_node.id;
                         switch (resume_node_id) {
-                            .Basic => {},
-                            .Stop => return,
-                            .EventFd => {
+                            .basic => {},
+                            .stop => return,
+                            .event_fd => {
                                 const event_fd_node = @fieldParentPtr(ResumeNode.EventFd, "base", resume_node);
                                 event_fd_node.epoll_op = os.linux.EPOLL.CTL_MOD;
                                 const stack_node = @fieldParentPtr(std.atomic.Stack(ResumeNode.EventFd).Node, "data", event_fd_node);
@@ -1429,7 +1429,7 @@ pub const Loop = struct {
                             },
                         }
                         resume handle;
-                        if (resume_node_id == ResumeNode.Id.EventFd) {
+                        if (resume_node_id == .event_fd) {
                             self.finishOneEvent();
                         }
                     }
@@ -1443,19 +1443,19 @@ pub const Loop = struct {
                         const handle = resume_node.handle;
                         const resume_node_id = resume_node.id;
                         switch (resume_node_id) {
-                            .Basic => {
+                            .basic => {
                                 const basic_node = @fieldParentPtr(ResumeNode.Basic, "base", resume_node);
                                 basic_node.kev = ev;
                             },
-                            .Stop => return,
-                            .EventFd => {
+                            .stop => return,
+                            .event_fd => {
                                 const event_fd_node = @fieldParentPtr(ResumeNode.EventFd, "base", resume_node);
                                 const stack_node = @fieldParentPtr(std.atomic.Stack(ResumeNode.EventFd).Node, "data", event_fd_node);
                                 self.available_eventfd_resume_nodes.push(stack_node);
                             },
                         }
                         resume handle;
-                        if (resume_node_id == ResumeNode.Id.EventFd) {
+                        if (resume_node_id == .event_fd) {
                             self.finishOneEvent();
                         }
                     }
@@ -1477,9 +1477,9 @@ pub const Loop = struct {
                     const handle = resume_node.handle;
                     const resume_node_id = resume_node.id;
                     switch (resume_node_id) {
-                        .Basic => {},
-                        .Stop => return,
-                        .EventFd => {
+                        .basic => {},
+                        .stop => return,
+                        .event_fd => {
                             const event_fd_node = @fieldParentPtr(ResumeNode.EventFd, "base", resume_node);
                             const stack_node = @fieldParentPtr(std.atomic.Stack(ResumeNode.EventFd).Node, "data", event_fd_node);
                             self.available_eventfd_resume_nodes.push(stack_node);
