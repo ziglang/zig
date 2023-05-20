@@ -7836,7 +7836,7 @@ fn resolveGenericInstantiationType(
             const arg_val = (child_sema.resolveMaybeUndefValAllowVariables(arg) catch unreachable).?;
             child_sema.comptime_args[arg_i] = .{
                 .ty = arg_ty,
-                .val = try arg_val.copy(new_decl_arena_allocator),
+                .val = (try arg_val.intern(arg_ty, mod)).toValue(),
             };
         } else {
             child_sema.comptime_args[arg_i] = .{
@@ -16537,7 +16537,7 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                                     try std.fmt.allocPrintZ(anon_decl.arena(), "{d}", .{i});
                                 const new_decl = try anon_decl.finish(
                                     try Type.array(anon_decl.arena(), bytes.len, Value.zero_u8, Type.u8, mod),
-                                    try Value.Tag.bytes.create(anon_decl.arena(), bytes[0 .. bytes.len + 1]),
+                                    try Value.Tag.bytes.create(anon_decl.arena(), bytes.ptr[0 .. bytes.len + 1]),
                                     0, // default alignment
                                 );
                                 break :v try Value.Tag.slice.create(fields_anon_decl.arena(), .{
