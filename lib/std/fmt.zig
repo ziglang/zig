@@ -1742,9 +1742,9 @@ pub fn Formatter(comptime format_fn: anytype) type {
 /// See also `parseUnsigned`.
 pub fn parseInt(comptime T: type, buf: []const u8, radix: u8) ParseIntError!T {
     if (buf.len == 0) return error.InvalidCharacter;
-    if (buf[0] == '+') return parseWithSign(T, buf[1..], radix, .Pos);
-    if (buf[0] == '-') return parseWithSign(T, buf[1..], radix, .Neg);
-    return parseWithSign(T, buf, radix, .Pos);
+    if (buf[0] == '+') return parseWithSign(T, buf[1..], radix, .pos);
+    if (buf[0] == '-') return parseWithSign(T, buf[1..], radix, .neg);
+    return parseWithSign(T, buf, radix, .pos);
 }
 
 test "parseInt" {
@@ -1805,7 +1805,7 @@ fn parseWithSign(
     comptime T: type,
     buf: []const u8,
     radix: u8,
-    comptime sign: enum { Pos, Neg },
+    comptime sign: enum { pos, neg },
 ) ParseIntError!T {
     if (buf.len == 0) return error.InvalidCharacter;
 
@@ -1835,8 +1835,8 @@ fn parseWithSign(
     }
 
     const add = switch (sign) {
-        .Pos => math.add,
-        .Neg => math.sub,
+        .pos => math.add,
+        .neg => math.sub,
     };
 
     var x: T = 0;
@@ -1866,7 +1866,7 @@ fn parseWithSign(
 /// Ignores '_' character in `buf`.
 /// See also `parseInt`.
 pub fn parseUnsigned(comptime T: type, buf: []const u8, radix: u8) ParseIntError!T {
-    return parseWithSign(T, buf, radix, .Pos);
+    return parseWithSign(T, buf, radix, .pos);
 }
 
 test "parseUnsigned" {
