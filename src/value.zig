@@ -603,7 +603,7 @@ pub const Value = struct {
     }
 
     pub fn intern(val: Value, ty: Type, mod: *Module) Allocator.Error!InternPool.Index {
-        if (val.ip_index != .none) return val.ip_index;
+        if (val.ip_index != .none) return mod.intern_pool.getCoerced(mod.gpa, val.ip_index, ty.ip_index);
         switch (val.tag()) {
             .slice => {
                 const pl = val.castTag(.slice).?.data;
@@ -2769,9 +2769,18 @@ pub const Value = struct {
         mod: *Module,
     ) Allocator.Error!Value {
         const elem_ty = ty.elemType2(mod);
-        const ptr_val = switch (val.tag()) {
-            .slice => val.castTag(.slice).?.data.ptr,
-            else => val,
+        const ptr_val = switch (val.ip_index) {
+            .none => switch (val.tag()) {
+                .slice => val.castTag(.slice).?.data.ptr,
+                else => val,
+            },
+            else => switch (mod.intern_pool.indexToKey(val.ip_index)) {
+                .ptr => |ptr| switch (ptr.len) {
+                    .none => val,
+                    else => val.slicePtr(mod),
+                },
+                else => val,
+            },
         };
 
         if (ptr_val.ip_index == .none and ptr_val.tag() == .elem_ptr) {

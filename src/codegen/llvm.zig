@@ -3357,7 +3357,7 @@ pub const DeclGen = struct {
                     }),
                 },
                 else => switch (mod.intern_pool.indexToKey(tv.val.ip_index)) {
-                    .int => |int| return lowerIntAsPtr(dg, int),
+                    .int => |int| return dg.lowerIntAsPtr(int),
                     .ptr => |ptr| {
                         const ptr_val = switch (ptr.addr) {
                             .@"var" => |@"var"| ptr: {
@@ -3376,7 +3376,7 @@ pub const DeclGen = struct {
                             },
                             .decl => |decl| try lowerDeclRefValue(dg, tv, decl),
                             .mut_decl => |mut_decl| try lowerDeclRefValue(dg, tv, mut_decl.decl),
-                            .int => |int| lowerIntAsPtr(dg, mod.intern_pool.indexToKey(int).int),
+                            .int => |int| dg.lowerIntAsPtr(mod.intern_pool.indexToKey(int).int),
                         };
                         switch (ptr.len) {
                             .none => return ptr_val,
@@ -4084,8 +4084,14 @@ pub const DeclGen = struct {
     fn lowerParentPtr(dg: *DeclGen, ptr_val: Value, byte_aligned: bool) Error!*llvm.Value {
         const mod = dg.module;
         const target = mod.getTarget();
-        if (ptr_val.ip_index != .none) switch (mod.intern_pool.indexToKey(ptr_val.ip_index)) {
-            .int => |int| return lowerIntAsPtr(dg, int),
+        if (ptr_val.ip_index != .none) return switch (mod.intern_pool.indexToKey(ptr_val.ip_index)) {
+            .int => |int| dg.lowerIntAsPtr(int),
+            .ptr => |ptr| switch (ptr.addr) {
+                .@"var" => |@"var"| dg.lowerParentPtrDecl(ptr_val, @"var".owner_decl),
+                .decl => |decl| dg.lowerParentPtrDecl(ptr_val, decl),
+                .mut_decl => |mut_decl| dg.lowerParentPtrDecl(ptr_val, mut_decl.decl),
+                .int => |int| dg.lowerIntAsPtr(mod.intern_pool.indexToKey(int).int),
+            },
             else => unreachable,
         };
         switch (ptr_val.tag()) {

@@ -2584,9 +2584,9 @@ pub fn get(ip: *InternPool, gpa: Allocator, key: Key) Allocator.Error!Index {
 
         .extern_func => @panic("TODO"),
 
-        .ptr => |ptr| switch (ip.items.items(.tag)[@enumToInt(ptr.ty)]) {
-            .type_pointer => {
-                assert(ptr.len == .none);
+        .ptr => |ptr| switch (ptr.len) {
+            .none => {
+                assert(ip.indexToKey(ptr.ty).ptr_type.size != .Slice);
                 switch (ptr.addr) {
                     .@"var" => |@"var"| ip.items.appendAssumeCapacity(.{
                         .tag = .ptr_var,
@@ -2626,11 +2626,12 @@ pub fn get(ip: *InternPool, gpa: Allocator, key: Key) Allocator.Error!Index {
                     }),
                 }
             },
-            .type_slice => {
-                assert(ptr.len != .none);
+            else => {
+                assert(ip.indexToKey(ptr.ty).ptr_type.size == .Slice);
                 var new_key = key;
-                new_key.ptr.ty = @intToEnum(Index, ip.items.items(.data)[@enumToInt(ptr.ty)]);
+                new_key.ptr.ty = ip.slicePtrType(ptr.ty);
                 new_key.ptr.len = .none;
+                assert(ip.indexToKey(new_key.ptr.ty).ptr_type.size == .Many);
                 const ptr_index = try get(ip, gpa, new_key);
                 try ip.items.ensureUnusedCapacity(gpa, 1);
                 ip.items.appendAssumeCapacity(.{
@@ -2641,7 +2642,6 @@ pub fn get(ip: *InternPool, gpa: Allocator, key: Key) Allocator.Error!Index {
                     }),
                 });
             },
-            else => unreachable,
         },
 
         .opt => |opt| {
@@ -3465,10 +3465,12 @@ pub fn sliceLen(ip: InternPool, i: Index) Index {
 
 /// Given an existing value, returns the same value but with the supplied type.
 /// Only some combinations are allowed:
+/// * identity coercion
 /// * int <=> int
 /// * int <=> enum
 /// * ptr <=> ptr
 pub fn getCoerced(ip: *InternPool, gpa: Allocator, val: Index, new_ty: Index) Allocator.Error!Index {
+    if (ip.typeOf(val) == new_ty) return val;
     switch (ip.indexToKey(val)) {
         .int => |int| switch (ip.indexToKey(new_ty)) {
             .enum_type => return ip.get(gpa, .{ .enum_tag = .{
