@@ -575,9 +575,10 @@ pub const Key = union(enum) {
                 std.hash.autoHash(hasher, ptr.ty);
                 // Int-to-ptr pointers are hashed separately than decl-referencing pointers.
                 // This is sound due to pointer provenance rules.
+                std.hash.autoHash(hasher, @as(@typeInfo(Key.Ptr.Addr).Union.tag_type.?, ptr.addr));
                 switch (ptr.addr) {
+                    .decl => |decl| std.hash.autoHash(hasher, decl),
                     .int => |int| std.hash.autoHash(hasher, int),
-                    .decl => @panic("TODO"),
                 }
             },
 
@@ -690,19 +691,14 @@ pub const Key = union(enum) {
 
             .ptr => |a_info| {
                 const b_info = b.ptr;
+                if (a_info.ty != b_info.ty) return false;
 
-                if (a_info.ty != b_info.ty)
-                    return false;
+                const AddrTag = @typeInfo(Key.Ptr.Addr).Union.tag_type.?;
+                if (@as(AddrTag, a_info.addr) != @as(AddrTag, b_info.addr)) return false;
 
                 return switch (a_info.addr) {
-                    .int => |a_int| switch (b_info.addr) {
-                        .int => |b_int| a_int == b_int,
-                        .decl => false,
-                    },
-                    .decl => |a_decl| switch (b_info.addr) {
-                        .int => false,
-                        .decl => |b_decl| a_decl == b_decl,
-                    },
+                    .decl => |a_decl| a_decl == b_info.addr.decl,
+                    .int => |a_int| a_int == b_info.addr.int,
                 };
             },
 
@@ -1334,7 +1330,10 @@ pub const Tag = enum(u8) {
     /// A value that can be represented with only an enum tag.
     /// data is SimpleValue enum value.
     simple_value,
-    /// A pointer to an integer value.
+    /// A pointer to a decl.
+    /// data is extra index of PtrDecl, which contains the type and address.
+    ptr_decl,
+    /// A pointer with an integer value.
     /// data is extra index of PtrInt, which contains the type and address.
     /// Only pointer types are allowed to have this encoding. Optional types must use
     /// `opt_payload` or `opt_null`.
@@ -1673,6 +1672,11 @@ pub const PackedU64 = packed struct(u64) {
     }
 };
 
+pub const PtrDecl = struct {
+    ty: Index,
+    decl: Module.Decl.Index,
+};
+
 pub const PtrInt = struct {
     ty: Index,
     addr: Index,
@@ -1988,6 +1992,13 @@ pub fn indexToKey(ip: InternPool, index: Index) Key {
             return .{ .opt = .{
                 .ty = opt_ty,
                 .val = payload_val,
+            } };
+        },
+        .ptr_decl => {
+            const info = ip.extraData(PtrDecl, data);
+            return .{ .ptr = .{
+                .ty = info.ty,
+                .addr = .{ .decl = info.decl },
             } };
         },
         .ptr_int => {
@@ -2462,7 +2473,16 @@ pub fn get(ip: *InternPool, gpa: Allocator, key: Key) Allocator.Error!Index {
         .extern_func => @panic("TODO"),
 
         .ptr => |ptr| switch (ptr.addr) {
-            .decl => @panic("TODO"),
+            .decl => |decl| {
+                assert(ptr.ty != .none);
+                ip.items.appendAssumeCapacity(.{
+                    .tag = .ptr_decl,
+                    .data = try ip.addExtra(gpa, PtrDecl{
+                        .ty = ptr.ty,
+                        .decl = decl,
+                    }),
+                });
+            },
             .int => |int| {
                 assert(ptr.ty != .none);
                 ip.items.appendAssumeCapacity(.{
@@ -3465,6 +3485,7 @@ fn dumpFallible(ip: InternPool, arena: Allocator) anyerror!void {
             .undef => 0,
             .simple_type => 0,
             .simple_value => 0,
+            .ptr_decl => @sizeOf(PtrDecl),
             .ptr_int => @sizeOf(PtrInt),
             .opt_null => 0,
             .opt_payload => 0,

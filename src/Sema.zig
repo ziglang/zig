@@ -29294,33 +29294,28 @@ fn analyzeDeclRef(sema: *Sema, decl_index: Decl.Index) CompileError!Air.Inst.Ref
 /// decl_ref to end up in runtime code, the function body must be analyzed: `analyzeDeclRef` wraps
 /// this function with `analyze_fn_body` set to true.
 fn analyzeDeclRefInner(sema: *Sema, decl_index: Decl.Index, analyze_fn_body: bool) CompileError!Air.Inst.Ref {
-    try sema.mod.declareDeclDependency(sema.owner_decl_index, decl_index);
+    const mod = sema.mod;
+    try mod.declareDeclDependency(sema.owner_decl_index, decl_index);
     try sema.ensureDeclAnalyzed(decl_index);
 
-    const decl = sema.mod.declPtr(decl_index);
+    const decl = mod.declPtr(decl_index);
     const decl_tv = try decl.typedValue();
-    if (decl_tv.val.castTag(.variable)) |payload| {
-        const variable = payload.data;
-        const ty = try Type.ptr(sema.arena, sema.mod, .{
-            .pointee_type = decl_tv.ty,
-            .mutable = variable.is_mutable,
-            .@"addrspace" = decl.@"addrspace",
-            .@"align" = decl.@"align",
-        });
-        return sema.addConstant(ty, try Value.Tag.decl_ref.create(sema.arena, decl_index));
-    }
+    const ptr_ty = try mod.ptrType(.{
+        .elem_type = decl_tv.ty.ip_index,
+        .alignment = InternPool.Alignment.fromByteUnits(decl.@"align"),
+        .is_const = if (decl_tv.val.castTag(.variable)) |payload|
+            !payload.data.is_mutable
+        else
+            false,
+        .address_space = decl.@"addrspace",
+    });
     if (analyze_fn_body) {
         try sema.maybeQueueFuncBodyAnalysis(decl_index);
     }
-    return sema.addConstant(
-        try Type.ptr(sema.arena, sema.mod, .{
-            .pointee_type = decl_tv.ty,
-            .mutable = false,
-            .@"addrspace" = decl.@"addrspace",
-            .@"align" = decl.@"align",
-        }),
-        try Value.Tag.decl_ref.create(sema.arena, decl_index),
-    );
+    return sema.addConstant(ptr_ty, (try mod.intern(.{ .ptr = .{
+        .ty = ptr_ty.ip_index,
+        .addr = .{ .decl = decl_index },
+    } })).toValue());
 }
 
 fn maybeQueueFuncBodyAnalysis(sema: *Sema, decl_index: Decl.Index) !void {
