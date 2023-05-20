@@ -1116,21 +1116,20 @@ pub const DeclGen = struct {
             return self.todo("packed union types", .{});
         }
 
-        const tag_ty_ref = try self.resolveType(union_ty.tag_ty, .indirect);
         if (layout.payload_size == 0) {
             // No payload, so represent this as just the tag type.
-            return tag_ty_ref;
+            return try self.resolveType(union_ty.tag_ty, .indirect);
         }
 
         var members = std.BoundedArray(SpvType.Payload.Struct.Member, 4){};
 
         const has_tag = layout.tag_size != 0;
         const tag_first = layout.tag_align >= layout.payload_align;
-        const tag_member = .{ .name = "tag", .ty = tag_ty_ref };
         const u8_ty_ref = try self.intType(.unsigned, 8); // TODO: What if Int8Type is not enabled?
 
         if (has_tag and tag_first) {
-            members.appendAssumeCapacity(tag_member);
+            const tag_ty_ref = try self.resolveType(union_ty.tag_ty, .indirect);
+            members.appendAssumeCapacity(.{ .name = "tag", .ty = tag_ty_ref });
         }
 
         const active_field = maybe_active_field orelse layout.most_aligned_field;
@@ -1149,7 +1148,8 @@ pub const DeclGen = struct {
         }
 
         if (has_tag and !tag_first) {
-            members.appendAssumeCapacity(tag_member);
+            const tag_ty_ref = try self.resolveType(union_ty.tag_ty, .indirect);
+            members.appendAssumeCapacity(.{ .name = "tag", .ty = tag_ty_ref });
         }
 
         if (layout.padding != 0) {
@@ -1735,6 +1735,7 @@ pub const DeclGen = struct {
             .slice_elem_val => try self.airSliceElemVal(inst),
             .ptr_elem_ptr   => try self.airPtrElemPtr(inst),
 
+            .get_union_tag => try self.airGetUnionTag(inst),
             .struct_field_val => try self.airStructFieldVal(inst),
 
             .struct_field_ptr_index_0 => try self.airStructFieldPtrIndex(inst, 0),
@@ -2318,6 +2319,22 @@ pub const DeclGen = struct {
             .indexes = &indexes,
         });
         return result_id;
+    }
+
+    fn airGetUnionTag(self: *DeclGen, inst: Air.Inst.Index) !?IdRef {
+        const ty_op = self.air.instructions.items(.data)[inst].ty_op;
+        const un_ty = self.air.typeOf(ty_op.operand);
+
+        const target = self.module.getTarget();
+        const layout = un_ty.unionGetLayout(target);
+        if (layout.tag_size == 0) return null;
+
+        const union_handle = try self.resolve(ty_op.operand);
+        if (layout.payload_size == 0) return union_handle;
+
+        const tag_ty = un_ty.unionTagTypeSafety().?;
+        const tag_index = @boolToInt(layout.tag_align < layout.payload_align);
+        return try self.extractField(tag_ty, union_handle, tag_index);
     }
 
     fn airStructFieldVal(self: *DeclGen, inst: Air.Inst.Index) !?IdRef {
