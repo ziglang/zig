@@ -826,7 +826,7 @@ pub const Type = struct {
     }
 
     pub fn isNoReturn(ty: Type, mod: *Module) bool {
-        return mod.intern_pool.isNoReturn(ty.ip_index);
+        return if (ty.ip_index != .none) mod.intern_pool.isNoReturn(ty.ip_index) else false;
     }
 
     /// Returns 0 if the pointer is naturally aligned and the element type is 0-bit.
