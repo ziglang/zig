@@ -109,7 +109,7 @@ pub fn Uint(comptime max_bits: comptime_int) type {
             var i = self.limbs_count() - 1;
             while (true) : (i -= 1) {
                 if (@bitSizeOf(T) > t_bits and math.shr(T, x, @bitSizeOf(T) - t_bits) != 0) {
-                    return error.OverflowError;
+                    return error.Overflow;
                 }
                 x = math.shl(T, x, t_bits);
                 x |= @intCast(T, self.limbs.get(i));
