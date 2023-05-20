@@ -14,15 +14,15 @@ const expectFmt = std.testing.expectFmt;
 pub const default_max_depth = 3;
 
 pub const Alignment = enum {
-    Left,
-    Center,
-    Right,
+    left,
+    center,
+    right,
 };
 
 pub const FormatOptions = struct {
     precision: ?usize = null,
     width: ?usize = null,
-    alignment: Alignment = .Right,
+    alignment: Alignment = .right,
     fill: u8 = ' ',
 };
 
@@ -252,11 +252,11 @@ pub const Placeholder = struct {
                 else => {},
             }
             break :init switch (ch) {
-                '<' => .Left,
-                '^' => .Center,
-                else => .Right,
+                '<' => .left,
+                '^' => .center,
+                else => .right,
             };
-        } else .Right;
+        } else .right;
 
         // Parse the width parameter
         const width = comptime parser.specifier() catch |err|
@@ -1034,18 +1034,18 @@ pub fn formatBuf(
             return writer.writeAll(buf);
 
         switch (options.alignment) {
-            .Left => {
+            .left => {
                 try writer.writeAll(buf);
                 try writer.writeByteNTimes(options.fill, padding);
             },
-            .Center => {
+            .center => {
                 const left_padding = padding / 2;
                 const right_padding = (padding + 1) / 2;
                 try writer.writeByteNTimes(options.fill, left_padding);
                 try writer.writeAll(buf);
                 try writer.writeByteNTimes(options.fill, right_padding);
             },
-            .Right => {
+            .right => {
                 try writer.writeByteNTimes(options.fill, padding);
                 try writer.writeAll(buf);
             },
