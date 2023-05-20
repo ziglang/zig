@@ -1411,7 +1411,7 @@ pub fn typeOfIndex(air: Air, inst: Air.Inst.Index, ip: InternPool) Type {
 
         .@"try" => {
             const err_union_ty = air.typeOf(datas[inst].pl_op.operand, ip);
-            return err_union_ty.errorUnionPayload();
+            return ip.indexToKey(err_union_ty.ip_index).error_union_type.payload_type.toType();
         },
 
         .work_item_id,

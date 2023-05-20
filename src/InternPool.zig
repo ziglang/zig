@@ -34,6 +34,14 @@ allocated_unions: std.SegmentedList(Module.Union, 0) = .{},
 /// When a Union object is freed from `allocated_unions`, it is pushed into this stack.
 unions_free_list: std.ArrayListUnmanaged(Module.Union.Index) = .{},
 
+/// InferredErrorSet objects are stored in this data structure because:
+/// * They contain pointers such as the errors map and the set of other inferred error sets.
+/// * They need to be mutated after creation.
+allocated_inferred_error_sets: std.SegmentedList(Module.Fn.InferredErrorSet, 0) = .{},
+/// When a Struct object is freed from `allocated_inferred_error_sets`, it is
+/// pushed into this stack.
+inferred_error_sets_free_list: std.ArrayListUnmanaged(Module.Fn.InferredErrorSet.Index) = .{},
+
 /// Some types such as enums, structs, and unions need to store mappings from field names
 /// to field index, or value to field index. In such cases, they will store the underlying
 /// field names and values directly, relying on one of these maps, stored separately,
@@ -113,6 +121,12 @@ pub const NullTerminatedString = enum(u32) {
             return std.hash.uint32(@enumToInt(a));
         }
     };
+
+    /// Compare based on integer value alone, ignoring the string contents.
+    pub fn indexLessThan(ctx: void, a: NullTerminatedString, b: NullTerminatedString) bool {
+        _ = ctx;
+        return @enumToInt(a) < @enumToInt(b);
+    }
 };
 
 /// An index into `string_bytes` which might be `none`.
@@ -135,10 +149,7 @@ pub const Key = union(enum) {
     /// `anyframe->T`. The payload is the child type, which may be `none` to indicate
     /// `anyframe`.
     anyframe_type: Index,
-    error_union_type: struct {
-        error_set_type: Index,
-        payload_type: Index,
-    },
+    error_union_type: ErrorUnionType,
     simple_type: SimpleType,
     /// This represents a struct that has been explicitly declared in source code,
     /// or was created with `@Type`. It is unique and based on a declaration.
@@ -152,6 +163,8 @@ pub const Key = union(enum) {
     opaque_type: OpaqueType,
     enum_type: EnumType,
     func_type: FuncType,
+    error_set_type: ErrorSetType,
+    inferred_error_set_type: Module.Fn.InferredErrorSet.Index,
 
     /// Typed `undefined`. This will never be `none`; untyped `undefined` is represented
     /// via `simple_value` and has a named `Index` tag for it.
@@ -182,6 +195,26 @@ pub const Key = union(enum) {
     un: Union,
 
     pub const IntType = std.builtin.Type.Int;
+
+    pub const ErrorUnionType = struct {
+        error_set_type: Index,
+        payload_type: Index,
+    };
+
+    pub const ErrorSetType = struct {
+        /// Set of error names, sorted by null terminated string index.
+        names: []const NullTerminatedString,
+        /// This is ignored by `get` but will always be provided by `indexToKey`.
+        names_map: OptionalMapIndex = .none,
+
+        /// Look up field index based on field name.
+        pub fn nameIndex(self: ErrorSetType, ip: *const InternPool, name: NullTerminatedString) ?u32 {
+            const map = &ip.maps.items[@enumToInt(self.names_map.unwrap().?)];
+            const adapter: NullTerminatedString.Adapter = .{ .strings = self.names };
+            const field_index = map.getIndexAdapted(name, adapter) orelse return null;
+            return @intCast(u32, field_index);
+        }
+    };
 
     pub const PtrType = struct {
         elem_type: Index,
@@ -507,6 +540,7 @@ pub const Key = union(enum) {
             .un,
             .undef,
             .enum_tag,
+            .inferred_error_set_type,
             => |info| std.hash.autoHash(hasher, info),
 
             .opaque_type => |opaque_type| std.hash.autoHash(hasher, opaque_type.decl),
@@ -535,7 +569,7 @@ pub const Key = union(enum) {
             .ptr => |ptr| {
                 std.hash.autoHash(hasher, ptr.ty);
                 // Int-to-ptr pointers are hashed separately than decl-referencing pointers.
-                // This is sound due to pointer province rules.
+                // This is sound due to pointer provenance rules.
                 switch (ptr.addr) {
                     .int => |int| std.hash.autoHash(hasher, int),
                     .decl => @panic("TODO"),
@@ -545,6 +579,10 @@ pub const Key = union(enum) {
             .aggregate => |aggregate| {
                 std.hash.autoHash(hasher, aggregate.ty);
                 for (aggregate.fields) |field| std.hash.autoHash(hasher, field);
+            },
+
+            .error_set_type => |error_set_type| {
+                for (error_set_type.names) |elem| std.hash.autoHash(hasher, elem);
             },
 
             .anon_struct_type => |anon_struct_type| {
@@ -726,6 +764,14 @@ pub const Key = union(enum) {
                     std.mem.eql(Index, a_info.values, b_info.values) and
                     std.mem.eql(NullTerminatedString, a_info.names, b_info.names);
             },
+            .error_set_type => |a_info| {
+                const b_info = b.error_set_type;
+                return std.mem.eql(NullTerminatedString, a_info.names, b_info.names);
+            },
+            .inferred_error_set_type => |a_info| {
+                const b_info = b.inferred_error_set_type;
+                return a_info == b_info;
+            },
 
             .func_type => |a_info| {
                 const b_info = b.func_type;
@@ -752,6 +798,8 @@ pub const Key = union(enum) {
             .opt_type,
             .anyframe_type,
             .error_union_type,
+            .error_set_type,
+            .inferred_error_set_type,
             .simple_type,
             .struct_type,
             .union_type,
@@ -1207,8 +1255,14 @@ pub const Tag = enum(u8) {
     /// If the child type is `none`, the type is `anyframe`.
     type_anyframe,
     /// An error union type.
-    /// data is payload to ErrorUnion.
+    /// data is payload to `Key.ErrorUnionType`.
     type_error_union,
+    /// An error set type.
+    /// data is payload to `ErrorSet`.
+    type_error_set,
+    /// The inferred error set type of a function.
+    /// data is `Module.Fn.InferredErrorSet.Index`.
+    type_inferred_error_set,
     /// An enum type with auto-numbered tag values.
     /// The enum is exhaustive.
     /// data is payload index to `EnumAuto`.
@@ -1353,6 +1407,12 @@ pub const Tag = enum(u8) {
     /// An instance of a struct, array, or vector.
     /// data is extra index to `Aggregate`.
     aggregate,
+};
+
+/// Trailing:
+/// 0. name: NullTerminatedString for each names_len
+pub const ErrorSet = struct {
+    names_len: u32,
 };
 
 /// Trailing:
@@ -1539,11 +1599,6 @@ pub const Array = struct {
     }
 };
 
-pub const ErrorUnion = struct {
-    error_set_type: Index,
-    payload_type: Index,
-};
-
 /// Trailing:
 /// 0. field name: NullTerminatedString for each fields_len; declaration order
 /// 1. tag value: Index for each fields_len; declaration order
@@ -1719,6 +1774,9 @@ pub fn deinit(ip: *InternPool, gpa: Allocator) void {
     ip.unions_free_list.deinit(gpa);
     ip.allocated_unions.deinit(gpa);
 
+    ip.inferred_error_sets_free_list.deinit(gpa);
+    ip.allocated_inferred_error_sets.deinit(gpa);
+
     for (ip.maps.items) |*map| map.deinit(gpa);
     ip.maps.deinit(gpa);
 
@@ -1798,7 +1856,18 @@ pub fn indexToKey(ip: InternPool, index: Index) Key {
         .type_optional => .{ .opt_type = @intToEnum(Index, data) },
         .type_anyframe => .{ .anyframe_type = @intToEnum(Index, data) },
 
-        .type_error_union => @panic("TODO"),
+        .type_error_union => .{ .error_union_type = ip.extraData(Key.ErrorUnionType, data) },
+        .type_error_set => {
+            const error_set = ip.extraDataTrail(ErrorSet, data);
+            const names_len = error_set.data.names_len;
+            const names = ip.extra.items[error_set.end..][0..names_len];
+            return .{ .error_set_type = .{
+                .names = @ptrCast([]const NullTerminatedString, names),
+            } };
+        },
+        .type_inferred_error_set => .{
+            .inferred_error_set_type = @intToEnum(Module.Fn.InferredErrorSet.Index, data),
+        },
 
         .type_opaque => .{ .opaque_type = ip.extraData(Key.OpaqueType, data) },
         .type_struct => {
@@ -2179,10 +2248,28 @@ pub fn get(ip: *InternPool, gpa: Allocator, key: Key) Allocator.Error!Index {
         .error_union_type => |error_union_type| {
             ip.items.appendAssumeCapacity(.{
                 .tag = .type_error_union,
-                .data = try ip.addExtra(gpa, ErrorUnion{
-                    .error_set_type = error_union_type.error_set_type,
-                    .payload_type = error_union_type.payload_type,
+                .data = try ip.addExtra(gpa, error_union_type),
+            });
+        },
+        .error_set_type => |error_set_type| {
+            assert(error_set_type.names_map == .none);
+            assert(std.sort.isSorted(NullTerminatedString, error_set_type.names, {}, NullTerminatedString.indexLessThan));
+            const names_map = try ip.addMap(gpa);
+            try addStringsToMap(ip, gpa, names_map, error_set_type.names);
+            const names_len = @intCast(u32, error_set_type.names.len);
+            try ip.extra.ensureUnusedCapacity(gpa, @typeInfo(ErrorSet).Struct.fields.len + names_len);
+            ip.items.appendAssumeCapacity(.{
+                .tag = .type_error_set,
+                .data = ip.addExtraAssumeCapacity(ErrorSet{
+                    .names_len = names_len,
                 }),
+            });
+            ip.extra.appendSliceAssumeCapacity(@ptrCast([]const u32, error_set_type.names));
+        },
+        .inferred_error_set_type => |ies_index| {
+            ip.items.appendAssumeCapacity(.{
+                .tag = .type_inferred_error_set,
+                .data = @enumToInt(ies_index),
             });
         },
         .simple_type => |simple_type| {
@@ -3192,10 +3279,24 @@ pub fn indexToFuncType(ip: InternPool, val: Index) ?Key.FuncType {
     }
 }
 
+pub fn indexToInferredErrorSetType(ip: InternPool, val: Index) Module.Fn.InferredErrorSet.OptionalIndex {
+    assert(val != .none);
+    const tags = ip.items.items(.tag);
+    if (tags[@enumToInt(val)] != .type_inferred_error_set) return .none;
+    const datas = ip.items.items(.data);
+    return @intToEnum(Module.Fn.InferredErrorSet.Index, datas[@enumToInt(val)]).toOptional();
+}
+
 pub fn isOptionalType(ip: InternPool, ty: Index) bool {
     const tags = ip.items.items(.tag);
     if (ty == .none) return false;
     return tags[@enumToInt(ty)] == .type_optional;
+}
+
+pub fn isInferredErrorSetType(ip: InternPool, ty: Index) bool {
+    const tags = ip.items.items(.tag);
+    assert(ty != .none);
+    return tags[@enumToInt(ty)] == .type_inferred_error_set;
 }
 
 pub fn dump(ip: InternPool) void {
@@ -3258,7 +3359,12 @@ fn dumpFallible(ip: InternPool, arena: Allocator) anyerror!void {
             .type_slice => 0,
             .type_optional => 0,
             .type_anyframe => 0,
-            .type_error_union => @sizeOf(ErrorUnion),
+            .type_error_union => @sizeOf(Key.ErrorUnionType),
+            .type_error_set => b: {
+                const info = ip.extraData(ErrorSet, data);
+                break :b @sizeOf(ErrorSet) + (@sizeOf(u32) * info.names_len);
+            },
+            .type_inferred_error_set => @sizeOf(Module.Fn.InferredErrorSet),
             .type_enum_explicit, .type_enum_nonexhaustive => @sizeOf(EnumExplicit),
             .type_enum_auto => @sizeOf(EnumAuto),
             .type_opaque => @sizeOf(Key.OpaqueType),
@@ -3359,6 +3465,14 @@ pub fn unionPtr(ip: *InternPool, index: Module.Union.Index) *Module.Union {
     return ip.allocated_unions.at(@enumToInt(index));
 }
 
+pub fn inferredErrorSetPtr(ip: *InternPool, index: Module.Fn.InferredErrorSet.Index) *Module.Fn.InferredErrorSet {
+    return ip.allocated_inferred_error_sets.at(@enumToInt(index));
+}
+
+pub fn inferredErrorSetPtrConst(ip: InternPool, index: Module.Fn.InferredErrorSet.Index) *const Module.Fn.InferredErrorSet {
+    return ip.allocated_inferred_error_sets.at(@enumToInt(index));
+}
+
 pub fn createStruct(
     ip: *InternPool,
     gpa: Allocator,
@@ -3394,6 +3508,25 @@ pub fn destroyUnion(ip: *InternPool, gpa: Allocator, index: Module.Union.Index) 
     ip.unions_free_list.append(gpa, index) catch {
         // In order to keep `destroyUnion` a non-fallible function, we ignore memory
         // allocation failures here, instead leaking the Union until garbage collection.
+    };
+}
+
+pub fn createInferredErrorSet(
+    ip: *InternPool,
+    gpa: Allocator,
+    initialization: Module.Fn.InferredErrorSet,
+) Allocator.Error!Module.Fn.InferredErrorSet.Index {
+    if (ip.inferred_error_sets_free_list.popOrNull()) |index| return index;
+    const ptr = try ip.allocated_inferred_error_sets.addOne(gpa);
+    ptr.* = initialization;
+    return @intToEnum(Module.Fn.InferredErrorSet.Index, ip.allocated_inferred_error_sets.len - 1);
+}
+
+pub fn destroyInferredErrorSet(ip: *InternPool, gpa: Allocator, index: Module.Fn.InferredErrorSet.Index) void {
+    ip.inferredErrorSetPtr(index).* = undefined;
+    ip.inferred_error_sets_free_list.append(gpa, index) catch {
+        // In order to keep `destroyInferredErrorSet` a non-fallible function, we ignore memory
+        // allocation failures here, instead leaking the InferredErrorSet until garbage collection.
     };
 }
 
@@ -3457,5 +3590,16 @@ pub fn aggregateTypeLen(ip: InternPool, ty: Index) u64 {
         .array_type => |array_type| array_type.len,
         .vector_type => |vector_type| vector_type.len,
         else => unreachable,
+    };
+}
+
+pub fn isNoReturn(ip: InternPool, ty: InternPool.Index) bool {
+    return switch (ty) {
+        .noreturn_type => true,
+        else => switch (ip.indexToKey(ty)) {
+            .error_set_type => |error_set_type| error_set_type.names.len == 0,
+            .enum_type => |enum_type| enum_type.names.len == 0,
+            else => false,
+        },
     };
 }

@@ -453,7 +453,7 @@ fn verifyBody(self: *Verify, body: []const Air.Inst.Index) Error!void {
 
                 for (block_liveness.deaths) |death| try self.verifyDeath(inst, death);
 
-                if (block_ty.isNoReturn()) {
+                if (ip.isNoReturn(block_ty.toIntern())) {
                     assert(!self.blocks.contains(inst));
                 } else {
                     var live = self.blocks.fetchRemove(inst).?.value;

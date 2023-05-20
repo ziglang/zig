@@ -362,15 +362,11 @@ pub const Object = struct {
     decl_map: std.AutoHashMapUnmanaged(Module.Decl.Index, *llvm.Value),
     /// Serves the same purpose as `decl_map` but only used for the `is_named_enum_value` instruction.
     named_enum_map: std.AutoHashMapUnmanaged(Module.Decl.Index, *llvm.Value),
-    /// Maps Zig types to LLVM types. The table memory itself is backed by the GPA of
-    /// the compiler, but the Type/Value memory here is backed by `type_map_arena`.
-    /// TODO we need to remove entries from this map in response to incremental compilation
-    /// but I think the frontend won't tell us about types that get deleted because
-    /// hasRuntimeBits() is false for types.
+    /// Maps Zig types to LLVM types. The table memory is backed by the GPA of
+    /// the compiler.
+    /// TODO when InternPool garbage collection is implemented, this map needs
+    /// to be garbage collected as well.
     type_map: TypeMap,
-    /// The backing memory for `type_map`. Periodically garbage collected after flush().
-    /// The code for doing the periodical GC is not yet implemented.
-    type_map_arena: std.heap.ArenaAllocator,
     di_type_map: DITypeMap,
     /// The LLVM global table which holds the names corresponding to Zig errors.
     /// Note that the values are not added until flushModule, when all errors in
@@ -381,12 +377,7 @@ pub const Object = struct {
     /// name collision.
     extern_collisions: std.AutoArrayHashMapUnmanaged(Module.Decl.Index, void),
 
-    pub const TypeMap = std.HashMapUnmanaged(
-        Type,
-        *llvm.Type,
-        Type.HashContext64,
-        std.hash_map.default_max_load_percentage,
-    );
+    pub const TypeMap = std.AutoHashMapUnmanaged(InternPool.Index, *llvm.Type);
 
     /// This is an ArrayHashMap as opposed to a HashMap because in `flushModule` we
     /// want to iterate over it while adding entries to it.
@@ -543,7 +534,6 @@ pub const Object = struct {
             .decl_map = .{},
             .named_enum_map = .{},
             .type_map = .{},
-            .type_map_arena = std.heap.ArenaAllocator.init(gpa),
             .di_type_map = .{},
             .error_name_table = null,
             .extern_collisions = .{},
@@ -563,7 +553,6 @@ pub const Object = struct {
         self.decl_map.deinit(gpa);
         self.named_enum_map.deinit(gpa);
         self.type_map.deinit(gpa);
-        self.type_map_arena.deinit();
         self.extern_collisions.deinit(gpa);
         self.* = undefined;
     }
@@ -1462,9 +1451,6 @@ pub const Object = struct {
             return o.lowerDebugTypeImpl(entry, resolve, di_type);
         }
         errdefer assert(o.di_type_map.orderedRemoveContext(ty, .{ .mod = o.module }));
-        // The Type memory is ephemeral; since we want to store a longer-lived
-        // reference, we need to copy it here.
-        gop.key_ptr.* = try ty.copy(o.type_map_arena.allocator());
         const entry: Object.DITypeMap.Entry = .{
             .key_ptr = gop.key_ptr,
             .value_ptr = gop.value_ptr,
@@ -1868,7 +1854,7 @@ pub const Object = struct {
                 return full_di_ty;
             },
             .ErrorUnion => {
-                const payload_ty = ty.errorUnionPayload();
+                const payload_ty = ty.errorUnionPayload(mod);
                 if (!payload_ty.hasRuntimeBitsIgnoreComptime(mod)) {
                     const err_set_di_ty = try o.lowerDebugType(Type.anyerror, .full);
                     // The recursive call to `lowerDebugType` means we can't use `gop` anymore.
@@ -2823,7 +2809,7 @@ pub const DeclGen = struct {
             .Opaque => {
                 if (t.ip_index == .anyopaque_type) return dg.context.intType(8);
 
-                const gop = try dg.object.type_map.getOrPutContext(gpa, t, .{ .mod = mod });
+                const gop = try dg.object.type_map.getOrPut(gpa, t.toIntern());
                 if (gop.found_existing) return gop.value_ptr.*;
 
                 const opaque_type = mod.intern_pool.indexToKey(t.ip_index).opaque_type;
@@ -2869,7 +2855,7 @@ pub const DeclGen = struct {
                 return dg.context.structType(&fields_buf, 3, .False);
             },
             .ErrorUnion => {
-                const payload_ty = t.errorUnionPayload();
+                const payload_ty = t.errorUnionPayload(mod);
                 if (!payload_ty.hasRuntimeBitsIgnoreComptime(mod)) {
                     return try dg.lowerType(Type.anyerror);
                 }
@@ -2913,12 +2899,8 @@ pub const DeclGen = struct {
             },
             .ErrorSet => return dg.context.intType(16),
             .Struct => {
-                const gop = try dg.object.type_map.getOrPutContext(gpa, t, .{ .mod = mod });
+                const gop = try dg.object.type_map.getOrPut(gpa, t.toIntern());
                 if (gop.found_existing) return gop.value_ptr.*;
-
-                // The Type memory is ephemeral; since we want to store a longer-lived
-                // reference, we need to copy it here.
-                gop.key_ptr.* = try t.copy(dg.object.type_map_arena.allocator());
 
                 const struct_type = switch (mod.intern_pool.indexToKey(t.ip_index)) {
                     .anon_struct_type => |tuple| {
@@ -3041,12 +3023,8 @@ pub const DeclGen = struct {
                 return llvm_struct_ty;
             },
             .Union => {
-                const gop = try dg.object.type_map.getOrPutContext(gpa, t, .{ .mod = mod });
+                const gop = try dg.object.type_map.getOrPut(gpa, t.toIntern());
                 if (gop.found_existing) return gop.value_ptr.*;
-
-                // The Type memory is ephemeral; since we want to store a longer-lived
-                // reference, we need to copy it here.
-                gop.key_ptr.* = try t.copy(dg.object.type_map_arena.allocator());
 
                 const layout = t.unionGetLayout(mod);
                 const union_obj = mod.typeToUnion(t).?;
@@ -3571,7 +3549,7 @@ pub const DeclGen = struct {
                 }
             },
             .ErrorUnion => {
-                const payload_type = tv.ty.errorUnionPayload();
+                const payload_type = tv.ty.errorUnionPayload(mod);
                 const is_pl = tv.val.errorUnionIsPayload();
 
                 if (!payload_type.hasRuntimeBitsIgnoreComptime(mod)) {
@@ -4130,7 +4108,7 @@ pub const DeclGen = struct {
                 const eu_payload_ptr = ptr_val.castTag(.eu_payload_ptr).?.data;
                 const parent_llvm_ptr = try dg.lowerParentPtr(eu_payload_ptr.container_ptr, true);
 
-                const payload_ty = eu_payload_ptr.container_ty.errorUnionPayload();
+                const payload_ty = eu_payload_ptr.container_ty.errorUnionPayload(mod);
                 if (!payload_ty.hasRuntimeBitsIgnoreComptime(mod)) {
                     // In this case, we represent pointer to error union the same as pointer
                     // to the payload.
@@ -5368,7 +5346,7 @@ pub const FuncGen = struct {
         const inst_ty = self.typeOfIndex(inst);
         const parent_bb = self.context.createBasicBlock("Block");
 
-        if (inst_ty.isNoReturn()) {
+        if (inst_ty.isNoReturn(mod)) {
             try self.genBody(body);
             return null;
         }
@@ -5490,11 +5468,11 @@ pub const FuncGen = struct {
         is_unused: bool,
     ) !?*llvm.Value {
         const mod = fg.dg.module;
-        const payload_ty = err_union_ty.errorUnionPayload();
+        const payload_ty = err_union_ty.errorUnionPayload(mod);
         const payload_has_bits = payload_ty.hasRuntimeBitsIgnoreComptime(mod);
         const err_union_llvm_ty = try fg.dg.lowerType(err_union_ty);
 
-        if (!err_union_ty.errorUnionSet().errorSetIsEmpty(mod)) {
+        if (!err_union_ty.errorUnionSet(mod).errorSetIsEmpty(mod)) {
             const is_err = err: {
                 const err_set_ty = try fg.dg.lowerType(Type.anyerror);
                 const zero = err_set_ty.constNull();
@@ -5601,6 +5579,7 @@ pub const FuncGen = struct {
     }
 
     fn airLoop(self: *FuncGen, inst: Air.Inst.Index) !?*llvm.Value {
+        const mod = self.dg.module;
         const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
         const loop = self.air.extraData(Air.Block, ty_pl.payload);
         const body = self.air.extra[loop.end..][0..loop.data.body_len];
@@ -5616,7 +5595,7 @@ pub const FuncGen = struct {
         // would have been emitted already. Also the main loop in genBody can
         // be while(true) instead of for(body), which will eliminate 1 branch on
         // a hot path.
-        if (body.len == 0 or !self.typeOfIndex(body[body.len - 1]).isNoReturn()) {
+        if (body.len == 0 or !self.typeOfIndex(body[body.len - 1]).isNoReturn(mod)) {
             _ = self.builder.buildBr(loop_block);
         }
         return null;
@@ -6674,11 +6653,11 @@ pub const FuncGen = struct {
         const operand = try self.resolveInst(un_op);
         const operand_ty = self.typeOf(un_op);
         const err_union_ty = if (operand_is_ptr) operand_ty.childType(mod) else operand_ty;
-        const payload_ty = err_union_ty.errorUnionPayload();
+        const payload_ty = err_union_ty.errorUnionPayload(mod);
         const err_set_ty = try self.dg.lowerType(Type.anyerror);
         const zero = err_set_ty.constNull();
 
-        if (err_union_ty.errorUnionSet().errorSetIsEmpty(mod)) {
+        if (err_union_ty.errorUnionSet(mod).errorSetIsEmpty(mod)) {
             const llvm_i1 = self.context.intType(1);
             switch (op) {
                 .EQ => return llvm_i1.constInt(1, .False), // 0 == 0
@@ -6825,7 +6804,7 @@ pub const FuncGen = struct {
         const operand = try self.resolveInst(ty_op.operand);
         const operand_ty = self.typeOf(ty_op.operand);
         const err_union_ty = if (operand_is_ptr) operand_ty.childType(mod) else operand_ty;
-        if (err_union_ty.errorUnionSet().errorSetIsEmpty(mod)) {
+        if (err_union_ty.errorUnionSet(mod).errorSetIsEmpty(mod)) {
             const err_llvm_ty = try self.dg.lowerType(Type.anyerror);
             if (operand_is_ptr) {
                 return operand;
@@ -6836,7 +6815,7 @@ pub const FuncGen = struct {
 
         const err_set_llvm_ty = try self.dg.lowerType(Type.anyerror);
 
-        const payload_ty = err_union_ty.errorUnionPayload();
+        const payload_ty = err_union_ty.errorUnionPayload(mod);
         if (!payload_ty.hasRuntimeBitsIgnoreComptime(mod)) {
             if (!operand_is_ptr) return operand;
             return self.builder.buildLoad(err_set_llvm_ty, operand, "");
@@ -6859,7 +6838,7 @@ pub const FuncGen = struct {
         const operand = try self.resolveInst(ty_op.operand);
         const err_union_ty = self.typeOf(ty_op.operand).childType(mod);
 
-        const payload_ty = err_union_ty.errorUnionPayload();
+        const payload_ty = err_union_ty.errorUnionPayload(mod);
         const non_error_val = try self.dg.lowerValue(.{ .ty = Type.anyerror, .val = try mod.intValue(Type.err_int, 0) });
         if (!payload_ty.hasRuntimeBitsIgnoreComptime(mod)) {
             _ = self.builder.buildStore(non_error_val, operand);
@@ -6968,7 +6947,7 @@ pub const FuncGen = struct {
         const mod = self.dg.module;
         const ty_op = self.air.instructions.items(.data)[inst].ty_op;
         const err_un_ty = self.typeOfIndex(inst);
-        const payload_ty = err_un_ty.errorUnionPayload();
+        const payload_ty = err_un_ty.errorUnionPayload(mod);
         const operand = try self.resolveInst(ty_op.operand);
         if (!payload_ty.hasRuntimeBitsIgnoreComptime(mod)) {
             return operand;
@@ -8787,13 +8766,14 @@ pub const FuncGen = struct {
         const operand = try self.resolveInst(ty_op.operand);
         const error_set_ty = self.air.getRefType(ty_op.ty);
 
-        const names = error_set_ty.errorSetNames();
+        const names = error_set_ty.errorSetNames(mod);
         const valid_block = self.context.appendBasicBlock(self.llvm_func, "Valid");
         const invalid_block = self.context.appendBasicBlock(self.llvm_func, "Invalid");
         const end_block = self.context.appendBasicBlock(self.llvm_func, "End");
         const switch_instr = self.builder.buildSwitch(operand, invalid_block, @intCast(c_uint, names.len));
 
-        for (names) |name| {
+        for (names) |name_ip| {
+            const name = mod.intern_pool.stringToSlice(name_ip);
             const err_int = mod.global_error_set.get(name).?;
             const this_tag_int_value = try self.dg.lowerValue(.{
                 .ty = Type.err_int,
@@ -11095,7 +11075,7 @@ fn isByRef(ty: Type, mod: *Module) bool {
             else => return ty.hasRuntimeBits(mod),
         },
         .ErrorUnion => {
-            const payload_ty = ty.errorUnionPayload();
+            const payload_ty = ty.errorUnionPayload(mod);
             if (!payload_ty.hasRuntimeBitsIgnoreComptime(mod)) {
                 return false;
             }

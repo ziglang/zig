@@ -260,7 +260,7 @@ pub const Value = struct {
                 const new_payload = try arena.create(Payload.Ty);
                 new_payload.* = .{
                     .base = payload.base,
-                    .data = try payload.data.copy(arena),
+                    .data = payload.data,
                 };
                 return Value{
                     .ip_index = .none,
@@ -281,7 +281,7 @@ pub const Value = struct {
                     .base = payload.base,
                     .data = .{
                         .container_ptr = try payload.data.container_ptr.copy(arena),
-                        .container_ty = try payload.data.container_ty.copy(arena),
+                        .container_ty = payload.data.container_ty,
                     },
                 };
                 return Value{
@@ -296,7 +296,7 @@ pub const Value = struct {
                     .base = payload.base,
                     .data = .{
                         .field_val = try payload.data.field_val.copy(arena),
-                        .field_ty = try payload.data.field_ty.copy(arena),
+                        .field_ty = payload.data.field_ty,
                     },
                 };
                 return Value{
@@ -311,7 +311,7 @@ pub const Value = struct {
                     .base = payload.base,
                     .data = .{
                         .array_ptr = try payload.data.array_ptr.copy(arena),
-                        .elem_ty = try payload.data.elem_ty.copy(arena),
+                        .elem_ty = payload.data.elem_ty,
                         .index = payload.data.index,
                     },
                 };
@@ -327,7 +327,7 @@ pub const Value = struct {
                     .base = payload.base,
                     .data = .{
                         .container_ptr = try payload.data.container_ptr.copy(arena),
-                        .container_ty = try payload.data.container_ty.copy(arena),
+                        .container_ty = payload.data.container_ty,
                         .field_index = payload.data.field_index,
                     },
                 };
@@ -1870,7 +1870,7 @@ pub const Value = struct {
             .eu_payload => {
                 const a_payload = a.castTag(.eu_payload).?.data;
                 const b_payload = b.castTag(.eu_payload).?.data;
-                const payload_ty = ty.errorUnionPayload();
+                const payload_ty = ty.errorUnionPayload(mod);
                 return eqlAdvanced(a_payload, payload_ty, b_payload, payload_ty, mod, opt_sema);
             },
             .eu_payload_ptr => {
@@ -2163,14 +2163,14 @@ pub const Value = struct {
             .ErrorUnion => {
                 if (val.tag() == .@"error") {
                     std.hash.autoHash(hasher, false); // error
-                    const sub_ty = ty.errorUnionSet();
+                    const sub_ty = ty.errorUnionSet(mod);
                     val.hash(sub_ty, hasher, mod);
                     return;
                 }
 
                 if (val.castTag(.eu_payload)) |payload| {
                     std.hash.autoHash(hasher, true); // payload
-                    const sub_ty = ty.errorUnionPayload();
+                    const sub_ty = ty.errorUnionPayload(mod);
                     payload.data.hash(sub_ty, hasher, mod);
                     return;
                 } else unreachable;
@@ -2272,7 +2272,7 @@ pub const Value = struct {
                 payload.data.hashUncoerced(child_ty, hasher, mod);
             } else std.hash.autoHash(hasher, std.builtin.TypeId.Null),
             .ErrorSet, .ErrorUnion => if (val.getError()) |err| hasher.update(err) else {
-                const pl_ty = ty.errorUnionPayload();
+                const pl_ty = ty.errorUnionPayload(mod);
                 val.castTag(.eu_payload).?.data.hashUncoerced(pl_ty, hasher, mod);
             },
             .Enum, .EnumLiteral, .Union => {

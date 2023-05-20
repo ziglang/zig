@@ -3612,8 +3612,8 @@ fn airUnwrapErrUnionErr(self: *Self, inst: Air.Inst.Index) !void {
     const mod = self.bin_file.options.module.?;
     const ty_op = self.air.instructions.items(.data)[inst].ty_op;
     const err_union_ty = self.typeOf(ty_op.operand);
-    const err_ty = err_union_ty.errorUnionSet();
-    const payload_ty = err_union_ty.errorUnionPayload();
+    const err_ty = err_union_ty.errorUnionSet(mod);
+    const payload_ty = err_union_ty.errorUnionPayload(mod);
     const operand = try self.resolveInst(ty_op.operand);
 
     const result: MCValue = result: {
@@ -3671,7 +3671,7 @@ fn genUnwrapErrorUnionPayloadMir(
     err_union: MCValue,
 ) !MCValue {
     const mod = self.bin_file.options.module.?;
-    const payload_ty = err_union_ty.errorUnionPayload();
+    const payload_ty = err_union_ty.errorUnionPayload(mod);
 
     const result: MCValue = result: {
         if (!payload_ty.hasRuntimeBitsIgnoreComptime(mod)) break :result .none;
@@ -3731,8 +3731,8 @@ fn airUnwrapErrUnionErrPtr(self: *Self, inst: Air.Inst.Index) !void {
     defer self.register_manager.unlockReg(dst_lock);
 
     const eu_ty = src_ty.childType(mod);
-    const pl_ty = eu_ty.errorUnionPayload();
-    const err_ty = eu_ty.errorUnionSet();
+    const pl_ty = eu_ty.errorUnionPayload(mod);
+    const err_ty = eu_ty.errorUnionSet(mod);
     const err_off = @intCast(i32, errUnionErrorOffset(pl_ty, mod));
     const err_abi_size = @intCast(u32, err_ty.abiSize(mod));
     try self.asmRegisterMemory(
@@ -3771,7 +3771,7 @@ fn airUnwrapErrUnionPayloadPtr(self: *Self, inst: Air.Inst.Index) !void {
     defer if (dst_lock) |lock| self.register_manager.unlockReg(lock);
 
     const eu_ty = src_ty.childType(mod);
-    const pl_ty = eu_ty.errorUnionPayload();
+    const pl_ty = eu_ty.errorUnionPayload(mod);
     const pl_off = @intCast(i32, errUnionPayloadOffset(pl_ty, mod));
     const dst_abi_size = @intCast(u32, dst_ty.abiSize(mod));
     try self.asmRegisterMemory(
@@ -3797,8 +3797,8 @@ fn airErrUnionPayloadPtrSet(self: *Self, inst: Air.Inst.Index) !void {
         defer self.register_manager.unlockReg(src_lock);
 
         const eu_ty = src_ty.childType(mod);
-        const pl_ty = eu_ty.errorUnionPayload();
-        const err_ty = eu_ty.errorUnionSet();
+        const pl_ty = eu_ty.errorUnionPayload(mod);
+        const err_ty = eu_ty.errorUnionSet(mod);
         const err_off = @intCast(i32, errUnionErrorOffset(pl_ty, mod));
         const err_abi_size = @intCast(u32, err_ty.abiSize(mod));
         try self.asmMemoryImmediate(
@@ -3901,8 +3901,8 @@ fn airWrapErrUnionPayload(self: *Self, inst: Air.Inst.Index) !void {
     const ty_op = self.air.instructions.items(.data)[inst].ty_op;
 
     const eu_ty = self.air.getRefType(ty_op.ty);
-    const pl_ty = eu_ty.errorUnionPayload();
-    const err_ty = eu_ty.errorUnionSet();
+    const pl_ty = eu_ty.errorUnionPayload(mod);
+    const err_ty = eu_ty.errorUnionSet(mod);
     const operand = try self.resolveInst(ty_op.operand);
 
     const result: MCValue = result: {
@@ -3924,8 +3924,8 @@ fn airWrapErrUnionErr(self: *Self, inst: Air.Inst.Index) !void {
     const ty_op = self.air.instructions.items(.data)[inst].ty_op;
 
     const eu_ty = self.air.getRefType(ty_op.ty);
-    const pl_ty = eu_ty.errorUnionPayload();
-    const err_ty = eu_ty.errorUnionSet();
+    const pl_ty = eu_ty.errorUnionPayload(mod);
+    const err_ty = eu_ty.errorUnionSet(mod);
 
     const result: MCValue = result: {
         if (!pl_ty.hasRuntimeBitsIgnoreComptime(mod)) break :result try self.resolveInst(ty_op.operand);
@@ -8782,7 +8782,7 @@ fn isNullPtr(self: *Self, inst: Air.Inst.Index, ptr_ty: Type, ptr_mcv: MCValue) 
 
 fn isErr(self: *Self, maybe_inst: ?Air.Inst.Index, ty: Type, operand: MCValue) !MCValue {
     const mod = self.bin_file.options.module.?;
-    const err_type = ty.errorUnionSet();
+    const err_type = ty.errorUnionSet(mod);
 
     if (err_type.errorSetIsEmpty(mod)) {
         return MCValue{ .immediate = 0 }; // always false
@@ -8793,7 +8793,7 @@ fn isErr(self: *Self, maybe_inst: ?Air.Inst.Index, ty: Type, operand: MCValue) !
         self.eflags_inst = inst;
     }
 
-    const err_off = errUnionErrorOffset(ty.errorUnionPayload(), mod);
+    const err_off = errUnionErrorOffset(ty.errorUnionPayload(mod), mod);
     switch (operand) {
         .register => |reg| {
             const eu_lock = self.register_manager.lockReg(reg);
