@@ -28976,7 +28976,7 @@ fn coerceTupleToStruct(
     }
 
     const fields = struct_ty.structFields(mod);
-    const field_vals = try sema.arena.alloc(Value, fields.count());
+    const field_vals = try sema.arena.alloc(InternPool.Index, fields.count());
     const field_refs = try sema.arena.alloc(Air.Inst.Ref, field_vals.len);
     @memset(field_refs, .none);
 
@@ -29007,7 +29007,8 @@ fn coerceTupleToStruct(
         }
         if (runtime_src == null) {
             if (try sema.resolveMaybeUndefVal(coerced)) |field_val| {
-                field_vals[field_index] = field_val;
+                assert(field_val.ip_index != .none);
+                field_vals[field_index] = field_val.ip_index;
             } else {
                 runtime_src = field_src;
             }
@@ -29035,7 +29036,8 @@ fn coerceTupleToStruct(
             continue;
         }
         if (runtime_src == null) {
-            field_vals[i] = field.default_val;
+            assert(field.default_val.ip_index != .none);
+            field_vals[i] = field.default_val.ip_index;
         } else {
             field_ref.* = try sema.addConstant(field.ty, field.default_val);
         }
@@ -29052,10 +29054,14 @@ fn coerceTupleToStruct(
         return block.addAggregateInit(struct_ty, field_refs);
     }
 
-    return sema.addConstant(
-        struct_ty,
-        try Value.Tag.aggregate.create(sema.arena, field_vals),
-    );
+    assert(struct_ty.ip_index != .none);
+    const struct_val = try mod.intern(.{ .aggregate = .{
+        .ty = struct_ty.ip_index,
+        .storage = .{ .elems = field_vals },
+    } });
+    errdefer mod.intern_pool.remove(struct_val);
+
+    return sema.addConstant(struct_ty, struct_val.toValue());
 }
 
 fn coerceTupleToTuple(
