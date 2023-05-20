@@ -959,7 +959,6 @@ pub const Index = enum(u32) {
     const_slice_u8_sentinel_0_type,
     anyerror_void_error_union_type,
     generic_poison_type,
-    var_args_param_type,
     /// `@TypeOf(.{})`
     empty_struct_type,
 
@@ -1002,6 +1001,8 @@ pub const Index = enum(u32) {
     /// is not known until generic function instantiation.
     generic_poison,
 
+    /// Used by Air/Sema only.
+    var_args_param_type = std.math.maxInt(u32) - 1,
     none = std.math.maxInt(u32),
 
     _,
@@ -1194,9 +1195,6 @@ pub const static_keys = [_]Key{
 
     // generic_poison_type
     .{ .simple_type = .generic_poison },
-
-    // var_args_param_type
-    .{ .simple_type = .var_args_param },
 
     // empty_struct_type
     .{ .anon_struct_type = .{
@@ -1570,7 +1568,6 @@ pub const SimpleType = enum(u32) {
     type_info,
 
     generic_poison,
-    var_args_param,
 };
 
 pub const SimpleValue = enum(u32) {

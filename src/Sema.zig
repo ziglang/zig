@@ -31657,7 +31657,6 @@ pub fn resolveTypeRequiresComptime(sema: *Sema, ty: Type) CompileError!bool {
                 .anyerror,
                 .noreturn,
                 .generic_poison,
-                .var_args_param,
                 .atomic_order,
                 .atomic_rmw_op,
                 .calling_convention,
@@ -31856,6 +31855,8 @@ pub fn resolveTypeFields(sema: *Sema, ty: Type) CompileError!Type {
     const mod = sema.mod;
 
     switch (ty.ip_index) {
+        .var_args_param_type => unreachable,
+
         // TODO: After the InternPool transition is complete, change this to `unreachable`.
         .none => return ty,
 
@@ -31909,7 +31910,6 @@ pub fn resolveTypeFields(sema: *Sema, ty: Type) CompileError!Type {
         .const_slice_u8_sentinel_0_type,
         .anyerror_void_error_union_type,
         .generic_poison_type,
-        .var_args_param_type,
         .empty_struct_type,
         => return ty,
 
@@ -33123,7 +33123,6 @@ pub fn typeHasOnePossibleValue(sema: *Sema, ty: Type) CompileError!?Value {
                 .undefined => Value.undef,
 
                 .generic_poison => return error.GenericPoison,
-                .var_args_param => unreachable,
             },
             .struct_type => |struct_type| {
                 const resolved_ty = try sema.resolveTypeFields(ty);
@@ -33678,8 +33677,6 @@ pub fn typeRequiresComptime(sema: *Sema, ty: Type) CompileError!bool {
                 .enum_literal,
                 .type_info,
                 => true,
-
-                .var_args_param => unreachable,
             },
             .struct_type => |struct_type| {
                 const struct_obj = mod.structPtrUnwrap(struct_type.index) orelse return false;

@@ -105,7 +105,6 @@ pub const Type = struct {
                     .type_info => .Union,
 
                     .generic_poison => return error.GenericPoison,
-                    .var_args_param => unreachable,
                 },
 
                 // values, not types
@@ -803,7 +802,6 @@ pub const Type = struct {
                     => false,
 
                     .generic_poison => unreachable,
-                    .var_args_param => unreachable,
                 },
                 .struct_type => |struct_type| {
                     const struct_obj = mod.structPtrUnwrap(struct_type.index) orelse {
@@ -952,8 +950,6 @@ pub const Type = struct {
                 .type_info,
                 .generic_poison,
                 => false,
-
-                .var_args_param => unreachable,
             },
             .struct_type => |struct_type| {
                 const struct_obj = mod.structPtrUnwrap(struct_type.index) orelse {
@@ -1198,7 +1194,6 @@ pub const Type = struct {
 
                     .noreturn => unreachable,
                     .generic_poison => unreachable,
-                    .var_args_param => unreachable,
                 },
                 .struct_type => |struct_type| {
                     const struct_obj = mod.structPtrUnwrap(struct_type.index) orelse
@@ -1610,7 +1605,6 @@ pub const Type = struct {
                     .type_info => unreachable,
                     .noreturn => unreachable,
                     .generic_poison => unreachable,
-                    .var_args_param => unreachable,
                 },
                 .struct_type => |struct_type| switch (ty.containerLayout(mod)) {
                     .Packed => {
@@ -1841,7 +1835,6 @@ pub const Type = struct {
                 .undefined => unreachable,
                 .enum_literal => unreachable,
                 .generic_poison => unreachable,
-                .var_args_param => unreachable,
 
                 .atomic_order => unreachable, // missing call to resolveTypeFields
                 .atomic_rmw_op => unreachable, // missing call to resolveTypeFields
@@ -2717,7 +2710,6 @@ pub const Type = struct {
                     .undefined => return Value.undef,
 
                     .generic_poison => unreachable,
-                    .var_args_param => unreachable,
                 },
                 .struct_type => |struct_type| {
                     if (mod.structPtrUnwrap(struct_type.index)) |s| {
@@ -2896,8 +2888,6 @@ pub const Type = struct {
                     .enum_literal,
                     .type_info,
                     => true,
-
-                    .var_args_param => unreachable,
                 },
                 .struct_type => |struct_type| {
                     // A struct with no fields is not comptime-only.
