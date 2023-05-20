@@ -905,7 +905,6 @@ pub const Inst = struct {
         const_slice_u8_sentinel_0_type = @enumToInt(InternPool.Index.const_slice_u8_sentinel_0_type),
         anyerror_void_error_union_type = @enumToInt(InternPool.Index.anyerror_void_error_union_type),
         generic_poison_type = @enumToInt(InternPool.Index.generic_poison_type),
-        var_args_param_type = @enumToInt(InternPool.Index.var_args_param_type),
         empty_struct_type = @enumToInt(InternPool.Index.empty_struct_type),
         undef = @enumToInt(InternPool.Index.undef),
         zero = @enumToInt(InternPool.Index.zero),
@@ -926,6 +925,9 @@ pub const Inst = struct {
         empty_struct = @enumToInt(InternPool.Index.empty_struct),
         generic_poison = @enumToInt(InternPool.Index.generic_poison),
 
+        /// This Ref does not correspond to any AIR instruction or constant
+        /// value. It is used to handle argument types of var args functions.
+        var_args_param_type = @enumToInt(InternPool.Index.var_args_param_type),
         /// This Ref does not correspond to any AIR instruction or constant
         /// value and may instead be used as a sentinel to indicate null.
         none = @enumToInt(InternPool.Index.none),
