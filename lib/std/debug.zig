@@ -421,9 +421,9 @@ pub fn writeStackTrace(
     if (stack_trace.index > stack_trace.instruction_addresses.len) {
         const dropped_frames = stack_trace.index - stack_trace.instruction_addresses.len;
 
-        tty_config.setColor(out_stream, .Bold) catch {};
+        tty_config.setColor(out_stream, .bold) catch {};
         try out_stream.print("({d} additional stack frames skipped...)\n", .{dropped_frames});
-        tty_config.setColor(out_stream, .Reset) catch {};
+        tty_config.setColor(out_stream, .reset) catch {};
     }
 }
 
@@ -655,14 +655,14 @@ pub fn writeCurrentStackTraceWindows(
 /// for debugging purposes, such as coloring text, etc.
 pub const TTY = struct {
     pub const Color = enum {
-        Red,
-        Green,
-        Yellow,
-        Cyan,
-        White,
-        Dim,
-        Bold,
-        Reset,
+        red,
+        green,
+        yellow,
+        cyan,
+        white,
+        dim,
+        bold,
+        reset,
     };
 
     pub const Config = union(enum) {
@@ -680,26 +680,26 @@ pub const TTY = struct {
                 .no_color => return,
                 .escape_codes => {
                     const color_string = switch (color) {
-                        .Red => "\x1b[31;1m",
-                        .Green => "\x1b[32;1m",
-                        .Yellow => "\x1b[33;1m",
-                        .Cyan => "\x1b[36;1m",
-                        .White => "\x1b[37;1m",
-                        .Bold => "\x1b[1m",
-                        .Dim => "\x1b[2m",
-                        .Reset => "\x1b[0m",
+                        .red => "\x1b[31;1m",
+                        .green => "\x1b[32;1m",
+                        .yellow => "\x1b[33;1m",
+                        .cyan => "\x1b[36;1m",
+                        .white => "\x1b[37;1m",
+                        .bold => "\x1b[1m",
+                        .dim => "\x1b[2m",
+                        .reset => "\x1b[0m",
                     };
                     try out_stream.writeAll(color_string);
                 },
                 .windows_api => |ctx| if (native_os == .windows) {
                     const attributes = switch (color) {
-                        .Red => windows.FOREGROUND_RED | windows.FOREGROUND_INTENSITY,
-                        .Green => windows.FOREGROUND_GREEN | windows.FOREGROUND_INTENSITY,
-                        .Yellow => windows.FOREGROUND_RED | windows.FOREGROUND_GREEN | windows.FOREGROUND_INTENSITY,
-                        .Cyan => windows.FOREGROUND_GREEN | windows.FOREGROUND_BLUE | windows.FOREGROUND_INTENSITY,
-                        .White, .Bold => windows.FOREGROUND_RED | windows.FOREGROUND_GREEN | windows.FOREGROUND_BLUE | windows.FOREGROUND_INTENSITY,
-                        .Dim => windows.FOREGROUND_INTENSITY,
-                        .Reset => ctx.reset_attributes,
+                        .red => windows.FOREGROUND_RED | windows.FOREGROUND_INTENSITY,
+                        .green => windows.FOREGROUND_GREEN | windows.FOREGROUND_INTENSITY,
+                        .yellow => windows.FOREGROUND_RED | windows.FOREGROUND_GREEN | windows.FOREGROUND_INTENSITY,
+                        .cyan => windows.FOREGROUND_GREEN | windows.FOREGROUND_BLUE | windows.FOREGROUND_INTENSITY,
+                        .white, .bold => windows.FOREGROUND_RED | windows.FOREGROUND_GREEN | windows.FOREGROUND_BLUE | windows.FOREGROUND_INTENSITY,
+                        .dim => windows.FOREGROUND_INTENSITY,
+                        .reset => ctx.reset_attributes,
                     };
                     try windows.SetConsoleTextAttribute(ctx.handle, attributes);
                 } else {
@@ -831,7 +831,7 @@ fn printLineInfo(
     comptime printLineFromFile: anytype,
 ) !void {
     nosuspend {
-        try tty_config.setColor(out_stream, .Bold);
+        try tty_config.setColor(out_stream, .bold);
 
         if (line_info) |*li| {
             try out_stream.print("{s}:{d}:{d}", .{ li.file_name, li.line, li.column });
@@ -839,11 +839,11 @@ fn printLineInfo(
             try out_stream.writeAll("???:?:?");
         }
 
-        try tty_config.setColor(out_stream, .Reset);
+        try tty_config.setColor(out_stream, .reset);
         try out_stream.writeAll(": ");
-        try tty_config.setColor(out_stream, .Dim);
+        try tty_config.setColor(out_stream, .dim);
         try out_stream.print("0x{x} in {s} ({s})", .{ address, symbol_name, compile_unit_name });
-        try tty_config.setColor(out_stream, .Reset);
+        try tty_config.setColor(out_stream, .reset);
         try out_stream.writeAll("\n");
 
         // Show the matching source code line if possible
@@ -854,9 +854,9 @@ fn printLineInfo(
                     const space_needed = @intCast(usize, li.column - 1);
 
                     try out_stream.writeByteNTimes(' ', space_needed);
-                    try tty_config.setColor(out_stream, .Green);
+                    try tty_config.setColor(out_stream, .green);
                     try out_stream.writeAll("^");
-                    try tty_config.setColor(out_stream, .Reset);
+                    try tty_config.setColor(out_stream, .reset);
                 }
                 try out_stream.writeAll("\n");
             } else |err| switch (err) {

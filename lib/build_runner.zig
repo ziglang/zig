@@ -476,9 +476,9 @@ fn runStepNames(
 
     if (run.enable_summary != false) {
         const total_count = success_count + failure_count + pending_count + skipped_count;
-        ttyconf.setColor(stderr, .Cyan) catch {};
+        ttyconf.setColor(stderr, .cyan) catch {};
         stderr.writeAll("Build Summary:") catch {};
-        ttyconf.setColor(stderr, .Reset) catch {};
+        ttyconf.setColor(stderr, .reset) catch {};
         stderr.writer().print(" {d}/{d} steps succeeded", .{ success_count, total_count }) catch {};
         if (skipped_count > 0) stderr.writer().print("; {d} skipped", .{skipped_count}) catch {};
         if (failure_count > 0) stderr.writer().print("; {d} failed", .{failure_count}) catch {};
@@ -489,9 +489,9 @@ fn runStepNames(
         if (test_leak_count > 0) stderr.writer().print("; {d} leaked", .{test_leak_count}) catch {};
 
         if (run.enable_summary == null) {
-            ttyconf.setColor(stderr, .Dim) catch {};
+            ttyconf.setColor(stderr, .dim) catch {};
             stderr.writeAll(" (disable with -fno-summary)") catch {};
-            ttyconf.setColor(stderr, .Reset) catch {};
+            ttyconf.setColor(stderr, .reset) catch {};
         }
         stderr.writeAll("\n") catch {};
 
@@ -560,7 +560,7 @@ fn printTreeStep(
     const first = step_stack.swapRemove(s);
     try printPrefix(parent_node, stderr, ttyconf);
 
-    if (!first) try ttyconf.setColor(stderr, .Dim);
+    if (!first) try ttyconf.setColor(stderr, .dim);
     if (parent_node.parent != null) {
         if (parent_node.last) {
             try stderr.writeAll(switch (ttyconf) {
@@ -586,28 +586,28 @@ fn printTreeStep(
             .running => unreachable,
 
             .dependency_failure => {
-                try ttyconf.setColor(stderr, .Dim);
+                try ttyconf.setColor(stderr, .dim);
                 try stderr.writeAll(" transitive failure\n");
-                try ttyconf.setColor(stderr, .Reset);
+                try ttyconf.setColor(stderr, .reset);
             },
 
             .success => {
-                try ttyconf.setColor(stderr, .Green);
+                try ttyconf.setColor(stderr, .green);
                 if (s.result_cached) {
                     try stderr.writeAll(" cached");
                 } else if (s.test_results.test_count > 0) {
                     const pass_count = s.test_results.passCount();
                     try stderr.writer().print(" {d} passed", .{pass_count});
                     if (s.test_results.skip_count > 0) {
-                        try ttyconf.setColor(stderr, .Yellow);
+                        try ttyconf.setColor(stderr, .yellow);
                         try stderr.writer().print(" {d} skipped", .{s.test_results.skip_count});
                     }
                 } else {
                     try stderr.writeAll(" success");
                 }
-                try ttyconf.setColor(stderr, .Reset);
+                try ttyconf.setColor(stderr, .reset);
                 if (s.result_duration_ns) |ns| {
-                    try ttyconf.setColor(stderr, .Dim);
+                    try ttyconf.setColor(stderr, .dim);
                     if (ns >= std.time.ns_per_min) {
                         try stderr.writer().print(" {d}m", .{ns / std.time.ns_per_min});
                     } else if (ns >= std.time.ns_per_s) {
@@ -619,11 +619,11 @@ fn printTreeStep(
                     } else {
                         try stderr.writer().print(" {d}ns", .{ns});
                     }
-                    try ttyconf.setColor(stderr, .Reset);
+                    try ttyconf.setColor(stderr, .reset);
                 }
                 if (s.result_peak_rss != 0) {
                     const rss = s.result_peak_rss;
-                    try ttyconf.setColor(stderr, .Dim);
+                    try ttyconf.setColor(stderr, .dim);
                     if (rss >= 1000_000_000) {
                         try stderr.writer().print(" MaxRSS:{d}G", .{rss / 1000_000_000});
                     } else if (rss >= 1000_000) {
@@ -633,57 +633,57 @@ fn printTreeStep(
                     } else {
                         try stderr.writer().print(" MaxRSS:{d}B", .{rss});
                     }
-                    try ttyconf.setColor(stderr, .Reset);
+                    try ttyconf.setColor(stderr, .reset);
                 }
                 try stderr.writeAll("\n");
             },
 
             .skipped => {
-                try ttyconf.setColor(stderr, .Yellow);
+                try ttyconf.setColor(stderr, .yellow);
                 try stderr.writeAll(" skipped\n");
-                try ttyconf.setColor(stderr, .Reset);
+                try ttyconf.setColor(stderr, .reset);
             },
 
             .failure => {
                 if (s.result_error_bundle.errorMessageCount() > 0) {
-                    try ttyconf.setColor(stderr, .Red);
+                    try ttyconf.setColor(stderr, .red);
                     try stderr.writer().print(" {d} errors\n", .{
                         s.result_error_bundle.errorMessageCount(),
                     });
-                    try ttyconf.setColor(stderr, .Reset);
+                    try ttyconf.setColor(stderr, .reset);
                 } else if (!s.test_results.isSuccess()) {
                     try stderr.writer().print(" {d}/{d} passed", .{
                         s.test_results.passCount(), s.test_results.test_count,
                     });
                     if (s.test_results.fail_count > 0) {
                         try stderr.writeAll(", ");
-                        try ttyconf.setColor(stderr, .Red);
+                        try ttyconf.setColor(stderr, .red);
                         try stderr.writer().print("{d} failed", .{
                             s.test_results.fail_count,
                         });
-                        try ttyconf.setColor(stderr, .Reset);
+                        try ttyconf.setColor(stderr, .reset);
                     }
                     if (s.test_results.skip_count > 0) {
                         try stderr.writeAll(", ");
-                        try ttyconf.setColor(stderr, .Yellow);
+                        try ttyconf.setColor(stderr, .yellow);
                         try stderr.writer().print("{d} skipped", .{
                             s.test_results.skip_count,
                         });
-                        try ttyconf.setColor(stderr, .Reset);
+                        try ttyconf.setColor(stderr, .reset);
                     }
                     if (s.test_results.leak_count > 0) {
                         try stderr.writeAll(", ");
-                        try ttyconf.setColor(stderr, .Red);
+                        try ttyconf.setColor(stderr, .red);
                         try stderr.writer().print("{d} leaked", .{
                             s.test_results.leak_count,
                         });
-                        try ttyconf.setColor(stderr, .Reset);
+                        try ttyconf.setColor(stderr, .reset);
                     }
                     try stderr.writeAll("\n");
                 } else {
-                    try ttyconf.setColor(stderr, .Red);
+                    try ttyconf.setColor(stderr, .red);
                     try stderr.writeAll(" failure\n");
-                    try ttyconf.setColor(stderr, .Reset);
+                    try ttyconf.setColor(stderr, .reset);
                 }
             },
         }
@@ -703,7 +703,7 @@ fn printTreeStep(
                 s.dependencies.items.len,
             });
         }
-        try ttyconf.setColor(stderr, .Reset);
+        try ttyconf.setColor(stderr, .reset);
     }
 }
 
@@ -819,13 +819,13 @@ fn workerMakeOneStep(
         for (s.result_error_msgs.items) |msg| {
             // Sometimes it feels like you just can't catch a break. Finally,
             // with Zig, you can.
-            ttyconf.setColor(stderr, .Bold) catch break;
+            ttyconf.setColor(stderr, .bold) catch break;
             stderr.writeAll(s.owner.dep_prefix) catch break;
             stderr.writeAll(s.name) catch break;
             stderr.writeAll(": ") catch break;
-            ttyconf.setColor(stderr, .Red) catch break;
+            ttyconf.setColor(stderr, .red) catch break;
             stderr.writeAll("error: ") catch break;
-            ttyconf.setColor(stderr, .Reset) catch break;
+            ttyconf.setColor(stderr, .reset) catch break;
             stderr.writeAll(msg) catch break;
             stderr.writeAll("\n") catch break;
         }
