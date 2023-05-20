@@ -379,8 +379,8 @@ const Toc = struct {
 };
 
 const Action = enum {
-    Open,
-    Close,
+    open,
+    close,
 };
 
 fn genToc(allocator: Allocator, tokenizer: *Tokenizer) !Toc {
@@ -388,7 +388,7 @@ fn genToc(allocator: Allocator, tokenizer: *Tokenizer) !Toc {
     errdefer urls.deinit();
 
     var header_stack_size: usize = 0;
-    var last_action = Action.Open;
+    var last_action: Action = .open;
     var last_columns: ?u8 = null;
 
     var toc_buf = std.ArrayList(u8).init(allocator);
@@ -467,7 +467,7 @@ fn genToc(allocator: Allocator, tokenizer: *Tokenizer) !Toc {
                         parseError(tokenizer, kv.value, "other tag here", .{}) catch {};
                         return error.ParseError;
                     }
-                    if (last_action == Action.Open) {
+                    if (last_action == .open) {
                         try toc.writeByte('\n');
                         try toc.writeByteNTimes(' ', header_stack_size * 4);
                         if (last_columns) |n| {
@@ -476,7 +476,7 @@ fn genToc(allocator: Allocator, tokenizer: *Tokenizer) !Toc {
                             try toc.writeAll("<ul>\n");
                         }
                     } else {
-                        last_action = Action.Open;
+                        last_action = .open;
                     }
                     last_columns = columns;
                     try toc.writeByteNTimes(' ', 4 + header_stack_size * 4);
@@ -488,12 +488,12 @@ fn genToc(allocator: Allocator, tokenizer: *Tokenizer) !Toc {
                     header_stack_size -= 1;
                     _ = try eatToken(tokenizer, .bracket_close);
 
-                    if (last_action == Action.Close) {
+                    if (last_action == .close) {
                         try toc.writeByteNTimes(' ', 8 + header_stack_size * 4);
                         try toc.writeAll("</ul></li>\n");
                     } else {
                         try toc.writeAll("</li>\n");
-                        last_action = Action.Close;
+                        last_action = .close;
                     }
                 } else if (mem.eql(u8, tag_name, "see_also")) {
                     var list = std.ArrayList(SeeAlsoItem).init(allocator);
