@@ -311,9 +311,9 @@ const SeeAlsoItem = struct {
 };
 
 const ExpectedOutcome = enum {
-    Succeed,
-    Fail,
-    BuildFail,
+    succeed,
+    fail,
+    build_fail,
 };
 
 const Code = struct {
@@ -563,11 +563,11 @@ fn genToc(allocator: Allocator, tokenizer: *Tokenizer) !Toc {
                     var code_kind_id: Code.Id = undefined;
                     var just_check_syntax = false;
                     if (mem.eql(u8, code_kind_str, "exe")) {
-                        code_kind_id = Code.Id{ .Exe = ExpectedOutcome.Succeed };
+                        code_kind_id = Code.Id{ .Exe = .succeed };
                     } else if (mem.eql(u8, code_kind_str, "exe_err")) {
-                        code_kind_id = Code.Id{ .Exe = ExpectedOutcome.Fail };
+                        code_kind_id = Code.Id{ .Exe = .fail };
                     } else if (mem.eql(u8, code_kind_str, "exe_build_err")) {
-                        code_kind_id = Code.Id{ .Exe = ExpectedOutcome.BuildFail };
+                        code_kind_id = Code.Id{ .Exe = .build_fail };
                     } else if (mem.eql(u8, code_kind_str, "test")) {
                         code_kind_id = Code.Id.Test;
                     } else if (mem.eql(u8, code_kind_str, "test_err")) {
@@ -1420,7 +1420,7 @@ fn genHtml(
 
                         try shell_out.print("\n", .{});
 
-                        if (expected_outcome == .BuildFail) {
+                        if (expected_outcome == .build_fail) {
                             const result = try ChildProcess.exec(.{
                                 .allocator = allocator,
                                 .argv = build_args.items,
@@ -1476,7 +1476,7 @@ fn genHtml(
 
                         var exited_with_signal = false;
 
-                        const result = if (expected_outcome == ExpectedOutcome.Fail) blk: {
+                        const result = if (expected_outcome == .fail) blk: {
                             const result = try ChildProcess.exec(.{
                                 .allocator = allocator,
                                 .argv = run_args,
