@@ -100,6 +100,16 @@ pub const MapIndex = enum(u32) {
     }
 };
 
+pub const RuntimeIndex = enum(u32) {
+    zero = 0,
+    comptime_field_ptr = std.math.maxInt(u32),
+    _,
+
+    pub fn increment(ri: *RuntimeIndex) void {
+        ri.* = @intToEnum(RuntimeIndex, @enumToInt(ri.*) + 1);
+    }
+};
+
 /// An index into `string_bytes`.
 pub const NullTerminatedString = enum(u32) {
     _,
@@ -478,11 +488,27 @@ pub const Key = union(enum) {
     };
 
     pub const Ptr = struct {
+        /// This is the pointer type, not the element type.
         ty: Index,
+        /// The value of the address that the pointer points to.
         addr: Addr,
+        /// This could be `none` if size is not a slice.
+        len: Index = .none,
 
         pub const Addr = union(enum) {
+            @"var": struct {
+                init: Index,
+                owner_decl: Module.Decl.Index,
+                lib_name: OptionalNullTerminatedString,
+                is_const: bool,
+                is_threadlocal: bool,
+                is_weak_linkage: bool,
+            },
             decl: Module.Decl.Index,
+            mut_decl: struct {
+                decl: Module.Decl.Index,
+                runtime_index: RuntimeIndex,
+            },
             int: Index,
         };
     };
@@ -577,7 +603,9 @@ pub const Key = union(enum) {
                 // This is sound due to pointer provenance rules.
                 std.hash.autoHash(hasher, @as(@typeInfo(Key.Ptr.Addr).Union.tag_type.?, ptr.addr));
                 switch (ptr.addr) {
+                    .@"var" => |@"var"| std.hash.autoHash(hasher, @"var".owner_decl),
                     .decl => |decl| std.hash.autoHash(hasher, decl),
+                    .mut_decl => |mut_decl| std.hash.autoHash(hasher, mut_decl),
                     .int => |int| std.hash.autoHash(hasher, int),
                 }
             },
@@ -697,7 +725,9 @@ pub const Key = union(enum) {
                 if (@as(AddrTag, a_info.addr) != @as(AddrTag, b_info.addr)) return false;
 
                 return switch (a_info.addr) {
+                    .@"var" => |a_var| a_var.owner_decl == b_info.addr.@"var".owner_decl,
                     .decl => |a_decl| a_decl == b_info.addr.decl,
+                    .mut_decl => |a_mut_decl| std.meta.eql(a_mut_decl, b_info.addr.mut_decl),
                     .int => |a_int| a_int == b_info.addr.int,
                 };
             },
@@ -1330,6 +1360,12 @@ pub const Tag = enum(u8) {
     /// A value that can be represented with only an enum tag.
     /// data is SimpleValue enum value.
     simple_value,
+    /// A pointer to a var.
+    /// data is extra index of PtrVal, which contains the type and address.
+    ptr_var,
+    /// A pointer to a decl that can be mutated at comptime.
+    /// data is extra index of PtrMutDecl, which contains the type and address.
+    ptr_mut_decl,
     /// A pointer to a decl.
     /// data is extra index of PtrDecl, which contains the type and address.
     ptr_decl,
@@ -1338,6 +1374,11 @@ pub const Tag = enum(u8) {
     /// Only pointer types are allowed to have this encoding. Optional types must use
     /// `opt_payload` or `opt_null`.
     ptr_int,
+    /// A slice.
+    /// data is extra index of PtrSlice, which contains the ptr and len values
+    /// In order to use this encoding, one must ensure that the `InternPool`
+    /// already contains the slice type corresponding to this payload.
+    ptr_slice,
     /// An optional value that is non-null.
     /// data is Index of the payload value.
     /// In order to use this encoding, one must ensure that the `InternPool`
@@ -1672,14 +1713,43 @@ pub const PackedU64 = packed struct(u64) {
     }
 };
 
+pub const PtrVar = struct {
+    ty: Index,
+    /// If flags.is_extern == true this is `none`.
+    init: Index,
+    owner_decl: Module.Decl.Index,
+    /// Library name if specified.
+    /// For example `extern "c" var stderrp = ...` would have 'c' as library name.
+    lib_name: OptionalNullTerminatedString,
+    flags: Flags,
+
+    pub const Flags = packed struct(u32) {
+        is_const: bool,
+        is_threadlocal: bool,
+        is_weak_linkage: bool,
+        unused: u29 = undefined,
+    };
+};
+
 pub const PtrDecl = struct {
     ty: Index,
     decl: Module.Decl.Index,
 };
 
+pub const PtrMutDecl = struct {
+    ty: Index,
+    decl: Module.Decl.Index,
+    runtime_index: RuntimeIndex,
+};
+
 pub const PtrInt = struct {
     ty: Index,
     addr: Index,
+};
+
+pub const PtrSlice = struct {
+    ptr: Index,
+    len: Index,
 };
 
 /// Trailing: Limb for every limbs_len
@@ -1994,6 +2064,30 @@ pub fn indexToKey(ip: InternPool, index: Index) Key {
                 .val = payload_val,
             } };
         },
+        .ptr_var => {
+            const info = ip.extraData(PtrVar, data);
+            return .{ .ptr = .{
+                .ty = info.ty,
+                .addr = .{ .@"var" = .{
+                    .init = info.init,
+                    .owner_decl = info.owner_decl,
+                    .lib_name = info.lib_name,
+                    .is_const = info.flags.is_const,
+                    .is_threadlocal = info.flags.is_threadlocal,
+                    .is_weak_linkage = info.flags.is_weak_linkage,
+                } },
+            } };
+        },
+        .ptr_mut_decl => {
+            const info = ip.extraData(PtrMutDecl, data);
+            return .{ .ptr = .{
+                .ty = info.ty,
+                .addr = .{ .mut_decl = .{
+                    .decl = info.decl,
+                    .runtime_index = info.runtime_index,
+                } },
+            } };
+        },
         .ptr_decl => {
             const info = ip.extraData(PtrDecl, data);
             return .{ .ptr = .{
@@ -2006,6 +2100,18 @@ pub fn indexToKey(ip: InternPool, index: Index) Key {
             return .{ .ptr = .{
                 .ty = info.ty,
                 .addr = .{ .int = info.addr },
+            } };
+        },
+        .ptr_slice => {
+            const info = ip.extraData(PtrSlice, data);
+            const ptr = ip.indexToKey(info.ptr).ptr;
+            var ptr_ty = ip.indexToKey(ptr.ty);
+            assert(ptr_ty.ptr_type.size == .Many);
+            ptr_ty.ptr_type.size = .Slice;
+            return .{ .ptr = .{
+                .ty = ip.getAssumeExists(ptr_ty),
+                .addr = ptr.addr,
+                .len = info.len,
             } };
         },
         .int_u8 => .{ .int = .{
@@ -2472,31 +2578,67 @@ pub fn get(ip: *InternPool, gpa: Allocator, key: Key) Allocator.Error!Index {
 
         .extern_func => @panic("TODO"),
 
-        .ptr => |ptr| switch (ptr.addr) {
-            .decl => |decl| {
-                assert(ptr.ty != .none);
+        .ptr => |ptr| switch (ip.items.items(.tag)[@enumToInt(ptr.ty)]) {
+            .type_pointer => {
+                assert(ptr.len == .none);
+                switch (ptr.addr) {
+                    .@"var" => |@"var"| ip.items.appendAssumeCapacity(.{
+                        .tag = .ptr_var,
+                        .data = try ip.addExtra(gpa, PtrVar{
+                            .ty = ptr.ty,
+                            .init = @"var".init,
+                            .owner_decl = @"var".owner_decl,
+                            .lib_name = @"var".lib_name,
+                            .flags = .{
+                                .is_const = @"var".is_const,
+                                .is_threadlocal = @"var".is_threadlocal,
+                                .is_weak_linkage = @"var".is_weak_linkage,
+                            },
+                        }),
+                    }),
+                    .decl => |decl| ip.items.appendAssumeCapacity(.{
+                        .tag = .ptr_decl,
+                        .data = try ip.addExtra(gpa, PtrDecl{
+                            .ty = ptr.ty,
+                            .decl = decl,
+                        }),
+                    }),
+                    .mut_decl => |mut_decl| ip.items.appendAssumeCapacity(.{
+                        .tag = .ptr_mut_decl,
+                        .data = try ip.addExtra(gpa, PtrMutDecl{
+                            .ty = ptr.ty,
+                            .decl = mut_decl.decl,
+                            .runtime_index = mut_decl.runtime_index,
+                        }),
+                    }),
+                    .int => |int| ip.items.appendAssumeCapacity(.{
+                        .tag = .ptr_int,
+                        .data = try ip.addExtra(gpa, PtrInt{
+                            .ty = ptr.ty,
+                            .addr = int,
+                        }),
+                    }),
+                }
+            },
+            .type_slice => {
+                assert(ptr.len != .none);
+                var new_key = key;
+                new_key.ptr.ty = @intToEnum(Index, ip.items.items(.data)[@enumToInt(ptr.ty)]);
+                new_key.ptr.len = .none;
+                const ptr_index = try get(ip, gpa, new_key);
+                try ip.items.ensureUnusedCapacity(gpa, 1);
                 ip.items.appendAssumeCapacity(.{
-                    .tag = .ptr_decl,
-                    .data = try ip.addExtra(gpa, PtrDecl{
-                        .ty = ptr.ty,
-                        .decl = decl,
+                    .tag = .ptr_slice,
+                    .data = try ip.addExtra(gpa, PtrSlice{
+                        .ptr = ptr_index,
+                        .len = ptr.len,
                     }),
                 });
             },
-            .int => |int| {
-                assert(ptr.ty != .none);
-                ip.items.appendAssumeCapacity(.{
-                    .tag = .ptr_int,
-                    .data = try ip.addExtra(gpa, PtrInt{
-                        .ty = ptr.ty,
-                        .addr = int,
-                    }),
-                });
-            },
+            else => unreachable,
         },
 
         .opt => |opt| {
-            assert(opt.ty != .none);
             assert(ip.isOptionalType(opt.ty));
             ip.items.appendAssumeCapacity(if (opt.val == .none) .{
                 .tag = .opt_null,
@@ -3087,11 +3229,15 @@ fn addExtraAssumeCapacity(ip: *InternPool, extra: anytype) u32 {
             Module.Namespace.OptionalIndex => @enumToInt(@field(extra, field.name)),
             MapIndex => @enumToInt(@field(extra, field.name)),
             OptionalMapIndex => @enumToInt(@field(extra, field.name)),
+            RuntimeIndex => @enumToInt(@field(extra, field.name)),
+            NullTerminatedString => @enumToInt(@field(extra, field.name)),
+            OptionalNullTerminatedString => @enumToInt(@field(extra, field.name)),
             i32 => @bitCast(u32, @field(extra, field.name)),
             Pointer.Flags => @bitCast(u32, @field(extra, field.name)),
             TypeFunction.Flags => @bitCast(u32, @field(extra, field.name)),
             Pointer.PackedOffset => @bitCast(u32, @field(extra, field.name)),
             Pointer.VectorIndex => @enumToInt(@field(extra, field.name)),
+            PtrVar.Flags => @bitCast(u32, @field(extra, field.name)),
             else => @compileError("bad field type: " ++ @typeName(field.type)),
         });
     }
@@ -3149,11 +3295,15 @@ fn extraDataTrail(ip: InternPool, comptime T: type, index: usize) struct { data:
             Module.Namespace.OptionalIndex => @intToEnum(Module.Namespace.OptionalIndex, int32),
             MapIndex => @intToEnum(MapIndex, int32),
             OptionalMapIndex => @intToEnum(OptionalMapIndex, int32),
+            RuntimeIndex => @intToEnum(RuntimeIndex, int32),
+            NullTerminatedString => @intToEnum(NullTerminatedString, int32),
+            OptionalNullTerminatedString => @intToEnum(OptionalNullTerminatedString, int32),
             i32 => @bitCast(i32, int32),
             Pointer.Flags => @bitCast(Pointer.Flags, int32),
             TypeFunction.Flags => @bitCast(TypeFunction.Flags, int32),
             Pointer.PackedOffset => @bitCast(Pointer.PackedOffset, int32),
             Pointer.VectorIndex => @intToEnum(Pointer.VectorIndex, int32),
+            PtrVar.Flags => @bitCast(PtrVar.Flags, int32),
             else => @compileError("bad field type: " ++ @typeName(field.type)),
         };
     }
@@ -3274,7 +3424,7 @@ pub fn childType(ip: InternPool, i: Index) Index {
     };
 }
 
-/// Given a slice type, returns the type of the pointer field.
+/// Given a slice type, returns the type of the ptr field.
 pub fn slicePtrType(ip: InternPool, i: Index) Index {
     switch (i) {
         .const_slice_u8_type => return .manyptr_const_u8_type,
@@ -3288,10 +3438,29 @@ pub fn slicePtrType(ip: InternPool, i: Index) Index {
     }
 }
 
+/// Given a slice value, returns the value of the ptr field.
+pub fn slicePtr(ip: InternPool, i: Index) Index {
+    const item = ip.items.get(@enumToInt(i));
+    switch (item.tag) {
+        .ptr_slice => return ip.extraData(PtrSlice, item.data).ptr,
+        else => unreachable, // not a slice value
+    }
+}
+
+/// Given a slice value, returns the value of the len field.
+pub fn sliceLen(ip: InternPool, i: Index) Index {
+    const item = ip.items.get(@enumToInt(i));
+    switch (item.tag) {
+        .ptr_slice => return ip.extraData(PtrSlice, item.data).len,
+        else => unreachable, // not a slice value
+    }
+}
+
 /// Given an existing value, returns the same value but with the supplied type.
 /// Only some combinations are allowed:
 /// * int <=> int
 /// * int <=> enum
+/// * ptr <=> ptr
 pub fn getCoerced(ip: *InternPool, gpa: Allocator, val: Index, new_ty: Index) Allocator.Error!Index {
     switch (ip.indexToKey(val)) {
         .int => |int| switch (ip.indexToKey(new_ty)) {
@@ -3304,6 +3473,13 @@ pub fn getCoerced(ip: *InternPool, gpa: Allocator, val: Index, new_ty: Index) Al
         .enum_tag => |enum_tag| {
             // Assume new_ty is an integer type.
             return getCoercedInts(ip, gpa, ip.indexToKey(enum_tag.int).int, new_ty);
+        },
+        .ptr => |ptr| switch (ip.indexToKey(new_ty)) {
+            .ptr_type => return ip.get(gpa, .{ .ptr = .{
+                .ty = new_ty,
+                .addr = ptr.addr,
+            } }),
+            else => unreachable,
         },
         else => unreachable,
     }
@@ -3378,6 +3554,15 @@ pub fn indexToInferredErrorSetType(ip: InternPool, val: Index) Module.Fn.Inferre
     if (tags[@enumToInt(val)] != .type_inferred_error_set) return .none;
     const datas = ip.items.items(.data);
     return @intToEnum(Module.Fn.InferredErrorSet.Index, datas[@enumToInt(val)]).toOptional();
+}
+
+pub fn isPointerType(ip: InternPool, ty: Index) bool {
+    const tags = ip.items.items(.tag);
+    if (ty == .none) return false;
+    return switch (tags[@enumToInt(ty)]) {
+        .type_pointer, .type_slice => true,
+        else => false,
+    };
 }
 
 pub fn isOptionalType(ip: InternPool, ty: Index) bool {
@@ -3485,8 +3670,11 @@ fn dumpFallible(ip: InternPool, arena: Allocator) anyerror!void {
             .undef => 0,
             .simple_type => 0,
             .simple_value => 0,
+            .ptr_var => @sizeOf(PtrVar),
             .ptr_decl => @sizeOf(PtrDecl),
+            .ptr_mut_decl => @sizeOf(PtrMutDecl),
             .ptr_int => @sizeOf(PtrInt),
+            .ptr_slice => @sizeOf(PtrSlice),
             .opt_null => 0,
             .opt_payload => 0,
             .int_u8 => 0,

@@ -602,6 +602,73 @@ pub const Value = struct {
         return result;
     }
 
+    pub fn intern(val: Value, ty: Type, mod: *Module) Allocator.Error!InternPool.Index {
+        if (val.ip_index != .none) return val.ip_index;
+        switch (val.tag()) {
+            .slice => {
+                const pl = val.castTag(.slice).?.data;
+                const ptr = try pl.ptr.intern(ty.slicePtrFieldType(mod), mod);
+                return mod.intern(.{ .ptr = .{
+                    .ty = ty.ip_index,
+                    .addr = mod.intern_pool.indexToKey(ptr).ptr.addr,
+                    .len = try pl.len.intern(Type.usize, mod),
+                } });
+            },
+            .opt_payload => return mod.intern(.{ .opt = .{
+                .ty = ty.ip_index,
+                .val = try val.castTag(.opt_payload).?.data.intern(ty.childType(mod), mod),
+            } }),
+            .aggregate => {
+                const old_elems = val.castTag(.aggregate).?.data;
+                const new_elems = try mod.gpa.alloc(InternPool.Index, old_elems.len);
+                defer mod.gpa.free(new_elems);
+                const ty_key = mod.intern_pool.indexToKey(ty.ip_index);
+                for (new_elems, old_elems, 0..) |*new_elem, old_elem, field_i|
+                    new_elem.* = try old_elem.intern(switch (ty_key) {
+                        .struct_type => ty.structFieldType(field_i, mod),
+                        .anon_struct_type => |info| info.types[field_i].toType(),
+                        inline .array_type, .vector_type => |info| info.child.toType(),
+                        else => unreachable,
+                    }, mod);
+                return mod.intern(.{ .aggregate = .{
+                    .ty = ty.ip_index,
+                    .storage = .{ .elems = new_elems },
+                } });
+            },
+            .repeated => return mod.intern(.{ .aggregate = .{
+                .ty = ty.ip_index,
+                .storage = .{ .repeated_elem = try val.castTag(.repeated).?.data.intern(
+                    ty.structFieldType(0, mod),
+                    mod,
+                ) },
+            } }),
+            .@"union" => {
+                const pl = val.castTag(.@"union").?.data;
+                return mod.intern(.{ .un = .{
+                    .ty = ty.ip_index,
+                    .tag = try pl.tag.intern(ty.unionTagTypeHypothetical(mod), mod),
+                    .val = try pl.val.intern(ty.unionFieldType(pl.tag, mod), mod),
+                } });
+            },
+            else => unreachable,
+        }
+    }
+
+    pub fn unintern(val: Value, arena: Allocator, mod: *Module) Allocator.Error!Value {
+        if (val.ip_index == .none) return val;
+        switch (mod.intern_pool.indexToKey(val.ip_index)) {
+            .aggregate => |aggregate| switch (aggregate.storage) {
+                .elems => |old_elems| {
+                    const new_elems = try arena.alloc(Value, old_elems.len);
+                    for (new_elems, old_elems) |*new_elem, old_elem| new_elem.* = old_elem.toValue();
+                    return Tag.aggregate.create(arena, new_elems);
+                },
+                .repeated_elem => |elem| return Tag.repeated.create(arena, elem.toValue()),
+            },
+            else => return val,
+        }
+    }
+
     pub fn toIntern(val: Value) InternPool.Index {
         assert(val.ip_index != .none);
         return val.ip_index;
@@ -2002,11 +2069,11 @@ pub const Value = struct {
 
                     const ptr_ty = ty.slicePtrFieldType(mod);
                     const a_ptr = switch (a_ty.ptrSize(mod)) {
-                        .Slice => a.slicePtr(),
+                        .Slice => a.slicePtr(mod),
                         .One => a,
                         else => unreachable,
                     };
-                    return try eqlAdvanced(a_ptr, ptr_ty, b.slicePtr(), ptr_ty, mod, opt_sema);
+                    return try eqlAdvanced(a_ptr, ptr_ty, b.slicePtr(mod), ptr_ty, mod, opt_sema);
                 },
                 .Many, .C, .One => {},
             },
@@ -2429,7 +2496,8 @@ pub const Value = struct {
         }
     }
 
-    pub fn slicePtr(val: Value) Value {
+    pub fn slicePtr(val: Value, mod: *Module) Value {
+        if (val.ip_index != .none) return mod.intern_pool.slicePtr(val.ip_index).toValue();
         return switch (val.tag()) {
             .slice => val.castTag(.slice).?.data.ptr,
             // TODO this should require being a slice tag, and not allow decl_ref, field_ptr, etc.
@@ -2439,6 +2507,7 @@ pub const Value = struct {
     }
 
     pub fn sliceLen(val: Value, mod: *Module) u64 {
+        if (val.ip_index != .none) return mod.intern_pool.sliceLen(val.ip_index).toValue().toUnsignedInt(mod);
         return switch (val.tag()) {
             .slice => val.castTag(.slice).?.data.len.toUnsignedInt(mod),
             .decl_ref => {
@@ -2531,7 +2600,19 @@ pub const Value = struct {
 
                 else => unreachable,
             },
-            else => unreachable,
+            else => return switch (mod.intern_pool.indexToKey(val.ip_index)) {
+                .ptr => |ptr| switch (ptr.addr) {
+                    .@"var" => unreachable,
+                    .decl => |decl| mod.declPtr(decl).val.elemValue(mod, index),
+                    .mut_decl => |mut_decl| mod.declPtr(mut_decl.decl).val.elemValue(mod, index),
+                    .int => unreachable,
+                },
+                .aggregate => |aggregate| switch (aggregate.storage) {
+                    .elems => |elems| elems[index].toValue(),
+                    .repeated_elem => |elem| elem.toValue(),
+                },
+                else => unreachable,
+            },
         }
     }
 
@@ -2675,6 +2756,7 @@ pub const Value = struct {
     }
 
     pub fn unionTag(val: Value, mod: *Module) Value {
+        if (val.ip_index == .none) return val.castTag(.@"union").?.data.tag;
         return switch (mod.intern_pool.indexToKey(val.ip_index)) {
             .undef, .enum_tag => val,
             .un => |un| un.tag.toValue(),
@@ -2696,7 +2778,7 @@ pub const Value = struct {
             else => val,
         };
 
-        if (ptr_val.tag() == .elem_ptr) {
+        if (ptr_val.ip_index == .none and ptr_val.tag() == .elem_ptr) {
             const elem_ptr = ptr_val.castTag(.elem_ptr).?.data;
             if (elem_ptr.elem_ty.eql(elem_ty, mod)) {
                 return Tag.elem_ptr.create(arena, .{
@@ -4809,10 +4891,12 @@ pub const Value = struct {
             pub const base_tag = Tag.@"union";
 
             base: Payload = .{ .tag = base_tag },
-            data: struct {
+            data: Data,
+
+            pub const Data = struct {
                 tag: Value,
                 val: Value,
-            },
+            };
         };
     };
 
@@ -4844,15 +4928,7 @@ pub const Value = struct {
         return if (x) one else zero;
     }
 
-    pub const RuntimeIndex = enum(u32) {
-        zero = 0,
-        comptime_field_ptr = std.math.maxInt(u32),
-        _,
-
-        pub fn increment(ri: *RuntimeIndex) void {
-            ri.* = @intToEnum(RuntimeIndex, @enumToInt(ri.*) + 1);
-        }
-    };
+    pub const RuntimeIndex = InternPool.RuntimeIndex;
 
     /// This function is used in the debugger pretty formatters in tools/ to fetch the
     /// Tag to Payload mapping to facilitate fancy debug printing for this type.

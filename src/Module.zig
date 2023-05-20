@@ -5762,7 +5762,7 @@ pub fn analyzeFnBody(mod: *Module, func: *Fn, arena: Allocator) SemaError!Air {
     // Crucially, this happens *after* we set the function state to success above,
     // so that dependencies on the function body will now be satisfied rather than
     // result in circular dependency errors.
-    sema.resolveFnTypes(fn_ty_info) catch |err| switch (err) {
+    sema.resolveFnTypes(mod.typeToFunc(fn_ty).?) catch |err| switch (err) {
         error.NeededSourceLocation => unreachable,
         error.GenericPoison => unreachable,
         error.ComptimeReturn => unreachable,

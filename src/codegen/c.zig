@@ -566,7 +566,7 @@ pub const DeclGen = struct {
                 try writer.writeAll("){ .ptr = ");
             }
 
-            try dg.renderValue(writer, ty.slicePtrFieldType(mod), val.slicePtr(), .Initializer);
+            try dg.renderValue(writer, ty.slicePtrFieldType(mod), val.slicePtr(mod), .Initializer);
 
             const len_val = try mod.intValue(Type.usize, val.sliceLen(mod));
 
