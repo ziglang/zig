@@ -98,10 +98,6 @@ string_literal_bytes: ArrayListUnmanaged(u8) = .{},
 
 /// Stores all Type and Value objects; periodically garbage collected.
 intern_pool: InternPool = .{},
-/// Temporarily used for some unfortunate allocations made by backends that need to construct
-/// pointer types that can't be represented by the InternPool. Once all types are migrated
-/// to be stored in the InternPool, this can be removed.
-tmp_hack_arena: std.heap.ArenaAllocator,
 
 /// The set of all the generic function instantiations. This is used so that when a generic
 /// function is called twice with the same comptime parameter arguments, both calls dispatch
@@ -3423,7 +3419,6 @@ pub fn deinit(mod: *Module) void {
     mod.string_literal_bytes.deinit(gpa);
 
     mod.intern_pool.deinit(gpa);
-    mod.tmp_hack_arena.deinit();
 }
 
 pub fn destroyDecl(mod: *Module, decl_index: Decl.Index) void {
