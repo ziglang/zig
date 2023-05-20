@@ -551,6 +551,69 @@ pub const CAP = struct {
     pub const FTRUNCATE = CAP.RIGHT(0, 0x0000000000000200);
 };
 
+pub const CapRights = struct {
+    right: ?*cap_rights_t,
+    set: bool,
+
+    pub fn init(self: *@This(), flag: u64) void {
+        var i: cap_rights_t = undefined;
+        self.right = __cap_rights_init(CAP_RIGHTS_VERSION, &i, flag);
+        self.set = self.right != null;
+    }
+
+    pub fn set(self: *@This(), flag: u64) void {
+        if (self.set) {
+            _ = __cap_rights_set(self.right, flag);
+        }
+    }
+
+    pub fn clear(self: *@This(), flag: u64) void {
+        if (self.set) {
+            _ = __cap_rights_clear(self.right, flag);
+        }
+    }
+
+    pub fn merge(self: *@This(), src: ?*cap_rights_t) void {
+        if (self.set) {
+            _ = __cap_rights_merge(self.right, src);
+        }
+    }
+
+    pub fn remove(self: *@This(), src: ?*cap_rights_t) void {
+        if (self.set) {
+            _ = __cap_rights_remove(self.right, src);
+        }
+    }
+
+    pub fn contains(self: *@This(), src: ?*cap_rights_t) bool {
+        if (self.set) {
+            return __cap_rights_contains(self.right, src);
+        }
+        return false;
+    }
+
+    pub fn is_set(self: *@This(), flag: u64) bool {
+        if (self.set) {
+            return __cap_rights_is_set(self.right, flag);
+        }
+        return false;
+    }
+
+    pub fn is_valid(self: *@This()) bool {
+        if (self.set) {
+            return __cap_rights_is_valid(self.right);
+        }
+        return false;
+    }
+
+    pub fn limit(self: *@This(), fd: i32) bool {
+        if (self.set) {
+            return cap_rights_limit(self.right, fd) == 0;
+        }
+        return false;
+    }
+};
+
 pub extern "c" fn __cap_rights_init(version: c_int, rights: ?*cap_rights_t, ...) ?*cap_rights_t;
 pub extern "c" fn __cap_rights_set(rights: ?*cap_rights_t, ...) ?*cap_rights_t;
 pub extern "c" fn __cap_rights_clear(rights: ?*cap_rights_t, ...) ?*cap_rights_t;
@@ -559,6 +622,7 @@ pub extern "c" fn __cap_rights_remove(dst: ?*cap_rights_t, src: ?*const cap_righ
 pub extern "c" fn __cap_rights_contains(dst: ?*const cap_rights_t, src: ?*const cap_rights_t) bool;
 pub extern "c" fn __cap_rights_is_set(rights: ?*const cap_rights_t, ...) bool;
 pub extern "c" fn __cap_rights_is_valid(rights: ?*const cap_rights_t) bool;
+pub extern "c" fn cap_rights_limit(fd: c_int, rights: *const cap_rights_t) c_int;
 
 pub const kinfo_file = extern struct {
     /// Size of this record.
