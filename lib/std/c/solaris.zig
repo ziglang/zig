@@ -1946,3 +1946,5 @@ pub const sigevent = extern struct {
     sigev_notify_function: ?*const fn (sigval) callconv(.C) void,
     sigev_notify_attributes: ?*pthread_attr_t,
 };
+
+pub const PTHREAD_STACK_MIN = if (@sizeOf(usize) == 8) 8 * 1024 else 4 * 1024;
