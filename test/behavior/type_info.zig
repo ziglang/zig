@@ -285,7 +285,6 @@ fn testUnion() !void {
 
 test "type info: struct info" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     try testStruct();
     comptime try testStruct();
@@ -513,7 +512,6 @@ test "type info for async frames" {
 
 test "Declarations are returned in declaration order" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const S = struct {
         const a = 1;

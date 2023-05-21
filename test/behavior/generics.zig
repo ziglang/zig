@@ -5,8 +5,6 @@ const expect = testing.expect;
 const expectEqual = testing.expectEqual;
 
 test "one param, explicit comptime" {
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
-
     var x: usize = 0;
     x += checkSize(i32);
     x += checkSize(bool);
@@ -21,7 +19,6 @@ fn checkSize(comptime T: type) usize {
 test "simple generic fn" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     try expect(max(i32, 3, -1) == 3);
     try expect(max(u8, 1, 100) == 100);

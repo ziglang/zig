@@ -5,7 +5,6 @@ const minInt = std.math.minInt;
 
 test "@bitReverse large exotic integer" {
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     try expect(@bitReverse(@as(u95, 0x123456789abcdef111213141)) == 0x4146424447bd9eac8f351624);
 }

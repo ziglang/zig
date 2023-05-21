@@ -910,7 +910,6 @@ test "enum literal casting to tagged union" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const Arch = union(enum) {
         x86_64,
@@ -1046,7 +1045,6 @@ test "tag name with assigned enum values" {
 test "@tagName on enum literals" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     try expect(mem.eql(u8, @tagName(.FooBar), "FooBar"));
     comptime try expect(mem.eql(u8, @tagName(.FooBar), "FooBar"));

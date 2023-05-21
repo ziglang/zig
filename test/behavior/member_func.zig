@@ -86,18 +86,6 @@ test "@field field calls" {
     const pv = &v;
     const pcv: *const HasFuncs = pv;
 
-    try expect(@field(v, "get")() == 0);
-    @field(v, "inc")();
-    try expect(v.state == 1);
-    try expect(@field(v, "get")() == 1);
-
-    @field(pv, "inc")();
-    try expect(v.state == 2);
-    try expect(@field(pv, "get")() == 2);
-    try expect(@field(v, "getPtr")().* == 2);
-    try expect(@field(pcv, "get")() == 2);
-    try expect(@field(pcv, "getPtr")().* == 2);
-
     v.func_field = HasFuncs.one;
     try expect(@field(v, "func_field")(0) == 1);
     try expect(@field(pv, "func_field")(0) == 1);

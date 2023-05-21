@@ -71,8 +71,6 @@ test "labeled break inside comptime if inside runtime if" {
 }
 
 test "const result loc, runtime if cond, else unreachable" {
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
-
     const Num = enum { One, Two };
 
     var t = true;

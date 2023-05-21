@@ -129,8 +129,6 @@ test "@min/max for floats" {
 }
 
 test "@min/@max on lazy values" {
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
-
     const A = extern struct { u8_4: [4]u8 };
     const B = extern struct { u8_16: [16]u8 };
     const size = @max(@sizeOf(A), @sizeOf(B));

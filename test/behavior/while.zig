@@ -5,7 +5,6 @@ const assert = std.debug.assert;
 
 test "while loop" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     var i: i32 = 0;
     while (i < 4) {
@@ -39,8 +38,6 @@ fn staticWhileLoop2() i32 {
 }
 
 test "while with continue expression" {
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
-
     var sum: i32 = 0;
     {
         var i: i32 = 0;
