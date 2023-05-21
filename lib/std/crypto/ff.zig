@@ -41,11 +41,19 @@ pub const OverflowError = error{Overflow};
 /// Invalid modulus. Modulus must be odd.
 pub const InvalidModulusError = error{ EvenModulus, ModulusTooSmall };
 
+/// Exponentation with a null exponent.
+/// Exponentiation in cryptographic protocols is almost always a sign of a bug which can lead to trivial attacks.
+/// Therefore, this module returns an error when a null exponent is encountered, encouraging applications to handle this case explicitly.
+pub const NullExponentError = error{NullExponent};
+
 /// Invalid field element for the given modulus.
 pub const FieldElementError = error{NonCanonical};
 
 /// Invalid representation (Montgomery vs non-Montgomery domain.)
 pub const RepresentationError = error{UnexpectedRepresentation};
+
+/// The set of all possible errors `std.crypto.fe` functions can return.
+pub const Error = OverflowError || InvalidModulusError || NullExponentError || FieldElementError || RepresentationError;
 
 /// An unsigned big integer with a fixed maximum size (`max_bits`), suitable for cryptographic operations.
 /// Unless side-channels mitigations are explicitly disabled, operations are designed to be constant-time.
@@ -675,7 +683,7 @@ pub fn Modulus(comptime max_bits: comptime_int) type {
         }
 
         /// Returns x^e (mod m) in constant time.
-        pub fn pow(self: Self, x: Fe, e: Fe) Fe {
+        pub fn pow(self: Self, x: Fe, e: Fe) NullExponentError!Fe {
             var buf: [Fe.encoded_bytes]u8 = undefined;
             e.toBytes(&buf, native_endian) catch unreachable;
             return self.powWithEncodedExponent(x, &buf, native_endian);
@@ -683,7 +691,7 @@ pub fn Modulus(comptime max_bits: comptime_int) type {
 
         /// Returns x^e (mod m), assuming that the exponent is public.
         /// The function remains constant time with respect to `x`.
-        pub fn powPublic(self: Self, x: Fe, e: Fe) Fe {
+        pub fn powPublic(self: Self, x: Fe, e: Fe) NullExponentError!Fe {
             var e_normalized = Fe{ .v = e.v.normalize() };
             var buf_: [Fe.encoded_bytes]u8 = undefined;
             var buf = buf_[0 .. math.divCeil(usize, e_normalized.v.limbs_count() * t_bits, 8) catch unreachable];
@@ -696,7 +704,11 @@ pub fn Modulus(comptime max_bits: comptime_int) type {
         /// Returns x^e (mod m), assuming that the exponent is public, and provided as a byte string.
         /// Exponents are usually small, so this function is faster than `powPublic` as a field element
         /// doesn't have to be created if a serialized representation is already available.
-        pub fn powWithEncodedExponent(self: Self, x: Fe, e: []const u8, endian: builtin.Endian) Fe {
+        pub fn powWithEncodedExponent(self: Self, x: Fe, e: []const u8, endian: builtin.Endian) NullExponentError!Fe {
+            var acc: u8 = 0;
+            for (e) |b| acc |= b;
+            if (acc == 0) return error.NullExponent;
+
             var pc = [1]Fe{x} ++ [_]Fe{self.zero} ** 14;
             if (x.montgomery == false) {
                 self.toMontgomery(&pc[0]) catch unreachable;
@@ -873,12 +885,13 @@ test {
     const reduced = m.reduce(big);
     try testing.expectEqual(reduced.toPrimitive(u495), 858047099884257670294681641776170038885500210968322054970);
 
-    const x_pow_y = m.powPublic(x, y);
+    const x_pow_y = try m.powPublic(x, y);
     try testing.expectEqual(x_pow_y.toPrimitive(u256), 1631933139300737762906024873185789093007782131928298618473);
     try m.toMontgomery(&x);
-    const x_pow_y2 = m.powPublic(x, y);
+    const x_pow_y2 = try m.powPublic(x, y);
     try m.fromMontgomery(&x);
     try testing.expect(x_pow_y2.eql(x_pow_y));
+    try testing.expectError(error.NullExponent, m.powPublic(x, m.zero));
 
     try testing.expect(!x.isZero());
     try testing.expect(!y.isZero());

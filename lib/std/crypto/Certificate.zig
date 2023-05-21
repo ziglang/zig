@@ -1104,7 +1104,7 @@ pub const rsa = struct {
 
     fn encrypt(comptime modulus_len: usize, msg: [modulus_len]u8, public_key: PublicKey) ![modulus_len]u8 {
         const m = Fe.fromBytes(public_key.n, &msg, .Big) catch return error.MessageTooLong;
-        const e = public_key.n.powPublic(m, public_key.e);
+        const e = public_key.n.powPublic(m, public_key.e) catch unreachable;
         var res: [modulus_len]u8 = undefined;
         e.toBytes(&res, .Big) catch unreachable;
         return res;
