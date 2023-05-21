@@ -103,7 +103,6 @@ pub fn print(
                 return writer.writeAll(" }");
             },
             .the_only_possible_value => return writer.writeAll("0"),
-            .ty => return val.castTag(.ty).?.data.print(writer, mod),
             .lazy_align => {
                 const sub_ty = val.castTag(.lazy_align).?.data;
                 const x = sub_ty.abiAlignment(mod);
@@ -301,15 +300,10 @@ pub fn print(
 
                 const data = val.castTag(.eu_payload_ptr).?.data;
 
-                var ty_val: Value.Payload.Ty = .{
-                    .base = .{ .tag = .ty },
-                    .data = ty,
-                };
-
                 try writer.writeAll("@as(");
                 try print(.{
                     .ty = Type.type,
-                    .val = Value.initPayload(&ty_val.base),
+                    .val = ty.toValue(),
                 }, writer, level - 1, mod);
 
                 try writer.writeAll(", &(payload of ");
@@ -329,15 +323,10 @@ pub fn print(
 
                 const data = val.castTag(.opt_payload_ptr).?.data;
 
-                var ty_val: Value.Payload.Ty = .{
-                    .base = .{ .tag = .ty },
-                    .data = ty,
-                };
-
                 try writer.writeAll("@as(");
                 try print(.{
                     .ty = Type.type,
-                    .val = Value.initPayload(&ty_val.base),
+                    .val = ty.toValue(),
                 }, writer, level - 1, mod);
 
                 try writer.writeAll(", &(payload of ");

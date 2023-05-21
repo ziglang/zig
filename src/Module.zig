@@ -841,16 +841,16 @@ pub const Decl = struct {
 
     pub fn getStructIndex(decl: *Decl, mod: *Module) Struct.OptionalIndex {
         if (!decl.owns_tv) return .none;
-        const ty = (decl.val.castTag(.ty) orelse return .none).data;
-        return mod.intern_pool.indexToStructType(ty.ip_index);
+        if (decl.val.ip_index == .none) return .none;
+        return mod.intern_pool.indexToStructType(decl.val.ip_index);
     }
 
     /// If the Decl has a value and it is a union, return it,
     /// otherwise null.
     pub fn getUnion(decl: *Decl, mod: *Module) ?*Union {
         if (!decl.owns_tv) return null;
-        const ty = (decl.val.castTag(.ty) orelse return null).data;
-        return mod.typeToUnion(ty);
+        if (decl.val.ip_index == .none) return null;
+        return mod.typeToUnion(decl.val.toType());
     }
 
     /// If the Decl has a value and it is a function, return it,
@@ -4695,8 +4695,8 @@ fn semaDecl(mod: *Module, decl_index: Decl.Index) !bool {
             return sema.fail(&block_scope, ty_src, "type {} has no namespace", .{ty.fmt(mod)});
         }
 
-        decl.ty = Type.type;
-        decl.val = try Value.Tag.ty.create(decl_arena_allocator, ty);
+        decl.ty = InternPool.Index.type_type.toType();
+        decl.val = ty.toValue();
         decl.@"align" = 0;
         decl.@"linksection" = null;
         decl.has_tv = true;

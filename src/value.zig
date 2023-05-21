@@ -39,7 +39,6 @@ pub const Value = struct {
         empty_array, // See last_no_payload_tag below.
         // After this, the tag requires a payload.
 
-        ty,
         function,
         extern_fn,
         /// A comptime-known pointer can point to the address of a global
@@ -141,7 +140,6 @@ pub const Value = struct {
                 .str_lit => Payload.StrLit,
                 .slice => Payload.Slice,
 
-                .ty,
                 .lazy_align,
                 .lazy_size,
                 => Payload.Ty,
@@ -255,7 +253,7 @@ pub const Value = struct {
             .empty_array,
             => unreachable,
 
-            .ty, .lazy_align, .lazy_size => {
+            .lazy_align, .lazy_size => {
                 const payload = self.cast(Payload.Ty).?;
                 const new_payload = try arena.create(Payload.Ty);
                 new_payload.* = .{
@@ -472,7 +470,6 @@ pub const Value = struct {
                 return out_stream.writeAll("(union value)");
             },
             .the_only_possible_value => return out_stream.writeAll("(the only possible value)"),
-            .ty => return val.castTag(.ty).?.data.dump("", options, out_stream),
             .lazy_align => {
                 try out_stream.writeAll("@alignOf(");
                 try val.castTag(.lazy_align).?.data.dump("", options, out_stream);
@@ -695,12 +692,7 @@ pub const Value = struct {
 
     /// Asserts that the value is representable as a type.
     pub fn toType(self: Value) Type {
-        if (self.ip_index != .none) return self.ip_index.toType();
-        return switch (self.tag()) {
-            .ty => self.castTag(.ty).?.data,
-
-            else => unreachable,
-        };
+        return self.ip_index.toType();
     }
 
     pub fn enumToInt(val: Value, ty: Type, mod: *Module) Allocator.Error!Value {
