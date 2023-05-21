@@ -959,6 +959,8 @@ pub const Index = enum(u32) {
     const_slice_u8_sentinel_0_type,
     anyerror_void_error_union_type,
     generic_poison_type,
+    inferred_alloc_const_type,
+    inferred_alloc_mut_type,
     /// `@TypeOf(.{})`
     empty_struct_type,
 
@@ -1009,10 +1011,7 @@ pub const Index = enum(u32) {
 
     pub fn toType(i: Index) @import("type.zig").Type {
         assert(i != .none);
-        return .{
-            .ip_index = i,
-            .legacy = undefined,
-        };
+        return .{ .ip_index = i };
     }
 
     pub fn toValue(i: Index) @import("value.zig").Value {
@@ -1195,6 +1194,10 @@ pub const static_keys = [_]Key{
 
     // generic_poison_type
     .{ .simple_type = .generic_poison },
+    // inferred_alloc_const_type
+    .{ .simple_type = .inferred_alloc_const },
+    // inferred_alloc_mut_type
+    .{ .simple_type = .inferred_alloc_mut },
 
     // empty_struct_type
     .{ .anon_struct_type = .{
@@ -1568,6 +1571,12 @@ pub const SimpleType = enum(u32) {
     type_info,
 
     generic_poison,
+    /// TODO: remove this from `SimpleType`; instead make it only a special `Index` tag like
+    /// `var_args_param_type`.
+    inferred_alloc_const,
+    /// TODO: remove this from `SimpleType`; instead make it only a special `Index` tag like
+    /// `var_args_param_type`.
+    inferred_alloc_mut,
 };
 
 pub const SimpleValue = enum(u32) {

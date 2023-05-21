@@ -2159,9 +2159,7 @@ pub const Value = struct {
             .Null,
             => {},
 
-            .Type => {
-                return val.toType().hashWithHasher(hasher, mod);
-            },
+            .Type => unreachable, // handled via ip_index check above
             .Float => {
                 // For hash/eql purposes, we treat floats as their IEEE integer representation.
                 switch (ty.floatBits(mod.getTarget())) {
@@ -2310,9 +2308,7 @@ pub const Value = struct {
             .Null,
             .Struct, // It sure would be nice to do something clever with structs.
             => |zig_type_tag| std.hash.autoHash(hasher, zig_type_tag),
-            .Type => {
-                val.toType().hashWithHasher(hasher, mod);
-            },
+            .Type => unreachable, // handled above with the ip_index check
             .Float, .ComptimeFloat => std.hash.autoHash(hasher, @bitCast(u128, val.toFloat(f128, mod))),
             .Bool, .Int, .ComptimeInt, .Pointer, .Fn => switch (val.tag()) {
                 .slice => {

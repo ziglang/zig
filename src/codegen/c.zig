@@ -5367,116 +5367,111 @@ fn airStructFieldVal(f: *Function, inst: Air.Inst.Index) !CValue {
     // Ensure complete type definition is visible before accessing fields.
     _ = try f.typeToIndex(struct_ty, .complete);
 
-    const field_name: CValue = switch (struct_ty.ip_index) {
-        .none => switch (struct_ty.tag()) {
-            else => unreachable,
-        },
-        else => switch (mod.intern_pool.indexToKey(struct_ty.ip_index)) {
-            .struct_type => switch (struct_ty.containerLayout(mod)) {
-                .Auto, .Extern => if (struct_ty.isSimpleTuple(mod))
-                    .{ .field = extra.field_index }
-                else
-                    .{ .identifier = struct_ty.structFieldName(extra.field_index, mod) },
-                .Packed => {
-                    const struct_obj = mod.typeToStruct(struct_ty).?;
-                    const int_info = struct_ty.intInfo(mod);
-
-                    const bit_offset_ty = try mod.intType(.unsigned, Type.smallestUnsignedBits(int_info.bits - 1));
-
-                    const bit_offset = struct_obj.packedFieldBitOffset(mod, extra.field_index);
-                    const bit_offset_val = try mod.intValue(bit_offset_ty, bit_offset);
-
-                    const field_int_signedness = if (inst_ty.isAbiInt(mod))
-                        inst_ty.intInfo(mod).signedness
-                    else
-                        .unsigned;
-                    const field_int_ty = try mod.intType(field_int_signedness, @intCast(u16, inst_ty.bitSize(mod)));
-
-                    const temp_local = try f.allocLocal(inst, field_int_ty);
-                    try f.writeCValue(writer, temp_local, .Other);
-                    try writer.writeAll(" = zig_wrap_");
-                    try f.object.dg.renderTypeForBuiltinFnName(writer, field_int_ty);
-                    try writer.writeAll("((");
-                    try f.renderType(writer, field_int_ty);
-                    try writer.writeByte(')');
-                    const cant_cast = int_info.bits > 64;
-                    if (cant_cast) {
-                        if (field_int_ty.bitSize(mod) > 64) return f.fail("TODO: C backend: implement casting between types > 64 bits", .{});
-                        try writer.writeAll("zig_lo_");
-                        try f.object.dg.renderTypeForBuiltinFnName(writer, struct_ty);
-                        try writer.writeByte('(');
-                    }
-                    if (bit_offset > 0) {
-                        try writer.writeAll("zig_shr_");
-                        try f.object.dg.renderTypeForBuiltinFnName(writer, struct_ty);
-                        try writer.writeByte('(');
-                    }
-                    try f.writeCValue(writer, struct_byval, .Other);
-                    if (bit_offset > 0) {
-                        try writer.writeAll(", ");
-                        try f.object.dg.renderValue(writer, bit_offset_ty, bit_offset_val, .FunctionArgument);
-                        try writer.writeByte(')');
-                    }
-                    if (cant_cast) try writer.writeByte(')');
-                    try f.object.dg.renderBuiltinInfo(writer, field_int_ty, .bits);
-                    try writer.writeAll(");\n");
-                    if (inst_ty.eql(field_int_ty, f.object.dg.module)) return temp_local;
-
-                    const local = try f.allocLocal(inst, inst_ty);
-                    try writer.writeAll("memcpy(");
-                    try f.writeCValue(writer, .{ .local_ref = local.new_local }, .FunctionArgument);
-                    try writer.writeAll(", ");
-                    try f.writeCValue(writer, .{ .local_ref = temp_local.new_local }, .FunctionArgument);
-                    try writer.writeAll(", sizeof(");
-                    try f.renderType(writer, inst_ty);
-                    try writer.writeAll("));\n");
-                    try freeLocal(f, inst, temp_local.new_local, 0);
-                    return local;
-                },
-            },
-
-            .anon_struct_type => |anon_struct_type| if (anon_struct_type.names.len == 0)
+    const field_name: CValue = switch (mod.intern_pool.indexToKey(struct_ty.ip_index)) {
+        .struct_type => switch (struct_ty.containerLayout(mod)) {
+            .Auto, .Extern => if (struct_ty.isSimpleTuple(mod))
                 .{ .field = extra.field_index }
             else
                 .{ .identifier = struct_ty.structFieldName(extra.field_index, mod) },
+            .Packed => {
+                const struct_obj = mod.typeToStruct(struct_ty).?;
+                const int_info = struct_ty.intInfo(mod);
 
-            .union_type => |union_type| field_name: {
-                const union_obj = mod.unionPtr(union_type.index);
-                if (union_obj.layout == .Packed) {
-                    const operand_lval = if (struct_byval == .constant) blk: {
-                        const operand_local = try f.allocLocal(inst, struct_ty);
-                        try f.writeCValue(writer, operand_local, .Other);
-                        try writer.writeAll(" = ");
-                        try f.writeCValue(writer, struct_byval, .Initializer);
-                        try writer.writeAll(";\n");
-                        break :blk operand_local;
-                    } else struct_byval;
+                const bit_offset_ty = try mod.intType(.unsigned, Type.smallestUnsignedBits(int_info.bits - 1));
 
-                    const local = try f.allocLocal(inst, inst_ty);
-                    try writer.writeAll("memcpy(&");
-                    try f.writeCValue(writer, local, .Other);
-                    try writer.writeAll(", &");
-                    try f.writeCValue(writer, operand_lval, .Other);
-                    try writer.writeAll(", sizeof(");
-                    try f.renderType(writer, inst_ty);
-                    try writer.writeAll("));\n");
+                const bit_offset = struct_obj.packedFieldBitOffset(mod, extra.field_index);
+                const bit_offset_val = try mod.intValue(bit_offset_ty, bit_offset);
 
-                    if (struct_byval == .constant) {
-                        try freeLocal(f, inst, operand_lval.new_local, 0);
-                    }
+                const field_int_signedness = if (inst_ty.isAbiInt(mod))
+                    inst_ty.intInfo(mod).signedness
+                else
+                    .unsigned;
+                const field_int_ty = try mod.intType(field_int_signedness, @intCast(u16, inst_ty.bitSize(mod)));
 
-                    return local;
-                } else {
-                    const name = union_obj.fields.keys()[extra.field_index];
-                    break :field_name if (union_type.hasTag()) .{
-                        .payload_identifier = name,
-                    } else .{
-                        .identifier = name,
-                    };
+                const temp_local = try f.allocLocal(inst, field_int_ty);
+                try f.writeCValue(writer, temp_local, .Other);
+                try writer.writeAll(" = zig_wrap_");
+                try f.object.dg.renderTypeForBuiltinFnName(writer, field_int_ty);
+                try writer.writeAll("((");
+                try f.renderType(writer, field_int_ty);
+                try writer.writeByte(')');
+                const cant_cast = int_info.bits > 64;
+                if (cant_cast) {
+                    if (field_int_ty.bitSize(mod) > 64) return f.fail("TODO: C backend: implement casting between types > 64 bits", .{});
+                    try writer.writeAll("zig_lo_");
+                    try f.object.dg.renderTypeForBuiltinFnName(writer, struct_ty);
+                    try writer.writeByte('(');
                 }
+                if (bit_offset > 0) {
+                    try writer.writeAll("zig_shr_");
+                    try f.object.dg.renderTypeForBuiltinFnName(writer, struct_ty);
+                    try writer.writeByte('(');
+                }
+                try f.writeCValue(writer, struct_byval, .Other);
+                if (bit_offset > 0) {
+                    try writer.writeAll(", ");
+                    try f.object.dg.renderValue(writer, bit_offset_ty, bit_offset_val, .FunctionArgument);
+                    try writer.writeByte(')');
+                }
+                if (cant_cast) try writer.writeByte(')');
+                try f.object.dg.renderBuiltinInfo(writer, field_int_ty, .bits);
+                try writer.writeAll(");\n");
+                if (inst_ty.eql(field_int_ty, f.object.dg.module)) return temp_local;
+
+                const local = try f.allocLocal(inst, inst_ty);
+                try writer.writeAll("memcpy(");
+                try f.writeCValue(writer, .{ .local_ref = local.new_local }, .FunctionArgument);
+                try writer.writeAll(", ");
+                try f.writeCValue(writer, .{ .local_ref = temp_local.new_local }, .FunctionArgument);
+                try writer.writeAll(", sizeof(");
+                try f.renderType(writer, inst_ty);
+                try writer.writeAll("));\n");
+                try freeLocal(f, inst, temp_local.new_local, 0);
+                return local;
             },
-            else => unreachable,
         },
+
+        .anon_struct_type => |anon_struct_type| if (anon_struct_type.names.len == 0)
+            .{ .field = extra.field_index }
+        else
+            .{ .identifier = struct_ty.structFieldName(extra.field_index, mod) },
+
+        .union_type => |union_type| field_name: {
+            const union_obj = mod.unionPtr(union_type.index);
+            if (union_obj.layout == .Packed) {
+                const operand_lval = if (struct_byval == .constant) blk: {
+                    const operand_local = try f.allocLocal(inst, struct_ty);
+                    try f.writeCValue(writer, operand_local, .Other);
+                    try writer.writeAll(" = ");
+                    try f.writeCValue(writer, struct_byval, .Initializer);
+                    try writer.writeAll(";\n");
+                    break :blk operand_local;
+                } else struct_byval;
+
+                const local = try f.allocLocal(inst, inst_ty);
+                try writer.writeAll("memcpy(&");
+                try f.writeCValue(writer, local, .Other);
+                try writer.writeAll(", &");
+                try f.writeCValue(writer, operand_lval, .Other);
+                try writer.writeAll(", sizeof(");
+                try f.renderType(writer, inst_ty);
+                try writer.writeAll("));\n");
+
+                if (struct_byval == .constant) {
+                    try freeLocal(f, inst, operand_lval.new_local, 0);
+                }
+
+                return local;
+            } else {
+                const name = union_obj.fields.keys()[extra.field_index];
+                break :field_name if (union_type.hasTag()) .{
+                    .payload_identifier = name,
+                } else .{
+                    .identifier = name,
+                };
+            }
+        },
+        else => unreachable,
     };
 
     const local = try f.allocLocal(inst, inst_ty);
