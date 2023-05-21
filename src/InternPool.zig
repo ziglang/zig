@@ -2415,9 +2415,11 @@ pub fn get(ip: *InternPool, gpa: Allocator, key: Key) Allocator.Error!Index {
             assert(ptr_type.elem_type != .none);
 
             if (ptr_type.size == .Slice) {
+                _ = ip.map.pop();
                 var new_key = key;
                 new_key.ptr_type.size = .Many;
                 const ptr_type_index = try get(ip, gpa, new_key);
+                assert(!(try ip.map.getOrPutAdapted(gpa, key, adapter)).found_existing);
                 try ip.items.ensureUnusedCapacity(gpa, 1);
                 ip.items.appendAssumeCapacity(.{
                     .tag = .type_slice,
@@ -2737,10 +2739,12 @@ pub fn get(ip: *InternPool, gpa: Allocator, key: Key) Allocator.Error!Index {
                             }),
                         }),
                         .elem, .field => |base_index| {
+                            _ = ip.map.pop();
                             const index_index = try get(ip, gpa, .{ .int = .{
                                 .ty = .usize_type,
                                 .storage = .{ .u64 = base_index.index },
                             } });
+                            assert(!(try ip.map.getOrPutAdapted(gpa, key, adapter)).found_existing);
                             try ip.items.ensureUnusedCapacity(gpa, 1);
                             ip.items.appendAssumeCapacity(.{
                                 .tag = .ptr_elem,
@@ -2755,11 +2759,13 @@ pub fn get(ip: *InternPool, gpa: Allocator, key: Key) Allocator.Error!Index {
                 },
                 else => {
                     assert(ptr_type.size == .Slice);
+                    _ = ip.map.pop();
                     var new_key = key;
                     new_key.ptr.ty = ip.slicePtrType(ptr.ty);
                     new_key.ptr.len = .none;
                     assert(ip.indexToKey(new_key.ptr.ty).ptr_type.size == .Many);
                     const ptr_index = try get(ip, gpa, new_key);
+                    assert(!(try ip.map.getOrPutAdapted(gpa, key, adapter)).found_existing);
                     try ip.items.ensureUnusedCapacity(gpa, 1);
                     ip.items.appendAssumeCapacity(.{
                         .tag = .ptr_slice,
@@ -3148,7 +3154,6 @@ pub fn getIncompleteEnum(
     gpa: Allocator,
     enum_type: Key.IncompleteEnumType,
 ) Allocator.Error!InternPool.IncompleteEnumType {
-    try ip.items.ensureUnusedCapacity(gpa, 1);
     switch (enum_type.tag_mode) {
         .auto => return getIncompleteEnumAuto(ip, gpa, enum_type),
         .explicit => return getIncompleteEnumExplicit(ip, gpa, enum_type, .type_enum_explicit),
@@ -3180,6 +3185,7 @@ pub fn getIncompleteEnumAuto(
 
     const extra_fields_len: u32 = @typeInfo(EnumAuto).Struct.fields.len;
     try ip.extra.ensureUnusedCapacity(gpa, extra_fields_len + enum_type.fields_len);
+    try ip.items.ensureUnusedCapacity(gpa, 1);
 
     const extra_index = ip.addExtraAssumeCapacity(EnumAuto{
         .decl = enum_type.decl,
@@ -3227,6 +3233,7 @@ fn getIncompleteEnumExplicit(
 
     const extra_fields_len: u32 = @typeInfo(EnumExplicit).Struct.fields.len;
     try ip.extra.ensureUnusedCapacity(gpa, extra_fields_len + reserved_len);
+    try ip.items.ensureUnusedCapacity(gpa, 1);
 
     const extra_index = ip.addExtraAssumeCapacity(EnumExplicit{
         .decl = enum_type.decl,
