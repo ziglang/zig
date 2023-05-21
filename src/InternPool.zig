@@ -1517,6 +1517,8 @@ pub const Tag = enum(u8) {
 /// 0. name: NullTerminatedString for each names_len
 pub const ErrorSet = struct {
     names_len: u32,
+    /// Maps error names to declaration index.
+    names_map: MapIndex,
 };
 
 /// Trailing:
@@ -2024,6 +2026,7 @@ pub fn indexToKey(ip: InternPool, index: Index) Key {
             const names = ip.extra.items[error_set.end..][0..names_len];
             return .{ .error_set_type = .{
                 .names = @ptrCast([]const NullTerminatedString, names),
+                .names_map = error_set.data.names_map.toOptional(),
             } };
         },
         .type_inferred_error_set => .{
@@ -2518,6 +2521,7 @@ pub fn get(ip: *InternPool, gpa: Allocator, key: Key) Allocator.Error!Index {
                 .tag = .type_error_set,
                 .data = ip.addExtraAssumeCapacity(ErrorSet{
                     .names_len = names_len,
+                    .names_map = names_map,
                 }),
             });
             ip.extra.appendSliceAssumeCapacity(@ptrCast([]const u32, error_set_type.names));
@@ -3605,15 +3609,34 @@ pub fn sliceLen(ip: InternPool, i: Index) Index {
 /// * int <=> int
 /// * int <=> enum
 /// * ptr <=> ptr
+/// * null_value => opt
+/// * payload => opt
 pub fn getCoerced(ip: *InternPool, gpa: Allocator, val: Index, new_ty: Index) Allocator.Error!Index {
-    if (ip.typeOf(val) == new_ty) return val;
+    const old_ty = ip.typeOf(val);
+    if (old_ty == new_ty) return val;
     switch (ip.indexToKey(val)) {
         .int => |int| switch (ip.indexToKey(new_ty)) {
+            .simple_type => |simple_type| switch (simple_type) {
+                .usize,
+                .isize,
+                .c_char,
+                .c_short,
+                .c_ushort,
+                .c_int,
+                .c_uint,
+                .c_long,
+                .c_ulong,
+                .c_longlong,
+                .c_ulonglong,
+                => return getCoercedInts(ip, gpa, int, new_ty),
+                else => {},
+            },
+            .int_type => return getCoercedInts(ip, gpa, int, new_ty),
             .enum_type => return ip.get(gpa, .{ .enum_tag = .{
                 .ty = new_ty,
                 .int = val,
             } }),
-            else => return getCoercedInts(ip, gpa, int, new_ty),
+            else => {},
         },
         .enum_tag => |enum_tag| {
             // Assume new_ty is an integer type.
@@ -3624,10 +3647,24 @@ pub fn getCoerced(ip: *InternPool, gpa: Allocator, val: Index, new_ty: Index) Al
                 .ty = new_ty,
                 .addr = ptr.addr,
             } }),
-            else => unreachable,
+            else => {},
         },
-        else => unreachable,
+        else => {},
     }
+    switch (ip.indexToKey(new_ty)) {
+        .opt_type => |child_ty| switch (val) {
+            .null_value => return ip.get(gpa, .{ .opt = .{
+                .ty = new_ty,
+                .val = .none,
+            } }),
+            else => return ip.get(gpa, .{ .opt = .{
+                .ty = new_ty,
+                .val = try ip.getCoerced(gpa, val, child_ty),
+            } }),
+        },
+        else => {},
+    }
+    unreachable;
 }
 
 /// Asserts `val` has an integer type.

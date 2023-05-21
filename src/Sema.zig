@@ -8480,13 +8480,10 @@ fn zirOptionalPayload(
     };
 
     if (try sema.resolveDefinedValue(block, src, operand)) |val| {
-        if (val.isNull(mod)) {
-            return sema.fail(block, src, "unable to unwrap null", .{});
-        }
-        if (val.castTag(.opt_payload)) |payload| {
-            return sema.addConstant(result_ty, payload.data);
-        }
-        return sema.addConstant(result_ty, val);
+        return if (val.optionalValue(mod)) |payload|
+            sema.addConstant(result_ty, payload)
+        else
+            sema.fail(block, src, "unable to unwrap null", .{});
     }
 
     try sema.requireRuntimeBlock(block, src, null);
@@ -18929,7 +18926,7 @@ fn zirReify(
                     if (ptr_size == .One or ptr_size == .C) {
                         return sema.fail(block, src, "sentinels are only allowed on slices and unknown-length pointers", .{});
                     }
-                    const sentinel_ptr_val = sentinel_val.castTag(.opt_payload).?.data;
+                    const sentinel_ptr_val = sentinel_val.optionalValue(mod).?;
                     const ptr_ty = try Type.ptr(sema.arena, mod, .{
                         .@"addrspace" = .generic,
                         .pointee_type = elem_ty,
@@ -28797,7 +28794,11 @@ fn coerceCompatiblePtrs(
             return sema.fail(block, inst_src, "null pointer casted to type '{}'", .{dest_ty.fmt(sema.mod)});
         }
         // The comptime Value representation is compatible with both types.
-        return sema.addConstant(dest_ty, val);
+        return sema.addConstant(dest_ty, (try mod.intern_pool.getCoerced(
+            mod.gpa,
+            try val.intern(inst_ty, mod),
+            dest_ty.ip_index,
+        )).toValue());
     }
     try sema.requireRuntimeBlock(block, inst_src, null);
     const inst_allows_zero = inst_ty.zigTypeTag(mod) != .Pointer or inst_ty.ptrAllowsZero(mod);

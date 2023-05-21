@@ -718,18 +718,25 @@ pub const Value = struct {
                     },
                     else => unreachable,
                 };
-                const enum_type = ip.indexToKey(ty.ip_index).enum_type;
-                if (enum_type.values.len != 0) {
-                    return enum_type.values[field_index].toValue();
-                } else {
-                    // Field index and integer values are the same.
-                    return mod.intValue(enum_type.tag_ty.toType(), field_index);
-                }
+                return switch (ip.indexToKey(ty.ip_index)) {
+                    // Assume it is already an integer and return it directly.
+                    .simple_type, .int_type => val,
+                    .enum_type => |enum_type| if (enum_type.values.len != 0)
+                        enum_type.values[field_index].toValue()
+                    else // Field index and integer values are the same.
+                        mod.intValue(enum_type.tag_ty.toType(), field_index),
+                    else => unreachable,
+                };
             },
-            else => {
-                const enum_type = ip.indexToKey(ip.typeOf(val.ip_index)).enum_type;
-                const int = try ip.getCoerced(mod.gpa, val.ip_index, enum_type.tag_ty);
-                return int.toValue();
+            else => return switch (ip.indexToKey(ip.typeOf(val.ip_index))) {
+                // Assume it is already an integer and return it directly.
+                .simple_type, .int_type => val,
+                .enum_type => |enum_type| (try ip.getCoerced(
+                    mod.gpa,
+                    val.ip_index,
+                    enum_type.tag_ty,
+                )).toValue(),
+                else => unreachable,
             },
         }
     }
@@ -2906,7 +2913,7 @@ pub const Value = struct {
                     inline .u64, .i64 => |x| x == 0,
                 },
                 .opt => |opt| opt.val == .none,
-                else => unreachable,
+                else => false,
             },
         };
     }
@@ -2949,11 +2956,20 @@ pub const Value = struct {
 
     /// Value of the optional, null if optional has no payload.
     pub fn optionalValue(val: Value, mod: *const Module) ?Value {
-        if (val.isNull(mod)) return null;
-
-        // Valid for optional representation to be the direct value
-        // and not use opt_payload.
-        return if (val.castTag(.opt_payload)) |p| p.data else val;
+        return switch (val.ip_index) {
+            .none => if (val.isNull(mod)) null
+            // Valid for optional representation to be the direct value
+            // and not use opt_payload.
+            else if (val.castTag(.opt_payload)) |p| p.data else val,
+            .null_value => null,
+            else => switch (mod.intern_pool.indexToKey(val.ip_index)) {
+                .opt => |opt| switch (opt.val) {
+                    .none => null,
+                    else => opt.val.toValue(),
+                },
+                else => unreachable,
+            },
+        };
     }
 
     /// Valid for all types. Asserts the value is not undefined.
