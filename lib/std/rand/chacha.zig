@@ -2,29 +2,26 @@ const std = @import("std");
 const mem = std.mem;
 const Random = std.rand.Random;
 
-pub fn Options(comptime Cipher: type) type {
-    return struct {
-        /// Length of the internal buffer.
-        /// Larger sizes may provide better performance due to less buffer refills.
-        state_len: usize = 2 * Cipher.block_length,
-
-        nonce: [Cipher.nonce_length]u8 = [_]u8{0} ** Cipher.nonce_length,
-    };
-}
-
 /// CSPRNG based on the ChaCha stream cipher, with forward security.
+///
+/// `Cipher` must be a type from `std.crypto.stream.chacha`.
+///
+/// `state_len` specifies the length of the internal buffer in bytes.
+/// It is recommended to specify this value in increments of `Cipher.block_length` (64).
+/// Larger sizes may provide better performance due to less buffer refills, at the cost of potentionally making access latency less predictable.
+/// Due to how fast-key-erasure RNGs work, different buffer sizes will also result in different output streams.
 ///
 /// References:
 /// - Fast-key-erasure random-number generators https://blog.cr.yp.to/20170723-random.html
-pub fn Csprng(comptime Cipher: type, comptime options: Options(Cipher)) type {
+pub fn Csprng(comptime Cipher: type, comptime state_len: usize) type {
     // Rudimentary protection against poorly chosen lengths.
     comptime {
-        std.debug.assert(options.state_len >= Cipher.key_length + Cipher.block_length);
-        std.debug.assert(options.state_len % Cipher.key_length == 0);
+        std.debug.assert(state_len >= Cipher.key_length + Cipher.block_length);
+        std.debug.assert(state_len % Cipher.key_length == 0);
     }
-    const State = [options.state_len]u8;
+    const State = [state_len]u8;
 
-    const nonce = options.nonce;
+    const nonce = [_]u8{0} ** Cipher.nonce_length;
 
     return struct {
         const Self = @This();

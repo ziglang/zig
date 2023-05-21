@@ -57,17 +57,17 @@ const csprngs = [_]Rng{
         .init_u8s = &[_]u8{0} ** 32,
     },
     Rng{
-        .ty = rand.chacha.Csprng(std.crypto.stream.chacha.ChaCha8IETF, .{}),
+        .ty = rand.chacha.Csprng(std.crypto.stream.chacha.ChaCha8IETF, 128),
         .name = "chacha8",
         .init_u8s = &[_]u8{0} ** 32,
     },
     Rng{
-        .ty = rand.chacha.Csprng(std.crypto.stream.chacha.ChaCha12IETF, .{}),
+        .ty = rand.chacha.Csprng(std.crypto.stream.chacha.ChaCha12IETF, 128),
         .name = "chacha12",
         .init_u8s = &[_]u8{0} ** 32,
     },
     Rng{
-        .ty = rand.chacha.Csprng(std.crypto.stream.chacha.ChaCha20IETF, .{}),
+        .ty = rand.chacha.Csprng(std.crypto.stream.chacha.ChaCha20IETF, 128),
         .name = "chacha20",
         .init_u8s = &[_]u8{0} ** 32,
     },

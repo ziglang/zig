@@ -23,7 +23,7 @@ pub const DefaultCsprng = ChaCha;
 pub const Ascon = @import("rand/Ascon.zig");
 
 pub const chacha = @import("rand/chacha.zig");
-pub const ChaCha = chacha.Csprng(std.crypto.stream.chacha.ChaCha8IETF, .{});
+pub const ChaCha = chacha.Csprng(std.crypto.stream.chacha.ChaCha8IETF, 128);
 
 pub const Isaac64 = @import("rand/Isaac64.zig");
 pub const Pcg = @import("rand/Pcg.zig");
