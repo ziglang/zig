@@ -510,6 +510,16 @@ pub const Key = union(enum) {
                 runtime_index: RuntimeIndex,
             },
             int: Index,
+            eu_payload: Index,
+            opt_payload: Index,
+            comptime_field: Index,
+            elem: BaseIndex,
+            field: BaseIndex,
+
+            pub const BaseIndex = struct {
+                base: Index,
+                index: u64,
+            };
         };
     };
 
@@ -599,6 +609,7 @@ pub const Key = union(enum) {
 
             .ptr => |ptr| {
                 std.hash.autoHash(hasher, ptr.ty);
+                std.hash.autoHash(hasher, ptr.len);
                 // Int-to-ptr pointers are hashed separately than decl-referencing pointers.
                 // This is sound due to pointer provenance rules.
                 std.hash.autoHash(hasher, @as(@typeInfo(Key.Ptr.Addr).Union.tag_type.?, ptr.addr));
@@ -607,6 +618,11 @@ pub const Key = union(enum) {
                     .decl => |decl| std.hash.autoHash(hasher, decl),
                     .mut_decl => |mut_decl| std.hash.autoHash(hasher, mut_decl),
                     .int => |int| std.hash.autoHash(hasher, int),
+                    .eu_payload => |eu_payload| std.hash.autoHash(hasher, eu_payload),
+                    .opt_payload => |opt_payload| std.hash.autoHash(hasher, opt_payload),
+                    .comptime_field => |comptime_field| std.hash.autoHash(hasher, comptime_field),
+                    .elem => |elem| std.hash.autoHash(hasher, elem),
+                    .field => |field| std.hash.autoHash(hasher, field),
                 }
             },
 
@@ -719,7 +735,7 @@ pub const Key = union(enum) {
 
             .ptr => |a_info| {
                 const b_info = b.ptr;
-                if (a_info.ty != b_info.ty) return false;
+                if (a_info.ty != b_info.ty or a_info.len != b_info.len) return false;
 
                 const AddrTag = @typeInfo(Key.Ptr.Addr).Union.tag_type.?;
                 if (@as(AddrTag, a_info.addr) != @as(AddrTag, b_info.addr)) return false;
@@ -729,6 +745,11 @@ pub const Key = union(enum) {
                     .decl => |a_decl| a_decl == b_info.addr.decl,
                     .mut_decl => |a_mut_decl| std.meta.eql(a_mut_decl, b_info.addr.mut_decl),
                     .int => |a_int| a_int == b_info.addr.int,
+                    .eu_payload => |a_eu_payload| a_eu_payload == b_info.addr.eu_payload,
+                    .opt_payload => |a_opt_payload| a_opt_payload == b_info.addr.opt_payload,
+                    .comptime_field => |a_comptime_field| a_comptime_field == b_info.addr.comptime_field,
+                    .elem => |a_elem| std.meta.eql(a_elem, b_info.addr.elem),
+                    .field => |a_field| std.meta.eql(a_field, b_info.addr.field),
                 };
             },
 
@@ -1375,6 +1396,26 @@ pub const Tag = enum(u8) {
     /// Only pointer types are allowed to have this encoding. Optional types must use
     /// `opt_payload` or `opt_null`.
     ptr_int,
+    /// A pointer to the payload of an error union.
+    /// data is Index of a pointer value to the error union.
+    /// In order to use this encoding, one must ensure that the `InternPool`
+    /// already contains the payload pointer type corresponding to this payload.
+    ptr_eu_payload,
+    /// A pointer to the payload of an optional.
+    /// data is Index of a pointer value to the optional.
+    /// In order to use this encoding, one must ensure that the `InternPool`
+    /// already contains the payload pointer type corresponding to this payload.
+    ptr_opt_payload,
+    /// data is extra index of PtrComptimeField, which contains the pointer type and field value.
+    ptr_comptime_field,
+    /// A pointer to an array element.
+    /// data is extra index of PtrBaseIndex, which contains the base array and element index.
+    /// In order to use this encoding, one must ensure that the `InternPool`
+    /// already contains the elem pointer type corresponding to this payload.
+    ptr_elem,
+    /// A pointer to a container field.
+    /// data is extra index of PtrBaseIndex, which contains the base container and field index.
+    ptr_field,
     /// A slice.
     /// data is extra index of PtrSlice, which contains the ptr and len values
     /// In order to use this encoding, one must ensure that the `InternPool`
@@ -1753,6 +1794,17 @@ pub const PtrInt = struct {
     addr: Index,
 };
 
+pub const PtrComptimeField = struct {
+    ty: Index,
+    field_val: Index,
+};
+
+pub const PtrBaseIndex = struct {
+    ty: Index,
+    base: Index,
+    index: Index,
+};
+
 pub const PtrSlice = struct {
     ptr: Index,
     len: Index,
@@ -1956,10 +2008,10 @@ pub fn indexToKey(ip: InternPool, index: Index) Key {
         },
 
         .type_slice => {
-            const ptr_ty_index = @intToEnum(Index, data);
-            var result = indexToKey(ip, ptr_ty_index);
-            result.ptr_type.size = .Slice;
-            return result;
+            const ptr_type_index = @intToEnum(Index, data);
+            var result = indexToKey(ip, ptr_type_index).ptr_type;
+            result.size = .Slice;
+            return .{ .ptr_type = result };
         },
 
         .type_optional => .{ .opt_type = @intToEnum(Index, data) },
@@ -2063,7 +2115,7 @@ pub fn indexToKey(ip: InternPool, index: Index) Key {
             // The existence of `opt_payload` guarantees that the optional type will be
             // stored in the `InternPool`.
             const opt_ty = ip.getAssumeExists(.{
-                .opt_type = indexToKey(ip, payload_val).typeOf(),
+                .opt_type = ip.typeOf(payload_val),
             });
             return .{ .opt = .{
                 .ty = opt_ty,
@@ -2108,14 +2160,59 @@ pub fn indexToKey(ip: InternPool, index: Index) Key {
                 .addr = .{ .int = info.addr },
             } };
         },
+        .ptr_eu_payload => {
+            const ptr_eu_index = @intToEnum(Index, data);
+            var ptr_type = ip.indexToKey(ip.typeOf(ptr_eu_index)).ptr_type;
+            ptr_type.elem_type = ip.indexToKey(ptr_type.elem_type).error_union_type.payload_type;
+            return .{ .ptr = .{
+                .ty = ip.getAssumeExists(.{ .ptr_type = ptr_type }),
+                .addr = .{ .eu_payload = ptr_eu_index },
+            } };
+        },
+        .ptr_opt_payload => {
+            const ptr_opt_index = @intToEnum(Index, data);
+            var ptr_type = ip.indexToKey(ip.typeOf(ptr_opt_index)).ptr_type;
+            ptr_type.elem_type = ip.indexToKey(ptr_type.elem_type).opt_type;
+            return .{ .ptr = .{
+                .ty = ip.getAssumeExists(.{ .ptr_type = ptr_type }),
+                .addr = .{ .opt_payload = ptr_opt_index },
+            } };
+        },
+        .ptr_comptime_field => {
+            const info = ip.extraData(PtrComptimeField, data);
+            return .{ .ptr = .{
+                .ty = info.ty,
+                .addr = .{ .comptime_field = info.field_val },
+            } };
+        },
+        .ptr_elem => {
+            const info = ip.extraData(PtrBaseIndex, data);
+            return .{ .ptr = .{
+                .ty = info.ty,
+                .addr = .{ .elem = .{
+                    .base = info.base,
+                    .index = ip.indexToKey(info.index).int.storage.u64,
+                } },
+            } };
+        },
+        .ptr_field => {
+            const info = ip.extraData(PtrBaseIndex, data);
+            return .{ .ptr = .{
+                .ty = info.ty,
+                .addr = .{ .field = .{
+                    .base = info.base,
+                    .index = ip.indexToKey(info.index).int.storage.u64,
+                } },
+            } };
+        },
         .ptr_slice => {
             const info = ip.extraData(PtrSlice, data);
             const ptr = ip.indexToKey(info.ptr).ptr;
-            var ptr_ty = ip.indexToKey(ptr.ty);
-            assert(ptr_ty.ptr_type.size == .Many);
-            ptr_ty.ptr_type.size = .Slice;
+            var ptr_type = ip.indexToKey(ptr.ty).ptr_type;
+            assert(ptr_type.size == .Many);
+            ptr_type.size = .Slice;
             return .{ .ptr = .{
-                .ty = ip.getAssumeExists(ptr_ty),
+                .ty = ip.getAssumeExists(.{ .ptr_type = ptr_type }),
                 .addr = ptr.addr,
                 .len = info.len,
             } };
@@ -2301,9 +2398,7 @@ fn indexToKeyBigInt(ip: InternPool, limb_index: u32, positive: bool) Key {
 pub fn get(ip: *InternPool, gpa: Allocator, key: Key) Allocator.Error!Index {
     const adapter: KeyAdapter = .{ .intern_pool = ip };
     const gop = try ip.map.getOrPutAdapted(gpa, key, adapter);
-    if (gop.found_existing) {
-        return @intToEnum(Index, gop.index);
-    }
+    if (gop.found_existing) return @intToEnum(Index, gop.index);
     try ip.items.ensureUnusedCapacity(gpa, 1);
     switch (key) {
         .int_type => |int_type| {
@@ -2322,11 +2417,11 @@ pub fn get(ip: *InternPool, gpa: Allocator, key: Key) Allocator.Error!Index {
             if (ptr_type.size == .Slice) {
                 var new_key = key;
                 new_key.ptr_type.size = .Many;
-                const ptr_ty_index = try get(ip, gpa, new_key);
+                const ptr_type_index = try get(ip, gpa, new_key);
                 try ip.items.ensureUnusedCapacity(gpa, 1);
                 ip.items.appendAssumeCapacity(.{
                     .tag = .type_slice,
-                    .data = @enumToInt(ptr_ty_index),
+                    .data = @enumToInt(ptr_type_index),
                 });
                 return @intToEnum(Index, ip.items.len - 1);
             }
@@ -2584,64 +2679,98 @@ pub fn get(ip: *InternPool, gpa: Allocator, key: Key) Allocator.Error!Index {
 
         .extern_func => @panic("TODO"),
 
-        .ptr => |ptr| switch (ptr.len) {
-            .none => {
-                assert(ip.indexToKey(ptr.ty).ptr_type.size != .Slice);
-                switch (ptr.addr) {
-                    .@"var" => |@"var"| ip.items.appendAssumeCapacity(.{
-                        .tag = .ptr_var,
-                        .data = try ip.addExtra(gpa, PtrVar{
-                            .ty = ptr.ty,
-                            .init = @"var".init,
-                            .owner_decl = @"var".owner_decl,
-                            .lib_name = @"var".lib_name,
-                            .flags = .{
-                                .is_const = @"var".is_const,
-                                .is_threadlocal = @"var".is_threadlocal,
-                                .is_weak_linkage = @"var".is_weak_linkage,
+        .ptr => |ptr| {
+            const ptr_type = ip.indexToKey(ptr.ty).ptr_type;
+            switch (ptr.len) {
+                .none => {
+                    assert(ptr_type.size != .Slice);
+                    switch (ptr.addr) {
+                        .@"var" => |@"var"| ip.items.appendAssumeCapacity(.{
+                            .tag = .ptr_var,
+                            .data = try ip.addExtra(gpa, PtrVar{
+                                .ty = ptr.ty,
+                                .init = @"var".init,
+                                .owner_decl = @"var".owner_decl,
+                                .lib_name = @"var".lib_name,
+                                .flags = .{
+                                    .is_const = @"var".is_const,
+                                    .is_threadlocal = @"var".is_threadlocal,
+                                    .is_weak_linkage = @"var".is_weak_linkage,
+                                },
+                            }),
+                        }),
+                        .decl => |decl| ip.items.appendAssumeCapacity(.{
+                            .tag = .ptr_decl,
+                            .data = try ip.addExtra(gpa, PtrDecl{
+                                .ty = ptr.ty,
+                                .decl = decl,
+                            }),
+                        }),
+                        .mut_decl => |mut_decl| ip.items.appendAssumeCapacity(.{
+                            .tag = .ptr_mut_decl,
+                            .data = try ip.addExtra(gpa, PtrMutDecl{
+                                .ty = ptr.ty,
+                                .decl = mut_decl.decl,
+                                .runtime_index = mut_decl.runtime_index,
+                            }),
+                        }),
+                        .int => |int| ip.items.appendAssumeCapacity(.{
+                            .tag = .ptr_int,
+                            .data = try ip.addExtra(gpa, PtrInt{
+                                .ty = ptr.ty,
+                                .addr = int,
+                            }),
+                        }),
+                        .eu_payload, .opt_payload => |data| ip.items.appendAssumeCapacity(.{
+                            .tag = switch (ptr.addr) {
+                                .eu_payload => .ptr_eu_payload,
+                                .opt_payload => .ptr_opt_payload,
+                                else => unreachable,
                             },
+                            .data = @enumToInt(data),
                         }),
-                    }),
-                    .decl => |decl| ip.items.appendAssumeCapacity(.{
-                        .tag = .ptr_decl,
-                        .data = try ip.addExtra(gpa, PtrDecl{
-                            .ty = ptr.ty,
-                            .decl = decl,
+                        .comptime_field => |field_val| ip.items.appendAssumeCapacity(.{
+                            .tag = .ptr_comptime_field,
+                            .data = try ip.addExtra(gpa, PtrComptimeField{
+                                .ty = ptr.ty,
+                                .field_val = field_val,
+                            }),
                         }),
-                    }),
-                    .mut_decl => |mut_decl| ip.items.appendAssumeCapacity(.{
-                        .tag = .ptr_mut_decl,
-                        .data = try ip.addExtra(gpa, PtrMutDecl{
-                            .ty = ptr.ty,
-                            .decl = mut_decl.decl,
-                            .runtime_index = mut_decl.runtime_index,
+                        .elem, .field => |base_index| {
+                            const index_index = try get(ip, gpa, .{ .int = .{
+                                .ty = .usize_type,
+                                .storage = .{ .u64 = base_index.index },
+                            } });
+                            try ip.items.ensureUnusedCapacity(gpa, 1);
+                            ip.items.appendAssumeCapacity(.{
+                                .tag = .ptr_elem,
+                                .data = try ip.addExtra(gpa, PtrBaseIndex{
+                                    .ty = ptr.ty,
+                                    .base = base_index.base,
+                                    .index = index_index,
+                                }),
+                            });
+                        },
+                    }
+                },
+                else => {
+                    assert(ptr_type.size == .Slice);
+                    var new_key = key;
+                    new_key.ptr.ty = ip.slicePtrType(ptr.ty);
+                    new_key.ptr.len = .none;
+                    assert(ip.indexToKey(new_key.ptr.ty).ptr_type.size == .Many);
+                    const ptr_index = try get(ip, gpa, new_key);
+                    try ip.items.ensureUnusedCapacity(gpa, 1);
+                    ip.items.appendAssumeCapacity(.{
+                        .tag = .ptr_slice,
+                        .data = try ip.addExtra(gpa, PtrSlice{
+                            .ptr = ptr_index,
+                            .len = ptr.len,
                         }),
-                    }),
-                    .int => |int| ip.items.appendAssumeCapacity(.{
-                        .tag = .ptr_int,
-                        .data = try ip.addExtra(gpa, PtrInt{
-                            .ty = ptr.ty,
-                            .addr = int,
-                        }),
-                    }),
-                }
-            },
-            else => {
-                assert(ip.indexToKey(ptr.ty).ptr_type.size == .Slice);
-                var new_key = key;
-                new_key.ptr.ty = ip.slicePtrType(ptr.ty);
-                new_key.ptr.len = .none;
-                assert(ip.indexToKey(new_key.ptr.ty).ptr_type.size == .Many);
-                const ptr_index = try get(ip, gpa, new_key);
-                try ip.items.ensureUnusedCapacity(gpa, 1);
-                ip.items.appendAssumeCapacity(.{
-                    .tag = .ptr_slice,
-                    .data = try ip.addExtra(gpa, PtrSlice{
-                        .ptr = ptr_index,
-                        .len = ptr.len,
-                    }),
-                });
-            },
+                    });
+                },
+            }
+            assert(ptr.ty == ip.indexToKey(@intToEnum(Index, ip.items.len - 1)).ptr.ty);
         },
 
         .opt => |opt| {
@@ -3683,6 +3812,11 @@ fn dumpFallible(ip: InternPool, arena: Allocator) anyerror!void {
             .ptr_decl => @sizeOf(PtrDecl),
             .ptr_mut_decl => @sizeOf(PtrMutDecl),
             .ptr_int => @sizeOf(PtrInt),
+            .ptr_eu_payload => 0,
+            .ptr_opt_payload => 0,
+            .ptr_comptime_field => @sizeOf(PtrComptimeField),
+            .ptr_elem => @sizeOf(PtrBaseIndex),
+            .ptr_field => @sizeOf(PtrBaseIndex),
             .ptr_slice => @sizeOf(PtrSlice),
             .opt_null => 0,
             .opt_payload => 0,
@@ -3754,6 +3888,10 @@ pub fn structPtrUnwrapConst(ip: InternPool, index: Module.Struct.OptionalIndex) 
 }
 
 pub fn unionPtr(ip: *InternPool, index: Module.Union.Index) *Module.Union {
+    return ip.allocated_unions.at(@enumToInt(index));
+}
+
+pub fn unionPtrConst(ip: InternPool, index: Module.Union.Index) *const Module.Union {
     return ip.allocated_unions.at(@enumToInt(index));
 }
 

@@ -28473,6 +28473,178 @@ fn beginComptimePtrLoad(
                         .ty_without_well_defined_layout = if (!layout_defined) decl.ty else null,
                     };
                 },
+                .eu_payload, .opt_payload => |container_ptr| blk: {
+                    const container_ty = mod.intern_pool.typeOf(container_ptr).toType().childType(mod);
+                    const payload_ty = ptr.ty.toType().childType(mod);
+                    var deref = try sema.beginComptimePtrLoad(block, src, container_ptr.toValue(), container_ty);
+
+                    // eu_payload_ptr and opt_payload_ptr never have a well-defined layout
+                    if (deref.parent != null) {
+                        deref.parent = null;
+                        deref.ty_without_well_defined_layout = container_ty;
+                    }
+
+                    if (deref.pointee) |*tv| {
+                        const coerce_in_mem_ok =
+                            (try sema.coerceInMemoryAllowed(block, container_ty, tv.ty, false, target, src, src)) == .ok or
+                            (try sema.coerceInMemoryAllowed(block, tv.ty, container_ty, false, target, src, src)) == .ok;
+                        if (coerce_in_mem_ok) {
+                            const payload_val = switch (ptr_val.tag()) {
+                                .eu_payload_ptr => if (tv.val.castTag(.eu_payload)) |some| some.data else {
+                                    return sema.fail(block, src, "attempt to unwrap error: {s}", .{tv.val.castTag(.@"error").?.data.name});
+                                },
+                                .opt_payload_ptr => if (tv.val.castTag(.opt_payload)) |some| some.data else opt: {
+                                    if (tv.val.isNull(mod)) return sema.fail(block, src, "attempt to use null value", .{});
+                                    break :opt tv.val;
+                                },
+                                else => unreachable,
+                            };
+                            tv.* = TypedValue{ .ty = payload_ty, .val = payload_val };
+                            break :blk deref;
+                        }
+                    }
+                    deref.pointee = null;
+                    break :blk deref;
+                },
+                .comptime_field => |comptime_field| blk: {
+                    const field_ty = mod.intern_pool.typeOf(comptime_field).toType();
+                    break :blk ComptimePtrLoadKit{
+                        .parent = null,
+                        .pointee = .{ .ty = field_ty, .val = comptime_field.toValue() },
+                        .is_mutable = false,
+                        .ty_without_well_defined_layout = field_ty,
+                    };
+                },
+                .elem => |elem_ptr| blk: {
+                    const elem_ty = ptr.ty.toType().childType(mod);
+                    var deref = try sema.beginComptimePtrLoad(block, src, elem_ptr.base.toValue(), null);
+
+                    // This code assumes that elem_ptrs have been "flattened" in order for direct dereference
+                    // to succeed, meaning that elem ptrs of the same elem_ty are coalesced. Here we check that
+                    // our parent is not an elem_ptr with the same elem_ty, since that would be "unflattened"
+                    switch (mod.intern_pool.indexToKey(elem_ptr.base)) {
+                        .ptr => |base_ptr| switch (base_ptr.addr) {
+                            .elem => |base_elem| assert(!mod.intern_pool.typeOf(base_elem.base).toType().elemType2(mod).eql(elem_ty, mod)),
+                            else => {},
+                        },
+                        else => {},
+                    }
+
+                    if (elem_ptr.index != 0) {
+                        if (elem_ty.hasWellDefinedLayout(mod)) {
+                            if (deref.parent) |*parent| {
+                                // Update the byte offset (in-place)
+                                const elem_size = try sema.typeAbiSize(elem_ty);
+                                const offset = parent.byte_offset + elem_size * elem_ptr.index;
+                                parent.byte_offset = try sema.usizeCast(block, src, offset);
+                            }
+                        } else {
+                            deref.parent = null;
+                            deref.ty_without_well_defined_layout = elem_ty;
+                        }
+                    }
+
+                    // If we're loading an elem that was derived from a different type
+                    // than the true type of the underlying decl, we cannot deref directly
+                    const ty_matches = if (deref.pointee != null and deref.pointee.?.ty.isArrayOrVector(mod)) x: {
+                        const deref_elem_ty = deref.pointee.?.ty.childType(mod);
+                        break :x (try sema.coerceInMemoryAllowed(block, deref_elem_ty, elem_ty, false, target, src, src)) == .ok or
+                            (try sema.coerceInMemoryAllowed(block, elem_ty, deref_elem_ty, false, target, src, src)) == .ok;
+                    } else false;
+                    if (!ty_matches) {
+                        deref.pointee = null;
+                        break :blk deref;
+                    }
+
+                    var array_tv = deref.pointee.?;
+                    const check_len = array_tv.ty.arrayLenIncludingSentinel(mod);
+                    if (maybe_array_ty) |load_ty| {
+                        // It's possible that we're loading a [N]T, in which case we'd like to slice
+                        // the pointee array directly from our parent array.
+                        if (load_ty.isArrayOrVector(mod) and load_ty.childType(mod).eql(elem_ty, mod)) {
+                            const N = try sema.usizeCast(block, src, load_ty.arrayLenIncludingSentinel(mod));
+                            deref.pointee = if (elem_ptr.index + N <= check_len) TypedValue{
+                                .ty = try Type.array(sema.arena, N, null, elem_ty, mod),
+                                .val = try array_tv.val.sliceArray(mod, sema.arena, elem_ptr.index, elem_ptr.index + N),
+                            } else null;
+                            break :blk deref;
+                        }
+                    }
+
+                    if (elem_ptr.index >= check_len) {
+                        deref.pointee = null;
+                        break :blk deref;
+                    }
+                    if (elem_ptr.index == check_len - 1) {
+                        if (array_tv.ty.sentinel(mod)) |sent| {
+                            deref.pointee = TypedValue{
+                                .ty = elem_ty,
+                                .val = sent,
+                            };
+                            break :blk deref;
+                        }
+                    }
+                    deref.pointee = TypedValue{
+                        .ty = elem_ty,
+                        .val = try array_tv.val.elemValue(mod, elem_ptr.index),
+                    };
+                    break :blk deref;
+                },
+                .field => |field_ptr| blk: {
+                    const field_index = @intCast(u32, field_ptr.index);
+                    const container_ty = mod.intern_pool.typeOf(field_ptr.base).toType().childType(mod);
+                    var deref = try sema.beginComptimePtrLoad(block, src, field_ptr.base.toValue(), container_ty);
+
+                    if (container_ty.hasWellDefinedLayout(mod)) {
+                        const struct_obj = mod.typeToStruct(container_ty);
+                        if (struct_obj != null and struct_obj.?.layout == .Packed) {
+                            // packed structs are not byte addressable
+                            deref.parent = null;
+                        } else if (deref.parent) |*parent| {
+                            // Update the byte offset (in-place)
+                            try sema.resolveTypeLayout(container_ty);
+                            const field_offset = container_ty.structFieldOffset(field_index, mod);
+                            parent.byte_offset = try sema.usizeCast(block, src, parent.byte_offset + field_offset);
+                        }
+                    } else {
+                        deref.parent = null;
+                        deref.ty_without_well_defined_layout = container_ty;
+                    }
+
+                    const tv = deref.pointee orelse {
+                        deref.pointee = null;
+                        break :blk deref;
+                    };
+                    const coerce_in_mem_ok =
+                        (try sema.coerceInMemoryAllowed(block, container_ty, tv.ty, false, target, src, src)) == .ok or
+                        (try sema.coerceInMemoryAllowed(block, tv.ty, container_ty, false, target, src, src)) == .ok;
+                    if (!coerce_in_mem_ok) {
+                        deref.pointee = null;
+                        break :blk deref;
+                    }
+
+                    if (container_ty.isSlice(mod)) {
+                        const slice_val = tv.val.castTag(.slice).?.data;
+                        deref.pointee = switch (field_index) {
+                            Value.Payload.Slice.ptr_index => TypedValue{
+                                .ty = container_ty.slicePtrFieldType(mod),
+                                .val = slice_val.ptr,
+                            },
+                            Value.Payload.Slice.len_index => TypedValue{
+                                .ty = Type.usize,
+                                .val = slice_val.len,
+                            },
+                            else => unreachable,
+                        };
+                    } else {
+                        const field_ty = container_ty.structFieldType(field_index, mod);
+                        deref.pointee = TypedValue{
+                            .ty = field_ty,
+                            .val = try tv.val.fieldValue(tv.ty, mod, field_index),
+                        };
+                    }
+                    break :blk deref;
+                },
             },
             else => unreachable,
         },
@@ -28559,11 +28731,12 @@ fn coerceArrayPtrToSlice(
     if (try sema.resolveMaybeUndefVal(inst)) |val| {
         const ptr_array_ty = sema.typeOf(inst);
         const array_ty = ptr_array_ty.childType(mod);
-        const slice_val = try Value.Tag.slice.create(sema.arena, .{
-            .ptr = val,
-            .len = try mod.intValue(Type.usize, array_ty.arrayLen(mod)),
-        });
-        return sema.addConstant(dest_ty, slice_val);
+        const slice_val = try mod.intern(.{ .ptr = .{
+            .ty = dest_ty.ip_index,
+            .addr = mod.intern_pool.indexToKey(val.ip_index).ptr.addr,
+            .len = (try mod.intValue(Type.usize, array_ty.arrayLen(mod))).ip_index,
+        } });
+        return sema.addConstant(dest_ty, slice_val.toValue());
     }
     try sema.requireRuntimeBlock(block, inst_src, null);
     return block.addTyOp(.array_to_slice, dest_ty, inst);
@@ -29769,6 +29942,7 @@ fn analyzeSlice(
 
     const start = try sema.coerce(block, Type.usize, uncasted_start, start_src);
     const new_ptr = try sema.analyzePtrArithmetic(block, src, ptr, start, .ptr_add, ptr_src, start_src);
+    const new_ptr_ty = sema.typeOf(new_ptr);
 
     // true if and only if the end index of the slice, implicitly or explicitly, equals
     // the length of the underlying object being sliced. we might learn the length of the
@@ -29914,7 +30088,7 @@ fn analyzeSlice(
                 const end_int = end_val.getUnsignedInt(mod).?;
                 const sentinel_index = try sema.usizeCast(block, end_src, end_int - start_int);
 
-                const elem_ptr = try ptr_val.elemPtr(sema.typeOf(new_ptr), sema.arena, sentinel_index, sema.mod);
+                const elem_ptr = try ptr_val.elemPtr(new_ptr_ty, sema.arena, sentinel_index, sema.mod);
                 const res = try sema.pointerDerefExtra(block, src, elem_ptr, elem_ty, false);
                 const actual_sentinel = switch (res) {
                     .runtime_load => break :sentinel_check,
@@ -29960,7 +30134,7 @@ fn analyzeSlice(
         try sema.analyzeArithmetic(block, .sub, end, start, src, end_src, start_src, false);
     const opt_new_len_val = try sema.resolveDefinedValue(block, src, new_len);
 
-    const new_ptr_ty_info = sema.typeOf(new_ptr).ptrInfo(mod);
+    const new_ptr_ty_info = new_ptr_ty.ptrInfo(mod);
     const new_allowzero = new_ptr_ty_info.@"allowzero" and sema.typeOf(ptr).ptrSize(mod) != .C;
 
     if (opt_new_len_val) |new_len_val| {
@@ -30009,7 +30183,11 @@ fn analyzeSlice(
         };
 
         if (!new_ptr_val.isUndef(mod)) {
-            return sema.addConstant(return_ty, new_ptr_val);
+            return sema.addConstant(return_ty, (try mod.intern_pool.getCoerced(
+                mod.gpa,
+                try new_ptr_val.intern(new_ptr_ty, mod),
+                return_ty.ip_index,
+            )).toValue());
         }
 
         // Special case: @as([]i32, undefined)[x..x]

@@ -1192,7 +1192,7 @@ const Writer = struct {
             .field => {
                 const field_name = self.code.nullTerminatedString(extra.data.field_name_start);
                 try self.writeInstRef(stream, extra.data.obj_ptr);
-                try stream.print(", {}", .{std.zig.fmtId(field_name)});
+                try stream.print(", \"{}\"", .{std.zig.fmtEscapes(field_name)});
             },
         }
         try stream.writeAll(", [");

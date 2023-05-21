@@ -3374,9 +3374,15 @@ pub const DeclGen = struct {
                                     val;
                                 break :ptr addrspace_casted_ptr;
                             },
-                            .decl => |decl| try lowerDeclRefValue(dg, tv, decl),
-                            .mut_decl => |mut_decl| try lowerDeclRefValue(dg, tv, mut_decl.decl),
+                            .decl => |decl| try dg.lowerDeclRefValue(tv, decl),
+                            .mut_decl => |mut_decl| try dg.lowerDeclRefValue(tv, mut_decl.decl),
                             .int => |int| dg.lowerIntAsPtr(mod.intern_pool.indexToKey(int).int),
+                            .eu_payload,
+                            .opt_payload,
+                            .elem,
+                            .field,
+                            => try dg.lowerParentPtr(tv.val, tv.ty.ptrInfo(mod).bit_offset % 8 == 0),
+                            .comptime_field => unreachable,
                         };
                         switch (ptr.len) {
                             .none => return ptr_val,
@@ -4091,6 +4097,132 @@ pub const DeclGen = struct {
                 .decl => |decl| dg.lowerParentPtrDecl(ptr_val, decl),
                 .mut_decl => |mut_decl| dg.lowerParentPtrDecl(ptr_val, mut_decl.decl),
                 .int => |int| dg.lowerIntAsPtr(mod.intern_pool.indexToKey(int).int),
+                .eu_payload => |eu_ptr| {
+                    const parent_llvm_ptr = try dg.lowerParentPtr(eu_ptr.toValue(), true);
+
+                    const eu_ty = mod.intern_pool.typeOf(eu_ptr).toType().childType(mod);
+                    const payload_ty = eu_ty.errorUnionPayload(mod);
+                    if (!payload_ty.hasRuntimeBitsIgnoreComptime(mod)) {
+                        // In this case, we represent pointer to error union the same as pointer
+                        // to the payload.
+                        return parent_llvm_ptr;
+                    }
+
+                    const payload_offset: u8 = if (payload_ty.abiAlignment(mod) > Type.anyerror.abiSize(mod)) 2 else 1;
+                    const llvm_u32 = dg.context.intType(32);
+                    const indices: [2]*llvm.Value = .{
+                        llvm_u32.constInt(0, .False),
+                        llvm_u32.constInt(payload_offset, .False),
+                    };
+                    const eu_llvm_ty = try dg.lowerType(eu_ty);
+                    return eu_llvm_ty.constInBoundsGEP(parent_llvm_ptr, &indices, indices.len);
+                },
+                .opt_payload => |opt_ptr| {
+                    const parent_llvm_ptr = try dg.lowerParentPtr(opt_ptr.toValue(), true);
+
+                    const opt_ty = mod.intern_pool.typeOf(opt_ptr).toType().childType(mod);
+                    const payload_ty = opt_ty.optionalChild(mod);
+                    if (!payload_ty.hasRuntimeBitsIgnoreComptime(mod) or
+                        payload_ty.optionalReprIsPayload(mod))
+                    {
+                        // In this case, we represent pointer to optional the same as pointer
+                        // to the payload.
+                        return parent_llvm_ptr;
+                    }
+
+                    const llvm_u32 = dg.context.intType(32);
+                    const indices: [2]*llvm.Value = .{
+                        llvm_u32.constInt(0, .False),
+                        llvm_u32.constInt(0, .False),
+                    };
+                    const opt_llvm_ty = try dg.lowerType(opt_ty);
+                    return opt_llvm_ty.constInBoundsGEP(parent_llvm_ptr, &indices, indices.len);
+                },
+                .comptime_field => unreachable,
+                .elem => |elem_ptr| {
+                    const parent_llvm_ptr = try dg.lowerParentPtr(elem_ptr.base.toValue(), true);
+
+                    const llvm_usize = try dg.lowerType(Type.usize);
+                    const indices: [1]*llvm.Value = .{
+                        llvm_usize.constInt(elem_ptr.index, .False),
+                    };
+                    const elem_llvm_ty = try dg.lowerType(ptr.ty.toType().childType(mod));
+                    return elem_llvm_ty.constInBoundsGEP(parent_llvm_ptr, &indices, indices.len);
+                },
+                .field => |field_ptr| {
+                    const parent_llvm_ptr = try dg.lowerParentPtr(field_ptr.base.toValue(), byte_aligned);
+                    const parent_ty = mod.intern_pool.typeOf(field_ptr.base).toType().childType(mod);
+
+                    const field_index = @intCast(u32, field_ptr.index);
+                    const llvm_u32 = dg.context.intType(32);
+                    switch (parent_ty.zigTypeTag(mod)) {
+                        .Union => {
+                            if (parent_ty.containerLayout(mod) == .Packed) {
+                                return parent_llvm_ptr;
+                            }
+
+                            const layout = parent_ty.unionGetLayout(mod);
+                            if (layout.payload_size == 0) {
+                                // In this case a pointer to the union and a pointer to any
+                                // (void) payload is the same.
+                                return parent_llvm_ptr;
+                            }
+                            const llvm_pl_index = if (layout.tag_size == 0)
+                                0
+                            else
+                                @boolToInt(layout.tag_align >= layout.payload_align);
+                            const indices: [2]*llvm.Value = .{
+                                llvm_u32.constInt(0, .False),
+                                llvm_u32.constInt(llvm_pl_index, .False),
+                            };
+                            const parent_llvm_ty = try dg.lowerType(parent_ty);
+                            return parent_llvm_ty.constInBoundsGEP(parent_llvm_ptr, &indices, indices.len);
+                        },
+                        .Struct => {
+                            if (parent_ty.containerLayout(mod) == .Packed) {
+                                if (!byte_aligned) return parent_llvm_ptr;
+                                const llvm_usize = dg.context.intType(target.cpu.arch.ptrBitWidth());
+                                const base_addr = parent_llvm_ptr.constPtrToInt(llvm_usize);
+                                // count bits of fields before this one
+                                const prev_bits = b: {
+                                    var b: usize = 0;
+                                    for (parent_ty.structFields(mod).values()[0..field_index]) |field| {
+                                        if (field.is_comptime or !field.ty.hasRuntimeBitsIgnoreComptime(mod)) continue;
+                                        b += @intCast(usize, field.ty.bitSize(mod));
+                                    }
+                                    break :b b;
+                                };
+                                const byte_offset = llvm_usize.constInt(prev_bits / 8, .False);
+                                const field_addr = base_addr.constAdd(byte_offset);
+                                const final_llvm_ty = dg.context.pointerType(0);
+                                return field_addr.constIntToPtr(final_llvm_ty);
+                            }
+
+                            const parent_llvm_ty = try dg.lowerType(parent_ty);
+                            if (llvmField(parent_ty, field_index, mod)) |llvm_field| {
+                                const indices: [2]*llvm.Value = .{
+                                    llvm_u32.constInt(0, .False),
+                                    llvm_u32.constInt(llvm_field.index, .False),
+                                };
+                                return parent_llvm_ty.constInBoundsGEP(parent_llvm_ptr, &indices, indices.len);
+                            } else {
+                                const llvm_index = llvm_u32.constInt(@boolToInt(parent_ty.hasRuntimeBitsIgnoreComptime(mod)), .False);
+                                const indices: [1]*llvm.Value = .{llvm_index};
+                                return parent_llvm_ty.constInBoundsGEP(parent_llvm_ptr, &indices, indices.len);
+                            }
+                        },
+                        .Pointer => {
+                            assert(parent_ty.isSlice(mod));
+                            const indices: [2]*llvm.Value = .{
+                                llvm_u32.constInt(0, .False),
+                                llvm_u32.constInt(field_index, .False),
+                            };
+                            const parent_llvm_ty = try dg.lowerType(parent_ty);
+                            return parent_llvm_ty.constInBoundsGEP(parent_llvm_ptr, &indices, indices.len);
+                        },
+                        else => unreachable,
+                    }
+                },
             },
             else => unreachable,
         };

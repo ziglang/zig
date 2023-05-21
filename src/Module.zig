@@ -6783,7 +6783,7 @@ pub fn intType(mod: *Module, signedness: std.builtin.Signedness, bits: u16) Allo
 
 pub fn arrayType(mod: *Module, info: InternPool.Key.ArrayType) Allocator.Error!Type {
     if (std.debug.runtime_safety and info.sentinel != .none) {
-        const sent_ty = mod.intern_pool.indexToKey(info.sentinel).typeOf();
+        const sent_ty = mod.intern_pool.typeOf(info.sentinel);
         assert(sent_ty == info.child);
     }
     const i = try intern(mod, .{ .array_type = info });
@@ -6802,7 +6802,7 @@ pub fn optionalType(mod: *Module, child_type: InternPool.Index) Allocator.Error!
 
 pub fn ptrType(mod: *Module, info: InternPool.Key.PtrType) Allocator.Error!Type {
     if (std.debug.runtime_safety and info.sentinel != .none) {
-        const sent_ty = mod.intern_pool.indexToKey(info.sentinel).typeOf();
+        const sent_ty = mod.intern_pool.typeOf(info.sentinel);
         assert(sent_ty == info.elem_type);
     }
     const i = try intern(mod, .{ .ptr_type = info });
