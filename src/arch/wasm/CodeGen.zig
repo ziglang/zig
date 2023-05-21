@@ -5295,11 +5295,23 @@ fn airMemcpy(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     const bin_op = func.air.instructions.items(.data)[inst].bin_op;
     const dst = try func.resolveInst(bin_op.lhs);
     const dst_ty = func.air.typeOf(bin_op.lhs);
+    const ptr_elem_ty = dst_ty.childType();
     const src = try func.resolveInst(bin_op.rhs);
     const src_ty = func.air.typeOf(bin_op.rhs);
     const len = switch (dst_ty.ptrSize()) {
-        .Slice => try func.sliceLen(dst),
-        .One => @as(WValue, .{ .imm32 = @intCast(u32, dst_ty.childType().arrayLen()) }),
+        .Slice => blk: {
+            const slice_len = try func.sliceLen(dst);
+            if (ptr_elem_ty.abiSize(func.target) != 1) {
+                try func.emitWValue(slice_len);
+                try func.emitWValue(.{ .imm32 = @intCast(u32, ptr_elem_ty.abiSize(func.target)) });
+                try func.addTag(.i32_mul);
+                try func.addLabel(.local_set, slice_len.local.value);
+            }
+            break :blk slice_len;
+        },
+        .One => @as(WValue, .{
+            .imm32 = @intCast(u32, ptr_elem_ty.arrayLen() * ptr_elem_ty.childType().abiSize(func.target)),
+        }),
         .C, .Many => unreachable,
     };
     const dst_ptr = try func.sliceOrArrayPtr(dst, dst_ty);
