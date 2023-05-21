@@ -748,7 +748,7 @@ pub fn formatIntValue(
     options: FormatOptions,
     writer: anytype,
 ) !void {
-    comptime var radix = 10;
+    comptime var base = 10;
     comptime var case: Case = .lower;
 
     const int_value = if (@TypeOf(value) == comptime_int) blk: {
@@ -757,7 +757,7 @@ pub fn formatIntValue(
     } else value;
 
     if (fmt.len == 0 or comptime std.mem.eql(u8, fmt, "d")) {
-        radix = 10;
+        base = 10;
         case = .lower;
     } else if (comptime std.mem.eql(u8, fmt, "c")) {
         if (@typeInfo(@TypeOf(int_value)).Int.bits <= 8) {
@@ -772,22 +772,22 @@ pub fn formatIntValue(
             @compileError("cannot print integer that is larger than 21 bits as an UTF-8 sequence");
         }
     } else if (comptime std.mem.eql(u8, fmt, "b")) {
-        radix = 2;
+        base = 2;
         case = .lower;
     } else if (comptime std.mem.eql(u8, fmt, "x")) {
-        radix = 16;
+        base = 16;
         case = .lower;
     } else if (comptime std.mem.eql(u8, fmt, "X")) {
-        radix = 16;
+        base = 16;
         case = .upper;
     } else if (comptime std.mem.eql(u8, fmt, "o")) {
-        radix = 8;
+        base = 8;
         case = .lower;
     } else {
         invalidFmtError(fmt, value);
     }
 
-    return formatInt(int_value, radix, case, options, writer);
+    return formatInt(int_value, base, case, options, writer);
 }
 
 fn formatFloatValue(
@@ -906,7 +906,7 @@ pub fn fmtSliceEscapeUpper(bytes: []const u8) std.fmt.Formatter(formatSliceEscap
     return .{ .data = bytes };
 }
 
-fn formatSizeImpl(comptime radix: comptime_int) type {
+fn formatSizeImpl(comptime base: comptime_int) type {
     return struct {
         fn formatSizeImpl(
             value: u64,
@@ -926,13 +926,13 @@ fn formatSizeImpl(comptime radix: comptime_int) type {
             const mags_iec = " KMGTPEZY";
 
             const log2 = math.log2(value);
-            const magnitude = switch (radix) {
+            const magnitude = switch (base) {
                 1000 => math.min(log2 / comptime math.log2(1000), mags_si.len - 1),
                 1024 => math.min(log2 / 10, mags_iec.len - 1),
                 else => unreachable,
             };
-            const new_value = lossyCast(f64, value) / math.pow(f64, lossyCast(f64, radix), lossyCast(f64, magnitude));
-            const suffix = switch (radix) {
+            const new_value = lossyCast(f64, value) / math.pow(f64, lossyCast(f64, base), lossyCast(f64, magnitude));
+            const suffix = switch (base) {
                 1000 => mags_si[magnitude],
                 1024 => mags_iec[magnitude],
                 else => unreachable,
@@ -944,7 +944,7 @@ fn formatSizeImpl(comptime radix: comptime_int) type {
 
             bufstream.writer().writeAll(if (suffix == ' ')
                 "B"
-            else switch (radix) {
+            else switch (base) {
                 1000 => &[_]u8{ suffix, 'B' },
                 1024 => &[_]u8{ suffix, 'i', 'B' },
                 else => unreachable,
@@ -1730,21 +1730,21 @@ pub fn Formatter(comptime format_fn: anytype) type {
 }
 
 /// Parses the string `buf` as signed or unsigned representation in the
-/// specified radix of an integral value of type `T`.
+/// specified base of an integral value of type `T`.
 ///
-/// When `radix` is zero the string prefix is examined to detect the true radix:
-///  * A prefix of "0b" implies radix=2,
-///  * A prefix of "0o" implies radix=8,
-///  * A prefix of "0x" implies radix=16,
-///  * Otherwise radix=10 is assumed.
+/// When `base` is zero the string prefix is examined to detect the true base:
+///  * A prefix of "0b" implies base=2,
+///  * A prefix of "0o" implies base=8,
+///  * A prefix of "0x" implies base=16,
+///  * Otherwise base=10 is assumed.
 ///
 /// Ignores '_' character in `buf`.
 /// See also `parseUnsigned`.
-pub fn parseInt(comptime T: type, buf: []const u8, radix: u8) ParseIntError!T {
+pub fn parseInt(comptime T: type, buf: []const u8, base: u8) ParseIntError!T {
     if (buf.len == 0) return error.InvalidCharacter;
-    if (buf[0] == '+') return parseWithSign(T, buf[1..], radix, .pos);
-    if (buf[0] == '-') return parseWithSign(T, buf[1..], radix, .neg);
-    return parseWithSign(T, buf, radix, .pos);
+    if (buf[0] == '+') return parseWithSign(T, buf[1..], base, .pos);
+    if (buf[0] == '-') return parseWithSign(T, buf[1..], base, .neg);
+    return parseWithSign(T, buf, base, .pos);
 }
 
 test "parseInt" {
@@ -1777,7 +1777,7 @@ test "parseInt" {
     try std.testing.expectError(error.InvalidCharacter, parseInt(u32, "-", 10));
     try std.testing.expectError(error.InvalidCharacter, parseInt(i32, "-", 10));
 
-    // autodectect the radix
+    // autodectect the base
     try std.testing.expect((try parseInt(i32, "111", 0)) == 111);
     try std.testing.expect((try parseInt(i32, "1_1_1", 0)) == 111);
     try std.testing.expect((try parseInt(i32, "1_1_1", 0)) == 111);
@@ -1804,29 +1804,29 @@ test "parseInt" {
 fn parseWithSign(
     comptime T: type,
     buf: []const u8,
-    radix: u8,
+    base: u8,
     comptime sign: enum { pos, neg },
 ) ParseIntError!T {
     if (buf.len == 0) return error.InvalidCharacter;
 
-    var buf_radix = radix;
+    var buf_base = base;
     var buf_start = buf;
-    if (radix == 0) {
+    if (base == 0) {
         // Treat is as a decimal number by default.
-        buf_radix = 10;
-        // Detect the radix by looking at buf prefix.
+        buf_base = 10;
+        // Detect the base by looking at buf prefix.
         if (buf.len > 2 and buf[0] == '0') {
             switch (std.ascii.toLower(buf[1])) {
                 'b' => {
-                    buf_radix = 2;
+                    buf_base = 2;
                     buf_start = buf[2..];
                 },
                 'o' => {
-                    buf_radix = 8;
+                    buf_base = 8;
                     buf_start = buf[2..];
                 },
                 'x' => {
-                    buf_radix = 16;
+                    buf_base = 16;
                     buf_start = buf[2..];
                 },
                 else => {},
@@ -1845,28 +1845,28 @@ fn parseWithSign(
 
     for (buf_start) |c| {
         if (c == '_') continue;
-        const digit = try charToDigit(c, buf_radix);
+        const digit = try charToDigit(c, buf_base);
 
-        if (x != 0) x = try math.mul(T, x, math.cast(T, buf_radix) orelse return error.Overflow);
+        if (x != 0) x = try math.mul(T, x, math.cast(T, buf_base) orelse return error.Overflow);
         x = try add(T, x, math.cast(T, digit) orelse return error.Overflow);
     }
 
     return x;
 }
 
-/// Parses the string `buf` as  unsigned representation in the specified radix
+/// Parses the string `buf` as unsigned representation in the specified base
 /// of an integral value of type `T`.
 ///
-/// When `radix` is zero the string prefix is examined to detect the true radix:
-///  * A prefix of "0b" implies radix=2,
-///  * A prefix of "0o" implies radix=8,
-///  * A prefix of "0x" implies radix=16,
-///  * Otherwise radix=10 is assumed.
+/// When `base` is zero the string prefix is examined to detect the true base:
+///  * A prefix of "0b" implies base=2,
+///  * A prefix of "0o" implies base=8,
+///  * A prefix of "0x" implies base=16,
+///  * Otherwise base=10 is assumed.
 ///
 /// Ignores '_' character in `buf`.
 /// See also `parseInt`.
-pub fn parseUnsigned(comptime T: type, buf: []const u8, radix: u8) ParseIntError!T {
-    return parseWithSign(T, buf, radix, .pos);
+pub fn parseUnsigned(comptime T: type, buf: []const u8, base: u8) ParseIntError!T {
+    return parseWithSign(T, buf, base, .pos);
 }
 
 test "parseUnsigned" {
@@ -1889,7 +1889,7 @@ test "parseUnsigned" {
 
     try std.testing.expect((try parseUnsigned(u32, "NUMBER", 36)) == 1442151747);
 
-    // these numbers should fit even though the radix itself doesn't fit in the destination type
+    // these numbers should fit even though the base itself doesn't fit in the destination type
     try std.testing.expect((try parseUnsigned(u1, "0", 10)) == 0);
     try std.testing.expect((try parseUnsigned(u1, "1", 10)) == 1);
     try std.testing.expectError(error.Overflow, parseUnsigned(u1, "2", 10));
@@ -1906,14 +1906,14 @@ test "parseUnsigned" {
 }
 
 /// Parses a number like '2G', '2Gi', or '2GiB'.
-pub fn parseIntSizeSuffix(buf: []const u8, radix: u8) ParseIntError!usize {
+pub fn parseIntSizeSuffix(buf: []const u8, digit_base: u8) ParseIntError!usize {
     var without_B = buf;
     if (mem.endsWith(u8, buf, "B")) without_B.len -= 1;
     var without_i = without_B;
-    var base: usize = 1000;
+    var magnitude_base: usize = 1000;
     if (mem.endsWith(u8, without_B, "i")) {
         without_i.len -= 1;
-        base = 1024;
+        magnitude_base = 1024;
     }
     if (without_i.len == 0) return error.InvalidCharacter;
     const orders_of_magnitude: usize = switch (without_i[without_i.len - 1]) {
@@ -1935,11 +1935,11 @@ pub fn parseIntSizeSuffix(buf: []const u8, radix: u8) ParseIntError!usize {
     } else if (without_i.len != without_B.len) {
         return error.InvalidCharacter;
     }
-    const multiplier = math.powi(usize, base, orders_of_magnitude) catch |err| switch (err) {
+    const multiplier = math.powi(usize, magnitude_base, orders_of_magnitude) catch |err| switch (err) {
         error.Underflow => unreachable,
         error.Overflow => return error.Overflow,
     };
-    const number = try std.fmt.parseInt(usize, without_suffix, radix);
+    const number = try std.fmt.parseInt(usize, without_suffix, digit_base);
     return math.mul(usize, number, multiplier);
 }
 
@@ -1962,7 +1962,7 @@ test {
     _ = &parseFloat;
 }
 
-pub fn charToDigit(c: u8, radix: u8) (error{InvalidCharacter}!u8) {
+pub fn charToDigit(c: u8, base: u8) (error{InvalidCharacter}!u8) {
     const value = switch (c) {
         '0'...'9' => c - '0',
         'A'...'Z' => c - 'A' + 10,
@@ -1970,7 +1970,7 @@ pub fn charToDigit(c: u8, radix: u8) (error{InvalidCharacter}!u8) {
         else => return error.InvalidCharacter,
     };
 
-    if (value >= radix) return error.InvalidCharacter;
+    if (value >= base) return error.InvalidCharacter;
 
     return value;
 }
