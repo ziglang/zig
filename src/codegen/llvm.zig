@@ -4693,8 +4693,8 @@ pub const FuncGen = struct {
     }
 
     fn resolveValue(self: *FuncGen, tv: TypedValue) !*llvm.Value {
-        const llvm_val = try self.dg.lowerValue(tv);
         const mod = self.dg.module;
+        const llvm_val = try self.dg.lowerValue(tv);
         if (!isByRef(tv.ty, mod)) return llvm_val;
 
         // We have an LLVM value but we need to create a global constant and
@@ -4972,8 +4972,8 @@ pub const FuncGen = struct {
         const pl_op = self.air.instructions.items(.data)[inst].pl_op;
         const extra = self.air.extraData(Air.Call, pl_op.payload);
         const args = @ptrCast([]const Air.Inst.Ref, self.air.extra[extra.end..][0..extra.data.args_len]);
-        const callee_ty = self.typeOf(pl_op.operand);
         const mod = self.dg.module;
+        const callee_ty = self.typeOf(pl_op.operand);
         const zig_fn_ty = switch (callee_ty.zigTypeTag(mod)) {
             .Fn => callee_ty,
             .Pointer => callee_ty.childType(mod),

@@ -115,7 +115,7 @@ class zig_Slice_SynthProvider:
         try: return int(name.removeprefix('[').removesuffix(']'))
         except: return -1
     def get_child_at_index(self, index):
-        if index < 0 or index >= self.len: return None
+        if index not in range(self.len): return None
         try: return self.ptr.CreateChildAtOffset('[%d]' % index, index * self.elem_size, self.elem_type)
         except: return None
 
@@ -176,7 +176,7 @@ class zig_TaggedUnion_SynthProvider:
     def get_child_index(self, name):
         try: return ('tag', 'payload').index(name)
         except: return -1
-    def get_child_at_index(self, index): return (self.tag, self.payload)[index] if index >= 0 and index < 2 else None
+    def get_child_at_index(self, index): return (self.tag, self.payload)[index] if index in range(2) else None
 
 # Define Zig Standard Library
 
@@ -196,7 +196,7 @@ class std_SegmentedList_SynthProvider:
         except: return -1
     def get_child_at_index(self, index):
         try:
-            if index < 0 or index >= self.len: return None
+            if index not in range(self.len): return None
             prealloc_item_count = len(self.prealloc_segment)
             if index < prealloc_item_count: return self.prealloc_segment.child[index]
             prealloc_exp = prealloc_item_count.bit_length() - 1
@@ -231,7 +231,7 @@ class std_MultiArrayList_SynthProvider:
         except: return -1
     def get_child_at_index(self, index):
         try:
-            if index < 0 or index >= self.len: return None
+            if index not in range(self.len): return None
             offset = 0
             data = lldb.SBData()
             for field in self.entry_type.fields:
@@ -266,7 +266,7 @@ class std_MultiArrayList_Slice_SynthProvider:
         except: return -1
     def get_child_at_index(self, index):
         try:
-            if index < 0 or index >= self.len: return None
+            if index not in range(self.len): return None
             data = lldb.SBData()
             for field in self.entry_type.fields:
                 field_type = field.type.GetPointeeType()
@@ -328,7 +328,7 @@ class std_Entry_SynthProvider:
     def has_children(self): return self.num_children() != 0
     def num_children(self): return len(self.children)
     def get_child_index(self, name): return self.indices.get(name)
-    def get_child_at_index(self, index): return self.children[index].deref if index >= 0 and index < len(self.children) else None
+    def get_child_at_index(self, index): return self.children[index].deref if index in range(len(self.children)) else None
 
 # Define Zig Stage2 Compiler
 
@@ -345,7 +345,7 @@ class TagAndPayload_SynthProvider:
     def get_child_index(self, name):
         try: return ('tag', 'payload').index(name)
         except: return -1
-    def get_child_at_index(self, index): return (self.tag, self.payload)[index] if index >= 0 and index < 2 else None
+    def get_child_at_index(self, index): return (self.tag, self.payload)[index] if index in range(2) else None
 
 def Inst_Ref_SummaryProvider(value, _=None):
     members = value.type.enum_members
@@ -392,7 +392,7 @@ class TagOrPayloadPtr_SynthProvider:
     def get_child_index(self, name):
         try: return ('tag', 'payload').index(name)
         except: return -1
-    def get_child_at_index(self, index): return (self.tag, self.payload)[index] if index >= 0 and index < 2 else None
+    def get_child_at_index(self, index): return (self.tag, self.payload)[index] if index in range(2) else None
 
 def Module_Decl_name(decl):
     error = lldb.SBError()
@@ -406,6 +406,71 @@ def Module_Namespace_RenderFullyQualifiedName(namespace):
 def Module_Decl_RenderFullyQualifiedName(decl): return '.'.join((Module_Namespace_RenderFullyQualifiedName(decl.GetChildMemberWithName('src_namespace')), Module_Decl_name(decl)))
 
 def OwnerDecl_RenderFullyQualifiedName(payload): return Module_Decl_RenderFullyQualifiedName(payload.GetChildMemberWithName('owner_decl').GetChildMemberWithName('decl'))
+
+def InternPool_Find(thread):
+    for frame in thread:
+        ip = frame.FindVariable('ip') or frame.FindVariable('intern_pool')
+        if ip: return ip
+        mod = frame.FindVariable('mod') or frame.FindVariable('module')
+        if mod:
+            ip = mod.GetChildMemberWithName('intern_pool')
+            if ip: return ip
+
+class InternPool_Index_SynthProvider:
+    def __init__(self, value, _=None): self.value = value
+    def update(self):
+        try:
+            index_type = self.value.type
+            for helper in self.value.target.FindFunctions('%s.dbHelper' % index_type.name, lldb.eFunctionNameTypeFull):
+                ptr_self_type, ptr_tag_to_encoding_map_type = helper.function.type.GetFunctionArgumentTypes()
+                if ptr_self_type.GetPointeeType() == index_type: break
+            else: return
+            tag_to_encoding_map = {field.name: field.type for field in ptr_tag_to_encoding_map_type.GetPointeeType().fields}
+
+            ip = InternPool_Find(self.value.thread)
+            if not ip: return
+            self.item = ip.GetChildMemberWithName('items').GetChildAtIndex(self.value.unsigned)
+            extra = ip.GetChildMemberWithName('extra').GetChildMemberWithName('items')
+            self.tag = self.item.GetChildMemberWithName('tag').Clone('tag')
+            self.data = None
+            self.trailing = None
+            data = self.item.GetChildMemberWithName('data')
+            encoding_type = tag_to_encoding_map[self.tag.value]
+            dynamic_values = {}
+            for encoding_field in encoding_type.fields:
+                if encoding_field.name == 'data':
+                    if encoding_field.type.IsPointerType():
+                        data_type = encoding_field.type.GetPointeeType()
+                        extra_index = data.unsigned
+                        self.data = extra.GetChildAtIndex(extra_index).Cast(data_type).Clone('data')
+                        extra_index += data_type.num_fields
+                    else:
+                        self.data = data.Cast(encoding_field.type).Clone('data')
+                elif encoding_field.name == 'trailing':
+                    trailing_data = lldb.SBData()
+                    for trailing_field in encoding_field.type.fields:
+                        if trailing_field.type.IsAggregateType():
+                            trailing_data.Append(extra.GetChildAtIndex(extra_index).address_of.data)
+                            len = dynamic_values['trailing.%s.len' % trailing_field.name].unsigned
+                            trailing_data.Append(lldb.SBData.CreateDataFromInt(len, trailing_data.GetAddressByteSize()))
+                            extra_index += len
+                        else:
+                            pass
+                    self.trailing = self.data.CreateValueFromData('trailing', trailing_data, encoding_field.type)
+                else:
+                    path = encoding_field.type.GetPointeeType().name.removeprefix('%s::' % encoding_type.name).removeprefix('%s.' % encoding_type.name).partition('__')[0].split('.')
+                    if path[0] == 'data':
+                        dynamic_value = self.data
+                        for name in path[1:]:
+                            dynamic_value = dynamic_value.GetChildMemberWithName(name)
+                    dynamic_values[encoding_field.name] = dynamic_value
+        except: pass
+    def has_children(self): return True
+    def num_children(self): return 2 + (self.trailing is not None)
+    def get_child_index(self, name):
+        try: return ('tag', 'data', 'trailing').index(name)
+        except: return -1
+    def get_child_at_index(self, index): return (self.tag, self.data, self.trailing)[index] if index in range(3) else None
 
 def type_Type_pointer(payload):
     pointee_type = payload.GetChildMemberWithName('pointee_type')
@@ -616,8 +681,5 @@ def __lldb_init_module(debugger, _=None):
     add(debugger, category='zig.stage2', regex=True, type=MultiArrayList_Entry('Air\\.Inst'), identifier='TagAndPayload', synth=True, inline_children=True, summary=True)
     add(debugger, category='zig.stage2', regex=True, type='^Air\\.Inst\\.Data\\.Data__struct_[1-9][0-9]*$', inline_children=True, summary=True)
     add(debugger, category='zig.stage2', type='Module.Decl::Module.Decl.Index', synth=True)
-    add(debugger, category='zig.stage2', type='type.Type', identifier='TagOrPayloadPtr', synth=True)
-    add(debugger, category='zig.stage2', type='type.Type', summary=True)
-    add(debugger, category='zig.stage2', type='value.Value', identifier='TagOrPayloadPtr', synth=True)
-    add(debugger, category='zig.stage2', type='value.Value', summary=True)
+    add(debugger, category='zig.stage2', type='InternPool.Index', synth=True)
     add(debugger, category='zig.stage2', type='arch.x86_64.CodeGen.MCValue', identifier='zig_TaggedUnion', synth=True, inline_children=True, summary=True)

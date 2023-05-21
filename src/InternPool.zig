@@ -56,6 +56,7 @@ string_table: std.HashMapUnmanaged(
     std.hash_map.default_max_load_percentage,
 ) = .{},
 
+const builtin = @import("builtin");
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
@@ -1057,6 +1058,131 @@ pub const Index = enum(u32) {
             return std.hash.uint32(@enumToInt(a));
         }
     };
+
+    /// This function is used in the debugger pretty formatters in tools/ to fetch the
+    /// Tag to encoding mapping to facilitate fancy debug printing for this type.
+    fn dbHelper(self: *Index, tag_to_encoding_map: *struct {
+        const DataIsIndex = struct { data: Index };
+        const DataIsExtraIndexOfEnumExplicit = struct {
+            const @"data.fields_len" = opaque {};
+            data: *EnumExplicit,
+            @"trailing.names.len": *@"data.fields_len",
+            @"trailing.values.len": *@"data.fields_len",
+            trailing: struct {
+                names: []NullTerminatedString,
+                values: []Index,
+            },
+        };
+        const DataIsExtraIndexOfTypeStructAnon = struct {
+            const @"data.fields_len" = opaque {};
+            data: *TypeStructAnon,
+            @"trailing.types.len": *@"data.fields_len",
+            @"trailing.values.len": *@"data.fields_len",
+            @"trailing.names.len": *@"data.fields_len",
+            trailing: struct {
+                types: []Index,
+                values: []Index,
+                names: []NullTerminatedString,
+            },
+        };
+
+        type_int_signed: struct { data: u32 },
+        type_int_unsigned: struct { data: u32 },
+        type_array_big: struct { data: *Array },
+        type_array_small: struct { data: *Vector },
+        type_vector: struct { data: *Vector },
+        type_pointer: struct { data: *Pointer },
+        type_slice: DataIsIndex,
+        type_optional: DataIsIndex,
+        type_anyframe: DataIsIndex,
+        type_error_union: struct { data: *Key.ErrorUnionType },
+        type_error_set: struct {
+            const @"data.names_len" = opaque {};
+            data: *ErrorSet,
+            @"trailing.names.len": *@"data.names_len",
+            trailing: struct { names: []NullTerminatedString },
+        },
+        type_inferred_error_set: struct { data: Module.Fn.InferredErrorSet.Index },
+        type_enum_auto: struct {
+            const @"data.fields_len" = opaque {};
+            data: *EnumAuto,
+            @"trailing.names.len": *@"data.fields_len",
+            trailing: struct { names: []NullTerminatedString },
+        },
+        type_enum_explicit: DataIsExtraIndexOfEnumExplicit,
+        type_enum_nonexhaustive: DataIsExtraIndexOfEnumExplicit,
+        simple_type: struct { data: SimpleType },
+        type_opaque: struct { data: *Key.OpaqueType },
+        type_struct: struct { data: Module.Struct.OptionalIndex },
+        type_struct_ns: struct { data: Module.Namespace.Index },
+        type_struct_anon: DataIsExtraIndexOfTypeStructAnon,
+        type_tuple_anon: DataIsExtraIndexOfTypeStructAnon,
+        type_union_tagged: struct { data: Module.Union.Index },
+        type_union_untagged: struct { data: Module.Union.Index },
+        type_union_safety: struct { data: Module.Union.Index },
+        type_function: struct {
+            const @"data.params_len" = opaque {};
+            data: *TypeFunction,
+            @"trailing.param_types.len": *@"data.params_len",
+            trailing: struct { param_types: []Index },
+        },
+
+        undef: DataIsIndex,
+        simple_value: struct { data: SimpleValue },
+        ptr_var: struct { data: *PtrVar },
+        ptr_mut_decl: struct { data: *PtrMutDecl },
+        ptr_decl: struct { data: *PtrDecl },
+        ptr_int: struct { data: *PtrInt },
+        ptr_eu_payload: DataIsIndex,
+        ptr_opt_payload: DataIsIndex,
+        ptr_comptime_field: struct { data: *PtrComptimeField },
+        ptr_elem: struct { data: *PtrBaseIndex },
+        ptr_field: struct { data: *PtrBaseIndex },
+        ptr_slice: struct { data: *PtrSlice },
+        opt_payload: DataIsIndex,
+        opt_null: DataIsIndex,
+        int_u8: struct { data: u8 },
+        int_u16: struct { data: u16 },
+        int_u32: struct { data: u32 },
+        int_i32: struct { data: i32 },
+        int_usize: struct { data: u32 },
+        int_comptime_int_u32: struct { data: u32 },
+        int_comptime_int_i32: struct { data: i32 },
+        int_small: struct { data: *IntSmall },
+        int_positive: struct { data: u32 },
+        int_negative: struct { data: u32 },
+        enum_tag: struct { data: *Key.EnumTag },
+        float_f16: struct { data: f16 },
+        float_f32: struct { data: f32 },
+        float_f64: struct { data: *Float64 },
+        float_f80: struct { data: *Float80 },
+        float_f128: struct { data: *Float128 },
+        float_c_longdouble_f80: struct { data: *Float80 },
+        float_c_longdouble_f128: struct { data: *Float128 },
+        float_comptime_float: struct { data: *Float128 },
+        extern_func: struct { data: void },
+        func: struct { data: void },
+        only_possible_value: DataIsIndex,
+        union_value: struct { data: *Key.Union },
+        aggregate: struct { data: *Aggregate },
+        repeated: struct { data: *Repeated },
+    }) void {
+        _ = self;
+        @setEvalBranchQuota(10_000);
+        inline for (@typeInfo(Tag).Enum.fields) |tag| {
+            inline for (@typeInfo(@typeInfo(@TypeOf(tag_to_encoding_map)).Pointer.child).Struct.fields) |entry| {
+                if (comptime std.mem.eql(u8, tag.name, entry.name)) break;
+            } else {
+                @compileError(@typeName(Tag) ++ "." ++ tag.name ++ " missing dbHelper tag_to_encoding_map entry");
+            }
+        }
+    }
+
+    comptime {
+        if (builtin.mode == .Debug) {
+            _ = dbHelper;
+        }
+    }
 };
 
 pub const static_keys = [_]Key{
@@ -1776,7 +1902,7 @@ pub const PtrVar = struct {
         is_const: bool,
         is_threadlocal: bool,
         is_weak_linkage: bool,
-        unused: u29 = undefined,
+        _: u29 = 0,
     };
 };
 
