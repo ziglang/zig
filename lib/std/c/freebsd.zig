@@ -38,10 +38,10 @@ pub fn CPU_SET(cpu: usize, set: *cpuset_t) void {
     }
 }
 
-pub fn CPU_ISSET(cpu: usize, set: cpuset_t) void {
+pub fn CPU_ISSET(cpu: usize, set: cpuset_t) bool {
     const x = cpu / @sizeOf(c_long);
     if (x < @sizeOf(cpuset_t)) {
-        return set.__bits[x] & __BIT_MASK(x);
+        return set.__bits[x] & __BIT_MASK(x) != 0;
     }
     return false;
 }
