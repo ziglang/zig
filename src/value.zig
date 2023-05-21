@@ -559,37 +559,46 @@ pub const Value = struct {
     /// Asserts that the value is representable as an array of bytes.
     /// Copies the value into a freshly allocated slice of memory, which is owned by the caller.
     pub fn toAllocatedBytes(val: Value, ty: Type, allocator: Allocator, mod: *Module) ![]u8 {
-        switch (val.tag()) {
-            .bytes => {
-                const bytes = val.castTag(.bytes).?.data;
-                const adjusted_len = bytes.len - @boolToInt(ty.sentinel(mod) != null);
-                const adjusted_bytes = bytes[0..adjusted_len];
-                return allocator.dupe(u8, adjusted_bytes);
+        switch (val.ip_index) {
+            .none => switch (val.tag()) {
+                .bytes => {
+                    const bytes = val.castTag(.bytes).?.data;
+                    const adjusted_len = bytes.len - @boolToInt(ty.sentinel(mod) != null);
+                    const adjusted_bytes = bytes[0..adjusted_len];
+                    return allocator.dupe(u8, adjusted_bytes);
+                },
+                .str_lit => {
+                    const str_lit = val.castTag(.str_lit).?.data;
+                    const bytes = mod.string_literal_bytes.items[str_lit.index..][0..str_lit.len];
+                    return allocator.dupe(u8, bytes);
+                },
+                .enum_literal => return allocator.dupe(u8, val.castTag(.enum_literal).?.data),
+                .repeated => {
+                    const byte = @intCast(u8, val.castTag(.repeated).?.data.toUnsignedInt(mod));
+                    const result = try allocator.alloc(u8, @intCast(usize, ty.arrayLen(mod)));
+                    @memset(result, byte);
+                    return result;
+                },
+                .decl_ref => {
+                    const decl_index = val.castTag(.decl_ref).?.data;
+                    const decl = mod.declPtr(decl_index);
+                    const decl_val = try decl.value();
+                    return decl_val.toAllocatedBytes(decl.ty, allocator, mod);
+                },
+                .the_only_possible_value => return &[_]u8{},
+                .slice => {
+                    const slice = val.castTag(.slice).?.data;
+                    return arrayToAllocatedBytes(slice.ptr, slice.len.toUnsignedInt(mod), allocator, mod);
+                },
+                else => return arrayToAllocatedBytes(val, ty.arrayLen(mod), allocator, mod),
             },
-            .str_lit => {
-                const str_lit = val.castTag(.str_lit).?.data;
-                const bytes = mod.string_literal_bytes.items[str_lit.index..][0..str_lit.len];
-                return allocator.dupe(u8, bytes);
+            else => switch (mod.intern_pool.indexToKey(val.ip_index)) {
+                .ptr => |ptr| switch (ptr.len) {
+                    .none => unreachable,
+                    else => return arrayToAllocatedBytes(val, ptr.len.toValue().toUnsignedInt(mod), allocator, mod),
+                },
+                else => unreachable,
             },
-            .enum_literal => return allocator.dupe(u8, val.castTag(.enum_literal).?.data),
-            .repeated => {
-                const byte = @intCast(u8, val.castTag(.repeated).?.data.toUnsignedInt(mod));
-                const result = try allocator.alloc(u8, @intCast(usize, ty.arrayLen(mod)));
-                @memset(result, byte);
-                return result;
-            },
-            .decl_ref => {
-                const decl_index = val.castTag(.decl_ref).?.data;
-                const decl = mod.declPtr(decl_index);
-                const decl_val = try decl.value();
-                return decl_val.toAllocatedBytes(decl.ty, allocator, mod);
-            },
-            .the_only_possible_value => return &[_]u8{},
-            .slice => {
-                const slice = val.castTag(.slice).?.data;
-                return arrayToAllocatedBytes(slice.ptr, slice.len.toUnsignedInt(mod), allocator, mod);
-            },
-            else => return arrayToAllocatedBytes(val, ty.arrayLen(mod), allocator, mod),
         }
     }
 
@@ -605,6 +614,16 @@ pub const Value = struct {
     pub fn intern(val: Value, ty: Type, mod: *Module) Allocator.Error!InternPool.Index {
         if (val.ip_index != .none) return mod.intern_pool.getCoerced(mod.gpa, val.ip_index, ty.ip_index);
         switch (val.tag()) {
+            .elem_ptr => {
+                const pl = val.castTag(.elem_ptr).?.data;
+                return mod.intern(.{ .ptr = .{
+                    .ty = ty.ip_index,
+                    .addr = .{ .elem = .{
+                        .base = pl.array_ptr.ip_index,
+                        .index = pl.index,
+                    } },
+                } });
+            },
             .slice => {
                 const pl = val.castTag(.slice).?.data;
                 const ptr = try pl.ptr.intern(ty.slicePtrFieldType(mod), mod);
@@ -2601,7 +2620,10 @@ pub const Value = struct {
                     .@"var" => unreachable,
                     .decl => |decl| mod.declPtr(decl).val.elemValue(mod, index),
                     .mut_decl => |mut_decl| mod.declPtr(mut_decl.decl).val.elemValue(mod, index),
-                    .int => unreachable,
+                    .int, .eu_payload, .opt_payload => unreachable,
+                    .comptime_field => |field_val| field_val.toValue().elemValue(mod, index),
+                    .elem => |elem| elem.base.toValue().elemValue(mod, index + elem.index),
+                    .field => unreachable,
                 },
                 .aggregate => |aggregate| switch (aggregate.storage) {
                     .elems => |elems| elems[index].toValue(),

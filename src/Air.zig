@@ -1292,7 +1292,7 @@ pub fn typeOfIndex(air: Air, inst: Air.Inst.Index, ip: InternPool) Type {
         .try_ptr,
         => return air.getRefType(datas[inst].ty_pl.ty),
 
-        .interned => return ip.indexToKey(datas[inst].interned).typeOf().toType(),
+        .interned => return ip.typeOf(datas[inst].interned).toType(),
 
         .not,
         .bitcast,
