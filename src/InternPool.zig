@@ -3019,6 +3019,7 @@ pub fn getIncompleteEnum(
     gpa: Allocator,
     enum_type: Key.IncompleteEnumType,
 ) Allocator.Error!InternPool.IncompleteEnumType {
+    try ip.items.ensureUnusedCapacity(gpa, 1);
     switch (enum_type.tag_mode) {
         .auto => return getIncompleteEnumAuto(ip, gpa, enum_type),
         .explicit => return getIncompleteEnumExplicit(ip, gpa, enum_type, .type_enum_explicit),
@@ -3073,7 +3074,7 @@ pub fn getIncompleteEnumAuto(
     };
 }
 
-pub fn getIncompleteEnumExplicit(
+fn getIncompleteEnumExplicit(
     ip: *InternPool,
     gpa: Allocator,
     enum_type: Key.IncompleteEnumType,
