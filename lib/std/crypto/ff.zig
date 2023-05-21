@@ -112,7 +112,8 @@ pub fn Uint(comptime max_bits: comptime_int) type {
                     return error.Overflow;
                 }
                 x = math.shl(T, x, t_bits);
-                x |= @intCast(T, self.limbs.get(i));
+                const v = math.cast(T, self.limbs.get(i)) orelse return error.Overflow;
+                x |= v;
                 if (i == 0) break;
             }
             return x;
@@ -136,7 +137,7 @@ pub fn Uint(comptime max_bits: comptime_int) type {
                 while (remaining_bits >= 8) {
                     bytes[out_i] |= math.shl(u8, @truncate(u8, limb), shift);
                     const consumed = 8 - shift;
-                    limb >>= @intCast(u4, consumed);
+                    limb >>= @truncate(u4, consumed);
                     remaining_bits -= consumed;
                     shift = 0;
                     switch (endian) {
@@ -722,7 +723,7 @@ pub fn Modulus(comptime max_bits: comptime_int) type {
                         t0 = pc[k - 1];
                     } else {
                         for (pc, 0..) |t, i| {
-                            t0.v.cmov(ct.eql(k, @intCast(u8, i + 1)), t.v);
+                            t0.v.cmov(ct.eql(k, @truncate(u8, i + 1)), t.v);
                         }
                     }
                     const t1 = self.montgomeryMul(out, t0);
@@ -841,10 +842,16 @@ const ct_unprotected = struct {
 };
 
 test {
+    if (@import("builtin").zig_backend == .stage2_c) return error.SkipZigTest;
+
     const M = Modulus(256);
     const m = try M.fromPrimitive(u256, 3429938563481314093726330772853735541133072814650493833233);
     var x = try M.Fe.fromPrimitive(u256, m, 80169837251094269539116136208111827396136208141182357733);
     var y = try M.Fe.fromPrimitive(u256, m, 24620149608466364616251608466389896540098571);
+
+    const x_ = try x.toPrimitive(u256);
+    try testing.expect((try M.Fe.fromPrimitive(@TypeOf(x_), m, x_)).eql(x));
+    try testing.expectError(error.Overflow, x.toPrimitive(u50));
 
     const bits = m.bits();
     try testing.expectEqual(bits, 192);
