@@ -3359,7 +3359,11 @@ pub const DeclGen = struct {
                 else => switch (mod.intern_pool.indexToKey(tv.val.ip_index)) {
                     .int => |int| return dg.lowerIntAsPtr(int),
                     .ptr => |ptr| {
-                        const ptr_val = switch (ptr.addr) {
+                        const ptr_tv: TypedValue = switch (ptr.len) {
+                            .none => tv,
+                            else => .{ .ty = tv.ty.slicePtrFieldType(mod), .val = tv.val.slicePtr(mod) },
+                        };
+                        const llvm_ptr_val = switch (ptr.addr) {
                             .@"var" => |@"var"| ptr: {
                                 const decl = dg.module.declPtr(@"var".owner_decl);
                                 dg.module.markDeclAlive(decl);
@@ -3374,21 +3378,21 @@ pub const DeclGen = struct {
                                     val;
                                 break :ptr addrspace_casted_ptr;
                             },
-                            .decl => |decl| try dg.lowerDeclRefValue(tv, decl),
-                            .mut_decl => |mut_decl| try dg.lowerDeclRefValue(tv, mut_decl.decl),
+                            .decl => |decl| try dg.lowerDeclRefValue(ptr_tv, decl),
+                            .mut_decl => |mut_decl| try dg.lowerDeclRefValue(ptr_tv, mut_decl.decl),
                             .int => |int| dg.lowerIntAsPtr(mod.intern_pool.indexToKey(int).int),
                             .eu_payload,
                             .opt_payload,
                             .elem,
                             .field,
-                            => try dg.lowerParentPtr(tv.val, tv.ty.ptrInfo(mod).bit_offset % 8 == 0),
+                            => try dg.lowerParentPtr(ptr_tv.val, ptr_tv.ty.ptrInfo(mod).bit_offset % 8 == 0),
                             .comptime_field => unreachable,
                         };
                         switch (ptr.len) {
-                            .none => return ptr_val,
+                            .none => return llvm_ptr_val,
                             else => {
                                 const fields: [2]*llvm.Value = .{
-                                    ptr_val,
+                                    llvm_ptr_val,
                                     try dg.lowerValue(.{ .ty = Type.usize, .val = ptr.len.toValue() }),
                                 };
                                 return dg.context.constStruct(&fields, fields.len, .False);
