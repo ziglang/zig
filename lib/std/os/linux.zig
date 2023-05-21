@@ -3623,7 +3623,7 @@ pub fn CPU_SET(cpu: usize, set: *cpu_set_t) void {
 pub fn CPU_ISSET(cpu: usize, set: cpu_set_t) bool {
     const x = cpu / @sizeOf(usize);
     if (x < @sizeOf(cpu_set_t)) {
-        return set[x] & cpu_mask(x);
+        return set[x] & cpu_mask(x) != 0;
     }
     return false;
 }
