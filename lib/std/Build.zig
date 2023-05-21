@@ -124,6 +124,9 @@ host: NativeTargetInfo,
 dep_prefix: []const u8 = "",
 
 modules: std.StringArrayHashMap(*Module),
+/// A map from build root dirs to the corresponding `*Dependency`. This is shared with all child
+/// `Build`s.
+initialized_deps: *std.StringHashMap(*Dependency),
 
 pub const ExecError = error{
     ReadFailure,
@@ -209,6 +212,9 @@ pub fn create(
     const env_map = try allocator.create(EnvMap);
     env_map.* = try process.getEnvMap(allocator);
 
+    const initialized_deps = try allocator.create(std.StringHashMap(*Dependency));
+    initialized_deps.* = std.StringHashMap(*Dependency).init(allocator);
+
     const self = try allocator.create(Build);
     self.* = .{
         .zig_exe = zig_exe,
@@ -261,6 +267,7 @@ pub fn create(
         .args = null,
         .host = host,
         .modules = std.StringArrayHashMap(*Module).init(allocator),
+        .initialized_deps = initialized_deps,
     };
     try self.top_level_steps.put(allocator, self.install_tls.step.name, &self.install_tls);
     try self.top_level_steps.put(allocator, self.uninstall_tls.step.name, &self.uninstall_tls);
@@ -345,6 +352,7 @@ fn createChildOnly(parent: *Build, dep_name: []const u8, build_root: Cache.Direc
         .host = parent.host,
         .dep_prefix = parent.fmt("{s}{s}.", .{ parent.dep_prefix, dep_name }),
         .modules = std.StringArrayHashMap(*Module).init(allocator),
+        .initialized_deps = parent.initialized_deps,
     };
     try child.top_level_steps.put(allocator, child.install_tls.step.name, &child.install_tls);
     try child.top_level_steps.put(allocator, child.uninstall_tls.step.name, &child.uninstall_tls);
@@ -1560,6 +1568,11 @@ pub fn dependencyInner(
     comptime build_zig: type,
     args: anytype,
 ) *Dependency {
+    if (b.initialized_deps.get(build_root_string)) |dep| {
+        // TODO: check args are the same
+        return dep;
+    }
+
     const build_root: std.Build.Cache.Directory = .{
         .path = build_root_string,
         .handle = std.fs.cwd().openDir(build_root_string, .{}) catch |err| {
@@ -1578,6 +1591,9 @@ pub fn dependencyInner(
 
     const dep = b.allocator.create(Dependency) catch @panic("OOM");
     dep.* = .{ .builder = sub_builder };
+
+    b.initialized_deps.put(build_root_string, dep) catch @panic("OOM");
+
     return dep;
 }
 
