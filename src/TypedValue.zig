@@ -295,6 +295,9 @@ pub fn print(
             },
             .eu_payload_ptr => {
                 try writer.writeAll("&");
+                if (level == 0) {
+                    return writer.writeAll("(ptr)");
+                }
 
                 const data = val.castTag(.eu_payload_ptr).?.data;
 
@@ -320,6 +323,10 @@ pub fn print(
                 return;
             },
             .opt_payload_ptr => {
+                if (level == 0) {
+                    return writer.writeAll("&(ptr)");
+                }
+
                 const data = val.castTag(.opt_payload_ptr).?.data;
 
                 var ty_val: Value.Payload.Ty = .{
@@ -359,6 +366,10 @@ pub fn print(
                     inline .u64, .i64, .big_int => |x| return writer.print("{}", .{x}),
                 },
                 .enum_tag => |enum_tag| {
+                    if (level == 0) {
+                        return writer.writeAll("(enum)");
+                    }
+
                     try writer.writeAll("@intToEnum(");
                     try print(.{
                         .ty = Type.type,
