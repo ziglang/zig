@@ -148,7 +148,7 @@ pub fn nullTerminatedString(eb: ErrorBundle, index: usize) [:0]const u8 {
 }
 
 pub const RenderOptions = struct {
-    ttyconf: std.debug.TTY.Config,
+    ttyconf: std.io.tty.Config,
     include_reference_trace: bool = true,
     include_source_line: bool = true,
     include_log_text: bool = true,
@@ -181,7 +181,7 @@ fn renderErrorMessageToWriter(
     err_msg_index: MessageIndex,
     stderr: anytype,
     kind: []const u8,
-    color: std.debug.TTY.Color,
+    color: std.io.tty.Color,
     indent: usize,
 ) anyerror!void {
     const ttyconf = options.ttyconf;

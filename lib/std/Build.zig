@@ -1712,7 +1712,7 @@ fn dumpBadGetPathHelp(
         s.name,
     });
 
-    const tty_config = std.debug.detectTTYConfig(stderr);
+    const tty_config = std.io.tty.detectConfig(stderr);
     tty_config.setColor(w, .red) catch {};
     try stderr.writeAll("    The step was created by this stack trace:\n");
     tty_config.setColor(w, .reset) catch {};

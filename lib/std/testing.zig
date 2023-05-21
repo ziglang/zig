@@ -279,7 +279,7 @@ test "expectApproxEqRel" {
 /// This function is intended to be used only in tests. When the two slices are not
 /// equal, prints diagnostics to stderr to show exactly how they are not equal (with
 /// the differences highlighted in red), then returns a test failure error.
-/// The colorized output is optional and controlled by the return of `std.debug.detectTTYConfig()`.
+/// The colorized output is optional and controlled by the return of `std.io.tty.detectConfig()`.
 /// If your inputs are UTF-8 encoded strings, consider calling `expectEqualStrings` instead.
 pub fn expectEqualSlices(comptime T: type, expected: []const T, actual: []const T) !void {
     if (expected.ptr == actual.ptr and expected.len == actual.len) {
@@ -312,7 +312,7 @@ pub fn expectEqualSlices(comptime T: type, expected: []const T, actual: []const 
     const actual_window = actual[window_start..@min(actual.len, window_start + max_window_size)];
     const actual_truncated = window_start + actual_window.len < actual.len;
 
-    const ttyconf = std.debug.detectTTYConfig(std.io.getStdErr());
+    const ttyconf = std.io.tty.detectConfig(std.io.getStdErr());
     var differ = if (T == u8) BytesDiffer{
         .expected = expected_window,
         .actual = actual_window,
@@ -379,7 +379,7 @@ fn SliceDiffer(comptime T: type) type {
         start_index: usize,
         expected: []const T,
         actual: []const T,
-        ttyconf: std.debug.TTY.Config,
+        ttyconf: std.io.tty.Config,
 
         const Self = @This();
 
@@ -398,7 +398,7 @@ fn SliceDiffer(comptime T: type) type {
 const BytesDiffer = struct {
     expected: []const u8,
     actual: []const u8,
-    ttyconf: std.debug.TTY.Config,
+    ttyconf: std.io.tty.Config,
 
     pub fn write(self: BytesDiffer, writer: anytype) !void {
         var expected_iterator = ChunkIterator{ .bytes = self.expected };

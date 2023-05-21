@@ -333,7 +333,7 @@ const Run = struct {
 
     claimed_rss: usize,
     enable_summary: ?bool,
-    ttyconf: std.debug.TTY.Config,
+    ttyconf: std.io.tty.Config,
     stderr: std.fs.File,
 };
 
@@ -535,7 +535,7 @@ const PrintNode = struct {
     last: bool = false,
 };
 
-fn printPrefix(node: *PrintNode, stderr: std.fs.File, ttyconf: std.debug.TTY.Config) !void {
+fn printPrefix(node: *PrintNode, stderr: std.fs.File, ttyconf: std.io.tty.Config) !void {
     const parent = node.parent orelse return;
     if (parent.parent == null) return;
     try printPrefix(parent, stderr, ttyconf);
@@ -553,7 +553,7 @@ fn printTreeStep(
     b: *std.Build,
     s: *Step,
     stderr: std.fs.File,
-    ttyconf: std.debug.TTY.Config,
+    ttyconf: std.io.tty.Config,
     parent_node: *PrintNode,
     step_stack: *std.AutoArrayHashMapUnmanaged(*Step, void),
 ) !void {
@@ -1026,15 +1026,15 @@ fn cleanExit() void {
 
 const Color = enum { auto, off, on };
 
-fn get_tty_conf(color: Color, stderr: std.fs.File) std.debug.TTY.Config {
+fn get_tty_conf(color: Color, stderr: std.fs.File) std.io.tty.Config {
     return switch (color) {
-        .auto => std.debug.detectTTYConfig(stderr),
+        .auto => std.io.tty.detectConfig(stderr),
         .on => .escape_codes,
         .off => .no_color,
     };
 }
 
-fn renderOptions(ttyconf: std.debug.TTY.Config) std.zig.ErrorBundle.RenderOptions {
+fn renderOptions(ttyconf: std.io.tty.Config) std.zig.ErrorBundle.RenderOptions {
     return .{
         .ttyconf = ttyconf,
         .include_source_line = ttyconf != .no_color,
