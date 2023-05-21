@@ -27326,11 +27326,18 @@ fn coerceValueInMemory(
                         .fields.values()[i].ty.toIntern(),
                     else => unreachable,
                 };
-                dest_elem.* = try mod.intern_pool.getCoerced(mod.gpa, switch (aggregate.storage) {
+                const cur_val = switch (aggregate.storage) {
                     .bytes => |bytes| (try mod.intValue(Type.u8, bytes[i])).toIntern(),
                     .elems => |elems| elems[i],
                     .repeated_elem => |elem| elem,
-                }, elem_ty);
+                };
+                dest_elem.* = (try sema.coerceValueInMemory(
+                    block,
+                    cur_val.toValue(),
+                    mod.intern_pool.typeOf(cur_val).toType(),
+                    elem_ty.toType(),
+                    dst_ty_src,
+                )).toIntern();
             }
             return (try mod.intern(.{ .aggregate = .{
                 .ty = dst_ty.toIntern(),
@@ -27888,6 +27895,22 @@ fn coerceInMemoryAllowed(
             } };
         }
 
+        return .ok;
+    }
+
+    // Tuples (with in-memory-coercible fields)
+    if (dest_ty.isTuple(mod) and src_ty.isTuple(mod)) tuple: {
+        if (dest_ty.containerLayout(mod) != src_ty.containerLayout(mod)) break :tuple;
+        if (dest_ty.structFieldCount(mod) != src_ty.structFieldCount(mod)) break :tuple;
+        const field_count = dest_ty.structFieldCount(mod);
+        for (0..field_count) |field_idx| {
+            if (dest_ty.structFieldIsComptime(field_idx, mod) != src_ty.structFieldIsComptime(field_idx, mod)) break :tuple;
+            if (dest_ty.structFieldAlign(field_idx, mod) != src_ty.structFieldAlign(field_idx, mod)) break :tuple;
+            const dest_field_ty = dest_ty.structFieldType(field_idx, mod);
+            const src_field_ty = src_ty.structFieldType(field_idx, mod);
+            const field = try sema.coerceInMemoryAllowed(block, dest_field_ty, src_field_ty, dest_is_mut, target, dest_src, src_src);
+            if (field != .ok) break :tuple;
+        }
         return .ok;
     }
 
