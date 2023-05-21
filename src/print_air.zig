@@ -366,13 +366,7 @@ const Writer = struct {
     }
 
     fn writeType(w: *Writer, s: anytype, ty: Type) !void {
-        switch (ty.ip_index) {
-            .none => switch (ty.tag()) {
-                .inferred_alloc_const => try s.writeAll("(inferred_alloc_const)"),
-                .inferred_alloc_mut => try s.writeAll("(inferred_alloc_mut)"),
-            },
-            else => try ty.print(s, w.module),
-        }
+        return ty.print(s, w.module);
     }
 
     fn writeTy(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {

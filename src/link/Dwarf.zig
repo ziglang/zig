@@ -87,12 +87,7 @@ pub const DeclState = struct {
     dbg_info: std.ArrayList(u8),
     abbrev_type_arena: std.heap.ArenaAllocator,
     abbrev_table: std.ArrayListUnmanaged(AbbrevEntry) = .{},
-    abbrev_resolver: std.HashMapUnmanaged(
-        Type,
-        u32,
-        Type.HashContext64,
-        std.hash_map.default_max_load_percentage,
-    ) = .{},
+    abbrev_resolver: std.AutoHashMapUnmanaged(InternPool.Index, u32) = .{},
     abbrev_relocs: std.ArrayListUnmanaged(AbbrevRelocation) = .{},
     exprloc_relocs: std.ArrayListUnmanaged(ExprlocRelocation) = .{},
 
@@ -142,9 +137,7 @@ pub const DeclState = struct {
     /// @symbol signifies a type abbreviation posititioned somewhere in the .debug_abbrev section
     /// which we use as our target of the relocation.
     fn addTypeRelocGlobal(self: *DeclState, atom_index: Atom.Index, ty: Type, offset: u32) !void {
-        const resolv = self.abbrev_resolver.getContext(ty, .{
-            .mod = self.mod,
-        }) orelse blk: {
+        const resolv = self.abbrev_resolver.get(ty.toIntern()) orelse blk: {
             const sym_index = @intCast(u32, self.abbrev_table.items.len);
             try self.abbrev_table.append(self.gpa, .{
                 .atom_index = atom_index,
@@ -152,12 +145,8 @@ pub const DeclState = struct {
                 .offset = undefined,
             });
             log.debug("%{d}: {}", .{ sym_index, ty.fmt(self.mod) });
-            try self.abbrev_resolver.putNoClobberContext(self.gpa, ty, sym_index, .{
-                .mod = self.mod,
-            });
-            break :blk self.abbrev_resolver.getContext(ty, .{
-                .mod = self.mod,
-            }).?;
+            try self.abbrev_resolver.putNoClobber(self.gpa, ty.toIntern(), sym_index);
+            break :blk sym_index;
         };
         log.debug("{x}: %{d} + 0", .{ offset, resolv });
         try self.abbrev_relocs.append(self.gpa, .{

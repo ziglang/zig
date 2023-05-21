@@ -381,12 +381,7 @@ pub const Object = struct {
 
     /// This is an ArrayHashMap as opposed to a HashMap because in `flushModule` we
     /// want to iterate over it while adding entries to it.
-    pub const DITypeMap = std.ArrayHashMapUnmanaged(
-        Type,
-        AnnotatedDITypePtr,
-        Type.HashContext32,
-        true,
-    );
+    pub const DITypeMap = std.AutoArrayHashMapUnmanaged(InternPool.Index, AnnotatedDITypePtr);
 
     pub fn create(gpa: Allocator, options: link.Options) !*Object {
         const obj = try gpa.create(Object);
@@ -1437,7 +1432,7 @@ pub const Object = struct {
         const gpa = o.gpa;
         // Be careful not to reference this `gop` variable after any recursive calls
         // to `lowerDebugType`.
-        const gop = try o.di_type_map.getOrPutContext(gpa, ty, .{ .mod = o.module });
+        const gop = try o.di_type_map.getOrPut(gpa, ty.toIntern());
         if (gop.found_existing) {
             const annotated = gop.value_ptr.*;
             const di_type = annotated.toDIType();
@@ -1450,7 +1445,7 @@ pub const Object = struct {
             };
             return o.lowerDebugTypeImpl(entry, resolve, di_type);
         }
-        errdefer assert(o.di_type_map.orderedRemoveContext(ty, .{ .mod = o.module }));
+        errdefer assert(o.di_type_map.orderedRemove(ty.toIntern()));
         const entry: Object.DITypeMap.Entry = .{
             .key_ptr = gop.key_ptr,
             .value_ptr = gop.value_ptr,
@@ -1465,7 +1460,7 @@ pub const Object = struct {
         resolve: DebugResolveStatus,
         opt_fwd_decl: ?*llvm.DIType,
     ) Allocator.Error!*llvm.DIType {
-        const ty = gop.key_ptr.*;
+        const ty = gop.key_ptr.toType();
         const gpa = o.gpa;
         const target = o.target;
         const dib = o.di_builder.?;
@@ -1498,7 +1493,7 @@ pub const Object = struct {
                     const enum_di_ty = try o.makeEmptyNamespaceDIType(owner_decl_index);
                     // The recursive call to `lowerDebugType` via `makeEmptyNamespaceDIType`
                     // means we can't use `gop` anymore.
-                    try o.di_type_map.putContext(gpa, ty, AnnotatedDITypePtr.initFull(enum_di_ty), .{ .mod = o.module });
+                    try o.di_type_map.put(gpa, ty.toIntern(), AnnotatedDITypePtr.initFull(enum_di_ty));
                     return enum_di_ty;
                 }
 
@@ -1558,7 +1553,7 @@ pub const Object = struct {
                     "",
                 );
                 // The recursive call to `lowerDebugType` means we can't use `gop` anymore.
-                try o.di_type_map.putContext(gpa, ty, AnnotatedDITypePtr.initFull(enum_di_ty), .{ .mod = o.module });
+                try o.di_type_map.put(gpa, ty.toIntern(), AnnotatedDITypePtr.initFull(enum_di_ty));
                 return enum_di_ty;
             },
             .Float => {
@@ -1577,7 +1572,7 @@ pub const Object = struct {
             },
             .Pointer => {
                 // Normalize everything that the debug info does not represent.
-                const ptr_info = ty.ptrInfoIp(mod.intern_pool);
+                const ptr_info = Type.ptrInfoIp(mod.intern_pool, ty.toIntern());
 
                 if (ptr_info.sentinel != .none or
                     ptr_info.address_space != .generic or
@@ -1603,7 +1598,7 @@ pub const Object = struct {
                     });
                     const ptr_di_ty = try o.lowerDebugType(bland_ptr_ty, resolve);
                     // The recursive call to `lowerDebugType` means we can't use `gop` anymore.
-                    try o.di_type_map.putContext(gpa, ty, AnnotatedDITypePtr.init(ptr_di_ty, resolve), .{ .mod = o.module });
+                    try o.di_type_map.put(gpa, ty.toIntern(), AnnotatedDITypePtr.init(ptr_di_ty, resolve));
                     return ptr_di_ty;
                 }
 
@@ -1682,7 +1677,7 @@ pub const Object = struct {
                     );
                     dib.replaceTemporary(fwd_decl, full_di_ty);
                     // The recursive call to `lowerDebugType` means we can't use `gop` anymore.
-                    try o.di_type_map.putContext(gpa, ty, AnnotatedDITypePtr.initFull(full_di_ty), .{ .mod = o.module });
+                    try o.di_type_map.put(gpa, ty.toIntern(), AnnotatedDITypePtr.initFull(full_di_ty));
                     return full_di_ty;
                 }
 
@@ -1696,7 +1691,7 @@ pub const Object = struct {
                     name,
                 );
                 // The recursive call to `lowerDebugType` means we can't use `gop` anymore.
-                try o.di_type_map.putContext(gpa, ty, AnnotatedDITypePtr.initFull(ptr_di_ty), .{ .mod = o.module });
+                try o.di_type_map.put(gpa, ty.toIntern(), AnnotatedDITypePtr.initFull(ptr_di_ty));
                 return ptr_di_ty;
             },
             .Opaque => {
@@ -1718,7 +1713,7 @@ pub const Object = struct {
                 );
                 // The recursive call to `lowerDebugType` va `namespaceToDebugScope`
                 // means we can't use `gop` anymore.
-                try o.di_type_map.putContext(gpa, ty, AnnotatedDITypePtr.initFull(opaque_di_ty), .{ .mod = o.module });
+                try o.di_type_map.put(gpa, ty.toIntern(), AnnotatedDITypePtr.initFull(opaque_di_ty));
                 return opaque_di_ty;
             },
             .Array => {
@@ -1729,7 +1724,7 @@ pub const Object = struct {
                     @intCast(c_int, ty.arrayLen(mod)),
                 );
                 // The recursive call to `lowerDebugType` means we can't use `gop` anymore.
-                try o.di_type_map.putContext(gpa, ty, AnnotatedDITypePtr.initFull(array_di_ty), .{ .mod = o.module });
+                try o.di_type_map.put(gpa, ty.toIntern(), AnnotatedDITypePtr.initFull(array_di_ty));
                 return array_di_ty;
             },
             .Vector => {
@@ -1761,7 +1756,7 @@ pub const Object = struct {
                     ty.vectorLen(mod),
                 );
                 // The recursive call to `lowerDebugType` means we can't use `gop` anymore.
-                try o.di_type_map.putContext(gpa, ty, AnnotatedDITypePtr.initFull(vector_di_ty), .{ .mod = o.module });
+                try o.di_type_map.put(gpa, ty.toIntern(), AnnotatedDITypePtr.initFull(vector_di_ty));
                 return vector_di_ty;
             },
             .Optional => {
@@ -1777,7 +1772,7 @@ pub const Object = struct {
                 if (ty.optionalReprIsPayload(mod)) {
                     const ptr_di_ty = try o.lowerDebugType(child_ty, resolve);
                     // The recursive call to `lowerDebugType` means we can't use `gop` anymore.
-                    try o.di_type_map.putContext(gpa, ty, AnnotatedDITypePtr.init(ptr_di_ty, resolve), .{ .mod = o.module });
+                    try o.di_type_map.put(gpa, ty.toIntern(), AnnotatedDITypePtr.init(ptr_di_ty, resolve));
                     return ptr_di_ty;
                 }
 
@@ -1850,7 +1845,7 @@ pub const Object = struct {
                 );
                 dib.replaceTemporary(fwd_decl, full_di_ty);
                 // The recursive call to `lowerDebugType` means we can't use `gop` anymore.
-                try o.di_type_map.putContext(gpa, ty, AnnotatedDITypePtr.initFull(full_di_ty), .{ .mod = o.module });
+                try o.di_type_map.put(gpa, ty.toIntern(), AnnotatedDITypePtr.initFull(full_di_ty));
                 return full_di_ty;
             },
             .ErrorUnion => {
@@ -1858,7 +1853,7 @@ pub const Object = struct {
                 if (!payload_ty.hasRuntimeBitsIgnoreComptime(mod)) {
                     const err_set_di_ty = try o.lowerDebugType(Type.anyerror, .full);
                     // The recursive call to `lowerDebugType` means we can't use `gop` anymore.
-                    try o.di_type_map.putContext(gpa, ty, AnnotatedDITypePtr.initFull(err_set_di_ty), .{ .mod = o.module });
+                    try o.di_type_map.put(gpa, ty.toIntern(), AnnotatedDITypePtr.initFull(err_set_di_ty));
                     return err_set_di_ty;
                 }
                 const name = try ty.nameAlloc(gpa, o.module);
@@ -1941,7 +1936,7 @@ pub const Object = struct {
                 );
                 dib.replaceTemporary(fwd_decl, full_di_ty);
                 // The recursive call to `lowerDebugType` means we can't use `gop` anymore.
-                try o.di_type_map.putContext(gpa, ty, AnnotatedDITypePtr.initFull(full_di_ty), .{ .mod = o.module });
+                try o.di_type_map.put(gpa, ty.toIntern(), AnnotatedDITypePtr.initFull(full_di_ty));
                 return full_di_ty;
             },
             .ErrorSet => {
@@ -2038,7 +2033,7 @@ pub const Object = struct {
                         );
                         dib.replaceTemporary(fwd_decl, full_di_ty);
                         // The recursive call to `lowerDebugType` means we can't use `gop` anymore.
-                        try o.di_type_map.putContext(gpa, ty, AnnotatedDITypePtr.initFull(full_di_ty), .{ .mod = o.module });
+                        try o.di_type_map.put(gpa, ty.toIntern(), AnnotatedDITypePtr.initFull(full_di_ty));
                         return full_di_ty;
                     },
                     .struct_type => |struct_type| s: {
@@ -2057,7 +2052,7 @@ pub const Object = struct {
                             dib.replaceTemporary(fwd_decl, struct_di_ty);
                             // The recursive call to `lowerDebugType` via `makeEmptyNamespaceDIType`
                             // means we can't use `gop` anymore.
-                            try o.di_type_map.putContext(gpa, ty, AnnotatedDITypePtr.initFull(struct_di_ty), .{ .mod = o.module });
+                            try o.di_type_map.put(gpa, ty.toIntern(), AnnotatedDITypePtr.initFull(struct_di_ty));
                             return struct_di_ty;
                         }
                     },
@@ -2070,7 +2065,7 @@ pub const Object = struct {
                     dib.replaceTemporary(fwd_decl, struct_di_ty);
                     // The recursive call to `lowerDebugType` via `makeEmptyNamespaceDIType`
                     // means we can't use `gop` anymore.
-                    try o.di_type_map.putContext(gpa, ty, AnnotatedDITypePtr.initFull(struct_di_ty), .{ .mod = o.module });
+                    try o.di_type_map.put(gpa, ty.toIntern(), AnnotatedDITypePtr.initFull(struct_di_ty));
                     return struct_di_ty;
                 }
 
@@ -2126,7 +2121,7 @@ pub const Object = struct {
                 );
                 dib.replaceTemporary(fwd_decl, full_di_ty);
                 // The recursive call to `lowerDebugType` means we can't use `gop` anymore.
-                try o.di_type_map.putContext(gpa, ty, AnnotatedDITypePtr.initFull(full_di_ty), .{ .mod = o.module });
+                try o.di_type_map.put(gpa, ty.toIntern(), AnnotatedDITypePtr.initFull(full_di_ty));
                 return full_di_ty;
             },
             .Union => {
@@ -2155,7 +2150,7 @@ pub const Object = struct {
                     dib.replaceTemporary(fwd_decl, union_di_ty);
                     // The recursive call to `lowerDebugType` via `makeEmptyNamespaceDIType`
                     // means we can't use `gop` anymore.
-                    try o.di_type_map.putContext(gpa, ty, AnnotatedDITypePtr.initFull(union_di_ty), .{ .mod = o.module });
+                    try o.di_type_map.put(gpa, ty.toIntern(), AnnotatedDITypePtr.initFull(union_di_ty));
                     return union_di_ty;
                 }
 
@@ -2182,7 +2177,7 @@ pub const Object = struct {
                     dib.replaceTemporary(fwd_decl, full_di_ty);
                     // The recursive call to `lowerDebugType` via `makeEmptyNamespaceDIType`
                     // means we can't use `gop` anymore.
-                    try o.di_type_map.putContext(gpa, ty, AnnotatedDITypePtr.initFull(full_di_ty), .{ .mod = o.module });
+                    try o.di_type_map.put(gpa, ty.toIntern(), AnnotatedDITypePtr.initFull(full_di_ty));
                     return full_di_ty;
                 }
 
@@ -2241,7 +2236,7 @@ pub const Object = struct {
                 if (layout.tag_size == 0) {
                     dib.replaceTemporary(fwd_decl, union_di_ty);
                     // The recursive call to `lowerDebugType` means we can't use `gop` anymore.
-                    try o.di_type_map.putContext(gpa, ty, AnnotatedDITypePtr.initFull(union_di_ty), .{ .mod = o.module });
+                    try o.di_type_map.put(gpa, ty.toIntern(), AnnotatedDITypePtr.initFull(union_di_ty));
                     return union_di_ty;
                 }
 
@@ -2302,7 +2297,7 @@ pub const Object = struct {
                 );
                 dib.replaceTemporary(fwd_decl, full_di_ty);
                 // The recursive call to `lowerDebugType` means we can't use `gop` anymore.
-                try o.di_type_map.putContext(gpa, ty, AnnotatedDITypePtr.initFull(full_di_ty), .{ .mod = o.module });
+                try o.di_type_map.put(gpa, ty.toIntern(), AnnotatedDITypePtr.initFull(full_di_ty));
                 return full_di_ty;
             },
             .Fn => {
@@ -2349,7 +2344,7 @@ pub const Object = struct {
                     0,
                 );
                 // The recursive call to `lowerDebugType` means we can't use `gop` anymore.
-                try o.di_type_map.putContext(gpa, ty, AnnotatedDITypePtr.initFull(fn_di_ty), .{ .mod = o.module });
+                try o.di_type_map.put(gpa, ty.toIntern(), AnnotatedDITypePtr.initFull(fn_di_ty));
                 return fn_di_ty;
             },
             .ComptimeInt => unreachable,

@@ -904,10 +904,10 @@ fn analyzeBodyInner(
         const air_inst: Air.Inst.Ref = switch (tags[inst]) {
             // zig fmt: off
             .alloc                        => try sema.zirAlloc(block, inst),
-            .alloc_inferred               => try sema.zirAllocInferred(block, inst, Type.initTag(.inferred_alloc_const)),
-            .alloc_inferred_mut           => try sema.zirAllocInferred(block, inst, Type.initTag(.inferred_alloc_mut)),
-            .alloc_inferred_comptime      => try sema.zirAllocInferredComptime(inst, Type.initTag(.inferred_alloc_const)),
-            .alloc_inferred_comptime_mut  => try sema.zirAllocInferredComptime(inst, Type.initTag(.inferred_alloc_mut)),
+            .alloc_inferred               => try sema.zirAllocInferred(block, inst, .{ .ip_index = .inferred_alloc_const_type }),
+            .alloc_inferred_mut           => try sema.zirAllocInferred(block, inst, .{ .ip_index = .inferred_alloc_mut_type }),
+            .alloc_inferred_comptime      => try sema.zirAllocInferredComptime(inst, .{ .ip_index = .inferred_alloc_const_type }),
+            .alloc_inferred_comptime_mut  => try sema.zirAllocInferredComptime(inst, .{ .ip_index = .inferred_alloc_mut_type }),
             .alloc_mut                    => try sema.zirAllocMut(block, inst),
             .alloc_comptime_mut           => try sema.zirAllocComptime(block, inst),
             .make_ptr_const               => try sema.zirMakePtrConst(block, inst),
@@ -3471,9 +3471,9 @@ fn zirAllocExtended(
     } else 0;
 
     const inferred_alloc_ty = if (small.is_const)
-        Type.initTag(.inferred_alloc_const)
+        Type{ .ip_index = .inferred_alloc_const_type }
     else
-        Type.initTag(.inferred_alloc_mut);
+        Type{ .ip_index = .inferred_alloc_mut_type };
 
     if (block.is_comptime or small.is_comptime) {
         if (small.has_type) {
@@ -3707,9 +3707,10 @@ fn zirResolveInferredAlloc(sema: *Sema, block: *Block, inst: Zir.Inst.Index) Com
     assert(sema.air_instructions.items(.tag)[ptr_inst] == .constant);
     const value_index = sema.air_instructions.items(.data)[ptr_inst].ty_pl.payload;
     const ptr_val = sema.air_values.items[value_index];
-    const var_is_mut = switch (sema.typeOf(ptr).tag()) {
-        .inferred_alloc_const => false,
-        .inferred_alloc_mut => true,
+    const var_is_mut = switch (sema.typeOf(ptr).toIntern()) {
+        .inferred_alloc_const_type => false,
+        .inferred_alloc_mut_type => true,
+        else => unreachable,
     };
     const target = sema.mod.getTarget();
 
@@ -7451,7 +7452,7 @@ fn instantiateGenericCall(
                 };
                 arg_val.hashUncoerced(arg_ty, &hasher, mod);
                 if (is_anytype) {
-                    arg_ty.hashWithHasher(&hasher, mod);
+                    std.hash.autoHash(&hasher, arg_ty.toIntern());
                     generic_args[i] = .{
                         .ty = arg_ty,
                         .val = arg_val,
@@ -7465,7 +7466,7 @@ fn instantiateGenericCall(
                     };
                 }
             } else if (is_anytype) {
-                arg_ty.hashWithHasher(&hasher, mod);
+                std.hash.autoHash(&hasher, arg_ty.toIntern());
                 generic_args[i] = .{
                     .ty = arg_ty,
                     .val = Value.generic_poison,
@@ -8233,7 +8234,7 @@ fn zirEnumLiteral(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
     const inst_data = sema.code.instructions.items(.data)[inst].str_tok;
     const duped_name = try sema.arena.dupe(u8, inst_data.get(sema.code));
     return sema.addConstant(
-        .{ .ip_index = .enum_literal_type, .legacy = undefined },
+        .{ .ip_index = .enum_literal_type },
         try Value.Tag.enum_literal.create(sema.arena, duped_name),
     );
 }
@@ -13278,9 +13279,12 @@ fn zirDiv(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Ins
         const rhs_val = maybe_rhs_val orelse unreachable;
         const rem = lhs_val.floatRem(rhs_val, resolved_type, sema.arena, mod) catch unreachable;
         if (!rem.compareAllWithZero(.eq, mod)) {
-            return sema.fail(block, src, "ambiguous coercion of division operands '{s}' and '{s}'; non-zero remainder '{}'", .{
-                @tagName(lhs_ty.tag()), @tagName(rhs_ty.tag()), rem.fmtValue(resolved_type, sema.mod),
-            });
+            return sema.fail(
+                block,
+                src,
+                "ambiguous coercion of division operands '{}' and '{}'; non-zero remainder '{}'",
+                .{ lhs_ty.fmt(mod), rhs_ty.fmt(mod), rem.fmtValue(resolved_type, mod) },
+            );
         }
     }
 
@@ -13386,7 +13390,12 @@ fn zirDiv(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Ins
 
     const air_tag = if (is_int) blk: {
         if (lhs_ty.isSignedInt(mod) or rhs_ty.isSignedInt(mod)) {
-            return sema.fail(block, src, "division with '{s}' and '{s}': signed integers must use @divTrunc, @divFloor, or @divExact", .{ @tagName(lhs_ty.tag()), @tagName(rhs_ty.tag()) });
+            return sema.fail(
+                block,
+                src,
+                "division with '{}' and '{}': signed integers must use @divTrunc, @divFloor, or @divExact",
+                .{ lhs_ty.fmt(mod), rhs_ty.fmt(mod) },
+            );
         }
         break :blk Air.Inst.Tag.div_trunc;
     } else switch (block.float_mode) {
@@ -23367,7 +23376,7 @@ fn validateRunTimeType(
     };
 }
 
-const TypeSet = std.HashMapUnmanaged(Type, void, Type.HashContext64, std.hash_map.default_max_load_percentage);
+const TypeSet = std.AutoHashMapUnmanaged(InternPool.Index, void);
 
 fn explainWhyTypeIsComptime(
     sema: *Sema,
@@ -23453,7 +23462,7 @@ fn explainWhyTypeIsComptimeInner(
         },
 
         .Struct => {
-            if ((try type_set.getOrPutContext(sema.gpa, ty, .{ .mod = mod })).found_existing) return;
+            if ((try type_set.getOrPut(sema.gpa, ty.toIntern())).found_existing) return;
 
             if (mod.typeToStruct(ty)) |struct_obj| {
                 for (struct_obj.fields.values(), 0..) |field, i| {
@@ -23472,7 +23481,7 @@ fn explainWhyTypeIsComptimeInner(
         },
 
         .Union => {
-            if ((try type_set.getOrPutContext(sema.gpa, ty, .{ .mod = mod })).found_existing) return;
+            if ((try type_set.getOrPut(sema.gpa, ty.toIntern())).found_existing) return;
 
             if (mod.typeToUnion(ty)) |union_obj| {
                 for (union_obj.fields.values(), 0..) |field, i| {
@@ -27459,8 +27468,8 @@ fn obtainBitCastedVectorPtr(sema: *Sema, ptr: Air.Inst.Ref) ?Air.Inst.Ref {
         // different behavior depending on whether the types were inferred.
         // Something seems wrong here.
         if (prev_ptr_ty.ip_index == .none) {
-            if (prev_ptr_ty.tag() == .inferred_alloc_mut) return null;
-            if (prev_ptr_ty.tag() == .inferred_alloc_const) return null;
+            if (prev_ptr_ty.ip_index == .inferred_alloc_mut_type) return null;
+            if (prev_ptr_ty.ip_index == .inferred_alloc_const_type) return null;
         }
 
         const prev_ptr_child_ty = prev_ptr_ty.childType(mod);
@@ -31677,6 +31686,9 @@ pub fn resolveTypeRequiresComptime(sema: *Sema, ty: Type) CompileError!bool {
                 .enum_literal,
                 .type_info,
                 => true,
+
+                .inferred_alloc_const => unreachable,
+                .inferred_alloc_mut => unreachable,
             },
             .struct_type => |struct_type| {
                 const struct_obj = mod.structPtrUnwrap(struct_type.index) orelse return false;
@@ -31931,6 +31943,8 @@ pub fn resolveTypeFields(sema: *Sema, ty: Type) CompileError!Type {
         .bool_false => unreachable,
         .empty_struct => unreachable,
         .generic_poison => unreachable,
+        .inferred_alloc_const_type => unreachable,
+        .inferred_alloc_mut_type => unreachable,
 
         .type_info_type => return sema.getBuiltinType("Type"),
         .extern_options_type => return sema.getBuiltinType("ExternOptions"),
@@ -33032,16 +33046,9 @@ fn getBuiltinType(sema: *Sema, name: []const u8) CompileError!Type {
 /// TODO assert the return value matches `ty.onePossibleValue`
 pub fn typeHasOnePossibleValue(sema: *Sema, ty: Type) CompileError!?Value {
     const mod = sema.mod;
-
-    switch (ty.ip_index) {
-        .empty_struct_type => return Value.empty_struct,
-
-        .none => switch (ty.tag()) {
-            .inferred_alloc_const => unreachable,
-            .inferred_alloc_mut => unreachable,
-        },
-
-        else => return switch (mod.intern_pool.indexToKey(ty.ip_index)) {
+    return switch (ty.ip_index) {
+        .empty_struct_type => Value.empty_struct,
+        else => switch (mod.intern_pool.indexToKey(ty.ip_index)) {
             .int_type => |int_type| {
                 if (int_type.bits == 0) {
                     return try mod.intValue(ty, 0);
@@ -33123,6 +33130,8 @@ pub fn typeHasOnePossibleValue(sema: *Sema, ty: Type) CompileError!?Value {
                 .undefined => Value.undef,
 
                 .generic_poison => return error.GenericPoison,
+                .inferred_alloc_const => unreachable,
+                .inferred_alloc_mut => unreachable,
             },
             .struct_type => |struct_type| {
                 const resolved_ty = try sema.resolveTypeFields(ty);
@@ -33245,7 +33254,7 @@ pub fn typeHasOnePossibleValue(sema: *Sema, ty: Type) CompileError!?Value {
             .enum_tag => unreachable,
             .aggregate => unreachable,
         },
-    }
+    };
 }
 
 /// Returns the type of the AIR instruction.
@@ -33563,16 +33572,15 @@ fn usizeCast(sema: *Sema, block: *Block, src: LazySrcLoc, int: u64) CompileError
 /// This logic must be kept in sync with `Type.isPtrLikeOptional`.
 fn typePtrOrOptionalPtrTy(sema: *Sema, ty: Type) !?Type {
     const mod = sema.mod;
-
-    if (ty.ip_index != .none) switch (mod.intern_pool.indexToKey(ty.ip_index)) {
+    return switch (mod.intern_pool.indexToKey(ty.ip_index)) {
         .ptr_type => |ptr_type| switch (ptr_type.size) {
-            .Slice => return null,
-            .C => return ptr_type.elem_type.toType(),
-            .One, .Many => return ty,
+            .Slice => null,
+            .C => ptr_type.elem_type.toType(),
+            .One, .Many => ty,
         },
         .opt_type => |opt_child| switch (mod.intern_pool.indexToKey(opt_child)) {
             .ptr_type => |ptr_type| switch (ptr_type.size) {
-                .Slice, .C => return null,
+                .Slice, .C => null,
                 .Many, .One => {
                     if (ptr_type.is_allowzero) return null;
 
@@ -33585,15 +33593,10 @@ fn typePtrOrOptionalPtrTy(sema: *Sema, ty: Type) !?Type {
                     return payload_ty;
                 },
             },
-            else => return null,
+            else => null,
         },
-        else => return null,
+        else => null,
     };
-
-    switch (ty.tag()) {
-        .inferred_alloc_const => unreachable,
-        .inferred_alloc_mut => unreachable,
-    }
 }
 
 /// `generic_poison` will return false.
@@ -33677,6 +33680,9 @@ pub fn typeRequiresComptime(sema: *Sema, ty: Type) CompileError!bool {
                 .enum_literal,
                 .type_info,
                 => true,
+
+                .inferred_alloc_const => unreachable,
+                .inferred_alloc_mut => unreachable,
             },
             .struct_type => |struct_type| {
                 const struct_obj = mod.structPtrUnwrap(struct_type.index) orelse return false;
