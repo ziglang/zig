@@ -144,3 +144,9 @@ test "p384 scalar inverse" {
     const sqr = try sq.sqrt();
     try testing.expect(sqr.equivalent(scalar));
 }
+
+test "p384 scalar parity" {
+    try std.testing.expect(P384.scalar.Scalar.zero.isOdd() == false);
+    try std.testing.expect(P384.scalar.Scalar.one.isOdd());
+    try std.testing.expect(P384.scalar.Scalar.one.dbl().isOdd() == false);
+}
