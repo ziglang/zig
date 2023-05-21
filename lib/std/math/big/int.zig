@@ -1627,7 +1627,7 @@ pub const Mutable = struct {
         // while x >= y * b^(n - t):
         //    x -= y * b^(n - t)
         //    q[n - t] += 1
-        // Note, this algorithm is performed only once if y[t] > radix/2 and y is even, which we
+        // Note, this algorithm is performed only once if y[t] > base/2 and y is even, which we
         // enforced in step 0. This means we can replace the while with an if.
         // Note, multiplication by b^(n - t) comes down to shifting to the right by n - t limbs.
         // We can also replace x >= y * b^(n - t) by x/b^(n - t) >= y, and use shifts for that.
@@ -2206,20 +2206,20 @@ pub const Const = struct {
         out_stream: anytype,
     ) !void {
         _ = options;
-        comptime var radix = 10;
+        comptime var base = 10;
         comptime var case: std.fmt.Case = .lower;
 
         if (fmt.len == 0 or comptime mem.eql(u8, fmt, "d")) {
-            radix = 10;
+            base = 10;
             case = .lower;
         } else if (comptime mem.eql(u8, fmt, "b")) {
-            radix = 2;
+            base = 2;
             case = .lower;
         } else if (comptime mem.eql(u8, fmt, "x")) {
-            radix = 16;
+            base = 16;
             case = .lower;
         } else if (comptime mem.eql(u8, fmt, "X")) {
-            radix = 16;
+            base = 16;
             case = .upper;
         } else {
             std.fmt.invalidFmtError(fmt, self);
@@ -2237,8 +2237,8 @@ pub const Const = struct {
             .limbs = &([1]Limb{comptime math.maxInt(Limb)} ** available_len),
             .positive = false,
         };
-        var buf: [biggest.sizeInBaseUpperBound(radix)]u8 = undefined;
-        const len = self.toString(&buf, radix, case, &limbs);
+        var buf: [biggest.sizeInBaseUpperBound(base)]u8 = undefined;
+        const len = self.toString(&buf, base, case, &limbs);
         return out_stream.writeAll(buf[0..len]);
     }
 

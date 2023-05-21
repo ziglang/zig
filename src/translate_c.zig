@@ -5735,21 +5735,21 @@ fn parseCNumLit(c: *Context, m: *MacroCtx) ParseError!Node {
 
     switch (m.list[m.i].id) {
         .IntegerLiteral => |suffix| {
-            var radix: []const u8 = "decimal";
+            var base: []const u8 = "decimal";
             if (lit_bytes.len >= 2 and lit_bytes[0] == '0') {
                 switch (lit_bytes[1]) {
                     '0'...'7' => {
                         // Octal
                         lit_bytes = try std.fmt.allocPrint(c.arena, "0o{s}", .{lit_bytes[1..]});
-                        radix = "octal";
+                        base = "octal";
                     },
                     'X' => {
                         // Hexadecimal with capital X, valid in C but not in Zig
                         lit_bytes = try std.fmt.allocPrint(c.arena, "0x{s}", .{lit_bytes[2..]});
-                        radix = "hexadecimal";
+                        base = "hexadecimal";
                     },
                     'x' => {
-                        radix = "hexadecimal";
+                        base = "hexadecimal";
                     },
                     else => {},
                 }
@@ -5794,7 +5794,7 @@ fn parseCNumLit(c: *Context, m: *MacroCtx) ParseError!Node {
                 return Tag.helpers_promoteIntLiteral.create(c.arena, .{
                     .type = type_node,
                     .value = literal_node,
-                    .radix = try Tag.enum_literal.create(c.arena, radix),
+                    .base = try Tag.enum_literal.create(c.arena, base),
                 });
             }
         },

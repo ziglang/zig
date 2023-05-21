@@ -5786,12 +5786,12 @@ pub fn cmdChangelist(
     try bw.flush();
 }
 
-fn eatIntPrefix(arg: []const u8, radix: u8) []const u8 {
+fn eatIntPrefix(arg: []const u8, base: u8) []const u8 {
     if (arg.len > 2 and arg[0] == '0') {
         switch (std.ascii.toLower(arg[1])) {
-            'b' => if (radix == 2) return arg[2..],
-            'o' => if (radix == 8) return arg[2..],
-            'x' => if (radix == 16) return arg[2..],
+            'b' => if (base == 2) return arg[2..],
+            'o' => if (base == 8) return arg[2..],
+            'x' => if (base == 16) return arg[2..],
             else => {},
         }
     }
