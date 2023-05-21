@@ -6131,7 +6131,7 @@ fn lookupInNamespace(
                     continue;
                 }
                 try sema.ensureDeclAnalyzed(sub_usingnamespace_decl_index);
-                const ns_ty = sub_usingnamespace_decl.val.castTag(.ty).?.data;
+                const ns_ty = sub_usingnamespace_decl.val.toType();
                 const sub_ns = ns_ty.getNamespace(mod).?;
                 try checked_namespaces.put(gpa, sub_ns, src_file == sub_usingnamespace_decl.getFileScope(mod));
             }
@@ -16131,7 +16131,7 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                 // address_space: AddressSpace
                 try mod.enumValueFieldIndex(addrspace_ty, @enumToInt(info.@"addrspace")),
                 // child: type,
-                try Value.Tag.ty.create(sema.arena, info.pointee_type),
+                info.pointee_type.toValue(),
                 // is_allowzero: bool,
                 Value.makeBool(info.@"allowzero"),
                 // sentinel: ?*const anyopaque,
@@ -16152,7 +16152,7 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
             // len: comptime_int,
             field_values[0] = try mod.intValue(Type.comptime_int, info.len);
             // child: type,
-            field_values[1] = try Value.Tag.ty.create(sema.arena, info.elem_type);
+            field_values[1] = info.elem_type.toValue();
             // sentinel: ?*const anyopaque,
             field_values[2] = try sema.optRefValue(block, info.elem_type, info.sentinel);
 
@@ -16170,7 +16170,7 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
             // len: comptime_int,
             field_values[0] = try mod.intValue(Type.comptime_int, info.len);
             // child: type,
-            field_values[1] = try Value.Tag.ty.create(sema.arena, info.elem_type);
+            field_values[1] = info.elem_type.toValue();
 
             return sema.addConstant(
                 type_info_ty,
@@ -16183,7 +16183,7 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
         .Optional => {
             const field_values = try sema.arena.alloc(Value, 1);
             // child: type,
-            field_values[0] = try Value.Tag.ty.create(sema.arena, ty.optionalChild(mod));
+            field_values[0] = ty.optionalChild(mod).toValue();
 
             return sema.addConstant(
                 type_info_ty,
@@ -16286,9 +16286,9 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
         .ErrorUnion => {
             const field_values = try sema.arena.alloc(Value, 2);
             // error_set: type,
-            field_values[0] = try Value.Tag.ty.create(sema.arena, ty.errorUnionSet(mod));
+            field_values[0] = ty.errorUnionSet(mod).toValue();
             // payload: type,
-            field_values[1] = try Value.Tag.ty.create(sema.arena, ty.errorUnionPayload(mod));
+            field_values[1] = ty.errorUnionPayload(mod).toValue();
 
             return sema.addConstant(
                 type_info_ty,
@@ -16436,7 +16436,7 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                     // name: []const u8,
                     name_val,
                     // type: type,
-                    try Value.Tag.ty.create(fields_anon_decl.arena(), field.ty),
+                    field.ty.toValue(),
                     // alignment: comptime_int,
                     try mod.intValue(Type.comptime_int, alignment),
                 };
@@ -16465,7 +16465,7 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
             const decls_val = try sema.typeInfoDecls(block, src, type_info_ty, union_ty.getNamespaceIndex(mod));
 
             const enum_tag_ty_val = if (union_ty.unionTagType(mod)) |tag_ty| v: {
-                const ty_val = try Value.Tag.ty.create(sema.arena, tag_ty);
+                const ty_val = tag_ty.toValue();
                 break :v try Value.Tag.opt_payload.create(sema.arena, ty_val);
             } else Value.null;
 
@@ -16602,7 +16602,7 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                         // name: []const u8,
                         name_val,
                         // type: type,
-                        try Value.Tag.ty.create(fields_anon_decl.arena(), field.ty),
+                        field.ty.toValue(),
                         // default_value: ?*const anyopaque,
                         try default_val_ptr.copy(fields_anon_decl.arena()),
                         // is_comptime: bool,
@@ -16641,7 +16641,7 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                     const struct_obj = mod.typeToStruct(struct_ty).?;
                     assert(struct_obj.haveLayout());
                     assert(struct_obj.backing_int_ty.isInt(mod));
-                    const backing_int_ty_val = try Value.Tag.ty.create(sema.arena, struct_obj.backing_int_ty);
+                    const backing_int_ty_val = struct_obj.backing_int_ty.toValue();
                     break :blk try Value.Tag.opt_payload.create(sema.arena, backing_int_ty_val);
                 } else {
                     break :blk Value.null;
