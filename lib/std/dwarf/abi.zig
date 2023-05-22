@@ -12,23 +12,8 @@ pub fn ipRegNum() u8 {
     return switch (builtin.cpu.arch) {
         .x86 => 8,
         .x86_64 => 16,
-        .arm => error.InvalidRegister, // TODO
-        .aarch64 => error.InvalidRegister, // TODO
-
-        // const ctx = @ptrCast(*const os.ucontext_t, @alignCast(@alignOf(os.ucontext_t), ctx_ptr));
-        // const ip = switch (native_os) {
-        //     .macos => @intCast(usize, ctx.mcontext.ss.pc),
-        //     .netbsd => @intCast(usize, ctx.mcontext.gregs[os.REG.PC]),
-        //     .freebsd => @intCast(usize, ctx.mcontext.gpregs.elr),
-        //     else => @intCast(usize, ctx.mcontext.pc),
-        // };
-        // // x29 is the ABI-designated frame pointer
-        // const bp = switch (native_os) {
-        //     .macos => @intCast(usize, ctx.mcontext.ss.fp),
-        //     .netbsd => @intCast(usize, ctx.mcontext.gregs[os.REG.FP]),
-        //     .freebsd => @intCast(usize, ctx.mcontext.gpregs.x[os.REG.FP]),
-        //     else => @intCast(usize, ctx.mcontext.regs[29]),
-        // };
+        .arm => 15,
+        .aarch64 => 32,
         else => unreachable,
     };
 }
@@ -38,8 +23,8 @@ pub fn fpRegNum(reg_ctx: RegisterContext) u8 {
         // GCC on OS X did the opposite of ELF for these registers (only in .eh_frame), and that is now the convention for MachO
         .x86 => if (reg_ctx.eh_frame and reg_ctx.is_macho) 4 else 5,
         .x86_64 => 6,
-        .arm => error.InvalidRegister, // TODO
-        .aarch64 => error.InvalidRegister, // TODO
+        .arm => 11,
+        .aarch64 => 29,
 
         // const ctx = @ptrCast(*const os.ucontext_t, @alignCast(@alignOf(os.ucontext_t), ctx_ptr));
         // const ip = switch (native_os) {
@@ -63,23 +48,8 @@ pub fn spRegNum(reg_ctx: RegisterContext) u8 {
     return switch (builtin.cpu.arch) {
         .x86 => if (reg_ctx.eh_frame and reg_ctx.is_macho) 5 else 4,
         .x86_64 => 7,
-        .arm => error.InvalidRegister, // TODO
-        .aarch64 => error.InvalidRegister, // TODO
-
-        // const ctx = @ptrCast(*const os.ucontext_t, @alignCast(@alignOf(os.ucontext_t), ctx_ptr));
-        // const ip = switch (native_os) {
-        //     .macos => @intCast(usize, ctx.mcontext.ss.pc),
-        //     .netbsd => @intCast(usize, ctx.mcontext.gregs[os.REG.PC]),
-        //     .freebsd => @intCast(usize, ctx.mcontext.gpregs.elr),
-        //     else => @intCast(usize, ctx.mcontext.pc),
-        // };
-        // // x29 is the ABI-designated frame pointer
-        // const bp = switch (native_os) {
-        //     .macos => @intCast(usize, ctx.mcontext.ss.fp),
-        //     .netbsd => @intCast(usize, ctx.mcontext.gregs[os.REG.FP]),
-        //     .freebsd => @intCast(usize, ctx.mcontext.gpregs.x[os.REG.FP]),
-        //     else => @intCast(usize, ctx.mcontext.regs[29]),
-        // };
+        .arm => 13,
+        .aarch64 => 31,
         else => unreachable,
     };
 }
@@ -220,6 +190,56 @@ pub fn regBytes(ucontext_ptr: anytype, reg_number: u8, reg_ctx: ?RegisterContext
                 else => error.InvalidRegister,
             },
             else => error.UnimplementedOs,
+        },
+        .arm => switch (builtin.os.tag) {
+            .linux => switch (reg_number) {
+                0 => mem.asBytes(&ucontext_ptr.mcontext.arm_r0),
+                1 => mem.asBytes(&ucontext_ptr.mcontext.arm_r1),
+                2 => mem.asBytes(&ucontext_ptr.mcontext.arm_r2),
+                3 => mem.asBytes(&ucontext_ptr.mcontext.arm_r3),
+                4 => mem.asBytes(&ucontext_ptr.mcontext.arm_r4),
+                5 => mem.asBytes(&ucontext_ptr.mcontext.arm_r5),
+                6 => mem.asBytes(&ucontext_ptr.mcontext.arm_r6),
+                7 => mem.asBytes(&ucontext_ptr.mcontext.arm_r7),
+                8 => mem.asBytes(&ucontext_ptr.mcontext.arm_r8),
+                9 => mem.asBytes(&ucontext_ptr.mcontext.arm_r9),
+                10 => mem.asBytes(&ucontext_ptr.mcontext.arm_r10),
+                11 => mem.asBytes(&ucontext_ptr.mcontext.arm_fp),
+                12 => mem.asBytes(&ucontext_ptr.mcontext.arm_ip),
+                13 => mem.asBytes(&ucontext_ptr.mcontext.arm_sp),
+                14 => mem.asBytes(&ucontext_ptr.mcontext.arm_lr),
+                15 => mem.asBytes(&ucontext_ptr.mcontext.arm_pc),
+                // CPSR is not allocated a register number (See: https://github.com/ARM-software/abi-aa/blob/main/aadwarf32/aadwarf32.rst, Section 4.1)
+                else => error.InvalidRegister,
+            },
+            else => error.UnimplementedOs,
+        },
+        .aarch64 => switch (builtin.os.tag) {
+            .macos => switch (reg_number) {
+                0...28 => mem.asBytes(&ucontext_ptr.mcontext.ss.regs[reg_number]),
+                29 => mem.asBytes(&ucontext_ptr.mcontext.ss.fp),
+                30 => mem.asBytes(&ucontext_ptr.mcontext.ss.lr),
+                31 => mem.asBytes(&ucontext_ptr.mcontext.ss.sp),
+                32 => mem.asBytes(&ucontext_ptr.mcontext.ss.pc),
+                else => error.InvalidRegister,
+            },
+            .netbsd => switch (reg_number) {
+                0...34 => mem.asBytes(&ucontext_ptr.mcontext.gregs[reg_number]),
+                else => error.InvalidRegister,
+            },
+            .freebsd => switch (reg_number) {
+                0...29 => mem.asBytes(&ucontext_ptr.mcontext.gpregs.x[reg_number]),
+                30 => mem.asBytes(&ucontext_ptr.mcontext.gpregs.lr),
+                31 => mem.asBytes(&ucontext_ptr.mcontext.gpregs.sp),
+                32 => mem.asBytes(&ucontext_ptr.mcontext.gpregs.elr), // TODO: This seems wrong, but it was in the old debug.zig code for PC, check this
+                else => error.InvalidRegister,
+            },
+            else => switch (reg_number) {
+                0...30 => mem.asBytes(&ucontext_ptr.mcontext.regs[reg_number]),
+                31 => mem.asBytes(&ucontext_ptr.mcontext.sp),
+                32 => mem.asBytes(&ucontext_ptr.mcontext.pc),
+                else => error.InvalidRegister,
+            },
         },
         else => error.UnimplementedArch,
     };

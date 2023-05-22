@@ -532,6 +532,8 @@ pub const StackIterator = struct {
             if (self.next_dwarf()) |_| {
                 return self.dwarf_context.pc;
             } else |err| {
+                if (err != error.MissingFDE) print("DWARF unwind error: {}\n", .{err});
+
                 // Fall back to fp unwinding on the first failure,
                 // as the register context won't be updated
 
@@ -540,9 +542,6 @@ pub const StackIterator = struct {
 
                 self.fp = self.dwarf_context.getFp() catch 0;
                 self.debug_info = null;
-
-                // TODO: Remove
-                print("\ndwarf unwind error {}, placing fp at 0x{x}\n\n", .{err, self.fp});
             }
         }
 
@@ -1570,7 +1569,6 @@ pub const ModuleDebugInfo = switch (native_os) {
     .macos, .ios, .watchos, .tvos => struct {
         base_address: usize,
         mapped_memory: []align(mem.page_size) const u8,
-        external_mapped_memory: ?[]align(mem.page_size) const u8,
         symbols: []const MachoSymbol,
         strings: [:0]const u8,
         ofiles: OFileTable,
@@ -1591,7 +1589,6 @@ pub const ModuleDebugInfo = switch (native_os) {
             self.ofiles.deinit();
             allocator.free(self.symbols);
             os.munmap(self.mapped_memory);
-            if (self.external_mapped_memory) |m| os.munmap(m);
         }
 
         fn loadOFile(self: *@This(), allocator: mem.Allocator, o_file_path: []const u8) !OFileInfo {
@@ -1637,102 +1634,37 @@ pub const ModuleDebugInfo = switch (native_os) {
                 addr_table.putAssumeCapacityNoClobber(sym_name, sym.n_value);
             }
 
-            var opt_debug_line: ?macho.section_64 = null;
-            var opt_debug_info: ?macho.section_64 = null;
-            var opt_debug_abbrev: ?macho.section_64 = null;
-            var opt_debug_str: ?macho.section_64 = null;
-            var opt_debug_str_offsets: ?macho.section_64 = null;
-            var opt_debug_line_str: ?macho.section_64 = null;
-            var opt_debug_ranges: ?macho.section_64 = null;
-            var opt_debug_loclists: ?macho.section_64 = null;
-            var opt_debug_rnglists: ?macho.section_64 = null;
-            var opt_debug_addr: ?macho.section_64 = null;
-            var opt_debug_names: ?macho.section_64 = null;
-            var opt_debug_frame: ?macho.section_64 = null;
-
+            var sections: DW.DwarfInfo.SectionArray = DW.DwarfInfo.null_section_array;
             for (segcmd.?.getSections()) |sect| {
                 const name = sect.sectName();
-                if (mem.eql(u8, name, "__debug_line")) {
-                    opt_debug_line = sect;
-                } else if (mem.eql(u8, name, "__debug_info")) {
-                    opt_debug_info = sect;
-                } else if (mem.eql(u8, name, "__debug_abbrev")) {
-                    opt_debug_abbrev = sect;
-                } else if (mem.eql(u8, name, "__debug_str")) {
-                    opt_debug_str = sect;
-                } else if (mem.eql(u8, name, "__debug_str_offsets")) {
-                    opt_debug_str_offsets = sect;
-                } else if (mem.eql(u8, name, "__debug_line_str")) {
-                    opt_debug_line_str = sect;
-                } else if (mem.eql(u8, name, "__debug_ranges")) {
-                    opt_debug_ranges = sect;
-                } else if (mem.eql(u8, name, "__debug_loclists")) {
-                    opt_debug_loclists = sect;
-                } else if (mem.eql(u8, name, "__debug_rnglists")) {
-                    opt_debug_rnglists = sect;
-                } else if (mem.eql(u8, name, "__debug_addr")) {
-                    opt_debug_addr = sect;
-                } else if (mem.eql(u8, name, "__debug_names")) {
-                    opt_debug_names = sect;
-                } else if (mem.eql(u8, name, "__debug_frame")) {
-                    opt_debug_frame = sect;
+
+                var section_index: ?usize = null;
+                inline for (@typeInfo(DW.DwarfSection).Enum.fields, 0..) |section, i| {
+                    if (mem.eql(u8, "__" ++ section.name, name)) section_index = i;
                 }
+                if (section_index == null) continue;
+
+                const section_bytes = try chopSlice(mapped_mem, sect.offset, sect.size);
+                sections[section_index.?] = .{
+                    .data = section_bytes,
+                    .owned = false,
+                };
             }
 
-            const debug_line = opt_debug_line orelse
-                return error.MissingDebugInfo;
-            const debug_info = opt_debug_info orelse
-                return error.MissingDebugInfo;
-            const debug_str = opt_debug_str orelse
-                return error.MissingDebugInfo;
-            const debug_abbrev = opt_debug_abbrev orelse
-                return error.MissingDebugInfo;
+            const missing_debug_info =
+                sections[@enumToInt(DW.DwarfSection.debug_info)] == null or
+                sections[@enumToInt(DW.DwarfSection.debug_abbrev)] == null or
+                sections[@enumToInt(DW.DwarfSection.debug_str)] == null or
+                sections[@enumToInt(DW.DwarfSection.debug_line)] == null;
+            if (missing_debug_info) return error.MissingDebugInfo;
 
             var di = DW.DwarfInfo{
                 .endian = .Little,
+                .sections = sections,
                 .is_macho = true,
-
-                // TODO: Get this compiling
-
-                .debug_info = try chopSlice(mapped_mem, debug_info.offset, debug_info.size),
-                .debug_abbrev = try chopSlice(mapped_mem, debug_abbrev.offset, debug_abbrev.size),
-                .debug_str = try chopSlice(mapped_mem, debug_str.offset, debug_str.size),
-                .debug_str_offsets = if (opt_debug_str_offsets) |debug_str_offsets|
-                    try chopSlice(mapped_mem, debug_str_offsets.offset, debug_str_offsets.size)
-                else
-                    null,
-                .debug_line = try chopSlice(mapped_mem, debug_line.offset, debug_line.size),
-                .debug_line_str = if (opt_debug_line_str) |debug_line_str|
-                    try chopSlice(mapped_mem, debug_line_str.offset, debug_line_str.size)
-                else
-                    null,
-                .debug_ranges = if (opt_debug_ranges) |debug_ranges|
-                    try chopSlice(mapped_mem, debug_ranges.offset, debug_ranges.size)
-                else
-                    null,
-                .debug_loclists = if (opt_debug_loclists) |debug_loclists|
-                    try chopSlice(mapped_mem, debug_loclists.offset, debug_loclists.size)
-                else
-                    null,
-                .debug_rnglists = if (opt_debug_rnglists) |debug_rnglists|
-                    try chopSlice(mapped_mem, debug_rnglists.offset, debug_rnglists.size)
-                else
-                    null,
-                .debug_addr = if (opt_debug_addr) |debug_addr|
-                    try chopSlice(mapped_mem, debug_addr.offset, debug_addr.size)
-                else
-                    null,
-                .debug_names = if (opt_debug_names) |debug_names|
-                    try chopSlice(mapped_mem, debug_names.offset, debug_names.size)
-                else
-                    null,
-                .debug_frame = if (opt_debug_frame) |debug_frame|
-                    try chopSlice(mapped_mem, debug_frame.offset, debug_frame.size)
-                else
-                    null,
             };
 
-            try DW.openDwarfDebugInfo(&di, allocator);
+            try DW.openDwarfDebugInfo(&di, allocator, mapped_mem);
             var info = OFileInfo{
                 .di = di,
                 .addr_table = addr_table,
@@ -1784,7 +1716,7 @@ pub const ModuleDebugInfo = switch (native_os) {
                         .compile_unit_name = compile_unit.die.getAttrString(
                             o_file_di,
                             DW.AT.name,
-                            o_file_di.debug_str,
+                            o_file_di.section(.debug_str),
                             compile_unit.*,
                         ) catch |err| switch (err) {
                             error.MissingDebugInfo, error.InvalidDebugInfo => "???",
