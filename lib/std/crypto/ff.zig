@@ -52,7 +52,7 @@ pub const FieldElementError = error{NonCanonical};
 /// Invalid representation (Montgomery vs non-Montgomery domain.)
 pub const RepresentationError = error{UnexpectedRepresentation};
 
-/// The set of all possible errors `std.crypto.fe` functions can return.
+/// The set of all possible errors `std.crypto.ff` functions can return.
 pub const Error = OverflowError || InvalidModulusError || NullExponentError || FieldElementError || RepresentationError;
 
 /// An unsigned big integer with a fixed maximum size (`max_bits`), suitable for cryptographic operations.
