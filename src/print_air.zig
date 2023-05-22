@@ -699,8 +699,8 @@ const Writer = struct {
 
     fn writeDbgInline(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {
         const ty_pl = w.air.instructions.items(.data)[inst].ty_pl;
-        const function = w.air.values[ty_pl.payload].castTag(.function).?.data;
-        const owner_decl = w.module.declPtr(function.owner_decl);
+        const func_index = w.module.intern_pool.indexToFunc(w.air.values[ty_pl.payload].ip_index);
+        const owner_decl = w.module.declPtr(w.module.funcPtrUnwrap(func_index).?.owner_decl);
         try s.print("{s}", .{owner_decl.name});
     }
 

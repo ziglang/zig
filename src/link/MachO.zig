@@ -1847,16 +1847,17 @@ fn addStubEntry(self: *MachO, target: SymbolWithLoc) !void {
     self.markRelocsDirtyByTarget(target);
 }
 
-pub fn updateFunc(self: *MachO, mod: *Module, func: *Module.Fn, air: Air, liveness: Liveness) !void {
+pub fn updateFunc(self: *MachO, mod: *Module, func_index: Module.Fn.Index, air: Air, liveness: Liveness) !void {
     if (build_options.skip_non_native and builtin.object_format != .macho) {
         @panic("Attempted to compile for object format that was disabled by build configuration");
     }
     if (build_options.have_llvm) {
-        if (self.llvm_object) |llvm_object| return llvm_object.updateFunc(mod, func, air, liveness);
+        if (self.llvm_object) |llvm_object| return llvm_object.updateFunc(mod, func_index, air, liveness);
     }
     const tracy = trace(@src());
     defer tracy.end();
 
+    const func = mod.funcPtr(func_index);
     const decl_index = func.owner_decl;
     const decl = mod.declPtr(decl_index);
 
@@ -1874,11 +1875,11 @@ pub fn updateFunc(self: *MachO, mod: *Module, func: *Module.Fn, air: Air, livene
     defer if (decl_state) |*ds| ds.deinit();
 
     const res = if (decl_state) |*ds|
-        try codegen.generateFunction(&self.base, decl.srcLoc(mod), func, air, liveness, &code_buffer, .{
+        try codegen.generateFunction(&self.base, decl.srcLoc(mod), func_index, air, liveness, &code_buffer, .{
             .dwarf = ds,
         })
     else
-        try codegen.generateFunction(&self.base, decl.srcLoc(mod), func, air, liveness, &code_buffer, .none);
+        try codegen.generateFunction(&self.base, decl.srcLoc(mod), func_index, air, liveness, &code_buffer, .none);
 
     var code = switch (res) {
         .ok => code_buffer.items,
@@ -1983,18 +1984,17 @@ pub fn updateDecl(self: *MachO, mod: *Module, decl_index: Module.Decl.Index) !vo
 
     const decl = mod.declPtr(decl_index);
 
-    if (decl.val.tag() == .extern_fn) {
+    if (decl.getExternFunc(mod)) |_| {
         return; // TODO Should we do more when front-end analyzed extern decl?
     }
-    if (decl.val.castTag(.variable)) |payload| {
-        const variable = payload.data;
+    if (decl.getVariable(mod)) |variable| {
         if (variable.is_extern) {
             return; // TODO Should we do more when front-end analyzed extern decl?
         }
     }
 
-    const is_threadlocal = if (decl.val.castTag(.variable)) |payload|
-        payload.data.is_threadlocal and !self.base.options.single_threaded
+    const is_threadlocal = if (decl.getVariable(mod)) |variable|
+        variable.is_threadlocal and !self.base.options.single_threaded
     else
         false;
     if (is_threadlocal) return self.updateThreadlocalVariable(mod, decl_index);
@@ -2012,7 +2012,7 @@ pub fn updateDecl(self: *MachO, mod: *Module, decl_index: Module.Decl.Index) !vo
         null;
     defer if (decl_state) |*ds| ds.deinit();
 
-    const decl_val = if (decl.val.castTag(.variable)) |payload| payload.data.init else decl.val;
+    const decl_val = if (decl.getVariable(mod)) |variable| variable.init.toValue() else decl.val;
     const res = if (decl_state) |*ds|
         try codegen.generateSymbol(&self.base, decl.srcLoc(mod), .{
             .ty = decl.ty,
@@ -2177,7 +2177,7 @@ fn updateThreadlocalVariable(self: *MachO, module: *Module, decl_index: Module.D
 
     const decl = module.declPtr(decl_index);
     const decl_metadata = self.decls.get(decl_index).?;
-    const decl_val = decl.val.castTag(.variable).?.data.init;
+    const decl_val = decl.getVariable(mod).?.init.toValue();
     const res = if (decl_state) |*ds|
         try codegen.generateSymbol(&self.base, decl.srcLoc(mod), .{
             .ty = decl.ty,
@@ -2278,8 +2278,8 @@ fn getDeclOutputSection(self: *MachO, decl_index: Module.Decl.Index) u8 {
             }
         }
 
-        if (val.castTag(.variable)) |variable| {
-            if (variable.data.is_threadlocal and !single_threaded) {
+        if (decl.getVariable(mod)) |variable| {
+            if (variable.is_threadlocal and !single_threaded) {
                 break :blk self.thread_data_section_index.?;
             }
             break :blk self.data_section_index.?;
@@ -2289,7 +2289,7 @@ fn getDeclOutputSection(self: *MachO, decl_index: Module.Decl.Index) u8 {
             // TODO: what if this is a function pointer?
             .Fn => break :blk self.text_section_index.?,
             else => {
-                if (val.castTag(.variable)) |_| {
+                if (decl.getVariable(mod)) |_| {
                     break :blk self.data_section_index.?;
                 }
                 break :blk self.data_const_section_index.?;

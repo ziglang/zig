@@ -971,7 +971,7 @@ pub fn initDeclState(self: *Dwarf, mod: *Module, decl_index: Module.Decl.Index) 
             // For functions we need to add a prologue to the debug line program.
             try dbg_line_buffer.ensureTotalCapacity(26);
 
-            const func = decl.val.castTag(.function).?.data;
+            const func = decl.getFunction(mod).?;
             log.debug("decl.src_line={d}, func.lbrace_line={d}, func.rbrace_line={d}", .{
                 decl.src_line,
                 func.lbrace_line,
@@ -1514,7 +1514,7 @@ fn writeDeclDebugInfo(self: *Dwarf, atom_index: Atom.Index, dbg_info_buf: []cons
     }
 }
 
-pub fn updateDeclLineNumber(self: *Dwarf, module: *Module, decl_index: Module.Decl.Index) !void {
+pub fn updateDeclLineNumber(self: *Dwarf, mod: *Module, decl_index: Module.Decl.Index) !void {
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -1522,8 +1522,8 @@ pub fn updateDeclLineNumber(self: *Dwarf, module: *Module, decl_index: Module.De
     const atom = self.getAtom(.src_fn, atom_index);
     if (atom.len == 0) return;
 
-    const decl = module.declPtr(decl_index);
-    const func = decl.val.castTag(.function).?.data;
+    const decl = mod.declPtr(decl_index);
+    const func = decl.getFunction(mod).?;
     log.debug("decl.src_line={d}, func.lbrace_line={d}, func.rbrace_line={d}", .{
         decl.src_line,
         func.lbrace_line,

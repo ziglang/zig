@@ -1032,18 +1032,19 @@ fn freeAtom(self: *Coff, atom_index: Atom.Index) void {
     self.getAtomPtr(atom_index).sym_index = 0;
 }
 
-pub fn updateFunc(self: *Coff, mod: *Module, func: *Module.Fn, air: Air, liveness: Liveness) !void {
+pub fn updateFunc(self: *Coff, mod: *Module, func_index: Module.Fn.Index, air: Air, liveness: Liveness) !void {
     if (build_options.skip_non_native and builtin.object_format != .coff) {
         @panic("Attempted to compile for object format that was disabled by build configuration");
     }
     if (build_options.have_llvm) {
         if (self.llvm_object) |llvm_object| {
-            return llvm_object.updateFunc(mod, func, air, liveness);
+            return llvm_object.updateFunc(mod, func_index, air, liveness);
         }
     }
     const tracy = trace(@src());
     defer tracy.end();
 
+    const func = mod.funcPtr(func_index);
     const decl_index = func.owner_decl;
     const decl = mod.declPtr(decl_index);
 
@@ -1057,7 +1058,7 @@ pub fn updateFunc(self: *Coff, mod: *Module, func: *Module.Fn, air: Air, livenes
     const res = try codegen.generateFunction(
         &self.base,
         decl.srcLoc(mod),
-        func,
+        func_index,
         air,
         liveness,
         &code_buffer,
@@ -1155,11 +1156,10 @@ pub fn updateDecl(
 
     const decl = mod.declPtr(decl_index);
 
-    if (decl.val.tag() == .extern_fn) {
+    if (decl.getExternFunc(mod)) |_| {
         return; // TODO Should we do more when front-end analyzed extern decl?
     }
-    if (decl.val.castTag(.variable)) |payload| {
-        const variable = payload.data;
+    if (decl.getVariable(mod)) |variable| {
         if (variable.is_extern) {
             return; // TODO Should we do more when front-end analyzed extern decl?
         }
@@ -1172,7 +1172,7 @@ pub fn updateDecl(
     var code_buffer = std.ArrayList(u8).init(self.base.allocator);
     defer code_buffer.deinit();
 
-    const decl_val = if (decl.val.castTag(.variable)) |payload| payload.data.init else decl.val;
+    const decl_val = if (decl.getVariable(mod)) |variable| variable.init.toValue() else decl.val;
     const res = try codegen.generateSymbol(&self.base, decl.srcLoc(mod), .{
         .ty = decl.ty,
         .val = decl_val,
@@ -1313,7 +1313,7 @@ fn getDeclOutputSection(self: *Coff, decl_index: Module.Decl.Index) u16 {
             // TODO: what if this is a function pointer?
             .Fn => break :blk self.text_section_index.?,
             else => {
-                if (val.castTag(.variable)) |_| {
+                if (decl.getVariable(mod)) |_| {
                     break :blk self.data_section_index.?;
                 }
                 break :blk self.rdata_section_index.?;
@@ -1425,7 +1425,7 @@ pub fn updateDeclExports(
         // detect the default subsystem.
         for (exports) |exp| {
             const exported_decl = mod.declPtr(exp.exported_decl);
-            if (exported_decl.getFunction() == null) continue;
+            if (exported_decl.getFunctionIndex(mod) == .none) continue;
             const winapi_cc = switch (self.base.options.target.cpu.arch) {
                 .x86 => std.builtin.CallingConvention.Stdcall,
                 else => std.builtin.CallingConvention.C,

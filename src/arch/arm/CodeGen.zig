@@ -334,7 +334,7 @@ const Self = @This();
 pub fn generate(
     bin_file: *link.File,
     src_loc: Module.SrcLoc,
-    module_fn: *Module.Fn,
+    module_fn_index: Module.Fn.Index,
     air: Air,
     liveness: Liveness,
     code: *std.ArrayList(u8),
@@ -345,6 +345,7 @@ pub fn generate(
     }
 
     const mod = bin_file.options.module.?;
+    const module_fn = mod.funcPtr(module_fn_index);
     const fn_owner_decl = mod.declPtr(module_fn.owner_decl);
     assert(fn_owner_decl.has_tv);
     const fn_type = fn_owner_decl.ty;
@@ -4291,9 +4292,7 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallModifier
     // Due to incremental compilation, how function calls are generated depends
     // on linking.
     if (try self.air.value(callee, mod)) |func_value| {
-        if (func_value.castTag(.function)) |func_payload| {
-            const func = func_payload.data;
-
+        if (func_value.getFunction(mod)) |func| {
             if (self.bin_file.cast(link.File.Elf)) |elf_file| {
                 const atom_index = try elf_file.getOrCreateAtomForDecl(func.owner_decl);
                 const atom = elf_file.getAtom(atom_index);
@@ -4308,7 +4307,7 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallModifier
                     @tagName(self.target.cpu.arch),
                 });
             }
-        } else if (func_value.castTag(.extern_fn)) |_| {
+        } else if (func_value.getExternFunc(mod)) |_| {
             return self.fail("TODO implement calling extern functions", .{});
         } else {
             return self.fail("TODO implement calling bitcasted functions", .{});
@@ -4573,7 +4572,8 @@ fn airDbgStmt(self: *Self, inst: Air.Inst.Index) !void {
 
 fn airDbgInline(self: *Self, inst: Air.Inst.Index) !void {
     const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
-    const function = self.air.values[ty_pl.payload].castTag(.function).?.data;
+    const mod = self.bin_file.options.module.?;
+    const function = self.air.values[ty_pl.payload].getFunction(mod).?;
     // TODO emit debug info for function change
     _ = function;
     return self.finishAir(inst, .dead, .{ .none, .none, .none });

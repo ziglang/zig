@@ -632,7 +632,7 @@ const Self = @This();
 pub fn generate(
     bin_file: *link.File,
     src_loc: Module.SrcLoc,
-    module_fn: *Module.Fn,
+    module_fn_index: Module.Fn.Index,
     air: Air,
     liveness: Liveness,
     code: *std.ArrayList(u8),
@@ -643,6 +643,7 @@ pub fn generate(
     }
 
     const mod = bin_file.options.module.?;
+    const module_fn = mod.funcPtr(module_fn_index);
     const fn_owner_decl = mod.declPtr(module_fn.owner_decl);
     assert(fn_owner_decl.has_tv);
     const fn_type = fn_owner_decl.ty;
@@ -687,7 +688,7 @@ pub fn generate(
         @enumToInt(FrameIndex.stack_frame),
         FrameAlloc.init(.{
             .size = 0,
-            .alignment = if (mod.align_stack_fns.get(module_fn)) |set_align_stack|
+            .alignment = if (mod.align_stack_fns.get(module_fn_index)) |set_align_stack|
                 set_align_stack.alignment
             else
                 1,
@@ -2760,19 +2761,18 @@ fn airTrunc(self: *Self, inst: Air.Inst.Index) !void {
             const elem_ty = src_ty.childType(mod);
             const mask_val = try mod.intValue(elem_ty, @as(u64, math.maxInt(u64)) >> @intCast(u6, 64 - dst_info.bits));
 
-            var splat_pl = Value.Payload.SubValue{
-                .base = .{ .tag = .repeated },
-                .data = mask_val,
-            };
-            const splat_val = Value.initPayload(&splat_pl.base);
-
-            const full_ty = try mod.vectorType(.{
+            const splat_ty = try mod.vectorType(.{
                 .len = @intCast(u32, @divExact(@as(u64, if (src_abi_size > 16) 256 else 128), src_info.bits)),
                 .child = elem_ty.ip_index,
             });
-            const full_abi_size = @intCast(u32, full_ty.abiSize(mod));
+            const splat_abi_size = @intCast(u32, splat_ty.abiSize(mod));
 
-            const splat_mcv = try self.genTypedValue(.{ .ty = full_ty, .val = splat_val });
+            const splat_val = try mod.intern(.{ .aggregate = .{
+                .ty = splat_ty.ip_index,
+                .storage = .{ .repeated_elem = mask_val.ip_index },
+            } });
+
+            const splat_mcv = try self.genTypedValue(.{ .ty = splat_ty, .val = splat_val.toValue() });
             const splat_addr_mcv: MCValue = switch (splat_mcv) {
                 .memory, .indirect, .load_frame => splat_mcv.address(),
                 else => .{ .register = try self.copyToTmpRegister(Type.usize, splat_mcv.address()) },
@@ -2784,14 +2784,14 @@ fn airTrunc(self: *Self, inst: Air.Inst.Index) !void {
                     .{ .vp_, .@"and" },
                     dst_reg,
                     dst_reg,
-                    splat_addr_mcv.deref().mem(Memory.PtrSize.fromSize(full_abi_size)),
+                    splat_addr_mcv.deref().mem(Memory.PtrSize.fromSize(splat_abi_size)),
                 );
                 try self.asmRegisterRegisterRegister(mir_tag, dst_reg, dst_reg, dst_reg);
             } else {
                 try self.asmRegisterMemory(
                     .{ .p_, .@"and" },
                     dst_reg,
-                    splat_addr_mcv.deref().mem(Memory.PtrSize.fromSize(full_abi_size)),
+                    splat_addr_mcv.deref().mem(Memory.PtrSize.fromSize(splat_abi_size)),
                 );
                 try self.asmRegisterRegister(mir_tag, dst_reg, dst_reg);
             }
@@ -4893,23 +4893,14 @@ fn airFloatSign(self: *Self, inst: Air.Inst.Index) !void {
     const dst_lock = self.register_manager.lockReg(dst_reg);
     defer if (dst_lock) |lock| self.register_manager.unlockReg(lock);
 
-    var arena = std.heap.ArenaAllocator.init(self.gpa);
-    defer arena.deinit();
-
-    const ExpectedContents = struct {
-        repeated: Value.Payload.SubValue,
-    };
-    var stack align(@alignOf(ExpectedContents)) =
-        std.heap.stackFallback(@sizeOf(ExpectedContents), arena.allocator());
-
     const vec_ty = try mod.vectorType(.{
         .len = @divExact(abi_size * 8, scalar_bits),
         .child = (try mod.intType(.signed, scalar_bits)).ip_index,
     });
 
     const sign_val = switch (tag) {
-        .neg => try vec_ty.minInt(stack.get(), mod),
-        .fabs => try vec_ty.maxInt(stack.get(), mod, vec_ty),
+        .neg => try vec_ty.minInt(mod),
+        .fabs => try vec_ty.maxInt(mod, vec_ty),
         else => unreachable,
     };
 
@@ -8106,13 +8097,15 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallModifier
     // Due to incremental compilation, how function calls are generated depends
     // on linking.
     if (try self.air.value(callee, mod)) |func_value| {
-        if (if (func_value.castTag(.function)) |func_payload|
-            func_payload.data.owner_decl
-        else if (func_value.castTag(.decl_ref)) |decl_ref_payload|
-            decl_ref_payload.data
-        else
-            null) |owner_decl|
-        {
+        const func_key = mod.intern_pool.indexToKey(func_value.ip_index);
+        if (switch (func_key) {
+            .func => |func| mod.funcPtr(func.index).owner_decl,
+            .ptr => |ptr| switch (ptr.addr) {
+                .decl => |decl| decl,
+                else => null,
+            },
+            else => null,
+        }) |owner_decl| {
             if (self.bin_file.cast(link.File.Elf)) |elf_file| {
                 const atom_index = try elf_file.getOrCreateAtomForDecl(owner_decl);
                 const atom = elf_file.getAtom(atom_index);
@@ -8145,10 +8138,9 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallModifier
                     .disp = @intCast(i32, fn_got_addr),
                 }));
             } else unreachable;
-        } else if (func_value.castTag(.extern_fn)) |func_payload| {
-            const extern_fn = func_payload.data;
-            const decl_name = mem.sliceTo(mod.declPtr(extern_fn.owner_decl).name, 0);
-            const lib_name = mem.sliceTo(extern_fn.lib_name, 0);
+        } else if (func_value.getExternFunc(mod)) |extern_func| {
+            const decl_name = mem.sliceTo(mod.declPtr(extern_func.decl).name, 0);
+            const lib_name = mod.intern_pool.stringToSliceUnwrap(extern_func.lib_name);
             if (self.bin_file.cast(link.File.Coff)) |coff_file| {
                 const atom_index = try self.owner.getSymbolIndex(self);
                 const sym_index = try coff_file.getGlobalSymbol(decl_name, lib_name);
@@ -8554,7 +8546,8 @@ fn airDbgStmt(self: *Self, inst: Air.Inst.Index) !void {
 
 fn airDbgInline(self: *Self, inst: Air.Inst.Index) !void {
     const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
-    const function = self.air.values[ty_pl.payload].castTag(.function).?.data;
+    const mod = self.bin_file.options.module.?;
+    const function = self.air.values[ty_pl.payload].getFunction(mod).?;
     // TODO emit debug info for function change
     _ = function;
     return self.finishAir(inst, .unreach, .{ .none, .none, .none });

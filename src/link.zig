@@ -564,7 +564,8 @@ pub const File = struct {
     }
 
     /// May be called before or after updateDeclExports for any given Decl.
-    pub fn updateFunc(base: *File, module: *Module, func: *Module.Fn, air: Air, liveness: Liveness) UpdateDeclError!void {
+    pub fn updateFunc(base: *File, module: *Module, func_index: Module.Fn.Index, air: Air, liveness: Liveness) UpdateDeclError!void {
+        const func = module.funcPtr(func_index);
         const owner_decl = module.declPtr(func.owner_decl);
         log.debug("updateFunc {*} ({s}), type={}", .{
             owner_decl, owner_decl.name, owner_decl.ty.fmt(module),
@@ -575,14 +576,14 @@ pub const File = struct {
         }
         switch (base.tag) {
             // zig fmt: off
-            .coff  => return @fieldParentPtr(Coff,  "base", base).updateFunc(module, func, air, liveness),
-            .elf   => return @fieldParentPtr(Elf,   "base", base).updateFunc(module, func, air, liveness),
-            .macho => return @fieldParentPtr(MachO, "base", base).updateFunc(module, func, air, liveness),
-            .c     => return @fieldParentPtr(C,     "base", base).updateFunc(module, func, air, liveness),
-            .wasm  => return @fieldParentPtr(Wasm,  "base", base).updateFunc(module, func, air, liveness),
-            .spirv => return @fieldParentPtr(SpirV, "base", base).updateFunc(module, func, air, liveness),
-            .plan9 => return @fieldParentPtr(Plan9, "base", base).updateFunc(module, func, air, liveness),
-            .nvptx => return @fieldParentPtr(NvPtx, "base", base).updateFunc(module, func, air, liveness),
+            .coff  => return @fieldParentPtr(Coff,  "base", base).updateFunc(module, func_index, air, liveness),
+            .elf   => return @fieldParentPtr(Elf,   "base", base).updateFunc(module, func_index, air, liveness),
+            .macho => return @fieldParentPtr(MachO, "base", base).updateFunc(module, func_index, air, liveness),
+            .c     => return @fieldParentPtr(C,     "base", base).updateFunc(module, func_index, air, liveness),
+            .wasm  => return @fieldParentPtr(Wasm,  "base", base).updateFunc(module, func_index, air, liveness),
+            .spirv => return @fieldParentPtr(SpirV, "base", base).updateFunc(module, func_index, air, liveness),
+            .plan9 => return @fieldParentPtr(Plan9, "base", base).updateFunc(module, func_index, air, liveness),
+            .nvptx => return @fieldParentPtr(NvPtx, "base", base).updateFunc(module, func_index, air, liveness),
             // zig fmt: on
         }
     }

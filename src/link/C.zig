@@ -87,12 +87,13 @@ pub fn freeDecl(self: *C, decl_index: Module.Decl.Index) void {
     }
 }
 
-pub fn updateFunc(self: *C, module: *Module, func: *Module.Fn, air: Air, liveness: Liveness) !void {
+pub fn updateFunc(self: *C, module: *Module, func_index: Module.Fn.Index, air: Air, liveness: Liveness) !void {
     const tracy = trace(@src());
     defer tracy.end();
 
     const gpa = self.base.allocator;
 
+    const func = module.funcPtr(func_index);
     const decl_index = func.owner_decl;
     const gop = try self.decl_table.getOrPut(gpa, decl_index);
     if (!gop.found_existing) {
@@ -111,7 +112,7 @@ pub fn updateFunc(self: *C, module: *Module, func: *Module.Fn, air: Air, livenes
         .value_map = codegen.CValueMap.init(gpa),
         .air = air,
         .liveness = liveness,
-        .func = func,
+        .func_index = func_index,
         .object = .{
             .dg = .{
                 .gpa = gpa,
@@ -555,7 +556,8 @@ fn flushDecl(
     export_names: std.StringHashMapUnmanaged(void),
 ) FlushDeclError!void {
     const gpa = self.base.allocator;
-    const decl = self.base.options.module.?.declPtr(decl_index);
+    const mod = self.base.options.module.?;
+    const decl = mod.declPtr(decl_index);
     // Before flushing any particular Decl we must ensure its
     // dependencies are already flushed, so that the order in the .c
     // file comes out correctly.
@@ -569,7 +571,7 @@ fn flushDecl(
 
     try self.flushLazyFns(f, decl_block.lazy_fns);
     try f.all_buffers.ensureUnusedCapacity(gpa, 1);
-    if (!(decl.isExtern() and export_names.contains(mem.span(decl.name))))
+    if (!(decl.isExtern(mod) and export_names.contains(mem.span(decl.name))))
         f.appendBufAssumeCapacity(decl_block.fwd_decl.items);
 }
 
