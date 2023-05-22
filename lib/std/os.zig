@@ -7339,3 +7339,28 @@ pub fn ptrace(request: u32, pid: pid_t, addr: usize, signal: usize) PtraceError!
         },
     };
 }
+
+pub const GetauxValError = error{
+    InvalidEntry,
+} || UnexpectedError;
+
+pub fn getauxval(entry: u32) GetauxValError!u32 {
+    switch (builtin.os.tag) {
+        .linux => {
+            switch (errno(linux.getauxval(entry))) {
+                .SUCCESS => {},
+                .NOENT => return error.InvalidEntry,
+                else => |err| return unexpectedErrno(err),
+            }
+        },
+        .freebsd => {
+            var r: u32 = undefined;
+            switch (errno(freebsd.elf_aux_info(@bitCast(i32, entry), &r, @sizeOf(@TypeOf(r))))) {
+                .SUCCESS => return r,
+                .INVAL => return error.InvalidEntry,
+                else => |err| return unexpectedErrno(err),
+            }
+        },
+        else => @compileError("unsupported platform"),
+    }
+}
