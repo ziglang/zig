@@ -18,14 +18,14 @@ pub const StackMachineOptions = struct {
 /// Expressions can be decoded for non-native address size and endianness,
 /// but can only be executed if the current target matches the configuration.
 pub fn StackMachine(comptime options: StackMachineOptions) type {
-    const addr_type = switch(options.addr_size) {
+    const addr_type = switch (options.addr_size) {
         2 => u16,
         4 => u32,
         8 => u64,
         else => @compileError("Unsupported address size of " ++ options.addr_size),
     };
 
-    const addr_type_signed = switch(options.addr_size) {
+    const addr_type_signed = switch (options.addr_size) {
         2 => i16,
         4 => i32,
         8 => i64,
@@ -61,19 +61,15 @@ pub fn StackMachine(comptime options: StackMachineOptions) type {
         fn generic(value: anytype) Value {
             const int_info = @typeInfo(@TypeOf(value)).Int;
             if (@sizeOf(@TypeOf(value)) > options.addr_size) {
-                return .{
-                    .generic = switch (int_info.signedness) {
-                        .signed => @bitCast(addr_type, @truncate(addr_type_signed, value)),
-                        .unsigned => @truncate(addr_type, value),
-                    }
-                };
+                return .{ .generic = switch (int_info.signedness) {
+                    .signed => @bitCast(addr_type, @truncate(addr_type_signed, value)),
+                    .unsigned => @truncate(addr_type, value),
+                } };
             } else {
-                return .{
-                    .generic = switch (int_info.signedness) {
-                        .signed => @bitCast(addr_type, @intCast(addr_type_signed, value)),
-                        .unsigned => @intCast(addr_type, value),
-                    }
-                };
+                return .{ .generic = switch (int_info.signedness) {
+                    .signed => @bitCast(addr_type, @intCast(addr_type_signed, value)),
+                    .unsigned => @intCast(addr_type, value),
+                } };
             }
         }
 
@@ -113,20 +109,15 @@ pub fn StackMachine(comptime options: StackMachineOptions) type {
                 => generic(try leb.readILEB128(i64, reader)),
                 OP.lit0...OP.lit31 => |n| generic(n - OP.lit0),
                 OP.reg0...OP.reg31 => |n| .{ .register = n - OP.reg0 },
-                OP.breg0...OP.breg31 => |n| .{
-                    .base_register = .{
-                        .base_register = n - OP.breg0,
-                        .offset = try leb.readILEB128(i64, reader),
-                    }
-                },
+                OP.breg0...OP.breg31 => |n| .{ .base_register = .{
+                    .base_register = n - OP.breg0,
+                    .offset = try leb.readILEB128(i64, reader),
+                } },
                 OP.regx => .{ .register = try leb.readULEB128(u8, reader) },
-                OP.bregx,
-                OP.regval_type => .{
-                    .base_register = .{
-                        .base_register = try leb.readULEB128(u8, reader),
-                        .offset = try leb.readILEB128(i64, reader),
-                    }
-                },
+                OP.bregx, OP.regval_type => .{ .base_register = .{
+                    .base_register = try leb.readULEB128(u8, reader),
+                    .offset = try leb.readILEB128(i64, reader),
+                } },
                 OP.piece => .{
                     .composite_location = .{
                         .size = try leb.readULEB128(u8, reader),
@@ -139,9 +130,7 @@ pub fn StackMachine(comptime options: StackMachineOptions) type {
                         .offset = try leb.readILEB128(i64, reader),
                     },
                 },
-                OP.implicit_value,
-                OP.entry_value
-                => blk: {
+                OP.implicit_value, OP.entry_value => blk: {
                     const size = try leb.readULEB128(u8, reader);
                     if (stream.pos + size > stream.buffer.len) return error.InvalidExpression;
                     const block = stream.buffer[stream.pos..][0..size];
@@ -156,12 +145,10 @@ pub fn StackMachine(comptime options: StackMachineOptions) type {
                     if (stream.pos + size > stream.buffer.len) return error.InvalidExpression;
                     const value_bytes = stream.buffer[stream.pos..][0..size];
                     stream.pos += size;
-                    break :blk .{
-                        .base_type = .{
-                            .type_offset = type_offset,
-                            .value_bytes = value_bytes,
-                        }
-                    };
+                    break :blk .{ .base_type = .{
+                        .type_offset = type_offset,
+                        .value_bytes = value_bytes,
+                    } };
                 },
                 OP.deref_type,
                 OP.xderef_type,

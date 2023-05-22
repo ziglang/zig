@@ -162,8 +162,6 @@ pub fn dumpStackTraceFromBase(context: anytype) void {
         }
 
         var it = StackIterator.initWithContext(null, debug_info, context) catch return;
-
-        // TODO: Should `it.dwarf_context.pc` be `it.getIp()`? (but then the non-dwarf case has to store ip)
         printSourceAtAddress(debug_info, stderr, it.dwarf_context.pc, tty_config) catch return;
 
         while (it.next()) |return_address| {
@@ -528,7 +526,7 @@ pub const StackIterator = struct {
     }
 
     fn next_internal(self: *StackIterator) ?usize {
-        if (self.debug_info != null)  {
+        if (self.debug_info != null) {
             if (self.next_dwarf()) |_| {
                 return self.dwarf_context.pc;
             } else |err| {
@@ -2039,59 +2037,6 @@ fn dumpSegfaultInfoPosix(sig: i32, addr: usize, ctx_ptr: ?*const anyopaque) void
         },
         else => {},
     }
-
-    // TODO: Move this logic to dwarf.abi.regBytes
-
-    // switch (native_arch) {
-    //     .x86 => {
-    //         const ctx = @ptrCast(*const os.ucontext_t, @alignCast(@alignOf(os.ucontext_t), ctx_ptr));
-    //         const ip = @intCast(usize, ctx.mcontext.gregs[os.REG.EIP]) ;
-    //         const bp = @intCast(usize, ctx.mcontext.gregs[os.REG.EBP]);
-    //         dumpStackTraceFromBase(bp, ip);
-    //     },
-    //     .x86_64 => {
-    //         const ctx = @ptrCast(*const os.ucontext_t, @alignCast(@alignOf(os.ucontext_t), ctx_ptr));
-    //         const ip = switch (native_os) {
-    //             .linux, .netbsd, .solaris => @intCast(usize, ctx.mcontext.gregs[os.REG.RIP]),
-    //             .freebsd => @intCast(usize, ctx.mcontext.rip),
-    //             .openbsd => @intCast(usize, ctx.sc_rip),
-    //             .macos => @intCast(usize, ctx.mcontext.ss.rip),
-    //             else => unreachable,
-    //         };
-    //         const bp = switch (native_os) {
-    //             .linux, .netbsd, .solaris => @intCast(usize, ctx.mcontext.gregs[os.REG.RBP]),
-    //             .openbsd => @intCast(usize, ctx.sc_rbp),
-    //             .freebsd => @intCast(usize, ctx.mcontext.rbp),
-    //             .macos => @intCast(usize, ctx.mcontext.ss.rbp),
-    //             else => unreachable,
-    //         };
-    //         dumpStackTraceFromBase(bp, ip);
-    //     },
-    //     .arm => {
-    //         const ctx = @ptrCast(*const os.ucontext_t, @alignCast(@alignOf(os.ucontext_t), ctx_ptr));
-    //         const ip = @intCast(usize, ctx.mcontext.arm_pc);
-    //         const bp = @intCast(usize, ctx.mcontext.arm_fp);
-    //         dumpStackTraceFromBase(bp, ip);
-    //     },
-    //     .aarch64 => {
-    //         const ctx = @ptrCast(*const os.ucontext_t, @alignCast(@alignOf(os.ucontext_t), ctx_ptr));
-    //         const ip = switch (native_os) {
-    //             .macos => @intCast(usize, ctx.mcontext.ss.pc),
-    //             .netbsd => @intCast(usize, ctx.mcontext.gregs[os.REG.PC]),
-    //             .freebsd => @intCast(usize, ctx.mcontext.gpregs.elr),
-    //             else => @intCast(usize, ctx.mcontext.pc),
-    //         };
-    //         // x29 is the ABI-designated frame pointer
-    //         const bp = switch (native_os) {
-    //             .macos => @intCast(usize, ctx.mcontext.ss.fp),
-    //             .netbsd => @intCast(usize, ctx.mcontext.gregs[os.REG.FP]),
-    //             .freebsd => @intCast(usize, ctx.mcontext.gpregs.x[os.REG.FP]),
-    //             else => @intCast(usize, ctx.mcontext.regs[29]),
-    //         };
-    //         dumpStackTraceFromBase(bp, ip);
-    //     },
-    //     else => {},
-    // }
 }
 
 fn handleSegfaultWindows(info: *windows.EXCEPTION_POINTERS) callconv(windows.WINAPI) c_long {

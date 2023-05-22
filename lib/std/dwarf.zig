@@ -1603,7 +1603,6 @@ pub const DwarfInfo = struct {
                 // TODO: Evaluate expression
                 _ = expression;
                 return error.UnimplementedTODO;
-
             },
             else => return error.InvalidCFARule,
         };
