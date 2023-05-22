@@ -2208,6 +2208,7 @@ pub const Value = extern union {
                 }
                 return true;
             },
+            .empty_array => return true,
             .str_lit => {
                 const str_lit = lhs.castTag(.str_lit).?.data;
                 const bytes = mod.string_literal_bytes.items[str_lit.index..][0..str_lit.len];
