@@ -236,6 +236,14 @@ pub const Inst = struct {
 
         /// VEX-Encoded ___
         v_,
+        /// VEX-Encoded ___ Byte
+        v_b,
+        /// VEX-Encoded ___ Word
+        v_w,
+        /// VEX-Encoded ___ Doubleword
+        v_d,
+        /// VEX-Encoded ___ QuadWord
+        v_q,
         /// VEX-Encoded Packed ___
         vp_,
         /// VEX-Encoded Packed ___ Byte
@@ -256,6 +264,8 @@ pub const Inst = struct {
         v_sd,
         /// VEX-Encoded ___ Packed Double-Precision Values
         v_pd,
+        /// VEX-Encoded ___ 128-Bits Of Floating-Point Data
+        v_f128,
 
         /// Mask ___ Byte
         k_b,
@@ -278,6 +288,7 @@ pub const Inst = struct {
         /// Add with carry
         adc,
         /// Add
+        /// Add packed integers
         /// Add packed single-precision floating-point values
         /// Add scalar single-precision floating-point values
         /// Add packed double-precision floating-point values
@@ -410,6 +421,7 @@ pub const Inst = struct {
         /// Double precision shift right
         sh,
         /// Subtract
+        /// Subtract packed integers
         /// Subtract packed single-precision floating-point values
         /// Subtract scalar single-precision floating-point values
         /// Subtract packed double-precision floating-point values
@@ -434,11 +446,51 @@ pub const Inst = struct {
         /// Bitwise logical xor of packed double-precision floating-point values
         xor,
 
+        /// Pack with signed saturation
+        ackssw,
+        /// Pack with signed saturation
+        ackssd,
+        /// Pack with unsigned saturation
+        ackusw,
+        /// Add packed signed integers with signed saturation
+        adds,
+        /// Add packed unsigned integers with unsigned saturation
+        addus,
         /// Bitwise logical and not of packed single-precision floating-point values
         /// Bitwise logical and not of packed double-precision floating-point values
         andn,
+        /// Maximum of packed signed integers
+        maxs,
+        /// Maximum of packed unsigned integers
+        maxu,
+        /// Minimum of packed signed integers
+        mins,
+        /// Minimum of packed unsigned integers
+        minu,
+        /// Multiply packed signed integers and store low result
+        mull,
+        /// Multiply packed signed integers and store high result
+        mulh,
+        /// Subtract packed signed integers with signed saturation
+        subs,
+        /// Subtract packed unsigned integers with unsigned saturation
+        subus,
+
+        /// Convert packed doubleword integers to packed single-precision floating-point values
+        /// Convert packed doubleword integers to packed double-precision floating-point values
+        cvtpi2,
+        /// Convert packed single-precision floating-point values to packed doubleword integers
+        cvtps2pi,
         /// Convert doubleword integer to scalar single-precision floating-point value
-        cvtsi2ss,
+        /// Convert doubleword integer to scalar double-precision floating-point value
+        cvtsi2,
+        /// Convert scalar single-precision floating-point value to doubleword integer
+        cvtss2si,
+        /// Convert with truncation packed single-precision floating-point values to packed doubleword integers
+        cvttps2pi,
+        /// Convert with truncation scalar single-precision floating-point value to doubleword integer
+        cvttss2si,
+
         /// Maximum of packed single-precision floating-point values
         /// Maximum of scalar single-precision floating-point values
         /// Maximum of packed double-precision floating-point values
@@ -454,6 +506,8 @@ pub const Inst = struct {
         mova,
         /// Move packed single-precision floating-point values high to low
         movhl,
+        /// Move packed single-precision floating-point values low to high
+        movlh,
         /// Move unaligned packed single-precision floating-point values
         /// Move unaligned packed double-precision floating-point values
         movu,
@@ -482,12 +536,40 @@ pub const Inst = struct {
         /// Unpack and interleave low packed double-precision floating-point values
         unpckl,
 
+        /// Convert packed doubleword integers to packed single-precision floating-point values
+        /// Convert packed doubleword integers to packed double-precision floating-point values
+        cvtdq2,
+        /// Convert packed double-precision floating-point values to packed doubleword integers
+        cvtpd2dq,
+        /// Convert packed double-precision floating-point values to packed doubleword integers
+        cvtpd2pi,
+        /// Convert packed double-precision floating-point values to packed single-precision floating-point values
+        cvtpd2,
+        /// Convert packed single-precision floating-point values to packed doubleword integers
+        cvtps2dq,
+        /// Convert packed single-precision floating-point values to packed double-precision floating-point values
+        cvtps2,
+        /// Convert scalar double-precision floating-point value to doubleword integer
+        cvtsd2si,
         /// Convert scalar double-precision floating-point value to scalar single-precision floating-point value
-        cvtsd2ss,
-        /// Convert doubleword integer to scalar double-precision floating-point value
-        cvtsi2sd,
+        cvtsd2,
         /// Convert scalar single-precision floating-point value to scalar double-precision floating-point value
-        cvtss2sd,
+        cvtss2,
+        /// Convert with truncation packed double-precision floating-point values to packed doubleword integers
+        cvttpd2dq,
+        /// Convert with truncation packed double-precision floating-point values to packed doubleword integers
+        cvttpd2pi,
+        /// Convert with truncation packed single-precision floating-point values to packed doubleword integers
+        cvttps2dq,
+        /// Convert with truncation scalar double-precision floating-point value to doubleword integer
+        cvttsd2si,
+        /// Move aligned packed integer values
+        movdqa,
+        /// Move unaligned packed integer values
+        movdqu,
+        /// Packed interleave shuffle of quadruplets of single-precision floating-point values
+        /// Packed interleave shuffle of pairs of double-precision floating-point values
+        shuf,
         /// Shuffle packed high words
         shufh,
         /// Shuffle packed low words
@@ -520,14 +602,34 @@ pub const Inst = struct {
         /// Replicate single floating-point values
         movsldup,
 
+        /// Pack with unsigned saturation
+        ackusd,
+        /// Blend packed single-precision floating-point values
+        /// Blend scalar single-precision floating-point values
+        /// Blend packed double-precision floating-point values
+        /// Blend scalar double-precision floating-point values
+        blend,
+        /// Variable blend packed single-precision floating-point values
+        /// Variable blend scalar single-precision floating-point values
+        /// Variable blend packed double-precision floating-point values
+        /// Variable blend scalar double-precision floating-point values
+        blendv,
+        /// Extract packed floating-point values
+        extract,
+        /// Insert scalar single-precision floating-point value
+        /// Insert packed floating-point values
+        insert,
         /// Round packed single-precision floating-point values
         /// Round scalar single-precision floating-point value
         /// Round packed double-precision floating-point values
         /// Round scalar double-precision floating-point value
         round,
 
+        /// Load with broadcast floating-point data
+        broadcast,
+
         /// Convert 16-bit floating-point values to single-precision floating-point values
-        cvtph2ps,
+        cvtph2,
         /// Convert single-precision floating-point values to 16-bit floating-point values
         cvtps2ph,
 
@@ -567,6 +669,9 @@ pub const Inst = struct {
         /// Register, register, register operands.
         /// Uses `rrr` payload.
         rrr,
+        /// Register, register, register, register operands.
+        /// Uses `rrrr` payload.
+        rrrr,
         /// Register, register, register, immediate (byte) operands.
         /// Uses `rrri` payload.
         rrri,
@@ -696,27 +801,27 @@ pub const Inst = struct {
         pseudo_cmov_nz_or_p_rm_rip,
         /// Set byte if zero flag set and parity flag not set
         /// Requires a scratch register!
-        /// Uses `r_scratch` payload.
+        /// Uses `rr` payload.
         pseudo_set_z_and_np_r,
         /// Set byte if zero flag set and parity flag not set
         /// Requires a scratch register!
-        /// Uses `x_scratch` payload.
+        /// Uses `rx` payload.
         pseudo_set_z_and_np_m_sib,
         /// Set byte if zero flag set and parity flag not set
         /// Requires a scratch register!
-        /// Uses `x_scratch` payload.
+        /// Uses `rx` payload.
         pseudo_set_z_and_np_m_rip,
         /// Set byte if zero flag not set or parity flag set
         /// Requires a scratch register!
-        /// Uses `r_scratch` payload.
+        /// Uses `rr` payload.
         pseudo_set_nz_or_p_r,
         /// Set byte if zero flag not set or parity flag set
         /// Requires a scratch register!
-        /// Uses `x_scratch` payload.
+        /// Uses `rx` payload.
         pseudo_set_nz_or_p_m_sib,
         /// Set byte if zero flag not set or parity flag set
         /// Requires a scratch register!
-        /// Uses `x_scratch` payload.
+        /// Uses `rx` payload.
         pseudo_set_nz_or_p_m_rip,
         /// Jump if zero flag set and parity flag not set
         /// Uses `inst` payload.
@@ -725,6 +830,18 @@ pub const Inst = struct {
         /// Uses `inst` payload.
         pseudo_j_nz_or_p_inst,
 
+        /// Probe alignment
+        /// Uses `ri` payload
+        pseudo_probe_align_ri_s,
+        /// Probe adjust unrolled
+        /// Uses `ri` payload
+        pseudo_probe_adjust_unrolled_ri_s,
+        /// Probe adjust setup
+        /// Uses `rri` payload
+        pseudo_probe_adjust_setup_rri_s,
+        /// Probe adjust loop
+        /// Uses `rr` payload
+        pseudo_probe_adjust_loop_rr,
         /// Push registers
         /// Uses `reg_list` payload.
         pseudo_push_reg_list,
@@ -774,6 +891,13 @@ pub const Inst = struct {
             r2: Register,
             r3: Register,
         },
+        rrrr: struct {
+            fixes: Fixes = ._,
+            r1: Register,
+            r2: Register,
+            r3: Register,
+            r4: Register,
+        },
         rrri: struct {
             fixes: Fixes = ._,
             r1: Register,
@@ -819,18 +943,6 @@ pub const Inst = struct {
             r1: Register,
             r2: Register,
             i: u8,
-            payload: u32,
-        },
-        /// Register, scratch register
-        r_scratch: struct {
-            fixes: Fixes = ._,
-            r1: Register,
-            scratch_reg: Register,
-        },
-        /// Scratch register, followed by Custom payload found in extra.
-        x_scratch: struct {
-            fixes: Fixes = ._,
-            scratch_reg: Register,
             payload: u32,
         },
         /// Custom payload found in extra.

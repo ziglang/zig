@@ -2482,7 +2482,7 @@ fn addEnsureResult(gz: *GenZir, maybe_unused_result: Zir.Inst.Ref, statement: As
         switch (zir_tags[inst]) {
             // For some instructions, modify the zir data
             // so we can avoid a separate ensure_result_used instruction.
-            .call => {
+            .call, .field_call => {
                 const extra_index = gz.astgen.instructions.items(.data)[inst].pl_node.payload_index;
                 const slot = &gz.astgen.extra.items[extra_index];
                 var flags = @bitCast(Zir.Inst.Call.Flags, slot.*);
@@ -2557,7 +2557,6 @@ fn addEnsureResult(gz: *GenZir, maybe_unused_result: Zir.Inst.Ref, statement: As
             .field_ptr,
             .field_ptr_init,
             .field_val,
-            .field_call_bind,
             .field_ptr_named,
             .field_val_named,
             .func,
@@ -8324,7 +8323,7 @@ fn builtinCall(
         .trap => {
             try emitDbgNode(gz, node);
             _ = try gz.addNode(.trap, node);
-            return rvalue(gz, ri, .void_value, node);
+            return rvalue(gz, ri, .unreachable_value, node);
         },
         .error_to_int => {
             const operand = try expr(gz, scope, .{ .rl = .none }, params[0]);
@@ -8516,7 +8515,7 @@ fn builtinCall(
         },
         .call => {
             const modifier = try comptimeExpr(gz, scope, .{ .rl = .{ .coerced_ty = .modifier_type } }, params[0]);
-            const callee = try calleeExpr(gz, scope, params[1]);
+            const callee = try expr(gz, scope, .{ .rl = .none }, params[1]);
             const args = try expr(gz, scope, .{ .rl = .none }, params[2]);
             const result = try gz.addPlNode(.builtin_call, node, Zir.Inst.BuiltinCall{
                 .modifier = modifier,
@@ -8976,7 +8975,10 @@ fn callExpr(
         } });
     }
 
-    assert(callee != .none);
+    switch (callee) {
+        .direct => |obj| assert(obj != .none),
+        .field => |field| assert(field.obj_ptr != .none),
+    }
     assert(node != 0);
 
     const call_index = @intCast(Zir.Inst.Index, astgen.instructions.len);
@@ -9015,89 +9017,98 @@ fn callExpr(
         else => false,
     };
 
-    const payload_index = try addExtra(astgen, Zir.Inst.Call{
-        .callee = callee,
-        .flags = .{
-            .pop_error_return_trace = !propagate_error_trace,
-            .packed_modifier = @intCast(Zir.Inst.Call.Flags.PackedModifier, @enumToInt(modifier)),
-            .args_len = @intCast(Zir.Inst.Call.Flags.PackedArgsLen, call.ast.params.len),
+    switch (callee) {
+        .direct => |callee_obj| {
+            const payload_index = try addExtra(astgen, Zir.Inst.Call{
+                .callee = callee_obj,
+                .flags = .{
+                    .pop_error_return_trace = !propagate_error_trace,
+                    .packed_modifier = @intCast(Zir.Inst.Call.Flags.PackedModifier, @enumToInt(modifier)),
+                    .args_len = @intCast(Zir.Inst.Call.Flags.PackedArgsLen, call.ast.params.len),
+                },
+            });
+            if (call.ast.params.len != 0) {
+                try astgen.extra.appendSlice(astgen.gpa, astgen.scratch.items[scratch_top..]);
+            }
+            gz.astgen.instructions.set(call_index, .{
+                .tag = .call,
+                .data = .{ .pl_node = .{
+                    .src_node = gz.nodeIndexToRelative(node),
+                    .payload_index = payload_index,
+                } },
+            });
         },
-    });
-    if (call.ast.params.len != 0) {
-        try astgen.extra.appendSlice(astgen.gpa, astgen.scratch.items[scratch_top..]);
+        .field => |callee_field| {
+            const payload_index = try addExtra(astgen, Zir.Inst.FieldCall{
+                .obj_ptr = callee_field.obj_ptr,
+                .field_name_start = callee_field.field_name_start,
+                .flags = .{
+                    .pop_error_return_trace = !propagate_error_trace,
+                    .packed_modifier = @intCast(Zir.Inst.Call.Flags.PackedModifier, @enumToInt(modifier)),
+                    .args_len = @intCast(Zir.Inst.Call.Flags.PackedArgsLen, call.ast.params.len),
+                },
+            });
+            if (call.ast.params.len != 0) {
+                try astgen.extra.appendSlice(astgen.gpa, astgen.scratch.items[scratch_top..]);
+            }
+            gz.astgen.instructions.set(call_index, .{
+                .tag = .field_call,
+                .data = .{ .pl_node = .{
+                    .src_node = gz.nodeIndexToRelative(node),
+                    .payload_index = payload_index,
+                } },
+            });
+        },
     }
-    gz.astgen.instructions.set(call_index, .{
-        .tag = .call,
-        .data = .{ .pl_node = .{
-            .src_node = gz.nodeIndexToRelative(node),
-            .payload_index = payload_index,
-        } },
-    });
     return rvalue(gz, ri, call_inst, node); // TODO function call with result location
 }
 
-/// calleeExpr generates the function part of a call expression (f in f(x)), or the
-/// callee argument to the @call() builtin. If the lhs is a field access or the
-/// @field() builtin, we need to generate a special field_call_bind instruction
-/// instead of the normal field_val or field_ptr.  If this is a inst.func() call,
-/// this instruction will capture the value of the first argument before evaluating
-/// the other arguments. We need to use .ref here to guarantee we will be able to
-/// promote an lvalue to an address if the first parameter requires it.  This
-/// unfortunately also means we need to take a reference to any types on the lhs.
+const Callee = union(enum) {
+    field: struct {
+        /// A *pointer* to the object the field is fetched on, so that we can
+        /// promote the lvalue to an address if the first parameter requires it.
+        obj_ptr: Zir.Inst.Ref,
+        /// Offset into `string_bytes`.
+        field_name_start: u32,
+    },
+    direct: Zir.Inst.Ref,
+};
+
+/// calleeExpr generates the function part of a call expression (f in f(x)), but
+/// *not* the callee argument to the @call() builtin. Its purpose is to
+/// distinguish between standard calls and method call syntax `a.b()`. Thus, if
+/// the lhs is a field access, we return using the `field` union field;
+/// otherwise, we use the `direct` union field.
 fn calleeExpr(
     gz: *GenZir,
     scope: *Scope,
     node: Ast.Node.Index,
-) InnerError!Zir.Inst.Ref {
+) InnerError!Callee {
     const astgen = gz.astgen;
     const tree = astgen.tree;
 
     const tag = tree.nodes.items(.tag)[node];
     switch (tag) {
-        .field_access => return addFieldAccess(.field_call_bind, gz, scope, .{ .rl = .ref }, node),
-
-        .builtin_call_two,
-        .builtin_call_two_comma,
-        .builtin_call,
-        .builtin_call_comma,
-        => {
-            const node_datas = tree.nodes.items(.data);
+        .field_access => {
             const main_tokens = tree.nodes.items(.main_token);
-            const builtin_token = main_tokens[node];
-            const builtin_name = tree.tokenSlice(builtin_token);
+            const node_datas = tree.nodes.items(.data);
+            const object_node = node_datas[node].lhs;
+            const dot_token = main_tokens[node];
+            const field_ident = dot_token + 1;
+            const str_index = try astgen.identAsString(field_ident);
+            // Capture the object by reference so we can promote it to an
+            // address in Sema if needed.
+            const lhs = try expr(gz, scope, .{ .rl = .ref }, object_node);
 
-            var inline_params: [2]Ast.Node.Index = undefined;
-            var params: []Ast.Node.Index = switch (tag) {
-                .builtin_call,
-                .builtin_call_comma,
-                => tree.extra_data[node_datas[node].lhs..node_datas[node].rhs],
+            const cursor = maybeAdvanceSourceCursorToMainToken(gz, node);
+            try emitDbgStmt(gz, cursor);
 
-                .builtin_call_two,
-                .builtin_call_two_comma,
-                => blk: {
-                    inline_params = .{ node_datas[node].lhs, node_datas[node].rhs };
-                    const len: usize = if (inline_params[0] == 0) @as(usize, 0) else if (inline_params[1] == 0) @as(usize, 1) else @as(usize, 2);
-                    break :blk inline_params[0..len];
-                },
-
-                else => unreachable,
-            };
-
-            // If anything is wrong, fall back to builtinCall.
-            // It will emit any necessary compile errors and notes.
-            if (std.mem.eql(u8, builtin_name, "@field") and params.len == 2) {
-                const lhs = try expr(gz, scope, .{ .rl = .ref }, params[0]);
-                const field_name = try comptimeExpr(gz, scope, .{ .rl = .{ .ty = .const_slice_u8_type } }, params[1]);
-                return gz.addExtendedPayload(.field_call_bind_named, Zir.Inst.FieldNamedNode{
-                    .node = gz.nodeIndexToRelative(node),
-                    .lhs = lhs,
-                    .field_name = field_name,
-                });
-            }
-
-            return builtinCall(gz, scope, .{ .rl = .none }, node, params);
+            return .{ .field = .{
+                .obj_ptr = lhs,
+                .field_name_start = str_index,
+            } };
         },
-        else => return expr(gz, scope, .{ .rl = .none }, node),
+        else => return .{ .direct = try expr(gz, scope, .{ .rl = .none }, node) },
     }
 }
 

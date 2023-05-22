@@ -13,8 +13,6 @@ fn get_foo() fn (*u8) usize {
 }
 
 test "define a function in an anonymous struct in comptime" {
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
-
     const foo = get_foo();
     try expect(foo(@intToPtr(*u8, 12345)) == 12345);
 }

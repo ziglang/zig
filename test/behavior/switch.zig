@@ -215,7 +215,6 @@ fn poll() void {
 
 test "switch on global mutable var isn't constant-folded" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     while (state < 2) {
         poll();
@@ -349,8 +348,6 @@ fn returnsFalse() bool {
     }
 }
 test "switch on const enum with var" {
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
-
     try expect(!returnsFalse());
 }
 

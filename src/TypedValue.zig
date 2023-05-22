@@ -499,10 +499,6 @@ pub fn print(
         // TODO these should not appear in this function
         .inferred_alloc => return writer.writeAll("(inferred allocation value)"),
         .inferred_alloc_comptime => return writer.writeAll("(inferred comptime allocation value)"),
-        .bound_fn => {
-            const bound_func = val.castTag(.bound_fn).?.data;
-            return writer.print("(bound_fn %{}(%{})", .{ bound_func.func_inst, bound_func.arg0_inst });
-        },
         .generic_poison_type => return writer.writeAll("(generic poison type)"),
         .generic_poison => return writer.writeAll("(generic poison)"),
         .runtime_value => return writer.writeAll("[runtime value]"),

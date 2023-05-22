@@ -437,7 +437,7 @@ pub fn zeroInit(comptime T: type, init: anytype) T {
                         }
                     }
 
-                    var value: T = undefined;
+                    var value: T = if (struct_info.layout == .Extern) zeroes(T) else undefined;
 
                     inline for (struct_info.fields, 0..) |field, i| {
                         if (field.is_comptime) {
