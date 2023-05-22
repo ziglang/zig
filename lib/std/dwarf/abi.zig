@@ -3,55 +3,86 @@ const std = @import("../std.zig");
 const os = std.os;
 const mem = std.mem;
 
-/// Maps register names to their DWARF register number.
-/// `bp`, `ip`, and `sp` are provided as aliases.
-pub const Register = switch (builtin.cpu.arch) {
-    .x86 => {
-
-        //pub const ip = Register.eip;
-        //pub const sp = Register.
-    },
-   .x86_64 => enum(u8) {
-        rax,
-        rdx,
-        rcx,
-        rbx,
-        rsi,
-        rdi,
-        rbp,
-        rsp,
-        r8,
-        r9,
-        r10,
-        r11,
-        r12,
-        r13,
-        r14,
-        r15,
-        rip,
-        xmm0,
-        xmm1,
-        xmm2,
-        xmm3,
-        xmm4,
-        xmm5,
-        xmm6,
-        xmm7,
-        xmm8,
-        xmm9,
-        xmm10,
-        xmm11,
-        xmm12,
-        xmm13,
-        xmm14,
-        xmm15,
-
-       pub const fp = Register.rbp;
-       pub const ip = Register.rip;
-       pub const sp = Register.rsp;
-    },
-    else => enum {},
+pub const RegisterContext = struct {
+    eh_frame: bool,
+    is_macho: bool,
 };
+
+pub fn ipRegNum() u8 {
+    return switch (builtin.cpu.arch) {
+        .x86 => 8,
+        .x86_64 => 16,
+        .arm => error.InvalidRegister, // TODO
+        .aarch64 => error.InvalidRegister, // TODO
+
+        // const ctx = @ptrCast(*const os.ucontext_t, @alignCast(@alignOf(os.ucontext_t), ctx_ptr));
+        // const ip = switch (native_os) {
+        //     .macos => @intCast(usize, ctx.mcontext.ss.pc),
+        //     .netbsd => @intCast(usize, ctx.mcontext.gregs[os.REG.PC]),
+        //     .freebsd => @intCast(usize, ctx.mcontext.gpregs.elr),
+        //     else => @intCast(usize, ctx.mcontext.pc),
+        // };
+        // // x29 is the ABI-designated frame pointer
+        // const bp = switch (native_os) {
+        //     .macos => @intCast(usize, ctx.mcontext.ss.fp),
+        //     .netbsd => @intCast(usize, ctx.mcontext.gregs[os.REG.FP]),
+        //     .freebsd => @intCast(usize, ctx.mcontext.gpregs.x[os.REG.FP]),
+        //     else => @intCast(usize, ctx.mcontext.regs[29]),
+        // };
+        else => unreachable,
+    };
+}
+
+pub fn fpRegNum(reg_ctx: RegisterContext) u8 {
+    return switch (builtin.cpu.arch) {
+        // GCC on OS X did the opposite of ELF for these registers (only in .eh_frame), and that is now the convention for MachO
+        .x86 => if (reg_ctx.eh_frame and reg_ctx.is_macho) 4 else 5,
+        .x86_64 => 6,
+        .arm => error.InvalidRegister, // TODO
+        .aarch64 => error.InvalidRegister, // TODO
+
+        // const ctx = @ptrCast(*const os.ucontext_t, @alignCast(@alignOf(os.ucontext_t), ctx_ptr));
+        // const ip = switch (native_os) {
+        //     .macos => @intCast(usize, ctx.mcontext.ss.pc),
+        //     .netbsd => @intCast(usize, ctx.mcontext.gregs[os.REG.PC]),
+        //     .freebsd => @intCast(usize, ctx.mcontext.gpregs.elr),
+        //     else => @intCast(usize, ctx.mcontext.pc),
+        // };
+        // // x29 is the ABI-designated frame pointer
+        // const bp = switch (native_os) {
+        //     .macos => @intCast(usize, ctx.mcontext.ss.fp),
+        //     .netbsd => @intCast(usize, ctx.mcontext.gregs[os.REG.FP]),
+        //     .freebsd => @intCast(usize, ctx.mcontext.gpregs.x[os.REG.FP]),
+        //     else => @intCast(usize, ctx.mcontext.regs[29]),
+        // };
+        else => unreachable,
+    };
+}
+
+pub fn spRegNum(reg_ctx: RegisterContext) u8 {
+    return switch (builtin.cpu.arch) {
+        .x86 => if (reg_ctx.eh_frame and reg_ctx.is_macho) 5 else 4,
+        .x86_64 => 7,
+        .arm => error.InvalidRegister, // TODO
+        .aarch64 => error.InvalidRegister, // TODO
+
+        // const ctx = @ptrCast(*const os.ucontext_t, @alignCast(@alignOf(os.ucontext_t), ctx_ptr));
+        // const ip = switch (native_os) {
+        //     .macos => @intCast(usize, ctx.mcontext.ss.pc),
+        //     .netbsd => @intCast(usize, ctx.mcontext.gregs[os.REG.PC]),
+        //     .freebsd => @intCast(usize, ctx.mcontext.gpregs.elr),
+        //     else => @intCast(usize, ctx.mcontext.pc),
+        // };
+        // // x29 is the ABI-designated frame pointer
+        // const bp = switch (native_os) {
+        //     .macos => @intCast(usize, ctx.mcontext.ss.fp),
+        //     .netbsd => @intCast(usize, ctx.mcontext.gregs[os.REG.FP]),
+        //     .freebsd => @intCast(usize, ctx.mcontext.gpregs.x[os.REG.FP]),
+        //     else => @intCast(usize, ctx.mcontext.regs[29]),
+        // };
+        else => unreachable,
+    };
+}
 
 fn RegBytesReturnType(comptime ContextPtrType: type) type {
     const info = @typeInfo(ContextPtrType);
@@ -62,36 +93,132 @@ fn RegBytesReturnType(comptime ContextPtrType: type) type {
     return if (info.Pointer.is_const) return []const u8 else []u8;
 }
 
-/// Returns a slice containing the backing storage for `reg_number`
-pub fn regBytes(ucontext_ptr: anytype, reg_number: u8) !RegBytesReturnType(@TypeOf(ucontext_ptr)) {
+/// Returns a slice containing the backing storage for `reg_number`.
+///
+/// `reg_ctx` describes in what context the register number is used, as it can have different
+/// meanings depending on the DWARF container. It is only required when getting the stack or
+/// frame pointer register on some architectures.
+pub fn regBytes(ucontext_ptr: anytype, reg_number: u8, reg_ctx: ?RegisterContext) !RegBytesReturnType(@TypeOf(ucontext_ptr)) {
     var m = &ucontext_ptr.mcontext;
 
     return switch (builtin.cpu.arch) {
+        .x86 => switch (reg_number) {
+            0 => mem.asBytes(&ucontext_ptr.mcontext.gregs[os.REG.EAX]),
+            1 => mem.asBytes(&ucontext_ptr.mcontext.gregs[os.REG.ECX]),
+            2 => mem.asBytes(&ucontext_ptr.mcontext.gregs[os.REG.EDX]),
+            3 => mem.asBytes(&ucontext_ptr.mcontext.gregs[os.REG.EBX]),
+            4...5 => if (reg_ctx) |r| bytes: {
+                if (reg_number == 4) {
+                    break :bytes if (r.eh_frame and r.is_macho)
+                        mem.asBytes(&ucontext_ptr.mcontext.gregs[os.REG.EBP])
+                    else
+                        mem.asBytes(&ucontext_ptr.mcontext.gregs[os.REG.ESP]);
+                } else {
+                    break :bytes if (r.eh_frame and r.is_macho)
+                        mem.asBytes(&ucontext_ptr.mcontext.gregs[os.REG.ESP])
+                    else
+                        mem.asBytes(&ucontext_ptr.mcontext.gregs[os.REG.EBP]);
+                }
+            } else error.RegisterContextRequired,
+            6 => mem.asBytes(&ucontext_ptr.mcontext.gregs[os.REG.ESI]),
+            7 => mem.asBytes(&ucontext_ptr.mcontext.gregs[os.REG.EDI]),
+            8 => mem.asBytes(&ucontext_ptr.mcontext.gregs[os.REG.EIP]),
+            9 => mem.asBytes(&ucontext_ptr.mcontext.gregs[os.REG.EFL]),
+            10 => mem.asBytes(&ucontext_ptr.mcontext.gregs[os.REG.CS]),
+            11 => mem.asBytes(&ucontext_ptr.mcontext.gregs[os.REG.SS]),
+            12 => mem.asBytes(&ucontext_ptr.mcontext.gregs[os.REG.DS]),
+            13 => mem.asBytes(&ucontext_ptr.mcontext.gregs[os.REG.ES]),
+            14 => mem.asBytes(&ucontext_ptr.mcontext.gregs[os.REG.FS]),
+            15 => mem.asBytes(&ucontext_ptr.mcontext.gregs[os.REG.GS]),
+            16...23 => error.InvalidRegister, // TODO: Support loading ST0-ST7 from mcontext.fpregs
+            // TODO: Map TRAPNO, ERR, UESP
+            32...39 => error.InvalidRegister, // TODO: Support loading XMM0-XMM7 from mcontext.fpregs
+            else => error.InvalidRegister,
+        },
         .x86_64 => switch (builtin.os.tag) {
             .linux, .netbsd, .solaris => switch (reg_number) {
-                0 => mem.asBytes(&m.gregs[os.REG.RAX]),
-                1 => mem.asBytes(&m.gregs[os.REG.RDX]),
-                2 => mem.asBytes(&m.gregs[os.REG.RCX]),
-                3 => mem.asBytes(&m.gregs[os.REG.RBX]),
-                4 => mem.asBytes(&m.gregs[os.REG.RSI]),
-                5 => mem.asBytes(&m.gregs[os.REG.RDI]),
-                6 => mem.asBytes(&m.gregs[os.REG.RBP]),
-                7 => mem.asBytes(&m.gregs[os.REG.RSP]),
-                8 => mem.asBytes(&m.gregs[os.REG.R8]),
-                9 => mem.asBytes(&m.gregs[os.REG.R9]),
-                10 => mem.asBytes(&m.gregs[os.REG.R10]),
-                11 => mem.asBytes(&m.gregs[os.REG.R11]),
-                12 => mem.asBytes(&m.gregs[os.REG.R12]),
-                13 => mem.asBytes(&m.gregs[os.REG.R13]),
-                14 => mem.asBytes(&m.gregs[os.REG.R14]),
-                15 => mem.asBytes(&m.gregs[os.REG.R15]),
-                16 => mem.asBytes(&m.gregs[os.REG.RIP]),
+                0 => mem.asBytes(&ucontext_ptr.mcontext.gregs[os.REG.RAX]),
+                1 => mem.asBytes(&ucontext_ptr.mcontext.gregs[os.REG.RDX]),
+                2 => mem.asBytes(&ucontext_ptr.mcontext.gregs[os.REG.RCX]),
+                3 => mem.asBytes(&ucontext_ptr.mcontext.gregs[os.REG.RBX]),
+                4 => mem.asBytes(&ucontext_ptr.mcontext.gregs[os.REG.RSI]),
+                5 => mem.asBytes(&ucontext_ptr.mcontext.gregs[os.REG.RDI]),
+                6 => mem.asBytes(&ucontext_ptr.mcontext.gregs[os.REG.RBP]),
+                7 => mem.asBytes(&ucontext_ptr.mcontext.gregs[os.REG.RSP]),
+                8 => mem.asBytes(&ucontext_ptr.mcontext.gregs[os.REG.R8]),
+                9 => mem.asBytes(&ucontext_ptr.mcontext.gregs[os.REG.R9]),
+                10 => mem.asBytes(&ucontext_ptr.mcontext.gregs[os.REG.R10]),
+                11 => mem.asBytes(&ucontext_ptr.mcontext.gregs[os.REG.R11]),
+                12 => mem.asBytes(&ucontext_ptr.mcontext.gregs[os.REG.R12]),
+                13 => mem.asBytes(&ucontext_ptr.mcontext.gregs[os.REG.R13]),
+                14 => mem.asBytes(&ucontext_ptr.mcontext.gregs[os.REG.R14]),
+                15 => mem.asBytes(&ucontext_ptr.mcontext.gregs[os.REG.R15]),
+                16 => mem.asBytes(&ucontext_ptr.mcontext.gregs[os.REG.RIP]),
                 17...32 => |i| mem.asBytes(&m.fpregs.xmm[i - 17]),
                 else => error.InvalidRegister,
             },
-            //.freebsd => @intCast(usize, ctx.mcontext.rip),
-            //.openbsd => @intCast(usize, ctx.sc_rip),
-            //.macos => @intCast(usize, ctx.mcontext.ss.rip),
+            .freebsd => switch (reg_number) {
+                0 => mem.asBytes(&ucontext_ptr.mcontext.rax),
+                1 => mem.asBytes(&ucontext_ptr.mcontext.rdx),
+                2 => mem.asBytes(&ucontext_ptr.mcontext.rcx),
+                3 => mem.asBytes(&ucontext_ptr.mcontext.rbx),
+                4 => mem.asBytes(&ucontext_ptr.mcontext.rsi),
+                5 => mem.asBytes(&ucontext_ptr.mcontext.rdi),
+                6 => mem.asBytes(&ucontext_ptr.mcontext.rbp),
+                7 => mem.asBytes(&ucontext_ptr.mcontext.rsp),
+                8 => mem.asBytes(&ucontext_ptr.mcontext.r8),
+                9 => mem.asBytes(&ucontext_ptr.mcontext.r9),
+                10 => mem.asBytes(&ucontext_ptr.mcontext.r10),
+                11 => mem.asBytes(&ucontext_ptr.mcontext.r11),
+                12 => mem.asBytes(&ucontext_ptr.mcontext.r12),
+                13 => mem.asBytes(&ucontext_ptr.mcontext.r13),
+                14 => mem.asBytes(&ucontext_ptr.mcontext.r14),
+                15 => mem.asBytes(&ucontext_ptr.mcontext.r15),
+                16 => mem.asBytes(&ucontext_ptr.mcontext.rip),
+                // TODO: Extract xmm state from mcontext.fpstate?
+                else => error.InvalidRegister,
+            },
+            .openbsd => switch (reg_number) {
+                0 => mem.asBytes(&ucontext_ptr.sc_rax),
+                1 => mem.asBytes(&ucontext_ptr.sc_rdx),
+                2 => mem.asBytes(&ucontext_ptr.sc_rcx),
+                3 => mem.asBytes(&ucontext_ptr.sc_rbx),
+                4 => mem.asBytes(&ucontext_ptr.sc_rsi),
+                5 => mem.asBytes(&ucontext_ptr.sc_rdi),
+                6 => mem.asBytes(&ucontext_ptr.sc_rbp),
+                7 => mem.asBytes(&ucontext_ptr.sc_rsp),
+                8 => mem.asBytes(&ucontext_ptr.sc_r8),
+                9 => mem.asBytes(&ucontext_ptr.sc_r9),
+                10 => mem.asBytes(&ucontext_ptr.sc_r10),
+                11 => mem.asBytes(&ucontext_ptr.sc_r11),
+                12 => mem.asBytes(&ucontext_ptr.sc_r12),
+                13 => mem.asBytes(&ucontext_ptr.sc_r13),
+                14 => mem.asBytes(&ucontext_ptr.sc_r14),
+                15 => mem.asBytes(&ucontext_ptr.sc_r15),
+                16 => mem.asBytes(&ucontext_ptr.sc_rip),
+                // TODO: Extract xmm state from sc_fpstate?
+                else => error.InvalidRegister,
+            },
+            .macos => switch (reg_number) {
+                0 => mem.asBytes(&ucontext_ptr.mcontext.ss.rax),
+                1 => mem.asBytes(&ucontext_ptr.mcontext.ss.rdx),
+                2 => mem.asBytes(&ucontext_ptr.mcontext.ss.rcx),
+                3 => mem.asBytes(&ucontext_ptr.mcontext.ss.rbx),
+                4 => mem.asBytes(&ucontext_ptr.mcontext.ss.rsi),
+                5 => mem.asBytes(&ucontext_ptr.mcontext.ss.rdi),
+                6 => mem.asBytes(&ucontext_ptr.mcontext.ss.rbp),
+                7 => mem.asBytes(&ucontext_ptr.mcontext.ss.rsp),
+                8 => mem.asBytes(&ucontext_ptr.mcontext.ss.r8),
+                9 => mem.asBytes(&ucontext_ptr.mcontext.ss.r9),
+                10 => mem.asBytes(&ucontext_ptr.mcontext.ss.r10),
+                11 => mem.asBytes(&ucontext_ptr.mcontext.ss.r11),
+                12 => mem.asBytes(&ucontext_ptr.mcontext.ss.r12),
+                13 => mem.asBytes(&ucontext_ptr.mcontext.ss.r13),
+                14 => mem.asBytes(&ucontext_ptr.mcontext.ss.r14),
+                15 => mem.asBytes(&ucontext_ptr.mcontext.ss.r15),
+                16 => mem.asBytes(&ucontext_ptr.mcontext.ss.rip),
+                else => error.InvalidRegister,
+            },
             else => error.UnimplementedOs,
         },
         else => error.UnimplementedArch,

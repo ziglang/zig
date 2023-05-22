@@ -521,6 +521,8 @@ pub const StackIterator = struct {
     fn next_dwarf(self: *StackIterator) !void {
         const module = try self.debug_info.?.getModuleForAddress(self.dwarf_context.pc);
         if (module.getDwarfInfo()) |di| {
+            self.dwarf_context.reg_ctx.eh_frame = true;
+            self.dwarf_context.reg_ctx.is_macho = di.is_macho;
             try di.unwindFrame(self.debug_info.?.allocator, &self.dwarf_context, module.base_address);
         } else return error.MissingDebugInfo;
     }
@@ -532,6 +534,10 @@ pub const StackIterator = struct {
             } else |err| {
                 // Fall back to fp unwinding on the first failure,
                 // as the register context won't be updated
+
+                // TODO: Could still attempt dwarf unwinding after this, maybe marking non-updated registers as
+                //       invalid, so the unwind only fails if it requires out of date registers?
+
                 self.fp = self.dwarf_context.getFp() catch 0;
                 self.debug_info = null;
 
@@ -854,6 +860,7 @@ fn readCoffDebugInfo(allocator: mem.Allocator, coff_bytes: []const u8) !ModuleDe
             var dwarf = DW.DwarfInfo{
                 .endian = native_endian,
                 .sections = sections,
+                .is_macho = false,
             };
 
             try DW.openDwarfDebugInfo(&dwarf, allocator, coff_bytes);
@@ -1079,6 +1086,7 @@ pub fn readElfDebugInfo(
         var di = DW.DwarfInfo{
             .endian = endian,
             .sections = sections,
+            .is_macho = false,
         };
 
         try DW.openDwarfDebugInfo(&di, allocator, parent_mapped_mem orelse mapped_mem);
@@ -1682,6 +1690,10 @@ pub const ModuleDebugInfo = switch (native_os) {
 
             var di = DW.DwarfInfo{
                 .endian = .Little,
+                .is_macho = true,
+
+                // TODO: Get this compiling
+
                 .debug_info = try chopSlice(mapped_mem, debug_info.offset, debug_info.size),
                 .debug_abbrev = try chopSlice(mapped_mem, debug_abbrev.offset, debug_abbrev.size),
                 .debug_str = try chopSlice(mapped_mem, debug_str.offset, debug_str.size),

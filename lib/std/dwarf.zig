@@ -686,6 +686,8 @@ pub const DwarfInfo = struct {
     // Sorted by start_pc
     fde_list: std.ArrayListUnmanaged(FrameDescriptionEntry) = .{},
 
+    is_macho: bool,
+
     pub fn section(di: DwarfInfo, dwarf_section: DwarfSection) ?[]const u8 {
         return if (di.sections[@enumToInt(dwarf_section)]) |s| s.data else null;
     }
@@ -712,6 +714,7 @@ pub const DwarfInfo = struct {
     }
 
     pub fn getSymbolName(di: *DwarfInfo, address: u64) ?[]const u8 {
+        // TODO: Can this be binary searched?
         for (di.func_list.items) |*func| {
             if (func.pc_range) |range| {
                 if (address >= range.start and address < range.end) {
@@ -852,6 +855,9 @@ pub const DwarfInfo = struct {
                                 break :x null;
                             }
                         };
+
+                        // TODO: Debug issue where `puts` in Ubuntu's libc was not found
+                        //if (fn_name != null and pc_range != null) debug.print("func_list: {s} -> 0x{x}-0x{x}\n", .{fn_name.?, pc_range.?.start, pc_range.?.end});
 
                         try di.func_list.append(allocator, Func{
                             .name = fn_name,
@@ -1587,7 +1593,7 @@ pub const DwarfInfo = struct {
         context.cfa = switch (row.cfa.rule) {
             .val_offset => |offset| blk: {
                 const register = row.cfa.register orelse return error.InvalidCFARule;
-                const value = mem.readIntSliceNative(usize, try abi.regBytes(&context.ucontext, register));
+                const value = mem.readIntSliceNative(usize, try abi.regBytes(&context.ucontext, register, context.reg_ctx));
 
                 // TODO: Check isValidMemory?
                 break :blk try call_frame.applyOffset(value, offset);
@@ -1602,15 +1608,13 @@ pub const DwarfInfo = struct {
             else => return error.InvalidCFARule,
         };
 
-        // Update the context with the unwound values
-        // TODO: Need old cfa and pc?
-
+        // Update the context with the previous frame's values
         var next_ucontext = context.ucontext;
 
         var has_next_ip = false;
         for (vm.rowColumns(row)) |column| {
             if (column.register) |register| {
-                const dest = try abi.regBytes(&next_ucontext, register);
+                const dest = try abi.regBytes(&next_ucontext, register, context.reg_ctx);
                 if (register == cie.return_address_register) {
                     has_next_ip = column.rule != .undefined;
                 }
@@ -1622,12 +1626,12 @@ pub const DwarfInfo = struct {
         context.ucontext = next_ucontext;
 
         if (has_next_ip) {
-            context.pc = mem.readIntSliceNative(usize, try abi.regBytes(&context.ucontext, @enumToInt(abi.Register.ip)));
+            context.pc = mem.readIntSliceNative(usize, try abi.regBytes(&context.ucontext, abi.ipRegNum(), context.reg_ctx));
         } else {
             context.pc = 0;
         }
 
-        mem.writeIntSliceNative(usize, try abi.regBytes(&context.ucontext, @enumToInt(abi.Register.sp)), context.cfa.?);
+        mem.writeIntSliceNative(usize, try abi.regBytes(&context.ucontext, abi.spRegNum(context.reg_ctx), context.reg_ctx), context.cfa.?);
     }
 };
 
@@ -1635,18 +1639,20 @@ pub const UnwindContext = struct {
     cfa: ?usize,
     pc: usize,
     ucontext: os.ucontext_t,
+    reg_ctx: abi.RegisterContext,
 
     pub fn init(ucontext: *const os.ucontext_t) !UnwindContext {
-        const pc = mem.readIntSliceNative(usize, try abi.regBytes(ucontext, @enumToInt(abi.Register.ip)));
+        const pc = mem.readIntSliceNative(usize, try abi.regBytes(ucontext, abi.ipRegNum(), null));
         return .{
             .cfa = null,
             .pc = pc,
             .ucontext = ucontext.*,
+            .reg_ctx = undefined,
         };
     }
 
     pub fn getFp(self: *const UnwindContext) !usize {
-        return mem.readIntSliceNative(usize, try abi.regBytes(&self.ucontext, @enumToInt(abi.Register.fp)));
+        return mem.readIntSliceNative(usize, try abi.regBytes(&self.ucontext, abi.fpRegNum(self.reg_ctx), self.reg_ctx));
     }
 };
 
