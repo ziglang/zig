@@ -4982,26 +4982,52 @@ fn airUnionInit(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     const result = result: {
         const union_ty = func.air.typeOfIndex(inst);
         const layout = union_ty.unionGetLayout(func.target);
+        const union_obj = union_ty.cast(Type.Payload.Union).?.data;
+        const field = union_obj.fields.values()[extra.field_index];
+        const field_name = union_obj.fields.keys()[extra.field_index];
+
+        const tag_int = blk: {
+            const tag_ty = union_ty.unionTagTypeHypothetical();
+            const enum_field_index = tag_ty.enumFieldIndex(field_name).?;
+            var tag_val_payload: Value.Payload.U32 = .{
+                .base = .{ .tag = .enum_field_index },
+                .data = @intCast(u32, enum_field_index),
+            };
+            const tag_val = Value.initPayload(&tag_val_payload.base);
+            break :blk try func.lowerConstant(tag_val, tag_ty);
+        };
         if (layout.payload_size == 0) {
             if (layout.tag_size == 0) {
                 break :result WValue{ .none = {} };
             }
             assert(!isByRef(union_ty, func.target));
-            break :result WValue{ .imm32 = extra.field_index };
+            break :result tag_int;
         }
         assert(isByRef(union_ty, func.target));
 
         const result_ptr = try func.allocStack(union_ty);
         const payload = try func.resolveInst(extra.init);
-        const union_obj = union_ty.cast(Type.Payload.Union).?.data;
-        assert(union_obj.haveFieldTypes());
-        const field = union_obj.fields.values()[extra.field_index];
-
         if (layout.tag_align >= layout.payload_align) {
-            const payload_ptr = try func.buildPointerOffset(result_ptr, layout.tag_size, .new);
-            try func.store(payload_ptr, payload, field.ty, 0);
+            if (isByRef(field.ty, func.target)) {
+                const payload_ptr = try func.buildPointerOffset(result_ptr, layout.tag_size, .new);
+                try func.store(payload_ptr, payload, field.ty, 0);
+            } else {
+                try func.store(result_ptr, payload, field.ty, @intCast(u32, layout.tag_size));
+            }
+
+            if (layout.tag_size > 0) {
+                try func.store(result_ptr, tag_int, union_obj.tag_ty, 0);
+            }
         } else {
             try func.store(result_ptr, payload, field.ty, 0);
+            if (layout.tag_size > 0) {
+                try func.store(
+                    result_ptr,
+                    tag_int,
+                    union_obj.tag_ty,
+                    @intCast(u32, layout.payload_size),
+                );
+            }
         }
         break :result result_ptr;
     };
