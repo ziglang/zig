@@ -38,12 +38,12 @@ const Opcode = enum(u8) {
     val_expression = 0x16,
 
     // These opcodes encode an operand in the lower 6 bits of the opcode itself
-    pub const lo_inline = Opcode.advance_loc;
+    pub const lo_inline = @enumToInt(Opcode.advance_loc);
     pub const hi_inline = @enumToInt(Opcode.restore) | 0b111111;
 
     // These opcodes are trailed by zero or more operands
-    pub const lo_reserved = Opcode.nop;
-    pub const hi_reserved = Opcode.val_expression;
+    pub const lo_reserved = @enumToInt(Opcode.nop);
+    pub const hi_reserved = @enumToInt(Opcode.val_expression);
 
     // Vendor-specific opcodes
     pub const lo_user = 0x1c;
@@ -187,28 +187,40 @@ pub const Instruction = union(Opcode) {
     val_offset_sf: InstructionType(.{ .a = .uleb128_offset, .b = .sleb128_offset }),
     val_expression: InstructionType(.{ .a = .uleb128_offset, .block = .block }),
 
+    fn readOperands(
+        self: *Instruction,
+        stream: *std.io.FixedBufferStream([]const u8),
+        opcode_value: ?u6,
+        addr_size_bytes: u8,
+        endian: std.builtin.Endian,
+    ) !void {
+        switch (self.*) {
+            inline else => |*inst| inst.* = try @TypeOf(inst.*).read(stream, opcode_value, addr_size_bytes, endian),
+        }
+    }
+
     pub fn read(
         stream: *std.io.FixedBufferStream([]const u8),
         addr_size_bytes: u8,
         endian: std.builtin.Endian,
     ) !Instruction {
-        @setEvalBranchQuota(1800);
-
         return switch (try stream.reader().readByte()) {
-            inline @enumToInt(Opcode.lo_inline)...Opcode.hi_inline => |opcode| blk: {
+            inline Opcode.lo_inline...Opcode.hi_inline => |opcode| blk: {
                 const e = @intToEnum(Opcode, opcode & 0b11000000);
-                const payload_type = std.meta.TagPayload(Instruction, e);
-                const value = try payload_type.read(stream, @intCast(u6, opcode & 0b111111), addr_size_bytes, endian);
-                break :blk @unionInit(Instruction, @tagName(e), value);
+                var result = @unionInit(Instruction, @tagName(e), undefined);
+                try result.readOperands(stream, @intCast(u6, opcode & 0b111111), addr_size_bytes, endian);
+                break :blk result;
             },
-            inline @enumToInt(Opcode.lo_reserved)...@enumToInt(Opcode.hi_reserved) => |opcode| blk: {
+            inline Opcode.lo_reserved...Opcode.hi_reserved => |opcode| blk: {
                 const e = @intToEnum(Opcode, opcode);
-                const payload_type = std.meta.TagPayload(Instruction, e);
-                const value = try payload_type.read(stream, null, addr_size_bytes, endian);
-                break :blk @unionInit(Instruction, @tagName(e), value);
+                var result = @unionInit(Instruction, @tagName(e), undefined);
+                try result.readOperands(stream, null, addr_size_bytes, endian);
+                break :blk result;
             },
             Opcode.lo_user...Opcode.hi_user => error.UnimplementedUserOpcode,
             else => |opcode| blk: {
+
+                // TODO: Remove this
                 std.debug.print("Opcode {x}\n", .{opcode});
 
                 break :blk error.InvalidOpcode;
