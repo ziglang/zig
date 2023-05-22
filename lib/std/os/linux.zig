@@ -1520,19 +1520,19 @@ pub fn sched_getaffinity(pid: pid_t, size: usize, set: *cpu_set_t) usize {
 }
 
 pub fn getcpu(cpu: *u32, node: *u32) usize {
-    return syscall3(.getcpu, cpu, node, null);
+    return syscall3(.getcpu, @ptrToInt(cpu), @ptrToInt(node), 0);
 }
 
 pub fn sched_getcpu() usize {
     var cpu: u32 = undefined;
-    const rc = syscall3(.getcpu, &cpu, null, null);
+    const rc = syscall3(.getcpu, @ptrToInt(&cpu), 0, 0);
     if (@bitCast(isize, rc) < 0) return rc;
     return @intCast(usize, cpu);
 }
 
 /// libc has no wrapper for this syscall
 pub fn mbind(addr: ?*anyopaque, len: u32, mode: i32, nodemask: *const u32, maxnode: u32, flags: u32) usize {
-    return syscall6(.mbind, addr, len, mode, nodemask, maxnode, flags);
+    return syscall6(.mbind, @ptrToInt(addr), len, @bitCast(usize, @as(isize, mode)), @ptrToInt(nodemask), maxnode, flags);
 }
 
 pub fn sched_setaffinity(pid: pid_t, size: usize, set: *const cpu_set_t) usize {
@@ -3623,7 +3623,7 @@ pub fn CPU_SET(cpu: usize, set: *cpu_set_t) void {
 pub fn CPU_ISSET(cpu: usize, set: cpu_set_t) bool {
     const x = cpu / @sizeOf(usize);
     if (x < @sizeOf(cpu_set_t)) {
-        return set[x] & cpu_mask(x);
+        return set[x] & cpu_mask(x) != 0;
     }
     return false;
 }
