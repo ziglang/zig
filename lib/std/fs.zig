@@ -1135,6 +1135,11 @@ pub const Dir = struct {
                 w.RIGHT.FD_FILESTAT_SET_SIZE;
         }
         const fd = try os.openatWasi(self.fd, sub_path, 0x0, 0x0, fdflags, base, 0x0);
+        errdefer os.close(fd);
+        const fstat = try os.fstat(fd);
+        const is_dir = fstat.mode & os.S.IFMT == os.S.IFDIR;
+        if (is_dir) return error.IsDir;
+
         return File{ .handle = fd };
     }
 
@@ -1191,6 +1196,11 @@ pub const Dir = struct {
                     .Exclusive => os.LOCK.EX | lock_nonblocking,
                 });
             }
+        }
+        if (builtin.target.os.tag == .wasi) {
+            const fstat = try os.fstat(fd);
+            const is_dir = fstat.mode & os.S.IFMT == os.S.IFDIR;
+            if (is_dir) return error.IsDir;
         }
 
         if (has_flock_open_flags and flags.lock_nonblocking) {
