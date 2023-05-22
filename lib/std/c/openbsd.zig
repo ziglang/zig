@@ -1127,7 +1127,7 @@ pub usingnamespace switch (builtin.cpu.arch) {
             sc_cookie: c_long,
         };
     },
-    .arm64 => struct {
+    .aarch64 => struct {
         pub const ucontext_t = extern struct {
             __sc_unused: c_int,
             sc_mask: c_int,
