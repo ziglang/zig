@@ -485,6 +485,11 @@ fn ChaChaImpl(comptime rounds_nb: usize) type {
             if (has_avx2) return ChaChaVecImpl(rounds_nb, 2);
             return ChaChaVecImpl(rounds_nb, 1);
         },
+        .aarch64 => {
+            const has_neon = std.Target.aarch64.featureSetHas(builtin.cpu.features, .neon);
+            if (has_neon) return ChaChaVecImpl(rounds_nb, 4);
+            return ChaChaNonVecImpl(rounds_nb);
+        },
         else => return ChaChaNonVecImpl(rounds_nb),
     }
 }
