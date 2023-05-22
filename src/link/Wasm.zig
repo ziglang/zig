@@ -1324,17 +1324,18 @@ pub fn allocateSymbol(wasm: *Wasm) !u32 {
     return index;
 }
 
-pub fn updateFunc(wasm: *Wasm, mod: *Module, func: *Module.Fn, air: Air, liveness: Liveness) !void {
+pub fn updateFunc(wasm: *Wasm, mod: *Module, func_index: Module.Fn.Index, air: Air, liveness: Liveness) !void {
     if (build_options.skip_non_native and builtin.object_format != .wasm) {
         @panic("Attempted to compile for object format that was disabled by build configuration");
     }
     if (build_options.have_llvm) {
-        if (wasm.llvm_object) |llvm_object| return llvm_object.updateFunc(mod, func, air, liveness);
+        if (wasm.llvm_object) |llvm_object| return llvm_object.updateFunc(mod, func_index, air, liveness);
     }
 
     const tracy = trace(@src());
     defer tracy.end();
 
+    const func = mod.funcPtr(func_index);
     const decl_index = func.owner_decl;
     const decl = mod.declPtr(decl_index);
     const atom_index = try wasm.getOrCreateAtomForDecl(decl_index);
@@ -1358,7 +1359,7 @@ pub fn updateFunc(wasm: *Wasm, mod: *Module, func: *Module.Fn, air: Air, livenes
     const result = try codegen.generateFunction(
         &wasm.base,
         decl.srcLoc(mod),
-        func,
+        func_index,
         air,
         liveness,
         &code_writer,
@@ -1403,9 +1404,9 @@ pub fn updateDecl(wasm: *Wasm, mod: *Module, decl_index: Module.Decl.Index) !voi
     defer tracy.end();
 
     const decl = mod.declPtr(decl_index);
-    if (decl.val.castTag(.function)) |_| {
+    if (decl.getFunction(mod)) |_| {
         return;
-    } else if (decl.val.castTag(.extern_fn)) |_| {
+    } else if (decl.getExternFunc(mod)) |_| {
         return;
     }
 
@@ -1413,12 +1414,13 @@ pub fn updateDecl(wasm: *Wasm, mod: *Module, decl_index: Module.Decl.Index) !voi
     const atom = wasm.getAtomPtr(atom_index);
     atom.clear();
 
-    if (decl.isExtern()) {
-        const variable = decl.getVariable().?;
+    if (decl.isExtern(mod)) {
+        const variable = decl.getVariable(mod).?;
         const name = mem.sliceTo(decl.name, 0);
-        return wasm.addOrUpdateImport(name, atom.sym_index, variable.lib_name, null);
+        const lib_name = mod.intern_pool.stringToSliceUnwrap(variable.lib_name);
+        return wasm.addOrUpdateImport(name, atom.sym_index, lib_name, null);
     }
-    const val = if (decl.val.castTag(.variable)) |payload| payload.data.init else decl.val;
+    const val = if (decl.getVariable(mod)) |variable| variable.init.toValue() else decl.val;
 
     var code_writer = std.ArrayList(u8).init(wasm.base.allocator);
     defer code_writer.deinit();
@@ -1791,7 +1793,7 @@ pub fn freeDecl(wasm: *Wasm, decl_index: Module.Decl.Index) void {
         assert(wasm.symbol_atom.remove(local_atom.symbolLoc()));
     }
 
-    if (decl.isExtern()) {
+    if (decl.isExtern(mod)) {
         _ = wasm.imports.remove(atom.symbolLoc());
     }
     _ = wasm.resolved_symbols.swapRemove(atom.symbolLoc());
@@ -1852,7 +1854,7 @@ pub fn addOrUpdateImport(
     /// Symbol index that is external
     symbol_index: u32,
     /// Optional library name (i.e. `extern "c" fn foo() void`
-    lib_name: ?[*:0]const u8,
+    lib_name: ?[:0]const u8,
     /// The index of the type that represents the function signature
     /// when the extern is a function. When this is null, a data-symbol
     /// is asserted instead.
@@ -1863,7 +1865,7 @@ pub fn addOrUpdateImport(
     // Also mangle the name when the lib name is set and not equal to "C" so imports with the same
     // name but different module can be resolved correctly.
     const mangle_name = lib_name != null and
-        !std.mem.eql(u8, std.mem.sliceTo(lib_name.?, 0), "c");
+        !std.mem.eql(u8, lib_name.?, "c");
     const full_name = if (mangle_name) full_name: {
         break :full_name try std.fmt.allocPrint(wasm.base.allocator, "{s}|{s}", .{ name, lib_name.? });
     } else name;
@@ -1889,7 +1891,7 @@ pub fn addOrUpdateImport(
     if (type_index) |ty_index| {
         const gop = try wasm.imports.getOrPut(wasm.base.allocator, .{ .index = symbol_index, .file = null });
         const module_name = if (lib_name) |l_name| blk: {
-            break :blk mem.sliceTo(l_name, 0);
+            break :blk l_name;
         } else wasm.host_name;
         if (!gop.found_existing) {
             gop.value_ptr.* = .{
@@ -2931,7 +2933,7 @@ pub fn getErrorTableSymbol(wasm: *Wasm) !u32 {
 
     const atom_index = try wasm.createAtom();
     const atom = wasm.getAtomPtr(atom_index);
-    const slice_ty = Type.const_slice_u8_sentinel_0;
+    const slice_ty = Type.slice_const_u8_sentinel_0;
     const mod = wasm.base.options.module.?;
     atom.alignment = slice_ty.abiAlignment(mod);
     const sym_index = atom.sym_index;
@@ -2988,7 +2990,7 @@ fn populateErrorNameTable(wasm: *Wasm) !void {
     for (mod.error_name_list.items) |error_name| {
         const len = @intCast(u32, error_name.len + 1); // names are 0-termianted
 
-        const slice_ty = Type.const_slice_u8_sentinel_0;
+        const slice_ty = Type.slice_const_u8_sentinel_0;
         const offset = @intCast(u32, atom.code.items.len);
         // first we create the data for the slice of the name
         try atom.code.appendNTimes(wasm.base.allocator, 0, 4); // ptr to name, will be relocated
@@ -3366,15 +3368,15 @@ pub fn flushModule(wasm: *Wasm, comp: *Compilation, prog_node: *std.Progress.Nod
         var decl_it = wasm.decls.iterator();
         while (decl_it.next()) |entry| {
             const decl = mod.declPtr(entry.key_ptr.*);
-            if (decl.isExtern()) continue;
+            if (decl.isExtern(mod)) continue;
             const atom_index = entry.value_ptr.*;
             const atom = wasm.getAtomPtr(atom_index);
             if (decl.ty.zigTypeTag(mod) == .Fn) {
                 try wasm.parseAtom(atom_index, .function);
-            } else if (decl.getVariable()) |variable| {
-                if (!variable.is_mutable) {
+            } else if (decl.getVariable(mod)) |variable| {
+                if (variable.is_const) {
                     try wasm.parseAtom(atom_index, .{ .data = .read_only });
-                } else if (variable.init.isUndefDeep(mod)) {
+                } else if (variable.init.toValue().isUndefDeep(mod)) {
                     // for safe build modes, we store the atom in the data segment,
                     // whereas for unsafe build modes we store it in bss.
                     const is_initialized = wasm.base.options.optimize_mode == .Debug or

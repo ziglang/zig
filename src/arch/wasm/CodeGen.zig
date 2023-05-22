@@ -1203,20 +1203,22 @@ fn genFunctype(
 pub fn generate(
     bin_file: *link.File,
     src_loc: Module.SrcLoc,
-    func: *Module.Fn,
+    func_index: Module.Fn.Index,
     air: Air,
     liveness: Liveness,
     code: *std.ArrayList(u8),
     debug_output: codegen.DebugInfoOutput,
 ) codegen.CodeGenError!codegen.Result {
     _ = src_loc;
+    const mod = bin_file.options.module.?;
+    const func = mod.funcPtr(func_index);
     var code_gen: CodeGen = .{
         .gpa = bin_file.allocator,
         .air = air,
         .liveness = liveness,
         .code = code,
         .decl_index = func.owner_decl,
-        .decl = bin_file.options.module.?.declPtr(func.owner_decl),
+        .decl = mod.declPtr(func.owner_decl),
         .err_msg = undefined,
         .locals = .{},
         .target = bin_file.options.target,
@@ -2196,27 +2198,33 @@ fn airCall(func: *CodeGen, inst: Air.Inst.Index, modifier: std.builtin.CallModif
     const callee: ?Decl.Index = blk: {
         const func_val = (try func.air.value(pl_op.operand, mod)) orelse break :blk null;
 
-        if (func_val.castTag(.function)) |function| {
-            _ = try func.bin_file.getOrCreateAtomForDecl(function.data.owner_decl);
-            break :blk function.data.owner_decl;
-        } else if (func_val.castTag(.extern_fn)) |extern_fn| {
-            const ext_decl = mod.declPtr(extern_fn.data.owner_decl);
+        if (func_val.getFunction(mod)) |function| {
+            _ = try func.bin_file.getOrCreateAtomForDecl(function.owner_decl);
+            break :blk function.owner_decl;
+        } else if (func_val.getExternFunc(mod)) |extern_func| {
+            const ext_decl = mod.declPtr(extern_func.decl);
             const ext_info = mod.typeToFunc(ext_decl.ty).?;
             var func_type = try genFunctype(func.gpa, ext_info.cc, ext_info.param_types, ext_info.return_type.toType(), mod);
             defer func_type.deinit(func.gpa);
-            const atom_index = try func.bin_file.getOrCreateAtomForDecl(extern_fn.data.owner_decl);
+            const atom_index = try func.bin_file.getOrCreateAtomForDecl(extern_func.decl);
             const atom = func.bin_file.getAtomPtr(atom_index);
-            const type_index = try func.bin_file.storeDeclType(extern_fn.data.owner_decl, func_type);
+            const type_index = try func.bin_file.storeDeclType(extern_func.decl, func_type);
             try func.bin_file.addOrUpdateImport(
                 mem.sliceTo(ext_decl.name, 0),
                 atom.getSymbolIndex().?,
-                ext_decl.getExternFn().?.lib_name,
+                mod.intern_pool.stringToSliceUnwrap(ext_decl.getExternFunc(mod).?.lib_name),
                 type_index,
             );
-            break :blk extern_fn.data.owner_decl;
-        } else if (func_val.castTag(.decl_ref)) |decl_ref| {
-            _ = try func.bin_file.getOrCreateAtomForDecl(decl_ref.data);
-            break :blk decl_ref.data;
+            break :blk extern_func.decl;
+        } else switch (mod.intern_pool.indexToKey(func_val.ip_index)) {
+            .ptr => |ptr| switch (ptr.addr) {
+                .decl => |decl| {
+                    _ = try func.bin_file.getOrCreateAtomForDecl(decl);
+                    break :blk decl;
+                },
+                else => {},
+            },
+            else => {},
         }
         return func.fail("Expected a function, but instead found type '{}'", .{func_val.tag()});
     };
@@ -2932,29 +2940,41 @@ fn wrapOperand(func: *CodeGen, operand: WValue, ty: Type) InnerError!WValue {
     return WValue{ .stack = {} };
 }
 
-fn lowerParentPtr(func: *CodeGen, ptr_val: Value, offset: u32) InnerError!WValue {
+fn lowerParentPtr(func: *CodeGen, ptr_val: Value) InnerError!WValue {
     const mod = func.bin_file.base.options.module.?;
-    switch (ptr_val.tag()) {
-        .decl_ref_mut => {
-            const decl_index = ptr_val.castTag(.decl_ref_mut).?.data.decl_index;
-            return func.lowerParentPtrDecl(ptr_val, decl_index, offset);
+    const ptr = mod.intern_pool.indexToKey(ptr_val.ip_index).ptr;
+    switch (ptr.addr) {
+        .decl => |decl_index| {
+            return func.lowerParentPtrDecl(ptr_val, decl_index, 0);
         },
-        .decl_ref => {
-            const decl_index = ptr_val.castTag(.decl_ref).?.data;
-            return func.lowerParentPtrDecl(ptr_val, decl_index, offset);
+        .mut_decl => |mut_decl| {
+            const decl_index = mut_decl.decl;
+            return func.lowerParentPtrDecl(ptr_val, decl_index, 0);
         },
-        .variable => {
-            const decl_index = ptr_val.castTag(.variable).?.data.owner_decl;
-            return func.lowerParentPtrDecl(ptr_val, decl_index, offset);
+        .int, .eu_payload => |tag| return func.fail("TODO: Implement lowerParentPtr for {}", .{tag}),
+        .opt_payload => |base_ptr| {
+            return func.lowerParentPtr(base_ptr.toValue());
         },
-        .field_ptr => {
-            const field_ptr = ptr_val.castTag(.field_ptr).?.data;
-            const parent_ty = field_ptr.container_ty;
+        .comptime_field => unreachable,
+        .elem => |elem| {
+            const index = elem.index;
+            const elem_type = mod.intern_pool.typeOf(elem.base).toType().elemType2(mod);
+            const offset = index * elem_type.abiSize(mod);
+            const array_ptr = try func.lowerParentPtr(elem.base.toValue());
 
-            const field_offset = switch (parent_ty.zigTypeTag(mod)) {
+            return WValue{ .memory_offset = .{
+                .pointer = array_ptr.memory,
+                .offset = @intCast(u32, offset),
+            } };
+        },
+        .field => |field| {
+            const parent_ty = mod.intern_pool.typeOf(field.base).toType().childType(mod);
+            const parent_ptr = try func.lowerParentPtr(field.base.toValue());
+
+            const offset = switch (parent_ty.zigTypeTag(mod)) {
                 .Struct => switch (parent_ty.containerLayout(mod)) {
-                    .Packed => parent_ty.packedStructFieldByteOffset(field_ptr.field_index, mod),
-                    else => parent_ty.structFieldOffset(field_ptr.field_index, mod),
+                    .Packed => parent_ty.packedStructFieldByteOffset(field.index, mod),
+                    else => parent_ty.structFieldOffset(field.index, mod),
                 },
                 .Union => switch (parent_ty.containerLayout(mod)) {
                     .Packed => 0,
@@ -2964,12 +2984,12 @@ fn lowerParentPtr(func: *CodeGen, ptr_val: Value, offset: u32) InnerError!WValue
                         if (layout.payload_align > layout.tag_align) break :blk 0;
 
                         // tag is stored first so calculate offset from where payload starts
-                        const field_offset = @intCast(u32, std.mem.alignForwardGeneric(u64, layout.tag_size, layout.tag_align));
-                        break :blk field_offset;
+                        const offset = @intCast(u32, std.mem.alignForwardGeneric(u64, layout.tag_size, layout.tag_align));
+                        break :blk offset;
                     },
                 },
                 .Pointer => switch (parent_ty.ptrSize(mod)) {
-                    .Slice => switch (field_ptr.field_index) {
+                    .Slice => switch (field.index) {
                         0 => 0,
                         1 => func.ptrSize(),
                         else => unreachable,
@@ -2978,19 +2998,23 @@ fn lowerParentPtr(func: *CodeGen, ptr_val: Value, offset: u32) InnerError!WValue
                 },
                 else => unreachable,
             };
-            return func.lowerParentPtr(field_ptr.container_ptr, offset + @intCast(u32, field_offset));
+
+            return switch (parent_ptr) {
+                .memory => |ptr_| WValue{
+                    .memory_offset = .{
+                        .pointer = ptr_,
+                        .offset = @intCast(u32, offset),
+                    },
+                },
+                .memory_offset => |mem_off| WValue{
+                    .memory_offset = .{
+                        .pointer = mem_off.pointer,
+                        .offset = @intCast(u32, offset) + mem_off.offset,
+                    },
+                },
+                else => unreachable,
+            };
         },
-        .elem_ptr => {
-            const elem_ptr = ptr_val.castTag(.elem_ptr).?.data;
-            const index = elem_ptr.index;
-            const elem_offset = index * elem_ptr.elem_ty.abiSize(mod);
-            return func.lowerParentPtr(elem_ptr.array_ptr, offset + @intCast(u32, elem_offset));
-        },
-        .opt_payload_ptr => {
-            const payload_ptr = ptr_val.castTag(.opt_payload_ptr).?.data;
-            return func.lowerParentPtr(payload_ptr.container_ptr, offset);
-        },
-        else => |tag| return func.fail("TODO: Implement lowerParentPtr for tag: {}", .{tag}),
     }
 }
 
@@ -3045,21 +3069,97 @@ fn toTwosComplement(value: anytype, bits: u7) std.meta.Int(.unsigned, @typeInfo(
 fn lowerConstant(func: *CodeGen, arg_val: Value, ty: Type) InnerError!WValue {
     const mod = func.bin_file.base.options.module.?;
     var val = arg_val;
-    if (val.castTag(.runtime_value)) |rt| {
-        val = rt.data;
+    switch (mod.intern_pool.indexToKey(val.ip_index)) {
+        .runtime_value => |rt| val = rt.val.toValue(),
+        else => {},
     }
     if (val.isUndefDeep(mod)) return func.emitUndefined(ty);
-    if (val.castTag(.decl_ref)) |decl_ref| {
-        const decl_index = decl_ref.data;
-        return func.lowerDeclRefValue(.{ .ty = ty, .val = val }, decl_index, 0);
-    }
-    if (val.castTag(.decl_ref_mut)) |decl_ref_mut| {
-        const decl_index = decl_ref_mut.data.decl_index;
-        return func.lowerDeclRefValue(.{ .ty = ty, .val = val }, decl_index, 0);
-    }
-    switch (ty.zigTypeTag(mod)) {
-        .Void => return WValue{ .none = {} },
-        .Int => {
+
+    if (val.ip_index == .none) switch (ty.zigTypeTag(mod)) {
+        .Array => |zig_type| return func.fail("Wasm TODO: LowerConstant for zigTypeTag {}", .{zig_type}),
+        .Struct => {
+            const struct_obj = mod.typeToStruct(ty).?;
+            assert(struct_obj.layout == .Packed);
+            var buf: [8]u8 = .{0} ** 8; // zero the buffer so we do not read 0xaa as integer
+            val.writeToPackedMemory(ty, func.bin_file.base.options.module.?, &buf, 0) catch unreachable;
+            const int_val = try mod.intValue(
+                struct_obj.backing_int_ty,
+                std.mem.readIntLittle(u64, &buf),
+            );
+            return func.lowerConstant(int_val, struct_obj.backing_int_ty);
+        },
+        .Vector => {
+            assert(determineSimdStoreStrategy(ty, mod) == .direct);
+            var buf: [16]u8 = undefined;
+            val.writeToMemory(ty, mod, &buf) catch unreachable;
+            return func.storeSimdImmd(buf);
+        },
+        .Frame,
+        .AnyFrame,
+        => return func.fail("Wasm TODO: LowerConstant for type {}", .{ty.fmt(mod)}),
+        .Float,
+        .Union,
+        .Optional,
+        .ErrorUnion,
+        .ErrorSet,
+        .Int,
+        .Enum,
+        .Bool,
+        .Pointer,
+        => unreachable, // handled below
+        .Type,
+        .Void,
+        .NoReturn,
+        .ComptimeFloat,
+        .ComptimeInt,
+        .Undefined,
+        .Null,
+        .Opaque,
+        .EnumLiteral,
+        .Fn,
+        => unreachable, // comptime-only types
+    };
+
+    switch (mod.intern_pool.indexToKey(val.ip_index)) {
+        .int_type,
+        .ptr_type,
+        .array_type,
+        .vector_type,
+        .opt_type,
+        .anyframe_type,
+        .error_union_type,
+        .simple_type,
+        .struct_type,
+        .anon_struct_type,
+        .union_type,
+        .opaque_type,
+        .enum_type,
+        .func_type,
+        .error_set_type,
+        .inferred_error_set_type,
+        => unreachable, // types, not values
+
+        .undef, .runtime_value => unreachable, // handled above
+        .simple_value => |simple_value| switch (simple_value) {
+            .undefined,
+            .void,
+            .null,
+            .empty_struct,
+            .@"unreachable",
+            .generic_poison,
+            => unreachable, // non-runtime values
+            .false, .true => return WValue{ .imm32 = switch (simple_value) {
+                .false => 0,
+                .true => 1,
+                else => unreachable,
+            } },
+        },
+        .variable,
+        .extern_func,
+        .func,
+        .enum_literal,
+        => unreachable, // non-runtime values
+        .int => {
             const int_info = ty.intInfo(mod);
             switch (int_info.signedness) {
                 .signed => switch (int_info.bits) {
@@ -3080,86 +3180,71 @@ fn lowerConstant(func: *CodeGen, arg_val: Value, ty: Type) InnerError!WValue {
                 },
             }
         },
-        .Bool => return WValue{ .imm32 = @intCast(u32, val.toUnsignedInt(mod)) },
-        .Float => switch (ty.floatBits(func.target)) {
-            16 => return WValue{ .imm32 = @bitCast(u16, val.toFloat(f16, mod)) },
-            32 => return WValue{ .float32 = val.toFloat(f32, mod) },
-            64 => return WValue{ .float64 = val.toFloat(f64, mod) },
-            else => unreachable,
+        .err => |err| {
+            const name = mod.intern_pool.stringToSlice(err.name);
+            const kv = try mod.getErrorValue(name);
+            return WValue{ .imm32 = kv.value };
         },
-        .Pointer => return switch (val.ip_index) {
-            .null_value => WValue{ .imm32 = 0 },
-            .none => switch (val.tag()) {
-                .field_ptr, .elem_ptr, .opt_payload_ptr => func.lowerParentPtr(val, 0),
-                else => return func.fail("Wasm TODO: lowerConstant for other const pointer tag {}", .{val.tag()}),
-            },
-            else => switch (mod.intern_pool.indexToKey(val.ip_index)) {
-                .int => |int| WValue{ .imm32 = @intCast(u32, int.storage.u64) },
-                else => unreachable,
-            },
-        },
-        .Enum => {
-            const enum_tag = mod.intern_pool.indexToKey(val.ip_index).enum_tag;
-            const int_tag_ty = mod.intern_pool.typeOf(enum_tag.int);
-            return func.lowerConstant(enum_tag.int.toValue(), int_tag_ty.toType());
-        },
-        .ErrorSet => switch (val.tag()) {
-            .@"error" => {
-                const kv = try func.bin_file.base.options.module.?.getErrorValue(val.getError().?);
-                return WValue{ .imm32 = kv.value };
-            },
-            else => return WValue{ .imm32 = 0 },
-        },
-        .ErrorUnion => {
+        .error_union => {
             const error_type = ty.errorUnionSet(mod);
             const payload_type = ty.errorUnionPayload(mod);
             if (!payload_type.hasRuntimeBitsIgnoreComptime(mod)) {
                 // We use the error type directly as the type.
-                const is_pl = val.errorUnionIsPayload();
+                const is_pl = val.errorUnionIsPayload(mod);
                 const err_val = if (!is_pl) val else try mod.intValue(error_type, 0);
                 return func.lowerConstant(err_val, error_type);
             }
             return func.fail("Wasm TODO: lowerConstant error union with non-zero-bit payload type", .{});
         },
-        .Optional => if (ty.optionalReprIsPayload(mod)) {
+        .enum_tag => |enum_tag| {
+            const int_tag_ty = mod.intern_pool.typeOf(enum_tag.int);
+            return func.lowerConstant(enum_tag.int.toValue(), int_tag_ty.toType());
+        },
+        .float => |float| switch (float.storage) {
+            .f16 => |f16_val| return WValue{ .imm32 = @bitCast(u16, f16_val) },
+            .f32 => |f32_val| return WValue{ .float32 = f32_val },
+            .f64 => |f64_val| return WValue{ .float64 = f64_val },
+            else => unreachable,
+        },
+        .ptr => |ptr| switch (ptr.addr) {
+            .decl => |decl| return func.lowerDeclRefValue(.{ .ty = ty, .val = val }, decl, 0),
+            .mut_decl => |mut_decl| return func.lowerDeclRefValue(.{ .ty = ty, .val = val }, mut_decl.decl, 0),
+            .int => |int| return func.lowerConstant(int.toValue(), mod.intern_pool.typeOf(int).toType()),
+            .opt_payload, .elem, .field => return func.lowerParentPtr(val),
+            else => return func.fail("Wasm TODO: lowerConstant for other const addr tag {}", .{ptr.addr}),
+        },
+        .opt => if (ty.optionalReprIsPayload(mod)) {
             const pl_ty = ty.optionalChild(mod);
-            if (val.castTag(.opt_payload)) |payload| {
-                return func.lowerConstant(payload.data, pl_ty);
-            } else if (val.isNull(mod)) {
-                return WValue{ .imm32 = 0 };
+            if (val.optionalValue(mod)) |payload| {
+                return func.lowerConstant(payload, pl_ty);
             } else {
-                return func.lowerConstant(val, pl_ty);
+                return WValue{ .imm32 = 0 };
             }
         } else {
-            const is_pl = val.tag() == .opt_payload;
-            return WValue{ .imm32 = @boolToInt(is_pl) };
+            return WValue{ .imm32 = @boolToInt(!val.isNull(mod)) };
         },
-        .Struct => {
-            const struct_obj = mod.typeToStruct(ty).?;
-            assert(struct_obj.layout == .Packed);
-            var buf: [8]u8 = .{0} ** 8; // zero the buffer so we do not read 0xaa as integer
-            val.writeToPackedMemory(ty, func.bin_file.base.options.module.?, &buf, 0) catch unreachable;
-            const int_val = try mod.intValue(
-                struct_obj.backing_int_ty,
-                std.mem.readIntLittle(u64, &buf),
-            );
-            return func.lowerConstant(int_val, struct_obj.backing_int_ty);
+        .aggregate => switch (mod.intern_pool.indexToKey(ty.ip_index)) {
+            .array_type => return func.fail("Wasm TODO: LowerConstant for {}", .{ty.fmt(mod)}),
+            .vector_type => {
+                assert(determineSimdStoreStrategy(ty, mod) == .direct);
+                var buf: [16]u8 = undefined;
+                val.writeToMemory(ty, mod, &buf) catch unreachable;
+                return func.storeSimdImmd(buf);
+            },
+            .struct_type, .anon_struct_type => {
+                const struct_obj = mod.typeToStruct(ty).?;
+                assert(struct_obj.layout == .Packed);
+                var buf: [8]u8 = .{0} ** 8; // zero the buffer so we do not read 0xaa as integer
+                val.writeToPackedMemory(ty, func.bin_file.base.options.module.?, &buf, 0) catch unreachable;
+                const int_val = try mod.intValue(
+                    struct_obj.backing_int_ty,
+                    std.mem.readIntLittle(u64, &buf),
+                );
+                return func.lowerConstant(int_val, struct_obj.backing_int_ty);
+            },
+            else => unreachable,
         },
-        .Vector => {
-            assert(determineSimdStoreStrategy(ty, mod) == .direct);
-            var buf: [16]u8 = undefined;
-            val.writeToMemory(ty, func.bin_file.base.options.module.?, &buf) catch unreachable;
-            return func.storeSimdImmd(buf);
-        },
-        .Union => {
-            // in this case we have a packed union which will not be passed by reference.
-            const union_ty = mod.typeToUnion(ty).?;
-            const union_obj = val.castTag(.@"union").?.data;
-            const field_index = ty.unionTagFieldIndex(union_obj.tag, func.bin_file.base.options.module.?).?;
-            const field_ty = union_ty.fields.values()[field_index].ty;
-            return func.lowerConstant(union_obj.val, field_ty);
-        },
-        else => |zig_type| return func.fail("Wasm TODO: LowerConstant for zigTypeTag {}", .{zig_type}),
+        .un => return func.fail("Wasm TODO: LowerConstant for {}", .{ty.fmt(mod)}),
     }
 }
 
@@ -3221,31 +3306,33 @@ fn valueAsI32(func: *const CodeGen, val: Value, ty: Type) i32 {
         .bool_true => return 1,
         .bool_false => return 0,
         else => return switch (mod.intern_pool.indexToKey(val.ip_index)) {
-            .enum_tag => |enum_tag| intIndexAsI32(&mod.intern_pool, enum_tag.int),
-            .int => |int| intStorageAsI32(int.storage),
-            .ptr => |ptr| intIndexAsI32(&mod.intern_pool, ptr.addr.int),
+            .enum_tag => |enum_tag| intIndexAsI32(&mod.intern_pool, enum_tag.int, mod),
+            .int => |int| intStorageAsI32(int.storage, mod),
+            .ptr => |ptr| intIndexAsI32(&mod.intern_pool, ptr.addr.int, mod),
             else => unreachable,
         },
     }
 
     switch (ty.zigTypeTag(mod)) {
         .ErrorSet => {
-            const kv = func.bin_file.base.options.module.?.getErrorValue(val.getError().?) catch unreachable; // passed invalid `Value` to function
+            const kv = func.bin_file.base.options.module.?.getErrorValue(val.getError(mod).?) catch unreachable; // passed invalid `Value` to function
             return @bitCast(i32, kv.value);
         },
         else => unreachable, // Programmer called this function for an illegal type
     }
 }
 
-fn intIndexAsI32(ip: *const InternPool, int: InternPool.Index) i32 {
-    return intStorageAsI32(ip.indexToKey(int).int.storage);
+fn intIndexAsI32(ip: *const InternPool, int: InternPool.Index, mod: *Module) i32 {
+    return intStorageAsI32(ip.indexToKey(int).int.storage, mod);
 }
 
-fn intStorageAsI32(storage: InternPool.Key.Int.Storage) i32 {
+fn intStorageAsI32(storage: InternPool.Key.Int.Storage, mod: *Module) i32 {
     return switch (storage) {
         .i64 => |x| @intCast(i32, x),
         .u64 => |x| @bitCast(i32, @intCast(u32, x)),
         .big_int => unreachable,
+        .lazy_align => |ty| @bitCast(i32, ty.toType().abiAlignment(mod)),
+        .lazy_size => |ty| @bitCast(i32, @intCast(u32, ty.toType().abiSize(mod))),
     };
 }
 
@@ -5514,7 +5601,7 @@ fn airErrorName(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     // As the names are global and the slice elements are constant, we do not have
     // to make a copy of the ptr+value but can point towards them directly.
     const error_table_symbol = try func.bin_file.getErrorTableSymbol();
-    const name_ty = Type.const_slice_u8_sentinel_0;
+    const name_ty = Type.slice_const_u8_sentinel_0;
     const mod = func.bin_file.base.options.module.?;
     const abi_size = name_ty.abiSize(mod);
 
@@ -6935,7 +7022,7 @@ fn getTagNameFunction(func: *CodeGen, enum_ty: Type) InnerError!u32 {
     // finish function body
     try writer.writeByte(std.wasm.opcode(.end));
 
-    const slice_ty = Type.const_slice_u8_sentinel_0;
+    const slice_ty = Type.slice_const_u8_sentinel_0;
     const func_type = try genFunctype(arena, .Unspecified, &.{int_tag_ty.ip_index}, slice_ty, mod);
     return func.bin_file.createFunction(func_name, func_type, &body_list, &relocs);
 }

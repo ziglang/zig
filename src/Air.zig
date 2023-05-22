@@ -901,8 +901,8 @@ pub const Inst = struct {
         manyptr_const_u8_type = @enumToInt(InternPool.Index.manyptr_const_u8_type),
         manyptr_const_u8_sentinel_0_type = @enumToInt(InternPool.Index.manyptr_const_u8_sentinel_0_type),
         single_const_pointer_to_comptime_int_type = @enumToInt(InternPool.Index.single_const_pointer_to_comptime_int_type),
-        const_slice_u8_type = @enumToInt(InternPool.Index.const_slice_u8_type),
-        const_slice_u8_sentinel_0_type = @enumToInt(InternPool.Index.const_slice_u8_sentinel_0_type),
+        slice_const_u8_type = @enumToInt(InternPool.Index.slice_const_u8_type),
+        slice_const_u8_sentinel_0_type = @enumToInt(InternPool.Index.slice_const_u8_sentinel_0_type),
         anyerror_void_error_union_type = @enumToInt(InternPool.Index.anyerror_void_error_union_type),
         generic_poison_type = @enumToInt(InternPool.Index.generic_poison_type),
         inferred_alloc_const_type = @enumToInt(InternPool.Index.inferred_alloc_const_type),
@@ -1382,7 +1382,7 @@ pub fn typeOfIndex(air: Air, inst: Air.Inst.Index, ip: InternPool) Type {
 
         .bool_to_int => return Type.u1,
 
-        .tag_name, .error_name => return Type.const_slice_u8_sentinel_0,
+        .tag_name, .error_name => return Type.slice_const_u8_sentinel_0,
 
         .call, .call_always_tail, .call_never_tail, .call_never_inline => {
             const callee_ty = air.typeOf(datas[inst].pl_op.operand, ip);

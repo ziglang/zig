@@ -226,7 +226,7 @@ const Job = union(enum) {
     /// Write the constant value for a Decl to the output file.
     codegen_decl: Module.Decl.Index,
     /// Write the machine code for a function to the output file.
-    codegen_func: *Module.Fn,
+    codegen_func: Module.Fn.Index,
     /// Render the .h file snippet for the Decl.
     emit_h_decl: Module.Decl.Index,
     /// The Decl needs to be analyzed and possibly export itself.
@@ -3208,7 +3208,8 @@ fn processOneJob(comp: *Compilation, job: Job, prog_node: *std.Progress.Node) !v
                 // Tests are always emitted in test binaries. The decl_refs are created by
                 // Module.populateTestFunctions, but this will not queue body analysis, so do
                 // that now.
-                try module.ensureFuncBodyAnalysisQueued(decl.val.castTag(.function).?.data);
+                const func_index = module.intern_pool.indexToFunc(decl.val.ip_index).unwrap().?;
+                try module.ensureFuncBodyAnalysisQueued(func_index);
             }
         },
         .update_embed_file => |embed_file| {

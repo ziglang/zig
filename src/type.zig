@@ -93,16 +93,23 @@ pub const Type = struct {
             },
 
             // values, not types
-            .undef => unreachable,
-            .un => unreachable,
-            .extern_func => unreachable,
-            .int => unreachable,
-            .float => unreachable,
-            .ptr => unreachable,
-            .opt => unreachable,
-            .enum_tag => unreachable,
-            .simple_value => unreachable,
-            .aggregate => unreachable,
+            .undef,
+            .runtime_value,
+            .simple_value,
+            .variable,
+            .extern_func,
+            .func,
+            .int,
+            .err,
+            .error_union,
+            .enum_literal,
+            .enum_tag,
+            .float,
+            .ptr,
+            .opt,
+            .aggregate,
+            .un,
+            => unreachable,
         };
     }
 
@@ -358,7 +365,7 @@ pub const Type = struct {
                 const func = ies.func;
 
                 try writer.writeAll("@typeInfo(@typeInfo(@TypeOf(");
-                const owner_decl = mod.declPtr(func.owner_decl);
+                const owner_decl = mod.declPtr(mod.funcPtr(func).owner_decl);
                 try owner_decl.renderFullyQualifiedName(mod, writer);
                 try writer.writeAll(")).Fn.return_type.?).ErrorUnion.error_set");
             },
@@ -467,16 +474,23 @@ pub const Type = struct {
             },
 
             // values, not types
-            .undef => unreachable,
-            .un => unreachable,
-            .simple_value => unreachable,
-            .extern_func => unreachable,
-            .int => unreachable,
-            .float => unreachable,
-            .ptr => unreachable,
-            .opt => unreachable,
-            .enum_tag => unreachable,
-            .aggregate => unreachable,
+            .undef,
+            .runtime_value,
+            .simple_value,
+            .variable,
+            .extern_func,
+            .func,
+            .int,
+            .err,
+            .error_union,
+            .enum_literal,
+            .enum_tag,
+            .float,
+            .ptr,
+            .opt,
+            .aggregate,
+            .un,
+            => unreachable,
         }
     }
 
@@ -675,16 +689,23 @@ pub const Type = struct {
                 .enum_type => |enum_type| enum_type.tag_ty.toType().hasRuntimeBitsAdvanced(mod, ignore_comptime_only, strat),
 
                 // values, not types
-                .undef => unreachable,
-                .un => unreachable,
-                .simple_value => unreachable,
-                .extern_func => unreachable,
-                .int => unreachable,
-                .float => unreachable,
-                .ptr => unreachable,
-                .opt => unreachable,
-                .enum_tag => unreachable,
-                .aggregate => unreachable,
+                .undef,
+                .runtime_value,
+                .simple_value,
+                .variable,
+                .extern_func,
+                .func,
+                .int,
+                .err,
+                .error_union,
+                .enum_literal,
+                .enum_tag,
+                .float,
+                .ptr,
+                .opt,
+                .aggregate,
+                .un,
+                => unreachable,
             },
         };
     }
@@ -777,16 +798,23 @@ pub const Type = struct {
             },
 
             // values, not types
-            .undef => unreachable,
-            .un => unreachable,
-            .simple_value => unreachable,
-            .extern_func => unreachable,
-            .int => unreachable,
-            .float => unreachable,
-            .ptr => unreachable,
-            .opt => unreachable,
-            .enum_tag => unreachable,
-            .aggregate => unreachable,
+            .undef,
+            .runtime_value,
+            .simple_value,
+            .variable,
+            .extern_func,
+            .func,
+            .int,
+            .err,
+            .error_union,
+            .enum_literal,
+            .enum_tag,
+            .float,
+            .ptr,
+            .opt,
+            .aggregate,
+            .un,
+            => unreachable,
         };
     }
 
@@ -866,8 +894,8 @@ pub const Type = struct {
 
     /// May capture a reference to `ty`.
     /// Returned value has type `comptime_int`.
-    pub fn lazyAbiAlignment(ty: Type, mod: *Module, arena: Allocator) !Value {
-        switch (try ty.abiAlignmentAdvanced(mod, .{ .lazy = arena })) {
+    pub fn lazyAbiAlignment(ty: Type, mod: *Module) !Value {
+        switch (try ty.abiAlignmentAdvanced(mod, .lazy)) {
             .val => |val| return val,
             .scalar => |x| return mod.intValue(Type.comptime_int, x),
         }
@@ -880,7 +908,7 @@ pub const Type = struct {
 
     pub const AbiAlignmentAdvancedStrat = union(enum) {
         eager,
-        lazy: Allocator,
+        lazy,
         sema: *Sema,
     };
 
@@ -1019,16 +1047,18 @@ pub const Type = struct {
                     if (!struct_obj.haveFieldTypes()) switch (strat) {
                         .eager => unreachable, // struct layout not resolved
                         .sema => unreachable, // handled above
-                        .lazy => |arena| return AbiAlignmentAdvanced{ .val = try Value.Tag.lazy_align.create(arena, ty) },
+                        .lazy => return .{ .val = (try mod.intern(.{ .int = .{
+                            .ty = .comptime_int_type,
+                            .storage = .{ .lazy_align = ty.ip_index },
+                        } })).toValue() },
                     };
                     if (struct_obj.layout == .Packed) {
                         switch (strat) {
                             .sema => |sema| try sema.resolveTypeLayout(ty),
-                            .lazy => |arena| {
-                                if (!struct_obj.haveLayout()) {
-                                    return AbiAlignmentAdvanced{ .val = try Value.Tag.lazy_align.create(arena, ty) };
-                                }
-                            },
+                            .lazy => if (!struct_obj.haveLayout()) return .{ .val = (try mod.intern(.{ .int = .{
+                                .ty = .comptime_int_type,
+                                .storage = .{ .lazy_align = ty.ip_index },
+                            } })).toValue() },
                             .eager => {},
                         }
                         assert(struct_obj.haveLayout());
@@ -1039,7 +1069,10 @@ pub const Type = struct {
                     var big_align: u32 = 0;
                     for (fields.values()) |field| {
                         if (!(field.ty.hasRuntimeBitsAdvanced(mod, false, strat) catch |err| switch (err) {
-                            error.NeedLazy => return AbiAlignmentAdvanced{ .val = try Value.Tag.lazy_align.create(strat.lazy, ty) },
+                            error.NeedLazy => return .{ .val = (try mod.intern(.{ .int = .{
+                                .ty = .comptime_int_type,
+                                .storage = .{ .lazy_align = ty.ip_index },
+                            } })).toValue() },
                             else => |e| return e,
                         })) continue;
 
@@ -1050,7 +1083,10 @@ pub const Type = struct {
                             .val => switch (strat) {
                                 .eager => unreachable, // struct layout not resolved
                                 .sema => unreachable, // handled above
-                                .lazy => |arena| return AbiAlignmentAdvanced{ .val = try Value.Tag.lazy_align.create(arena, ty) },
+                                .lazy => return .{ .val = (try mod.intern(.{ .int = .{
+                                    .ty = .comptime_int_type,
+                                    .storage = .{ .lazy_align = ty.ip_index },
+                                } })).toValue() },
                             },
                         };
                         big_align = @max(big_align, field_align);
@@ -1077,7 +1113,10 @@ pub const Type = struct {
                             .val => switch (strat) {
                                 .eager => unreachable, // field type alignment not resolved
                                 .sema => unreachable, // passed to abiAlignmentAdvanced above
-                                .lazy => |arena| return AbiAlignmentAdvanced{ .val = try Value.Tag.lazy_align.create(arena, ty) },
+                                .lazy => return .{ .val = (try mod.intern(.{ .int = .{
+                                    .ty = .comptime_int_type,
+                                    .storage = .{ .lazy_align = ty.ip_index },
+                                } })).toValue() },
                             },
                         }
                     }
@@ -1092,16 +1131,23 @@ pub const Type = struct {
                 .enum_type => |enum_type| return AbiAlignmentAdvanced{ .scalar = enum_type.tag_ty.toType().abiAlignment(mod) },
 
                 // values, not types
-                .undef => unreachable,
-                .un => unreachable,
-                .simple_value => unreachable,
-                .extern_func => unreachable,
-                .int => unreachable,
-                .float => unreachable,
-                .ptr => unreachable,
-                .opt => unreachable,
-                .enum_tag => unreachable,
-                .aggregate => unreachable,
+                .undef,
+                .runtime_value,
+                .simple_value,
+                .variable,
+                .extern_func,
+                .func,
+                .int,
+                .err,
+                .error_union,
+                .enum_literal,
+                .enum_tag,
+                .float,
+                .ptr,
+                .opt,
+                .aggregate,
+                .un,
+                => unreachable,
             },
         }
     }
@@ -1118,7 +1164,10 @@ pub const Type = struct {
         switch (strat) {
             .eager, .sema => {
                 if (!(payload_ty.hasRuntimeBitsAdvanced(mod, false, strat) catch |err| switch (err) {
-                    error.NeedLazy => return AbiAlignmentAdvanced{ .val = try Value.Tag.lazy_align.create(strat.lazy, ty) },
+                    error.NeedLazy => return .{ .val = (try mod.intern(.{ .int = .{
+                        .ty = .comptime_int_type,
+                        .storage = .{ .lazy_align = ty.ip_index },
+                    } })).toValue() },
                     else => |e| return e,
                 })) {
                     return AbiAlignmentAdvanced{ .scalar = code_align };
@@ -1128,7 +1177,7 @@ pub const Type = struct {
                     (try payload_ty.abiAlignmentAdvanced(mod, strat)).scalar,
                 ) };
             },
-            .lazy => |arena| {
+            .lazy => {
                 switch (try payload_ty.abiAlignmentAdvanced(mod, strat)) {
                     .scalar => |payload_align| {
                         return AbiAlignmentAdvanced{
@@ -1137,7 +1186,10 @@ pub const Type = struct {
                     },
                     .val => {},
                 }
-                return AbiAlignmentAdvanced{ .val = try Value.Tag.lazy_align.create(arena, ty) };
+                return .{ .val = (try mod.intern(.{ .int = .{
+                    .ty = .comptime_int_type,
+                    .storage = .{ .lazy_align = ty.ip_index },
+                } })).toValue() };
             },
         }
     }
@@ -1160,16 +1212,22 @@ pub const Type = struct {
         switch (strat) {
             .eager, .sema => {
                 if (!(child_type.hasRuntimeBitsAdvanced(mod, false, strat) catch |err| switch (err) {
-                    error.NeedLazy => return AbiAlignmentAdvanced{ .val = try Value.Tag.lazy_align.create(strat.lazy, ty) },
+                    error.NeedLazy => return .{ .val = (try mod.intern(.{ .int = .{
+                        .ty = .comptime_int_type,
+                        .storage = .{ .lazy_align = ty.ip_index },
+                    } })).toValue() },
                     else => |e| return e,
                 })) {
                     return AbiAlignmentAdvanced{ .scalar = 1 };
                 }
                 return child_type.abiAlignmentAdvanced(mod, strat);
             },
-            .lazy => |arena| switch (try child_type.abiAlignmentAdvanced(mod, strat)) {
+            .lazy => switch (try child_type.abiAlignmentAdvanced(mod, strat)) {
                 .scalar => |x| return AbiAlignmentAdvanced{ .scalar = @max(x, 1) },
-                .val => return AbiAlignmentAdvanced{ .val = try Value.Tag.lazy_align.create(arena, ty) },
+                .val => return .{ .val = (try mod.intern(.{ .int = .{
+                    .ty = .comptime_int_type,
+                    .storage = .{ .lazy_align = ty.ip_index },
+                } })).toValue() },
             },
         }
     }
@@ -1198,7 +1256,10 @@ pub const Type = struct {
         if (!union_obj.haveFieldTypes()) switch (strat) {
             .eager => unreachable, // union layout not resolved
             .sema => unreachable, // handled above
-            .lazy => |arena| return AbiAlignmentAdvanced{ .val = try Value.Tag.lazy_align.create(arena, ty) },
+            .lazy => return .{ .val = (try mod.intern(.{ .int = .{
+                .ty = .comptime_int_type,
+                .storage = .{ .lazy_align = ty.ip_index },
+            } })).toValue() },
         };
         if (union_obj.fields.count() == 0) {
             if (have_tag) {
@@ -1212,7 +1273,10 @@ pub const Type = struct {
         if (have_tag) max_align = union_obj.tag_ty.abiAlignment(mod);
         for (union_obj.fields.values()) |field| {
             if (!(field.ty.hasRuntimeBitsAdvanced(mod, false, strat) catch |err| switch (err) {
-                error.NeedLazy => return AbiAlignmentAdvanced{ .val = try Value.Tag.lazy_align.create(strat.lazy, ty) },
+                error.NeedLazy => return .{ .val = (try mod.intern(.{ .int = .{
+                    .ty = .comptime_int_type,
+                    .storage = .{ .lazy_align = ty.ip_index },
+                } })).toValue() },
                 else => |e| return e,
             })) continue;
 
@@ -1223,7 +1287,10 @@ pub const Type = struct {
                 .val => switch (strat) {
                     .eager => unreachable, // struct layout not resolved
                     .sema => unreachable, // handled above
-                    .lazy => |arena| return AbiAlignmentAdvanced{ .val = try Value.Tag.lazy_align.create(arena, ty) },
+                    .lazy => return .{ .val = (try mod.intern(.{ .int = .{
+                        .ty = .comptime_int_type,
+                        .storage = .{ .lazy_align = ty.ip_index },
+                    } })).toValue() },
                 },
             };
             max_align = @max(max_align, field_align);
@@ -1232,8 +1299,8 @@ pub const Type = struct {
     }
 
     /// May capture a reference to `ty`.
-    pub fn lazyAbiSize(ty: Type, mod: *Module, arena: Allocator) !Value {
-        switch (try ty.abiSizeAdvanced(mod, .{ .lazy = arena })) {
+    pub fn lazyAbiSize(ty: Type, mod: *Module) !Value {
+        switch (try ty.abiSizeAdvanced(mod, .lazy)) {
             .val => |val| return val,
             .scalar => |x| return mod.intValue(Type.comptime_int, x),
         }
@@ -1283,7 +1350,10 @@ pub const Type = struct {
                         .scalar => |elem_size| return .{ .scalar = len * elem_size },
                         .val => switch (strat) {
                             .sema, .eager => unreachable,
-                            .lazy => |arena| return .{ .val = try Value.Tag.lazy_size.create(arena, ty) },
+                            .lazy => return .{ .val = (try mod.intern(.{ .int = .{
+                                .ty = .comptime_int_type,
+                                .storage = .{ .lazy_size = ty.ip_index },
+                            } })).toValue() },
                         },
                     }
                 },
@@ -1291,9 +1361,10 @@ pub const Type = struct {
                     const opt_sema = switch (strat) {
                         .sema => |sema| sema,
                         .eager => null,
-                        .lazy => |arena| return AbiSizeAdvanced{
-                            .val = try Value.Tag.lazy_size.create(arena, ty),
-                        },
+                        .lazy => return .{ .val = (try mod.intern(.{ .int = .{
+                            .ty = .comptime_int_type,
+                            .storage = .{ .lazy_size = ty.ip_index },
+                        } })).toValue() },
                     };
                     const elem_bits_u64 = try vector_type.child.toType().bitSizeAdvanced(mod, opt_sema);
                     const elem_bits = @intCast(u32, elem_bits_u64);
@@ -1301,9 +1372,10 @@ pub const Type = struct {
                     const total_bytes = (total_bits + 7) / 8;
                     const alignment = switch (try ty.abiAlignmentAdvanced(mod, strat)) {
                         .scalar => |x| x,
-                        .val => return AbiSizeAdvanced{
-                            .val = try Value.Tag.lazy_size.create(strat.lazy, ty),
-                        },
+                        .val => return .{ .val = (try mod.intern(.{ .int = .{
+                            .ty = .comptime_int_type,
+                            .storage = .{ .lazy_size = ty.ip_index },
+                        } })).toValue() },
                     };
                     const result = std.mem.alignForwardGeneric(u32, total_bytes, alignment);
                     return AbiSizeAdvanced{ .scalar = result };
@@ -1320,7 +1392,10 @@ pub const Type = struct {
                     // in abiAlignmentAdvanced.
                     const code_size = abiSize(Type.anyerror, mod);
                     if (!(payload_ty.hasRuntimeBitsAdvanced(mod, false, strat) catch |err| switch (err) {
-                        error.NeedLazy => return AbiSizeAdvanced{ .val = try Value.Tag.lazy_size.create(strat.lazy, ty) },
+                        error.NeedLazy => return .{ .val = (try mod.intern(.{ .int = .{
+                            .ty = .comptime_int_type,
+                            .storage = .{ .lazy_size = ty.ip_index },
+                        } })).toValue() },
                         else => |e| return e,
                     })) {
                         // Same as anyerror.
@@ -1333,7 +1408,10 @@ pub const Type = struct {
                         .val => switch (strat) {
                             .sema => unreachable,
                             .eager => unreachable,
-                            .lazy => |arena| return AbiSizeAdvanced{ .val = try Value.Tag.lazy_size.create(arena, ty) },
+                            .lazy => return .{ .val = (try mod.intern(.{ .int = .{
+                                .ty = .comptime_int_type,
+                                .storage = .{ .lazy_size = ty.ip_index },
+                            } })).toValue() },
                         },
                     };
 
@@ -1420,11 +1498,10 @@ pub const Type = struct {
 
                         switch (strat) {
                             .sema => |sema| try sema.resolveTypeLayout(ty),
-                            .lazy => |arena| {
-                                if (!struct_obj.haveLayout()) {
-                                    return AbiSizeAdvanced{ .val = try Value.Tag.lazy_size.create(arena, ty) };
-                                }
-                            },
+                            .lazy => if (!struct_obj.haveLayout()) return .{ .val = (try mod.intern(.{ .int = .{
+                                .ty = .comptime_int_type,
+                                .storage = .{ .lazy_size = ty.ip_index },
+                            } })).toValue() },
                             .eager => {},
                         }
                         assert(struct_obj.haveLayout());
@@ -1433,12 +1510,13 @@ pub const Type = struct {
                     else => {
                         switch (strat) {
                             .sema => |sema| try sema.resolveTypeLayout(ty),
-                            .lazy => |arena| {
+                            .lazy => {
                                 const struct_obj = mod.structPtrUnwrap(struct_type.index) orelse
                                     return AbiSizeAdvanced{ .scalar = 0 };
-                                if (!struct_obj.haveLayout()) {
-                                    return AbiSizeAdvanced{ .val = try Value.Tag.lazy_size.create(arena, ty) };
-                                }
+                                if (!struct_obj.haveLayout()) return .{ .val = (try mod.intern(.{ .int = .{
+                                    .ty = .comptime_int_type,
+                                    .storage = .{ .lazy_size = ty.ip_index },
+                                } })).toValue() };
                             },
                             .eager => {},
                         }
@@ -1469,16 +1547,23 @@ pub const Type = struct {
                 .enum_type => |enum_type| return AbiSizeAdvanced{ .scalar = enum_type.tag_ty.toType().abiSize(mod) },
 
                 // values, not types
-                .undef => unreachable,
-                .un => unreachable,
-                .simple_value => unreachable,
-                .extern_func => unreachable,
-                .int => unreachable,
-                .float => unreachable,
-                .ptr => unreachable,
-                .opt => unreachable,
-                .enum_tag => unreachable,
-                .aggregate => unreachable,
+                .undef,
+                .runtime_value,
+                .simple_value,
+                .variable,
+                .extern_func,
+                .func,
+                .int,
+                .err,
+                .error_union,
+                .enum_literal,
+                .enum_tag,
+                .float,
+                .ptr,
+                .opt,
+                .aggregate,
+                .un,
+                => unreachable,
             },
         }
     }
@@ -1492,11 +1577,10 @@ pub const Type = struct {
     ) Module.CompileError!AbiSizeAdvanced {
         switch (strat) {
             .sema => |sema| try sema.resolveTypeLayout(ty),
-            .lazy => |arena| {
-                if (!union_obj.haveLayout()) {
-                    return AbiSizeAdvanced{ .val = try Value.Tag.lazy_size.create(arena, ty) };
-                }
-            },
+            .lazy => if (!union_obj.haveLayout()) return .{ .val = (try mod.intern(.{ .int = .{
+                .ty = .comptime_int_type,
+                .storage = .{ .lazy_size = ty.ip_index },
+            } })).toValue() },
             .eager => {},
         }
         return AbiSizeAdvanced{ .scalar = union_obj.abiSize(mod, have_tag) };
@@ -1514,7 +1598,10 @@ pub const Type = struct {
         }
 
         if (!(child_ty.hasRuntimeBitsAdvanced(mod, false, strat) catch |err| switch (err) {
-            error.NeedLazy => return AbiSizeAdvanced{ .val = try Value.Tag.lazy_size.create(strat.lazy, ty) },
+            error.NeedLazy => return .{ .val = (try mod.intern(.{ .int = .{
+                .ty = .comptime_int_type,
+                .storage = .{ .lazy_size = ty.ip_index },
+            } })).toValue() },
             else => |e| return e,
         })) return AbiSizeAdvanced{ .scalar = 1 };
 
@@ -1527,7 +1614,10 @@ pub const Type = struct {
             .val => switch (strat) {
                 .sema => unreachable,
                 .eager => unreachable,
-                .lazy => |arena| return AbiSizeAdvanced{ .val = try Value.Tag.lazy_size.create(arena, ty) },
+                .lazy => return .{ .val = (try mod.intern(.{ .int = .{
+                    .ty = .comptime_int_type,
+                    .storage = .{ .lazy_size = ty.ip_index },
+                } })).toValue() },
             },
         };
 
@@ -1690,16 +1780,23 @@ pub const Type = struct {
             .enum_type => |enum_type| return bitSizeAdvanced(enum_type.tag_ty.toType(), mod, opt_sema),
 
             // values, not types
-            .undef => unreachable,
-            .un => unreachable,
-            .simple_value => unreachable,
-            .extern_func => unreachable,
-            .int => unreachable,
-            .float => unreachable,
-            .ptr => unreachable,
-            .opt => unreachable,
-            .enum_tag => unreachable,
-            .aggregate => unreachable,
+            .undef,
+            .runtime_value,
+            .simple_value,
+            .variable,
+            .extern_func,
+            .func,
+            .int,
+            .err,
+            .error_union,
+            .enum_literal,
+            .enum_tag,
+            .float,
+            .ptr,
+            .opt,
+            .aggregate,
+            .un,
+            => unreachable,
         }
     }
 
@@ -2270,16 +2367,23 @@ pub const Type = struct {
                 .opaque_type => unreachable,
 
                 // values, not types
-                .undef => unreachable,
-                .un => unreachable,
-                .simple_value => unreachable,
-                .extern_func => unreachable,
-                .int => unreachable,
-                .float => unreachable,
-                .ptr => unreachable,
-                .opt => unreachable,
-                .enum_tag => unreachable,
-                .aggregate => unreachable,
+                .undef,
+                .runtime_value,
+                .simple_value,
+                .variable,
+                .extern_func,
+                .func,
+                .int,
+                .err,
+                .error_union,
+                .enum_literal,
+                .enum_tag,
+                .float,
+                .ptr,
+                .opt,
+                .aggregate,
+                .un,
+                => unreachable,
             },
         };
     }
@@ -2443,16 +2547,17 @@ pub const Type = struct {
                 .inferred_error_set_type,
                 => return null,
 
-                .array_type => |array_type| {
-                    if (array_type.len == 0)
-                        return Value.initTag(.empty_array);
-                    if ((try array_type.child.toType().onePossibleValue(mod)) != null)
-                        return Value.initTag(.the_only_possible_value);
-                    return null;
-                },
-                .vector_type => |vector_type| {
-                    if (vector_type.len == 0) return Value.initTag(.empty_array);
-                    if (try vector_type.child.toType().onePossibleValue(mod)) |v| return v;
+                inline .array_type, .vector_type => |seq_type| {
+                    if (seq_type.len == 0) return (try mod.intern(.{ .aggregate = .{
+                        .ty = ty.ip_index,
+                        .storage = .{ .elems = &.{} },
+                    } })).toValue();
+                    if (try seq_type.child.toType().onePossibleValue(mod)) |opv| {
+                        return (try mod.intern(.{ .aggregate = .{
+                            .ty = ty.ip_index,
+                            .storage = .{ .repeated_elem = opv.ip_index },
+                        } })).toValue();
+                    }
                     return null;
                 },
                 .opt_type => |child| {
@@ -2595,16 +2700,23 @@ pub const Type = struct {
                 },
 
                 // values, not types
-                .undef => unreachable,
-                .un => unreachable,
-                .simple_value => unreachable,
-                .extern_func => unreachable,
-                .int => unreachable,
-                .float => unreachable,
-                .ptr => unreachable,
-                .opt => unreachable,
-                .enum_tag => unreachable,
-                .aggregate => unreachable,
+                .undef,
+                .runtime_value,
+                .simple_value,
+                .variable,
+                .extern_func,
+                .func,
+                .int,
+                .err,
+                .error_union,
+                .enum_literal,
+                .enum_tag,
+                .float,
+                .ptr,
+                .opt,
+                .aggregate,
+                .un,
+                => unreachable,
             },
         };
     }
@@ -2733,16 +2845,23 @@ pub const Type = struct {
                 .enum_type => |enum_type| enum_type.tag_ty.toType().comptimeOnly(mod),
 
                 // values, not types
-                .undef => unreachable,
-                .un => unreachable,
-                .simple_value => unreachable,
-                .extern_func => unreachable,
-                .int => unreachable,
-                .float => unreachable,
-                .ptr => unreachable,
-                .opt => unreachable,
-                .enum_tag => unreachable,
-                .aggregate => unreachable,
+                .undef,
+                .runtime_value,
+                .simple_value,
+                .variable,
+                .extern_func,
+                .func,
+                .int,
+                .err,
+                .error_union,
+                .enum_literal,
+                .enum_tag,
+                .float,
+                .ptr,
+                .opt,
+                .aggregate,
+                .un,
+                => unreachable,
             },
         };
     }
@@ -2802,13 +2921,12 @@ pub const Type = struct {
     }
 
     // Works for vectors and vectors of integers.
-    pub fn minInt(ty: Type, arena: Allocator, mod: *Module) !Value {
+    pub fn minInt(ty: Type, mod: *Module) !Value {
         const scalar = try minIntScalar(ty.scalarType(mod), mod);
-        if (ty.zigTypeTag(mod) == .Vector and scalar.tag() != .the_only_possible_value) {
-            return Value.Tag.repeated.create(arena, scalar);
-        } else {
-            return scalar;
-        }
+        return if (ty.zigTypeTag(mod) == .Vector) (try mod.intern(.{ .aggregate = .{
+            .ty = ty.ip_index,
+            .storage = .{ .repeated_elem = scalar.ip_index },
+        } })).toValue() else scalar;
     }
 
     /// Asserts that the type is an integer.
@@ -2832,13 +2950,12 @@ pub const Type = struct {
 
     // Works for vectors and vectors of integers.
     /// The returned Value will have type dest_ty.
-    pub fn maxInt(ty: Type, arena: Allocator, mod: *Module, dest_ty: Type) !Value {
+    pub fn maxInt(ty: Type, mod: *Module, dest_ty: Type) !Value {
         const scalar = try maxIntScalar(ty.scalarType(mod), mod, dest_ty);
-        if (ty.zigTypeTag(mod) == .Vector and scalar.tag() != .the_only_possible_value) {
-            return Value.Tag.repeated.create(arena, scalar);
-        } else {
-            return scalar;
-        }
+        return if (ty.zigTypeTag(mod) == .Vector) (try mod.intern(.{ .aggregate = .{
+            .ty = ty.ip_index,
+            .storage = .{ .repeated_elem = scalar.ip_index },
+        } })).toValue() else scalar;
     }
 
     /// The returned Value will have type dest_ty.
@@ -3386,12 +3503,12 @@ pub const Type = struct {
     pub const @"c_ulonglong": Type = .{ .ip_index = .c_ulonglong_type };
     pub const @"c_longdouble": Type = .{ .ip_index = .c_longdouble_type };
 
-    pub const const_slice_u8: Type = .{ .ip_index = .const_slice_u8_type };
+    pub const slice_const_u8: Type = .{ .ip_index = .slice_const_u8_type };
     pub const manyptr_u8: Type = .{ .ip_index = .manyptr_u8_type };
     pub const single_const_pointer_to_comptime_int: Type = .{
         .ip_index = .single_const_pointer_to_comptime_int_type,
     };
-    pub const const_slice_u8_sentinel_0: Type = .{ .ip_index = .const_slice_u8_sentinel_0_type };
+    pub const slice_const_u8_sentinel_0: Type = .{ .ip_index = .slice_const_u8_sentinel_0_type };
     pub const empty_struct_literal: Type = .{ .ip_index = .empty_struct_type };
 
     pub const generic_poison: Type = .{ .ip_index = .generic_poison_type };
