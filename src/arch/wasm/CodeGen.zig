@@ -3617,7 +3617,6 @@ fn airStructFieldVal(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         .Packed => switch (struct_ty.zigTypeTag()) {
             .Struct => result: {
                 const struct_obj = struct_ty.castTag(.@"struct").?.data;
-                assert(struct_obj.layout == .Packed);
                 const offset = struct_obj.packedFieldBitOffset(func.target, field_index);
                 const backing_ty = struct_obj.backing_int_ty;
                 const wasm_bits = toWasmBits(backing_ty.intInfo(func.target).bits) orelse {
@@ -3661,7 +3660,10 @@ fn airStructFieldVal(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
                 const truncated = try func.trunc(shifted_value, field_ty, backing_ty);
                 break :result try truncated.toLocal(func, field_ty);
             },
-            .Union => return func.fail("TODO: airStructFieldVal for packed unions", .{}),
+            .Union => result: {
+                const val = try func.load(operand, field_ty, 0);
+                break :result try val.toLocal(func, field_ty);
+            },
             else => unreachable,
         },
         else => result: {
@@ -5032,7 +5034,7 @@ fn airUnionInit(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         break :result result_ptr;
     };
 
-    func.finishAir(inst, result, &.{extra.init});
+    return func.finishAir(inst, result, &.{extra.init});
 }
 
 fn airPrefetch(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
