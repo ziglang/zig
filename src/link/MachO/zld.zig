@@ -1441,7 +1441,7 @@ pub const Zld = struct {
             }
         }
 
-        std.sort.sort(Section, sections.items, {}, SortSection.lessThan);
+        mem.sort(Section, sections.items, {}, SortSection.lessThan);
 
         self.sections.shrinkRetainingCapacity(0);
         for (sections.items) |out| {
@@ -2237,7 +2237,7 @@ pub const Zld = struct {
             }
         }
 
-        std.sort.sort(u64, addresses.items, {}, asc_u64);
+        mem.sort(u64, addresses.items, {}, asc_u64);
 
         var offsets = std.ArrayList(u32).init(gpa);
         defer offsets.deinit();

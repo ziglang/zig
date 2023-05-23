@@ -985,7 +985,7 @@ pub fn declList(comptime Namespace: type, comptime Decl: type) []const *const De
         for (decls, 0..) |decl, i| {
             array[i] = &@field(Namespace, decl.name);
         }
-        std.sort.sort(*const Decl, &array, {}, S.declNameLessThan);
+        mem.sort(*const Decl, &array, {}, S.declNameLessThan);
         return &array;
     }
 }

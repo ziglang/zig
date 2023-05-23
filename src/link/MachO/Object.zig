@@ -209,7 +209,7 @@ pub fn parse(self: *Object, allocator: Allocator, cpu_arch: std.Target.Cpu.Arch)
     // afterwards by address in each group. Normally, dysymtab should
     // be enough to guarantee the sort, but turns out not every compiler
     // is kind enough to specify the symbols in the correct order.
-    sort.sort(SymbolAtIndex, sorted_all_syms.items, self, SymbolAtIndex.lessThan);
+    mem.sort(SymbolAtIndex, sorted_all_syms.items, self, SymbolAtIndex.lessThan);
 
     var prev_sect_id: u8 = 0;
     var section_index_lookup: ?Entry = null;
@@ -462,7 +462,7 @@ pub fn splitRegularSections(self: *Object, zld: *Zld, object_id: u32) !void {
         sorted_sections[id] = .{ .header = sect, .id = @intCast(u8, id) };
     }
 
-    std.sort.sort(SortedSection, sorted_sections, {}, sectionLessThanByAddress);
+    mem.sort(SortedSection, sorted_sections, {}, sectionLessThanByAddress);
 
     var sect_sym_index: u32 = 0;
     for (sorted_sections) |section| {
@@ -663,7 +663,7 @@ fn parseRelocs(self: *Object, gpa: Allocator, sect_id: u8) !void {
     if (self.getSourceRelocs(section)) |relocs| {
         try self.relocations.ensureUnusedCapacity(gpa, relocs.len);
         self.relocations.appendUnalignedSliceAssumeCapacity(relocs);
-        std.sort.sort(macho.relocation_info, self.relocations.items[start..], {}, relocGreaterThan);
+        mem.sort(macho.relocation_info, self.relocations.items[start..], {}, relocGreaterThan);
     }
     self.section_relocs_lookup.items[sect_id] = start;
 }
@@ -901,7 +901,7 @@ pub fn parseDataInCode(self: *Object, gpa: Allocator) !void {
     const dice = @ptrCast([*]align(1) const macho.data_in_code_entry, self.contents.ptr + cmd.dataoff)[0..ndice];
     try self.data_in_code.ensureTotalCapacityPrecise(gpa, dice.len);
     self.data_in_code.appendUnalignedSliceAssumeCapacity(dice);
-    std.sort.sort(macho.data_in_code_entry, self.data_in_code.items, {}, diceLessThan);
+    mem.sort(macho.data_in_code_entry, self.data_in_code.items, {}, diceLessThan);
 }
 
 fn diceLessThan(ctx: void, lhs: macho.data_in_code_entry, rhs: macho.data_in_code_entry) bool {

@@ -191,7 +191,7 @@ pub const Headers = struct {
 
     /// Sorts the headers in lexicographical order.
     pub fn sort(headers: *Headers) void {
-        std.sort.sort(Field, headers.list.items, {}, Field.lessThan);
+        std.mem.sort(Field, headers.list.items, {}, Field.lessThan);
         headers.rebuildIndex();
     }
 

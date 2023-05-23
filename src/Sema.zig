@@ -30945,7 +30945,7 @@ fn resolveStructLayout(sema: *Sema, ty: Type) CompileError!void {
                         ctx.struct_obj.fields.values()[b].ty.abiAlignment(target);
                 }
             };
-            std.sort.sort(u32, optimized_order, AlignSortContext{
+            mem.sort(u32, optimized_order, AlignSortContext{
                 .struct_obj = struct_obj,
                 .sema = sema,
             }, AlignSortContext.lessThan);

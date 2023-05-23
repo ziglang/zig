@@ -28,7 +28,7 @@ pub fn ComptimeStringMap(comptime V: type, comptime kvs_list: anytype) type {
                 sorted_kvs[i] = .{ .key = kv.@"0", .value = {} };
             }
         }
-        std.sort.sort(KV, &sorted_kvs, {}, lenAsc);
+        mem.sort(KV, &sorted_kvs, {}, lenAsc);
         const min_len = sorted_kvs[0].key.len;
         const max_len = sorted_kvs[sorted_kvs.len - 1].key.len;
         var len_indexes: [max_len + 1]usize = undefined;
