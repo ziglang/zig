@@ -70,6 +70,12 @@ pub const CPU_WHICH_INTRHANDLER: cpuwhich_t = 7;
 pub const CPU_WHICH_ITHREAD: cpuwhich_t = 8;
 pub const CPU_WHICH_TIDPID: cpuwhich_t = 8;
 
+pub const SCHED = struct {
+    pub const FIFO = 1;
+    pub const OTHER = 2;
+    pub const RR = 3;
+};
+
 extern "c" fn __error() *c_int;
 pub const _errno = __error;
 
@@ -103,6 +109,13 @@ pub extern "c" fn cpuset_setaffinity(level: cpulevel_t, which: cpuwhich_t, id: i
 pub extern "c" fn sched_getaffinity(pid: pid_t, cpusetsz: usize, cpuset: *cpuset_t) c_int;
 pub extern "c" fn sched_setaffinity(pid: pid_t, cpusetsz: usize, cpuset: *const cpuset_t) c_int;
 pub extern "c" fn sched_getcpu() c_int;
+pub extern "c" fn sched_get_priority_max(l: c_int) c_int;
+pub extern "c" fn sched_get_priority_min(l: c_int) c_int;
+pub extern "c" fn sched_getparam(p: pid_t, param: *sched_param) c_int;
+pub extern "c" fn sched_setparam(p: pid_t, param: *const sched_param) c_int;
+pub extern "c" fn sched_getscheduler(p: pid_t) c_int;
+pub extern "c" fn sched_setscheduler(p: pid_t, l: c_int, param: *const sched_param) c_int;
+pub extern "c" fn sched_rr_get_interval(p: pid_t, t: *timespec) c_int;
 
 pub const sf_hdtr = extern struct {
     headers: [*]const iovec_const,
@@ -451,6 +464,10 @@ pub const timeval = extern struct {
     tv_sec: time_t,
     /// microseconds
     tv_usec: suseconds_t,
+};
+
+pub const sched_param = extern struct {
+    priority: c_int,
 };
 
 pub const dirent = extern struct {
