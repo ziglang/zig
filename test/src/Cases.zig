@@ -495,7 +495,7 @@ pub fn lowerToBuildSteps(
 
         const writefiles = b.addWriteFiles();
         for (update.files.items) |file| {
-            writefiles.add(file.path, file.src);
+            _ = writefiles.add(file.path, file.src);
         }
         const root_source_file = writefiles.getFileSource(update.files.items[0].path).?;
 

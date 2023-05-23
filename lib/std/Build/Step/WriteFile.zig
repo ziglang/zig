@@ -55,7 +55,7 @@ pub fn create(owner: *std.Build) *WriteFile {
     return wf;
 }
 
-pub fn add(wf: *WriteFile, sub_path: []const u8, bytes: []const u8) void {
+pub fn add(wf: *WriteFile, sub_path: []const u8, bytes: []const u8) std.Build.FileSource {
     const b = wf.step.owner;
     const gpa = b.allocator;
     const file = gpa.create(File) catch @panic("OOM");
@@ -67,6 +67,7 @@ pub fn add(wf: *WriteFile, sub_path: []const u8, bytes: []const u8) void {
     wf.files.append(gpa, file) catch @panic("OOM");
 
     wf.maybeUpdateName();
+    return .{ .generated = &file.generated_file };
 }
 
 /// Place the file into the generated directory within the local cache,
@@ -76,7 +77,7 @@ pub fn add(wf: *WriteFile, sub_path: []const u8, bytes: []const u8) void {
 /// include sub-directories, in which case this step will ensure the
 /// required sub-path exists.
 /// This is the option expected to be used most commonly with `addCopyFile`.
-pub fn addCopyFile(wf: *WriteFile, source: std.Build.FileSource, sub_path: []const u8) void {
+pub fn addCopyFile(wf: *WriteFile, source: std.Build.FileSource, sub_path: []const u8) std.Build.FileSource {
     const b = wf.step.owner;
     const gpa = b.allocator;
     const file = gpa.create(File) catch @panic("OOM");
@@ -89,6 +90,7 @@ pub fn addCopyFile(wf: *WriteFile, source: std.Build.FileSource, sub_path: []con
 
     wf.maybeUpdateName();
     source.addStepDependencies(&wf.step);
+    return .{ .generated = &file.generated_file };
 }
 
 /// A path relative to the package root.
