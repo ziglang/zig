@@ -7080,14 +7080,37 @@ fn analyzeCall(
             } },
         });
         sema.appendRefsAssumeCapacity(args);
+
+        if (call_tag == .call_always_tail) {
+            if (ensure_result_used) {
+                try sema.ensureResultUsed(block, sema.typeOf(func_inst), call_src);
+            }
+            return sema.handleTailCall(block, call_src, func_ty, func_inst);
+        } else if (block.wantSafety() and func_ty_info.return_type.isNoReturn()) {
+            // Function pointers and extern functions aren't guaranteed to
+            // actually be noreturn so we add a safety check for them.
+            check: {
+                var func_val = (try sema.resolveMaybeUndefVal(func)) orelse break :check;
+                switch (func_val.tag()) {
+                    .function, .decl_ref => {
+                        _ = try block.addNoOp(.unreach);
+                        return Air.Inst.Ref.unreachable_value;
+                    },
+                    else => break :check,
+                }
+            }
+
+            try sema.safetyPanic(block, .noreturn_returned);
+            return Air.Inst.Ref.unreachable_value;
+        } else if (func_ty_info.return_type.isNoReturn()) {
+            _ = try block.addNoOp(.unreach);
+            return Air.Inst.Ref.unreachable_value;
+        }
         break :res func_inst;
     };
 
     if (ensure_result_used) {
         try sema.ensureResultUsed(block, sema.typeOf(result), call_src);
-    }
-    if (call_tag == .call_always_tail) {
-        return sema.handleTailCall(block, call_src, func_ty, result);
     }
     return result;
 }
@@ -7580,6 +7603,10 @@ fn instantiateGenericCall(
     }
     if (call_tag == .call_always_tail) {
         return sema.handleTailCall(block, call_src, func_ty, result);
+    }
+    if (new_fn_info.return_type.isNoReturn()) {
+        _ = try block.addNoOp(.unreach);
+        return Air.Inst.Ref.unreachable_value;
     }
     return result;
 }
@@ -23440,6 +23467,7 @@ pub const PanicId = enum {
     for_len_mismatch,
     memcpy_len_mismatch,
     memcpy_alias,
+    noreturn_returned,
 };
 
 fn addSafetyCheck(
@@ -23607,7 +23635,7 @@ fn panicIndexOutOfBounds(
     try sema.safetyCheckFormatted(parent_block, ok, "panicOutOfBounds", &.{ index, len });
 }
 
-fn panicStartLargerThanEnd(
+fn panicStartGreaterThanEnd(
     sema: *Sema,
     parent_block: *Block,
     start: Air.Inst.Ref,
@@ -29464,8 +29492,10 @@ fn analyzeSlice(
     const slice_sentinel = if (sentinel_opt != .none) sentinel else null;
 
     // requirement: start <= end
+    var need_start_gt_end_check = true;
     if (try sema.resolveDefinedValue(block, end_src, end)) |end_val| {
         if (try sema.resolveDefinedValue(block, start_src, start)) |start_val| {
+            need_start_gt_end_check = false;
             if (!by_length and !(try sema.compareAll(start_val, .lte, end_val, Type.usize))) {
                 return sema.fail(
                     block,
@@ -29519,9 +29549,9 @@ fn analyzeSlice(
         }
     }
 
-    if (!by_length and block.wantSafety() and !block.is_comptime) {
+    if (!by_length and block.wantSafety() and !block.is_comptime and need_start_gt_end_check) {
         // requirement: start <= end
-        try sema.panicStartLargerThanEnd(block, start, end);
+        try sema.panicStartGreaterThanEnd(block, start, end);
     }
     const new_len = if (by_length)
         try sema.coerce(block, Type.usize, uncasted_end_opt, end_src)
