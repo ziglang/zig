@@ -672,7 +672,7 @@ fn computePackageHash(
         }
     }
 
-    std.sort.sort(*HashedFile, all_files.items, {}, HashedFile.lessThan);
+    mem.sort(*HashedFile, all_files.items, {}, HashedFile.lessThan);
 
     var hasher = Manifest.Hash.init(.{});
     var any_failures = false;

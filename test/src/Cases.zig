@@ -607,7 +607,7 @@ fn sortTestFilenames(filenames: [][]const u8) void {
             };
         }
     };
-    std.sort.sort([]const u8, filenames, Context{}, Context.lessThan);
+    std.mem.sort([]const u8, filenames, Context{}, Context.lessThan);
 }
 
 /// Iterates a set of filenames extracting batches that are either incremental

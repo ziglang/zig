@@ -2176,7 +2176,7 @@ fn computeFrameLayout(self: *Self) !FrameLayout {
             }
         };
         const sort_context = SortContext{ .frame_align = frame_align };
-        std.sort.sort(FrameIndex, stack_frame_order, sort_context, SortContext.lessThan);
+        mem.sort(FrameIndex, stack_frame_order, sort_context, SortContext.lessThan);
     }
 
     const call_frame_align = frame_align[@enumToInt(FrameIndex.call_frame)];

@@ -303,7 +303,7 @@ fn gatherVersions(allocator: Allocator, registry: g.CoreRegistry) ![]const Versi
         }
     }
 
-    std.sort.sort(Version, versions.items, {}, Version.lessThan);
+    std.mem.sort(Version, versions.items, {}, Version.lessThan);
 
     return versions.items;
 }

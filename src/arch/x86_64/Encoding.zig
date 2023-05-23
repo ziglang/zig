@@ -770,7 +770,7 @@ const mnemonic_to_encodings_map = init: {
     @setEvalBranchQuota(30_000);
     const encodings = @import("encodings.zig");
     var entries = encodings.table;
-    std.sort.sort(encodings.Entry, &entries, {}, struct {
+    std.mem.sort(encodings.Entry, &entries, {}, struct {
         fn lessThan(_: void, lhs: encodings.Entry, rhs: encodings.Entry) bool {
             return @enumToInt(lhs[0]) < @enumToInt(rhs[0]);
         }

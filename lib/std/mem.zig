@@ -566,6 +566,34 @@ test "zeroInit" {
     }, nested_baz);
 }
 
+pub fn sort(
+    comptime T: type,
+    items: []T,
+    context: anytype,
+    comptime lessThanFn: fn (@TypeOf(context), lhs: T, rhs: T) bool,
+) void {
+    std.sort.block(T, items, context, lessThanFn);
+}
+
+pub fn sortUnstable(
+    comptime T: type,
+    items: []T,
+    context: anytype,
+    comptime lessThanFn: fn (@TypeOf(context), lhs: T, rhs: T) bool,
+) void {
+    std.sort.pdq(T, items, context, lessThanFn);
+}
+
+/// TODO: currently this just calls `insertionSortContext`. The block sort implementation
+/// in this file needs to be adapted to use the sort context.
+pub fn sortContext(a: usize, b: usize, context: anytype) void {
+    std.sort.insertionContext(a, b, context);
+}
+
+pub fn sortUnstableContext(a: usize, b: usize, context: anytype) void {
+    std.sort.pdqContext(a, b, context);
+}
+
 /// Compares two slices of numbers lexicographically. O(n).
 pub fn order(comptime T: type, lhs: []const T, rhs: []const T) math.Order {
     const n = math.min(lhs.len, rhs.len);

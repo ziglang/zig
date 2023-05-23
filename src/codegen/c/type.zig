@@ -1292,7 +1292,7 @@ pub const CType = extern union {
         fn sortFields(self: *@This(), fields_len: usize) []Payload.Fields.Field {
             const Field = Payload.Fields.Field;
             const slice = self.storage.anon.fields[0..fields_len];
-            std.sort.sort(Field, slice, {}, struct {
+            mem.sort(Field, slice, {}, struct {
                 fn before(_: void, lhs: Field, rhs: Field) bool {
                     return lhs.alignas.@"align" > rhs.alignas.@"align";
                 }
