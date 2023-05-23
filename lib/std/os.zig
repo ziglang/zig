@@ -5978,7 +5978,7 @@ pub fn sendto(
     addrlen: socklen_t,
 ) SendToError!usize {
     if (builtin.os.tag == .windows) {
-        switch (windows.ws2_32.sendto(sockfd, buf.ptr, buf.len, flags, dest_addr, addrlen)) {
+        switch (windows.sendto(sockfd, buf.ptr, buf.len, flags, dest_addr, addrlen)) {
             windows.ws2_32.SOCKET_ERROR => switch (windows.ws2_32.WSAGetLastError()) {
                 .WSAEACCES => return error.AccessDenied,
                 .WSAEADDRNOTAVAIL => return error.AddressNotAvailable,
