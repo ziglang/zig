@@ -2838,3 +2838,4 @@ pub const utsname = extern struct {
 };
 
 pub extern "c" fn uname(u: *utsname) c_int;
+pub extern "c" fn getpagesizes(ps: [*]usize, nm: c_int) c_int;
