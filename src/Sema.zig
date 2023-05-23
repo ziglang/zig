@@ -6308,22 +6308,8 @@ fn zirCall(
     }
 
     const callee_ty = sema.typeOf(func);
-    const func_ty = func_ty: {
-        switch (callee_ty.zigTypeTag()) {
-            .Fn => break :func_ty callee_ty,
-            .Pointer => {
-                const ptr_info = callee_ty.ptrInfo().data;
-                if (ptr_info.size == .One and ptr_info.pointee_type.zigTypeTag() == .Fn) {
-                    break :func_ty ptr_info.pointee_type;
-                }
-            },
-            else => {},
-        }
-        return sema.fail(block, callee_src, "type '{}' not a function", .{callee_ty.fmt(sema.mod)});
-    };
-
     const total_args = args_len + @boolToInt(bound_arg_src != null);
-    try sema.checkCallArgumentCount(block, func, callee_src, func_ty, total_args, bound_arg_src != null);
+    const func_ty = try sema.checkCallArgumentCount(block, func, callee_src, callee_ty, total_args, bound_arg_src != null);
 
     const args_body = sema.code.extra[extra.end..];
 
@@ -6423,18 +6409,49 @@ fn checkCallArgumentCount(
     block: *Block,
     func: Air.Inst.Ref,
     func_src: LazySrcLoc,
-    func_ty: Type,
+    callee_ty: Type,
     total_args: usize,
     member_fn: bool,
-) !void {
+) !Type {
+    const func_ty = func_ty: {
+        switch (callee_ty.zigTypeTag()) {
+            .Fn => break :func_ty callee_ty,
+            .Pointer => {
+                const ptr_info = callee_ty.ptrInfo().data;
+                if (ptr_info.size == .One and ptr_info.pointee_type.zigTypeTag() == .Fn) {
+                    break :func_ty ptr_info.pointee_type;
+                }
+            },
+            .Optional => {
+                var buf: Type.Payload.ElemType = undefined;
+                const opt_child = callee_ty.optionalChild(&buf);
+                if (opt_child.zigTypeTag() == .Fn or (opt_child.isSinglePointer() and
+                    opt_child.childType().zigTypeTag() == .Fn))
+                {
+                    const msg = msg: {
+                        const msg = try sema.errMsg(block, func_src, "cannot call optional type '{}'", .{
+                            callee_ty.fmt(sema.mod),
+                        });
+                        errdefer msg.destroy(sema.gpa);
+                        try sema.errNote(block, func_src, msg, "consider using '.?', 'orelse' or 'if'", .{});
+                        break :msg msg;
+                    };
+                    return sema.failWithOwnedErrorMsg(msg);
+                }
+            },
+            else => {},
+        }
+        return sema.fail(block, func_src, "type '{}' not a function", .{callee_ty.fmt(sema.mod)});
+    };
+
     const func_ty_info = func_ty.fnInfo();
     const fn_params_len = func_ty_info.param_types.len;
     const args_len = total_args - @boolToInt(member_fn);
     if (func_ty_info.is_var_args) {
         assert(func_ty_info.cc == .C);
-        if (total_args >= fn_params_len) return;
+        if (total_args >= fn_params_len) return func_ty;
     } else if (fn_params_len == total_args) {
-        return;
+        return func_ty;
     }
 
     const maybe_decl = try sema.funcDeclSrc(func);
@@ -21666,20 +21683,7 @@ fn zirBuiltinCall(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
     }
 
     const callee_ty = sema.typeOf(func);
-    const func_ty = func_ty: {
-        switch (callee_ty.zigTypeTag()) {
-            .Fn => break :func_ty callee_ty,
-            .Pointer => {
-                const ptr_info = callee_ty.ptrInfo().data;
-                if (ptr_info.size == .One and ptr_info.pointee_type.zigTypeTag() == .Fn) {
-                    break :func_ty ptr_info.pointee_type;
-                }
-            },
-            else => {},
-        }
-        return sema.fail(block, func_src, "type '{}' not a function", .{callee_ty.fmt(sema.mod)});
-    };
-    try sema.checkCallArgumentCount(block, func, func_src, func_ty, resolved_args.len, false);
+    const func_ty = try sema.checkCallArgumentCount(block, func, func_src, callee_ty, resolved_args.len, false);
 
     const ensure_result_used = extra.flags.ensure_result_used;
     return sema.analyzeCall(block, func, func_ty, func_src, call_src, modifier, ensure_result_used, resolved_args, null, null);
