@@ -1371,13 +1371,14 @@ fn linkWithLLD(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !v
         // We are about to obtain this lock, so here we give other processes a chance first.
         self.base.releaseLock();
 
-        comptime assert(Compilation.link_hash_implementation_version == 8);
+        comptime assert(Compilation.link_hash_implementation_version == 9);
 
         try man.addOptionalFile(self.base.options.linker_script);
         try man.addOptionalFile(self.base.options.version_script);
         for (self.base.options.objects) |obj| {
             _ = try man.addFile(obj.path, null);
             man.hash.add(obj.must_link);
+            man.hash.add(obj.loption);
         }
         for (comp.c_object_table.keys()) |key| {
             _ = try man.addFile(key.status.success.object_path, null);
@@ -1719,6 +1720,8 @@ fn linkWithLLD(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !v
             for (self.base.options.objects) |obj| {
                 if (Compilation.classifyFileExt(obj.path) == .shared_library) {
                     const lib_dir_path = std.fs.path.dirname(obj.path) orelse continue;
+                    if (obj.loption) continue;
+
                     if ((try rpath_table.fetchPut(lib_dir_path, {})) == null) {
                         try argv.append("-rpath");
                         try argv.append(lib_dir_path);
@@ -1766,6 +1769,11 @@ fn linkWithLLD(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !v
             } else if (!obj.must_link and whole_archive) {
                 try argv.append("-no-whole-archive");
                 whole_archive = false;
+            }
+
+            if (obj.loption) {
+                assert(obj.path[0] == ':');
+                try argv.append("-l");
             }
             try argv.append(obj.path);
         }

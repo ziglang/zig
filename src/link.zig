@@ -1020,6 +1020,7 @@ pub const File = struct {
             for (base.options.objects) |obj| {
                 _ = try man.addFile(obj.path, null);
                 man.hash.add(obj.must_link);
+                man.hash.add(obj.loption);
             }
             for (comp.c_object_table.keys()) |key| {
                 _ = try man.addFile(key.status.success.object_path, null);

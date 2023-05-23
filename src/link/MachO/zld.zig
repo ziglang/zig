@@ -3494,7 +3494,7 @@ pub fn linkWithZld(macho_file: *MachO, comp: *Compilation, prog_node: *std.Progr
         // We are about to obtain this lock, so here we give other processes a chance first.
         macho_file.base.releaseLock();
 
-        comptime assert(Compilation.link_hash_implementation_version == 8);
+        comptime assert(Compilation.link_hash_implementation_version == 9);
 
         for (options.objects) |obj| {
             _ = try man.addFile(obj.path, null);
