@@ -1006,6 +1006,7 @@ pub const panic_messages = struct {
     pub const for_len_mismatch = "for loop over objects with non-equal lengths";
     pub const memcpy_len_mismatch = "@memcpy arguments have non-equal lengths";
     pub const memcpy_alias = "@memcpy arguments alias";
+    pub const noreturn_returned = "'noreturn' function returned";
 };
 
 pub noinline fn returnError(st: *StackTrace) void {
