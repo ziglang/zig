@@ -1712,10 +1712,10 @@ fn dumpBadGetPathHelp(
         s.name,
     });
 
-    const tty_config = std.debug.detectTTYConfig(stderr);
-    tty_config.setColor(w, .Red) catch {};
+    const tty_config = std.io.tty.detectConfig(stderr);
+    tty_config.setColor(w, .red) catch {};
     try stderr.writeAll("    The step was created by this stack trace:\n");
-    tty_config.setColor(w, .Reset) catch {};
+    tty_config.setColor(w, .reset) catch {};
 
     const debug_info = std.debug.getSelfDebugInfo() catch |err| {
         try w.print("Unable to dump stack trace: Unable to open debug info: {s}\n", .{@errorName(err)});
@@ -1727,9 +1727,9 @@ fn dumpBadGetPathHelp(
         return;
     };
     if (asking_step) |as| {
-        tty_config.setColor(w, .Red) catch {};
+        tty_config.setColor(w, .red) catch {};
         try stderr.writeAll("    The step that is missing a dependency on the above step was created by this stack trace:\n");
-        tty_config.setColor(w, .Reset) catch {};
+        tty_config.setColor(w, .reset) catch {};
 
         std.debug.writeStackTrace(as.getStackTrace(), w, ally, debug_info, tty_config) catch |err| {
             try stderr.writer().print("Unable to dump stack trace: {s}\n", .{@errorName(err)});
@@ -1737,9 +1737,9 @@ fn dumpBadGetPathHelp(
         };
     }
 
-    tty_config.setColor(w, .Red) catch {};
+    tty_config.setColor(w, .red) catch {};
     try stderr.writeAll("    Hope that helps. Proceeding to panic.\n");
-    tty_config.setColor(w, .Reset) catch {};
+    tty_config.setColor(w, .reset) catch {};
 }
 
 /// Allocates a new string for assigning a value to a named macro.

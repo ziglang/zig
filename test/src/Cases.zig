@@ -1354,7 +1354,7 @@ fn runOneCase(
             defer all_errors.deinit(allocator);
             if (all_errors.errorMessageCount() > 0) {
                 all_errors.renderToStdErr(.{
-                    .ttyconf = std.debug.detectTTYConfig(std.io.getStdErr()),
+                    .ttyconf = std.io.tty.detectConfig(std.io.getStdErr()),
                 });
                 // TODO print generated C code
                 return error.UnexpectedCompileErrors;
