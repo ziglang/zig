@@ -22235,6 +22235,10 @@ fn zirMemcpy(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!void
         // Change the dest to a slice, since its type must have the length.
         const dest_ptr_ptr = try sema.analyzeRef(block, dest_src, new_dest_ptr);
         new_dest_ptr = try sema.analyzeSlice(block, dest_src, dest_ptr_ptr, .zero, src_len, .none, .unneeded, dest_src, dest_src, dest_src, false);
+        const new_src_ptr_ty = sema.typeOf(new_src_ptr);
+        if (new_src_ptr_ty.isSlice()) {
+            new_src_ptr = try sema.analyzeSlicePtr(block, src_src, new_src_ptr, new_src_ptr_ty);
+        }
     }
 
     try sema.requireRuntimeBlock(block, src, runtime_src);
