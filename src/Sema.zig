@@ -16116,7 +16116,30 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                 try info.pointee_type.lazyAbiAlignment(mod, sema.arena);
 
             const addrspace_ty = try sema.getBuiltinType("AddressSpace");
-            const ptr_size_ty = try sema.getBuiltinType("PtrSize");
+            const pointer_ty = t: {
+                const decl_index = (try sema.namespaceLookup(
+                    block,
+                    src,
+                    (try sema.getBuiltinType("Type")).getNamespaceIndex(mod).unwrap().?,
+                    "Pointer",
+                )).?;
+                try mod.declareDeclDependency(sema.owner_decl_index, decl_index);
+                try sema.ensureDeclAnalyzed(decl_index);
+                const decl = mod.declPtr(decl_index);
+                break :t decl.val.toType();
+            };
+            const ptr_size_ty = t: {
+                const decl_index = (try sema.namespaceLookup(
+                    block,
+                    src,
+                    pointer_ty.getNamespaceIndex(mod).unwrap().?,
+                    "Size",
+                )).?;
+                try mod.declareDeclDependency(sema.owner_decl_index, decl_index);
+                try sema.ensureDeclAnalyzed(decl_index);
+                const decl = mod.declPtr(decl_index);
+                break :t decl.val.toType();
+            };
 
             const field_values = try sema.arena.create([8]Value);
             field_values.* = .{
@@ -16469,7 +16492,18 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                 break :v try Value.Tag.opt_payload.create(sema.arena, ty_val);
             } else Value.null;
 
-            const container_layout_ty = try sema.getBuiltinType("TmpContainerLayoutAlias");
+            const container_layout_ty = t: {
+                const decl_index = (try sema.namespaceLookup(
+                    block,
+                    src,
+                    (try sema.getBuiltinType("Type")).getNamespaceIndex(mod).unwrap().?,
+                    "ContainerLayout",
+                )).?;
+                try mod.declareDeclDependency(sema.owner_decl_index, decl_index);
+                try sema.ensureDeclAnalyzed(decl_index);
+                const decl = mod.declPtr(decl_index);
+                break :t decl.val.toType();
+            };
 
             const field_values = try sema.arena.create([4]Value);
             field_values.* = .{
@@ -16648,7 +16682,18 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                 }
             };
 
-            const container_layout_ty = try sema.getBuiltinType("TmpContainerLayoutAlias");
+            const container_layout_ty = t: {
+                const decl_index = (try sema.namespaceLookup(
+                    block,
+                    src,
+                    (try sema.getBuiltinType("Type")).getNamespaceIndex(mod).unwrap().?,
+                    "ContainerLayout",
+                )).?;
+                try mod.declareDeclDependency(sema.owner_decl_index, decl_index);
+                try sema.ensureDeclAnalyzed(decl_index);
+                const decl = mod.declPtr(decl_index);
+                break :t decl.val.toType();
+            };
 
             const field_values = try sema.arena.create([5]Value);
             field_values.* = .{
