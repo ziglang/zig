@@ -2693,12 +2693,12 @@ fn buildOutputType(
         try framework_dirs.appendSlice(paths.framework_dirs.items);
         try lib_dirs.appendSlice(paths.lib_dirs.items);
         try rpath_list.appendSlice(paths.rpaths.items);
+    }
 
-        try clang_argv.ensureUnusedCapacity(framework_dirs.items.len * 2);
-        for (framework_dirs.items) |framework_dir| {
-            clang_argv.appendAssumeCapacity("-F");
-            clang_argv.appendAssumeCapacity(framework_dir);
-        }
+    try clang_argv.ensureUnusedCapacity(framework_dirs.items.len * 2);
+    for (framework_dirs.items) |framework_dir| {
+        clang_argv.appendAssumeCapacity("-F");
+        clang_argv.appendAssumeCapacity(framework_dir);
     }
 
     // If any libs in this list are statically provided, we omit them from the
