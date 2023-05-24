@@ -27,6 +27,10 @@ pub const File = struct {
     generated_file: std.Build.GeneratedFile,
     sub_path: []const u8,
     contents: Contents,
+
+    pub fn getFileSource(self: *File) std.Build.FileSource {
+        return .{ .generated = &self.generated_file };
+    }
 };
 
 pub const OutputSourceFile = struct {
@@ -65,9 +69,8 @@ pub fn add(wf: *WriteFile, sub_path: []const u8, bytes: []const u8) std.Build.Fi
         .contents = .{ .bytes = b.dupe(bytes) },
     };
     wf.files.append(gpa, file) catch @panic("OOM");
-
     wf.maybeUpdateName();
-    return .{ .generated = &file.generated_file };
+    return file.getFileSource();
 }
 
 /// Place the file into the generated directory within the local cache,
@@ -90,7 +93,7 @@ pub fn addCopyFile(wf: *WriteFile, source: std.Build.FileSource, sub_path: []con
 
     wf.maybeUpdateName();
     source.addStepDependencies(&wf.step);
-    return .{ .generated = &file.generated_file };
+    return file.getFileSource();
 }
 
 /// A path relative to the package root.
@@ -98,7 +101,6 @@ pub fn addCopyFile(wf: *WriteFile, source: std.Build.FileSource, sub_path: []con
 /// used as part of the normal build process, but as a utility occasionally
 /// run by a developer with intent to modify source files and then commit
 /// those changes to version control.
-/// A file added this way is not available with `getFileSource`.
 pub fn addCopyFileToSource(wf: *WriteFile, source: std.Build.FileSource, sub_path: []const u8) void {
     const b = wf.step.owner;
     wf.output_source_files.append(b.allocator, .{
@@ -113,23 +115,12 @@ pub fn addCopyFileToSource(wf: *WriteFile, source: std.Build.FileSource, sub_pat
 /// used as part of the normal build process, but as a utility occasionally
 /// run by a developer with intent to modify source files and then commit
 /// those changes to version control.
-/// A file added this way is not available with `getFileSource`.
 pub fn addBytesToSource(wf: *WriteFile, bytes: []const u8, sub_path: []const u8) void {
     const b = wf.step.owner;
     wf.output_source_files.append(b.allocator, .{
         .contents = .{ .bytes = bytes },
         .sub_path = sub_path,
     }) catch @panic("OOM");
-}
-
-/// Gets a file source for the given sub_path. If the file does not exist, returns `null`.
-pub fn getFileSource(wf: *WriteFile, sub_path: []const u8) ?std.Build.FileSource {
-    for (wf.files.items) |file| {
-        if (std.mem.eql(u8, file.sub_path, sub_path)) {
-            return .{ .generated = &file.generated_file };
-        }
-    }
-    return null;
 }
 
 /// Returns a `FileSource` representing the base directory that contains all the
