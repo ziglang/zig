@@ -123,34 +123,4 @@ pub const Config = union(enum) {
             },
         };
     }
-
-    pub fn writeDEC(conf: Config, writer: anytype, codepoint: u8) !void {
-        const bytes = switch (conf) {
-            .no_color, .windows_api => switch (codepoint) {
-                0x50...0x5e => @as(*const [1]u8, &codepoint),
-                0x6a => "+", // ┘
-                0x6b => "+", // ┐
-                0x6c => "+", // ┌
-                0x6d => "+", // └
-                0x6e => "+", // ┼
-                0x71 => "-", // ─
-                0x74 => "+", // ├
-                0x75 => "+", // ┤
-                0x76 => "+", // ┴
-                0x77 => "+", // ┬
-                0x78 => "|", // │
-                else => " ", // TODO
-            },
-            .escape_codes => switch (codepoint) {
-                // Here we avoid writing the DEC beginning sequence and
-                // ending sequence in separate syscalls by putting the
-                // beginning and ending sequence into the same string
-                // literals, to prevent terminals ending up in bad states
-                // in case a crash happens between syscalls.
-                inline 0x50...0x7f => |x| "\x1B\x28\x30" ++ [1]u8{x} ++ "\x1B\x28\x42",
-                else => unreachable,
-            },
-        };
-        return writer.writeAll(bytes);
-    }
 };
