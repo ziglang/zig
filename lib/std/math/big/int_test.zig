@@ -2622,6 +2622,36 @@ test "big.int pow" {
     }
 }
 
+test "big.int sqrt" {
+    var r = try Managed.init(testing.allocator);
+    defer r.deinit();
+    var a = try Managed.init(testing.allocator);
+    defer a.deinit();
+
+    // not aliased
+    try r.set(0);
+    try a.set(25);
+    try r.sqrt(&a);
+    try testing.expectEqual(@as(i32, 5), try r.to(i32));
+
+    // aliased
+    try a.set(25);
+    try a.sqrt(&a);
+    try testing.expectEqual(@as(i32, 5), try a.to(i32));
+
+    // bottom
+    try r.set(0);
+    try a.set(24);
+    try r.sqrt(&a);
+    try testing.expectEqual(@as(i32, 4), try r.to(i32));
+
+    // large number
+    try r.set(0);
+    try a.set(0x1_0000_0000_0000);
+    try r.sqrt(&a);
+    try testing.expectEqual(@as(i32, 0x100_0000), try r.to(i32));
+}
+
 test "big.int regression test for 1 limb overflow with alias" {
     // Note these happen to be two consecutive Fibonacci sequence numbers, the
     // first two whose sum exceeds 2**64.
