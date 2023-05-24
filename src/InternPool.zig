@@ -3754,6 +3754,7 @@ pub fn getCoerced(ip: *InternPool, gpa: Allocator, val: Index, new_ty: Index) Al
                 .c_ulong,
                 .c_longlong,
                 .c_ulonglong,
+                .comptime_int,
                 => return getCoercedInts(ip, gpa, int, new_ty),
                 else => {},
             },
@@ -3789,6 +3790,11 @@ pub fn getCoerced(ip: *InternPool, gpa: Allocator, val: Index, new_ty: Index) Al
             } }),
         },
         else => {},
+    }
+    if (std.debug.runtime_safety) {
+        std.debug.panic("val={any} new_ty={any}\n", .{
+            ip.items.get(@enumToInt(val)), ip.items.get(@enumToInt(new_ty)),
+        });
     }
     unreachable;
 }
