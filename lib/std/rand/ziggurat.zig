@@ -65,7 +65,7 @@ pub const ZigTable = struct {
 };
 
 // zigNorInit
-fn ZigTableGen(
+pub fn ZigTableGen(
     comptime is_symmetric: bool,
     comptime r: f64,
     comptime v: f64,
@@ -102,16 +102,16 @@ pub const NormDist = blk: {
     break :blk ZigTableGen(true, norm_r, norm_v, norm_f, norm_f_inv, norm_zero_case);
 };
 
-const norm_r = 3.6541528853610088;
-const norm_v = 0.00492867323399;
+pub const norm_r = 3.6541528853610088;
+pub const norm_v = 0.00492867323399;
 
-fn norm_f(x: f64) f64 {
+pub fn norm_f(x: f64) f64 {
     return @exp(-x * x / 2.0);
 }
-fn norm_f_inv(y: f64) f64 {
+pub fn norm_f_inv(y: f64) f64 {
     return @sqrt(-2.0 * @log(y));
 }
-fn norm_zero_case(random: Random, u: f64) f64 {
+pub fn norm_zero_case(random: Random, u: f64) f64 {
     var x: f64 = 1;
     var y: f64 = 0;
 
@@ -143,16 +143,16 @@ pub const ExpDist = blk: {
     break :blk ZigTableGen(false, exp_r, exp_v, exp_f, exp_f_inv, exp_zero_case);
 };
 
-const exp_r = 7.69711747013104972;
-const exp_v = 0.0039496598225815571993;
+pub const exp_r = 7.69711747013104972;
+pub const exp_v = 0.0039496598225815571993;
 
-fn exp_f(x: f64) f64 {
+pub fn exp_f(x: f64) f64 {
     return @exp(-x);
 }
-fn exp_f_inv(y: f64) f64 {
+pub fn exp_f_inv(y: f64) f64 {
     return -@log(y);
 }
-fn exp_zero_case(random: Random, _: f64) f64 {
+pub fn exp_zero_case(random: Random, _: f64) f64 {
     return exp_r - @log(random.float(f64));
 }
 
