@@ -123,6 +123,8 @@ pub fn addBytesToSource(wf: *WriteFile, bytes: []const u8, sub_path: []const u8)
     }) catch @panic("OOM");
 }
 
+pub const getFileSource = @compileError("Deprecated; use the return value from add()/addCopyFile(), or use files[i].getFileSource()");
+
 /// Returns a `FileSource` representing the base directory that contains all the
 /// files from this `WriteFile`.
 pub fn getDirectorySource(wf: *WriteFile) std.Build.FileSource {
