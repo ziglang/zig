@@ -759,7 +759,7 @@ pub fn addCliTests(b: *std.Build) *Step {
             "-fno-emit-bin", "-fno-emit-h",
             "-fstrip",       "-OReleaseFast",
         });
-        run.addFileSourceArg(writefile.getFileSource("example.zig").?);
+        run.addFileSourceArg(writefile.files.items[0].getFileSource());
         const example_s = run.addPrefixedOutputFileArg("-femit-asm=", "example.s");
 
         const checkfile = b.addCheckFile(example_s, .{

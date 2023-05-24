@@ -27,6 +27,10 @@ pub const File = struct {
     generated_file: std.Build.GeneratedFile,
     sub_path: []const u8,
     contents: Contents,
+
+    pub fn getFileSource(self: *File) std.Build.FileSource {
+        return .{ .generated = &self.generated_file };
+    }
 };
 
 pub const OutputSourceFile = struct {
@@ -55,7 +59,7 @@ pub fn create(owner: *std.Build) *WriteFile {
     return wf;
 }
 
-pub fn add(wf: *WriteFile, sub_path: []const u8, bytes: []const u8) void {
+pub fn add(wf: *WriteFile, sub_path: []const u8, bytes: []const u8) std.Build.FileSource {
     const b = wf.step.owner;
     const gpa = b.allocator;
     const file = gpa.create(File) catch @panic("OOM");
@@ -65,8 +69,8 @@ pub fn add(wf: *WriteFile, sub_path: []const u8, bytes: []const u8) void {
         .contents = .{ .bytes = b.dupe(bytes) },
     };
     wf.files.append(gpa, file) catch @panic("OOM");
-
     wf.maybeUpdateName();
+    return file.getFileSource();
 }
 
 /// Place the file into the generated directory within the local cache,
@@ -76,7 +80,7 @@ pub fn add(wf: *WriteFile, sub_path: []const u8, bytes: []const u8) void {
 /// include sub-directories, in which case this step will ensure the
 /// required sub-path exists.
 /// This is the option expected to be used most commonly with `addCopyFile`.
-pub fn addCopyFile(wf: *WriteFile, source: std.Build.FileSource, sub_path: []const u8) void {
+pub fn addCopyFile(wf: *WriteFile, source: std.Build.FileSource, sub_path: []const u8) std.Build.FileSource {
     const b = wf.step.owner;
     const gpa = b.allocator;
     const file = gpa.create(File) catch @panic("OOM");
@@ -89,6 +93,7 @@ pub fn addCopyFile(wf: *WriteFile, source: std.Build.FileSource, sub_path: []con
 
     wf.maybeUpdateName();
     source.addStepDependencies(&wf.step);
+    return file.getFileSource();
 }
 
 /// A path relative to the package root.
@@ -96,7 +101,6 @@ pub fn addCopyFile(wf: *WriteFile, source: std.Build.FileSource, sub_path: []con
 /// used as part of the normal build process, but as a utility occasionally
 /// run by a developer with intent to modify source files and then commit
 /// those changes to version control.
-/// A file added this way is not available with `getFileSource`.
 pub fn addCopyFileToSource(wf: *WriteFile, source: std.Build.FileSource, sub_path: []const u8) void {
     const b = wf.step.owner;
     wf.output_source_files.append(b.allocator, .{
@@ -111,7 +115,6 @@ pub fn addCopyFileToSource(wf: *WriteFile, source: std.Build.FileSource, sub_pat
 /// used as part of the normal build process, but as a utility occasionally
 /// run by a developer with intent to modify source files and then commit
 /// those changes to version control.
-/// A file added this way is not available with `getFileSource`.
 pub fn addBytesToSource(wf: *WriteFile, bytes: []const u8, sub_path: []const u8) void {
     const b = wf.step.owner;
     wf.output_source_files.append(b.allocator, .{
@@ -120,15 +123,7 @@ pub fn addBytesToSource(wf: *WriteFile, bytes: []const u8, sub_path: []const u8)
     }) catch @panic("OOM");
 }
 
-/// Gets a file source for the given sub_path. If the file does not exist, returns `null`.
-pub fn getFileSource(wf: *WriteFile, sub_path: []const u8) ?std.Build.FileSource {
-    for (wf.files.items) |file| {
-        if (std.mem.eql(u8, file.sub_path, sub_path)) {
-            return .{ .generated = &file.generated_file };
-        }
-    }
-    return null;
-}
+pub const getFileSource = @compileError("Deprecated; use the return value from add()/addCopyFile(), or use files[i].getFileSource()");
 
 /// Returns a `FileSource` representing the base directory that contains all the
 /// files from this `WriteFile`.
