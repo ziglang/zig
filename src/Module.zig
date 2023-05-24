@@ -5773,9 +5773,8 @@ pub fn analyzeFnBody(mod: *Module, func: *Fn, arena: Allocator) SemaError!Air {
 
     // Similarly, resolve any queued up types that were requested to be resolved for
     // the backends.
-    for (sema.types_to_resolve.items) |inst_ref| {
-        const ty = sema.getTmpAir().getRefType(inst_ref);
-        sema.resolveTypeFully(ty) catch |err| switch (err) {
+    for (sema.types_to_resolve.keys()) |ty| {
+        sema.resolveTypeFully(ty.toType()) catch |err| switch (err) {
             error.NeededSourceLocation => unreachable,
             error.GenericPoison => unreachable,
             error.ComptimeReturn => unreachable,
