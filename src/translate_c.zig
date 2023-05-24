@@ -2494,6 +2494,7 @@ fn transCCast(
 
         if (isBoolRes(src_int_expr)) {
             src_int_expr = try Tag.bool_to_int.create(c.arena, src_int_expr);
+            return Tag.as.create(c.arena, .{ .lhs = dst_node, .rhs = src_int_expr });
         }
 
         switch (cIntTypeCmp(dst_type, src_type)) {
