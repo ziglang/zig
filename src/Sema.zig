@@ -10088,7 +10088,7 @@ fn zirSliceLength(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
     const array_ptr = try sema.resolveInst(extra.lhs);
     const start = try sema.resolveInst(extra.start);
     const len = try sema.resolveInst(extra.len);
-    const sentinel = try sema.resolveInst(extra.sentinel);
+    const sentinel = if (extra.sentinel == .none) .none else try sema.resolveInst(extra.sentinel);
     const ptr_src: LazySrcLoc = .{ .node_offset_slice_ptr = inst_data.src_node };
     const start_src: LazySrcLoc = .{ .node_offset_slice_start = extra.start_src_node_offset };
     const end_src: LazySrcLoc = .{ .node_offset_slice_end = inst_data.src_node };
@@ -31997,17 +31997,14 @@ pub fn resolveTypeFully(sema: *Sema, ty: Type) CompileError!void {
             const child_ty = try sema.resolveTypeFields(ty.childType(mod));
             return sema.resolveTypeFully(child_ty);
         },
-        .Struct => switch (ty.ip_index) {
-            .none => {}, // TODO make this unreachable when all types are migrated to InternPool
-            else => switch (mod.intern_pool.indexToKey(ty.ip_index)) {
-                .struct_type => return sema.resolveStructFully(ty),
-                .anon_struct_type => |tuple| {
-                    for (tuple.types) |field_ty| {
-                        try sema.resolveTypeFully(field_ty.toType());
-                    }
-                },
-                else => {},
+        .Struct => switch (mod.intern_pool.indexToKey(ty.ip_index)) {
+            .struct_type => return sema.resolveStructFully(ty),
+            .anon_struct_type => |tuple| {
+                for (tuple.types) |field_ty| {
+                    try sema.resolveTypeFully(field_ty.toType());
+                }
             },
+            else => {},
         },
         .Union => return sema.resolveUnionFully(ty),
         .Array => return sema.resolveTypeFully(ty.childType(mod)),
@@ -32096,8 +32093,7 @@ pub fn resolveTypeFields(sema: *Sema, ty: Type) CompileError!Type {
     switch (ty.ip_index) {
         .var_args_param_type => unreachable,
 
-        // TODO: After the InternPool transition is complete, change this to `unreachable`.
-        .none => return ty,
+        .none => unreachable,
 
         .u1_type,
         .u8_type,
