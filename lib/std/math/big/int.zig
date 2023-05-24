@@ -66,6 +66,13 @@ pub fn calcPowLimbsBufferLen(a_bit_count: usize, y: usize) usize {
     return 2 + (a_bit_count * y + (limb_bits - 1)) / limb_bits;
 }
 
+pub fn calcSqrtLimbsBufferLen(a_bit_count: usize) usize {
+    const a_limb_count = (a_bit_count - 1) / limb_bits + 1;
+    const shift = (a_bit_count + 1) / 2;
+    const u_s_rem_limb_count = 1 + ((shift - 1) / limb_bits + 1);
+    return a_limb_count + 3 * u_s_rem_limb_count + calcDivLimbsBufferLen(a_limb_count, u_s_rem_limb_count);
+}
+
 // Compute the number of limbs required to store a 2s-complement number of `bit_count` bits.
 pub fn calcTwosCompLimbCount(bit_count: usize) usize {
     return std.math.divCeil(usize, bit_count, @bitSizeOf(Limb)) catch unreachable;
@@ -1342,6 +1349,64 @@ pub const Mutable = struct {
 
         r.normalize(needed_limbs);
         r.positive = a.positive or (b & 1) == 0;
+    }
+
+    /// r = ⌊√a⌋
+    ///
+    /// r may alias a.
+    ///
+    /// Asserts that `r` has enough limbs to store the result. Upper bound is
+    /// `(a.limbs.len - 1) / 2 + 1`.
+    ///
+    /// `limbs_buffer` is used for temporary storage.
+    /// The amount required is given by `calcSqrtLimbsBufferLen`.
+    pub fn sqrt(
+        r: *Mutable,
+        a: Const,
+        limbs_buffer: []Limb,
+    ) void {
+        // Brent and Zimmermann, Modern Computer Arithmetic, Algorithm 1.13 SqrtInt
+        // https://members.loria.fr/PZimmermann/mca/pub226.html
+        var buf_index: usize = 0;
+        var t = b: {
+            const start = buf_index;
+            buf_index += a.limbs.len;
+            break :b Mutable.init(limbs_buffer[start..buf_index], 0);
+        };
+        var u = b: {
+            const start = buf_index;
+            const shift = (a.bitCountAbs() + 1) / 2;
+            buf_index += 1 + ((shift - 1) / limb_bits + 1);
+            var m = Mutable.init(limbs_buffer[start..buf_index], 1);
+            m.shiftLeft(m.toConst(), shift); // u must be >= ⌊√a⌋, and should be as small as possible for efficiency
+            break :b m;
+        };
+        var s = b: {
+            const start = buf_index;
+            buf_index += u.limbs.len;
+            break :b u.toConst().toMutable(limbs_buffer[start..buf_index]);
+        };
+        var rem = b: {
+            const start = buf_index;
+            buf_index += s.limbs.len;
+            break :b Mutable.init(limbs_buffer[start..buf_index], 0);
+        };
+
+        while (true) {
+            t.divFloor(&rem, a, s.toConst(), limbs_buffer[buf_index..]);
+            t.add(t.toConst(), s.toConst());
+            u.shiftRight(t.toConst(), 1);
+
+            if (u.toConst().order(s.toConst()).compare(.gte)) {
+                r.copy(s.toConst());
+                return;
+            }
+
+            // Avoid copying u to s by swapping u and s
+            var tmp_s = s;
+            s = u;
+            u = tmp_s;
+        }
     }
 
     /// rma may not alias x or y.
@@ -3138,6 +3203,19 @@ pub const Managed = struct {
             try rma_mut.pow(a.toConst(), b, limbs_buffer);
             rma.setMetadata(rma_mut.positive, rma_mut.len);
         }
+    }
+
+    /// r = ⌊√a⌋
+    pub fn sqrt(rma: *Managed, a: *const Managed) !void {
+        const needed_limbs = calcSqrtLimbsBufferLen(a.bitCountAbs());
+
+        const limbs_buffer = try rma.allocator.alloc(Limb, needed_limbs);
+        defer rma.allocator.free(limbs_buffer);
+
+        try rma.ensureCapacity((a.len() - 1) / 2 + 1);
+        var m = rma.toMutable();
+        m.sqrt(a.toConst(), limbs_buffer);
+        rma.setMetadata(m.positive, m.len);
     }
 
     /// r = truncate(Int(signedness, bit_count), a)
