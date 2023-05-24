@@ -223,13 +223,6 @@ pub const SourceLocation = struct {
 pub const TypeId = std.meta.Tag(Type);
 pub const TypeInfo = @compileError("deprecated; use Type");
 
-/// TODO this is a temporary alias because I don't see any handy methods in
-/// Sema for accessing inner declarations.
-pub const PtrSize = Type.Pointer.Size;
-/// TODO this is a temporary alias because I don't see any handy methods in
-/// Sema for accessing inner declarations.
-pub const TmpContainerLayoutAlias = Type.ContainerLayout;
-
 /// This data structure is used by the Zig language code generation and
 /// therefore must be kept in sync with the compiler implementation.
 pub const Type = union(enum) {
