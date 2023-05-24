@@ -66,11 +66,14 @@ comptime_args_fn_inst: Zir.Inst.Index = 0,
 /// extra hash table lookup in the `monomorphed_funcs` set.
 /// Sema will set this to null when it takes ownership.
 preallocated_new_func: ?*Module.Fn = null,
-/// The key is `constant` AIR instructions to types that must be fully resolved
-/// after the current function body analysis is done.
-/// TODO: after upgrading to use InternPool change the key here to be an
-/// InternPool value index.
-types_to_resolve: std.ArrayListUnmanaged(Air.Inst.Ref) = .{},
+/// The key is types that must be fully resolved prior to machine code
+/// generation pass. Types are added to this set when resolving them
+/// immediately could cause a dependency loop, but they do need to be resolved
+/// before machine code generation passes process the AIR.
+/// It would work fine if this were an array list instead of an array hash map.
+/// I chose array hash map with the intention to save time by omitting
+/// duplicates.
+types_to_resolve: std.AutoArrayHashMapUnmanaged(InternPool.Index, void) = .{},
 /// These are lazily created runtime blocks from block_inline instructions.
 /// They are created when an break_inline passes through a runtime condition, because
 /// Sema must convert comptime control flow to runtime control flow, which means
@@ -34085,8 +34088,7 @@ fn anonStructFieldIndex(
 }
 
 fn queueFullTypeResolution(sema: *Sema, ty: Type) !void {
-    const inst_ref = try sema.addType(ty);
-    try sema.types_to_resolve.append(sema.gpa, inst_ref);
+    try sema.types_to_resolve.put(sema.gpa, ty.toIntern(), {});
 }
 
 fn intAdd(sema: *Sema, lhs: Value, rhs: Value, ty: Type) !Value {
