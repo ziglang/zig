@@ -4530,8 +4530,7 @@ pub const FuncGen = struct {
 
                 .vector_store_elem => try self.airVectorStoreElem(inst),
 
-                .constant => unreachable,
-                .interned => unreachable,
+                .inferred_alloc, .inferred_alloc_comptime, .interned => unreachable,
 
                 .unreach  => self.airUnreach(inst),
                 .dbg_stmt => self.airDbgStmt(inst),

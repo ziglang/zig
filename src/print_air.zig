@@ -93,14 +93,10 @@ const Writer = struct {
 
     fn writeAllConstants(w: *Writer, s: anytype) @TypeOf(s).Error!void {
         for (w.air.instructions.items(.tag), 0..) |tag, i| {
+            if (tag != .interned) continue;
             const inst = @intCast(Air.Inst.Index, i);
-            switch (tag) {
-                .constant, .interned => {
-                    try w.writeInst(s, inst);
-                    try s.writeByte('\n');
-                },
-                else => continue,
-            }
+            try w.writeInst(s, inst);
+            try s.writeByte('\n');
         }
     }
 
@@ -304,7 +300,7 @@ const Writer = struct {
 
             .struct_field_ptr => try w.writeStructField(s, inst),
             .struct_field_val => try w.writeStructField(s, inst),
-            .constant => try w.writeConstant(s, inst),
+            .inferred_alloc, .inferred_alloc_comptime => try w.writeConstant(s, inst),
             .interned => try w.writeInterned(s, inst),
             .assembly => try w.writeAssembly(s, inst),
             .dbg_stmt => try w.writeDbgStmt(s, inst),

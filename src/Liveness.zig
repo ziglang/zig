@@ -321,8 +321,9 @@ pub fn categorizeOperand(
 
         .arg,
         .alloc,
+        .inferred_alloc,
+        .inferred_alloc_comptime,
         .ret_ptr,
-        .constant,
         .interned,
         .trap,
         .breakpoint,
@@ -973,9 +974,7 @@ fn analyzeInst(
         .work_group_id,
         => return analyzeOperands(a, pass, data, inst, .{ .none, .none, .none }),
 
-        .constant,
-        .interned,
-        => unreachable,
+        .inferred_alloc, .inferred_alloc_comptime, .interned => unreachable,
 
         .trap,
         .unreach,
@@ -1269,10 +1268,7 @@ fn analyzeOperands(
                 const operand = Air.refToIndexAllowNone(op_ref) orelse continue;
 
                 // Don't compute any liveness for constants
-                switch (inst_tags[operand]) {
-                    .constant, .interned => continue,
-                    else => {},
-                }
+                if (inst_tags[operand] == .interned) continue;
 
                 _ = try data.live_set.put(gpa, operand, {});
             }
@@ -1305,10 +1301,7 @@ fn analyzeOperands(
                     const operand = Air.refToIndexAllowNone(op_ref) orelse continue;
 
                     // Don't compute any liveness for constants
-                    switch (inst_tags[operand]) {
-                        .constant, .interned => continue,
-                        else => {},
-                    }
+                    if (inst_tags[operand] == .interned) continue;
 
                     const mask = @as(Bpi, 1) << @intCast(OperandInt, i);
 
@@ -1839,10 +1832,7 @@ fn AnalyzeBigOperands(comptime pass: LivenessPass) type {
 
             // Don't compute any liveness for constants
             const inst_tags = big.a.air.instructions.items(.tag);
-            switch (inst_tags[operand]) {
-                .constant, .interned => return,
-                else => {},
-            }
+            if (inst_tags[operand] == .interned) return
 
             // If our result is unused and the instruction doesn't need to be lowered, backends will
             // skip the lowering of this instruction, so we don't want to record uses of operands.

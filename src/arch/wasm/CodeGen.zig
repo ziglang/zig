@@ -883,7 +883,7 @@ fn iterateBigTomb(func: *CodeGen, inst: Air.Inst.Index, operand_count: usize) !B
 
 fn processDeath(func: *CodeGen, ref: Air.Inst.Ref) void {
     const inst = Air.refToIndex(ref) orelse return;
-    if (func.air.instructions.items(.tag)[inst] == .constant) return;
+    assert(func.air.instructions.items(.tag)[inst] != .interned);
     // Branches are currently only allowed to free locals allocated
     // within their own branch.
     // TODO: Upon branch consolidation free any locals if needed.
@@ -1832,8 +1832,7 @@ fn buildPointerOffset(func: *CodeGen, ptr_value: WValue, offset: u64, action: en
 fn genInst(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     const air_tags = func.air.instructions.items(.tag);
     return switch (air_tags[inst]) {
-        .constant => unreachable,
-        .interned => unreachable,
+        .inferred_alloc, .inferred_alloc_comptime, .interned => unreachable,
 
         .add => func.airBinOp(inst, .add),
         .add_sat => func.airSatBinOp(inst, .add),

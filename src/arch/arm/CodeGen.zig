@@ -829,8 +829,7 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .ptr_elem_val        => try self.airPtrElemVal(inst),
             .ptr_elem_ptr        => try self.airPtrElemPtr(inst),
 
-            .constant => unreachable, // excluded from function bodies
-            .interned => unreachable, // excluded from function bodies
+            .inferred_alloc, .inferred_alloc_comptime, .interned => unreachable,
             .unreach  => self.finishAirBookkeeping(),
 
             .optional_payload           => try self.airOptionalPayload(inst),
@@ -903,8 +902,7 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
 
 /// Asserts there is already capacity to insert into top branch inst_table.
 fn processDeath(self: *Self, inst: Air.Inst.Index) void {
-    const air_tags = self.air.instructions.items(.tag);
-    if (air_tags[inst] == .constant) return; // Constants are immortal.
+    assert(self.air.instructions.items(.tag)[inst] != .interned);
     // When editing this function, note that the logic must synchronize with `reuseOperand`.
     const prev_value = self.getResolvedInstValue(inst);
     const branch = &self.branch_stack.items[self.branch_stack.items.len - 1];
@@ -6103,15 +6101,15 @@ fn resolveInst(self: *Self, inst: Air.Inst.Ref) InnerError!MCValue {
     });
 
     switch (self.air.instructions.items(.tag)[inst_index]) {
-        .constant => {
+        .interned => {
             // Constants have static lifetimes, so they are always memoized in the outer most table.
             const branch = &self.branch_stack.items[0];
             const gop = try branch.inst_table.getOrPut(self.gpa, inst_index);
             if (!gop.found_existing) {
-                const ty_pl = self.air.instructions.items(.data)[inst_index].ty_pl;
+                const interned = self.air.instructions.items(.data)[inst_index].interned;
                 gop.value_ptr.* = try self.genTypedValue(.{
                     .ty = inst_ty,
-                    .val = self.air.values[ty_pl.payload],
+                    .val = interned.toValue(),
                 });
             }
             return gop.value_ptr.*;

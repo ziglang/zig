@@ -764,14 +764,7 @@ pub const Decl = struct {
 
     pub fn typedValue(decl: Decl) error{AnalysisFail}!TypedValue {
         if (!decl.has_tv) return error.AnalysisFail;
-        return TypedValue{
-            .ty = decl.ty,
-            .val = decl.val,
-        };
-    }
-
-    pub fn value(decl: *Decl) error{AnalysisFail}!Value {
-        return (try decl.typedValue()).val;
+        return TypedValue{ .ty = decl.ty, .val = decl.val };
     }
 
     pub fn isFunction(decl: Decl, mod: *const Module) !bool {

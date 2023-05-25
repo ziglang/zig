@@ -515,10 +515,12 @@ pub const Key = union(enum) {
 
     pub const ErrorUnion = struct {
         ty: Index,
-        val: union(enum) {
+        val: Value,
+
+        pub const Value = union(enum) {
             err_name: NullTerminatedString,
             payload: Index,
-        },
+        };
     };
 
     pub const EnumTag = struct {
@@ -1068,7 +1070,7 @@ pub const Key = union(enum) {
                 .false, .true => .bool_type,
                 .empty_struct => .empty_struct_type,
                 .@"unreachable" => .noreturn_type,
-                .generic_poison => unreachable,
+                .generic_poison => .generic_poison_type,
             },
         };
     }
@@ -2671,6 +2673,10 @@ pub fn indexToKey(ip: InternPool, index: Index) Key {
         .only_possible_value => {
             const ty = @intToEnum(Index, data);
             return switch (ip.indexToKey(ty)) {
+                .array_type, .vector_type => .{ .aggregate = .{
+                    .ty = ty,
+                    .storage = .{ .elems = &.{} },
+                } },
                 // TODO: migrate structs to properly use the InternPool rather
                 // than using the SegmentedList trick, then the struct type will
                 // have a slice of comptime values that can be used here for when
@@ -3184,7 +3190,11 @@ pub fn get(ip: *InternPool, gpa: Allocator, key: Key) Allocator.Error!Index {
                             assert(!(try ip.map.getOrPutAdapted(gpa, key, adapter)).found_existing);
                             try ip.items.ensureUnusedCapacity(gpa, 1);
                             ip.items.appendAssumeCapacity(.{
-                                .tag = .ptr_elem,
+                                .tag = switch (ptr.addr) {
+                                    .elem => .ptr_elem,
+                                    .field => .ptr_field,
+                                    else => unreachable,
+                                },
                                 .data = try ip.addExtra(gpa, PtrBaseIndex{
                                     .ty = ptr.ty,
                                     .base = base_index.base,

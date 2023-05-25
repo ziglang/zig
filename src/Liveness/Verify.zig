@@ -41,8 +41,9 @@ fn verifyBody(self: *Verify, body: []const Air.Inst.Index) Error!void {
             // no operands
             .arg,
             .alloc,
+            .inferred_alloc,
+            .inferred_alloc_comptime,
             .ret_ptr,
-            .constant,
             .interned,
             .breakpoint,
             .dbg_stmt,
@@ -554,16 +555,18 @@ fn verifyDeath(self: *Verify, inst: Air.Inst.Index, operand: Air.Inst.Index) Err
 }
 
 fn verifyOperand(self: *Verify, inst: Air.Inst.Index, op_ref: Air.Inst.Ref, dies: bool) Error!void {
-    const operand = Air.refToIndexAllowNone(op_ref) orelse return;
-    switch (self.air.instructions.items(.tag)[operand]) {
-        .constant, .interned => {},
-        else => {
-            if (dies) {
-                if (!self.live.remove(operand)) return invalid("%{}: dead operand %{} reused and killed again", .{ inst, operand });
-            } else {
-                if (!self.live.contains(operand)) return invalid("%{}: dead operand %{} reused", .{ inst, operand });
-            }
-        },
+    const operand = Air.refToIndexAllowNone(op_ref) orelse {
+        assert(!dies);
+        return;
+    };
+    if (self.air.instructions.items(.tag)[operand] == .interned) {
+        assert(!dies);
+        return;
+    }
+    if (dies) {
+        if (!self.live.remove(operand)) return invalid("%{}: dead operand %{} reused and killed again", .{ inst, operand });
+    } else {
+        if (!self.live.contains(operand)) return invalid("%{}: dead operand %{} reused", .{ inst, operand });
     }
 }
 
@@ -576,16 +579,11 @@ fn verifyInst(
         const dies = self.liveness.operandDies(inst, @intCast(Liveness.OperandInt, operand_index));
         try self.verifyOperand(inst, operand, dies);
     }
-    const tag = self.air.instructions.items(.tag);
-    switch (tag[inst]) {
-        .constant, .interned => unreachable,
-        else => {
-            if (self.liveness.isUnused(inst)) {
-                assert(!self.live.contains(inst));
-            } else {
-                try self.live.putNoClobber(self.gpa, inst, {});
-            }
-        },
+    if (self.air.instructions.items(.tag)[inst] == .interned) return;
+    if (self.liveness.isUnused(inst)) {
+        assert(!self.live.contains(inst));
+    } else {
+        try self.live.putNoClobber(self.gpa, inst, {});
     }
 }
 

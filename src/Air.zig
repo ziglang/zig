@@ -186,6 +186,14 @@ pub const Inst = struct {
         /// Allocates stack local memory.
         /// Uses the `ty` field.
         alloc,
+        /// This is a special value that tracks a set of types that have been stored
+        /// to an inferred allocation. It does not support any of the normal value queries.
+        /// Uses the `ty_pl` field, payload is an index of `values` array.
+        inferred_alloc,
+        /// Used to coordinate alloc_inferred, store_to_inferred_ptr, and resolve_inferred_alloc
+        /// instructions for comptime code.
+        /// Uses the `ty_pl` field, payload is an index of `values` array.
+        inferred_alloc_comptime,
         /// If the function will pass the result by-ref, this instruction returns the
         /// result pointer. Otherwise it is equivalent to `alloc`.
         /// Uses the `ty` field.
@@ -397,9 +405,6 @@ pub const Inst = struct {
         /// was executed on the operand.
         /// Uses the `ty_pl` field. Payload is `TryPtr`.
         try_ptr,
-        /// A comptime-known value. Uses the `ty_pl` field, payload is index of
-        /// `values` array.
-        constant,
         /// A comptime-known value via an index into the InternPool.
         /// Uses the `interned` field.
         interned,
@@ -1265,7 +1270,6 @@ pub fn typeOfIndex(air: Air, inst: Air.Inst.Index, ip: InternPool) Type {
 
         .assembly,
         .block,
-        .constant,
         .struct_field_ptr,
         .struct_field_val,
         .slice_elem_ptr,
@@ -1283,6 +1287,8 @@ pub fn typeOfIndex(air: Air, inst: Air.Inst.Index, ip: InternPool) Type {
         .sub_with_overflow,
         .mul_with_overflow,
         .shl_with_overflow,
+        .inferred_alloc,
+        .inferred_alloc_comptime,
         .ptr_add,
         .ptr_sub,
         .try_ptr,
@@ -1495,7 +1501,6 @@ pub fn value(air: Air, inst: Inst.Ref, mod: *Module) !?Value {
     const inst_index = @intCast(Air.Inst.Index, ref_int - ref_start_index);
     const air_datas = air.instructions.items(.data);
     switch (air.instructions.items(.tag)[inst_index]) {
-        .constant => return air.values[air_datas[inst_index].ty_pl.payload],
         .interned => return air_datas[inst_index].interned.toValue(),
         else => return air.typeOfIndex(inst_index, mod.intern_pool).onePossibleValue(mod),
     }
@@ -1603,6 +1608,8 @@ pub fn mustLower(air: Air, inst: Air.Inst.Index, ip: InternPool) bool {
         .mul_with_overflow,
         .shl_with_overflow,
         .alloc,
+        .inferred_alloc,
+        .inferred_alloc_comptime,
         .ret_ptr,
         .bit_and,
         .bit_or,
@@ -1651,7 +1658,6 @@ pub fn mustLower(air: Air, inst: Air.Inst.Index, ip: InternPool) bool {
         .cmp_neq_optimized,
         .cmp_vector,
         .cmp_vector_optimized,
-        .constant,
         .interned,
         .is_null,
         .is_non_null,
