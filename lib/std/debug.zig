@@ -133,11 +133,20 @@ pub fn dumpCurrentStackTrace(start_addr: ?usize) void {
     }
 }
 
+pub const StackTraceContext = blk: {
+    if (native_os == .windows) {
+        break :blk @typeInfo(@TypeOf(os.windows.CONTEXT.getRegs)).Fn.return_type.?;
+    } else if (@hasDecl(os.system, "ucontext_t")) {
+        break :blk *const os.ucontext_t;
+    } else {
+        break :blk void;
+    }
+};
+
 /// Tries to print the stack trace starting from the supplied base pointer to stderr,
 /// unbuffered, and ignores any error returned.
-/// `context` is either *const os.ucontext_t on posix, or the result of CONTEXT.getRegs() on Windows.
 /// TODO multithreaded awareness
-pub fn dumpStackTraceFromBase(context: anytype) void {
+pub fn dumpStackTraceFromBase(context: StackTraceContext) void {
     nosuspend {
         if (comptime builtin.target.isWasm()) {
             if (native_os == .wasi) {
