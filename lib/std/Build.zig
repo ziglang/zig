@@ -759,7 +759,7 @@ pub fn dupePath(self: *Build, bytes: []const u8) []u8 {
 
 pub fn addWriteFile(self: *Build, file_path: []const u8, data: []const u8) *Step.WriteFile {
     const write_file_step = self.addWriteFiles();
-    write_file_step.add(file_path, data);
+    _ = write_file_step.add(file_path, data);
     return write_file_step;
 }
 
