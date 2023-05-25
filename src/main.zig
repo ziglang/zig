@@ -4229,7 +4229,7 @@ fn cmdTranslateC(comp: *Compilation, arena: Allocator, fancy_output: ?*Compilati
 
         const ext = Compilation.classifyFileExt(c_source_file.src_path);
         const out_dep_path: ?[]const u8 = blk: {
-            if (comp.disable_c_depfile or !ext.clangSupportsDepFile())
+            if (comp.c_frontend == .aro or comp.disable_c_depfile or !ext.clangSupportsDepFile())
                 break :blk null;
 
             const c_src_basename = fs.path.basename(c_source_file.src_path);
@@ -4238,7 +4238,8 @@ fn cmdTranslateC(comp: *Compilation, arena: Allocator, fancy_output: ?*Compilati
             break :blk out_dep_path;
         };
 
-        try comp.addTranslateCCArgs(arena, &argv, ext, out_dep_path);
+        // TODO
+        if (comp.c_frontend != .aro) try comp.addTranslateCCArgs(arena, &argv, ext, out_dep_path);
         try argv.append(c_source_file.src_path);
 
         if (comp.verbose_cc) {
@@ -4249,8 +4250,18 @@ fn cmdTranslateC(comp: *Compilation, arena: Allocator, fancy_output: ?*Compilati
             .aro => tree: {
                 if (builtin.zig_backend == .stage2_c) @panic("the CBE cannot compile Aro yet!");
                 const translate_c = @import("aro_translate_c.zig");
-                _ = translate_c;
-                break :tree undefined;
+                var aro_comp = translate_c.Compilation.init(comp.gpa);
+                defer aro_comp.deinit();
+
+                break :tree translate_c.translate(comp.gpa, &aro_comp, argv.items) catch |err| switch (err) {
+                    error.SemanticAnalyzeFail, error.FatalError => {
+                        // TODO convert these to zig errors
+                        aro_comp.renderErrors();
+                        process.exit(1);
+                    },
+                    error.OutOfMemory => return error.OutOfMemory,
+                    error.StreamTooLong => fatal("StreamTooLong?", .{}),
+                };
             },
             .clang => tree: {
                 if (!build_options.have_llvm) unreachable;

@@ -14,12 +14,12 @@ const Tag = Node.Tag;
 const CallingConvention = std.builtin.CallingConvention;
 
 pub const Error = std.mem.Allocator.Error;
-const MacroProcessingError = Error || error{UnexpectedMacroToken};
-const TypeError = Error || error{UnsupportedType};
-const TransError = TypeError || error{UnsupportedTranslation};
+pub const MacroProcessingError = Error || error{UnexpectedMacroToken};
+pub const TypeError = Error || error{UnsupportedType};
+pub const TransError = TypeError || error{UnsupportedTranslation};
 
-const SymbolTable = std.StringArrayHashMap(Node);
-const AliasList = std.ArrayList(struct {
+pub const SymbolTable = std.StringArrayHashMap(Node);
+pub const AliasList = std.ArrayList(struct {
     alias: []const u8,
     name: []const u8,
 });
@@ -1423,7 +1423,7 @@ fn transEnumDecl(c: *Context, scope: *Scope, enum_decl: *const clang.EnumDecl) E
     }
 }
 
-const ResultUsed = enum {
+pub const ResultUsed = enum {
     used,
     unused,
 };
@@ -5322,7 +5322,7 @@ pub fn failDecl(c: *Context, loc: clang.SourceLocation, name: []const u8, compti
     try c.global_scope.nodes.append(try Tag.warning.create(c.arena, location_comment));
 }
 
-const PatternList = struct {
+pub const PatternList = struct {
     patterns: []Pattern,
 
     /// Templates must be function-like macros
@@ -5455,7 +5455,7 @@ const PatternList = struct {
         /// macro. Please review this logic carefully if changing that assumption. Two
         /// function-like macros are considered equivalent if and only if they contain the same
         /// list of tokens, modulo parameter names.
-        fn isEquivalent(self: Pattern, ms: MacroSlicer, args_hash: ArgsPositionMap) bool {
+        pub fn isEquivalent(self: Pattern, ms: MacroSlicer, args_hash: ArgsPositionMap) bool {
             if (self.tokens.len != ms.tokens.len) return false;
             if (args_hash.count() != self.args_hash.count()) return false;
 
@@ -5496,7 +5496,7 @@ const PatternList = struct {
         }
     };
 
-    fn init(allocator: mem.Allocator) Error!PatternList {
+    pub fn init(allocator: mem.Allocator) Error!PatternList {
         const patterns = try allocator.alloc(Pattern, templates.len);
         for (templates, 0..) |template, i| {
             try patterns[i].init(allocator, template);
@@ -5504,12 +5504,12 @@ const PatternList = struct {
         return PatternList{ .patterns = patterns };
     }
 
-    fn deinit(self: *PatternList, allocator: mem.Allocator) void {
+    pub fn deinit(self: *PatternList, allocator: mem.Allocator) void {
         for (self.patterns) |*pattern| pattern.deinit(allocator);
         allocator.free(self.patterns);
     }
 
-    fn match(self: PatternList, allocator: mem.Allocator, ms: MacroSlicer) Error!?Pattern {
+    pub fn match(self: PatternList, allocator: mem.Allocator, ms: MacroSlicer) Error!?Pattern {
         var args_hash: ArgsPositionMap = .{};
         defer args_hash.deinit(allocator);
 
