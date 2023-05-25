@@ -103,10 +103,26 @@ pub fn print(
                 return writer.writeAll(" }");
             },
             .bytes => return writer.print("\"{}\"", .{std.zig.fmtEscapes(val.castTag(.bytes).?.data)}),
-            .str_lit => {
-                const str_lit = val.castTag(.str_lit).?.data;
-                const bytes = mod.string_literal_bytes.items[str_lit.index..][0..str_lit.len];
-                return writer.print("\"{}\"", .{std.zig.fmtEscapes(bytes)});
+            .repeated => {
+                if (level == 0) {
+                    return writer.writeAll(".{ ... }");
+                }
+                var i: u32 = 0;
+                try writer.writeAll(".{ ");
+                const elem_tv = TypedValue{
+                    .ty = ty.elemType2(mod),
+                    .val = val.castTag(.repeated).?.data,
+                };
+                const len = ty.arrayLen(mod);
+                const max_len = std.math.min(len, max_aggregate_items);
+                while (i < max_len) : (i += 1) {
+                    if (i != 0) try writer.writeAll(", ");
+                    try print(elem_tv, writer, level - 1, mod);
+                }
+                if (len > max_aggregate_items) {
+                    try writer.writeAll(", ...");
+                }
+                return writer.writeAll(" }");
             },
             // TODO these should not appear in this function
             .inferred_alloc => return writer.writeAll("(inferred allocation value)"),

@@ -846,7 +846,6 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .ptr_elem_ptr        => try self.airPtrElemPtr(inst),
 
             .constant => unreachable, // excluded from function bodies
-            .const_ty => unreachable, // excluded from function bodies
             .interned => unreachable, // excluded from function bodies
             .unreach  => self.finishAirBookkeeping(),
 
@@ -6169,7 +6168,6 @@ fn resolveInst(self: *Self, inst: Air.Inst.Ref) InnerError!MCValue {
             }
             return gop.value_ptr.*;
         },
-        .const_ty => unreachable,
         else => return self.getResolvedInstValue(inst_index),
     }
 }

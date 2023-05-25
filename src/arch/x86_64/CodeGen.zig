@@ -1923,7 +1923,6 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .ptr_elem_ptr        => try self.airPtrElemPtr(inst),
 
             .constant => unreachable, // excluded from function bodies
-            .const_ty => unreachable, // excluded from function bodies
             .interned => unreachable, // excluded from function bodies
             .unreach  => if (self.wantSafety()) try self.airTrap() else self.finishAirBookkeeping(),
 
@@ -2099,7 +2098,7 @@ fn feed(self: *Self, bt: *Liveness.BigTomb, operand: Air.Inst.Ref) void {
 /// Asserts there is already capacity to insert into top branch inst_table.
 fn processDeath(self: *Self, inst: Air.Inst.Index) void {
     switch (self.air.instructions.items(.tag)[inst]) {
-        .constant, .const_ty => unreachable,
+        .constant => unreachable,
         else => self.inst_tracking.getPtr(inst).?.die(self, inst),
     }
 }
@@ -11593,7 +11592,6 @@ fn resolveInst(self: *Self, ref: Air.Inst.Ref) InnerError!MCValue {
                 }));
                 break :tracking gop.value_ptr;
             },
-            .const_ty => unreachable,
             else => self.inst_tracking.getPtr(inst).?,
         }.short;
         switch (mcv) {
@@ -11608,7 +11606,6 @@ fn resolveInst(self: *Self, ref: Air.Inst.Ref) InnerError!MCValue {
 fn getResolvedInstValue(self: *Self, inst: Air.Inst.Index) *InstTracking {
     const tracking = switch (self.air.instructions.items(.tag)[inst]) {
         .constant => &self.const_tracking,
-        .const_ty => unreachable,
         else => &self.inst_tracking,
     }.getPtr(inst).?;
     return switch (tracking.short) {
