@@ -1961,12 +1961,31 @@ pub const Value = struct {
         mod: *Module,
     ) Allocator.Error!Value {
         const elem_ty = ty.elemType2(mod);
+        const ptr_ty_key = mod.intern_pool.indexToKey(ty.toIntern()).ptr_type;
+        assert(ptr_ty_key.host_size == 0);
+        assert(ptr_ty_key.bit_offset == 0);
+        assert(ptr_ty_key.vector_index == .none);
+        const elem_alignment = InternPool.Alignment.fromByteUnits(elem_ty.abiAlignment(mod));
+        const alignment = switch (ptr_ty_key.alignment) {
+            .none => .none,
+            else => ptr_ty_key.alignment.min(
+                @intToEnum(InternPool.Alignment, @ctz(index * elem_ty.abiSize(mod))),
+            ),
+        };
+        const ptr_ty = try mod.ptrType(.{
+            .elem_type = elem_ty.toIntern(),
+            .alignment = if (alignment == elem_alignment) .none else alignment,
+            .is_const = ptr_ty_key.is_const,
+            .is_volatile = ptr_ty_key.is_volatile,
+            .is_allowzero = ptr_ty_key.is_allowzero,
+            .address_space = ptr_ty_key.address_space,
+        });
         const ptr_val = switch (mod.intern_pool.indexToKey(val.toIntern())) {
             .ptr => |ptr| ptr: {
                 switch (ptr.addr) {
                     .elem => |elem| if (mod.intern_pool.typeOf(elem.base).toType().elemType2(mod).eql(elem_ty, mod))
                         return (try mod.intern(.{ .ptr = .{
-                            .ty = ty.toIntern(),
+                            .ty = ptr_ty.toIntern(),
                             .addr = .{ .elem = .{
                                 .base = elem.base,
                                 .index = elem.index + index,
@@ -1982,7 +2001,7 @@ pub const Value = struct {
             else => val,
         };
         return (try mod.intern(.{ .ptr = .{
-            .ty = ty.toIntern(),
+            .ty = ptr_ty.toIntern(),
             .addr = .{ .elem = .{
                 .base = ptr_val.toIntern(),
                 .index = index,

@@ -730,21 +730,11 @@ pub const Key = union(enum) {
 
                 switch (aggregate.storage) {
                     .bytes => unreachable,
-                    .elems => |elems| {
-                        var buffer: Key.Int.Storage.BigIntSpace = undefined;
-                        for (elems) |elem| std.hash.autoHash(
-                            hasher,
-                            ip.indexToKey(elem).int.storage.toBigInt(&buffer).to(u8) catch
-                                unreachable,
-                        );
-                    },
+                    .elems => |elems| for (elems) |elem| std.hash.autoHash(hasher, elem),
                     .repeated_elem => |elem| {
                         const len = ip.aggregateTypeLen(aggregate.ty);
-                        var buffer: Key.Int.Storage.BigIntSpace = undefined;
-                        const byte = ip.indexToKey(elem).int.storage.toBigInt(&buffer).to(u8) catch
-                            unreachable;
                         var i: u64 = 0;
-                        while (i < len) : (i += 1) std.hash.autoHash(hasher, byte);
+                        while (i < len) : (i += 1) std.hash.autoHash(hasher, elem);
                     },
                 }
             },
@@ -2043,6 +2033,10 @@ pub const Alignment = enum(u6) {
     pub fn fromNonzeroByteUnits(n: u64) Alignment {
         assert(n != 0);
         return fromByteUnits(n);
+    }
+
+    pub fn min(a: Alignment, b: Alignment) Alignment {
+        return @intToEnum(Alignment, @min(@enumToInt(a), @enumToInt(b)));
     }
 };
 
@@ -3514,16 +3508,35 @@ pub fn get(ip: *InternPool, gpa: Allocator, key: Key) Allocator.Error!Index {
             const ty_key = ip.indexToKey(aggregate.ty);
             const aggregate_len = ip.aggregateTypeLen(aggregate.ty);
             switch (aggregate.storage) {
-                .bytes => {
+                .bytes => |bytes| {
                     assert(ty_key.array_type.child == .u8_type);
+                    assert(bytes.len == aggregate_len);
                 },
                 .elems => |elems| {
                     assert(elems.len == aggregate_len);
-                    for (elems) |elem| assert(elem != .none);
                 },
-                .repeated_elem => |elem| {
-                    assert(elem != .none);
+                .repeated_elem => {},
+            }
+            switch (ty_key) {
+                inline .array_type, .vector_type => |seq_type| {
+                    for (aggregate.storage.values()) |elem| {
+                        assert(ip.typeOf(elem) == seq_type.child);
+                    }
                 },
+                .struct_type => |struct_type| {
+                    for (
+                        aggregate.storage.values(),
+                        ip.structPtrUnwrapConst(struct_type.index).?.fields.values(),
+                    ) |elem, field| {
+                        assert(ip.typeOf(elem) == field.ty.toIntern());
+                    }
+                },
+                .anon_struct_type => |anon_struct_type| {
+                    for (aggregate.storage.values(), anon_struct_type.types) |elem, ty| {
+                        assert(ip.typeOf(elem) == ty);
+                    }
+                },
+                else => unreachable,
             }
 
             if (aggregate_len == 0) {
