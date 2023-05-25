@@ -7030,7 +7030,7 @@ pub const FuncGen = struct {
         const operand = try self.resolveInst(extra.rhs);
 
         const loaded_vector = blk: {
-            const elem_llvm_ty = try self.dg.lowerType(vector_ptr_ty.elemType2());
+            const elem_llvm_ty = try self.dg.lowerType(vector_ptr_ty.childType());
             const load_inst = self.builder.buildLoad(elem_llvm_ty, vector_ptr, "");
             const target = self.dg.module.getTarget();
             load_inst.setAlignment(vector_ptr_ty.ptrAlignment(target));
