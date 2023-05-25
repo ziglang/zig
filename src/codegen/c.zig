@@ -870,7 +870,7 @@ pub const DeclGen = struct {
                 }
 
                 // First try specific tag representations for more efficiency.
-                switch (val.ip_index) {
+                switch (val.toIntern()) {
                     .undef => {
                         const ai = ty.arrayInfo(mod);
                         try writer.writeByte('{');
@@ -892,24 +892,6 @@ pub const DeclGen = struct {
                         }
                         try writer.writeByte('}');
                         return;
-                    },
-                    .none => switch (val.tag()) {
-                        .bytes, .str_lit => |t| {
-                            const bytes = switch (t) {
-                                .bytes => val.castTag(.bytes).?.data,
-                                .str_lit => bytes: {
-                                    const str_lit = val.castTag(.str_lit).?.data;
-                                    break :bytes mod.string_literal_bytes.items[str_lit.index..][0..str_lit.len];
-                                },
-                                else => unreachable,
-                            };
-                            const sentinel = if (ty.sentinel(mod)) |sentinel| @intCast(u8, sentinel.toUnsignedInt(mod)) else null;
-                            try writer.print("{s}", .{
-                                fmtStringLiteral(bytes[0..@intCast(usize, ty.arrayLen(mod))], sentinel),
-                            });
-                            return;
-                        },
-                        else => {},
                     },
                     else => {},
                 }
@@ -2909,7 +2891,6 @@ fn genBodyInner(f: *Function, body: []const Air.Inst.Index) error{ AnalysisFail,
         const result_value = switch (air_tags[inst]) {
             // zig fmt: off
             .constant => unreachable, // excluded from function bodies
-            .const_ty => unreachable, // excluded from function bodies
             .interned => unreachable, // excluded from function bodies
 
             .arg      => try airArg(f, inst),

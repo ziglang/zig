@@ -553,10 +553,10 @@ pub const Key = union(enum) {
         pub const Addr = union(enum) {
             decl: Module.Decl.Index,
             mut_decl: MutDecl,
+            comptime_field: Index,
             int: Index,
             eu_payload: Index,
             opt_payload: Index,
-            comptime_field: Index,
             elem: BaseIndex,
             field: BaseIndex,
 
@@ -703,24 +703,27 @@ pub const Key = union(enum) {
             .aggregate => |aggregate| {
                 std.hash.autoHash(hasher, aggregate.ty);
                 switch (ip.indexToKey(aggregate.ty)) {
-                    .array_type => |array_type| if (array_type.child == .u8_type) switch (aggregate.storage) {
-                        .bytes => |bytes| for (bytes) |byte| std.hash.autoHash(hasher, byte),
-                        .elems => |elems| {
-                            var buffer: Key.Int.Storage.BigIntSpace = undefined;
-                            for (elems) |elem| std.hash.autoHash(
-                                hasher,
-                                ip.indexToKey(elem).int.storage.toBigInt(&buffer).to(u8) catch
-                                    unreachable,
-                            );
-                        },
-                        .repeated_elem => |elem| {
-                            const len = ip.aggregateTypeLen(aggregate.ty);
-                            var buffer: Key.Int.Storage.BigIntSpace = undefined;
-                            const byte = ip.indexToKey(elem).int.storage.toBigInt(&buffer).to(u8) catch
-                                unreachable;
-                            var i: u64 = 0;
-                            while (i < len) : (i += 1) std.hash.autoHash(hasher, byte);
-                        },
+                    .array_type => |array_type| if (array_type.child == .u8_type) {
+                        switch (aggregate.storage) {
+                            .bytes => |bytes| for (bytes) |byte| std.hash.autoHash(hasher, byte),
+                            .elems => |elems| {
+                                var buffer: Key.Int.Storage.BigIntSpace = undefined;
+                                for (elems) |elem| std.hash.autoHash(
+                                    hasher,
+                                    ip.indexToKey(elem).int.storage.toBigInt(&buffer).to(u8) catch
+                                        unreachable,
+                                );
+                            },
+                            .repeated_elem => |elem| {
+                                const len = ip.aggregateTypeLen(aggregate.ty);
+                                var buffer: Key.Int.Storage.BigIntSpace = undefined;
+                                const byte = ip.indexToKey(elem).int.storage.toBigInt(&buffer).to(u8) catch
+                                    unreachable;
+                                var i: u64 = 0;
+                                while (i < len) : (i += 1) std.hash.autoHash(hasher, byte);
+                            },
+                        }
+                        return;
                     },
                     else => {},
                 }
@@ -2860,6 +2863,7 @@ pub fn get(ip: *InternPool, gpa: Allocator, key: Key) Allocator.Error!Index {
         },
         .array_type => |array_type| {
             assert(array_type.child != .none);
+            assert(array_type.sentinel == .none or ip.typeOf(array_type.sentinel) == array_type.child);
 
             if (std.math.cast(u32, array_type.len)) |len| {
                 if (array_type.sentinel == .none) {
@@ -3230,7 +3234,23 @@ pub fn get(ip: *InternPool, gpa: Allocator, key: Key) Allocator.Error!Index {
         },
 
         .int => |int| b: {
-            assert(int.ty == .comptime_int_type or ip.indexToKey(int.ty) == .int_type);
+            switch (int.ty) {
+                .usize_type,
+                .isize_type,
+                .c_char_type,
+                .c_short_type,
+                .c_ushort_type,
+                .c_int_type,
+                .c_uint_type,
+                .c_long_type,
+                .c_ulong_type,
+                .c_longlong_type,
+                .c_ulonglong_type,
+                .c_longdouble_type,
+                .comptime_int_type,
+                => {},
+                else => assert(ip.indexToKey(int.ty) == .int_type),
+            }
             switch (int.storage) {
                 .u64, .i64, .big_int => {},
                 .lazy_align, .lazy_size => |lazy_ty| {

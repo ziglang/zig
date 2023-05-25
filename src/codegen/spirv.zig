@@ -616,7 +616,7 @@ pub const DeclGen = struct {
             const mod = dg.module;
 
             var val = arg_val;
-            switch (mod.intern_pool.indexToKey(val.ip_index)) {
+            switch (mod.intern_pool.indexToKey(val.toIntern())) {
                 .runtime_value => |rt| val = rt.val.toValue(),
                 else => {},
             }
@@ -626,75 +626,7 @@ pub const DeclGen = struct {
                 return try self.addUndef(size);
             }
 
-            if (val.ip_index == .none) switch (ty.zigTypeTag(mod)) {
-                .Array => switch (val.tag()) {
-                    .str_lit => {
-                        const str_lit = val.castTag(.str_lit).?.data;
-                        const bytes = dg.module.string_literal_bytes.items[str_lit.index..][0..str_lit.len];
-                        try self.addBytes(bytes);
-                        if (ty.sentinel(mod)) |sentinel| {
-                            try self.addByte(@intCast(u8, sentinel.toUnsignedInt(mod)));
-                        }
-                    },
-                    .bytes => {
-                        const bytes = val.castTag(.bytes).?.data;
-                        try self.addBytes(bytes);
-                    },
-                    else => |tag| return dg.todo("indirect array constant with tag {s}", .{@tagName(tag)}),
-                },
-                .Struct => {
-                    if (ty.isSimpleTupleOrAnonStruct(mod)) {
-                        unreachable; // TODO
-                    } else {
-                        const struct_ty = mod.typeToStruct(ty).?;
-
-                        if (struct_ty.layout == .Packed) {
-                            return dg.todo("packed struct constants", .{});
-                        }
-
-                        const struct_begin = self.size;
-                        const field_vals = val.castTag(.aggregate).?.data;
-                        for (struct_ty.fields.values(), 0..) |field, i| {
-                            if (field.is_comptime or !field.ty.hasRuntimeBits(mod)) continue;
-                            try self.lower(field.ty, field_vals[i]);
-
-                            // Add padding if required.
-                            // TODO: Add to type generation as well?
-                            const unpadded_field_end = self.size - struct_begin;
-                            const padded_field_end = ty.structFieldOffset(i + 1, mod);
-                            const padding = padded_field_end - unpadded_field_end;
-                            try self.addUndef(padding);
-                        }
-                    }
-                },
-                .Vector,
-                .Frame,
-                .AnyFrame,
-                => return dg.todo("indirect constant of type {}", .{ty.fmt(mod)}),
-                .Float,
-                .Union,
-                .Optional,
-                .ErrorUnion,
-                .ErrorSet,
-                .Int,
-                .Enum,
-                .Bool,
-                .Pointer,
-                => unreachable, // handled below
-                .Type,
-                .Void,
-                .NoReturn,
-                .ComptimeFloat,
-                .ComptimeInt,
-                .Undefined,
-                .Null,
-                .Opaque,
-                .EnumLiteral,
-                .Fn,
-                => unreachable, // comptime-only types
-            };
-
-            switch (mod.intern_pool.indexToKey(val.ip_index)) {
+            switch (mod.intern_pool.indexToKey(val.toIntern())) {
                 .int_type,
                 .ptr_type,
                 .array_type,
@@ -1876,7 +1808,6 @@ pub const DeclGen = struct {
             .breakpoint     => return,
             .cond_br        => return self.airCondBr(inst),
             .constant       => unreachable,
-            .const_ty       => unreachable,
             .dbg_stmt       => return self.airDbgStmt(inst),
             .loop           => return self.airLoop(inst),
             .ret            => return self.airRet(inst),

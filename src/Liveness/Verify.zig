@@ -43,7 +43,6 @@ fn verifyBody(self: *Verify, body: []const Air.Inst.Index) Error!void {
             .alloc,
             .ret_ptr,
             .constant,
-            .const_ty,
             .interned,
             .breakpoint,
             .dbg_stmt,
@@ -557,7 +556,7 @@ fn verifyDeath(self: *Verify, inst: Air.Inst.Index, operand: Air.Inst.Index) Err
 fn verifyOperand(self: *Verify, inst: Air.Inst.Index, op_ref: Air.Inst.Ref, dies: bool) Error!void {
     const operand = Air.refToIndexAllowNone(op_ref) orelse return;
     switch (self.air.instructions.items(.tag)[operand]) {
-        .constant, .const_ty, .interned => {},
+        .constant, .interned => {},
         else => {
             if (dies) {
                 if (!self.live.remove(operand)) return invalid("%{}: dead operand %{} reused and killed again", .{ inst, operand });
@@ -579,7 +578,7 @@ fn verifyInst(
     }
     const tag = self.air.instructions.items(.tag);
     switch (tag[inst]) {
-        .constant, .const_ty, .interned => unreachable,
+        .constant, .interned => unreachable,
         else => {
             if (self.liveness.isUnused(inst)) {
                 assert(!self.live.contains(inst));

@@ -37,8 +37,9 @@ pub const Value = struct {
 
         /// A slice of u8 whose memory is managed externally.
         bytes,
-        /// Similar to bytes however it stores an index relative to `Module.string_literal_bytes`.
-        str_lit,
+        /// This value is repeated some number of times. The amount of times to repeat
+        /// is stored externally.
+        repeated,
         /// An instance of a struct, array, or vector.
         /// Each element/field stored as a `Value`.
         /// In the case of sentinel-terminated arrays, the sentinel value *is* stored,
@@ -57,9 +58,9 @@ pub const Value = struct {
 
         pub fn Type(comptime t: Tag) type {
             return switch (t) {
-                .bytes => Payload.Bytes,
+                .repeated => Payload.SubValue,
 
-                .str_lit => Payload.StrLit,
+                .bytes => Payload.Bytes,
 
                 .inferred_alloc => Payload.InferredAlloc,
                 .inferred_alloc_comptime => Payload.InferredAllocComptime,
@@ -171,7 +172,18 @@ pub const Value = struct {
                     .legacy = .{ .ptr_otherwise = &new_payload.base },
                 };
             },
-            .str_lit => return self.copyPayloadShallow(arena, Payload.StrLit),
+            .repeated => {
+                const payload = self.cast(Payload.SubValue).?;
+                const new_payload = try arena.create(Payload.SubValue);
+                new_payload.* = .{
+                    .base = payload.base,
+                    .data = try payload.data.copy(arena),
+                };
+                return Value{
+                    .ip_index = .none,
+                    .legacy = .{ .ptr_otherwise = &new_payload.base },
+                };
+            },
             .aggregate => {
                 const payload = self.castTag(.aggregate).?;
                 const new_payload = try arena.create(Payload.Aggregate);
@@ -187,7 +199,6 @@ pub const Value = struct {
                     .legacy = .{ .ptr_otherwise = &new_payload.base },
                 };
             },
-
             .@"union" => {
                 const tag_and_val = self.castTag(.@"union").?.data;
                 const new_payload = try arena.create(Payload.Union);
@@ -203,7 +214,6 @@ pub const Value = struct {
                     .legacy = .{ .ptr_otherwise = &new_payload.base },
                 };
             },
-
             .inferred_alloc => unreachable,
             .inferred_alloc_comptime => unreachable,
         }
@@ -237,7 +247,7 @@ pub const Value = struct {
     ) !void {
         comptime assert(fmt.len == 0);
         if (start_val.ip_index != .none) {
-            try out_stream.print("(interned: {})", .{start_val.ip_index});
+            try out_stream.print("(interned: {})", .{start_val.toIntern()});
             return;
         }
         var val = start_val;
@@ -249,11 +259,9 @@ pub const Value = struct {
                 return out_stream.writeAll("(union value)");
             },
             .bytes => return out_stream.print("\"{}\"", .{std.zig.fmtEscapes(val.castTag(.bytes).?.data)}),
-            .str_lit => {
-                const str_lit = val.castTag(.str_lit).?.data;
-                return out_stream.print("(.str_lit index={d} len={d})", .{
-                    str_lit.index, str_lit.len,
-                });
+            .repeated => {
+                try out_stream.writeAll("(repeated) ");
+                val = val.castTag(.repeated).?.data;
             },
             .inferred_alloc => return out_stream.writeAll("(inferred allocation value)"),
             .inferred_alloc_comptime => return out_stream.writeAll("(inferred comptime allocation value)"),
@@ -274,40 +282,24 @@ pub const Value = struct {
     /// Asserts that the value is representable as an array of bytes.
     /// Copies the value into a freshly allocated slice of memory, which is owned by the caller.
     pub fn toAllocatedBytes(val: Value, ty: Type, allocator: Allocator, mod: *Module) ![]u8 {
-        switch (val.ip_index) {
-            .none => switch (val.tag()) {
-                .bytes => {
-                    const bytes = val.castTag(.bytes).?.data;
-                    const adjusted_len = bytes.len - @boolToInt(ty.sentinel(mod) != null);
-                    const adjusted_bytes = bytes[0..adjusted_len];
-                    return allocator.dupe(u8, adjusted_bytes);
-                },
-                .str_lit => {
-                    const str_lit = val.castTag(.str_lit).?.data;
-                    const bytes = mod.string_literal_bytes.items[str_lit.index..][0..str_lit.len];
-                    return allocator.dupe(u8, bytes);
-                },
-                else => return arrayToAllocatedBytes(val, ty.arrayLen(mod), allocator, mod),
+        return switch (mod.intern_pool.indexToKey(val.toIntern())) {
+            .enum_literal => |enum_literal| allocator.dupe(u8, mod.intern_pool.stringToSlice(enum_literal)),
+            .ptr => |ptr| switch (ptr.len) {
+                .none => unreachable,
+                else => arrayToAllocatedBytes(val, ptr.len.toValue().toUnsignedInt(mod), allocator, mod),
             },
-            else => return switch (mod.intern_pool.indexToKey(val.ip_index)) {
-                .enum_literal => |enum_literal| allocator.dupe(u8, mod.intern_pool.stringToSlice(enum_literal)),
-                .ptr => |ptr| switch (ptr.len) {
-                    .none => unreachable,
-                    else => arrayToAllocatedBytes(val, ptr.len.toValue().toUnsignedInt(mod), allocator, mod),
+            .aggregate => |aggregate| switch (aggregate.storage) {
+                .bytes => |bytes| try allocator.dupe(u8, bytes),
+                .elems => arrayToAllocatedBytes(val, ty.arrayLen(mod), allocator, mod),
+                .repeated_elem => |elem| {
+                    const byte = @intCast(u8, elem.toValue().toUnsignedInt(mod));
+                    const result = try allocator.alloc(u8, @intCast(usize, ty.arrayLen(mod)));
+                    @memset(result, byte);
+                    return result;
                 },
-                .aggregate => |aggregate| switch (aggregate.storage) {
-                    .bytes => |bytes| try allocator.dupe(u8, bytes),
-                    .elems => arrayToAllocatedBytes(val, ty.arrayLen(mod), allocator, mod),
-                    .repeated_elem => |elem| {
-                        const byte = @intCast(u8, elem.toValue().toUnsignedInt(mod));
-                        const result = try allocator.alloc(u8, @intCast(usize, ty.arrayLen(mod)));
-                        @memset(result, byte);
-                        return result;
-                    },
-                },
-                else => unreachable,
             },
-        }
+            else => unreachable,
+        };
     }
 
     fn arrayToAllocatedBytes(val: Value, len: u64, allocator: Allocator, mod: *Module) ![]u8 {
@@ -320,13 +312,13 @@ pub const Value = struct {
     }
 
     pub fn intern(val: Value, ty: Type, mod: *Module) Allocator.Error!InternPool.Index {
-        if (val.ip_index != .none) return mod.intern_pool.getCoerced(mod.gpa, val.ip_index, ty.ip_index);
+        if (val.ip_index != .none) return mod.intern_pool.getCoerced(mod.gpa, val.toIntern(), ty.toIntern());
         switch (val.tag()) {
             .aggregate => {
                 const old_elems = val.castTag(.aggregate).?.data;
                 const new_elems = try mod.gpa.alloc(InternPool.Index, old_elems.len);
                 defer mod.gpa.free(new_elems);
-                const ty_key = mod.intern_pool.indexToKey(ty.ip_index);
+                const ty_key = mod.intern_pool.indexToKey(ty.toIntern());
                 for (new_elems, old_elems, 0..) |*new_elem, old_elem, field_i|
                     new_elem.* = try old_elem.intern(switch (ty_key) {
                         .struct_type => ty.structFieldType(field_i, mod),
@@ -335,14 +327,14 @@ pub const Value = struct {
                         else => unreachable,
                     }, mod);
                 return mod.intern(.{ .aggregate = .{
-                    .ty = ty.ip_index,
+                    .ty = ty.toIntern(),
                     .storage = .{ .elems = new_elems },
                 } });
             },
             .@"union" => {
                 const pl = val.castTag(.@"union").?.data;
                 return mod.intern(.{ .un = .{
-                    .ty = ty.ip_index,
+                    .ty = ty.toIntern(),
                     .tag = try pl.tag.intern(ty.unionTagTypeHypothetical(mod), mod),
                     .val = try pl.val.intern(ty.unionFieldType(pl.tag, mod), mod),
                 } });
@@ -353,13 +345,15 @@ pub const Value = struct {
 
     pub fn unintern(val: Value, arena: Allocator, mod: *Module) Allocator.Error!Value {
         if (val.ip_index == .none) return val;
-        switch (mod.intern_pool.indexToKey(val.ip_index)) {
+        switch (mod.intern_pool.indexToKey(val.toIntern())) {
             .aggregate => |aggregate| switch (aggregate.storage) {
+                .bytes => |bytes| return Tag.bytes.create(arena, try arena.dupe(u8, bytes)),
                 .elems => |old_elems| {
                     const new_elems = try arena.alloc(Value, old_elems.len);
                     for (new_elems, old_elems) |*new_elem, old_elem| new_elem.* = old_elem.toValue();
                     return Tag.aggregate.create(arena, new_elems);
                 },
+                .repeated_elem => |elem| return Tag.repeated.create(arena, elem.toValue()),
             },
             else => return val,
         }
@@ -372,40 +366,38 @@ pub const Value = struct {
 
     /// Asserts that the value is representable as a type.
     pub fn toType(self: Value) Type {
-        return self.ip_index.toType();
+        return self.toIntern().toType();
     }
 
     pub fn enumToInt(val: Value, ty: Type, mod: *Module) Allocator.Error!Value {
         const ip = &mod.intern_pool;
-        switch (val.ip_index) {
-            else => return switch (ip.indexToKey(ip.typeOf(val.ip_index))) {
-                // Assume it is already an integer and return it directly.
-                .simple_type, .int_type => val,
-                .enum_literal => |enum_literal| {
-                    const field_index = ty.enumFieldIndex(ip.stringToSlice(enum_literal), mod).?;
-                    return switch (ip.indexToKey(ty.ip_index)) {
-                        // Assume it is already an integer and return it directly.
-                        .simple_type, .int_type => val,
-                        .enum_type => |enum_type| if (enum_type.values.len != 0)
-                            enum_type.values[field_index].toValue()
-                        else // Field index and integer values are the same.
-                            mod.intValue(enum_type.tag_ty.toType(), field_index),
-                        else => unreachable,
-                    };
-                },
-                .enum_type => |enum_type| (try ip.getCoerced(
-                    mod.gpa,
-                    val.ip_index,
-                    enum_type.tag_ty,
-                )).toValue(),
-                else => unreachable,
+        return switch (ip.indexToKey(ip.typeOf(val.toIntern()))) {
+            // Assume it is already an integer and return it directly.
+            .simple_type, .int_type => val,
+            .enum_literal => |enum_literal| {
+                const field_index = ty.enumFieldIndex(ip.stringToSlice(enum_literal), mod).?;
+                return switch (ip.indexToKey(ty.toIntern())) {
+                    // Assume it is already an integer and return it directly.
+                    .simple_type, .int_type => val,
+                    .enum_type => |enum_type| if (enum_type.values.len != 0)
+                        enum_type.values[field_index].toValue()
+                    else // Field index and integer values are the same.
+                        mod.intValue(enum_type.tag_ty.toType(), field_index),
+                    else => unreachable,
+                };
             },
-        }
+            .enum_type => |enum_type| (try ip.getCoerced(
+                mod.gpa,
+                val.toIntern(),
+                enum_type.tag_ty,
+            )).toValue(),
+            else => unreachable,
+        };
     }
 
     pub fn tagName(val: Value, mod: *Module) []const u8 {
         const ip = &mod.intern_pool;
-        const enum_tag = switch (ip.indexToKey(val.ip_index)) {
+        const enum_tag = switch (ip.indexToKey(val.toIntern())) {
             .un => |un| ip.indexToKey(un.tag).enum_tag,
             .enum_tag => |x| x,
             .enum_literal => |name| return ip.stringToSlice(name),
@@ -413,7 +405,7 @@ pub const Value = struct {
         };
         const enum_type = ip.indexToKey(enum_tag.ty).enum_type;
         const field_index = field_index: {
-            const field_index = enum_type.tagValueIndex(ip, val.ip_index).?;
+            const field_index = enum_type.tagValueIndex(ip, val.toIntern()).?;
             break :field_index @intCast(u32, field_index);
         };
         const field_name = enum_type.names[field_index];
@@ -432,12 +424,12 @@ pub const Value = struct {
         mod: *Module,
         opt_sema: ?*Sema,
     ) Module.CompileError!BigIntConst {
-        return switch (val.ip_index) {
+        return switch (val.toIntern()) {
             .bool_false => BigIntMutable.init(&space.limbs, 0).toConst(),
             .bool_true => BigIntMutable.init(&space.limbs, 1).toConst(),
             .undef => unreachable,
             .null_value => BigIntMutable.init(&space.limbs, 0).toConst(),
-            else => switch (mod.intern_pool.indexToKey(val.ip_index)) {
+            else => switch (mod.intern_pool.indexToKey(val.toIntern())) {
                 .runtime_value => |runtime_value| runtime_value.val.toValue().toBigIntAdvanced(space, mod, opt_sema),
                 .int => |int| switch (int.storage) {
                     .u64, .i64, .big_int => int.storage.toBigInt(space),
@@ -475,18 +467,18 @@ pub const Value = struct {
     }
 
     pub fn getFunctionIndex(val: Value, mod: *Module) Module.Fn.OptionalIndex {
-        return if (val.ip_index != .none) mod.intern_pool.indexToFunc(val.ip_index) else .none;
+        return if (val.ip_index != .none) mod.intern_pool.indexToFunc(val.toIntern()) else .none;
     }
 
     pub fn getExternFunc(val: Value, mod: *Module) ?InternPool.Key.ExternFunc {
-        return if (val.ip_index != .none) switch (mod.intern_pool.indexToKey(val.ip_index)) {
+        return if (val.ip_index != .none) switch (mod.intern_pool.indexToKey(val.toIntern())) {
             .extern_func => |extern_func| extern_func,
             else => null,
         } else null;
     }
 
     pub fn getVariable(val: Value, mod: *Module) ?InternPool.Key.Variable {
-        return if (val.ip_index != .none) switch (mod.intern_pool.indexToKey(val.ip_index)) {
+        return if (val.ip_index != .none) switch (mod.intern_pool.indexToKey(val.toIntern())) {
             .variable => |variable| variable,
             else => null,
         } else null;
@@ -501,11 +493,11 @@ pub const Value = struct {
     /// If the value fits in a u64, return it, otherwise null.
     /// Asserts not undefined.
     pub fn getUnsignedIntAdvanced(val: Value, mod: *Module, opt_sema: ?*Sema) !?u64 {
-        return switch (val.ip_index) {
+        return switch (val.toIntern()) {
             .bool_false => 0,
             .bool_true => 1,
             .undef => unreachable,
-            else => switch (mod.intern_pool.indexToKey(val.ip_index)) {
+            else => switch (mod.intern_pool.indexToKey(val.toIntern())) {
                 .int => |int| switch (int.storage) {
                     .big_int => |big_int| big_int.to(u64) catch null,
                     .u64 => |x| x,
@@ -531,11 +523,11 @@ pub const Value = struct {
 
     /// Asserts the value is an integer and it fits in a i64
     pub fn toSignedInt(val: Value, mod: *Module) i64 {
-        return switch (val.ip_index) {
+        return switch (val.toIntern()) {
             .bool_false => 0,
             .bool_true => 1,
             .undef => unreachable,
-            else => switch (mod.intern_pool.indexToKey(val.ip_index)) {
+            else => switch (mod.intern_pool.indexToKey(val.toIntern())) {
                 .int => |int| switch (int.storage) {
                     .big_int => |big_int| big_int.to(i64) catch unreachable,
                     .i64 => |x| x,
@@ -549,7 +541,7 @@ pub const Value = struct {
     }
 
     pub fn toBool(val: Value, _: *const Module) bool {
-        return switch (val.ip_index) {
+        return switch (val.toIntern()) {
             .bool_true => true,
             .bool_false => false,
             else => unreachable,
@@ -558,7 +550,7 @@ pub const Value = struct {
 
     fn isDeclRef(val: Value, mod: *Module) bool {
         var check = val;
-        while (true) switch (mod.intern_pool.indexToKey(check.ip_index)) {
+        while (true) switch (mod.intern_pool.indexToKey(check.toIntern())) {
             .ptr => |ptr| switch (ptr.addr) {
                 .decl, .mut_decl, .comptime_field => return true,
                 .eu_payload, .opt_payload => |index| check = index.toValue(),
@@ -644,7 +636,7 @@ pub const Value = struct {
             .ErrorSet => {
                 // TODO revisit this when we have the concept of the error tag type
                 const Int = u16;
-                const name = switch (mod.intern_pool.indexToKey(val.ip_index)) {
+                const name = switch (mod.intern_pool.indexToKey(val.toIntern())) {
                     .err => |err| err.name,
                     .error_union => |error_union| error_union.val.err_name,
                     else => unreachable,
@@ -718,7 +710,7 @@ pub const Value = struct {
 
                 if (abi_size == 0) return;
                 if (abi_size <= @sizeOf(u64)) {
-                    const ip_key = mod.intern_pool.indexToKey(int_val.ip_index);
+                    const ip_key = mod.intern_pool.indexToKey(int_val.toIntern());
                     const int: u64 = switch (ip_key.int.storage) {
                         .u64 => |x| x,
                         .i64 => |x| @bitCast(u64, x),
@@ -847,7 +839,7 @@ pub const Value = struct {
                 }
             },
             .Float => return (try mod.intern(.{ .float = .{
-                .ty = ty.ip_index,
+                .ty = ty.toIntern(),
                 .storage = switch (ty.floatBits(target)) {
                     16 => .{ .f16 = @bitCast(f16, std.mem.readInt(u16, buffer[0..2], endian)) },
                     32 => .{ .f32 = @bitCast(f32, std.mem.readInt(u32, buffer[0..4], endian)) },
@@ -860,13 +852,16 @@ pub const Value = struct {
             .Array => {
                 const elem_ty = ty.childType(mod);
                 const elem_size = elem_ty.abiSize(mod);
-                const elems = try arena.alloc(Value, @intCast(usize, ty.arrayLen(mod)));
+                const elems = try arena.alloc(InternPool.Index, @intCast(usize, ty.arrayLen(mod)));
                 var offset: usize = 0;
                 for (elems) |*elem| {
-                    elem.* = try readFromMemory(elem_ty, mod, buffer[offset..], arena);
+                    elem.* = try (try readFromMemory(elem_ty, mod, buffer[offset..], arena)).intern(elem_ty, mod);
                     offset += @intCast(usize, elem_size);
                 }
-                return Tag.aggregate.create(arena, elems);
+                return (try mod.intern(.{ .aggregate = .{
+                    .ty = ty.toIntern(),
+                    .storage = .{ .elems = elems },
+                } })).toValue();
             },
             .Vector => {
                 // We use byte_count instead of abi_size here, so that any padding bytes
@@ -878,13 +873,16 @@ pub const Value = struct {
                 .Auto => unreachable, // Sema is supposed to have emitted a compile error already
                 .Extern => {
                     const fields = ty.structFields(mod).values();
-                    const field_vals = try arena.alloc(Value, fields.len);
-                    for (fields, 0..) |field, i| {
+                    const field_vals = try arena.alloc(InternPool.Index, fields.len);
+                    for (field_vals, fields, 0..) |*field_val, field, i| {
                         const off = @intCast(usize, ty.structFieldOffset(i, mod));
-                        const sz = @intCast(usize, ty.structFieldType(i, mod).abiSize(mod));
-                        field_vals[i] = try readFromMemory(field.ty, mod, buffer[off..(off + sz)], arena);
+                        const sz = @intCast(usize, field.ty.abiSize(mod));
+                        field_val.* = try (try readFromMemory(field.ty, mod, buffer[off..(off + sz)], arena)).intern(field.ty, mod);
                     }
-                    return Tag.aggregate.create(arena, field_vals);
+                    return (try mod.intern(.{ .aggregate = .{
+                        .ty = ty.toIntern(),
+                        .storage = .{ .elems = field_vals },
+                    } })).toValue();
                 },
                 .Packed => {
                     const byte_count = (@intCast(usize, ty.bitSize(mod)) + 7) / 8;
@@ -897,7 +895,7 @@ pub const Value = struct {
                 const int = std.mem.readInt(Int, buffer[0..@sizeOf(Int)], endian);
                 const name = mod.error_name_list.items[@intCast(usize, int)];
                 return (try mod.intern(.{ .err = .{
-                    .ty = ty.ip_index,
+                    .ty = ty.toIntern(),
                     .name = mod.intern_pool.getString(name).unwrap().?,
                 } })).toValue();
             },
@@ -961,7 +959,7 @@ pub const Value = struct {
                 }
             },
             .Float => return (try mod.intern(.{ .float = .{
-                .ty = ty.ip_index,
+                .ty = ty.toIntern(),
                 .storage = switch (ty.floatBits(target)) {
                     16 => .{ .f16 = @bitCast(f16, std.mem.readPackedInt(u16, buffer, bit_offset, endian)) },
                     32 => .{ .f32 = @bitCast(f32, std.mem.readPackedInt(u32, buffer, bit_offset, endian)) },
@@ -973,17 +971,20 @@ pub const Value = struct {
             } })).toValue(),
             .Vector => {
                 const elem_ty = ty.childType(mod);
-                const elems = try arena.alloc(Value, @intCast(usize, ty.arrayLen(mod)));
+                const elems = try arena.alloc(InternPool.Index, @intCast(usize, ty.arrayLen(mod)));
 
                 var bits: u16 = 0;
                 const elem_bit_size = @intCast(u16, elem_ty.bitSize(mod));
                 for (elems, 0..) |_, i| {
                     // On big-endian systems, LLVM reverses the element order of vectors by default
                     const tgt_elem_i = if (endian == .Big) elems.len - i - 1 else i;
-                    elems[tgt_elem_i] = try readFromPackedMemory(elem_ty, mod, buffer, bit_offset + bits, arena);
+                    elems[tgt_elem_i] = try (try readFromPackedMemory(elem_ty, mod, buffer, bit_offset + bits, arena)).intern(elem_ty, mod);
                     bits += elem_bit_size;
                 }
-                return Tag.aggregate.create(arena, elems);
+                return (try mod.intern(.{ .aggregate = .{
+                    .ty = ty.toIntern(),
+                    .storage = .{ .elems = elems },
+                } })).toValue();
             },
             .Struct => switch (ty.containerLayout(mod)) {
                 .Auto => unreachable, // Sema is supposed to have emitted a compile error already
@@ -991,13 +992,16 @@ pub const Value = struct {
                 .Packed => {
                     var bits: u16 = 0;
                     const fields = ty.structFields(mod).values();
-                    const field_vals = try arena.alloc(Value, fields.len);
+                    const field_vals = try arena.alloc(InternPool.Index, fields.len);
                     for (fields, 0..) |field, i| {
                         const field_bits = @intCast(u16, field.ty.bitSize(mod));
-                        field_vals[i] = try readFromPackedMemory(field.ty, mod, buffer, bit_offset + bits, arena);
+                        field_vals[i] = try (try readFromPackedMemory(field.ty, mod, buffer, bit_offset + bits, arena)).intern(field.ty, mod);
                         bits += field_bits;
                     }
-                    return Tag.aggregate.create(arena, field_vals);
+                    return (try mod.intern(.{ .aggregate = .{
+                        .ty = ty.toIntern(),
+                        .storage = .{ .elems = field_vals },
+                    } })).toValue();
                 },
             },
             .Pointer => {
@@ -1015,7 +1019,7 @@ pub const Value = struct {
 
     /// Asserts that the value is a float or an integer.
     pub fn toFloat(val: Value, comptime T: type, mod: *Module) T {
-        return switch (mod.intern_pool.indexToKey(val.ip_index)) {
+        return switch (mod.intern_pool.indexToKey(val.toIntern())) {
             .int => |int| switch (int.storage) {
                 .big_int => |big_int| @floatCast(T, bigIntToFloat(big_int.limbs, big_int.positive)),
                 inline .u64, .i64 => |x| {
@@ -1119,7 +1123,7 @@ pub const Value = struct {
     pub fn floatCast(self: Value, dest_ty: Type, mod: *Module) !Value {
         const target = mod.getTarget();
         return (try mod.intern(.{ .float = .{
-            .ty = dest_ty.ip_index,
+            .ty = dest_ty.toIntern(),
             .storage = switch (dest_ty.floatBits(target)) {
                 16 => .{ .f16 = self.toFloat(f16, mod) },
                 32 => .{ .f32 = self.toFloat(f32, mod) },
@@ -1133,7 +1137,7 @@ pub const Value = struct {
 
     /// Asserts the value is a float
     pub fn floatHasFraction(self: Value, mod: *const Module) bool {
-        return switch (mod.intern_pool.indexToKey(self.ip_index)) {
+        return switch (mod.intern_pool.indexToKey(self.toIntern())) {
             .float => |float| switch (float.storage) {
                 inline else => |x| @rem(x, 1) != 0,
             },
@@ -1150,10 +1154,10 @@ pub const Value = struct {
         mod: *Module,
         opt_sema: ?*Sema,
     ) Module.CompileError!std.math.Order {
-        return switch (lhs.ip_index) {
+        return switch (lhs.toIntern()) {
             .bool_false => .eq,
             .bool_true => .gt,
-            else => switch (mod.intern_pool.indexToKey(lhs.ip_index)) {
+            else => switch (mod.intern_pool.indexToKey(lhs.toIntern())) {
                 .ptr => |ptr| switch (ptr.addr) {
                     .decl, .mut_decl, .comptime_field => .gt,
                     .int => |int| int.toValue().orderAgainstZeroAdvanced(mod, opt_sema),
@@ -1212,8 +1216,8 @@ pub const Value = struct {
             const lhs_tag = lhs.tag();
             const rhs_tag = rhs.tag();
             if (lhs_tag == rhs_tag) {
-                const lhs_storage = mod.intern_pool.indexToKey(lhs.ip_index).float.storage;
-                const rhs_storage = mod.intern_pool.indexToKey(rhs.ip_index).float.storage;
+                const lhs_storage = mod.intern_pool.indexToKey(lhs.toIntern()).float.storage;
+                const rhs_storage = mod.intern_pool.indexToKey(rhs.toIntern()).float.storage;
                 const lhs128: f128 = switch (lhs_storage) {
                     inline else => |x| x,
                 };
@@ -1336,46 +1340,20 @@ pub const Value = struct {
             }
         }
 
-        switch (lhs.ip_index) {
-            .none => switch (lhs.tag()) {
-                .aggregate => {
-                    for (lhs.castTag(.aggregate).?.data) |elem_val| {
-                        if (!(try elem_val.compareAllWithZeroAdvancedExtra(op, mod, opt_sema))) return false;
-                    }
-                    return true;
-                },
-                .str_lit => {
-                    const str_lit = lhs.castTag(.str_lit).?.data;
-                    const bytes = mod.string_literal_bytes.items[str_lit.index..][0..str_lit.len];
-                    for (bytes) |byte| {
-                        if (!std.math.compare(byte, op, 0)) return false;
-                    }
-                    return true;
-                },
-                .bytes => {
-                    const bytes = lhs.castTag(.bytes).?.data;
-                    for (bytes) |byte| {
-                        if (!std.math.compare(byte, op, 0)) return false;
-                    }
-                    return true;
-                },
-                else => {},
+        switch (mod.intern_pool.indexToKey(lhs.toIntern())) {
+            .float => |float| switch (float.storage) {
+                inline else => |x| if (std.math.isNan(x)) return op == .neq,
             },
-            else => switch (mod.intern_pool.indexToKey(lhs.ip_index)) {
-                .float => |float| switch (float.storage) {
-                    inline else => |x| if (std.math.isNan(x)) return op == .neq,
-                },
-                .aggregate => |aggregate| return switch (aggregate.storage) {
-                    .bytes => |bytes| for (bytes) |byte| {
-                        if (!std.math.order(byte, 0).compare(op)) break false;
-                    } else true,
-                    .elems => |elems| for (elems) |elem| {
-                        if (!try elem.toValue().compareAllWithZeroAdvancedExtra(op, mod, opt_sema)) break false;
-                    } else true,
-                    .repeated_elem => |elem| elem.toValue().compareAllWithZeroAdvancedExtra(op, mod, opt_sema),
-                },
-                else => {},
+            .aggregate => |aggregate| return switch (aggregate.storage) {
+                .bytes => |bytes| for (bytes) |byte| {
+                    if (!std.math.order(byte, 0).compare(op)) break false;
+                } else true,
+                .elems => |elems| for (elems) |elem| {
+                    if (!try elem.toValue().compareAllWithZeroAdvancedExtra(op, mod, opt_sema)) break false;
+                } else true,
+                .repeated_elem => |elem| elem.toValue().compareAllWithZeroAdvancedExtra(op, mod, opt_sema),
             },
+            else => {},
         }
         return (try orderAgainstZeroAdvanced(lhs, mod, opt_sema)).compare(op);
     }
@@ -1412,7 +1390,7 @@ pub const Value = struct {
                 const b_field_vals = b.castTag(.aggregate).?.data;
                 assert(a_field_vals.len == b_field_vals.len);
 
-                switch (mod.intern_pool.indexToKey(ty.ip_index)) {
+                switch (mod.intern_pool.indexToKey(ty.toIntern())) {
                     .anon_struct_type => |anon_struct| {
                         assert(anon_struct.types.len == a_field_vals.len);
                         for (anon_struct.types, 0..) |field_ty, i| {
@@ -1577,7 +1555,7 @@ pub const Value = struct {
             // The InternPool data structure hashes based on Key to make interned objects
             // unique. An Index can be treated simply as u32 value for the
             // purpose of Type/Value hashing and equality.
-            std.hash.autoHash(hasher, val.ip_index);
+            std.hash.autoHash(hasher, val.toIntern());
             return;
         }
         const zig_ty_tag = ty.zigTypeTag(mod);
@@ -1663,7 +1641,7 @@ pub const Value = struct {
             // The InternPool data structure hashes based on Key to make interned objects
             // unique. An Index can be treated simply as u32 value for the
             // purpose of Type/Value hashing and equality.
-            std.hash.autoHash(hasher, val.ip_index);
+            std.hash.autoHash(hasher, val.toIntern());
             return;
         }
 
@@ -1703,7 +1681,7 @@ pub const Value = struct {
             },
             .Union => {
                 hasher.update(val.tagName(mod));
-                switch (mod.intern_pool.indexToKey(val.ip_index)) {
+                switch (mod.intern_pool.indexToKey(val.toIntern())) {
                     .un => |un| {
                         const active_field_ty = ty.unionFieldType(un.tag.toValue(), mod);
                         un.val.toValue().hashUncoerced(active_field_ty, hasher, mod);
@@ -1746,7 +1724,7 @@ pub const Value = struct {
     };
 
     pub fn isComptimeMutablePtr(val: Value, mod: *Module) bool {
-        return switch (mod.intern_pool.indexToKey(val.ip_index)) {
+        return switch (mod.intern_pool.indexToKey(val.toIntern())) {
             .ptr => |ptr| switch (ptr.addr) {
                 .mut_decl, .comptime_field => true,
                 .eu_payload, .opt_payload => |base_ptr| base_ptr.toValue().isComptimeMutablePtr(mod),
@@ -1758,8 +1736,8 @@ pub const Value = struct {
     }
 
     pub fn canMutateComptimeVarState(val: Value, mod: *Module) bool {
-        return val.isComptimeMutablePtr(mod) or switch (val.ip_index) {
-            else => switch (mod.intern_pool.indexToKey(val.ip_index)) {
+        return val.isComptimeMutablePtr(mod) or switch (val.toIntern()) {
+            else => switch (mod.intern_pool.indexToKey(val.toIntern())) {
                 .error_union => |error_union| switch (error_union.val) {
                     .err_name => false,
                     .payload => |payload| payload.toValue().canMutateComptimeVarState(mod),
@@ -1785,7 +1763,7 @@ pub const Value = struct {
     /// to a decl, or if it points to some part of a decl (like field_ptr or element_ptr),
     /// this function returns null.
     pub fn pointerDecl(val: Value, mod: *Module) ?Module.Decl.Index {
-        return switch (mod.intern_pool.indexToKey(val.ip_index)) {
+        return switch (mod.intern_pool.indexToKey(val.toIntern())) {
             .variable => |variable| variable.decl,
             .extern_func => |extern_func| extern_func.decl,
             .func => |func| mod.funcPtr(func.index).owner_decl,
@@ -1811,35 +1789,19 @@ pub const Value = struct {
     pub const slice_len_index = 1;
 
     pub fn slicePtr(val: Value, mod: *Module) Value {
-        return mod.intern_pool.slicePtr(val.ip_index).toValue();
+        return mod.intern_pool.slicePtr(val.toIntern()).toValue();
     }
 
     pub fn sliceLen(val: Value, mod: *Module) u64 {
-        return mod.intern_pool.sliceLen(val.ip_index).toValue().toUnsignedInt(mod);
+        return mod.intern_pool.sliceLen(val.toIntern()).toValue().toUnsignedInt(mod);
     }
 
     /// Asserts the value is a single-item pointer to an array, or an array,
     /// or an unknown-length pointer, and returns the element value at the index.
     pub fn elemValue(val: Value, mod: *Module, index: usize) Allocator.Error!Value {
-        switch (val.ip_index) {
+        switch (val.toIntern()) {
             .undef => return Value.undef,
-            .none => switch (val.tag()) {
-                .bytes => {
-                    const byte = val.castTag(.bytes).?.data[index];
-                    return mod.intValue(Type.u8, byte);
-                },
-                .str_lit => {
-                    const str_lit = val.castTag(.str_lit).?.data;
-                    const bytes = mod.string_literal_bytes.items[str_lit.index..][0..str_lit.len];
-                    const byte = bytes[index];
-                    return mod.intValue(Type.u8, byte);
-                },
-
-                .aggregate => return val.castTag(.aggregate).?.data[index],
-
-                else => unreachable,
-            },
-            else => return switch (mod.intern_pool.indexToKey(val.ip_index)) {
+            else => return switch (mod.intern_pool.indexToKey(val.toIntern())) {
                 .ptr => |ptr| switch (ptr.addr) {
                     .decl => |decl| mod.declPtr(decl).val.elemValue(mod, index),
                     .mut_decl => |mut_decl| mod.declPtr(mut_decl.decl).val.elemValue(mod, index),
@@ -1871,26 +1833,26 @@ pub const Value = struct {
     }
 
     pub fn isLazyAlign(val: Value, mod: *Module) bool {
-        return switch (mod.intern_pool.indexToKey(val.ip_index)) {
+        return switch (mod.intern_pool.indexToKey(val.toIntern())) {
             .int => |int| int.storage == .lazy_align,
             else => false,
         };
     }
 
     pub fn isLazySize(val: Value, mod: *Module) bool {
-        return switch (mod.intern_pool.indexToKey(val.ip_index)) {
+        return switch (mod.intern_pool.indexToKey(val.toIntern())) {
             .int => |int| int.storage == .lazy_size,
             else => false,
         };
     }
 
     pub fn isRuntimeValue(val: Value, mod: *Module) bool {
-        return mod.intern_pool.indexToKey(val.ip_index) == .runtime_value;
+        return mod.intern_pool.indexToKey(val.toIntern()) == .runtime_value;
     }
 
     /// Returns true if a Value is backed by a variable
     pub fn isVariable(val: Value, mod: *Module) bool {
-        return switch (mod.intern_pool.indexToKey(val.ip_index)) {
+        return switch (mod.intern_pool.indexToKey(val.toIntern())) {
             .variable => true,
             .ptr => |ptr| switch (ptr.addr) {
                 .decl => |decl_index| {
@@ -1913,7 +1875,7 @@ pub const Value = struct {
     }
 
     pub fn isPtrToThreadLocal(val: Value, mod: *Module) bool {
-        return switch (mod.intern_pool.indexToKey(val.ip_index)) {
+        return switch (mod.intern_pool.indexToKey(val.toIntern())) {
             .variable => |variable| variable.is_threadlocal,
             .ptr => |ptr| switch (ptr.addr) {
                 .decl => |decl_index| {
@@ -1943,55 +1905,30 @@ pub const Value = struct {
         start: usize,
         end: usize,
     ) error{OutOfMemory}!Value {
-        return switch (val.ip_index) {
-            .none => switch (val.tag()) {
-                .bytes => Tag.bytes.create(arena, val.castTag(.bytes).?.data[start..end]),
-                .str_lit => {
-                    const str_lit = val.castTag(.str_lit).?.data;
-                    return Tag.str_lit.create(arena, .{
-                        .index = @intCast(u32, str_lit.index + start),
-                        .len = @intCast(u32, end - start),
-                    });
-                },
+        return switch (mod.intern_pool.indexToKey(val.toIntern())) {
+            .ptr => |ptr| switch (ptr.addr) {
+                .decl => |decl| try mod.declPtr(decl).val.sliceArray(mod, arena, start, end),
+                .mut_decl => |mut_decl| try mod.declPtr(mut_decl.decl).val.sliceArray(mod, arena, start, end),
+                .comptime_field => |comptime_field| try comptime_field.toValue().sliceArray(mod, arena, start, end),
+                .elem => |elem| try elem.base.toValue().sliceArray(mod, arena, start + elem.index, end + elem.index),
                 else => unreachable,
             },
-            else => switch (mod.intern_pool.indexToKey(val.ip_index)) {
-                .ptr => |ptr| switch (ptr.addr) {
-                    .decl => |decl| try mod.declPtr(decl).val.sliceArray(mod, arena, start, end),
-                    .mut_decl => |mut_decl| try mod.declPtr(mut_decl.decl).val.sliceArray(mod, arena, start, end),
-                    .comptime_field => |comptime_field| try comptime_field.toValue().sliceArray(mod, arena, start, end),
-                    .elem => |elem| try elem.base.toValue().sliceArray(mod, arena, start + elem.index, end + elem.index),
-                    else => unreachable,
+            .aggregate => |aggregate| (try mod.intern(.{ .aggregate = .{
+                .ty = mod.intern_pool.typeOf(val.toIntern()),
+                .storage = switch (aggregate.storage) {
+                    .bytes => |bytes| .{ .bytes = bytes[start..end] },
+                    .elems => |elems| .{ .elems = elems[start..end] },
+                    .repeated_elem => |elem| .{ .repeated_elem = elem },
                 },
-                .aggregate => |aggregate| (try mod.intern(.{ .aggregate = .{
-                    .ty = mod.intern_pool.typeOf(val.ip_index),
-                    .storage = switch (aggregate.storage) {
-                        .bytes => |bytes| .{ .bytes = bytes[start..end] },
-                        .elems => |elems| .{ .elems = elems[start..end] },
-                        .repeated_elem => |elem| .{ .repeated_elem = elem },
-                    },
-                } })).toValue(),
-                else => unreachable,
-            },
+            } })).toValue(),
+            else => unreachable,
         };
     }
 
     pub fn fieldValue(val: Value, mod: *Module, index: usize) !Value {
-        switch (val.ip_index) {
+        switch (val.toIntern()) {
             .undef => return Value.undef,
-            .none => switch (val.tag()) {
-                .aggregate => {
-                    const field_values = val.castTag(.aggregate).?.data;
-                    return field_values[index];
-                },
-                .@"union" => {
-                    const payload = val.castTag(.@"union").?.data;
-                    // TODO assert the tag is correct
-                    return payload.val;
-                },
-                else => unreachable,
-            },
-            else => return switch (mod.intern_pool.indexToKey(val.ip_index)) {
+            else => return switch (mod.intern_pool.indexToKey(val.toIntern())) {
                 .aggregate => |aggregate| switch (aggregate.storage) {
                     .bytes => |bytes| try mod.intern(.{ .int = .{
                         .ty = .u8_type,
@@ -2000,6 +1937,8 @@ pub const Value = struct {
                     .elems => |elems| elems[index],
                     .repeated_elem => |elem| elem,
                 }.toValue(),
+                // TODO assert the tag is correct
+                .un => |un| un.val.toValue(),
                 else => unreachable,
             },
         }
@@ -2007,7 +1946,7 @@ pub const Value = struct {
 
     pub fn unionTag(val: Value, mod: *Module) Value {
         if (val.ip_index == .none) return val.castTag(.@"union").?.data.tag;
-        return switch (mod.intern_pool.indexToKey(val.ip_index)) {
+        return switch (mod.intern_pool.indexToKey(val.toIntern())) {
             .undef, .enum_tag => val,
             .un => |un| un.tag.toValue(),
             else => unreachable,
@@ -2022,12 +1961,12 @@ pub const Value = struct {
         mod: *Module,
     ) Allocator.Error!Value {
         const elem_ty = ty.elemType2(mod);
-        const ptr_val = switch (mod.intern_pool.indexToKey(val.ip_index)) {
+        const ptr_val = switch (mod.intern_pool.indexToKey(val.toIntern())) {
             .ptr => |ptr| ptr: {
                 switch (ptr.addr) {
                     .elem => |elem| if (mod.intern_pool.typeOf(elem.base).toType().elemType2(mod).eql(elem_ty, mod))
                         return (try mod.intern(.{ .ptr = .{
-                            .ty = ty.ip_index,
+                            .ty = ty.toIntern(),
                             .addr = .{ .elem = .{
                                 .base = elem.base,
                                 .index = elem.index + index,
@@ -2043,9 +1982,9 @@ pub const Value = struct {
             else => val,
         };
         return (try mod.intern(.{ .ptr = .{
-            .ty = ty.ip_index,
+            .ty = ty.toIntern(),
             .addr = .{ .elem = .{
-                .base = ptr_val.ip_index,
+                .base = ptr_val.toIntern(),
                 .index = index,
             } },
         } })).toValue();
@@ -2053,7 +1992,7 @@ pub const Value = struct {
 
     pub fn isUndef(val: Value, mod: *Module) bool {
         if (val.ip_index == .none) return false;
-        return switch (mod.intern_pool.indexToKey(val.ip_index)) {
+        return switch (mod.intern_pool.indexToKey(val.toIntern())) {
             .undef => true,
             .simple_value => |v| v == .undefined,
             else => false,
@@ -2070,15 +2009,9 @@ pub const Value = struct {
     /// Returns true if any value contained in `self` is undefined.
     pub fn anyUndef(val: Value, mod: *Module) !bool {
         if (val.ip_index == .none) return false;
-        return switch (val.ip_index) {
+        return switch (val.toIntern()) {
             .undef => true,
-            .none => switch (val.tag()) {
-                .aggregate => for (val.castTag(.aggregate).?.data) |field| {
-                    if (try field.anyUndef(mod)) break true;
-                } else false,
-                else => false,
-            },
-            else => switch (mod.intern_pool.indexToKey(val.ip_index)) {
+            else => switch (mod.intern_pool.indexToKey(val.toIntern())) {
                 .undef => true,
                 .simple_value => |v| v == .undefined,
                 .ptr => |ptr| switch (ptr.len) {
@@ -2098,13 +2031,13 @@ pub const Value = struct {
     /// Asserts the value is not undefined and not unreachable.
     /// Integer value 0 is considered null because of C pointers.
     pub fn isNull(val: Value, mod: *Module) bool {
-        return switch (val.ip_index) {
+        return switch (val.toIntern()) {
             .undef => unreachable,
             .unreachable_value => unreachable,
 
             .null_value => true,
 
-            else => return switch (mod.intern_pool.indexToKey(val.ip_index)) {
+            else => return switch (mod.intern_pool.indexToKey(val.toIntern())) {
                 .int => {
                     var buf: BigIntSpace = undefined;
                     return val.toBigInt(&buf, mod).eqZero();
@@ -2120,7 +2053,7 @@ pub const Value = struct {
     /// something is an error or not because it works without having to figure out the
     /// string.
     pub fn getError(self: Value, mod: *const Module) ?[]const u8 {
-        return mod.intern_pool.stringToSliceUnwrap(switch (mod.intern_pool.indexToKey(self.ip_index)) {
+        return mod.intern_pool.stringToSliceUnwrap(switch (mod.intern_pool.indexToKey(self.toIntern())) {
             .err => |err| err.name.toOptional(),
             .error_union => |error_union| switch (error_union.val) {
                 .err_name => |err_name| err_name.toOptional(),
@@ -2133,12 +2066,12 @@ pub const Value = struct {
     /// Assumes the type is an error union. Returns true if and only if the value is
     /// the error union payload, not an error.
     pub fn errorUnionIsPayload(val: Value, mod: *const Module) bool {
-        return mod.intern_pool.indexToKey(val.ip_index).error_union.val == .payload;
+        return mod.intern_pool.indexToKey(val.toIntern()).error_union.val == .payload;
     }
 
     /// Value of the optional, null if optional has no payload.
     pub fn optionalValue(val: Value, mod: *const Module) ?Value {
-        return switch (mod.intern_pool.indexToKey(val.ip_index).opt.val) {
+        return switch (mod.intern_pool.indexToKey(val.toIntern()).opt.val) {
             .none => null,
             else => |index| index.toValue(),
         };
@@ -2146,14 +2079,9 @@ pub const Value = struct {
 
     /// Valid for all types. Asserts the value is not undefined.
     pub fn isFloat(self: Value, mod: *const Module) bool {
-        return switch (self.ip_index) {
+        return switch (self.toIntern()) {
             .undef => unreachable,
-            .none => switch (self.tag()) {
-                .inferred_alloc => unreachable,
-                .inferred_alloc_comptime => unreachable,
-                else => false,
-            },
-            else => switch (mod.intern_pool.indexToKey(self.ip_index)) {
+            else => switch (mod.intern_pool.indexToKey(self.toIntern())) {
                 .float => true,
                 else => false,
             },
@@ -2169,21 +2097,24 @@ pub const Value = struct {
 
     pub fn intToFloatAdvanced(val: Value, arena: Allocator, int_ty: Type, float_ty: Type, mod: *Module, opt_sema: ?*Sema) !Value {
         if (int_ty.zigTypeTag(mod) == .Vector) {
-            const result_data = try arena.alloc(Value, int_ty.vectorLen(mod));
+            const result_data = try arena.alloc(InternPool.Index, int_ty.vectorLen(mod));
             const scalar_ty = float_ty.scalarType(mod);
             for (result_data, 0..) |*scalar, i| {
                 const elem_val = try val.elemValue(mod, i);
-                scalar.* = try intToFloatScalar(elem_val, scalar_ty, mod, opt_sema);
+                scalar.* = try (try intToFloatScalar(elem_val, scalar_ty, mod, opt_sema)).intern(scalar_ty, mod);
             }
-            return Value.Tag.aggregate.create(arena, result_data);
+            return (try mod.intern(.{ .aggregate = .{
+                .ty = float_ty.toIntern(),
+                .storage = .{ .elems = result_data },
+            } })).toValue();
         }
         return intToFloatScalar(val, float_ty, mod, opt_sema);
     }
 
     pub fn intToFloatScalar(val: Value, float_ty: Type, mod: *Module, opt_sema: ?*Sema) !Value {
-        return switch (val.ip_index) {
+        return switch (val.toIntern()) {
             .undef => val,
-            else => return switch (mod.intern_pool.indexToKey(val.ip_index)) {
+            else => return switch (mod.intern_pool.indexToKey(val.toIntern())) {
                 .int => |int| switch (int.storage) {
                     .big_int => |big_int| {
                         const float = bigIntToFloat(big_int.limbs, big_int.positive);
@@ -2217,7 +2148,7 @@ pub const Value = struct {
             else => unreachable,
         };
         return (try mod.intern(.{ .float = .{
-            .ty = dest_ty.ip_index,
+            .ty = dest_ty.toIntern(),
             .storage = storage,
         } })).toValue();
     }
@@ -2245,14 +2176,17 @@ pub const Value = struct {
         mod: *Module,
     ) !Value {
         if (ty.zigTypeTag(mod) == .Vector) {
-            const result_data = try arena.alloc(Value, ty.vectorLen(mod));
+            const result_data = try arena.alloc(InternPool.Index, ty.vectorLen(mod));
             const scalar_ty = ty.scalarType(mod);
             for (result_data, 0..) |*scalar, i| {
                 const lhs_elem = try lhs.elemValue(mod, i);
                 const rhs_elem = try rhs.elemValue(mod, i);
-                scalar.* = try intAddSatScalar(lhs_elem, rhs_elem, scalar_ty, arena, mod);
+                scalar.* = try (try intAddSatScalar(lhs_elem, rhs_elem, scalar_ty, arena, mod)).intern(scalar_ty, mod);
             }
-            return Value.Tag.aggregate.create(arena, result_data);
+            return (try mod.intern(.{ .aggregate = .{
+                .ty = ty.toIntern(),
+                .storage = .{ .elems = result_data },
+            } })).toValue();
         }
         return intAddSatScalar(lhs, rhs, ty, arena, mod);
     }
@@ -2292,14 +2226,17 @@ pub const Value = struct {
         mod: *Module,
     ) !Value {
         if (ty.zigTypeTag(mod) == .Vector) {
-            const result_data = try arena.alloc(Value, ty.vectorLen(mod));
+            const result_data = try arena.alloc(InternPool.Index, ty.vectorLen(mod));
             const scalar_ty = ty.scalarType(mod);
             for (result_data, 0..) |*scalar, i| {
                 const lhs_elem = try lhs.elemValue(mod, i);
                 const rhs_elem = try rhs.elemValue(mod, i);
-                scalar.* = try intSubSatScalar(lhs_elem, rhs_elem, scalar_ty, arena, mod);
+                scalar.* = try (try intSubSatScalar(lhs_elem, rhs_elem, scalar_ty, arena, mod)).intern(scalar_ty, mod);
             }
-            return Value.Tag.aggregate.create(arena, result_data);
+            return (try mod.intern(.{ .aggregate = .{
+                .ty = ty.toIntern(),
+                .storage = .{ .elems = result_data },
+            } })).toValue();
         }
         return intSubSatScalar(lhs, rhs, ty, arena, mod);
     }
@@ -2338,19 +2275,26 @@ pub const Value = struct {
         mod: *Module,
     ) !OverflowArithmeticResult {
         if (ty.zigTypeTag(mod) == .Vector) {
-            const overflowed_data = try arena.alloc(Value, ty.vectorLen(mod));
-            const result_data = try arena.alloc(Value, ty.vectorLen(mod));
+            const vec_len = ty.vectorLen(mod);
+            const overflowed_data = try arena.alloc(InternPool.Index, vec_len);
+            const result_data = try arena.alloc(InternPool.Index, vec_len);
             const scalar_ty = ty.scalarType(mod);
-            for (result_data, 0..) |*scalar, i| {
+            for (overflowed_data, result_data, 0..) |*of, *scalar, i| {
                 const lhs_elem = try lhs.elemValue(mod, i);
                 const rhs_elem = try rhs.elemValue(mod, i);
                 const of_math_result = try intMulWithOverflowScalar(lhs_elem, rhs_elem, scalar_ty, arena, mod);
-                overflowed_data[i] = of_math_result.overflow_bit;
-                scalar.* = of_math_result.wrapped_result;
+                of.* = try of_math_result.overflow_bit.intern(Type.bool, mod);
+                scalar.* = try of_math_result.wrapped_result.intern(scalar_ty, mod);
             }
             return OverflowArithmeticResult{
-                .overflow_bit = try Value.Tag.aggregate.create(arena, overflowed_data),
-                .wrapped_result = try Value.Tag.aggregate.create(arena, result_data),
+                .overflow_bit = (try mod.intern(.{ .aggregate = .{
+                    .ty = ty.toIntern(),
+                    .storage = .{ .elems = overflowed_data },
+                } })).toValue(),
+                .wrapped_result = (try mod.intern(.{ .aggregate = .{
+                    .ty = (try mod.vectorType(.{ .len = vec_len, .child = .u1_type })).toIntern(),
+                    .storage = .{ .elems = result_data },
+                } })).toValue(),
             };
         }
         return intMulWithOverflowScalar(lhs, rhs, ty, arena, mod);
@@ -2400,13 +2344,17 @@ pub const Value = struct {
         mod: *Module,
     ) !Value {
         if (ty.zigTypeTag(mod) == .Vector) {
-            const result_data = try arena.alloc(Value, ty.vectorLen(mod));
+            const result_data = try arena.alloc(InternPool.Index, ty.vectorLen(mod));
+            const scalar_ty = ty.scalarType(mod);
             for (result_data, 0..) |*scalar, i| {
                 const lhs_elem = try lhs.elemValue(mod, i);
                 const rhs_elem = try rhs.elemValue(mod, i);
-                scalar.* = try numberMulWrapScalar(lhs_elem, rhs_elem, ty.scalarType(mod), arena, mod);
+                scalar.* = try (try numberMulWrapScalar(lhs_elem, rhs_elem, scalar_ty, arena, mod)).intern(scalar_ty, mod);
             }
-            return Value.Tag.aggregate.create(arena, result_data);
+            return (try mod.intern(.{ .aggregate = .{
+                .ty = ty.toIntern(),
+                .storage = .{ .elems = result_data },
+            } })).toValue();
         }
         return numberMulWrapScalar(lhs, rhs, ty, arena, mod);
     }
@@ -2442,13 +2390,17 @@ pub const Value = struct {
         mod: *Module,
     ) !Value {
         if (ty.zigTypeTag(mod) == .Vector) {
-            const result_data = try arena.alloc(Value, ty.vectorLen(mod));
+            const result_data = try arena.alloc(InternPool.Index, ty.vectorLen(mod));
+            const scalar_ty = ty.scalarType(mod);
             for (result_data, 0..) |*scalar, i| {
                 const lhs_elem = try lhs.elemValue(mod, i);
                 const rhs_elem = try rhs.elemValue(mod, i);
-                scalar.* = try intMulSatScalar(lhs_elem, rhs_elem, ty.scalarType(mod), arena, mod);
+                scalar.* = try (try intMulSatScalar(lhs_elem, rhs_elem, scalar_ty, arena, mod)).intern(scalar_ty, mod);
             }
-            return Value.Tag.aggregate.create(arena, result_data);
+            return (try mod.intern(.{ .aggregate = .{
+                .ty = ty.toIntern(),
+                .storage = .{ .elems = result_data },
+            } })).toValue();
         }
         return intMulSatScalar(lhs, rhs, ty, arena, mod);
     }
@@ -2515,12 +2467,16 @@ pub const Value = struct {
     /// operands must be (vectors of) integers; handles undefined scalars.
     pub fn bitwiseNot(val: Value, ty: Type, arena: Allocator, mod: *Module) !Value {
         if (ty.zigTypeTag(mod) == .Vector) {
-            const result_data = try arena.alloc(Value, ty.vectorLen(mod));
+            const result_data = try arena.alloc(InternPool.Index, ty.vectorLen(mod));
+            const scalar_ty = ty.scalarType(mod);
             for (result_data, 0..) |*scalar, i| {
                 const elem_val = try val.elemValue(mod, i);
-                scalar.* = try bitwiseNotScalar(elem_val, ty.scalarType(mod), arena, mod);
+                scalar.* = try (try bitwiseNotScalar(elem_val, scalar_ty, arena, mod)).intern(scalar_ty, mod);
             }
-            return Value.Tag.aggregate.create(arena, result_data);
+            return (try mod.intern(.{ .aggregate = .{
+                .ty = ty.toIntern(),
+                .storage = .{ .elems = result_data },
+            } })).toValue();
         }
         return bitwiseNotScalar(val, ty, arena, mod);
     }
@@ -2552,13 +2508,17 @@ pub const Value = struct {
     /// operands must be (vectors of) integers; handles undefined scalars.
     pub fn bitwiseAnd(lhs: Value, rhs: Value, ty: Type, allocator: Allocator, mod: *Module) !Value {
         if (ty.zigTypeTag(mod) == .Vector) {
-            const result_data = try allocator.alloc(Value, ty.vectorLen(mod));
+            const result_data = try allocator.alloc(InternPool.Index, ty.vectorLen(mod));
+            const scalar_ty = ty.scalarType(mod);
             for (result_data, 0..) |*scalar, i| {
                 const lhs_elem = try lhs.elemValue(mod, i);
                 const rhs_elem = try rhs.elemValue(mod, i);
-                scalar.* = try bitwiseAndScalar(lhs_elem, rhs_elem, ty.scalarType(mod), allocator, mod);
+                scalar.* = try (try bitwiseAndScalar(lhs_elem, rhs_elem, scalar_ty, allocator, mod)).intern(scalar_ty, mod);
             }
-            return Value.Tag.aggregate.create(allocator, result_data);
+            return (try mod.intern(.{ .aggregate = .{
+                .ty = ty.toIntern(),
+                .storage = .{ .elems = result_data },
+            } })).toValue();
         }
         return bitwiseAndScalar(lhs, rhs, ty, allocator, mod);
     }
@@ -2586,13 +2546,17 @@ pub const Value = struct {
     /// operands must be (vectors of) integers; handles undefined scalars.
     pub fn bitwiseNand(lhs: Value, rhs: Value, ty: Type, arena: Allocator, mod: *Module) !Value {
         if (ty.zigTypeTag(mod) == .Vector) {
-            const result_data = try arena.alloc(Value, ty.vectorLen(mod));
+            const result_data = try arena.alloc(InternPool.Index, ty.vectorLen(mod));
+            const scalar_ty = ty.scalarType(mod);
             for (result_data, 0..) |*scalar, i| {
                 const lhs_elem = try lhs.elemValue(mod, i);
                 const rhs_elem = try rhs.elemValue(mod, i);
-                scalar.* = try bitwiseNandScalar(lhs_elem, rhs_elem, ty.scalarType(mod), arena, mod);
+                scalar.* = try (try bitwiseNandScalar(lhs_elem, rhs_elem, scalar_ty, arena, mod)).intern(scalar_ty, mod);
             }
-            return Value.Tag.aggregate.create(arena, result_data);
+            return (try mod.intern(.{ .aggregate = .{
+                .ty = ty.toIntern(),
+                .storage = .{ .elems = result_data },
+            } })).toValue();
         }
         return bitwiseNandScalar(lhs, rhs, ty, arena, mod);
     }
@@ -2609,13 +2573,17 @@ pub const Value = struct {
     /// operands must be (vectors of) integers; handles undefined scalars.
     pub fn bitwiseOr(lhs: Value, rhs: Value, ty: Type, allocator: Allocator, mod: *Module) !Value {
         if (ty.zigTypeTag(mod) == .Vector) {
-            const result_data = try allocator.alloc(Value, ty.vectorLen(mod));
+            const result_data = try allocator.alloc(InternPool.Index, ty.vectorLen(mod));
+            const scalar_ty = ty.scalarType(mod);
             for (result_data, 0..) |*scalar, i| {
                 const lhs_elem = try lhs.elemValue(mod, i);
                 const rhs_elem = try rhs.elemValue(mod, i);
-                scalar.* = try bitwiseOrScalar(lhs_elem, rhs_elem, ty.scalarType(mod), allocator, mod);
+                scalar.* = try (try bitwiseOrScalar(lhs_elem, rhs_elem, scalar_ty, allocator, mod)).intern(scalar_ty, mod);
             }
-            return Value.Tag.aggregate.create(allocator, result_data);
+            return (try mod.intern(.{ .aggregate = .{
+                .ty = ty.toIntern(),
+                .storage = .{ .elems = result_data },
+            } })).toValue();
         }
         return bitwiseOrScalar(lhs, rhs, ty, allocator, mod);
     }
@@ -2642,14 +2610,17 @@ pub const Value = struct {
     /// operands must be (vectors of) integers; handles undefined scalars.
     pub fn bitwiseXor(lhs: Value, rhs: Value, ty: Type, allocator: Allocator, mod: *Module) !Value {
         if (ty.zigTypeTag(mod) == .Vector) {
-            const result_data = try allocator.alloc(Value, ty.vectorLen(mod));
+            const result_data = try allocator.alloc(InternPool.Index, ty.vectorLen(mod));
             const scalar_ty = ty.scalarType(mod);
             for (result_data, 0..) |*scalar, i| {
                 const lhs_elem = try lhs.elemValue(mod, i);
                 const rhs_elem = try rhs.elemValue(mod, i);
-                scalar.* = try bitwiseXorScalar(lhs_elem, rhs_elem, scalar_ty, allocator, mod);
+                scalar.* = try (try bitwiseXorScalar(lhs_elem, rhs_elem, scalar_ty, allocator, mod)).intern(scalar_ty, mod);
             }
-            return Value.Tag.aggregate.create(allocator, result_data);
+            return (try mod.intern(.{ .aggregate = .{
+                .ty = ty.toIntern(),
+                .storage = .{ .elems = result_data },
+            } })).toValue();
         }
         return bitwiseXorScalar(lhs, rhs, ty, allocator, mod);
     }
@@ -2676,14 +2647,17 @@ pub const Value = struct {
 
     pub fn intDiv(lhs: Value, rhs: Value, ty: Type, allocator: Allocator, mod: *Module) !Value {
         if (ty.zigTypeTag(mod) == .Vector) {
-            const result_data = try allocator.alloc(Value, ty.vectorLen(mod));
+            const result_data = try allocator.alloc(InternPool.Index, ty.vectorLen(mod));
             const scalar_ty = ty.scalarType(mod);
             for (result_data, 0..) |*scalar, i| {
                 const lhs_elem = try lhs.elemValue(mod, i);
                 const rhs_elem = try rhs.elemValue(mod, i);
-                scalar.* = try intDivScalar(lhs_elem, rhs_elem, scalar_ty, allocator, mod);
+                scalar.* = try (try intDivScalar(lhs_elem, rhs_elem, scalar_ty, allocator, mod)).intern(scalar_ty, mod);
             }
-            return Value.Tag.aggregate.create(allocator, result_data);
+            return (try mod.intern(.{ .aggregate = .{
+                .ty = ty.toIntern(),
+                .storage = .{ .elems = result_data },
+            } })).toValue();
         }
         return intDivScalar(lhs, rhs, ty, allocator, mod);
     }
@@ -2715,14 +2689,17 @@ pub const Value = struct {
 
     pub fn intDivFloor(lhs: Value, rhs: Value, ty: Type, allocator: Allocator, mod: *Module) !Value {
         if (ty.zigTypeTag(mod) == .Vector) {
-            const result_data = try allocator.alloc(Value, ty.vectorLen(mod));
+            const result_data = try allocator.alloc(InternPool.Index, ty.vectorLen(mod));
             const scalar_ty = ty.scalarType(mod);
             for (result_data, 0..) |*scalar, i| {
                 const lhs_elem = try lhs.elemValue(mod, i);
                 const rhs_elem = try rhs.elemValue(mod, i);
-                scalar.* = try intDivFloorScalar(lhs_elem, rhs_elem, scalar_ty, allocator, mod);
+                scalar.* = try (try intDivFloorScalar(lhs_elem, rhs_elem, scalar_ty, allocator, mod)).intern(scalar_ty, mod);
             }
-            return Value.Tag.aggregate.create(allocator, result_data);
+            return (try mod.intern(.{ .aggregate = .{
+                .ty = ty.toIntern(),
+                .storage = .{ .elems = result_data },
+            } })).toValue();
         }
         return intDivFloorScalar(lhs, rhs, ty, allocator, mod);
     }
@@ -2754,14 +2731,17 @@ pub const Value = struct {
 
     pub fn intMod(lhs: Value, rhs: Value, ty: Type, allocator: Allocator, mod: *Module) !Value {
         if (ty.zigTypeTag(mod) == .Vector) {
-            const result_data = try allocator.alloc(Value, ty.vectorLen(mod));
+            const result_data = try allocator.alloc(InternPool.Index, ty.vectorLen(mod));
             const scalar_ty = ty.scalarType(mod);
             for (result_data, 0..) |*scalar, i| {
                 const lhs_elem = try lhs.elemValue(mod, i);
                 const rhs_elem = try rhs.elemValue(mod, i);
-                scalar.* = try intModScalar(lhs_elem, rhs_elem, scalar_ty, allocator, mod);
+                scalar.* = try (try intModScalar(lhs_elem, rhs_elem, scalar_ty, allocator, mod)).intern(scalar_ty, mod);
             }
-            return Value.Tag.aggregate.create(allocator, result_data);
+            return (try mod.intern(.{ .aggregate = .{
+                .ty = ty.toIntern(),
+                .storage = .{ .elems = result_data },
+            } })).toValue();
         }
         return intModScalar(lhs, rhs, ty, allocator, mod);
     }
@@ -2794,7 +2774,7 @@ pub const Value = struct {
     /// Returns true if the value is a floating point type and is NaN. Returns false otherwise.
     pub fn isNan(val: Value, mod: *const Module) bool {
         if (val.ip_index == .none) return false;
-        return switch (mod.intern_pool.indexToKey(val.ip_index)) {
+        return switch (mod.intern_pool.indexToKey(val.toIntern())) {
             .float => |float| switch (float.storage) {
                 inline else => |x| std.math.isNan(x),
             },
@@ -2805,7 +2785,7 @@ pub const Value = struct {
     /// Returns true if the value is a floating point type and is infinite. Returns false otherwise.
     pub fn isInf(val: Value, mod: *const Module) bool {
         if (val.ip_index == .none) return false;
-        return switch (mod.intern_pool.indexToKey(val.ip_index)) {
+        return switch (mod.intern_pool.indexToKey(val.toIntern())) {
             .float => |float| switch (float.storage) {
                 inline else => |x| std.math.isInf(x),
             },
@@ -2815,7 +2795,7 @@ pub const Value = struct {
 
     pub fn isNegativeInf(val: Value, mod: *const Module) bool {
         if (val.ip_index == .none) return false;
-        return switch (mod.intern_pool.indexToKey(val.ip_index)) {
+        return switch (mod.intern_pool.indexToKey(val.toIntern())) {
             .float => |float| switch (float.storage) {
                 inline else => |x| std.math.isNegativeInf(x),
             },
@@ -2825,13 +2805,17 @@ pub const Value = struct {
 
     pub fn floatRem(lhs: Value, rhs: Value, float_type: Type, arena: Allocator, mod: *Module) !Value {
         if (float_type.zigTypeTag(mod) == .Vector) {
-            const result_data = try arena.alloc(Value, float_type.vectorLen(mod));
+            const result_data = try arena.alloc(InternPool.Index, float_type.vectorLen(mod));
+            const scalar_ty = float_type.scalarType(mod);
             for (result_data, 0..) |*scalar, i| {
                 const lhs_elem = try lhs.elemValue(mod, i);
                 const rhs_elem = try rhs.elemValue(mod, i);
-                scalar.* = try floatRemScalar(lhs_elem, rhs_elem, float_type.scalarType(mod), mod);
+                scalar.* = try (try floatRemScalar(lhs_elem, rhs_elem, scalar_ty, mod)).intern(scalar_ty, mod);
             }
-            return Value.Tag.aggregate.create(arena, result_data);
+            return (try mod.intern(.{ .aggregate = .{
+                .ty = float_type.toIntern(),
+                .storage = .{ .elems = result_data },
+            } })).toValue();
         }
         return floatRemScalar(lhs, rhs, float_type, mod);
     }
@@ -2847,20 +2831,24 @@ pub const Value = struct {
             else => unreachable,
         };
         return (try mod.intern(.{ .float = .{
-            .ty = float_type.ip_index,
+            .ty = float_type.toIntern(),
             .storage = storage,
         } })).toValue();
     }
 
     pub fn floatMod(lhs: Value, rhs: Value, float_type: Type, arena: Allocator, mod: *Module) !Value {
         if (float_type.zigTypeTag(mod) == .Vector) {
-            const result_data = try arena.alloc(Value, float_type.vectorLen(mod));
+            const result_data = try arena.alloc(InternPool.Index, float_type.vectorLen(mod));
+            const scalar_ty = float_type.scalarType(mod);
             for (result_data, 0..) |*scalar, i| {
                 const lhs_elem = try lhs.elemValue(mod, i);
                 const rhs_elem = try rhs.elemValue(mod, i);
-                scalar.* = try floatModScalar(lhs_elem, rhs_elem, float_type.scalarType(mod), mod);
+                scalar.* = try (try floatModScalar(lhs_elem, rhs_elem, scalar_ty, mod)).intern(scalar_ty, mod);
             }
-            return Value.Tag.aggregate.create(arena, result_data);
+            return (try mod.intern(.{ .aggregate = .{
+                .ty = float_type.toIntern(),
+                .storage = .{ .elems = result_data },
+            } })).toValue();
         }
         return floatModScalar(lhs, rhs, float_type, mod);
     }
@@ -2876,21 +2864,24 @@ pub const Value = struct {
             else => unreachable,
         };
         return (try mod.intern(.{ .float = .{
-            .ty = float_type.ip_index,
+            .ty = float_type.toIntern(),
             .storage = storage,
         } })).toValue();
     }
 
     pub fn intMul(lhs: Value, rhs: Value, ty: Type, allocator: Allocator, mod: *Module) !Value {
         if (ty.zigTypeTag(mod) == .Vector) {
-            const result_data = try allocator.alloc(Value, ty.vectorLen(mod));
+            const result_data = try allocator.alloc(InternPool.Index, ty.vectorLen(mod));
             const scalar_ty = ty.scalarType(mod);
             for (result_data, 0..) |*scalar, i| {
                 const lhs_elem = try lhs.elemValue(mod, i);
                 const rhs_elem = try rhs.elemValue(mod, i);
-                scalar.* = try intMulScalar(lhs_elem, rhs_elem, scalar_ty, allocator, mod);
+                scalar.* = try (try intMulScalar(lhs_elem, rhs_elem, scalar_ty, allocator, mod)).intern(scalar_ty, mod);
             }
-            return Value.Tag.aggregate.create(allocator, result_data);
+            return (try mod.intern(.{ .aggregate = .{
+                .ty = ty.toIntern(),
+                .storage = .{ .elems = result_data },
+            } })).toValue();
         }
         return intMulScalar(lhs, rhs, ty, allocator, mod);
     }
@@ -2918,13 +2909,16 @@ pub const Value = struct {
 
     pub fn intTrunc(val: Value, ty: Type, allocator: Allocator, signedness: std.builtin.Signedness, bits: u16, mod: *Module) !Value {
         if (ty.zigTypeTag(mod) == .Vector) {
-            const result_data = try allocator.alloc(Value, ty.vectorLen(mod));
+            const result_data = try allocator.alloc(InternPool.Index, ty.vectorLen(mod));
             const scalar_ty = ty.scalarType(mod);
             for (result_data, 0..) |*scalar, i| {
                 const elem_val = try val.elemValue(mod, i);
-                scalar.* = try intTruncScalar(elem_val, scalar_ty, allocator, signedness, bits, mod);
+                scalar.* = try (try intTruncScalar(elem_val, scalar_ty, allocator, signedness, bits, mod)).intern(scalar_ty, mod);
             }
-            return Value.Tag.aggregate.create(allocator, result_data);
+            return (try mod.intern(.{ .aggregate = .{
+                .ty = ty.toIntern(),
+                .storage = .{ .elems = result_data },
+            } })).toValue();
         }
         return intTruncScalar(val, ty, allocator, signedness, bits, mod);
     }
@@ -2939,14 +2933,17 @@ pub const Value = struct {
         mod: *Module,
     ) !Value {
         if (ty.zigTypeTag(mod) == .Vector) {
-            const result_data = try allocator.alloc(Value, ty.vectorLen(mod));
+            const result_data = try allocator.alloc(InternPool.Index, ty.vectorLen(mod));
             const scalar_ty = ty.scalarType(mod);
             for (result_data, 0..) |*scalar, i| {
                 const elem_val = try val.elemValue(mod, i);
                 const bits_elem = try bits.elemValue(mod, i);
-                scalar.* = try intTruncScalar(elem_val, scalar_ty, allocator, signedness, @intCast(u16, bits_elem.toUnsignedInt(mod)), mod);
+                scalar.* = try (try intTruncScalar(elem_val, scalar_ty, allocator, signedness, @intCast(u16, bits_elem.toUnsignedInt(mod)), mod)).intern(scalar_ty, mod);
             }
-            return Value.Tag.aggregate.create(allocator, result_data);
+            return (try mod.intern(.{ .aggregate = .{
+                .ty = ty.toIntern(),
+                .storage = .{ .elems = result_data },
+            } })).toValue();
         }
         return intTruncScalar(val, ty, allocator, signedness, @intCast(u16, bits.toUnsignedInt(mod)), mod);
     }
@@ -2976,14 +2973,17 @@ pub const Value = struct {
 
     pub fn shl(lhs: Value, rhs: Value, ty: Type, allocator: Allocator, mod: *Module) !Value {
         if (ty.zigTypeTag(mod) == .Vector) {
-            const result_data = try allocator.alloc(Value, ty.vectorLen(mod));
+            const result_data = try allocator.alloc(InternPool.Index, ty.vectorLen(mod));
             const scalar_ty = ty.scalarType(mod);
             for (result_data, 0..) |*scalar, i| {
                 const lhs_elem = try lhs.elemValue(mod, i);
                 const rhs_elem = try rhs.elemValue(mod, i);
-                scalar.* = try shlScalar(lhs_elem, rhs_elem, scalar_ty, allocator, mod);
+                scalar.* = try (try shlScalar(lhs_elem, rhs_elem, scalar_ty, allocator, mod)).intern(scalar_ty, mod);
             }
-            return Value.Tag.aggregate.create(allocator, result_data);
+            return (try mod.intern(.{ .aggregate = .{
+                .ty = ty.toIntern(),
+                .storage = .{ .elems = result_data },
+            } })).toValue();
         }
         return shlScalar(lhs, rhs, ty, allocator, mod);
     }
@@ -3015,18 +3015,26 @@ pub const Value = struct {
         mod: *Module,
     ) !OverflowArithmeticResult {
         if (ty.zigTypeTag(mod) == .Vector) {
-            const overflowed_data = try allocator.alloc(Value, ty.vectorLen(mod));
-            const result_data = try allocator.alloc(Value, ty.vectorLen(mod));
-            for (result_data, 0..) |*scalar, i| {
+            const vec_len = ty.vectorLen(mod);
+            const overflowed_data = try allocator.alloc(InternPool.Index, vec_len);
+            const result_data = try allocator.alloc(InternPool.Index, vec_len);
+            const scalar_ty = ty.scalarType(mod);
+            for (overflowed_data, result_data, 0..) |*of, *scalar, i| {
                 const lhs_elem = try lhs.elemValue(mod, i);
                 const rhs_elem = try rhs.elemValue(mod, i);
-                const of_math_result = try shlWithOverflowScalar(lhs_elem, rhs_elem, ty.scalarType(mod), allocator, mod);
-                overflowed_data[i] = of_math_result.overflow_bit;
-                scalar.* = of_math_result.wrapped_result;
+                const of_math_result = try shlWithOverflowScalar(lhs_elem, rhs_elem, scalar_ty, allocator, mod);
+                of.* = try of_math_result.overflow_bit.intern(Type.bool, mod);
+                scalar.* = try of_math_result.wrapped_result.intern(scalar_ty, mod);
             }
             return OverflowArithmeticResult{
-                .overflow_bit = try Value.Tag.aggregate.create(allocator, overflowed_data),
-                .wrapped_result = try Value.Tag.aggregate.create(allocator, result_data),
+                .overflow_bit = (try mod.intern(.{ .aggregate = .{
+                    .ty = ty.toIntern(),
+                    .storage = .{ .elems = overflowed_data },
+                } })).toValue(),
+                .wrapped_result = (try mod.intern(.{ .aggregate = .{
+                    .ty = (try mod.vectorType(.{ .len = vec_len, .child = .u1_type })).toIntern(),
+                    .storage = .{ .elems = result_data },
+                } })).toValue(),
             };
         }
         return shlWithOverflowScalar(lhs, rhs, ty, allocator, mod);
@@ -3071,13 +3079,17 @@ pub const Value = struct {
         mod: *Module,
     ) !Value {
         if (ty.zigTypeTag(mod) == .Vector) {
-            const result_data = try arena.alloc(Value, ty.vectorLen(mod));
+            const result_data = try arena.alloc(InternPool.Index, ty.vectorLen(mod));
+            const scalar_ty = ty.scalarType(mod);
             for (result_data, 0..) |*scalar, i| {
                 const lhs_elem = try lhs.elemValue(mod, i);
                 const rhs_elem = try rhs.elemValue(mod, i);
-                scalar.* = try shlSatScalar(lhs_elem, rhs_elem, ty.scalarType(mod), arena, mod);
+                scalar.* = try (try shlSatScalar(lhs_elem, rhs_elem, scalar_ty, arena, mod)).intern(scalar_ty, mod);
             }
-            return Value.Tag.aggregate.create(arena, result_data);
+            return (try mod.intern(.{ .aggregate = .{
+                .ty = ty.toIntern(),
+                .storage = .{ .elems = result_data },
+            } })).toValue();
         }
         return shlSatScalar(lhs, rhs, ty, arena, mod);
     }
@@ -3117,13 +3129,17 @@ pub const Value = struct {
         mod: *Module,
     ) !Value {
         if (ty.zigTypeTag(mod) == .Vector) {
-            const result_data = try arena.alloc(Value, ty.vectorLen(mod));
+            const result_data = try arena.alloc(InternPool.Index, ty.vectorLen(mod));
+            const scalar_ty = ty.scalarType(mod);
             for (result_data, 0..) |*scalar, i| {
                 const lhs_elem = try lhs.elemValue(mod, i);
                 const rhs_elem = try rhs.elemValue(mod, i);
-                scalar.* = try shlTruncScalar(lhs_elem, rhs_elem, ty.scalarType(mod), arena, mod);
+                scalar.* = try (try shlTruncScalar(lhs_elem, rhs_elem, scalar_ty, arena, mod)).intern(scalar_ty, mod);
             }
-            return Value.Tag.aggregate.create(arena, result_data);
+            return (try mod.intern(.{ .aggregate = .{
+                .ty = ty.toIntern(),
+                .storage = .{ .elems = result_data },
+            } })).toValue();
         }
         return shlTruncScalar(lhs, rhs, ty, arena, mod);
     }
@@ -3143,14 +3159,17 @@ pub const Value = struct {
 
     pub fn shr(lhs: Value, rhs: Value, ty: Type, allocator: Allocator, mod: *Module) !Value {
         if (ty.zigTypeTag(mod) == .Vector) {
-            const result_data = try allocator.alloc(Value, ty.vectorLen(mod));
+            const result_data = try allocator.alloc(InternPool.Index, ty.vectorLen(mod));
             const scalar_ty = ty.scalarType(mod);
             for (result_data, 0..) |*scalar, i| {
                 const lhs_elem = try lhs.elemValue(mod, i);
                 const rhs_elem = try rhs.elemValue(mod, i);
-                scalar.* = try shrScalar(lhs_elem, rhs_elem, scalar_ty, allocator, mod);
+                scalar.* = try (try shrScalar(lhs_elem, rhs_elem, scalar_ty, allocator, mod)).intern(scalar_ty, mod);
             }
-            return Value.Tag.aggregate.create(allocator, result_data);
+            return (try mod.intern(.{ .aggregate = .{
+                .ty = ty.toIntern(),
+                .storage = .{ .elems = result_data },
+            } })).toValue();
         }
         return shrScalar(lhs, rhs, ty, allocator, mod);
     }
@@ -3193,12 +3212,16 @@ pub const Value = struct {
         mod: *Module,
     ) !Value {
         if (float_type.zigTypeTag(mod) == .Vector) {
-            const result_data = try arena.alloc(Value, float_type.vectorLen(mod));
+            const result_data = try arena.alloc(InternPool.Index, float_type.vectorLen(mod));
+            const scalar_ty = float_type.scalarType(mod);
             for (result_data, 0..) |*scalar, i| {
                 const elem_val = try val.elemValue(mod, i);
-                scalar.* = try floatNegScalar(elem_val, float_type.scalarType(mod), mod);
+                scalar.* = try (try floatNegScalar(elem_val, scalar_ty, mod)).intern(scalar_ty, mod);
             }
-            return Value.Tag.aggregate.create(arena, result_data);
+            return (try mod.intern(.{ .aggregate = .{
+                .ty = float_type.toIntern(),
+                .storage = .{ .elems = result_data },
+            } })).toValue();
         }
         return floatNegScalar(val, float_type, mod);
     }
@@ -3218,7 +3241,7 @@ pub const Value = struct {
             else => unreachable,
         };
         return (try mod.intern(.{ .float = .{
-            .ty = float_type.ip_index,
+            .ty = float_type.toIntern(),
             .storage = storage,
         } })).toValue();
     }
@@ -3231,13 +3254,17 @@ pub const Value = struct {
         mod: *Module,
     ) !Value {
         if (float_type.zigTypeTag(mod) == .Vector) {
-            const result_data = try arena.alloc(Value, float_type.vectorLen(mod));
+            const result_data = try arena.alloc(InternPool.Index, float_type.vectorLen(mod));
+            const scalar_ty = float_type.scalarType(mod);
             for (result_data, 0..) |*scalar, i| {
                 const lhs_elem = try lhs.elemValue(mod, i);
                 const rhs_elem = try rhs.elemValue(mod, i);
-                scalar.* = try floatAddScalar(lhs_elem, rhs_elem, float_type.scalarType(mod), mod);
+                scalar.* = try (try floatAddScalar(lhs_elem, rhs_elem, scalar_ty, mod)).intern(scalar_ty, mod);
             }
-            return Value.Tag.aggregate.create(arena, result_data);
+            return (try mod.intern(.{ .aggregate = .{
+                .ty = float_type.toIntern(),
+                .storage = .{ .elems = result_data },
+            } })).toValue();
         }
         return floatAddScalar(lhs, rhs, float_type, mod);
     }
@@ -3258,7 +3285,7 @@ pub const Value = struct {
             else => unreachable,
         };
         return (try mod.intern(.{ .float = .{
-            .ty = float_type.ip_index,
+            .ty = float_type.toIntern(),
             .storage = storage,
         } })).toValue();
     }
@@ -3271,13 +3298,17 @@ pub const Value = struct {
         mod: *Module,
     ) !Value {
         if (float_type.zigTypeTag(mod) == .Vector) {
-            const result_data = try arena.alloc(Value, float_type.vectorLen(mod));
+            const result_data = try arena.alloc(InternPool.Index, float_type.vectorLen(mod));
+            const scalar_ty = float_type.scalarType(mod);
             for (result_data, 0..) |*scalar, i| {
                 const lhs_elem = try lhs.elemValue(mod, i);
                 const rhs_elem = try rhs.elemValue(mod, i);
-                scalar.* = try floatSubScalar(lhs_elem, rhs_elem, float_type.scalarType(mod), mod);
+                scalar.* = try (try floatSubScalar(lhs_elem, rhs_elem, scalar_ty, mod)).intern(scalar_ty, mod);
             }
-            return Value.Tag.aggregate.create(arena, result_data);
+            return (try mod.intern(.{ .aggregate = .{
+                .ty = float_type.toIntern(),
+                .storage = .{ .elems = result_data },
+            } })).toValue();
         }
         return floatSubScalar(lhs, rhs, float_type, mod);
     }
@@ -3298,7 +3329,7 @@ pub const Value = struct {
             else => unreachable,
         };
         return (try mod.intern(.{ .float = .{
-            .ty = float_type.ip_index,
+            .ty = float_type.toIntern(),
             .storage = storage,
         } })).toValue();
     }
@@ -3311,13 +3342,17 @@ pub const Value = struct {
         mod: *Module,
     ) !Value {
         if (float_type.zigTypeTag(mod) == .Vector) {
-            const result_data = try arena.alloc(Value, float_type.vectorLen(mod));
+            const result_data = try arena.alloc(InternPool.Index, float_type.vectorLen(mod));
+            const scalar_ty = float_type.scalarType(mod);
             for (result_data, 0..) |*scalar, i| {
                 const lhs_elem = try lhs.elemValue(mod, i);
                 const rhs_elem = try rhs.elemValue(mod, i);
-                scalar.* = try floatDivScalar(lhs_elem, rhs_elem, float_type.scalarType(mod), mod);
+                scalar.* = try (try floatDivScalar(lhs_elem, rhs_elem, scalar_ty, mod)).intern(scalar_ty, mod);
             }
-            return Value.Tag.aggregate.create(arena, result_data);
+            return (try mod.intern(.{ .aggregate = .{
+                .ty = float_type.toIntern(),
+                .storage = .{ .elems = result_data },
+            } })).toValue();
         }
         return floatDivScalar(lhs, rhs, float_type, mod);
     }
@@ -3338,7 +3373,7 @@ pub const Value = struct {
             else => unreachable,
         };
         return (try mod.intern(.{ .float = .{
-            .ty = float_type.ip_index,
+            .ty = float_type.toIntern(),
             .storage = storage,
         } })).toValue();
     }
@@ -3351,13 +3386,17 @@ pub const Value = struct {
         mod: *Module,
     ) !Value {
         if (float_type.zigTypeTag(mod) == .Vector) {
-            const result_data = try arena.alloc(Value, float_type.vectorLen(mod));
+            const result_data = try arena.alloc(InternPool.Index, float_type.vectorLen(mod));
+            const scalar_ty = float_type.scalarType(mod);
             for (result_data, 0..) |*scalar, i| {
                 const lhs_elem = try lhs.elemValue(mod, i);
                 const rhs_elem = try rhs.elemValue(mod, i);
-                scalar.* = try floatDivFloorScalar(lhs_elem, rhs_elem, float_type.scalarType(mod), mod);
+                scalar.* = try (try floatDivFloorScalar(lhs_elem, rhs_elem, scalar_ty, mod)).intern(scalar_ty, mod);
             }
-            return Value.Tag.aggregate.create(arena, result_data);
+            return (try mod.intern(.{ .aggregate = .{
+                .ty = float_type.toIntern(),
+                .storage = .{ .elems = result_data },
+            } })).toValue();
         }
         return floatDivFloorScalar(lhs, rhs, float_type, mod);
     }
@@ -3378,7 +3417,7 @@ pub const Value = struct {
             else => unreachable,
         };
         return (try mod.intern(.{ .float = .{
-            .ty = float_type.ip_index,
+            .ty = float_type.toIntern(),
             .storage = storage,
         } })).toValue();
     }
@@ -3391,13 +3430,17 @@ pub const Value = struct {
         mod: *Module,
     ) !Value {
         if (float_type.zigTypeTag(mod) == .Vector) {
-            const result_data = try arena.alloc(Value, float_type.vectorLen(mod));
+            const result_data = try arena.alloc(InternPool.Index, float_type.vectorLen(mod));
+            const scalar_ty = float_type.scalarType(mod);
             for (result_data, 0..) |*scalar, i| {
                 const lhs_elem = try lhs.elemValue(mod, i);
                 const rhs_elem = try rhs.elemValue(mod, i);
-                scalar.* = try floatDivTruncScalar(lhs_elem, rhs_elem, float_type.scalarType(mod), mod);
+                scalar.* = try (try floatDivTruncScalar(lhs_elem, rhs_elem, scalar_ty, mod)).intern(scalar_ty, mod);
             }
-            return Value.Tag.aggregate.create(arena, result_data);
+            return (try mod.intern(.{ .aggregate = .{
+                .ty = float_type.toIntern(),
+                .storage = .{ .elems = result_data },
+            } })).toValue();
         }
         return floatDivTruncScalar(lhs, rhs, float_type, mod);
     }
@@ -3418,7 +3461,7 @@ pub const Value = struct {
             else => unreachable,
         };
         return (try mod.intern(.{ .float = .{
-            .ty = float_type.ip_index,
+            .ty = float_type.toIntern(),
             .storage = storage,
         } })).toValue();
     }
@@ -3431,13 +3474,17 @@ pub const Value = struct {
         mod: *Module,
     ) !Value {
         if (float_type.zigTypeTag(mod) == .Vector) {
-            const result_data = try arena.alloc(Value, float_type.vectorLen(mod));
+            const result_data = try arena.alloc(InternPool.Index, float_type.vectorLen(mod));
+            const scalar_ty = float_type.scalarType(mod);
             for (result_data, 0..) |*scalar, i| {
                 const lhs_elem = try lhs.elemValue(mod, i);
                 const rhs_elem = try rhs.elemValue(mod, i);
-                scalar.* = try floatMulScalar(lhs_elem, rhs_elem, float_type.scalarType(mod), mod);
+                scalar.* = try (try floatMulScalar(lhs_elem, rhs_elem, scalar_ty, mod)).intern(scalar_ty, mod);
             }
-            return Value.Tag.aggregate.create(arena, result_data);
+            return (try mod.intern(.{ .aggregate = .{
+                .ty = float_type.toIntern(),
+                .storage = .{ .elems = result_data },
+            } })).toValue();
         }
         return floatMulScalar(lhs, rhs, float_type, mod);
     }
@@ -3458,19 +3505,23 @@ pub const Value = struct {
             else => unreachable,
         };
         return (try mod.intern(.{ .float = .{
-            .ty = float_type.ip_index,
+            .ty = float_type.toIntern(),
             .storage = storage,
         } })).toValue();
     }
 
     pub fn sqrt(val: Value, float_type: Type, arena: Allocator, mod: *Module) !Value {
         if (float_type.zigTypeTag(mod) == .Vector) {
-            const result_data = try arena.alloc(Value, float_type.vectorLen(mod));
+            const result_data = try arena.alloc(InternPool.Index, float_type.vectorLen(mod));
+            const scalar_ty = float_type.scalarType(mod);
             for (result_data, 0..) |*scalar, i| {
                 const elem_val = try val.elemValue(mod, i);
-                scalar.* = try sqrtScalar(elem_val, float_type.scalarType(mod), mod);
+                scalar.* = try (try sqrtScalar(elem_val, scalar_ty, mod)).intern(scalar_ty, mod);
             }
-            return Value.Tag.aggregate.create(arena, result_data);
+            return (try mod.intern(.{ .aggregate = .{
+                .ty = float_type.toIntern(),
+                .storage = .{ .elems = result_data },
+            } })).toValue();
         }
         return sqrtScalar(val, float_type, mod);
     }
@@ -3486,19 +3537,23 @@ pub const Value = struct {
             else => unreachable,
         };
         return (try mod.intern(.{ .float = .{
-            .ty = float_type.ip_index,
+            .ty = float_type.toIntern(),
             .storage = storage,
         } })).toValue();
     }
 
     pub fn sin(val: Value, float_type: Type, arena: Allocator, mod: *Module) !Value {
         if (float_type.zigTypeTag(mod) == .Vector) {
-            const result_data = try arena.alloc(Value, float_type.vectorLen(mod));
+            const result_data = try arena.alloc(InternPool.Index, float_type.vectorLen(mod));
+            const scalar_ty = float_type.scalarType(mod);
             for (result_data, 0..) |*scalar, i| {
                 const elem_val = try val.elemValue(mod, i);
-                scalar.* = try sinScalar(elem_val, float_type.scalarType(mod), mod);
+                scalar.* = try (try sinScalar(elem_val, scalar_ty, mod)).intern(scalar_ty, mod);
             }
-            return Value.Tag.aggregate.create(arena, result_data);
+            return (try mod.intern(.{ .aggregate = .{
+                .ty = float_type.toIntern(),
+                .storage = .{ .elems = result_data },
+            } })).toValue();
         }
         return sinScalar(val, float_type, mod);
     }
@@ -3514,19 +3569,23 @@ pub const Value = struct {
             else => unreachable,
         };
         return (try mod.intern(.{ .float = .{
-            .ty = float_type.ip_index,
+            .ty = float_type.toIntern(),
             .storage = storage,
         } })).toValue();
     }
 
     pub fn cos(val: Value, float_type: Type, arena: Allocator, mod: *Module) !Value {
         if (float_type.zigTypeTag(mod) == .Vector) {
-            const result_data = try arena.alloc(Value, float_type.vectorLen(mod));
+            const result_data = try arena.alloc(InternPool.Index, float_type.vectorLen(mod));
+            const scalar_ty = float_type.scalarType(mod);
             for (result_data, 0..) |*scalar, i| {
                 const elem_val = try val.elemValue(mod, i);
-                scalar.* = try cosScalar(elem_val, float_type.scalarType(mod), mod);
+                scalar.* = try (try cosScalar(elem_val, scalar_ty, mod)).intern(scalar_ty, mod);
             }
-            return Value.Tag.aggregate.create(arena, result_data);
+            return (try mod.intern(.{ .aggregate = .{
+                .ty = float_type.toIntern(),
+                .storage = .{ .elems = result_data },
+            } })).toValue();
         }
         return cosScalar(val, float_type, mod);
     }
@@ -3542,19 +3601,23 @@ pub const Value = struct {
             else => unreachable,
         };
         return (try mod.intern(.{ .float = .{
-            .ty = float_type.ip_index,
+            .ty = float_type.toIntern(),
             .storage = storage,
         } })).toValue();
     }
 
     pub fn tan(val: Value, float_type: Type, arena: Allocator, mod: *Module) !Value {
         if (float_type.zigTypeTag(mod) == .Vector) {
-            const result_data = try arena.alloc(Value, float_type.vectorLen(mod));
+            const result_data = try arena.alloc(InternPool.Index, float_type.vectorLen(mod));
+            const scalar_ty = float_type.scalarType(mod);
             for (result_data, 0..) |*scalar, i| {
                 const elem_val = try val.elemValue(mod, i);
-                scalar.* = try tanScalar(elem_val, float_type.scalarType(mod), mod);
+                scalar.* = try (try tanScalar(elem_val, scalar_ty, mod)).intern(scalar_ty, mod);
             }
-            return Value.Tag.aggregate.create(arena, result_data);
+            return (try mod.intern(.{ .aggregate = .{
+                .ty = float_type.toIntern(),
+                .storage = .{ .elems = result_data },
+            } })).toValue();
         }
         return tanScalar(val, float_type, mod);
     }
@@ -3570,19 +3633,23 @@ pub const Value = struct {
             else => unreachable,
         };
         return (try mod.intern(.{ .float = .{
-            .ty = float_type.ip_index,
+            .ty = float_type.toIntern(),
             .storage = storage,
         } })).toValue();
     }
 
     pub fn exp(val: Value, float_type: Type, arena: Allocator, mod: *Module) !Value {
         if (float_type.zigTypeTag(mod) == .Vector) {
-            const result_data = try arena.alloc(Value, float_type.vectorLen(mod));
+            const result_data = try arena.alloc(InternPool.Index, float_type.vectorLen(mod));
+            const scalar_ty = float_type.scalarType(mod);
             for (result_data, 0..) |*scalar, i| {
                 const elem_val = try val.elemValue(mod, i);
-                scalar.* = try expScalar(elem_val, float_type.scalarType(mod), mod);
+                scalar.* = try (try expScalar(elem_val, scalar_ty, mod)).intern(scalar_ty, mod);
             }
-            return Value.Tag.aggregate.create(arena, result_data);
+            return (try mod.intern(.{ .aggregate = .{
+                .ty = float_type.toIntern(),
+                .storage = .{ .elems = result_data },
+            } })).toValue();
         }
         return expScalar(val, float_type, mod);
     }
@@ -3598,19 +3665,23 @@ pub const Value = struct {
             else => unreachable,
         };
         return (try mod.intern(.{ .float = .{
-            .ty = float_type.ip_index,
+            .ty = float_type.toIntern(),
             .storage = storage,
         } })).toValue();
     }
 
     pub fn exp2(val: Value, float_type: Type, arena: Allocator, mod: *Module) !Value {
         if (float_type.zigTypeTag(mod) == .Vector) {
-            const result_data = try arena.alloc(Value, float_type.vectorLen(mod));
+            const result_data = try arena.alloc(InternPool.Index, float_type.vectorLen(mod));
+            const scalar_ty = float_type.scalarType(mod);
             for (result_data, 0..) |*scalar, i| {
                 const elem_val = try val.elemValue(mod, i);
-                scalar.* = try exp2Scalar(elem_val, float_type.scalarType(mod), mod);
+                scalar.* = try (try exp2Scalar(elem_val, scalar_ty, mod)).intern(scalar_ty, mod);
             }
-            return Value.Tag.aggregate.create(arena, result_data);
+            return (try mod.intern(.{ .aggregate = .{
+                .ty = float_type.toIntern(),
+                .storage = .{ .elems = result_data },
+            } })).toValue();
         }
         return exp2Scalar(val, float_type, mod);
     }
@@ -3626,19 +3697,23 @@ pub const Value = struct {
             else => unreachable,
         };
         return (try mod.intern(.{ .float = .{
-            .ty = float_type.ip_index,
+            .ty = float_type.toIntern(),
             .storage = storage,
         } })).toValue();
     }
 
     pub fn log(val: Value, float_type: Type, arena: Allocator, mod: *Module) !Value {
         if (float_type.zigTypeTag(mod) == .Vector) {
-            const result_data = try arena.alloc(Value, float_type.vectorLen(mod));
+            const result_data = try arena.alloc(InternPool.Index, float_type.vectorLen(mod));
+            const scalar_ty = float_type.scalarType(mod);
             for (result_data, 0..) |*scalar, i| {
                 const elem_val = try val.elemValue(mod, i);
-                scalar.* = try logScalar(elem_val, float_type.scalarType(mod), mod);
+                scalar.* = try (try logScalar(elem_val, scalar_ty, mod)).intern(scalar_ty, mod);
             }
-            return Value.Tag.aggregate.create(arena, result_data);
+            return (try mod.intern(.{ .aggregate = .{
+                .ty = float_type.toIntern(),
+                .storage = .{ .elems = result_data },
+            } })).toValue();
         }
         return logScalar(val, float_type, mod);
     }
@@ -3654,19 +3729,23 @@ pub const Value = struct {
             else => unreachable,
         };
         return (try mod.intern(.{ .float = .{
-            .ty = float_type.ip_index,
+            .ty = float_type.toIntern(),
             .storage = storage,
         } })).toValue();
     }
 
     pub fn log2(val: Value, float_type: Type, arena: Allocator, mod: *Module) !Value {
         if (float_type.zigTypeTag(mod) == .Vector) {
-            const result_data = try arena.alloc(Value, float_type.vectorLen(mod));
+            const result_data = try arena.alloc(InternPool.Index, float_type.vectorLen(mod));
+            const scalar_ty = float_type.scalarType(mod);
             for (result_data, 0..) |*scalar, i| {
                 const elem_val = try val.elemValue(mod, i);
-                scalar.* = try log2Scalar(elem_val, float_type.scalarType(mod), mod);
+                scalar.* = try (try log2Scalar(elem_val, scalar_ty, mod)).intern(scalar_ty, mod);
             }
-            return Value.Tag.aggregate.create(arena, result_data);
+            return (try mod.intern(.{ .aggregate = .{
+                .ty = float_type.toIntern(),
+                .storage = .{ .elems = result_data },
+            } })).toValue();
         }
         return log2Scalar(val, float_type, mod);
     }
@@ -3682,19 +3761,23 @@ pub const Value = struct {
             else => unreachable,
         };
         return (try mod.intern(.{ .float = .{
-            .ty = float_type.ip_index,
+            .ty = float_type.toIntern(),
             .storage = storage,
         } })).toValue();
     }
 
     pub fn log10(val: Value, float_type: Type, arena: Allocator, mod: *Module) !Value {
         if (float_type.zigTypeTag(mod) == .Vector) {
-            const result_data = try arena.alloc(Value, float_type.vectorLen(mod));
+            const result_data = try arena.alloc(InternPool.Index, float_type.vectorLen(mod));
+            const scalar_ty = float_type.scalarType(mod);
             for (result_data, 0..) |*scalar, i| {
                 const elem_val = try val.elemValue(mod, i);
-                scalar.* = try log10Scalar(elem_val, float_type.scalarType(mod), mod);
+                scalar.* = try (try log10Scalar(elem_val, scalar_ty, mod)).intern(scalar_ty, mod);
             }
-            return Value.Tag.aggregate.create(arena, result_data);
+            return (try mod.intern(.{ .aggregate = .{
+                .ty = float_type.toIntern(),
+                .storage = .{ .elems = result_data },
+            } })).toValue();
         }
         return log10Scalar(val, float_type, mod);
     }
@@ -3710,19 +3793,23 @@ pub const Value = struct {
             else => unreachable,
         };
         return (try mod.intern(.{ .float = .{
-            .ty = float_type.ip_index,
+            .ty = float_type.toIntern(),
             .storage = storage,
         } })).toValue();
     }
 
     pub fn fabs(val: Value, float_type: Type, arena: Allocator, mod: *Module) !Value {
         if (float_type.zigTypeTag(mod) == .Vector) {
-            const result_data = try arena.alloc(Value, float_type.vectorLen(mod));
+            const result_data = try arena.alloc(InternPool.Index, float_type.vectorLen(mod));
+            const scalar_ty = float_type.scalarType(mod);
             for (result_data, 0..) |*scalar, i| {
                 const elem_val = try val.elemValue(mod, i);
-                scalar.* = try fabsScalar(elem_val, float_type.scalarType(mod), mod);
+                scalar.* = try (try fabsScalar(elem_val, scalar_ty, mod)).intern(scalar_ty, mod);
             }
-            return Value.Tag.aggregate.create(arena, result_data);
+            return (try mod.intern(.{ .aggregate = .{
+                .ty = float_type.toIntern(),
+                .storage = .{ .elems = result_data },
+            } })).toValue();
         }
         return fabsScalar(val, float_type, mod);
     }
@@ -3738,19 +3825,23 @@ pub const Value = struct {
             else => unreachable,
         };
         return (try mod.intern(.{ .float = .{
-            .ty = float_type.ip_index,
+            .ty = float_type.toIntern(),
             .storage = storage,
         } })).toValue();
     }
 
     pub fn floor(val: Value, float_type: Type, arena: Allocator, mod: *Module) !Value {
         if (float_type.zigTypeTag(mod) == .Vector) {
-            const result_data = try arena.alloc(Value, float_type.vectorLen(mod));
+            const result_data = try arena.alloc(InternPool.Index, float_type.vectorLen(mod));
+            const scalar_ty = float_type.scalarType(mod);
             for (result_data, 0..) |*scalar, i| {
                 const elem_val = try val.elemValue(mod, i);
-                scalar.* = try floorScalar(elem_val, float_type.scalarType(mod), mod);
+                scalar.* = try (try floorScalar(elem_val, scalar_ty, mod)).intern(scalar_ty, mod);
             }
-            return Value.Tag.aggregate.create(arena, result_data);
+            return (try mod.intern(.{ .aggregate = .{
+                .ty = float_type.toIntern(),
+                .storage = .{ .elems = result_data },
+            } })).toValue();
         }
         return floorScalar(val, float_type, mod);
     }
@@ -3766,19 +3857,23 @@ pub const Value = struct {
             else => unreachable,
         };
         return (try mod.intern(.{ .float = .{
-            .ty = float_type.ip_index,
+            .ty = float_type.toIntern(),
             .storage = storage,
         } })).toValue();
     }
 
     pub fn ceil(val: Value, float_type: Type, arena: Allocator, mod: *Module) !Value {
         if (float_type.zigTypeTag(mod) == .Vector) {
-            const result_data = try arena.alloc(Value, float_type.vectorLen(mod));
+            const result_data = try arena.alloc(InternPool.Index, float_type.vectorLen(mod));
+            const scalar_ty = float_type.scalarType(mod);
             for (result_data, 0..) |*scalar, i| {
                 const elem_val = try val.elemValue(mod, i);
-                scalar.* = try ceilScalar(elem_val, float_type.scalarType(mod), mod);
+                scalar.* = try (try ceilScalar(elem_val, scalar_ty, mod)).intern(scalar_ty, mod);
             }
-            return Value.Tag.aggregate.create(arena, result_data);
+            return (try mod.intern(.{ .aggregate = .{
+                .ty = float_type.toIntern(),
+                .storage = .{ .elems = result_data },
+            } })).toValue();
         }
         return ceilScalar(val, float_type, mod);
     }
@@ -3794,19 +3889,23 @@ pub const Value = struct {
             else => unreachable,
         };
         return (try mod.intern(.{ .float = .{
-            .ty = float_type.ip_index,
+            .ty = float_type.toIntern(),
             .storage = storage,
         } })).toValue();
     }
 
     pub fn round(val: Value, float_type: Type, arena: Allocator, mod: *Module) !Value {
         if (float_type.zigTypeTag(mod) == .Vector) {
-            const result_data = try arena.alloc(Value, float_type.vectorLen(mod));
+            const result_data = try arena.alloc(InternPool.Index, float_type.vectorLen(mod));
+            const scalar_ty = float_type.scalarType(mod);
             for (result_data, 0..) |*scalar, i| {
                 const elem_val = try val.elemValue(mod, i);
-                scalar.* = try roundScalar(elem_val, float_type.scalarType(mod), mod);
+                scalar.* = try (try roundScalar(elem_val, scalar_ty, mod)).intern(scalar_ty, mod);
             }
-            return Value.Tag.aggregate.create(arena, result_data);
+            return (try mod.intern(.{ .aggregate = .{
+                .ty = float_type.toIntern(),
+                .storage = .{ .elems = result_data },
+            } })).toValue();
         }
         return roundScalar(val, float_type, mod);
     }
@@ -3822,19 +3921,23 @@ pub const Value = struct {
             else => unreachable,
         };
         return (try mod.intern(.{ .float = .{
-            .ty = float_type.ip_index,
+            .ty = float_type.toIntern(),
             .storage = storage,
         } })).toValue();
     }
 
     pub fn trunc(val: Value, float_type: Type, arena: Allocator, mod: *Module) !Value {
         if (float_type.zigTypeTag(mod) == .Vector) {
-            const result_data = try arena.alloc(Value, float_type.vectorLen(mod));
+            const result_data = try arena.alloc(InternPool.Index, float_type.vectorLen(mod));
+            const scalar_ty = float_type.scalarType(mod);
             for (result_data, 0..) |*scalar, i| {
                 const elem_val = try val.elemValue(mod, i);
-                scalar.* = try truncScalar(elem_val, float_type.scalarType(mod), mod);
+                scalar.* = try (try truncScalar(elem_val, scalar_ty, mod)).intern(scalar_ty, mod);
             }
-            return Value.Tag.aggregate.create(arena, result_data);
+            return (try mod.intern(.{ .aggregate = .{
+                .ty = float_type.toIntern(),
+                .storage = .{ .elems = result_data },
+            } })).toValue();
         }
         return truncScalar(val, float_type, mod);
     }
@@ -3850,7 +3953,7 @@ pub const Value = struct {
             else => unreachable,
         };
         return (try mod.intern(.{ .float = .{
-            .ty = float_type.ip_index,
+            .ty = float_type.toIntern(),
             .storage = storage,
         } })).toValue();
     }
@@ -3864,20 +3967,18 @@ pub const Value = struct {
         mod: *Module,
     ) !Value {
         if (float_type.zigTypeTag(mod) == .Vector) {
-            const result_data = try arena.alloc(Value, float_type.vectorLen(mod));
+            const result_data = try arena.alloc(InternPool.Index, float_type.vectorLen(mod));
+            const scalar_ty = float_type.scalarType(mod);
             for (result_data, 0..) |*scalar, i| {
                 const mulend1_elem = try mulend1.elemValue(mod, i);
                 const mulend2_elem = try mulend2.elemValue(mod, i);
                 const addend_elem = try addend.elemValue(mod, i);
-                scalar.* = try mulAddScalar(
-                    float_type.scalarType(mod),
-                    mulend1_elem,
-                    mulend2_elem,
-                    addend_elem,
-                    mod,
-                );
+                scalar.* = try (try mulAddScalar(scalar_ty, mulend1_elem, mulend2_elem, addend_elem, mod)).intern(scalar_ty, mod);
             }
-            return Value.Tag.aggregate.create(arena, result_data);
+            return (try mod.intern(.{ .aggregate = .{
+                .ty = float_type.toIntern(),
+                .storage = .{ .elems = result_data },
+            } })).toValue();
         }
         return mulAddScalar(float_type, mulend1, mulend2, addend, mod);
     }
@@ -3899,7 +4000,7 @@ pub const Value = struct {
             else => unreachable,
         };
         return (try mod.intern(.{ .float = .{
-            .ty = float_type.ip_index,
+            .ty = float_type.toIntern(),
             .storage = storage,
         } })).toValue();
     }
@@ -3931,22 +4032,22 @@ pub const Value = struct {
     }
 
     pub fn isGenericPoison(val: Value) bool {
-        return val.ip_index == .generic_poison;
+        return val.toIntern() == .generic_poison;
     }
 
     /// This type is not copyable since it may contain pointers to its inner data.
     pub const Payload = struct {
         tag: Tag,
 
+        pub const SubValue = struct {
+            base: Payload,
+            data: Value,
+        };
+
         pub const Bytes = struct {
             base: Payload,
             /// Includes the sentinel, if any.
             data: []const u8,
-        };
-
-        pub const StrLit = struct {
-            base: Payload,
-            data: Module.StringLiteralContext.Key,
         };
 
         pub const Aggregate = struct {

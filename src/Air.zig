@@ -400,8 +400,6 @@ pub const Inst = struct {
         /// A comptime-known value. Uses the `ty_pl` field, payload is index of
         /// `values` array.
         constant,
-        /// A comptime-known type. Uses the `ty` field.
-        const_ty,
         /// A comptime-known value via an index into the InternPool.
         /// Uses the `interned` field.
         interned,
@@ -1257,8 +1255,6 @@ pub fn typeOfIndex(air: Air, inst: Air.Inst.Index, ip: InternPool) Type {
         .error_set_has_value,
         => return Type.bool,
 
-        .const_ty => return Type.type,
-
         .alloc,
         .ret_ptr,
         .err_return_trace,
@@ -1435,7 +1431,6 @@ pub fn getRefType(air: Air, ref: Air.Inst.Ref) Type {
     const air_tags = air.instructions.items(.tag);
     const air_datas = air.instructions.items(.data);
     return switch (air_tags[inst_index]) {
-        .const_ty => air_datas[inst_index].ty,
         .interned => air_datas[inst_index].interned.toType(),
         else => unreachable,
     };
@@ -1501,7 +1496,6 @@ pub fn value(air: Air, inst: Inst.Ref, mod: *Module) !?Value {
     const air_datas = air.instructions.items(.data);
     switch (air.instructions.items(.tag)[inst_index]) {
         .constant => return air.values[air_datas[inst_index].ty_pl.payload],
-        .const_ty => unreachable,
         .interned => return air_datas[inst_index].interned.toValue(),
         else => return air.typeOfIndex(inst_index, mod.intern_pool).onePossibleValue(mod),
     }
@@ -1658,7 +1652,6 @@ pub fn mustLower(air: Air, inst: Air.Inst.Index, ip: InternPool) bool {
         .cmp_vector,
         .cmp_vector_optimized,
         .constant,
-        .const_ty,
         .interned,
         .is_null,
         .is_non_null,

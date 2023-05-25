@@ -95,7 +95,7 @@ const Writer = struct {
         for (w.air.instructions.items(.tag), 0..) |tag, i| {
             const inst = @intCast(Air.Inst.Index, i);
             switch (tag) {
-                .constant, .const_ty, .interned => {
+                .constant, .interned => {
                     try w.writeInst(s, inst);
                     try s.writeByte('\n');
                 },
@@ -226,7 +226,6 @@ const Writer = struct {
             .save_err_return_trace_index,
             => try w.writeNoOp(s, inst),
 
-            .const_ty,
             .alloc,
             .ret_ptr,
             .err_return_trace,

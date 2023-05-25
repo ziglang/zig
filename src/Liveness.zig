@@ -323,7 +323,6 @@ pub fn categorizeOperand(
         .alloc,
         .ret_ptr,
         .constant,
-        .const_ty,
         .interned,
         .trap,
         .breakpoint,
@@ -975,7 +974,6 @@ fn analyzeInst(
         => return analyzeOperands(a, pass, data, inst, .{ .none, .none, .none }),
 
         .constant,
-        .const_ty,
         .interned,
         => unreachable,
 
@@ -1272,7 +1270,7 @@ fn analyzeOperands(
 
                 // Don't compute any liveness for constants
                 switch (inst_tags[operand]) {
-                    .constant, .const_ty, .interned => continue,
+                    .constant, .interned => continue,
                     else => {},
                 }
 
@@ -1308,7 +1306,7 @@ fn analyzeOperands(
 
                     // Don't compute any liveness for constants
                     switch (inst_tags[operand]) {
-                        .constant, .const_ty, .interned => continue,
+                        .constant, .interned => continue,
                         else => {},
                     }
 
@@ -1842,7 +1840,7 @@ fn AnalyzeBigOperands(comptime pass: LivenessPass) type {
             // Don't compute any liveness for constants
             const inst_tags = big.a.air.instructions.items(.tag);
             switch (inst_tags[operand]) {
-                .constant, .const_ty, .interned => return,
+                .constant, .interned => return,
                 else => {},
             }
 

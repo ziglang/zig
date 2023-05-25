@@ -1833,7 +1833,6 @@ fn genInst(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     const air_tags = func.air.instructions.items(.tag);
     return switch (air_tags[inst]) {
         .constant => unreachable,
-        .const_ty => unreachable,
         .interned => unreachable,
 
         .add => func.airBinOp(inst, .add),
@@ -6903,28 +6902,12 @@ fn getTagNameFunction(func: *CodeGen, enum_ty: Type) InnerError!u32 {
             .child = .u8_type,
             .sentinel = .zero_u8,
         });
-        const string_bytes = &mod.string_literal_bytes;
-        try string_bytes.ensureUnusedCapacity(mod.gpa, tag_name.len);
-        const gop = try mod.string_literal_table.getOrPutContextAdapted(mod.gpa, @as([]const u8, tag_name), Module.StringLiteralAdapter{
-            .bytes = string_bytes,
-        }, Module.StringLiteralContext{
-            .bytes = string_bytes,
-        });
-        if (!gop.found_existing) {
-            gop.key_ptr.* = .{
-                .index = @intCast(u32, string_bytes.items.len),
-                .len = @intCast(u32, tag_name.len),
-            };
-            string_bytes.appendSliceAssumeCapacity(tag_name);
-            gop.value_ptr.* = .none;
-        }
-        var name_val_payload: Value.Payload.StrLit = .{
-            .base = .{ .tag = .str_lit },
-            .data = gop.key_ptr.*,
-        };
-        const name_val = Value.initPayload(&name_val_payload.base);
+        const name_val = try mod.intern(.{ .aggregate = .{
+            .ty = name_ty.toIntern(),
+            .storage = .{ .bytes = tag_name },
+        } });
         const tag_sym_index = try func.bin_file.lowerUnnamedConst(
-            .{ .ty = name_ty, .val = name_val },
+            .{ .ty = name_ty, .val = name_val.toValue() },
             enum_decl_index,
         );
 
