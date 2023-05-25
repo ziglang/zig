@@ -1546,7 +1546,7 @@ pub const DwarfInfo = struct {
             }
 
             // TODO: Avoiding sorting if has_eh_frame_hdr exists
-            std.sort.sort(FrameDescriptionEntry, di.fde_list.items, {}, struct {
+            std.mem.sort(FrameDescriptionEntry, di.fde_list.items, {}, struct {
                 fn lessThan(ctx: void, a: FrameDescriptionEntry, b: FrameDescriptionEntry) bool {
                     _ = ctx;
                     return a.pc_begin < b.pc_begin;
