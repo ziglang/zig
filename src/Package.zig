@@ -526,9 +526,7 @@ fn fetchAndUnpack(
             // whose content-disposition header is: 'attachment; filename="<project>-<sha>.tar.gz"'
             const content_disposition = req.response.headers.getFirstValue("Content-Disposition") orelse
                 return report.fail(dep.url_tok, "Missing 'Content-Disposition' header for Content-Type=application/octet-stream", .{});
-            if (mem.startsWith(u8, content_disposition, "attachment;") and
-                mem.endsWith(u8, content_disposition, ".tar.gz\""))
-            {
+            if (isTarAttachment(content_disposition)) {
                 try unpackTarball(gpa, &req, tmp_directory.handle, std.compress.gzip);
             } else return report.fail(dep.url_tok, "Unsupported 'Content-Disposition' header value: '{s}' for Content-Type=application/octet-stream", .{content_disposition});
         } else {
@@ -765,4 +763,38 @@ fn renameTmpIntoCache(
         };
         break;
     }
+}
+
+fn isTarAttachment(content_disposition: []const u8) bool {
+    const disposition_type_end = ascii.indexOfIgnoreCase(content_disposition, "attachment;") orelse return false;
+
+    var value_start = ascii.indexOfIgnoreCasePos(content_disposition, disposition_type_end + 1, "filename") orelse return false;
+    value_start += "filename".len;
+    if (content_disposition[value_start] == '*') {
+        value_start += 1;
+    }
+    if (content_disposition[value_start] != '=') return false;
+    value_start += 1;
+
+    var value_end = mem.indexOfPos(u8, content_disposition, value_start, ";") orelse content_disposition.len;
+    if (content_disposition[value_end - 1] == '\"') {
+        value_end -= 1;
+    }
+    return ascii.endsWithIgnoreCase(content_disposition[value_start..value_end], ".tar.gz");
+}
+
+test "isTarAttachment" {
+    try std.testing.expect(isTarAttachment("attaChment; FILENAME=\"stuff.tar.gz\"; size=42"));
+    try std.testing.expect(isTarAttachment("attachment; filename*=\"stuff.tar.gz\""));
+    try std.testing.expect(isTarAttachment("ATTACHMENT; filename=\"stuff.tar.gz\""));
+    try std.testing.expect(isTarAttachment("attachment; FileName=\"stuff.tar.gz\""));
+    try std.testing.expect(isTarAttachment("attachment; FileName*=UTF-8\'\'xyz%2Fstuff.tar.gz"));
+
+    try std.testing.expect(!isTarAttachment("attachment FileName=\"stuff.tar.gz\""));
+    try std.testing.expect(!isTarAttachment("attachment; FileName=\"stuff.tar\""));
+    try std.testing.expect(!isTarAttachment("attachment; FileName\"stuff.gz\""));
+    try std.testing.expect(!isTarAttachment("attachment; size=42"));
+    try std.testing.expect(!isTarAttachment("inline; size=42"));
+    try std.testing.expect(!isTarAttachment("FileName=\"stuff.tar.gz\"; attachment;"));
+    try std.testing.expect(!isTarAttachment("FileName=\"stuff.tar.gz\";"));
 }
