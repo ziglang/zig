@@ -411,7 +411,8 @@ pub const StackIterator = struct {
     // When DebugInfo and a register context is available, this iterator can unwind
     // stacks with frames that don't use a frame pointer (ie. -fomit-frame-pointer).
     debug_info: ?*DebugInfo,
-    dwarf_context: if (@hasDecl(os, "ucontext_t")) DW.UnwindContext else void = undefined,
+    dwarf_context: if (supports_context) DW.UnwindContext else void = undefined,
+    const supports_context = @hasDecl(os.system, "ucontext_t");
 
     pub fn init(first_address: ?usize, fp: ?usize) StackIterator {
         if (native_arch == .sparc64) {
@@ -526,7 +527,7 @@ pub const StackIterator = struct {
     }
 
     fn next_internal(self: *StackIterator) ?usize {
-        if (self.debug_info != null) {
+        if (supports_context and self.debug_info != null) {
             if (self.next_dwarf()) |_| {
                 return self.dwarf_context.pc;
             } else |err| {
