@@ -35,6 +35,22 @@ pub const Value = struct {
         // The first section of this enum are tags that require no payload.
         // After this, the tag requires a payload.
 
+        /// When the type is error union:
+        /// * If the tag is `.@"error"`, the error union is an error.
+        /// * If the tag is `.eu_payload`, the error union is a payload.
+        /// * A nested error such as `anyerror!(anyerror!T)` in which the the outer error union
+        ///   is non-error, but the inner error union is an error, is represented as
+        ///   a tag of `.eu_payload`, with a sub-tag of `.@"error"`.
+        eu_payload,
+        /// When the type is optional:
+        /// * If the tag is `.null_value`, the optional is null.
+        /// * If the tag is `.opt_payload`, the optional is a payload.
+        /// * A nested optional such as `??T` in which the the outer optional
+        ///   is non-null, but the inner optional is null, is represented as
+        ///   a tag of `.opt_payload`, with a sub-tag of `.null_value`.
+        opt_payload,
+        /// Pointer and length as sub `Value` objects.
+        slice,
         /// A slice of u8 whose memory is managed externally.
         bytes,
         /// This value is repeated some number of times. The amount of times to repeat
@@ -58,14 +74,16 @@ pub const Value = struct {
 
         pub fn Type(comptime t: Tag) type {
             return switch (t) {
-                .repeated => Payload.SubValue,
-
+                .eu_payload,
+                .opt_payload,
+                .repeated,
+                => Payload.SubValue,
+                .slice => Payload.Slice,
                 .bytes => Payload.Bytes,
-
-                .inferred_alloc => Payload.InferredAlloc,
-                .inferred_alloc_comptime => Payload.InferredAllocComptime,
                 .aggregate => Payload.Aggregate,
                 .@"union" => Payload.Union,
+                .inferred_alloc => Payload.InferredAlloc,
+                .inferred_alloc_comptime => Payload.InferredAllocComptime,
             };
         }
 
@@ -172,12 +190,30 @@ pub const Value = struct {
                     .legacy = .{ .ptr_otherwise = &new_payload.base },
                 };
             },
-            .repeated => {
+            .eu_payload,
+            .opt_payload,
+            .repeated,
+            => {
                 const payload = self.cast(Payload.SubValue).?;
                 const new_payload = try arena.create(Payload.SubValue);
                 new_payload.* = .{
                     .base = payload.base,
                     .data = try payload.data.copy(arena),
+                };
+                return Value{
+                    .ip_index = .none,
+                    .legacy = .{ .ptr_otherwise = &new_payload.base },
+                };
+            },
+            .slice => {
+                const payload = self.castTag(.slice).?;
+                const new_payload = try arena.create(Payload.Slice);
+                new_payload.* = .{
+                    .base = payload.base,
+                    .data = .{
+                        .ptr = try payload.data.ptr.copy(arena),
+                        .len = try payload.data.len.copy(arena),
+                    },
                 };
                 return Value{
                     .ip_index = .none,
@@ -263,6 +299,15 @@ pub const Value = struct {
                 try out_stream.writeAll("(repeated) ");
                 val = val.castTag(.repeated).?.data;
             },
+            .eu_payload => {
+                try out_stream.writeAll("(eu_payload) ");
+                val = val.castTag(.repeated).?.data;
+            },
+            .opt_payload => {
+                try out_stream.writeAll("(opt_payload) ");
+                val = val.castTag(.repeated).?.data;
+            },
+            .slice => return out_stream.writeAll("(slice)"),
             .inferred_alloc => return out_stream.writeAll("(inferred allocation value)"),
             .inferred_alloc_comptime => return out_stream.writeAll("(inferred comptime allocation value)"),
         };
@@ -1653,13 +1698,18 @@ pub const Value = struct {
             .Null,
             .Struct, // It sure would be nice to do something clever with structs.
             => |zig_type_tag| std.hash.autoHash(hasher, zig_type_tag),
+            .Pointer => {
+                assert(ty.isSlice(mod));
+                const slice = val.castTag(.slice).?.data;
+                const ptr_ty = ty.slicePtrFieldType(mod);
+                slice.ptr.hashUncoerced(ptr_ty, hasher, mod);
+            },
             .Type,
             .Float,
             .ComptimeFloat,
             .Bool,
             .Int,
             .ComptimeInt,
-            .Pointer,
             .Fn,
             .Optional,
             .ErrorSet,
@@ -1799,9 +1849,15 @@ pub const Value = struct {
     /// Asserts the value is a single-item pointer to an array, or an array,
     /// or an unknown-length pointer, and returns the element value at the index.
     pub fn elemValue(val: Value, mod: *Module, index: usize) Allocator.Error!Value {
-        switch (val.toIntern()) {
-            .undef => return Value.undef,
-            else => return switch (mod.intern_pool.indexToKey(val.toIntern())) {
+        return switch (val.ip_index) {
+            .undef => Value.undef,
+            .none => switch (val.tag()) {
+                .repeated => val.castTag(.repeated).?.data,
+                .aggregate => val.castTag(.aggregate).?.data[index],
+                .slice => val.castTag(.slice).?.data.ptr.elemValue(mod, index),
+                else => unreachable,
+            },
+            else => switch (mod.intern_pool.indexToKey(val.toIntern())) {
                 .ptr => |ptr| switch (ptr.addr) {
                     .decl => |decl| mod.declPtr(decl).val.elemValue(mod, index),
                     .mut_decl => |mut_decl| mod.declPtr(mut_decl.decl).val.elemValue(mod, index),
@@ -1829,7 +1885,7 @@ pub const Value = struct {
                 },
                 else => unreachable,
             },
-        }
+        };
     }
 
     pub fn isLazyAlign(val: Value, mod: *Module) bool {
@@ -1875,25 +1931,28 @@ pub const Value = struct {
     }
 
     pub fn isPtrToThreadLocal(val: Value, mod: *Module) bool {
-        return switch (mod.intern_pool.indexToKey(val.toIntern())) {
-            .variable => |variable| variable.is_threadlocal,
-            .ptr => |ptr| switch (ptr.addr) {
-                .decl => |decl_index| {
-                    const decl = mod.declPtr(decl_index);
-                    assert(decl.has_tv);
-                    return decl.val.isPtrToThreadLocal(mod);
+        return switch (val.ip_index) {
+            .none => false,
+            else => switch (mod.intern_pool.indexToKey(val.toIntern())) {
+                .variable => |variable| variable.is_threadlocal,
+                .ptr => |ptr| switch (ptr.addr) {
+                    .decl => |decl_index| {
+                        const decl = mod.declPtr(decl_index);
+                        assert(decl.has_tv);
+                        return decl.val.isPtrToThreadLocal(mod);
+                    },
+                    .mut_decl => |mut_decl| {
+                        const decl = mod.declPtr(mut_decl.decl);
+                        assert(decl.has_tv);
+                        return decl.val.isPtrToThreadLocal(mod);
+                    },
+                    .int => false,
+                    .eu_payload, .opt_payload => |base_ptr| base_ptr.toValue().isPtrToThreadLocal(mod),
+                    .comptime_field => |comptime_field| comptime_field.toValue().isPtrToThreadLocal(mod),
+                    .elem, .field => |base_index| base_index.base.toValue().isPtrToThreadLocal(mod),
                 },
-                .mut_decl => |mut_decl| {
-                    const decl = mod.declPtr(mut_decl.decl);
-                    assert(decl.has_tv);
-                    return decl.val.isPtrToThreadLocal(mod);
-                },
-                .int => false,
-                .eu_payload, .opt_payload => |base_ptr| base_ptr.toValue().isPtrToThreadLocal(mod),
-                .comptime_field => |comptime_field| comptime_field.toValue().isPtrToThreadLocal(mod),
-                .elem, .field => |base_index| base_index.base.toValue().isPtrToThreadLocal(mod),
+                else => false,
             },
-            else => false,
         };
     }
 
@@ -1926,9 +1985,21 @@ pub const Value = struct {
     }
 
     pub fn fieldValue(val: Value, mod: *Module, index: usize) !Value {
-        switch (val.toIntern()) {
-            .undef => return Value.undef,
-            else => return switch (mod.intern_pool.indexToKey(val.toIntern())) {
+        return switch (val.ip_index) {
+            .undef => Value.undef,
+            .none => switch (val.tag()) {
+                .aggregate => {
+                    const field_values = val.castTag(.aggregate).?.data;
+                    return field_values[index];
+                },
+                .@"union" => {
+                    const payload = val.castTag(.@"union").?.data;
+                    // TODO assert the tag is correct
+                    return payload.val;
+                },
+                else => unreachable,
+            },
+            else => switch (mod.intern_pool.indexToKey(val.toIntern())) {
                 .aggregate => |aggregate| switch (aggregate.storage) {
                     .bytes => |bytes| try mod.intern(.{ .int = .{
                         .ty = .u8_type,
@@ -1941,7 +2012,7 @@ pub const Value = struct {
                 .un => |un| un.val.toValue(),
                 else => unreachable,
             },
-        }
+        };
     }
 
     pub fn unionTag(val: Value, mod: *Module) Value {
@@ -1956,36 +2027,17 @@ pub const Value = struct {
     /// Returns a pointer to the element value at the index.
     pub fn elemPtr(
         val: Value,
-        ty: Type,
+        elem_ptr_ty: Type,
         index: usize,
         mod: *Module,
     ) Allocator.Error!Value {
-        const elem_ty = ty.elemType2(mod);
-        const ptr_ty_key = mod.intern_pool.indexToKey(ty.toIntern()).ptr_type;
-        assert(ptr_ty_key.host_size == 0);
-        assert(ptr_ty_key.bit_offset == 0);
-        assert(ptr_ty_key.vector_index == .none);
-        const elem_alignment = InternPool.Alignment.fromByteUnits(elem_ty.abiAlignment(mod));
-        const alignment = switch (ptr_ty_key.alignment) {
-            .none => .none,
-            else => ptr_ty_key.alignment.min(
-                @intToEnum(InternPool.Alignment, @ctz(index * elem_ty.abiSize(mod))),
-            ),
-        };
-        const ptr_ty = try mod.ptrType(.{
-            .elem_type = elem_ty.toIntern(),
-            .alignment = if (alignment == elem_alignment) .none else alignment,
-            .is_const = ptr_ty_key.is_const,
-            .is_volatile = ptr_ty_key.is_volatile,
-            .is_allowzero = ptr_ty_key.is_allowzero,
-            .address_space = ptr_ty_key.address_space,
-        });
+        const elem_ty = elem_ptr_ty.childType(mod);
         const ptr_val = switch (mod.intern_pool.indexToKey(val.toIntern())) {
             .ptr => |ptr| ptr: {
                 switch (ptr.addr) {
                     .elem => |elem| if (mod.intern_pool.typeOf(elem.base).toType().elemType2(mod).eql(elem_ty, mod))
                         return (try mod.intern(.{ .ptr = .{
-                            .ty = ptr_ty.toIntern(),
+                            .ty = elem_ptr_ty.toIntern(),
                             .addr = .{ .elem = .{
                                 .base = elem.base,
                                 .index = elem.index + index,
@@ -2001,7 +2053,7 @@ pub const Value = struct {
             else => val,
         };
         return (try mod.intern(.{ .ptr = .{
-            .ty = ptr_ty.toIntern(),
+            .ty = elem_ptr_ty.toIntern(),
             .addr = .{ .elem = .{
                 .base = ptr_val.toIntern(),
                 .index = index,
@@ -4058,9 +4110,12 @@ pub const Value = struct {
     pub const Payload = struct {
         tag: Tag,
 
-        pub const SubValue = struct {
+        pub const Slice = struct {
             base: Payload,
-            data: Value,
+            data: struct {
+                ptr: Value,
+                len: Value,
+            },
         };
 
         pub const Bytes = struct {
@@ -4069,11 +4124,28 @@ pub const Value = struct {
             data: []const u8,
         };
 
+        pub const SubValue = struct {
+            base: Payload,
+            data: Value,
+        };
+
         pub const Aggregate = struct {
             base: Payload,
             /// Field values. The types are according to the struct or array type.
             /// The length is provided here so that copying a Value does not depend on the Type.
             data: []Value,
+        };
+
+        pub const Union = struct {
+            pub const base_tag = Tag.@"union";
+
+            base: Payload = .{ .tag = base_tag },
+            data: Data,
+
+            pub const Data = struct {
+                tag: Value,
+                val: Value,
+            };
         };
 
         pub const InferredAlloc = struct {
@@ -4109,18 +4181,6 @@ pub const Value = struct {
                 /// 0 means ABI-aligned.
                 alignment: u32,
             },
-        };
-
-        pub const Union = struct {
-            pub const base_tag = Tag.@"union";
-
-            base: Payload = .{ .tag = base_tag },
-            data: Data,
-
-            pub const Data = struct {
-                tag: Value,
-                val: Value,
-            };
         };
     };
 

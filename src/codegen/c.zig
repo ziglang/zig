@@ -2890,8 +2890,7 @@ fn genBodyInner(f: *Function, body: []const Air.Inst.Index) error{ AnalysisFail,
 
         const result_value = switch (air_tags[inst]) {
             // zig fmt: off
-            .constant => unreachable, // excluded from function bodies
-            .interned => unreachable, // excluded from function bodies
+            .inferred_alloc, .inferred_alloc_comptime, .interned => unreachable,
 
             .arg      => try airArg(f, inst),
 
@@ -7783,8 +7782,8 @@ fn reap(f: *Function, inst: Air.Inst.Index, operands: []const Air.Inst.Ref) !voi
 
 fn die(f: *Function, inst: Air.Inst.Index, ref: Air.Inst.Ref) !void {
     const ref_inst = Air.refToIndex(ref) orelse return;
+    assert(f.air.instructions.items(.tag)[ref_inst] != .interned);
     const c_value = (f.value_map.fetchRemove(ref_inst) orelse return).value;
-    if (f.air.instructions.items(.tag)[ref_inst] == .constant) return;
     const local_index = switch (c_value) {
         .local, .new_local => |l| l,
         else => return,

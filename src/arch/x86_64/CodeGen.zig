@@ -1922,8 +1922,7 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .ptr_elem_val        => try self.airPtrElemVal(inst),
             .ptr_elem_ptr        => try self.airPtrElemPtr(inst),
 
-            .constant => unreachable, // excluded from function bodies
-            .interned => unreachable, // excluded from function bodies
+            .inferred_alloc, .inferred_alloc_comptime, .interned => unreachable,
             .unreach  => if (self.wantSafety()) try self.airTrap() else self.finishAirBookkeeping(),
 
             .optional_payload           => try self.airOptionalPayload(inst),
@@ -2097,10 +2096,8 @@ fn feed(self: *Self, bt: *Liveness.BigTomb, operand: Air.Inst.Ref) void {
 
 /// Asserts there is already capacity to insert into top branch inst_table.
 fn processDeath(self: *Self, inst: Air.Inst.Index) void {
-    switch (self.air.instructions.items(.tag)[inst]) {
-        .constant => unreachable,
-        else => self.inst_tracking.getPtr(inst).?.die(self, inst),
-    }
+    assert(self.air.instructions.items(.tag)[inst] != .interned);
+    self.inst_tracking.getPtr(inst).?.die(self, inst);
 }
 
 /// Called when there are no operands, and the instruction is always unreferenced.
@@ -2876,8 +2873,8 @@ fn activeIntBits(self: *Self, dst_air: Air.Inst.Ref) u16 {
     const dst_info = dst_ty.intInfo(mod);
     if (Air.refToIndex(dst_air)) |inst| {
         switch (air_tag[inst]) {
-            .constant => {
-                const src_val = self.air.values[air_data[inst].ty_pl.payload];
+            .interned => {
+                const src_val = air_data[inst].interned.toValue();
                 var space: Value.BigIntSpace = undefined;
                 const src_int = src_val.toBigInt(&space, mod);
                 return @intCast(u16, src_int.bitCountTwosComp()) +
@@ -11584,11 +11581,11 @@ fn resolveInst(self: *Self, ref: Air.Inst.Ref) InnerError!MCValue {
 
     if (Air.refToIndex(ref)) |inst| {
         const mcv = switch (self.air.instructions.items(.tag)[inst]) {
-            .constant => tracking: {
+            .interned => tracking: {
                 const gop = try self.const_tracking.getOrPut(self.gpa, inst);
                 if (!gop.found_existing) gop.value_ptr.* = InstTracking.init(try self.genTypedValue(.{
                     .ty = ty,
-                    .val = (try self.air.value(ref, mod)).?,
+                    .val = self.air.instructions.items(.data)[inst].interned.toValue(),
                 }));
                 break :tracking gop.value_ptr;
             },
@@ -11605,7 +11602,7 @@ fn resolveInst(self: *Self, ref: Air.Inst.Ref) InnerError!MCValue {
 
 fn getResolvedInstValue(self: *Self, inst: Air.Inst.Index) *InstTracking {
     const tracking = switch (self.air.instructions.items(.tag)[inst]) {
-        .constant => &self.const_tracking,
+        .interned => &self.const_tracking,
         else => &self.inst_tracking,
     }.getPtr(inst).?;
     return switch (tracking.short) {

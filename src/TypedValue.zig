@@ -124,6 +124,60 @@ pub fn print(
                 }
                 return writer.writeAll(" }");
             },
+            .slice => {
+                if (level == 0) {
+                    return writer.writeAll(".{ ... }");
+                }
+                const payload = val.castTag(.slice).?.data;
+                const elem_ty = ty.elemType2(mod);
+                const len = payload.len.toUnsignedInt(mod);
+
+                if (elem_ty.eql(Type.u8, mod)) str: {
+                    const max_len = @intCast(usize, std.math.min(len, max_string_len));
+                    var buf: [max_string_len]u8 = undefined;
+
+                    var i: u32 = 0;
+                    while (i < max_len) : (i += 1) {
+                        const elem_val = payload.ptr.elemValue(mod, i) catch |err| switch (err) {
+                            error.OutOfMemory => @panic("OOM"), // TODO: eliminate this panic
+                        };
+                        if (elem_val.isUndef(mod)) break :str;
+                        buf[i] = std.math.cast(u8, elem_val.toUnsignedInt(mod)) orelse break :str;
+                    }
+
+                    // TODO would be nice if this had a bit of unicode awareness.
+                    const truncated = if (len > max_string_len) " (truncated)" else "";
+                    return writer.print("\"{}{s}\"", .{ std.zig.fmtEscapes(buf[0..max_len]), truncated });
+                }
+
+                try writer.writeAll(".{ ");
+
+                const max_len = std.math.min(len, max_aggregate_items);
+                var i: u32 = 0;
+                while (i < max_len) : (i += 1) {
+                    if (i != 0) try writer.writeAll(", ");
+                    const elem_val = payload.ptr.elemValue(mod, i) catch |err| switch (err) {
+                        error.OutOfMemory => @panic("OOM"), // TODO: eliminate this panic
+                    };
+                    try print(.{
+                        .ty = elem_ty,
+                        .val = elem_val,
+                    }, writer, level - 1, mod);
+                }
+                if (len > max_aggregate_items) {
+                    try writer.writeAll(", ...");
+                }
+                return writer.writeAll(" }");
+            },
+            .eu_payload => {
+                val = val.castTag(.eu_payload).?.data;
+                ty = ty.errorUnionPayload(mod);
+            },
+            .opt_payload => {
+                val = val.castTag(.opt_payload).?.data;
+                ty = ty.optionalChild(mod);
+                return print(.{ .ty = ty, .val = val }, writer, level, mod);
+            },
             // TODO these should not appear in this function
             .inferred_alloc => return writer.writeAll("(inferred allocation value)"),
             .inferred_alloc_comptime => return writer.writeAll("(inferred comptime allocation value)"),
