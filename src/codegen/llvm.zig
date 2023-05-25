@@ -3208,7 +3208,8 @@ pub const DeclGen = struct {
             return llvm_type.getUndef();
         }
 
-        switch (mod.intern_pool.indexToKey(tv.val.toIntern())) {
+        const val_key = mod.intern_pool.indexToKey(tv.val.toIntern());
+        switch (val_key) {
             .int_type,
             .ptr_type,
             .array_type,
@@ -3242,10 +3243,18 @@ pub const DeclGen = struct {
                 },
             },
             .variable,
-            .extern_func,
-            .func,
             .enum_literal,
             => unreachable, // non-runtime values
+            .extern_func, .func => {
+                const fn_decl_index = switch (val_key) {
+                    .extern_func => |extern_func| extern_func.decl,
+                    .func => |func| mod.funcPtr(func.index).owner_decl,
+                    else => unreachable,
+                };
+                const fn_decl = dg.module.declPtr(fn_decl_index);
+                dg.module.markDeclAlive(fn_decl);
+                return dg.resolveLlvmFunction(fn_decl_index);
+            },
             .int => |int| {
                 var bigint_space: Value.BigIntSpace = undefined;
                 const bigint = int.storage.toBigInt(&bigint_space);

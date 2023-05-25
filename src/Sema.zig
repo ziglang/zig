@@ -10252,7 +10252,7 @@ fn zirSwitchCapture(
             if (try sema.resolveDefinedValue(block, operand_src, operand)) |operand_val| {
                 return sema.addConstant(
                     first_field.ty,
-                    operand_val.castTag(.@"union").?.data.val,
+                    mod.intern_pool.indexToKey(operand_val.toIntern()).un.val.toValue(),
                 );
             }
             try sema.requireRuntimeBlock(block, operand_src, null);
@@ -19042,10 +19042,10 @@ fn zirReify(
     const operand_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = extra.node };
     const type_info = try sema.coerce(block, type_info_ty, uncasted_operand, operand_src);
     const val = try sema.resolveConstValue(block, operand_src, type_info, "operand to @Type must be comptime-known");
-    const union_val = val.cast(Value.Payload.Union).?.data;
+    const union_val = mod.intern_pool.indexToKey(val.toIntern()).un;
     const target = mod.getTarget();
-    const tag_index = type_info_ty.unionTagFieldIndex(union_val.tag, mod).?;
-    if (try union_val.val.anyUndef(mod)) return sema.failWithUseOfUndef(block, src);
+    if (try union_val.val.toValue().anyUndef(mod)) return sema.failWithUseOfUndef(block, src);
+    const tag_index = type_info_ty.unionTagFieldIndex(union_val.tag.toValue(), mod).?;
     const ip = &mod.intern_pool;
     switch (@intToEnum(std.builtin.TypeId, tag_index)) {
         .Type => return Air.Inst.Ref.type_type,
@@ -19059,9 +19059,9 @@ fn zirReify(
         .AnyFrame => return sema.failWithUseOfAsync(block, src),
         .EnumLiteral => return Air.Inst.Ref.enum_literal_type,
         .Int => {
-            const fields = ip.typeOf(union_val.val.toIntern()).toType().structFields(mod);
-            const signedness_val = try union_val.val.fieldValue(mod, fields.getIndex("signedness").?);
-            const bits_val = try union_val.val.fieldValue(mod, fields.getIndex("bits").?);
+            const fields = ip.typeOf(union_val.val).toType().structFields(mod);
+            const signedness_val = try union_val.val.toValue().fieldValue(mod, fields.getIndex("signedness").?);
+            const bits_val = try union_val.val.toValue().fieldValue(mod, fields.getIndex("bits").?);
 
             const signedness = mod.toEnum(std.builtin.Signedness, signedness_val);
             const bits = @intCast(u16, bits_val.toUnsignedInt(mod));
@@ -19069,9 +19069,9 @@ fn zirReify(
             return sema.addType(ty);
         },
         .Vector => {
-            const fields = ip.typeOf(union_val.val.toIntern()).toType().structFields(mod);
-            const len_val = try union_val.val.fieldValue(mod, fields.getIndex("len").?);
-            const child_val = try union_val.val.fieldValue(mod, fields.getIndex("child").?);
+            const fields = ip.typeOf(union_val.val).toType().structFields(mod);
+            const len_val = try union_val.val.toValue().fieldValue(mod, fields.getIndex("len").?);
+            const child_val = try union_val.val.toValue().fieldValue(mod, fields.getIndex("child").?);
 
             const len = @intCast(u32, len_val.toUnsignedInt(mod));
             const child_ty = child_val.toType();
@@ -19085,8 +19085,8 @@ fn zirReify(
             return sema.addType(ty);
         },
         .Float => {
-            const fields = ip.typeOf(union_val.val.toIntern()).toType().structFields(mod);
-            const bits_val = try union_val.val.fieldValue(mod, fields.getIndex("bits").?);
+            const fields = ip.typeOf(union_val.val).toType().structFields(mod);
+            const bits_val = try union_val.val.toValue().fieldValue(mod, fields.getIndex("bits").?);
 
             const bits = @intCast(u16, bits_val.toUnsignedInt(mod));
             const ty = switch (bits) {
@@ -19100,15 +19100,15 @@ fn zirReify(
             return sema.addType(ty);
         },
         .Pointer => {
-            const fields = ip.typeOf(union_val.val.toIntern()).toType().structFields(mod);
-            const size_val = try union_val.val.fieldValue(mod, fields.getIndex("size").?);
-            const is_const_val = try union_val.val.fieldValue(mod, fields.getIndex("is_const").?);
-            const is_volatile_val = try union_val.val.fieldValue(mod, fields.getIndex("is_volatile").?);
-            const alignment_val = try union_val.val.fieldValue(mod, fields.getIndex("alignment").?);
-            const address_space_val = try union_val.val.fieldValue(mod, fields.getIndex("address_space").?);
-            const child_val = try union_val.val.fieldValue(mod, fields.getIndex("child").?);
-            const is_allowzero_val = try union_val.val.fieldValue(mod, fields.getIndex("is_allowzero").?);
-            const sentinel_val = try union_val.val.fieldValue(mod, fields.getIndex("sentinel").?);
+            const fields = ip.typeOf(union_val.val).toType().structFields(mod);
+            const size_val = try union_val.val.toValue().fieldValue(mod, fields.getIndex("size").?);
+            const is_const_val = try union_val.val.toValue().fieldValue(mod, fields.getIndex("is_const").?);
+            const is_volatile_val = try union_val.val.toValue().fieldValue(mod, fields.getIndex("is_volatile").?);
+            const alignment_val = try union_val.val.toValue().fieldValue(mod, fields.getIndex("alignment").?);
+            const address_space_val = try union_val.val.toValue().fieldValue(mod, fields.getIndex("address_space").?);
+            const child_val = try union_val.val.toValue().fieldValue(mod, fields.getIndex("child").?);
+            const is_allowzero_val = try union_val.val.toValue().fieldValue(mod, fields.getIndex("is_allowzero").?);
+            const sentinel_val = try union_val.val.toValue().fieldValue(mod, fields.getIndex("sentinel").?);
 
             if (!try sema.intFitsInType(alignment_val, Type.u32, null)) {
                 return sema.fail(block, src, "alignment must fit in 'u32'", .{});
@@ -19191,10 +19191,10 @@ fn zirReify(
             return sema.addType(ty);
         },
         .Array => {
-            const fields = ip.typeOf(union_val.val.toIntern()).toType().structFields(mod);
-            const len_val = try union_val.val.fieldValue(mod, fields.getIndex("len").?);
-            const child_val = try union_val.val.fieldValue(mod, fields.getIndex("child").?);
-            const sentinel_val = try union_val.val.fieldValue(mod, fields.getIndex("sentinel").?);
+            const fields = ip.typeOf(union_val.val).toType().structFields(mod);
+            const len_val = try union_val.val.toValue().fieldValue(mod, fields.getIndex("len").?);
+            const child_val = try union_val.val.toValue().fieldValue(mod, fields.getIndex("child").?);
+            const sentinel_val = try union_val.val.toValue().fieldValue(mod, fields.getIndex("sentinel").?);
 
             const len = len_val.toUnsignedInt(mod);
             const child_ty = child_val.toType();
@@ -19210,8 +19210,8 @@ fn zirReify(
             return sema.addType(ty);
         },
         .Optional => {
-            const fields = ip.typeOf(union_val.val.toIntern()).toType().structFields(mod);
-            const child_val = try union_val.val.fieldValue(mod, fields.getIndex("child").?);
+            const fields = ip.typeOf(union_val.val).toType().structFields(mod);
+            const child_val = try union_val.val.toValue().fieldValue(mod, fields.getIndex("child").?);
 
             const child_ty = child_val.toType();
 
@@ -19219,9 +19219,9 @@ fn zirReify(
             return sema.addType(ty);
         },
         .ErrorUnion => {
-            const fields = ip.typeOf(union_val.val.toIntern()).toType().structFields(mod);
-            const error_set_val = try union_val.val.fieldValue(mod, fields.getIndex("error_set").?);
-            const payload_val = try union_val.val.fieldValue(mod, fields.getIndex("payload").?);
+            const fields = ip.typeOf(union_val.val).toType().structFields(mod);
+            const error_set_val = try union_val.val.toValue().fieldValue(mod, fields.getIndex("error_set").?);
+            const payload_val = try union_val.val.toValue().fieldValue(mod, fields.getIndex("payload").?);
 
             const error_set_ty = error_set_val.toType();
             const payload_ty = payload_val.toType();
@@ -19234,7 +19234,7 @@ fn zirReify(
             return sema.addType(ty);
         },
         .ErrorSet => {
-            const payload_val = union_val.val.optionalValue(mod) orelse
+            const payload_val = union_val.val.toValue().optionalValue(mod) orelse
                 return sema.addType(Type.anyerror);
 
             const len = try sema.usizeCast(block, src, payload_val.sliceLen(mod));
@@ -19258,12 +19258,12 @@ fn zirReify(
             return sema.addType(ty);
         },
         .Struct => {
-            const fields = ip.typeOf(union_val.val.toIntern()).toType().structFields(mod);
-            const layout_val = try union_val.val.fieldValue(mod, fields.getIndex("layout").?);
-            const backing_integer_val = try union_val.val.fieldValue(mod, fields.getIndex("backing_integer").?);
-            const fields_val = try union_val.val.fieldValue(mod, fields.getIndex("fields").?);
-            const decls_val = try union_val.val.fieldValue(mod, fields.getIndex("decls").?);
-            const is_tuple_val = try union_val.val.fieldValue(mod, fields.getIndex("is_tuple").?);
+            const fields = ip.typeOf(union_val.val).toType().structFields(mod);
+            const layout_val = try union_val.val.toValue().fieldValue(mod, fields.getIndex("layout").?);
+            const backing_integer_val = try union_val.val.toValue().fieldValue(mod, fields.getIndex("backing_integer").?);
+            const fields_val = try union_val.val.toValue().fieldValue(mod, fields.getIndex("fields").?);
+            const decls_val = try union_val.val.toValue().fieldValue(mod, fields.getIndex("decls").?);
+            const is_tuple_val = try union_val.val.toValue().fieldValue(mod, fields.getIndex("is_tuple").?);
 
             const layout = mod.toEnum(std.builtin.Type.ContainerLayout, layout_val);
 
@@ -19279,11 +19279,11 @@ fn zirReify(
             return try sema.reifyStruct(block, inst, src, layout, backing_integer_val, fields_val, name_strategy, is_tuple_val.toBool(mod));
         },
         .Enum => {
-            const fields = ip.typeOf(union_val.val.toIntern()).toType().structFields(mod);
-            const tag_type_val = try union_val.val.fieldValue(mod, fields.getIndex("tag_type").?);
-            const fields_val = try union_val.val.fieldValue(mod, fields.getIndex("fields").?);
-            const decls_val = try union_val.val.fieldValue(mod, fields.getIndex("decls").?);
-            const is_exhaustive_val = try union_val.val.fieldValue(mod, fields.getIndex("is_exhaustive").?);
+            const fields = ip.typeOf(union_val.val).toType().structFields(mod);
+            const tag_type_val = try union_val.val.toValue().fieldValue(mod, fields.getIndex("tag_type").?);
+            const fields_val = try union_val.val.toValue().fieldValue(mod, fields.getIndex("fields").?);
+            const decls_val = try union_val.val.toValue().fieldValue(mod, fields.getIndex("decls").?);
+            const is_exhaustive_val = try union_val.val.toValue().fieldValue(mod, fields.getIndex("is_exhaustive").?);
 
             // Decls
             if (decls_val.sliceLen(mod) > 0) {
@@ -19318,7 +19318,7 @@ fn zirReify(
                     .nonexhaustive
                 else
                     .explicit,
-                .tag_ty = int_tag_ty.ip_index,
+                .tag_ty = int_tag_ty.toIntern(),
             });
             errdefer mod.intern_pool.remove(incomplete_enum.index);
 
@@ -19360,7 +19360,7 @@ fn zirReify(
                     return sema.failWithOwnedErrorMsg(msg);
                 }
 
-                if (try incomplete_enum.addFieldValue(&mod.intern_pool, gpa, value_val.ip_index)) |other| {
+                if (try incomplete_enum.addFieldValue(&mod.intern_pool, gpa, value_val.toIntern())) |other| {
                     const msg = msg: {
                         const msg = try sema.errMsg(block, src, "enum tag value {} already taken", .{value_val.fmtValue(Type.comptime_int, mod)});
                         errdefer msg.destroy(gpa);
@@ -19375,8 +19375,8 @@ fn zirReify(
             return sema.analyzeDeclVal(block, src, new_decl_index);
         },
         .Opaque => {
-            const fields = ip.typeOf(union_val.val.ip_index).toType().structFields(mod);
-            const decls_val = try union_val.val.fieldValue(mod, fields.getIndex("decls").?);
+            const fields = ip.typeOf(union_val.val).toType().structFields(mod);
+            const decls_val = try union_val.val.toValue().fieldValue(mod, fields.getIndex("decls").?);
 
             // Decls
             if (decls_val.sliceLen(mod) > 0) {
@@ -19419,11 +19419,11 @@ fn zirReify(
             return sema.analyzeDeclVal(block, src, new_decl_index);
         },
         .Union => {
-            const fields = ip.typeOf(union_val.val.ip_index).toType().structFields(mod);
-            const layout_val = try union_val.val.fieldValue(mod, fields.getIndex("layout").?);
-            const tag_type_val = try union_val.val.fieldValue(mod, fields.getIndex("tag_type").?);
-            const fields_val = try union_val.val.fieldValue(mod, fields.getIndex("fields").?);
-            const decls_val = try union_val.val.fieldValue(mod, fields.getIndex("decls").?);
+            const fields = ip.typeOf(union_val.val).toType().structFields(mod);
+            const layout_val = try union_val.val.toValue().fieldValue(mod, fields.getIndex("layout").?);
+            const tag_type_val = try union_val.val.toValue().fieldValue(mod, fields.getIndex("tag_type").?);
+            const fields_val = try union_val.val.toValue().fieldValue(mod, fields.getIndex("fields").?);
+            const decls_val = try union_val.val.toValue().fieldValue(mod, fields.getIndex("decls").?);
 
             // Decls
             if (decls_val.sliceLen(mod) > 0) {
@@ -19491,7 +19491,7 @@ fn zirReify(
             if (tag_type_val.optionalValue(mod)) |payload_val| {
                 union_obj.tag_ty = payload_val.toType();
 
-                const enum_type = switch (mod.intern_pool.indexToKey(union_obj.tag_ty.ip_index)) {
+                const enum_type = switch (mod.intern_pool.indexToKey(union_obj.tag_ty.toIntern())) {
                     .enum_type => |x| x,
                     else => return sema.fail(block, src, "Type.Union.tag_type must be an enum type", .{}),
                 };
@@ -19620,13 +19620,13 @@ fn zirReify(
             return sema.analyzeDeclVal(block, src, new_decl_index);
         },
         .Fn => {
-            const fields = ip.typeOf(union_val.val.toIntern()).toType().structFields(mod);
-            const calling_convention_val = try union_val.val.fieldValue(mod, fields.getIndex("calling_convention").?);
-            const alignment_val = try union_val.val.fieldValue(mod, fields.getIndex("alignment").?);
-            const is_generic_val = try union_val.val.fieldValue(mod, fields.getIndex("is_generic").?);
-            const is_var_args_val = try union_val.val.fieldValue(mod, fields.getIndex("is_var_args").?);
-            const return_type_val = try union_val.val.fieldValue(mod, fields.getIndex("return_type").?);
-            const params_val = try union_val.val.fieldValue(mod, fields.getIndex("params").?);
+            const fields = ip.typeOf(union_val.val).toType().structFields(mod);
+            const calling_convention_val = try union_val.val.toValue().fieldValue(mod, fields.getIndex("calling_convention").?);
+            const alignment_val = try union_val.val.toValue().fieldValue(mod, fields.getIndex("alignment").?);
+            const is_generic_val = try union_val.val.toValue().fieldValue(mod, fields.getIndex("is_generic").?);
+            const is_var_args_val = try union_val.val.toValue().fieldValue(mod, fields.getIndex("is_var_args").?);
+            const return_type_val = try union_val.val.toValue().fieldValue(mod, fields.getIndex("return_type").?);
+            const params_val = try union_val.val.toValue().fieldValue(mod, fields.getIndex("params").?);
 
             const is_generic = is_generic_val.toBool(mod);
             if (is_generic) {
@@ -25194,12 +25194,12 @@ fn unionFieldPtr(
                 if (union_val.isUndef(mod)) {
                     return sema.failWithUseOfUndef(block, src);
                 }
-                const tag_and_val = union_val.castTag(.@"union").?.data;
+                const un = mod.intern_pool.indexToKey(union_val.toIntern()).un;
                 const field_tag = try mod.enumValueFieldIndex(union_obj.tag_ty, enum_field_index);
-                const tag_matches = tag_and_val.tag.eql(field_tag, union_obj.tag_ty, mod);
+                const tag_matches = un.tag == field_tag.toIntern();
                 if (!tag_matches) {
                     const msg = msg: {
-                        const active_index = union_obj.tag_ty.enumTagFieldIndex(tag_and_val.tag, mod).?;
+                        const active_index = union_obj.tag_ty.enumTagFieldIndex(un.tag.toValue(), mod).?;
                         const active_field_name = union_obj.tag_ty.enumFieldName(active_index, mod);
                         const msg = try sema.errMsg(block, src, "access of union field '{s}' while field '{s}' is active", .{ field_name, active_field_name });
                         errdefer msg.destroy(sema.gpa);
@@ -25259,16 +25259,16 @@ fn unionFieldVal(
     if (try sema.resolveMaybeUndefVal(union_byval)) |union_val| {
         if (union_val.isUndef(mod)) return sema.addConstUndef(field.ty);
 
-        const tag_and_val = union_val.castTag(.@"union").?.data;
+        const un = mod.intern_pool.indexToKey(union_val.toIntern()).un;
         const field_tag = try mod.enumValueFieldIndex(union_obj.tag_ty, enum_field_index);
-        const tag_matches = tag_and_val.tag.eql(field_tag, union_obj.tag_ty, mod);
+        const tag_matches = un.tag == field_tag.toIntern();
         switch (union_obj.layout) {
             .Auto => {
                 if (tag_matches) {
-                    return sema.addConstant(field.ty, tag_and_val.val);
+                    return sema.addConstant(field.ty, un.val.toValue());
                 } else {
                     const msg = msg: {
-                        const active_index = union_obj.tag_ty.enumTagFieldIndex(tag_and_val.tag, mod).?;
+                        const active_index = union_obj.tag_ty.enumTagFieldIndex(un.tag.toValue(), mod).?;
                         const active_field_name = union_obj.tag_ty.enumFieldName(active_index, mod);
                         const msg = try sema.errMsg(block, src, "access of union field '{s}' while field '{s}' is active", .{ field_name, active_field_name });
                         errdefer msg.destroy(sema.gpa);
@@ -25280,10 +25280,10 @@ fn unionFieldVal(
             },
             .Packed, .Extern => {
                 if (tag_matches) {
-                    return sema.addConstant(field.ty, tag_and_val.val);
+                    return sema.addConstant(field.ty, un.val.toValue());
                 } else {
-                    const old_ty = union_ty.unionFieldType(tag_and_val.tag, mod);
-                    if (try sema.bitCastVal(block, src, tag_and_val.val, old_ty, field.ty, 0)) |new_val| {
+                    const old_ty = union_ty.unionFieldType(un.tag.toValue(), mod);
+                    if (try sema.bitCastVal(block, src, un.val.toValue(), old_ty, field.ty, 0)) |new_val| {
                         return sema.addConstant(field.ty, new_val);
                     }
                 }
@@ -27616,7 +27616,7 @@ fn obtainBitCastedVectorPtr(sema: *Sema, ptr: Air.Inst.Ref) ?Air.Inst.Ref {
         // allocations is relevant to this function, or why it would have
         // different behavior depending on whether the types were inferred.
         // Something seems wrong here.
-        switch (prev_ptr_ty.ip_index) {
+        switch (prev_ptr_ty.toIntern()) {
             .inferred_alloc_mut_type, .inferred_alloc_const_type => return null,
             else => {},
         }
