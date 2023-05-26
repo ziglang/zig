@@ -3999,6 +3999,7 @@ pub fn connect(sock: socket_t, sock_addr: *const sockaddr, len: socklen_t) Conne
             .PROTOTYPE => unreachable, // The socket type does not support the requested communications protocol.
             .TIMEDOUT => return error.ConnectionTimedOut,
             .NOENT => return error.FileNotFound, // Returned when socket is AF.UNIX and the given path does not exist.
+            .CONNABORTED => unreachable, // Tried to reuse socket that previously received error.ConnectionRefused.
             else => |err| return unexpectedErrno(err),
         }
     }
