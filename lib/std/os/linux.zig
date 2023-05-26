@@ -5847,8 +5847,18 @@ pub const AUDIT = struct {
         fn toAudit(arch: std.Target.Cpu.Arch) u32 {
             var res: u32 = @enumToInt(arch.toElfMachine());
             if (arch.endian() == .Little) res |= LE;
-            if (arch.ptrBitWidth() == 64) res |= @"64BIT";
-
+            switch (arch) {
+                .aarch64,
+                .mips64,
+                .mips64el,
+                .powerpc64,
+                .powerpc64le,
+                .riscv64,
+                .sparc64,
+                .x86_64,
+                => res |= @"64BIT",
+                else => {},
+            }
             return res;
         }
     };

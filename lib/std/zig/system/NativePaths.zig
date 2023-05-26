@@ -117,7 +117,7 @@ pub fn detect(allocator: Allocator, native_info: NativeTargetInfo) !NativePaths 
         const triple = try native_target.linuxTriple(allocator);
         defer allocator.free(triple);
 
-        const qual = native_target.cpu.arch.ptrBitWidth();
+        const qual = native_target.ptrBitWidth();
 
         // TODO: $ ld --verbose | grep SEARCH_DIR
         // the output contains some paths that end with lib64, maybe include them too?

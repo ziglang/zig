@@ -199,7 +199,7 @@ pub fn linkWithLLD(self: *Coff, comp: *Compilation, prog_node: *std.Progress.Nod
         } else if (target.cpu.arch == .x86_64) {
             try argv.append("-MACHINE:X64");
         } else if (target.cpu.arch.isARM()) {
-            if (target.cpu.arch.ptrBitWidth() == 32) {
+            if (target.ptrBitWidth() == 32) {
                 try argv.append("-MACHINE:ARM");
             } else {
                 try argv.append("-MACHINE:ARM64");

@@ -4000,7 +4000,7 @@ fn airPtrSliceLenPtr(self: *Self, inst: Air.Inst.Index) !void {
         registerAlias(dst_reg, dst_abi_size),
         Memory.sib(.qword, .{
             .base = .{ .reg = src_reg },
-            .disp = @divExact(self.target.cpu.arch.ptrBitWidth(), 8),
+            .disp = @divExact(self.target.ptrBitWidth(), 8),
         }),
     );
 
@@ -8131,7 +8131,7 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallModifier
             } else if (self.bin_file.cast(link.File.Plan9)) |p9| {
                 const decl_block_index = try p9.seeDecl(owner_decl);
                 const decl_block = p9.getDeclBlock(decl_block_index);
-                const ptr_bits = self.target.cpu.arch.ptrBitWidth();
+                const ptr_bits = self.target.ptrBitWidth();
                 const ptr_bytes: u64 = @divExact(ptr_bits, 8);
                 const got_addr = p9.bases.data;
                 const got_index = decl_block.got_index.?;

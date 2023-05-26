@@ -34002,7 +34002,7 @@ fn intFitsInType(
         => switch (ty.zigTypeTag()) {
             .Int => {
                 const info = ty.intInfo(target);
-                const ptr_bits = target.cpu.arch.ptrBitWidth();
+                const ptr_bits = target.ptrBitWidth();
                 return switch (info.signedness) {
                     .signed => info.bits > ptr_bits,
                     .unsigned => info.bits >= ptr_bits,

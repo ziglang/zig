@@ -314,7 +314,7 @@ pub fn generateSymbol(
         },
         .Pointer => switch (typed_value.val.tag()) {
             .null_value => {
-                switch (target.cpu.arch.ptrBitWidth()) {
+                switch (target.ptrBitWidth()) {
                     32 => {
                         mem.writeInt(u32, try code.addManyAsArray(4), 0, endian);
                         if (typed_value.ty.isSlice()) try code.appendNTimes(0xaa, 4);
@@ -328,7 +328,7 @@ pub fn generateSymbol(
                 return Result.ok;
             },
             .zero, .one, .int_u64, .int_big_positive => {
-                switch (target.cpu.arch.ptrBitWidth()) {
+                switch (target.ptrBitWidth()) {
                     32 => {
                         const x = typed_value.val.toUnsignedInt(target);
                         mem.writeInt(u32, try code.addManyAsArray(4), @intCast(u32, x), endian);
@@ -970,7 +970,7 @@ fn lowerDeclRef(
         return Result.ok;
     }
 
-    const ptr_width = target.cpu.arch.ptrBitWidth();
+    const ptr_width = target.ptrBitWidth();
     const decl = module.declPtr(decl_index);
     const is_fn_body = decl.ty.zigTypeTag() == .Fn;
     if (!is_fn_body and !decl.ty.hasRuntimeBits()) {
@@ -1059,7 +1059,7 @@ fn genDeclRef(
     log.debug("genDeclRef: ty = {}, val = {}", .{ tv.ty.fmt(module), tv.val.fmtValue(tv.ty, module) });
 
     const target = bin_file.options.target;
-    const ptr_bits = target.cpu.arch.ptrBitWidth();
+    const ptr_bits = target.ptrBitWidth();
     const ptr_bytes: u64 = @divExact(ptr_bits, 8);
 
     const decl = module.declPtr(decl_index);
@@ -1137,7 +1137,7 @@ fn genUnnamedConst(
     } else if (bin_file.cast(link.File.Coff)) |_| {
         return GenResult.mcv(.{ .load_direct = local_sym_index });
     } else if (bin_file.cast(link.File.Plan9)) |p9| {
-        const ptr_bits = target.cpu.arch.ptrBitWidth();
+        const ptr_bits = target.ptrBitWidth();
         const ptr_bytes: u64 = @divExact(ptr_bits, 8);
         const got_index = local_sym_index; // the plan9 backend returns the got_index
         const got_addr = p9.bases.data + got_index * ptr_bytes;
@@ -1168,7 +1168,7 @@ pub fn genTypedValue(
         return GenResult.mcv(.undef);
 
     const target = bin_file.options.target;
-    const ptr_bits = target.cpu.arch.ptrBitWidth();
+    const ptr_bits = target.ptrBitWidth();
 
     if (!typed_value.ty.isSlice()) {
         if (typed_value.val.castTag(.variable)) |payload| {
