@@ -6454,8 +6454,8 @@ pub fn populateTestFunctions(
 
         for (test_fn_vals, mod.test_functions.keys()) |*test_fn_val, test_decl_index| {
             const test_decl = mod.declPtr(test_decl_index);
+            const test_decl_name = mem.span(test_decl.name);
             const test_name_decl_index = n: {
-                const test_decl_name = mem.span(test_decl.name);
                 const test_name_decl_ty = try mod.arrayType(.{
                     .len = test_decl_name.len,
                     .child = .u8_type,
@@ -6478,10 +6478,17 @@ pub fn populateTestFunctions(
                 try mod.intern(.{ .ptr = .{
                     .ty = .slice_const_u8_type,
                     .addr = .{ .decl = test_name_decl_index },
+                    .len = try mod.intern(.{ .int = .{
+                        .ty = .usize_type,
+                        .storage = .{ .u64 = test_decl_name.len },
+                    } }),
                 } }),
                 // func
                 try mod.intern(.{ .ptr = .{
-                    .ty = test_decl.ty.toIntern(),
+                    .ty = try mod.intern(.{ .ptr_type = .{
+                        .elem_type = test_decl.ty.toIntern(),
+                        .is_const = true,
+                    } }),
                     .addr = .{ .decl = test_decl_index },
                 } }),
                 // async_frame_size
