@@ -673,7 +673,7 @@ fn lowerDeclRef(
         return Result.ok;
     }
 
-    mod.markDeclAlive(decl);
+    try mod.markDeclAlive(decl);
 
     const vaddr = try bin_file.getDeclVAddr(decl_index, .{
         .parent_atom_index = reloc_info.parent_atom_index,
@@ -782,7 +782,7 @@ fn genDeclRef(
         }
     }
 
-    mod.markDeclAlive(decl);
+    try mod.markDeclAlive(decl);
 
     const is_threadlocal = tv.val.isPtrToThreadLocal(mod) and !bin_file.options.single_threaded;
 

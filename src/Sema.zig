@@ -5807,7 +5807,7 @@ pub fn analyzeExport(
     }
 
     // This decl is alive no matter what, since it's being exported
-    mod.markDeclAlive(exported_decl);
+    try mod.markDeclAlive(exported_decl);
     try sema.maybeQueueFuncBodyAnalysis(exported_decl_index);
 
     const gpa = sema.gpa;

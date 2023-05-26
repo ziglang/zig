@@ -6603,47 +6603,49 @@ fn reportRetryableFileError(
     gop.value_ptr.* = err_msg;
 }
 
-pub fn markReferencedDeclsAlive(mod: *Module, val: Value) void {
+pub fn markReferencedDeclsAlive(mod: *Module, val: Value) Allocator.Error!void {
     switch (mod.intern_pool.indexToKey(val.toIntern())) {
-        .variable => |variable| mod.markDeclIndexAlive(variable.decl),
-        .extern_func => |extern_func| mod.markDeclIndexAlive(extern_func.decl),
-        .func => |func| mod.markDeclIndexAlive(mod.funcPtr(func.index).owner_decl),
+        .variable => |variable| try mod.markDeclIndexAlive(variable.decl),
+        .extern_func => |extern_func| try mod.markDeclIndexAlive(extern_func.decl),
+        .func => |func| try mod.markDeclIndexAlive(mod.funcPtr(func.index).owner_decl),
         .error_union => |error_union| switch (error_union.val) {
             .err_name => {},
-            .payload => |payload| mod.markReferencedDeclsAlive(payload.toValue()),
+            .payload => |payload| try mod.markReferencedDeclsAlive(payload.toValue()),
         },
         .ptr => |ptr| {
             switch (ptr.addr) {
-                .decl => |decl| mod.markDeclIndexAlive(decl),
-                .mut_decl => |mut_decl| mod.markDeclIndexAlive(mut_decl.decl),
+                .decl => |decl| try mod.markDeclIndexAlive(decl),
+                .mut_decl => |mut_decl| try mod.markDeclIndexAlive(mut_decl.decl),
                 .int, .comptime_field => {},
-                .eu_payload, .opt_payload => |parent| mod.markReferencedDeclsAlive(parent.toValue()),
-                .elem, .field => |base_index| mod.markReferencedDeclsAlive(base_index.base.toValue()),
+                .eu_payload, .opt_payload => |parent| try mod.markReferencedDeclsAlive(parent.toValue()),
+                .elem, .field => |base_index| try mod.markReferencedDeclsAlive(base_index.base.toValue()),
             }
-            if (ptr.len != .none) mod.markReferencedDeclsAlive(ptr.len.toValue());
+            if (ptr.len != .none) try mod.markReferencedDeclsAlive(ptr.len.toValue());
         },
-        .opt => |opt| if (opt.val != .none) mod.markReferencedDeclsAlive(opt.val.toValue()),
+        .opt => |opt| if (opt.val != .none) try mod.markReferencedDeclsAlive(opt.val.toValue()),
         .aggregate => |aggregate| for (aggregate.storage.values()) |elem|
-            mod.markReferencedDeclsAlive(elem.toValue()),
+            try mod.markReferencedDeclsAlive(elem.toValue()),
         .un => |un| {
-            mod.markReferencedDeclsAlive(un.tag.toValue());
-            mod.markReferencedDeclsAlive(un.val.toValue());
+            try mod.markReferencedDeclsAlive(un.tag.toValue());
+            try mod.markReferencedDeclsAlive(un.val.toValue());
         },
         else => {},
     }
 }
 
-pub fn markDeclAlive(mod: *Module, decl: *Decl) void {
+pub fn markDeclAlive(mod: *Module, decl: *Decl) Allocator.Error!void {
     if (decl.alive) return;
     decl.alive = true;
+
+    decl.val = (try decl.val.intern(decl.ty, mod)).toValue();
 
     // This is the first time we are marking this Decl alive. We must
     // therefore recurse into its value and mark any Decl it references
     // as also alive, so that any Decl referenced does not get garbage collected.
-    mod.markReferencedDeclsAlive(decl.val);
+    try mod.markReferencedDeclsAlive(decl.val);
 }
 
-fn markDeclIndexAlive(mod: *Module, decl_index: Decl.Index) void {
+fn markDeclIndexAlive(mod: *Module, decl_index: Decl.Index) Allocator.Error!void {
     return mod.markDeclAlive(mod.declPtr(decl_index));
 }
 

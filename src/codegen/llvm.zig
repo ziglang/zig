@@ -3252,7 +3252,7 @@ pub const DeclGen = struct {
                     else => unreachable,
                 };
                 const fn_decl = dg.module.declPtr(fn_decl_index);
-                dg.module.markDeclAlive(fn_decl);
+                try dg.module.markDeclAlive(fn_decl);
                 return dg.resolveLlvmFunction(fn_decl_index);
             },
             .int => |int| {
@@ -3831,7 +3831,7 @@ pub const DeclGen = struct {
     ) Error!*llvm.Value {
         const mod = dg.module;
         const decl = mod.declPtr(decl_index);
-        mod.markDeclAlive(decl);
+        try mod.markDeclAlive(decl);
         const ptr_ty = try mod.singleMutPtrType(decl.ty);
         return try dg.lowerDeclRefValue(.{ .ty = ptr_ty, .val = ptr_val }, decl_index);
     }
@@ -4006,7 +4006,7 @@ pub const DeclGen = struct {
             return self.lowerPtrToVoid(tv.ty);
         }
 
-        mod.markDeclAlive(decl);
+        try mod.markDeclAlive(decl);
 
         const llvm_decl_val = if (is_fn_body)
             try self.resolveLlvmFunction(decl_index)
