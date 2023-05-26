@@ -178,9 +178,6 @@ pub fn print(
                 ty = ty.optionalChild(mod);
                 return print(.{ .ty = ty, .val = val }, writer, level, mod);
             },
-            // TODO these should not appear in this function
-            .inferred_alloc => return writer.writeAll("(inferred allocation value)"),
-            .inferred_alloc_comptime => return writer.writeAll("(inferred comptime allocation value)"),
         },
         else => {
             const key = mod.intern_pool.indexToKey(val.ip_index);

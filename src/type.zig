@@ -88,8 +88,6 @@ pub const Type = struct {
                 .type_info => .Union,
 
                 .generic_poison => return error.GenericPoison,
-
-                .inferred_alloc_const, .inferred_alloc_mut => return .Pointer,
             },
 
             // values, not types
@@ -620,8 +618,6 @@ pub const Type = struct {
                     => false,
 
                     .generic_poison => unreachable,
-                    .inferred_alloc_const => unreachable,
-                    .inferred_alloc_mut => unreachable,
                 },
                 .struct_type => |struct_type| {
                     const struct_obj = mod.structPtrUnwrap(struct_type.index) orelse {
@@ -777,9 +773,6 @@ pub const Type = struct {
                 .type_info,
                 .generic_poison,
                 => false,
-
-                .inferred_alloc_const => unreachable,
-                .inferred_alloc_mut => unreachable,
             },
             .struct_type => |struct_type| {
                 const struct_obj = mod.structPtrUnwrap(struct_type.index) orelse {
@@ -1028,8 +1021,6 @@ pub const Type = struct {
 
                     .noreturn => unreachable,
                     .generic_poison => unreachable,
-                    .inferred_alloc_const => unreachable,
-                    .inferred_alloc_mut => unreachable,
                 },
                 .struct_type => |struct_type| {
                     const struct_obj = mod.structPtrUnwrap(struct_type.index) orelse
@@ -1488,8 +1479,6 @@ pub const Type = struct {
                     .type_info => unreachable,
                     .noreturn => unreachable,
                     .generic_poison => unreachable,
-                    .inferred_alloc_const => unreachable,
-                    .inferred_alloc_mut => unreachable,
                 },
                 .struct_type => |struct_type| switch (ty.containerLayout(mod)) {
                     .Packed => {
@@ -1732,8 +1721,6 @@ pub const Type = struct {
                 .undefined => unreachable,
                 .enum_literal => unreachable,
                 .generic_poison => unreachable,
-                .inferred_alloc_const => unreachable,
-                .inferred_alloc_mut => unreachable,
 
                 .atomic_order => unreachable, // missing call to resolveTypeFields
                 .atomic_rmw_op => unreachable, // missing call to resolveTypeFields
@@ -1833,12 +1820,9 @@ pub const Type = struct {
     }
 
     pub fn isSinglePointer(ty: Type, mod: *const Module) bool {
-        return switch (ty.ip_index) {
-            .inferred_alloc_const_type, .inferred_alloc_mut_type => true,
-            else => switch (mod.intern_pool.indexToKey(ty.ip_index)) {
-                .ptr_type => |ptr_info| ptr_info.size == .One,
-                else => false,
-            },
+        return switch (mod.intern_pool.indexToKey(ty.ip_index)) {
+            .ptr_type => |ptr_info| ptr_info.size == .One,
+            else => false,
         };
     }
 
@@ -1849,12 +1833,9 @@ pub const Type = struct {
 
     /// Returns `null` if `ty` is not a pointer.
     pub fn ptrSizeOrNull(ty: Type, mod: *const Module) ?std.builtin.Type.Pointer.Size {
-        return switch (ty.ip_index) {
-            .inferred_alloc_const_type, .inferred_alloc_mut_type => .One,
-            else => switch (mod.intern_pool.indexToKey(ty.ip_index)) {
-                .ptr_type => |ptr_info| ptr_info.size,
-                else => null,
-            },
+        return switch (mod.intern_pool.indexToKey(ty.ip_index)) {
+            .ptr_type => |ptr_info| ptr_info.size,
+            else => null,
         };
     }
 
@@ -2612,8 +2593,6 @@ pub const Type = struct {
                     .undefined => return Value.undef,
 
                     .generic_poison => unreachable,
-                    .inferred_alloc_const => unreachable,
-                    .inferred_alloc_mut => unreachable,
                 },
                 .struct_type => |struct_type| {
                     if (mod.structPtrUnwrap(struct_type.index)) |s| {
@@ -2799,9 +2778,6 @@ pub const Type = struct {
                     .enum_literal,
                     .type_info,
                     => true,
-
-                    .inferred_alloc_const => unreachable,
-                    .inferred_alloc_mut => unreachable,
                 },
                 .struct_type => |struct_type| {
                     // A struct with no fields is not comptime-only.

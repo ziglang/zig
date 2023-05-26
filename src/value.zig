@@ -63,12 +63,6 @@ pub const Value = struct {
         aggregate,
         /// An instance of a union.
         @"union",
-        /// This is a special value that tracks a set of types that have been stored
-        /// to an inferred allocation. It does not support any of the normal value queries.
-        inferred_alloc,
-        /// Used to coordinate alloc_inferred, store_to_inferred_ptr, and resolve_inferred_alloc
-        /// instructions for comptime code.
-        inferred_alloc_comptime,
 
         pub const no_payload_count = 0;
 
@@ -82,8 +76,6 @@ pub const Value = struct {
                 .bytes => Payload.Bytes,
                 .aggregate => Payload.Aggregate,
                 .@"union" => Payload.Union,
-                .inferred_alloc => Payload.InferredAlloc,
-                .inferred_alloc_comptime => Payload.InferredAllocComptime,
             };
         }
 
@@ -250,8 +242,6 @@ pub const Value = struct {
                     .legacy = .{ .ptr_otherwise = &new_payload.base },
                 };
             },
-            .inferred_alloc => unreachable,
-            .inferred_alloc_comptime => unreachable,
         }
     }
 
@@ -308,8 +298,6 @@ pub const Value = struct {
                 val = val.castTag(.repeated).?.data;
             },
             .slice => return out_stream.writeAll("(slice)"),
-            .inferred_alloc => return out_stream.writeAll("(inferred allocation value)"),
-            .inferred_alloc_comptime => return out_stream.writeAll("(inferred comptime allocation value)"),
         };
     }
 
@@ -4146,41 +4134,6 @@ pub const Value = struct {
                 tag: Value,
                 val: Value,
             };
-        };
-
-        pub const InferredAlloc = struct {
-            pub const base_tag = Tag.inferred_alloc;
-
-            base: Payload = .{ .tag = base_tag },
-            data: struct {
-                /// The value stored in the inferred allocation. This will go into
-                /// peer type resolution. This is stored in a separate list so that
-                /// the items are contiguous in memory and thus can be passed to
-                /// `Module.resolvePeerTypes`.
-                prongs: std.MultiArrayList(struct {
-                    /// The dummy instruction used as a peer to resolve the type.
-                    /// Although this has a redundant type with placeholder, this is
-                    /// needed in addition because it may be a constant value, which
-                    /// affects peer type resolution.
-                    stored_inst: Air.Inst.Ref,
-                    /// The bitcast instruction used as a placeholder when the
-                    /// new result pointer type is not yet known.
-                    placeholder: Air.Inst.Index,
-                }) = .{},
-                /// 0 means ABI-aligned.
-                alignment: u32,
-            },
-        };
-
-        pub const InferredAllocComptime = struct {
-            pub const base_tag = Tag.inferred_alloc_comptime;
-
-            base: Payload = .{ .tag = base_tag },
-            data: struct {
-                decl_index: Module.Decl.Index,
-                /// 0 means ABI-aligned.
-                alignment: u32,
-            },
         };
     };
 

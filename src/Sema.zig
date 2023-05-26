@@ -89,7 +89,9 @@ is_generic_instantiation: bool = false,
 /// function types will emit generic poison instead of a partial type.
 no_partial_func_ty: bool = false,
 
-unresolved_inferred_allocs: std.AutoHashMapUnmanaged(Air.Inst.Index, void) = .{},
+/// The temporary arena is used for the memory of the `InferredAlloc` values
+/// here so the values can be dropped without any cleanup.
+unresolved_inferred_allocs: std.AutoHashMapUnmanaged(Air.Inst.Index, InferredAlloc) = .{},
 
 const std = @import("std");
 const math = std.math;
@@ -718,7 +720,7 @@ pub const Block = struct {
         }
 
         /// `alignment` value of 0 means to use ABI alignment.
-        pub fn finish(wad: *WipAnonDecl, ty: Type, val: Value, alignment: u32) !Decl.Index {
+        pub fn finish(wad: *WipAnonDecl, ty: Type, val: Value, alignment: u64) !Decl.Index {
             const sema = wad.block.sema;
             // Do this ahead of time because `createAnonymousDecl` depends on calling
             // `type.hasRuntimeBits()`.
@@ -728,7 +730,8 @@ pub const Block = struct {
                 .val = val,
             });
             const new_decl = sema.mod.declPtr(new_decl_index);
-            new_decl.@"align" = alignment;
+            // TODO: migrate Decl alignment to use `InternPool.Alignment`
+            new_decl.@"align" = @intCast(u32, alignment);
             errdefer sema.mod.abortAnonDecl(new_decl_index);
             try new_decl.finalizeNewArena(&wad.new_decl_arena);
             wad.finished = true;
@@ -746,6 +749,23 @@ const LabeledBlock = struct {
         lb.label.merges.deinit(gpa);
         gpa.destroy(lb);
     }
+};
+
+/// The value stored in the inferred allocation. This will go into
+/// peer type resolution. This is stored in a separate list so that
+/// the items are contiguous in memory and thus can be passed to
+/// `Module.resolvePeerTypes`.
+const InferredAlloc = struct {
+    prongs: std.MultiArrayList(struct {
+        /// The dummy instruction used as a peer to resolve the type.
+        /// Although this has a redundant type with placeholder, this is
+        /// needed in addition because it may be a constant value, which
+        /// affects peer type resolution.
+        stored_inst: Air.Inst.Ref,
+        /// The bitcast instruction used as a placeholder when the
+        /// new result pointer type is not yet known.
+        placeholder: Air.Inst.Index,
+    }) = .{},
 };
 
 pub fn deinit(sema: *Sema) void {
@@ -909,10 +929,10 @@ fn analyzeBodyInner(
         const air_inst: Air.Inst.Ref = switch (tags[inst]) {
             // zig fmt: off
             .alloc                        => try sema.zirAlloc(block, inst),
-            .alloc_inferred               => try sema.zirAllocInferred(block, inst, .{ .ip_index = .inferred_alloc_const_type }),
-            .alloc_inferred_mut           => try sema.zirAllocInferred(block, inst, .{ .ip_index = .inferred_alloc_mut_type }),
-            .alloc_inferred_comptime      => try sema.zirAllocInferredComptime(inst, .{ .ip_index = .inferred_alloc_const_type }),
-            .alloc_inferred_comptime_mut  => try sema.zirAllocInferredComptime(inst, .{ .ip_index = .inferred_alloc_mut_type }),
+            .alloc_inferred               => try sema.zirAllocInferred(block, inst, true),
+            .alloc_inferred_mut           => try sema.zirAllocInferred(block, inst, false),
+            .alloc_inferred_comptime      => try sema.zirAllocInferredComptime(inst, true),
+            .alloc_inferred_comptime_mut  => try sema.zirAllocInferredComptime(inst, false),
             .alloc_mut                    => try sema.zirAllocMut(block, inst),
             .alloc_comptime_mut           => try sema.zirAllocComptime(block, inst),
             .make_ptr_const               => try sema.zirMakePtrConst(block, inst),
@@ -1707,7 +1727,7 @@ fn analyzeBodyInner(
                 break :blk Air.Inst.Ref.void_value;
             },
         };
-        if (sema.typeOf(air_inst).isNoReturn(mod))
+        if (sema.isNoReturn(air_inst))
             break always_noreturn;
         map.putAssumeCapacity(inst, air_inst);
         i += 1;
@@ -1751,8 +1771,6 @@ pub fn resolveInst(sema: *Sema, zir_ref: Zir.Inst.Ref) !Air.Inst.Ref {
     // The last section of indexes refers to the map of ZIR => AIR.
     const inst = sema.inst_map.get(i - InternPool.static_len).?;
     if (inst == .generic_poison) return error.GenericPoison;
-    const ty = sema.typeOf(inst);
-    assert(!ty.isGenericPoison());
     return inst;
 }
 
@@ -2431,20 +2449,20 @@ fn zirCoerceResultPtr(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileE
     const tracy = trace(@src());
     defer tracy.end();
 
+    const mod = sema.mod;
     const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
     const src = inst_data.src();
     const extra = sema.code.extraData(Zir.Inst.Bin, inst_data.payload_index).data;
     const pointee_ty = try sema.resolveType(block, src, extra.lhs);
     const ptr = try sema.resolveInst(extra.rhs);
-    const target = sema.mod.getTarget();
+    const target = mod.getTarget();
     const addr_space = target_util.defaultAddressSpace(target, .local);
 
     if (Air.refToIndex(ptr)) |ptr_inst| {
         switch (sema.air_instructions.items(.tag)[ptr_inst]) {
             .inferred_alloc => {
-                const air_datas = sema.air_instructions.items(.data);
-                const ptr_val = sema.air_values.items[air_datas[ptr_inst].ty_pl.payload];
-                const inferred_alloc = &ptr_val.castTag(.inferred_alloc).?.data;
+                const ia1 = sema.air_instructions.items(.data)[ptr_inst].inferred_alloc;
+                const ia2 = sema.unresolved_inferred_allocs.getPtr(ptr_inst).?;
                 // Add the stored instruction to the set we will use to resolve peer types
                 // for the inferred allocation.
                 // This instruction will not make it to codegen; it is only to participate
@@ -2453,14 +2471,14 @@ fn zirCoerceResultPtr(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileE
                 defer trash_block.instructions.deinit(sema.gpa);
                 const operand = try trash_block.addBitCast(pointee_ty, .void_value);
 
-                const ptr_ty = try Type.ptr(sema.arena, sema.mod, .{
-                    .pointee_type = pointee_ty,
-                    .@"align" = inferred_alloc.alignment,
-                    .@"addrspace" = addr_space,
+                const ptr_ty = try mod.ptrType(.{
+                    .elem_type = pointee_ty.toIntern(),
+                    .alignment = ia1.alignment,
+                    .address_space = addr_space,
                 });
                 const bitcasted_ptr = try block.addBitCast(ptr_ty, ptr);
 
-                try inferred_alloc.prongs.append(sema.arena, .{
+                try ia2.prongs.append(sema.arena, .{
                     .stored_inst = operand,
                     .placeholder = Air.refToIndex(bitcasted_ptr).?,
                 });
@@ -2468,31 +2486,30 @@ fn zirCoerceResultPtr(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileE
                 return bitcasted_ptr;
             },
             .inferred_alloc_comptime => {
-                const air_datas = sema.air_instructions.items(.data);
-                const ptr_val = sema.air_values.items[air_datas[ptr_inst].ty_pl.payload];
-                const iac = ptr_val.castTag(.inferred_alloc_comptime).?;
+                const alignment = sema.air_instructions.items(.data)[ptr_inst].inferred_alloc_comptime.alignment;
                 // There will be only one coerce_result_ptr because we are running at comptime.
                 // The alloc will turn into a Decl.
                 var anon_decl = try block.startAnonDecl();
                 defer anon_decl.deinit();
-                iac.data.decl_index = try anon_decl.finish(
+                const decl_index = try anon_decl.finish(
                     pointee_ty,
                     Value.undef,
-                    iac.data.alignment,
+                    alignment.toByteUnits(0),
                 );
-                if (iac.data.alignment != 0) {
+                sema.air_instructions.items(.data)[ptr_inst].inferred_alloc_comptime.decl_index = decl_index;
+                if (alignment != .none) {
                     try sema.resolveTypeLayout(pointee_ty);
                 }
-                const ptr_ty = try Type.ptr(sema.arena, sema.mod, .{
-                    .pointee_type = pointee_ty,
-                    .@"align" = iac.data.alignment,
-                    .@"addrspace" = addr_space,
+                const ptr_ty = try mod.ptrType(.{
+                    .elem_type = pointee_ty.toIntern(),
+                    .alignment = alignment,
+                    .address_space = addr_space,
                 });
-                try sema.maybeQueueFuncBodyAnalysis(iac.data.decl_index);
-                return sema.addConstant(ptr_ty, (try sema.mod.intern(.{ .ptr = .{
+                try sema.maybeQueueFuncBodyAnalysis(decl_index);
+                return sema.addConstant(ptr_ty, (try mod.intern(.{ .ptr = .{
                     .ty = ptr_ty.toIntern(),
                     .addr = .{ .mut_decl = .{
-                        .decl = iac.data.decl_index,
+                        .decl = decl_index,
                         .runtime_index = block.runtime_index,
                     } },
                 } })).toValue());
@@ -3479,25 +3496,16 @@ fn zirAllocExtended(
         break :blk alignment;
     } else 0;
 
-    const inferred_alloc_ty = if (small.is_const)
-        Type{ .ip_index = .inferred_alloc_const_type }
-    else
-        Type{ .ip_index = .inferred_alloc_mut_type };
-
     if (block.is_comptime or small.is_comptime) {
         if (small.has_type) {
             return sema.analyzeComptimeAlloc(block, var_ty, alignment);
         } else {
-            const ty_inst = try sema.addType(inferred_alloc_ty);
-            try sema.air_values.append(gpa, try Value.Tag.inferred_alloc_comptime.create(sema.arena, .{
-                .decl_index = undefined,
-                .alignment = alignment,
-            }));
             try sema.air_instructions.append(gpa, .{
                 .tag = .inferred_alloc_comptime,
-                .data = .{ .ty_pl = .{
-                    .ty = ty_inst,
-                    .payload = @intCast(u32, sema.air_values.items.len - 1),
+                .data = .{ .inferred_alloc_comptime = .{
+                    .decl_index = undefined,
+                    .alignment = InternPool.Alignment.fromByteUnits(alignment),
+                    .is_const = small.is_const,
                 } },
             });
             return Air.indexToRef(@intCast(u32, sema.air_instructions.len - 1));
@@ -3518,18 +3526,14 @@ fn zirAllocExtended(
         return block.addTy(.alloc, ptr_type);
     }
 
-    const ty_inst = try sema.addType(inferred_alloc_ty);
-    try sema.air_values.append(gpa, try Value.Tag.inferred_alloc.create(sema.arena, .{
-        .alignment = alignment,
-    }));
     const result_index = try block.addInstAsIndex(.{
         .tag = .inferred_alloc,
-        .data = .{ .ty_pl = .{
-            .ty = ty_inst,
-            .payload = @intCast(u32, sema.air_values.items.len - 1),
+        .data = .{ .inferred_alloc = .{
+            .alignment = InternPool.Alignment.fromByteUnits(alignment),
+            .is_const = small.is_const,
         } },
     });
-    try sema.unresolved_inferred_allocs.putNoClobber(gpa, result_index, {});
+    try sema.unresolved_inferred_allocs.putNoClobber(gpa, result_index, .{});
     return Air.indexToRef(result_index);
 }
 
@@ -3623,23 +3627,19 @@ fn makePtrConst(sema: *Sema, block: *Block, alloc: Air.Inst.Ref) CompileError!Ai
 fn zirAllocInferredComptime(
     sema: *Sema,
     inst: Zir.Inst.Index,
-    inferred_alloc_ty: Type,
+    is_const: bool,
 ) CompileError!Air.Inst.Ref {
     const gpa = sema.gpa;
     const src_node = sema.code.instructions.items(.data)[inst].node;
     const src = LazySrcLoc.nodeOffset(src_node);
     sema.src = src;
 
-    const ty_inst = try sema.addType(inferred_alloc_ty);
-    try sema.air_values.append(gpa, try Value.Tag.inferred_alloc_comptime.create(sema.arena, .{
-        .decl_index = undefined,
-        .alignment = 0,
-    }));
     try sema.air_instructions.append(gpa, .{
         .tag = .inferred_alloc_comptime,
-        .data = .{ .ty_pl = .{
-            .ty = ty_inst,
-            .payload = @intCast(u32, sema.air_values.items.len - 1),
+        .data = .{ .inferred_alloc_comptime = .{
+            .decl_index = undefined,
+            .alignment = .none,
+            .is_const = is_const,
         } },
     });
     return Air.indexToRef(@intCast(u32, sema.air_instructions.len - 1));
@@ -3688,7 +3688,7 @@ fn zirAllocInferred(
     sema: *Sema,
     block: *Block,
     inst: Zir.Inst.Index,
-    inferred_alloc_ty: Type,
+    is_const: bool,
 ) CompileError!Air.Inst.Ref {
     const tracy = trace(@src());
     defer tracy.end();
@@ -3698,33 +3698,26 @@ fn zirAllocInferred(
     const src = LazySrcLoc.nodeOffset(src_node);
     sema.src = src;
 
-    const ty_inst = try sema.addType(inferred_alloc_ty);
     if (block.is_comptime) {
-        try sema.air_values.append(gpa, try Value.Tag.inferred_alloc_comptime.create(sema.arena, .{
-            .decl_index = undefined,
-            .alignment = 0,
-        }));
         try sema.air_instructions.append(gpa, .{
             .tag = .inferred_alloc_comptime,
-            .data = .{ .ty_pl = .{
-                .ty = ty_inst,
-                .payload = @intCast(u32, sema.air_values.items.len - 1),
+            .data = .{ .inferred_alloc_comptime = .{
+                .decl_index = undefined,
+                .alignment = .none,
+                .is_const = is_const,
             } },
         });
         return Air.indexToRef(@intCast(u32, sema.air_instructions.len - 1));
     }
 
-    try sema.air_values.append(gpa, try Value.Tag.inferred_alloc.create(sema.arena, .{
-        .alignment = 0,
-    }));
     const result_index = try block.addInstAsIndex(.{
         .tag = .inferred_alloc,
-        .data = .{ .ty_pl = .{
-            .ty = ty_inst,
-            .payload = @intCast(u32, sema.air_values.items.len - 1),
+        .data = .{ .inferred_alloc = .{
+            .alignment = .none,
+            .is_const = is_const,
         } },
     });
-    try sema.unresolved_inferred_allocs.putNoClobber(gpa, result_index, {});
+    try sema.unresolved_inferred_allocs.putNoClobber(gpa, result_index, .{});
     return Air.indexToRef(result_index);
 }
 
@@ -3732,44 +3725,36 @@ fn zirResolveInferredAlloc(sema: *Sema, block: *Block, inst: Zir.Inst.Index) Com
     const tracy = trace(@src());
     defer tracy.end();
 
+    const mod = sema.mod;
     const inst_data = sema.code.instructions.items(.data)[inst].un_node;
     const src = inst_data.src();
     const ty_src: LazySrcLoc = .{ .node_offset_var_decl_ty = inst_data.src_node };
     const ptr = try sema.resolveInst(inst_data.operand);
     const ptr_inst = Air.refToIndex(ptr).?;
-    const value_index = sema.air_instructions.items(.data)[ptr_inst].ty_pl.payload;
-    const ptr_val = sema.air_values.items[value_index];
-    const var_is_mut = switch (sema.typeOf(ptr).toIntern()) {
-        .inferred_alloc_const_type => false,
-        .inferred_alloc_mut_type => true,
-        else => unreachable,
-    };
-    const target = sema.mod.getTarget();
+    const target = mod.getTarget();
 
     switch (sema.air_instructions.items(.tag)[ptr_inst]) {
         .inferred_alloc_comptime => {
-            const iac = ptr_val.castTag(.inferred_alloc_comptime).?;
-            const decl_index = iac.data.decl_index;
-            try sema.mod.declareDeclDependency(sema.owner_decl_index, decl_index);
+            const iac = sema.air_instructions.items(.data)[ptr_inst].inferred_alloc_comptime;
+            const decl_index = iac.decl_index;
+            try mod.declareDeclDependency(sema.owner_decl_index, decl_index);
 
-            const decl = sema.mod.declPtr(decl_index);
+            const decl = mod.declPtr(decl_index);
             const final_elem_ty = decl.ty;
-            const final_ptr_ty = try Type.ptr(sema.arena, sema.mod, .{
-                .pointee_type = final_elem_ty,
-                .mutable = true,
-                .@"align" = iac.data.alignment,
-                .@"addrspace" = target_util.defaultAddressSpace(target, .local),
+            const final_ptr_ty = try mod.ptrType(.{
+                .elem_type = final_elem_ty.toIntern(),
+                .is_const = false,
+                .alignment = iac.alignment,
+                .address_space = target_util.defaultAddressSpace(target, .local),
             });
-            const final_ptr_ty_inst = try sema.addType(final_ptr_ty);
-            sema.air_instructions.items(.data)[ptr_inst].ty_pl.ty = final_ptr_ty_inst;
 
             try sema.maybeQueueFuncBodyAnalysis(decl_index);
             // Change it to an interned.
             sema.air_instructions.set(ptr_inst, .{
                 .tag = .interned,
-                .data = .{ .interned = try sema.mod.intern(.{ .ptr = .{
+                .data = .{ .interned = try mod.intern(.{ .ptr = .{
                     .ty = final_ptr_ty.toIntern(),
-                    .addr = if (var_is_mut) .{ .mut_decl = .{
+                    .addr = if (!iac.is_const) .{ .mut_decl = .{
                         .decl = decl_index,
                         .runtime_index = block.runtime_index,
                     } } else .{ .decl = decl_index },
@@ -3777,19 +3762,18 @@ fn zirResolveInferredAlloc(sema: *Sema, block: *Block, inst: Zir.Inst.Index) Com
             });
         },
         .inferred_alloc => {
-            assert(sema.unresolved_inferred_allocs.remove(ptr_inst));
-            const inferred_alloc = ptr_val.castTag(.inferred_alloc).?;
-            const peer_inst_list = inferred_alloc.data.prongs.items(.stored_inst);
+            const ia1 = sema.air_instructions.items(.data)[ptr_inst].inferred_alloc;
+            const ia2 = sema.unresolved_inferred_allocs.fetchRemove(ptr_inst).?.value;
+            const peer_inst_list = ia2.prongs.items(.stored_inst);
             const final_elem_ty = try sema.resolvePeerTypes(block, ty_src, peer_inst_list, .none);
 
-            const final_ptr_ty = try Type.ptr(sema.arena, sema.mod, .{
-                .pointee_type = final_elem_ty,
-                .mutable = true,
-                .@"align" = inferred_alloc.data.alignment,
-                .@"addrspace" = target_util.defaultAddressSpace(target, .local),
+            const final_ptr_ty = try mod.ptrType(.{
+                .elem_type = final_elem_ty.toIntern(),
+                .alignment = ia1.alignment,
+                .address_space = target_util.defaultAddressSpace(target, .local),
             });
 
-            if (var_is_mut) {
+            if (!ia1.is_const) {
                 try sema.validateVarType(block, ty_src, final_elem_ty, false);
             } else ct: {
                 // Detect if the value is comptime-known. In such case, the
@@ -3858,23 +3842,23 @@ fn zirResolveInferredAlloc(sema: *Sema, block: *Block, inst: Zir.Inst.Index) Com
                     const new_decl_index = try anon_decl.finish(
                         final_elem_ty,
                         try store_val.copy(anon_decl.arena()),
-                        inferred_alloc.data.alignment,
+                        ia1.alignment.toByteUnits(0),
                     );
                     break :d new_decl_index;
                 };
-                try sema.mod.declareDeclDependency(sema.owner_decl_index, new_decl_index);
+                try mod.declareDeclDependency(sema.owner_decl_index, new_decl_index);
 
                 // Even though we reuse the constant instruction, we still remove it from the
                 // block so that codegen does not see it.
                 block.instructions.shrinkRetainingCapacity(search_index);
                 try sema.maybeQueueFuncBodyAnalysis(new_decl_index);
-                sema.air_values.items[value_index] = (try sema.mod.intern(.{ .ptr = .{
-                    .ty = final_elem_ty.toIntern(),
-                    .addr = .{ .decl = new_decl_index },
-                } })).toValue();
-                // if bitcast ty ref needs to be made const, make_ptr_const
-                // ZIR handles it later, so we can just use the ty ref here.
-                air_datas[ptr_inst].ty_pl.ty = air_datas[bitcast_inst].ty_op.ty;
+                sema.air_instructions.set(ptr_inst, .{
+                    .tag = .interned,
+                    .data = .{ .interned = try mod.intern(.{ .ptr = .{
+                        .ty = final_elem_ty.toIntern(),
+                        .addr = .{ .decl = new_decl_index },
+                    } }) },
+                });
 
                 // Unless the block is comptime, `alloc_inferred` always produces
                 // a runtime constant. The final inferred type needs to be
@@ -3895,18 +3879,17 @@ fn zirResolveInferredAlloc(sema: *Sema, block: *Block, inst: Zir.Inst.Index) Com
             // Now we need to go back over all the coerce_result_ptr instructions, which
             // previously inserted a bitcast as a placeholder, and do the logic as if
             // the new result ptr type was available.
-            const placeholders = inferred_alloc.data.prongs.items(.placeholder);
+            const placeholders = ia2.prongs.items(.placeholder);
             const gpa = sema.gpa;
 
             var trash_block = block.makeSubBlock();
             trash_block.is_comptime = false;
             defer trash_block.instructions.deinit(gpa);
 
-            const mut_final_ptr_ty = try Type.ptr(sema.arena, sema.mod, .{
-                .pointee_type = final_elem_ty,
-                .mutable = true,
-                .@"align" = inferred_alloc.data.alignment,
-                .@"addrspace" = target_util.defaultAddressSpace(target, .local),
+            const mut_final_ptr_ty = try mod.ptrType(.{
+                .elem_type = final_elem_ty.toIntern(),
+                .alignment = ia1.alignment,
+                .address_space = target_util.defaultAddressSpace(target, .local),
             });
             const dummy_ptr = try trash_block.addTy(.alloc, mut_final_ptr_ty);
             const empty_trash_count = trash_block.instructions.items.len;
@@ -3914,7 +3897,7 @@ fn zirResolveInferredAlloc(sema: *Sema, block: *Block, inst: Zir.Inst.Index) Com
             for (peer_inst_list, placeholders) |peer_inst, placeholder_inst| {
                 const sub_ptr_ty = sema.typeOf(Air.indexToRef(placeholder_inst));
 
-                if (mut_final_ptr_ty.eql(sub_ptr_ty, sema.mod)) {
+                if (mut_final_ptr_ty.eql(sub_ptr_ty, mod)) {
                     // New result location type is the same as the old one; nothing
                     // to do here.
                     continue;
@@ -5009,17 +4992,14 @@ fn zirStoreToBlockPtr(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileE
     const src: LazySrcLoc = sema.src;
     blk: {
         const ptr_inst = Air.refToIndex(ptr) orelse break :blk;
-        const air_data = sema.air_instructions.items(.data)[ptr_inst];
         switch (sema.air_instructions.items(.tag)[ptr_inst]) {
             .inferred_alloc_comptime => {
-                const ptr_val = sema.air_values.items[air_data.ty_pl.payload];
-                const iac = ptr_val.castTag(.inferred_alloc_comptime).?;
+                const iac = &sema.air_instructions.items(.data)[ptr_inst].inferred_alloc_comptime;
                 return sema.storeToInferredAllocComptime(block, src, operand, iac);
             },
             .inferred_alloc => {
-                const ptr_val = sema.air_values.items[air_data.ty_pl.payload];
-                const inferred_alloc = ptr_val.castTag(.inferred_alloc).?;
-                return sema.storeToInferredAlloc(block, ptr, operand, inferred_alloc);
+                const ia = sema.unresolved_inferred_allocs.getPtr(ptr_inst).?;
+                return sema.storeToInferredAlloc(block, ptr, operand, ia);
             },
             else => break :blk,
         }
@@ -5038,16 +5018,15 @@ fn zirStoreToInferredPtr(sema: *Sema, block: *Block, inst: Zir.Inst.Index) Compi
     const operand = try sema.resolveInst(bin_inst.rhs);
     const ptr_inst = Air.refToIndex(ptr).?;
     const air_datas = sema.air_instructions.items(.data);
-    const ptr_val = sema.air_values.items[air_datas[ptr_inst].ty_pl.payload];
 
     switch (sema.air_instructions.items(.tag)[ptr_inst]) {
         .inferred_alloc_comptime => {
-            const iac = ptr_val.castTag(.inferred_alloc_comptime).?;
+            const iac = &air_datas[ptr_inst].inferred_alloc_comptime;
             return sema.storeToInferredAllocComptime(block, src, operand, iac);
         },
         .inferred_alloc => {
-            const inferred_alloc = ptr_val.castTag(.inferred_alloc).?;
-            return sema.storeToInferredAlloc(block, ptr, operand, inferred_alloc);
+            const ia = sema.unresolved_inferred_allocs.getPtr(ptr_inst).?;
+            return sema.storeToInferredAlloc(block, ptr, operand, ia);
         },
         else => unreachable,
     }
@@ -5058,14 +5037,14 @@ fn storeToInferredAlloc(
     block: *Block,
     ptr: Air.Inst.Ref,
     operand: Air.Inst.Ref,
-    inferred_alloc: *Value.Payload.InferredAlloc,
+    inferred_alloc: *InferredAlloc,
 ) CompileError!void {
     // Create a store instruction as a placeholder.  This will be replaced by a
     // proper store sequence once we know the stored type.
     const dummy_store = try block.addBinOp(.store, ptr, operand);
     // Add the stored instruction to the set we will use to resolve peer types
     // for the inferred allocation.
-    try inferred_alloc.data.prongs.append(sema.arena, .{
+    try inferred_alloc.prongs.append(sema.arena, .{
         .stored_inst = operand,
         .placeholder = Air.refToIndex(dummy_store).?,
     });
@@ -5076,7 +5055,7 @@ fn storeToInferredAllocComptime(
     block: *Block,
     src: LazySrcLoc,
     operand: Air.Inst.Ref,
-    iac: *Value.Payload.InferredAllocComptime,
+    iac: *Air.Inst.Data.InferredAllocComptime,
 ) CompileError!void {
     const operand_ty = sema.typeOf(operand);
     // There will be only one store_to_inferred_ptr because we are running at comptime.
@@ -5085,10 +5064,10 @@ fn storeToInferredAllocComptime(
         if (operand_val.getVariable(sema.mod) != null) break :store;
         var anon_decl = try block.startAnonDecl();
         defer anon_decl.deinit();
-        iac.data.decl_index = try anon_decl.finish(
+        iac.decl_index = try anon_decl.finish(
             operand_ty,
             try operand_val.copy(anon_decl.arena()),
-            iac.data.alignment,
+            iac.alignment.toByteUnits(0),
         );
         return;
     }
@@ -27643,17 +27622,6 @@ fn obtainBitCastedVectorPtr(sema: *Sema, ptr: Air.Inst.Ref) ?Air.Inst.Ref {
         const prev_ptr = air_datas[ptr_inst].ty_op.operand;
         const prev_ptr_ty = sema.typeOf(prev_ptr);
         if (prev_ptr_ty.zigTypeTag(mod) != .Pointer) return null;
-
-        // TODO: I noticed that the behavior tests do not pass if these two
-        // checks are missing. I don't understand why the presence of inferred
-        // allocations is relevant to this function, or why it would have
-        // different behavior depending on whether the types were inferred.
-        // Something seems wrong here.
-        switch (prev_ptr_ty.toIntern()) {
-            .inferred_alloc_mut_type, .inferred_alloc_const_type => return null,
-            else => {},
-        }
-
         const prev_ptr_child_ty = prev_ptr_ty.childType(mod);
         if (prev_ptr_child_ty.zigTypeTag(mod) == .Vector) break prev_ptr;
         ptr_inst = Air.refToIndex(prev_ptr) orelse return null;
@@ -31749,9 +31717,6 @@ pub fn resolveTypeRequiresComptime(sema: *Sema, ty: Type) CompileError!bool {
                 .enum_literal,
                 .type_info,
                 => true,
-
-                .inferred_alloc_const => unreachable,
-                .inferred_alloc_mut => unreachable,
             },
             .struct_type => |struct_type| {
                 const struct_obj = mod.structPtrUnwrap(struct_type.index) orelse return false;
@@ -32009,8 +31974,6 @@ pub fn resolveTypeFields(sema: *Sema, ty: Type) CompileError!Type {
         .bool_false => unreachable,
         .empty_struct => unreachable,
         .generic_poison => unreachable,
-        .inferred_alloc_const_type => unreachable,
-        .inferred_alloc_mut_type => unreachable,
 
         .type_info_type => return sema.getBuiltinType("Type"),
         .extern_options_type => return sema.getBuiltinType("ExternOptions"),
@@ -33201,8 +33164,6 @@ pub fn typeHasOnePossibleValue(sema: *Sema, ty: Type) CompileError!?Value {
                 .undefined => Value.undef,
 
                 .generic_poison => return error.GenericPoison,
-                .inferred_alloc_const => unreachable,
-                .inferred_alloc_mut => unreachable,
             },
             .struct_type => |struct_type| {
                 const resolved_ty = try sema.resolveTypeFields(ty);
@@ -33737,9 +33698,6 @@ pub fn typeRequiresComptime(sema: *Sema, ty: Type) CompileError!bool {
                 .enum_literal,
                 .type_info,
                 => true,
-
-                .inferred_alloc_const => unreachable,
-                .inferred_alloc_mut => unreachable,
             },
             .struct_type => |struct_type| {
                 const struct_obj = mod.structPtrUnwrap(struct_type.index) orelse return false;
@@ -34500,4 +34458,14 @@ fn errorSetMerge(sema: *Sema, lhs: Type, rhs: Type) !Type {
     }
 
     return mod.errorSetFromUnsortedNames(names.keys());
+}
+
+/// Avoids crashing the compiler when asking if inferred allocations are noreturn.
+fn isNoReturn(sema: *Sema, ref: Air.Inst.Ref) bool {
+    if (ref == .noreturn_type) return true;
+    if (Air.refToIndex(ref)) |inst| switch (sema.air_instructions.items(.tag)[inst]) {
+        .inferred_alloc, .inferred_alloc_comptime => return false,
+        else => {},
+    };
+    return sema.typeOf(ref).isNoReturn(sema.mod);
 }
