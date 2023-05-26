@@ -3166,6 +3166,11 @@ pub const Value = struct {
             .len = undefined,
         };
         result_bigint.shiftLeft(lhs_bigint, shift);
+        if (ty.toIntern() != .comptime_int_type) {
+            const int_info = ty.intInfo(mod);
+            result_bigint.truncate(result_bigint.toConst(), int_info.signedness, int_info.bits);
+        }
+
         return mod.intValue_big(ty, result_bigint.toConst());
     }
 
