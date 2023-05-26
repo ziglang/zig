@@ -3090,9 +3090,14 @@ fn lowerConstant(func: *CodeGen, arg_val: Value, ty: Type) InnerError!WValue {
         },
         .ErrorUnion => {
             const error_type = ty.errorUnionSet();
-            const is_pl = val.errorUnionIsPayload();
-            const err_val = if (!is_pl) val else Value.initTag(.zero);
-            return func.lowerConstant(err_val, error_type);
+            const payload_type = ty.errorUnionPayload();
+            if (!payload_type.hasRuntimeBitsIgnoreComptime()) {
+                // We use the error type directly as the type.
+                const is_pl = val.errorUnionIsPayload();
+                const err_val = if (!is_pl) val else Value.initTag(.zero);
+                return func.lowerConstant(err_val, error_type);
+            }
+            return func.fail("Wasm TODO: lowerConstant error union with non-zero-bit payload type", .{});
         },
         .Optional => if (ty.optionalReprIsPayload()) {
             var buf: Type.Payload.ElemType = undefined;
