@@ -4435,6 +4435,7 @@ fn dumpFallible(ip: InternPool, arena: Allocator) anyerror!void {
     const items_size = (1 + 4) * ip.items.len;
     const extra_size = 4 * ip.extra.items.len;
     const limbs_size = 8 * ip.limbs.items.len;
+    // TODO: fields size is not taken into account
     const structs_size = ip.allocated_structs.len *
         (@sizeOf(Module.Struct) + @sizeOf(Module.Namespace) + @sizeOf(Module.Decl));
     const unions_size = ip.allocated_unions.len *
@@ -4501,7 +4502,14 @@ fn dumpFallible(ip: InternPool, arena: Allocator) anyerror!void {
             .type_enum_explicit, .type_enum_nonexhaustive => @sizeOf(EnumExplicit),
             .type_enum_auto => @sizeOf(EnumAuto),
             .type_opaque => @sizeOf(Key.OpaqueType),
-            .type_struct => @sizeOf(Module.Struct) + @sizeOf(Module.Namespace) + @sizeOf(Module.Decl),
+            .type_struct => b: {
+                const struct_index = @intToEnum(Module.Struct.Index, data);
+                const struct_obj = ip.structPtrConst(struct_index);
+                break :b @sizeOf(Module.Struct) +
+                    @sizeOf(Module.Namespace) +
+                    @sizeOf(Module.Decl) +
+                    (struct_obj.fields.count() * @sizeOf(Module.Struct.Field));
+            },
             .type_struct_ns => @sizeOf(Module.Namespace),
             .type_struct_anon => b: {
                 const info = ip.extraData(TypeStructAnon, data);
