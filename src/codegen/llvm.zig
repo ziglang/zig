@@ -3267,21 +3267,28 @@ pub const DeclGen = struct {
                 return llvm_ty.constInt(kv.value, .False);
             },
             .error_union => |error_union| {
+                const err_tv: TypedValue = switch (error_union.val) {
+                    .err_name => |err_name| .{
+                        .ty = tv.ty.errorUnionSet(mod),
+                        .val = (try mod.intern(.{ .err = .{
+                            .ty = tv.ty.errorUnionSet(mod).toIntern(),
+                            .name = err_name,
+                        } })).toValue(),
+                    },
+                    .payload => .{
+                        .ty = Type.err_int,
+                        .val = try mod.intValue(Type.err_int, 0),
+                    },
+                };
                 const payload_type = tv.ty.errorUnionPayload(mod);
-                const is_pl = tv.val.errorUnionIsPayload(mod);
-
                 if (!payload_type.hasRuntimeBitsIgnoreComptime(mod)) {
                     // We use the error type directly as the type.
-                    const err_val = if (!is_pl) tv.val else try mod.intValue(Type.err_int, 0);
-                    return dg.lowerValue(.{ .ty = Type.anyerror, .val = err_val });
+                    return dg.lowerValue(err_tv);
                 }
 
                 const payload_align = payload_type.abiAlignment(mod);
-                const error_align = Type.anyerror.abiAlignment(mod);
-                const llvm_error_value = try dg.lowerValue(.{
-                    .ty = Type.anyerror,
-                    .val = if (is_pl) try mod.intValue(Type.err_int, 0) else tv.val,
-                });
+                const error_align = err_tv.ty.abiAlignment(mod);
+                const llvm_error_value = try dg.lowerValue(err_tv);
                 const llvm_payload_value = try dg.lowerValue(.{
                     .ty = payload_type,
                     .val = switch (error_union.val) {

@@ -681,6 +681,7 @@ def __lldb_init_module(debugger, _=None):
     add(debugger, category='zig.stage2', regex=True, type=MultiArrayList_Entry('Air\\.Inst'), identifier='TagAndPayload', synth=True, inline_children=True, summary=True)
     add(debugger, category='zig.stage2', regex=True, type='^Air\\.Inst\\.Data\\.Data__struct_[1-9][0-9]*$', inline_children=True, summary=True)
     add(debugger, category='zig.stage2', type='Module.Decl::Module.Decl.Index', synth=True)
+    add(debugger, category='zig.stage2', type='Module.LazySrcLoc', identifier='zig_TaggedUnion', synth=True)
     add(debugger, category='zig.stage2', type='InternPool.Index', synth=True)
     add(debugger, category='zig.stage2', type='InternPool.Key', identifier='zig_TaggedUnion', synth=True)
     add(debugger, category='zig.stage2', type='InternPool.Key.Int.Storage', identifier='zig_TaggedUnion', synth=True)

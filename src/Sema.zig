@@ -16687,7 +16687,6 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                                 const new_decl_ty = try mod.arrayType(.{
                                     .len = bytes.len,
                                     .child = .u8_type,
-                                    .sentinel = .zero_u8,
                                 });
                                 const new_decl = try anon_decl.finish(
                                     new_decl_ty,
@@ -16698,7 +16697,7 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                                     0, // default alignment
                                 );
                                 break :v try mod.intern(.{ .ptr = .{
-                                    .ty = .slice_const_u8_sentinel_0_type,
+                                    .ty = .slice_const_u8_type,
                                     .addr = .{ .decl = new_decl },
                                     .len = (try mod.intValue(Type.usize, bytes.len)).toIntern(),
                                 } });
@@ -23981,7 +23980,6 @@ fn panicWithMsg(
     msg_inst: Air.Inst.Ref,
 ) !void {
     const mod = sema.mod;
-    const arena = sema.arena;
 
     if (!mod.backendSupportsFeature(.panic_fn)) {
         _ = try block.addNoOp(.trap);
@@ -23991,16 +23989,22 @@ fn panicWithMsg(
     const unresolved_stack_trace_ty = try sema.getBuiltinType("StackTrace");
     const stack_trace_ty = try sema.resolveTypeFields(unresolved_stack_trace_ty);
     const target = mod.getTarget();
-    const ptr_stack_trace_ty = try Type.ptr(arena, mod, .{
-        .pointee_type = stack_trace_ty,
-        .@"addrspace" = target_util.defaultAddressSpace(target, .global_constant), // TODO might need a place that is more dynamic
+    const ptr_stack_trace_ty = try mod.ptrType(.{
+        .elem_type = stack_trace_ty.toIntern(),
+        .address_space = target_util.defaultAddressSpace(target, .global_constant), // TODO might need a place that is more dynamic
     });
-    const null_stack_trace = try sema.addConstant(
-        try Type.optional(arena, ptr_stack_trace_ty, mod),
-        Value.null,
-    );
-    const args: [3]Air.Inst.Ref = .{ msg_inst, null_stack_trace, .null_value };
-    try sema.callBuiltin(block, panic_fn, .auto, &args);
+    const opt_ptr_stack_trace_ty = try mod.optionalType(ptr_stack_trace_ty.toIntern());
+    const null_stack_trace = try sema.addConstant(opt_ptr_stack_trace_ty, (try mod.intern(.{ .opt = .{
+        .ty = opt_ptr_stack_trace_ty.toIntern(),
+        .val = .none,
+    } })).toValue());
+
+    const opt_usize_ty = try mod.optionalType(.usize_type);
+    const null_ret_addr = try sema.addConstant(opt_usize_ty, (try mod.intern(.{ .opt = .{
+        .ty = opt_usize_ty.toIntern(),
+        .val = .none,
+    } })).toValue());
+    try sema.callBuiltin(block, panic_fn, .auto, &.{ msg_inst, null_stack_trace, null_ret_addr });
 }
 
 fn panicUnwrapError(
@@ -29385,13 +29389,10 @@ fn refValue(sema: *Sema, block: *Block, ty: Type, val: Value) !Value {
 
 fn optRefValue(sema: *Sema, block: *Block, ty: Type, opt_val: ?Value) !Value {
     const mod = sema.mod;
-    const val = opt_val orelse return Value.null;
-    const ptr_val = try sema.refValue(block, ty, val);
-    const result = try mod.intern(.{ .opt = .{
-        .ty = (try mod.optionalType((try mod.singleConstPtrType(ty)).toIntern())).toIntern(),
-        .val = ptr_val.toIntern(),
-    } });
-    return result.toValue();
+    return (try mod.intern(.{ .opt = .{
+        .ty = (try mod.optionalType((try mod.singleConstPtrType(Type.anyopaque)).toIntern())).toIntern(),
+        .val = if (opt_val) |val| (try sema.refValue(block, ty, val)).toIntern() else .none,
+    } })).toValue();
 }
 
 fn analyzeDeclRef(sema: *Sema, decl_index: Decl.Index) CompileError!Air.Inst.Ref {
@@ -30589,7 +30590,7 @@ fn wrapErrorUnionPayload(
     if (try sema.resolveMaybeUndefVal(coerced)) |val| {
         return sema.addConstant(dest_ty, (try mod.intern(.{ .error_union = .{
             .ty = dest_ty.toIntern(),
-            .val = .{ .payload = val.toIntern() },
+            .val = .{ .payload = try val.intern(dest_payload_ty, mod) },
         } })).toValue());
     }
     try sema.requireRuntimeBlock(block, inst_src, null);
@@ -30633,7 +30634,12 @@ fn wrapErrorUnionSet(
                 else => unreachable,
             },
         }
-        return sema.addConstant(dest_ty, val);
+        return sema.addConstant(dest_ty, (try mod.intern(.{ .error_union = .{
+            .ty = dest_ty.toIntern(),
+            .val = .{
+                .err_name = mod.intern_pool.indexToKey(try val.intern(dest_err_set_ty, mod)).err.name,
+            },
+        } })).toValue());
     }
 
     try sema.requireRuntimeBlock(block, inst_src, null);
@@ -33311,7 +33317,7 @@ fn addIntUnsigned(sema: *Sema, ty: Type, int: u64) CompileError!Air.Inst.Ref {
 }
 
 fn addConstUndef(sema: *Sema, ty: Type) CompileError!Air.Inst.Ref {
-    return sema.addConstant(ty, Value.undef);
+    return sema.addConstant(ty, (try sema.mod.intern(.{ .undef = ty.toIntern() })).toValue());
 }
 
 pub fn addConstant(sema: *Sema, ty: Type, val: Value) SemaError!Air.Inst.Ref {

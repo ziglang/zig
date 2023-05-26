@@ -2298,7 +2298,7 @@ pub fn deinit(ip: *InternPool, gpa: Allocator) void {
     ip.* = undefined;
 }
 
-pub fn indexToKey(ip: InternPool, index: Index) Key {
+pub fn indexToKey(ip: *const InternPool, index: Index) Key {
     assert(index != .none);
     const item = ip.items.get(@enumToInt(index));
     const data = item.data;
@@ -2361,7 +2361,7 @@ pub fn indexToKey(ip: InternPool, index: Index) Key {
 
         .type_slice => {
             const ptr_type_index = @intToEnum(Index, data);
-            var result = indexToKey(ip, ptr_type_index).ptr_type;
+            var result = ip.indexToKey(ptr_type_index).ptr_type;
             result.size = .Slice;
             return .{ .ptr_type = result };
         },
@@ -2454,9 +2454,9 @@ pub fn indexToKey(ip: InternPool, index: Index) Key {
                 .values_map = .none,
             } };
         },
-        .type_enum_explicit => indexToKeyEnum(ip, data, .explicit),
-        .type_enum_nonexhaustive => indexToKeyEnum(ip, data, .nonexhaustive),
-        .type_function => .{ .func_type = indexToKeyFuncType(ip, data) },
+        .type_enum_explicit => ip.indexToKeyEnum(data, .explicit),
+        .type_enum_nonexhaustive => ip.indexToKeyEnum(data, .nonexhaustive),
+        .type_function => .{ .func_type = ip.indexToKeyFuncType(data) },
 
         .undef => .{ .undef = @intToEnum(Index, data) },
         .runtime_value => {
@@ -2591,8 +2591,8 @@ pub fn indexToKey(ip: InternPool, index: Index) Key {
             .ty = .comptime_int_type,
             .storage = .{ .i64 = @bitCast(i32, data) },
         } },
-        .int_positive => indexToKeyBigInt(ip, data, true),
-        .int_negative => indexToKeyBigInt(ip, data, false),
+        .int_positive => ip.indexToKeyBigInt(data, true),
+        .int_negative => ip.indexToKeyBigInt(data, false),
         .int_small => {
             const info = ip.extraData(IntSmall, data);
             return .{ .int = .{
@@ -3430,22 +3430,25 @@ pub fn get(ip: *InternPool, gpa: Allocator, key: Key) Allocator.Error!Index {
             .data = try ip.addExtra(gpa, err),
         }),
 
-        .error_union => |error_union| ip.items.appendAssumeCapacity(switch (error_union.val) {
-            .err_name => |err_name| .{
-                .tag = .error_union_error,
-                .data = try ip.addExtra(gpa, Key.Error{
-                    .ty = error_union.ty,
-                    .name = err_name,
-                }),
-            },
-            .payload => |payload| .{
-                .tag = .error_union_payload,
-                .data = try ip.addExtra(gpa, TypeValue{
-                    .ty = error_union.ty,
-                    .val = payload,
-                }),
-            },
-        }),
+        .error_union => |error_union| {
+            assert(ip.indexToKey(error_union.ty) == .error_union_type);
+            ip.items.appendAssumeCapacity(switch (error_union.val) {
+                .err_name => |err_name| .{
+                    .tag = .error_union_error,
+                    .data = try ip.addExtra(gpa, Key.Error{
+                        .ty = error_union.ty,
+                        .name = err_name,
+                    }),
+                },
+                .payload => |payload| .{
+                    .tag = .error_union_payload,
+                    .data = try ip.addExtra(gpa, TypeValue{
+                        .ty = error_union.ty,
+                        .val = payload,
+                    }),
+                },
+            });
+        },
 
         .enum_literal => |enum_literal| ip.items.appendAssumeCapacity(.{
             .tag = .enum_literal,
@@ -4191,6 +4194,7 @@ pub fn sliceLen(ip: InternPool, i: Index) Index {
 /// * ptr <=> ptr
 /// * null_value => opt
 /// * payload => opt
+/// * error set <=> error set
 pub fn getCoerced(ip: *InternPool, gpa: Allocator, val: Index, new_ty: Index) Allocator.Error!Index {
     const old_ty = ip.typeOf(val);
     if (old_ty == new_ty) return val;
@@ -4227,6 +4231,13 @@ pub fn getCoerced(ip: *InternPool, gpa: Allocator, val: Index, new_ty: Index) Al
             .ptr_type => return ip.get(gpa, .{ .ptr = .{
                 .ty = new_ty,
                 .addr = ptr.addr,
+            } }),
+            else => {},
+        },
+        .err => |err| switch (ip.indexToKey(new_ty)) {
+            .error_set_type, .inferred_error_set_type => return ip.get(gpa, .{ .err = .{
+                .ty = new_ty,
+                .name = err.name,
             } }),
             else => {},
         },
