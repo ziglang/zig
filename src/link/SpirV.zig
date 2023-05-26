@@ -138,7 +138,7 @@ pub fn updateDeclExports(
     exports: []const *Module.Export,
 ) !void {
     const decl = mod.declPtr(decl_index);
-    if (decl.getFunctionIndex(mod) != .none and decl.ty.fnCallingConvention(mod) == .Kernel) {
+    if (decl.val.getFunctionIndex(mod) != .none and decl.ty.fnCallingConvention(mod) == .Kernel) {
         // TODO: Unify with resolveDecl in spirv.zig.
         const entry = try self.decl_link.getOrPut(decl_index);
         if (!entry.found_existing) {

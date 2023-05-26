@@ -2210,7 +2210,7 @@ fn airCall(func: *CodeGen, inst: Air.Inst.Index, modifier: std.builtin.CallModif
             try func.bin_file.addOrUpdateImport(
                 mem.sliceTo(ext_decl.name, 0),
                 atom.getSymbolIndex().?,
-                mod.intern_pool.stringToSliceUnwrap(ext_decl.getExternFunc(mod).?.lib_name),
+                mod.intern_pool.stringToSliceUnwrap(ext_decl.getOwnedExternFunc(mod).?.lib_name),
                 type_index,
             );
             break :blk extern_func.decl;

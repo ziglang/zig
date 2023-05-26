@@ -2465,7 +2465,7 @@ fn getDeclShdrIndex(self: *Elf, decl_index: Module.Decl.Index) u16 {
             // TODO: what if this is a function pointer?
             .Fn => break :blk self.text_section_index.?,
             else => {
-                if (decl.getVariable(mod)) |_| {
+                if (val.getVariable(mod)) |_| {
                     break :blk self.data_section_index.?;
                 }
                 break :blk self.rodata_section_index.?;
@@ -2647,10 +2647,10 @@ pub fn updateDecl(
 
     const decl = mod.declPtr(decl_index);
 
-    if (decl.getExternFunc(mod)) |_| {
+    if (decl.val.getExternFunc(mod)) |_| {
         return; // TODO Should we do more when front-end analyzed extern decl?
     }
-    if (decl.getVariable(mod)) |variable| {
+    if (decl.val.getVariable(mod)) |variable| {
         if (variable.is_extern) {
             return; // TODO Should we do more when front-end analyzed extern decl?
         }
@@ -2667,7 +2667,7 @@ pub fn updateDecl(
     defer if (decl_state) |*ds| ds.deinit();
 
     // TODO implement .debug_info for global variables
-    const decl_val = if (decl.getVariable(mod)) |variable| variable.init.toValue() else decl.val;
+    const decl_val = if (decl.val.getVariable(mod)) |variable| variable.init.toValue() else decl.val;
     const res = if (decl_state) |*ds|
         try codegen.generateSymbol(&self.base, decl.srcLoc(mod), .{
             .ty = decl.ty,

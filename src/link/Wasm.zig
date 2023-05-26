@@ -1404,9 +1404,9 @@ pub fn updateDecl(wasm: *Wasm, mod: *Module, decl_index: Module.Decl.Index) !voi
     defer tracy.end();
 
     const decl = mod.declPtr(decl_index);
-    if (decl.getFunction(mod)) |_| {
+    if (decl.val.getFunction(mod)) |_| {
         return;
-    } else if (decl.getExternFunc(mod)) |_| {
+    } else if (decl.val.getExternFunc(mod)) |_| {
         return;
     }
 
@@ -1415,12 +1415,12 @@ pub fn updateDecl(wasm: *Wasm, mod: *Module, decl_index: Module.Decl.Index) !voi
     atom.clear();
 
     if (decl.isExtern(mod)) {
-        const variable = decl.getVariable(mod).?;
+        const variable = decl.getOwnedVariable(mod).?;
         const name = mem.sliceTo(decl.name, 0);
         const lib_name = mod.intern_pool.stringToSliceUnwrap(variable.lib_name);
         return wasm.addOrUpdateImport(name, atom.sym_index, lib_name, null);
     }
-    const val = if (decl.getVariable(mod)) |variable| variable.init.toValue() else decl.val;
+    const val = if (decl.val.getVariable(mod)) |variable| variable.init.toValue() else decl.val;
 
     var code_writer = std.ArrayList(u8).init(wasm.base.allocator);
     defer code_writer.deinit();
@@ -3373,7 +3373,7 @@ pub fn flushModule(wasm: *Wasm, comp: *Compilation, prog_node: *std.Progress.Nod
             const atom = wasm.getAtomPtr(atom_index);
             if (decl.ty.zigTypeTag(mod) == .Fn) {
                 try wasm.parseAtom(atom_index, .function);
-            } else if (decl.getVariable(mod)) |variable| {
+            } else if (decl.getOwnedVariable(mod)) |variable| {
                 if (variable.is_const) {
                     try wasm.parseAtom(atom_index, .{ .data = .read_only });
                 } else if (variable.init.toValue().isUndefDeep(mod)) {

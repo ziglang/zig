@@ -1984,16 +1984,16 @@ pub fn updateDecl(self: *MachO, mod: *Module, decl_index: Module.Decl.Index) !vo
 
     const decl = mod.declPtr(decl_index);
 
-    if (decl.getExternFunc(mod)) |_| {
+    if (decl.val.getExternFunc(mod)) |_| {
         return; // TODO Should we do more when front-end analyzed extern decl?
     }
-    if (decl.getVariable(mod)) |variable| {
+    if (decl.val.getVariable(mod)) |variable| {
         if (variable.is_extern) {
             return; // TODO Should we do more when front-end analyzed extern decl?
         }
     }
 
-    const is_threadlocal = if (decl.getVariable(mod)) |variable|
+    const is_threadlocal = if (decl.val.getVariable(mod)) |variable|
         variable.is_threadlocal and !self.base.options.single_threaded
     else
         false;
@@ -2012,7 +2012,7 @@ pub fn updateDecl(self: *MachO, mod: *Module, decl_index: Module.Decl.Index) !vo
         null;
     defer if (decl_state) |*ds| ds.deinit();
 
-    const decl_val = if (decl.getVariable(mod)) |variable| variable.init.toValue() else decl.val;
+    const decl_val = if (decl.val.getVariable(mod)) |variable| variable.init.toValue() else decl.val;
     const res = if (decl_state) |*ds|
         try codegen.generateSymbol(&self.base, decl.srcLoc(mod), .{
             .ty = decl.ty,
@@ -2177,7 +2177,7 @@ fn updateThreadlocalVariable(self: *MachO, module: *Module, decl_index: Module.D
 
     const decl = module.declPtr(decl_index);
     const decl_metadata = self.decls.get(decl_index).?;
-    const decl_val = decl.getVariable(mod).?.init.toValue();
+    const decl_val = decl.val.getVariable(mod).?.init.toValue();
     const res = if (decl_state) |*ds|
         try codegen.generateSymbol(&self.base, decl.srcLoc(mod), .{
             .ty = decl.ty,
@@ -2278,7 +2278,7 @@ fn getDeclOutputSection(self: *MachO, decl_index: Module.Decl.Index) u8 {
             }
         }
 
-        if (decl.getVariable(mod)) |variable| {
+        if (val.getVariable(mod)) |variable| {
             if (variable.is_threadlocal and !single_threaded) {
                 break :blk self.thread_data_section_index.?;
             }
@@ -2289,7 +2289,7 @@ fn getDeclOutputSection(self: *MachO, decl_index: Module.Decl.Index) u8 {
             // TODO: what if this is a function pointer?
             .Fn => break :blk self.text_section_index.?,
             else => {
-                if (decl.getVariable(mod)) |_| {
+                if (val.getVariable(mod)) |_| {
                     break :blk self.data_section_index.?;
                 }
                 break :blk self.data_const_section_index.?;

@@ -549,12 +549,12 @@ pub const DeclGen = struct {
         }
 
         // Chase function values in order to be able to reference the original function.
-        if (decl.getFunction(mod)) |func| if (func.owner_decl != decl_index)
+        if (decl.val.getFunction(mod)) |func| if (func.owner_decl != decl_index)
             return dg.renderDeclValue(writer, ty, val, func.owner_decl, location);
-        if (decl.getExternFunc(mod)) |extern_func| if (extern_func.decl != decl_index)
+        if (decl.val.getExternFunc(mod)) |extern_func| if (extern_func.decl != decl_index)
             return dg.renderDeclValue(writer, ty, val, extern_func.decl, location);
 
-        if (decl.getVariable(mod)) |variable| try dg.renderFwdDecl(decl_index, variable);
+        if (decl.val.getVariable(mod)) |variable| try dg.renderFwdDecl(decl_index, variable);
 
         // We shouldn't cast C function pointers as this is UB (when you call
         // them).  The analysis until now should ensure that the C function
@@ -1580,7 +1580,7 @@ pub const DeclGen = struct {
                 else => unreachable,
             }
         }
-        if (fn_decl.getFunction(mod)) |func| if (func.is_cold) try w.writeAll("zig_cold ");
+        if (fn_decl.val.getFunction(mod)) |func| if (func.is_cold) try w.writeAll("zig_cold ");
         if (fn_info.return_type == .noreturn_type) try w.writeAll("zig_noreturn ");
 
         const trailing = try renderTypePrefix(
@@ -2740,13 +2740,13 @@ pub fn genDecl(o: *Object) !void {
     const tv: TypedValue = .{ .ty = decl.ty, .val = decl.val };
 
     if (!tv.ty.isFnOrHasRuntimeBitsIgnoreComptime(mod)) return;
-    if (decl.getExternFunc(mod)) |_| {
+    if (tv.val.getExternFunc(mod)) |_| {
         const fwd_decl_writer = o.dg.fwd_decl.writer();
         try fwd_decl_writer.writeAll("zig_extern ");
         try o.dg.renderFunctionSignature(fwd_decl_writer, decl_c_value.decl, .forward, .{ .export_index = 0 });
         try fwd_decl_writer.writeAll(";\n");
         try genExports(o);
-    } else if (decl.getVariable(mod)) |variable| {
+    } else if (tv.val.getVariable(mod)) |variable| {
         try o.dg.renderFwdDecl(decl_c_value.decl, variable);
         try genExports(o);
 

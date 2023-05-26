@@ -261,7 +261,7 @@ pub const DeclGen = struct {
         const entry = try self.decl_link.getOrPut(decl_index);
         if (!entry.found_existing) {
             // TODO: Extern fn?
-            const kind: SpvModule.DeclKind = if (decl.getFunctionIndex(self.module) != .none)
+            const kind: SpvModule.DeclKind = if (decl.val.getFunctionIndex(self.module) != .none)
                 .func
             else
                 .global;
@@ -1544,7 +1544,7 @@ pub const DeclGen = struct {
         const decl_id = self.spv.declPtr(spv_decl_index).result_id;
         log.debug("genDecl: id = {}, index = {}, name = {s}", .{ decl_id.id, @enumToInt(spv_decl_index), decl.name });
 
-        if (decl.getFunction(mod)) |_| {
+        if (decl.val.getFunction(mod)) |_| {
             assert(decl.ty.zigTypeTag(mod) == .Fn);
             const prototype_id = try self.resolveTypeId(decl.ty);
             try self.func.prologue.emit(self.spv.gpa, .OpFunction, .{
@@ -1597,7 +1597,7 @@ pub const DeclGen = struct {
                 try self.generateTestEntryPoint(fqn, spv_decl_index);
             }
         } else {
-            const init_val = if (decl.getVariable(mod)) |payload|
+            const init_val = if (decl.val.getVariable(mod)) |payload|
                 payload.init.toValue()
             else
                 decl.val;

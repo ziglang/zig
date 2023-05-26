@@ -1156,10 +1156,10 @@ pub fn updateDecl(
 
     const decl = mod.declPtr(decl_index);
 
-    if (decl.getExternFunc(mod)) |_| {
+    if (decl.val.getExternFunc(mod)) |_| {
         return; // TODO Should we do more when front-end analyzed extern decl?
     }
-    if (decl.getVariable(mod)) |variable| {
+    if (decl.val.getVariable(mod)) |variable| {
         if (variable.is_extern) {
             return; // TODO Should we do more when front-end analyzed extern decl?
         }
@@ -1172,7 +1172,7 @@ pub fn updateDecl(
     var code_buffer = std.ArrayList(u8).init(self.base.allocator);
     defer code_buffer.deinit();
 
-    const decl_val = if (decl.getVariable(mod)) |variable| variable.init.toValue() else decl.val;
+    const decl_val = if (decl.val.getVariable(mod)) |variable| variable.init.toValue() else decl.val;
     const res = try codegen.generateSymbol(&self.base, decl.srcLoc(mod), .{
         .ty = decl.ty,
         .val = decl_val,
@@ -1313,7 +1313,7 @@ fn getDeclOutputSection(self: *Coff, decl_index: Module.Decl.Index) u16 {
             // TODO: what if this is a function pointer?
             .Fn => break :blk self.text_section_index.?,
             else => {
-                if (decl.getVariable(mod)) |_| {
+                if (val.getVariable(mod)) |_| {
                     break :blk self.data_section_index.?;
                 }
                 break :blk self.rdata_section_index.?;
@@ -1425,7 +1425,7 @@ pub fn updateDeclExports(
         // detect the default subsystem.
         for (exports) |exp| {
             const exported_decl = mod.declPtr(exp.exported_decl);
-            if (exported_decl.getFunctionIndex(mod) == .none) continue;
+            if (exported_decl.getOwnedFunctionIndex(mod) == .none) continue;
             const winapi_cc = switch (self.base.options.target.cpu.arch) {
                 .x86 => std.builtin.CallingConvention.Stdcall,
                 else => std.builtin.CallingConvention.C,
