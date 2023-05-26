@@ -17,7 +17,6 @@ perm_arena: Allocator,
 code: Zir,
 air_instructions: std.MultiArrayList(Air.Inst) = .{},
 air_extra: std.ArrayListUnmanaged(u32) = .{},
-air_values: std.ArrayListUnmanaged(Value) = .{},
 /// Maps ZIR to AIR.
 inst_map: InstMap = .{},
 /// When analyzing an inline function call, owner_decl is the Decl of the caller
@@ -772,7 +771,6 @@ pub fn deinit(sema: *Sema) void {
     const gpa = sema.gpa;
     sema.air_instructions.deinit(gpa);
     sema.air_extra.deinit(gpa);
-    sema.air_values.deinit(gpa);
     sema.inst_map.deinit(gpa);
     sema.decl_val_table.deinit(gpa);
     sema.types_to_resolve.deinit(gpa);
@@ -2018,10 +2016,8 @@ fn resolveMaybeUndefValAllowVariablesMaybeRuntime(
     }
     const air_datas = sema.air_instructions.items(.data);
     const val = switch (air_tags[i]) {
-        .inferred_alloc, .inferred_alloc_comptime => val: {
-            const ty_pl = sema.air_instructions.items(.data)[i].ty_pl;
-            break :val sema.air_values.items[ty_pl.payload];
-        },
+        .inferred_alloc => unreachable,
+        .inferred_alloc_comptime => unreachable,
         .interned => air_datas[i].interned.toValue(),
         else => return null,
     };
@@ -7930,20 +7926,17 @@ fn emitDbgInline(
     new_func_ty: Type,
     tag: Air.Inst.Tag,
 ) CompileError!void {
-    if (sema.mod.comp.bin_file.options.strip) return;
+    const mod = sema.mod;
+    if (mod.comp.bin_file.options.strip) return;
 
     // Recursive inline call; no dbg_inline needed.
     if (old_func == new_func) return;
 
-    try sema.air_values.append(sema.gpa, (try sema.mod.intern(.{ .func = .{
-        .ty = new_func_ty.toIntern(),
-        .index = new_func,
-    } })).toValue());
     _ = try block.addInst(.{
         .tag = tag,
-        .data = .{ .ty_pl = .{
+        .data = .{ .ty_fn = .{
             .ty = try sema.addType(new_func_ty),
-            .payload = @intCast(u32, sema.air_values.items.len - 1),
+            .func = new_func,
         } },
     });
 }
@@ -21724,8 +21717,6 @@ fn analyzeShuffle(
         }
     }
 
-    const mask_index = @intCast(u32, sema.air_values.items.len);
-    try sema.air_values.append(sema.gpa, mask);
     return block.addInst(.{
         .tag = .shuffle,
         .data = .{ .ty_pl = .{
@@ -21733,7 +21724,7 @@ fn analyzeShuffle(
             .payload = try block.sema.addExtra(Air.Shuffle{
                 .a = a,
                 .b = b,
-                .mask = mask_index,
+                .mask = mask.toIntern(),
                 .mask_len = mask_len,
             }),
         } },
@@ -33311,7 +33302,6 @@ pub fn getTmpAir(sema: Sema) Air {
     return .{
         .instructions = sema.air_instructions.slice(),
         .extra = sema.air_extra.items,
-        .values = sema.air_values.items,
     };
 }
 
@@ -33371,7 +33361,8 @@ pub fn addExtraAssumeCapacity(sema: *Sema, extra: anytype) u32 {
             u32 => @field(extra, field.name),
             Air.Inst.Ref => @enumToInt(@field(extra, field.name)),
             i32 => @bitCast(u32, @field(extra, field.name)),
-            else => @compileError("bad field type"),
+            InternPool.Index => @enumToInt(@field(extra, field.name)),
+            else => @compileError("bad field type: " ++ @typeName(field.type)),
         });
     }
     return result;

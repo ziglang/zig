@@ -15,12 +15,11 @@ pub fn write(stream: anytype, module: *Module, air: Air, liveness: ?Liveness) vo
         // the debug safety tag but we want to measure release size.
         (@sizeOf(Air.Inst.Tag) + 8);
     const extra_bytes = air.extra.len * @sizeOf(u32);
-    const values_bytes = air.values.len * @sizeOf(Value);
     const tomb_bytes = if (liveness) |l| l.tomb_bits.len * @sizeOf(usize) else 0;
     const liveness_extra_bytes = if (liveness) |l| l.extra.len * @sizeOf(u32) else 0;
     const liveness_special_bytes = if (liveness) |l| l.special.count() * 8 else 0;
     const total_bytes = @sizeOf(Air) + instruction_bytes + extra_bytes +
-        values_bytes + @sizeOf(Liveness) + liveness_extra_bytes +
+        @sizeOf(Liveness) + liveness_extra_bytes +
         liveness_special_bytes + tomb_bytes;
 
     // zig fmt: off
@@ -28,7 +27,6 @@ pub fn write(stream: anytype, module: *Module, air: Air, liveness: ?Liveness) vo
         \\# Total AIR+Liveness bytes: {}
         \\# AIR Instructions:         {d} ({})
         \\# AIR Extra Data:           {d} ({})
-        \\# AIR Values Bytes:         {d} ({})
         \\# Liveness tomb_bits:       {}
         \\# Liveness Extra Data:      {d} ({})
         \\# Liveness special table:   {d} ({})
@@ -37,7 +35,6 @@ pub fn write(stream: anytype, module: *Module, air: Air, liveness: ?Liveness) vo
         fmtIntSizeBin(total_bytes),
         air.instructions.len, fmtIntSizeBin(instruction_bytes),
         air.extra.len, fmtIntSizeBin(extra_bytes),
-        air.values.len, fmtIntSizeBin(values_bytes),
         fmtIntSizeBin(tomb_bytes),
         if (liveness) |l| l.extra.len else 0, fmtIntSizeBin(liveness_extra_bytes),
         if (liveness) |l| l.special.count() else 0, fmtIntSizeBin(liveness_special_bytes),
@@ -300,7 +297,8 @@ const Writer = struct {
 
             .struct_field_ptr => try w.writeStructField(s, inst),
             .struct_field_val => try w.writeStructField(s, inst),
-            .inferred_alloc, .inferred_alloc_comptime => try w.writeConstant(s, inst),
+            .inferred_alloc => @panic("TODO"),
+            .inferred_alloc_comptime => @panic("TODO"),
             .interned => try w.writeInterned(s, inst),
             .assembly => try w.writeAssembly(s, inst),
             .dbg_stmt => try w.writeDbgStmt(s, inst),
@@ -598,14 +596,6 @@ const Writer = struct {
         try s.print(", {d}", .{extra.field_index});
     }
 
-    fn writeConstant(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {
-        const ty_pl = w.air.instructions.items(.data)[inst].ty_pl;
-        const val = w.air.values[ty_pl.payload];
-        const ty = w.air.getRefType(ty_pl.ty);
-        try w.writeType(s, ty);
-        try s.print(", {}", .{val.fmtValue(ty, w.module)});
-    }
-
     fn writeInterned(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {
         const mod = w.module;
         const ip_index = w.air.instructions.items(.data)[inst].interned;
@@ -693,9 +683,9 @@ const Writer = struct {
     }
 
     fn writeDbgInline(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {
-        const ty_pl = w.air.instructions.items(.data)[inst].ty_pl;
-        const func_index = w.module.intern_pool.indexToFunc(w.air.values[ty_pl.payload].ip_index);
-        const owner_decl = w.module.declPtr(w.module.funcPtrUnwrap(func_index).?.owner_decl);
+        const ty_fn = w.air.instructions.items(.data)[inst].ty_fn;
+        const func_index = ty_fn.func;
+        const owner_decl = w.module.declPtr(w.module.funcPtr(func_index).owner_decl);
         try s.print("{s}", .{owner_decl.name});
     }
 

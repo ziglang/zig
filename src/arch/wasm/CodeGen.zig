@@ -4947,7 +4947,7 @@ fn airShuffle(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
 
     const a = try func.resolveInst(extra.a);
     const b = try func.resolveInst(extra.b);
-    const mask = func.air.values[extra.mask];
+    const mask = extra.mask.toValue();
     const mask_len = extra.mask_len;
 
     const child_ty = inst_ty.childType(mod);

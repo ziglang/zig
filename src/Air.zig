@@ -17,7 +17,6 @@ instructions: std.MultiArrayList(Inst).Slice,
 /// The meaning of this data is determined by `Inst.Tag` value.
 /// The first few indexes are reserved. See `ExtraIndex` for the values.
 extra: []const u32,
-values: []const Value,
 
 pub const ExtraIndex = enum(u32) {
     /// Payload index of the main `Block` in the `extra` array.
@@ -421,10 +420,10 @@ pub const Inst = struct {
         /// Marks the end of a semantic scope for debug info variables.
         dbg_block_end,
         /// Marks the start of an inline call.
-        /// Uses `ty_pl` with the payload being the index of a Value.Function in air.values.
+        /// Uses the `ty_fn` field.
         dbg_inline_begin,
         /// Marks the end of an inline call.
-        /// Uses `ty_pl` with the payload being the index of a Value.Function in air.values.
+        /// Uses the `ty_fn` field.
         dbg_inline_end,
         /// Marks the beginning of a local variable. The operand is a pointer pointing
         /// to the storage for the variable. The local may be a const or a var.
@@ -967,6 +966,10 @@ pub const Inst = struct {
             // Index into a different array.
             payload: u32,
         },
+        ty_fn: struct {
+            ty: Ref,
+            func: Module.Fn.Index,
+        },
         br: struct {
             block_inst: Index,
             operand: Ref,
@@ -1090,8 +1093,7 @@ pub const FieldParentPtr = struct {
 pub const Shuffle = struct {
     a: Inst.Ref,
     b: Inst.Ref,
-    // index to air_values
-    mask: u32,
+    mask: InternPool.Index,
     mask_len: u32,
 };
 
@@ -1469,7 +1471,8 @@ pub fn extraData(air: Air, comptime T: type, index: usize) struct { data: T, end
             u32 => air.extra[i],
             Inst.Ref => @intToEnum(Inst.Ref, air.extra[i]),
             i32 => @bitCast(i32, air.extra[i]),
-            else => @compileError("bad field type"),
+            InternPool.Index => @intToEnum(InternPool.Index, air.extra[i]),
+            else => @compileError("bad field type: " ++ @typeName(field.type)),
         };
         i += 1;
     }
@@ -1482,7 +1485,6 @@ pub fn extraData(air: Air, comptime T: type, index: usize) struct { data: T, end
 pub fn deinit(air: *Air, gpa: std.mem.Allocator) void {
     air.instructions.deinit(gpa);
     gpa.free(air.extra);
-    gpa.free(air.values);
     air.* = undefined;
 }
 
