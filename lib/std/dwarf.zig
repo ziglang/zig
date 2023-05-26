@@ -693,8 +693,8 @@ pub const DwarfInfo = struct {
     }
 
     pub fn deinit(di: *DwarfInfo, allocator: mem.Allocator) void {
-        for (di.sections) |s| {
-            if (s.owned) allocator.free(s.data);
+        for (di.sections) |opt_section| {
+            if (opt_section) |s| if (s.owned) allocator.free(s.data);
         }
         for (di.abbrev_table_list.items) |*abbrev| {
             abbrev.deinit();
@@ -1504,12 +1504,12 @@ pub const DwarfInfo = struct {
 
             while (stream.pos < stream.buffer.len) {
                 const length_offset = stream.pos;
-                var length: u64 = try reader.readInt(u32, di.endian);
+                var length: usize = try reader.readInt(u32, di.endian);
                 if (length == 0) break;
 
                 var is_64 = length == math.maxInt(u32);
                 if (is_64) {
-                    length = try reader.readInt(u64, di.endian);
+                    length = std.math.cast(usize, try reader.readInt(u64, di.endian)) orelse return error.LengthOverflow;
                 }
 
                 const id_len = @as(u8, if (is_64) 8 else 4);
@@ -1746,10 +1746,14 @@ fn readEhPointer(reader: anytype, enc: u8, addr_size_bytes: u8, ctx: EhPointerCo
     };
 
     if ((enc & EH.PE.indirect) > 0 and ctx.follow_indirect) {
+        if (@sizeOf(usize) != addr_size_bytes) {
+            // See the documentation for `follow_indirect`
+            return error.NonNativeIndirection;
+        }
+
+        const native_ptr = math.cast(usize, ptr) orelse return error.PointerOverflow;
         return switch (addr_size_bytes) {
-            2 => return @intToPtr(*const u16, ptr).*,
-            4 => return @intToPtr(*const u32, ptr).*,
-            8 => return @intToPtr(*const u64, ptr).*,
+            2, 4, 8 => return @intToPtr(*const usize, native_ptr).*,
             else => return error.UnsupportedAddrSize,
         };
     } else {
@@ -1960,7 +1964,7 @@ pub const FrameDescriptionEntry = struct {
 
         var aug_data: []const u8 = &[_]u8{};
         const lsda_pointer = if (cie.aug_str.len > 0) blk: {
-            const aug_data_len = try leb.readULEB128(u64, reader);
+            const aug_data_len = try leb.readULEB128(usize, reader);
             const aug_data_start = stream.pos;
             aug_data = fde_bytes[aug_data_start..][0..aug_data_len];
 

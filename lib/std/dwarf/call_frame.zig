@@ -99,7 +99,7 @@ const Operand = enum {
             .u16_delta => try reader.readInt(u16, endian),
             .u32_delta => try reader.readInt(u32, endian),
             .block => {
-                const block_len = try leb.readULEB128(u64, reader);
+                const block_len = try leb.readULEB128(usize, reader);
                 if (stream.pos + block_len > stream.buffer.len) return error.InvalidOperand;
 
                 const block = stream.buffer[stream.pos..][0..block_len];
