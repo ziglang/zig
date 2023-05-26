@@ -3161,7 +3161,7 @@ fn storeSimdImmd(func: *CodeGen, value: [16]u8) !WValue {
 fn emitUndefined(func: *CodeGen, ty: Type) InnerError!WValue {
     switch (ty.zigTypeTag()) {
         .Bool, .ErrorSet => return WValue{ .imm32 = 0xaaaaaaaa },
-        .Int => switch (ty.intInfo(func.target).bits) {
+        .Int, .Enum => switch (ty.intInfo(func.target).bits) {
             0...32 => return WValue{ .imm32 = 0xaaaaaaaa },
             33...64 => return WValue{ .imm64 = 0xaaaaaaaaaaaaaaaa },
             else => unreachable,
@@ -3958,7 +3958,12 @@ fn airUnwrapErrUnionPayload(func: *CodeGen, inst: Air.Inst.Index, op_is_ptr: boo
     const payload_ty = err_ty.errorUnionPayload();
 
     const result = result: {
-        if (!payload_ty.hasRuntimeBitsIgnoreComptime()) break :result WValue{ .none = {} };
+        if (!payload_ty.hasRuntimeBitsIgnoreComptime()) {
+            if (op_is_ptr) {
+                break :result WValue{ .imm32 = 0 };
+            }
+            break :result WValue{ .none = {} };
+        }
 
         const pl_offset = @intCast(u32, errUnionPayloadOffset(payload_ty, func.target));
         if (op_is_ptr or isByRef(payload_ty, func.target)) {
