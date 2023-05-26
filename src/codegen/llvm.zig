@@ -2329,7 +2329,7 @@ pub const Object = struct {
                     try param_di_types.append(try o.lowerDebugType(ptr_ty, .full));
                 }
 
-                for (fn_info.param_types) |param_ty| {
+                for (mod.typeToFunc(ty).?.param_types) |param_ty| {
                     if (!param_ty.toType().hasRuntimeBitsIgnoreComptime(mod)) continue;
 
                     if (isByRef(param_ty.toType(), mod)) {

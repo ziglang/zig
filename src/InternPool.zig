@@ -650,8 +650,14 @@ pub const Key = union(enum) {
             .enum_type => |enum_type| std.hash.autoHash(hasher, enum_type.decl),
 
             .variable => |variable| std.hash.autoHash(hasher, variable.decl),
-            .extern_func => |extern_func| std.hash.autoHash(hasher, extern_func.decl),
-            .func => |func| std.hash.autoHash(hasher, func.index),
+            .extern_func => |extern_func| {
+                std.hash.autoHash(hasher, extern_func.ty);
+                std.hash.autoHash(hasher, extern_func.decl);
+            },
+            .func => |func| {
+                std.hash.autoHash(hasher, func.ty);
+                std.hash.autoHash(hasher, func.index);
+            },
 
             .int => |int| {
                 // Canonicalize all integers by converting them to BigIntConst.
@@ -854,11 +860,11 @@ pub const Key = union(enum) {
             },
             .extern_func => |a_info| {
                 const b_info = b.extern_func;
-                return a_info.decl == b_info.decl;
+                return a_info.ty == b_info.ty and a_info.decl == b_info.decl;
             },
             .func => |a_info| {
                 const b_info = b.func;
-                return a_info.index == b_info.index;
+                return a_info.ty == b_info.ty and a_info.index == b_info.index;
             },
 
             .ptr => |a_info| {
@@ -1340,8 +1346,8 @@ pub const Index = enum(u32) {
         float_c_longdouble_f128: struct { data: *Float128 },
         float_comptime_float: struct { data: *Float128 },
         variable: struct { data: *Variable },
-        extern_func: struct { data: void },
-        func: struct { data: void },
+        extern_func: struct { data: *Key.ExternFunc },
+        func: struct { data: *Key.Func },
         only_possible_value: DataIsIndex,
         union_value: struct { data: *Key.Union },
         bytes: struct { data: *Bytes },
@@ -3216,6 +3222,7 @@ pub fn get(ip: *InternPool, gpa: Allocator, key: Key) Allocator.Error!Index {
 
         .opt => |opt| {
             assert(ip.isOptionalType(opt.ty));
+            assert(opt.val == .none or ip.indexToKey(opt.ty).opt_type == ip.typeOf(opt.val));
             ip.items.appendAssumeCapacity(if (opt.val == .none) .{
                 .tag = .opt_null,
                 .data = @enumToInt(opt.ty),
@@ -3226,23 +3233,7 @@ pub fn get(ip: *InternPool, gpa: Allocator, key: Key) Allocator.Error!Index {
         },
 
         .int => |int| b: {
-            switch (int.ty) {
-                .usize_type,
-                .isize_type,
-                .c_char_type,
-                .c_short_type,
-                .c_ushort_type,
-                .c_int_type,
-                .c_uint_type,
-                .c_long_type,
-                .c_ulong_type,
-                .c_longlong_type,
-                .c_ulonglong_type,
-                .c_longdouble_type,
-                .comptime_int_type,
-                => {},
-                else => assert(ip.indexToKey(int.ty) == .int_type),
-            }
+            assert(ip.isIntegerType(int.ty));
             switch (int.storage) {
                 .u64, .i64, .big_int => {},
                 .lazy_align, .lazy_size => |lazy_ty| {
@@ -3425,13 +3416,16 @@ pub fn get(ip: *InternPool, gpa: Allocator, key: Key) Allocator.Error!Index {
             }
         },
 
-        .err => |err| ip.items.appendAssumeCapacity(.{
-            .tag = .error_set_error,
-            .data = try ip.addExtra(gpa, err),
-        }),
+        .err => |err| {
+            assert(ip.isErrorSetType(err.ty));
+            ip.items.appendAssumeCapacity(.{
+                .tag = .error_set_error,
+                .data = try ip.addExtra(gpa, err),
+            });
+        },
 
         .error_union => |error_union| {
-            assert(ip.indexToKey(error_union.ty) == .error_union_type);
+            assert(ip.isErrorUnionType(error_union.ty));
             ip.items.appendAssumeCapacity(switch (error_union.val) {
                 .err_name => |err_name| .{
                     .tag = .error_union_error,
@@ -3456,9 +3450,8 @@ pub fn get(ip: *InternPool, gpa: Allocator, key: Key) Allocator.Error!Index {
         }),
 
         .enum_tag => |enum_tag| {
-            assert(enum_tag.ty != .none);
-            assert(enum_tag.int != .none);
-
+            assert(ip.isEnumType(enum_tag.ty));
+            assert(ip.indexToKey(enum_tag.int) == .int);
             ip.items.appendAssumeCapacity(.{
                 .tag = .enum_tag,
                 .data = try ip.addExtra(gpa, enum_tag),
@@ -4191,69 +4184,93 @@ pub fn sliceLen(ip: InternPool, i: Index) Index {
 /// * identity coercion
 /// * int <=> int
 /// * int <=> enum
+/// * enum_literal => enum
 /// * ptr <=> ptr
 /// * null_value => opt
 /// * payload => opt
 /// * error set <=> error set
+/// * error union <=> error union
+/// * error set => error union
+/// * payload => error union
+/// * fn <=> fn
 pub fn getCoerced(ip: *InternPool, gpa: Allocator, val: Index, new_ty: Index) Allocator.Error!Index {
     const old_ty = ip.typeOf(val);
     if (old_ty == new_ty) return val;
     switch (ip.indexToKey(val)) {
-        .int => |int| switch (ip.indexToKey(new_ty)) {
-            .simple_type => |simple_type| switch (simple_type) {
-                .usize,
-                .isize,
-                .c_char,
-                .c_short,
-                .c_ushort,
-                .c_int,
-                .c_uint,
-                .c_long,
-                .c_ulong,
-                .c_longlong,
-                .c_ulonglong,
-                .comptime_int,
-                => return getCoercedInts(ip, gpa, int, new_ty),
-                else => {},
-            },
-            .int_type => return getCoercedInts(ip, gpa, int, new_ty),
-            .enum_type => return ip.get(gpa, .{ .enum_tag = .{
+        .extern_func => |extern_func| if (ip.isFunctionType(new_ty))
+            return ip.get(gpa, .{ .extern_func = .{
+                .ty = new_ty,
+                .decl = extern_func.decl,
+                .lib_name = extern_func.lib_name,
+            } }),
+        .func => |func| if (ip.isFunctionType(new_ty))
+            return ip.get(gpa, .{ .func = .{
+                .ty = new_ty,
+                .index = func.index,
+            } }),
+        .int => |int| if (ip.isIntegerType(new_ty))
+            return getCoercedInts(ip, gpa, int, new_ty)
+        else if (ip.isEnumType(new_ty))
+            return ip.get(gpa, .{ .enum_tag = .{
                 .ty = new_ty,
                 .int = val,
             } }),
+        .enum_tag => |enum_tag| if (ip.isIntegerType(new_ty))
+            return getCoercedInts(ip, gpa, ip.indexToKey(enum_tag.int).int, new_ty),
+        .enum_literal => |enum_literal| switch (ip.indexToKey(new_ty)) {
+            .enum_type => |enum_type| {
+                const index = enum_type.nameIndex(ip, enum_literal).?;
+                return ip.get(gpa, .{ .enum_tag = .{
+                    .ty = new_ty,
+                    .int = if (enum_type.values.len != 0)
+                        enum_type.values[index]
+                    else
+                        try ip.get(gpa, .{ .int = .{
+                            .ty = enum_type.tag_ty,
+                            .storage = .{ .u64 = index },
+                        } }),
+                } });
+            },
             else => {},
         },
-        .enum_tag => |enum_tag| {
-            // Assume new_ty is an integer type.
-            return getCoercedInts(ip, gpa, ip.indexToKey(enum_tag.int).int, new_ty);
-        },
-        .ptr => |ptr| switch (ip.indexToKey(new_ty)) {
-            .ptr_type => return ip.get(gpa, .{ .ptr = .{
+        .ptr => |ptr| if (ip.isPointerType(new_ty))
+            return ip.get(gpa, .{ .ptr = .{
                 .ty = new_ty,
                 .addr = ptr.addr,
+                .len = ptr.len,
             } }),
-            else => {},
-        },
-        .err => |err| switch (ip.indexToKey(new_ty)) {
-            .error_set_type, .inferred_error_set_type => return ip.get(gpa, .{ .err = .{
+        .err => |err| if (ip.isErrorSetType(new_ty))
+            return ip.get(gpa, .{ .err = .{
                 .ty = new_ty,
                 .name = err.name,
+            } })
+        else if (ip.isErrorUnionType(new_ty))
+            return ip.get(gpa, .{ .error_union = .{
+                .ty = new_ty,
+                .val = .{ .err_name = err.name },
             } }),
-            else => {},
-        },
+        .error_union => |error_union| if (ip.isErrorUnionType(new_ty))
+            return ip.get(gpa, .{ .error_union = .{
+                .ty = new_ty,
+                .val = error_union.val,
+            } }),
         else => {},
     }
     switch (ip.indexToKey(new_ty)) {
-        .opt_type => |child_ty| switch (val) {
+        .opt_type => |child_type| switch (val) {
             .null_value => return ip.get(gpa, .{ .opt = .{
                 .ty = new_ty,
                 .val = .none,
             } }),
             else => return ip.get(gpa, .{ .opt = .{
                 .ty = new_ty,
-                .val = try ip.getCoerced(gpa, val, child_ty),
+                .val = try ip.getCoerced(gpa, val, child_type),
             } }),
         },
+        .error_union_type => |error_union_type| return ip.get(gpa, .{ .error_union = .{
+            .ty = new_ty,
+            .val = .{ .payload = try ip.getCoerced(gpa, val, error_union_type.payload_type) },
+        } }),
         else => {},
     }
     if (std.debug.runtime_safety) {
@@ -4271,33 +4288,24 @@ pub fn getCoercedInts(ip: *InternPool, gpa: Allocator, int: Key.Int, new_ty: Ind
     // big_int storage, the limbs would be invalidated before they are read.
     // Here we pre-reserve the limbs to ensure that the logic in `addInt` will
     // not use an invalidated limbs pointer.
-    switch (int.storage) {
-        .u64 => |x| return ip.get(gpa, .{ .int = .{
-            .ty = new_ty,
-            .storage = .{ .u64 = x },
-        } }),
-        .i64 => |x| return ip.get(gpa, .{ .int = .{
-            .ty = new_ty,
-            .storage = .{ .i64 = x },
-        } }),
-
-        .big_int => |big_int| {
+    const new_storage: Key.Int.Storage = switch (int.storage) {
+        .u64, .i64, .lazy_align, .lazy_size => int.storage,
+        .big_int => |big_int| storage: {
             const positive = big_int.positive;
             const limbs = ip.limbsSliceToIndex(big_int.limbs);
             // This line invalidates the limbs slice, but the indexes computed in the
             // previous line are still correct.
             try reserveLimbs(ip, gpa, @typeInfo(Int).Struct.fields.len + big_int.limbs.len);
-            return ip.get(gpa, .{ .int = .{
-                .ty = new_ty,
-                .storage = .{ .big_int = .{
-                    .limbs = ip.limbsIndexToSlice(limbs),
-                    .positive = positive,
-                } },
-            } });
+            break :storage .{ .big_int = .{
+                .limbs = ip.limbsIndexToSlice(limbs),
+                .positive = positive,
+            } };
         },
-
-        .lazy_align, .lazy_size => unreachable,
-    }
+    };
+    return ip.get(gpa, .{ .int = .{
+        .ty = new_ty,
+        .storage = new_storage,
+    } });
 }
 
 pub fn indexToStructType(ip: InternPool, val: Index) Module.Struct.OptionalIndex {
@@ -4345,25 +4353,68 @@ pub fn indexToInferredErrorSetType(ip: InternPool, val: Index) Module.Fn.Inferre
     return @intToEnum(Module.Fn.InferredErrorSet.Index, datas[@enumToInt(val)]).toOptional();
 }
 
+/// includes .comptime_int_type
+pub fn isIntegerType(ip: InternPool, ty: Index) bool {
+    return switch (ty) {
+        .usize_type,
+        .isize_type,
+        .c_char_type,
+        .c_short_type,
+        .c_ushort_type,
+        .c_int_type,
+        .c_uint_type,
+        .c_long_type,
+        .c_ulong_type,
+        .c_longlong_type,
+        .c_ulonglong_type,
+        .c_longdouble_type,
+        .comptime_int_type,
+        => true,
+        else => ip.indexToKey(ty) == .int_type,
+    };
+}
+
+/// does not include .enum_literal_type
+pub fn isEnumType(ip: InternPool, ty: Index) bool {
+    return switch (ty) {
+        .atomic_order_type,
+        .atomic_rmw_op_type,
+        .calling_convention_type,
+        .address_space_type,
+        .float_mode_type,
+        .reduce_op_type,
+        .call_modifier_type,
+        => true,
+        else => ip.indexToKey(ty) == .enum_type,
+    };
+}
+
+pub fn isFunctionType(ip: InternPool, ty: Index) bool {
+    return ip.indexToKey(ty) == .func_type;
+}
+
 pub fn isPointerType(ip: InternPool, ty: Index) bool {
-    const tags = ip.items.items(.tag);
-    if (ty == .none) return false;
-    return switch (tags[@enumToInt(ty)]) {
-        .type_pointer, .type_slice => true,
+    return ip.indexToKey(ty) == .ptr_type;
+}
+
+pub fn isOptionalType(ip: InternPool, ty: Index) bool {
+    return ip.indexToKey(ty) == .opt_type;
+}
+
+/// includes .inferred_error_set_type
+pub fn isErrorSetType(ip: InternPool, ty: Index) bool {
+    return ty == .anyerror_type or switch (ip.indexToKey(ty)) {
+        .error_set_type, .inferred_error_set_type => true,
         else => false,
     };
 }
 
-pub fn isOptionalType(ip: InternPool, ty: Index) bool {
-    const tags = ip.items.items(.tag);
-    if (ty == .none) return false;
-    return tags[@enumToInt(ty)] == .type_optional;
+pub fn isInferredErrorSetType(ip: InternPool, ty: Index) bool {
+    return ip.indexToKey(ty) == .inferred_error_set_type;
 }
 
-pub fn isInferredErrorSetType(ip: InternPool, ty: Index) bool {
-    const tags = ip.items.items(.tag);
-    assert(ty != .none);
-    return tags[@enumToInt(ty)] == .type_inferred_error_set;
+pub fn isErrorUnionType(ip: InternPool, ty: Index) bool {
+    return ip.indexToKey(ty) == .error_union_type;
 }
 
 /// The is only legal because the initializer is not part of the hash.

@@ -6699,6 +6699,11 @@ pub fn intern(mod: *Module, key: InternPool.Key) Allocator.Error!InternPool.Inde
     return mod.intern_pool.get(mod.gpa, key);
 }
 
+/// Shortcut for calling `intern_pool.getCoerced`.
+pub fn getCoerced(mod: *Module, val: Value, new_ty: Type) Allocator.Error!Value {
+    return (try mod.intern_pool.getCoerced(mod.gpa, val.toIntern(), new_ty.toIntern())).toValue();
+}
+
 pub fn intType(mod: *Module, signedness: std.builtin.Signedness, bits: u16) Allocator.Error!Type {
     const i = try intern(mod, .{ .int_type = .{
         .signedness = signedness,

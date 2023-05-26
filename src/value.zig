@@ -345,7 +345,7 @@ pub const Value = struct {
     }
 
     pub fn intern(val: Value, ty: Type, mod: *Module) Allocator.Error!InternPool.Index {
-        if (val.ip_index != .none) return mod.intern_pool.getCoerced(mod.gpa, val.toIntern(), ty.toIntern());
+        if (val.ip_index != .none) return (try mod.getCoerced(val, ty)).toIntern();
         switch (val.tag()) {
             .eu_payload => {
                 const pl = val.castTag(.eu_payload).?.data;
@@ -506,11 +506,7 @@ pub const Value = struct {
                     else => unreachable,
                 };
             },
-            .enum_type => |enum_type| (try ip.getCoerced(
-                mod.gpa,
-                val.toIntern(),
-                enum_type.tag_ty,
-            )).toValue(),
+            .enum_type => |enum_type| try mod.getCoerced(val, enum_type.tag_ty.toType()),
             else => unreachable,
         };
     }
@@ -872,10 +868,15 @@ pub const Value = struct {
                 .Packed => {
                     var bits: u16 = 0;
                     const fields = ty.structFields(mod).values();
-                    const field_vals = val.castTag(.aggregate).?.data;
+                    const storage = mod.intern_pool.indexToKey(val.toIntern()).aggregate.storage;
                     for (fields, 0..) |field, i| {
                         const field_bits = @intCast(u16, field.ty.bitSize(mod));
-                        try field_vals[i].writeToPackedMemory(field.ty, mod, buffer, bit_offset + bits);
+                        const field_val = switch (storage) {
+                            .bytes => unreachable,
+                            .elems => |elems| elems[i],
+                            .repeated_elem => |elem| elem,
+                        };
+                        try field_val.toValue().writeToPackedMemory(field.ty, mod, buffer, bit_offset + bits);
                         bits += field_bits;
                     }
                 },
@@ -2007,22 +2008,29 @@ pub const Value = struct {
 
     pub fn isPtrToThreadLocal(val: Value, mod: *Module) bool {
         return val.ip_index != .none and switch (mod.intern_pool.indexToKey(val.toIntern())) {
+            .variable => false,
+            else => val.isPtrToThreadLocalInner(mod),
+        };
+    }
+
+    pub fn isPtrToThreadLocalInner(val: Value, mod: *Module) bool {
+        return val.ip_index != .none and switch (mod.intern_pool.indexToKey(val.toIntern())) {
             .variable => |variable| variable.is_threadlocal,
             .ptr => |ptr| switch (ptr.addr) {
                 .decl => |decl_index| {
                     const decl = mod.declPtr(decl_index);
                     assert(decl.has_tv);
-                    return decl.val.isPtrToThreadLocal(mod);
+                    return decl.val.isPtrToThreadLocalInner(mod);
                 },
                 .mut_decl => |mut_decl| {
                     const decl = mod.declPtr(mut_decl.decl);
                     assert(decl.has_tv);
-                    return decl.val.isPtrToThreadLocal(mod);
+                    return decl.val.isPtrToThreadLocalInner(mod);
                 },
                 .int => false,
-                .eu_payload, .opt_payload => |base_ptr| base_ptr.toValue().isPtrToThreadLocal(mod),
-                .comptime_field => |comptime_field| comptime_field.toValue().isPtrToThreadLocal(mod),
-                .elem, .field => |base_index| base_index.base.toValue().isPtrToThreadLocal(mod),
+                .eu_payload, .opt_payload => |base_ptr| base_ptr.toValue().isPtrToThreadLocalInner(mod),
+                .comptime_field => |comptime_field| comptime_field.toValue().isPtrToThreadLocalInner(mod),
+                .elem, .field => |base_index| base_index.base.toValue().isPtrToThreadLocalInner(mod),
             },
             else => false,
         };
@@ -2045,7 +2053,18 @@ pub const Value = struct {
                 else => unreachable,
             },
             .aggregate => |aggregate| (try mod.intern(.{ .aggregate = .{
-                .ty = mod.intern_pool.typeOf(val.toIntern()),
+                .ty = switch (mod.intern_pool.indexToKey(mod.intern_pool.typeOf(val.toIntern()))) {
+                    .array_type => |array_type| try mod.arrayType(.{
+                        .len = @intCast(u32, end - start),
+                        .child = array_type.child,
+                        .sentinel = if (end == array_type.len) array_type.sentinel else .none,
+                    }),
+                    .vector_type => |vector_type| try mod.vectorType(.{
+                        .len = @intCast(u32, end - start),
+                        .child = vector_type.child,
+                    }),
+                    else => unreachable,
+                }.toIntern(),
                 .storage = switch (aggregate.storage) {
                     .bytes => |bytes| .{ .bytes = bytes[start..end] },
                     .elems => |elems| .{ .elems = elems[start..end] },

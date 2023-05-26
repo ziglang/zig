@@ -23,7 +23,7 @@ pub const Type = struct {
     }
 
     pub fn zigTypeTagOrPoison(ty: Type, mod: *const Module) error{GenericPoison}!std.builtin.TypeId {
-        return switch (mod.intern_pool.indexToKey(ty.ip_index)) {
+        return switch (mod.intern_pool.indexToKey(ty.toIntern())) {
             .int_type => .Int,
             .ptr_type => .Pointer,
             .array_type => .Array,
@@ -170,7 +170,7 @@ pub const Type = struct {
 
     /// Asserts the type is a pointer.
     pub fn ptrIsMutable(ty: Type, mod: *const Module) bool {
-        return !mod.intern_pool.indexToKey(ty.ip_index).ptr_type.is_const;
+        return !mod.intern_pool.indexToKey(ty.toIntern()).ptr_type.is_const;
     }
 
     pub const ArrayInfo = struct {
@@ -199,26 +199,23 @@ pub const Type = struct {
     }
 
     pub fn ptrInfo(ty: Type, mod: *const Module) Payload.Pointer.Data {
-        return Payload.Pointer.Data.fromKey(ptrInfoIp(mod.intern_pool, ty.ip_index));
+        return Payload.Pointer.Data.fromKey(ptrInfoIp(mod.intern_pool, ty.toIntern()));
     }
 
     pub fn eql(a: Type, b: Type, mod: *const Module) bool {
         _ = mod; // TODO: remove this parameter
-        assert(a.ip_index != .none);
-        assert(b.ip_index != .none);
         // The InternPool data structure hashes based on Key to make interned objects
         // unique. An Index can be treated simply as u32 value for the
         // purpose of Type/Value hashing and equality.
-        return a.ip_index == b.ip_index;
+        return a.toIntern() == b.toIntern();
     }
 
     pub fn hash(ty: Type, mod: *const Module) u32 {
         _ = mod; // TODO: remove this parameter
-        assert(ty.ip_index != .none);
         // The InternPool data structure hashes based on Key to make interned objects
         // unique. An Index can be treated simply as u32 value for the
         // purpose of Type/Value hashing and equality.
-        return std.hash.uint32(@enumToInt(ty.ip_index));
+        return std.hash.uint32(@enumToInt(ty.toIntern()));
     }
 
     pub fn format(ty: Type, comptime unused_fmt_string: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
@@ -280,7 +277,7 @@ pub const Type = struct {
 
     /// Prints a name suitable for `@typeName`.
     pub fn print(ty: Type, writer: anytype, mod: *Module) @TypeOf(writer).Error!void {
-        switch (mod.intern_pool.indexToKey(ty.ip_index)) {
+        switch (mod.intern_pool.indexToKey(ty.toIntern())) {
             .int_type => |int_type| {
                 const sign_char: u8 = switch (int_type.signedness) {
                     .signed => 'i',
@@ -520,10 +517,10 @@ pub const Type = struct {
         ignore_comptime_only: bool,
         strat: AbiAlignmentAdvancedStrat,
     ) RuntimeBitsError!bool {
-        return switch (ty.ip_index) {
+        return switch (ty.toIntern()) {
             // False because it is a comptime-only type.
             .empty_struct_type => false,
-            else => switch (mod.intern_pool.indexToKey(ty.ip_index)) {
+            else => switch (mod.intern_pool.indexToKey(ty.toIntern())) {
                 .int_type => |int_type| int_type.bits != 0,
                 .ptr_type => |ptr_type| {
                     // Pointers to zero-bit types still have a runtime address; however, pointers
@@ -710,7 +707,7 @@ pub const Type = struct {
     /// readFrom/writeToMemory are supported only for types with a well-
     /// defined memory layout
     pub fn hasWellDefinedLayout(ty: Type, mod: *Module) bool {
-        return switch (mod.intern_pool.indexToKey(ty.ip_index)) {
+        return switch (mod.intern_pool.indexToKey(ty.toIntern())) {
             .int_type,
             .ptr_type,
             .vector_type,
@@ -847,7 +844,7 @@ pub const Type = struct {
     }
 
     pub fn isNoReturn(ty: Type, mod: *Module) bool {
-        return if (ty.ip_index != .none) mod.intern_pool.isNoReturn(ty.ip_index) else false;
+        return mod.intern_pool.isNoReturn(ty.toIntern());
     }
 
     /// Returns 0 if the pointer is naturally aligned and the element type is 0-bit.
@@ -856,7 +853,7 @@ pub const Type = struct {
     }
 
     pub fn ptrAlignmentAdvanced(ty: Type, mod: *Module, opt_sema: ?*Sema) !u32 {
-        return switch (mod.intern_pool.indexToKey(ty.ip_index)) {
+        return switch (mod.intern_pool.indexToKey(ty.toIntern())) {
             .ptr_type => |ptr_type| {
                 if (ptr_type.alignment.toByteUnitsOptional()) |a| {
                     return @intCast(u32, a);
@@ -873,7 +870,7 @@ pub const Type = struct {
     }
 
     pub fn ptrAddressSpace(ty: Type, mod: *const Module) std.builtin.AddressSpace {
-        return switch (mod.intern_pool.indexToKey(ty.ip_index)) {
+        return switch (mod.intern_pool.indexToKey(ty.toIntern())) {
             .ptr_type => |ptr_type| ptr_type.address_space,
             .opt_type => |child| mod.intern_pool.indexToKey(child).ptr_type.address_space,
             else => unreachable,
@@ -923,9 +920,9 @@ pub const Type = struct {
             else => null,
         };
 
-        switch (ty.ip_index) {
+        switch (ty.toIntern()) {
             .empty_struct_type => return AbiAlignmentAdvanced{ .scalar = 0 },
-            else => switch (mod.intern_pool.indexToKey(ty.ip_index)) {
+            else => switch (mod.intern_pool.indexToKey(ty.toIntern())) {
                 .int_type => |int_type| {
                     if (int_type.bits == 0) return AbiAlignmentAdvanced{ .scalar = 0 };
                     return AbiAlignmentAdvanced{ .scalar = intAbiAlignment(int_type.bits, target) };
@@ -1040,7 +1037,7 @@ pub const Type = struct {
                         .sema => unreachable, // handled above
                         .lazy => return .{ .val = (try mod.intern(.{ .int = .{
                             .ty = .comptime_int_type,
-                            .storage = .{ .lazy_align = ty.ip_index },
+                            .storage = .{ .lazy_align = ty.toIntern() },
                         } })).toValue() },
                     };
                     if (struct_obj.layout == .Packed) {
@@ -1048,7 +1045,7 @@ pub const Type = struct {
                             .sema => |sema| try sema.resolveTypeLayout(ty),
                             .lazy => if (!struct_obj.haveLayout()) return .{ .val = (try mod.intern(.{ .int = .{
                                 .ty = .comptime_int_type,
-                                .storage = .{ .lazy_align = ty.ip_index },
+                                .storage = .{ .lazy_align = ty.toIntern() },
                             } })).toValue() },
                             .eager => {},
                         }
@@ -1062,7 +1059,7 @@ pub const Type = struct {
                         if (!(field.ty.hasRuntimeBitsAdvanced(mod, false, strat) catch |err| switch (err) {
                             error.NeedLazy => return .{ .val = (try mod.intern(.{ .int = .{
                                 .ty = .comptime_int_type,
-                                .storage = .{ .lazy_align = ty.ip_index },
+                                .storage = .{ .lazy_align = ty.toIntern() },
                             } })).toValue() },
                             else => |e| return e,
                         })) continue;
@@ -1076,7 +1073,7 @@ pub const Type = struct {
                                 .sema => unreachable, // handled above
                                 .lazy => return .{ .val = (try mod.intern(.{ .int = .{
                                     .ty = .comptime_int_type,
-                                    .storage = .{ .lazy_align = ty.ip_index },
+                                    .storage = .{ .lazy_align = ty.toIntern() },
                                 } })).toValue() },
                             },
                         };
@@ -1106,7 +1103,7 @@ pub const Type = struct {
                                 .sema => unreachable, // passed to abiAlignmentAdvanced above
                                 .lazy => return .{ .val = (try mod.intern(.{ .int = .{
                                     .ty = .comptime_int_type,
-                                    .storage = .{ .lazy_align = ty.ip_index },
+                                    .storage = .{ .lazy_align = ty.toIntern() },
                                 } })).toValue() },
                             },
                         }
@@ -1157,7 +1154,7 @@ pub const Type = struct {
                 if (!(payload_ty.hasRuntimeBitsAdvanced(mod, false, strat) catch |err| switch (err) {
                     error.NeedLazy => return .{ .val = (try mod.intern(.{ .int = .{
                         .ty = .comptime_int_type,
-                        .storage = .{ .lazy_align = ty.ip_index },
+                        .storage = .{ .lazy_align = ty.toIntern() },
                     } })).toValue() },
                     else => |e| return e,
                 })) {
@@ -1179,7 +1176,7 @@ pub const Type = struct {
                 }
                 return .{ .val = (try mod.intern(.{ .int = .{
                     .ty = .comptime_int_type,
-                    .storage = .{ .lazy_align = ty.ip_index },
+                    .storage = .{ .lazy_align = ty.toIntern() },
                 } })).toValue() };
             },
         }
@@ -1205,7 +1202,7 @@ pub const Type = struct {
                 if (!(child_type.hasRuntimeBitsAdvanced(mod, false, strat) catch |err| switch (err) {
                     error.NeedLazy => return .{ .val = (try mod.intern(.{ .int = .{
                         .ty = .comptime_int_type,
-                        .storage = .{ .lazy_align = ty.ip_index },
+                        .storage = .{ .lazy_align = ty.toIntern() },
                     } })).toValue() },
                     else => |e| return e,
                 })) {
@@ -1217,7 +1214,7 @@ pub const Type = struct {
                 .scalar => |x| return AbiAlignmentAdvanced{ .scalar = @max(x, 1) },
                 .val => return .{ .val = (try mod.intern(.{ .int = .{
                     .ty = .comptime_int_type,
-                    .storage = .{ .lazy_align = ty.ip_index },
+                    .storage = .{ .lazy_align = ty.toIntern() },
                 } })).toValue() },
             },
         }
@@ -1249,7 +1246,7 @@ pub const Type = struct {
             .sema => unreachable, // handled above
             .lazy => return .{ .val = (try mod.intern(.{ .int = .{
                 .ty = .comptime_int_type,
-                .storage = .{ .lazy_align = ty.ip_index },
+                .storage = .{ .lazy_align = ty.toIntern() },
             } })).toValue() },
         };
         if (union_obj.fields.count() == 0) {
@@ -1266,7 +1263,7 @@ pub const Type = struct {
             if (!(field.ty.hasRuntimeBitsAdvanced(mod, false, strat) catch |err| switch (err) {
                 error.NeedLazy => return .{ .val = (try mod.intern(.{ .int = .{
                     .ty = .comptime_int_type,
-                    .storage = .{ .lazy_align = ty.ip_index },
+                    .storage = .{ .lazy_align = ty.toIntern() },
                 } })).toValue() },
                 else => |e| return e,
             })) continue;
@@ -1280,7 +1277,7 @@ pub const Type = struct {
                     .sema => unreachable, // handled above
                     .lazy => return .{ .val = (try mod.intern(.{ .int = .{
                         .ty = .comptime_int_type,
-                        .storage = .{ .lazy_align = ty.ip_index },
+                        .storage = .{ .lazy_align = ty.toIntern() },
                     } })).toValue() },
                 },
             };
@@ -1321,10 +1318,10 @@ pub const Type = struct {
     ) Module.CompileError!AbiSizeAdvanced {
         const target = mod.getTarget();
 
-        switch (ty.ip_index) {
+        switch (ty.toIntern()) {
             .empty_struct_type => return AbiSizeAdvanced{ .scalar = 0 },
 
-            else => switch (mod.intern_pool.indexToKey(ty.ip_index)) {
+            else => switch (mod.intern_pool.indexToKey(ty.toIntern())) {
                 .int_type => |int_type| {
                     if (int_type.bits == 0) return AbiSizeAdvanced{ .scalar = 0 };
                     return AbiSizeAdvanced{ .scalar = intAbiSize(int_type.bits, target) };
@@ -1343,7 +1340,7 @@ pub const Type = struct {
                             .sema, .eager => unreachable,
                             .lazy => return .{ .val = (try mod.intern(.{ .int = .{
                                 .ty = .comptime_int_type,
-                                .storage = .{ .lazy_size = ty.ip_index },
+                                .storage = .{ .lazy_size = ty.toIntern() },
                             } })).toValue() },
                         },
                     }
@@ -1354,7 +1351,7 @@ pub const Type = struct {
                         .eager => null,
                         .lazy => return .{ .val = (try mod.intern(.{ .int = .{
                             .ty = .comptime_int_type,
-                            .storage = .{ .lazy_size = ty.ip_index },
+                            .storage = .{ .lazy_size = ty.toIntern() },
                         } })).toValue() },
                     };
                     const elem_bits_u64 = try vector_type.child.toType().bitSizeAdvanced(mod, opt_sema);
@@ -1365,7 +1362,7 @@ pub const Type = struct {
                         .scalar => |x| x,
                         .val => return .{ .val = (try mod.intern(.{ .int = .{
                             .ty = .comptime_int_type,
-                            .storage = .{ .lazy_size = ty.ip_index },
+                            .storage = .{ .lazy_size = ty.toIntern() },
                         } })).toValue() },
                     };
                     const result = std.mem.alignForwardGeneric(u32, total_bytes, alignment);
@@ -1385,7 +1382,7 @@ pub const Type = struct {
                     if (!(payload_ty.hasRuntimeBitsAdvanced(mod, false, strat) catch |err| switch (err) {
                         error.NeedLazy => return .{ .val = (try mod.intern(.{ .int = .{
                             .ty = .comptime_int_type,
-                            .storage = .{ .lazy_size = ty.ip_index },
+                            .storage = .{ .lazy_size = ty.toIntern() },
                         } })).toValue() },
                         else => |e| return e,
                     })) {
@@ -1401,7 +1398,7 @@ pub const Type = struct {
                             .eager => unreachable,
                             .lazy => return .{ .val = (try mod.intern(.{ .int = .{
                                 .ty = .comptime_int_type,
-                                .storage = .{ .lazy_size = ty.ip_index },
+                                .storage = .{ .lazy_size = ty.toIntern() },
                             } })).toValue() },
                         },
                     };
@@ -1489,7 +1486,7 @@ pub const Type = struct {
                             .sema => |sema| try sema.resolveTypeLayout(ty),
                             .lazy => if (!struct_obj.haveLayout()) return .{ .val = (try mod.intern(.{ .int = .{
                                 .ty = .comptime_int_type,
-                                .storage = .{ .lazy_size = ty.ip_index },
+                                .storage = .{ .lazy_size = ty.toIntern() },
                             } })).toValue() },
                             .eager => {},
                         }
@@ -1504,7 +1501,7 @@ pub const Type = struct {
                                     return AbiSizeAdvanced{ .scalar = 0 };
                                 if (!struct_obj.haveLayout()) return .{ .val = (try mod.intern(.{ .int = .{
                                     .ty = .comptime_int_type,
-                                    .storage = .{ .lazy_size = ty.ip_index },
+                                    .storage = .{ .lazy_size = ty.toIntern() },
                                 } })).toValue() };
                             },
                             .eager => {},
@@ -1568,7 +1565,7 @@ pub const Type = struct {
             .sema => |sema| try sema.resolveTypeLayout(ty),
             .lazy => if (!union_obj.haveLayout()) return .{ .val = (try mod.intern(.{ .int = .{
                 .ty = .comptime_int_type,
-                .storage = .{ .lazy_size = ty.ip_index },
+                .storage = .{ .lazy_size = ty.toIntern() },
             } })).toValue() },
             .eager => {},
         }
@@ -1589,7 +1586,7 @@ pub const Type = struct {
         if (!(child_ty.hasRuntimeBitsAdvanced(mod, false, strat) catch |err| switch (err) {
             error.NeedLazy => return .{ .val = (try mod.intern(.{ .int = .{
                 .ty = .comptime_int_type,
-                .storage = .{ .lazy_size = ty.ip_index },
+                .storage = .{ .lazy_size = ty.toIntern() },
             } })).toValue() },
             else => |e| return e,
         })) return AbiSizeAdvanced{ .scalar = 1 };
@@ -1605,7 +1602,7 @@ pub const Type = struct {
                 .eager => unreachable,
                 .lazy => return .{ .val = (try mod.intern(.{ .int = .{
                     .ty = .comptime_int_type,
-                    .storage = .{ .lazy_size = ty.ip_index },
+                    .storage = .{ .lazy_size = ty.toIntern() },
                 } })).toValue() },
             },
         };
@@ -1647,7 +1644,7 @@ pub const Type = struct {
 
         const strat: AbiAlignmentAdvancedStrat = if (opt_sema) |sema| .{ .sema = sema } else .eager;
 
-        switch (mod.intern_pool.indexToKey(ty.ip_index)) {
+        switch (mod.intern_pool.indexToKey(ty.toIntern())) {
             .int_type => |int_type| return int_type.bits,
             .ptr_type => |ptr_type| switch (ptr_type.size) {
                 .Slice => return target.ptrBitWidth() * 2,
@@ -1820,7 +1817,7 @@ pub const Type = struct {
     }
 
     pub fn isSinglePointer(ty: Type, mod: *const Module) bool {
-        return switch (mod.intern_pool.indexToKey(ty.ip_index)) {
+        return switch (mod.intern_pool.indexToKey(ty.toIntern())) {
             .ptr_type => |ptr_info| ptr_info.size == .One,
             else => false,
         };
@@ -1833,33 +1830,27 @@ pub const Type = struct {
 
     /// Returns `null` if `ty` is not a pointer.
     pub fn ptrSizeOrNull(ty: Type, mod: *const Module) ?std.builtin.Type.Pointer.Size {
-        return switch (mod.intern_pool.indexToKey(ty.ip_index)) {
+        return switch (mod.intern_pool.indexToKey(ty.toIntern())) {
             .ptr_type => |ptr_info| ptr_info.size,
             else => null,
         };
     }
 
     pub fn isSlice(ty: Type, mod: *const Module) bool {
-        return switch (ty.ip_index) {
-            .none => false,
-            else => switch (mod.intern_pool.indexToKey(ty.ip_index)) {
-                .ptr_type => |ptr_type| ptr_type.size == .Slice,
-                else => false,
-            },
+        return switch (mod.intern_pool.indexToKey(ty.toIntern())) {
+            .ptr_type => |ptr_type| ptr_type.size == .Slice,
+            else => false,
         };
     }
 
     pub fn slicePtrFieldType(ty: Type, mod: *const Module) Type {
-        return mod.intern_pool.slicePtrType(ty.ip_index).toType();
+        return mod.intern_pool.slicePtrType(ty.toIntern()).toType();
     }
 
     pub fn isConstPtr(ty: Type, mod: *const Module) bool {
-        return switch (ty.ip_index) {
-            .none => false,
-            else => return switch (mod.intern_pool.indexToKey(ty.ip_index)) {
-                .ptr_type => |ptr_type| ptr_type.is_const,
-                else => false,
-            },
+        return switch (mod.intern_pool.indexToKey(ty.toIntern())) {
+            .ptr_type => |ptr_type| ptr_type.is_const,
+            else => false,
         };
     }
 
@@ -1868,53 +1859,41 @@ pub const Type = struct {
     }
 
     pub fn isVolatilePtrIp(ty: Type, ip: InternPool) bool {
-        return switch (ty.ip_index) {
-            .none => false,
-            else => switch (ip.indexToKey(ty.ip_index)) {
-                .ptr_type => |ptr_type| ptr_type.is_volatile,
-                else => false,
-            },
+        return switch (ip.indexToKey(ty.toIntern())) {
+            .ptr_type => |ptr_type| ptr_type.is_volatile,
+            else => false,
         };
     }
 
     pub fn isAllowzeroPtr(ty: Type, mod: *const Module) bool {
-        return switch (ty.ip_index) {
-            .none => false,
-            else => switch (mod.intern_pool.indexToKey(ty.ip_index)) {
-                .ptr_type => |ptr_type| ptr_type.is_allowzero,
-                .opt_type => true,
-                else => false,
-            },
+        return switch (mod.intern_pool.indexToKey(ty.toIntern())) {
+            .ptr_type => |ptr_type| ptr_type.is_allowzero,
+            .opt_type => true,
+            else => false,
         };
     }
 
     pub fn isCPtr(ty: Type, mod: *const Module) bool {
-        return switch (ty.ip_index) {
-            .none => false,
-            else => switch (mod.intern_pool.indexToKey(ty.ip_index)) {
-                .ptr_type => |ptr_type| ptr_type.size == .C,
-                else => false,
-            },
+        return switch (mod.intern_pool.indexToKey(ty.toIntern())) {
+            .ptr_type => |ptr_type| ptr_type.size == .C,
+            else => false,
         };
     }
 
     pub fn isPtrAtRuntime(ty: Type, mod: *const Module) bool {
-        return switch (ty.ip_index) {
-            .none => false,
-            else => switch (mod.intern_pool.indexToKey(ty.ip_index)) {
-                .ptr_type => |ptr_type| switch (ptr_type.size) {
-                    .Slice => false,
-                    .One, .Many, .C => true,
-                },
-                .opt_type => |child| switch (mod.intern_pool.indexToKey(child)) {
-                    .ptr_type => |p| switch (p.size) {
-                        .Slice, .C => false,
-                        .Many, .One => !p.is_allowzero,
-                    },
-                    else => false,
+        return switch (mod.intern_pool.indexToKey(ty.toIntern())) {
+            .ptr_type => |ptr_type| switch (ptr_type.size) {
+                .Slice => false,
+                .One, .Many, .C => true,
+            },
+            .opt_type => |child| switch (mod.intern_pool.indexToKey(child)) {
+                .ptr_type => |p| switch (p.size) {
+                    .Slice, .C => false,
+                    .Many, .One => !p.is_allowzero,
                 },
                 else => false,
             },
+            else => false,
         };
     }
 
@@ -1929,22 +1908,19 @@ pub const Type = struct {
 
     /// See also `isPtrLikeOptional`.
     pub fn optionalReprIsPayload(ty: Type, mod: *const Module) bool {
-        return switch (ty.ip_index) {
-            .none => false,
-            else => switch (mod.intern_pool.indexToKey(ty.ip_index)) {
-                .opt_type => |child| switch (child.toType().zigTypeTag(mod)) {
-                    .Pointer => {
-                        const info = child.toType().ptrInfo(mod);
-                        return switch (info.size) {
-                            .C => false,
-                            else => !info.@"allowzero",
-                        };
-                    },
-                    .ErrorSet => true,
-                    else => false,
+        return switch (mod.intern_pool.indexToKey(ty.toIntern())) {
+            .opt_type => |child| switch (child.toType().zigTypeTag(mod)) {
+                .Pointer => {
+                    const info = child.toType().ptrInfo(mod);
+                    return switch (info.size) {
+                        .C => false,
+                        else => !info.@"allowzero",
+                    };
                 },
+                .ErrorSet => true,
                 else => false,
             },
+            else => false,
         };
     }
 
@@ -1952,19 +1928,16 @@ pub const Type = struct {
     /// address value, using 0 for null. Note that this returns true for C pointers.
     /// This function must be kept in sync with `Sema.typePtrOrOptionalPtrTy`.
     pub fn isPtrLikeOptional(ty: Type, mod: *const Module) bool {
-        return switch (ty.ip_index) {
-            .none => false,
-            else => switch (mod.intern_pool.indexToKey(ty.ip_index)) {
-                .ptr_type => |ptr_type| ptr_type.size == .C,
-                .opt_type => |child| switch (mod.intern_pool.indexToKey(child)) {
-                    .ptr_type => |ptr_type| switch (ptr_type.size) {
-                        .Slice, .C => false,
-                        .Many, .One => !ptr_type.is_allowzero,
-                    },
-                    else => false,
+        return switch (mod.intern_pool.indexToKey(ty.toIntern())) {
+            .ptr_type => |ptr_type| ptr_type.size == .C,
+            .opt_type => |child| switch (mod.intern_pool.indexToKey(child)) {
+                .ptr_type => |ptr_type| switch (ptr_type.size) {
+                    .Slice, .C => false,
+                    .Many, .One => !ptr_type.is_allowzero,
                 },
                 else => false,
             },
+            else => false,
         };
     }
 
@@ -1976,7 +1949,7 @@ pub const Type = struct {
     }
 
     pub fn childTypeIp(ty: Type, ip: InternPool) Type {
-        return ip.childType(ty.ip_index).toType();
+        return ip.childType(ty.toIntern()).toType();
     }
 
     /// For *[N]T,       returns T.
@@ -1989,7 +1962,7 @@ pub const Type = struct {
     /// For []T,         returns T.
     /// For anyframe->T, returns T.
     pub fn elemType2(ty: Type, mod: *const Module) Type {
-        return switch (mod.intern_pool.indexToKey(ty.ip_index)) {
+        return switch (mod.intern_pool.indexToKey(ty.toIntern())) {
             .ptr_type => |ptr_type| switch (ptr_type.size) {
                 .One => ptr_type.elem_type.toType().shallowElemType(mod),
                 .Many, .C, .Slice => ptr_type.elem_type.toType(),
@@ -2023,7 +1996,7 @@ pub const Type = struct {
     /// Asserts that the type is an optional.
     /// Note that for C pointers this returns the type unmodified.
     pub fn optionalChild(ty: Type, mod: *const Module) Type {
-        return switch (mod.intern_pool.indexToKey(ty.ip_index)) {
+        return switch (mod.intern_pool.indexToKey(ty.toIntern())) {
             .opt_type => |child| child.toType(),
             .ptr_type => |ptr_type| b: {
                 assert(ptr_type.size == .C);
@@ -2036,7 +2009,7 @@ pub const Type = struct {
     /// Returns the tag type of a union, if the type is a union and it has a tag type.
     /// Otherwise, returns `null`.
     pub fn unionTagType(ty: Type, mod: *Module) ?Type {
-        return switch (mod.intern_pool.indexToKey(ty.ip_index)) {
+        return switch (mod.intern_pool.indexToKey(ty.toIntern())) {
             .union_type => |union_type| switch (union_type.runtime_tag) {
                 .tagged => {
                     const union_obj = mod.unionPtr(union_type.index);
@@ -2052,7 +2025,7 @@ pub const Type = struct {
     /// Same as `unionTagType` but includes safety tag.
     /// Codegen should use this version.
     pub fn unionTagTypeSafety(ty: Type, mod: *Module) ?Type {
-        return switch (mod.intern_pool.indexToKey(ty.ip_index)) {
+        return switch (mod.intern_pool.indexToKey(ty.toIntern())) {
             .union_type => |union_type| {
                 if (!union_type.hasTag()) return null;
                 const union_obj = mod.unionPtr(union_type.index);
@@ -2097,13 +2070,13 @@ pub const Type = struct {
     }
 
     pub fn unionGetLayout(ty: Type, mod: *Module) Module.Union.Layout {
-        const union_type = mod.intern_pool.indexToKey(ty.ip_index).union_type;
+        const union_type = mod.intern_pool.indexToKey(ty.toIntern()).union_type;
         const union_obj = mod.unionPtr(union_type.index);
         return union_obj.getLayout(mod, union_type.hasTag());
     }
 
     pub fn containerLayout(ty: Type, mod: *Module) std.builtin.Type.ContainerLayout {
-        return switch (mod.intern_pool.indexToKey(ty.ip_index)) {
+        return switch (mod.intern_pool.indexToKey(ty.toIntern())) {
             .struct_type => |struct_type| {
                 const struct_obj = mod.structPtrUnwrap(struct_type.index) orelse return .Auto;
                 return struct_obj.layout;
@@ -2119,19 +2092,19 @@ pub const Type = struct {
 
     /// Asserts that the type is an error union.
     pub fn errorUnionPayload(ty: Type, mod: *Module) Type {
-        return mod.intern_pool.indexToKey(ty.ip_index).error_union_type.payload_type.toType();
+        return mod.intern_pool.indexToKey(ty.toIntern()).error_union_type.payload_type.toType();
     }
 
     /// Asserts that the type is an error union.
     pub fn errorUnionSet(ty: Type, mod: *Module) Type {
-        return mod.intern_pool.indexToKey(ty.ip_index).error_union_type.error_set_type.toType();
+        return mod.intern_pool.indexToKey(ty.toIntern()).error_union_type.error_set_type.toType();
     }
 
     /// Returns false for unresolved inferred error sets.
     pub fn errorSetIsEmpty(ty: Type, mod: *Module) bool {
-        return switch (ty.ip_index) {
+        return switch (ty.toIntern()) {
             .anyerror_type => false,
-            else => switch (mod.intern_pool.indexToKey(ty.ip_index)) {
+            else => switch (mod.intern_pool.indexToKey(ty.toIntern())) {
                 .error_set_type => |error_set_type| error_set_type.names.len == 0,
                 .inferred_error_set_type => |index| {
                     const inferred_error_set = mod.inferredErrorSetPtr(index);
@@ -2149,9 +2122,9 @@ pub const Type = struct {
     /// Note that the result may be a false negative if the type did not get error set
     /// resolution prior to this call.
     pub fn isAnyError(ty: Type, mod: *Module) bool {
-        return switch (ty.ip_index) {
+        return switch (ty.toIntern()) {
             .anyerror_type => true,
-            else => switch (mod.intern_pool.indexToKey(ty.ip_index)) {
+            else => switch (mod.intern_pool.indexToKey(ty.toIntern())) {
                 .inferred_error_set_type => |i| mod.inferredErrorSetPtr(i).is_anyerror,
                 else => false,
             },
@@ -2194,9 +2167,9 @@ pub const Type = struct {
     /// resolved yet.
     pub fn errorSetHasField(ty: Type, name: []const u8, mod: *Module) bool {
         const ip = &mod.intern_pool;
-        return switch (ty.ip_index) {
+        return switch (ty.toIntern()) {
             .anyerror_type => true,
-            else => switch (ip.indexToKey(ty.ip_index)) {
+            else => switch (ip.indexToKey(ty.toIntern())) {
                 .error_set_type => |error_set_type| {
                     // If the string is not interned, then the field certainly is not present.
                     const field_name_interned = ip.getString(name).unwrap() orelse return false;
@@ -2220,7 +2193,7 @@ pub const Type = struct {
     }
 
     pub fn arrayLenIp(ty: Type, ip: InternPool) u64 {
-        return switch (ip.indexToKey(ty.ip_index)) {
+        return switch (ip.indexToKey(ty.toIntern())) {
             .vector_type => |vector_type| vector_type.len,
             .array_type => |array_type| array_type.len,
             .struct_type => |struct_type| {
@@ -2238,7 +2211,7 @@ pub const Type = struct {
     }
 
     pub fn vectorLen(ty: Type, mod: *const Module) u32 {
-        return switch (mod.intern_pool.indexToKey(ty.ip_index)) {
+        return switch (mod.intern_pool.indexToKey(ty.toIntern())) {
             .vector_type => |vector_type| vector_type.len,
             .anon_struct_type => |tuple| @intCast(u32, tuple.types.len),
             else => unreachable,
@@ -2247,7 +2220,7 @@ pub const Type = struct {
 
     /// Asserts the type is an array, pointer or vector.
     pub fn sentinel(ty: Type, mod: *const Module) ?Value {
-        return switch (mod.intern_pool.indexToKey(ty.ip_index)) {
+        return switch (mod.intern_pool.indexToKey(ty.toIntern())) {
             .vector_type,
             .struct_type,
             .anon_struct_type,
@@ -2267,10 +2240,9 @@ pub const Type = struct {
 
     /// Returns true if and only if the type is a fixed-width, signed integer.
     pub fn isSignedInt(ty: Type, mod: *const Module) bool {
-        return switch (ty.ip_index) {
+        return switch (ty.toIntern()) {
             .c_char_type, .isize_type, .c_short_type, .c_int_type, .c_long_type, .c_longlong_type => true,
-            .none => false,
-            else => switch (mod.intern_pool.indexToKey(ty.ip_index)) {
+            else => switch (mod.intern_pool.indexToKey(ty.toIntern())) {
                 .int_type => |int_type| int_type.signedness == .signed,
                 else => false,
             },
@@ -2279,10 +2251,9 @@ pub const Type = struct {
 
     /// Returns true if and only if the type is a fixed-width, unsigned integer.
     pub fn isUnsignedInt(ty: Type, mod: *const Module) bool {
-        return switch (ty.ip_index) {
+        return switch (ty.toIntern()) {
             .usize_type, .c_ushort_type, .c_uint_type, .c_ulong_type, .c_ulonglong_type => true,
-            .none => false,
-            else => switch (mod.intern_pool.indexToKey(ty.ip_index)) {
+            else => switch (mod.intern_pool.indexToKey(ty.toIntern())) {
                 .int_type => |int_type| int_type.signedness == .unsigned,
                 else => false,
             },
@@ -2304,7 +2275,7 @@ pub const Type = struct {
         const target = mod.getTarget();
         var ty = starting_ty;
 
-        while (true) switch (ty.ip_index) {
+        while (true) switch (ty.toIntern()) {
             .anyerror_type => {
                 // TODO revisit this when error sets support custom int types
                 return .{ .signedness = .unsigned, .bits = 16 };
@@ -2320,7 +2291,7 @@ pub const Type = struct {
             .c_ulong_type => return .{ .signedness = .unsigned, .bits = target.c_type_bit_size(.ulong) },
             .c_longlong_type => return .{ .signedness = .signed, .bits = target.c_type_bit_size(.longlong) },
             .c_ulonglong_type => return .{ .signedness = .unsigned, .bits = target.c_type_bit_size(.ulonglong) },
-            else => switch (mod.intern_pool.indexToKey(ty.ip_index)) {
+            else => switch (mod.intern_pool.indexToKey(ty.toIntern())) {
                 .int_type => |int_type| return int_type,
                 .struct_type => |struct_type| {
                     const struct_obj = mod.structPtrUnwrap(struct_type.index).?;
@@ -2370,7 +2341,7 @@ pub const Type = struct {
     }
 
     pub fn isNamedInt(ty: Type) bool {
-        return switch (ty.ip_index) {
+        return switch (ty.toIntern()) {
             .usize_type,
             .isize_type,
             .c_char_type,
@@ -2390,7 +2361,7 @@ pub const Type = struct {
 
     /// Returns `false` for `comptime_float`.
     pub fn isRuntimeFloat(ty: Type) bool {
-        return switch (ty.ip_index) {
+        return switch (ty.toIntern()) {
             .f16_type,
             .f32_type,
             .f64_type,
@@ -2405,7 +2376,7 @@ pub const Type = struct {
 
     /// Returns `true` for `comptime_float`.
     pub fn isAnyFloat(ty: Type) bool {
-        return switch (ty.ip_index) {
+        return switch (ty.toIntern()) {
             .f16_type,
             .f32_type,
             .f64_type,
@@ -2422,7 +2393,7 @@ pub const Type = struct {
     /// Asserts the type is a fixed-size float or comptime_float.
     /// Returns 128 for comptime_float types.
     pub fn floatBits(ty: Type, target: Target) u16 {
-        return switch (ty.ip_index) {
+        return switch (ty.toIntern()) {
             .f16_type => 16,
             .f32_type => 32,
             .f64_type => 64,
@@ -2440,7 +2411,7 @@ pub const Type = struct {
     }
 
     pub fn fnReturnTypeIp(ty: Type, ip: InternPool) Type {
-        return switch (ip.indexToKey(ty.ip_index)) {
+        return switch (ip.indexToKey(ty.toIntern())) {
             .ptr_type => |ptr_type| ip.indexToKey(ptr_type.elem_type).func_type.return_type,
             .func_type => |func_type| func_type.return_type,
             else => unreachable,
@@ -2449,7 +2420,7 @@ pub const Type = struct {
 
     /// Asserts the type is a function.
     pub fn fnCallingConvention(ty: Type, mod: *Module) std.builtin.CallingConvention {
-        return mod.intern_pool.indexToKey(ty.ip_index).func_type.cc;
+        return mod.intern_pool.indexToKey(ty.toIntern()).func_type.cc;
     }
 
     pub fn isValidParamType(self: Type, mod: *const Module) bool {
@@ -2468,11 +2439,11 @@ pub const Type = struct {
 
     /// Asserts the type is a function.
     pub fn fnIsVarArgs(ty: Type, mod: *Module) bool {
-        return mod.intern_pool.indexToKey(ty.ip_index).func_type.is_var_args;
+        return mod.intern_pool.indexToKey(ty.toIntern()).func_type.is_var_args;
     }
 
     pub fn isNumeric(ty: Type, mod: *const Module) bool {
-        return switch (ty.ip_index) {
+        return switch (ty.toIntern()) {
             .f16_type,
             .f32_type,
             .f64_type,
@@ -2494,9 +2465,7 @@ pub const Type = struct {
             .c_ulonglong_type,
             => true,
 
-            .none => false,
-
-            else => switch (mod.intern_pool.indexToKey(ty.ip_index)) {
+            else => switch (mod.intern_pool.indexToKey(ty.toIntern())) {
                 .int_type => true,
                 else => false,
             },
@@ -2508,10 +2477,10 @@ pub const Type = struct {
     pub fn onePossibleValue(starting_type: Type, mod: *Module) !?Value {
         var ty = starting_type;
 
-        while (true) switch (ty.ip_index) {
+        while (true) switch (ty.toIntern()) {
             .empty_struct_type => return Value.empty_struct,
 
-            else => switch (mod.intern_pool.indexToKey(ty.ip_index)) {
+            else => switch (mod.intern_pool.indexToKey(ty.toIntern())) {
                 .int_type => |int_type| {
                     if (int_type.bits == 0) {
                         return try mod.intValue(ty, 0);
@@ -2530,13 +2499,13 @@ pub const Type = struct {
 
                 inline .array_type, .vector_type => |seq_type| {
                     if (seq_type.len == 0) return (try mod.intern(.{ .aggregate = .{
-                        .ty = ty.ip_index,
+                        .ty = ty.toIntern(),
                         .storage = .{ .elems = &.{} },
                     } })).toValue();
                     if (try seq_type.child.toType().onePossibleValue(mod)) |opv| {
                         return (try mod.intern(.{ .aggregate = .{
-                            .ty = ty.ip_index,
-                            .storage = .{ .repeated_elem = opv.ip_index },
+                            .ty = ty.toIntern(),
+                            .storage = .{ .repeated_elem = opv.toIntern() },
                         } })).toValue();
                     }
                     return null;
@@ -2612,7 +2581,7 @@ pub const Type = struct {
                     // This TODO is repeated in the redundant implementation of
                     // one-possible-value logic in Sema.zig.
                     const empty = try mod.intern(.{ .aggregate = .{
-                        .ty = ty.ip_index,
+                        .ty = ty.toIntern(),
                         .storage = .{ .elems = &.{} },
                     } });
                     return empty.toValue();
@@ -2625,7 +2594,7 @@ pub const Type = struct {
                     // In this case the struct has all comptime-known fields and
                     // therefore has one possible value.
                     return (try mod.intern(.{ .aggregate = .{
-                        .ty = ty.ip_index,
+                        .ty = ty.toIntern(),
                         .storage = .{ .elems = tuple.values },
                     } })).toValue();
                 },
@@ -2637,9 +2606,9 @@ pub const Type = struct {
                     const only_field = union_obj.fields.values()[0];
                     const val_val = (try only_field.ty.onePossibleValue(mod)) orelse return null;
                     const only = try mod.intern(.{ .un = .{
-                        .ty = ty.ip_index,
-                        .tag = tag_val.ip_index,
-                        .val = val_val.ip_index,
+                        .ty = ty.toIntern(),
+                        .tag = tag_val.toIntern(),
+                        .val = val_val.toIntern(),
                     } });
                     return only.toValue();
                 },
@@ -2650,8 +2619,8 @@ pub const Type = struct {
 
                         if (try enum_type.tag_ty.toType().onePossibleValue(mod)) |int_opv| {
                             const only = try mod.intern(.{ .enum_tag = .{
-                                .ty = ty.ip_index,
-                                .int = int_opv.ip_index,
+                                .ty = ty.toIntern(),
+                                .int = int_opv.toIntern(),
                             } });
                             return only.toValue();
                         }
@@ -2663,7 +2632,7 @@ pub const Type = struct {
                         1 => {
                             if (enum_type.values.len == 0) {
                                 const only = try mod.intern(.{ .enum_tag = .{
-                                    .ty = ty.ip_index,
+                                    .ty = ty.toIntern(),
                                     .int = try mod.intern(.{ .int = .{
                                         .ty = enum_type.tag_ty,
                                         .storage = .{ .u64 = 0 },
@@ -2705,10 +2674,10 @@ pub const Type = struct {
     /// TODO merge these implementations together with the "advanced" pattern seen
     /// elsewhere in this file.
     pub fn comptimeOnly(ty: Type, mod: *Module) bool {
-        return switch (ty.ip_index) {
+        return switch (ty.toIntern()) {
             .empty_struct_type => false,
 
-            else => switch (mod.intern_pool.indexToKey(ty.ip_index)) {
+            else => switch (mod.intern_pool.indexToKey(ty.toIntern())) {
                 .int_type => false,
                 .ptr_type => |ptr_type| {
                     const child_ty = ptr_type.elem_type.toType();
@@ -2880,8 +2849,7 @@ pub const Type = struct {
 
     /// Returns null if the type has no namespace.
     pub fn getNamespaceIndex(ty: Type, mod: *Module) Module.Namespace.OptionalIndex {
-        if (ty.ip_index == .none) return .none;
-        return switch (mod.intern_pool.indexToKey(ty.ip_index)) {
+        return switch (mod.intern_pool.indexToKey(ty.toIntern())) {
             .opaque_type => |opaque_type| opaque_type.namespace.toOptional(),
             .struct_type => |struct_type| struct_type.namespace,
             .union_type => |union_type| mod.unionPtr(union_type.index).namespace.toOptional(),
@@ -2900,8 +2868,8 @@ pub const Type = struct {
     pub fn minInt(ty: Type, mod: *Module) !Value {
         const scalar = try minIntScalar(ty.scalarType(mod), mod);
         return if (ty.zigTypeTag(mod) == .Vector) (try mod.intern(.{ .aggregate = .{
-            .ty = ty.ip_index,
-            .storage = .{ .repeated_elem = scalar.ip_index },
+            .ty = ty.toIntern(),
+            .storage = .{ .repeated_elem = scalar.toIntern() },
         } })).toValue() else scalar;
     }
 
@@ -2929,8 +2897,8 @@ pub const Type = struct {
     pub fn maxInt(ty: Type, mod: *Module, dest_ty: Type) !Value {
         const scalar = try maxIntScalar(ty.scalarType(mod), mod, dest_ty);
         return if (ty.zigTypeTag(mod) == .Vector) (try mod.intern(.{ .aggregate = .{
-            .ty = ty.ip_index,
-            .storage = .{ .repeated_elem = scalar.ip_index },
+            .ty = ty.toIntern(),
+            .storage = .{ .repeated_elem = scalar.toIntern() },
         } })).toValue() else scalar;
     }
 
@@ -2971,7 +2939,7 @@ pub const Type = struct {
 
     /// Asserts the type is an enum or a union.
     pub fn intTagType(ty: Type, mod: *Module) !Type {
-        return switch (mod.intern_pool.indexToKey(ty.ip_index)) {
+        return switch (mod.intern_pool.indexToKey(ty.toIntern())) {
             .union_type => |union_type| mod.unionPtr(union_type.index).tag_ty.intTagType(mod),
             .enum_type => |enum_type| enum_type.tag_ty.toType(),
             else => unreachable,
@@ -2979,21 +2947,18 @@ pub const Type = struct {
     }
 
     pub fn isNonexhaustiveEnum(ty: Type, mod: *Module) bool {
-        return switch (ty.ip_index) {
-            .none => false,
-            else => switch (mod.intern_pool.indexToKey(ty.ip_index)) {
-                .enum_type => |enum_type| switch (enum_type.tag_mode) {
-                    .nonexhaustive => true,
-                    .auto, .explicit => false,
-                },
-                else => false,
+        return switch (mod.intern_pool.indexToKey(ty.toIntern())) {
+            .enum_type => |enum_type| switch (enum_type.tag_mode) {
+                .nonexhaustive => true,
+                .auto, .explicit => false,
             },
+            else => false,
         };
     }
 
     // Asserts that `ty` is an error set and not `anyerror`.
     pub fn errorSetNames(ty: Type, mod: *Module) []const InternPool.NullTerminatedString {
-        return switch (mod.intern_pool.indexToKey(ty.ip_index)) {
+        return switch (mod.intern_pool.indexToKey(ty.toIntern())) {
             .error_set_type => |x| x.names,
             .inferred_error_set_type => |index| {
                 const inferred_error_set = mod.inferredErrorSetPtr(index);
@@ -3006,22 +2971,22 @@ pub const Type = struct {
     }
 
     pub fn enumFields(ty: Type, mod: *Module) []const InternPool.NullTerminatedString {
-        return mod.intern_pool.indexToKey(ty.ip_index).enum_type.names;
+        return mod.intern_pool.indexToKey(ty.toIntern()).enum_type.names;
     }
 
     pub fn enumFieldCount(ty: Type, mod: *Module) usize {
-        return mod.intern_pool.indexToKey(ty.ip_index).enum_type.names.len;
+        return mod.intern_pool.indexToKey(ty.toIntern()).enum_type.names.len;
     }
 
     pub fn enumFieldName(ty: Type, field_index: usize, mod: *Module) [:0]const u8 {
         const ip = &mod.intern_pool;
-        const field_name = ip.indexToKey(ty.ip_index).enum_type.names[field_index];
+        const field_name = ip.indexToKey(ty.toIntern()).enum_type.names[field_index];
         return ip.stringToSlice(field_name);
     }
 
     pub fn enumFieldIndex(ty: Type, field_name: []const u8, mod: *Module) ?u32 {
         const ip = &mod.intern_pool;
-        const enum_type = ip.indexToKey(ty.ip_index).enum_type;
+        const enum_type = ip.indexToKey(ty.toIntern()).enum_type;
         // If the string is not interned, then the field certainly is not present.
         const field_name_interned = ip.getString(field_name).unwrap() orelse return null;
         return enum_type.nameIndex(ip, field_name_interned);
@@ -3032,9 +2997,9 @@ pub const Type = struct {
     /// declaration order, or `null` if `enum_tag` does not match any field.
     pub fn enumTagFieldIndex(ty: Type, enum_tag: Value, mod: *Module) ?u32 {
         const ip = &mod.intern_pool;
-        const enum_type = ip.indexToKey(ty.ip_index).enum_type;
-        const int_tag = switch (ip.indexToKey(enum_tag.ip_index)) {
-            .int => enum_tag.ip_index,
+        const enum_type = ip.indexToKey(ty.toIntern()).enum_type;
+        const int_tag = switch (ip.indexToKey(enum_tag.toIntern())) {
+            .int => enum_tag.toIntern(),
             .enum_tag => |info| info.int,
             else => unreachable,
         };
@@ -3043,7 +3008,7 @@ pub const Type = struct {
     }
 
     pub fn structFields(ty: Type, mod: *Module) Module.Struct.Fields {
-        switch (mod.intern_pool.indexToKey(ty.ip_index)) {
+        switch (mod.intern_pool.indexToKey(ty.toIntern())) {
             .struct_type => |struct_type| {
                 const struct_obj = mod.structPtrUnwrap(struct_type.index) orelse return .{};
                 assert(struct_obj.haveFieldTypes());
@@ -3054,7 +3019,7 @@ pub const Type = struct {
     }
 
     pub fn structFieldName(ty: Type, field_index: usize, mod: *Module) []const u8 {
-        switch (mod.intern_pool.indexToKey(ty.ip_index)) {
+        switch (mod.intern_pool.indexToKey(ty.toIntern())) {
             .struct_type => |struct_type| {
                 const struct_obj = mod.structPtrUnwrap(struct_type.index).?;
                 assert(struct_obj.haveFieldTypes());
@@ -3069,7 +3034,7 @@ pub const Type = struct {
     }
 
     pub fn structFieldCount(ty: Type, mod: *Module) usize {
-        return switch (mod.intern_pool.indexToKey(ty.ip_index)) {
+        return switch (mod.intern_pool.indexToKey(ty.toIntern())) {
             .struct_type => |struct_type| {
                 const struct_obj = mod.structPtrUnwrap(struct_type.index) orelse return 0;
                 assert(struct_obj.haveFieldTypes());
@@ -3082,7 +3047,7 @@ pub const Type = struct {
 
     /// Supports structs and unions.
     pub fn structFieldType(ty: Type, index: usize, mod: *Module) Type {
-        return switch (mod.intern_pool.indexToKey(ty.ip_index)) {
+        return switch (mod.intern_pool.indexToKey(ty.toIntern())) {
             .struct_type => |struct_type| {
                 const struct_obj = mod.structPtrUnwrap(struct_type.index).?;
                 return struct_obj.fields.values()[index].ty;
@@ -3097,7 +3062,7 @@ pub const Type = struct {
     }
 
     pub fn structFieldAlign(ty: Type, index: usize, mod: *Module) u32 {
-        switch (mod.intern_pool.indexToKey(ty.ip_index)) {
+        switch (mod.intern_pool.indexToKey(ty.toIntern())) {
             .struct_type => |struct_type| {
                 const struct_obj = mod.structPtrUnwrap(struct_type.index).?;
                 assert(struct_obj.layout != .Packed);
@@ -3115,7 +3080,7 @@ pub const Type = struct {
     }
 
     pub fn structFieldDefaultValue(ty: Type, index: usize, mod: *Module) Value {
-        switch (mod.intern_pool.indexToKey(ty.ip_index)) {
+        switch (mod.intern_pool.indexToKey(ty.toIntern())) {
             .struct_type => |struct_type| {
                 const struct_obj = mod.structPtrUnwrap(struct_type.index).?;
                 return struct_obj.fields.values()[index].default_val;
@@ -3131,7 +3096,7 @@ pub const Type = struct {
     }
 
     pub fn structFieldValueComptime(ty: Type, mod: *Module, index: usize) !?Value {
-        switch (mod.intern_pool.indexToKey(ty.ip_index)) {
+        switch (mod.intern_pool.indexToKey(ty.toIntern())) {
             .struct_type => |struct_type| {
                 const struct_obj = mod.structPtrUnwrap(struct_type.index).?;
                 const field = struct_obj.fields.values()[index];
@@ -3154,7 +3119,7 @@ pub const Type = struct {
     }
 
     pub fn structFieldIsComptime(ty: Type, index: usize, mod: *Module) bool {
-        return switch (mod.intern_pool.indexToKey(ty.ip_index)) {
+        return switch (mod.intern_pool.indexToKey(ty.toIntern())) {
             .struct_type => |struct_type| {
                 const struct_obj = mod.structPtrUnwrap(struct_type.index).?;
                 if (struct_obj.layout == .Packed) return false;
@@ -3167,7 +3132,7 @@ pub const Type = struct {
     }
 
     pub fn packedStructFieldByteOffset(ty: Type, field_index: usize, mod: *Module) u32 {
-        const struct_type = mod.intern_pool.indexToKey(ty.ip_index).struct_type;
+        const struct_type = mod.intern_pool.indexToKey(ty.toIntern()).struct_type;
         const struct_obj = mod.structPtrUnwrap(struct_type.index).?;
         assert(struct_obj.layout == .Packed);
         comptime assert(Type.packed_struct_layout_version == 2);
@@ -3229,7 +3194,7 @@ pub const Type = struct {
     /// Get an iterator that iterates over all the struct field, returning the field and
     /// offset of that field. Asserts that the type is a non-packed struct.
     pub fn iterateStructOffsets(ty: Type, mod: *Module) StructOffsetIterator {
-        const struct_type = mod.intern_pool.indexToKey(ty.ip_index).struct_type;
+        const struct_type = mod.intern_pool.indexToKey(ty.toIntern()).struct_type;
         const struct_obj = mod.structPtrUnwrap(struct_type.index).?;
         assert(struct_obj.haveLayout());
         assert(struct_obj.layout != .Packed);
@@ -3238,7 +3203,7 @@ pub const Type = struct {
 
     /// Supports structs and unions.
     pub fn structFieldOffset(ty: Type, index: usize, mod: *Module) u64 {
-        switch (mod.intern_pool.indexToKey(ty.ip_index)) {
+        switch (mod.intern_pool.indexToKey(ty.toIntern())) {
             .struct_type => |struct_type| {
                 const struct_obj = mod.structPtrUnwrap(struct_type.index).?;
                 assert(struct_obj.haveLayout());
@@ -3296,7 +3261,7 @@ pub const Type = struct {
     }
 
     pub fn declSrcLocOrNull(ty: Type, mod: *Module) ?Module.SrcLoc {
-        return switch (mod.intern_pool.indexToKey(ty.ip_index)) {
+        return switch (mod.intern_pool.indexToKey(ty.toIntern())) {
             .struct_type => |struct_type| {
                 const struct_obj = mod.structPtrUnwrap(struct_type.index).?;
                 return struct_obj.srcLoc(mod);
@@ -3316,7 +3281,7 @@ pub const Type = struct {
     }
 
     pub fn getOwnerDeclOrNull(ty: Type, mod: *Module) ?Module.Decl.Index {
-        return switch (mod.intern_pool.indexToKey(ty.ip_index)) {
+        return switch (mod.intern_pool.indexToKey(ty.toIntern())) {
             .struct_type => |struct_type| {
                 const struct_obj = mod.structPtrUnwrap(struct_type.index) orelse return null;
                 return struct_obj.owner_decl;
@@ -3332,33 +3297,30 @@ pub const Type = struct {
     }
 
     pub fn isGenericPoison(ty: Type) bool {
-        return ty.ip_index == .generic_poison_type;
+        return ty.toIntern() == .generic_poison_type;
     }
 
     pub fn isTuple(ty: Type, mod: *Module) bool {
-        return switch (ty.ip_index) {
-            .none => false,
-            else => switch (mod.intern_pool.indexToKey(ty.ip_index)) {
-                .struct_type => |struct_type| {
-                    const struct_obj = mod.structPtrUnwrap(struct_type.index) orelse return false;
-                    return struct_obj.is_tuple;
-                },
-                .anon_struct_type => |anon_struct| anon_struct.names.len == 0,
-                else => false,
+        return switch (mod.intern_pool.indexToKey(ty.toIntern())) {
+            .struct_type => |struct_type| {
+                const struct_obj = mod.structPtrUnwrap(struct_type.index) orelse return false;
+                return struct_obj.is_tuple;
             },
+            .anon_struct_type => |anon_struct| anon_struct.names.len == 0,
+            else => false,
         };
     }
 
     pub fn isAnonStruct(ty: Type, mod: *Module) bool {
-        if (ty.ip_index == .empty_struct_type) return true;
-        return switch (mod.intern_pool.indexToKey(ty.ip_index)) {
+        if (ty.toIntern() == .empty_struct_type) return true;
+        return switch (mod.intern_pool.indexToKey(ty.toIntern())) {
             .anon_struct_type => |anon_struct_type| anon_struct_type.names.len > 0,
             else => false,
         };
     }
 
     pub fn isTupleOrAnonStruct(ty: Type, mod: *Module) bool {
-        return switch (mod.intern_pool.indexToKey(ty.ip_index)) {
+        return switch (mod.intern_pool.indexToKey(ty.toIntern())) {
             .struct_type => |struct_type| {
                 const struct_obj = mod.structPtrUnwrap(struct_type.index) orelse return false;
                 return struct_obj.is_tuple;
@@ -3369,14 +3331,14 @@ pub const Type = struct {
     }
 
     pub fn isSimpleTuple(ty: Type, mod: *Module) bool {
-        return switch (mod.intern_pool.indexToKey(ty.ip_index)) {
+        return switch (mod.intern_pool.indexToKey(ty.toIntern())) {
             .anon_struct_type => |anon_struct_type| anon_struct_type.names.len == 0,
             else => false,
         };
     }
 
     pub fn isSimpleTupleOrAnonStruct(ty: Type, mod: *Module) bool {
-        return switch (mod.intern_pool.indexToKey(ty.ip_index)) {
+        return switch (mod.intern_pool.indexToKey(ty.toIntern())) {
             .anon_struct_type => true,
             else => false,
         };
