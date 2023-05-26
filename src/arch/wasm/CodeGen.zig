@@ -3183,15 +3183,26 @@ fn lowerConstant(func: *CodeGen, arg_val: Value, ty: Type) InnerError!WValue {
             const kv = try mod.getErrorValue(name);
             return WValue{ .imm32 = kv.value };
         },
-        .error_union => {
-            const error_type = ty.errorUnionSet(mod);
+        .error_union => |error_union| {
+            const err_tv: TypedValue = switch (error_union.val) {
+                .err_name => |err_name| .{
+                    .ty = ty.errorUnionSet(mod),
+                    .val = (try mod.intern(.{ .err = .{
+                        .ty = ty.errorUnionSet(mod).toIntern(),
+                        .name = err_name,
+                    } })).toValue(),
+                },
+                .payload => .{
+                    .ty = Type.err_int,
+                    .val = try mod.intValue(Type.err_int, 0),
+                },
+            };
             const payload_type = ty.errorUnionPayload(mod);
             if (!payload_type.hasRuntimeBitsIgnoreComptime(mod)) {
                 // We use the error type directly as the type.
-                const is_pl = val.errorUnionIsPayload(mod);
-                const err_val = if (!is_pl) val else try mod.intValue(error_type, 0);
-                return func.lowerConstant(err_val, error_type);
+                return func.lowerConstant(err_tv.val, err_tv.ty);
             }
+
             return func.fail("Wasm TODO: lowerConstant error union with non-zero-bit payload type", .{});
         },
         .enum_tag => |enum_tag| {
