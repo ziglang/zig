@@ -349,7 +349,7 @@ fn addFromDirInner(
     var filenames = std.ArrayList([]const u8).init(ctx.arena);
 
     while (try it.next()) |entry| {
-        if (entry.kind != .File) continue;
+        if (entry.kind != .file) continue;
 
         // Ignore stuff such as .swp files
         switch (Compilation.classifyFileExt(entry.basename)) {
@@ -1039,7 +1039,7 @@ pub fn main() !void {
         const stem = case_file_path[case_dirname.len + 1 .. case_file_path.len - "0.zig".len];
         var it = iterable_dir.iterate();
         while (try it.next()) |entry| {
-            if (entry.kind != .File) continue;
+            if (entry.kind != .file) continue;
             if (!std.mem.startsWith(u8, entry.name, stem)) continue;
             try filenames.append(try std.fs.path.join(arena, &.{ case_dirname, entry.name }));
         }
