@@ -1122,6 +1122,29 @@ pub fn isPowerOfTwo(v: anytype) bool {
     return (v & (v - 1)) == 0;
 }
 
+/// Extends the given integer type bit width to a nearest power of two with minimum of 8.
+pub fn ExtendedInt(comptime T: type) type {
+    const info = @typeInfo(T).Int;
+    if (info.bits == 0) return std.meta.Int(info.signedness, 8);
+    if (isPowerOfTwo(info.bits)) return T;
+    const bits = @max(std.math.ceilPowerOfTwo(u16, info.bits) catch unreachable, 8);
+    const extended_type = std.meta.Int(info.signedness, bits);
+    return extended_type;
+}
+
+/// Extends the given integer bit width to a nearest power of two with minimum of 8.
+pub fn extendInt(value: anytype) ExtendedInt(@TypeOf(value)) {
+    return @intCast(ExtendedInt(@TypeOf(value)), value);
+}
+
+test "extendInt" {
+    try testing.expect(extendInt(@as(u0, 0)) == @as(u8, 0));
+    try testing.expect(extendInt(@as(i0, 0)) == @as(i8, 0));
+    try testing.expect(extendInt(@as(u3, 4)) == @as(u8, 4));
+    try testing.expect(extendInt(@as(i111, -(1 << 100))) == @as(i128, -(1 << 100)));
+    try testing.expect(extendInt(@as(u129, (1 << 128))) == @as(u256, (1 << 128)));
+}
+
 /// Rounds the given floating point number to an integer, away from zero.
 /// Uses a dedicated hardware instruction when available.
 /// This is the same as calling the builtin @round
