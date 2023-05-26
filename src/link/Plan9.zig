@@ -392,10 +392,10 @@ pub fn lowerUnnamedConst(self: *Plan9, tv: TypedValue, decl_index: Module.Decl.I
 pub fn updateDecl(self: *Plan9, mod: *Module, decl_index: Module.Decl.Index) !void {
     const decl = mod.declPtr(decl_index);
 
-    if (decl.getExternFunc(mod)) |_| {
+    if (decl.val.getExternFunc(mod)) |_| {
         return; // TODO Should we do more when front-end analyzed extern decl?
     }
-    if (decl.getVariable(mod)) |variable| {
+    if (decl.val.getVariable(mod)) |variable| {
         if (variable.is_extern) {
             return; // TODO Should we do more when front-end analyzed extern decl?
         }
@@ -407,7 +407,7 @@ pub fn updateDecl(self: *Plan9, mod: *Module, decl_index: Module.Decl.Index) !vo
 
     var code_buffer = std.ArrayList(u8).init(self.base.allocator);
     defer code_buffer.deinit();
-    const decl_val = if (decl.getVariable(mod)) |variable| variable.init.toValue() else decl.val;
+    const decl_val = if (decl.val.getVariable(mod)) |variable| variable.init.toValue() else decl.val;
     // TODO we need the symbol index for symbol in the table of locals for the containing atom
     const res = try codegen.generateSymbol(&self.base, decl.srcLoc(mod), .{
         .ty = decl.ty,
@@ -771,7 +771,7 @@ pub fn freeDecl(self: *Plan9, decl_index: Module.Decl.Index) void {
     // in the deleteUnusedDecl function.
     const mod = self.base.options.module.?;
     const decl = mod.declPtr(decl_index);
-    const is_fn = decl.getFunctionIndex(mod) != .none;
+    const is_fn = decl.val.getFunctionIndex(mod) != .none;
     if (is_fn) {
         var symidx_and_submap = self.fn_decl_table.get(decl.getFileScope(mod)).?;
         var submap = symidx_and_submap.functions;

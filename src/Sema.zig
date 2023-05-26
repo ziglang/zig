@@ -5730,7 +5730,7 @@ fn zirExport(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!void
     {
         try mod.ensureDeclAnalyzed(decl_index);
         const exported_decl = mod.declPtr(decl_index);
-        if (exported_decl.getFunction(mod)) |function| {
+        if (exported_decl.val.getFunction(mod)) |function| {
             return sema.analyzeExport(block, src, options, function.owner_decl);
         }
     }
@@ -6206,7 +6206,7 @@ fn funcDeclSrc(sema: *Sema, func_inst: Air.Inst.Ref) !?*Decl {
         .extern_func => |extern_func| extern_func.decl,
         .func => |func| mod.funcPtr(func.index).owner_decl,
         .ptr => |ptr| switch (ptr.addr) {
-            .decl => |decl| decl,
+            .decl => |decl| mod.declPtr(decl).val.getFunction(mod).?.owner_decl,
             else => return null,
         },
         else => return null,
@@ -6782,7 +6782,7 @@ fn analyzeCall(
             }),
             .func => |function| function.index,
             .ptr => |ptr| switch (ptr.addr) {
-                .decl => |decl| mod.declPtr(decl).getFunctionIndex(mod).unwrap().?,
+                .decl => |decl| mod.declPtr(decl).val.getFunctionIndex(mod).unwrap().?,
                 else => {
                     assert(callee_ty.isPtrAtRuntime(mod));
                     return sema.fail(block, call_src, "{s} call of function pointer", .{
@@ -7403,7 +7403,7 @@ fn instantiateGenericCall(
     const func_val = try sema.resolveConstValue(block, func_src, func, "generic function being called must be comptime-known");
     const module_fn = mod.funcPtr(switch (mod.intern_pool.indexToKey(func_val.toIntern())) {
         .func => |function| function.index,
-        .ptr => |ptr| mod.declPtr(ptr.addr.decl).getFunctionIndex(mod).unwrap().?,
+        .ptr => |ptr| mod.declPtr(ptr.addr.decl).val.getFunctionIndex(mod).unwrap().?,
         else => unreachable,
     });
     // Check the Module's generic function map with an adapted context, so that we
@@ -28336,7 +28336,7 @@ fn beginComptimePtrLoad(
                 const is_mutable = ptr.addr == .mut_decl;
                 const decl = mod.declPtr(decl_index);
                 const decl_tv = try decl.typedValue();
-                if (decl.getVariable(mod) != null) return error.RuntimeLoad;
+                if (decl.val.getVariable(mod) != null) return error.RuntimeLoad;
 
                 const layout_defined = decl.ty.hasWellDefinedLayout(mod);
                 break :blk ComptimePtrLoadKit{
@@ -29423,7 +29423,7 @@ fn analyzeDeclRefInner(sema: *Sema, decl_index: Decl.Index, analyze_fn_body: boo
     const ptr_ty = try mod.ptrType(.{
         .elem_type = decl_tv.ty.toIntern(),
         .alignment = InternPool.Alignment.fromByteUnits(decl.@"align"),
-        .is_const = if (decl.getVariable(mod)) |variable| variable.is_const else false,
+        .is_const = if (decl.val.getVariable(mod)) |variable| variable.is_const else false,
         .address_space = decl.@"addrspace",
     });
     if (analyze_fn_body) {

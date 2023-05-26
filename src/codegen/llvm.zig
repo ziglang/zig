@@ -1165,7 +1165,7 @@ pub const Object = struct {
             di_file = try dg.object.getDIFile(gpa, mod.namespacePtr(decl.src_namespace).file_scope);
 
             const line_number = decl.src_line + 1;
-            const is_internal_linkage = decl.getExternFunc(mod) == null and
+            const is_internal_linkage = decl.val.getExternFunc(mod) == null and
                 !mod.decl_exports.contains(decl_index);
             const noret_bit: c_uint = if (fn_info.return_type == .noreturn_type)
                 llvm.DIFlags.NoReturn
@@ -1274,7 +1274,7 @@ pub const Object = struct {
             var free_decl_name = false;
             const decl_name = decl_name: {
                 if (mod.getTarget().isWasm() and try decl.isFunction(mod)) {
-                    if (mod.intern_pool.stringToSliceUnwrap(decl.getExternFunc(mod).?.lib_name)) |lib_name| {
+                    if (mod.intern_pool.stringToSliceUnwrap(decl.getOwnedExternFunc(mod).?.lib_name)) |lib_name| {
                         if (!std.mem.eql(u8, lib_name, "c")) {
                             free_decl_name = true;
                             break :decl_name try std.fmt.allocPrintZ(gpa, "{s}|{s}", .{ decl.name, lib_name });
@@ -1306,7 +1306,7 @@ pub const Object = struct {
                     di_global.replaceLinkageName(linkage_name);
                 }
             }
-            if (decl.getVariable(mod)) |variable| {
+            if (decl.val.getVariable(mod)) |variable| {
                 if (variable.is_threadlocal) {
                     llvm_global.setThreadLocalMode(.GeneralDynamicTLSModel);
                 } else {
@@ -1348,7 +1348,7 @@ pub const Object = struct {
                 defer gpa.free(section_z);
                 llvm_global.setSection(section_z);
             }
-            if (decl.getVariable(mod)) |variable| {
+            if (decl.val.getVariable(mod)) |variable| {
                 if (variable.is_threadlocal) {
                     llvm_global.setThreadLocalMode(.GeneralDynamicTLSModel);
                 }
@@ -1382,7 +1382,7 @@ pub const Object = struct {
             llvm_global.setLinkage(.Internal);
             if (mod.wantDllExports()) llvm_global.setDLLStorageClass(.Default);
             llvm_global.setUnnamedAddr(.True);
-            if (decl.getVariable(mod)) |variable| {
+            if (decl.val.getVariable(mod)) |variable| {
                 const single_threaded = mod.comp.bin_file.options.single_threaded;
                 if (variable.is_threadlocal and !single_threaded) {
                     llvm_global.setThreadLocalMode(.GeneralDynamicTLSModel);
@@ -2452,7 +2452,7 @@ pub const DeclGen = struct {
         log.debug("gen: {s} type: {}, value: {}", .{
             decl.name, decl.ty.fmtDebug(), decl.val.fmtDebug(),
         });
-        if (decl.getExternFunc(mod)) |extern_func| {
+        if (decl.val.getExternFunc(mod)) |extern_func| {
             _ = try dg.resolveLlvmFunction(extern_func.decl);
         } else {
             const target = mod.getTarget();
@@ -2460,7 +2460,7 @@ pub const DeclGen = struct {
             global.setAlignment(decl.getAlignment(mod));
             if (decl.@"linksection") |section| global.setSection(section);
             assert(decl.has_tv);
-            const init_val = if (decl.getVariable(mod)) |variable| init_val: {
+            const init_val = if (decl.val.getVariable(mod)) |variable| init_val: {
                 break :init_val variable.init.toValue();
             } else init_val: {
                 global.setGlobalConstant(.True);
@@ -2555,7 +2555,7 @@ pub const DeclGen = struct {
         } else {
             if (target.isWasm()) {
                 dg.addFnAttrString(llvm_fn, "wasm-import-name", std.mem.sliceTo(decl.name, 0));
-                if (mod.intern_pool.stringToSliceUnwrap(decl.getExternFunc(mod).?.lib_name)) |lib_name| {
+                if (mod.intern_pool.stringToSliceUnwrap(decl.getOwnedExternFunc(mod).?.lib_name)) |lib_name| {
                     if (!std.mem.eql(u8, lib_name, "c")) {
                         dg.addFnAttrString(llvm_fn, "wasm-import-module", lib_name);
                     }
@@ -2716,7 +2716,7 @@ pub const DeclGen = struct {
             llvm_global.setValueName(decl.name);
             llvm_global.setUnnamedAddr(.False);
             llvm_global.setLinkage(.External);
-            if (decl.getVariable(mod)) |variable| {
+            if (decl.val.getVariable(mod)) |variable| {
                 const single_threaded = mod.comp.bin_file.options.single_threaded;
                 if (variable.is_threadlocal and !single_threaded) {
                     llvm_global.setThreadLocalMode(.GeneralDynamicTLSModel);
@@ -3993,11 +3993,11 @@ pub const DeclGen = struct {
         // ... &bar;
         // `bar` is just an alias and we actually want to lower a reference to `foo`.
         const decl = mod.declPtr(decl_index);
-        if (decl.getFunction(mod)) |func| {
+        if (decl.val.getFunction(mod)) |func| {
             if (func.owner_decl != decl_index) {
                 return self.lowerDeclRefValue(tv, func.owner_decl);
             }
-        } else if (decl.getExternFunc(mod)) |func| {
+        } else if (decl.val.getExternFunc(mod)) |func| {
             if (func.decl != decl_index) {
                 return self.lowerDeclRefValue(tv, func.decl);
             }
@@ -7939,7 +7939,7 @@ pub const FuncGen = struct {
             }
 
             const src_index = self.air.instructions.items(.data)[inst].arg.src_index;
-            const func = self.dg.decl.getFunction(mod).?;
+            const func = self.dg.decl.getOwnedFunction(mod).?;
             const lbrace_line = mod.declPtr(func.owner_decl).src_line + func.lbrace_line + 1;
             const lbrace_col = func.lbrace_column + 1;
             const di_local_var = dib.createParameterVariable(

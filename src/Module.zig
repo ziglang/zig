@@ -613,7 +613,7 @@ pub const Decl = struct {
 
     pub fn clearValues(decl: *Decl, mod: *Module) void {
         const gpa = mod.gpa;
-        if (decl.getFunctionIndex(mod).unwrap()) |func| {
+        if (decl.getOwnedFunctionIndex(mod).unwrap()) |func| {
             _ = mod.align_stack_fns.remove(func);
             if (mod.funcPtr(func).comptime_args != null) {
                 _ = mod.monomorphed_funcs.removeContext(func, .{ .mod = mod });
@@ -772,52 +772,52 @@ pub const Decl = struct {
         return tv.ty.zigTypeTag(mod) == .Fn;
     }
 
-    /// If the Decl has a value and it is a struct, return it,
+    /// If the Decl owns its value and it is a struct, return it,
     /// otherwise null.
-    pub fn getStruct(decl: Decl, mod: *Module) ?*Struct {
-        return mod.structPtrUnwrap(decl.getStructIndex(mod));
+    pub fn getOwnedStruct(decl: Decl, mod: *Module) ?*Struct {
+        return mod.structPtrUnwrap(decl.getOwnedStructIndex(mod));
     }
 
-    pub fn getStructIndex(decl: Decl, mod: *Module) Struct.OptionalIndex {
+    pub fn getOwnedStructIndex(decl: Decl, mod: *Module) Struct.OptionalIndex {
         if (!decl.owns_tv) return .none;
         if (decl.val.ip_index == .none) return .none;
         return mod.intern_pool.indexToStructType(decl.val.toIntern());
     }
 
-    /// If the Decl has a value and it is a union, return it,
+    /// If the Decl owns its value and it is a union, return it,
     /// otherwise null.
-    pub fn getUnion(decl: Decl, mod: *Module) ?*Union {
+    pub fn getOwnedUnion(decl: Decl, mod: *Module) ?*Union {
         if (!decl.owns_tv) return null;
         if (decl.val.ip_index == .none) return null;
         return mod.typeToUnion(decl.val.toType());
     }
 
-    /// If the Decl has a value and it is a function, return it,
+    /// If the Decl owns its value and it is a function, return it,
     /// otherwise null.
-    pub fn getFunction(decl: Decl, mod: *Module) ?*Fn {
-        return mod.funcPtrUnwrap(decl.getFunctionIndex(mod));
+    pub fn getOwnedFunction(decl: Decl, mod: *Module) ?*Fn {
+        return mod.funcPtrUnwrap(decl.getOwnedFunctionIndex(mod));
     }
 
-    pub fn getFunctionIndex(decl: Decl, mod: *Module) Fn.OptionalIndex {
+    pub fn getOwnedFunctionIndex(decl: Decl, mod: *Module) Fn.OptionalIndex {
         return if (decl.owns_tv) decl.val.getFunctionIndex(mod) else .none;
     }
 
-    /// If the Decl has a value and it is an extern function, returns it,
+    /// If the Decl owns its value and it is an extern function, returns it,
     /// otherwise null.
-    pub fn getExternFunc(decl: Decl, mod: *Module) ?InternPool.Key.ExternFunc {
+    pub fn getOwnedExternFunc(decl: Decl, mod: *Module) ?InternPool.Key.ExternFunc {
         return if (decl.owns_tv) decl.val.getExternFunc(mod) else null;
     }
 
-    /// If the Decl has a value and it is a variable, returns it,
+    /// If the Decl owns its value and it is a variable, returns it,
     /// otherwise null.
-    pub fn getVariable(decl: Decl, mod: *Module) ?InternPool.Key.Variable {
+    pub fn getOwnedVariable(decl: Decl, mod: *Module) ?InternPool.Key.Variable {
         return if (decl.owns_tv) decl.val.getVariable(mod) else null;
     }
 
     /// Gets the namespace that this Decl creates by being a struct, union,
     /// enum, or opaque.
     /// Only returns it if the Decl is the owner.
-    pub fn getInnerNamespaceIndex(decl: Decl, mod: *Module) Namespace.OptionalIndex {
+    pub fn getOwnedInnerNamespaceIndex(decl: Decl, mod: *Module) Namespace.OptionalIndex {
         if (!decl.owns_tv) return .none;
         return switch (decl.val.ip_index) {
             .empty_struct_type => .none,
@@ -833,8 +833,8 @@ pub const Decl = struct {
     }
 
     /// Same as `getInnerNamespaceIndex` but additionally obtains the pointer.
-    pub fn getInnerNamespace(decl: Decl, mod: *Module) ?*Namespace {
-        return if (decl.getInnerNamespaceIndex(mod).unwrap()) |i| mod.namespacePtr(i) else null;
+    pub fn getOwnedInnerNamespace(decl: Decl, mod: *Module) ?*Namespace {
+        return mod.namespacePtrUnwrap(decl.getOwnedInnerNamespaceIndex(mod));
     }
 
     pub fn dump(decl: *Decl) void {
@@ -3361,7 +3361,7 @@ pub fn destroyDecl(mod: *Module, decl_index: Decl.Index) void {
             gpa.free(kv.value);
         }
         if (decl.has_tv) {
-            if (decl.getInnerNamespaceIndex(mod).unwrap()) |i| {
+            if (decl.getOwnedInnerNamespaceIndex(mod).unwrap()) |i| {
                 mod.namespacePtr(i).destroyDecls(mod);
                 mod.destroyNamespace(i);
             }
@@ -3405,6 +3405,10 @@ pub fn funcPtr(mod: *Module, index: Fn.Index) *Fn {
 
 pub fn inferredErrorSetPtr(mod: *Module, index: Fn.InferredErrorSet.Index) *Fn.InferredErrorSet {
     return mod.intern_pool.inferredErrorSetPtr(index);
+}
+
+pub fn namespacePtrUnwrap(mod: *Module, index: Namespace.OptionalIndex) ?*Namespace {
+    return mod.namespacePtr(index.unwrap() orelse return null);
 }
 
 /// This one accepts an index from the InternPool and asserts that it is not
@@ -3873,28 +3877,28 @@ fn updateZirRefs(mod: *Module, file: *File, old_zir: Zir) !void {
 
         if (!decl.owns_tv) continue;
 
-        if (decl.getStruct(mod)) |struct_obj| {
+        if (decl.getOwnedStruct(mod)) |struct_obj| {
             struct_obj.zir_index = inst_map.get(struct_obj.zir_index) orelse {
                 try file.deleted_decls.append(gpa, decl_index);
                 continue;
             };
         }
 
-        if (decl.getUnion(mod)) |union_obj| {
+        if (decl.getOwnedUnion(mod)) |union_obj| {
             union_obj.zir_index = inst_map.get(union_obj.zir_index) orelse {
                 try file.deleted_decls.append(gpa, decl_index);
                 continue;
             };
         }
 
-        if (decl.getFunction(mod)) |func| {
+        if (decl.getOwnedFunction(mod)) |func| {
             func.zir_body_inst = inst_map.get(func.zir_body_inst) orelse {
                 try file.deleted_decls.append(gpa, decl_index);
                 continue;
             };
         }
 
-        if (decl.getInnerNamespace(mod)) |namespace| {
+        if (decl.getOwnedInnerNamespace(mod)) |namespace| {
             for (namespace.decls.keys()) |sub_decl| {
                 try decl_stack.append(gpa, sub_decl);
             }
@@ -4074,7 +4078,7 @@ pub fn ensureDeclAnalyzed(mod: *Module, decl_index: Decl.Index) SemaError!void {
             try mod.deleteDeclExports(decl_index);
 
             // Similarly, `@setAlignStack` invocations will be re-discovered.
-            if (decl.getFunctionIndex(mod).unwrap()) |func| {
+            if (decl.getOwnedFunctionIndex(mod).unwrap()) |func| {
                 _ = mod.align_stack_fns.remove(func);
             }
 
@@ -4577,7 +4581,7 @@ fn semaDecl(mod: *Module, decl_index: Decl.Index) !bool {
     if (mod.declIsRoot(decl_index)) {
         log.debug("semaDecl root {*} ({s})", .{ decl, decl.name });
         const main_struct_inst = Zir.main_struct_inst;
-        const struct_index = decl.getStructIndex(mod).unwrap().?;
+        const struct_index = decl.getOwnedStructIndex(mod).unwrap().?;
         const struct_obj = mod.structPtr(struct_index);
         // This might not have gotten set in `semaFile` if the first time had
         // a ZIR failure, so we set it here in case.
@@ -4659,7 +4663,7 @@ fn semaDecl(mod: *Module, decl_index: Decl.Index) !bool {
             if (decl.has_tv) {
                 prev_type_has_bits = decl.ty.isFnOrHasRuntimeBits(mod);
                 type_changed = !decl.ty.eql(decl_tv.ty, mod);
-                if (decl.getFunction(mod)) |prev_func| {
+                if (decl.getOwnedFunction(mod)) |prev_func| {
                     prev_is_inline = prev_func.state == .inline_only;
                 }
             }
@@ -5313,7 +5317,7 @@ fn scanDecl(iter: *ScanDeclIter, decl_sub_index: usize, flags: u4) Allocator.Err
     decl.has_align = has_align;
     decl.has_linksection_or_addrspace = has_linksection_or_addrspace;
     decl.zir_decl_index = @intCast(u32, decl_sub_index);
-    if (decl.getFunctionIndex(mod) != .none) {
+    if (decl.getOwnedFunctionIndex(mod) != .none) {
         switch (comp.bin_file.tag) {
             .coff, .elf, .macho, .plan9 => {
                 // TODO Look into detecting when this would be unnecessary by storing enough state
@@ -5390,7 +5394,7 @@ pub fn clearDecl(
         if (decl.ty.isFnOrHasRuntimeBits(mod)) {
             mod.comp.bin_file.freeDecl(decl_index);
         }
-        if (decl.getInnerNamespace(mod)) |namespace| {
+        if (decl.getOwnedInnerNamespace(mod)) |namespace| {
             try namespace.deleteAllDecls(mod, outdated_decls);
         }
     }
@@ -5733,10 +5737,8 @@ fn markOutdatedDecl(mod: *Module, decl_index: Decl.Index) !void {
     if (mod.cimport_errors.fetchSwapRemove(decl_index)) |kv| {
         for (kv.value) |err| err.deinit(mod.gpa);
     }
-    if (decl.has_tv and decl.owns_tv) {
-        if (decl.getFunctionIndex(mod).unwrap()) |func| {
-            _ = mod.align_stack_fns.remove(func);
-        }
+    if (decl.getOwnedFunctionIndex(mod).unwrap()) |func| {
+        _ = mod.align_stack_fns.remove(func);
     }
     if (mod.emit_h) |emit_h| {
         if (emit_h.failed_decls.fetchSwapRemove(decl_index)) |kv| {

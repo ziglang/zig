@@ -971,7 +971,7 @@ pub fn initDeclState(self: *Dwarf, mod: *Module, decl_index: Module.Decl.Index) 
             // For functions we need to add a prologue to the debug line program.
             try dbg_line_buffer.ensureTotalCapacity(26);
 
-            const func = decl.getFunction(mod).?;
+            const func = decl.val.getFunction(mod).?;
             log.debug("decl.src_line={d}, func.lbrace_line={d}, func.rbrace_line={d}", .{
                 decl.src_line,
                 func.lbrace_line,
@@ -1523,7 +1523,7 @@ pub fn updateDeclLineNumber(self: *Dwarf, mod: *Module, decl_index: Module.Decl.
     if (atom.len == 0) return;
 
     const decl = mod.declPtr(decl_index);
-    const func = decl.getFunction(mod).?;
+    const func = decl.val.getFunction(mod).?;
     log.debug("decl.src_line={d}, func.lbrace_line={d}, func.rbrace_line={d}", .{
         decl.src_line,
         func.lbrace_line,
