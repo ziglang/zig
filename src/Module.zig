@@ -5871,6 +5871,7 @@ pub const SwitchProngSrc = union(enum) {
     multi: Multi,
     range: Multi,
     multi_capture: u32,
+    special,
 
     pub const Multi = struct {
         prong: u32,
@@ -5908,14 +5909,22 @@ pub const SwitchProngSrc = union(enum) {
         var scalar_i: u32 = 0;
         for (case_nodes) |case_node| {
             const case = tree.fullSwitchCase(case_node).?;
-            if (case.ast.values.len == 0)
-                continue;
-            if (case.ast.values.len == 1 and
-                node_tags[case.ast.values[0]] == .identifier and
-                mem.eql(u8, tree.tokenSlice(main_tokens[case.ast.values[0]]), "_"))
-            {
-                continue;
+
+            const is_special = special: {
+                if (case.ast.values.len == 0) break :special true;
+                if (case.ast.values.len == 1 and node_tags[case.ast.values[0]] == .identifier) {
+                    break :special mem.eql(u8, tree.tokenSlice(main_tokens[case.ast.values[0]]), "_");
+                }
+                break :special false;
+            };
+
+            if (is_special) {
+                if (prong_src != .special) continue;
+                return LazySrcLoc.nodeOffset(
+                    decl.nodeIndexToRelative(case.ast.values[0]),
+                );
             }
+
             const is_multi = case.ast.values.len != 1 or
                 node_tags[case.ast.values[0]] == .switch_range;
 
@@ -5956,6 +5965,7 @@ pub const SwitchProngSrc = union(enum) {
                         range_i += 1;
                     } else unreachable;
                 },
+                .special => {},
             }
             if (is_multi) {
                 multi_i += 1;

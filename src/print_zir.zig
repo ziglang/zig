@@ -436,10 +436,6 @@ const Writer = struct {
 
             .@"unreachable" => try self.writeUnreachable(stream, inst),
 
-            .switch_capture,
-            .switch_capture_ref,
-            => try self.writeSwitchCapture(stream, inst),
-
             .dbg_stmt => try self.writeDbgStmt(stream, inst),
 
             .dbg_block_begin,
@@ -1913,15 +1909,20 @@ const Writer = struct {
                 else => break :else_prong,
             };
 
-            const body_len = @truncate(u31, self.code.extra[extra_index]);
-            const inline_text = if (self.code.extra[extra_index] >> 31 != 0) "inline " else "";
+            const info = @bitCast(Zir.Inst.SwitchBlock.ProngInfo, self.code.extra[extra_index]);
+            const capture_text = switch (info.capture) {
+                .none => "",
+                .by_val => "by_val ",
+                .by_ref => "by_ref ",
+            };
+            const inline_text = if (info.is_inline) "inline " else "";
             extra_index += 1;
-            const body = self.code.extra[extra_index..][0..body_len];
+            const body = self.code.extra[extra_index..][0..info.body_len];
             extra_index += body.len;
 
             try stream.writeAll(",\n");
             try stream.writeByteNTimes(' ', self.indent);
-            try stream.print("{s}{s} => ", .{ inline_text, prong_name });
+            try stream.print("{s}{s}{s} => ", .{ capture_text, inline_text, prong_name });
             try self.writeBracedBody(stream, body);
         }
 
@@ -1931,15 +1932,19 @@ const Writer = struct {
             while (scalar_i < scalar_cases_len) : (scalar_i += 1) {
                 const item_ref = @intToEnum(Zir.Inst.Ref, self.code.extra[extra_index]);
                 extra_index += 1;
-                const body_len = @truncate(u31, self.code.extra[extra_index]);
-                const is_inline = self.code.extra[extra_index] >> 31 != 0;
+                const info = @bitCast(Zir.Inst.SwitchBlock.ProngInfo, self.code.extra[extra_index]);
                 extra_index += 1;
-                const body = self.code.extra[extra_index..][0..body_len];
-                extra_index += body_len;
+                const body = self.code.extra[extra_index..][0..info.body_len];
+                extra_index += info.body_len;
 
                 try stream.writeAll(",\n");
                 try stream.writeByteNTimes(' ', self.indent);
-                if (is_inline) try stream.writeAll("inline ");
+                switch (info.capture) {
+                    .none => {},
+                    .by_val => try stream.writeAll("by_val "),
+                    .by_ref => try stream.writeAll("by_ref "),
+                }
+                if (info.is_inline) try stream.writeAll("inline ");
                 try self.writeInstRef(stream, item_ref);
                 try stream.writeAll(" => ");
                 try self.writeBracedBody(stream, body);
@@ -1952,15 +1957,19 @@ const Writer = struct {
                 extra_index += 1;
                 const ranges_len = self.code.extra[extra_index];
                 extra_index += 1;
-                const body_len = @truncate(u31, self.code.extra[extra_index]);
-                const is_inline = self.code.extra[extra_index] >> 31 != 0;
+                const info = @bitCast(Zir.Inst.SwitchBlock.ProngInfo, self.code.extra[extra_index]);
                 extra_index += 1;
                 const items = self.code.refSlice(extra_index, items_len);
                 extra_index += items_len;
 
                 try stream.writeAll(",\n");
                 try stream.writeByteNTimes(' ', self.indent);
-                if (is_inline) try stream.writeAll("inline ");
+                switch (info.capture) {
+                    .none => {},
+                    .by_val => try stream.writeAll("by_val "),
+                    .by_ref => try stream.writeAll("by_ref "),
+                }
+                if (info.is_inline) try stream.writeAll("inline ");
 
                 for (items, 0..) |item_ref, item_i| {
                     if (item_i != 0) try stream.writeAll(", ");
@@ -1982,8 +1991,8 @@ const Writer = struct {
                     try self.writeInstRef(stream, item_last);
                 }
 
-                const body = self.code.extra[extra_index..][0..body_len];
-                extra_index += body_len;
+                const body = self.code.extra[extra_index..][0..info.body_len];
+                extra_index += info.body_len;
                 try stream.writeAll(" => ");
                 try self.writeBracedBody(stream, body);
             }
@@ -2433,12 +2442,6 @@ const Writer = struct {
             });
         }
         try self.writeSrc(stream, src);
-    }
-
-    fn writeSwitchCapture(self: *Writer, stream: anytype, inst: Zir.Inst.Index) !void {
-        const inst_data = self.code.instructions.items(.data)[inst].switch_capture;
-        try self.writeInstIndex(stream, inst_data.switch_inst);
-        try stream.print(", {d})", .{inst_data.prong_index});
     }
 
     fn writeDbgStmt(self: *Writer, stream: anytype, inst: Zir.Inst.Index) !void {

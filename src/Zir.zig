@@ -676,17 +676,6 @@ pub const Inst = struct {
         /// what will be switched on.
         /// Uses the `un_node` union field.
         switch_cond_ref,
-        /// Produces the capture value for a switch prong.
-        /// Uses the `switch_capture` field.
-        /// If the `prong_index` field is max int, it means this is the capture
-        /// for the else/`_` prong.
-        switch_capture,
-        /// Produces the capture value for a switch prong.
-        /// Result is a pointer to the value.
-        /// Uses the `switch_capture` field.
-        /// If the `prong_index` field is max int, it means this is the capture
-        /// for the else/`_` prong.
-        switch_capture_ref,
         /// Produces the capture value for an inline switch prong tag capture.
         /// Uses the `un_tok` field.
         switch_capture_tag,
@@ -1135,8 +1124,6 @@ pub const Inst = struct {
                 .typeof_log2_int_type,
                 .resolve_inferred_alloc,
                 .set_eval_branch_quota,
-                .switch_capture,
-                .switch_capture_ref,
                 .switch_capture_tag,
                 .switch_block,
                 .switch_cond,
@@ -1427,8 +1414,6 @@ pub const Inst = struct {
                 .slice_length,
                 .import,
                 .typeof_log2_int_type,
-                .switch_capture,
-                .switch_capture_ref,
                 .switch_capture_tag,
                 .switch_block,
                 .switch_cond,
@@ -1685,8 +1670,6 @@ pub const Inst = struct {
                 .switch_block = .pl_node,
                 .switch_cond = .un_node,
                 .switch_cond_ref = .un_node,
-                .switch_capture = .switch_capture,
-                .switch_capture_ref = .switch_capture,
                 .switch_capture_tag = .un_tok,
                 .array_base_ptr = .un_node,
                 .field_base_ptr = .un_node,
@@ -2254,10 +2237,6 @@ pub const Inst = struct {
             operand: Ref,
             payload_index: u32,
         },
-        switch_capture: struct {
-            switch_inst: Index,
-            prong_index: u32,
-        },
         dbg_stmt: LineColumn,
         /// Used for unary operators which reference an inst,
         /// with an AST node source location.
@@ -2327,7 +2306,6 @@ pub const Inst = struct {
             bool_br,
             @"unreachable",
             @"break",
-            switch_capture,
             dbg_stmt,
             inst_node,
             str_op,
@@ -2667,25 +2645,29 @@ pub const Inst = struct {
 
     /// 0. multi_cases_len: u32 // If has_multi_cases is set.
     /// 1. else_body { // If has_else or has_under is set.
-    ///        body_len: u32,
-    ///        body member Index for every body_len
+    ///        info: ProngInfo,
+    ///        body member Index for every info.body_len
     ///     }
     /// 2. scalar_cases: { // for every scalar_cases_len
     ///        item: Ref,
-    ///        body_len: u32,
-    ///        body member Index for every body_len
+    ///        info: ProngInfo,
+    ///        body member Index for every info.body_len
     ///     }
     /// 3. multi_cases: { // for every multi_cases_len
     ///        items_len: u32,
     ///        ranges_len: u32,
-    ///        body_len: u32,
+    ///        info: ProngInfo,
     ///        item: Ref // for every items_len
     ///        ranges: { // for every ranges_len
     ///            item_first: Ref,
     ///            item_last: Ref,
     ///        }
-    ///        body member Index for every body_len
+    ///        body member Index for every info.body_len
     ///    }
+    ///
+    /// When analyzing a case body, the switch instruction itself refers to the
+    /// captured payload. Whether this is captured by reference or by value
+    /// depends on whether the `byref` bit is set for the corresponding body.
     pub const SwitchBlock = struct {
         /// This is always a `switch_cond` or `switch_cond_ref` instruction.
         /// If it is a `switch_cond_ref` instruction, bits.is_ref is always true.
@@ -2696,6 +2678,19 @@ pub const Inst = struct {
         /// and use that.
         operand: Ref,
         bits: Bits,
+
+        /// These are stored in trailing data in `extra` for each prong.
+        pub const ProngInfo = packed struct(u32) {
+            body_len: u29,
+            capture: Capture,
+            is_inline: bool,
+
+            pub const Capture = enum(u2) {
+                none,
+                by_val,
+                by_ref,
+            };
+        };
 
         pub const Bits = packed struct {
             /// If true, one or more prongs have multiple items.
@@ -2724,64 +2719,6 @@ pub const Inst = struct {
             items: []const Ref,
             body: []const Index,
         };
-
-        /// TODO performance optimization: instead of having this helper method
-        /// change the definition of switch_capture instruction to store extra_index
-        /// instead of prong_index. This way, Sema won't be doing O(N^2) iterations
-        /// over the switch prongs.
-        pub fn getProng(
-            self: SwitchBlock,
-            zir: Zir,
-            extra_end: usize,
-            prong_index: usize,
-        ) MultiProng {
-            var extra_index: usize = extra_end + @boolToInt(self.bits.has_multi_cases);
-
-            if (self.bits.specialProng() != .none) {
-                const body_len = @truncate(u31, zir.extra[extra_index]);
-                extra_index += 1;
-                const body = zir.extra[extra_index..][0..body_len];
-                extra_index += body.len;
-            }
-
-            var cur_idx: usize = 0;
-            while (cur_idx < self.bits.scalar_cases_len) : (cur_idx += 1) {
-                const items = zir.refSlice(extra_index, 1);
-                extra_index += 1;
-                const body_len = @truncate(u31, zir.extra[extra_index]);
-                extra_index += 1;
-                const body = zir.extra[extra_index..][0..body_len];
-                extra_index += body_len;
-                if (cur_idx == prong_index) {
-                    return .{
-                        .items = items,
-                        .body = body,
-                    };
-                }
-            }
-            while (true) : (cur_idx += 1) {
-                const items_len = zir.extra[extra_index];
-                extra_index += 1;
-                const ranges_len = zir.extra[extra_index];
-                extra_index += 1;
-                const body_len = @truncate(u31, zir.extra[extra_index]);
-                extra_index += 1;
-                const items = zir.refSlice(extra_index, items_len);
-                extra_index += items_len;
-                // Each range has a start and an end.
-                extra_index += 2 * ranges_len;
-
-                const body = zir.extra[extra_index..][0..body_len];
-                extra_index += body_len;
-
-                if (cur_idx == prong_index) {
-                    return .{
-                        .items = items,
-                        .body = body,
-                    };
-                }
-            }
-        }
     };
 
     pub const Field = struct {

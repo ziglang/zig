@@ -277,9 +277,6 @@ pub const Block = struct {
 
     c_import_buf: ?*std.ArrayList(u8) = null,
 
-    /// type of `err` in `else => |err|`
-    switch_else_err_ty: ?Type = null,
-
     /// Value for switch_capture in an inline case
     inline_case_capture: Air.Inst.Ref = .none,
 
@@ -397,7 +394,6 @@ pub const Block = struct {
             .want_safety = parent.want_safety,
             .float_mode = parent.float_mode,
             .c_import_buf = parent.c_import_buf,
-            .switch_else_err_ty = parent.switch_else_err_ty,
             .error_return_trace_index = parent.error_return_trace_index,
         };
     }
@@ -1017,8 +1013,6 @@ fn analyzeBodyInner(
             .switch_block                 => try sema.zirSwitchBlock(block, inst),
             .switch_cond                  => try sema.zirSwitchCond(block, inst, false),
             .switch_cond_ref              => try sema.zirSwitchCond(block, inst, true),
-            .switch_capture               => try sema.zirSwitchCapture(block, inst, false),
-            .switch_capture_ref           => try sema.zirSwitchCapture(block, inst, true),
             .switch_capture_tag           => try sema.zirSwitchCaptureTag(block, inst),
             .type_info                    => try sema.zirTypeInfo(block, inst),
             .size_of                      => try sema.zirSizeOf(block, inst),
@@ -10083,61 +10077,160 @@ fn zirSliceLength(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
     return sema.analyzeSlice(block, src, array_ptr, start, len, sentinel, sentinel_src, ptr_src, start_src, end_src, true);
 }
 
-fn zirSwitchCapture(
+/// Resolve a switch prong which is determined at comptime to have no peers. Uses
+/// `resolveBlockBody`. Sets up captures as needed.
+fn resolveSwitchProngComptime(
     sema: *Sema,
-    block: *Block,
-    inst: Zir.Inst.Index,
-    is_ref: bool,
+    parent_block: *Block,
+    child_block: *Block,
+    src: LazySrcLoc,
+    operand: Air.Inst.Ref,
+    operand_ptr: Air.Inst.Ref,
+    prong_type: enum { normal, special },
+    prong_body: []const Zir.Inst.Index,
+    capture: Zir.Inst.SwitchBlock.ProngInfo.Capture,
+    raw_capture_src: Module.SwitchProngSrc,
+    else_error_ty: ?Type,
+    case_vals: []const Air.Inst.Ref,
+    switch_block_inst: Zir.Inst.Index,
+    merges: *Block.Merges,
 ) CompileError!Air.Inst.Ref {
-    const tracy = trace(@src());
-    defer tracy.end();
+    switch (capture) {
+        .none => {
+            return sema.resolveBlockBody(parent_block, src, child_block, prong_body, switch_block_inst, merges);
+        },
 
+        .by_val, .by_ref => {
+            const zir_datas = sema.code.instructions.items(.data);
+            const switch_info = zir_datas[switch_block_inst].pl_node;
+
+            const capture_ref = try sema.analyzeSwitchCapture(
+                child_block,
+                capture == .by_ref,
+                operand,
+                operand_ptr,
+                switch_info.src_node,
+                prong_type == .special,
+                raw_capture_src,
+                else_error_ty,
+                case_vals,
+            );
+
+            if (sema.typeOf(capture_ref).isNoReturn(sema.mod)) {
+                // This prong should be unreachable!
+                return Air.Inst.Ref.unreachable_value;
+            }
+
+            sema.inst_map.putAssumeCapacity(switch_block_inst, capture_ref);
+            defer assert(sema.inst_map.remove(switch_block_inst));
+
+            return sema.resolveBlockBody(parent_block, src, child_block, prong_body, switch_block_inst, merges);
+        },
+    }
+}
+
+/// Analyze a switch prong which may have peers at runtime. Uses
+/// `analyzeBodyRuntimeBreak`. Sets up captures as needed.
+fn analyzeSwitchProngRuntime(
+    sema: *Sema,
+    case_block: *Block,
+    operand: Air.Inst.Ref,
+    operand_ptr: Air.Inst.Ref,
+    prong_type: enum { normal, special },
+    prong_body: []const Zir.Inst.Index,
+    capture: Zir.Inst.SwitchBlock.ProngInfo.Capture,
+    raw_capture_src: Module.SwitchProngSrc,
+    else_error_ty: ?Type,
+    case_vals: []const Air.Inst.Ref,
+    switch_block_inst: Zir.Inst.Index,
+) CompileError!void {
+    switch (capture) {
+        .none => {
+            return sema.analyzeBodyRuntimeBreak(case_block, prong_body);
+        },
+
+        .by_val, .by_ref => {
+            const zir_datas = sema.code.instructions.items(.data);
+            const switch_info = zir_datas[switch_block_inst].pl_node;
+
+            const capture_ref = try sema.analyzeSwitchCapture(
+                case_block,
+                capture == .by_ref,
+                operand,
+                operand_ptr,
+                switch_info.src_node,
+                prong_type == .special,
+                raw_capture_src,
+                else_error_ty,
+                case_vals,
+            );
+
+            if (sema.typeOf(capture_ref).isNoReturn(sema.mod)) {
+                // No need to analyze any further, the prong is unreachable
+                return;
+            }
+
+            sema.inst_map.putAssumeCapacity(switch_block_inst, capture_ref);
+            defer assert(sema.inst_map.remove(switch_block_inst));
+
+            return sema.analyzeBodyRuntimeBreak(case_block, prong_body);
+        },
+    }
+}
+
+fn analyzeSwitchCapture(
+    sema: *Sema,
+    /// Must be the child block so that `inline_case_capture` is set for inline prongs.
+    block: *Block,
+    capture_byref: bool,
+    /// The raw switch operand value.
+    operand: Air.Inst.Ref,
+    /// Pointer to the raw switch operand. May be undefined if `capture_byref` is false.
+    operand_ptr: Air.Inst.Ref,
+    switch_node_offset: i32,
+    /// `true` if this is the `else` or `_` prong of a switch.
+    is_special_prong: bool,
+    /// Must use the `scalar`, `special`, or `multi_capture` union field.
+    raw_capture_src: Module.SwitchProngSrc,
+    /// If this is the `else` prong of a switch on an error set, this is the
+    /// type that should be assigned to the capture. If `null`, the prong should
+    /// be unreachable.
+    else_error_ty: ?Type,
+    /// The set of all values which can reach this prong. May be undefined if
+    /// the prong has `is_special_prong` or contains ranges.
+    case_vals: []const Air.Inst.Ref,
+) CompileError!Air.Inst.Ref {
     const mod = sema.mod;
     const gpa = sema.gpa;
-    const zir_datas = sema.code.instructions.items(.data);
-    const capture_info = zir_datas[inst].switch_capture;
-    const switch_info = zir_datas[capture_info.switch_inst].pl_node;
-    const switch_extra = sema.code.extraData(Zir.Inst.SwitchBlock, switch_info.payload_index);
-    const operand_src: LazySrcLoc = .{ .node_offset_switch_operand = switch_info.src_node };
-    const cond = try sema.resolveInst(switch_extra.data.operand);
-    const cond_ty = sema.typeOf(cond);
-    const cond_inst = Zir.refToIndex(switch_extra.data.operand).?;
-    const cond_info = zir_datas[cond_inst].un_node;
-    const cond_tag = sema.code.instructions.items(.tag)[cond_inst];
-    const operand_is_ref = cond_tag == .switch_cond_ref;
-    const operand_ptr = try sema.resolveInst(cond_info.operand);
-    const operand_ptr_ty = sema.typeOf(operand_ptr);
-    const operand_ty = if (operand_is_ref) operand_ptr_ty.childType(mod) else operand_ptr_ty;
+    const operand_ty = sema.typeOf(operand);
+    const operand_ptr_ty = if (capture_byref) sema.typeOf(operand_ptr) else undefined;
+    const operand_src: LazySrcLoc = .{ .node_offset_switch_operand = switch_node_offset };
 
     if (block.inline_case_capture != .none) {
-        const item_val = sema.resolveConstValue(block, .unneeded, block.inline_case_capture, undefined) catch unreachable;
-        const resolved_item_val = try sema.resolveLazyValue(item_val);
+        const item_val = sema.resolveConstValue(block, .unneeded, block.inline_case_capture, "") catch unreachable;
         if (operand_ty.zigTypeTag(mod) == .Union) {
-            const field_index = @intCast(u32, operand_ty.unionTagFieldIndex(resolved_item_val, mod).?);
+            const field_index = @intCast(u32, operand_ty.unionTagFieldIndex(item_val, mod).?);
             const union_obj = mod.typeToUnion(operand_ty).?;
             const field_ty = union_obj.fields.values()[field_index].ty;
-            if (try sema.resolveDefinedValue(block, sema.src, operand_ptr)) |union_val| {
-                if (is_ref) {
+            if (capture_byref) {
+                if (try sema.resolveDefinedValue(block, sema.src, operand_ptr)) |union_ptr| {
                     const ptr_field_ty = try Type.ptr(sema.arena, mod, .{
                         .pointee_type = field_ty,
                         .mutable = operand_ptr_ty.ptrIsMutable(mod),
                         .@"volatile" = operand_ptr_ty.isVolatilePtr(mod),
                         .@"addrspace" = operand_ptr_ty.ptrAddressSpace(mod),
                     });
-                    return sema.addConstant(ptr_field_ty, (try mod.intern(.{ .ptr = .{
-                        .ty = ptr_field_ty.toIntern(),
-                        .addr = .{ .field = .{
-                            .base = union_val.toIntern(),
-                            .index = field_index,
-                        } },
-                    } })).toValue());
+                    return sema.addConstant(
+                        ptr_field_ty,
+                        (try mod.intern(.{ .ptr = .{
+                            .ty = ptr_field_ty.toIntern(),
+                            .addr = .{ .field = .{
+                                .base = union_ptr.toIntern(),
+                                .index = field_index,
+                            } },
+                        } })).toValue(),
+                    );
                 }
-                return sema.addConstant(
-                    field_ty,
-                    mod.intern_pool.indexToKey(union_val.toIntern()).un.val.toValue(),
-                );
-            }
-            if (is_ref) {
                 const ptr_field_ty = try Type.ptr(sema.arena, mod, .{
                     .pointee_type = field_ty,
                     .mutable = operand_ptr_ty.ptrIsMutable(mod),
@@ -10146,29 +10239,27 @@ fn zirSwitchCapture(
                 });
                 return block.addStructFieldPtr(operand_ptr, field_index, ptr_field_ty);
             } else {
-                return block.addStructFieldVal(operand_ptr, field_index, field_ty);
+                if (try sema.resolveDefinedValue(block, sema.src, operand)) |union_val| {
+                    const tag_and_val = mod.intern_pool.indexToKey(union_val.toIntern()).un;
+                    return sema.addConstant(field_ty, tag_and_val.val.toValue());
+                }
+                return block.addStructFieldVal(operand, field_index, field_ty);
             }
-        } else if (is_ref) {
-            return sema.addConstantMaybeRef(block, operand_ty, resolved_item_val, true);
+        } else if (capture_byref) {
+            return sema.addConstantMaybeRef(block, operand_ty, item_val, true);
         } else {
             return block.inline_case_capture;
         }
     }
 
-    const operand = if (operand_is_ref)
-        try sema.analyzeLoad(block, operand_src, operand_ptr, operand_src)
-    else
-        operand_ptr;
-
-    if (capture_info.prong_index == std.math.maxInt(@TypeOf(capture_info.prong_index))) {
-        // It is the else/`_` prong.
-        if (is_ref) {
+    if (is_special_prong) {
+        if (capture_byref) {
             return operand_ptr;
         }
 
         switch (operand_ty.zigTypeTag(mod)) {
-            .ErrorSet => if (block.switch_else_err_ty) |some| {
-                return sema.bitCast(block, some, operand, operand_src, null);
+            .ErrorSet => if (else_error_ty) |ty| {
+                return sema.bitCast(block, ty, operand, operand_src, null);
             } else {
                 try block.addUnreachable(false);
                 return Air.Inst.Ref.unreachable_value;
@@ -10177,41 +10268,33 @@ fn zirSwitchCapture(
         }
     }
 
-    // Note that these are the *uncasted* prong items.
-    // Also note that items from ranges are not included so this only works for non-ranged types.
-    const items = switch_extra.data.getProng(sema.code, switch_extra.end, capture_info.prong_index).items;
-
     switch (operand_ty.zigTypeTag(mod)) {
         .Union => {
             const union_obj = mod.typeToUnion(operand_ty).?;
-            const first_item = try sema.resolveInst(items[0]);
-            // Previous switch validation ensured this will succeed
-            const first_item_coerced = try sema.coerce(block, cond_ty, first_item, .unneeded);
-            const first_item_val = sema.resolveConstValue(block, .unneeded, first_item_coerced, "") catch unreachable;
+            const first_item_val = sema.resolveConstValue(block, .unneeded, case_vals[0], "") catch unreachable;
 
             const first_field_index = @intCast(u32, operand_ty.unionTagFieldIndex(first_item_val, mod).?);
             const first_field = union_obj.fields.values()[first_field_index];
 
-            for (items[1..], 0..) |item, i| {
-                const item_ref = try sema.resolveInst(item);
-                // Previous switch validation ensured this will succeed
-                const item_coerced = try sema.coerce(block, cond_ty, item_ref, .unneeded);
-                const item_val = sema.resolveConstValue(block, .unneeded, item_coerced, "") catch unreachable;
+            for (case_vals[1..], 0..) |item, i| {
+                const item_val = sema.resolveConstValue(block, .unneeded, item, "") catch unreachable;
 
                 const field_index = operand_ty.unionTagFieldIndex(item_val, mod).?;
                 const field = union_obj.fields.values()[field_index];
                 if (!field.ty.eql(first_field.ty, mod)) {
                     const msg = msg: {
-                        const raw_capture_src = Module.SwitchProngSrc{ .multi_capture = capture_info.prong_index };
-                        const capture_src = raw_capture_src.resolve(mod, mod.declPtr(block.src_decl), switch_info.src_node, .first);
+                        const capture_src = raw_capture_src.resolve(mod, mod.declPtr(block.src_decl), switch_node_offset, .none);
 
                         const msg = try sema.errMsg(block, capture_src, "capture group with incompatible types", .{});
                         errdefer msg.destroy(gpa);
 
-                        const raw_first_item_src = Module.SwitchProngSrc{ .multi = .{ .prong = capture_info.prong_index, .item = 0 } };
-                        const first_item_src = raw_first_item_src.resolve(mod, mod.declPtr(block.src_decl), switch_info.src_node, .first);
-                        const raw_item_src = Module.SwitchProngSrc{ .multi = .{ .prong = capture_info.prong_index, .item = 1 + @intCast(u32, i) } };
-                        const item_src = raw_item_src.resolve(mod, mod.declPtr(block.src_decl), switch_info.src_node, .first);
+                        // This must be a multi-prong so this must be a `multi_capture` src
+                        const multi_idx = raw_capture_src.multi_capture;
+
+                        const raw_first_item_src = Module.SwitchProngSrc{ .multi = .{ .prong = multi_idx, .item = 0 } };
+                        const first_item_src = raw_first_item_src.resolve(mod, mod.declPtr(block.src_decl), switch_node_offset, .first);
+                        const raw_item_src = Module.SwitchProngSrc{ .multi = .{ .prong = multi_idx, .item = 1 + @intCast(u32, i) } };
+                        const item_src = raw_item_src.resolve(mod, mod.declPtr(block.src_decl), switch_node_offset, .first);
                         try sema.errNote(block, first_item_src, msg, "type '{}' here", .{first_field.ty.fmt(mod)});
                         try sema.errNote(block, item_src, msg, "type '{}' here", .{field.ty.fmt(mod)});
                         break :msg msg;
@@ -10220,7 +10303,7 @@ fn zirSwitchCapture(
                 }
             }
 
-            if (is_ref) {
+            if (capture_byref) {
                 const field_ty_ptr = try Type.ptr(sema.arena, mod, .{
                     .pointee_type = first_field.ty,
                     .@"addrspace" = .generic,
@@ -10250,31 +10333,35 @@ fn zirSwitchCapture(
             return block.addStructFieldVal(operand, first_field_index, first_field.ty);
         },
         .ErrorSet => {
-            if (items.len > 1) {
-                var names: Module.Fn.InferredErrorSet.NameMap = .{};
-                try names.ensureUnusedCapacity(sema.arena, items.len);
-                for (items) |item| {
-                    const item_ref = try sema.resolveInst(item);
-                    // Previous switch validation ensured this will succeed
-                    const item_val = sema.resolveConstLazyValue(block, .unneeded, item_ref, "") catch unreachable;
-                    names.putAssumeCapacityNoClobber(item_val.getErrorName(mod).unwrap().?, {});
-                }
-                const else_error_ty = try mod.errorSetFromUnsortedNames(names.keys());
+            if (capture_byref) {
+                const capture_src = raw_capture_src.resolve(mod, mod.declPtr(block.src_decl), switch_node_offset, .none);
+                return sema.fail(
+                    block,
+                    capture_src,
+                    "error set cannot be captured by reference",
+                    .{},
+                );
+            }
 
-                return sema.bitCast(block, else_error_ty, operand, operand_src, null);
-            } else {
-                const item_ref = try sema.resolveInst(items[0]);
-                // Previous switch validation ensured this will succeed
-                const item_val = sema.resolveConstLazyValue(block, .unneeded, item_ref, "") catch unreachable;
-
+            if (case_vals.len == 1) {
+                const item_val = sema.resolveConstValue(block, .unneeded, case_vals[0], "") catch unreachable;
                 const item_ty = try mod.singleErrorSetType(item_val.getErrorName(mod).unwrap().?);
                 return sema.bitCast(block, item_ty, operand, operand_src, null);
             }
+
+            var names: Module.Fn.InferredErrorSet.NameMap = .{};
+            try names.ensureUnusedCapacity(sema.arena, case_vals.len);
+            for (case_vals) |err| {
+                const err_val = sema.resolveConstValue(block, .unneeded, err, "") catch unreachable;
+                names.putAssumeCapacityNoClobber(err_val.getErrorName(mod).unwrap().?, {});
+            }
+            const error_ty = try mod.errorSetFromUnsortedNames(names.keys());
+            return sema.bitCast(block, error_ty, operand, operand_src, null);
         },
         else => {
-            // In this case the capture value is just the passed-through value of the
-            // switch condition.
-            if (is_ref) {
+            // In this case the capture value is just the passed-through value
+            // of the switch condition.
+            if (capture_byref) {
                 return operand_ptr;
             } else {
                 return operand;
@@ -10415,28 +10502,42 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
     var case_vals = try std.ArrayListUnmanaged(Air.Inst.Ref).initCapacity(gpa, scalar_cases_len + 2 * multi_cases_len);
     defer case_vals.deinit(gpa);
 
+    const Special = struct {
+        body: []const Zir.Inst.Index,
+        end: usize,
+        capture: Zir.Inst.SwitchBlock.ProngInfo.Capture,
+        is_inline: bool,
+    };
+
     const special_prong = extra.data.bits.specialProng();
-    const special: struct { body: []const Zir.Inst.Index, end: usize, is_inline: bool } = switch (special_prong) {
-        .none => .{ .body = &.{}, .end = header_extra_index, .is_inline = false },
+    const special: Special = switch (special_prong) {
+        .none => .{ .body = &.{}, .end = header_extra_index, .capture = .none, .is_inline = false },
         .under, .@"else" => blk: {
-            const body_len = @truncate(u31, sema.code.extra[header_extra_index]);
+            const info = @bitCast(Zir.Inst.SwitchBlock.ProngInfo, sema.code.extra[header_extra_index]);
             const extra_body_start = header_extra_index + 1;
             break :blk .{
-                .body = sema.code.extra[extra_body_start..][0..body_len],
-                .end = extra_body_start + body_len,
-                .is_inline = sema.code.extra[header_extra_index] >> 31 != 0,
+                .body = sema.code.extra[extra_body_start..][0..info.body_len],
+                .end = extra_body_start + info.body_len,
+                .capture = info.capture,
+                .is_inline = info.is_inline,
             };
         },
     };
 
-    const maybe_union_ty = blk: {
+    const raw_operand: struct { val: Air.Inst.Ref, ptr: Air.Inst.Ref } = blk: {
         const zir_tags = sema.code.instructions.items(.tag);
         const zir_data = sema.code.instructions.items(.data);
         const cond_index = Zir.refToIndex(extra.data.operand).?;
-        const raw_operand = sema.resolveInst(zir_data[cond_index].un_node.operand) catch unreachable;
-        const target_ty = sema.typeOf(raw_operand);
-        break :blk if (zir_tags[cond_index] == .switch_cond_ref) target_ty.childType(mod) else target_ty;
+        const raw = sema.resolveInst(zir_data[cond_index].un_node.operand) catch unreachable;
+        if (zir_tags[cond_index] == .switch_cond_ref) {
+            const val = try sema.analyzeLoad(block, src, raw, operand_src);
+            break :blk .{ .val = val, .ptr = raw };
+        } else {
+            break :blk .{ .val = raw, .ptr = undefined };
+        }
     };
+
+    const maybe_union_ty = sema.typeOf(raw_operand.val);
     const union_originally = maybe_union_ty.zigTypeTag(mod) == .Union;
 
     // Duplicate checking variables later also used for `inline else`.
@@ -10496,9 +10597,8 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
                 while (scalar_i < scalar_cases_len) : (scalar_i += 1) {
                     const item_ref = @intToEnum(Zir.Inst.Ref, sema.code.extra[extra_index]);
                     extra_index += 1;
-                    const body_len = @truncate(u31, sema.code.extra[extra_index]);
-                    extra_index += 1;
-                    extra_index += body_len;
+                    const info = @bitCast(Zir.Inst.SwitchBlock.ProngInfo, sema.code.extra[extra_index]);
+                    extra_index += 1 + info.body_len;
 
                     case_vals.appendAssumeCapacity(try sema.validateSwitchItemEnum(
                         block,
@@ -10518,10 +10618,10 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
                     extra_index += 1;
                     const ranges_len = sema.code.extra[extra_index];
                     extra_index += 1;
-                    const body_len = @truncate(u31, sema.code.extra[extra_index]);
+                    const info = @bitCast(Zir.Inst.SwitchBlock.ProngInfo, sema.code.extra[extra_index]);
                     extra_index += 1;
                     const items = sema.code.refSlice(extra_index, items_len);
-                    extra_index += items_len + body_len;
+                    extra_index += items_len + info.body_len;
 
                     try case_vals.ensureUnusedCapacity(gpa, items.len);
                     for (items, 0..) |item_ref, item_i| {
@@ -10596,9 +10696,8 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
                 while (scalar_i < scalar_cases_len) : (scalar_i += 1) {
                     const item_ref = @intToEnum(Zir.Inst.Ref, sema.code.extra[extra_index]);
                     extra_index += 1;
-                    const body_len = @truncate(u31, sema.code.extra[extra_index]);
-                    extra_index += 1;
-                    extra_index += body_len;
+                    const info = @bitCast(Zir.Inst.SwitchBlock.ProngInfo, sema.code.extra[extra_index]);
+                    extra_index += 1 + info.body_len;
 
                     case_vals.appendAssumeCapacity(try sema.validateSwitchItemError(
                         block,
@@ -10617,10 +10716,10 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
                     extra_index += 1;
                     const ranges_len = sema.code.extra[extra_index];
                     extra_index += 1;
-                    const body_len = @truncate(u31, sema.code.extra[extra_index]);
+                    const info = @bitCast(Zir.Inst.SwitchBlock.ProngInfo, sema.code.extra[extra_index]);
                     extra_index += 1;
                     const items = sema.code.refSlice(extra_index, items_len);
-                    extra_index += items_len + body_len;
+                    extra_index += items_len + info.body_len;
 
                     try case_vals.ensureUnusedCapacity(gpa, items.len);
                     for (items, 0..) |item_ref, item_i| {
@@ -10694,7 +10793,6 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
                         .dbg_block_end,
                         .dbg_stmt,
                         .dbg_var_val,
-                        .switch_capture,
                         .ret_type,
                         .as_node,
                         .ret_node,
@@ -10739,9 +10837,8 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
                 while (scalar_i < scalar_cases_len) : (scalar_i += 1) {
                     const item_ref = @intToEnum(Zir.Inst.Ref, sema.code.extra[extra_index]);
                     extra_index += 1;
-                    const body_len = @truncate(u31, sema.code.extra[extra_index]);
-                    extra_index += 1;
-                    extra_index += body_len;
+                    const info = @bitCast(Zir.Inst.SwitchBlock.ProngInfo, sema.code.extra[extra_index]);
+                    extra_index += 1 + info.body_len;
 
                     case_vals.appendAssumeCapacity(try sema.validateSwitchItemInt(
                         block,
@@ -10760,7 +10857,7 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
                     extra_index += 1;
                     const ranges_len = sema.code.extra[extra_index];
                     extra_index += 1;
-                    const body_len = @truncate(u31, sema.code.extra[extra_index]);
+                    const info = @bitCast(Zir.Inst.SwitchBlock.ProngInfo, sema.code.extra[extra_index]);
                     extra_index += 1;
                     const items = sema.code.refSlice(extra_index, items_len);
                     extra_index += items_len;
@@ -10798,7 +10895,7 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
                         case_vals.appendAssumeCapacity(vals[1]);
                     }
 
-                    extra_index += body_len;
+                    extra_index += info.body_len;
                 }
             }
 
@@ -10835,9 +10932,8 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
                 while (scalar_i < scalar_cases_len) : (scalar_i += 1) {
                     const item_ref = @intToEnum(Zir.Inst.Ref, sema.code.extra[extra_index]);
                     extra_index += 1;
-                    const body_len = @truncate(u31, sema.code.extra[extra_index]);
-                    extra_index += 1;
-                    extra_index += body_len;
+                    const info = @bitCast(Zir.Inst.SwitchBlock.ProngInfo, sema.code.extra[extra_index]);
+                    extra_index += 1 + info.body_len;
 
                     case_vals.appendAssumeCapacity(try sema.validateSwitchItemBool(
                         block,
@@ -10856,10 +10952,10 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
                     extra_index += 1;
                     const ranges_len = sema.code.extra[extra_index];
                     extra_index += 1;
-                    const body_len = @truncate(u31, sema.code.extra[extra_index]);
+                    const info = @bitCast(Zir.Inst.SwitchBlock.ProngInfo, sema.code.extra[extra_index]);
                     extra_index += 1;
                     const items = sema.code.refSlice(extra_index, items_len);
-                    extra_index += items_len + body_len;
+                    extra_index += items_len + info.body_len;
 
                     try case_vals.ensureUnusedCapacity(gpa, items.len);
                     for (items, 0..) |item_ref, item_i| {
@@ -10918,9 +11014,9 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
                 while (scalar_i < scalar_cases_len) : (scalar_i += 1) {
                     const item_ref = @intToEnum(Zir.Inst.Ref, sema.code.extra[extra_index]);
                     extra_index += 1;
-                    const body_len = @truncate(u31, sema.code.extra[extra_index]);
+                    const info = @bitCast(Zir.Inst.SwitchBlock.ProngInfo, sema.code.extra[extra_index]);
                     extra_index += 1;
-                    extra_index += body_len;
+                    extra_index += info.body_len;
 
                     case_vals.appendAssumeCapacity(try sema.validateSwitchItemSparse(
                         block,
@@ -10939,10 +11035,10 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
                     extra_index += 1;
                     const ranges_len = sema.code.extra[extra_index];
                     extra_index += 1;
-                    const body_len = @truncate(u31, sema.code.extra[extra_index]);
+                    const info = @bitCast(Zir.Inst.SwitchBlock.ProngInfo, sema.code.extra[extra_index]);
                     extra_index += 1;
                     const items = sema.code.refSlice(extra_index, items_len);
-                    extra_index += items_len + body_len;
+                    extra_index += items_len + info.body_len;
 
                     try case_vals.ensureUnusedCapacity(gpa, items.len);
                     for (items, 0..) |item_ref, item_i| {
@@ -11006,7 +11102,6 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
         .is_comptime = block.is_comptime,
         .comptime_reason = block.comptime_reason,
         .is_typeof = block.is_typeof,
-        .switch_else_err_ty = else_error_ty,
         .c_import_buf = block.c_import_buf,
         .runtime_cond = block.runtime_cond,
         .runtime_loop = block.runtime_loop,
@@ -11024,19 +11119,31 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
             var scalar_i: usize = 0;
             while (scalar_i < scalar_cases_len) : (scalar_i += 1) {
                 extra_index += 1;
-                const body_len = @truncate(u31, sema.code.extra[extra_index]);
-                const is_inline = sema.code.extra[extra_index] >> 31 != 0;
+                const info = @bitCast(Zir.Inst.SwitchBlock.ProngInfo, sema.code.extra[extra_index]);
                 extra_index += 1;
-                const body = sema.code.extra[extra_index..][0..body_len];
-                extra_index += body_len;
+                const body = sema.code.extra[extra_index..][0..info.body_len];
+                extra_index += info.body_len;
 
                 const item = case_vals.items[scalar_i];
-                const item_val = sema.resolveConstLazyValue(&child_block, .unneeded, item, "") catch unreachable;
-                if (resolved_operand_val.eql(item_val, operand_ty, mod)) {
-                    if (is_inline) child_block.inline_case_capture = operand;
-
+                const item_val = sema.resolveConstValue(&child_block, .unneeded, item, "") catch unreachable;
+                if (operand_val.eql(item_val, operand_ty, sema.mod)) {
+                    if (info.is_inline) child_block.inline_case_capture = operand;
                     if (err_set) try sema.maybeErrorUnwrapComptime(&child_block, body, operand);
-                    return sema.resolveBlockBody(block, src, &child_block, body, inst, merges);
+                    return sema.resolveSwitchProngComptime(
+                        block,
+                        &child_block,
+                        src,
+                        raw_operand.val,
+                        raw_operand.ptr,
+                        .normal,
+                        body,
+                        info.capture,
+                        .{ .scalar = @intCast(u32, scalar_i) },
+                        else_error_ty,
+                        &.{item},
+                        inst,
+                        merges,
+                    );
                 }
             }
         }
@@ -11048,22 +11155,34 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
                 extra_index += 1;
                 const ranges_len = sema.code.extra[extra_index];
                 extra_index += 1;
-                const body_len = @truncate(u31, sema.code.extra[extra_index]);
-                const is_inline = sema.code.extra[extra_index] >> 31 != 0;
+                const info = @bitCast(Zir.Inst.SwitchBlock.ProngInfo, sema.code.extra[extra_index]);
                 extra_index += 1 + items_len;
-                const body = sema.code.extra[extra_index + 2 * ranges_len ..][0..body_len];
+                const body = sema.code.extra[extra_index + 2 * ranges_len ..][0..info.body_len];
 
                 const items = case_vals.items[case_val_idx..][0..items_len];
                 case_val_idx += items_len;
 
                 for (items) |item| {
                     // Validation above ensured these will succeed.
-                    const item_val = sema.resolveConstLazyValue(&child_block, .unneeded, item, "") catch unreachable;
-                    if (resolved_operand_val.eql(item_val, operand_ty, mod)) {
-                        if (is_inline) child_block.inline_case_capture = operand;
-
+                    const item_val = sema.resolveConstValue(&child_block, .unneeded, item, "") catch unreachable;
+                    if (operand_val.eql(item_val, operand_ty, sema.mod)) {
+                        if (info.is_inline) child_block.inline_case_capture = operand;
                         if (err_set) try sema.maybeErrorUnwrapComptime(&child_block, body, operand);
-                        return sema.resolveBlockBody(block, src, &child_block, body, inst, merges);
+                        return sema.resolveSwitchProngComptime(
+                            block,
+                            &child_block,
+                            src,
+                            raw_operand.val,
+                            raw_operand.ptr,
+                            .normal,
+                            body,
+                            info.capture,
+                            .{ .multi_capture = @intCast(u32, multi_i) },
+                            else_error_ty,
+                            items,
+                            inst,
+                            merges,
+                        );
                     }
                 }
 
@@ -11079,13 +11198,27 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
                     if ((try sema.compareAll(resolved_operand_val, .gte, first_val, operand_ty)) and
                         (try sema.compareAll(resolved_operand_val, .lte, last_val, operand_ty)))
                     {
-                        if (is_inline) child_block.inline_case_capture = operand;
+                        if (info.is_inline) child_block.inline_case_capture = operand;
                         if (err_set) try sema.maybeErrorUnwrapComptime(&child_block, body, operand);
-                        return sema.resolveBlockBody(block, src, &child_block, body, inst, merges);
+                        return sema.resolveSwitchProngComptime(
+                            block,
+                            &child_block,
+                            src,
+                            raw_operand.val,
+                            raw_operand.ptr,
+                            .normal,
+                            body,
+                            info.capture,
+                            .{ .multi_capture = @intCast(u32, multi_i) },
+                            else_error_ty,
+                            undefined,
+                            inst,
+                            merges,
+                        );
                     }
                 }
 
-                extra_index += body_len;
+                extra_index += info.body_len;
             }
         }
         if (err_set) try sema.maybeErrorUnwrapComptime(&child_block, special.body, operand);
@@ -11093,7 +11226,22 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
         if (empty_enum) {
             return Air.Inst.Ref.void_value;
         }
-        return sema.resolveBlockBody(block, src, &child_block, special.body, inst, merges);
+
+        return sema.resolveSwitchProngComptime(
+            block,
+            &child_block,
+            src,
+            raw_operand.val,
+            raw_operand.ptr,
+            .special,
+            special.body,
+            special.capture,
+            .special,
+            else_error_ty,
+            undefined,
+            inst,
+            merges,
+        );
     }
 
     if (scalar_cases_len + multi_cases_len == 0 and !special.is_inline) {
@@ -11113,7 +11261,22 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
             const ok = try block.addUnOp(.is_named_enum_value, operand);
             try sema.addSafetyCheck(block, ok, .corrupt_switch);
         }
-        return sema.resolveBlockBody(block, src, &child_block, special.body, inst, merges);
+
+        return sema.resolveSwitchProngComptime(
+            block,
+            &child_block,
+            src,
+            raw_operand.val,
+            raw_operand.ptr,
+            .special,
+            special.body,
+            special.capture,
+            .special,
+            else_error_ty,
+            undefined,
+            inst,
+            merges,
+        );
     }
 
     if (child_block.is_comptime) {
@@ -11140,11 +11303,10 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
     var scalar_i: usize = 0;
     while (scalar_i < scalar_cases_len) : (scalar_i += 1) {
         extra_index += 1;
-        const body_len = @truncate(u31, sema.code.extra[extra_index]);
-        const is_inline = sema.code.extra[extra_index] >> 31 != 0;
+        const info = @bitCast(Zir.Inst.SwitchBlock.ProngInfo, sema.code.extra[extra_index]);
         extra_index += 1;
-        const body = sema.code.extra[extra_index..][0..body_len];
-        extra_index += body_len;
+        const body = sema.code.extra[extra_index..][0..info.body_len];
+        extra_index += info.body_len;
 
         var wip_captures = try WipCaptureScope.init(gpa, child_block.wip_capture_scope);
         defer wip_captures.deinit();
@@ -11154,7 +11316,7 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
         case_block.inline_case_capture = .none;
 
         const item = case_vals.items[scalar_i];
-        if (is_inline) case_block.inline_case_capture = item;
+        if (info.is_inline) case_block.inline_case_capture = item;
         // `item` is already guaranteed to be constant known.
 
         const analyze_body = if (union_originally) blk: {
@@ -11166,7 +11328,18 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
         if (err_set and try sema.maybeErrorUnwrap(&case_block, body, operand)) {
             // nothing to do here
         } else if (analyze_body) {
-            try sema.analyzeBodyRuntimeBreak(&case_block, body);
+            try sema.analyzeSwitchProngRuntime(
+                &case_block,
+                raw_operand.val,
+                raw_operand.ptr,
+                .normal,
+                body,
+                info.capture,
+                .{ .scalar = @intCast(u32, scalar_i) },
+                else_error_ty,
+                &.{item},
+                inst,
+            );
         } else {
             _ = try case_block.addNoOp(.unreach);
         }
@@ -11195,8 +11368,7 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
         extra_index += 1;
         const ranges_len = sema.code.extra[extra_index];
         extra_index += 1;
-        const body_len = @truncate(u31, sema.code.extra[extra_index]);
-        const is_inline = sema.code.extra[extra_index] >> 31 != 0;
+        const info = @bitCast(Zir.Inst.SwitchBlock.ProngInfo, sema.code.extra[extra_index]);
         extra_index += 1 + items_len;
 
         const items = case_vals.items[case_val_idx..][0..items_len];
@@ -11207,9 +11379,9 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
         case_block.inline_case_capture = .none;
 
         // Generate all possible cases as scalar prongs.
-        if (is_inline) {
+        if (info.is_inline) {
             const body_start = extra_index + 2 * ranges_len;
-            const body = sema.code.extra[body_start..][0..body_len];
+            const body = sema.code.extra[body_start..][0..info.body_len];
             var emit_bb = false;
 
             var range_i: u32 = 0;
@@ -11250,7 +11422,18 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
                     };
                     emit_bb = true;
 
-                    try sema.analyzeBodyRuntimeBreak(&case_block, body);
+                    try sema.analyzeSwitchProngRuntime(
+                        &case_block,
+                        raw_operand.val,
+                        raw_operand.ptr,
+                        .normal,
+                        body,
+                        info.capture,
+                        .{ .multi_capture = multi_i },
+                        else_error_ty,
+                        undefined,
+                        inst,
+                    );
 
                     try cases_extra.ensureUnusedCapacity(gpa, 3 + case_block.instructions.items.len);
                     cases_extra.appendAssumeCapacity(1); // items_len
@@ -11286,7 +11469,18 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
                 emit_bb = true;
 
                 if (analyze_body) {
-                    try sema.analyzeBodyRuntimeBreak(&case_block, body);
+                    try sema.analyzeSwitchProngRuntime(
+                        &case_block,
+                        raw_operand.val,
+                        raw_operand.ptr,
+                        .normal,
+                        body,
+                        info.capture,
+                        .{ .multi_capture = multi_i },
+                        else_error_ty,
+                        &.{item},
+                        inst,
+                    );
                 } else {
                     _ = try case_block.addNoOp(.unreach);
                 }
@@ -11298,7 +11492,7 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
                 cases_extra.appendSliceAssumeCapacity(case_block.instructions.items);
             }
 
-            extra_index += body_len;
+            extra_index += info.body_len;
             continue;
         }
 
@@ -11319,12 +11513,23 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
             else
                 true;
 
-            const body = sema.code.extra[extra_index..][0..body_len];
-            extra_index += body_len;
+            const body = sema.code.extra[extra_index..][0..info.body_len];
+            extra_index += info.body_len;
             if (err_set and try sema.maybeErrorUnwrap(&case_block, body, operand)) {
                 // nothing to do here
             } else if (analyze_body) {
-                try sema.analyzeBodyRuntimeBreak(&case_block, body);
+                try sema.analyzeSwitchProngRuntime(
+                    &case_block,
+                    raw_operand.val,
+                    raw_operand.ptr,
+                    .normal,
+                    body,
+                    info.capture,
+                    .{ .multi_capture = multi_i },
+                    else_error_ty,
+                    items,
+                    inst,
+                );
             } else {
                 _ = try case_block.addNoOp(.unreach);
             }
@@ -11397,12 +11602,23 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
             case_block.instructions.shrinkRetainingCapacity(0);
             case_block.wip_capture_scope = wip_captures.scope;
 
-            const body = sema.code.extra[extra_index..][0..body_len];
-            extra_index += body_len;
+            const body = sema.code.extra[extra_index..][0..info.body_len];
+            extra_index += info.body_len;
             if (err_set and try sema.maybeErrorUnwrap(&case_block, body, operand)) {
                 // nothing to do here
             } else {
-                try sema.analyzeBodyRuntimeBreak(&case_block, body);
+                try sema.analyzeSwitchProngRuntime(
+                    &case_block,
+                    raw_operand.val,
+                    raw_operand.ptr,
+                    .normal,
+                    body,
+                    info.capture,
+                    .{ .multi_capture = multi_i },
+                    else_error_ty,
+                    items,
+                    inst,
+                );
             }
 
             try wip_captures.finalize();
@@ -11461,7 +11677,18 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
                     emit_bb = true;
 
                     if (analyze_body) {
-                        try sema.analyzeBodyRuntimeBreak(&case_block, special.body);
+                        try sema.analyzeSwitchProngRuntime(
+                            &case_block,
+                            raw_operand.val,
+                            raw_operand.ptr,
+                            .special,
+                            special.body,
+                            special.capture,
+                            .special,
+                            else_error_ty,
+                            &.{item_ref},
+                            inst,
+                        );
                     } else {
                         _ = try case_block.addNoOp(.unreach);
                     }
@@ -11497,7 +11724,18 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
                     if (emit_bb) try sema.emitBackwardBranch(block, special_prong_src);
                     emit_bb = true;
 
-                    try sema.analyzeBodyRuntimeBreak(&case_block, special.body);
+                    try sema.analyzeSwitchProngRuntime(
+                        &case_block,
+                        raw_operand.val,
+                        raw_operand.ptr,
+                        .special,
+                        special.body,
+                        special.capture,
+                        .special,
+                        else_error_ty,
+                        &.{item_ref},
+                        inst,
+                    );
 
                     try cases_extra.ensureUnusedCapacity(gpa, 3 + case_block.instructions.items.len);
                     cases_extra.appendAssumeCapacity(1); // items_len
@@ -11520,7 +11758,18 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
                     if (emit_bb) try sema.emitBackwardBranch(block, special_prong_src);
                     emit_bb = true;
 
-                    try sema.analyzeBodyRuntimeBreak(&case_block, special.body);
+                    try sema.analyzeSwitchProngRuntime(
+                        &case_block,
+                        raw_operand.val,
+                        raw_operand.ptr,
+                        .special,
+                        special.body,
+                        special.capture,
+                        .special,
+                        else_error_ty,
+                        &.{item_ref},
+                        inst,
+                    );
 
                     try cases_extra.ensureUnusedCapacity(gpa, 3 + case_block.instructions.items.len);
                     cases_extra.appendAssumeCapacity(1); // items_len
@@ -11540,7 +11789,18 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
                     if (emit_bb) try sema.emitBackwardBranch(block, special_prong_src);
                     emit_bb = true;
 
-                    try sema.analyzeBodyRuntimeBreak(&case_block, special.body);
+                    try sema.analyzeSwitchProngRuntime(
+                        &case_block,
+                        raw_operand.val,
+                        raw_operand.ptr,
+                        .special,
+                        special.body,
+                        special.capture,
+                        .special,
+                        else_error_ty,
+                        &.{Air.Inst.Ref.bool_true},
+                        inst,
+                    );
 
                     try cases_extra.ensureUnusedCapacity(gpa, 3 + case_block.instructions.items.len);
                     cases_extra.appendAssumeCapacity(1); // items_len
@@ -11558,7 +11818,18 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
                     if (emit_bb) try sema.emitBackwardBranch(block, special_prong_src);
                     emit_bb = true;
 
-                    try sema.analyzeBodyRuntimeBreak(&case_block, special.body);
+                    try sema.analyzeSwitchProngRuntime(
+                        &case_block,
+                        raw_operand.val,
+                        raw_operand.ptr,
+                        .special,
+                        special.body,
+                        special.capture,
+                        .special,
+                        else_error_ty,
+                        &.{Air.Inst.Ref.bool_false},
+                        inst,
+                    );
 
                     try cases_extra.ensureUnusedCapacity(gpa, 3 + case_block.instructions.items.len);
                     cases_extra.appendAssumeCapacity(1); // items_len
@@ -11601,7 +11872,18 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
         {
             // nothing to do here
         } else if (special.body.len != 0 and analyze_body and !special.is_inline) {
-            try sema.analyzeBodyRuntimeBreak(&case_block, special.body);
+            try sema.analyzeSwitchProngRuntime(
+                &case_block,
+                raw_operand.val,
+                raw_operand.ptr,
+                .special,
+                special.body,
+                special.capture,
+                .special,
+                else_error_ty,
+                undefined,
+                inst,
+            );
         } else {
             // We still need a terminator in this block, but we have proven
             // that it is unreachable.
@@ -11746,7 +12028,7 @@ fn resolveSwitchItemVal(
         else => |e| return e,
     };
 
-    const val = sema.resolveConstLazyValue(block, .unneeded, item, "") catch |err| switch (err) {
+    const maybe_lazy = sema.resolveConstValue(block, .unneeded, item, "") catch |err| switch (err) {
         error.NeededSourceLocation => {
             const src = switch_prong_src.resolve(mod, mod.declPtr(block.src_decl), switch_node_offset, range_expand);
             _ = try sema.resolveConstValue(block, src, item, "switch prong values must be comptime-known");
@@ -11755,7 +12037,12 @@ fn resolveSwitchItemVal(
         else => |e| return e,
     };
 
-    return .{ .ref = item, .val = val.toIntern() };
+    const val = try sema.resolveLazyValue(maybe_lazy);
+    const new_item = if (val.toIntern() != maybe_lazy.toIntern()) blk: {
+        break :blk try sema.addConstant(coerce_ty, val);
+    } else item;
+
+    return .{ .ref = new_item, .val = val.toIntern() };
 }
 
 fn validateSwitchRange(

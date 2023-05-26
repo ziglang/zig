@@ -2612,8 +2612,6 @@ fn addEnsureResult(gz: *GenZir, maybe_unused_result: Zir.Inst.Ref, statement: As
             .switch_block,
             .switch_cond,
             .switch_cond_ref,
-            .switch_capture,
-            .switch_capture_ref,
             .switch_capture_tag,
             .struct_init_empty,
             .struct_init,
@@ -6876,17 +6874,22 @@ fn switchExpr(
         var dbg_var_inst: Zir.Inst.Ref = undefined;
         var dbg_var_tag_name: ?u32 = null;
         var dbg_var_tag_inst: Zir.Inst.Ref = undefined;
-        var capture_inst: Zir.Inst.Index = 0;
         var tag_inst: Zir.Inst.Index = 0;
         var capture_val_scope: Scope.LocalVal = undefined;
         var tag_scope: Scope.LocalVal = undefined;
+
+        var capture: Zir.Inst.SwitchBlock.ProngInfo.Capture = .none;
+
         const sub_scope = blk: {
             const payload_token = case.payload_token orelse break :blk &case_scope.base;
             const ident = if (token_tags[payload_token] == .asterisk)
                 payload_token + 1
             else
                 payload_token;
+
             const is_ptr = ident != payload_token;
+            capture = if (is_ptr) .by_ref else .by_val;
+
             const ident_slice = tree.tokenSlice(ident);
             var payload_sub_scope: *Scope = undefined;
             if (mem.eql(u8, ident_slice, "_")) {
@@ -6895,46 +6898,18 @@ fn switchExpr(
                 }
                 payload_sub_scope = &case_scope.base;
             } else {
-                if (case_node == special_node) {
-                    const capture_tag: Zir.Inst.Tag = if (is_ptr)
-                        .switch_capture_ref
-                    else
-                        .switch_capture;
-                    capture_inst = @intCast(Zir.Inst.Index, astgen.instructions.len);
-                    try astgen.instructions.append(gpa, .{
-                        .tag = capture_tag,
-                        .data = .{
-                            .switch_capture = .{
-                                .switch_inst = switch_block,
-                                // Max int communicates that this is the else/underscore prong.
-                                .prong_index = std.math.maxInt(u32),
-                            },
-                        },
-                    });
-                } else {
-                    const capture_tag: Zir.Inst.Tag = if (is_ptr) .switch_capture_ref else .switch_capture;
-                    const capture_index = if (is_multi_case) scalar_cases_len + multi_case_index else scalar_case_index;
-                    capture_inst = @intCast(Zir.Inst.Index, astgen.instructions.len);
-                    try astgen.instructions.append(gpa, .{
-                        .tag = capture_tag,
-                        .data = .{ .switch_capture = .{
-                            .switch_inst = switch_block,
-                            .prong_index = capture_index,
-                        } },
-                    });
-                }
                 const capture_name = try astgen.identAsString(ident);
                 try astgen.detectLocalShadowing(&case_scope.base, capture_name, ident, ident_slice, .capture);
                 capture_val_scope = .{
                     .parent = &case_scope.base,
                     .gen_zir = &case_scope,
                     .name = capture_name,
-                    .inst = indexToRef(capture_inst),
+                    .inst = indexToRef(switch_block),
                     .token_src = payload_token,
                     .id_cat = .capture,
                 };
                 dbg_var_name = capture_name;
-                dbg_var_inst = indexToRef(capture_inst);
+                dbg_var_inst = indexToRef(switch_block);
                 payload_sub_scope = &capture_val_scope.base;
             }
 
@@ -7023,7 +6998,6 @@ fn switchExpr(
             case_scope.instructions_top = parent_gz.instructions.items.len;
             defer case_scope.unstack();
 
-            if (capture_inst != 0) try case_scope.instructions.append(gpa, capture_inst);
             if (tag_inst != 0) try case_scope.instructions.append(gpa, tag_inst);
             try case_scope.addDbgBlockBegin();
             if (dbg_var_name) |some| {
@@ -7042,10 +7016,28 @@ fn switchExpr(
             }
 
             const case_slice = case_scope.instructionsSlice();
-            const body_len = astgen.countBodyLenAfterFixups(case_slice);
+            // Since we use the switch_block instruction itself to refer to the
+            // capture, which will not be added to the child block, we need to
+            // handle ref_table manually.
+            const refs_len = refs: {
+                var n: usize = 0;
+                var check_inst = switch_block;
+                while (astgen.ref_table.get(check_inst)) |ref_inst| {
+                    n += 1;
+                    check_inst = ref_inst;
+                }
+                break :refs n;
+            };
+            const body_len = refs_len + astgen.countBodyLenAfterFixups(case_slice);
             try payloads.ensureUnusedCapacity(gpa, body_len);
-            const inline_bit = @as(u32, @boolToInt(case.inline_token != null)) << 31;
-            payloads.items[body_len_index] = body_len | inline_bit;
+            payloads.items[body_len_index] = @bitCast(u32, Zir.Inst.SwitchBlock.ProngInfo{
+                .body_len = @intCast(u29, body_len),
+                .capture = capture,
+                .is_inline = case.inline_token != null,
+            });
+            if (astgen.ref_table.fetchRemove(switch_block)) |kv| {
+                appendPossiblyRefdBodyInst(astgen, payloads, kv.value);
+            }
             appendBodyWithFixupsArrayList(astgen, payloads, case_slice);
         }
     }
@@ -7092,7 +7084,7 @@ fn switchExpr(
             end_index += 3 + items_len + 2 * ranges_len;
         }
 
-        const body_len = @truncate(u31, payloads.items[body_len_index]);
+        const body_len = @bitCast(Zir.Inst.SwitchBlock.ProngInfo, payloads.items[body_len_index]).body_len;
         end_index += body_len;
 
         switch (strat.tag) {
