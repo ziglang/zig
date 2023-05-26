@@ -2560,7 +2560,7 @@ pub const DeclGen = struct {
                 );
 
                 try dg.object.di_map.put(dg.gpa, dg.decl, di_global.getVariable().toNode());
-                if (!is_internal_linkage) global.attachMetaData(di_global);
+                if (!is_internal_linkage or decl.isExtern()) global.attachMetaData(di_global);
             }
         }
     }
@@ -5030,7 +5030,6 @@ pub const FuncGen = struct {
         }
 
         if (return_type.isNoReturn() and attr != .AlwaysTail) {
-            _ = self.builder.buildUnreachable();
             return null;
         }
 
@@ -7031,7 +7030,7 @@ pub const FuncGen = struct {
         const operand = try self.resolveInst(extra.rhs);
 
         const loaded_vector = blk: {
-            const elem_llvm_ty = try self.dg.lowerType(vector_ptr_ty.elemType2());
+            const elem_llvm_ty = try self.dg.lowerType(vector_ptr_ty.childType());
             const load_inst = self.builder.buildLoad(elem_llvm_ty, vector_ptr, "");
             const target = self.dg.module.getTarget();
             load_inst.setAlignment(vector_ptr_ty.ptrAlignment(target));

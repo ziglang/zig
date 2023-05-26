@@ -646,7 +646,7 @@ pub fn main() anyerror!void {
     }
     // Some options have multiple matches. As an example, "-Wl,foo" matches both
     // "W" and "Wl,". So we sort this list in order of descending priority.
-    std.sort.sort(*json.ObjectMap, all_objects.items, {}, objectLessThan);
+    std.mem.sort(*json.ObjectMap, all_objects.items, {}, objectLessThan);
 
     var buffered_stdout = std.io.bufferedWriter(std.io.getStdOut().writer());
     const stdout = buffered_stdout.writer();

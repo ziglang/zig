@@ -1631,3 +1631,10 @@ pub const HW_ALLOWPOWERDOWN = 22;
 pub const HW_PERFPOLICY = 23;
 pub const HW_SMT = 24;
 pub const HW_NCPUONLINE = 25;
+
+/// TODO refines if necessary
+pub const PTHREAD_STACK_MIN = switch (builtin.cpu.arch) {
+    .sparc64 => 1 << 13,
+    .mips64 => 1 << 14,
+    else => 1 << 12,
+};

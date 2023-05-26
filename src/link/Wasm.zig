@@ -2143,7 +2143,7 @@ fn sortDataSegments(wasm: *Wasm) !void {
         }
     };
 
-    std.sort.sort([]const u8, keys, {}, SortContext.sort);
+    mem.sort([]const u8, keys, {}, SortContext.sort);
     for (keys) |key| {
         const segment_index = wasm.data_segments.get(key).?;
         new_mapping.putAssumeCapacity(key, segment_index);
@@ -2187,7 +2187,7 @@ fn setupInitFunctions(wasm: *Wasm) !void {
     }
 
     // sort the initfunctions based on their priority
-    std.sort.sort(InitFuncLoc, wasm.init_funcs.items, {}, InitFuncLoc.lessThan);
+    mem.sort(InitFuncLoc, wasm.init_funcs.items, {}, InitFuncLoc.lessThan);
 }
 
 /// Generates an atom containing the global error set' size.
@@ -3687,7 +3687,7 @@ fn writeToFile(
             }
         }.sort;
 
-        std.sort.sort(*Atom, sorted_atoms.items, wasm, atom_sort_fn);
+        mem.sort(*Atom, sorted_atoms.items, wasm, atom_sort_fn);
 
         for (sorted_atoms.items) |sorted_atom| {
             try leb.writeULEB128(binary_writer, sorted_atom.size);
@@ -4050,8 +4050,8 @@ fn emitNameSection(wasm: *Wasm, binary_bytes: *std.ArrayList(u8), arena: std.mem
         data_segment_index += 1;
     }
 
-    std.sort.sort(Name, funcs.values(), {}, Name.lessThan);
-    std.sort.sort(Name, globals.items, {}, Name.lessThan);
+    mem.sort(Name, funcs.values(), {}, Name.lessThan);
+    mem.sort(Name, globals.items, {}, Name.lessThan);
 
     const header_offset = try reserveCustomSectionHeader(binary_bytes);
     const writer = binary_bytes.writer();

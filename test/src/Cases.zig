@@ -494,10 +494,12 @@ pub fn lowerToBuildSteps(
         }
 
         const writefiles = b.addWriteFiles();
+        var file_sources = std.StringHashMap(std.Build.FileSource).init(b.allocator);
+        defer file_sources.deinit();
         for (update.files.items) |file| {
-            writefiles.add(file.path, file.src);
+            file_sources.put(file.path, writefiles.add(file.path, file.src)) catch @panic("OOM");
         }
-        const root_source_file = writefiles.getFileSource(update.files.items[0].path).?;
+        const root_source_file = writefiles.files.items[0].getFileSource();
 
         const artifact = if (case.is_test) b.addTest(.{
             .root_source_file = root_source_file,
@@ -540,7 +542,7 @@ pub fn lowerToBuildSteps(
 
         for (case.deps.items) |dep| {
             artifact.addAnonymousModule(dep.name, .{
-                .source_file = writefiles.getFileSource(dep.path).?,
+                .source_file = file_sources.get(dep.path).?,
             });
         }
 
@@ -607,7 +609,7 @@ fn sortTestFilenames(filenames: [][]const u8) void {
             };
         }
     };
-    std.sort.sort([]const u8, filenames, Context{}, Context.lessThan);
+    std.mem.sort([]const u8, filenames, Context{}, Context.lessThan);
 }
 
 /// Iterates a set of filenames extracting batches that are either incremental
@@ -1354,7 +1356,7 @@ fn runOneCase(
             defer all_errors.deinit(allocator);
             if (all_errors.errorMessageCount() > 0) {
                 all_errors.renderToStdErr(.{
-                    .ttyconf = std.debug.detectTTYConfig(std.io.getStdErr()),
+                    .ttyconf = std.io.tty.detectConfig(std.io.getStdErr()),
                 });
                 // TODO print generated C code
                 return error.UnexpectedCompileErrors;

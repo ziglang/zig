@@ -7850,10 +7850,6 @@ comptime {
       Converts {#syntax#}true{#endsyntax#} to {#syntax#}@as(u1, 1){#endsyntax#} and {#syntax#}false{#endsyntax#} to
                   {#syntax#}@as(u1, 0){#endsyntax#}.
       </p>
-      <p>
-      If the value is known at compile-time, the return type is {#syntax#}comptime_int{#endsyntax#}
-          instead of {#syntax#}u1{#endsyntax#}.
-      </p>
       {#header_close#}
 
       {#header_open|@bitSizeOf#}
