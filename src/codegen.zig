@@ -185,7 +185,7 @@ pub fn generateSymbol(
 
     const mod = bin_file.options.module.?;
     var typed_value = arg_tv;
-    switch (mod.intern_pool.indexToKey(typed_value.val.ip_index)) {
+    switch (mod.intern_pool.indexToKey(typed_value.val.toIntern())) {
         .runtime_value => |rt| typed_value.val = rt.val.toValue(),
         else => {},
     }
@@ -204,7 +204,7 @@ pub fn generateSymbol(
         return .ok;
     }
 
-    switch (mod.intern_pool.indexToKey(typed_value.val.ip_index)) {
+    switch (mod.intern_pool.indexToKey(typed_value.val.toIntern())) {
         .int_type,
         .ptr_type,
         .array_type,
@@ -282,7 +282,7 @@ pub fn generateSymbol(
                 switch (try generateSymbol(bin_file, src_loc, .{
                     .ty = payload_ty,
                     .val = switch (error_union.val) {
-                        .err_name => try mod.intern(.{ .undef = payload_ty.ip_index }),
+                        .err_name => try mod.intern(.{ .undef = payload_ty.toIntern() }),
                         .payload => |payload| payload,
                     }.toValue(),
                 }, code, debug_output, reloc_info)) {
@@ -315,7 +315,7 @@ pub fn generateSymbol(
             const int_tag_ty = try typed_value.ty.intTagType(mod);
             switch (try generateSymbol(bin_file, src_loc, .{
                 .ty = int_tag_ty,
-                .val = (try mod.intern_pool.getCoerced(mod.gpa, enum_tag.int, int_tag_ty.ip_index)).toValue(),
+                .val = try mod.getCoerced(enum_tag.int.toValue(), int_tag_ty),
             }, code, debug_output, reloc_info)) {
                 .ok => {},
                 .fail => |em| return .{ .fail = em },
@@ -337,7 +337,7 @@ pub fn generateSymbol(
             switch (try lowerParentPtr(bin_file, src_loc, switch (ptr.len) {
                 .none => typed_value.val,
                 else => typed_value.val.slicePtr(mod),
-            }.ip_index, code, debug_output, reloc_info)) {
+            }.toIntern(), code, debug_output, reloc_info)) {
                 .ok => {},
                 .fail => |em| return .{ .fail = em },
             }
@@ -372,7 +372,7 @@ pub fn generateSymbol(
             } else {
                 const padding = abi_size - (math.cast(usize, payload_type.abiSize(mod)) orelse return error.Overflow) - 1;
                 if (payload_type.hasRuntimeBits(mod)) {
-                    const value = payload_val orelse (try mod.intern(.{ .undef = payload_type.ip_index })).toValue();
+                    const value = payload_val orelse (try mod.intern(.{ .undef = payload_type.toIntern() })).toValue();
                     switch (try generateSymbol(bin_file, src_loc, .{
                         .ty = payload_type,
                         .val = value,
@@ -385,7 +385,7 @@ pub fn generateSymbol(
                 try code.writer().writeByteNTimes(0, padding);
             }
         },
-        .aggregate => |aggregate| switch (mod.intern_pool.indexToKey(typed_value.ty.ip_index)) {
+        .aggregate => |aggregate| switch (mod.intern_pool.indexToKey(typed_value.ty.toIntern())) {
             .array_type => |array_type| {
                 var index: u64 = 0;
                 while (index < array_type.len) : (index += 1) {
@@ -850,7 +850,7 @@ pub fn genTypedValue(
 ) CodeGenError!GenResult {
     const mod = bin_file.options.module.?;
     var typed_value = arg_tv;
-    switch (mod.intern_pool.indexToKey(typed_value.val.ip_index)) {
+    switch (mod.intern_pool.indexToKey(typed_value.val.toIntern())) {
         .runtime_value => |rt| typed_value.val = rt.val.toValue(),
         else => {},
     }
@@ -866,7 +866,7 @@ pub fn genTypedValue(
     const target = bin_file.options.target;
     const ptr_bits = target.ptrBitWidth();
 
-    if (!typed_value.ty.isSlice(mod)) switch (mod.intern_pool.indexToKey(typed_value.val.ip_index)) {
+    if (!typed_value.ty.isSlice(mod)) switch (mod.intern_pool.indexToKey(typed_value.val.toIntern())) {
         .ptr => |ptr| switch (ptr.addr) {
             .decl => |decl| return genDeclRef(bin_file, src_loc, typed_value, decl),
             .mut_decl => |mut_decl| return genDeclRef(bin_file, src_loc, typed_value, mut_decl.decl),
@@ -879,12 +879,12 @@ pub fn genTypedValue(
         .Void => return GenResult.mcv(.none),
         .Pointer => switch (typed_value.ty.ptrSize(mod)) {
             .Slice => {},
-            else => switch (typed_value.val.ip_index) {
+            else => switch (typed_value.val.toIntern()) {
                 .null_value => {
                     return GenResult.mcv(.{ .immediate = 0 });
                 },
                 .none => {},
-                else => switch (mod.intern_pool.indexToKey(typed_value.val.ip_index)) {
+                else => switch (mod.intern_pool.indexToKey(typed_value.val.toIntern())) {
                     .int => {
                         return GenResult.mcv(.{ .immediate = typed_value.val.toUnsignedInt(mod) });
                     },
@@ -916,7 +916,7 @@ pub fn genTypedValue(
             }
         },
         .Enum => {
-            const enum_tag = mod.intern_pool.indexToKey(typed_value.val.ip_index).enum_tag;
+            const enum_tag = mod.intern_pool.indexToKey(typed_value.val.toIntern()).enum_tag;
             const int_tag_ty = mod.intern_pool.typeOf(enum_tag.int);
             return genTypedValue(bin_file, src_loc, .{
                 .ty = int_tag_ty.toType(),
@@ -924,7 +924,9 @@ pub fn genTypedValue(
             }, owner_decl_index);
         },
         .ErrorSet => {
-            const err_name = mod.intern_pool.stringToSlice(mod.intern_pool.indexToKey(typed_value.val.ip_index).err.name);
+            const err_name = mod.intern_pool.stringToSlice(
+                mod.intern_pool.indexToKey(typed_value.val.toIntern()).err.name,
+            );
             const global_error_set = mod.global_error_set;
             const error_index = global_error_set.get(err_name).?;
             return GenResult.mcv(.{ .immediate = error_index });

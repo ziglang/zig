@@ -7821,7 +7821,6 @@ fn resolveGenericInstantiationType(
     const new_func_inst = try child_sema.resolveBody(&child_block, fn_info.param_body, fn_info.param_body_inst);
     const new_func_val = child_sema.resolveConstValue(&child_block, .unneeded, new_func_inst, undefined) catch unreachable;
     const new_func = new_func_val.getFunctionIndex(mod).unwrap().?;
-    errdefer mod.destroyFunc(new_func);
     assert(new_func == new_module_func);
 
     arg_i = 0;
@@ -10793,7 +10792,7 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
             check_range: {
                 if (operand_ty.zigTypeTag(mod) == .Int) {
                     const min_int = try operand_ty.minInt(mod);
-                    const max_int = try operand_ty.maxIntScalar(mod, Type.comptime_int);
+                    const max_int = try operand_ty.maxInt(mod, operand_ty);
                     if (try range_set.spans(min_int, max_int, operand_ty)) {
                         if (special_prong == .@"else") {
                             return sema.fail(
@@ -11649,7 +11648,7 @@ const RangeSetUnhandledIterator = struct {
     fn init(sema: *Sema, ty: Type, range_set: RangeSet) !RangeSetUnhandledIterator {
         const mod = sema.mod;
         const min = try ty.minInt(mod);
-        const max = try ty.maxIntScalar(mod, Type.comptime_int);
+        const max = try ty.maxInt(mod, ty);
 
         return RangeSetUnhandledIterator{
             .sema = sema,
@@ -15964,25 +15963,24 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
             }
 
             const args_val = v: {
-                const args_slice_ty = try mod.ptrType(.{
-                    .elem_type = param_info_ty.toIntern(),
-                    .size = .Slice,
-                    .is_const = true,
+                const new_decl_ty = try mod.arrayType(.{
+                    .len = param_vals.len,
+                    .child = param_info_ty.toIntern(),
                 });
                 const new_decl = try params_anon_decl.finish(
-                    try mod.arrayType(.{
-                        .len = param_vals.len,
-                        .child = param_info_ty.toIntern(),
-                        .sentinel = .none,
-                    }),
+                    new_decl_ty,
                     (try mod.intern(.{ .aggregate = .{
-                        .ty = args_slice_ty.toIntern(),
+                        .ty = new_decl_ty.toIntern(),
                         .storage = .{ .elems = param_vals },
                     } })).toValue(),
                     0, // default alignment
                 );
                 break :v try mod.intern(.{ .ptr = .{
-                    .ty = args_slice_ty.toIntern(),
+                    .ty = (try mod.ptrType(.{
+                        .elem_type = param_info_ty.toIntern(),
+                        .size = .Slice,
+                        .is_const = true,
+                    })).toIntern(),
                     .addr = .{ .decl = new_decl },
                     .len = (try mod.intValue(Type.usize, param_vals.len)).toIntern(),
                 } });
@@ -16214,7 +16212,7 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
             };
             return sema.addConstant(type_info_ty, (try mod.intern(.{ .un = .{
                 .ty = type_info_ty.toIntern(),
-                .tag = (try mod.enumValueFieldIndex(type_info_tag_ty, @enumToInt(std.builtin.TypeId.Vector))).toIntern(),
+                .tag = (try mod.enumValueFieldIndex(type_info_tag_ty, @enumToInt(std.builtin.TypeId.Optional))).toIntern(),
                 .val = try mod.intern(.{ .aggregate = .{
                     .ty = optional_field_ty.toIntern(),
                     .storage = .{ .elems = &field_values },
@@ -16258,7 +16256,6 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                         const new_decl_ty = try mod.arrayType(.{
                             .len = name.len,
                             .child = .u8_type,
-                            .sentinel = .zero_u8,
                         });
                         const new_decl = try anon_decl.finish(
                             new_decl_ty,
@@ -16269,8 +16266,9 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                             0, // default alignment
                         );
                         break :v try mod.intern(.{ .ptr = .{
-                            .ty = .slice_const_u8_sentinel_0_type,
+                            .ty = .slice_const_u8_type,
                             .addr = .{ .decl = new_decl },
+                            .len = (try mod.intValue(Type.usize, name.len)).toIntern(),
                         } });
                     };
 
@@ -16386,7 +16384,6 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                     const new_decl_ty = try mod.arrayType(.{
                         .len = name.len,
                         .child = .u8_type,
-                        .sentinel = .zero_u8,
                     });
                     const new_decl = try anon_decl.finish(
                         new_decl_ty,
@@ -16397,8 +16394,9 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                         0, // default alignment
                     );
                     break :v try mod.intern(.{ .ptr = .{
-                        .ty = .slice_const_u8_sentinel_0_type,
+                        .ty = .slice_const_u8_type,
                         .addr = .{ .decl = new_decl },
+                        .len = (try mod.intValue(Type.usize, name.len)).toIntern(),
                     } });
                 };
 
@@ -16521,7 +16519,6 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                     const new_decl_ty = try mod.arrayType(.{
                         .len = name.len,
                         .child = .u8_type,
-                        .sentinel = .zero_u8,
                     });
                     const new_decl = try anon_decl.finish(
                         new_decl_ty,
@@ -16532,8 +16529,9 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                         0, // default alignment
                     );
                     break :v try mod.intern(.{ .ptr = .{
-                        .ty = .slice_const_u8_sentinel_0_type,
+                        .ty = .slice_const_u8_type,
                         .addr = .{ .decl = new_decl },
+                        .len = (try mod.intValue(Type.usize, name.len)).toIntern(),
                     } });
                 };
 
@@ -16663,12 +16661,10 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                 const struct_type = switch (mod.intern_pool.indexToKey(struct_ty.toIntern())) {
                     .anon_struct_type => |tuple| {
                         struct_field_vals = try gpa.alloc(InternPool.Index, tuple.types.len);
-                        for (
-                            tuple.types,
-                            tuple.values,
-                            struct_field_vals,
-                            0..,
-                        ) |field_ty, field_val, *struct_field_val, i| {
+                        for (struct_field_vals, 0..) |*struct_field_val, i| {
+                            const anon_struct_type = mod.intern_pool.indexToKey(struct_ty.toIntern()).anon_struct_type;
+                            const field_ty = anon_struct_type.types[i];
+                            const field_val = anon_struct_type.values[i];
                             const name_val = v: {
                                 var anon_decl = try block.startAnonDecl();
                                 defer anon_decl.deinit();
@@ -16735,7 +16731,6 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                         const new_decl_ty = try mod.arrayType(.{
                             .len = name.len,
                             .child = .u8_type,
-                            .sentinel = .zero_u8,
                         });
                         const new_decl = try anon_decl.finish(
                             new_decl_ty,
@@ -16746,7 +16741,7 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                             0, // default alignment
                         );
                         break :v try mod.intern(.{ .ptr = .{
-                            .ty = .slice_const_u8_sentinel_0_type,
+                            .ty = .slice_const_u8_type,
                             .addr = .{ .decl = new_decl },
                             .len = (try mod.intValue(Type.usize, name.len)).toIntern(),
                         } });
@@ -16975,7 +16970,6 @@ fn typeInfoNamespaceDecls(
             const new_decl_ty = try mod.arrayType(.{
                 .len = name.len,
                 .child = .u8_type,
-                .sentinel = .zero_u8,
             });
             const new_decl = try anon_decl.finish(
                 new_decl_ty,
@@ -16986,7 +16980,7 @@ fn typeInfoNamespaceDecls(
                 0, // default alignment
             );
             break :v try mod.intern(.{ .ptr = .{
-                .ty = .slice_const_u8_sentinel_0_type,
+                .ty = .slice_const_u8_type,
                 .addr = .{ .decl = new_decl },
                 .len = (try mod.intValue(Type.usize, name.len)).toIntern(),
             } });
@@ -20404,7 +20398,7 @@ fn zirPtrCast(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
                 .val = operand_val.toIntern(),
             } })).toValue());
         }
-        return sema.addConstant(aligned_dest_ty, operand_val);
+        return sema.addConstant(aligned_dest_ty, try mod.getCoerced(operand_val, aligned_dest_ty));
     }
 
     try sema.requireRuntimeBlock(block, src, null);
@@ -22401,7 +22395,7 @@ fn analyzeMinMax(
             if (std.debug.runtime_safety) {
                 assert(try sema.intFitsInType(val, refined_ty, null));
             }
-            cur_minmax = try sema.addConstant(refined_ty, val);
+            cur_minmax = try sema.addConstant(refined_ty, try mod.getCoerced(val, refined_ty));
         }
 
         break :refined refined_ty;
@@ -22459,8 +22453,8 @@ fn analyzeMinMax(
             else => unreachable,
         };
         const max_val = switch (air_tag) {
-            .min => try comptime_elem_ty.maxInt(mod, Type.comptime_int), // @min(ct, rt) <= ct
-            .max => try unrefined_elem_ty.maxInt(mod, Type.comptime_int),
+            .min => try comptime_elem_ty.maxInt(mod, comptime_elem_ty), // @min(ct, rt) <= ct
+            .max => try unrefined_elem_ty.maxInt(mod, unrefined_elem_ty),
             else => unreachable,
         };
 
@@ -23356,11 +23350,14 @@ fn zirBuiltinExtern(
     try mod.declareDeclDependency(sema.owner_decl_index, new_decl_index);
     try sema.ensureDeclAnalyzed(new_decl_index);
 
-    const ref = try mod.intern(.{ .ptr = .{
-        .ty = (try mod.singleConstPtrType(ty)).toIntern(),
+    return sema.addConstant(ty, try mod.getCoerced((try mod.intern(.{ .ptr = .{
+        .ty = switch (mod.intern_pool.indexToKey(ty.toIntern())) {
+            .ptr_type => ty.toIntern(),
+            .opt_type => |child_type| child_type,
+            else => unreachable,
+        },
         .addr = .{ .decl = new_decl_index },
-    } });
-    return sema.addConstant(ty, ref.toValue());
+    } })).toValue(), ty));
 }
 
 fn zirWorkItem(
@@ -25887,13 +25884,7 @@ fn coerceExtra(
     var in_memory_result = try sema.coerceInMemoryAllowed(block, dest_ty, inst_ty, false, target, dest_ty_src, inst_src);
     if (in_memory_result == .ok) {
         if (maybe_inst_val) |val| {
-            if (val.ip_index == .none) {
-                // Keep the comptime Value representation; take the new type.
-                return sema.addConstant(dest_ty, val);
-            } else {
-                const new_val = try mod.intern_pool.getCoerced(sema.gpa, val.toIntern(), dest_ty.toIntern());
-                return sema.addConstant(dest_ty, new_val.toValue());
-            }
+            return sema.addConstant(dest_ty, try mod.getCoerced(val, dest_ty));
         }
         try sema.requireRuntimeBlock(block, inst_src, null);
         return block.addBitCast(dest_ty, inst);
@@ -26269,8 +26260,7 @@ fn coerceExtra(
                         if (!opts.report_err) return error.NotCoercible;
                         return sema.fail(block, inst_src, "type '{}' cannot represent integer value '{}'", .{ dest_ty.fmt(sema.mod), val.fmtValue(inst_ty, sema.mod) });
                     }
-                    const new_val = try mod.intern_pool.getCoerced(sema.gpa, val.toIntern(), dest_ty.toIntern());
-                    return try sema.addConstant(dest_ty, new_val.toValue());
+                    return try sema.addConstant(dest_ty, try mod.getCoerced(val, dest_ty));
                 }
                 if (dest_ty.zigTypeTag(mod) == .ComptimeInt) {
                     if (!opts.report_err) return error.NotCoercible;
@@ -27222,68 +27212,84 @@ fn coerceInMemoryAllowedFns(
     src_src: LazySrcLoc,
 ) !InMemoryCoercionResult {
     const mod = sema.mod;
-    const dest_info = mod.typeToFunc(dest_ty).?;
-    const src_info = mod.typeToFunc(src_ty).?;
 
-    if (dest_info.is_var_args != src_info.is_var_args) {
-        return InMemoryCoercionResult{ .fn_var_args = dest_info.is_var_args };
-    }
+    {
+        const dest_info = mod.typeToFunc(dest_ty).?;
+        const src_info = mod.typeToFunc(src_ty).?;
 
-    if (dest_info.is_generic != src_info.is_generic) {
-        return InMemoryCoercionResult{ .fn_generic = dest_info.is_generic };
-    }
+        if (dest_info.is_var_args != src_info.is_var_args) {
+            return InMemoryCoercionResult{ .fn_var_args = dest_info.is_var_args };
+        }
 
-    if (dest_info.cc != src_info.cc) {
-        return InMemoryCoercionResult{ .fn_cc = .{
-            .actual = src_info.cc,
-            .wanted = dest_info.cc,
-        } };
-    }
+        if (dest_info.is_generic != src_info.is_generic) {
+            return InMemoryCoercionResult{ .fn_generic = dest_info.is_generic };
+        }
 
-    if (src_info.return_type != .noreturn_type) {
-        const rt = try sema.coerceInMemoryAllowed(block, dest_info.return_type.toType(), src_info.return_type.toType(), false, target, dest_src, src_src);
-        if (rt != .ok) {
-            return InMemoryCoercionResult{ .fn_return_type = .{
-                .child = try rt.dupe(sema.arena),
-                .actual = src_info.return_type.toType(),
-                .wanted = dest_info.return_type.toType(),
+        if (dest_info.cc != src_info.cc) {
+            return InMemoryCoercionResult{ .fn_cc = .{
+                .actual = src_info.cc,
+                .wanted = dest_info.cc,
             } };
+        }
+
+        if (src_info.return_type != .noreturn_type) {
+            const dest_return_type = dest_info.return_type.toType();
+            const src_return_type = src_info.return_type.toType();
+            const rt = try sema.coerceInMemoryAllowed(block, dest_return_type, src_return_type, false, target, dest_src, src_src);
+            if (rt != .ok) {
+                return InMemoryCoercionResult{ .fn_return_type = .{
+                    .child = try rt.dupe(sema.arena),
+                    .actual = dest_return_type,
+                    .wanted = src_return_type,
+                } };
+            }
         }
     }
 
-    if (dest_info.param_types.len != src_info.param_types.len) {
-        return InMemoryCoercionResult{ .fn_param_count = .{
-            .actual = src_info.param_types.len,
-            .wanted = dest_info.param_types.len,
-        } };
-    }
+    const params_len = params_len: {
+        const dest_info = mod.typeToFunc(dest_ty).?;
+        const src_info = mod.typeToFunc(src_ty).?;
 
-    if (dest_info.noalias_bits != src_info.noalias_bits) {
-        return InMemoryCoercionResult{ .fn_param_noalias = .{
-            .actual = src_info.noalias_bits,
-            .wanted = dest_info.noalias_bits,
-        } };
-    }
+        if (dest_info.param_types.len != src_info.param_types.len) {
+            return InMemoryCoercionResult{ .fn_param_count = .{
+                .actual = src_info.param_types.len,
+                .wanted = dest_info.param_types.len,
+            } };
+        }
 
-    for (dest_info.param_types, 0..) |dest_param_ty, i| {
-        const src_param_ty = src_info.param_types[i].toType();
+        if (dest_info.noalias_bits != src_info.noalias_bits) {
+            return InMemoryCoercionResult{ .fn_param_noalias = .{
+                .actual = src_info.noalias_bits,
+                .wanted = dest_info.noalias_bits,
+            } };
+        }
 
-        const i_small = @intCast(u5, i);
-        if (dest_info.paramIsComptime(i_small) != src_info.paramIsComptime(i_small)) {
+        break :params_len dest_info.param_types.len;
+    };
+
+    for (0..params_len) |param_i| {
+        const dest_info = mod.typeToFunc(dest_ty).?;
+        const src_info = mod.typeToFunc(src_ty).?;
+
+        const dest_param_ty = dest_info.param_types[param_i].toType();
+        const src_param_ty = src_info.param_types[param_i].toType();
+
+        const param_i_small = @intCast(u5, param_i);
+        if (dest_info.paramIsComptime(param_i_small) != src_info.paramIsComptime(param_i_small)) {
             return InMemoryCoercionResult{ .fn_param_comptime = .{
-                .index = i,
-                .wanted = dest_info.paramIsComptime(i_small),
+                .index = param_i,
+                .wanted = dest_info.paramIsComptime(param_i_small),
             } };
         }
 
         // Note: Cast direction is reversed here.
-        const param = try sema.coerceInMemoryAllowed(block, src_param_ty, dest_param_ty.toType(), false, target, dest_src, src_src);
+        const param = try sema.coerceInMemoryAllowed(block, src_param_ty, dest_param_ty, false, target, dest_src, src_src);
         if (param != .ok) {
             return InMemoryCoercionResult{ .fn_param = .{
                 .child = try param.dupe(sema.arena),
                 .actual = src_param_ty,
-                .wanted = dest_param_ty.toType(),
-                .index = i,
+                .wanted = dest_param_ty,
+                .index = param_i,
             } };
         }
     }
@@ -28385,7 +28391,7 @@ fn beginComptimePtrLoad(
                 };
             },
             .elem => |elem_ptr| blk: {
-                const elem_ty = ptr.ty.toType().childType(mod);
+                const elem_ty = ptr.ty.toType().elemType2(mod);
                 var deref = try sema.beginComptimePtrLoad(block, src, elem_ptr.base.toValue(), null);
 
                 // This code assumes that elem_ptrs have been "flattened" in order for direct dereference
@@ -28678,11 +28684,10 @@ fn coerceCompatiblePtrs(
             return sema.fail(block, inst_src, "null pointer casted to type '{}'", .{dest_ty.fmt(sema.mod)});
         }
         // The comptime Value representation is compatible with both types.
-        return sema.addConstant(dest_ty, (try mod.intern_pool.getCoerced(
-            sema.gpa,
-            try val.intern(inst_ty, mod),
-            dest_ty.toIntern(),
-        )).toValue());
+        return sema.addConstant(
+            dest_ty,
+            try mod.getCoerced((try val.intern(inst_ty, mod)).toValue(), dest_ty),
+        );
     }
     try sema.requireRuntimeBlock(block, inst_src, null);
     const inst_allows_zero = inst_ty.zigTypeTag(mod) != .Pointer or inst_ty.ptrAllowsZero(mod);
@@ -29390,9 +29395,13 @@ fn refValue(sema: *Sema, block: *Block, ty: Type, val: Value) !Value {
 
 fn optRefValue(sema: *Sema, block: *Block, ty: Type, opt_val: ?Value) !Value {
     const mod = sema.mod;
+    const ptr_anyopaque_ty = try mod.singleConstPtrType(Type.anyopaque);
     return (try mod.intern(.{ .opt = .{
-        .ty = (try mod.optionalType((try mod.singleConstPtrType(Type.anyopaque)).toIntern())).toIntern(),
-        .val = if (opt_val) |val| (try sema.refValue(block, ty, val)).toIntern() else .none,
+        .ty = (try mod.optionalType(ptr_anyopaque_ty.toIntern())).toIntern(),
+        .val = if (opt_val) |val| (try mod.getCoerced(
+            try sema.refValue(block, ty, val),
+            ptr_anyopaque_ty,
+        )).toIntern() else .none,
     } })).toValue();
 }
 
@@ -30051,11 +30060,10 @@ fn analyzeSlice(
         };
 
         if (!new_ptr_val.isUndef(mod)) {
-            return sema.addConstant(return_ty, (try mod.intern_pool.getCoerced(
-                sema.gpa,
-                try new_ptr_val.intern(new_ptr_ty, mod),
-                return_ty.toIntern(),
-            )).toValue());
+            return sema.addConstant(return_ty, try mod.getCoerced(
+                (try new_ptr_val.intern(new_ptr_ty, mod)).toValue(),
+                return_ty,
+            ));
         }
 
         // Special case: @as([]i32, undefined)[x..x]
@@ -34237,9 +34245,9 @@ fn enumHasInt(sema: *Sema, ty: Type, int: Value) CompileError!bool {
     // The `tagValueIndex` function call below relies on the type being the integer tag type.
     // `getCoerced` assumes the value will fit the new type.
     if (!(try sema.intFitsInType(int, enum_type.tag_ty.toType(), null))) return false;
-    const int_coerced = try mod.intern_pool.getCoerced(sema.gpa, int.toIntern(), enum_type.tag_ty);
+    const int_coerced = try mod.getCoerced(int, enum_type.tag_ty.toType());
 
-    return enum_type.tagValueIndex(&mod.intern_pool, int_coerced) != null;
+    return enum_type.tagValueIndex(&mod.intern_pool, int_coerced.toIntern()) != null;
 }
 
 fn intAddWithOverflow(
