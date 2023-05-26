@@ -33,7 +33,7 @@ pub fn copy(self: TypedValue, arena: Allocator) error{OutOfMemory}!TypedValue {
 }
 
 pub fn eql(a: TypedValue, b: TypedValue, mod: *Module) bool {
-    if (a.ty.ip_index != b.ty.ip_index) return false;
+    if (a.ty.toIntern() != b.ty.toIntern()) return false;
     return a.val.eql(b.val, a.ty, mod);
 }
 
@@ -76,11 +76,7 @@ pub fn print(
 ) (@TypeOf(writer).Error || Allocator.Error)!void {
     var val = tv.val;
     var ty = tv.ty;
-    if (val.isVariable(mod))
-        return writer.writeAll("(variable)");
-
     while (true) switch (val.ip_index) {
-        .empty_struct => return printAggregate(ty, val, writer, level, mod),
         .none => switch (val.tag()) {
             .aggregate => return printAggregate(ty, val, writer, level, mod),
             .@"union" => {
@@ -91,7 +87,7 @@ pub fn print(
                 try writer.writeAll(".{ ");
 
                 try print(.{
-                    .ty = mod.unionPtr(mod.intern_pool.indexToKey(ty.ip_index).union_type.index).tag_ty,
+                    .ty = mod.unionPtr(mod.intern_pool.indexToKey(ty.toIntern()).union_type.index).tag_ty,
                     .val = union_val.tag,
                 }, writer, level - 1, mod);
                 try writer.writeAll(" = ");
@@ -176,47 +172,112 @@ pub fn print(
             .opt_payload => {
                 val = val.castTag(.opt_payload).?.data;
                 ty = ty.optionalChild(mod);
-                return print(.{ .ty = ty, .val = val }, writer, level, mod);
             },
         },
-        else => {
-            const key = mod.intern_pool.indexToKey(val.ip_index);
-            if (key.typeOf() == .type_type) {
-                return Type.print(val.toType(), writer, mod);
-            }
-            switch (key) {
-                .int => |int| switch (int.storage) {
-                    inline .u64, .i64, .big_int => |x| return writer.print("{}", .{x}),
-                    .lazy_align => |lazy_ty| return writer.print("{d}", .{
-                        lazy_ty.toType().abiAlignment(mod),
-                    }),
-                    .lazy_size => |lazy_ty| return writer.print("{d}", .{
-                        lazy_ty.toType().abiSize(mod),
-                    }),
+        else => switch (mod.intern_pool.indexToKey(val.toIntern())) {
+            .int_type,
+            .ptr_type,
+            .array_type,
+            .vector_type,
+            .opt_type,
+            .anyframe_type,
+            .error_union_type,
+            .simple_type,
+            .struct_type,
+            .anon_struct_type,
+            .union_type,
+            .opaque_type,
+            .enum_type,
+            .func_type,
+            .error_set_type,
+            .inferred_error_set_type,
+            => return Type.print(val.toType(), writer, mod),
+            .undef => return writer.writeAll("undefined"),
+            .runtime_value => return writer.writeAll("(runtime value)"),
+            .simple_value => |simple_value| switch (simple_value) {
+                .empty_struct => return printAggregate(ty, val, writer, level, mod),
+                .generic_poison => return writer.writeAll("(generic poison)"),
+                else => return writer.writeAll(@tagName(simple_value)),
+            },
+            .variable => return writer.writeAll("(variable)"),
+            .extern_func => |extern_func| return writer.print("(extern function '{s}')", .{
+                mod.declPtr(extern_func.decl).name,
+            }),
+            .func => |func| return writer.print("(function '{s}')", .{
+                mod.declPtr(mod.funcPtr(func.index).owner_decl).name,
+            }),
+            .int => |int| switch (int.storage) {
+                inline .u64, .i64, .big_int => |x| return writer.print("{}", .{x}),
+                .lazy_align => |lazy_ty| return writer.print("{d}", .{
+                    lazy_ty.toType().abiAlignment(mod),
+                }),
+                .lazy_size => |lazy_ty| return writer.print("{d}", .{
+                    lazy_ty.toType().abiSize(mod),
+                }),
+            },
+            .err => |err| return writer.print("error.{s}", .{
+                mod.intern_pool.stringToSlice(err.name),
+            }),
+            .error_union => |error_union| switch (error_union.val) {
+                .err_name => |err_name| return writer.print("error.{s}", .{
+                    mod.intern_pool.stringToSlice(err_name),
+                }),
+                .payload => |payload| {
+                    val = payload.toValue();
+                    ty = ty.errorUnionPayload(mod);
                 },
-                .enum_tag => |enum_tag| {
-                    if (level == 0) {
-                        return writer.writeAll("(enum)");
-                    }
+            },
+            .enum_literal => |enum_literal| return writer.print(".{s}", .{
+                mod.intern_pool.stringToSlice(enum_literal),
+            }),
+            .enum_tag => |enum_tag| {
+                if (level == 0) {
+                    return writer.writeAll("(enum)");
+                }
 
-                    try writer.writeAll("@intToEnum(");
-                    try print(.{
-                        .ty = Type.type,
-                        .val = enum_tag.ty.toValue(),
-                    }, writer, level - 1, mod);
-                    try writer.writeAll(", ");
-                    try print(.{
-                        .ty = mod.intern_pool.typeOf(enum_tag.int).toType(),
-                        .val = enum_tag.int.toValue(),
-                    }, writer, level - 1, mod);
-                    try writer.writeAll(")");
-                    return;
+                try writer.writeAll("@intToEnum(");
+                try print(.{
+                    .ty = Type.type,
+                    .val = enum_tag.ty.toValue(),
+                }, writer, level - 1, mod);
+                try writer.writeAll(", ");
+                try print(.{
+                    .ty = mod.intern_pool.typeOf(enum_tag.int).toType(),
+                    .val = enum_tag.int.toValue(),
+                }, writer, level - 1, mod);
+                try writer.writeAll(")");
+                return;
+            },
+            .float => |float| switch (float.storage) {
+                inline else => |x| return writer.print("{}", .{x}),
+            },
+            .ptr => return writer.writeAll("(ptr)"),
+            .opt => |opt| switch (opt.val) {
+                .none => return writer.writeAll("null"),
+                else => {
+                    val = opt.val.toValue();
+                    ty = ty.optionalChild(mod);
                 },
-                .float => |float| switch (float.storage) {
-                    inline else => |x| return writer.print("{}", .{x}),
-                },
-                else => return writer.print("{}", .{val.ip_index}),
-            }
+            },
+            .aggregate => |aggregate| switch (aggregate.storage) {
+                .bytes => |bytes| return writer.print("\"{}\"", .{std.zig.fmtEscapes(bytes)}),
+                .elems, .repeated_elem => return printAggregate(ty, val, writer, level, mod),
+            },
+            .un => |un| {
+                try writer.writeAll(".{ ");
+                if (level > 0) {
+                    try print(.{
+                        .ty = ty.unionTagTypeHypothetical(mod),
+                        .val = un.tag.toValue(),
+                    }, writer, level - 1, mod);
+                    try writer.writeAll(" = ");
+                    try print(.{
+                        .ty = ty.unionFieldType(un.tag.toValue(), mod),
+                        .val = un.val.toValue(),
+                    }, writer, level - 1, mod);
+                } else try writer.writeAll("...");
+                return writer.writeAll(" }");
+            },
         },
     };
 }
@@ -238,12 +299,9 @@ fn printAggregate(
         var i: u32 = 0;
         while (i < max_len) : (i += 1) {
             if (i != 0) try writer.writeAll(", ");
-            switch (ty.ip_index) {
-                .none => {}, // TODO make this unreachable after finishing InternPool migration
-                else => switch (mod.intern_pool.indexToKey(ty.ip_index)) {
-                    .struct_type, .anon_struct_type => try writer.print(".{s} = ", .{ty.structFieldName(i, mod)}),
-                    else => {},
-                },
+            switch (mod.intern_pool.indexToKey(ty.toIntern())) {
+                .struct_type, .anon_struct_type => try writer.print(".{s} = ", .{ty.structFieldName(i, mod)}),
+                else => {},
             }
             try print(.{
                 .ty = ty.structFieldType(i, mod),

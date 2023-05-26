@@ -6705,18 +6705,13 @@ pub fn getCoerced(mod: *Module, val: Value, new_ty: Type) Allocator.Error!Value 
 }
 
 pub fn intType(mod: *Module, signedness: std.builtin.Signedness, bits: u16) Allocator.Error!Type {
-    const i = try intern(mod, .{ .int_type = .{
+    return (try intern(mod, .{ .int_type = .{
         .signedness = signedness,
         .bits = bits,
-    } });
-    return i.toType();
+    } })).toType();
 }
 
 pub fn arrayType(mod: *Module, info: InternPool.Key.ArrayType) Allocator.Error!Type {
-    if (std.debug.runtime_safety and info.sentinel != .none) {
-        const sent_ty = mod.intern_pool.typeOf(info.sentinel);
-        assert(sent_ty == info.child);
-    }
     const i = try intern(mod, .{ .array_type = info });
     return i.toType();
 }
@@ -6732,12 +6727,31 @@ pub fn optionalType(mod: *Module, child_type: InternPool.Index) Allocator.Error!
 }
 
 pub fn ptrType(mod: *Module, info: InternPool.Key.PtrType) Allocator.Error!Type {
-    if (std.debug.runtime_safety and info.sentinel != .none) {
-        const sent_ty = mod.intern_pool.typeOf(info.sentinel);
-        assert(sent_ty == info.elem_type);
+    var canon_info = info;
+
+    // Canonicalize non-zero alignment. If it matches the ABI alignment of the pointee
+    // type, we change it to 0 here. If this causes an assertion trip because the
+    // pointee type needs to be resolved more, that needs to be done before calling
+    // this ptr() function.
+    if (info.alignment.toByteUnitsOptional()) |info_align| {
+        const elem_align = info.elem_type.toType().abiAlignment(mod);
+        if (info.elem_type.toType().layoutIsResolved(mod) and info_align == elem_align) {
+            canon_info.alignment = .none;
+        }
     }
-    const i = try intern(mod, .{ .ptr_type = info });
-    return i.toType();
+
+    // Canonicalize host_size. If it matches the bit size of the pointee type,
+    // we change it to 0 here. If this causes an assertion trip, the pointee type
+    // needs to be resolved before calling this ptr() function.
+    if (info.host_size != 0) {
+        const elem_bit_size = info.elem_type.toType().bitSize(mod);
+        assert(info.bit_offset + elem_bit_size <= info.host_size * 8);
+        if (info.host_size * 8 == elem_bit_size) {
+            canon_info.host_size = 0;
+        }
+    }
+
+    return (try intern(mod, .{ .ptr_type = canon_info })).toType();
 }
 
 pub fn singleMutPtrType(mod: *Module, child_type: Type) Allocator.Error!Type {

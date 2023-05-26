@@ -3255,9 +3255,9 @@ pub const DeclGen = struct {
                 try dg.module.markDeclAlive(fn_decl);
                 return dg.resolveLlvmFunction(fn_decl_index);
             },
-            .int => |int| {
+            .int => {
                 var bigint_space: Value.BigIntSpace = undefined;
-                const bigint = int.storage.toBigInt(&bigint_space);
+                const bigint = tv.val.toBigInt(&bigint_space, mod);
                 return lowerBigInt(dg, tv.ty, bigint);
             },
             .err => |err| {
