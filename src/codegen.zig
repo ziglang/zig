@@ -441,46 +441,99 @@ pub fn generateSymbol(
                 })) orelse return error.Overflow;
                 if (padding > 0) try code.writer().writeByteNTimes(0, padding);
             },
-            .struct_type, .anon_struct_type => {
-                if (typed_value.ty.containerLayout(mod) == .Packed) {
-                    const struct_obj = mod.typeToStruct(typed_value.ty).?;
+            .anon_struct_type => |tuple| {
+                const struct_begin = code.items.len;
+                for (tuple.types, 0..) |field_ty, index| {
+                    if (!field_ty.toType().hasRuntimeBits(mod)) continue;
+
+                    const field_val = switch (aggregate.storage) {
+                        .bytes => |bytes| try mod.intern_pool.get(mod.gpa, .{ .int = .{
+                            .ty = field_ty,
+                            .storage = .{ .u64 = bytes[index] },
+                        } }),
+                        .elems => |elems| elems[index],
+                        .repeated_elem => |elem| elem,
+                    };
+
+                    switch (try generateSymbol(bin_file, src_loc, .{
+                        .ty = field_ty.toType(),
+                        .val = field_val.toValue(),
+                    }, code, debug_output, reloc_info)) {
+                        .ok => {},
+                        .fail => |em| return Result{ .fail = em },
+                    }
+                    const unpadded_field_end = code.items.len - struct_begin;
+
+                    // Pad struct members if required
+                    const padded_field_end = typed_value.ty.structFieldOffset(index + 1, mod);
+                    const padding = math.cast(usize, padded_field_end - unpadded_field_end) orelse
+                        return error.Overflow;
+
+                    if (padding > 0) {
+                        try code.writer().writeByteNTimes(0, padding);
+                    }
+                }
+            },
+            .struct_type => |struct_type| {
+                const struct_obj = mod.structPtrUnwrap(struct_type.index).?;
+
+                if (struct_obj.layout == .Packed) {
                     const fields = struct_obj.fields.values();
-                    const field_vals = typed_value.val.castTag(.aggregate).?.data;
-                    const abi_size = math.cast(usize, typed_value.ty.abiSize(mod)) orelse return error.Overflow;
+                    const abi_size = math.cast(usize, typed_value.ty.abiSize(mod)) orelse
+                        return error.Overflow;
                     const current_pos = code.items.len;
                     try code.resize(current_pos + abi_size);
                     var bits: u16 = 0;
 
-                    for (field_vals, 0..) |field_val, index| {
-                        const field_ty = fields[index].ty;
+                    for (fields, 0..) |field, index| {
+                        const field_ty = field.ty;
+
+                        const field_val = switch (aggregate.storage) {
+                            .bytes => |bytes| try mod.intern_pool.get(mod.gpa, .{ .int = .{
+                                .ty = field_ty.toIntern(),
+                                .storage = .{ .u64 = bytes[index] },
+                            } }),
+                            .elems => |elems| elems[index],
+                            .repeated_elem => |elem| elem,
+                        };
+
                         // pointer may point to a decl which must be marked used
-                        // but can also result in a relocation. Therefore we handle those seperately.
+                        // but can also result in a relocation. Therefore we handle those separately.
                         if (field_ty.zigTypeTag(mod) == .Pointer) {
-                            const field_size = math.cast(usize, field_ty.abiSize(mod)) orelse return error.Overflow;
+                            const field_size = math.cast(usize, field_ty.abiSize(mod)) orelse
+                                return error.Overflow;
                             var tmp_list = try std.ArrayList(u8).initCapacity(code.allocator, field_size);
                             defer tmp_list.deinit();
                             switch (try generateSymbol(bin_file, src_loc, .{
                                 .ty = field_ty,
-                                .val = field_val,
+                                .val = field_val.toValue(),
                             }, &tmp_list, debug_output, reloc_info)) {
                                 .ok => @memcpy(code.items[current_pos..][0..tmp_list.items.len], tmp_list.items),
                                 .fail => |em| return Result{ .fail = em },
                             }
                         } else {
-                            field_val.writeToPackedMemory(field_ty, mod, code.items[current_pos..], bits) catch unreachable;
+                            field_val.toValue().writeToPackedMemory(field_ty, mod, code.items[current_pos..], bits) catch unreachable;
                         }
                         bits += @intCast(u16, field_ty.bitSize(mod));
                     }
                 } else {
                     const struct_begin = code.items.len;
-                    const field_vals = typed_value.val.castTag(.aggregate).?.data;
-                    for (field_vals, 0..) |field_val, index| {
-                        const field_ty = typed_value.ty.structFieldType(index, mod);
+                    for (struct_obj.fields.values(), 0..) |field, index| {
+                        const field_ty = field.ty;
                         if (!field_ty.hasRuntimeBits(mod)) continue;
+
+                        const field_val = switch (aggregate.storage) {
+                            .bytes => |bytes| try mod.intern_pool.get(mod.gpa, .{ .int = .{
+                                .ty = field_ty.toIntern(),
+                                .storage = .{ .u64 = bytes[index] },
+                            } }),
+                            .elems => |elems| elems[index],
+                            .repeated_elem => |elem| elem,
+                        };
 
                         switch (try generateSymbol(bin_file, src_loc, .{
                             .ty = field_ty,
-                            .val = field_val,
+                            .val = field_val.toValue(),
                         }, code, debug_output, reloc_info)) {
                             .ok => {},
                             .fail => |em| return Result{ .fail = em },
