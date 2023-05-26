@@ -1890,7 +1890,7 @@ pub const Mutable = struct {
     /// if it were a field in packed memory at the provided bit offset.
     pub fn readPackedTwosComplement(
         x: *Mutable,
-        bytes: []const u8,
+        buffer: []const u8,
         bit_offset: usize,
         bit_count: usize,
         endian: Endian,
@@ -1909,11 +1909,11 @@ pub const Mutable = struct {
             const total_bits = bit_offset + bit_count;
             var last_byte = switch (endian) {
                 .Little => ((total_bits + 7) / 8) - 1,
-                .Big => bytes.len - ((total_bits + 7) / 8),
+                .Big => buffer.len - ((total_bits + 7) / 8),
             };
 
             const sign_bit = @as(u8, 1) << @intCast(u3, (total_bits - 1) % 8);
-            positive = ((bytes[last_byte] & sign_bit) == 0);
+            positive = ((buffer[last_byte] & sign_bit) == 0);
         }
 
         // Copy all complete limbs
@@ -1922,7 +1922,7 @@ pub const Mutable = struct {
         var bit_index: usize = 0;
         while (limb_index < bit_count / @bitSizeOf(Limb)) : (limb_index += 1) {
             // Read one Limb of bits
-            var limb = mem.readPackedInt(Limb, bytes, bit_index + bit_offset, endian);
+            var limb = mem.readPackedInt(Limb, buffer, bit_index + bit_offset, endian);
             bit_index += @bitSizeOf(Limb);
 
             // 2's complement (bitwise not, then add carry bit)
@@ -1938,10 +1938,10 @@ pub const Mutable = struct {
         if (bit_count != bit_index) {
             // Read all remaining bits
             var limb = switch (signedness) {
-                .unsigned => mem.readVarPackedInt(Limb, bytes, bit_index + bit_offset, bit_count - bit_index, endian, .unsigned),
+                .unsigned => mem.readVarPackedInt(Limb, buffer, bit_index + bit_offset, bit_count - bit_index, endian, .unsigned),
                 .signed => b: {
                     const SLimb = std.meta.Int(.signed, @bitSizeOf(Limb));
-                    const limb = mem.readVarPackedInt(SLimb, bytes, bit_index + bit_offset, bit_count - bit_index, endian, .signed);
+                    const limb = mem.readVarPackedInt(SLimb, buffer, bit_index + bit_offset, bit_count - bit_index, endian, .signed);
                     break :b @bitCast(Limb, limb);
                 },
             };
@@ -2383,7 +2383,7 @@ pub const Const = struct {
     ///
     /// This is equivalent to storing the value of an integer with `bit_count` bits as
     /// if it were a field in packed memory at the provided bit offset.
-    pub fn writePackedTwosComplement(x: Const, bytes: []u8, bit_offset: usize, bit_count: usize, endian: Endian) void {
+    pub fn writePackedTwosComplement(x: Const, buffer: []u8, bit_offset: usize, bit_count: usize, endian: Endian) void {
         assert(x.fitsInTwosComp(if (x.positive) .unsigned else .signed, bit_count));
 
         // Copy all complete limbs
@@ -2401,7 +2401,7 @@ pub const Const = struct {
             }
 
             // Write one Limb of bits
-            mem.writePackedInt(Limb, bytes, bit_index + bit_offset, limb, endian);
+            mem.writePackedInt(Limb, buffer, bit_index + bit_offset, limb, endian);
             bit_index += @bitSizeOf(Limb);
         }
 
@@ -2413,7 +2413,7 @@ pub const Const = struct {
             if (!x.positive) limb = ~limb +% carry;
 
             // Write all remaining bits
-            mem.writeVarPackedInt(bytes, bit_index + bit_offset, bit_count - bit_index, limb, endian);
+            mem.writeVarPackedInt(buffer, bit_index + bit_offset, bit_count - bit_index, limb, endian);
         }
     }
 
