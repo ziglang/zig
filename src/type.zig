@@ -2865,23 +2865,23 @@ pub const Type = struct {
     }
 
     // Works for vectors and vectors of integers.
-    pub fn minInt(ty: Type, mod: *Module) !Value {
-        const scalar = try minIntScalar(ty.scalarType(mod), mod);
+    pub fn minInt(ty: Type, mod: *Module, dest_ty: Type) !Value {
+        const scalar = try minIntScalar(ty.scalarType(mod), mod, dest_ty);
         return if (ty.zigTypeTag(mod) == .Vector) (try mod.intern(.{ .aggregate = .{
-            .ty = ty.toIntern(),
+            .ty = dest_ty.toIntern(),
             .storage = .{ .repeated_elem = scalar.toIntern() },
         } })).toValue() else scalar;
     }
 
     /// Asserts that the type is an integer.
-    pub fn minIntScalar(ty: Type, mod: *Module) !Value {
+    pub fn minIntScalar(ty: Type, mod: *Module, dest_ty: Type) !Value {
         const info = ty.intInfo(mod);
-        if (info.signedness == .unsigned) return mod.intValue(ty, 0);
-        if (info.bits == 0) return mod.intValue(ty, -1);
+        if (info.signedness == .unsigned) return mod.intValue(dest_ty, 0);
+        if (info.bits == 0) return mod.intValue(dest_ty, -1);
 
         if (std.math.cast(u6, info.bits - 1)) |shift| {
             const n = @as(i64, std.math.minInt(i64)) >> (63 - shift);
-            return mod.intValue(Type.comptime_int, n);
+            return mod.intValue(dest_ty, n);
         }
 
         var res = try std.math.big.int.Managed.init(mod.gpa);
@@ -2889,7 +2889,7 @@ pub const Type = struct {
 
         try res.setTwosCompIntLimit(.min, info.signedness, info.bits);
 
-        return mod.intValue_big(Type.comptime_int, res.toConst());
+        return mod.intValue_big(dest_ty, res.toConst());
     }
 
     // Works for vectors and vectors of integers.
@@ -2897,7 +2897,7 @@ pub const Type = struct {
     pub fn maxInt(ty: Type, mod: *Module, dest_ty: Type) !Value {
         const scalar = try maxIntScalar(ty.scalarType(mod), mod, dest_ty);
         return if (ty.zigTypeTag(mod) == .Vector) (try mod.intern(.{ .aggregate = .{
-            .ty = ty.toIntern(),
+            .ty = dest_ty.toIntern(),
             .storage = .{ .repeated_elem = scalar.toIntern() },
         } })).toValue() else scalar;
     }

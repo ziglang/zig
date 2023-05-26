@@ -6723,7 +6723,7 @@ fn airReduce(f: *Function, inst: Air.Inst.Index) !CValue {
         },
         .Max => switch (scalar_ty.zigTypeTag(mod)) {
             .Bool => try mod.intValue(scalar_ty, 0),
-            .Int => try scalar_ty.minInt(mod),
+            .Int => try scalar_ty.minInt(mod, scalar_ty),
             .Float => try mod.floatValue(scalar_ty, std.math.nan_f128),
             else => unreachable,
         },

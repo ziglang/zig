@@ -2817,6 +2817,7 @@ pub fn get(ip: *InternPool, gpa: Allocator, key: Key) Allocator.Error!Index {
         },
         .ptr_type => |ptr_type| {
             assert(ptr_type.elem_type != .none);
+            assert(ptr_type.sentinel == .none or ip.typeOf(ptr_type.sentinel) == ptr_type.elem_type);
 
             if (ptr_type.size == .Slice) {
                 _ = ip.map.pop();
@@ -4780,7 +4781,88 @@ pub fn stringToSliceUnwrap(ip: InternPool, s: OptionalNullTerminatedString) ?[:0
 }
 
 pub fn typeOf(ip: InternPool, index: Index) Index {
-    return ip.indexToKey(index).typeOf();
+    // This optimization of static keys is required so that typeOf can be called
+    // on static keys that haven't been added yet during static key initialization.
+    // An alternative would be to topological sort the static keys, but this would
+    // mean that the range of type indices would not be dense.
+    return switch (index) {
+        .u1_type,
+        .u8_type,
+        .i8_type,
+        .u16_type,
+        .i16_type,
+        .u29_type,
+        .u32_type,
+        .i32_type,
+        .u64_type,
+        .i64_type,
+        .u80_type,
+        .u128_type,
+        .i128_type,
+        .usize_type,
+        .isize_type,
+        .c_char_type,
+        .c_short_type,
+        .c_ushort_type,
+        .c_int_type,
+        .c_uint_type,
+        .c_long_type,
+        .c_ulong_type,
+        .c_longlong_type,
+        .c_ulonglong_type,
+        .c_longdouble_type,
+        .f16_type,
+        .f32_type,
+        .f64_type,
+        .f80_type,
+        .f128_type,
+        .anyopaque_type,
+        .bool_type,
+        .void_type,
+        .type_type,
+        .anyerror_type,
+        .comptime_int_type,
+        .comptime_float_type,
+        .noreturn_type,
+        .anyframe_type,
+        .null_type,
+        .undefined_type,
+        .enum_literal_type,
+        .atomic_order_type,
+        .atomic_rmw_op_type,
+        .calling_convention_type,
+        .address_space_type,
+        .float_mode_type,
+        .reduce_op_type,
+        .call_modifier_type,
+        .prefetch_options_type,
+        .export_options_type,
+        .extern_options_type,
+        .type_info_type,
+        .manyptr_u8_type,
+        .manyptr_const_u8_type,
+        .manyptr_const_u8_sentinel_0_type,
+        .single_const_pointer_to_comptime_int_type,
+        .slice_const_u8_type,
+        .slice_const_u8_sentinel_0_type,
+        .anyerror_void_error_union_type,
+        .generic_poison_type,
+        .empty_struct_type,
+        => .type_type,
+        .undef => .undefined_type,
+        .zero, .one, .negative_one => .comptime_int_type,
+        .zero_usize, .one_usize => .usize_type,
+        .zero_u8, .one_u8, .four_u8 => .u8_type,
+        .calling_convention_c, .calling_convention_inline => .calling_convention_type,
+        .void_value => .void_type,
+        .unreachable_value => .noreturn_type,
+        .null_value => .null_type,
+        .bool_true, .bool_false => .bool_type,
+        .empty_struct => .empty_struct_type,
+        .generic_poison => .generic_poison_type,
+        .var_args_param_type, .none => unreachable,
+        _ => ip.indexToKey(index).typeOf(),
+    };
 }
 
 /// Assumes that the enum's field indexes equal its value tags.
