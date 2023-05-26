@@ -1707,7 +1707,7 @@ pub fn break_f80(x: f80) F80 {
 pub inline fn sign(i: anytype) @TypeOf(i) {
     const T = @TypeOf(i);
     return switch (@typeInfo(T)) {
-        .Int, .ComptimeInt => @as(T, @boolToInt(i > 0)) - @boolToInt(i < 0),
+        .Int, .ComptimeInt => @as(T, @boolToInt(i > 0)) - @as(T, @boolToInt(i < 0)),
         .Float, .ComptimeFloat => @intToFloat(T, @boolToInt(i > 0)) - @intToFloat(T, @boolToInt(i < 0)),
         .Vector => |vinfo| blk: {
             switch (@typeInfo(vinfo.child)) {

@@ -1837,7 +1837,7 @@ fn writeBaseRelocations(self: *Coff) !void {
             pages.appendAssumeCapacity(page.*);
         }
     }
-    std.sort.sort(u32, pages.items, {}, std.sort.asc(u32));
+    mem.sort(u32, pages.items, {}, std.sort.asc(u32));
 
     var buffer = std.ArrayList(u8).init(gpa);
     defer buffer.deinit();

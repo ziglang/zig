@@ -58,7 +58,8 @@ test "@memcpy dest many pointer" {
 fn testMemcpyDestManyPtr() !void {
     var str = "hello".*;
     var buf: [5]u8 = undefined;
-    @memcpy(@ptrCast([*]u8, &buf), @ptrCast([*]const u8, &str)[0..5]);
+    var len: usize = 5;
+    @memcpy(@ptrCast([*]u8, &buf), @ptrCast([*]const u8, &str)[0..len]);
     try expect(buf[0] == 'h');
     try expect(buf[1] == 'e');
     try expect(buf[2] == 'l');

@@ -51,7 +51,7 @@ pub const StackTrace = struct {
         const debug_info = std.debug.getSelfDebugInfo() catch |err| {
             return writer.print("\nUnable to print stack trace: Unable to open debug info: {s}\n", .{@errorName(err)});
         };
-        const tty_config = std.debug.detectTTYConfig(std.io.getStdErr());
+        const tty_config = std.io.tty.detectConfig(std.io.getStdErr());
         try writer.writeAll("\n");
         std.debug.writeStackTrace(self, writer, arena.allocator(), debug_info, tty_config) catch |err| {
             try writer.print("Unable to print stack trace: {s}\n", .{@errorName(err)});
@@ -1006,6 +1006,7 @@ pub const panic_messages = struct {
     pub const for_len_mismatch = "for loop over objects with non-equal lengths";
     pub const memcpy_len_mismatch = "@memcpy arguments have non-equal lengths";
     pub const memcpy_alias = "@memcpy arguments alias";
+    pub const noreturn_returned = "'noreturn' function returned";
 };
 
 pub noinline fn returnError(st: *StackTrace) void {

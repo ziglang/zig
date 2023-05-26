@@ -4155,3 +4155,9 @@ pub const vm_extmod_statistics_t = *vm_extmod_statistics;
 pub const vm_extmod_statistics_data_t = vm_extmod_statistics;
 
 pub extern "c" fn vm_stats(info: ?*anyopaque, count: *c_uint) kern_return_t;
+
+/// TODO refines if necessary
+pub const PTHREAD_STACK_MIN = switch (builtin.cpu.arch) {
+    .arm, .aarch64 => 16 * 1024,
+    else => 8 * 1024,
+};

@@ -350,6 +350,18 @@ const __SIZEOF_PTHREAD_MUTEX_T = switch (native_abi) {
 };
 const __SIZEOF_SEM_T = 4 * @sizeOf(usize);
 
+/// TODO refines if necessary
+pub const PTHREAD_STACK_MIN = switch (native_abi) {
+    .musl, .musleabi, .musleabihf => 2048,
+    .gnu, .gnuabin32, .gnuabi64, .gnueabi, .gnueabihf, .gnux32 => switch (native_arch) {
+        .aarch64, .arm, .armeb, .powerpc, .powerpc64, .powerpc64le, .loongarch32, .loongarch64 => 131072,
+        .sparc64 => 24576,
+        else => 16 * 1024,
+    },
+    .android => if (@sizeOf(usize) == 8) 16 * 1024 else 8 * 1024,
+    else => 16 * 1024,
+};
+
 pub extern "c" fn pthread_setname_np(thread: std.c.pthread_t, name: [*:0]const u8) E;
 pub extern "c" fn pthread_getname_np(thread: std.c.pthread_t, name: [*:0]u8, len: usize) E;
 

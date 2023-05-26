@@ -6044,9 +6044,9 @@ const ClangSearchSanitizer = struct {
     };
 };
 
-fn get_tty_conf(color: Color) std.debug.TTY.Config {
+fn get_tty_conf(color: Color) std.io.tty.Config {
     return switch (color) {
-        .auto => std.debug.detectTTYConfig(std.io.getStdErr()),
+        .auto => std.io.tty.detectConfig(std.io.getStdErr()),
         .on => .escape_codes,
         .off => .no_color,
     };

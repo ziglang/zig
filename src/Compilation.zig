@@ -672,7 +672,7 @@ fn addPackageTableToCacheHash(
         }
     }
     // Sort the slice by package name
-    std.sort.sort(Package.Table.KV, packages, {}, struct {
+    mem.sort(Package.Table.KV, packages, {}, struct {
         fn lessThan(_: void, lhs: Package.Table.KV, rhs: Package.Table.KV) bool {
             return std.mem.lessThan(u8, lhs.key, rhs.key);
         }
