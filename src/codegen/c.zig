@@ -4302,10 +4302,10 @@ fn airDbgStmt(f: *Function, inst: Air.Inst.Index) !CValue {
 }
 
 fn airDbgInline(f: *Function, inst: Air.Inst.Index) !CValue {
-    const ty_pl = f.air.instructions.items(.data)[inst].ty_pl;
+    const ty_fn = f.air.instructions.items(.data)[inst].ty_fn;
     const mod = f.object.dg.module;
     const writer = f.object.writer();
-    const function = f.air.values[ty_pl.payload].getFunction(mod).?;
+    const function = mod.funcPtr(ty_fn.func);
     try writer.print("/* dbg func:{s} */\n", .{mod.declPtr(function.owner_decl).name});
     return .none;
 }
@@ -6612,7 +6612,7 @@ fn airShuffle(f: *Function, inst: Air.Inst.Index) !CValue {
     const ty_pl = f.air.instructions.items(.data)[inst].ty_pl;
     const extra = f.air.extraData(Air.Shuffle, ty_pl.payload).data;
 
-    const mask = f.air.values[extra.mask];
+    const mask = extra.mask.toValue();
     const lhs = try f.resolveInst(extra.a);
     const rhs = try f.resolveInst(extra.b);
 

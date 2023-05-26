@@ -4621,9 +4621,9 @@ fn airDbgStmt(self: *Self, inst: Air.Inst.Index) !void {
 }
 
 fn airDbgInline(self: *Self, inst: Air.Inst.Index) !void {
-    const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
+    const ty_fn = self.air.instructions.items(.data)[inst].ty_fn;
     const mod = self.bin_file.options.module.?;
-    const function = self.air.values[ty_pl.payload].getFunction(mod).?;
+    const function = mod.funcPtr(ty_fn.func);
     // TODO emit debug info for function change
     _ = function;
     return self.finishAir(inst, .dead, .{ .none, .none, .none });

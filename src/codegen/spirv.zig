@@ -2074,7 +2074,7 @@ pub const DeclGen = struct {
         const extra = self.air.extraData(Air.Shuffle, ty_pl.payload).data;
         const a = try self.resolve(extra.a);
         const b = try self.resolve(extra.b);
-        const mask = self.air.values[extra.mask];
+        const mask = extra.mask.toValue();
         const mask_len = extra.mask_len;
         const a_len = self.typeOf(extra.a).vectorLen(mod);
 

@@ -5927,10 +5927,10 @@ pub const FuncGen = struct {
 
     fn airDbgInlineBegin(self: *FuncGen, inst: Air.Inst.Index) !?*llvm.Value {
         const dib = self.dg.object.di_builder orelse return null;
-        const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
+        const ty_fn = self.air.instructions.items(.data)[inst].ty_fn;
 
         const mod = self.dg.module;
-        const func = self.air.values[ty_pl.payload].getFunction(mod).?;
+        const func = mod.funcPtr(ty_fn.func);
         const decl_index = func.owner_decl;
         const decl = mod.declPtr(decl_index);
         const di_file = try self.dg.object.getDIFile(self.gpa, mod.namespacePtr(decl.src_namespace).file_scope);
@@ -5986,10 +5986,10 @@ pub const FuncGen = struct {
 
     fn airDbgInlineEnd(self: *FuncGen, inst: Air.Inst.Index) !?*llvm.Value {
         if (self.dg.object.di_builder == null) return null;
-        const ty_pl = self.air.instructions.items(.data)[inst].ty_pl;
+        const ty_fn = self.air.instructions.items(.data)[inst].ty_fn;
 
         const mod = self.dg.module;
-        const func = self.air.values[ty_pl.payload].getFunction(mod).?;
+        const func = mod.funcPtr(ty_fn.func);
         const decl = mod.declPtr(func.owner_decl);
         const di_file = try self.dg.object.getDIFile(self.gpa, mod.namespacePtr(decl.src_namespace).file_scope);
         self.di_file = di_file;
@@ -8875,7 +8875,7 @@ pub const FuncGen = struct {
         const extra = self.air.extraData(Air.Shuffle, ty_pl.payload).data;
         const a = try self.resolveInst(extra.a);
         const b = try self.resolveInst(extra.b);
-        const mask = self.air.values[extra.mask];
+        const mask = extra.mask.toValue();
         const mask_len = extra.mask_len;
         const a_len = self.typeOf(extra.a).vectorLen(mod);
 

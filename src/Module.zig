@@ -5720,7 +5720,6 @@ pub fn analyzeFnBody(mod: *Module, func_index: Fn.Index, arena: Allocator) SemaE
     return Air{
         .instructions = sema.air_instructions.toOwnedSlice(),
         .extra = try sema.air_extra.toOwnedSlice(gpa),
-        .values = try sema.air_values.toOwnedSlice(gpa),
     };
 }
 
