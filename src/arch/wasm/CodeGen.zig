@@ -3019,7 +3019,7 @@ fn lowerParentPtr(func: *CodeGen, ptr_val: Value) InnerError!WValue {
 fn lowerParentPtrDecl(func: *CodeGen, ptr_val: Value, decl_index: Module.Decl.Index, offset: u32) InnerError!WValue {
     const mod = func.bin_file.base.options.module.?;
     const decl = mod.declPtr(decl_index);
-    mod.markDeclAlive(decl);
+    try mod.markDeclAlive(decl);
     const ptr_ty = try mod.singleMutPtrType(decl.ty);
     return func.lowerDeclRefValue(.{ .ty = ptr_ty, .val = ptr_val }, decl_index, offset);
 }
@@ -3035,7 +3035,7 @@ fn lowerDeclRefValue(func: *CodeGen, tv: TypedValue, decl_index: Module.Decl.Ind
         return WValue{ .imm32 = 0xaaaaaaaa };
     }
 
-    mod.markDeclAlive(decl);
+    try mod.markDeclAlive(decl);
     const atom_index = try func.bin_file.getOrCreateAtomForDecl(decl_index);
     const atom = func.bin_file.getAtom(atom_index);
 

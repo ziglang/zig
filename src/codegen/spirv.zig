@@ -256,7 +256,7 @@ pub const DeclGen = struct {
     /// Note: Function does not actually generate the decl.
     fn resolveDecl(self: *DeclGen, decl_index: Module.Decl.Index) !SpvModule.Decl.Index {
         const decl = self.module.declPtr(decl_index);
-        self.module.markDeclAlive(decl);
+        try self.module.markDeclAlive(decl);
 
         const entry = try self.decl_link.getOrPut(decl_index);
         if (!entry.found_existing) {
