@@ -3537,78 +3537,75 @@ pub const DeclGen = struct {
                         @intCast(c_uint, llvm_elems.len),
                     );
                 },
-                .struct_type, .anon_struct_type => {
-                    const llvm_struct_ty = try dg.lowerType(tv.ty);
+                .anon_struct_type => |tuple| {
                     const gpa = dg.gpa;
 
-                    const struct_type = switch (mod.intern_pool.indexToKey(tv.ty.toIntern())) {
-                        .anon_struct_type => |tuple| {
-                            var llvm_fields: std.ArrayListUnmanaged(*llvm.Value) = .{};
-                            defer llvm_fields.deinit(gpa);
+                    var llvm_fields: std.ArrayListUnmanaged(*llvm.Value) = .{};
+                    defer llvm_fields.deinit(gpa);
 
-                            try llvm_fields.ensureUnusedCapacity(gpa, tuple.types.len);
+                    try llvm_fields.ensureUnusedCapacity(gpa, tuple.types.len);
 
-                            comptime assert(struct_layout_version == 2);
-                            var offset: u64 = 0;
-                            var big_align: u32 = 0;
-                            var need_unnamed = false;
+                    comptime assert(struct_layout_version == 2);
+                    var offset: u64 = 0;
+                    var big_align: u32 = 0;
+                    var need_unnamed = false;
 
-                            for (tuple.types, tuple.values, 0..) |field_ty, field_val, i| {
-                                if (field_val != .none) continue;
-                                if (!field_ty.toType().hasRuntimeBitsIgnoreComptime(mod)) continue;
+                    for (tuple.types, tuple.values, 0..) |field_ty, field_val, i| {
+                        if (field_val != .none) continue;
+                        if (!field_ty.toType().hasRuntimeBitsIgnoreComptime(mod)) continue;
 
-                                const field_align = field_ty.toType().abiAlignment(mod);
-                                big_align = @max(big_align, field_align);
-                                const prev_offset = offset;
-                                offset = std.mem.alignForwardGeneric(u64, offset, field_align);
+                        const field_align = field_ty.toType().abiAlignment(mod);
+                        big_align = @max(big_align, field_align);
+                        const prev_offset = offset;
+                        offset = std.mem.alignForwardGeneric(u64, offset, field_align);
 
-                                const padding_len = offset - prev_offset;
-                                if (padding_len > 0) {
-                                    const llvm_array_ty = dg.context.intType(8).arrayType(@intCast(c_uint, padding_len));
-                                    // TODO make this and all other padding elsewhere in debug
-                                    // builds be 0xaa not undef.
-                                    llvm_fields.appendAssumeCapacity(llvm_array_ty.getUndef());
-                                }
+                        const padding_len = offset - prev_offset;
+                        if (padding_len > 0) {
+                            const llvm_array_ty = dg.context.intType(8).arrayType(@intCast(c_uint, padding_len));
+                            // TODO make this and all other padding elsewhere in debug
+                            // builds be 0xaa not undef.
+                            llvm_fields.appendAssumeCapacity(llvm_array_ty.getUndef());
+                        }
 
-                                const field_llvm_val = try dg.lowerValue(.{
-                                    .ty = field_ty.toType(),
-                                    .val = try tv.val.fieldValue(mod, i),
-                                });
+                        const field_llvm_val = try dg.lowerValue(.{
+                            .ty = field_ty.toType(),
+                            .val = try tv.val.fieldValue(mod, i),
+                        });
 
-                                need_unnamed = need_unnamed or dg.isUnnamedType(field_ty.toType(), field_llvm_val);
+                        need_unnamed = need_unnamed or dg.isUnnamedType(field_ty.toType(), field_llvm_val);
 
-                                llvm_fields.appendAssumeCapacity(field_llvm_val);
+                        llvm_fields.appendAssumeCapacity(field_llvm_val);
 
-                                offset += field_ty.toType().abiSize(mod);
-                            }
-                            {
-                                const prev_offset = offset;
-                                offset = std.mem.alignForwardGeneric(u64, offset, big_align);
-                                const padding_len = offset - prev_offset;
-                                if (padding_len > 0) {
-                                    const llvm_array_ty = dg.context.intType(8).arrayType(@intCast(c_uint, padding_len));
-                                    llvm_fields.appendAssumeCapacity(llvm_array_ty.getUndef());
-                                }
-                            }
+                        offset += field_ty.toType().abiSize(mod);
+                    }
+                    {
+                        const prev_offset = offset;
+                        offset = std.mem.alignForwardGeneric(u64, offset, big_align);
+                        const padding_len = offset - prev_offset;
+                        if (padding_len > 0) {
+                            const llvm_array_ty = dg.context.intType(8).arrayType(@intCast(c_uint, padding_len));
+                            llvm_fields.appendAssumeCapacity(llvm_array_ty.getUndef());
+                        }
+                    }
 
-                            if (need_unnamed) {
-                                return dg.context.constStruct(
-                                    llvm_fields.items.ptr,
-                                    @intCast(c_uint, llvm_fields.items.len),
-                                    .False,
-                                );
-                            } else {
-                                return llvm_struct_ty.constNamedStruct(
-                                    llvm_fields.items.ptr,
-                                    @intCast(c_uint, llvm_fields.items.len),
-                                );
-                            }
-                        },
-                        .struct_type => |struct_type| struct_type,
-                        else => unreachable,
-                    };
-
+                    if (need_unnamed) {
+                        return dg.context.constStruct(
+                            llvm_fields.items.ptr,
+                            @intCast(c_uint, llvm_fields.items.len),
+                            .False,
+                        );
+                    } else {
+                        const llvm_struct_ty = try dg.lowerType(tv.ty);
+                        return llvm_struct_ty.constNamedStruct(
+                            llvm_fields.items.ptr,
+                            @intCast(c_uint, llvm_fields.items.len),
+                        );
+                    }
+                },
+                .struct_type => |struct_type| {
                     const struct_obj = mod.structPtrUnwrap(struct_type.index).?;
+                    const llvm_struct_ty = try dg.lowerType(tv.ty);
+                    const gpa = dg.gpa;
 
                     if (struct_obj.layout == .Packed) {
                         assert(struct_obj.haveLayout());
