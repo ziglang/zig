@@ -703,7 +703,7 @@ const Writer = struct {
         const pl_op = w.air.instructions.items(.data)[inst].pl_op;
         try w.writeOperand(s, inst, 0, pl_op.operand);
         const name = w.air.nullTerminatedString(pl_op.payload);
-        try s.print(", {s}", .{name});
+        try s.print(", \"{}\"", .{std.zig.fmtEscapes(name)});
     }
 
     fn writeCall(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {

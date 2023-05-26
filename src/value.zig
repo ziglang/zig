@@ -347,6 +347,43 @@ pub const Value = struct {
     pub fn intern(val: Value, ty: Type, mod: *Module) Allocator.Error!InternPool.Index {
         if (val.ip_index != .none) return mod.intern_pool.getCoerced(mod.gpa, val.toIntern(), ty.toIntern());
         switch (val.tag()) {
+            .eu_payload => {
+                const pl = val.castTag(.eu_payload).?.data;
+                return mod.intern(.{ .error_union = .{
+                    .ty = ty.toIntern(),
+                    .val = .{ .payload = try pl.intern(ty.errorUnionPayload(mod), mod) },
+                } });
+            },
+            .opt_payload => {
+                const pl = val.castTag(.opt_payload).?.data;
+                return mod.intern(.{ .opt = .{
+                    .ty = ty.toIntern(),
+                    .val = try pl.intern(ty.optionalChild(mod), mod),
+                } });
+            },
+            .slice => {
+                const pl = val.castTag(.slice).?.data;
+                const ptr = try pl.ptr.intern(ty.optionalChild(mod), mod);
+                var ptr_key = mod.intern_pool.indexToKey(ptr).ptr;
+                assert(ptr_key.len == .none);
+                ptr_key.ty = ty.toIntern();
+                ptr_key.len = try pl.len.intern(Type.usize, mod);
+                return mod.intern(.{ .ptr = ptr_key });
+            },
+            .bytes => {
+                const pl = val.castTag(.bytes).?.data;
+                return mod.intern(.{ .aggregate = .{
+                    .ty = ty.toIntern(),
+                    .storage = .{ .bytes = pl },
+                } });
+            },
+            .repeated => {
+                const pl = val.castTag(.repeated).?.data;
+                return mod.intern(.{ .aggregate = .{
+                    .ty = ty.toIntern(),
+                    .storage = .{ .repeated_elem = try pl.intern(ty.childType(mod), mod) },
+                } });
+            },
             .aggregate => {
                 const old_elems = val.castTag(.aggregate).?.data;
                 const new_elems = try mod.gpa.alloc(InternPool.Index, old_elems.len);
@@ -372,24 +409,74 @@ pub const Value = struct {
                     .val = try pl.val.intern(ty.unionFieldType(pl.tag, mod), mod),
                 } });
             },
-            else => unreachable,
         }
     }
 
     pub fn unintern(val: Value, arena: Allocator, mod: *Module) Allocator.Error!Value {
-        if (val.ip_index == .none) return val;
-        switch (mod.intern_pool.indexToKey(val.toIntern())) {
+        return if (val.ip_index == .none) val else switch (mod.intern_pool.indexToKey(val.toIntern())) {
+            .int_type,
+            .ptr_type,
+            .array_type,
+            .vector_type,
+            .opt_type,
+            .anyframe_type,
+            .error_union_type,
+            .simple_type,
+            .struct_type,
+            .anon_struct_type,
+            .union_type,
+            .opaque_type,
+            .enum_type,
+            .func_type,
+            .error_set_type,
+            .inferred_error_set_type,
+
+            .undef,
+            .runtime_value,
+            .simple_value,
+            .variable,
+            .extern_func,
+            .func,
+            .int,
+            .err,
+            .enum_literal,
+            .enum_tag,
+            .float,
+            => val,
+
+            .error_union => |error_union| switch (error_union.val) {
+                .err_name => val,
+                .payload => |payload| Tag.eu_payload.create(arena, payload.toValue()),
+            },
+
+            .ptr => |ptr| switch (ptr.len) {
+                .none => val,
+                else => |len| Tag.slice.create(arena, .{
+                    .ptr = val.slicePtr(mod),
+                    .len = len.toValue(),
+                }),
+            },
+
+            .opt => |opt| switch (opt.val) {
+                .none => val,
+                else => |payload| Tag.opt_payload.create(arena, payload.toValue()),
+            },
+
             .aggregate => |aggregate| switch (aggregate.storage) {
-                .bytes => |bytes| return Tag.bytes.create(arena, try arena.dupe(u8, bytes)),
+                .bytes => |bytes| Tag.bytes.create(arena, try arena.dupe(u8, bytes)),
                 .elems => |old_elems| {
                     const new_elems = try arena.alloc(Value, old_elems.len);
                     for (new_elems, old_elems) |*new_elem, old_elem| new_elem.* = old_elem.toValue();
                     return Tag.aggregate.create(arena, new_elems);
                 },
-                .repeated_elem => |elem| return Tag.repeated.create(arena, elem.toValue()),
+                .repeated_elem => |elem| Tag.repeated.create(arena, elem.toValue()),
             },
-            else => return val,
-        }
+
+            .un => |un| Tag.@"union".create(arena, .{
+                .tag = un.tag.toValue(),
+                .val = un.val.toValue(),
+            }),
+        };
     }
 
     pub fn toIntern(val: Value) InternPool.Index {
@@ -1896,7 +1983,7 @@ pub const Value = struct {
 
     /// Returns true if a Value is backed by a variable
     pub fn isVariable(val: Value, mod: *Module) bool {
-        return switch (mod.intern_pool.indexToKey(val.toIntern())) {
+        return val.ip_index != .none and switch (mod.intern_pool.indexToKey(val.toIntern())) {
             .variable => true,
             .ptr => |ptr| switch (ptr.addr) {
                 .decl => |decl_index| {
@@ -1919,28 +2006,25 @@ pub const Value = struct {
     }
 
     pub fn isPtrToThreadLocal(val: Value, mod: *Module) bool {
-        return switch (val.ip_index) {
-            .none => false,
-            else => switch (mod.intern_pool.indexToKey(val.toIntern())) {
-                .variable => |variable| variable.is_threadlocal,
-                .ptr => |ptr| switch (ptr.addr) {
-                    .decl => |decl_index| {
-                        const decl = mod.declPtr(decl_index);
-                        assert(decl.has_tv);
-                        return decl.val.isPtrToThreadLocal(mod);
-                    },
-                    .mut_decl => |mut_decl| {
-                        const decl = mod.declPtr(mut_decl.decl);
-                        assert(decl.has_tv);
-                        return decl.val.isPtrToThreadLocal(mod);
-                    },
-                    .int => false,
-                    .eu_payload, .opt_payload => |base_ptr| base_ptr.toValue().isPtrToThreadLocal(mod),
-                    .comptime_field => |comptime_field| comptime_field.toValue().isPtrToThreadLocal(mod),
-                    .elem, .field => |base_index| base_index.base.toValue().isPtrToThreadLocal(mod),
+        return val.ip_index != .none and switch (mod.intern_pool.indexToKey(val.toIntern())) {
+            .variable => |variable| variable.is_threadlocal,
+            .ptr => |ptr| switch (ptr.addr) {
+                .decl => |decl_index| {
+                    const decl = mod.declPtr(decl_index);
+                    assert(decl.has_tv);
+                    return decl.val.isPtrToThreadLocal(mod);
                 },
-                else => false,
+                .mut_decl => |mut_decl| {
+                    const decl = mod.declPtr(mut_decl.decl);
+                    assert(decl.has_tv);
+                    return decl.val.isPtrToThreadLocal(mod);
+                },
+                .int => false,
+                .eu_payload, .opt_payload => |base_ptr| base_ptr.toValue().isPtrToThreadLocal(mod),
+                .comptime_field => |comptime_field| comptime_field.toValue().isPtrToThreadLocal(mod),
+                .elem, .field => |base_index| base_index.base.toValue().isPtrToThreadLocal(mod),
             },
+            else => false,
         };
     }
 
