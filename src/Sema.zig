@@ -1999,15 +1999,17 @@ fn resolveMaybeUndefValAllowVariablesMaybeRuntime(
         return opv;
     }
     const air_datas = sema.air_instructions.items(.data);
-    switch (air_tags[i]) {
-        .interned => {
-            const val = air_datas[i].interned.toValue();
-            if (val.isRuntimeValue(sema.mod)) make_runtime.* = true;
-            if (val.isPtrToThreadLocal(sema.mod)) make_runtime.* = true;
-            return val;
+    const val = switch (air_tags[i]) {
+        .inferred_alloc, .inferred_alloc_comptime => val: {
+            const ty_pl = sema.air_instructions.items(.data)[i].ty_pl;
+            break :val sema.air_values.items[ty_pl.payload];
         },
+        .interned => air_datas[i].interned.toValue(),
         else => return null,
-    }
+    };
+    if (val.isRuntimeValue(sema.mod)) make_runtime.* = true;
+    if (val.isPtrToThreadLocal(sema.mod)) make_runtime.* = true;
+    return val;
 }
 
 fn failWithNeededComptime(sema: *Sema, block: *Block, src: LazySrcLoc, reason: []const u8) CompileError {
@@ -3762,13 +3764,17 @@ fn zirResolveInferredAlloc(sema: *Sema, block: *Block, inst: Zir.Inst.Index) Com
             sema.air_instructions.items(.data)[ptr_inst].ty_pl.ty = final_ptr_ty_inst;
 
             try sema.maybeQueueFuncBodyAnalysis(decl_index);
-            sema.air_values.items[value_index] = (try sema.mod.intern(.{ .ptr = .{
-                .ty = final_ptr_ty.toIntern(),
-                .addr = if (var_is_mut) .{ .mut_decl = .{
-                    .decl = decl_index,
-                    .runtime_index = block.runtime_index,
-                } } else .{ .decl = decl_index },
-            } })).toValue();
+            // Change it to an interned.
+            sema.air_instructions.set(ptr_inst, .{
+                .tag = .interned,
+                .data = .{ .interned = try sema.mod.intern(.{ .ptr = .{
+                    .ty = final_ptr_ty.toIntern(),
+                    .addr = if (var_is_mut) .{ .mut_decl = .{
+                        .decl = decl_index,
+                        .runtime_index = block.runtime_index,
+                    } } else .{ .decl = decl_index },
+                } }) },
+            });
         },
         .inferred_alloc => {
             assert(sema.unresolved_inferred_allocs.remove(ptr_inst));
