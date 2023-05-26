@@ -2936,7 +2936,7 @@ pub const Type = extern union {
             .manyptr_const_u8_sentinel_0,
             .@"anyframe",
             .anyframe_T,
-            => return AbiAlignmentAdvanced{ .scalar = @divExact(target.cpu.arch.ptrBitWidth(), 8) },
+            => return AbiAlignmentAdvanced{ .scalar = @divExact(target.ptrBitWidth(), 8) },
 
             .c_char => return AbiAlignmentAdvanced{ .scalar = target.c_type_alignment(.char) },
             .c_short => return AbiAlignmentAdvanced{ .scalar = target.c_type_alignment(.short) },
@@ -3007,7 +3007,7 @@ pub const Type = extern union {
                 const child_type = ty.optionalChild(&buf);
 
                 switch (child_type.zigTypeTag()) {
-                    .Pointer => return AbiAlignmentAdvanced{ .scalar = @divExact(target.cpu.arch.ptrBitWidth(), 8) },
+                    .Pointer => return AbiAlignmentAdvanced{ .scalar = @divExact(target.ptrBitWidth(), 8) },
                     .ErrorSet => return abiAlignmentAdvanced(Type.anyerror, target, strat),
                     .NoReturn => return AbiAlignmentAdvanced{ .scalar = 0 },
                     else => {},
@@ -3069,7 +3069,7 @@ pub const Type = extern union {
                         // We'll guess "pointer-aligned", if the struct has an
                         // underaligned pointer field then some allocations
                         // might require explicit alignment.
-                        return AbiAlignmentAdvanced{ .scalar = @divExact(target.cpu.arch.ptrBitWidth(), 8) };
+                        return AbiAlignmentAdvanced{ .scalar = @divExact(target.ptrBitWidth(), 8) };
                     }
                     _ = try sema.resolveTypeFields(ty);
                 }
@@ -3195,7 +3195,7 @@ pub const Type = extern union {
                 // We'll guess "pointer-aligned", if the union has an
                 // underaligned pointer field then some allocations
                 // might require explicit alignment.
-                return AbiAlignmentAdvanced{ .scalar = @divExact(target.cpu.arch.ptrBitWidth(), 8) };
+                return AbiAlignmentAdvanced{ .scalar = @divExact(target.ptrBitWidth(), 8) };
             }
             _ = try sema.resolveTypeFields(ty);
         }
@@ -3419,17 +3419,17 @@ pub const Type = extern union {
             .manyptr_u8,
             .manyptr_const_u8,
             .manyptr_const_u8_sentinel_0,
-            => return AbiSizeAdvanced{ .scalar = @divExact(target.cpu.arch.ptrBitWidth(), 8) },
+            => return AbiSizeAdvanced{ .scalar = @divExact(target.ptrBitWidth(), 8) },
 
             .const_slice,
             .mut_slice,
             .const_slice_u8,
             .const_slice_u8_sentinel_0,
-            => return AbiSizeAdvanced{ .scalar = @divExact(target.cpu.arch.ptrBitWidth(), 8) * 2 },
+            => return AbiSizeAdvanced{ .scalar = @divExact(target.ptrBitWidth(), 8) * 2 },
 
             .pointer => switch (ty.castTag(.pointer).?.data.size) {
-                .Slice => return AbiSizeAdvanced{ .scalar = @divExact(target.cpu.arch.ptrBitWidth(), 8) * 2 },
-                else => return AbiSizeAdvanced{ .scalar = @divExact(target.cpu.arch.ptrBitWidth(), 8) },
+                .Slice => return AbiSizeAdvanced{ .scalar = @divExact(target.ptrBitWidth(), 8) * 2 },
+                else => return AbiSizeAdvanced{ .scalar = @divExact(target.ptrBitWidth(), 8) },
             },
 
             .c_char => return AbiSizeAdvanced{ .scalar = target.c_type_byte_size(.char) },
@@ -3702,20 +3702,20 @@ pub const Type = extern union {
             .usize,
             .@"anyframe",
             .anyframe_T,
-            => return target.cpu.arch.ptrBitWidth(),
+            => return target.ptrBitWidth(),
 
             .const_slice,
             .mut_slice,
-            => return target.cpu.arch.ptrBitWidth() * 2,
+            => return target.ptrBitWidth() * 2,
 
             .const_slice_u8,
             .const_slice_u8_sentinel_0,
-            => return target.cpu.arch.ptrBitWidth() * 2,
+            => return target.ptrBitWidth() * 2,
 
             .optional_single_const_pointer,
             .optional_single_mut_pointer,
             => {
-                return target.cpu.arch.ptrBitWidth();
+                return target.ptrBitWidth();
             },
 
             .single_const_pointer,
@@ -3725,18 +3725,18 @@ pub const Type = extern union {
             .c_const_pointer,
             .c_mut_pointer,
             => {
-                return target.cpu.arch.ptrBitWidth();
+                return target.ptrBitWidth();
             },
 
             .pointer => switch (ty.castTag(.pointer).?.data.size) {
-                .Slice => return target.cpu.arch.ptrBitWidth() * 2,
-                else => return target.cpu.arch.ptrBitWidth(),
+                .Slice => return target.ptrBitWidth() * 2,
+                else => return target.ptrBitWidth(),
             },
 
             .manyptr_u8,
             .manyptr_const_u8,
             .manyptr_const_u8_sentinel_0,
-            => return target.cpu.arch.ptrBitWidth(),
+            => return target.ptrBitWidth(),
 
             .c_char => return target.c_type_bit_size(.char),
             .c_short => return target.c_type_bit_size(.short),
@@ -4624,8 +4624,8 @@ pub const Type = extern union {
             .i64 => return .{ .signedness = .signed, .bits = 64 },
             .u128 => return .{ .signedness = .unsigned, .bits = 128 },
             .i128 => return .{ .signedness = .signed, .bits = 128 },
-            .usize => return .{ .signedness = .unsigned, .bits = target.cpu.arch.ptrBitWidth() },
-            .isize => return .{ .signedness = .signed, .bits = target.cpu.arch.ptrBitWidth() },
+            .usize => return .{ .signedness = .unsigned, .bits = target.ptrBitWidth() },
+            .isize => return .{ .signedness = .signed, .bits = target.ptrBitWidth() },
             .c_char => return .{ .signedness = .signed, .bits = target.c_type_bit_size(.char) },
             .c_short => return .{ .signedness = .signed, .bits = target.c_type_bit_size(.short) },
             .c_ushort => return .{ .signedness = .unsigned, .bits = target.c_type_bit_size(.ushort) },

@@ -183,7 +183,7 @@ pub fn defaultBaseAddrs(arch: std.Target.Cpu.Arch) Bases {
 pub fn createEmpty(gpa: Allocator, options: link.Options) !*Plan9 {
     if (options.use_llvm)
         return error.LLVMBackendDoesNotSupportPlan9;
-    const sixtyfour_bit: bool = switch (options.target.cpu.arch.ptrBitWidth()) {
+    const sixtyfour_bit: bool = switch (options.target.ptrBitWidth()) {
         0...32 => false,
         33...64 => true,
         else => return error.UnsupportedP9Architecture,

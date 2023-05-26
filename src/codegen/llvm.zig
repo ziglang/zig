@@ -591,7 +591,7 @@ pub const Object = struct {
         const target = mod.getTarget();
 
         const llvm_ptr_ty = self.context.pointerType(0); // TODO: Address space
-        const llvm_usize_ty = self.context.intType(target.cpu.arch.ptrBitWidth());
+        const llvm_usize_ty = self.context.intType(target.ptrBitWidth());
         const type_fields = [_]*llvm.Type{
             llvm_ptr_ty,
             llvm_usize_ty,
@@ -1114,7 +1114,7 @@ pub const Object = struct {
                         llvm_arg_i += 1;
                         const field_ptr = builder.buildStructGEP(llvm_ty, arg_ptr, field_i, "");
                         const store_inst = builder.buildStore(param, field_ptr);
-                        store_inst.setAlignment(target.cpu.arch.ptrBitWidth() / 8);
+                        store_inst.setAlignment(target.ptrBitWidth() / 8);
                     }
 
                     const is_by_ref = isByRef(param_ty);
@@ -1718,7 +1718,7 @@ pub const Object = struct {
                 defer gpa.free(name);
                 const ptr_di_ty = dib.createPointerType(
                     elem_di_ty,
-                    target.cpu.arch.ptrBitWidth(),
+                    target.ptrBitWidth(),
                     ty.ptrAlignment(target) * 8,
                     name,
                 );
@@ -4071,7 +4071,7 @@ pub const DeclGen = struct {
                     .Struct => {
                         if (parent_ty.containerLayout() == .Packed) {
                             if (!byte_aligned) return parent_llvm_ptr;
-                            const llvm_usize = dg.context.intType(target.cpu.arch.ptrBitWidth());
+                            const llvm_usize = dg.context.intType(target.ptrBitWidth());
                             const base_addr = parent_llvm_ptr.constPtrToInt(llvm_usize);
                             // count bits of fields before this one
                             const prev_bits = b: {
@@ -4261,7 +4261,7 @@ pub const DeclGen = struct {
         // instruction is followed by a `wrap_optional`, it will return this value
         // verbatim, and the result should test as non-null.
         const target = dg.module.getTarget();
-        const int = switch (target.cpu.arch.ptrBitWidth()) {
+        const int = switch (target.ptrBitWidth()) {
             16 => llvm_usize.constInt(0xaaaa, .False),
             32 => llvm_usize.constInt(0xaaaaaaaa, .False),
             64 => llvm_usize.constInt(0xaaaaaaaa_aaaaaaaa, .False),
@@ -4910,7 +4910,7 @@ pub const FuncGen = struct {
                     const i = @intCast(c_uint, i_usize);
                     const field_ptr = self.builder.buildStructGEP(llvm_ty, arg_ptr, i, "");
                     const load_inst = self.builder.buildLoad(field_ty, field_ptr, "");
-                    load_inst.setAlignment(target.cpu.arch.ptrBitWidth() / 8);
+                    load_inst.setAlignment(target.ptrBitWidth() / 8);
                     llvm_args.appendAssumeCapacity(load_inst);
                 }
             },
@@ -5579,7 +5579,7 @@ pub const FuncGen = struct {
         const switch_br = self.air.extraData(Air.SwitchBr, pl_op.payload);
         const else_block = self.context.appendBasicBlock(self.llvm_func, "Else");
         const target = self.dg.module.getTarget();
-        const llvm_usize = self.context.intType(target.cpu.arch.ptrBitWidth());
+        const llvm_usize = self.context.intType(target.ptrBitWidth());
         const cond_int = if (cond.typeOf().getTypeKind() == .Pointer)
             self.builder.buildPtrToInt(cond, llvm_usize, "")
         else
@@ -5787,7 +5787,7 @@ pub const FuncGen = struct {
 
     fn sliceOrArrayLenInBytes(fg: *FuncGen, ptr: *llvm.Value, ty: Type) *llvm.Value {
         const target = fg.dg.module.getTarget();
-        const llvm_usize_ty = fg.context.intType(target.cpu.arch.ptrBitWidth());
+        const llvm_usize_ty = fg.context.intType(target.ptrBitWidth());
         switch (ty.ptrSize()) {
             .Slice => {
                 const len = fg.builder.buildExtractValue(ptr, 1, "");
@@ -6085,7 +6085,7 @@ pub const FuncGen = struct {
         if (field_offset == 0) {
             return field_ptr;
         }
-        const llvm_usize_ty = self.context.intType(target.cpu.arch.ptrBitWidth());
+        const llvm_usize_ty = self.context.intType(target.ptrBitWidth());
 
         const field_ptr_int = self.builder.buildPtrToInt(field_ptr, llvm_usize_ty, "");
         const base_ptr_int = self.builder.buildNUWSub(field_ptr_int, llvm_usize_ty.constInt(field_offset, .False), "");
@@ -8534,7 +8534,7 @@ pub const FuncGen = struct {
         const body_block = self.context.appendBasicBlock(self.llvm_func, "InlineMemsetBody");
         const end_block = self.context.appendBasicBlock(self.llvm_func, "InlineMemsetEnd");
 
-        const llvm_usize_ty = self.context.intType(target.cpu.arch.ptrBitWidth());
+        const llvm_usize_ty = self.context.intType(target.ptrBitWidth());
         const len = switch (ptr_ty.ptrSize()) {
             .Slice => self.builder.buildExtractValue(dest_slice, 1, ""),
             .One => llvm_usize_ty.constInt(ptr_ty.childType().arrayLen(), .False),
@@ -10013,7 +10013,7 @@ pub const FuncGen = struct {
     fn valgrindMarkUndef(fg: *FuncGen, ptr: *llvm.Value, len: *llvm.Value) void {
         const VG_USERREQ__MAKE_MEM_UNDEFINED = 1296236545;
         const target = fg.dg.module.getTarget();
-        const usize_llvm_ty = fg.context.intType(target.cpu.arch.ptrBitWidth());
+        const usize_llvm_ty = fg.context.intType(target.ptrBitWidth());
         const zero = usize_llvm_ty.constInt(0, .False);
         const req = usize_llvm_ty.constInt(VG_USERREQ__MAKE_MEM_UNDEFINED, .False);
         const ptr_as_usize = fg.builder.buildPtrToInt(ptr, usize_llvm_ty, "");
@@ -10033,7 +10033,7 @@ pub const FuncGen = struct {
         const target = fg.dg.module.getTarget();
         if (!target_util.hasValgrindSupport(target)) return default_value;
 
-        const usize_llvm_ty = fg.context.intType(target.cpu.arch.ptrBitWidth());
+        const usize_llvm_ty = fg.context.intType(target.ptrBitWidth());
         const usize_alignment = @intCast(c_uint, Type.usize.abiSize(target));
 
         const array_llvm_ty = usize_llvm_ty.arrayType(6);

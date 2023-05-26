@@ -260,7 +260,7 @@ pub const DeclState = struct {
             .Pointer => {
                 if (ty.isSlice()) {
                     // Slices are structs: struct { .ptr = *, .len = N }
-                    const ptr_bits = target.cpu.arch.ptrBitWidth();
+                    const ptr_bits = target.ptrBitWidth();
                     const ptr_bytes = @intCast(u8, @divExact(ptr_bits, 8));
                     // DW.AT.structure_type
                     try dbg_info_buffer.ensureUnusedCapacity(2);
@@ -751,7 +751,7 @@ pub const DeclState = struct {
             .memory,
             .linker_load,
             => {
-                const ptr_width = @intCast(u8, @divExact(target.cpu.arch.ptrBitWidth(), 8));
+                const ptr_width = @intCast(u8, @divExact(target.ptrBitWidth(), 8));
                 try dbg_info.ensureUnusedCapacity(2 + ptr_width);
                 dbg_info.appendSliceAssumeCapacity(&[2]u8{ // DW.AT.location, DW.FORM.exprloc
                     1 + ptr_width + @boolToInt(is_ptr),
@@ -928,7 +928,7 @@ const min_nop_size = 2;
 const ideal_factor = 3;
 
 pub fn init(allocator: Allocator, bin_file: *File, target: std.Target) Dwarf {
-    const ptr_width: PtrWidth = switch (target.cpu.arch.ptrBitWidth()) {
+    const ptr_width: PtrWidth = switch (target.ptrBitWidth()) {
         0...32 => .p32,
         33...64 => .p64,
         else => unreachable,

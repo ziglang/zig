@@ -1684,7 +1684,7 @@ fn memcpy(func: *CodeGen, dst: WValue, src: WValue, len: WValue) !void {
 }
 
 fn ptrSize(func: *const CodeGen) u16 {
-    return @divExact(func.target.cpu.arch.ptrBitWidth(), 8);
+    return @divExact(func.target.ptrBitWidth(), 8);
 }
 
 fn arch(func: *const CodeGen) std.Target.Cpu.Arch {

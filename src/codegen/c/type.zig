@@ -879,7 +879,7 @@ pub const CType = extern union {
             .pointer_const,
             .pointer_volatile,
             .pointer_const_volatile,
-            => @divExact(target.cpu.arch.ptrBitWidth(), 8),
+            => @divExact(target.ptrBitWidth(), 8),
             .uint16_t, .int16_t, .zig_f16 => 2,
             .uint32_t, .int32_t, .zig_f32 => 4,
             .uint64_t, .int64_t, .zig_f64 => 8,
