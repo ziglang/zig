@@ -48,32 +48,32 @@ pub fn Writer(
         /// Write a native-endian integer.
         pub fn writeIntNative(self: Self, comptime T: type, value: T) Error!void {
             var bytes: [(@typeInfo(T).Int.bits + 7) / 8]u8 = undefined;
-            mem.writeIntNative(T, &bytes, std.math.extendInt(value));
+            mem.writeIntNative(std.math.ExtendedInt(@TypeOf(value)), &bytes, std.math.extendInt(value));
             return self.writeAll(&bytes);
         }
 
         /// Write a foreign-endian integer.
         pub fn writeIntForeign(self: Self, comptime T: type, value: T) Error!void {
             var bytes: [(@typeInfo(T).Int.bits + 7) / 8]u8 = undefined;
-            mem.writeIntForeign(T, &bytes, std.math.extendInt(value));
+            mem.writeIntForeign(std.math.ExtendedInt(@TypeOf(value)), &bytes, std.math.extendInt(value));
             return self.writeAll(&bytes);
         }
 
         pub fn writeIntLittle(self: Self, comptime T: type, value: T) Error!void {
             var bytes: [(@typeInfo(T).Int.bits + 7) / 8]u8 = undefined;
-            mem.writeIntLittle(T, &bytes, std.math.extendInt(value));
+            mem.writeIntLittle(std.math.ExtendedInt(@TypeOf(value)), &bytes, std.math.extendInt(value));
             return self.writeAll(&bytes);
         }
 
         pub fn writeIntBig(self: Self, comptime T: type, value: T) Error!void {
             var bytes: [(@typeInfo(T).Int.bits + 7) / 8]u8 = undefined;
-            mem.writeIntBig(T, &bytes, std.math.extendInt(value));
+            mem.writeIntBig(std.math.ExtendedInt(@TypeOf(value)), &bytes, std.math.extendInt(value));
             return self.writeAll(&bytes);
         }
 
         pub fn writeInt(self: Self, comptime T: type, value: T, endian: std.builtin.Endian) Error!void {
             var bytes: [(@typeInfo(T).Int.bits + 7) / 8]u8 = undefined;
-            mem.writeInt(T, &bytes, std.math.extendInt(value), endian);
+            mem.writeInt(std.math.ExtendedInt(@TypeOf(value)), &bytes, std.math.extendInt(value), endian);
             return self.writeAll(&bytes);
         }
 
