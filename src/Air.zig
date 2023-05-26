@@ -186,13 +186,17 @@ pub const Inst = struct {
         /// Allocates stack local memory.
         /// Uses the `ty` field.
         alloc,
-        /// This is a special value that tracks a set of types that have been stored
-        /// to an inferred allocation. It does not support any of the normal value queries.
-        /// Uses the `ty_pl` field, payload is an index of `values` array.
+        /// This special instruction only exists temporarily during semantic
+        /// analysis and is guaranteed to be unreachable in machine code
+        /// backends. It tracks a set of types that have been stored to an
+        /// inferred allocation.
+        /// Uses the `inferred_alloc` field.
         inferred_alloc,
-        /// Used to coordinate alloc_inferred, store_to_inferred_ptr, and resolve_inferred_alloc
-        /// instructions for comptime code.
-        /// Uses the `ty_pl` field, payload is an index of `values` array.
+        /// This special instruction only exists temporarily during semantic
+        /// analysis and is guaranteed to be unreachable in machine code
+        /// backends. Used to coordinate alloc_inferred, store_to_inferred_ptr,
+        /// and resolve_inferred_alloc instructions for comptime code.
+        /// Uses the `inferred_alloc_comptime` field.
         inferred_alloc_comptime,
         /// If the function will pass the result by-ref, this instruction returns the
         /// result pointer. Otherwise it is equivalent to `alloc`.
@@ -908,8 +912,6 @@ pub const Inst = struct {
         slice_const_u8_sentinel_0_type = @enumToInt(InternPool.Index.slice_const_u8_sentinel_0_type),
         anyerror_void_error_union_type = @enumToInt(InternPool.Index.anyerror_void_error_union_type),
         generic_poison_type = @enumToInt(InternPool.Index.generic_poison_type),
-        inferred_alloc_const_type = @enumToInt(InternPool.Index.inferred_alloc_const_type),
-        inferred_alloc_mut_type = @enumToInt(InternPool.Index.inferred_alloc_mut_type),
         empty_struct_type = @enumToInt(InternPool.Index.empty_struct_type),
         undef = @enumToInt(InternPool.Index.undef),
         zero = @enumToInt(InternPool.Index.zero),
@@ -997,6 +999,19 @@ pub const Inst = struct {
             // Index into a different array.
             payload: u32,
         },
+        inferred_alloc_comptime: InferredAllocComptime,
+        inferred_alloc: InferredAlloc,
+
+        pub const InferredAllocComptime = struct {
+            decl_index: Module.Decl.Index,
+            alignment: InternPool.Alignment,
+            is_const: bool,
+        };
+
+        pub const InferredAlloc = struct {
+            alignment: InternPool.Alignment,
+            is_const: bool,
+        };
 
         // Make sure we don't accidentally add a field to make this union
         // bigger than expected. Note that in Debug builds, Zig is allowed
@@ -1287,8 +1302,6 @@ pub fn typeOfIndex(air: Air, inst: Air.Inst.Index, ip: InternPool) Type {
         .sub_with_overflow,
         .mul_with_overflow,
         .shl_with_overflow,
-        .inferred_alloc,
-        .inferred_alloc_comptime,
         .ptr_add,
         .ptr_sub,
         .try_ptr,
@@ -1424,6 +1437,9 @@ pub fn typeOfIndex(air: Air, inst: Air.Inst.Index, ip: InternPool) Type {
         .work_group_size,
         .work_group_id,
         => return Type.u32,
+
+        .inferred_alloc => unreachable,
+        .inferred_alloc_comptime => unreachable,
     }
 }
 
