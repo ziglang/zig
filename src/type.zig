@@ -2481,25 +2481,32 @@ pub const Type = struct {
                 .struct_type => |struct_type| {
                     if (mod.structPtrUnwrap(struct_type.index)) |s| {
                         assert(s.haveFieldTypes());
-                        for (s.fields.values()) |field| {
-                            if (field.is_comptime) continue;
-                            if ((try field.ty.onePossibleValue(mod)) != null) continue;
-                            return null;
+                        const field_vals = try mod.gpa.alloc(InternPool.Index, s.fields.count());
+                        defer mod.gpa.free(field_vals);
+                        for (field_vals, s.fields.values()) |*field_val, field| {
+                            if (field.is_comptime) {
+                                field_val.* = try field.default_val.intern(field.ty, mod);
+                                continue;
+                            }
+                            if (try field.ty.onePossibleValue(mod)) |field_opv| {
+                                field_val.* = try field_opv.intern(field.ty, mod);
+                            } else return null;
                         }
-                    }
-                    // In this case the struct has no runtime-known fields and
-                    // therefore has one possible value.
 
-                    // TODO: this is incorrect for structs with comptime fields, I think
-                    // we should use a temporary allocator to construct an aggregate that
-                    // is populated with the comptime values and then intern that value here.
-                    // This TODO is repeated in the redundant implementation of
-                    // one-possible-value logic in Sema.zig.
-                    const empty = try mod.intern(.{ .aggregate = .{
+                        // In this case the struct has no runtime-known fields and
+                        // therefore has one possible value.
+                        return (try mod.intern(.{ .aggregate = .{
+                            .ty = ty.toIntern(),
+                            .storage = .{ .elems = field_vals },
+                        } })).toValue();
+                    }
+
+                    // In this case the struct has no fields at all and
+                    // therefore has one possible value.
+                    return (try mod.intern(.{ .aggregate = .{
                         .ty = ty.toIntern(),
                         .storage = .{ .elems = &.{} },
-                    } });
-                    return empty.toValue();
+                    } })).toValue();
                 },
 
                 .anon_struct_type => |tuple| {

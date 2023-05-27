@@ -621,8 +621,7 @@ pub const Key = union(enum) {
 
     pub fn hashWithHasher(key: Key, hasher: *std.hash.Wyhash, ip: *const InternPool) void {
         const KeyTag = @typeInfo(Key).Union.tag_type.?;
-        const key_tag: KeyTag = key;
-        std.hash.autoHash(hasher, key_tag);
+        std.hash.autoHash(hasher, @as(KeyTag, key));
         switch (key) {
             inline .int_type,
             .ptr_type,
@@ -710,39 +709,58 @@ pub const Key = union(enum) {
 
             .aggregate => |aggregate| {
                 std.hash.autoHash(hasher, aggregate.ty);
-                switch (ip.indexToKey(aggregate.ty)) {
-                    .array_type => |array_type| if (array_type.child == .u8_type) {
-                        switch (aggregate.storage) {
-                            .bytes => |bytes| for (bytes) |byte| std.hash.autoHash(hasher, byte),
-                            .elems => |elems| {
-                                var buffer: Key.Int.Storage.BigIntSpace = undefined;
-                                for (elems) |elem| std.hash.autoHash(
+                const len = ip.aggregateTypeLen(aggregate.ty);
+                const child = switch (ip.indexToKey(aggregate.ty)) {
+                    .array_type => |array_type| array_type.child,
+                    .vector_type => |vector_type| vector_type.child,
+                    .anon_struct_type, .struct_type => .none,
+                    else => unreachable,
+                };
+
+                if (child == .u8_type) {
+                    switch (aggregate.storage) {
+                        .bytes => |bytes| for (bytes[0..@intCast(usize, len)]) |byte| {
+                            std.hash.autoHash(hasher, KeyTag.int);
+                            std.hash.autoHash(hasher, byte);
+                        },
+                        .elems => |elems| for (elems[0..@intCast(usize, len)]) |elem| {
+                            const elem_key = ip.indexToKey(elem);
+                            std.hash.autoHash(hasher, @as(KeyTag, elem_key));
+                            switch (elem_key) {
+                                .undef => {},
+                                .int => |int| std.hash.autoHash(
                                     hasher,
-                                    ip.indexToKey(elem).int.storage.toBigInt(&buffer).to(u8) catch
-                                        unreachable,
-                                );
-                            },
-                            .repeated_elem => |elem| {
-                                const len = ip.aggregateTypeLen(aggregate.ty);
-                                var buffer: Key.Int.Storage.BigIntSpace = undefined;
-                                const byte = ip.indexToKey(elem).int.storage.toBigInt(&buffer).to(u8) catch
-                                    unreachable;
-                                var i: u64 = 0;
-                                while (i < len) : (i += 1) std.hash.autoHash(hasher, byte);
-                            },
-                        }
-                        return;
-                    },
-                    else => {},
+                                    @intCast(u8, int.storage.u64),
+                                ),
+                                else => unreachable,
+                            }
+                        },
+                        .repeated_elem => |elem| {
+                            const elem_key = ip.indexToKey(elem);
+                            var remaining = len;
+                            while (remaining > 0) : (remaining -= 1) {
+                                std.hash.autoHash(hasher, @as(KeyTag, elem_key));
+                                switch (elem_key) {
+                                    .undef => {},
+                                    .int => |int| std.hash.autoHash(
+                                        hasher,
+                                        @intCast(u8, int.storage.u64),
+                                    ),
+                                    else => unreachable,
+                                }
+                            }
+                        },
+                    }
+                    return;
                 }
 
                 switch (aggregate.storage) {
                     .bytes => unreachable,
-                    .elems => |elems| for (elems) |elem| std.hash.autoHash(hasher, elem),
+                    .elems => |elems| for (elems[0..@intCast(usize, len)]) |elem|
+                        std.hash.autoHash(hasher, elem),
                     .repeated_elem => |elem| {
-                        const len = ip.aggregateTypeLen(aggregate.ty);
-                        var i: u64 = 0;
-                        while (i < len) : (i += 1) std.hash.autoHash(hasher, elem);
+                        var remaining = len;
+                        while (remaining > 0) : (remaining -= 1) std.hash.autoHash(hasher, elem);
                     },
                 }
             },
@@ -960,9 +978,10 @@ pub const Key = union(enum) {
                 const b_info = b.aggregate;
                 if (a_info.ty != b_info.ty) return false;
 
+                const len = ip.aggregateTypeLen(a_info.ty);
                 const StorageTag = @typeInfo(Key.Aggregate.Storage).Union.tag_type.?;
                 if (@as(StorageTag, a_info.storage) != @as(StorageTag, b_info.storage)) {
-                    for (0..@intCast(usize, ip.aggregateTypeLen(a_info.ty))) |elem_index| {
+                    for (0..@intCast(usize, len)) |elem_index| {
                         const a_elem = switch (a_info.storage) {
                             .bytes => |bytes| ip.getIfExists(.{ .int = .{
                                 .ty = .u8_type,
@@ -987,11 +1006,19 @@ pub const Key = union(enum) {
                 switch (a_info.storage) {
                     .bytes => |a_bytes| {
                         const b_bytes = b_info.storage.bytes;
-                        return std.mem.eql(u8, a_bytes, b_bytes);
+                        return std.mem.eql(
+                            u8,
+                            a_bytes[0..@intCast(usize, len)],
+                            b_bytes[0..@intCast(usize, len)],
+                        );
                     },
                     .elems => |a_elems| {
                         const b_elems = b_info.storage.elems;
-                        return std.mem.eql(Index, a_elems, b_elems);
+                        return std.mem.eql(
+                            Index,
+                            a_elems[0..@intCast(usize, len)],
+                            b_elems[0..@intCast(usize, len)],
+                        );
                     },
                     .repeated_elem => |a_elem| {
                         const b_elem = b_info.storage.repeated_elem;
@@ -2691,7 +2718,7 @@ pub fn indexToKey(ip: *const InternPool, index: Index) Key {
         },
         .bytes => {
             const extra = ip.extraData(Bytes, data);
-            const len = @intCast(u32, ip.aggregateTypeLen(extra.ty));
+            const len = @intCast(u32, ip.aggregateTypeLenIncludingSentinel(extra.ty));
             return .{ .aggregate = .{
                 .ty = extra.ty,
                 .storage = .{ .bytes = ip.string_bytes.items[@enumToInt(extra.bytes)..][0..len] },
@@ -2699,7 +2726,7 @@ pub fn indexToKey(ip: *const InternPool, index: Index) Key {
         },
         .aggregate => {
             const extra = ip.extraDataTrail(Aggregate, data);
-            const len = @intCast(u32, ip.aggregateTypeLen(extra.data.ty));
+            const len = @intCast(u32, ip.aggregateTypeLenIncludingSentinel(extra.data.ty));
             const fields = @ptrCast([]const Index, ip.extra.items[extra.end..][0..len]);
             return .{ .aggregate = .{
                 .ty = extra.data.ty,
@@ -3145,7 +3172,7 @@ pub fn get(ip: *InternPool, gpa: Allocator, key: Key) Allocator.Error!Index {
                             }),
                         }),
                         .int => |int| {
-                            assert(int != .none);
+                            assert(ip.typeOf(int) == .usize_type);
                             ip.items.appendAssumeCapacity(.{
                                 .tag = .ptr_int,
                                 .data = try ip.addExtra(gpa, PtrAddr{
@@ -3452,7 +3479,11 @@ pub fn get(ip: *InternPool, gpa: Allocator, key: Key) Allocator.Error!Index {
 
         .enum_tag => |enum_tag| {
             assert(ip.isEnumType(enum_tag.ty));
-            assert(ip.indexToKey(enum_tag.int) == .int);
+            switch (ip.indexToKey(enum_tag.ty)) {
+                .simple_type => assert(ip.isIntegerType(ip.typeOf(enum_tag.int))),
+                .enum_type => |enum_type| assert(ip.typeOf(enum_tag.int) == enum_type.tag_ty),
+                else => unreachable,
+            }
             ip.items.appendAssumeCapacity(.{
                 .tag = .enum_tag,
                 .data = try ip.addExtra(gpa, enum_tag),
@@ -3501,21 +3532,43 @@ pub fn get(ip: *InternPool, gpa: Allocator, key: Key) Allocator.Error!Index {
 
         .aggregate => |aggregate| {
             const ty_key = ip.indexToKey(aggregate.ty);
-            const aggregate_len = ip.aggregateTypeLen(aggregate.ty);
+            const len = ip.aggregateTypeLen(aggregate.ty);
+            const child = switch (ty_key) {
+                .array_type => |array_type| array_type.child,
+                .vector_type => |vector_type| vector_type.child,
+                .anon_struct_type, .struct_type => .none,
+                else => unreachable,
+            };
+            const sentinel = switch (ty_key) {
+                .array_type => |array_type| array_type.sentinel,
+                .vector_type, .anon_struct_type, .struct_type => .none,
+                else => unreachable,
+            };
+            const len_including_sentinel = len + @boolToInt(sentinel != .none);
             switch (aggregate.storage) {
                 .bytes => |bytes| {
-                    assert(ty_key.array_type.child == .u8_type);
-                    assert(bytes.len == aggregate_len);
+                    assert(child == .u8_type);
+                    if (bytes.len != len) {
+                        assert(bytes.len == len_including_sentinel);
+                        assert(bytes[len] == ip.indexToKey(sentinel).int.storage.u64);
+                        unreachable;
+                    }
                 },
                 .elems => |elems| {
-                    assert(elems.len == aggregate_len);
+                    if (elems.len != len) {
+                        assert(elems.len == len_including_sentinel);
+                        assert(elems[len] == sentinel);
+                        unreachable;
+                    }
                 },
-                .repeated_elem => {},
+                .repeated_elem => |elem| {
+                    assert(sentinel == .none or elem == sentinel);
+                },
             }
             switch (ty_key) {
-                inline .array_type, .vector_type => |seq_type| {
+                .array_type, .vector_type => {
                     for (aggregate.storage.values()) |elem| {
-                        assert(ip.typeOf(elem) == seq_type.child);
+                        assert(ip.typeOf(elem) == child);
                     }
                 },
                 .struct_type => |struct_type| {
@@ -3534,7 +3587,7 @@ pub fn get(ip: *InternPool, gpa: Allocator, key: Key) Allocator.Error!Index {
                 else => unreachable,
             }
 
-            if (aggregate_len == 0) {
+            if (len == 0) {
                 ip.items.appendAssumeCapacity(.{
                     .tag = .only_possible_value,
                     .data = @enumToInt(aggregate.ty),
@@ -3543,41 +3596,43 @@ pub fn get(ip: *InternPool, gpa: Allocator, key: Key) Allocator.Error!Index {
             }
 
             switch (ty_key) {
-                .anon_struct_type => |anon_struct_type| {
-                    if (switch (aggregate.storage) {
+                .anon_struct_type => |anon_struct_type| opv: {
+                    switch (aggregate.storage) {
                         .bytes => |bytes| for (anon_struct_type.values, bytes) |value, byte| {
                             if (value != ip.getIfExists(.{ .int = .{
                                 .ty = .u8_type,
                                 .storage = .{ .u64 = byte },
-                            } })) break false;
-                        } else true,
-                        .elems => |elems| std.mem.eql(Index, anon_struct_type.values, elems),
+                            } })) break :opv;
+                        },
+                        .elems => |elems| if (!std.mem.eql(
+                            Index,
+                            anon_struct_type.values,
+                            elems,
+                        )) break :opv,
                         .repeated_elem => |elem| for (anon_struct_type.values) |value| {
-                            if (value != elem) break false;
-                        } else true,
-                    }) {
-                        // This encoding works thanks to the fact that, as we just verified,
-                        // the type itself contains a slice of values that can be provided
-                        // in the aggregate fields.
-                        ip.items.appendAssumeCapacity(.{
-                            .tag = .only_possible_value,
-                            .data = @enumToInt(aggregate.ty),
-                        });
-                        return @intToEnum(Index, ip.items.len - 1);
+                            if (value != elem) break :opv;
+                        },
                     }
+                    // This encoding works thanks to the fact that, as we just verified,
+                    // the type itself contains a slice of values that can be provided
+                    // in the aggregate fields.
+                    ip.items.appendAssumeCapacity(.{
+                        .tag = .only_possible_value,
+                        .data = @enumToInt(aggregate.ty),
+                    });
+                    return @intToEnum(Index, ip.items.len - 1);
                 },
                 else => {},
             }
 
-            if (switch (aggregate.storage) {
-                .bytes => |bytes| for (bytes[1..]) |byte| {
-                    if (byte != bytes[0]) break false;
-                } else true,
-                .elems => |elems| for (elems[1..]) |elem| {
-                    if (elem != elems[0]) break false;
-                } else true,
-                .repeated_elem => true,
-            }) {
+            repeated: {
+                switch (aggregate.storage) {
+                    .bytes => |bytes| for (bytes[1..@intCast(usize, len)]) |byte|
+                        if (byte != bytes[0]) break :repeated,
+                    .elems => |elems| for (elems[1..@intCast(usize, len)]) |elem|
+                        if (elem != elems[0]) break :repeated,
+                    .repeated_elem => {},
+                }
                 const elem = switch (aggregate.storage) {
                     .bytes => |bytes| elem: {
                         _ = ip.map.pop();
@@ -3607,42 +3662,48 @@ pub fn get(ip: *InternPool, gpa: Allocator, key: Key) Allocator.Error!Index {
                 return @intToEnum(Index, ip.items.len - 1);
             }
 
-            switch (ty_key) {
-                .array_type => |array_type| if (array_type.child == .u8_type) {
-                    const len_including_sentinel = aggregate_len + @boolToInt(array_type.sentinel != .none);
-                    try ip.string_bytes.ensureUnusedCapacity(gpa, len_including_sentinel + 1);
-                    try ip.extra.ensureUnusedCapacity(gpa, @typeInfo(Bytes).Struct.fields.len);
-                    var buffer: Key.Int.Storage.BigIntSpace = undefined;
-                    switch (aggregate.storage) {
-                        .bytes => |bytes| ip.string_bytes.appendSliceAssumeCapacity(bytes),
-                        .elems => |elems| for (elems) |elem| ip.string_bytes.appendAssumeCapacity(
-                            ip.indexToKey(elem).int.storage.toBigInt(&buffer).to(u8) catch unreachable,
+            if (child == .u8_type) bytes: {
+                const string_bytes_index = ip.string_bytes.items.len;
+                try ip.string_bytes.ensureUnusedCapacity(gpa, len_including_sentinel + 1);
+                try ip.extra.ensureUnusedCapacity(gpa, @typeInfo(Bytes).Struct.fields.len);
+                switch (aggregate.storage) {
+                    .bytes => |bytes| ip.string_bytes.appendSliceAssumeCapacity(bytes),
+                    .elems => |elems| for (elems) |elem| switch (ip.indexToKey(elem)) {
+                        .undef => {
+                            ip.string_bytes.shrinkRetainingCapacity(string_bytes_index);
+                            break :bytes;
+                        },
+                        .int => |int| ip.string_bytes.appendAssumeCapacity(
+                            @intCast(u8, int.storage.u64),
                         ),
-                        .repeated_elem => |elem| @memset(
-                            ip.string_bytes.addManyAsSliceAssumeCapacity(aggregate_len),
-                            ip.indexToKey(elem).int.storage.toBigInt(&buffer).to(u8) catch unreachable,
+                        else => unreachable,
+                    },
+                    .repeated_elem => |elem| switch (ip.indexToKey(elem)) {
+                        .undef => break :bytes,
+                        .int => |int| @memset(
+                            ip.string_bytes.addManyAsSliceAssumeCapacity(len),
+                            @intCast(u8, int.storage.u64),
                         ),
-                    }
-                    if (array_type.sentinel != .none) ip.string_bytes.appendAssumeCapacity(
-                        ip.indexToKey(array_type.sentinel).int.storage.toBigInt(&buffer).to(u8) catch
-                            unreachable,
-                    );
-                    const bytes = try ip.getOrPutTrailingString(gpa, len_including_sentinel);
-                    ip.items.appendAssumeCapacity(.{
-                        .tag = .bytes,
-                        .data = ip.addExtraAssumeCapacity(Bytes{
-                            .ty = aggregate.ty,
-                            .bytes = bytes.toString(),
-                        }),
-                    });
-                    return @intToEnum(Index, ip.items.len - 1);
-                },
-                else => {},
+                        else => unreachable,
+                    },
+                }
+                if (sentinel != .none) ip.string_bytes.appendAssumeCapacity(
+                    @intCast(u8, ip.indexToKey(sentinel).int.storage.u64),
+                );
+                const bytes = try ip.getOrPutTrailingString(gpa, len_including_sentinel);
+                ip.items.appendAssumeCapacity(.{
+                    .tag = .bytes,
+                    .data = ip.addExtraAssumeCapacity(Bytes{
+                        .ty = aggregate.ty,
+                        .bytes = bytes.toString(),
+                    }),
+                });
+                return @intToEnum(Index, ip.items.len - 1);
             }
 
             try ip.extra.ensureUnusedCapacity(
                 gpa,
-                @typeInfo(Aggregate).Struct.fields.len + aggregate_len,
+                @typeInfo(Aggregate).Struct.fields.len + len_including_sentinel,
             );
             ip.items.appendAssumeCapacity(.{
                 .tag = .aggregate,
@@ -3651,6 +3712,7 @@ pub fn get(ip: *InternPool, gpa: Allocator, key: Key) Allocator.Error!Index {
                 }),
             });
             ip.extra.appendSliceAssumeCapacity(@ptrCast([]const u32, aggregate.storage.elems));
+            if (sentinel != .none) ip.extra.appendAssumeCapacity(@enumToInt(sentinel));
         },
 
         .un => |un| {
@@ -4183,10 +4245,12 @@ pub fn sliceLen(ip: InternPool, i: Index) Index {
 /// Given an existing value, returns the same value but with the supplied type.
 /// Only some combinations are allowed:
 /// * identity coercion
+/// * undef => any
 /// * int <=> int
 /// * int <=> enum
 /// * enum_literal => enum
 /// * ptr <=> ptr
+/// * int => ptr
 /// * null_value => opt
 /// * payload => opt
 /// * error set <=> error set
@@ -4194,68 +4258,93 @@ pub fn sliceLen(ip: InternPool, i: Index) Index {
 /// * error set => error union
 /// * payload => error union
 /// * fn <=> fn
+/// * array <=> array
+/// * array <=> vector
+/// * vector <=> vector
 pub fn getCoerced(ip: *InternPool, gpa: Allocator, val: Index, new_ty: Index) Allocator.Error!Index {
     const old_ty = ip.typeOf(val);
     if (old_ty == new_ty) return val;
-    switch (ip.indexToKey(val)) {
-        .extern_func => |extern_func| if (ip.isFunctionType(new_ty))
-            return ip.get(gpa, .{ .extern_func = .{
+    switch (val) {
+        .undef => return ip.get(gpa, .{ .undef = new_ty }),
+        .null_value => if (ip.isOptionalType(new_ty))
+            return ip.get(gpa, .{ .opt = .{
                 .ty = new_ty,
-                .decl = extern_func.decl,
-                .lib_name = extern_func.lib_name,
+                .val = .none,
             } }),
-        .func => |func| if (ip.isFunctionType(new_ty))
-            return ip.get(gpa, .{ .func = .{
-                .ty = new_ty,
-                .index = func.index,
-            } }),
-        .int => |int| if (ip.isIntegerType(new_ty))
-            return getCoercedInts(ip, gpa, int, new_ty)
-        else if (ip.isEnumType(new_ty))
-            return ip.get(gpa, .{ .enum_tag = .{
-                .ty = new_ty,
-                .int = val,
-            } }),
-        .enum_tag => |enum_tag| if (ip.isIntegerType(new_ty))
-            return getCoercedInts(ip, gpa, ip.indexToKey(enum_tag.int).int, new_ty),
-        .enum_literal => |enum_literal| switch (ip.indexToKey(new_ty)) {
-            .enum_type => |enum_type| {
-                const index = enum_type.nameIndex(ip, enum_literal).?;
+        else => switch (ip.indexToKey(val)) {
+            .undef => return ip.get(gpa, .{ .undef = new_ty }),
+            .extern_func => |extern_func| if (ip.isFunctionType(new_ty))
+                return ip.get(gpa, .{ .extern_func = .{
+                    .ty = new_ty,
+                    .decl = extern_func.decl,
+                    .lib_name = extern_func.lib_name,
+                } }),
+            .func => |func| if (ip.isFunctionType(new_ty))
+                return ip.get(gpa, .{ .func = .{
+                    .ty = new_ty,
+                    .index = func.index,
+                } }),
+            .int => |int| if (ip.isIntegerType(new_ty))
+                return getCoercedInts(ip, gpa, int, new_ty)
+            else if (ip.isEnumType(new_ty))
                 return ip.get(gpa, .{ .enum_tag = .{
                     .ty = new_ty,
-                    .int = if (enum_type.values.len != 0)
-                        enum_type.values[index]
-                    else
-                        try ip.get(gpa, .{ .int = .{
-                            .ty = enum_type.tag_ty,
-                            .storage = .{ .u64 = index },
-                        } }),
-                } });
+                    .int = val,
+                } })
+            else if (ip.isPointerType(new_ty))
+                return ip.get(gpa, .{ .ptr = .{
+                    .ty = new_ty,
+                    .addr = .{ .int = val },
+                } }),
+            .enum_tag => |enum_tag| if (ip.isIntegerType(new_ty))
+                return getCoercedInts(ip, gpa, ip.indexToKey(enum_tag.int).int, new_ty),
+            .enum_literal => |enum_literal| switch (ip.indexToKey(new_ty)) {
+                .enum_type => |enum_type| {
+                    const index = enum_type.nameIndex(ip, enum_literal).?;
+                    return ip.get(gpa, .{ .enum_tag = .{
+                        .ty = new_ty,
+                        .int = if (enum_type.values.len != 0)
+                            enum_type.values[index]
+                        else
+                            try ip.get(gpa, .{ .int = .{
+                                .ty = enum_type.tag_ty,
+                                .storage = .{ .u64 = index },
+                            } }),
+                    } });
+                },
+                else => {},
             },
+            .ptr => |ptr| if (ip.isPointerType(new_ty))
+                return ip.get(gpa, .{ .ptr = .{
+                    .ty = new_ty,
+                    .addr = ptr.addr,
+                    .len = ptr.len,
+                } }),
+            .err => |err| if (ip.isErrorSetType(new_ty))
+                return ip.get(gpa, .{ .err = .{
+                    .ty = new_ty,
+                    .name = err.name,
+                } })
+            else if (ip.isErrorUnionType(new_ty))
+                return ip.get(gpa, .{ .error_union = .{
+                    .ty = new_ty,
+                    .val = .{ .err_name = err.name },
+                } }),
+            .error_union => |error_union| if (ip.isErrorUnionType(new_ty))
+                return ip.get(gpa, .{ .error_union = .{
+                    .ty = new_ty,
+                    .val = error_union.val,
+                } }),
+            .aggregate => |aggregate| return ip.get(gpa, .{ .aggregate = .{
+                .ty = new_ty,
+                .storage = switch (aggregate.storage) {
+                    .bytes => |bytes| .{ .bytes = bytes[0..@intCast(usize, ip.aggregateTypeLen(new_ty))] },
+                    .elems => |elems| .{ .elems = elems[0..@intCast(usize, ip.aggregateTypeLen(new_ty))] },
+                    .repeated_elem => |elem| .{ .repeated_elem = elem },
+                },
+            } }),
             else => {},
         },
-        .ptr => |ptr| if (ip.isPointerType(new_ty))
-            return ip.get(gpa, .{ .ptr = .{
-                .ty = new_ty,
-                .addr = ptr.addr,
-                .len = ptr.len,
-            } }),
-        .err => |err| if (ip.isErrorSetType(new_ty))
-            return ip.get(gpa, .{ .err = .{
-                .ty = new_ty,
-                .name = err.name,
-            } })
-        else if (ip.isErrorUnionType(new_ty))
-            return ip.get(gpa, .{ .error_union = .{
-                .ty = new_ty,
-                .val = .{ .err_name = err.name },
-            } }),
-        .error_union => |error_union| if (ip.isErrorUnionType(new_ty))
-            return ip.get(gpa, .{ .error_union = .{
-                .ty = new_ty,
-                .val = error_union.val,
-            } }),
-        else => {},
     }
     switch (ip.indexToKey(new_ty)) {
         .opt_type => |child_type| switch (val) {
@@ -4527,7 +4616,7 @@ fn dumpFallible(ip: InternPool, arena: Allocator) anyerror!void {
 
             .type_function => b: {
                 const info = ip.extraData(TypeFunction, data);
-                break :b @sizeOf(TypeFunction) + (@sizeOf(u32) * info.params_len);
+                break :b @sizeOf(TypeFunction) + (@sizeOf(Index) * info.params_len);
             },
 
             .undef => 0,
@@ -4570,14 +4659,14 @@ fn dumpFallible(ip: InternPool, arena: Allocator) anyerror!void {
 
             .bytes => b: {
                 const info = ip.extraData(Bytes, data);
-                const len = @intCast(u32, ip.aggregateTypeLen(info.ty));
+                const len = @intCast(u32, ip.aggregateTypeLenIncludingSentinel(info.ty));
                 break :b @sizeOf(Bytes) + len +
                     @boolToInt(ip.string_bytes.items[@enumToInt(info.bytes) + len - 1] != 0);
             },
             .aggregate => b: {
                 const info = ip.extraData(Aggregate, data);
-                const fields_len = @intCast(u32, ip.aggregateTypeLen(info.ty));
-                break :b @sizeOf(Aggregate) + (@sizeOf(u32) * fields_len);
+                const fields_len = @intCast(u32, ip.aggregateTypeLenIncludingSentinel(info.ty));
+                break :b @sizeOf(Aggregate) + (@sizeOf(Index) * fields_len);
             },
             .repeated => @sizeOf(Repeated),
 
@@ -4884,6 +4973,16 @@ pub fn aggregateTypeLen(ip: InternPool, ty: Index) u64 {
         .struct_type => |struct_type| ip.structPtrConst(struct_type.index.unwrap() orelse return 0).fields.count(),
         .anon_struct_type => |anon_struct_type| anon_struct_type.types.len,
         .array_type => |array_type| array_type.len,
+        .vector_type => |vector_type| vector_type.len,
+        else => unreachable,
+    };
+}
+
+pub fn aggregateTypeLenIncludingSentinel(ip: InternPool, ty: Index) u64 {
+    return switch (ip.indexToKey(ty)) {
+        .struct_type => |struct_type| ip.structPtrConst(struct_type.index.unwrap() orelse return 0).fields.count(),
+        .anon_struct_type => |anon_struct_type| anon_struct_type.types.len,
+        .array_type => |array_type| array_type.len + @boolToInt(array_type.sentinel != .none),
         .vector_type => |vector_type| vector_type.len,
         else => unreachable,
     };

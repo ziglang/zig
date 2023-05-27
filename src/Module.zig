@@ -99,6 +99,7 @@ monomorphed_funcs: MonomorphedFuncsSet = .{},
 /// The set of all comptime function calls that have been cached so that future calls
 /// with the same parameters will get the same return value.
 memoized_calls: MemoizedCallSet = .{},
+memoized_call_args: MemoizedCall.Args = .{},
 /// Contains the values from `@setAlignStack`. A sparse table is used here
 /// instead of a field of `Fn` because usage of `@setAlignStack` is rare, while
 /// functions are many.
@@ -230,46 +231,30 @@ pub const MemoizedCallSet = std.HashMapUnmanaged(
 );
 
 pub const MemoizedCall = struct {
-    module: *Module,
+    args: *const Args,
+
+    pub const Args = std.ArrayListUnmanaged(InternPool.Index);
 
     pub const Key = struct {
         func: Fn.Index,
-        args: []TypedValue,
-    };
+        args_index: u32,
+        args_count: u32,
 
-    pub const Result = struct {
-        val: Value,
-        arena: std.heap.ArenaAllocator.State,
-    };
-
-    pub fn eql(ctx: @This(), a: Key, b: Key) bool {
-        if (a.func != b.func) return false;
-
-        assert(a.args.len == b.args.len);
-        for (a.args, 0..) |a_arg, arg_i| {
-            const b_arg = b.args[arg_i];
-            if (!a_arg.eql(b_arg, ctx.module)) {
-                return false;
-            }
+        pub fn args(key: Key, ctx: MemoizedCall) []InternPool.Index {
+            return ctx.args.items[key.args_index..][0..key.args_count];
         }
+    };
 
-        return true;
+    pub const Result = InternPool.Index;
+
+    pub fn eql(ctx: MemoizedCall, a: Key, b: Key) bool {
+        return a.func == b.func and mem.eql(InternPool.Index, a.args(ctx), b.args(ctx));
     }
 
-    /// Must match `Sema.GenericCallAdapter.hash`.
-    pub fn hash(ctx: @This(), key: Key) u64 {
+    pub fn hash(ctx: MemoizedCall, key: Key) u64 {
         var hasher = std.hash.Wyhash.init(0);
-
-        // The generic function Decl is guaranteed to be the first dependency
-        // of each of its instantiations.
         std.hash.autoHash(&hasher, key.func);
-
-        // This logic must be kept in sync with the logic in `analyzeCall` that
-        // computes the hash.
-        for (key.args) |arg| {
-            arg.hash(&hasher, ctx.module);
-        }
-
+        std.hash.autoHashStrat(&hasher, key.args(ctx), .Deep);
         return hasher.final();
     }
 };
@@ -882,6 +867,10 @@ pub const Decl = struct {
             // Natural alignment.
             return decl.ty.abiAlignment(mod);
         }
+    }
+
+    pub fn intern(decl: *Decl, mod: *Module) Allocator.Error!void {
+        decl.val = (try decl.val.intern(decl.ty, mod)).toValue();
     }
 };
 
@@ -3325,15 +3314,8 @@ pub fn deinit(mod: *Module) void {
     mod.test_functions.deinit(gpa);
     mod.align_stack_fns.deinit(gpa);
     mod.monomorphed_funcs.deinit(gpa);
-
-    {
-        var it = mod.memoized_calls.iterator();
-        while (it.next()) |entry| {
-            gpa.free(entry.key_ptr.args);
-            entry.value_ptr.arena.promote(gpa).deinit();
-        }
-        mod.memoized_calls.deinit(gpa);
-    }
+    mod.memoized_call_args.deinit(gpa);
+    mod.memoized_calls.deinit(gpa);
 
     mod.decls_free_list.deinit(gpa);
     mod.allocated_decls.deinit(gpa);
@@ -5894,6 +5876,7 @@ pub fn initNewAnonDecl(
     typed_value: TypedValue,
     name: [:0]u8,
 ) !void {
+    assert(typed_value.ty.toIntern() == mod.intern_pool.typeOf(typed_value.val.toIntern()));
     errdefer mod.gpa.free(name);
 
     const new_decl = mod.declPtr(new_decl_index);
@@ -6645,7 +6628,7 @@ pub fn markDeclAlive(mod: *Module, decl: *Decl) Allocator.Error!void {
     if (decl.alive) return;
     decl.alive = true;
 
-    decl.val = (try decl.val.intern(decl.ty, mod)).toValue();
+    try decl.intern(mod);
 
     // This is the first time we are marking this Decl alive. We must
     // therefore recurse into its value and mark any Decl it references
@@ -6749,15 +6732,19 @@ pub fn ptrType(mod: *Module, info: InternPool.Key.PtrType) Allocator.Error!Type 
         }
     }
 
-    // Canonicalize host_size. If it matches the bit size of the pointee type,
-    // we change it to 0 here. If this causes an assertion trip, the pointee type
-    // needs to be resolved before calling this ptr() function.
-    if (info.host_size != 0) {
-        const elem_bit_size = info.elem_type.toType().bitSize(mod);
-        assert(info.bit_offset + elem_bit_size <= info.host_size * 8);
-        if (info.host_size * 8 == elem_bit_size) {
-            canon_info.host_size = 0;
-        }
+    switch (info.vector_index) {
+        // Canonicalize host_size. If it matches the bit size of the pointee type,
+        // we change it to 0 here. If this causes an assertion trip, the pointee type
+        // needs to be resolved before calling this ptr() function.
+        .none => if (info.host_size != 0) {
+            const elem_bit_size = info.elem_type.toType().bitSize(mod);
+            assert(info.bit_offset + elem_bit_size <= info.host_size * 8);
+            if (info.host_size * 8 == elem_bit_size) {
+                canon_info.host_size = 0;
+            }
+        },
+        .runtime => {},
+        _ => assert(@enumToInt(info.vector_index) < info.host_size),
     }
 
     return (try intern(mod, .{ .ptr_type = canon_info })).toType();

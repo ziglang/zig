@@ -957,7 +957,7 @@ pub fn genTypedValue(
             }
         },
         .Bool => {
-            return GenResult.mcv(.{ .immediate = @boolToInt(typed_value.val.toBool(mod)) });
+            return GenResult.mcv(.{ .immediate = @boolToInt(typed_value.val.toBool()) });
         },
         .Optional => {
             if (typed_value.ty.isPtrLikeOptional(mod)) {

@@ -354,8 +354,8 @@ def Zir_Inst__Zir_Inst_Ref_SummaryProvider(value, _=None):
 
 def Air_Inst__Air_Inst_Ref_SummaryProvider(value, _=None):
     members = value.type.enum_members
-    # ignore .none
-    return value if any(value.unsigned == member.unsigned for member in members) else 'instructions[%d]' % (value.unsigned + 1 - len(members))
+    # ignore .var_args_param_type and .none
+    return value if any(value.unsigned == member.unsigned for member in members) else 'instructions[%d]' % (value.unsigned + 2 - len(members))
 
 class Module_Decl__Module_Decl_Index_SynthProvider:
     def __init__(self, value, _=None): self.value = value
@@ -365,7 +365,7 @@ class Module_Decl__Module_Decl_Index_SynthProvider:
                 mod = frame.FindVariable('mod') or frame.FindVariable('module')
                 if mod: break
             else: return
-            self.ptr = mod.GetChildMemberWithName('allocated_decls').GetChildAtIndex(self.value.unsigned).Clone('decl')
+            self.ptr = mod.GetChildMemberWithName('allocated_decls').GetChildAtIndex(self.value.unsigned).address_of.Clone('decl')
         except: pass
     def has_children(self): return True
     def num_children(self): return 1
