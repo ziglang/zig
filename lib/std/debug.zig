@@ -881,6 +881,7 @@ fn readCoffDebugInfo(allocator: mem.Allocator, coff_bytes: []const u8) !ModuleDe
 
         // Only used by pdb path
         di.coff_section_headers = try coff_obj.getSectionHeadersAlloc(allocator);
+        errdefer allocator.free(di.coff_section_headers);
 
         var path_buf: [windows.MAX_PATH]u8 = undefined;
         const len = try coff_obj.getPdbPath(path_buf[0..]);
