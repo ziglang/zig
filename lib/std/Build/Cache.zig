@@ -123,7 +123,7 @@ fn findPrefixResolved(cache: *const Cache, resolved_path: []u8) !PrefixedPath {
     var i: u8 = 1; // Start at 1 to skip over checking the null prefix.
     while (i < prefixes_slice.len) : (i += 1) {
         const p = prefixes_slice[i].path.?;
-        if (mem.startsWith(u8, resolved_path, p)) {
+        if (p.len > 0 and mem.startsWith(u8, resolved_path, p)) {
             // +1 to skip over the path separator here
             const sub_path = try gpa.dupe(u8, resolved_path[p.len + 1 ..]);
             gpa.free(resolved_path);
