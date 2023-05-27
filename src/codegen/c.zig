@@ -1110,14 +1110,16 @@ pub const DeclGen = struct {
 
             .undef, .runtime_value => unreachable, // handled above
             .simple_value => |simple_value| switch (simple_value) {
-                .undefined,
-                .void,
-                .null,
-                .empty_struct,
-                .@"unreachable",
-                .generic_poison,
-                => unreachable, // non-runtime values
-                .false, .true => try writer.writeAll(@tagName(simple_value)),
+                // non-runtime values
+                .undefined => unreachable,
+                .void => unreachable,
+                .null => unreachable,
+                .empty_struct => unreachable,
+                .@"unreachable" => unreachable,
+                .generic_poison => unreachable,
+
+                .false => try writer.writeAll("false"),
+                .true => try writer.writeAll("true"),
             },
             .variable,
             .extern_func,
@@ -1138,10 +1140,10 @@ pub const DeclGen = struct {
             .error_union => |error_union| {
                 const payload_ty = ty.errorUnionPayload(mod);
                 const error_ty = ty.errorUnionSet(mod);
-                const error_val = if (val.errorUnionIsPayload(mod)) try mod.intValue(Type.anyerror, 0) else val;
+                const error_val = if (val.errorUnionIsPayload(mod)) try mod.intValue(Type.err_int, 0) else val;
 
                 if (!payload_ty.hasRuntimeBitsIgnoreComptime(mod)) {
-                    return dg.renderValue(writer, error_ty, error_val, location);
+                    return dg.renderValue(writer, Type.err_int, error_val, location);
                 }
 
                 if (!location.isInitializer()) {
@@ -1305,12 +1307,10 @@ pub const DeclGen = struct {
                 if (!payload_ty.hasRuntimeBitsIgnoreComptime(mod))
                     return dg.renderValue(writer, Type.bool, is_null_val, location);
 
-                if (ty.optionalReprIsPayload(mod)) {
-                    return dg.renderValue(writer, payload_ty, switch (opt.val) {
-                        .none => try mod.intValue(payload_ty, 0),
-                        else => opt.val.toValue(),
-                    }, location);
-                }
+                if (ty.optionalReprIsPayload(mod)) switch (opt.val) {
+                    .none => return writer.writeByte('0'),
+                    else => return dg.renderValue(writer, payload_ty, opt.val.toValue(), location),
+                };
 
                 if (!location.isInitializer()) {
                     try writer.writeByte('(');
@@ -1327,7 +1327,7 @@ pub const DeclGen = struct {
                 try dg.renderValue(writer, Type.bool, is_null_val, initializer_type);
                 try writer.writeAll(" }");
             },
-            .aggregate => switch (mod.intern_pool.indexToKey(ty.ip_index)) {
+            .aggregate => |aggregate| switch (mod.intern_pool.indexToKey(ty.ip_index)) {
                 .array_type, .vector_type => {
                     if (location == .FunctionArgument) {
                         try writer.writeByte('(');
@@ -1385,131 +1385,179 @@ pub const DeclGen = struct {
                         try writer.writeByte('}');
                     }
                 },
-                .struct_type, .anon_struct_type => switch (ty.containerLayout(mod)) {
-                    .Auto, .Extern => {
-                        const field_vals = val.castTag(.aggregate).?.data;
+                .anon_struct_type => |tuple| {
+                    if (!location.isInitializer()) {
+                        try writer.writeByte('(');
+                        try dg.renderType(writer, ty);
+                        try writer.writeByte(')');
+                    }
 
-                        if (!location.isInitializer()) {
-                            try writer.writeByte('(');
-                            try dg.renderType(writer, ty);
-                            try writer.writeByte(')');
-                        }
+                    try writer.writeByte('{');
+                    var empty = true;
+                    for (tuple.types, tuple.values, 0..) |field_ty, comptime_ty, field_i| {
+                        if (comptime_ty != .none) continue;
+                        if (!field_ty.toType().hasRuntimeBitsIgnoreComptime(mod)) continue;
 
-                        try writer.writeByte('{');
-                        var empty = true;
-                        for (field_vals, 0..) |field_val, field_i| {
-                            if (ty.structFieldIsComptime(field_i, mod)) continue;
-                            const field_ty = ty.structFieldType(field_i, mod);
-                            if (!field_ty.hasRuntimeBitsIgnoreComptime(mod)) continue;
+                        if (!empty) try writer.writeByte(',');
 
-                            if (!empty) try writer.writeByte(',');
-                            try dg.renderValue(writer, field_ty, field_val, initializer_type);
+                        const field_val = switch (aggregate.storage) {
+                            .bytes => |bytes| try mod.intern_pool.get(mod.gpa, .{ .int = .{
+                                .ty = field_ty,
+                                .storage = .{ .u64 = bytes[field_i] },
+                            } }),
+                            .elems => |elems| elems[field_i],
+                            .repeated_elem => |elem| elem,
+                        };
+                        try dg.renderValue(writer, field_ty.toType(), field_val.toValue(), initializer_type);
 
-                            empty = false;
-                        }
-                        try writer.writeByte('}');
-                    },
-                    .Packed => {
-                        const field_vals = val.castTag(.aggregate).?.data;
-                        const int_info = ty.intInfo(mod);
-
-                        const bits = Type.smallestUnsignedBits(int_info.bits - 1);
-                        const bit_offset_ty = try mod.intType(.unsigned, bits);
-
-                        var bit_offset: u64 = 0;
-
-                        var eff_num_fields: usize = 0;
-                        for (0..field_vals.len) |field_i| {
-                            if (ty.structFieldIsComptime(field_i, mod)) continue;
-                            const field_ty = ty.structFieldType(field_i, mod);
-                            if (!field_ty.hasRuntimeBitsIgnoreComptime(mod)) continue;
-
-                            eff_num_fields += 1;
-                        }
-
-                        if (eff_num_fields == 0) {
-                            try writer.writeByte('(');
-                            try dg.renderValue(writer, ty, Value.undef, initializer_type);
-                            try writer.writeByte(')');
-                        } else if (ty.bitSize(mod) > 64) {
-                            // zig_or_u128(zig_or_u128(zig_shl_u128(a, a_off), zig_shl_u128(b, b_off)), zig_shl_u128(c, c_off))
-                            var num_or = eff_num_fields - 1;
-                            while (num_or > 0) : (num_or -= 1) {
-                                try writer.writeAll("zig_or_");
-                                try dg.renderTypeForBuiltinFnName(writer, ty);
-                                try writer.writeByte('(');
-                            }
-
-                            var eff_index: usize = 0;
-                            var needs_closing_paren = false;
-                            for (field_vals, 0..) |field_val, field_i| {
-                                if (ty.structFieldIsComptime(field_i, mod)) continue;
-                                const field_ty = ty.structFieldType(field_i, mod);
-                                if (!field_ty.hasRuntimeBitsIgnoreComptime(mod)) continue;
-
-                                const cast_context = IntCastContext{ .value = .{ .value = field_val } };
-                                if (bit_offset != 0) {
-                                    try writer.writeAll("zig_shl_");
-                                    try dg.renderTypeForBuiltinFnName(writer, ty);
-                                    try writer.writeByte('(');
-                                    try dg.renderIntCast(writer, ty, cast_context, field_ty, .FunctionArgument);
-                                    try writer.writeAll(", ");
-                                    const bit_offset_val = try mod.intValue(bit_offset_ty, bit_offset);
-                                    try dg.renderValue(writer, bit_offset_ty, bit_offset_val, .FunctionArgument);
-                                    try writer.writeByte(')');
-                                } else {
-                                    try dg.renderIntCast(writer, ty, cast_context, field_ty, .FunctionArgument);
-                                }
-
-                                if (needs_closing_paren) try writer.writeByte(')');
-                                if (eff_index != eff_num_fields - 1) try writer.writeAll(", ");
-
-                                bit_offset += field_ty.bitSize(mod);
-                                needs_closing_paren = true;
-                                eff_index += 1;
-                            }
-                        } else {
-                            try writer.writeByte('(');
-                            // a << a_off | b << b_off | c << c_off
-                            var empty = true;
-                            for (field_vals, 0..) |field_val, field_i| {
-                                if (ty.structFieldIsComptime(field_i, mod)) continue;
-                                const field_ty = ty.structFieldType(field_i, mod);
-                                if (!field_ty.hasRuntimeBitsIgnoreComptime(mod)) continue;
-
-                                if (!empty) try writer.writeAll(" | ");
+                        empty = false;
+                    }
+                    try writer.writeByte('}');
+                },
+                .struct_type => |struct_type| {
+                    const struct_obj = mod.structPtrUnwrap(struct_type.index).?;
+                    switch (struct_obj.layout) {
+                        .Auto, .Extern => {
+                            if (!location.isInitializer()) {
                                 try writer.writeByte('(');
                                 try dg.renderType(writer, ty);
                                 try writer.writeByte(')');
+                            }
 
-                                if (bit_offset != 0) {
-                                    try dg.renderValue(writer, field_ty, field_val, .Other);
-                                    try writer.writeAll(" << ");
-                                    const bit_offset_val = try mod.intValue(bit_offset_ty, bit_offset);
-                                    try dg.renderValue(writer, bit_offset_ty, bit_offset_val, .FunctionArgument);
-                                } else {
-                                    try dg.renderValue(writer, field_ty, field_val, .Other);
-                                }
+                            try writer.writeByte('{');
+                            var empty = true;
+                            for (struct_obj.fields.values(), 0..) |field, field_i| {
+                                if (field.is_comptime) continue;
+                                if (!field.ty.hasRuntimeBitsIgnoreComptime(mod)) continue;
 
-                                bit_offset += field_ty.bitSize(mod);
+                                if (!empty) try writer.writeByte(',');
+                                const field_val = switch (aggregate.storage) {
+                                    .bytes => |bytes| try mod.intern_pool.get(mod.gpa, .{ .int = .{
+                                        .ty = field.ty.toIntern(),
+                                        .storage = .{ .u64 = bytes[field_i] },
+                                    } }),
+                                    .elems => |elems| elems[field_i],
+                                    .repeated_elem => |elem| elem,
+                                };
+                                try dg.renderValue(writer, field.ty, field_val.toValue(), initializer_type);
+
                                 empty = false;
                             }
-                            try writer.writeByte(')');
-                        }
-                    },
+                            try writer.writeByte('}');
+                        },
+                        .Packed => {
+                            const int_info = ty.intInfo(mod);
+
+                            const bits = Type.smallestUnsignedBits(int_info.bits - 1);
+                            const bit_offset_ty = try mod.intType(.unsigned, bits);
+
+                            var bit_offset: u64 = 0;
+                            var eff_num_fields: usize = 0;
+
+                            for (struct_obj.fields.values()) |field| {
+                                if (field.is_comptime) continue;
+                                if (!field.ty.hasRuntimeBitsIgnoreComptime(mod)) continue;
+
+                                eff_num_fields += 1;
+                            }
+
+                            if (eff_num_fields == 0) {
+                                try writer.writeByte('(');
+                                try dg.renderValue(writer, ty, Value.undef, initializer_type);
+                                try writer.writeByte(')');
+                            } else if (ty.bitSize(mod) > 64) {
+                                // zig_or_u128(zig_or_u128(zig_shl_u128(a, a_off), zig_shl_u128(b, b_off)), zig_shl_u128(c, c_off))
+                                var num_or = eff_num_fields - 1;
+                                while (num_or > 0) : (num_or -= 1) {
+                                    try writer.writeAll("zig_or_");
+                                    try dg.renderTypeForBuiltinFnName(writer, ty);
+                                    try writer.writeByte('(');
+                                }
+
+                                var eff_index: usize = 0;
+                                var needs_closing_paren = false;
+                                for (struct_obj.fields.values(), 0..) |field, field_i| {
+                                    if (field.is_comptime) continue;
+                                    if (!field.ty.hasRuntimeBitsIgnoreComptime(mod)) continue;
+
+                                    const field_val = switch (aggregate.storage) {
+                                        .bytes => |bytes| try mod.intern_pool.get(mod.gpa, .{ .int = .{
+                                            .ty = field.ty.toIntern(),
+                                            .storage = .{ .u64 = bytes[field_i] },
+                                        } }),
+                                        .elems => |elems| elems[field_i],
+                                        .repeated_elem => |elem| elem,
+                                    };
+                                    const cast_context = IntCastContext{ .value = .{ .value = field_val.toValue() } };
+                                    if (bit_offset != 0) {
+                                        try writer.writeAll("zig_shl_");
+                                        try dg.renderTypeForBuiltinFnName(writer, ty);
+                                        try writer.writeByte('(');
+                                        try dg.renderIntCast(writer, ty, cast_context, field.ty, .FunctionArgument);
+                                        try writer.writeAll(", ");
+                                        const bit_offset_val = try mod.intValue(bit_offset_ty, bit_offset);
+                                        try dg.renderValue(writer, bit_offset_ty, bit_offset_val, .FunctionArgument);
+                                        try writer.writeByte(')');
+                                    } else {
+                                        try dg.renderIntCast(writer, ty, cast_context, field.ty, .FunctionArgument);
+                                    }
+
+                                    if (needs_closing_paren) try writer.writeByte(')');
+                                    if (eff_index != eff_num_fields - 1) try writer.writeAll(", ");
+
+                                    bit_offset += field.ty.bitSize(mod);
+                                    needs_closing_paren = true;
+                                    eff_index += 1;
+                                }
+                            } else {
+                                try writer.writeByte('(');
+                                // a << a_off | b << b_off | c << c_off
+                                var empty = true;
+                                for (struct_obj.fields.values(), 0..) |field, field_i| {
+                                    if (field.is_comptime) continue;
+                                    if (!field.ty.hasRuntimeBitsIgnoreComptime(mod)) continue;
+
+                                    if (!empty) try writer.writeAll(" | ");
+                                    try writer.writeByte('(');
+                                    try dg.renderType(writer, ty);
+                                    try writer.writeByte(')');
+
+                                    const field_val = switch (aggregate.storage) {
+                                        .bytes => |bytes| try mod.intern_pool.get(mod.gpa, .{ .int = .{
+                                            .ty = field.ty.toIntern(),
+                                            .storage = .{ .u64 = bytes[field_i] },
+                                        } }),
+                                        .elems => |elems| elems[field_i],
+                                        .repeated_elem => |elem| elem,
+                                    };
+
+                                    if (bit_offset != 0) {
+                                        try dg.renderValue(writer, field.ty, field_val.toValue(), .Other);
+                                        try writer.writeAll(" << ");
+                                        const bit_offset_val = try mod.intValue(bit_offset_ty, bit_offset);
+                                        try dg.renderValue(writer, bit_offset_ty, bit_offset_val, .FunctionArgument);
+                                    } else {
+                                        try dg.renderValue(writer, field.ty, field_val.toValue(), .Other);
+                                    }
+
+                                    bit_offset += field.ty.bitSize(mod);
+                                    empty = false;
+                                }
+                                try writer.writeByte(')');
+                            }
+                        },
+                    }
                 },
                 else => unreachable,
             },
-            .un => {
-                const union_obj = val.castTag(.@"union").?.data;
-
+            .un => |un| {
                 if (!location.isInitializer()) {
                     try writer.writeByte('(');
                     try dg.renderType(writer, ty);
                     try writer.writeByte(')');
                 }
 
-                const field_i = ty.unionTagFieldIndex(union_obj.tag, mod).?;
+                const field_i = ty.unionTagFieldIndex(un.tag.toValue(), mod).?;
                 const field_ty = ty.unionFields(mod).values()[field_i].ty;
                 const field_name = ty.unionFields(mod).keys()[field_i];
                 if (ty.containerLayout(mod) == .Packed) {
@@ -1523,7 +1571,7 @@ pub const DeclGen = struct {
                             try dg.renderType(writer, ty);
                             try writer.writeByte(')');
                         }
-                        try dg.renderValue(writer, field_ty, union_obj.val, initializer_type);
+                        try dg.renderValue(writer, field_ty, un.val.toValue(), initializer_type);
                     } else {
                         try writer.writeAll("0");
                     }
@@ -1535,7 +1583,7 @@ pub const DeclGen = struct {
                     const layout = ty.unionGetLayout(mod);
                     if (layout.tag_size != 0) {
                         try writer.writeAll(" .tag = ");
-                        try dg.renderValue(writer, tag_ty, union_obj.tag, initializer_type);
+                        try dg.renderValue(writer, tag_ty, un.tag.toValue(), initializer_type);
                     }
                     if (ty.unionHasAllZeroBitFieldTypes(mod)) return try writer.writeByte('}');
                     if (layout.tag_size != 0) try writer.writeByte(',');
@@ -1543,7 +1591,7 @@ pub const DeclGen = struct {
                 }
                 if (field_ty.hasRuntimeBits(mod)) {
                     try writer.print(" .{ } = ", .{fmtIdent(field_name)});
-                    try dg.renderValue(writer, field_ty, union_obj.val, initializer_type);
+                    try dg.renderValue(writer, field_ty, un.val.toValue(), initializer_type);
                     try writer.writeByte(' ');
                 } else for (ty.unionFields(mod).values()) |field| {
                     if (!field.ty.hasRuntimeBits(mod)) continue;
@@ -5113,13 +5161,14 @@ fn airIsNull(
         TypedValue{ .ty = Type.bool, .val = Value.true }
     else if (optional_ty.isPtrLikeOptional(mod))
         // operand is a regular pointer, test `operand !=/== NULL`
-        TypedValue{ .ty = optional_ty, .val = Value.null }
+        TypedValue{ .ty = optional_ty, .val = try mod.nullValue(optional_ty) }
     else if (payload_ty.zigTypeTag(mod) == .ErrorSet)
-        TypedValue{ .ty = payload_ty, .val = try mod.intValue(payload_ty, 0) }
+        TypedValue{ .ty = Type.err_int, .val = try mod.intValue(Type.err_int, 0) }
     else if (payload_ty.isSlice(mod) and optional_ty.optionalReprIsPayload(mod)) rhs: {
         try writer.writeAll(".ptr");
         const slice_ptr_ty = payload_ty.slicePtrFieldType(mod);
-        break :rhs TypedValue{ .ty = slice_ptr_ty, .val = Value.null };
+        const opt_slice_ptr_ty = try mod.optionalType(slice_ptr_ty.toIntern());
+        break :rhs TypedValue{ .ty = opt_slice_ptr_ty, .val = try mod.nullValue(opt_slice_ptr_ty) };
     } else rhs: {
         try writer.writeAll(".is_null");
         break :rhs TypedValue{ .ty = Type.bool, .val = Value.true };
@@ -5781,7 +5830,7 @@ fn airWrapErrUnionPay(f: *Function, inst: Air.Inst.Index) !CValue {
         else
             try f.writeCValueMember(writer, local, .{ .identifier = "error" });
         try a.assign(f, writer);
-        try f.object.dg.renderValue(writer, err_ty, try mod.intValue(err_ty, 0), .Other);
+        try f.object.dg.renderValue(writer, Type.err_int, try mod.intValue(Type.err_int, 0), .Other);
         try a.end(f, writer);
     }
     return local;
@@ -5812,11 +5861,11 @@ fn airIsErr(f: *Function, inst: Air.Inst.Index, is_ptr: bool, operator: []const 
         else
             try f.writeCValue(writer, operand, .Other)
     else
-        try f.object.dg.renderValue(writer, error_ty, try mod.intValue(error_ty, 0), .Other);
+        try f.object.dg.renderValue(writer, Type.err_int, try mod.intValue(Type.err_int, 0), .Other);
     try writer.writeByte(' ');
     try writer.writeAll(operator);
     try writer.writeByte(' ');
-    try f.object.dg.renderValue(writer, error_ty, try mod.intValue(error_ty, 0), .Other);
+    try f.object.dg.renderValue(writer, Type.err_int, try mod.intValue(Type.err_int, 0), .Other);
     try writer.writeAll(";\n");
     return local;
 }
