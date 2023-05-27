@@ -22855,6 +22855,17 @@ fn zirBuiltinExtern(
     if (!ty.isPtrAtRuntime()) {
         return sema.fail(block, ty_src, "expected (optional) pointer", .{});
     }
+    if (!try sema.validateExternType(ty, .other)) {
+        const msg = msg: {
+            const mod = sema.mod;
+            const msg = sema.errMsg(block, ty_src, "extern symbol cannot have type '{}'", .{ty.fmt(mod)});
+            errdefer msg.destroy(sema.gpa);
+            const src_decl = sema.mod.declPtr(block.src_decl);
+            try sema.explainWhyTypeIsNotExtern(msg, ty_src.toSrcLoc(src_decl), ty, .other);
+            break :msg msg;
+        };
+        return sema.failWithOenedErrorMsg(msg);
+    }
 
     const options = sema.resolveExternOptions(block, .unneeded, extra.rhs) catch |err| switch (err) {
         error.NeededSourceLocation => {
@@ -23236,7 +23247,7 @@ fn validateExternType(
         .Float,
         .AnyFrame,
         => return true,
-        .Pointer => return !ty.isSlice(),
+        .Pointer => return if (ty.isSlice()) false else sema.validateExternType(ty.childType(), position),
         .Int => switch (ty.intInfo(sema.mod.getTarget()).bits) {
             8, 16, 32, 64, 128 => return true,
             else => return false,
@@ -23302,7 +23313,13 @@ fn explainWhyTypeIsNotExtern(
         .Frame,
         => return,
 
-        .Pointer => try mod.errNoteNonLazy(src_loc, msg, "slices have no guaranteed in-memory representation", .{}),
+        .Pointer => {
+            if (ty.isSlice()) {
+                try mod.errNoteNonLazy(src_loc, msg, "slices have no guaranteed in-memory representation", .{}),
+            } else {
+                sema.explainWhyTypeIsNotExtern(msg, src_loc, ty.childType(), position);
+            }
+        },
         .Void => try mod.errNoteNonLazy(src_loc, msg, "'void' is a zero bit type; for C 'void' use 'anyopaque'", .{}),
         .NoReturn => try mod.errNoteNonLazy(src_loc, msg, "'noreturn' is only allowed as a return type", .{}),
         .Int => if (!std.math.isPowerOfTwo(ty.intInfo(sema.mod.getTarget()).bits)) {
