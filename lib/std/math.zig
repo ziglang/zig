@@ -1147,7 +1147,7 @@ test "byteAlignInt" {
 
 test "ByteAlignedInt" {
     try testing.expect(ByteAlignedInt(u0) == u8);
-    try testing.expect(ByteAlignedInt(i0) == u8);
+    try testing.expect(ByteAlignedInt(i0) == i8);
     try testing.expect(ByteAlignedInt(u3) == u8);
     try testing.expect(ByteAlignedInt(u8) == u8);
     try testing.expect(ByteAlignedInt(i111) == i112);
