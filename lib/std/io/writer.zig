@@ -48,32 +48,32 @@ pub fn Writer(
         /// Write a native-endian integer.
         pub fn writeIntNative(self: Self, comptime T: type, value: T) Error!void {
             var bytes: [(@typeInfo(T).Int.bits + 7) / 8]u8 = undefined;
-            mem.writeIntNative(std.math.ByteAlignedInt(@TypeOf(value)), &bytes, std.math.byteAlignInt(value));
+            mem.writeIntNative(std.math.ByteAlignedInt(@TypeOf(value)), &bytes, value);
             return self.writeAll(&bytes);
         }
 
         /// Write a foreign-endian integer.
         pub fn writeIntForeign(self: Self, comptime T: type, value: T) Error!void {
             var bytes: [(@typeInfo(T).Int.bits + 7) / 8]u8 = undefined;
-            mem.writeIntForeign(std.math.ByteAlignedInt(@TypeOf(value)), &bytes, std.math.byteAlignInt(value));
+            mem.writeIntForeign(std.math.ByteAlignedInt(@TypeOf(value)), &bytes, value);
             return self.writeAll(&bytes);
         }
 
         pub fn writeIntLittle(self: Self, comptime T: type, value: T) Error!void {
             var bytes: [(@typeInfo(T).Int.bits + 7) / 8]u8 = undefined;
-            mem.writeIntLittle(std.math.ByteAlignedInt(@TypeOf(value)), &bytes, std.math.byteAlignInt(value));
+            mem.writeIntLittle(std.math.ByteAlignedInt(@TypeOf(value)), &bytes, value);
             return self.writeAll(&bytes);
         }
 
         pub fn writeIntBig(self: Self, comptime T: type, value: T) Error!void {
             var bytes: [(@typeInfo(T).Int.bits + 7) / 8]u8 = undefined;
-            mem.writeIntBig(std.math.ByteAlignedInt(@TypeOf(value)), &bytes, std.math.byteAlignInt(value));
+            mem.writeIntBig(std.math.ByteAlignedInt(@TypeOf(value)), &bytes, value);
             return self.writeAll(&bytes);
         }
 
         pub fn writeInt(self: Self, comptime T: type, value: T, endian: std.builtin.Endian) Error!void {
             var bytes: [(@typeInfo(T).Int.bits + 7) / 8]u8 = undefined;
-            mem.writeInt(std.math.ByteAlignedInt(@TypeOf(value)), &bytes, std.math.byteAlignInt(value), endian);
+            mem.writeInt(std.math.ByteAlignedInt(@TypeOf(value)), &bytes, value, endian);
             return self.writeAll(&bytes);
         }
 
