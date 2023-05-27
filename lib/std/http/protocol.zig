@@ -641,8 +641,8 @@ const MockBufferedConnection = struct {
         return bconn.buf[bconn.start..bconn.end];
     }
 
-    pub fn clear(bconn: *MockBufferedConnection, num: u16) void {
-        bconn.start += num;
+    pub fn drop(conn: *MockBufferedConnection, num: u16) void {
+        conn.start += num;
     }
 
     pub fn readAtLeast(bconn: *MockBufferedConnection, buffer: []u8, len: usize) ReadError!usize {
@@ -760,8 +760,8 @@ test "HeadersParser.read length" {
     while (true) { // read headers
         try bconn.fill();
 
-        const nchecked = try r.checkCompleteHead(std.testing.allocator, bconn.peek());
-        bconn.clear(@intCast(u16, nchecked));
+        const nchecked = try r.checkCompleteHead(std.testing.allocator, conn.peek());
+        conn.drop(@intCast(u16, nchecked));
 
         if (r.state.isContent()) break;
     }
@@ -791,8 +791,8 @@ test "HeadersParser.read chunked" {
     while (true) { // read headers
         try bconn.fill();
 
-        const nchecked = try r.checkCompleteHead(std.testing.allocator, bconn.peek());
-        bconn.clear(@intCast(u16, nchecked));
+        const nchecked = try r.checkCompleteHead(std.testing.allocator, conn.peek());
+        conn.drop(@intCast(u16, nchecked));
 
         if (r.state.isContent()) break;
     }
@@ -821,8 +821,8 @@ test "HeadersParser.read chunked trailer" {
     while (true) { // read headers
         try bconn.fill();
 
-        const nchecked = try r.checkCompleteHead(std.testing.allocator, bconn.peek());
-        bconn.clear(@intCast(u16, nchecked));
+        const nchecked = try r.checkCompleteHead(std.testing.allocator, conn.peek());
+        conn.drop(@intCast(u16, nchecked));
 
         if (r.state.isContent()) break;
     }
@@ -836,8 +836,8 @@ test "HeadersParser.read chunked trailer" {
     while (true) { // read headers
         try bconn.fill();
 
-        const nchecked = try r.checkCompleteHead(std.testing.allocator, bconn.peek());
-        bconn.clear(@intCast(u16, nchecked));
+        const nchecked = try r.checkCompleteHead(std.testing.allocator, conn.peek());
+        conn.drop(@intCast(u16, nchecked));
 
         if (r.state.isContent()) break;
     }
