@@ -14,15 +14,15 @@ const expectFmt = std.testing.expectFmt;
 pub const default_max_depth = 3;
 
 pub const Alignment = enum {
-    Left,
-    Center,
-    Right,
+    left,
+    center,
+    right,
 };
 
 pub const FormatOptions = struct {
     precision: ?usize = null,
     width: ?usize = null,
-    alignment: Alignment = .Right,
+    alignment: Alignment = .right,
     fill: u8 = ' ',
 };
 
@@ -252,11 +252,11 @@ pub const Placeholder = struct {
                 else => {},
             }
             break :init switch (ch) {
-                '<' => .Left,
-                '^' => .Center,
-                else => .Right,
+                '<' => .left,
+                '^' => .center,
+                else => .right,
             };
-        } else .Right;
+        } else .right;
 
         // Parse the width parameter
         const width = comptime parser.specifier() catch |err|
@@ -1034,18 +1034,18 @@ pub fn formatBuf(
             return writer.writeAll(buf);
 
         switch (options.alignment) {
-            .Left => {
+            .left => {
                 try writer.writeAll(buf);
                 try writer.writeByteNTimes(options.fill, padding);
             },
-            .Center => {
+            .center => {
                 const left_padding = padding / 2;
                 const right_padding = (padding + 1) / 2;
                 try writer.writeByteNTimes(options.fill, left_padding);
                 try writer.writeAll(buf);
                 try writer.writeByteNTimes(options.fill, right_padding);
             },
-            .Right => {
+            .right => {
                 try writer.writeByteNTimes(options.fill, padding);
                 try writer.writeAll(buf);
             },
@@ -1742,9 +1742,9 @@ pub fn Formatter(comptime format_fn: anytype) type {
 /// See also `parseUnsigned`.
 pub fn parseInt(comptime T: type, buf: []const u8, radix: u8) ParseIntError!T {
     if (buf.len == 0) return error.InvalidCharacter;
-    if (buf[0] == '+') return parseWithSign(T, buf[1..], radix, .Pos);
-    if (buf[0] == '-') return parseWithSign(T, buf[1..], radix, .Neg);
-    return parseWithSign(T, buf, radix, .Pos);
+    if (buf[0] == '+') return parseWithSign(T, buf[1..], radix, .pos);
+    if (buf[0] == '-') return parseWithSign(T, buf[1..], radix, .neg);
+    return parseWithSign(T, buf, radix, .pos);
 }
 
 test "parseInt" {
@@ -1805,7 +1805,7 @@ fn parseWithSign(
     comptime T: type,
     buf: []const u8,
     radix: u8,
-    comptime sign: enum { Pos, Neg },
+    comptime sign: enum { pos, neg },
 ) ParseIntError!T {
     if (buf.len == 0) return error.InvalidCharacter;
 
@@ -1835,8 +1835,8 @@ fn parseWithSign(
     }
 
     const add = switch (sign) {
-        .Pos => math.add,
-        .Neg => math.sub,
+        .pos => math.add,
+        .neg => math.sub,
     };
 
     var x: T = 0;
@@ -1866,7 +1866,7 @@ fn parseWithSign(
 /// Ignores '_' character in `buf`.
 /// See also `parseInt`.
 pub fn parseUnsigned(comptime T: type, buf: []const u8, radix: u8) ParseIntError!T {
-    return parseWithSign(T, buf, radix, .Pos);
+    return parseWithSign(T, buf, radix, .pos);
 }
 
 test "parseUnsigned" {

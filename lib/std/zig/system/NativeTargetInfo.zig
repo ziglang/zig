@@ -1095,7 +1095,7 @@ pub fn getExternalExecutor(
                 if (candidate.target.cpu.arch != builtin.cpu.arch) {
                     return bad_result;
                 }
-                switch (candidate.target.cpu.arch.ptrBitWidth()) {
+                switch (candidate.target.ptrBitWidth()) {
                     32 => return Executor{ .wine = "wine" },
                     64 => return Executor{ .wine = "wine64" },
                     else => return bad_result,
@@ -1105,7 +1105,7 @@ pub fn getExternalExecutor(
         },
         .wasi => {
             if (options.allow_wasmtime) {
-                switch (candidate.target.cpu.arch.ptrBitWidth()) {
+                switch (candidate.target.ptrBitWidth()) {
                     32 => return Executor{ .wasmtime = "wasmtime" },
                     else => return bad_result,
                 }

@@ -3618,7 +3618,7 @@ pub fn astGenFile(mod: *Module, file: *File) !void {
                 file.sub_file_path, want_local_cache, &digest,
             });
 
-            break :lock .Shared;
+            break :lock .shared;
         },
         .parse_failure, .astgen_failure, .success_zir => lock: {
             const unchanged_metadata =
@@ -3633,7 +3633,7 @@ pub fn astGenFile(mod: *Module, file: *File) !void {
 
             log.debug("metadata changed: {s}", .{file.sub_file_path});
 
-            break :lock .Exclusive;
+            break :lock .exclusive;
         },
     };
 
@@ -3715,11 +3715,11 @@ pub fn astGenFile(mod: *Module, file: *File) !void {
         }
 
         // If we already have the exclusive lock then it is our job to update.
-        if (builtin.os.tag == .wasi or lock == .Exclusive) break;
+        if (builtin.os.tag == .wasi or lock == .exclusive) break;
         // Otherwise, unlock to give someone a chance to get the exclusive lock
         // and then upgrade to an exclusive lock.
         cache_file.unlock();
-        lock = .Exclusive;
+        lock = .exclusive;
         try cache_file.lock(lock);
     }
 

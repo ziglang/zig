@@ -393,8 +393,8 @@ pub fn main() !void {
                 while (try dir_it.next()) |entry| {
                     const full_path = try std.fs.path.join(allocator, &[_][]const u8{ full_dir_name, entry.name });
                     switch (entry.kind) {
-                        .Directory => try dir_stack.append(full_path),
-                        .File => {
+                        .directory => try dir_stack.append(full_path),
+                        .file => {
                             const rel_path = try std.fs.path.relative(allocator, target_include_dir, full_path);
                             const max_size = 2 * 1024 * 1024 * 1024;
                             const raw_bytes = try std.fs.cwd().readFileAlloc(allocator, full_path, max_size);

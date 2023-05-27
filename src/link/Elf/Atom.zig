@@ -59,7 +59,7 @@ pub fn getOffsetTableAddress(self: Atom, elf_file: *Elf) u64 {
     const sym_index = self.getSymbolIndex().?;
     const got_entry_index = elf_file.got_table.lookup.get(sym_index).?;
     const target = elf_file.base.options.target;
-    const ptr_bits = target.cpu.arch.ptrBitWidth();
+    const ptr_bits = target.ptrBitWidth();
     const ptr_bytes: u64 = @divExact(ptr_bits, 8);
     const got = elf_file.program_headers.items[elf_file.phdr_got_index.?];
     return got.p_vaddr + got_entry_index * ptr_bytes;
