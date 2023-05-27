@@ -22864,7 +22864,7 @@ fn zirBuiltinExtern(
             try sema.explainWhyTypeIsNotExtern(msg, ty_src.toSrcLoc(src_decl), ty, .other);
             break :msg msg;
         };
-        return sema.failWithOenedErrorMsg(msg);
+        return sema.failWithOwnedErrorMsg(msg);
     }
 
     const options = sema.resolveExternOptions(block, .unneeded, extra.rhs) catch |err| switch (err) {
