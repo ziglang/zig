@@ -423,7 +423,7 @@ pub const StackIterator = struct {
     dwarf_context: if (supports_context) DW.UnwindContext else void = undefined,
     const supports_context = @hasDecl(os.system, "ucontext_t") and
         (builtin.os.tag != .linux or switch (builtin.cpu.arch) {
-        .mips, .riscv64 => false,
+        .mips, .mipsel, .mips64, .mips64el, .riscv64 => false,
         else => true,
     });
 
