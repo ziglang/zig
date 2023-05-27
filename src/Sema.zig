@@ -26606,7 +26606,7 @@ const CoerceOpts = struct {
     report_err: bool = true,
     /// Ignored if `report_err == false`.
     is_ret: bool = false,
-    /// Should coercion to comptime_int ermit an error message.
+    /// Should coercion to comptime_int emit an error message.
     no_cast_to_comptime_int: bool = false,
 
     param_src: struct {
@@ -27343,6 +27343,8 @@ const InMemoryCoercionResult = union(enum) {
     optional_child: PairAndChild,
     from_anyerror,
     missing_error: []const InternPool.NullTerminatedString,
+    // only used with coercion between pointers to error sets, which must be able to coerce both ways
+    missing_error_reverse: []const InternPool.NullTerminatedString,
     /// true if wanted is var args
     fn_var_args: bool,
     /// true if wanted is generic
@@ -27518,6 +27520,12 @@ const InMemoryCoercionResult = union(enum) {
             .missing_error => |missing_errors| {
                 for (missing_errors) |err| {
                     try sema.errNote(block, src, msg, "'error.{}' not a member of destination error set", .{err.fmt(&mod.intern_pool)});
+                }
+                break;
+            },
+            .missing_error_reverse => |missing_errors| {
+                for (missing_errors) |err| {
+                    try sema.errNote(block, src, msg, "'error.{}' not a member of source error set", .{err.fmt(&mod.intern_pool)});
                 }
                 break;
             },
@@ -28153,6 +28161,28 @@ fn coerceInMemoryAllowedPtrs(
             .actual = src_info.pointee_type,
             .wanted = dest_info.pointee_type,
         } };
+    }
+    // If the destination type is mutable, we need to prevent expanding error sets,
+    // since that would allow using the destination pointer to write an invalid value
+    // into the source pointer. So, ensure the child type can coerce both ways.
+    if (dest_info.mutable) {
+        const src_pointee_tag = src_info.pointee_type.zigTypeTag(mod);
+        const dest_pointee_tag = dest_info.pointee_type.zigTypeTag(mod);
+        const src_is_error = src_pointee_tag == .ErrorSet or src_pointee_tag == .ErrorUnion;
+        const dest_is_error = dest_pointee_tag == .ErrorSet or dest_pointee_tag == .ErrorUnion;
+        if (src_is_error and dest_is_error) {
+            var reverse_child = try sema.coerceInMemoryAllowed(block, src_info.pointee_type, dest_info.pointee_type, src_info.mutable, target, src_src, dest_src);
+            if (reverse_child != .ok) {
+                if (reverse_child == .missing_error) {
+                    reverse_child = .{ .missing_error_reverse = reverse_child.missing_error };
+                }
+                return InMemoryCoercionResult{ .ptr_child = .{
+                    .child = try reverse_child.dupe(sema.arena),
+                    .actual = src_info.pointee_type,
+                    .wanted = dest_info.pointee_type,
+                } };
+            }
+        }
     }
 
     const dest_allow_zero = dest_ty.ptrAllowsZero(mod);
