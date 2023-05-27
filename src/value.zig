@@ -1922,7 +1922,7 @@ pub const Value = extern union {
             .variable,
             .eu_payload_ptr,
             .opt_payload_ptr,
-            => return target.cpu.arch.ptrBitWidth(),
+            => return target.ptrBitWidth(),
 
             else => {
                 var buffer: BigIntSpace = undefined;

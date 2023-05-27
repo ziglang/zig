@@ -1035,7 +1035,7 @@ fn allocRegOrMem(self: *Self, elem_ty: Type, reg_ok: bool, maybe_inst: ?Air.Inst
 
     if (reg_ok) {
         // Make sure the type can fit in a register before we try to allocate one.
-        const ptr_bits = self.target.cpu.arch.ptrBitWidth();
+        const ptr_bits = self.target.ptrBitWidth();
         const ptr_bytes: u64 = @divExact(ptr_bits, 8);
         if (abi_size <= ptr_bytes) {
             if (self.register_manager.tryAllocReg(maybe_inst, gp)) |reg| {

@@ -322,7 +322,7 @@ pub const RTLD = struct {
 
 pub const dl_phdr_info = extern struct {
     /// Module relocation base.
-    dlpi_addr: if (builtin.cpu.arch.ptrBitWidth() == 32) std.elf.Elf32_Addr else std.elf.Elf64_Addr,
+    dlpi_addr: if (builtin.target.ptrBitWidth() == 32) std.elf.Elf32_Addr else std.elf.Elf64_Addr,
     /// Module name.
     dlpi_name: ?[*:0]const u8,
     /// Pointer to module's phdr.

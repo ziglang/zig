@@ -265,7 +265,7 @@ fn add_cc_args(
     });
 
     const target = comp.getTarget();
-    if (target.cpu.arch.isARM() and target.cpu.arch.ptrBitWidth() == 32) {
+    if (target.cpu.arch.isARM() and target.ptrBitWidth() == 32) {
         try args.append("-mfpu=vfp");
     }
 

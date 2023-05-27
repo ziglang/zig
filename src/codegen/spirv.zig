@@ -556,7 +556,7 @@ pub const DeclGen = struct {
             // TODO: Double check pointer sizes here.
             // shared pointers might be u32...
             const target = self.dg.getTarget();
-            const width = @divExact(target.cpu.arch.ptrBitWidth(), 8);
+            const width = @divExact(target.ptrBitWidth(), 8);
             if (self.size % width != 0) {
                 return self.dg.todo("misaligned pointer constants", .{});
             }
@@ -1160,7 +1160,7 @@ pub const DeclGen = struct {
 
     /// Create an integer type that represents 'usize'.
     fn sizeType(self: *DeclGen) !SpvType.Ref {
-        return try self.intType(.unsigned, self.getTarget().cpu.arch.ptrBitWidth());
+        return try self.intType(.unsigned, self.getTarget().ptrBitWidth());
     }
 
     /// Generate a union type, optionally with a known field. If the tag alignment is greater

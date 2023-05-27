@@ -651,8 +651,8 @@ fn computePackageHash(
 
         while (try walker.next()) |entry| {
             switch (entry.kind) {
-                .Directory => continue,
-                .File => {},
+                .directory => continue,
+                .file => {},
                 else => return error.IllegalFileTypeInPackage,
             }
             const hashed_file = try arena.create(HashedFile);
