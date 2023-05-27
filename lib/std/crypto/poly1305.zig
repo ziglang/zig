@@ -166,14 +166,14 @@ pub const Poly1305 = struct {
         var h2 = st.h[2];
 
         // H - (2^130 - 5)
-        var v = sub(h0, 0xfffffffffffffffb, 0);
+        var v = @subWithOverflow(h0, 0xfffffffffffffffb);
         const h_p0 = v[0];
         v = sub(h1, 0xffffffffffffffff, v[1]);
         const h_p1 = v[0];
         v = sub(h2, 0x0000000000000003, v[1]);
 
         // Final reduction, subtract 2^130-5 from H if H >= 2^130-5
-        const mask = v[1] -% 1;
+        const mask = @as(u64, v[1]) -% 1;
         h0 ^= mask & (h0 ^ h_p0);
         h1 ^= mask & (h1 ^ h_p1);
 
@@ -206,4 +206,13 @@ test "poly1305 rfc7439 vector1" {
     Poly1305.create(mac[0..], msg, key);
 
     try std.testing.expectEqualSlices(u8, expected_mac, &mac);
+}
+
+test "poly1305 requiring a final reduction" {
+    const expected_mac = [_]u8{ 25, 13, 249, 42, 164, 57, 99, 60, 149, 181, 74, 74, 13, 63, 121, 6 };
+    const msg = [_]u8{ 253, 193, 249, 146, 70, 6, 214, 226, 131, 213, 241, 116, 20, 24, 210, 224, 65, 151, 255, 104, 133 };
+    const key = [_]u8{ 190, 63, 95, 57, 155, 103, 77, 170, 7, 98, 106, 44, 117, 186, 90, 185, 109, 118, 184, 24, 69, 41, 166, 243, 119, 132, 151, 61, 52, 43, 64, 250 };
+    var mac: [16]u8 = undefined;
+    Poly1305.create(mac[0..], &msg, &key);
+    try std.testing.expectEqualSlices(u8, &expected_mac, &mac);
 }
