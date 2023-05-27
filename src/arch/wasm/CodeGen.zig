@@ -2318,6 +2318,7 @@ fn airStore(func: *CodeGen, inst: Air.Inst.Index, safety: bool) InnerError!void 
 
 fn store(func: *CodeGen, lhs: WValue, rhs: WValue, ty: Type, offset: u32) InnerError!void {
     assert(!(lhs != .stack and rhs == .stack));
+    const abi_size = ty.abiSize(func.target);
     switch (ty.zigTypeTag()) {
         .ErrorUnion => {
             const pl_ty = ty.errorUnionPayload();
@@ -2325,7 +2326,7 @@ fn store(func: *CodeGen, lhs: WValue, rhs: WValue, ty: Type, offset: u32) InnerE
                 return func.store(lhs, rhs, Type.anyerror, 0);
             }
 
-            const len = @intCast(u32, ty.abiSize(func.target));
+            const len = @intCast(u32, abi_size);
             return func.memcpy(lhs, rhs, .{ .imm32 = len });
         },
         .Optional => {
@@ -2341,16 +2342,16 @@ fn store(func: *CodeGen, lhs: WValue, rhs: WValue, ty: Type, offset: u32) InnerE
                 return func.store(lhs, rhs, Type.anyerror, 0);
             }
 
-            const len = @intCast(u32, ty.abiSize(func.target));
+            const len = @intCast(u32, abi_size);
             return func.memcpy(lhs, rhs, .{ .imm32 = len });
         },
         .Struct, .Array, .Union => if (isByRef(ty, func.target)) {
-            const len = @intCast(u32, ty.abiSize(func.target));
+            const len = @intCast(u32, abi_size);
             return func.memcpy(lhs, rhs, .{ .imm32 = len });
         },
         .Vector => switch (determineSimdStoreStrategy(ty, func.target)) {
             .unrolled => {
-                const len = @intCast(u32, ty.abiSize(func.target));
+                const len = @intCast(u32, abi_size);
                 return func.memcpy(lhs, rhs, .{ .imm32 = len });
             },
             .direct => {
@@ -2382,7 +2383,7 @@ fn store(func: *CodeGen, lhs: WValue, rhs: WValue, ty: Type, offset: u32) InnerE
                 return;
             }
         },
-        .Int => if (ty.intInfo(func.target).bits > 64) {
+        .Int, .Float => if (abi_size > 8 and abi_size <= 16) {
             try func.emitWValue(lhs);
             const lsb = try func.load(rhs, Type.u64, 0);
             try func.store(.{ .stack = {} }, lsb, Type.u64, 0 + lhs.offset());
@@ -2391,8 +2392,15 @@ fn store(func: *CodeGen, lhs: WValue, rhs: WValue, ty: Type, offset: u32) InnerE
             const msb = try func.load(rhs, Type.u64, 8);
             try func.store(.{ .stack = {} }, msb, Type.u64, 8 + lhs.offset());
             return;
+        } else if (abi_size > 16) {
+            try func.memcpy(lhs, rhs, .{ .imm32 = @intCast(u32, ty.abiSize(func.target)) });
         },
-        else => {},
+        else => if (abi_size > 8) {
+            return func.fail("TODO: `store` for type `{}` with abisize `{d}`", .{
+                ty.fmt(func.bin_file.base.options.module.?),
+                abi_size,
+            });
+        },
     }
     try func.emitWValue(lhs);
     // In this case we're actually interested in storing the stack position
@@ -2400,11 +2408,9 @@ fn store(func: *CodeGen, lhs: WValue, rhs: WValue, ty: Type, offset: u32) InnerE
     try func.lowerToStack(rhs);
 
     const valtype = typeToValtype(ty, func.target);
-    const abi_size = @intCast(u8, ty.abiSize(func.target));
-
     const opcode = buildOpcode(.{
         .valtype1 = valtype,
-        .width = abi_size * 8,
+        .width = @intCast(u8, abi_size * 8),
         .op = .store,
     });
 
@@ -3960,7 +3966,7 @@ fn airUnwrapErrUnionPayload(func: *CodeGen, inst: Air.Inst.Index, op_is_ptr: boo
     const result = result: {
         if (!payload_ty.hasRuntimeBitsIgnoreComptime()) {
             if (op_is_ptr) {
-                break :result WValue{ .imm32 = 0 };
+                break :result func.reuseOperand(ty_op.operand, operand);
             }
             break :result WValue{ .none = {} };
         }
@@ -4453,7 +4459,7 @@ fn airPtrElemVal(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     try func.addTag(.i32_add);
 
     const elem_result = val: {
-        var result = try func.allocLocal(elem_ty);
+        var result = try func.allocLocal(Type.usize);
         try func.addLabel(.local_set, result.local.value);
         if (isByRef(elem_ty, func.target)) {
             break :val result;
@@ -5155,8 +5161,8 @@ fn cmpOptionals(func: *CodeGen, lhs: WValue, rhs: WValue, operand_ty: Type, op: 
 fn cmpBigInt(func: *CodeGen, lhs: WValue, rhs: WValue, operand_ty: Type, op: std.math.CompareOperator) InnerError!WValue {
     assert(operand_ty.abiSize(func.target) >= 16);
     assert(!(lhs != .stack and rhs == .stack));
-    if (operand_ty.intInfo(func.target).bits > 128) {
-        return func.fail("TODO: Support cmpBigInt for integer bitsize: '{d}'", .{operand_ty.intInfo(func.target).bits});
+    if (operand_ty.bitSize(func.target) > 128) {
+        return func.fail("TODO: Support cmpBigInt for integer bitsize: '{d}'", .{operand_ty.bitSize(func.target)});
     }
 
     var lhs_high_bit = try (try func.load(lhs, Type.u64, 0)).toLocal(func, Type.u64);
