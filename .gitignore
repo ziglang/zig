@@ -16,3 +16,7 @@ zig-out/
 /build/
 /build-*/
 /docgen_tmp/
+/stage1/
+/stage3/
+/tools/
+/test/

@@ -1136,13 +1136,22 @@ pub fn byteAlignInt(value: anytype) ByteAlignedInt(@TypeOf(value)) {
     return @intCast(ByteAlignedInt(@TypeOf(value)), value);
 }
 
-test "extendInt" {
+test "byteAlignInt" {
     try testing.expect(byteAlignInt(@as(u0, 0)) == @as(u8, 0));
     try testing.expect(byteAlignInt(@as(i0, 0)) == @as(i8, 0));
     try testing.expect(byteAlignInt(@as(u3, 4)) == @as(u8, 4));
     try testing.expect(byteAlignInt(@as(u8, 255)) == @as(u8, 255));
     try testing.expect(byteAlignInt(@as(i111, -(1 << 100))) == @as(i112, -(1 << 100)));
     try testing.expect(byteAlignInt(@as(u129, (1 << 128))) == @as(u136, (1 << 128)));
+}
+
+test "ByteAlignedInt" {
+    try testing.expect(ByteAlignedInt(u0) == u8);
+    try testing.expect(ByteAlignedInt(i0) == u8);
+    try testing.expect(ByteAlignedInt(u3) == u8);
+    try testing.expect(ByteAlignedInt(u8) == u8);
+    try testing.expect(ByteAlignedInt(i111) == i112);
+    try testing.expect(ByteAlignedInt(u129) == u136);
 }
 
 /// Rounds the given floating point number to an integer, away from zero.
