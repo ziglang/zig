@@ -22858,7 +22858,7 @@ fn zirBuiltinExtern(
     if (!try sema.validateExternType(ty, .other)) {
         const msg = msg: {
             const mod = sema.mod;
-            const msg = sema.errMsg(block, ty_src, "extern symbol cannot have type '{}'", .{ty.fmt(mod)});
+            const msg = try sema.errMsg(block, ty_src, "extern symbol cannot have type '{}'", .{ty.fmt(mod)});
             errdefer msg.destroy(sema.gpa);
             const src_decl = sema.mod.declPtr(block.src_decl);
             try sema.explainWhyTypeIsNotExtern(msg, ty_src.toSrcLoc(src_decl), ty, .other);
