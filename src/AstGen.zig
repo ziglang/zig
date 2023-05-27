@@ -2612,7 +2612,6 @@ fn addEnsureResult(gz: *GenZir, maybe_unused_result: Zir.Inst.Ref, statement: As
             .switch_block,
             .switch_cond,
             .switch_cond_ref,
-            .switch_capture_tag,
             .struct_init_empty,
             .struct_init,
             .struct_init_ref,
@@ -2956,7 +2955,7 @@ fn deferStmt(
         try gz.astgen.instructions.append(gz.astgen.gpa, .{
             .tag = .extended,
             .data = .{ .extended = .{
-                .opcode = .errdefer_err_code,
+                .opcode = .value_placeholder,
                 .small = undefined,
                 .operand = undefined,
             } },
@@ -6711,6 +6710,7 @@ fn switchExpr(
     // for the following variables, make note of the special prong AST node index,
     // and bail out with a compile error if there are multiple special prongs present.
     var any_payload_is_ref = false;
+    var any_has_tag_capture = false;
     var scalar_cases_len: u32 = 0;
     var multi_cases_len: u32 = 0;
     var inline_cases_len: u32 = 0;
@@ -6721,8 +6721,12 @@ fn switchExpr(
     for (case_nodes) |case_node| {
         const case = tree.fullSwitchCase(case_node).?;
         if (case.payload_token) |payload_token| {
-            if (token_tags[payload_token] == .asterisk) {
+            const ident = if (token_tags[payload_token] == .asterisk) blk: {
                 any_payload_is_ref = true;
+                break :blk payload_token + 1;
+            } else payload_token;
+            if (token_tags[ident + 1] == .comma) {
+                any_has_tag_capture = true;
             }
         }
         // Check for else/`_` prong.
@@ -6861,6 +6865,20 @@ fn switchExpr(
     var case_scope = parent_gz.makeSubBlock(&block_scope.base);
     case_scope.instructions_top = GenZir.unstacked_top;
 
+    // If any prong has an inline tag capture, allocate a shared dummy instruction for it
+    const tag_inst = if (any_has_tag_capture) tag_inst: {
+        const inst = @intCast(Zir.Inst.Index, astgen.instructions.len);
+        try astgen.instructions.append(astgen.gpa, .{
+            .tag = .extended,
+            .data = .{ .extended = .{
+                .opcode = .value_placeholder,
+                .small = undefined,
+                .operand = undefined,
+            } }, // TODO rename opcode
+        });
+        break :tag_inst inst;
+    } else undefined;
+
     // In this pass we generate all the item and prong expressions.
     var multi_case_index: u32 = 0;
     var scalar_case_index: u32 = 0;
@@ -6874,7 +6892,7 @@ fn switchExpr(
         var dbg_var_inst: Zir.Inst.Ref = undefined;
         var dbg_var_tag_name: ?u32 = null;
         var dbg_var_tag_inst: Zir.Inst.Ref = undefined;
-        var tag_inst: Zir.Inst.Index = 0;
+        var has_tag_capture = false;
         var capture_val_scope: Scope.LocalVal = undefined;
         var tag_scope: Scope.LocalVal = undefined;
 
@@ -6925,14 +6943,9 @@ fn switchExpr(
             }
             const tag_name = try astgen.identAsString(tag_token);
             try astgen.detectLocalShadowing(payload_sub_scope, tag_name, tag_token, tag_slice, .@"switch tag capture");
-            tag_inst = @intCast(Zir.Inst.Index, astgen.instructions.len);
-            try astgen.instructions.append(gpa, .{
-                .tag = .switch_capture_tag,
-                .data = .{ .un_tok = .{
-                    .operand = cond,
-                    .src_tok = case_scope.tokenIndexToRelative(tag_token),
-                } },
-            });
+
+            assert(any_has_tag_capture);
+            has_tag_capture = true;
 
             tag_scope = .{
                 .parent = payload_sub_scope,
@@ -6998,7 +7011,6 @@ fn switchExpr(
             case_scope.instructions_top = parent_gz.instructions.items.len;
             defer case_scope.unstack();
 
-            if (tag_inst != 0) try case_scope.instructions.append(gpa, tag_inst);
             try case_scope.addDbgBlockBegin();
             if (dbg_var_name) |some| {
                 try case_scope.addDbgVar(.dbg_var_val, some, dbg_var_inst);
@@ -7018,7 +7030,8 @@ fn switchExpr(
             const case_slice = case_scope.instructionsSlice();
             // Since we use the switch_block instruction itself to refer to the
             // capture, which will not be added to the child block, we need to
-            // handle ref_table manually.
+            // handle ref_table manually, and the same for the inline tag
+            // capture instruction.
             const refs_len = refs: {
                 var n: usize = 0;
                 var check_inst = switch_block;
@@ -7026,17 +7039,30 @@ fn switchExpr(
                     n += 1;
                     check_inst = ref_inst;
                 }
+                if (has_tag_capture) {
+                    check_inst = tag_inst;
+                    while (astgen.ref_table.get(check_inst)) |ref_inst| {
+                        n += 1;
+                        check_inst = ref_inst;
+                    }
+                }
                 break :refs n;
             };
             const body_len = refs_len + astgen.countBodyLenAfterFixups(case_slice);
             try payloads.ensureUnusedCapacity(gpa, body_len);
             payloads.items[body_len_index] = @bitCast(u32, Zir.Inst.SwitchBlock.ProngInfo{
-                .body_len = @intCast(u29, body_len),
+                .body_len = @intCast(u28, body_len),
                 .capture = capture,
                 .is_inline = case.inline_token != null,
+                .has_tag_capture = has_tag_capture,
             });
             if (astgen.ref_table.fetchRemove(switch_block)) |kv| {
                 appendPossiblyRefdBodyInst(astgen, payloads, kv.value);
+            }
+            if (has_tag_capture) {
+                if (astgen.ref_table.fetchRemove(tag_inst)) |kv| {
+                    appendPossiblyRefdBodyInst(astgen, payloads, kv.value);
+                }
             }
             appendBodyWithFixupsArrayList(astgen, payloads, case_slice);
         }
@@ -7046,6 +7072,7 @@ fn switchExpr(
 
     try astgen.extra.ensureUnusedCapacity(gpa, @typeInfo(Zir.Inst.SwitchBlock).Struct.fields.len +
         @boolToInt(multi_cases_len != 0) +
+        @boolToInt(any_has_tag_capture) +
         payloads.items.len - case_table_end);
 
     const payload_index = astgen.addExtraAssumeCapacity(Zir.Inst.SwitchBlock{
@@ -7054,12 +7081,17 @@ fn switchExpr(
             .has_multi_cases = multi_cases_len != 0,
             .has_else = special_prong == .@"else",
             .has_under = special_prong == .under,
+            .any_has_tag_capture = any_has_tag_capture,
             .scalar_cases_len = @intCast(Zir.Inst.SwitchBlock.Bits.ScalarCasesLen, scalar_cases_len),
         },
     });
 
     if (multi_cases_len != 0) {
         astgen.extra.appendAssumeCapacity(multi_cases_len);
+    }
+
+    if (any_has_tag_capture) {
+        astgen.extra.appendAssumeCapacity(tag_inst);
     }
 
     const zir_datas = astgen.instructions.items(.data);

@@ -235,7 +235,6 @@ const Writer = struct {
             .ref,
             .ret_implicit,
             .closure_capture,
-            .switch_capture_tag,
             => try self.writeUnTok(stream, inst),
 
             .bool_br_and,
@@ -463,7 +462,7 @@ const Writer = struct {
             .breakpoint,
             .c_va_start,
             .in_comptime,
-            .errdefer_err_code,
+            .value_placeholder,
             => try self.writeExtNode(stream, extended),
 
             .builtin_src => {
@@ -1897,7 +1896,18 @@ const Writer = struct {
             break :blk multi_cases_len;
         } else 0;
 
+        const tag_capture_inst: Zir.Inst.Index = if (extra.data.bits.any_has_tag_capture) blk: {
+            const tag_capture_inst = self.code.extra[extra_index];
+            extra_index += 1;
+            break :blk tag_capture_inst;
+        } else undefined;
+
         try self.writeInstRef(stream, extra.data.operand);
+
+        if (extra.data.bits.any_has_tag_capture) {
+            try stream.writeAll(", tag_capture=");
+            try self.writeInstIndex(stream, tag_capture_inst);
+        }
 
         self.indent += 2;
 

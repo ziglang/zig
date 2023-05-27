@@ -676,9 +676,6 @@ pub const Inst = struct {
         /// what will be switched on.
         /// Uses the `un_node` union field.
         switch_cond_ref,
-        /// Produces the capture value for an inline switch prong tag capture.
-        /// Uses the `un_tok` field.
-        switch_capture_tag,
         /// Given a
         ///   *A returns *A
         ///   *E!A returns *A
@@ -1124,7 +1121,6 @@ pub const Inst = struct {
                 .typeof_log2_int_type,
                 .resolve_inferred_alloc,
                 .set_eval_branch_quota,
-                .switch_capture_tag,
                 .switch_block,
                 .switch_cond,
                 .switch_cond_ref,
@@ -1414,7 +1410,6 @@ pub const Inst = struct {
                 .slice_length,
                 .import,
                 .typeof_log2_int_type,
-                .switch_capture_tag,
                 .switch_block,
                 .switch_cond,
                 .switch_cond_ref,
@@ -1670,7 +1665,6 @@ pub const Inst = struct {
                 .switch_block = .pl_node,
                 .switch_cond = .un_node,
                 .switch_cond_ref = .un_node,
-                .switch_capture_tag = .un_tok,
                 .array_base_ptr = .un_node,
                 .field_base_ptr = .un_node,
                 .validate_array_init_ty = .pl_node,
@@ -1996,9 +1990,10 @@ pub const Inst = struct {
         /// Implements the `@inComptime` builtin.
         /// `operand` is `src_node: i32`.
         in_comptime,
-        /// Used as a placeholder for the capture of an `errdefer`.
-        /// This is replaced by Sema with the captured value.
-        errdefer_err_code,
+        /// Used as a placeholder instruction which is just a dummy index for Sema to replace
+        /// with a specific value. For instance, this is used for the capture of an `errdefer`.
+        /// This should never appear in a body.
+        value_placeholder,
 
         pub const InstData = struct {
             opcode: Extended,
@@ -2644,16 +2639,17 @@ pub const Inst = struct {
     };
 
     /// 0. multi_cases_len: u32 // If has_multi_cases is set.
-    /// 1. else_body { // If has_else or has_under is set.
+    /// 1. tag_capture_inst: u32 // If any_has_tag_capture is set. Index of instruction prongs use to refer to the inline tag capture.
+    /// 2. else_body { // If has_else or has_under is set.
     ///        info: ProngInfo,
     ///        body member Index for every info.body_len
     ///     }
-    /// 2. scalar_cases: { // for every scalar_cases_len
+    /// 3. scalar_cases: { // for every scalar_cases_len
     ///        item: Ref,
     ///        info: ProngInfo,
     ///        body member Index for every info.body_len
     ///     }
-    /// 3. multi_cases: { // for every multi_cases_len
+    /// 4. multi_cases: { // for every multi_cases_len
     ///        items_len: u32,
     ///        ranges_len: u32,
     ///        info: ProngInfo,
@@ -2681,9 +2677,10 @@ pub const Inst = struct {
 
         /// These are stored in trailing data in `extra` for each prong.
         pub const ProngInfo = packed struct(u32) {
-            body_len: u29,
+            body_len: u28,
             capture: Capture,
             is_inline: bool,
+            has_tag_capture: bool,
 
             pub const Capture = enum(u2) {
                 none,
@@ -2699,9 +2696,11 @@ pub const Inst = struct {
             has_else: bool,
             /// If true, there is an underscore prong. This is mutually exclusive with `has_else`.
             has_under: bool,
+            /// If true, at least one prong has an inline tag capture.
+            any_has_tag_capture: bool,
             scalar_cases_len: ScalarCasesLen,
 
-            pub const ScalarCasesLen = u29;
+            pub const ScalarCasesLen = u28;
 
             pub fn specialProng(bits: Bits) SpecialProng {
                 const has_else: u2 = @boolToInt(bits.has_else);

@@ -277,9 +277,6 @@ pub const Block = struct {
 
     c_import_buf: ?*std.ArrayList(u8) = null,
 
-    /// Value for switch_capture in an inline case
-    inline_case_capture: Air.Inst.Ref = .none,
-
     const ComptimeReason = union(enum) {
         c_import: struct {
             block: *Block,
@@ -1013,7 +1010,6 @@ fn analyzeBodyInner(
             .switch_block                 => try sema.zirSwitchBlock(block, inst),
             .switch_cond                  => try sema.zirSwitchCond(block, inst, false),
             .switch_cond_ref              => try sema.zirSwitchCond(block, inst, true),
-            .switch_capture_tag           => try sema.zirSwitchCaptureTag(block, inst),
             .type_info                    => try sema.zirTypeInfo(block, inst),
             .size_of                      => try sema.zirSizeOf(block, inst),
             .bit_size_of                  => try sema.zirBitSizeOf(block, inst),
@@ -1217,7 +1213,7 @@ fn analyzeBodyInner(
                         i += 1;
                         continue;
                     },
-                    .errdefer_err_code => unreachable, // never appears in a body
+                    .value_placeholder => unreachable, // never appears in a body
                 };
             },
 
@@ -10092,6 +10088,9 @@ const SwitchProngAnalysis = struct {
     else_error_ty: ?Type,
     /// The index of the `switch_block` instruction itself.
     switch_block_inst: Zir.Inst.Index,
+    /// The dummy index into which inline tag captures should be placed. May be
+    /// undefined if no prong has a tag capture.
+    tag_capture_inst: Zir.Inst.Index,
 
     /// Resolve a switch prong which is determined at comptime to have no peers.
     /// Uses `resolveBlockBody`. Sets up captures as needed.
@@ -10106,10 +10105,23 @@ const SwitchProngAnalysis = struct {
         /// The set of all values which can reach this prong. May be undefined
         /// if the prong is special or contains ranges.
         case_vals: []const Air.Inst.Ref,
+        /// The inline capture of this prong. If this is not an inline prong,
+        /// this is `.none`.
+        inline_case_capture: Air.Inst.Ref,
+        /// Whether this prong has an inline tag capture. If `true`, then
+        /// `inline_case_capture` cannot be `.none`.
+        has_tag_capture: bool,
         merges: *Block.Merges,
     ) CompileError!Air.Inst.Ref {
         const sema = spa.sema;
         const src = sema.code.instructions.items(.data)[spa.switch_block_inst].pl_node.src();
+
+        if (has_tag_capture) {
+            const tag_ref = try spa.analyzeTagCapture(child_block, raw_capture_src, inline_case_capture);
+            sema.inst_map.putAssumeCapacity(spa.tag_capture_inst, tag_ref);
+        }
+        defer if (has_tag_capture) assert(sema.inst_map.remove(spa.tag_capture_inst));
+
         switch (capture) {
             .none => {
                 return sema.resolveBlockBody(spa.parent_block, src, child_block, prong_body, spa.switch_block_inst, merges);
@@ -10122,6 +10134,7 @@ const SwitchProngAnalysis = struct {
                     prong_type == .special,
                     raw_capture_src,
                     case_vals,
+                    inline_case_capture,
                 );
 
                 if (sema.typeOf(capture_ref).isNoReturn(sema.mod)) {
@@ -10150,8 +10163,21 @@ const SwitchProngAnalysis = struct {
         /// The set of all values which can reach this prong. May be undefined
         /// if the prong is special or contains ranges.
         case_vals: []const Air.Inst.Ref,
+        /// The inline capture of this prong. If this is not an inline prong,
+        /// this is `.none`.
+        inline_case_capture: Air.Inst.Ref,
+        /// Whether this prong has an inline tag capture. If `true`, then
+        /// `inline_case_capture` cannot be `.none`.
+        has_tag_capture: bool,
     ) CompileError!void {
         const sema = spa.sema;
+
+        if (has_tag_capture) {
+            const tag_ref = try spa.analyzeTagCapture(case_block, raw_capture_src, inline_case_capture);
+            sema.inst_map.putAssumeCapacity(spa.tag_capture_inst, tag_ref);
+        }
+        defer if (has_tag_capture) assert(sema.inst_map.remove(spa.tag_capture_inst));
+
         switch (capture) {
             .none => {
                 return sema.analyzeBodyRuntimeBreak(case_block, prong_body);
@@ -10164,6 +10190,7 @@ const SwitchProngAnalysis = struct {
                     prong_type == .special,
                     raw_capture_src,
                     case_vals,
+                    inline_case_capture,
                 );
 
                 if (sema.typeOf(capture_ref).isNoReturn(sema.mod)) {
@@ -10179,6 +10206,33 @@ const SwitchProngAnalysis = struct {
         }
     }
 
+    fn analyzeTagCapture(
+        spa: SwitchProngAnalysis,
+        block: *Block,
+        raw_capture_src: Module.SwitchProngSrc,
+        inline_case_capture: Air.Inst.Ref,
+    ) CompileError!Air.Inst.Ref {
+        const sema = spa.sema;
+        const mod = sema.mod;
+        const operand_ty = sema.typeOf(spa.operand);
+        if (operand_ty.zigTypeTag(mod) != .Union) {
+            const zir_datas = sema.code.instructions.items(.data);
+            const switch_node_offset = zir_datas[spa.switch_block_inst].pl_node.src_node;
+            const capture_src = raw_capture_src.resolve(mod, mod.declPtr(block.src_decl), switch_node_offset, .none);
+            const msg = msg: {
+                const msg = try sema.errMsg(block, capture_src, "cannot capture tag of non-union type '{}'", .{
+                    operand_ty.fmt(mod),
+                });
+                errdefer msg.destroy(sema.gpa);
+                try sema.addDeclaredHereNote(msg, operand_ty);
+                break :msg msg;
+            };
+            return sema.failWithOwnedErrorMsg(msg);
+        }
+        assert(inline_case_capture != .none);
+        return inline_case_capture;
+    }
+
     fn analyzeCapture(
         spa: SwitchProngAnalysis,
         block: *Block,
@@ -10186,6 +10240,7 @@ const SwitchProngAnalysis = struct {
         is_special_prong: bool,
         raw_capture_src: Module.SwitchProngSrc,
         case_vals: []const Air.Inst.Ref,
+        inline_case_capture: Air.Inst.Ref,
     ) CompileError!Air.Inst.Ref {
         const sema = spa.sema;
         const mod = sema.mod;
@@ -10197,8 +10252,8 @@ const SwitchProngAnalysis = struct {
         const operand_ptr_ty = if (capture_byref) sema.typeOf(spa.operand_ptr) else undefined;
         const operand_src: LazySrcLoc = .{ .node_offset_switch_operand = switch_node_offset };
 
-        if (block.inline_case_capture != .none) {
-            const item_val = sema.resolveConstValue(block, .unneeded, block.inline_case_capture, "") catch unreachable;
+        if (inline_case_capture != .none) {
+            const item_val = sema.resolveConstValue(block, .unneeded, inline_case_capture, "") catch unreachable;
             if (operand_ty.zigTypeTag(mod) == .Union) {
                 const field_index = @intCast(u32, operand_ty.unionTagFieldIndex(item_val, mod).?);
                 const union_obj = mod.typeToUnion(operand_ty).?;
@@ -10233,7 +10288,7 @@ const SwitchProngAnalysis = struct {
             } else if (capture_byref) {
                 return sema.addConstantMaybeRef(block, operand_ty, item_val, true);
             } else {
-                return block.inline_case_capture;
+                return inline_case_capture;
             }
         }
 
@@ -10356,34 +10411,6 @@ const SwitchProngAnalysis = struct {
     }
 };
 
-fn zirSwitchCaptureTag(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
-    const mod = sema.mod;
-    const zir_datas = sema.code.instructions.items(.data);
-    const inst_data = zir_datas[inst].un_tok;
-    const src = inst_data.src();
-
-    const switch_tag = sema.code.instructions.items(.tag)[Zir.refToIndex(inst_data.operand).?];
-    const is_ref = switch_tag == .switch_cond_ref;
-    const cond_data = zir_datas[Zir.refToIndex(inst_data.operand).?].un_node;
-    const operand_ptr = try sema.resolveInst(cond_data.operand);
-    const operand_ptr_ty = sema.typeOf(operand_ptr);
-    const operand_ty = if (is_ref) operand_ptr_ty.childType(mod) else operand_ptr_ty;
-
-    if (operand_ty.zigTypeTag(mod) != .Union) {
-        const msg = msg: {
-            const msg = try sema.errMsg(block, src, "cannot capture tag of non-union type '{}'", .{
-                operand_ty.fmt(mod),
-            });
-            errdefer msg.destroy(sema.gpa);
-            try sema.addDeclaredHereNote(msg, operand_ty);
-            break :msg msg;
-        };
-        return sema.failWithOwnedErrorMsg(msg);
-    }
-
-    return block.inline_case_capture;
-}
-
 fn zirSwitchCond(
     sema: *Sema,
     block: *Block,
@@ -10485,6 +10512,16 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
         break :blk multi_cases_len;
     } else 0;
 
+    const tag_capture_inst: Zir.Inst.Index = if (extra.data.bits.any_has_tag_capture) blk: {
+        const tag_capture_inst = sema.code.extra[header_extra_index];
+        header_extra_index += 1;
+        // SwitchProngAnalysis wants inst_map to have space for the tag capture.
+        // Note that the normal capture is referred to via the switch block
+        // index, which there is already necessarily space for.
+        try sema.inst_map.ensureSpaceForInstructions(gpa, &.{tag_capture_inst});
+        break :blk tag_capture_inst;
+    } else undefined;
+
     var case_vals = try std.ArrayListUnmanaged(Air.Inst.Ref).initCapacity(gpa, scalar_cases_len + 2 * multi_cases_len);
     defer case_vals.deinit(gpa);
 
@@ -10493,11 +10530,18 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
         end: usize,
         capture: Zir.Inst.SwitchBlock.ProngInfo.Capture,
         is_inline: bool,
+        has_tag_capture: bool,
     };
 
     const special_prong = extra.data.bits.specialProng();
     const special: Special = switch (special_prong) {
-        .none => .{ .body = &.{}, .end = header_extra_index, .capture = .none, .is_inline = false },
+        .none => .{
+            .body = &.{},
+            .end = header_extra_index,
+            .capture = .none,
+            .is_inline = false,
+            .has_tag_capture = false,
+        },
         .under, .@"else" => blk: {
             const info = @bitCast(Zir.Inst.SwitchBlock.ProngInfo, sema.code.extra[header_extra_index]);
             const extra_body_start = header_extra_index + 1;
@@ -10506,6 +10550,7 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
                 .end = extra_body_start + info.body_len,
                 .capture = info.capture,
                 .is_inline = info.is_inline,
+                .has_tag_capture = info.has_tag_capture,
             };
         },
     };
@@ -11068,6 +11113,7 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
         .operand_ptr = raw_operand.ptr,
         .else_error_ty = else_error_ty,
         .switch_block_inst = inst,
+        .tag_capture_inst = tag_capture_inst,
     };
 
     const block_inst = @intCast(Air.Inst.Index, sema.air_instructions.len);
@@ -11122,7 +11168,6 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
                 const item = case_vals.items[scalar_i];
                 const item_val = sema.resolveConstValue(&child_block, .unneeded, item, "") catch unreachable;
                 if (operand_val.eql(item_val, operand_ty, sema.mod)) {
-                    if (info.is_inline) child_block.inline_case_capture = operand;
                     if (err_set) try sema.maybeErrorUnwrapComptime(&child_block, body, operand);
                     return spa.resolveProngComptime(
                         &child_block,
@@ -11131,6 +11176,8 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
                         info.capture,
                         .{ .scalar = @intCast(u32, scalar_i) },
                         &.{item},
+                        if (info.is_inline) operand else .none,
+                        info.has_tag_capture,
                         merges,
                     );
                 }
@@ -11155,7 +11202,6 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
                     // Validation above ensured these will succeed.
                     const item_val = sema.resolveConstValue(&child_block, .unneeded, item, "") catch unreachable;
                     if (operand_val.eql(item_val, operand_ty, sema.mod)) {
-                        if (info.is_inline) child_block.inline_case_capture = operand;
                         if (err_set) try sema.maybeErrorUnwrapComptime(&child_block, body, operand);
                         return spa.resolveProngComptime(
                             &child_block,
@@ -11164,6 +11210,8 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
                             info.capture,
                             .{ .multi_capture = @intCast(u32, multi_i) },
                             items,
+                            if (info.is_inline) operand else .none,
+                            info.has_tag_capture,
                             merges,
                         );
                     }
@@ -11181,7 +11229,6 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
                     if ((try sema.compareAll(resolved_operand_val, .gte, first_val, operand_ty)) and
                         (try sema.compareAll(resolved_operand_val, .lte, last_val, operand_ty)))
                     {
-                        if (info.is_inline) child_block.inline_case_capture = operand;
                         if (err_set) try sema.maybeErrorUnwrapComptime(&child_block, body, operand);
                         return spa.resolveProngComptime(
                             &child_block,
@@ -11190,6 +11237,8 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
                             info.capture,
                             .{ .multi_capture = @intCast(u32, multi_i) },
                             undefined, // case_vals may be undefined for ranges
+                            if (info.is_inline) operand else .none,
+                            info.has_tag_capture,
                             merges,
                         );
                     }
@@ -11199,7 +11248,6 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
             }
         }
         if (err_set) try sema.maybeErrorUnwrapComptime(&child_block, special.body, operand);
-        if (special.is_inline) child_block.inline_case_capture = operand;
         if (empty_enum) {
             return Air.Inst.Ref.void_value;
         }
@@ -11211,6 +11259,8 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
             special.capture,
             .special,
             undefined, // case_vals may be undefined for special prongs
+            if (special.is_inline) operand else .none,
+            special.has_tag_capture,
             merges,
         );
     }
@@ -11240,6 +11290,8 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
             special.capture,
             .special,
             undefined, // case_vals may be undefined for special prongs
+            .none,
+            false,
             merges,
         );
     }
@@ -11278,10 +11330,8 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
 
         case_block.instructions.shrinkRetainingCapacity(0);
         case_block.wip_capture_scope = wip_captures.scope;
-        case_block.inline_case_capture = .none;
 
         const item = case_vals.items[scalar_i];
-        if (info.is_inline) case_block.inline_case_capture = item;
         // `item` is already guaranteed to be constant known.
 
         const analyze_body = if (union_originally) blk: {
@@ -11300,6 +11350,8 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
                 info.capture,
                 .{ .scalar = @intCast(u32, scalar_i) },
                 &.{item},
+                if (info.is_inline) item else .none,
+                info.has_tag_capture,
             );
         } else {
             _ = try case_block.addNoOp(.unreach);
@@ -11337,7 +11389,6 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
 
         case_block.instructions.shrinkRetainingCapacity(0);
         case_block.wip_capture_scope = child_block.wip_capture_scope;
-        case_block.inline_case_capture = .none;
 
         // Generate all possible cases as scalar prongs.
         if (info.is_inline) {
@@ -11367,7 +11418,6 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
                     cases_len += 1;
 
                     const item_ref = try sema.addConstant(operand_ty, item);
-                    case_block.inline_case_capture = item_ref;
 
                     case_block.instructions.shrinkRetainingCapacity(0);
                     case_block.wip_capture_scope = child_block.wip_capture_scope;
@@ -11390,20 +11440,20 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
                         info.capture,
                         .{ .multi_capture = multi_i },
                         undefined, // case_vals may be undefined for ranges
+                        item_ref,
+                        info.has_tag_capture,
                     );
 
                     try cases_extra.ensureUnusedCapacity(gpa, 3 + case_block.instructions.items.len);
                     cases_extra.appendAssumeCapacity(1); // items_len
                     cases_extra.appendAssumeCapacity(@intCast(u32, case_block.instructions.items.len));
-                    cases_extra.appendAssumeCapacity(@enumToInt(case_block.inline_case_capture));
+                    cases_extra.appendAssumeCapacity(@enumToInt(item_ref));
                     cases_extra.appendSliceAssumeCapacity(case_block.instructions.items);
                 }
             }
 
             for (items, 0..) |item, item_i| {
                 cases_len += 1;
-
-                case_block.inline_case_capture = item;
 
                 case_block.instructions.shrinkRetainingCapacity(0);
                 case_block.wip_capture_scope = child_block.wip_capture_scope;
@@ -11433,6 +11483,8 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
                         info.capture,
                         .{ .multi_capture = multi_i },
                         &.{item},
+                        item,
+                        info.has_tag_capture,
                     );
                 } else {
                     _ = try case_block.addNoOp(.unreach);
@@ -11441,7 +11493,7 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
                 try cases_extra.ensureUnusedCapacity(gpa, 3 + case_block.instructions.items.len);
                 cases_extra.appendAssumeCapacity(1); // items_len
                 cases_extra.appendAssumeCapacity(@intCast(u32, case_block.instructions.items.len));
-                cases_extra.appendAssumeCapacity(@enumToInt(case_block.inline_case_capture));
+                cases_extra.appendAssumeCapacity(@enumToInt(item));
                 cases_extra.appendSliceAssumeCapacity(case_block.instructions.items);
             }
 
@@ -11478,6 +11530,8 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
                     info.capture,
                     .{ .multi_capture = multi_i },
                     items,
+                    .none,
+                    false,
                 );
             } else {
                 _ = try case_block.addNoOp(.unreach);
@@ -11563,6 +11617,8 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
                     info.capture,
                     .{ .multi_capture = multi_i },
                     items,
+                    .none,
+                    false,
                 );
             }
 
@@ -11608,7 +11664,6 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
 
                     const item_val = try mod.enumValueFieldIndex(operand_ty, @intCast(u32, i));
                     const item_ref = try sema.addConstant(operand_ty, item_val);
-                    case_block.inline_case_capture = item_ref;
 
                     case_block.instructions.shrinkRetainingCapacity(0);
                     case_block.wip_capture_scope = child_block.wip_capture_scope;
@@ -11629,6 +11684,8 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
                             special.capture,
                             .special,
                             &.{item_ref},
+                            item_ref,
+                            special.has_tag_capture,
                         );
                     } else {
                         _ = try case_block.addNoOp(.unreach);
@@ -11637,7 +11694,7 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
                     try cases_extra.ensureUnusedCapacity(gpa, 3 + case_block.instructions.items.len);
                     cases_extra.appendAssumeCapacity(1); // items_len
                     cases_extra.appendAssumeCapacity(@intCast(u32, case_block.instructions.items.len));
-                    cases_extra.appendAssumeCapacity(@enumToInt(case_block.inline_case_capture));
+                    cases_extra.appendAssumeCapacity(@enumToInt(item_ref));
                     cases_extra.appendSliceAssumeCapacity(case_block.instructions.items);
                 }
             },
@@ -11657,7 +11714,6 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
                         .name = error_name,
                     } });
                     const item_ref = try sema.addConstant(operand_ty, item_val.toValue());
-                    case_block.inline_case_capture = item_ref;
 
                     case_block.instructions.shrinkRetainingCapacity(0);
                     case_block.wip_capture_scope = child_block.wip_capture_scope;
@@ -11672,12 +11728,14 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
                         special.capture,
                         .special,
                         &.{item_ref},
+                        item_ref,
+                        special.has_tag_capture,
                     );
 
                     try cases_extra.ensureUnusedCapacity(gpa, 3 + case_block.instructions.items.len);
                     cases_extra.appendAssumeCapacity(1); // items_len
                     cases_extra.appendAssumeCapacity(@intCast(u32, case_block.instructions.items.len));
-                    cases_extra.appendAssumeCapacity(@enumToInt(case_block.inline_case_capture));
+                    cases_extra.appendAssumeCapacity(@enumToInt(item_ref));
                     cases_extra.appendSliceAssumeCapacity(case_block.instructions.items);
                 }
             },
@@ -11687,7 +11745,6 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
                     cases_len += 1;
 
                     const item_ref = try sema.addConstant(operand_ty, cur.toValue());
-                    case_block.inline_case_capture = item_ref;
 
                     case_block.instructions.shrinkRetainingCapacity(0);
                     case_block.wip_capture_scope = child_block.wip_capture_scope;
@@ -11702,19 +11759,20 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
                         special.capture,
                         .special,
                         &.{item_ref},
+                        item_ref,
+                        special.has_tag_capture,
                     );
 
                     try cases_extra.ensureUnusedCapacity(gpa, 3 + case_block.instructions.items.len);
                     cases_extra.appendAssumeCapacity(1); // items_len
                     cases_extra.appendAssumeCapacity(@intCast(u32, case_block.instructions.items.len));
-                    cases_extra.appendAssumeCapacity(@enumToInt(case_block.inline_case_capture));
+                    cases_extra.appendAssumeCapacity(@enumToInt(item_ref));
                     cases_extra.appendSliceAssumeCapacity(case_block.instructions.items);
                 }
             },
             .Bool => {
                 if (true_count == 0) {
                     cases_len += 1;
-                    case_block.inline_case_capture = Air.Inst.Ref.bool_true;
 
                     case_block.instructions.shrinkRetainingCapacity(0);
                     case_block.wip_capture_scope = child_block.wip_capture_scope;
@@ -11729,17 +11787,18 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
                         special.capture,
                         .special,
                         &.{Air.Inst.Ref.bool_true},
+                        Air.Inst.Ref.bool_true,
+                        special.has_tag_capture,
                     );
 
                     try cases_extra.ensureUnusedCapacity(gpa, 3 + case_block.instructions.items.len);
                     cases_extra.appendAssumeCapacity(1); // items_len
                     cases_extra.appendAssumeCapacity(@intCast(u32, case_block.instructions.items.len));
-                    cases_extra.appendAssumeCapacity(@enumToInt(case_block.inline_case_capture));
+                    cases_extra.appendAssumeCapacity(@enumToInt(Air.Inst.Ref.bool_true));
                     cases_extra.appendSliceAssumeCapacity(case_block.instructions.items);
                 }
                 if (false_count == 0) {
                     cases_len += 1;
-                    case_block.inline_case_capture = Air.Inst.Ref.bool_false;
 
                     case_block.instructions.shrinkRetainingCapacity(0);
                     case_block.wip_capture_scope = child_block.wip_capture_scope;
@@ -11754,12 +11813,14 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
                         special.capture,
                         .special,
                         &.{Air.Inst.Ref.bool_false},
+                        Air.Inst.Ref.bool_false,
+                        special.has_tag_capture,
                     );
 
                     try cases_extra.ensureUnusedCapacity(gpa, 3 + case_block.instructions.items.len);
                     cases_extra.appendAssumeCapacity(1); // items_len
                     cases_extra.appendAssumeCapacity(@intCast(u32, case_block.instructions.items.len));
-                    cases_extra.appendAssumeCapacity(@enumToInt(case_block.inline_case_capture));
+                    cases_extra.appendAssumeCapacity(@enumToInt(Air.Inst.Ref.bool_false));
                     cases_extra.appendSliceAssumeCapacity(case_block.instructions.items);
                 }
             },
@@ -11773,7 +11834,6 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
 
         case_block.instructions.shrinkRetainingCapacity(0);
         case_block.wip_capture_scope = wip_captures.scope;
-        case_block.inline_case_capture = .none;
 
         if (mod.backendSupportsFeature(.is_named_enum_value) and special.body.len != 0 and block.wantSafety() and
             operand_ty.zigTypeTag(mod) == .Enum and (!operand_ty.isNonexhaustiveEnum(mod) or union_originally))
@@ -11804,6 +11864,8 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
                 special.capture,
                 .special,
                 undefined, // case_vals may be undefined for special prongs
+                .none,
+                false,
             );
         } else {
             // We still need a terminator in this block, but we have proven
