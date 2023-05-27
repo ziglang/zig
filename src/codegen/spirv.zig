@@ -654,7 +654,7 @@ pub const DeclGen = struct {
                     .@"unreachable",
                     .generic_poison,
                     => unreachable, // non-runtime values
-                    .false, .true => try self.addConstBool(val.toBool(mod)),
+                    .false, .true => try self.addConstBool(val.toBool()),
                 },
                 .variable,
                 .extern_func,
@@ -974,7 +974,6 @@ pub const DeclGen = struct {
     /// This function should only be called during function code generation.
     fn constant(self: *DeclGen, ty: Type, val: Value, repr: Repr) !IdRef {
         const mod = self.module;
-        const target = self.getTarget();
         const result_ty_ref = try self.resolveType(ty, repr);
 
         log.debug("constant: ty = {}, val = {}", .{ ty.fmt(self.module), val.fmtValue(ty, self.module) });
@@ -991,51 +990,8 @@ pub const DeclGen = struct {
                     return try self.spv.constInt(result_ty_ref, val.toUnsignedInt(mod));
                 }
             },
-            .Bool => switch (repr) {
-                .direct => return try self.spv.constBool(result_ty_ref, val.toBool(mod)),
-                .indirect => return try self.spv.constInt(result_ty_ref, @boolToInt(val.toBool(mod))),
-            },
-            .Float => return switch (ty.floatBits(target)) {
-                16 => try self.spv.resolveId(.{ .float = .{ .ty = result_ty_ref, .value = .{ .float16 = val.toFloat(f16, mod) } } }),
-                32 => try self.spv.resolveId(.{ .float = .{ .ty = result_ty_ref, .value = .{ .float32 = val.toFloat(f32, mod) } } }),
-                64 => try self.spv.resolveId(.{ .float = .{ .ty = result_ty_ref, .value = .{ .float64 = val.toFloat(f64, mod) } } }),
-                80, 128 => unreachable, // TODO
-                else => unreachable,
-            },
-            .ErrorSet => {
-                const value = switch (val.tag()) {
-                    .@"error" => blk: {
-                        const err_name = val.castTag(.@"error").?.data.name;
-                        const kv = try self.module.getErrorValue(err_name);
-                        break :blk @intCast(u16, kv.value);
-                    },
-                    .zero => 0,
-                    else => unreachable,
-                };
-
-                return try self.spv.constInt(result_ty_ref, value);
-            },
-            .ErrorUnion => {
-                const payload_ty = ty.errorUnionPayload();
-                const is_pl = val.errorUnionIsPayload();
-                const error_val = if (!is_pl) val else Value.initTag(.zero);
-
-                const eu_layout = self.errorUnionLayout(payload_ty);
-                if (!eu_layout.payload_has_bits) {
-                    return try self.constant(Type.anyerror, error_val, repr);
-                }
-
-                const payload_val = if (val.castTag(.eu_payload)) |pl| pl.data else Value.undef;
-
-                var members: [2]IdRef = undefined;
-                if (eu_layout.error_first) {
-                    members[0] = try self.constant(Type.anyerror, error_val, .indirect);
-                    members[1] = try self.constant(payload_ty, payload_val, .indirect);
-                } else {
-                    members[0] = try self.constant(payload_ty, payload_val, .indirect);
-                    members[1] = try self.constant(Type.anyerror, error_val, .indirect);
-                }
-                return try self.spv.constComposite(result_ty_ref, &members);
+            .Bool => {
+                @compileError("TODO merge conflict failure");
             },
             // TODO: We can handle most pointers here (decl refs etc), because now they emit an extra
             // OpVariable that is not really required.

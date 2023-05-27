@@ -2003,7 +2003,7 @@ pub const Object = struct {
                                 mod.intern_pool.stringToSlice(tuple.names[i])
                             else
                                 try std.fmt.allocPrintZ(gpa, "{d}", .{i});
-                            defer gpa.free(field_name);
+                            defer if (tuple.names.len == 0) gpa.free(field_name);
 
                             try di_fields.append(gpa, dib.createMemberType(
                                 fwd_decl.toScope(),
@@ -2461,13 +2461,13 @@ pub const DeclGen = struct {
             if (decl.@"linksection") |section| global.setSection(section);
             assert(decl.has_tv);
             const init_val = if (decl.val.getVariable(mod)) |variable| init_val: {
-                break :init_val variable.init.toValue();
+                break :init_val variable.init;
             } else init_val: {
                 global.setGlobalConstant(.True);
-                break :init_val decl.val;
+                break :init_val decl.val.toIntern();
             };
-            if (init_val.toIntern() != .unreachable_value) {
-                const llvm_init = try dg.lowerValue(.{ .ty = decl.ty, .val = init_val });
+            if (init_val != .none) {
+                const llvm_init = try dg.lowerValue(.{ .ty = decl.ty, .val = init_val.toValue() });
                 if (global.globalGetValueType() == llvm_init.typeOf()) {
                     global.setInitializer(llvm_init);
                 } else {
@@ -2748,7 +2748,7 @@ pub const DeclGen = struct {
         if (std.debug.runtime_safety and false) check: {
             if (t.zigTypeTag(mod) == .Opaque) break :check;
             if (!t.hasRuntimeBits(mod)) break :check;
-            if (!llvm_ty.isSized().toBool(mod)) break :check;
+            if (!llvm_ty.isSized().toBool()) break :check;
 
             const zig_size = t.abiSize(mod);
             const llvm_size = dg.object.target_data.abiSizeOfType(llvm_ty);
@@ -3239,7 +3239,7 @@ pub const DeclGen = struct {
                 => unreachable, // non-runtime values
                 .false, .true => {
                     const llvm_type = try dg.lowerType(tv.ty);
-                    return if (tv.val.toBool(mod)) llvm_type.constAllOnes() else llvm_type.constNull();
+                    return if (tv.val.toBool()) llvm_type.constAllOnes() else llvm_type.constNull();
                 },
             },
             .variable,
@@ -3522,15 +3522,19 @@ pub const DeclGen = struct {
                     const elem_ty = vector_type.child.toType();
                     const llvm_elems = try dg.gpa.alloc(*llvm.Value, vector_type.len);
                     defer dg.gpa.free(llvm_elems);
+                    const llvm_i8 = dg.context.intType(8);
                     for (llvm_elems, 0..) |*llvm_elem, i| {
-                        llvm_elem.* = try dg.lowerValue(.{
-                            .ty = elem_ty,
-                            .val = switch (aggregate.storage) {
-                                .bytes => unreachable,
-                                .elems => |elems| elems[i],
-                                .repeated_elem => |elem| elem,
-                            }.toValue(),
-                        });
+                        llvm_elem.* = switch (aggregate.storage) {
+                            .bytes => |bytes| llvm_i8.constInt(bytes[i], .False),
+                            .elems => |elems| try dg.lowerValue(.{
+                                .ty = elem_ty,
+                                .val = elems[i].toValue(),
+                            }),
+                            .repeated_elem => |elem| try dg.lowerValue(.{
+                                .ty = elem_ty,
+                                .val = elem.toValue(),
+                            }),
+                        };
                     }
                     return llvm.constVector(
                         llvm_elems.ptr,

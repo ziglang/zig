@@ -385,7 +385,7 @@ pub const Value = struct {
                 } });
             },
             .aggregate => {
-                const old_elems = val.castTag(.aggregate).?.data;
+                const old_elems = val.castTag(.aggregate).?.data[0..ty.arrayLen(mod)];
                 const new_elems = try mod.gpa.alloc(InternPool.Index, old_elems.len);
                 defer mod.gpa.free(new_elems);
                 const ty_key = mod.intern_pool.indexToKey(ty.toIntern());
@@ -656,7 +656,7 @@ pub const Value = struct {
         };
     }
 
-    pub fn toBool(val: Value, _: *const Module) bool {
+    pub fn toBool(val: Value) bool {
         return switch (val.toIntern()) {
             .bool_true => true,
             .bool_false => false,
@@ -697,7 +697,7 @@ pub const Value = struct {
         switch (ty.zigTypeTag(mod)) {
             .Void => {},
             .Bool => {
-                buffer[0] = @boolToInt(val.toBool(mod));
+                buffer[0] = @boolToInt(val.toBool());
             },
             .Int, .Enum => {
                 const int_info = ty.intInfo(mod);
@@ -736,13 +736,20 @@ pub const Value = struct {
             },
             .Struct => switch (ty.containerLayout(mod)) {
                 .Auto => return error.IllDefinedMemoryLayout,
-                .Extern => {
-                    const fields = ty.structFields(mod).values();
-                    const field_vals = val.castTag(.aggregate).?.data;
-                    for (fields, 0..) |field, i| {
-                        const off = @intCast(usize, ty.structFieldOffset(i, mod));
-                        try writeToMemory(field_vals[i], field.ty, mod, buffer[off..]);
-                    }
+                .Extern => for (ty.structFields(mod).values(), 0..) |field, i| {
+                    const off = @intCast(usize, ty.structFieldOffset(i, mod));
+                    const field_val = switch (val.ip_index) {
+                        .none => val.castTag(.aggregate).?.data[i],
+                        else => switch (mod.intern_pool.indexToKey(val.toIntern()).aggregate.storage) {
+                            .bytes => |bytes| {
+                                buffer[off] = bytes[i];
+                                continue;
+                            },
+                            .elems => |elems| elems[i],
+                            .repeated_elem => |elem| elem,
+                        }.toValue(),
+                    };
+                    try writeToMemory(field_val, field.ty, mod, buffer[off..]);
                 },
                 .Packed => {
                     const byte_count = (@intCast(usize, ty.bitSize(mod)) + 7) / 8;
@@ -812,7 +819,7 @@ pub const Value = struct {
                     .Little => bit_offset / 8,
                     .Big => buffer.len - bit_offset / 8 - 1,
                 };
-                if (val.toBool(mod)) {
+                if (val.toBool()) {
                     buffer[byte_index] |= (@as(u8, 1) << @intCast(u3, bit_offset % 8));
                 } else {
                     buffer[byte_index] &= ~(@as(u8, 1) << @intCast(u3, bit_offset % 8));
@@ -1331,24 +1338,7 @@ pub const Value = struct {
             .gt => {},
         }
 
-        const lhs_float = lhs.isFloat(mod);
-        const rhs_float = rhs.isFloat(mod);
-        if (lhs_float and rhs_float) {
-            const lhs_tag = lhs.tag();
-            const rhs_tag = rhs.tag();
-            if (lhs_tag == rhs_tag) {
-                const lhs_storage = mod.intern_pool.indexToKey(lhs.toIntern()).float.storage;
-                const rhs_storage = mod.intern_pool.indexToKey(rhs.toIntern()).float.storage;
-                const lhs128: f128 = switch (lhs_storage) {
-                    inline else => |x| x,
-                };
-                const rhs128: f128 = switch (rhs_storage) {
-                    inline else => |x| x,
-                };
-                return std.math.order(lhs128, rhs128);
-            }
-        }
-        if (lhs_float or rhs_float) {
+        if (lhs.isFloat(mod) or rhs.isFloat(mod)) {
             const lhs_f128 = lhs.toFloat(f128, mod);
             const rhs_f128 = rhs.toFloat(f128, mod);
             return std.math.order(lhs_f128, rhs_f128);
@@ -1669,86 +1659,6 @@ pub const Value = struct {
         return (try orderAdvanced(a, b, mod, opt_sema)).compare(.eq);
     }
 
-    /// This function is used by hash maps and so treats floating-point NaNs as equal
-    /// to each other, and not equal to other floating-point values.
-    pub fn hash(val: Value, ty: Type, hasher: *std.hash.Wyhash, mod: *Module) void {
-        if (val.ip_index != .none) {
-            // The InternPool data structure hashes based on Key to make interned objects
-            // unique. An Index can be treated simply as u32 value for the
-            // purpose of Type/Value hashing and equality.
-            std.hash.autoHash(hasher, val.toIntern());
-            return;
-        }
-        const zig_ty_tag = ty.zigTypeTag(mod);
-        std.hash.autoHash(hasher, zig_ty_tag);
-        if (val.isUndef(mod)) return;
-        // The value is runtime-known and shouldn't affect the hash.
-        if (val.isRuntimeValue(mod)) return;
-
-        switch (zig_ty_tag) {
-            .Opaque => unreachable, // Cannot hash opaque types
-
-            .Void,
-            .NoReturn,
-            .Undefined,
-            .Null,
-            => {},
-
-            .Type,
-            .Float,
-            .ComptimeFloat,
-            .Bool,
-            .Int,
-            .ComptimeInt,
-            .Pointer,
-            .Optional,
-            .ErrorUnion,
-            .ErrorSet,
-            .Enum,
-            .EnumLiteral,
-            .Fn,
-            => unreachable, // handled via ip_index check above
-            .Array, .Vector => {
-                const len = ty.arrayLen(mod);
-                const elem_ty = ty.childType(mod);
-                var index: usize = 0;
-                while (index < len) : (index += 1) {
-                    const elem_val = val.elemValue(mod, index) catch |err| switch (err) {
-                        // Will be solved when arrays and vectors get migrated to the intern pool.
-                        error.OutOfMemory => @panic("OOM"),
-                    };
-                    elem_val.hash(elem_ty, hasher, mod);
-                }
-            },
-            .Struct => {
-                switch (val.tag()) {
-                    .aggregate => {
-                        const field_values = val.castTag(.aggregate).?.data;
-                        for (field_values, 0..) |field_val, i| {
-                            const field_ty = ty.structFieldType(i, mod);
-                            field_val.hash(field_ty, hasher, mod);
-                        }
-                    },
-                    else => unreachable,
-                }
-            },
-            .Union => {
-                const union_obj = val.cast(Payload.Union).?.data;
-                if (ty.unionTagType(mod)) |tag_ty| {
-                    union_obj.tag.hash(tag_ty, hasher, mod);
-                }
-                const active_field_ty = ty.unionFieldType(union_obj.tag, mod);
-                union_obj.val.hash(active_field_ty, hasher, mod);
-            },
-            .Frame => {
-                @panic("TODO implement hashing frame values");
-            },
-            .AnyFrame => {
-                @panic("TODO implement hashing anyframe values");
-            },
-        }
-    }
-
     /// This is a more conservative hash function that produces equal hashes for values
     /// that can coerce into each other.
     /// This function is used by hash maps and so treats floating-point NaNs as equal
@@ -1820,35 +1730,6 @@ pub const Value = struct {
         }
     }
 
-    pub const ArrayHashContext = struct {
-        ty: Type,
-        mod: *Module,
-
-        pub fn hash(self: @This(), val: Value) u32 {
-            const other_context: HashContext = .{ .ty = self.ty, .mod = self.mod };
-            return @truncate(u32, other_context.hash(val));
-        }
-        pub fn eql(self: @This(), a: Value, b: Value, b_index: usize) bool {
-            _ = b_index;
-            return a.eql(b, self.ty, self.mod);
-        }
-    };
-
-    pub const HashContext = struct {
-        ty: Type,
-        mod: *Module,
-
-        pub fn hash(self: @This(), val: Value) u64 {
-            var hasher = std.hash.Wyhash.init(0);
-            val.hash(self.ty, &hasher, self.mod);
-            return hasher.final();
-        }
-
-        pub fn eql(self: @This(), a: Value, b: Value) bool {
-            return a.eql(b, self.ty, self.mod);
-        }
-    };
-
     pub fn isComptimeMutablePtr(val: Value, mod: *Module) bool {
         return switch (mod.intern_pool.indexToKey(val.toIntern())) {
             .ptr => |ptr| switch (ptr.addr) {
@@ -1919,14 +1800,25 @@ pub const Value = struct {
     }
 
     pub fn sliceLen(val: Value, mod: *Module) u64 {
-        return mod.intern_pool.sliceLen(val.toIntern()).toValue().toUnsignedInt(mod);
+        const ptr = mod.intern_pool.indexToKey(val.toIntern()).ptr;
+        return switch (ptr.len) {
+            .none => switch (mod.intern_pool.indexToKey(switch (ptr.addr) {
+                .decl => |decl| mod.declPtr(decl).ty.toIntern(),
+                .mut_decl => |mut_decl| mod.declPtr(mut_decl.decl).ty.toIntern(),
+                .comptime_field => |comptime_field| mod.intern_pool.typeOf(comptime_field),
+                else => unreachable,
+            })) {
+                .array_type => |array_type| array_type.len,
+                else => 1,
+            },
+            else => ptr.len.toValue().toUnsignedInt(mod),
+        };
     }
 
     /// Asserts the value is a single-item pointer to an array, or an array,
     /// or an unknown-length pointer, and returns the element value at the index.
     pub fn elemValue(val: Value, mod: *Module, index: usize) Allocator.Error!Value {
         return switch (val.ip_index) {
-            .undef => Value.undef,
             .none => switch (val.tag()) {
                 .repeated => val.castTag(.repeated).?.data,
                 .aggregate => val.castTag(.aggregate).?.data[index],
@@ -1934,6 +1826,9 @@ pub const Value = struct {
                 else => unreachable,
             },
             else => switch (mod.intern_pool.indexToKey(val.toIntern())) {
+                .undef => |ty| (try mod.intern(.{
+                    .undef = ty.toType().elemType2(mod).toIntern(),
+                })).toValue(),
                 .ptr => |ptr| switch (ptr.addr) {
                     .decl => |decl| mod.declPtr(decl).val.elemValue(mod, index),
                     .mut_decl => |mut_decl| mod.declPtr(mut_decl.decl).val.elemValue(mod, index),
@@ -2492,7 +2387,7 @@ pub const Value = struct {
         }
 
         return OverflowArithmeticResult{
-            .overflow_bit = boolToInt(overflowed),
+            .overflow_bit = try mod.intValue(Type.u1, @boolToInt(overflowed)),
             .wrapped_result = try mod.intValue_big(ty, result_bigint.toConst()),
         };
     }
@@ -2645,7 +2540,8 @@ pub const Value = struct {
 
     /// operands must be integers; handles undefined.
     pub fn bitwiseNotScalar(val: Value, ty: Type, arena: Allocator, mod: *Module) !Value {
-        if (val.isUndef(mod)) return Value.undef;
+        if (val.isUndef(mod)) return (try mod.intern(.{ .undef = ty.toIntern() })).toValue();
+        if (ty.toIntern() == .bool_type) return makeBool(!val.toBool());
 
         const info = ty.intInfo(mod);
 
@@ -2687,7 +2583,8 @@ pub const Value = struct {
 
     /// operands must be integers; handles undefined.
     pub fn bitwiseAndScalar(lhs: Value, rhs: Value, ty: Type, arena: Allocator, mod: *Module) !Value {
-        if (lhs.isUndef(mod) or rhs.isUndef(mod)) return Value.undef;
+        if (lhs.isUndef(mod) or rhs.isUndef(mod)) return (try mod.intern(.{ .undef = ty.toIntern() })).toValue();
+        if (ty.toIntern() == .bool_type) return makeBool(lhs.toBool() and rhs.toBool());
 
         // TODO is this a performance issue? maybe we should try the operation without
         // resorting to BigInt first.
@@ -2725,7 +2622,8 @@ pub const Value = struct {
 
     /// operands must be integers; handles undefined.
     pub fn bitwiseNandScalar(lhs: Value, rhs: Value, ty: Type, arena: Allocator, mod: *Module) !Value {
-        if (lhs.isUndef(mod) or rhs.isUndef(mod)) return Value.undef;
+        if (lhs.isUndef(mod) or rhs.isUndef(mod)) return (try mod.intern(.{ .undef = ty.toIntern() })).toValue();
+        if (ty.toIntern() == .bool_type) return makeBool(!(lhs.toBool() and rhs.toBool()));
 
         const anded = try bitwiseAnd(lhs, rhs, ty, arena, mod);
         const all_ones = if (ty.isSignedInt(mod)) try mod.intValue(ty, -1) else try ty.maxIntScalar(mod, ty);
@@ -2752,7 +2650,8 @@ pub const Value = struct {
 
     /// operands must be integers; handles undefined.
     pub fn bitwiseOrScalar(lhs: Value, rhs: Value, ty: Type, arena: Allocator, mod: *Module) !Value {
-        if (lhs.isUndef(mod) or rhs.isUndef(mod)) return Value.undef;
+        if (lhs.isUndef(mod) or rhs.isUndef(mod)) return (try mod.intern(.{ .undef = ty.toIntern() })).toValue();
+        if (ty.toIntern() == .bool_type) return makeBool(lhs.toBool() or rhs.toBool());
 
         // TODO is this a performance issue? maybe we should try the operation without
         // resorting to BigInt first.
@@ -2789,7 +2688,8 @@ pub const Value = struct {
 
     /// operands must be integers; handles undefined.
     pub fn bitwiseXorScalar(lhs: Value, rhs: Value, ty: Type, arena: Allocator, mod: *Module) !Value {
-        if (lhs.isUndef(mod) or rhs.isUndef(mod)) return Value.undef;
+        if (lhs.isUndef(mod) or rhs.isUndef(mod)) return (try mod.intern(.{ .undef = ty.toIntern() })).toValue();
+        if (ty.toIntern() == .bool_type) return makeBool(lhs.toBool() != rhs.toBool());
 
         // TODO is this a performance issue? maybe we should try the operation without
         // resorting to BigInt first.
@@ -3233,7 +3133,7 @@ pub const Value = struct {
             result_bigint.truncate(result_bigint.toConst(), info.signedness, info.bits);
         }
         return OverflowArithmeticResult{
-            .overflow_bit = boolToInt(overflowed),
+            .overflow_bit = try mod.intValue(Type.u1, @boolToInt(overflowed)),
             .wrapped_result = try mod.intValue_big(ty, result_bigint.toConst()),
         };
     }
@@ -4265,12 +4165,6 @@ pub const Value = struct {
 
     pub fn makeBool(x: bool) Value {
         return if (x) Value.true else Value.false;
-    }
-
-    pub fn boolToInt(x: bool) Value {
-        const zero: Value = .{ .ip_index = .zero, .legacy = undefined };
-        const one: Value = .{ .ip_index = .one, .legacy = undefined };
-        return if (x) one else zero;
     }
 
     pub const RuntimeIndex = InternPool.RuntimeIndex;
