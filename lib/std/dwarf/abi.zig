@@ -8,6 +8,17 @@ pub const RegisterContext = struct {
     is_macho: bool,
 };
 
+pub fn isSupportedArch(arch: std.Target.Cpu.Arch) bool {
+    return switch (arch) {
+        .x86,
+        .x86_64,
+        .arm,
+        .aarch64,
+        => true,
+        else => false,
+    };
+}
+
 pub fn ipRegNum() u8 {
     return switch (builtin.cpu.arch) {
         .x86 => 8,

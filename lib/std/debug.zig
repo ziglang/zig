@@ -421,7 +421,11 @@ pub const StackIterator = struct {
     // stacks with frames that don't use a frame pointer (ie. -fomit-frame-pointer).
     debug_info: ?*DebugInfo,
     dwarf_context: if (supports_context) DW.UnwindContext else void = undefined,
-    const supports_context = @hasDecl(os.system, "ucontext_t");
+    const supports_context = @hasDecl(os.system, "ucontext_t") and
+        (builtin.os.tag != .linux or switch (builtin.cpu.arch) {
+        .mips, .riscv64 => false,
+        else => true,
+    });
 
     pub fn init(first_address: ?usize, fp: ?usize) StackIterator {
         if (native_arch == .sparc64) {
@@ -528,7 +532,7 @@ pub const StackIterator = struct {
 
     fn next_dwarf(self: *StackIterator) !void {
         const module = try self.debug_info.?.getModuleForAddress(self.dwarf_context.pc);
-        if (module.getDwarfInfo()) |di| {
+        if (try module.getDwarfInfoForAddress(self.debug_info.?.allocator, self.dwarf_context.pc)) |di| {
             self.dwarf_context.reg_ctx.eh_frame = true;
             self.dwarf_context.reg_ctx.is_macho = di.is_macho;
             try di.unwindFrame(self.debug_info.?.allocator, &self.dwarf_context, module.base_address);
@@ -1684,6 +1688,26 @@ pub const ModuleDebugInfo = switch (native_os) {
             return info;
         }
 
+        fn getOFileForAddress(self: *@This(), allocator: mem.Allocator, address: usize) !?*OFileInfo {
+            nosuspend {
+                const relocated_address = address - self.base_address;
+                const symbol = machoSearchSymbols(self.symbols, relocated_address) orelse
+                    return null;
+
+                const o_file_path = mem.sliceTo(self.strings[symbol.ofile..], 0);
+                var o_file_info = self.ofiles.get(o_file_path) orelse
+                    (self.loadOFile(allocator, o_file_path) catch |err| switch (err) {
+                    error.FileNotFound,
+                    error.MissingDebugInfo,
+                    error.InvalidDebugInfo,
+                    => return null,
+                    else => return err,
+                });
+
+                return &o_file_info.di;
+            }
+        }
+
         pub fn getSymbolAtAddress(self: *@This(), allocator: mem.Allocator, address: usize) !SymbolInfo {
             nosuspend {
                 // Translate the VA into an address into this object
@@ -1749,40 +1773,38 @@ pub const ModuleDebugInfo = switch (native_os) {
             }
         }
 
-        pub fn getDwarfInfo(self: *@This()) ?*const DW.DwarfInfo {
-            // TODO: Implement
-            _ = self;
-            return null;
+        pub fn getDwarfInfoForAddress(self: *@This(), allocator: mem.Allocator, address: usize) !?*const DW.DwarfInfo {
+            nosuspend {
+                const relocated_address = address - self.base_address;
+                const symbol = machoSearchSymbols(self.symbols, relocated_address) orelse
+                    return null;
+
+                const o_file_path = mem.sliceTo(self.strings[symbol.ofile..], 0);
+                var o_file_info = self.ofiles.get(o_file_path) orelse
+                    (self.loadOFile(allocator, o_file_path) catch |err| switch (err) {
+                    error.FileNotFound,
+                    error.MissingDebugInfo,
+                    error.InvalidDebugInfo,
+                    => return null,
+                    else => return err,
+                });
+
+                return &o_file_info.di;
+            }
         }
     },
     .uefi, .windows => struct {
         base_address: usize,
         debug_data: PdbOrDwarf,
         coff_image_base: u64,
+        /// Only used if debug_data is .pdb
         coff_section_headers: []coff.SectionHeader,
 
         fn deinit(self: *@This(), allocator: mem.Allocator) void {
-            switch (self.debug_data) {
-                .dwarf => |*dwarf| {
-                    allocator.free(dwarf.debug_info);
-                    allocator.free(dwarf.debug_abbrev);
-                    allocator.free(dwarf.debug_str);
-                    allocator.free(dwarf.debug_line);
-                    if (dwarf.debug_str_offsets) |d| allocator.free(d);
-                    if (dwarf.debug_line_str) |d| allocator.free(d);
-                    if (dwarf.debug_ranges) |d| allocator.free(d);
-                    if (dwarf.debug_loclists) |d| allocator.free(d);
-                    if (dwarf.debug_rnglists) |d| allocator.free(d);
-                    if (dwarf.debug_addr) |d| allocator.free(d);
-                    if (dwarf.debug_names) |d| allocator.free(d);
-                    if (dwarf.debug_frame) |d| allocator.free(d);
-                },
-                .pdb => {
-                    allocator.free(self.coff_section_headers);
-                },
-            }
-
             self.debug_data.deinit(allocator);
+            if (self.debug_data == .pdb) {
+                allocator.free(self.coff_section_headers);
+            }
         }
 
         pub fn getSymbolAtAddress(self: *@This(), allocator: mem.Allocator, address: usize) !SymbolInfo {
@@ -1835,7 +1857,10 @@ pub const ModuleDebugInfo = switch (native_os) {
             };
         }
 
-        pub fn getDwarfInfo(self: *@This()) ?*const DW.DwarfInfo {
+        pub fn getDwarfInfoForAddress(self: *@This(), allocator: mem.Allocator, address: usize) !?*const DW.DwarfInfo {
+            _ = allocator;
+            _ = address;
+
             return switch (self.debug_data) {
                 .dwarf => |*dwarf| dwarf,
                 else => null,
@@ -1860,7 +1885,9 @@ pub const ModuleDebugInfo = switch (native_os) {
             return getSymbolFromDwarf(allocator, relocated_address, &self.dwarf);
         }
 
-        pub fn getDwarfInfo(self: *@This()) ?*const DW.DwarfInfo {
+        pub fn getDwarfInfoForAddress(self: *@This(), allocator: mem.Allocator, address: usize) !?*const DW.DwarfInfo {
+            _ = allocator;
+            _ = address;
             return &self.dwarf;
         }
     },
@@ -1877,8 +1904,10 @@ pub const ModuleDebugInfo = switch (native_os) {
             return SymbolInfo{};
         }
 
-        pub fn getDwarfInfo(self: *@This()) ?*const DW.DwarfInfo {
+        pub fn getDwarfInfoForAddress(self: *@This(), allocator: mem.Allocator, address: usize) !?*const DW.DwarfInfo {
             _ = self;
+            _ = allocator;
+            _ = address;
             return null;
         }
     },

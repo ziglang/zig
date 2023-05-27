@@ -1556,6 +1556,7 @@ pub const DwarfInfo = struct {
     }
 
     pub fn unwindFrame(di: *const DwarfInfo, allocator: mem.Allocator, context: *UnwindContext, module_base_address: usize) !void {
+        if (!comptime abi.isSupportedArch(builtin.target.cpu.arch)) return error.UnsupportedCpuArchitecture;
         if (context.pc == 0) return;
 
         // TODO: Handle signal frame (ie. use_prev_instr in libunwind)
