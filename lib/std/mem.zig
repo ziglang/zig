@@ -1616,7 +1616,7 @@ test "readIntBig and readIntLittle" {
 /// accepts any integer bit width.
 /// This function stores in native endian, which means it is implemented as a simple
 /// memory store.
-pub fn writeIntNative(comptime T: type, buf: *[(@typeInfo(T).Int.bits + 7) / 8]u8, value: T) void {
+pub fn writeIntNative(comptime T: type, buf: *[@as(u16, @intCast((@as(u17, @typeInfo(T).Int.bits) + 7) / 8))]u8, value: T) void {
     @as(*align(1) T, @ptrCast(buf)).* = value;
 }
 
