@@ -23315,7 +23315,7 @@ fn explainWhyTypeIsNotExtern(
 
         .Pointer => {
             if (ty.isSlice()) {
-                try mod.errNoteNonLazy(src_loc, msg, "slices have no guaranteed in-memory representation", .{}),
+                try mod.errNoteNonLazy(src_loc, msg, "slices have no guaranteed in-memory representation", .{});
             } else {
                 sema.explainWhyTypeIsNotExtern(msg, src_loc, ty.childType(), position);
             }
