@@ -23317,7 +23317,7 @@ fn explainWhyTypeIsNotExtern(
             if (ty.isSlice()) {
                 try mod.errNoteNonLazy(src_loc, msg, "slices have no guaranteed in-memory representation", .{});
             } else {
-                sema.explainWhyTypeIsNotExtern(msg, src_loc, ty.childType(), position);
+                try sema.explainWhyTypeIsNotExtern(msg, src_loc, ty.childType(), position);
             }
         },
         .Void => try mod.errNoteNonLazy(src_loc, msg, "'void' is a zero bit type; for C 'void' use 'anyopaque'", .{}),
