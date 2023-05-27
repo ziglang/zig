@@ -273,7 +273,7 @@ pub fn openPath(allocator: Allocator, sub_path: []const u8, options: link.Option
 }
 
 pub fn createEmpty(gpa: Allocator, options: link.Options) !*Elf {
-    const ptr_width: PtrWidth = switch (options.target.cpu.arch.ptrBitWidth()) {
+    const ptr_width: PtrWidth = switch (options.target.ptrBitWidth()) {
         0...32 => .p32,
         33...64 => .p64,
         else => return error.UnsupportedELFArchitecture,
@@ -474,7 +474,7 @@ pub fn populateMissingMetadata(self: *Elf) !void {
     if (self.phdr_table_load_index == null) {
         self.phdr_table_load_index = @intCast(u16, self.program_headers.items.len);
         // TODO Same as for GOT
-        const phdr_addr: u64 = if (self.base.options.target.cpu.arch.ptrBitWidth() >= 32) 0x1000000 else 0x1000;
+        const phdr_addr: u64 = if (self.base.options.target.ptrBitWidth() >= 32) 0x1000000 else 0x1000;
         const p_align = self.page_size;
         try self.program_headers.append(gpa, .{
             .p_type = elf.PT_LOAD,
@@ -521,7 +521,7 @@ pub fn populateMissingMetadata(self: *Elf) !void {
         // TODO instead of hard coding the vaddr, make a function to find a vaddr to put things at.
         // we'll need to re-use that function anyway, in case the GOT grows and overlaps something
         // else in virtual memory.
-        const got_addr: u32 = if (self.base.options.target.cpu.arch.ptrBitWidth() >= 32) 0x4000000 else 0x8000;
+        const got_addr: u32 = if (self.base.options.target.ptrBitWidth() >= 32) 0x4000000 else 0x8000;
         try self.program_headers.append(gpa, .{
             .p_type = elf.PT_LOAD,
             .p_offset = off,
@@ -544,7 +544,7 @@ pub fn populateMissingMetadata(self: *Elf) !void {
         const off = self.findFreeSpace(file_size, p_align);
         log.debug("found PT_LOAD RO free space 0x{x} to 0x{x}", .{ off, off + file_size });
         // TODO Same as for GOT
-        const rodata_addr: u32 = if (self.base.options.target.cpu.arch.ptrBitWidth() >= 32) 0xc000000 else 0xa000;
+        const rodata_addr: u32 = if (self.base.options.target.ptrBitWidth() >= 32) 0xc000000 else 0xa000;
         try self.program_headers.append(gpa, .{
             .p_type = elf.PT_LOAD,
             .p_offset = off,
@@ -567,7 +567,7 @@ pub fn populateMissingMetadata(self: *Elf) !void {
         const off = self.findFreeSpace(file_size, p_align);
         log.debug("found PT_LOAD RW free space 0x{x} to 0x{x}", .{ off, off + file_size });
         // TODO Same as for GOT
-        const rwdata_addr: u32 = if (self.base.options.target.cpu.arch.ptrBitWidth() >= 32) 0x10000000 else 0xc000;
+        const rwdata_addr: u32 = if (self.base.options.target.ptrBitWidth() >= 32) 0x10000000 else 0xc000;
         try self.program_headers.append(gpa, .{
             .p_type = elf.PT_LOAD,
             .p_offset = off,
@@ -1542,8 +1542,18 @@ fn linkWithLLD(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !v
             try argv.append("-z");
             try argv.append(try std.fmt.allocPrint(arena, "stack-size={d}", .{stack_size}));
 
-            if (self.base.options.build_id) {
-                try argv.append("--build-id");
+            switch (self.base.options.build_id) {
+                .none => {},
+                .fast, .uuid, .sha1, .md5 => {
+                    try argv.append(try std.fmt.allocPrint(arena, "--build-id={s}", .{
+                        @tagName(self.base.options.build_id),
+                    }));
+                },
+                .hexstring => |hs| {
+                    try argv.append(try std.fmt.allocPrint(arena, "--build-id=0x{s}", .{
+                        std.fmt.fmtSliceHexLower(hs.toSlice()),
+                    }));
+                },
             }
         }
 
@@ -3170,7 +3180,7 @@ fn ptrWidthBytes(self: Elf) u8 {
 /// Does not necessarily match `ptrWidthBytes` for example can be 2 bytes
 /// in a 32-bit ELF file.
 fn archPtrWidthBytes(self: Elf) u8 {
-    return @intCast(u8, self.base.options.target.cpu.arch.ptrBitWidth() / 8);
+    return @intCast(u8, self.base.options.target.ptrBitWidth() / 8);
 }
 
 fn progHeaderTo32(phdr: elf.Elf64_Phdr) elf.Elf32_Phdr {

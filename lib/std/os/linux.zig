@@ -1520,19 +1520,19 @@ pub fn sched_getaffinity(pid: pid_t, size: usize, set: *cpu_set_t) usize {
 }
 
 pub fn getcpu(cpu: *u32, node: *u32) usize {
-    return syscall3(.getcpu, cpu, node, null);
+    return syscall3(.getcpu, @ptrToInt(cpu), @ptrToInt(node), 0);
 }
 
 pub fn sched_getcpu() usize {
     var cpu: u32 = undefined;
-    const rc = syscall3(.getcpu, &cpu, null, null);
+    const rc = syscall3(.getcpu, @ptrToInt(&cpu), 0, 0);
     if (@bitCast(isize, rc) < 0) return rc;
     return @intCast(usize, cpu);
 }
 
 /// libc has no wrapper for this syscall
 pub fn mbind(addr: ?*anyopaque, len: u32, mode: i32, nodemask: *const u32, maxnode: u32, flags: u32) usize {
-    return syscall6(.mbind, addr, len, mode, nodemask, maxnode, flags);
+    return syscall6(.mbind, @ptrToInt(addr), len, @bitCast(usize, @as(isize, mode)), @ptrToInt(nodemask), maxnode, flags);
 }
 
 pub fn sched_setaffinity(pid: pid_t, size: usize, set: *const cpu_set_t) usize {
@@ -1588,6 +1588,43 @@ pub fn timerfd_gettime(fd: i32, curr_value: *itimerspec) usize {
 
 pub fn timerfd_settime(fd: i32, flags: u32, new_value: *const itimerspec, old_value: ?*itimerspec) usize {
     return syscall4(.timerfd_settime, @bitCast(usize, @as(isize, fd)), flags, @ptrToInt(new_value), @ptrToInt(old_value));
+}
+
+pub const sigevent = extern struct {
+    value: sigval,
+    signo: i32,
+    inotify: i32,
+    libc_priv_impl: opaque {},
+};
+
+// Flags for sigevent sigev_inotify's field
+pub const SIGEV = enum(i32) {
+    NONE = 0,
+    SIGNAL = 1,
+    THREAD = 2,
+    THREAD_ID = 4,
+};
+
+pub const timer_t = ?*anyopaque;
+
+pub fn timer_create(clockid: i32, sevp: *sigevent, timerid: *timer_t) usize {
+    var t: timer_t = undefined;
+    const rc = syscall3(.timer_create, @bitCast(usize, @as(isize, clockid)), @ptrToInt(sevp), @ptrToInt(&t));
+    if (@bitCast(isize, rc) < 0) return rc;
+    timerid.* = t;
+    return rc;
+}
+
+pub fn timer_delete(timerid: timer_t) usize {
+    return syscall1(.timer_delete, timerid);
+}
+
+pub fn timer_gettime(timerid: timer_t, curr_value: *itimerspec) usize {
+    return syscall2(.timer_gettime, @ptrToInt(timerid), @ptrToInt(curr_value));
+}
+
+pub fn timer_settime(timerid: timer_t, flags: i32, new_value: *const itimerspec, old_value: ?*itimerspec) usize {
+    return syscall4(.timer_settime, @ptrToInt(timerid), @bitCast(usize, @as(isize, flags)), @ptrToInt(new_value), @ptrToInt(old_value));
 }
 
 // Flags for the 'setitimer' system call
@@ -3586,7 +3623,7 @@ pub fn CPU_SET(cpu: usize, set: *cpu_set_t) void {
 pub fn CPU_ISSET(cpu: usize, set: cpu_set_t) bool {
     const x = cpu / @sizeOf(usize);
     if (x < @sizeOf(cpu_set_t)) {
-        return set[x] & cpu_mask(x);
+        return set[x] & cpu_mask(x) != 0;
     }
     return false;
 }
@@ -5810,8 +5847,18 @@ pub const AUDIT = struct {
         fn toAudit(arch: std.Target.Cpu.Arch) u32 {
             var res: u32 = @enumToInt(arch.toElfMachine());
             if (arch.endian() == .Little) res |= LE;
-            if (arch.ptrBitWidth() == 64) res |= @"64BIT";
-
+            switch (arch) {
+                .aarch64,
+                .mips64,
+                .mips64el,
+                .powerpc64,
+                .powerpc64le,
+                .riscv64,
+                .sparc64,
+                .x86_64,
+                => res |= @"64BIT",
+                else => {},
+            }
             return res;
         }
     };

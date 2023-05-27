@@ -470,8 +470,8 @@ fn AegisMac(comptime T: type) type {
                 self.state.absorb(b[i..][0..block_length]);
             }
             if (i != b.len) {
-                @memcpy(self.buf[0..], b[i..]);
                 self.off = b.len - i;
+                @memcpy(self.buf[0..self.off], b[i..]);
             }
         }
 
@@ -653,4 +653,10 @@ test "Aegis MAC" {
     const nonce = [_]u8{0x00} ** Aegis128L_256.nonce_length;
     Aegis128L_256.encrypt(&empty, &tag, &empty, &msg, nonce, key);
     try htest.assertEqual("f8840849602738d81037cbaa0f584ea95759e2ac60263ce77346bcdc79fe4319", &tag);
+
+    // An update whose size is not a multiple of the block size
+    st = st_init;
+    st.update(msg[0..33]);
+    st.final(&tag);
+    try htest.assertEqual("c7cf649a844c1a6676cf6d91b1658e0aee54a4da330b0a8d3bc7ea4067551d1b", &tag);
 }

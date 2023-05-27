@@ -26,5 +26,4 @@ test {
     try testing.expectEqual({}, @setEvalBranchQuota(0));
     try testing.expectEqual({}, @setFloatMode(.Optimized));
     try testing.expectEqual({}, @setRuntimeSafety(true));
-    try testing.expectEqual(noreturn, @TypeOf(if (true) @trap() else {}));
 }

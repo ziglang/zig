@@ -80,8 +80,8 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
         const cwd = fs.cwd();
 
         switch (entry.kind) {
-            .Directory => try cwd.makePath(dest_path),
-            .File => {
+            .directory => try cwd.makePath(dest_path),
+            .file => {
                 for (self.options.blank_extensions) |ext| {
                     if (mem.endsWith(u8, entry.path, ext)) {
                         try dest_builder.truncateFile(dest_path);

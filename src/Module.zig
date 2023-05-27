@@ -2489,8 +2489,21 @@ pub const SrcLoc = struct {
                 const node_datas = tree.nodes.items(.data);
                 const node_tags = tree.nodes.items(.tag);
                 const node = src_loc.declRelativeToNodeIndex(node_off);
+                var buf: [1]Ast.Node.Index = undefined;
                 const tok_index = switch (node_tags[node]) {
                     .field_access => node_datas[node].rhs,
+                    .call_one,
+                    .call_one_comma,
+                    .async_call_one,
+                    .async_call_one_comma,
+                    .call,
+                    .call_comma,
+                    .async_call,
+                    .async_call_comma,
+                    => blk: {
+                        const full = tree.fullCall(&buf, node).?;
+                        break :blk tree.lastToken(full.ast.fn_expr);
+                    },
                     else => tree.firstToken(node) - 2,
                 };
                 const start = tree.tokens.items(.start)[tok_index];
@@ -3083,7 +3096,8 @@ pub const LazySrcLoc = union(enum) {
     /// The payload is offset from the containing Decl AST node.
     /// The source location points to the field name of:
     ///  * a field access expression (`a.b`), or
-    ///  * the operand ("b" node) of a field initialization expression (`.a = b`)
+    ///  * the callee of a method call (`a.b()`), or
+    ///  * the operand ("b" node) of a field initialization expression (`.a = b`), or
     /// The Decl is determined contextually.
     node_offset_field_name: i32,
     /// The source location points to the pointer of a pointer deref expression,
@@ -3604,7 +3618,7 @@ pub fn astGenFile(mod: *Module, file: *File) !void {
                 file.sub_file_path, want_local_cache, &digest,
             });
 
-            break :lock .Shared;
+            break :lock .shared;
         },
         .parse_failure, .astgen_failure, .success_zir => lock: {
             const unchanged_metadata =
@@ -3619,7 +3633,7 @@ pub fn astGenFile(mod: *Module, file: *File) !void {
 
             log.debug("metadata changed: {s}", .{file.sub_file_path});
 
-            break :lock .Exclusive;
+            break :lock .exclusive;
         },
     };
 
@@ -3701,11 +3715,11 @@ pub fn astGenFile(mod: *Module, file: *File) !void {
         }
 
         // If we already have the exclusive lock then it is our job to update.
-        if (builtin.os.tag == .wasi or lock == .Exclusive) break;
+        if (builtin.os.tag == .wasi or lock == .exclusive) break;
         // Otherwise, unlock to give someone a chance to get the exclusive lock
         // and then upgrade to an exclusive lock.
         cache_file.unlock();
-        lock = .Exclusive;
+        lock = .exclusive;
         try cache_file.lock(lock);
     }
 
@@ -5354,7 +5368,7 @@ fn scanDecl(iter: *ScanDeclIter, decl_sub_index: usize, flags: u4) Allocator.Err
         const msg = try ErrorMsg.create(
             gpa,
             src_loc,
-            "found test declaration with duplicate name: {s}",
+            "duplicate test name: {s}",
             .{decl_name},
         );
         errdefer msg.destroy(gpa);

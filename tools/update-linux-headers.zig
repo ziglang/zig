@@ -193,8 +193,8 @@ pub fn main() !void {
                 while (try dir_it.next()) |entry| {
                     const full_path = try std.fs.path.join(arena, &[_][]const u8{ full_dir_name, entry.name });
                     switch (entry.kind) {
-                        .Directory => try dir_stack.append(full_path),
-                        .File => {
+                        .directory => try dir_stack.append(full_path),
+                        .file => {
                             const rel_path = try std.fs.path.relative(arena, target_include_dir, full_path);
                             const max_size = 2 * 1024 * 1024 * 1024;
                             const raw_bytes = try std.fs.cwd().readFileAlloc(arena, full_path, max_size);
@@ -260,7 +260,7 @@ pub fn main() !void {
                 try contents_list.append(contents);
             }
         }
-        std.sort.sort(*Contents, contents_list.items, {}, Contents.hitCountLessThan);
+        std.mem.sort(*Contents, contents_list.items, {}, Contents.hitCountLessThan);
         const best_contents = contents_list.popOrNull().?;
         if (best_contents.hit_count > 1) {
             // worth it to make it generic

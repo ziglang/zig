@@ -22,6 +22,7 @@ const LibCInstallation = @import("libc_installation.zig").LibCInstallation;
 const wasi_libc = @import("wasi_libc.zig");
 const translate_c = @import("translate_c.zig");
 const clang = @import("clang.zig");
+const BuildId = std.Build.CompileStep.BuildId;
 const Cache = std.Build.Cache;
 const target_util = @import("target.zig");
 const crash_report = @import("crash_report.zig");
@@ -280,12 +281,8 @@ pub fn mainArgs(gpa: Allocator, arena: Allocator, args: []const []const u8) !voi
         mem.eql(u8, cmd, "ar"))
     {
         return process.exit(try llvmArMain(arena, args));
-    } else if (mem.eql(u8, cmd, "cc")) {
-        return buildOutputType(gpa, arena, args, .cc);
-    } else if (mem.eql(u8, cmd, "c++")) {
-        return buildOutputType(gpa, arena, args, .cpp);
-    } else if (mem.eql(u8, cmd, "translate-c")) {
-        return buildOutputType(gpa, arena, args, .translate_c);
+    } else if (mem.eql(u8, cmd, "build")) {
+        return cmdBuild(gpa, arena, cmd_args);
     } else if (mem.eql(u8, cmd, "clang") or
         mem.eql(u8, cmd, "-cc1") or mem.eql(u8, cmd, "-cc1as"))
     {
@@ -295,8 +292,14 @@ pub fn mainArgs(gpa: Allocator, arena: Allocator, args: []const []const u8) !voi
         mem.eql(u8, cmd, "wasm-ld"))
     {
         return process.exit(try lldMain(arena, args, true));
-    } else if (mem.eql(u8, cmd, "build")) {
-        return cmdBuild(gpa, arena, cmd_args);
+    } else if (build_options.only_core_functionality) {
+        @panic("only a few subcommands are supported in a zig2.c build");
+    } else if (mem.eql(u8, cmd, "cc")) {
+        return buildOutputType(gpa, arena, args, .cc);
+    } else if (mem.eql(u8, cmd, "c++")) {
+        return buildOutputType(gpa, arena, args, .cpp);
+    } else if (mem.eql(u8, cmd, "translate-c")) {
+        return buildOutputType(gpa, arena, args, .translate_c);
     } else if (mem.eql(u8, cmd, "fmt")) {
         return cmdFmt(gpa, arena, cmd_args);
     } else if (mem.eql(u8, cmd, "objcopy")) {
@@ -493,8 +496,10 @@ const usage_build_generic =
     \\  -fno-each-lib-rpath            Prevent adding rpath for each used dynamic library
     \\  -fallow-shlib-undefined        Allows undefined symbols in shared libraries
     \\  -fno-allow-shlib-undefined     Disallows undefined symbols in shared libraries
-    \\  -fbuild-id                     Helps coordinate stripped binaries with debug symbols
-    \\  -fno-build-id                  (default) Saves a bit of time linking
+    \\  --build-id[=style]             At a minor link-time expense, coordinates stripped binaries
+    \\      fast, uuid, sha1, md5      with debug symbols via a '.note.gnu.build-id' section
+    \\      0x[hexstring]              Maximum 32 bytes
+    \\      none                       (default) Disable build-id
     \\  --eh-frame-hdr                 Enable C++ exception handling by passing --eh-frame-hdr to linker
     \\  --emit-relocs                  Enable output of relocation sections for post build tools
     \\  -z [arg]                       Set linker extension flags
@@ -675,7 +680,7 @@ const ArgMode = union(enum) {
 
 /// Avoid dragging networking into zig2.c because it adds dependencies on some
 /// linker symbols that are annoying to satisfy while bootstrapping.
-const Ip4Address = if (build_options.omit_pkg_fetching_code) void else std.net.Ip4Address;
+const Ip4Address = if (build_options.only_core_functionality) void else std.net.Ip4Address;
 
 const Listen = union(enum) {
     none,
@@ -817,7 +822,7 @@ fn buildOutputType(
     var link_eh_frame_hdr = false;
     var link_emit_relocs = false;
     var each_lib_rpath: ?bool = null;
-    var build_id: ?bool = null;
+    var build_id: ?BuildId = null;
     var sysroot: ?[]const u8 = null;
     var libc_paths_file: ?[]const u8 = try optionalStringEnvVar(arena, "ZIG_LIBC");
     var machine_code_model: std.builtin.CodeModel = .default;
@@ -1174,7 +1179,7 @@ fn buildOutputType(
                         if (mem.eql(u8, next_arg, "-")) {
                             listen = .stdio;
                         } else {
-                            if (build_options.omit_pkg_fetching_code) unreachable;
+                            if (build_options.only_core_functionality) unreachable;
                             // example: --listen 127.0.0.1:9000
                             var it = std.mem.split(u8, next_arg, ":");
                             const host = it.next().?;
@@ -1202,10 +1207,6 @@ fn buildOutputType(
                         each_lib_rpath = true;
                     } else if (mem.eql(u8, arg, "-fno-each-lib-rpath")) {
                         each_lib_rpath = false;
-                    } else if (mem.eql(u8, arg, "-fbuild-id")) {
-                        build_id = true;
-                    } else if (mem.eql(u8, arg, "-fno-build-id")) {
-                        build_id = false;
                     } else if (mem.eql(u8, arg, "--test-cmd-bin")) {
                         try test_exec_args.append(null);
                     } else if (mem.eql(u8, arg, "--test-evented-io")) {
@@ -1446,6 +1447,15 @@ fn buildOutputType(
                         linker_gc_sections = true;
                     } else if (mem.eql(u8, arg, "--no-gc-sections")) {
                         linker_gc_sections = false;
+                    } else if (mem.eql(u8, arg, "--build-id")) {
+                        build_id = .fast;
+                    } else if (mem.startsWith(u8, arg, "--build-id=")) {
+                        const style = arg["--build-id=".len..];
+                        build_id = BuildId.parse(style) catch |err| {
+                            fatal("unable to parse --build-id style '{s}': {s}", .{
+                                style, @errorName(err),
+                            });
+                        };
                     } else if (mem.eql(u8, arg, "--debug-compile-errors")) {
                         if (!crash_report.is_enabled) {
                             std.log.warn("Zig was compiled in a release mode. --debug-compile-errors has no effect.", .{});
@@ -1684,9 +1694,12 @@ fn buildOutputType(
                                 if (mem.indexOfScalar(u8, linker_arg, '=')) |equals_pos| {
                                     const key = linker_arg[0..equals_pos];
                                     const value = linker_arg[equals_pos + 1 ..];
-                                    if (mem.eql(u8, key, "build-id")) {
-                                        build_id = true;
-                                        warn("ignoring build-id style argument: '{s}'", .{value});
+                                    if (mem.eql(u8, key, "--build-id")) {
+                                        build_id = BuildId.parse(value) catch |err| {
+                                            fatal("unable to parse --build-id style '{s}': {s}", .{
+                                                value, @errorName(err),
+                                            });
+                                        };
                                         continue;
                                     } else if (mem.eql(u8, key, "--sort-common")) {
                                         // this ignores --sort=common=<anything>; ignoring plain --sort-common
@@ -1698,7 +1711,9 @@ fn buildOutputType(
                                     continue;
                                 }
                             }
-                            if (mem.eql(u8, linker_arg, "--as-needed")) {
+                            if (mem.eql(u8, linker_arg, "--build-id")) {
+                                build_id = .fast;
+                            } else if (mem.eql(u8, linker_arg, "--as-needed")) {
                                 needed = false;
                             } else if (mem.eql(u8, linker_arg, "--no-as-needed")) {
                                 needed = true;
@@ -1796,11 +1811,11 @@ fn buildOutputType(
                         try clang_argv.append("-v");
                     },
                     .dry_run => {
+                        // This flag means "dry run". Clang will not actually output anything
+                        // to the file system.
                         verbose_link = true;
+                        disable_c_depfile = true;
                         try clang_argv.append("-###");
-                        // This flag is supposed to mean "dry run" but currently this
-                        // will actually still execute. The tracking issue for this is
-                        // https://github.com/ziglang/zig/issues/7170
                     },
                     .for_linker => try linker_args.append(it.only_arg),
                     .linker_input_z => {
@@ -3020,6 +3035,32 @@ fn buildOutputType(
         break :l global_cache_directory;
     };
 
+    for (c_source_files.items) |*src| {
+        if (!mem.eql(u8, src.src_path, "-")) continue;
+
+        const ext = src.ext orelse
+            fatal("-E or -x is required when reading from a non-regular file", .{});
+
+        // "-" is stdin. Dump it to a real file.
+        const sep = fs.path.sep_str;
+        const sub_path = try std.fmt.allocPrint(arena, "tmp" ++ sep ++ "{x}-stdin{s}", .{
+            std.crypto.random.int(u64), ext.canonicalName(target_info.target),
+        });
+        try local_cache_directory.handle.makePath("tmp");
+        // Note that in one of the happy paths, execve() is used to switch
+        // to clang in which case any cleanup logic that exists for this
+        // temporary file will not run and this temp file will be leaked.
+        // Oh well. It's a minor punishment for using `-x c` which nobody
+        // should be doing. Therefore, we make no effort to clean up. Using
+        // `-` for stdin as a source file always leaks a temp file.
+        var f = try local_cache_directory.handle.createFile(sub_path, .{});
+        defer f.close();
+        try f.writeFileAll(io.getStdIn(), .{});
+
+        // Convert `sub_path` to be relative to current working directory.
+        src.src_path = try local_cache_directory.join(arena, &.{sub_path});
+    }
+
     if (build_options.have_llvm and emit_asm != .no) {
         // LLVM has no way to set this non-globally.
         const argv = [_][*:0]const u8{ "zig (LLVM option parsing)", "--x86-asm-syntax=intel" };
@@ -3227,7 +3268,7 @@ fn buildOutputType(
             return cleanExit();
         },
         .ip4 => |ip4_addr| {
-            if (build_options.omit_pkg_fetching_code) unreachable;
+            if (build_options.only_core_functionality) unreachable;
 
             var server = std.net.StreamServer.init(.{
                 .reuse_address = true,
@@ -4374,7 +4415,7 @@ pub fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !voi
             .root_src_directory = build_directory,
             .root_src_path = build_zig_basename,
         };
-        if (!build_options.omit_pkg_fetching_code) {
+        if (!build_options.only_core_functionality) {
             var http_client: std.http.Client = .{ .allocator = gpa };
             defer http_client.deinit();
 
@@ -4789,11 +4830,11 @@ fn fmtPathDir(
 
     var dir_it = iterable_dir.iterate();
     while (try dir_it.next()) |entry| {
-        const is_dir = entry.kind == .Directory;
+        const is_dir = entry.kind == .directory;
 
         if (is_dir and (mem.eql(u8, entry.name, "zig-cache") or mem.eql(u8, entry.name, "zig-out"))) continue;
 
-        if (is_dir or entry.kind == .File and (mem.endsWith(u8, entry.name, ".zig") or mem.endsWith(u8, entry.name, ".zon"))) {
+        if (is_dir or entry.kind == .file and (mem.endsWith(u8, entry.name, ".zig") or mem.endsWith(u8, entry.name, ".zon"))) {
             const full_path = try fs.path.join(fmt.gpa, &[_][]const u8{ file_path, entry.name });
             defer fmt.gpa.free(full_path);
 
@@ -4823,7 +4864,7 @@ fn fmtPathFile(
 
     const stat = try source_file.stat();
 
-    if (stat.kind == .Directory)
+    if (stat.kind == .directory)
         return error.IsDir;
 
     const gpa = fmt.gpa;
@@ -6003,9 +6044,9 @@ const ClangSearchSanitizer = struct {
     };
 };
 
-fn get_tty_conf(color: Color) std.debug.TTY.Config {
+fn get_tty_conf(color: Color) std.io.tty.Config {
     return switch (color) {
-        .auto => std.debug.detectTTYConfig(std.io.getStdErr()),
+        .auto => std.io.tty.detectConfig(std.io.getStdErr()),
         .on => .escape_codes,
         .off => .no_color,
     };

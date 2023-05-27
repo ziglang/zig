@@ -5,7 +5,6 @@ const expect = testing.expect;
 const expectError = testing.expectError;
 
 test "dereference pointer" {
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
     comptime try testDerefPtr();
     try testDerefPtr();
 }
@@ -20,7 +19,6 @@ fn testDerefPtr() !void {
 test "pointer arithmetic" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     var ptr: [*]const u8 = "abcd";
 
@@ -53,7 +51,6 @@ fn PtrOf(comptime T: type) type {
 
 test "implicit cast single item pointer to C pointer and back" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     var y: u8 = 11;
     var x: [*c]u8 = &y;
@@ -70,7 +67,6 @@ test "initialize const optional C pointer to null" {
 
 test "assigning integer to C pointer" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     var x: i32 = 0;
     var y: i32 = 1;
@@ -87,7 +83,6 @@ test "assigning integer to C pointer" {
 
 test "C pointer comparison and arithmetic" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const S = struct {
         fn doTheTest() !void {
@@ -304,7 +299,6 @@ test "null terminated pointer" {
 test "allow any sentinel" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const S = struct {
         fn doTheTest() !void {

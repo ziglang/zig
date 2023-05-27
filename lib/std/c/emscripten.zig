@@ -9,3 +9,5 @@ pub const pthread_rwlock_t = extern struct {
 };
 const __SIZEOF_PTHREAD_COND_T = 48;
 const __SIZEOF_PTHREAD_MUTEX_T = 28;
+
+pub const PTHREAD_STACK_MIN = 2048;

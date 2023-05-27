@@ -1314,7 +1314,7 @@ pub fn EnumIndexer(comptime E: type) type {
             }
         };
     }
-    std.sort.sort(EnumField, &fields, {}, ascByValue);
+    std.mem.sort(EnumField, &fields, {}, ascByValue);
     const min = fields[0].value;
     const max = fields[fields.len - 1].value;
     const fields_len = fields.len;

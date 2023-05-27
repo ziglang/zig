@@ -1187,8 +1187,8 @@ fn processOneTarget(job: Job) anyerror!void {
     for (llvm_target.extra_cpus) |extra_cpu| {
         try all_cpus.append(extra_cpu);
     }
-    std.sort.sort(Feature, all_features.items, {}, featureLessThan);
-    std.sort.sort(Cpu, all_cpus.items, {}, cpuLessThan);
+    mem.sort(Feature, all_features.items, {}, featureLessThan);
+    mem.sort(Cpu, all_cpus.items, {}, cpuLessThan);
 
     const target_sub_path = try fs.path.join(arena, &.{ "lib", "std", "target" });
     var target_dir = try job.zig_src_dir.makeOpenPath(target_sub_path, .{});
@@ -1283,7 +1283,7 @@ fn processOneTarget(job: Job) anyerror!void {
                 try dependencies.append(key.*);
             }
         }
-        std.sort.sort([]const u8, dependencies.items, {}, asciiLessThan);
+        mem.sort([]const u8, dependencies.items, {}, asciiLessThan);
 
         if (dependencies.items.len == 0) {
             try w.writeAll(
@@ -1328,7 +1328,7 @@ fn processOneTarget(job: Job) anyerror!void {
                 try cpu_features.append(key.*);
             }
         }
-        std.sort.sort([]const u8, cpu_features.items, {}, asciiLessThan);
+        mem.sort([]const u8, cpu_features.items, {}, asciiLessThan);
         if (cpu.llvm_name) |llvm_name| {
             try w.print(
                 \\    pub const {} = CpuModel{{

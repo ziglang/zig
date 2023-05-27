@@ -7850,10 +7850,6 @@ comptime {
       Converts {#syntax#}true{#endsyntax#} to {#syntax#}@as(u1, 1){#endsyntax#} and {#syntax#}false{#endsyntax#} to
                   {#syntax#}@as(u1, 0){#endsyntax#}.
       </p>
-      <p>
-      If the value is known at compile-time, the return type is {#syntax#}comptime_int{#endsyntax#}
-          instead of {#syntax#}u1{#endsyntax#}.
-      </p>
       {#header_close#}
 
       {#header_open|@bitSizeOf#}
@@ -11221,8 +11217,8 @@ pub fn main() !void {
     }
 }
       {#code_end#}
-      {#shell_samp#}$ wasmtime args.wasm 123 hello
-0: args.wasm
+      {#shell_samp#}$ wasmtime wasi_args.wasm 123 hello
+0: wasi_args.wasm
 1: 123
 2: hello{#end_shell_samp#}
       <p>A more interesting example would be extracting the list of preopens from the runtime.
@@ -11247,7 +11243,7 @@ pub fn main() !void {
     }
 }
       {#code_end#}
-      {#shell_samp#}$ wasmtime --dir=. preopens.wasm
+      {#shell_samp#}$ wasmtime --dir=. wasi_preopens.wasm
 0: stdin
 1: stdout
 2: stderr

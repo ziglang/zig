@@ -437,7 +437,7 @@ pub fn zeroInit(comptime T: type, init: anytype) T {
                         }
                     }
 
-                    var value: T = undefined;
+                    var value: T = if (struct_info.layout == .Extern) zeroes(T) else undefined;
 
                     inline for (struct_info.fields, 0..) |field, i| {
                         if (field.is_comptime) {
@@ -564,6 +564,34 @@ test "zeroInit" {
     try testing.expectEqual(NestedBaz{
         .bbb = Baz{},
     }, nested_baz);
+}
+
+pub fn sort(
+    comptime T: type,
+    items: []T,
+    context: anytype,
+    comptime lessThanFn: fn (@TypeOf(context), lhs: T, rhs: T) bool,
+) void {
+    std.sort.block(T, items, context, lessThanFn);
+}
+
+pub fn sortUnstable(
+    comptime T: type,
+    items: []T,
+    context: anytype,
+    comptime lessThanFn: fn (@TypeOf(context), lhs: T, rhs: T) bool,
+) void {
+    std.sort.pdq(T, items, context, lessThanFn);
+}
+
+/// TODO: currently this just calls `insertionSortContext`. The block sort implementation
+/// in this file needs to be adapted to use the sort context.
+pub fn sortContext(a: usize, b: usize, context: anytype) void {
+    std.sort.insertionContext(a, b, context);
+}
+
+pub fn sortUnstableContext(a: usize, b: usize, context: anytype) void {
+    std.sort.pdqContext(a, b, context);
 }
 
 /// Compares two slices of numbers lexicographically. O(n).
@@ -1887,7 +1915,11 @@ test "writeIntBig and writeIntLittle" {
 pub fn byteSwapAllFields(comptime S: type, ptr: *S) void {
     if (@typeInfo(S) != .Struct) @compileError("byteSwapAllFields expects a struct as the first argument");
     inline for (std.meta.fields(S)) |f| {
-        @field(ptr, f.name) = @byteSwap(@field(ptr, f.name));
+        if (@typeInfo(f.type) == .Struct) {
+            byteSwapAllFields(f.type, &@field(ptr, f.name));
+        } else {
+            @field(ptr, f.name) = @byteSwap(@field(ptr, f.name));
+        }
     }
 }
 
@@ -1897,17 +1929,33 @@ test "byteSwapAllFields" {
         f1: u16,
         f2: u32,
     };
+    const K = extern struct {
+        f0: u8,
+        f1: T,
+        f2: u16,
+    };
     var s = T{
         .f0 = 0x12,
         .f1 = 0x1234,
         .f2 = 0x12345678,
     };
+    var k = K{
+        .f0 = 0x12,
+        .f1 = s,
+        .f2 = 0x1234,
+    };
     byteSwapAllFields(T, &s);
+    byteSwapAllFields(K, &k);
     try std.testing.expectEqual(T{
         .f0 = 0x12,
         .f1 = 0x3412,
         .f2 = 0x78563412,
     }, s);
+    try std.testing.expectEqual(K{
+        .f0 = 0x12,
+        .f1 = s,
+        .f2 = 0x3412,
+    }, k);
 }
 
 /// Returns an iterator that iterates over the slices of `buffer` that are not

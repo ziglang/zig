@@ -774,6 +774,16 @@ pub fn changePtrStorageClass(self: *Module, ptr_ty_ref: Type.Ref, new_storage_cl
     return try self.resolveType(Type.initPayload(&payload.base));
 }
 
+pub fn constComposite(self: *Module, ty_ref: Type.Ref, members: []const IdRef) !IdRef {
+    const result_id = self.allocId();
+    try self.sections.types_globals_constants.emit(self.gpa, .OpSpecConstantComposite, .{
+        .id_result_type = self.typeId(ty_ref),
+        .id_result = result_id,
+        .constituents = members,
+    });
+    return result_id;
+}
+
 pub fn emitConstant(
     self: *Module,
     ty_id: IdRef,

@@ -314,7 +314,7 @@ pub fn generateSymbol(
         },
         .Pointer => switch (typed_value.val.tag()) {
             .null_value => {
-                switch (target.cpu.arch.ptrBitWidth()) {
+                switch (target.ptrBitWidth()) {
                     32 => {
                         mem.writeInt(u32, try code.addManyAsArray(4), 0, endian);
                         if (typed_value.ty.isSlice()) try code.appendNTimes(0xaa, 4);
@@ -328,7 +328,7 @@ pub fn generateSymbol(
                 return Result.ok;
             },
             .zero, .one, .int_u64, .int_big_positive => {
-                switch (target.cpu.arch.ptrBitWidth()) {
+                switch (target.ptrBitWidth()) {
                     32 => {
                         const x = typed_value.val.toUnsignedInt(target);
                         mem.writeInt(u32, try code.addManyAsArray(4), @intCast(u32, x), endian);
@@ -380,7 +380,7 @@ pub fn generateSymbol(
 
                 return Result.ok;
             },
-            .field_ptr, .elem_ptr => return lowerParentPtr(
+            .field_ptr, .elem_ptr, .opt_payload_ptr => return lowerParentPtr(
                 bin_file,
                 src_loc,
                 typed_value,
@@ -747,15 +747,23 @@ pub fn generateSymbol(
         .Vector => switch (typed_value.val.tag()) {
             .bytes => {
                 const bytes = typed_value.val.castTag(.bytes).?.data;
-                const len = @intCast(usize, typed_value.ty.arrayLen());
-                try code.ensureUnusedCapacity(len);
+                const len = math.cast(usize, typed_value.ty.arrayLen()) orelse return error.Overflow;
+                const padding = math.cast(usize, typed_value.ty.abiSize(target) - len) orelse
+                    return error.Overflow;
+                try code.ensureUnusedCapacity(len + padding);
                 code.appendSliceAssumeCapacity(bytes[0..len]);
+                if (padding > 0) try code.writer().writeByteNTimes(0, padding);
                 return Result.ok;
             },
             .aggregate => {
                 const elem_vals = typed_value.val.castTag(.aggregate).?.data;
                 const elem_ty = typed_value.ty.elemType();
-                const len = @intCast(usize, typed_value.ty.arrayLen());
+                const len = math.cast(usize, typed_value.ty.arrayLen()) orelse return error.Overflow;
+                const padding = math.cast(usize, typed_value.ty.abiSize(target) -
+                    (math.divCeil(u64, elem_ty.bitSize(target) * len, 8) catch |err| switch (err) {
+                    error.DivisionByZero => unreachable,
+                    else => |e| return e,
+                })) orelse return error.Overflow;
                 for (elem_vals[0..len]) |elem_val| {
                     switch (try generateSymbol(bin_file, src_loc, .{
                         .ty = elem_ty,
@@ -765,13 +773,18 @@ pub fn generateSymbol(
                         .fail => |em| return Result{ .fail = em },
                     }
                 }
+                if (padding > 0) try code.writer().writeByteNTimes(0, padding);
                 return Result.ok;
             },
             .repeated => {
                 const array = typed_value.val.castTag(.repeated).?.data;
                 const elem_ty = typed_value.ty.childType();
                 const len = typed_value.ty.arrayLen();
-
+                const padding = math.cast(usize, typed_value.ty.abiSize(target) -
+                    (math.divCeil(u64, elem_ty.bitSize(target) * len, 8) catch |err| switch (err) {
+                    error.DivisionByZero => unreachable,
+                    else => |e| return e,
+                })) orelse return error.Overflow;
                 var index: u64 = 0;
                 while (index < len) : (index += 1) {
                     switch (try generateSymbol(bin_file, src_loc, .{
@@ -782,13 +795,17 @@ pub fn generateSymbol(
                         .fail => |em| return Result{ .fail = em },
                     }
                 }
+                if (padding > 0) try code.writer().writeByteNTimes(0, padding);
                 return Result.ok;
             },
             .str_lit => {
                 const str_lit = typed_value.val.castTag(.str_lit).?.data;
                 const bytes = mod.string_literal_bytes.items[str_lit.index..][0..str_lit.len];
-                try code.ensureUnusedCapacity(str_lit.len);
+                const padding = math.cast(usize, typed_value.ty.abiSize(target) - str_lit.len) orelse
+                    return error.Overflow;
+                try code.ensureUnusedCapacity(str_lit.len + padding);
                 code.appendSliceAssumeCapacity(bytes);
+                if (padding > 0) try code.writer().writeByteNTimes(0, padding);
                 return Result.ok;
             },
             else => unreachable,
@@ -812,7 +829,6 @@ fn lowerParentPtr(
     reloc_info: RelocInfo,
 ) CodeGenError!Result {
     const target = bin_file.options.target;
-
     switch (parent_ptr.tag()) {
         .field_ptr => {
             const field_ptr = parent_ptr.castTag(.field_ptr).?.data;
@@ -856,6 +872,31 @@ fn lowerParentPtr(
                 code,
                 debug_output,
                 reloc_info.offset(@intCast(u32, elem_ptr.index * elem_ptr.elem_ty.abiSize(target))),
+            );
+        },
+        .opt_payload_ptr => {
+            const opt_payload_ptr = parent_ptr.castTag(.opt_payload_ptr).?.data;
+            return lowerParentPtr(
+                bin_file,
+                src_loc,
+                typed_value,
+                opt_payload_ptr.container_ptr,
+                code,
+                debug_output,
+                reloc_info,
+            );
+        },
+        .eu_payload_ptr => {
+            const eu_payload_ptr = parent_ptr.castTag(.eu_payload_ptr).?.data;
+            const pl_ty = eu_payload_ptr.container_ty.errorUnionPayload();
+            return lowerParentPtr(
+                bin_file,
+                src_loc,
+                typed_value,
+                eu_payload_ptr.container_ptr,
+                code,
+                debug_output,
+                reloc_info.offset(@intCast(u32, errUnionPayloadOffset(pl_ty, target))),
             );
         },
         .variable, .decl_ref, .decl_ref_mut => |tag| return lowerDeclRef(
@@ -929,7 +970,7 @@ fn lowerDeclRef(
         return Result.ok;
     }
 
-    const ptr_width = target.cpu.arch.ptrBitWidth();
+    const ptr_width = target.ptrBitWidth();
     const decl = module.declPtr(decl_index);
     const is_fn_body = decl.ty.zigTypeTag() == .Fn;
     if (!is_fn_body and !decl.ty.hasRuntimeBits()) {
@@ -1018,7 +1059,7 @@ fn genDeclRef(
     log.debug("genDeclRef: ty = {}, val = {}", .{ tv.ty.fmt(module), tv.val.fmtValue(tv.ty, module) });
 
     const target = bin_file.options.target;
-    const ptr_bits = target.cpu.arch.ptrBitWidth();
+    const ptr_bits = target.ptrBitWidth();
     const ptr_bytes: u64 = @divExact(ptr_bits, 8);
 
     const decl = module.declPtr(decl_index);
@@ -1096,7 +1137,7 @@ fn genUnnamedConst(
     } else if (bin_file.cast(link.File.Coff)) |_| {
         return GenResult.mcv(.{ .load_direct = local_sym_index });
     } else if (bin_file.cast(link.File.Plan9)) |p9| {
-        const ptr_bits = target.cpu.arch.ptrBitWidth();
+        const ptr_bits = target.ptrBitWidth();
         const ptr_bytes: u64 = @divExact(ptr_bits, 8);
         const got_index = local_sym_index; // the plan9 backend returns the got_index
         const got_addr = p9.bases.data + got_index * ptr_bytes;
@@ -1127,7 +1168,7 @@ pub fn genTypedValue(
         return GenResult.mcv(.undef);
 
     const target = bin_file.options.target;
-    const ptr_bits = target.cpu.arch.ptrBitWidth();
+    const ptr_bits = target.ptrBitWidth();
 
     if (!typed_value.ty.isSlice()) {
         if (typed_value.val.castTag(.variable)) |payload| {
@@ -1189,12 +1230,16 @@ pub fn genTypedValue(
                     .enum_simple => {
                         return GenResult.mcv(.{ .immediate = field_index.data });
                     },
-                    .enum_full, .enum_nonexhaustive => {
-                        const enum_full = typed_value.ty.cast(Type.Payload.EnumFull).?.data;
-                        if (enum_full.values.count() != 0) {
-                            const tag_val = enum_full.values.keys()[field_index.data];
+                    .enum_numbered, .enum_full, .enum_nonexhaustive => {
+                        const enum_values = if (typed_value.ty.castTag(.enum_numbered)) |pl|
+                            pl.data.values
+                        else
+                            typed_value.ty.cast(Type.Payload.EnumFull).?.data.values;
+                        if (enum_values.count() != 0) {
+                            const tag_val = enum_values.keys()[field_index.data];
+                            var buf: Type.Payload.Bits = undefined;
                             return genTypedValue(bin_file, src_loc, .{
-                                .ty = enum_full.tag_ty,
+                                .ty = typed_value.ty.intTagType(&buf),
                                 .val = tag_val,
                             }, owner_decl_index);
                         } else {
@@ -1258,9 +1303,10 @@ pub fn genTypedValue(
 }
 
 pub fn errUnionPayloadOffset(payload_ty: Type, target: std.Target) u64 {
+    if (!payload_ty.hasRuntimeBitsIgnoreComptime()) return 0;
     const payload_align = payload_ty.abiAlignment(target);
     const error_align = Type.anyerror.abiAlignment(target);
-    if (payload_align >= error_align) {
+    if (payload_align >= error_align or !payload_ty.hasRuntimeBitsIgnoreComptime()) {
         return 0;
     } else {
         return mem.alignForwardGeneric(u64, Type.anyerror.abiSize(target), payload_align);
@@ -1268,9 +1314,10 @@ pub fn errUnionPayloadOffset(payload_ty: Type, target: std.Target) u64 {
 }
 
 pub fn errUnionErrorOffset(payload_ty: Type, target: std.Target) u64 {
+    if (!payload_ty.hasRuntimeBitsIgnoreComptime()) return 0;
     const payload_align = payload_ty.abiAlignment(target);
     const error_align = Type.anyerror.abiAlignment(target);
-    if (payload_align >= error_align) {
+    if (payload_align >= error_align and payload_ty.hasRuntimeBitsIgnoreComptime()) {
         return mem.alignForwardGeneric(u64, payload_ty.abiSize(target), error_align);
     } else {
         return 0;

@@ -985,7 +985,7 @@ pub fn declList(comptime Namespace: type, comptime Decl: type) []const *const De
         for (decls, 0..) |decl, i| {
             array[i] = &@field(Namespace, decl.name);
         }
-        std.sort.sort(*const Decl, &array, {}, S.declNameLessThan);
+        mem.sort(*const Decl, &array, {}, S.declNameLessThan);
         return &array;
     }
 }
@@ -1037,14 +1037,12 @@ pub fn ArgsTuple(comptime Function: type) type {
         @compileError("ArgsTuple expects a function type");
 
     const function_info = info.Fn;
-    if (function_info.is_generic)
-        @compileError("Cannot create ArgsTuple for generic function");
     if (function_info.is_var_args)
         @compileError("Cannot create ArgsTuple for variadic function");
 
     var argument_field_list: [function_info.params.len]type = undefined;
     inline for (function_info.params, 0..) |arg, i| {
-        const T = arg.type.?;
+        const T = arg.type orelse @compileError("cannot create ArgsTuple for function with an 'anytype' parameter");
         argument_field_list[i] = T;
     }
 
@@ -1116,6 +1114,7 @@ test "ArgsTuple" {
     TupleTester.assertTuple(.{u32}, ArgsTuple(fn (a: u32) []const u8));
     TupleTester.assertTuple(.{ u32, f16 }, ArgsTuple(fn (a: u32, b: f16) noreturn));
     TupleTester.assertTuple(.{ u32, f16, []const u8, void }, ArgsTuple(fn (a: u32, b: f16, c: []const u8, void) noreturn));
+    TupleTester.assertTuple(.{u32}, ArgsTuple(fn (comptime a: u32) []const u8));
 }
 
 test "Tuple" {

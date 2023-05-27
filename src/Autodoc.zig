@@ -2141,7 +2141,7 @@ fn walkInstruction(
                 .expr = .{ .declRef = decl_status },
             };
         },
-        .field_val, .field_call_bind, .field_ptr, .field_type => {
+        .field_val, .field_ptr, .field_type => {
             // TODO: field type uses Zir.Inst.FieldType, it just happens to have the
             // same layout as Zir.Inst.Field :^)
             const pl_node = data[inst_index].pl_node;
@@ -2163,7 +2163,6 @@ fn walkInstruction(
 
                     const lhs = @enumToInt(lhs_extra.data.lhs) - Ref.typed_value_map.len;
                     if (tags[lhs] != .field_val and
-                        tags[lhs] != .field_call_bind and
                         tags[lhs] != .field_ptr and
                         tags[lhs] != .field_type) break :blk lhs_extra.data.lhs;
 
@@ -2191,7 +2190,7 @@ fn walkInstruction(
             const wr = blk: {
                 if (@enumToInt(lhs_ref) >= Ref.typed_value_map.len) {
                     const lhs_inst = @enumToInt(lhs_ref) - Ref.typed_value_map.len;
-                    if (tags[lhs_inst] == .call) {
+                    if (tags[lhs_inst] == .call or tags[lhs_inst] == .field_call) {
                         break :blk DocData.WalkResult{
                             .expr = .{
                                 .comptimeExpr = 0,

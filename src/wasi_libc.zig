@@ -459,6 +459,7 @@ const libc_bottom_half_src_files = [_][]const u8{
     "wasi/libc-bottom-half/cloudlibc/src/libc/unistd/unlinkat.c",
     "wasi/libc-bottom-half/cloudlibc/src/libc/unistd/usleep.c",
     "wasi/libc-bottom-half/cloudlibc/src/libc/unistd/write.c",
+    "wasi/libc-bottom-half/sources/__errno_location.c",
     "wasi/libc-bottom-half/sources/__main_void.c",
     "wasi/libc-bottom-half/sources/__wasilibc_dt.c",
     "wasi/libc-bottom-half/sources/__wasilibc_environ.c",

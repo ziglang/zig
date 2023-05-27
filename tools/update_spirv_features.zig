@@ -227,7 +227,7 @@ fn gather_extensions(allocator: Allocator, spirv_registry_root: []const u8) ![]c
 
     var vendor_it = extensions_dir.iterate();
     while (try vendor_it.next()) |vendor_entry| {
-        std.debug.assert(vendor_entry.kind == .Directory); // If this fails, the structure of SPIRV-Registry has changed.
+        std.debug.assert(vendor_entry.kind == .directory); // If this fails, the structure of SPIRV-Registry has changed.
 
         const vendor_dir = try extensions_dir.dir.openIterableDir(vendor_entry.name, .{});
         var ext_it = vendor_dir.iterate();
@@ -303,7 +303,7 @@ fn gatherVersions(allocator: Allocator, registry: g.CoreRegistry) ![]const Versi
         }
     }
 
-    std.sort.sort(Version, versions.items, {}, Version.lessThan);
+    std.mem.sort(Version, versions.items, {}, Version.lessThan);
 
     return versions.items;
 }

@@ -156,9 +156,6 @@ pub const Type = extern union {
             .union_tagged,
             .type_info,
             => return .Union,
-
-            .bound_fn => unreachable,
-            .var_args_param => unreachable, // can be any type
         }
     }
 
@@ -934,8 +931,6 @@ pub const Type = extern union {
             // for example, a was resolved into .union_tagged but b was one of these tags.
             .type_info => unreachable, // needed to resolve the type before now
 
-            .bound_fn => unreachable,
-            .var_args_param => unreachable, // can be any type
         }
     }
 
@@ -1244,8 +1239,6 @@ pub const Type = extern union {
             // we can't hash these based on tags because they wouldn't match the expanded version.
             .type_info => unreachable, // needed to resolve the type before now
 
-            .bound_fn => unreachable,
-            .var_args_param => unreachable, // can be any type
         }
     }
 
@@ -1335,7 +1328,6 @@ pub const Type = extern union {
             .anyerror_void_error_union,
             .inferred_alloc_const,
             .inferred_alloc_mut,
-            .var_args_param,
             .empty_struct_literal,
             .manyptr_u8,
             .manyptr_const_u8,
@@ -1353,7 +1345,6 @@ pub const Type = extern union {
             .type_info,
             .@"anyframe",
             .generic_poison,
-            .bound_fn,
             => unreachable,
 
             .array_u8,
@@ -1617,8 +1608,6 @@ pub const Type = extern union {
                 .comptime_int,
                 .comptime_float,
                 .noreturn,
-                .var_args_param,
-                .bound_fn,
                 => return writer.writeAll(@tagName(t)),
 
                 .enum_literal => return writer.writeAll("@Type(.EnumLiteral)"),
@@ -1954,8 +1943,6 @@ pub const Type = extern union {
             .inferred_alloc_const => unreachable,
             .inferred_alloc_mut => unreachable,
             .generic_poison => unreachable,
-            .var_args_param => unreachable,
-            .bound_fn => unreachable,
 
             // TODO get rid of these Type.Tag values.
             .atomic_order => unreachable,
@@ -2474,7 +2461,6 @@ pub const Type = extern union {
             .enum_literal,
             .empty_struct,
             .empty_struct_literal,
-            .bound_fn,
             // These are function *bodies*, not pointers.
             // Special exceptions have to be made when emitting functions due to
             // this returning false.
@@ -2595,7 +2581,6 @@ pub const Type = extern union {
 
             .inferred_alloc_const => unreachable,
             .inferred_alloc_mut => unreachable,
-            .var_args_param => unreachable,
             .generic_poison => unreachable,
         }
     }
@@ -2708,10 +2693,8 @@ pub const Type = extern union {
             .enum_nonexhaustive,
             => !ty.cast(Payload.EnumFull).?.data.tag_ty_inferred,
 
-            .var_args_param => unreachable,
             .inferred_alloc_mut => unreachable,
             .inferred_alloc_const => unreachable,
-            .bound_fn => unreachable,
 
             .array,
             .array_sentinel,
@@ -2953,7 +2936,7 @@ pub const Type = extern union {
             .manyptr_const_u8_sentinel_0,
             .@"anyframe",
             .anyframe_T,
-            => return AbiAlignmentAdvanced{ .scalar = @divExact(target.cpu.arch.ptrBitWidth(), 8) },
+            => return AbiAlignmentAdvanced{ .scalar = @divExact(target.ptrBitWidth(), 8) },
 
             .c_char => return AbiAlignmentAdvanced{ .scalar = target.c_type_alignment(.char) },
             .c_short => return AbiAlignmentAdvanced{ .scalar = target.c_type_alignment(.short) },
@@ -3024,7 +3007,7 @@ pub const Type = extern union {
                 const child_type = ty.optionalChild(&buf);
 
                 switch (child_type.zigTypeTag()) {
-                    .Pointer => return AbiAlignmentAdvanced{ .scalar = @divExact(target.cpu.arch.ptrBitWidth(), 8) },
+                    .Pointer => return AbiAlignmentAdvanced{ .scalar = @divExact(target.ptrBitWidth(), 8) },
                     .ErrorSet => return abiAlignmentAdvanced(Type.anyerror, target, strat),
                     .NoReturn => return AbiAlignmentAdvanced{ .scalar = 0 },
                     else => {},
@@ -3086,7 +3069,7 @@ pub const Type = extern union {
                         // We'll guess "pointer-aligned", if the struct has an
                         // underaligned pointer field then some allocations
                         // might require explicit alignment.
-                        return AbiAlignmentAdvanced{ .scalar = @divExact(target.cpu.arch.ptrBitWidth(), 8) };
+                        return AbiAlignmentAdvanced{ .scalar = @divExact(target.ptrBitWidth(), 8) };
                     }
                     _ = try sema.resolveTypeFields(ty);
                 }
@@ -3190,8 +3173,6 @@ pub const Type = extern union {
             .noreturn,
             .inferred_alloc_const,
             .inferred_alloc_mut,
-            .var_args_param,
-            .bound_fn,
             => unreachable,
 
             .generic_poison => unreachable,
@@ -3214,7 +3195,7 @@ pub const Type = extern union {
                 // We'll guess "pointer-aligned", if the union has an
                 // underaligned pointer field then some allocations
                 // might require explicit alignment.
-                return AbiAlignmentAdvanced{ .scalar = @divExact(target.cpu.arch.ptrBitWidth(), 8) };
+                return AbiAlignmentAdvanced{ .scalar = @divExact(target.ptrBitWidth(), 8) };
             }
             _ = try sema.resolveTypeFields(ty);
         }
@@ -3291,11 +3272,9 @@ pub const Type = extern union {
             .fn_ccc_void_no_args => unreachable, // represents machine code; not a pointer
             .function => unreachable, // represents machine code; not a pointer
             .@"opaque" => unreachable, // no size available
-            .bound_fn => unreachable,
             .noreturn => unreachable,
             .inferred_alloc_const => unreachable,
             .inferred_alloc_mut => unreachable,
-            .var_args_param => unreachable,
             .generic_poison => unreachable,
             .modifier => unreachable, // missing call to resolveTypeFields
             .prefetch_options => unreachable, // missing call to resolveTypeFields
@@ -3440,17 +3419,17 @@ pub const Type = extern union {
             .manyptr_u8,
             .manyptr_const_u8,
             .manyptr_const_u8_sentinel_0,
-            => return AbiSizeAdvanced{ .scalar = @divExact(target.cpu.arch.ptrBitWidth(), 8) },
+            => return AbiSizeAdvanced{ .scalar = @divExact(target.ptrBitWidth(), 8) },
 
             .const_slice,
             .mut_slice,
             .const_slice_u8,
             .const_slice_u8_sentinel_0,
-            => return AbiSizeAdvanced{ .scalar = @divExact(target.cpu.arch.ptrBitWidth(), 8) * 2 },
+            => return AbiSizeAdvanced{ .scalar = @divExact(target.ptrBitWidth(), 8) * 2 },
 
             .pointer => switch (ty.castTag(.pointer).?.data.size) {
-                .Slice => return AbiSizeAdvanced{ .scalar = @divExact(target.cpu.arch.ptrBitWidth(), 8) * 2 },
-                else => return AbiSizeAdvanced{ .scalar = @divExact(target.cpu.arch.ptrBitWidth(), 8) },
+                .Slice => return AbiSizeAdvanced{ .scalar = @divExact(target.ptrBitWidth(), 8) * 2 },
+                else => return AbiSizeAdvanced{ .scalar = @divExact(target.ptrBitWidth(), 8) },
             },
 
             .c_char => return AbiSizeAdvanced{ .scalar = target.c_type_byte_size(.char) },
@@ -3639,9 +3618,7 @@ pub const Type = extern union {
             .inferred_alloc_const => unreachable,
             .inferred_alloc_mut => unreachable,
             .@"opaque" => unreachable,
-            .var_args_param => unreachable,
             .generic_poison => unreachable,
-            .bound_fn => unreachable,
 
             .void => return 0,
             .bool, .u1 => return 1,
@@ -3725,20 +3702,20 @@ pub const Type = extern union {
             .usize,
             .@"anyframe",
             .anyframe_T,
-            => return target.cpu.arch.ptrBitWidth(),
+            => return target.ptrBitWidth(),
 
             .const_slice,
             .mut_slice,
-            => return target.cpu.arch.ptrBitWidth() * 2,
+            => return target.ptrBitWidth() * 2,
 
             .const_slice_u8,
             .const_slice_u8_sentinel_0,
-            => return target.cpu.arch.ptrBitWidth() * 2,
+            => return target.ptrBitWidth() * 2,
 
             .optional_single_const_pointer,
             .optional_single_mut_pointer,
             => {
-                return target.cpu.arch.ptrBitWidth();
+                return target.ptrBitWidth();
             },
 
             .single_const_pointer,
@@ -3748,18 +3725,18 @@ pub const Type = extern union {
             .c_const_pointer,
             .c_mut_pointer,
             => {
-                return target.cpu.arch.ptrBitWidth();
+                return target.ptrBitWidth();
             },
 
             .pointer => switch (ty.castTag(.pointer).?.data.size) {
-                .Slice => return target.cpu.arch.ptrBitWidth() * 2,
-                else => return target.cpu.arch.ptrBitWidth(),
+                .Slice => return target.ptrBitWidth() * 2,
+                else => return target.ptrBitWidth(),
             },
 
             .manyptr_u8,
             .manyptr_const_u8,
             .manyptr_const_u8_sentinel_0,
-            => return target.cpu.arch.ptrBitWidth(),
+            => return target.ptrBitWidth(),
 
             .c_char => return target.c_type_bit_size(.char),
             .c_short => return target.c_type_bit_size(.short),
@@ -4171,8 +4148,6 @@ pub const Type = extern union {
 
             .single_const_pointer_to_comptime_int => Type.initTag(.comptime_int),
             .pointer => ty.castTag(.pointer).?.data.pointee_type,
-
-            .var_args_param => ty,
 
             else => unreachable,
         };
@@ -4649,8 +4624,8 @@ pub const Type = extern union {
             .i64 => return .{ .signedness = .signed, .bits = 64 },
             .u128 => return .{ .signedness = .unsigned, .bits = 128 },
             .i128 => return .{ .signedness = .signed, .bits = 128 },
-            .usize => return .{ .signedness = .unsigned, .bits = target.cpu.arch.ptrBitWidth() },
-            .isize => return .{ .signedness = .signed, .bits = target.cpu.arch.ptrBitWidth() },
+            .usize => return .{ .signedness = .unsigned, .bits = target.ptrBitWidth() },
+            .isize => return .{ .signedness = .signed, .bits = target.ptrBitWidth() },
             .c_char => return .{ .signedness = .signed, .bits = target.c_type_bit_size(.char) },
             .c_short => return .{ .signedness = .signed, .bits = target.c_type_bit_size(.short) },
             .c_ushort => return .{ .signedness = .unsigned, .bits = target.c_type_bit_size(.ushort) },
@@ -5032,7 +5007,6 @@ pub const Type = extern union {
             .anyerror_void_error_union,
             .error_set_inferred,
             .@"opaque",
-            .var_args_param,
             .manyptr_u8,
             .manyptr_const_u8,
             .manyptr_const_u8_sentinel_0,
@@ -5056,7 +5030,6 @@ pub const Type = extern union {
             .single_const_pointer,
             .single_mut_pointer,
             .pointer,
-            .bound_fn,
             => return null,
 
             .optional => {
@@ -5257,10 +5230,8 @@ pub const Type = extern union {
             .function,
             => true,
 
-            .var_args_param => unreachable,
             .inferred_alloc_mut => unreachable,
             .inferred_alloc_const => unreachable,
-            .bound_fn => unreachable,
 
             .array,
             .array_sentinel,
@@ -5433,8 +5404,18 @@ pub const Type = extern union {
         }
     }
 
+    // Works for vectors and vectors of integers.
+    pub fn maxInt(ty: Type, arena: Allocator, target: Target) !Value {
+        const scalar = try maxIntScalar(ty.scalarType(), arena, target);
+        if (ty.zigTypeTag() == .Vector and scalar.tag() != .the_only_possible_value) {
+            return Value.Tag.repeated.create(arena, scalar);
+        } else {
+            return scalar;
+        }
+    }
+
     /// Asserts that self.zigTypeTag() == .Int.
-    pub fn maxInt(self: Type, arena: Allocator, target: Target) !Value {
+    pub fn maxIntScalar(self: Type, arena: Allocator, target: Target) !Value {
         assert(self.zigTypeTag() == .Int);
         const info = self.intInfo(target);
 
@@ -6078,9 +6059,6 @@ pub const Type = extern union {
         const_slice_u8_sentinel_0,
         anyerror_void_error_union,
         generic_poison,
-        /// This is a special type for variadic parameters of a function call.
-        /// Casts to it will validate that the type can be passed to a c calling convention function.
-        var_args_param,
         /// Same as `empty_struct` except it has an empty namespace.
         empty_struct_literal,
         /// This is a special value that tracks a set of types that have been stored
@@ -6089,7 +6067,6 @@ pub const Type = extern union {
         inferred_alloc_mut,
         /// Same as `inferred_alloc_mut` but the local is `var` not `const`.
         inferred_alloc_const, // See last_no_payload_tag below.
-        bound_fn,
         // After this, the tag requires a payload.
 
         array_u8,
@@ -6134,7 +6111,7 @@ pub const Type = extern union {
         enum_full,
         enum_nonexhaustive,
 
-        pub const last_no_payload_tag = Tag.bound_fn;
+        pub const last_no_payload_tag = Tag.inferred_alloc_const;
         pub const no_payload_count = @enumToInt(last_no_payload_tag) + 1;
 
         pub fn Type(comptime t: Tag) type {
@@ -6191,7 +6168,6 @@ pub const Type = extern union {
                 .generic_poison,
                 .inferred_alloc_const,
                 .inferred_alloc_mut,
-                .var_args_param,
                 .empty_struct_literal,
                 .manyptr_u8,
                 .manyptr_const_u8,
@@ -6208,7 +6184,6 @@ pub const Type = extern union {
                 .extern_options,
                 .type_info,
                 .@"anyframe",
-                .bound_fn,
                 => @compileError("Type Tag " ++ @tagName(t) ++ " has no payload"),
 
                 .array_u8,

@@ -140,8 +140,6 @@ test "@sizeOf(T) == 0 doesn't force resolving struct size" {
 }
 
 test "@TypeOf() has no runtime side effects" {
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
-
     const S = struct {
         fn foo(comptime T: type, ptr: *T) T {
             ptr.* += 1;
@@ -156,7 +154,6 @@ test "@TypeOf() has no runtime side effects" {
 
 test "branching logic inside @TypeOf" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const S = struct {
         var data: i32 = 0;

@@ -135,3 +135,9 @@ test "secp256k1 scalar inverse" {
     const inverse = scalar.invert();
     try std.testing.expectEqualSlices(u8, &out, &inverse.toBytes(.Big));
 }
+
+test "secp256k1 scalar parity" {
+    try std.testing.expect(Secp256k1.scalar.Scalar.zero.isOdd() == false);
+    try std.testing.expect(Secp256k1.scalar.Scalar.one.isOdd());
+    try std.testing.expect(Secp256k1.scalar.Scalar.one.dbl().isOdd() == false);
+}
