@@ -4926,6 +4926,9 @@ fn airAggregateInit(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
                 const result = try func.allocStack(result_ty);
                 const elem_ty = result_ty.childType();
                 const elem_size = @intCast(u32, elem_ty.abiSize(func.target));
+                const sentinel = if (result_ty.sentinel()) |sent| blk: {
+                    break :blk try func.lowerConstant(sent, elem_ty);
+                } else null;
 
                 // When the element type is by reference, we must copy the entire
                 // value. It is therefore safer to move the offset pointer and store
@@ -4938,9 +4941,12 @@ fn airAggregateInit(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
                         const elem_val = try func.resolveInst(elem);
                         try func.store(offset, elem_val, elem_ty, 0);
 
-                        if (elem_index < elements.len - 1) {
+                        if (elem_index < elements.len - 1 and sentinel == null) {
                             _ = try func.buildPointerOffset(offset, elem_size, .modify);
                         }
+                    }
+                    if (sentinel) |sent| {
+                        try func.store(offset, sent, elem_ty, 0);
                     }
                 } else {
                     var offset: u32 = 0;
@@ -4948,6 +4954,9 @@ fn airAggregateInit(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
                         const elem_val = try func.resolveInst(elem);
                         try func.store(result, elem_val, elem_ty, offset);
                         offset += elem_size;
+                    }
+                    if (sentinel) |sent| {
+                        try func.store(result, sent, elem_ty, offset);
                     }
                 }
                 break :result_value result;
