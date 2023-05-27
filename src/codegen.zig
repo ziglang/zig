@@ -443,7 +443,8 @@ pub fn generateSymbol(
             },
             .anon_struct_type => |tuple| {
                 const struct_begin = code.items.len;
-                for (tuple.types, 0..) |field_ty, index| {
+                for (tuple.types, tuple.values, 0..) |field_ty, comptime_val, index| {
+                    if (comptime_val != .none) continue;
                     if (!field_ty.toType().hasRuntimeBits(mod)) continue;
 
                     const field_val = switch (aggregate.storage) {
