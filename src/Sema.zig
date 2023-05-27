@@ -1007,9 +1007,8 @@ fn analyzeBodyInner(
             .slice_start                  => try sema.zirSliceStart(block, inst),
             .slice_length                 => try sema.zirSliceLength(block, inst),
             .str                          => try sema.zirStr(block, inst),
-            .switch_block                 => try sema.zirSwitchBlock(block, inst),
-            .switch_cond                  => try sema.zirSwitchCond(block, inst, false),
-            .switch_cond_ref              => try sema.zirSwitchCond(block, inst, true),
+            .switch_block                 => try sema.zirSwitchBlock(block, inst, false),
+            .switch_block_ref             => try sema.zirSwitchBlock(block, inst, true),
             .type_info                    => try sema.zirTypeInfo(block, inst),
             .size_of                      => try sema.zirSizeOf(block, inst),
             .bit_size_of                  => try sema.zirBitSizeOf(block, inst),
@@ -10411,23 +10410,14 @@ const SwitchProngAnalysis = struct {
     }
 };
 
-fn zirSwitchCond(
+fn switchCond(
     sema: *Sema,
     block: *Block,
-    inst: Zir.Inst.Index,
-    is_ref: bool,
+    src: LazySrcLoc,
+    operand: Air.Inst.Ref,
 ) CompileError!Air.Inst.Ref {
     const mod = sema.mod;
-    const inst_data = sema.code.instructions.items(.data)[inst].un_node;
-    const src = inst_data.src();
-    const operand_src: LazySrcLoc = .{ .node_offset_switch_operand = inst_data.src_node };
-    const operand_ptr = try sema.resolveInst(inst_data.operand);
-    const operand = if (is_ref)
-        try sema.analyzeLoad(block, src, operand_ptr, operand_src)
-    else
-        operand_ptr;
     const operand_ty = sema.typeOf(operand);
-
     switch (operand_ty.zigTypeTag(mod)) {
         .Type,
         .Void,
@@ -10484,7 +10474,7 @@ fn zirSwitchCond(
 
 const SwitchErrorSet = std.AutoHashMap(InternPool.NullTerminatedString, Module.SwitchProngSrc);
 
-fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
+fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index, operand_is_ref: bool) CompileError!Air.Inst.Ref {
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -10498,10 +10488,21 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
     const special_prong_src: LazySrcLoc = .{ .node_offset_switch_special_prong = src_node_offset };
     const extra = sema.code.extraData(Zir.Inst.SwitchBlock, inst_data.payload_index);
 
-    const operand = try sema.resolveInst(extra.data.operand);
-    // AstGen guarantees that the instruction immediately following
-    // switch_cond(_ref) is a dbg_stmt
-    const cond_dbg_node_index = Zir.refToIndex(extra.data.operand).? + 1;
+    const raw_operand: struct { val: Air.Inst.Ref, ptr: Air.Inst.Ref } = blk: {
+        const maybe_ptr = try sema.resolveInst(extra.data.operand);
+        if (operand_is_ref) {
+            const val = try sema.analyzeLoad(block, src, maybe_ptr, operand_src);
+            break :blk .{ .val = val, .ptr = maybe_ptr };
+        } else {
+            break :blk .{ .val = maybe_ptr, .ptr = undefined };
+        }
+    };
+
+    const operand = try sema.switchCond(block, src, raw_operand.val);
+
+    // AstGen guarantees that the instruction immediately preceding
+    // switch_block(_ref) is a dbg_stmt
+    const cond_dbg_node_index = inst - 1;
 
     var header_extra_index: usize = extra.end;
 
@@ -10553,19 +10554,6 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
                 .has_tag_capture = info.has_tag_capture,
             };
         },
-    };
-
-    const raw_operand: struct { val: Air.Inst.Ref, ptr: Air.Inst.Ref } = blk: {
-        const zir_tags = sema.code.instructions.items(.tag);
-        const zir_data = sema.code.instructions.items(.data);
-        const cond_index = Zir.refToIndex(extra.data.operand).?;
-        const raw = sema.resolveInst(zir_data[cond_index].un_node.operand) catch unreachable;
-        if (zir_tags[cond_index] == .switch_cond_ref) {
-            const val = try sema.analyzeLoad(block, src, raw, operand_src);
-            break :blk .{ .val = val, .ptr = raw };
-        } else {
-            break :blk .{ .val = raw, .ptr = undefined };
-        }
     };
 
     const maybe_union_ty = sema.typeOf(raw_operand.val);

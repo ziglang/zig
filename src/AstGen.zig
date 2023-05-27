@@ -2610,8 +2610,7 @@ fn addEnsureResult(gz: *GenZir, maybe_unused_result: Zir.Inst.Ref, statement: As
             .slice_length,
             .import,
             .switch_block,
-            .switch_cond,
-            .switch_cond_ref,
+            .switch_block_ref,
             .struct_init_empty,
             .struct_init,
             .struct_init_ref,
@@ -6835,10 +6834,6 @@ fn switchExpr(
     const operand_lc = LineColumn{ astgen.source_line - parent_gz.decl_line, astgen.source_column };
 
     const raw_operand = try expr(parent_gz, scope, operand_ri, operand_node);
-    const cond_tag: Zir.Inst.Tag = if (any_payload_is_ref) .switch_cond_ref else .switch_cond;
-    const cond = try parent_gz.addUnNode(cond_tag, raw_operand, operand_node);
-    // Sema expects a dbg_stmt immediately after switch_cond(_ref)
-    try emitDbgStmt(parent_gz, operand_lc);
     const item_ri: ResultInfo = .{ .rl = .none };
 
     // This contains the data that goes into the `extra` array for the SwitchBlock/SwitchBlockMulti,
@@ -6858,8 +6853,11 @@ fn switchExpr(
     block_scope.instructions_top = GenZir.unstacked_top;
     block_scope.setBreakResultInfo(ri);
 
+    // Sema expects a dbg_stmt immediately before switch_block(_ref)
+    try emitDbgStmt(parent_gz, operand_lc);
     // This gets added to the parent block later, after the item expressions.
-    const switch_block = try parent_gz.makeBlockInst(.switch_block, switch_node);
+    const switch_tag: Zir.Inst.Tag = if (any_payload_is_ref) .switch_block_ref else .switch_block;
+    const switch_block = try parent_gz.makeBlockInst(switch_tag, switch_node);
 
     // We re-use this same scope for all cases, including the special prong, if any.
     var case_scope = parent_gz.makeSubBlock(&block_scope.base);
@@ -7076,7 +7074,7 @@ fn switchExpr(
         payloads.items.len - case_table_end);
 
     const payload_index = astgen.addExtraAssumeCapacity(Zir.Inst.SwitchBlock{
-        .operand = cond,
+        .operand = raw_operand,
         .bits = Zir.Inst.SwitchBlock.Bits{
             .has_multi_cases = multi_cases_len != 0,
             .has_else = special_prong == .@"else",

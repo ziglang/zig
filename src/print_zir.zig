@@ -222,8 +222,6 @@ const Writer = struct {
             .bit_reverse,
             .@"resume",
             .@"await",
-            .switch_cond,
-            .switch_cond_ref,
             .array_base_ptr,
             .field_base_ptr,
             .validate_struct_init_ty,
@@ -388,7 +386,9 @@ const Writer = struct {
             .error_set_decl_anon => try self.writeErrorSetDecl(stream, inst, .anon),
             .error_set_decl_func => try self.writeErrorSetDecl(stream, inst, .func),
 
-            .switch_block => try self.writeSwitchBlock(stream, inst),
+            .switch_block,
+            .switch_block_ref,
+            => try self.writeSwitchBlock(stream, inst),
 
             .field_ptr,
             .field_ptr_init,
