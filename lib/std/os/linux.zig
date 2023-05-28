@@ -5845,7 +5845,7 @@ pub const AUDIT = struct {
         X86_64 = toAudit(.x86_64),
 
         fn toAudit(arch: std.Target.Cpu.Arch) u32 {
-            var res: u32 = @enumToInt(arch.toElfMachine());
+            var res: u32 = @enumToInt(std.elf.EM.fromTargetCpuArch(arch));
             if (arch.endian() == .Little) res |= LE;
             switch (arch) {
                 .aarch64,

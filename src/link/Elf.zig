@@ -2041,7 +2041,7 @@ fn writeElfHeader(self: *Elf) !void {
     mem.writeInt(u16, hdr_buf[index..][0..2], @enumToInt(elf_type), endian);
     index += 2;
 
-    const machine = self.base.options.target.cpu.arch.toElfMachine();
+    const machine = elf.EM.fromTargetCpuArch(self.base.options.target.cpu.arch);
     mem.writeInt(u16, hdr_buf[index..][0..2], @enumToInt(machine), endian);
     index += 2;
 
