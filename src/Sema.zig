@@ -23280,7 +23280,7 @@ fn validateExternType(
         .Pointer => {
             const pointee_ty = ty.elemType2();
             if (pointee_ty.zigTypeTag() == .Pointer) {
-                return try sema.validateExternType(pointee_ty);
+                return try sema.validateExternType(pointee_ty, position);
             } else {
                 return !(ty.isSlice() or try sema.typeRequiresComptime(ty));
             }
