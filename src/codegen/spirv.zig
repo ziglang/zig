@@ -830,6 +830,9 @@ pub const DeclGen = struct {
 
                     try self.addUndef(layout.padding);
                 },
+                .memoized_decl,
+                .memoized_call,
+                => unreachable,
             }
         }
     };

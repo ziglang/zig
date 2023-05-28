@@ -3254,6 +3254,9 @@ fn lowerConstant(func: *CodeGen, arg_val: Value, ty: Type) InnerError!WValue {
             else => unreachable,
         },
         .un => return func.fail("Wasm TODO: LowerConstant for {}", .{ty.fmt(mod)}),
+        .memoized_decl,
+        .memoized_call,
+        => unreachable,
     }
 }
 

@@ -217,6 +217,11 @@ pub const Key = union(enum) {
     /// An instance of a union.
     un: Union,
 
+    /// A declaration with a memoized value.
+    memoized_decl: MemoizedDecl,
+    /// A comptime function call with a memoized result.
+    memoized_call: Key.MemoizedCall,
+
     pub const IntType = std.builtin.Type.Int;
 
     pub const ErrorUnionType = struct {
@@ -609,6 +614,17 @@ pub const Key = union(enum) {
         };
     };
 
+    pub const MemoizedDecl = struct {
+        val: Index,
+        decl: Module.Decl.Index,
+    };
+
+    pub const MemoizedCall = struct {
+        func: Module.Fn.Index,
+        arg_values: []const Index,
+        result: Index,
+    };
+
     pub fn hash32(key: Key, ip: *const InternPool) u32 {
         return @truncate(u32, key.hash64(ip));
     }
@@ -785,6 +801,13 @@ pub const Key = union(enum) {
                 std.hash.autoHash(hasher, func_type.is_var_args);
                 std.hash.autoHash(hasher, func_type.is_generic);
                 std.hash.autoHash(hasher, func_type.is_noinline);
+            },
+
+            .memoized_decl => |memoized_decl| std.hash.autoHash(hasher, memoized_decl.val),
+
+            .memoized_call => |memoized_call| {
+                std.hash.autoHash(hasher, memoized_call.func);
+                for (memoized_call.arg_values) |arg| std.hash.autoHash(hasher, arg);
             },
         }
     }
@@ -1054,6 +1077,17 @@ pub const Key = union(enum) {
                     a_info.is_generic == b_info.is_generic and
                     a_info.is_noinline == b_info.is_noinline;
             },
+
+            .memoized_decl => |a_info| {
+                const b_info = b.memoized_decl;
+                return a_info.val == b_info.val;
+            },
+
+            .memoized_call => |a_info| {
+                const b_info = b.memoized_call;
+                return a_info.func == b_info.func and
+                    std.mem.eql(Index, a_info.arg_values, b_info.arg_values);
+            },
         }
     }
 
@@ -1105,6 +1139,10 @@ pub const Key = union(enum) {
                 .@"unreachable" => .noreturn_type,
                 .generic_poison => .generic_poison_type,
             },
+
+            .memoized_decl,
+            .memoized_call,
+            => unreachable,
         };
     }
 };
@@ -1380,6 +1418,14 @@ pub const Index = enum(u32) {
         bytes: struct { data: *Bytes },
         aggregate: struct { data: *Aggregate },
         repeated: struct { data: *Repeated },
+
+        memoized_decl: struct { data: *Key.MemoizedDecl },
+        memoized_call: struct {
+            const @"data.args_len" = opaque {};
+            data: *MemoizedCall,
+            @"trailing.arg_values.len": *@"data.args_len",
+            trailing: struct { arg_values: []Index },
+        },
     }) void {
         _ = self;
         const map_fields = @typeInfo(@typeInfo(@TypeOf(tag_to_encoding_map)).Pointer.child).Struct.fields;
@@ -1875,6 +1921,13 @@ pub const Tag = enum(u8) {
     /// An instance of an array or vector with every element being the same value.
     /// data is extra index to `Repeated`.
     repeated,
+
+    /// A memoized declaration value.
+    /// data is extra index to `Key.MemoizedDecl`
+    memoized_decl,
+    /// A memoized comptime function call result.
+    /// data is extra index to `MemoizedFunc`
+    memoized_call,
 };
 
 /// Trailing:
@@ -2269,6 +2322,14 @@ pub const Float128 = struct {
             .piece3 = @truncate(u32, bits >> 96),
         };
     }
+};
+
+/// Trailing:
+/// 0. arg value: Index for each args_len
+pub const MemoizedCall = struct {
+    func: Module.Fn.Index,
+    args_len: u32,
+    result: Index,
 };
 
 pub fn init(ip: *InternPool, gpa: Allocator) !void {
@@ -2758,6 +2819,16 @@ pub fn indexToKey(ip: *const InternPool, index: Index) Key {
         },
         .enum_literal => .{ .enum_literal = @intToEnum(NullTerminatedString, data) },
         .enum_tag => .{ .enum_tag = ip.extraData(Key.EnumTag, data) },
+
+        .memoized_decl => .{ .memoized_decl = ip.extraData(Key.MemoizedDecl, data) },
+        .memoized_call => {
+            const extra = ip.extraDataTrail(MemoizedCall, data);
+            return .{ .memoized_call = .{
+                .func = extra.data.func,
+                .arg_values = @ptrCast([]const Index, ip.extra.items[extra.end..][0..extra.data.args_len]),
+                .result = extra.data.result,
+            } };
+        },
     };
 }
 
@@ -3724,6 +3795,29 @@ pub fn get(ip: *InternPool, gpa: Allocator, key: Key) Allocator.Error!Index {
                 .data = try ip.addExtra(gpa, un),
             });
         },
+
+        .memoized_decl => |memoized_decl| {
+            assert(memoized_decl.val != .none);
+            ip.items.appendAssumeCapacity(.{
+                .tag = .memoized_decl,
+                .data = try ip.addExtra(gpa, memoized_decl),
+            });
+        },
+
+        .memoized_call => |memoized_call| {
+            for (memoized_call.arg_values) |arg| assert(arg != .none);
+            try ip.extra.ensureUnusedCapacity(gpa, @typeInfo(MemoizedCall).Struct.fields.len +
+                memoized_call.arg_values.len);
+            ip.items.appendAssumeCapacity(.{
+                .tag = .memoized_call,
+                .data = ip.addExtraAssumeCapacity(MemoizedCall{
+                    .func = memoized_call.func,
+                    .args_len = @intCast(u32, memoized_call.arg_values.len),
+                    .result = memoized_call.result,
+                }),
+            });
+            ip.extra.appendSliceAssumeCapacity(@ptrCast([]const u32, memoized_call.arg_values));
+        },
     }
     return @intToEnum(Index, ip.items.len - 1);
 }
@@ -3788,7 +3882,7 @@ pub fn getIncompleteEnum(
     ip: *InternPool,
     gpa: Allocator,
     enum_type: Key.IncompleteEnumType,
-) Allocator.Error!InternPool.IncompleteEnumType {
+) Allocator.Error!IncompleteEnumType {
     switch (enum_type.tag_mode) {
         .auto => return getIncompleteEnumAuto(ip, gpa, enum_type),
         .explicit => return getIncompleteEnumExplicit(ip, gpa, enum_type, .type_enum_explicit),
@@ -3800,7 +3894,7 @@ pub fn getIncompleteEnumAuto(
     ip: *InternPool,
     gpa: Allocator,
     enum_type: Key.IncompleteEnumType,
-) Allocator.Error!InternPool.IncompleteEnumType {
+) Allocator.Error!IncompleteEnumType {
     // Although the integer tag type will not be stored in the `EnumAuto` struct,
     // `InternPool` logic depends on it being present so that `typeOf` can be infallible.
     // Ensure it is present here:
@@ -3849,7 +3943,7 @@ fn getIncompleteEnumExplicit(
     gpa: Allocator,
     enum_type: Key.IncompleteEnumType,
     tag: Tag,
-) Allocator.Error!InternPool.IncompleteEnumType {
+) Allocator.Error!IncompleteEnumType {
     // We must keep the map in sync with `items`. The hash and equality functions
     // for enum types only look at the decl field, which is present even in
     // an `IncompleteEnumType`.
@@ -4704,6 +4798,12 @@ fn dumpFallible(ip: InternPool, arena: Allocator) anyerror!void {
             .func => @sizeOf(Key.Func) + @sizeOf(Module.Fn) + @sizeOf(Module.Decl),
             .only_possible_value => 0,
             .union_value => @sizeOf(Key.Union),
+
+            .memoized_decl => @sizeOf(Key.MemoizedDecl),
+            .memoized_call => b: {
+                const info = ip.extraData(MemoizedCall, data);
+                break :b @sizeOf(MemoizedCall) + (@sizeOf(Index) * info.args_len);
+            },
         });
     }
     const SortContext = struct {
@@ -5215,6 +5315,9 @@ pub fn zigTypeTagOrPoison(ip: InternPool, index: Index) error{GenericPoison}!std
             .bytes,
             .aggregate,
             .repeated,
+            // memoization, not types
+            .memoized_decl,
+            .memoized_call,
             => unreachable,
         },
         .none => unreachable, // special tag

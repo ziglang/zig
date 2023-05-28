@@ -1090,6 +1090,7 @@ pub const DeclGen = struct {
         };
 
         switch (mod.intern_pool.indexToKey(val.ip_index)) {
+            // types, not values
             .int_type,
             .ptr_type,
             .array_type,
@@ -1106,7 +1107,10 @@ pub const DeclGen = struct {
             .func_type,
             .error_set_type,
             .inferred_error_set_type,
-            => unreachable, // types, not values
+            // memoization, not values
+            .memoized_decl,
+            .memoized_call,
+            => unreachable,
 
             .undef, .runtime_value => unreachable, // handled above
             .simple_value => |simple_value| switch (simple_value) {

@@ -88,18 +88,10 @@ embed_table: std.StringHashMapUnmanaged(*EmbedFile) = .{},
 /// Stores all Type and Value objects; periodically garbage collected.
 intern_pool: InternPool = .{},
 
-/// This is currently only used for string literals, however the end-game once the lang spec
-/// is settled will be to make this behavior consistent across all types.
-memoized_decls: std.AutoHashMapUnmanaged(InternPool.Index, Decl.Index) = .{},
-
 /// The set of all the generic function instantiations. This is used so that when a generic
 /// function is called twice with the same comptime parameter arguments, both calls dispatch
 /// to the same function.
 monomorphed_funcs: MonomorphedFuncsSet = .{},
-/// The set of all comptime function calls that have been cached so that future calls
-/// with the same parameters will get the same return value.
-memoized_calls: MemoizedCallSet = .{},
-memoized_call_args: MemoizedCall.Args = .{},
 /// Contains the values from `@setAlignStack`. A sparse table is used here
 /// instead of a field of `Fn` because usage of `@setAlignStack` is rare, while
 /// functions are many.
@@ -220,42 +212,6 @@ const MonomorphedFuncsContext = struct {
     /// Must match `Sema.GenericCallAdapter.hash`.
     pub fn hash(ctx: @This(), key: Fn.Index) u64 {
         return ctx.mod.funcPtr(key).hash;
-    }
-};
-
-pub const MemoizedCallSet = std.HashMapUnmanaged(
-    MemoizedCall.Key,
-    MemoizedCall.Result,
-    MemoizedCall,
-    std.hash_map.default_max_load_percentage,
-);
-
-pub const MemoizedCall = struct {
-    args: *const Args,
-
-    pub const Args = std.ArrayListUnmanaged(InternPool.Index);
-
-    pub const Key = struct {
-        func: Fn.Index,
-        args_index: u32,
-        args_count: u32,
-
-        pub fn args(key: Key, ctx: MemoizedCall) []InternPool.Index {
-            return ctx.args.items[key.args_index..][0..key.args_count];
-        }
-    };
-
-    pub const Result = InternPool.Index;
-
-    pub fn eql(ctx: MemoizedCall, a: Key, b: Key) bool {
-        return a.func == b.func and mem.eql(InternPool.Index, a.args(ctx), b.args(ctx));
-    }
-
-    pub fn hash(ctx: MemoizedCall, key: Key) u64 {
-        var hasher = std.hash.Wyhash.init(0);
-        std.hash.autoHash(&hasher, key.func);
-        std.hash.autoHashStrat(&hasher, key.args(ctx), .Deep);
-        return hasher.final();
     }
 };
 
@@ -605,7 +561,6 @@ pub const Decl = struct {
             }
             mod.destroyFunc(func);
         }
-        _ = mod.memoized_decls.remove(decl.val.ip_index);
         if (decl.value_arena) |value_arena| {
             value_arena.deinit(gpa);
             decl.value_arena = null;
@@ -3314,8 +3269,6 @@ pub fn deinit(mod: *Module) void {
     mod.test_functions.deinit(gpa);
     mod.align_stack_fns.deinit(gpa);
     mod.monomorphed_funcs.deinit(gpa);
-    mod.memoized_call_args.deinit(gpa);
-    mod.memoized_calls.deinit(gpa);
 
     mod.decls_free_list.deinit(gpa);
     mod.allocated_decls.deinit(gpa);
@@ -3324,8 +3277,6 @@ pub fn deinit(mod: *Module) void {
 
     mod.namespaces_free_list.deinit(gpa);
     mod.allocated_namespaces.deinit(gpa);
-
-    mod.memoized_decls.deinit(gpa);
 
     mod.intern_pool.deinit(gpa);
 }
@@ -5438,6 +5389,17 @@ pub fn abortAnonDecl(mod: *Module, decl_index: Decl.Index) void {
     mod.destroyDecl(decl_index);
 }
 
+/// Finalize the creation of an anon decl.
+pub fn finalizeAnonDecl(mod: *Module, decl_index: Decl.Index) Allocator.Error!void {
+    // The Decl starts off with alive=false and the codegen backend will set alive=true
+    // if the Decl is referenced by an instruction or another constant. Otherwise,
+    // the Decl will be garbage collected by the `codegen_decl` task instead of sent
+    // to the linker.
+    if (mod.declPtr(decl_index).ty.isFnOrHasRuntimeBits(mod)) {
+        try mod.comp.anon_work_queue.writeItem(.{ .codegen_decl = decl_index });
+    }
+}
+
 /// Delete all the Export objects that are caused by this Decl. Re-analysis of
 /// this Decl will cause them to be re-created (or not).
 fn deleteDeclExports(mod: *Module, decl_index: Decl.Index) Allocator.Error!void {
@@ -5875,7 +5837,7 @@ pub fn initNewAnonDecl(
     namespace: Namespace.Index,
     typed_value: TypedValue,
     name: [:0]u8,
-) !void {
+) Allocator.Error!void {
     assert(typed_value.ty.toIntern() == mod.intern_pool.typeOf(typed_value.val.toIntern()));
     errdefer mod.gpa.free(name);
 
@@ -5892,14 +5854,6 @@ pub fn initNewAnonDecl(
     new_decl.generation = mod.generation;
 
     try mod.namespacePtr(namespace).anon_decls.putNoClobber(mod.gpa, new_decl_index, {});
-
-    // The Decl starts off with alive=false and the codegen backend will set alive=true
-    // if the Decl is referenced by an instruction or another constant. Otherwise,
-    // the Decl will be garbage collected by the `codegen_decl` task instead of sent
-    // to the linker.
-    if (typed_value.ty.isFnOrHasRuntimeBits(mod)) {
-        try mod.comp.anon_work_queue.writeItem(.{ .codegen_decl = new_decl_index });
-    }
 }
 
 pub fn errNoteNonLazy(
