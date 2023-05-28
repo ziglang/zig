@@ -10129,7 +10129,7 @@ const SwitchProngAnalysis = struct {
         prong_type: enum { normal, special },
         prong_body: []const Zir.Inst.Index,
         capture: Zir.Inst.SwitchBlock.ProngInfo.Capture,
-        /// Must use the `scalar`, `special`, or `multi_capture` union field.
+        /// Must use the `scalar_capture`, `special_capture`, or `multi_capture` union field.
         raw_capture_src: Module.SwitchProngSrc,
         /// The set of all values which can reach this prong. May be undefined
         /// if the prong is special or contains ranges.
@@ -10247,7 +10247,13 @@ const SwitchProngAnalysis = struct {
         if (operand_ty.zigTypeTag(mod) != .Union) {
             const zir_datas = sema.code.instructions.items(.data);
             const switch_node_offset = zir_datas[spa.switch_block_inst].pl_node.src_node;
-            const capture_src = raw_capture_src.resolve(mod, mod.declPtr(block.src_decl), switch_node_offset, .none);
+            const raw_tag_capture_src: Module.SwitchProngSrc = switch (raw_capture_src) {
+                .scalar_capture => |i| .{ .scalar_tag_capture = i },
+                .multi_capture => |i| .{ .multi_tag_capture = i },
+                .special_capture => .special_tag_capture,
+                else => unreachable,
+            };
+            const capture_src = raw_tag_capture_src.resolve(mod, mod.declPtr(block.src_decl), switch_node_offset, .none);
             const msg = msg: {
                 const msg = try sema.errMsg(block, capture_src, "cannot capture tag of non-union type '{}'", .{
                     operand_ty.fmt(mod),
@@ -10712,7 +10718,7 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index, operand_is_r
         }
     };
 
-    const operand = try sema.switchCond(block, src, raw_operand.val);
+    const operand = try sema.switchCond(block, operand_src, raw_operand.val);
 
     // AstGen guarantees that the instruction immediately preceding
     // switch_block(_ref) is a dbg_stmt
@@ -11377,7 +11383,7 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index, operand_is_r
                         .normal,
                         body,
                         info.capture,
-                        .{ .scalar = @intCast(u32, scalar_i) },
+                        .{ .scalar_capture = @intCast(u32, scalar_i) },
                         &.{item},
                         if (info.is_inline) operand else .none,
                         info.has_tag_capture,
@@ -11460,7 +11466,7 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index, operand_is_r
             .special,
             special.body,
             special.capture,
-            .special,
+            .special_capture,
             undefined, // case_vals may be undefined for special prongs
             if (special.is_inline) operand else .none,
             special.has_tag_capture,
@@ -11491,7 +11497,7 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index, operand_is_r
             .special,
             special.body,
             special.capture,
-            .special,
+            .special_capture,
             undefined, // case_vals may be undefined for special prongs
             .none,
             false,
@@ -11551,7 +11557,7 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index, operand_is_r
                 .normal,
                 body,
                 info.capture,
-                .{ .scalar = @intCast(u32, scalar_i) },
+                .{ .scalar_capture = @intCast(u32, scalar_i) },
                 &.{item},
                 if (info.is_inline) item else .none,
                 info.has_tag_capture,
@@ -11885,7 +11891,7 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index, operand_is_r
                             .special,
                             special.body,
                             special.capture,
-                            .special,
+                            .special_capture,
                             &.{item_ref},
                             item_ref,
                             special.has_tag_capture,
@@ -11929,7 +11935,7 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index, operand_is_r
                         .special,
                         special.body,
                         special.capture,
-                        .special,
+                        .special_capture,
                         &.{item_ref},
                         item_ref,
                         special.has_tag_capture,
@@ -11960,7 +11966,7 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index, operand_is_r
                         .special,
                         special.body,
                         special.capture,
-                        .special,
+                        .special_capture,
                         &.{item_ref},
                         item_ref,
                         special.has_tag_capture,
@@ -11988,7 +11994,7 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index, operand_is_r
                         .special,
                         special.body,
                         special.capture,
-                        .special,
+                        .special_capture,
                         &.{Air.Inst.Ref.bool_true},
                         Air.Inst.Ref.bool_true,
                         special.has_tag_capture,
@@ -12014,7 +12020,7 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index, operand_is_r
                         .special,
                         special.body,
                         special.capture,
-                        .special,
+                        .special_capture,
                         &.{Air.Inst.Ref.bool_false},
                         Air.Inst.Ref.bool_false,
                         special.has_tag_capture,
@@ -12065,7 +12071,7 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index, operand_is_r
                 .special,
                 special.body,
                 special.capture,
-                .special,
+                .special_capture,
                 undefined, // case_vals may be undefined for special prongs
                 .none,
                 false,
