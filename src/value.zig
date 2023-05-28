@@ -476,6 +476,10 @@ pub const Value = struct {
                 .tag = un.tag.toValue(),
                 .val = un.val.toValue(),
             }),
+
+            .memoized_decl,
+            .memoized_call,
+            => unreachable,
         };
     }
 

@@ -400,6 +400,9 @@ pub const Type = struct {
             .opt,
             .aggregate,
             .un,
+            // memoization, not types
+            .memoized_decl,
+            .memoized_call,
             => unreachable,
         }
     }
@@ -613,6 +616,9 @@ pub const Type = struct {
                 .opt,
                 .aggregate,
                 .un,
+                // memoization, not types
+                .memoized_decl,
+                .memoized_call,
                 => unreachable,
             },
         };
@@ -719,6 +725,9 @@ pub const Type = struct {
             .opt,
             .aggregate,
             .un,
+            // memoization, not types
+            .memoized_decl,
+            .memoized_call,
             => unreachable,
         };
     }
@@ -1050,6 +1059,9 @@ pub const Type = struct {
                 .opt,
                 .aggregate,
                 .un,
+                // memoization, not types
+                .memoized_decl,
+                .memoized_call,
                 => unreachable,
             },
         }
@@ -1464,6 +1476,9 @@ pub const Type = struct {
                 .opt,
                 .aggregate,
                 .un,
+                // memoization, not types
+                .memoized_decl,
+                .memoized_call,
                 => unreachable,
             },
         }
@@ -1695,6 +1710,9 @@ pub const Type = struct {
             .opt,
             .aggregate,
             .un,
+            // memoization, not types
+            .memoized_decl,
+            .memoized_call,
             => unreachable,
         }
     }
@@ -2250,6 +2268,9 @@ pub const Type = struct {
                 .opt,
                 .aggregate,
                 .un,
+                // memoization, not types
+                .memoized_decl,
+                .memoized_call,
                 => unreachable,
             },
         };
@@ -2586,6 +2607,9 @@ pub const Type = struct {
                 .opt,
                 .aggregate,
                 .un,
+                // memoization, not types
+                .memoized_decl,
+                .memoized_call,
                 => unreachable,
             },
         };
@@ -2728,6 +2752,9 @@ pub const Type = struct {
                 .opt,
                 .aggregate,
                 .un,
+                // memoization, not types
+                .memoized_decl,
+                .memoized_call,
                 => unreachable,
             },
         };
