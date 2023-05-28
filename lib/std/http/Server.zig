@@ -118,7 +118,7 @@ pub const BufferedConnection = struct {
         return bconn.read_buf[bconn.read_start..bconn.read_end];
     }
 
-    pub fn clear(bconn: *BufferedConnection, num: u16) void {
+    pub fn drop(bconn: *BufferedConnection, num: u16) void {
         bconn.read_start += num;
     }
 
@@ -545,7 +545,7 @@ pub const Response = struct {
             try res.connection.fill();
 
             const nchecked = try res.request.parser.checkCompleteHead(res.allocator, res.connection.peek());
-            res.connection.clear(@intCast(u16, nchecked));
+            res.connection.drop(@intCast(u16, nchecked));
 
             if (res.request.parser.state.isContent()) break;
         }
@@ -612,7 +612,7 @@ pub const Response = struct {
                 try res.connection.fill();
 
                 const nchecked = try res.request.parser.checkCompleteHead(res.allocator, res.connection.peek());
-                res.connection.clear(@intCast(u16, nchecked));
+                res.connection.drop(@intCast(u16, nchecked));
             }
 
             if (has_trail) {

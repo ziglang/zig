@@ -138,6 +138,35 @@ pub const AlertLevel = enum(u8) {
 };
 
 pub const AlertDescription = enum(u8) {
+    pub const Error = error{
+        TlsAlertUnexpectedMessage,
+        TlsAlertBadRecordMac,
+        TlsAlertRecordOverflow,
+        TlsAlertHandshakeFailure,
+        TlsAlertBadCertificate,
+        TlsAlertUnsupportedCertificate,
+        TlsAlertCertificateRevoked,
+        TlsAlertCertificateExpired,
+        TlsAlertCertificateUnknown,
+        TlsAlertIllegalParameter,
+        TlsAlertUnknownCa,
+        TlsAlertAccessDenied,
+        TlsAlertDecodeError,
+        TlsAlertDecryptError,
+        TlsAlertProtocolVersion,
+        TlsAlertInsufficientSecurity,
+        TlsAlertInternalError,
+        TlsAlertInappropriateFallback,
+        TlsAlertMissingExtension,
+        TlsAlertUnsupportedExtension,
+        TlsAlertUnrecognizedName,
+        TlsAlertBadCertificateStatusResponse,
+        TlsAlertUnknownPskIdentity,
+        TlsAlertCertificateRequired,
+        TlsAlertNoApplicationProtocol,
+        TlsAlertUnknown,
+    };
+
     close_notify = 0,
     unexpected_message = 10,
     bad_record_mac = 20,
@@ -166,6 +195,39 @@ pub const AlertDescription = enum(u8) {
     certificate_required = 116,
     no_application_protocol = 120,
     _,
+
+    pub fn toError(alert: AlertDescription) Error!void {
+        return switch (alert) {
+            .close_notify => {}, // not an error
+            .unexpected_message => error.TlsAlertUnexpectedMessage,
+            .bad_record_mac => error.TlsAlertBadRecordMac,
+            .record_overflow => error.TlsAlertRecordOverflow,
+            .handshake_failure => error.TlsAlertHandshakeFailure,
+            .bad_certificate => error.TlsAlertBadCertificate,
+            .unsupported_certificate => error.TlsAlertUnsupportedCertificate,
+            .certificate_revoked => error.TlsAlertCertificateRevoked,
+            .certificate_expired => error.TlsAlertCertificateExpired,
+            .certificate_unknown => error.TlsAlertCertificateUnknown,
+            .illegal_parameter => error.TlsAlertIllegalParameter,
+            .unknown_ca => error.TlsAlertUnknownCa,
+            .access_denied => error.TlsAlertAccessDenied,
+            .decode_error => error.TlsAlertDecodeError,
+            .decrypt_error => error.TlsAlertDecryptError,
+            .protocol_version => error.TlsAlertProtocolVersion,
+            .insufficient_security => error.TlsAlertInsufficientSecurity,
+            .internal_error => error.TlsAlertInternalError,
+            .inappropriate_fallback => error.TlsAlertInappropriateFallback,
+            .user_canceled => {}, // not an error
+            .missing_extension => error.TlsAlertMissingExtension,
+            .unsupported_extension => error.TlsAlertUnsupportedExtension,
+            .unrecognized_name => error.TlsAlertUnrecognizedName,
+            .bad_certificate_status_response => error.TlsAlertBadCertificateStatusResponse,
+            .unknown_psk_identity => error.TlsAlertUnknownPskIdentity,
+            .certificate_required => error.TlsAlertCertificateRequired,
+            .no_application_protocol => error.TlsAlertNoApplicationProtocol,
+            _ => error.TlsAlertUnknown,
+        };
+    }
 };
 
 pub const SignatureScheme = enum(u16) {

@@ -89,12 +89,11 @@ pub const StreamInterface = struct {
 };
 
 pub fn InitError(comptime Stream: type) type {
-    return std.mem.Allocator.Error || Stream.WriteError || Stream.ReadError || error{
+    return std.mem.Allocator.Error || Stream.WriteError || Stream.ReadError || tls.AlertDescription.Error || error{
         InsufficientEntropy,
         DiskQuota,
         LockViolation,
         NotOpenForWriting,
-        TlsAlert,
         TlsUnexpectedMessage,
         TlsIllegalParameter,
         TlsDecryptFailure,
@@ -251,8 +250,11 @@ pub fn init(stream: anytype, ca_bundle: Certificate.Bundle, host: []const u8) In
                 const level = ptd.decode(tls.AlertLevel);
                 const desc = ptd.decode(tls.AlertDescription);
                 _ = level;
-                _ = desc;
-                return error.TlsAlert;
+
+                // if this isn't a error alert, then it's a closure alert, which makes no sense in a handshake
+                try desc.toError();
+                // TODO: handle server-side closures
+                return error.TlsUnexpectedMessage;
             },
             .handshake => {
                 try ptd.ensure(4);
@@ -1071,8 +1073,10 @@ pub fn readvAdvanced(c: *Client, stream: anytype, iovecs: []const std.os.iovec) 
                 const level = @intToEnum(tls.AlertLevel, frag[in]);
                 const desc = @intToEnum(tls.AlertDescription, frag[in + 1]);
                 _ = level;
-                _ = desc;
-                return error.TlsAlert;
+
+                try desc.toError();
+                // TODO: handle server-side closures
+                return error.TlsUnexpectedMessage;
             },
             .application_data => {
                 const cleartext = switch (c.application_cipher) {
@@ -1112,7 +1116,10 @@ pub fn readvAdvanced(c: *Client, stream: anytype, iovecs: []const std.os.iovec) 
                             return vp.total;
                         }
                         _ = level;
-                        return error.TlsAlert;
+
+                        try desc.toError();
+                        // TODO: handle server-side closures
+                        return error.TlsUnexpectedMessage;
                     },
                     .handshake => {
                         var ct_i: usize = 0;

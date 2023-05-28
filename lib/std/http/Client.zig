@@ -168,19 +168,23 @@ pub const Connection = struct {
         return switch (conn.protocol) {
             .plain => conn.stream.readAtLeast(buffer, len),
             .tls => conn.tls_client.readAtLeast(conn.stream, buffer, len),
-        } catch |err| switch (err) {
-            error.TlsConnectionTruncated, error.TlsRecordOverflow, error.TlsDecodeError, error.TlsBadRecordMac, error.TlsBadLength, error.TlsIllegalParameter, error.TlsUnexpectedMessage => return error.TlsFailure,
-            error.TlsAlert => return error.TlsAlert,
-            error.ConnectionTimedOut => return error.ConnectionTimedOut,
-            error.ConnectionResetByPeer, error.BrokenPipe => return error.ConnectionResetByPeer,
-            else => return error.UnexpectedReadFailure,
+        } catch |err| {
+            // TODO: https://github.com/ziglang/zig/issues/2473
+            if (mem.startsWith(u8, @errorName(err), "TlsAlert")) return error.TlsAlert;
+
+            switch (err) {
+                error.TlsConnectionTruncated, error.TlsRecordOverflow, error.TlsDecodeError, error.TlsBadRecordMac, error.TlsBadLength, error.TlsIllegalParameter, error.TlsUnexpectedMessage => return error.TlsFailure,
+                error.ConnectionTimedOut => return error.ConnectionTimedOut,
+                error.ConnectionResetByPeer, error.BrokenPipe => return error.ConnectionResetByPeer,
+                else => return error.UnexpectedReadFailure,
+            }
         };
     }
 
     pub fn fill(conn: *Connection) ReadError!void {
         if (conn.read_end != conn.read_start) return;
 
-        const nread = try conn.conn.read(conn.read_buf[0..]);
+        const nread = try conn.read(conn.read_buf[0..]);
         if (nread == 0) return error.EndOfStream;
         conn.read_start = 0;
         conn.read_end = @intCast(u16, nread);
@@ -204,8 +208,8 @@ pub const Connection = struct {
 
             if (available_read > available_buffer) { // partially read buffered data
                 @memcpy(buffer[out_index..], conn.read_buf[conn.read_start..][0..available_buffer]);
-                out_index += available_buffer;
-                conn.read_start += available_buffer;
+                out_index += @intCast(u16, available_buffer);
+                conn.read_start += @intCast(u16, available_buffer);
 
                 break;
             } else if (available_read > 0) { // fully read buffered data
@@ -759,7 +763,7 @@ pub const Request = struct {
                 try req.connection.data.fill();
 
                 const nchecked = try req.response.parser.checkCompleteHead(req.client.allocator, req.connection.data.peek());
-                req.connection.data.clear(@intCast(u16, nchecked));
+                req.connection.data.drop(@intCast(u16, nchecked));
             }
 
             if (has_trail) {
