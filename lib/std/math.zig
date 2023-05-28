@@ -1117,9 +1117,22 @@ pub fn alignCast(comptime alignment: u29, ptr: anytype) AlignCastError!@TypeOf(@
     return @alignCast(alignment, ptr);
 }
 
-pub fn isPowerOfTwo(v: anytype) bool {
-    assert(v != 0);
-    return (v & (v - 1)) == 0;
+/// Asserts `int > 0`.
+pub fn isPowerOfTwo(int: anytype) bool {
+    assert(int > 0);
+    return (int & (int - 1)) == 0;
+}
+
+test isPowerOfTwo {
+    try testing.expect(isPowerOfTwo(@as(u8, 1)));
+    try testing.expect(isPowerOfTwo(2));
+    try testing.expect(!isPowerOfTwo(@as(i16, 3)));
+    try testing.expect(isPowerOfTwo(4));
+    try testing.expect(!isPowerOfTwo(@as(u32, 31)));
+    try testing.expect(isPowerOfTwo(32));
+    try testing.expect(!isPowerOfTwo(@as(i64, 63)));
+    try testing.expect(isPowerOfTwo(128));
+    try testing.expect(isPowerOfTwo(@as(u128, 256)));
 }
 
 /// Aligns the given integer type bit width to a width divisible by 8.
