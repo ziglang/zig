@@ -184,7 +184,7 @@ pub const Connection = struct {
     pub fn fill(conn: *Connection) ReadError!void {
         if (conn.read_end != conn.read_start) return;
 
-        const nread = try conn.read(conn.read_buf[0..]);
+        const nread = try conn.rawReadAtLeast(conn.read_buf[0..], 1);
         if (nread == 0) return error.EndOfStream;
         conn.read_start = 0;
         conn.read_end = @intCast(u16, nread);
@@ -207,13 +207,13 @@ pub const Connection = struct {
             const available_buffer = buffer.len - out_index;
 
             if (available_read > available_buffer) { // partially read buffered data
-                @memcpy(buffer[out_index..], conn.read_buf[conn.read_start..][0..available_buffer]);
+                @memcpy(buffer[out_index..], conn.read_buf[conn.read_start..conn.read_end][0..available_buffer]);
                 out_index += @intCast(u16, available_buffer);
                 conn.read_start += @intCast(u16, available_buffer);
 
                 break;
             } else if (available_read > 0) { // fully read buffered data
-                @memcpy(buffer[out_index..][0..available_read], conn.read_buf[conn.read_start..]);
+                @memcpy(buffer[out_index..][0..available_read], conn.read_buf[conn.read_start..conn.read_end]);
                 out_index += available_read;
                 conn.read_start += available_read;
 
@@ -608,6 +608,8 @@ pub const Request = struct {
         try w.print("{}", .{req.headers});
 
         try w.writeAll("\r\n");
+
+        try buffered.flush();
     }
 
     pub const TransferReadError = Connection.ReadError || proto.HeadersParser.ReadError;
