@@ -6883,7 +6883,7 @@ fn getTagNameFunction(func: *CodeGen, enum_ty: Type) InnerError!u32 {
         return loc.index;
     }
 
-    const int_tag_ty = try enum_ty.intTagType(mod);
+    const int_tag_ty = enum_ty.intTagType(mod);
 
     if (int_tag_ty.bitSize(mod) > 64) {
         return func.fail("TODO: Implement @tagName for enums with tag size larger than 64 bits", .{});

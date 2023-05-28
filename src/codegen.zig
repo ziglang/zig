@@ -312,7 +312,7 @@ pub fn generateSymbol(
             }
         },
         .enum_tag => |enum_tag| {
-            const int_tag_ty = try typed_value.ty.intTagType(mod);
+            const int_tag_ty = typed_value.ty.intTagType(mod);
             switch (try generateSymbol(bin_file, src_loc, .{
                 .ty = int_tag_ty,
                 .val = try mod.getCoerced(enum_tag.int.toValue(), int_tag_ty),

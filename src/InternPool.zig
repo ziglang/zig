@@ -3131,7 +3131,8 @@ pub fn get(ip: *InternPool, gpa: Allocator, key: Key) Allocator.Error!Index {
         },
 
         .enum_type => |enum_type| {
-            assert(enum_type.tag_ty != .none);
+            assert(enum_type.tag_ty == .noreturn_type or ip.isIntegerType(enum_type.tag_ty));
+            for (enum_type.values) |value| assert(ip.typeOf(value) == enum_type.tag_ty);
             assert(enum_type.names_map == .none);
             assert(enum_type.values_map == .none);
 
@@ -3622,14 +3623,12 @@ pub fn get(ip: *InternPool, gpa: Allocator, key: Key) Allocator.Error!Index {
                     if (bytes.len != len) {
                         assert(bytes.len == len_including_sentinel);
                         assert(bytes[len] == ip.indexToKey(sentinel).int.storage.u64);
-                        unreachable;
                     }
                 },
                 .elems => |elems| {
                     if (elems.len != len) {
                         assert(elems.len == len_including_sentinel);
                         assert(elems[len] == sentinel);
-                        unreachable;
                     }
                 },
                 .repeated_elem => |elem| {
@@ -3832,7 +3831,7 @@ pub const IncompleteEnumType = struct {
     values_start: u32,
 
     pub fn setTagType(self: @This(), ip: *InternPool, tag_ty: Index) void {
-        assert(tag_ty != .none);
+        assert(tag_ty == .noreturn_type or ip.isIntegerType(tag_ty));
         ip.extra.items[self.tag_ty_index] = @enumToInt(tag_ty);
     }
 
@@ -3863,6 +3862,7 @@ pub const IncompleteEnumType = struct {
         gpa: Allocator,
         value: Index,
     ) Allocator.Error!?u32 {
+        assert(ip.typeOf(value) == @intToEnum(Index, ip.extra.items[self.tag_ty_index]));
         const map = &ip.maps.items[@enumToInt(self.values_map.unwrap().?)];
         const field_index = map.count();
         const indexes = ip.extra.items[self.values_start..][0..field_index];
@@ -4346,7 +4346,7 @@ pub fn sliceLen(ip: InternPool, i: Index) Index {
 /// * ptr <=> ptr
 /// * opt ptr <=> ptr
 /// * opt ptr <=> opt ptr
-/// * int => ptr
+/// * int <=> ptr
 /// * null_value => opt
 /// * payload => opt
 /// * error set <=> error set
@@ -4386,18 +4386,18 @@ pub fn getCoerced(ip: *InternPool, gpa: Allocator, val: Index, new_ty: Index) Al
                     .ty = new_ty,
                     .index = func.index,
                 } }),
-            .int => |int| if (ip.isIntegerType(new_ty))
-                return getCoercedInts(ip, gpa, int, new_ty)
-            else if (ip.isEnumType(new_ty))
-                return ip.get(gpa, .{ .enum_tag = .{
+            .int => |int| switch (ip.indexToKey(new_ty)) {
+                .enum_type => |enum_type| return ip.get(gpa, .{ .enum_tag = .{
                     .ty = new_ty,
-                    .int = val,
-                } })
-            else if (ip.isPointerType(new_ty))
-                return ip.get(gpa, .{ .ptr = .{
-                    .ty = new_ty,
-                    .addr = .{ .int = val },
+                    .int = try ip.getCoerced(gpa, val, enum_type.tag_ty),
                 } }),
+                .ptr_type => return ip.get(gpa, .{ .ptr = .{
+                    .ty = new_ty,
+                    .addr = .{ .int = try ip.getCoerced(gpa, val, .usize_type) },
+                } }),
+                else => if (ip.isIntegerType(new_ty))
+                    return getCoercedInts(ip, gpa, int, new_ty),
+            },
             .enum_tag => |enum_tag| if (ip.isIntegerType(new_ty))
                 return getCoercedInts(ip, gpa, ip.indexToKey(enum_tag.int).int, new_ty),
             .enum_literal => |enum_literal| switch (ip.indexToKey(new_ty)) {
@@ -4421,7 +4421,12 @@ pub fn getCoerced(ip: *InternPool, gpa: Allocator, val: Index, new_ty: Index) Al
                     .ty = new_ty,
                     .addr = ptr.addr,
                     .len = ptr.len,
-                } }),
+                } })
+            else if (ip.isIntegerType(new_ty))
+                switch (ptr.addr) {
+                    .int => |int| return ip.getCoerced(gpa, int, new_ty),
+                    else => {},
+                },
             .opt => |opt| if (ip.isPointerType(new_ty))
                 return switch (opt.val) {
                     .none => try ip.get(gpa, .{ .ptr = .{

@@ -2773,7 +2773,7 @@ pub const DeclGen = struct {
                 return dg.context.intType(info.bits);
             },
             .Enum => {
-                const int_ty = try t.intTagType(mod);
+                const int_ty = t.intTagType(mod);
                 const bit_count = int_ty.intInfo(mod).bits;
                 assert(bit_count != 0);
                 return dg.context.intType(bit_count);
@@ -4148,9 +4148,7 @@ pub const DeclGen = struct {
         const mod = dg.module;
         const int_ty = switch (ty.zigTypeTag(mod)) {
             .Int => ty,
-            .Enum => ty.intTagType(mod) catch |err| switch (err) {
-                error.OutOfMemory => @panic("OOM"),
-            },
+            .Enum => ty.intTagType(mod),
             .Float => {
                 if (!is_rmw_xchg) return null;
                 return dg.context.intType(@intCast(c_uint, ty.abiSize(mod) * 8));
@@ -5100,7 +5098,7 @@ pub const FuncGen = struct {
         const mod = self.dg.module;
         const scalar_ty = operand_ty.scalarType(mod);
         const int_ty = switch (scalar_ty.zigTypeTag(mod)) {
-            .Enum => try scalar_ty.intTagType(mod),
+            .Enum => scalar_ty.intTagType(mod),
             .Int, .Bool, .Pointer, .ErrorSet => scalar_ty,
             .Optional => blk: {
                 const payload_ty = operand_ty.optionalChild(mod);
