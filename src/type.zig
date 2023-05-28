@@ -2788,7 +2788,7 @@ pub const Type = struct {
 
     // Works for vectors and vectors of integers.
     pub fn minInt(ty: Type, mod: *Module, dest_ty: Type) !Value {
-        const scalar = try minIntScalar(ty.scalarType(mod), mod, dest_ty);
+        const scalar = try minIntScalar(ty.scalarType(mod), mod, dest_ty.scalarType(mod));
         return if (ty.zigTypeTag(mod) == .Vector) (try mod.intern(.{ .aggregate = .{
             .ty = dest_ty.toIntern(),
             .storage = .{ .repeated_elem = scalar.toIntern() },
@@ -2817,7 +2817,7 @@ pub const Type = struct {
     // Works for vectors and vectors of integers.
     /// The returned Value will have type dest_ty.
     pub fn maxInt(ty: Type, mod: *Module, dest_ty: Type) !Value {
-        const scalar = try maxIntScalar(ty.scalarType(mod), mod, dest_ty);
+        const scalar = try maxIntScalar(ty.scalarType(mod), mod, dest_ty.scalarType(mod));
         return if (ty.zigTypeTag(mod) == .Vector) (try mod.intern(.{ .aggregate = .{
             .ty = dest_ty.toIntern(),
             .storage = .{ .repeated_elem = scalar.toIntern() },
