@@ -302,10 +302,14 @@ fn printAggregate(
         var i: u32 = 0;
         while (i < max_len) : (i += 1) {
             if (i != 0) try writer.writeAll(", ");
-            switch (mod.intern_pool.indexToKey(ty.toIntern())) {
-                .struct_type, .anon_struct_type => try writer.print(".{s} = ", .{ty.structFieldName(i, mod)}),
-                else => {},
-            }
+            if (switch (mod.intern_pool.indexToKey(ty.toIntern())) {
+                .struct_type => |struct_type| mod.structPtrUnwrap(struct_type.index).?.fields.keys()[i],
+                .anon_struct_type => |anon_struct_type| if (anon_struct_type.isTuple())
+                    null
+                else
+                    mod.intern_pool.stringToSlice(anon_struct_type.names[i]),
+                else => unreachable,
+            }) |field_name| try writer.print(".{s} = ", .{field_name});
             try print(.{
                 .ty = ty.structFieldType(i, mod),
                 .val = try val.fieldValue(mod, i),

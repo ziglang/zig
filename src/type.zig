@@ -1842,17 +1842,15 @@ pub const Type = struct {
     /// See also `isPtrLikeOptional`.
     pub fn optionalReprIsPayload(ty: Type, mod: *const Module) bool {
         return switch (mod.intern_pool.indexToKey(ty.toIntern())) {
-            .opt_type => |child| switch (child.toType().zigTypeTag(mod)) {
-                .Pointer => {
-                    const info = child.toType().ptrInfo(mod);
-                    return switch (info.size) {
-                        .C => false,
-                        else => !info.@"allowzero",
-                    };
+            .opt_type => |child_type| switch (mod.intern_pool.indexToKey(child_type)) {
+                .ptr_type => |ptr_type| switch (ptr_type.size) {
+                    .C => false,
+                    .Slice, .Many, .One => !ptr_type.is_allowzero,
                 },
-                .ErrorSet => true,
+                .error_set_type => true,
                 else => false,
             },
+            .ptr_type => |ptr_type| ptr_type.size == .C,
             else => false,
         };
     }
@@ -2570,23 +2568,27 @@ pub const Type = struct {
 
                         return null;
                     },
-                    .auto, .explicit => switch (enum_type.names.len) {
-                        0 => return Value.@"unreachable",
-                        1 => {
-                            if (enum_type.values.len == 0) {
-                                const only = try mod.intern(.{ .enum_tag = .{
-                                    .ty = ty.toIntern(),
-                                    .int = try mod.intern(.{ .int = .{
-                                        .ty = enum_type.tag_ty,
-                                        .storage = .{ .u64 = 0 },
-                                    } }),
-                                } });
-                                return only.toValue();
-                            } else {
-                                return enum_type.values[0].toValue();
-                            }
-                        },
-                        else => return null,
+                    .auto, .explicit => {
+                        if (enum_type.tag_ty.toType().hasRuntimeBits(mod)) return null;
+
+                        switch (enum_type.names.len) {
+                            0 => return Value.@"unreachable",
+                            1 => {
+                                if (enum_type.values.len == 0) {
+                                    const only = try mod.intern(.{ .enum_tag = .{
+                                        .ty = ty.toIntern(),
+                                        .int = try mod.intern(.{ .int = .{
+                                            .ty = enum_type.tag_ty,
+                                            .storage = .{ .u64 = 0 },
+                                        } }),
+                                    } });
+                                    return only.toValue();
+                                } else {
+                                    return enum_type.values[0].toValue();
+                                }
+                            },
+                            else => return null,
+                        }
                     },
                 },
 
@@ -2887,7 +2889,7 @@ pub const Type = struct {
     }
 
     /// Asserts the type is an enum or a union.
-    pub fn intTagType(ty: Type, mod: *Module) !Type {
+    pub fn intTagType(ty: Type, mod: *Module) Type {
         return switch (mod.intern_pool.indexToKey(ty.toIntern())) {
             .union_type => |union_type| mod.unionPtr(union_type.index).tag_ty.intTagType(mod),
             .enum_type => |enum_type| enum_type.tag_ty.toType(),

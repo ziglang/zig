@@ -673,7 +673,7 @@ pub const Value = struct {
         while (true) switch (mod.intern_pool.indexToKey(check.toIntern())) {
             .ptr => |ptr| switch (ptr.addr) {
                 .decl, .mut_decl, .comptime_field => return true,
-                .eu_payload, .opt_payload => |index| check = index.toValue(),
+                .eu_payload, .opt_payload => |base| check = base.toValue(),
                 .elem, .field => |base_index| check = base_index.base.toValue(),
                 else => return false,
             },
@@ -943,22 +943,27 @@ pub const Value = struct {
                     return Value.true;
                 }
             },
-            .Int, .Enum => {
-                const int_info = ty.intInfo(mod);
+            .Int, .Enum => |ty_tag| {
+                const int_ty = switch (ty_tag) {
+                    .Int => ty,
+                    .Enum => ty.intTagType(mod),
+                    else => unreachable,
+                };
+                const int_info = int_ty.intInfo(mod);
                 const bits = int_info.bits;
                 const byte_count = (bits + 7) / 8;
-                if (bits == 0 or buffer.len == 0) return mod.intValue(ty, 0);
+                if (bits == 0 or buffer.len == 0) return mod.getCoerced(try mod.intValue(int_ty, 0), ty);
 
                 if (bits <= 64) switch (int_info.signedness) { // Fast path for integers <= u64
                     .signed => {
                         const val = std.mem.readVarInt(i64, buffer[0..byte_count], endian);
                         const result = (val << @intCast(u6, 64 - bits)) >> @intCast(u6, 64 - bits);
-                        return mod.intValue(ty, result);
+                        return mod.getCoerced(try mod.intValue(int_ty, result), ty);
                     },
                     .unsigned => {
                         const val = std.mem.readVarInt(u64, buffer[0..byte_count], endian);
                         const result = (val << @intCast(u6, 64 - bits)) >> @intCast(u6, 64 - bits);
-                        return mod.intValue(ty, result);
+                        return mod.getCoerced(try mod.intValue(int_ty, result), ty);
                     },
                 } else { // Slow path, we have to construct a big-int
                     const Limb = std.math.big.Limb;
@@ -967,7 +972,7 @@ pub const Value = struct {
 
                     var bigint = BigIntMutable.init(limbs_buffer, 0);
                     bigint.readTwosComplement(buffer[0..byte_count], bits, endian, int_info.signedness);
-                    return mod.intValue_big(ty, bigint.toConst());
+                    return mod.getCoerced(try mod.intValue_big(int_ty, bigint.toConst()), ty);
                 }
             },
             .Float => return (try mod.intern(.{ .float = .{
@@ -1583,7 +1588,7 @@ pub const Value = struct {
             .Enum => {
                 const a_val = try a.enumToInt(ty, mod);
                 const b_val = try b.enumToInt(ty, mod);
-                const int_ty = try ty.intTagType(mod);
+                const int_ty = ty.intTagType(mod);
                 return eqlAdvanced(a_val, int_ty, b_val, int_ty, mod, opt_sema);
             },
             .Array, .Vector => {
@@ -1835,7 +1840,8 @@ pub const Value = struct {
                 })).toValue(),
                 .ptr => |ptr| switch (ptr.addr) {
                     .decl => |decl| mod.declPtr(decl).val.elemValue(mod, index),
-                    .mut_decl => |mut_decl| mod.declPtr(mut_decl.decl).val.elemValue(mod, index),
+                    .mut_decl => |mut_decl| (try mod.declPtr(mut_decl.decl).internValue(mod))
+                        .toValue().elemValue(mod, index),
                     .int, .eu_payload, .opt_payload => unreachable,
                     .comptime_field => |field_val| field_val.toValue().elemValue(mod, index),
                     .elem => |elem| elem.base.toValue().elemValue(mod, index + elem.index),
@@ -1946,9 +1952,12 @@ pub const Value = struct {
         return switch (mod.intern_pool.indexToKey(val.toIntern())) {
             .ptr => |ptr| switch (ptr.addr) {
                 .decl => |decl| try mod.declPtr(decl).val.sliceArray(mod, arena, start, end),
-                .mut_decl => |mut_decl| try mod.declPtr(mut_decl.decl).val.sliceArray(mod, arena, start, end),
-                .comptime_field => |comptime_field| try comptime_field.toValue().sliceArray(mod, arena, start, end),
-                .elem => |elem| try elem.base.toValue().sliceArray(mod, arena, start + elem.index, end + elem.index),
+                .mut_decl => |mut_decl| (try mod.declPtr(mut_decl.decl).internValue(mod)).toValue()
+                    .sliceArray(mod, arena, start, end),
+                .comptime_field => |comptime_field| comptime_field.toValue()
+                    .sliceArray(mod, arena, start, end),
+                .elem => |elem| elem.base.toValue()
+                    .sliceArray(mod, arena, start + elem.index, end + elem.index),
                 else => unreachable,
             },
             .aggregate => |aggregate| (try mod.intern(.{ .aggregate = .{

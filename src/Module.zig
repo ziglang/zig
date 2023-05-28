@@ -707,6 +707,10 @@ pub const Decl = struct {
         return TypedValue{ .ty = decl.ty, .val = decl.val };
     }
 
+    pub fn internValue(decl: Decl, mod: *Module) Allocator.Error!InternPool.Index {
+        return decl.val.intern(decl.ty, mod);
+    }
+
     pub fn isFunction(decl: Decl, mod: *const Module) !bool {
         const tv = try decl.typedValue();
         return tv.ty.zigTypeTag(mod) == .Fn;
@@ -7073,7 +7077,7 @@ pub fn atomicPtrAlignment(
 
     const int_ty = switch (ty.zigTypeTag(mod)) {
         .Int => ty,
-        .Enum => try ty.intTagType(mod),
+        .Enum => ty.intTagType(mod),
         .Float => {
             const bit_count = ty.floatBits(target);
             if (bit_count > max_atomic_bits) {
