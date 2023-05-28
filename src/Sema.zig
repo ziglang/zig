@@ -5732,7 +5732,7 @@ pub fn analyzeExport(
             errdefer msg.destroy(sema.gpa);
 
             const src_decl = sema.mod.declPtr(block.src_decl);
-            try sema.explainWhyTypeIsNotExtern(msg, src.toSrcLoc(src_decl), exported_decl.ty, .other);
+            try sema.explainWhyTypeIsNotExtern(block, src, msg, src.toSrcLoc(src_decl), exported_decl.ty, .other);
 
             try sema.addDeclaredHereNote(msg, exported_decl.ty);
             break :msg msg;
@@ -8994,7 +8994,7 @@ fn funcCommon(
                 errdefer msg.destroy(sema.gpa);
 
                 const src_decl = sema.mod.declPtr(block.src_decl);
-                try sema.explainWhyTypeIsNotExtern(msg, ret_ty_src.toSrcLoc(src_decl), return_type, .ret_ty);
+                try sema.explainWhyTypeIsNotExtern(block, ret_ty_src, msg, ret_ty_src.toSrcLoc(src_decl), return_type, .ret_ty);
 
                 try sema.addDeclaredHereNote(msg, return_type);
                 break :msg msg;
@@ -9221,7 +9221,7 @@ fn analyzeParameter(
             errdefer msg.destroy(sema.gpa);
 
             const src_decl = sema.mod.declPtr(block.src_decl);
-            try sema.explainWhyTypeIsNotExtern(msg, param_src.toSrcLoc(src_decl), param.ty, .param_ty);
+            try sema.explainWhyTypeIsNotExtern(block, param_src, msg, param_src.toSrcLoc(src_decl), param.ty, .param_ty);
 
             try sema.addDeclaredHereNote(msg, param.ty);
             break :msg msg;
@@ -17620,7 +17620,7 @@ fn zirPtrType(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
                 errdefer msg.destroy(sema.gpa);
 
                 const src_decl = sema.mod.declPtr(block.src_decl);
-                try sema.explainWhyTypeIsNotExtern(msg, elem_ty_src.toSrcLoc(src_decl), elem_ty, .other);
+                try sema.explainWhyTypeIsNotExtern(block, elem_ty_src, msg, elem_ty_src.toSrcLoc(src_decl), elem_ty, .other);
 
                 try sema.addDeclaredHereNote(msg, elem_ty);
                 break :msg msg;
@@ -18734,7 +18734,7 @@ fn zirReify(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstData, in
                         errdefer msg.destroy(sema.gpa);
 
                         const src_decl = sema.mod.declPtr(block.src_decl);
-                        try sema.explainWhyTypeIsNotExtern(msg, src.toSrcLoc(src_decl), elem_ty, .other);
+                        try sema.explainWhyTypeIsNotExtern(block, src, msg, src.toSrcLoc(src_decl), elem_ty, .other);
 
                         try sema.addDeclaredHereNote(msg, elem_ty);
                         break :msg msg;
@@ -19188,7 +19188,7 @@ fn zirReify(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstData, in
                         errdefer msg.destroy(sema.gpa);
 
                         const src_decl = sema.mod.declPtr(block.src_decl);
-                        try sema.explainWhyTypeIsNotExtern(msg, src.toSrcLoc(src_decl), field_ty, .union_field);
+                        try sema.explainWhyTypeIsNotExtern(block, src, msg, src.toSrcLoc(src_decl), field_ty, .union_field);
 
                         try sema.addDeclaredHereNote(msg, field_ty);
                         break :msg msg;
@@ -19486,7 +19486,7 @@ fn reifyStruct(
                 errdefer msg.destroy(sema.gpa);
 
                 const src_decl = sema.mod.declPtr(block.src_decl);
-                try sema.explainWhyTypeIsNotExtern(msg, src.toSrcLoc(src_decl), field_ty, .struct_field);
+                try sema.explainWhyTypeIsNotExtern(block, src, msg, src.toSrcLoc(src_decl), field_ty, .struct_field);
 
                 try sema.addDeclaredHereNote(msg, field_ty);
                 break :msg msg;
@@ -19616,7 +19616,7 @@ fn zirCVaArg(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstData) C
             errdefer msg.destroy(sema.gpa);
 
             const src_decl = sema.mod.declPtr(block.src_decl);
-            try sema.explainWhyTypeIsNotExtern(msg, ty_src.toSrcLoc(src_decl), arg_ty, .param_ty);
+            try sema.explainWhyTypeIsNotExtern(block, ty_src, msg, ty_src.toSrcLoc(src_decl), arg_ty, .param_ty);
 
             try sema.addDeclaredHereNote(msg, arg_ty);
             break :msg msg;
@@ -22891,7 +22891,7 @@ fn zirBuiltinExtern(
             const msg = try sema.errMsg(block, ty_src, "extern symbol cannot have type '{}'", .{ty.fmt(mod)});
             errdefer msg.destroy(sema.gpa);
             const src_decl = sema.mod.declPtr(block.src_decl);
-            try sema.explainWhyTypeIsNotExtern(msg, ty_src.toSrcLoc(src_decl), ty, .other);
+            try sema.explainWhyTypeIsNotExtern(block, ty_src, msg, ty_src.toSrcLoc(src_decl), ty, .other);
             break :msg msg;
         };
         return sema.failWithOwnedErrorMsg(msg);
@@ -23033,7 +23033,7 @@ fn validateVarType(
             const msg = try sema.errMsg(block, src, "extern variable cannot have type '{}'", .{var_ty.fmt(mod)});
             errdefer msg.destroy(sema.gpa);
             const src_decl = mod.declPtr(block.src_decl);
-            try sema.explainWhyTypeIsNotExtern(msg, src.toSrcLoc(src_decl), var_ty, .other);
+            try sema.explainWhyTypeIsNotExtern(block, src, msg, src.toSrcLoc(src_decl), var_ty, .other);
             break :msg msg;
         };
         return sema.failWithOwnedErrorMsg(msg);
@@ -23277,7 +23277,14 @@ fn validateExternType(
         .Float,
         .AnyFrame,
         => return true,
-        .Pointer => return if (ty.isSlice()) false else sema.validateExternType(ty.childType(), position),
+        .Pointer => {
+            const pointee_ty = ty.elemType2();
+            if (pointee_ty.zigTypeTag() == .Pointer) {
+                return try sema.validateExternType(pointee_ty);
+            } else {
+                return !(ty.isSlice() or try sema.typeRequiresComptime(ty));
+            }
+        },
         .Int => switch (ty.intInfo(sema.mod.getTarget()).bits) {
             8, 16, 32, 64, 128 => return true,
             else => return false,
@@ -23319,6 +23326,8 @@ fn validateExternType(
 
 fn explainWhyTypeIsNotExtern(
     sema: *Sema,
+    block: *Block,
+    src: LazySrcLoc,
     msg: *Module.ErrorMsg,
     src_loc: Module.SrcLoc,
     ty: Type,
@@ -23344,10 +23353,16 @@ fn explainWhyTypeIsNotExtern(
         => return,
 
         .Pointer => {
-            if (ty.isSlice()) {
-                try mod.errNoteNonLazy(src_loc, msg, "slices have no guaranteed in-memory representation", .{});
+            const pointee_ty = ty.elemType2();
+            if (pointee_ty.zigTypeTag() == .Pointer) {
+                try sema.explainWhyTypeIsNotExtern(block, src, msg, src_loc, pointee_ty, position);
             } else {
-                try sema.explainWhyTypeIsNotExtern(msg, src_loc, ty.childType(), position);
+                if (ty.isSlice()) {
+                    try mod.errNoteNonLazy(src_loc, msg, "slices have no guaranteed in-memory representation", .{});
+                } else {
+                    try mod.errNoteNonLazy(src_loc, msg, "pointer to comptime-only type '{}'", .{pointee_ty.fmt(sema.mod)});
+                    try sema.explainWhyTypeIsComptime(block, src, msg, src_loc, pointee_ty);
+                }
             }
         },
         .Void => try mod.errNoteNonLazy(src_loc, msg, "'void' is a zero bit type; for C 'void' use 'anyopaque'", .{}),
@@ -23374,7 +23389,7 @@ fn explainWhyTypeIsNotExtern(
             var buf: Type.Payload.Bits = undefined;
             const tag_ty = ty.intTagType(&buf);
             try mod.errNoteNonLazy(src_loc, msg, "enum tag type '{}' is not extern compatible", .{tag_ty.fmt(sema.mod)});
-            try sema.explainWhyTypeIsNotExtern(msg, src_loc, tag_ty, position);
+            try sema.explainWhyTypeIsNotExtern(block, src, msg, src_loc, tag_ty, position);
         },
         .Struct => try mod.errNoteNonLazy(src_loc, msg, "only extern structs and ABI sized packed structs are extern compatible", .{}),
         .Union => try mod.errNoteNonLazy(src_loc, msg, "only extern unions and ABI sized packed unions are extern compatible", .{}),
@@ -23384,9 +23399,9 @@ fn explainWhyTypeIsNotExtern(
             } else if (position == .param_ty) {
                 return mod.errNoteNonLazy(src_loc, msg, "arrays are not allowed as a parameter type", .{});
             }
-            try sema.explainWhyTypeIsNotExtern(msg, src_loc, ty.elemType2(), .element);
+            try sema.explainWhyTypeIsNotExtern(block, src, msg, src_loc, ty.elemType2(), .element);
         },
-        .Vector => try sema.explainWhyTypeIsNotExtern(msg, src_loc, ty.elemType2(), .element),
+        .Vector => try sema.explainWhyTypeIsNotExtern(block, src, msg, src_loc, ty.elemType2(), .element),
         .Optional => try mod.errNoteNonLazy(src_loc, msg, "only pointer like optionals are extern compatible", .{}),
     }
 }
@@ -27041,7 +27056,7 @@ fn coerceVarArgParam(
             errdefer msg.destroy(sema.gpa);
 
             const src_decl = sema.mod.declPtr(block.src_decl);
-            try sema.explainWhyTypeIsNotExtern(msg, inst_src.toSrcLoc(src_decl), coerced_ty, .param_ty);
+            try sema.explainWhyTypeIsNotExtern(block, inst_src, msg, inst_src.toSrcLoc(src_decl), coerced_ty, .param_ty);
 
             try sema.addDeclaredHereNote(msg, coerced_ty);
             break :msg msg;
@@ -31943,7 +31958,7 @@ fn semaStructFields(mod: *Module, struct_obj: *Module.Struct) CompileError!void 
                 const msg = try sema.errMsg(&block_scope, ty_src.lazy, "extern structs cannot contain fields of type '{}'", .{field.ty.fmt(sema.mod)});
                 errdefer msg.destroy(sema.gpa);
 
-                try sema.explainWhyTypeIsNotExtern(msg, ty_src, field.ty, .struct_field);
+                try sema.explainWhyTypeIsNotExtern(&block_scope, ty_src.lazy, msg, ty_src, field.ty, .struct_field);
 
                 try sema.addDeclaredHereNote(msg, field.ty);
                 break :msg msg;
@@ -32353,7 +32368,7 @@ fn semaUnionFields(mod: *Module, union_obj: *Module.Union) CompileError!void {
                 const msg = try sema.errMsg(&block_scope, ty_src.lazy, "extern unions cannot contain fields of type '{}'", .{field_ty.fmt(sema.mod)});
                 errdefer msg.destroy(sema.gpa);
 
-                try sema.explainWhyTypeIsNotExtern(msg, ty_src, field_ty, .union_field);
+                try sema.explainWhyTypeIsNotExtern(&block_scope, ty_src.lazy, msg, ty_src, field_ty, .union_field);
 
                 try sema.addDeclaredHereNote(msg, field_ty);
                 break :msg msg;
