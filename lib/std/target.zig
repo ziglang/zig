@@ -870,8 +870,6 @@ pub const Target = struct {
             renderscript32,
             renderscript64,
             ve,
-            // Stage1 currently assumes that architectures above this comment
-            // map one-to-one with the ZigLLVM_ArchType enum.
             spu_2,
 
             pub fn isX86(arch: Arch) bool {
