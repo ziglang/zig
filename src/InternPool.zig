@@ -4250,6 +4250,8 @@ pub fn sliceLen(ip: InternPool, i: Index) Index {
 /// * int <=> enum
 /// * enum_literal => enum
 /// * ptr <=> ptr
+/// * opt ptr <=> ptr
+/// * opt ptr <=> opt ptr
 /// * int => ptr
 /// * null_value => opt
 /// * payload => opt
@@ -4258,9 +4260,6 @@ pub fn sliceLen(ip: InternPool, i: Index) Index {
 /// * error set => error union
 /// * payload => error union
 /// * fn <=> fn
-/// * array <=> array
-/// * array <=> vector
-/// * vector <=> vector
 pub fn getCoerced(ip: *InternPool, gpa: Allocator, val: Index, new_ty: Index) Allocator.Error!Index {
     const old_ty = ip.typeOf(val);
     if (old_ty == new_ty) return val;
@@ -4270,6 +4269,15 @@ pub fn getCoerced(ip: *InternPool, gpa: Allocator, val: Index, new_ty: Index) Al
             return ip.get(gpa, .{ .opt = .{
                 .ty = new_ty,
                 .val = .none,
+            } })
+        else if (ip.isPointerType(new_ty))
+            return ip.get(gpa, .{ .ptr = .{
+                .ty = new_ty,
+                .addr = .{ .int = .zero_usize },
+                .len = switch (ip.indexToKey(new_ty).ptr_type.size) {
+                    .One, .Many, .C => .none,
+                    .Slice => try ip.get(gpa, .{ .undef = .usize_type }),
+                },
             } }),
         else => switch (ip.indexToKey(val)) {
             .undef => return ip.get(gpa, .{ .undef = new_ty }),
@@ -4320,6 +4328,18 @@ pub fn getCoerced(ip: *InternPool, gpa: Allocator, val: Index, new_ty: Index) Al
                     .addr = ptr.addr,
                     .len = ptr.len,
                 } }),
+            .opt => |opt| if (ip.isPointerType(new_ty))
+                return switch (opt.val) {
+                    .none => try ip.get(gpa, .{ .ptr = .{
+                        .ty = new_ty,
+                        .addr = .{ .int = .zero_usize },
+                        .len = switch (ip.indexToKey(new_ty).ptr_type.size) {
+                            .One, .Many, .C => .none,
+                            .Slice => try ip.get(gpa, .{ .undef = .usize_type }),
+                        },
+                    } }),
+                    else => try ip.getCoerced(gpa, opt.val, new_ty),
+                },
             .err => |err| if (ip.isErrorSetType(new_ty))
                 return ip.get(gpa, .{ .err = .{
                     .ty = new_ty,
@@ -4335,14 +4355,6 @@ pub fn getCoerced(ip: *InternPool, gpa: Allocator, val: Index, new_ty: Index) Al
                     .ty = new_ty,
                     .val = error_union.val,
                 } }),
-            .aggregate => |aggregate| return ip.get(gpa, .{ .aggregate = .{
-                .ty = new_ty,
-                .storage = switch (aggregate.storage) {
-                    .bytes => |bytes| .{ .bytes = bytes[0..@intCast(usize, ip.aggregateTypeLen(new_ty))] },
-                    .elems => |elems| .{ .elems = elems[0..@intCast(usize, ip.aggregateTypeLen(new_ty))] },
-                    .repeated_elem => |elem| .{ .repeated_elem = elem },
-                },
-            } }),
             else => {},
         },
     }
@@ -4364,8 +4376,10 @@ pub fn getCoerced(ip: *InternPool, gpa: Allocator, val: Index, new_ty: Index) Al
         else => {},
     }
     if (std.debug.runtime_safety) {
-        std.debug.panic("val={any} new_ty={any}\n", .{
-            ip.items.get(@enumToInt(val)), ip.items.get(@enumToInt(new_ty)),
+        std.debug.panic("InternPool.getCoerced of {s} not implemented from {s} to {s}", .{
+            @tagName(ip.indexToKey(val)),
+            @tagName(ip.indexToKey(old_ty)),
+            @tagName(ip.indexToKey(new_ty)),
         });
     }
     unreachable;
@@ -4505,6 +4519,13 @@ pub fn isInferredErrorSetType(ip: InternPool, ty: Index) bool {
 
 pub fn isErrorUnionType(ip: InternPool, ty: Index) bool {
     return ip.indexToKey(ty) == .error_union_type;
+}
+
+pub fn isAggregateType(ip: InternPool, ty: Index) bool {
+    return switch (ip.indexToKey(ty)) {
+        .array_wype, .vector_type, .anon_struct_type, .struct_type => true,
+        else => false,
+    };
 }
 
 /// The is only legal because the initializer is not part of the hash.

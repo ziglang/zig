@@ -24,7 +24,7 @@ test "issue 6456" {
                 .alignment = 0,
                 .name = name,
                 .type = usize,
-                .default_value = &@as(?usize, null),
+                .default_value = null,
                 .is_comptime = false,
             }};
         }

@@ -2340,16 +2340,16 @@ pub const Value = struct {
                 const lhs_elem = try lhs.elemValue(mod, i);
                 const rhs_elem = try rhs.elemValue(mod, i);
                 const of_math_result = try intMulWithOverflowScalar(lhs_elem, rhs_elem, scalar_ty, arena, mod);
-                of.* = try of_math_result.overflow_bit.intern(Type.bool, mod);
+                of.* = try of_math_result.overflow_bit.intern(Type.u1, mod);
                 scalar.* = try of_math_result.wrapped_result.intern(scalar_ty, mod);
             }
             return OverflowArithmeticResult{
                 .overflow_bit = (try mod.intern(.{ .aggregate = .{
-                    .ty = ty.toIntern(),
+                    .ty = (try mod.vectorType(.{ .len = vec_len, .child = .u1_type })).toIntern(),
                     .storage = .{ .elems = overflowed_data },
                 } })).toValue(),
                 .wrapped_result = (try mod.intern(.{ .aggregate = .{
-                    .ty = (try mod.vectorType(.{ .len = vec_len, .child = .u1_type })).toIntern(),
+                    .ty = ty.toIntern(),
                     .storage = .{ .elems = result_data },
                 } })).toValue(),
             };
@@ -3090,16 +3090,16 @@ pub const Value = struct {
                 const lhs_elem = try lhs.elemValue(mod, i);
                 const rhs_elem = try rhs.elemValue(mod, i);
                 const of_math_result = try shlWithOverflowScalar(lhs_elem, rhs_elem, scalar_ty, allocator, mod);
-                of.* = try of_math_result.overflow_bit.intern(Type.bool, mod);
+                of.* = try of_math_result.overflow_bit.intern(Type.u1, mod);
                 scalar.* = try of_math_result.wrapped_result.intern(scalar_ty, mod);
             }
             return OverflowArithmeticResult{
                 .overflow_bit = (try mod.intern(.{ .aggregate = .{
-                    .ty = ty.toIntern(),
+                    .ty = (try mod.vectorType(.{ .len = vec_len, .child = .u1_type })).toIntern(),
                     .storage = .{ .elems = overflowed_data },
                 } })).toValue(),
                 .wrapped_result = (try mod.intern(.{ .aggregate = .{
-                    .ty = (try mod.vectorType(.{ .len = vec_len, .child = .u1_type })).toIntern(),
+                    .ty = ty.toIntern(),
                     .storage = .{ .elems = result_data },
                 } })).toValue(),
             };

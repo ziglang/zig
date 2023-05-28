@@ -3396,7 +3396,7 @@ pub const DeclGen = struct {
                 const llvm_ptr_val = switch (ptr.addr) {
                     .decl => |decl| try dg.lowerDeclRefValue(ptr_tv, decl),
                     .mut_decl => |mut_decl| try dg.lowerDeclRefValue(ptr_tv, mut_decl.decl),
-                    .int => |int| dg.lowerIntAsPtr(mod.intern_pool.indexToKey(int).int),
+                    .int => |int| try dg.lowerIntAsPtr(mod.intern_pool.indexToKey(int)),
                     .eu_payload,
                     .opt_payload,
                     .elem,
@@ -3796,11 +3796,20 @@ pub const DeclGen = struct {
         }
     }
 
-    fn lowerIntAsPtr(dg: *DeclGen, int: InternPool.Key.Int) *llvm.Value {
-        var bigint_space: Value.BigIntSpace = undefined;
-        const bigint = int.storage.toBigInt(&bigint_space);
-        const llvm_int = lowerBigInt(dg, Type.usize, bigint);
-        return llvm_int.constIntToPtr(dg.context.pointerType(0));
+    fn lowerIntAsPtr(dg: *DeclGen, int_key: InternPool.Key) Error!*llvm.Value {
+        switch (int_key) {
+            .undef => {
+                const llvm_usize = try dg.lowerType(Type.usize);
+                return llvm_usize.getUndef();
+            },
+            .int => |int| {
+                var bigint_space: Value.BigIntSpace = undefined;
+                const bigint = int.storage.toBigInt(&bigint_space);
+                const llvm_int = lowerBigInt(dg, Type.usize, bigint);
+                return llvm_int.constIntToPtr(dg.context.pointerType(0));
+            },
+            else => unreachable,
+        }
     }
 
     fn lowerBigInt(dg: *DeclGen, ty: Type, bigint: std.math.big.int.Const) *llvm.Value {
@@ -3848,11 +3857,11 @@ pub const DeclGen = struct {
         const mod = dg.module;
         const target = mod.getTarget();
         return switch (mod.intern_pool.indexToKey(ptr_val.toIntern())) {
-            .int => |int| dg.lowerIntAsPtr(int),
+            .int => |int| dg.lowerIntAsPtr(.{ .int = int }),
             .ptr => |ptr| switch (ptr.addr) {
                 .decl => |decl| dg.lowerParentPtrDecl(ptr_val, decl),
                 .mut_decl => |mut_decl| dg.lowerParentPtrDecl(ptr_val, mut_decl.decl),
-                .int => |int| dg.lowerIntAsPtr(mod.intern_pool.indexToKey(int).int),
+                .int => |int| dg.lowerIntAsPtr(mod.intern_pool.indexToKey(int)),
                 .eu_payload => |eu_ptr| {
                     const parent_llvm_ptr = try dg.lowerParentPtr(eu_ptr.toValue(), true);
 

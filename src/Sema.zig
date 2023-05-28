@@ -6381,8 +6381,7 @@ fn zirCall(
     var input_is_error = false;
     const block_index = @intCast(Air.Inst.Index, block.instructions.items.len);
 
-    const func_ty_info = mod.typeToFunc(func_ty).?;
-    const fn_params_len = func_ty_info.param_types.len;
+    const fn_params_len = mod.typeToFunc(func_ty).?.param_types.len;
     const parent_comptime = block.is_comptime;
     // `extra_index` and `arg_index` are separate since the bound function is passed as the first argument.
     var extra_index: usize = 0;
@@ -6391,6 +6390,7 @@ fn zirCall(
         extra_index += 1;
         arg_index += 1;
     }) {
+        const func_ty_info = mod.typeToFunc(func_ty).?;
         const arg_end = sema.code.extra[extra.end + extra_index];
         defer arg_start = arg_end;
 
@@ -6876,7 +6876,11 @@ fn analyzeCall(
             .args_count = @intCast(u32, func_ty_info.param_types.len),
         };
         var delete_memoized_call_key = false;
-        defer if (delete_memoized_call_key) mod.memoized_call_args.shrinkRetainingCapacity(memoized_call_key.args_index);
+        defer if (delete_memoized_call_key) {
+            assert(mod.memoized_call_args.items.len >= memoized_call_key.args_index and
+                mod.memoized_call_args.items.len < memoized_call_key.args_index + memoized_call_key.args_count);
+            mod.memoized_call_args.shrinkRetainingCapacity(memoized_call_key.args_index);
+        };
         if (is_comptime_call) {
             try mod.memoized_call_args.ensureUnusedCapacity(gpa, memoized_call_key.args_count);
             delete_memoized_call_key = true;
@@ -6990,14 +6994,22 @@ fn analyzeCall(
                     .{ .args = &mod.memoized_call_args },
                 );
                 if (gop.found_existing) {
+                    assert(mod.memoized_call_args.items.len == memoized_call_key.args_index + memoized_call_key.args_count);
+                    mod.memoized_call_args.shrinkRetainingCapacity(memoized_call_key.args_index);
+                    delete_memoized_call_key = false;
+
                     // We need to use the original memoized error set instead of fn_ret_ty.
                     const result = gop.value_ptr.*;
                     assert(result != .none); // recursive memoization?
+
                     break :res2 try sema.addConstant(mod.intern_pool.typeOf(result).toType(), result.toValue());
                 }
                 gop.value_ptr.* = .none;
-                delete_memoized_call_key = false;
+            } else if (delete_memoized_call_key) {
+                assert(mod.memoized_call_args.items.len == memoized_call_key.args_index + memoized_call_key.args_count);
+                mod.memoized_call_args.shrinkRetainingCapacity(memoized_call_key.args_index);
             }
+            delete_memoized_call_key = false;
 
             const new_func_resolved_ty = try mod.funcType(new_fn_info);
             if (!is_comptime_call and !block.is_typeof) {
@@ -14324,13 +14336,14 @@ fn zirOverflowArithmetic(
     const maybe_rhs_val = try sema.resolveMaybeUndefVal(rhs);
 
     const tuple_ty = try sema.overflowArithmeticTupleType(dest_ty);
+    const overflow_ty = mod.intern_pool.indexToKey(tuple_ty.toIntern()).anon_struct_type.types[1].toType();
 
     var result: struct {
         inst: Air.Inst.Ref = .none,
         wrapped: Value = Value.@"unreachable",
         overflow_bit: Value,
     } = result: {
-        const zero = try mod.intValue(dest_ty.scalarType(mod), 0);
+        const zero_bit = try mod.intValue(Type.u1, 0);
         switch (zir_tag) {
             .add_with_overflow => {
                 // If either of the arguments is zero, `false` is returned and the other is stored
@@ -14338,12 +14351,12 @@ fn zirOverflowArithmetic(
                 // Otherwise, if either of the argument is undefined, undefined is returned.
                 if (maybe_lhs_val) |lhs_val| {
                     if (!lhs_val.isUndef(mod) and (try lhs_val.compareAllWithZeroAdvanced(.eq, sema))) {
-                        break :result .{ .overflow_bit = try sema.splat(dest_ty, zero), .inst = rhs };
+                        break :result .{ .overflow_bit = try sema.splat(overflow_ty, zero_bit), .inst = rhs };
                     }
                 }
                 if (maybe_rhs_val) |rhs_val| {
                     if (!rhs_val.isUndef(mod) and (try rhs_val.compareAllWithZeroAdvanced(.eq, sema))) {
-                        break :result .{ .overflow_bit = try sema.splat(dest_ty, zero), .inst = lhs };
+                        break :result .{ .overflow_bit = try sema.splat(overflow_ty, zero_bit), .inst = lhs };
                     }
                 }
                 if (maybe_lhs_val) |lhs_val| {
@@ -14364,7 +14377,7 @@ fn zirOverflowArithmetic(
                     if (rhs_val.isUndef(mod)) {
                         break :result .{ .overflow_bit = Value.undef, .wrapped = Value.undef };
                     } else if (try rhs_val.compareAllWithZeroAdvanced(.eq, sema)) {
-                        break :result .{ .overflow_bit = try sema.splat(dest_ty, zero), .inst = lhs };
+                        break :result .{ .overflow_bit = try sema.splat(overflow_ty, zero_bit), .inst = lhs };
                     } else if (maybe_lhs_val) |lhs_val| {
                         if (lhs_val.isUndef(mod)) {
                             break :result .{ .overflow_bit = Value.undef, .wrapped = Value.undef };
@@ -14383,9 +14396,9 @@ fn zirOverflowArithmetic(
                 if (maybe_lhs_val) |lhs_val| {
                     if (!lhs_val.isUndef(mod)) {
                         if (try lhs_val.compareAllWithZeroAdvanced(.eq, sema)) {
-                            break :result .{ .overflow_bit = try sema.splat(dest_ty, zero), .inst = lhs };
+                            break :result .{ .overflow_bit = try sema.splat(overflow_ty, zero_bit), .inst = lhs };
                         } else if (try sema.compareAll(lhs_val, .eq, try sema.splat(dest_ty, scalar_one), dest_ty)) {
-                            break :result .{ .overflow_bit = try sema.splat(dest_ty, zero), .inst = rhs };
+                            break :result .{ .overflow_bit = try sema.splat(overflow_ty, zero_bit), .inst = rhs };
                         }
                     }
                 }
@@ -14393,9 +14406,9 @@ fn zirOverflowArithmetic(
                 if (maybe_rhs_val) |rhs_val| {
                     if (!rhs_val.isUndef(mod)) {
                         if (try rhs_val.compareAllWithZeroAdvanced(.eq, sema)) {
-                            break :result .{ .overflow_bit = try sema.splat(dest_ty, zero), .inst = rhs };
+                            break :result .{ .overflow_bit = try sema.splat(overflow_ty, zero_bit), .inst = rhs };
                         } else if (try sema.compareAll(rhs_val, .eq, try sema.splat(dest_ty, scalar_one), dest_ty)) {
-                            break :result .{ .overflow_bit = try sema.splat(dest_ty, zero), .inst = lhs };
+                            break :result .{ .overflow_bit = try sema.splat(overflow_ty, zero_bit), .inst = lhs };
                         }
                     }
                 }
@@ -14417,12 +14430,12 @@ fn zirOverflowArithmetic(
                 // Oterhwise if either of the arguments is undefined, both results are undefined.
                 if (maybe_lhs_val) |lhs_val| {
                     if (!lhs_val.isUndef(mod) and (try lhs_val.compareAllWithZeroAdvanced(.eq, sema))) {
-                        break :result .{ .overflow_bit = try sema.splat(dest_ty, zero), .inst = lhs };
+                        break :result .{ .overflow_bit = try sema.splat(overflow_ty, zero_bit), .inst = lhs };
                     }
                 }
                 if (maybe_rhs_val) |rhs_val| {
                     if (!rhs_val.isUndef(mod) and (try rhs_val.compareAllWithZeroAdvanced(.eq, sema))) {
-                        break :result .{ .overflow_bit = try sema.splat(dest_ty, zero), .inst = lhs };
+                        break :result .{ .overflow_bit = try sema.splat(overflow_ty, zero_bit), .inst = lhs };
                     }
                 }
                 if (maybe_lhs_val) |lhs_val| {
@@ -14922,13 +14935,18 @@ fn analyzeArithmetic(
                     .ComptimeInt, .Int => try mod.intValue(scalar_type, 0),
                     else => unreachable,
                 };
+                const scalar_one = switch (scalar_tag) {
+                    .ComptimeFloat, .Float => try mod.floatValue(scalar_type, 1.0),
+                    .ComptimeInt, .Int => try mod.intValue(scalar_type, 1),
+                    else => unreachable,
+                };
                 if (maybe_lhs_val) |lhs_val| {
                     if (!lhs_val.isUndef(mod)) {
                         if (try lhs_val.compareAllWithZeroAdvanced(.eq, sema)) {
                             const zero_val = try sema.splat(resolved_type, scalar_zero);
                             return sema.addConstant(resolved_type, zero_val);
                         }
-                        if (try sema.compareAll(lhs_val, .eq, try mod.intValue(resolved_type, 1), resolved_type)) {
+                        if (try sema.compareAll(lhs_val, .eq, try sema.splat(resolved_type, scalar_one), resolved_type)) {
                             return casted_rhs;
                         }
                     }
@@ -14941,7 +14959,7 @@ fn analyzeArithmetic(
                         const zero_val = try sema.splat(resolved_type, scalar_zero);
                         return sema.addConstant(resolved_type, zero_val);
                     }
-                    if (try sema.compareAll(rhs_val, .eq, try mod.intValue(resolved_type, 1), resolved_type)) {
+                    if (try sema.compareAll(rhs_val, .eq, try sema.splat(resolved_type, scalar_one), resolved_type)) {
                         return casted_lhs;
                     }
                     if (maybe_lhs_val) |lhs_val| {
@@ -19219,10 +19237,9 @@ fn zirReify(
             try names.ensureUnusedCapacity(sema.arena, len);
             for (0..len) |i| {
                 const elem_val = try payload_val.elemValue(mod, i);
-                const struct_val = elem_val.castTag(.aggregate).?.data;
-                // TODO use reflection instead of magic numbers here
-                // error_set: type,
-                const name_val = struct_val[0];
+                const elem_fields = ip.typeOf(elem_val.toIntern()).toType().structFields(mod);
+                const name_val = try elem_val.fieldValue(mod, elem_fields.getIndex("name").?);
+
                 const name_str = try name_val.toAllocatedBytes(Type.slice_const_u8, sema.arena, mod);
                 const name_ip = try mod.intern_pool.getOrPutString(gpa, name_str);
                 const gop = names.getOrPutAssumeCapacity(name_ip);
@@ -19303,12 +19320,9 @@ fn zirReify(
 
             for (0..fields_len) |field_i| {
                 const elem_val = try fields_val.elemValue(mod, field_i);
-                const field_struct_val: []const Value = elem_val.castTag(.aggregate).?.data;
-                // TODO use reflection instead of magic numbers here
-                // name: []const u8
-                const name_val = field_struct_val[0];
-                // value: comptime_int
-                const value_val = field_struct_val[1];
+                const elem_fields = ip.typeOf(elem_val.toIntern()).toType().structFields(mod);
+                const name_val = try elem_val.fieldValue(mod, elem_fields.getIndex("name").?);
+                const value_val = try elem_val.fieldValue(mod, elem_fields.getIndex("value").?);
 
                 const field_name = try name_val.toAllocatedBytes(
                     Type.slice_const_u8,
@@ -19485,14 +19499,10 @@ fn zirReify(
 
             for (0..fields_len) |i| {
                 const elem_val = try fields_val.elemValue(mod, i);
-                const field_struct_val = elem_val.castTag(.aggregate).?.data;
-                // TODO use reflection instead of magic numbers here
-                // name: []const u8
-                const name_val = field_struct_val[0];
-                // type: type,
-                const type_val = field_struct_val[1];
-                // alignment: comptime_int,
-                const alignment_val = field_struct_val[2];
+                const elem_fields = ip.typeOf(elem_val.toIntern()).toType().structFields(mod);
+                const name_val = try elem_val.fieldValue(mod, elem_fields.getIndex("name").?);
+                const type_val = try elem_val.fieldValue(mod, elem_fields.getIndex("type").?);
+                const alignment_val = try elem_val.fieldValue(mod, elem_fields.getIndex("alignment").?);
 
                 const field_name = try name_val.toAllocatedBytes(
                     Type.slice_const_u8,
@@ -19635,25 +19645,21 @@ fn zirReify(
 
             var noalias_bits: u32 = 0;
             for (param_types, 0..) |*param_type, i| {
-                const arg = try params_val.elemValue(mod, i);
-                const arg_val = arg.castTag(.aggregate).?.data;
-                // TODO use reflection instead of magic numbers here
-                // is_generic: bool,
-                const arg_is_generic = arg_val[0].toBool();
-                // is_noalias: bool,
-                const arg_is_noalias = arg_val[1].toBool();
-                // type: ?type,
-                const param_type_opt_val = arg_val[2];
+                const elem_val = try params_val.elemValue(mod, i);
+                const elem_fields = ip.typeOf(elem_val.toIntern()).toType().structFields(mod);
+                const param_is_generic_val = try elem_val.fieldValue(mod, elem_fields.getIndex("is_generic").?);
+                const param_is_noalias_val = try elem_val.fieldValue(mod, elem_fields.getIndex("is_noalias").?);
+                const opt_param_type_val = try elem_val.fieldValue(mod, elem_fields.getIndex("type").?);
 
-                if (arg_is_generic) {
+                if (param_is_generic_val.toBool()) {
                     return sema.fail(block, src, "Type.Fn.Param.is_generic must be false for @Type", .{});
                 }
 
-                const param_type_val = param_type_opt_val.optionalValue(mod) orelse
+                const param_type_val = opt_param_type_val.optionalValue(mod) orelse
                     return sema.fail(block, src, "Type.Fn.Param.arg_type must be non-null for @Type", .{});
                 param_type.* = param_type_val.toIntern();
 
-                if (arg_is_noalias) {
+                if (param_is_noalias_val.toBool()) {
                     if (!param_type.toType().isPtrAtRuntime(mod)) {
                         return sema.fail(block, src, "non-pointer parameter declared noalias", .{});
                     }
@@ -19748,19 +19754,13 @@ fn reifyStruct(
     try struct_obj.fields.ensureTotalCapacity(new_decl_arena_allocator, fields_len);
     var i: usize = 0;
     while (i < fields_len) : (i += 1) {
-        const elem_val = try fields_val.elemValue(sema.mod, i);
-        const field_struct_val = elem_val.castTag(.aggregate).?.data;
-        // TODO use reflection instead of magic numbers here
-        // name: []const u8
-        const name_val = field_struct_val[0];
-        // type: type,
-        const type_val = field_struct_val[1];
-        // default_value: ?*const anyopaque,
-        const default_value_val = field_struct_val[2];
-        // is_comptime: bool,
-        const is_comptime_val = field_struct_val[3];
-        // alignment: comptime_int,
-        const alignment_val = field_struct_val[4];
+        const elem_val = try fields_val.elemValue(mod, i);
+        const elem_fields = mod.intern_pool.typeOf(elem_val.toIntern()).toType().structFields(mod);
+        const name_val = try elem_val.fieldValue(mod, elem_fields.getIndex("name").?);
+        const type_val = try elem_val.fieldValue(mod, elem_fields.getIndex("type").?);
+        const default_value_val = try elem_val.fieldValue(mod, elem_fields.getIndex("default_value").?);
+        const is_comptime_val = try elem_val.fieldValue(mod, elem_fields.getIndex("is_comptime").?);
+        const alignment_val = try elem_val.fieldValue(mod, elem_fields.getIndex("alignment").?);
 
         if (!try sema.intFitsInType(alignment_val, Type.u32, null)) {
             return sema.fail(block, src, "alignment must fit in 'u32'", .{});
@@ -19806,18 +19806,16 @@ fn reifyStruct(
             return sema.fail(block, src, "duplicate struct field {s}", .{field_name});
         }
 
-        const default_val = if (default_value_val.optionalValue(mod)) |opt_val| blk: {
-            const payload_val = if (opt_val.pointerDecl(mod)) |opt_decl|
-                mod.declPtr(opt_decl).val
-            else
-                opt_val;
-            break :blk try payload_val.copy(new_decl_arena_allocator);
-        } else Value.@"unreachable";
+        const field_ty = type_val.toType();
+        const default_val = if (default_value_val.optionalValue(mod)) |opt_val|
+            try sema.pointerDeref(block, src, opt_val, try mod.singleConstPtrType(field_ty)) orelse
+                return sema.failWithNeededComptime(block, src, "struct field default value must be comptime-known")
+        else
+            Value.@"unreachable";
         if (is_comptime_val.toBool() and default_val.toIntern() == .unreachable_value) {
             return sema.fail(block, src, "comptime field without default initialization value", .{});
         }
 
-        const field_ty = type_val.toType();
         gop.value_ptr.* = .{
             .ty = field_ty,
             .abi_align = abi_align,
@@ -20386,17 +20384,7 @@ fn zirPtrCast(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
         if (!dest_ty.ptrAllowsZero(mod) and operand_val.isNull(mod)) {
             return sema.fail(block, operand_src, "null pointer casted to type '{}'", .{dest_ty.fmt(mod)});
         }
-        return sema.addConstant(aligned_dest_ty, try mod.getCoerced(switch (mod.intern_pool.indexToKey(operand_val.toIntern())) {
-            .undef, .ptr => operand_val,
-            .opt => |opt| switch (opt.val) {
-                .none => if (dest_ty.ptrAllowsZero(mod))
-                    Value.zero_usize
-                else
-                    return sema.fail(block, operand_src, "null pointer casted to type '{}'", .{dest_ty.fmt(mod)}),
-                else => opt.val.toValue(),
-            },
-            else => unreachable,
-        }, aligned_dest_ty));
+        return sema.addConstant(aligned_dest_ty, try mod.getCoerced(operand_val, aligned_dest_ty));
     }
 
     try sema.requireRuntimeBlock(block, src, null);
@@ -20569,7 +20557,7 @@ fn zirAlignCast(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!A
                 return sema.fail(block, ptr_src, "pointer address 0x{X} is not aligned to {d} bytes", .{ addr, dest_align });
             }
         }
-        return sema.addConstant(dest_ty, val);
+        return sema.addConstant(dest_ty, try mod.getCoerced(val, dest_ty));
     }
 
     try sema.requireRuntimeBlock(block, inst_data.src(), ptr_src);
@@ -20700,7 +20688,7 @@ fn zirByteSwap(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                 const elems = try sema.arena.alloc(InternPool.Index, vec_len);
                 for (elems, 0..) |*elem, i| {
                     const elem_val = try val.elemValue(mod, i);
-                    elem.* = try (try elem_val.byteSwap(operand_ty, mod, sema.arena)).intern(scalar_ty, mod);
+                    elem.* = try (try elem_val.byteSwap(scalar_ty, mod, sema.arena)).intern(scalar_ty, mod);
                 }
                 return sema.addConstant(operand_ty, (try mod.intern(.{ .aggregate = .{
                     .ty = operand_ty.toIntern(),
@@ -25128,12 +25116,18 @@ fn tupleFieldValByIndex(
     }
 
     if (try sema.resolveMaybeUndefVal(tuple_byval)) |tuple_val| {
-        if (tuple_val.isUndef(mod)) return sema.addConstUndef(field_ty);
         if ((try sema.typeHasOnePossibleValue(field_ty))) |opv| {
             return sema.addConstant(field_ty, opv);
         }
-        const field_values = tuple_val.castTag(.aggregate).?.data;
-        return sema.addConstant(field_ty, field_values[field_index]);
+        return switch (mod.intern_pool.indexToKey(tuple_val.toIntern())) {
+            .undef => sema.addConstUndef(field_ty),
+            .aggregate => |aggregate| sema.addConstant(field_ty, switch (aggregate.storage) {
+                .bytes => |bytes| try mod.intValue(Type.u8, bytes[0]),
+                .elems => |elems| elems[field_index].toValue(),
+                .repeated_elem => |elem| elem.toValue(),
+            }),
+            else => unreachable,
+        };
     }
 
     if (try tuple_ty.structFieldValueComptime(mod, field_index)) |default_val| {
@@ -25883,7 +25877,7 @@ fn coerceExtra(
     var in_memory_result = try sema.coerceInMemoryAllowed(block, dest_ty, inst_ty, false, target, dest_ty_src, inst_src);
     if (in_memory_result == .ok) {
         if (maybe_inst_val) |val| {
-            return sema.addConstant(dest_ty, try mod.getCoerced(val, dest_ty));
+            return sema.coerceInMemory(block, val, inst_ty, dest_ty, dest_ty_src);
         }
         try sema.requireRuntimeBlock(block, inst_src, null);
         return block.addBitCast(dest_ty, inst);
@@ -26072,7 +26066,7 @@ fn coerceExtra(
                 // coercion to C pointer
                 .C => switch (inst_ty.zigTypeTag(mod)) {
                     .Null => {
-                        return sema.addConstant(dest_ty, Value.null);
+                        return sema.addConstant(dest_ty, try mod.getCoerced(Value.null, dest_ty));
                     },
                     .ComptimeInt => {
                         const addr = sema.coerceExtra(block, Type.usize, inst, inst_src, .{ .report_err = false }) catch |err| switch (err) {
@@ -26546,6 +26540,68 @@ fn coerceExtra(
         break :msg msg;
     };
     return sema.failWithOwnedErrorMsg(msg);
+}
+
+fn coerceInMemory(
+    sema: *Sema,
+    block: *Block,
+    val: Value,
+    src_ty: Type,
+    dst_ty: Type,
+    dst_ty_src: LazySrcLoc,
+) CompileError!Air.Inst.Ref {
+    const mod = sema.mod;
+    switch (mod.intern_pool.indexToKey(val.toIntern())) {
+        .aggregate => |aggregate| {
+            const dst_ty_key = mod.intern_pool.indexToKey(dst_ty.toIntern());
+            const dest_len = try sema.usizeCast(
+                block,
+                dst_ty_src,
+                mod.intern_pool.aggregateTypeLen(dst_ty.toIntern()),
+            );
+            direct: {
+                const src_ty_child = switch (mod.intern_pool.indexToKey(src_ty.toIntern())) {
+                    inline .array_type, .vector_type => |seq_type| seq_type.child,
+                    .anon_struct_type, .struct_type => break :direct,
+                    else => unreachable,
+                };
+                const dst_ty_child = switch (dst_ty_key) {
+                    inline .array_type, .vector_type => |seq_type| seq_type.child,
+                    .anon_struct_type, .struct_type => break :direct,
+                    else => unreachable,
+                };
+                if (src_ty_child != dst_ty_child) break :direct;
+                return try sema.addConstant(dst_ty, (try mod.intern(.{ .aggregate = .{
+                    .ty = dst_ty.toIntern(),
+                    .storage = switch (aggregate.storage) {
+                        .bytes => |bytes| .{ .bytes = bytes[0..dest_len] },
+                        .elems => |elems| .{ .elems = elems[0..dest_len] },
+                        .repeated_elem => |elem| .{ .repeated_elem = elem },
+                    },
+                } })).toValue());
+            }
+            const dest_elems = try sema.arena.alloc(InternPool.Index, dest_len);
+            for (dest_elems, 0..) |*dest_elem, i| {
+                const elem_ty = switch (dst_ty_key) {
+                    inline .array_type, .vector_type => |seq_type| seq_type.child,
+                    .anon_struct_type => |anon_struct_type| anon_struct_type.types[i],
+                    .struct_type => |struct_type| mod.structPtrUnwrap(struct_type.index).?
+                        .fields.values()[i].ty.toIntern(),
+                    else => unreachable,
+                };
+                dest_elem.* = try mod.intern_pool.getCoerced(mod.gpa, switch (aggregate.storage) {
+                    .bytes => |bytes| (try mod.intValue(Type.u8, bytes[i])).toIntern(),
+                    .elems => |elems| elems[i],
+                    .repeated_elem => |elem| elem,
+                }, elem_ty);
+            }
+            return sema.addConstant(dst_ty, (try mod.intern(.{ .aggregate = .{
+                .ty = dst_ty.toIntern(),
+                .storage = .{ .elems = dest_elems },
+            } })).toValue());
+        },
+        else => return sema.addConstant(dst_ty, try mod.getCoerced(val, dst_ty)),
+    }
 }
 
 const InMemoryCoercionResult = union(enum) {
@@ -28619,7 +28675,11 @@ fn coerceArrayPtrToSlice(
         const array_ty = ptr_array_ty.childType(mod);
         const slice_val = try mod.intern(.{ .ptr = .{
             .ty = dest_ty.toIntern(),
-            .addr = mod.intern_pool.indexToKey(val.toIntern()).ptr.addr,
+            .addr = switch (mod.intern_pool.indexToKey(val.toIntern())) {
+                .undef => .{ .int = try mod.intern(.{ .undef = .usize_type }) },
+                .ptr => |ptr| ptr.addr,
+                else => unreachable,
+            },
             .len = (try mod.intValue(Type.usize, array_ty.arrayLen(mod))).toIntern(),
         } });
         return sema.addConstant(dest_ty, slice_val.toValue());
@@ -28962,7 +29022,7 @@ fn coerceArrayLike(
     if (in_memory_result == .ok) {
         if (try sema.resolveMaybeUndefVal(inst)) |inst_val| {
             // These types share the same comptime value representation.
-            return sema.addConstant(dest_ty, try mod.getCoerced(inst_val, dest_ty));
+            return sema.coerceInMemory(block, inst_val, inst_ty, dest_ty, dest_ty_src);
         }
         try sema.requireRuntimeBlock(block, inst_src, null);
         return block.addBitCast(dest_ty, inst);
@@ -33599,9 +33659,8 @@ fn typePtrOrOptionalPtrTy(sema: *Sema, ty: Type) !?Type {
     const mod = sema.mod;
     return switch (mod.intern_pool.indexToKey(ty.toIntern())) {
         .ptr_type => |ptr_type| switch (ptr_type.size) {
+            .One, .Many, .C => ty,
             .Slice => null,
-            .C => ptr_type.elem_type.toType(),
-            .One, .Many => ty,
         },
         .opt_type => |opt_child| switch (mod.intern_pool.indexToKey(opt_child)) {
             .ptr_type => |ptr_type| switch (ptr_type.size) {
