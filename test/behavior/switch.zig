@@ -1,5 +1,6 @@
 const builtin = @import("builtin");
 const std = @import("std");
+const assert = std.debug.assert;
 const expect = std.testing.expect;
 const expectError = std.testing.expectError;
 const expectEqual = std.testing.expectEqual;
@@ -716,4 +717,71 @@ test "comptime inline switch" {
     };
 
     try expectEqual(u32, value);
+}
+
+test "switch capture peer type resolution" {
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
+    const U = union(enum) {
+        a: u32,
+        b: u64,
+        fn innerVal(u: @This()) u64 {
+            switch (u) {
+                .a, .b => |x| return x,
+            }
+        }
+    };
+
+    try expectEqual(@as(u64, 100), U.innerVal(.{ .a = 100 }));
+    try expectEqual(@as(u64, 200), U.innerVal(.{ .b = 200 }));
+}
+
+test "switch capture peer type resolution for in-memory coercible payloads" {
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
+    const T1 = c_int;
+    const T2 = @Type(@typeInfo(T1));
+
+    comptime assert(T1 != T2);
+
+    const U = union(enum) {
+        a: T1,
+        b: T2,
+        fn innerVal(u: @This()) c_int {
+            switch (u) {
+                .a, .b => |x| return x,
+            }
+        }
+    };
+
+    try expectEqual(@as(c_int, 100), U.innerVal(.{ .a = 100 }));
+    try expectEqual(@as(c_int, 200), U.innerVal(.{ .b = 200 }));
+}
+
+test "switch pointer capture peer type resolution" {
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
+    const T1 = c_int;
+    const T2 = @Type(@typeInfo(T1));
+
+    comptime assert(T1 != T2);
+
+    const U = union(enum) {
+        a: T1,
+        b: T2,
+        fn innerVal(u: *@This()) *c_int {
+            switch (u.*) {
+                .a, .b => |*ptr| return ptr,
+            }
+        }
+    };
+
+    var ua: U = .{ .a = 100 };
+    var ub: U = .{ .b = 200 };
+
+    ua.innerVal().* = 111;
+    ub.innerVal().* = 222;
+
+    try expectEqual(U{ .a = 111 }, ua);
+    try expectEqual(U{ .b = 222 }, ub);
 }
