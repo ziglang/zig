@@ -24301,7 +24301,10 @@ fn fieldVal(
                         .inferred_error_set_type => {
                             return sema.fail(block, src, "TODO handle inferred error sets here", .{});
                         },
-                        .simple_type => |t| assert(t == .anyerror),
+                        .simple_type => |t| {
+                            assert(t == .anyerror);
+                            _ = try mod.getErrorValue(field_name);
+                        },
                         else => unreachable,
                     }
 
@@ -24519,7 +24522,10 @@ fn fieldPtr(
                         .inferred_error_set_type => {
                             return sema.fail(block, src, "TODO handle inferred error sets here", .{});
                         },
-                        .simple_type => |t| assert(t == .anyerror),
+                        .simple_type => |t| {
+                            assert(t == .anyerror);
+                            _ = try mod.getErrorValue(field_name);
+                        },
                         else => unreachable,
                     }
 
