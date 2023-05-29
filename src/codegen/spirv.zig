@@ -22,6 +22,8 @@ const IdResultType = spec.IdResultType;
 const StorageClass = spec.StorageClass;
 
 const SpvModule = @import("spirv/Module.zig");
+const SpvRef = SpvModule.TypeConstantCache.Ref;
+
 const SpvSection = @import("spirv/Section.zig");
 const SpvType = @import("spirv/type.zig").Type;
 const SpvAssembler = @import("spirv/Assembler.zig");
@@ -1158,6 +1160,18 @@ pub const DeclGen = struct {
         return try self.spv.resolveType(try SpvType.int(self.spv.arena, signedness, backing_bits));
     }
 
+    fn intType2(self: *DeclGen, signedness: std.builtin.Signedness, bits: u16) !SpvRef {
+        const backing_bits = self.backingIntBits(bits) orelse {
+            // TODO: Integers too big for any native type are represented as "composite integers":
+            // An array of largestSupportedIntBits.
+            return self.todo("Implement {s} composite int type of {} bits", .{ @tagName(signedness), bits });
+        };
+        return try self.spv.resolve(.{ .int_type = .{
+            .signedness = signedness,
+            .bits = backing_bits,
+        } });
+    }
+
     /// Create an integer type that represents 'usize'.
     fn sizeType(self: *DeclGen) !SpvType.Ref {
         return try self.intType(.unsigned, self.getTarget().ptrBitWidth());
@@ -1238,9 +1252,61 @@ pub const DeclGen = struct {
         return try self.spv.simpleStructType(members.slice());
     }
 
+    fn resolveType2(self: *DeclGen, ty: Type, repr: Repr) !SpvRef {
+        const target = self.getTarget();
+        switch (ty.zigTypeTag()) {
+            .Void, .NoReturn => return try self.spv.resolve(.void_type),
+            .Bool => switch (repr) {
+                .direct => return try self.spv.resolve(.bool_type),
+                .indirect => return try self.intType2(.unsigned, 1),
+            },
+            .Int => {
+                const int_info = ty.intInfo(target);
+                return try self.intType2(int_info.signedness, int_info.bits);
+            },
+            .Enum => {
+                var buffer: Type.Payload.Bits = undefined;
+                const tag_ty = ty.intTagType(&buffer);
+                return self.resolveType2(tag_ty, repr);
+            },
+            .Float => {
+                // We can (and want) not really emulate floating points with other floating point types like with the integer types,
+                // so if the float is not supported, just return an error.
+                const bits = ty.floatBits(target);
+                const supported = switch (bits) {
+                    16 => Target.spirv.featureSetHas(target.cpu.features, .Float16),
+                    // 32-bit floats are always supported (see spec, 2.16.1, Data rules).
+                    32 => true,
+                    64 => Target.spirv.featureSetHas(target.cpu.features, .Float64),
+                    else => false,
+                };
+
+                if (!supported) {
+                    return self.fail("Floating point width of {} bits is not supported for the current SPIR-V feature set", .{bits});
+                }
+
+                return try self.spv.resolve(.{ .float_type = .{ .bits = bits } });
+            },
+            .Array => {
+                const elem_ty = ty.childType();
+                const elem_ty_ref = try self.resolveType2(elem_ty, .direct);
+                const total_len = std.math.cast(u32, ty.arrayLenIncludingSentinel()) orelse {
+                    return self.fail("array type of {} elements is too large", .{ty.arrayLenIncludingSentinel()});
+                };
+                _ = total_len;
+                return self.spv.resolve(.{ .array_type = .{
+                    .element_type = elem_ty_ref,
+                    .length = @intToEnum(SpvRef, 0),
+                } });
+            },
+            else => unreachable, // TODO
+        }
+    }
+
     /// Turn a Zig type into a SPIR-V Type, and return a reference to it.
     fn resolveType(self: *DeclGen, ty: Type, repr: Repr) Error!SpvType.Ref {
         log.debug("resolveType: ty = {}", .{ty.fmt(self.module)});
+        _ = try self.resolveType2(ty, repr);
         const target = self.getTarget();
         switch (ty.zigTypeTag()) {
             .Void, .NoReturn => return try self.spv.resolveType(SpvType.initTag(.void)),
