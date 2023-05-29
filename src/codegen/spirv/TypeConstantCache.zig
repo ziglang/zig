@@ -54,6 +54,9 @@ const Tag = enum {
     /// Array type
     /// data is payload to ArrayType
     type_array,
+    /// Function (proto)type.
+    /// data is payload to FunctionType
+    type_function,
 
     // -- Values
     /// Value of type u8
@@ -89,6 +92,13 @@ const Tag = enum {
 
     const VectorType = Key.VectorType;
     const ArrayType = Key.ArrayType;
+
+    // Trailing:
+    // - [param_len]Ref: parameter types
+    const FunctionType = struct {
+        param_len: u32,
+        return_type: Ref,
+    };
 
     const Float64 = struct {
         // Low-order 32 bits of the value.
@@ -171,6 +181,7 @@ pub const Key = union(enum) {
     float_type: FloatType,
     vector_type: VectorType,
     array_type: ArrayType,
+    function_type: FunctionType,
 
     // -- values
     int: Int,
@@ -192,6 +203,11 @@ pub const Key = union(enum) {
         /// Type has the 'ArrayStride' decoration.
         /// If zero, no stride is present.
         stride: u32 = 0,
+    };
+
+    pub const FunctionType = struct {
+        return_type: Ref,
+        parameters: []const Ref,
     };
 
     pub const Int = struct {
@@ -254,13 +270,33 @@ pub const Key = union(enum) {
                     .float64 => |value| std.hash.autoHash(&hasher, @bitCast(u64, value)),
                 }
             },
+            .function_type => |func| {
+                std.hash.autoHash(&hasher, func.return_type);
+                for (func.parameters) |param_type| {
+                    std.hash.autoHash(&hasher, param_type);
+                }
+            },
             inline else => |key| std.hash.autoHash(&hasher, key),
         }
         return @truncate(u32, hasher.final());
     }
 
     fn eql(a: Key, b: Key) bool {
-        return std.meta.eql(a, b);
+        const KeyTag = @typeInfo(Key).Union.tag_type.?;
+        const a_tag: KeyTag = a;
+        const b_tag: KeyTag = b;
+        if (a_tag != b_tag) {
+            return false;
+        }
+        return switch (a) {
+            .function_type => |a_func| {
+                const b_func = a.function_type;
+                return a_func.return_type == b_func.return_type and
+                    std.mem.eql(Ref, a_func.parameters, b_func.parameters);
+            },
+            // TODO: Unroll?
+            else => std.meta.eql(a, b),
+        };
     }
 
     pub const Adapter = struct {
@@ -362,6 +398,14 @@ fn emit(
                 try spv.decorate(result_id, .{ .ArrayStride = .{ .array_stride = array.stride } });
             }
         },
+        .function_type => |function| {
+            try section.emitRaw(spv.gpa, .OpTypeFunction, 2 + function.parameters.len);
+            section.writeOperand(IdResult, result_id);
+            section.writeOperand(IdResult, self.resultId(function.return_type));
+            for (function.parameters) |param_type| {
+                section.writeOperand(IdResult, self.resultId(param_type));
+            }
+        },
         .int => |int| {
             const int_type = self.lookup(int.ty).int_type;
             const ty_id = self.resultId(int.ty);
@@ -391,18 +435,6 @@ fn emit(
             });
         },
     }
-}
-
-/// Get the ref for a key that has already been added to the cache.
-fn get(self: *const Self, key: Key) Ref {
-    const adapter: Key.Adapter = .{ .self = self };
-    const index = self.map.getIndexAdapted(key, adapter).?;
-    return @intToEnum(Ref, index);
-}
-
-/// Get the result-id for a key that has already been added to the cache.
-fn getId(self: *const Self, key: Key) IdResult {
-    return self.resultId(self.get(key));
 }
 
 /// Add a key to this cache. Returns a reference to the key that
@@ -446,6 +478,18 @@ pub fn resolve(self: *Self, spv: *Module, key: Key) !Ref {
             .tag = .type_array,
             .result_id = result_id,
             .data = try self.addExtra(spv, array),
+        },
+        .function_type => |function| blk: {
+            const extra = try self.addExtra(spv, Tag.FunctionType{
+                .param_len = @intCast(u32, function.parameters.len),
+                .return_type = function.return_type,
+            });
+            try self.extra.appendSlice(spv.gpa, @ptrCast([]const u32, function.parameters));
+            break :blk .{
+                .tag = .type_function,
+                .result_id = result_id,
+                .data = extra,
+            };
         },
         .int => |int| blk: {
             const int_type = self.lookup(int.ty).int_type;
@@ -523,13 +567,8 @@ pub fn resolve(self: *Self, spv: *Module, key: Key) !Ref {
     return @intToEnum(Ref, entry.index);
 }
 
-/// Look op the result-id that corresponds to a particular
-/// ref.
-pub fn resultId(self: Self, ref: Ref) IdResult {
-    return self.items.items(.result_id)[@enumToInt(ref)];
-}
-
 /// Turn a Ref back into a Key.
+/// The Key is valid until the next call to resolve().
 pub fn lookup(self: *const Self, ref: Ref) Key {
     const item = self.items.get(@enumToInt(ref));
     const data = item.data;
@@ -551,6 +590,15 @@ pub fn lookup(self: *const Self, ref: Ref) Key {
         } },
         .type_vector => .{ .vector_type = self.extraData(Tag.VectorType, data) },
         .type_array => .{ .array_type = self.extraData(Tag.ArrayType, data) },
+        .type_function => {
+            const payload = self.extraDataTrail(Tag.FunctionType, data);
+            return .{
+                .function_type = .{
+                    .return_type = payload.data.return_type,
+                    .parameters = @ptrCast([]const Ref, self.extra.items[payload.trail..][0..payload.data.param_len]),
+                },
+            };
+        },
         .float16 => .{ .float = .{
             .ty = self.get(.{ .float_type = .{ .bits = 16 } }),
             .value = .{ .float16 = @bitCast(f16, @intCast(u16, data)) },
@@ -600,6 +648,19 @@ pub fn lookup(self: *const Self, ref: Ref) Key {
             } };
         },
     };
+}
+
+/// Look op the result-id that corresponds to a particular
+/// ref.
+pub fn resultId(self: Self, ref: Ref) IdResult {
+    return self.items.items(.result_id)[@enumToInt(ref)];
+}
+
+/// Get the ref for a key that has already been added to the cache.
+fn get(self: *const Self, key: Key) Ref {
+    const adapter: Key.Adapter = .{ .self = self };
+    const index = self.map.getIndexAdapted(key, adapter).?;
+    return @intToEnum(Ref, index);
 }
 
 fn addExtra(self: *Self, spv: *Module, extra: anytype) !u32 {

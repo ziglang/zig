@@ -1177,6 +1177,10 @@ pub const DeclGen = struct {
         return try self.intType(.unsigned, self.getTarget().ptrBitWidth());
     }
 
+    fn sizeType2(self: *DeclGen) !SpvRef {
+        return try self.intType2(.unsigned, self.getTarget().ptrBitWidth());
+    }
+
     /// Generate a union type, optionally with a known field. If the tag alignment is greater
     /// than that of the payload, a regular union (non-packed, with both tag and payload), will
     /// be generated as follows:
@@ -1303,6 +1307,31 @@ pub const DeclGen = struct {
                     .length = len_ref,
                 } });
             },
+            .Fn => switch (repr) {
+                .direct => {
+                    // TODO: Put this somewhere in Sema.zig
+                    if (ty.fnIsVarArgs())
+                        return self.fail("VarArgs functions are unsupported for SPIR-V", .{});
+
+                    const param_ty_refs = try self.gpa.alloc(SpvRef, ty.fnParamLen());
+                    defer self.gpa.free(param_ty_refs);
+                    for (param_ty_refs, 0..) |*param_type, i| {
+                        param_type.* = try self.resolveType2(ty.fnParamType(i), .direct);
+                    }
+                    const return_ty_ref = try self.resolveType2(ty.fnReturnType(), .direct);
+
+                    return try self.spv.resolve(.{ .function_type = .{
+                        .return_type = return_ty_ref,
+                        .parameters = param_ty_refs,
+                    } });
+                },
+                .indirect => {
+                    // TODO: Represent function pointers properly.
+                    // For now, just use an usize type.
+                    return try self.sizeType2();
+                },
+            },
+
             else => unreachable, // TODO
         }
     }
