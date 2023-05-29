@@ -707,8 +707,11 @@ pub const Decl = struct {
         return TypedValue{ .ty = decl.ty, .val = decl.val };
     }
 
-    pub fn internValue(decl: Decl, mod: *Module) Allocator.Error!InternPool.Index {
-        return decl.val.intern(decl.ty, mod);
+    pub fn internValue(decl: *Decl, mod: *Module) Allocator.Error!InternPool.Index {
+        assert(decl.has_tv);
+        const ip_index = try decl.val.intern(decl.ty, mod);
+        decl.val = ip_index.toValue();
+        return ip_index;
     }
 
     pub fn isFunction(decl: Decl, mod: *const Module) !bool {
