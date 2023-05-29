@@ -387,22 +387,24 @@ pub fn generateSymbol(
         },
         .aggregate => |aggregate| switch (mod.intern_pool.indexToKey(typed_value.ty.toIntern())) {
             .array_type => |array_type| {
-                var index: u64 = 0;
-                while (index < array_type.len) : (index += 1) {
-                    switch (aggregate.storage) {
-                        .bytes => |bytes| try code.appendSlice(bytes),
-                        .elems, .repeated_elem => switch (try generateSymbol(bin_file, src_loc, .{
-                            .ty = array_type.child.toType(),
-                            .val = switch (aggregate.storage) {
-                                .bytes => unreachable,
-                                .elems => |elems| elems[@intCast(usize, index)],
-                                .repeated_elem => |elem| elem,
-                            }.toValue(),
-                        }, code, debug_output, reloc_info)) {
-                            .ok => {},
-                            .fail => |em| return .{ .fail = em },
-                        },
-                    }
+                switch (aggregate.storage) {
+                    .bytes => |bytes| try code.appendSlice(bytes),
+                    .elems, .repeated_elem => {
+                        var index: u64 = 0;
+                        while (index < array_type.len) : (index += 1) {
+                            switch (try generateSymbol(bin_file, src_loc, .{
+                                .ty = array_type.child.toType(),
+                                .val = switch (aggregate.storage) {
+                                    .bytes => unreachable,
+                                    .elems => |elems| elems[@intCast(usize, index)],
+                                    .repeated_elem => |elem| elem,
+                                }.toValue(),
+                            }, code, debug_output, reloc_info)) {
+                                .ok => {},
+                                .fail => |em| return .{ .fail = em },
+                            }
+                        }
+                    },
                 }
 
                 if (array_type.sentinel != .none) {
@@ -416,22 +418,24 @@ pub fn generateSymbol(
                 }
             },
             .vector_type => |vector_type| {
-                var index: u32 = 0;
-                while (index < vector_type.len) : (index += 1) {
-                    switch (aggregate.storage) {
-                        .bytes => |bytes| try code.appendSlice(bytes),
-                        .elems, .repeated_elem => switch (try generateSymbol(bin_file, src_loc, .{
-                            .ty = vector_type.child.toType(),
-                            .val = switch (aggregate.storage) {
-                                .bytes => unreachable,
-                                .elems => |elems| elems[@intCast(usize, index)],
-                                .repeated_elem => |elem| elem,
-                            }.toValue(),
-                        }, code, debug_output, reloc_info)) {
-                            .ok => {},
-                            .fail => |em| return .{ .fail = em },
-                        },
-                    }
+                switch (aggregate.storage) {
+                    .bytes => |bytes| try code.appendSlice(bytes),
+                    .elems, .repeated_elem => {
+                        var index: u64 = 0;
+                        while (index < vector_type.len) : (index += 1) {
+                            switch (try generateSymbol(bin_file, src_loc, .{
+                                .ty = vector_type.child.toType(),
+                                .val = switch (aggregate.storage) {
+                                    .bytes => unreachable,
+                                    .elems => |elems| elems[@intCast(usize, index)],
+                                    .repeated_elem => |elem| elem,
+                                }.toValue(),
+                            }, code, debug_output, reloc_info)) {
+                                .ok => {},
+                                .fail => |em| return .{ .fail = em },
+                            }
+                        }
+                    },
                 }
 
                 const padding = math.cast(usize, typed_value.ty.abiSize(mod) -
@@ -669,7 +673,7 @@ fn lowerParentPtr(
                 mod.intern_pool.typeOf(elem.base).toType().elemType2(mod).abiSize(mod))),
         ),
         .field => |field| {
-            const base_type = mod.intern_pool.typeOf(field.base);
+            const base_type = mod.intern_pool.indexToKey(mod.intern_pool.typeOf(field.base)).ptr_type.elem_type;
             return lowerParentPtr(
                 bin_file,
                 src_loc,
@@ -688,7 +692,7 @@ fn lowerParentPtr(
                     .struct_type,
                     .anon_struct_type,
                     .union_type,
-                    => @intCast(u32, base_type.toType().childType(mod).structFieldOffset(
+                    => @intCast(u32, base_type.toType().structFieldOffset(
                         @intCast(u32, field.index),
                         mod,
                     )),
@@ -989,17 +993,23 @@ pub fn genTypedValue(
             return GenResult.mcv(.{ .immediate = error_index });
         },
         .ErrorUnion => {
-            const error_type = typed_value.ty.errorUnionSet(mod);
+            const err_type = typed_value.ty.errorUnionSet(mod);
             const payload_type = typed_value.ty.errorUnionPayload(mod);
-            const is_pl = typed_value.val.errorUnionIsPayload(mod);
-
             if (!payload_type.hasRuntimeBitsIgnoreComptime(mod)) {
                 // We use the error type directly as the type.
-                const err_val = if (!is_pl) typed_value.val else try mod.intValue(error_type, 0);
-                return genTypedValue(bin_file, src_loc, .{
-                    .ty = error_type,
-                    .val = err_val,
-                }, owner_decl_index);
+                switch (mod.intern_pool.indexToKey(typed_value.val.toIntern()).error_union.val) {
+                    .err_name => |err_name| return genTypedValue(bin_file, src_loc, .{
+                        .ty = err_type,
+                        .val = (try mod.intern(.{ .err = .{
+                            .ty = err_type.toIntern(),
+                            .name = err_name,
+                        } })).toValue(),
+                    }, owner_decl_index),
+                    .payload => return genTypedValue(bin_file, src_loc, .{
+                        .ty = Type.err_int,
+                        .val = try mod.intValue(Type.err_int, 0),
+                    }, owner_decl_index),
+                }
             }
         },
 
