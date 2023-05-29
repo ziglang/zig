@@ -111,6 +111,18 @@ const Tag = enum {
     /// Value of type f64
     /// data is payload to Float16
     float64,
+    /// Undefined value
+    /// data is type
+    undef,
+    /// Null value
+    /// data is type
+    null,
+    /// Bool value that is true
+    /// data is (bool) type
+    bool_true,
+    /// Bool value that is false
+    /// data is (bool) type
+    bool_false,
 
     const SimpleType = enum { void, bool };
 
@@ -227,6 +239,9 @@ pub const Key = union(enum) {
     // -- values
     int: Int,
     float: Float,
+    undef: Undef,
+    null: Null,
+    bool: Bool,
 
     pub const IntType = std.builtin.Type.Int;
     pub const FloatType = std.builtin.Type.Float;
@@ -321,6 +336,19 @@ pub const Key = union(enum) {
             float32: f32,
             float64: f64,
         };
+    };
+
+    pub const Undef = struct {
+        ty: Ref,
+    };
+
+    pub const Null = struct {
+        ty: Ref,
+    };
+
+    pub const Bool = struct {
+        ty: Ref,
+        value: bool,
     };
 
     fn hash(self: Key) u32 {
@@ -539,6 +567,32 @@ fn emit(
                 .value = lit,
             });
         },
+        .undef => |undef| {
+            try section.emit(spv.gpa, .OpUndef, .{
+                .id_result_type = self.resultId(undef.ty),
+                .id_result = result_id,
+            });
+        },
+        .null => |null_info| {
+            try section.emit(spv.gpa, .OpConstantNull, .{
+                .id_result_type = self.resultId(null_info.ty),
+                .id_result = result_id,
+            });
+        },
+        .bool => |bool_info| switch (bool_info.value) {
+            true => {
+                try section.emit(spv.gpa, .OpConstantTrue, .{
+                    .id_result_type = self.resultId(bool_info.ty),
+                    .id_result = result_id,
+                });
+            },
+            false => {
+                try section.emit(spv.gpa, .OpConstantFalse, .{
+                    .id_result_type = self.resultId(bool_info.ty),
+                    .id_result = result_id,
+                });
+            },
+        },
     }
 }
 
@@ -713,6 +767,24 @@ pub fn resolve(self: *Self, spv: *Module, key: Key) !Ref {
             },
             else => unreachable,
         },
+        .undef => |undef| .{
+            .tag = .undef,
+            .result_id = result_id,
+            .data = @enumToInt(undef.ty),
+        },
+        .null => |null_info| .{
+            .tag = .null,
+            .result_id = result_id,
+            .data = @enumToInt(null_info.ty),
+        },
+        .bool => |bool_info| .{
+            .tag = switch (bool_info.value) {
+                true => Tag.bool_true,
+                false => Tag.bool_false,
+            },
+            .result_id = result_id,
+            .data = @enumToInt(bool_info.ty),
+        },
     };
     try self.items.append(spv.gpa, item);
 
@@ -850,6 +922,20 @@ pub fn lookup(self: *const Self, ref: Ref) Key {
                 .value = .{ .uint64 = payload.decode() },
             } };
         },
+        .undef => .{ .undef = .{
+            .ty = @intToEnum(Ref, data),
+        } },
+        .null => .{ .null = .{
+            .ty = @intToEnum(Ref, data),
+        } },
+        .bool_true => .{ .bool = .{
+            .ty = @intToEnum(Ref, data),
+            .value = true,
+        } },
+        .bool_false => .{ .bool = .{
+            .ty = @intToEnum(Ref, data),
+            .value = false,
+        } },
     };
 }
 
