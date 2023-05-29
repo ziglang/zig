@@ -3430,7 +3430,7 @@ pub const DeclGen = struct {
                 const llvm_ty = try dg.lowerType(tv.ty);
                 if (tv.ty.optionalReprIsPayload(mod)) return switch (opt.val) {
                     .none => llvm_ty.constNull(),
-                    else => dg.lowerValue(.{ .ty = payload_ty, .val = opt.val.toValue() }),
+                    else => |payload| dg.lowerValue(.{ .ty = payload_ty, .val = payload.toValue() }),
                 };
                 assert(payload_ty.zigTypeTag(mod) != .Fn);
 

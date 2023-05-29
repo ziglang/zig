@@ -630,7 +630,6 @@ pub const Type = struct {
     pub fn hasWellDefinedLayout(ty: Type, mod: *Module) bool {
         return switch (mod.intern_pool.indexToKey(ty.toIntern())) {
             .int_type,
-            .ptr_type,
             .vector_type,
             => true,
 
@@ -646,6 +645,7 @@ pub const Type = struct {
 
             .array_type => |array_type| array_type.child.toType().hasWellDefinedLayout(mod),
             .opt_type => ty.isPtrLikeOptional(mod),
+            .ptr_type => |ptr_type| ptr_type.size != .Slice,
 
             .simple_type => |t| switch (t) {
                 .f16,
@@ -1578,7 +1578,7 @@ pub const Type = struct {
             .int_type => |int_type| return int_type.bits,
             .ptr_type => |ptr_type| switch (ptr_type.size) {
                 .Slice => return target.ptrBitWidth() * 2,
-                else => return target.ptrBitWidth() * 2,
+                else => return target.ptrBitWidth(),
             },
             .anyframe_type => return target.ptrBitWidth(),
 

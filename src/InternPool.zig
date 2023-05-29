@@ -1416,7 +1416,12 @@ pub const Index = enum(u32) {
         only_possible_value: DataIsIndex,
         union_value: struct { data: *Key.Union },
         bytes: struct { data: *Bytes },
-        aggregate: struct { data: *Aggregate },
+        aggregate: struct {
+            const @"data.ty.data.len orelse data.ty.data.fields_len" = opaque {};
+            data: *Aggregate,
+            @"trailing.element_values.len": *@"data.ty.data.len orelse data.ty.data.fields_len",
+            trailing: struct { element_values: []Index },
+        },
         repeated: struct { data: *Repeated },
 
         memoized_decl: struct { data: *Key.MemoizedDecl },
@@ -4437,7 +4442,7 @@ pub fn getCoerced(ip: *InternPool, gpa: Allocator, val: Index, new_ty: Index) Al
                             .Slice => try ip.get(gpa, .{ .undef = .usize_type }),
                         },
                     } }),
-                    else => try ip.getCoerced(gpa, opt.val, new_ty),
+                    else => |payload| try ip.getCoerced(gpa, payload, new_ty),
                 },
             .err => |err| if (ip.isErrorSetType(new_ty))
                 return ip.get(gpa, .{ .err = .{
@@ -4622,7 +4627,7 @@ pub fn isErrorUnionType(ip: InternPool, ty: Index) bool {
 
 pub fn isAggregateType(ip: InternPool, ty: Index) bool {
     return switch (ip.indexToKey(ty)) {
-        .array_wype, .vector_type, .anon_struct_type, .struct_type => true,
+        .array_type, .vector_type, .anon_struct_type, .struct_type => true,
         else => false,
     };
 }

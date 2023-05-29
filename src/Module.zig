@@ -6678,14 +6678,14 @@ pub fn optionalType(mod: *Module, child_type: InternPool.Index) Allocator.Error!
 
 pub fn ptrType(mod: *Module, info: InternPool.Key.PtrType) Allocator.Error!Type {
     var canon_info = info;
+    const have_elem_layout = info.elem_type.toType().layoutIsResolved(mod);
 
     // Canonicalize non-zero alignment. If it matches the ABI alignment of the pointee
     // type, we change it to 0 here. If this causes an assertion trip because the
     // pointee type needs to be resolved more, that needs to be done before calling
     // this ptr() function.
     if (info.alignment.toByteUnitsOptional()) |info_align| {
-        const elem_align = info.elem_type.toType().abiAlignment(mod);
-        if (info.elem_type.toType().layoutIsResolved(mod) and info_align == elem_align) {
+        if (have_elem_layout and info_align == info.elem_type.toType().abiAlignment(mod)) {
             canon_info.alignment = .none;
         }
     }
@@ -6694,7 +6694,7 @@ pub fn ptrType(mod: *Module, info: InternPool.Key.PtrType) Allocator.Error!Type 
         // Canonicalize host_size. If it matches the bit size of the pointee type,
         // we change it to 0 here. If this causes an assertion trip, the pointee type
         // needs to be resolved before calling this ptr() function.
-        .none => if (info.host_size != 0) {
+        .none => if (have_elem_layout and info.host_size != 0) {
             const elem_bit_size = info.elem_type.toType().bitSize(mod);
             assert(info.bit_offset + elem_bit_size <= info.host_size * 8);
             if (info.host_size * 8 == elem_bit_size) {
@@ -6782,21 +6782,7 @@ pub fn errorSetFromUnsortedNames(
 
 /// Supports optionals in addition to pointers.
 pub fn ptrIntValue(mod: *Module, ty: Type, x: u64) Allocator.Error!Value {
-    if (ty.isPtrLikeOptional(mod)) {
-        const i = try intern(mod, .{ .opt = .{
-            .ty = ty.toIntern(),
-            .val = try intern(mod, .{ .ptr = .{
-                .ty = ty.childType(mod).toIntern(),
-                .addr = .{ .int = try intern(mod, .{ .int = .{
-                    .ty = .usize_type,
-                    .storage = .{ .u64 = x },
-                } }) },
-            } }),
-        } });
-        return i.toValue();
-    } else {
-        return ptrIntValue_ptronly(mod, ty, x);
-    }
+    return mod.getCoerced(try mod.intValue_u64(Type.usize, x), ty);
 }
 
 /// Supports only pointers. See `ptrIntValue` for pointer-like optional support.
@@ -6804,10 +6790,7 @@ pub fn ptrIntValue_ptronly(mod: *Module, ty: Type, x: u64) Allocator.Error!Value
     assert(ty.zigTypeTag(mod) == .Pointer);
     const i = try intern(mod, .{ .ptr = .{
         .ty = ty.toIntern(),
-        .addr = .{ .int = try intern(mod, .{ .int = .{
-            .ty = .usize_type,
-            .storage = .{ .u64 = x },
-        } }) },
+        .addr = .{ .int = try mod.intValue_u64(Type.usize, x) },
     } });
     return i.toValue();
 }
@@ -6954,7 +6937,7 @@ pub fn intBitsForValue(mod: *Module, val: Value, sign: bool) u16 {
     const key = mod.intern_pool.indexToKey(val.toIntern());
     switch (key.int.storage) {
         .i64 => |x| {
-            if (std.math.cast(u64, x)) |casted| return Type.smallestUnsignedBits(casted);
+            if (std.math.cast(u64, x)) |casted| return Type.smallestUnsignedBits(casted) + @boolToInt(sign);
             assert(sign);
             // Protect against overflow in the following negation.
             if (x == std.math.minInt(i64)) return 64;

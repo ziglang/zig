@@ -363,7 +363,7 @@ pub const Value = struct {
             },
             .slice => {
                 const pl = val.castTag(.slice).?.data;
-                const ptr = try pl.ptr.intern(ty.optionalChild(mod), mod);
+                const ptr = try pl.ptr.intern(ty.slicePtrFieldType(mod), mod);
                 var ptr_key = mod.intern_pool.indexToKey(ptr).ptr;
                 assert(ptr_key.len == .none);
                 ptr_key.ty = ty.toIntern();
@@ -547,7 +547,6 @@ pub const Value = struct {
         return switch (val.toIntern()) {
             .bool_false => BigIntMutable.init(&space.limbs, 0).toConst(),
             .bool_true => BigIntMutable.init(&space.limbs, 1).toConst(),
-            .undef => unreachable,
             .null_value => BigIntMutable.init(&space.limbs, 0).toConst(),
             else => switch (mod.intern_pool.indexToKey(val.toIntern())) {
                 .runtime_value => |runtime_value| runtime_value.val.toValue().toBigIntAdvanced(space, mod, opt_sema),
@@ -564,19 +563,10 @@ pub const Value = struct {
                     },
                 },
                 .enum_tag => |enum_tag| enum_tag.int.toValue().toBigIntAdvanced(space, mod, opt_sema),
-                .ptr => |ptr| switch (ptr.len) {
-                    .none => switch (ptr.addr) {
-                        .int => |int| int.toValue().toBigIntAdvanced(space, mod, opt_sema),
-                        .elem => |elem| {
-                            const base_addr = (try elem.base.toValue().getUnsignedIntAdvanced(mod, opt_sema)).?;
-                            const elem_size = ptr.ty.toType().elemType2(mod).abiSize(mod);
-                            const new_addr = base_addr + elem.index * elem_size;
-                            return BigIntMutable.init(&space.limbs, new_addr).toConst();
-                        },
-                        else => unreachable,
-                    },
-                    else => unreachable,
-                },
+                .opt, .ptr => BigIntMutable.init(
+                    &space.limbs,
+                    (try val.getUnsignedIntAdvanced(mod, opt_sema)).?,
+                ).toConst(),
                 else => unreachable,
             },
         };
@@ -614,10 +604,11 @@ pub const Value = struct {
     /// Asserts not undefined.
     pub fn getUnsignedIntAdvanced(val: Value, mod: *Module, opt_sema: ?*Sema) !?u64 {
         return switch (val.toIntern()) {
+            .undef => unreachable,
             .bool_false => 0,
             .bool_true => 1,
-            .undef => unreachable,
             else => switch (mod.intern_pool.indexToKey(val.toIntern())) {
+                .undef => unreachable,
                 .int => |int| switch (int.storage) {
                     .big_int => |big_int| big_int.to(u64) catch null,
                     .u64 => |x| x,
@@ -630,6 +621,26 @@ pub const Value = struct {
                         (try ty.toType().abiSizeAdvanced(mod, .{ .sema = sema })).scalar
                     else
                         ty.toType().abiSize(mod),
+                },
+                .ptr => |ptr| switch (ptr.addr) {
+                    .int => |int| int.toValue().getUnsignedIntAdvanced(mod, opt_sema),
+                    .elem => |elem| {
+                        const base_addr = (try elem.base.toValue().getUnsignedIntAdvanced(mod, opt_sema)) orelse return null;
+                        const elem_size = ptr.ty.toType().elemType2(mod).abiSize(mod);
+                        return base_addr + elem.index * elem_size;
+                    },
+                    .field => |field| {
+                        const struct_ty = ptr.ty.toType().childType(mod);
+                        if (opt_sema) |sema| try sema.resolveTypeLayout(struct_ty);
+                        const base_addr = (try field.base.toValue().getUnsignedIntAdvanced(mod, opt_sema)) orelse return null;
+                        const field_offset = ptr.ty.toType().childType(mod).structFieldOffset(field.index, mod);
+                        return base_addr + field_offset;
+                    },
+                    else => null,
+                },
+                .opt => |opt| switch (opt.val) {
+                    .none => 0,
+                    else => |payload| payload.toValue().getUnsignedIntAdvanced(mod, opt_sema),
                 },
                 else => null,
             },
@@ -646,7 +657,6 @@ pub const Value = struct {
         return switch (val.toIntern()) {
             .bool_false => 0,
             .bool_true => 1,
-            .undef => unreachable,
             else => switch (mod.intern_pool.indexToKey(val.toIntern())) {
                 .int => |int| switch (int.storage) {
                     .big_int => |big_int| big_int.to(i64) catch unreachable,
@@ -830,24 +840,14 @@ pub const Value = struct {
                 }
             },
             .Int, .Enum => {
+                if (buffer.len == 0) return;
                 const bits = ty.intInfo(mod).bits;
-                const abi_size = @intCast(usize, ty.abiSize(mod));
+                if (bits == 0) return;
 
-                const int_val = try val.enumToInt(ty, mod);
-
-                if (abi_size == 0) return;
-                if (abi_size <= @sizeOf(u64)) {
-                    const ip_key = mod.intern_pool.indexToKey(int_val.toIntern());
-                    const int: u64 = switch (ip_key.int.storage) {
-                        .u64 => |x| x,
-                        .i64 => |x| @bitCast(u64, x),
-                        else => unreachable,
-                    };
-                    std.mem.writeVarPackedInt(buffer, bit_offset, bits, int, endian);
-                } else {
-                    var bigint_buffer: BigIntSpace = undefined;
-                    const bigint = int_val.toBigInt(&bigint_buffer, mod);
-                    bigint.writePackedTwosComplement(buffer, bit_offset, bits, endian);
+                switch (mod.intern_pool.indexToKey((try val.enumToInt(ty, mod)).toIntern()).int.storage) {
+                    inline .u64, .i64 => |int| std.mem.writeVarPackedInt(buffer, bit_offset, bits, int, endian),
+                    .big_int => |bigint| bigint.writePackedTwosComplement(buffer, bit_offset, bits, endian),
+                    else => unreachable,
                 }
             },
             .Float => switch (ty.floatBits(target)) {
@@ -1075,25 +1075,40 @@ pub const Value = struct {
                     return Value.true;
                 }
             },
-            .Int, .Enum => {
+            .Int, .Enum => |ty_tag| {
                 if (buffer.len == 0) return mod.intValue(ty, 0);
                 const int_info = ty.intInfo(mod);
-                const abi_size = @intCast(usize, ty.abiSize(mod));
-
                 const bits = int_info.bits;
                 if (bits == 0) return mod.intValue(ty, 0);
-                if (bits <= 64) switch (int_info.signedness) { // Fast path for integers <= u64
-                    .signed => return mod.intValue(ty, std.mem.readVarPackedInt(i64, buffer, bit_offset, bits, endian, .signed)),
-                    .unsigned => return mod.intValue(ty, std.mem.readVarPackedInt(u64, buffer, bit_offset, bits, endian, .unsigned)),
-                } else { // Slow path, we have to construct a big-int
-                    const Limb = std.math.big.Limb;
-                    const limb_count = (abi_size + @sizeOf(Limb) - 1) / @sizeOf(Limb);
-                    const limbs_buffer = try arena.alloc(Limb, limb_count);
 
-                    var bigint = BigIntMutable.init(limbs_buffer, 0);
-                    bigint.readPackedTwosComplement(buffer, bit_offset, bits, endian, int_info.signedness);
-                    return mod.intValue_big(ty, bigint.toConst());
+                // Fast path for integers <= u64
+                if (bits <= 64) {
+                    const int_ty = switch (ty_tag) {
+                        .Int => ty,
+                        .Enum => ty.intTagType(mod),
+                        else => unreachable,
+                    };
+                    return mod.getCoerced(switch (int_info.signedness) {
+                        .signed => return mod.intValue(
+                            int_ty,
+                            std.mem.readVarPackedInt(i64, buffer, bit_offset, bits, endian, .signed),
+                        ),
+                        .unsigned => return mod.intValue(
+                            int_ty,
+                            std.mem.readVarPackedInt(u64, buffer, bit_offset, bits, endian, .unsigned),
+                        ),
+                    }, ty);
                 }
+
+                // Slow path, we have to construct a big-int
+                const abi_size = @intCast(usize, ty.abiSize(mod));
+                const Limb = std.math.big.Limb;
+                const limb_count = (abi_size + @sizeOf(Limb) - 1) / @sizeOf(Limb);
+                const limbs_buffer = try arena.alloc(Limb, limb_count);
+
+                var bigint = BigIntMutable.init(limbs_buffer, 0);
+                bigint.readPackedTwosComplement(buffer, bit_offset, bits, endian, int_info.signedness);
+                return mod.intValue_big(ty, bigint.toConst());
             },
             .Float => return (try mod.intern(.{ .float = .{
                 .ty = ty.toIntern(),
@@ -1764,7 +1779,7 @@ pub const Value = struct {
                 },
                 .opt => |opt| switch (opt.val) {
                     .none => false,
-                    else => opt.val.toValue().canMutateComptimeVarState(mod),
+                    else => |payload| payload.toValue().canMutateComptimeVarState(mod),
                 },
                 .aggregate => |aggregate| for (aggregate.storage.values()) |elem| {
                     if (elem.toValue().canMutateComptimeVarState(mod)) break true;
@@ -1949,43 +1964,51 @@ pub const Value = struct {
         start: usize,
         end: usize,
     ) error{OutOfMemory}!Value {
-        return switch (mod.intern_pool.indexToKey(val.toIntern())) {
-            .ptr => |ptr| switch (ptr.addr) {
-                .decl => |decl| try mod.declPtr(decl).val.sliceArray(mod, arena, start, end),
-                .mut_decl => |mut_decl| (try mod.declPtr(mut_decl.decl).internValue(mod)).toValue()
-                    .sliceArray(mod, arena, start, end),
-                .comptime_field => |comptime_field| comptime_field.toValue()
-                    .sliceArray(mod, arena, start, end),
-                .elem => |elem| elem.base.toValue()
-                    .sliceArray(mod, arena, start + elem.index, end + elem.index),
+        return switch (val.ip_index) {
+            .none => switch (val.tag()) {
+                .slice => val.castTag(.slice).?.data.ptr.sliceArray(mod, arena, start, end),
+                .bytes => Tag.bytes.create(arena, val.castTag(.bytes).?.data[start..end]),
+                .repeated => val,
+                .aggregate => Tag.aggregate.create(arena, val.castTag(.aggregate).?.data[start..end]),
                 else => unreachable,
             },
-            .aggregate => |aggregate| (try mod.intern(.{ .aggregate = .{
-                .ty = switch (mod.intern_pool.indexToKey(mod.intern_pool.typeOf(val.toIntern()))) {
-                    .array_type => |array_type| try mod.arrayType(.{
-                        .len = @intCast(u32, end - start),
-                        .child = array_type.child,
-                        .sentinel = if (end == array_type.len) array_type.sentinel else .none,
-                    }),
-                    .vector_type => |vector_type| try mod.vectorType(.{
-                        .len = @intCast(u32, end - start),
-                        .child = vector_type.child,
-                    }),
+            else => switch (mod.intern_pool.indexToKey(val.toIntern())) {
+                .ptr => |ptr| switch (ptr.addr) {
+                    .decl => |decl| try mod.declPtr(decl).val.sliceArray(mod, arena, start, end),
+                    .mut_decl => |mut_decl| (try mod.declPtr(mut_decl.decl).internValue(mod)).toValue()
+                        .sliceArray(mod, arena, start, end),
+                    .comptime_field => |comptime_field| comptime_field.toValue()
+                        .sliceArray(mod, arena, start, end),
+                    .elem => |elem| elem.base.toValue()
+                        .sliceArray(mod, arena, start + elem.index, end + elem.index),
                     else => unreachable,
-                }.toIntern(),
-                .storage = switch (aggregate.storage) {
-                    .bytes => |bytes| .{ .bytes = bytes[start..end] },
-                    .elems => |elems| .{ .elems = elems[start..end] },
-                    .repeated_elem => |elem| .{ .repeated_elem = elem },
                 },
-            } })).toValue(),
-            else => unreachable,
+                .aggregate => |aggregate| (try mod.intern(.{ .aggregate = .{
+                    .ty = switch (mod.intern_pool.indexToKey(mod.intern_pool.typeOf(val.toIntern()))) {
+                        .array_type => |array_type| try mod.arrayType(.{
+                            .len = @intCast(u32, end - start),
+                            .child = array_type.child,
+                            .sentinel = if (end == array_type.len) array_type.sentinel else .none,
+                        }),
+                        .vector_type => |vector_type| try mod.vectorType(.{
+                            .len = @intCast(u32, end - start),
+                            .child = vector_type.child,
+                        }),
+                        else => unreachable,
+                    }.toIntern(),
+                    .storage = switch (aggregate.storage) {
+                        .bytes => |bytes| .{ .bytes = bytes[start..end] },
+                        .elems => |elems| .{ .elems = elems[start..end] },
+                        .repeated_elem => |elem| .{ .repeated_elem = elem },
+                    },
+                } })).toValue(),
+                else => unreachable,
+            },
         };
     }
 
     pub fn fieldValue(val: Value, mod: *Module, index: usize) !Value {
         return switch (val.ip_index) {
-            .undef => Value.undef,
             .none => switch (val.tag()) {
                 .aggregate => {
                     const field_values = val.castTag(.aggregate).?.data;
@@ -1999,6 +2022,9 @@ pub const Value = struct {
                 else => unreachable,
             },
             else => switch (mod.intern_pool.indexToKey(val.toIntern())) {
+                .undef => |ty| (try mod.intern(.{
+                    .undef = ty.toType().structFieldType(index, mod).toIntern(),
+                })).toValue(),
                 .aggregate => |aggregate| switch (aggregate.storage) {
                     .bytes => |bytes| try mod.intern(.{ .int = .{
                         .ty = .u8_type,
@@ -2108,6 +2134,7 @@ pub const Value = struct {
             .null_value => true,
 
             else => return switch (mod.intern_pool.indexToKey(val.toIntern())) {
+                .undef => unreachable,
                 .int => {
                     var buf: BigIntSpace = undefined;
                     return val.toBigInt(&buf, mod).eqZero();
@@ -2141,9 +2168,13 @@ pub const Value = struct {
 
     /// Value of the optional, null if optional has no payload.
     pub fn optionalValue(val: Value, mod: *const Module) ?Value {
-        return switch (mod.intern_pool.indexToKey(val.toIntern()).opt.val) {
-            .none => null,
-            else => |index| index.toValue(),
+        return switch (mod.intern_pool.indexToKey(val.toIntern())) {
+            .opt => |opt| switch (opt.val) {
+                .none => null,
+                else => |payload| payload.toValue(),
+            },
+            .ptr => val,
+            else => unreachable,
         };
     }
 
@@ -2152,6 +2183,7 @@ pub const Value = struct {
         return switch (self.toIntern()) {
             .undef => unreachable,
             else => switch (mod.intern_pool.indexToKey(self.toIntern())) {
+                .undef => unreachable,
                 .float => true,
                 else => false,
             },
@@ -2182,28 +2214,26 @@ pub const Value = struct {
     }
 
     pub fn intToFloatScalar(val: Value, float_ty: Type, mod: *Module, opt_sema: ?*Sema) !Value {
-        return switch (val.toIntern()) {
-            .undef => val,
-            else => return switch (mod.intern_pool.indexToKey(val.toIntern())) {
-                .int => |int| switch (int.storage) {
-                    .big_int => |big_int| {
-                        const float = bigIntToFloat(big_int.limbs, big_int.positive);
-                        return mod.floatValue(float_ty, float);
-                    },
-                    inline .u64, .i64 => |x| intToFloatInner(x, float_ty, mod),
-                    .lazy_align => |ty| if (opt_sema) |sema| {
-                        return intToFloatInner((try ty.toType().abiAlignmentAdvanced(mod, .{ .sema = sema })).scalar, float_ty, mod);
-                    } else {
-                        return intToFloatInner(ty.toType().abiAlignment(mod), float_ty, mod);
-                    },
-                    .lazy_size => |ty| if (opt_sema) |sema| {
-                        return intToFloatInner((try ty.toType().abiSizeAdvanced(mod, .{ .sema = sema })).scalar, float_ty, mod);
-                    } else {
-                        return intToFloatInner(ty.toType().abiSize(mod), float_ty, mod);
-                    },
+        return switch (mod.intern_pool.indexToKey(val.toIntern())) {
+            .undef => (try mod.intern(.{ .undef = float_ty.toIntern() })).toValue(),
+            .int => |int| switch (int.storage) {
+                .big_int => |big_int| {
+                    const float = bigIntToFloat(big_int.limbs, big_int.positive);
+                    return mod.floatValue(float_ty, float);
                 },
-                else => unreachable,
+                inline .u64, .i64 => |x| intToFloatInner(x, float_ty, mod),
+                .lazy_align => |ty| if (opt_sema) |sema| {
+                    return intToFloatInner((try ty.toType().abiAlignmentAdvanced(mod, .{ .sema = sema })).scalar, float_ty, mod);
+                } else {
+                    return intToFloatInner(ty.toType().abiAlignment(mod), float_ty, mod);
+                },
+                .lazy_size => |ty| if (opt_sema) |sema| {
+                    return intToFloatInner((try ty.toType().abiSizeAdvanced(mod, .{ .sema = sema })).scalar, float_ty, mod);
+                } else {
+                    return intToFloatInner(ty.toType().abiSize(mod), float_ty, mod);
+                },
             },
+            else => unreachable,
         };
     }
 

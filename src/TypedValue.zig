@@ -254,8 +254,8 @@ pub fn print(
             .ptr => return writer.writeAll("(ptr)"),
             .opt => |opt| switch (opt.val) {
                 .none => return writer.writeAll("null"),
-                else => {
-                    val = opt.val.toValue();
+                else => |payload| {
+                    val = payload.toValue();
                     ty = ty.optionalChild(mod);
                 },
             },

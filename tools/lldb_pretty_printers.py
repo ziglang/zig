@@ -455,21 +455,21 @@ class InternPool_Index_SynthProvider:
                 elif encoding_field.name == 'trailing':
                     trailing_data = lldb.SBData()
                     for trailing_field in encoding_field.type.fields:
-                        if trailing_field.type.IsAggregateType():
-                            trailing_data.Append(extra.GetChildAtIndex(extra_index).address_of.data)
-                            len = dynamic_values['trailing.%s.len' % trailing_field.name].unsigned
-                            trailing_data.Append(lldb.SBData.CreateDataFromInt(len, trailing_data.GetAddressByteSize()))
-                            extra_index += len
-                        else:
-                            pass
+                        trailing_data.Append(extra.GetChildAtIndex(extra_index).address_of.data)
+                        trailing_len = dynamic_values['trailing.%s.len' % trailing_field.name].unsigned
+                        trailing_data.Append(lldb.SBData.CreateDataFromInt(trailing_len, trailing_data.GetAddressByteSize()))
+                        extra_index += trailing_len
                     self.trailing = self.data.CreateValueFromData('trailing', trailing_data, encoding_field.type)
                 else:
-                    path = encoding_field.type.GetPointeeType().name.removeprefix('%s::' % encoding_type.name).removeprefix('%s.' % encoding_type.name).partition('__')[0].split('.')
-                    if path[0] == 'data':
-                        dynamic_value = self.data
-                        for name in path[1:]:
-                            dynamic_value = dynamic_value.GetChildMemberWithName(name)
-                    dynamic_values[encoding_field.name] = dynamic_value
+                    for path in encoding_field.type.GetPointeeType().name.removeprefix('%s::' % encoding_type.name).removeprefix('%s.' % encoding_type.name).partition('__')[0].split(' orelse '):
+                        if path.startswith('data.'):
+                            root = self.data
+                            path = path[len('data'):]
+                        else: return
+                        dynamic_value = root.GetValueForExpressionPath(path)
+                        if dynamic_value:
+                            dynamic_values[encoding_field.name] = dynamic_value
+                            break
         except: pass
     def has_children(self): return True
     def num_children(self): return 2 + (self.trailing is not None)
