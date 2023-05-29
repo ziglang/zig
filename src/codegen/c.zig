@@ -1313,7 +1313,7 @@ pub const DeclGen = struct {
 
                 if (ty.optionalReprIsPayload(mod)) switch (opt.val) {
                     .none => return writer.writeByte('0'),
-                    else => return dg.renderValue(writer, payload_ty, opt.val.toValue(), location),
+                    else => |payload| return dg.renderValue(writer, payload_ty, payload.toValue(), location),
                 };
 
                 if (!location.isInitializer()) {
@@ -1325,7 +1325,7 @@ pub const DeclGen = struct {
                 try writer.writeAll("{ .payload = ");
                 try dg.renderValue(writer, payload_ty, switch (opt.val) {
                     .none => try mod.intern(.{ .undef = payload_ty.ip_index }),
-                    else => opt.val,
+                    else => |payload| payload,
                 }.toValue(), initializer_type);
                 try writer.writeAll(", .is_null = ");
                 try dg.renderValue(writer, Type.bool, is_null_val, initializer_type);
