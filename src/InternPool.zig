@@ -2625,24 +2625,36 @@ pub fn indexToKey(ip: *const InternPool, index: Index) Key {
             } };
         },
         .ptr_elem => {
+            // Avoid `indexToKey` recursion by asserting the tag encoding.
             const info = ip.extraData(PtrBaseIndex, data);
-            return .{ .ptr = .{
-                .ty = info.ty,
-                .addr = .{ .elem = .{
-                    .base = info.base,
-                    .index = ip.indexToKey(info.index).int.storage.u64,
+            const index_item = ip.items.get(@enumToInt(info.index));
+            return switch (index_item.tag) {
+                .int_usize => .{ .ptr = .{
+                    .ty = info.ty,
+                    .addr = .{ .elem = .{
+                        .base = info.base,
+                        .index = index_item.data,
+                    } },
                 } },
-            } };
+                .int_positive => @panic("TODO"), // implement along with behavior test coverage
+                else => unreachable,
+            };
         },
         .ptr_field => {
+            // Avoid `indexToKey` recursion by asserting the tag encoding.
             const info = ip.extraData(PtrBaseIndex, data);
-            return .{ .ptr = .{
-                .ty = info.ty,
-                .addr = .{ .field = .{
-                    .base = info.base,
-                    .index = ip.indexToKey(info.index).int.storage.u64,
+            const index_item = ip.items.get(@enumToInt(info.index));
+            return switch (index_item.tag) {
+                .int_usize => .{ .ptr = .{
+                    .ty = info.ty,
+                    .addr = .{ .field = .{
+                        .base = info.base,
+                        .index = index_item.data,
+                    } },
                 } },
-            } };
+                .int_positive => @panic("TODO"), // implement along with behavior test coverage
+                else => unreachable,
+            };
         },
         .ptr_slice => {
             const info = ip.extraData(PtrSlice, data);
