@@ -682,6 +682,8 @@ pub const DwarfInfo = struct {
     compile_unit_list: std.ArrayListUnmanaged(CompileUnit) = .{},
     func_list: std.ArrayListUnmanaged(Func) = .{},
 
+    eh_frame_hdr: ?ExceptionFrameHeader = null,
+    // These lookup tables are only used if `eh_frame_hdr` is null
     cie_map: std.AutoArrayHashMapUnmanaged(u64, CommonInformationEntry) = .{},
     // Sorted by start_pc
     fde_list: std.ArrayListUnmanaged(FrameDescriptionEntry) = .{},
@@ -1489,60 +1491,79 @@ pub const DwarfInfo = struct {
     }
 
     pub fn scanAllUnwindInfo(di: *DwarfInfo, allocator: mem.Allocator, binary_mem: []const u8) !void {
-        var has_eh_frame_hdr = false;
-        if (di.section(.eh_frame_hdr)) |eh_frame_hdr| {
-            has_eh_frame_hdr = true;
+        if (di.section(.eh_frame_hdr)) |eh_frame_hdr| blk: {
+            var stream = io.fixedBufferStream(eh_frame_hdr);
+            const reader = stream.reader();
 
-            // TODO: Parse this section to get the lookup table, and skip loading the entire section
+            const version = try reader.readByte();
+            if (version != 1) break :blk;
 
-            _ = eh_frame_hdr;
+            const eh_frame_ptr_enc = try reader.readByte();
+            if (eh_frame_ptr_enc == EH.PE.omit) break :blk;
+            const fde_count_enc = try reader.readByte();
+            if (fde_count_enc == EH.PE.omit) break :blk;
+            const table_enc = try reader.readByte();
+            if (table_enc == EH.PE.omit) break :blk;
+
+            const eh_frame_ptr = std.math.cast(usize, try readEhPointer(reader, eh_frame_ptr_enc, @sizeOf(usize), .{
+                .pc_rel_base = @ptrToInt(&eh_frame_hdr[stream.pos]),
+                .follow_indirect = true,
+            }, builtin.cpu.arch.endian()) orelse return badDwarf()) orelse return badDwarf();
+
+            const fde_count = std.math.cast(usize, try readEhPointer(reader, fde_count_enc, @sizeOf(usize), .{
+                .pc_rel_base = @ptrToInt(&eh_frame_hdr[stream.pos]),
+                .follow_indirect = true,
+            }, builtin.cpu.arch.endian()) orelse return badDwarf()) orelse return badDwarf();
+
+            const entry_size = try ExceptionFrameHeader.entrySize(table_enc);
+            const entries_len = fde_count * entry_size;
+            if (entries_len > eh_frame_hdr.len - stream.pos) return badDwarf();
+
+            di.eh_frame_hdr = .{
+                .eh_frame_ptr = eh_frame_ptr,
+                .table_enc = table_enc,
+                .fde_count = fde_count,
+                .entries = eh_frame_hdr[stream.pos..][0..entries_len],
+            };
+
+            // No need to scan .eh_frame, we have a binary search table already
+            return;
         }
 
         if (di.section(.eh_frame)) |eh_frame| {
             var stream = io.fixedBufferStream(eh_frame);
-            const reader = stream.reader();
-
             while (stream.pos < stream.buffer.len) {
-                const length_offset = stream.pos;
-                var length: usize = try reader.readInt(u32, di.endian);
-                if (length == 0) break;
-
-                var is_64 = length == math.maxInt(u32);
-                if (is_64) {
-                    length = std.math.cast(usize, try reader.readInt(u64, di.endian)) orelse return error.LengthOverflow;
+                const entry_header = try EntryHeader.read(&stream, di.endian);
+                switch (entry_header.type) {
+                    .cie => {
+                        const cie = try CommonInformationEntry.parse(
+                            entry_header.entry_bytes,
+                            -@intCast(isize, @ptrToInt(binary_mem.ptr)),
+                            //@ptrToInt(eh_frame.ptr),
+                            //@ptrToInt(eh_frame.ptr) - @ptrToInt(binary_mem.ptr),
+                            true,
+                            entry_header.length_offset,
+                            @sizeOf(usize),
+                            di.endian,
+                        );
+                        try di.cie_map.put(allocator, entry_header.length_offset, cie);
+                    },
+                    .fde => |cie_offset| {
+                        const cie = di.cie_map.get(cie_offset) orelse return badDwarf();
+                        const fde = try FrameDescriptionEntry.parse(
+                            entry_header.entry_bytes,
+                            -@intCast(isize, @ptrToInt(binary_mem.ptr)),
+                            //@ptrToInt(eh_frame.ptr),
+                            //@ptrToInt(eh_frame.ptr) - @ptrToInt(binary_mem.ptr),
+                            true,
+                            cie,
+                            @sizeOf(usize),
+                            di.endian,
+                        );
+                        try di.fde_list.append(allocator, fde);
+                    },
+                    .terminator => break,
                 }
-
-                const id_len = @as(u8, if (is_64) 8 else 4);
-                const id = if (is_64) try reader.readInt(u64, di.endian) else try reader.readInt(u32, di.endian);
-                const entry_bytes = eh_frame[stream.pos..][0 .. length - id_len];
-
-                if (id == 0) {
-                    const cie = try CommonInformationEntry.parse(
-                        entry_bytes,
-                        @ptrToInt(eh_frame.ptr),
-                        @ptrToInt(eh_frame.ptr) - @ptrToInt(binary_mem.ptr),
-                        true,
-                        length_offset,
-                        @sizeOf(usize),
-                        di.endian,
-                    );
-                    try di.cie_map.put(allocator, length_offset, cie);
-                } else {
-                    const cie_offset = stream.pos - id_len - id;
-                    const cie = di.cie_map.get(cie_offset) orelse return badDwarf();
-                    const fde = try FrameDescriptionEntry.parse(
-                        entry_bytes,
-                        @ptrToInt(eh_frame.ptr),
-                        @ptrToInt(eh_frame.ptr) - @ptrToInt(binary_mem.ptr),
-                        true,
-                        cie,
-                        @sizeOf(usize),
-                        di.endian,
-                    );
-                    try di.fde_list.append(allocator, fde);
-                }
-
-                stream.pos += entry_bytes.len;
             }
 
             // TODO: Avoiding sorting if has_eh_frame_hdr exists
@@ -1560,59 +1581,67 @@ pub const DwarfInfo = struct {
         if (context.pc == 0) return;
 
         // TODO: Handle signal frame (ie. use_prev_instr in libunwind)
-        // TOOD: Use eh_frame_hdr to accelerate the search if available
-        //const eh_frame_hdr = di.section(.eh_frame_hdr) orelse return error.MissingDebugInfo;
 
-        // Find the FDE
-        const unmapped_pc = context.pc - module_base_address;
-        const index = std.sort.binarySearch(FrameDescriptionEntry, unmapped_pc, di.fde_list.items, {}, struct {
-            pub fn compareFn(_: void, pc: usize, mid_item: FrameDescriptionEntry) std.math.Order {
-                if (pc < mid_item.pc_begin) {
-                    return .lt;
-                } else {
-                    const range_end = mid_item.pc_begin + mid_item.pc_range;
-                    if (pc < range_end) {
-                        return .eq;
+        // Find the FDE and CIE
+        var cie: CommonInformationEntry = undefined;
+        var fde: FrameDescriptionEntry = undefined;
+
+        // In order to support reading .eh_frame from the ELF file (vs using the already-mapped section),
+        // scanAllUnwindInfo has already mapped any pc-relative offsets such that they we be relative to zero
+        // instead of the actual base address of the module. When using .eh_frame_hdr, PC can be used directly
+        // as pointers will be decoded relative to the alreayd-mapped .eh_frame.
+        var mapped_pc: usize = undefined;
+
+        if (di.eh_frame_hdr) |header| {
+            mapped_pc = context.pc;
+            try header.findEntry(context.isValidMemory, @ptrToInt(di.section(.eh_frame_hdr).?.ptr), mapped_pc, &cie, &fde);
+        } else {
+            mapped_pc = context.pc - module_base_address;
+            const index = std.sort.binarySearch(FrameDescriptionEntry, mapped_pc, di.fde_list.items, {}, struct {
+                pub fn compareFn(_: void, pc: usize, mid_item: FrameDescriptionEntry) std.math.Order {
+                    if (pc < mid_item.pc_begin) {
+                        return .lt;
+                    } else {
+                        const range_end = mid_item.pc_begin + mid_item.pc_range;
+                        if (pc < range_end) {
+                            return .eq;
+                        }
+
+                        return .gt;
                     }
-
-                    return .gt;
                 }
-            }
-        }.compareFn);
+            }.compareFn);
 
-        const fde = if (index) |i| &di.fde_list.items[i] else return error.MissingFDE;
-        const cie = di.cie_map.getPtr(fde.cie_length_offset) orelse return error.MissingCIE;
+            fde = if (index) |i| di.fde_list.items[i] else return error.MissingFDE;
+            cie = di.cie_map.get(fde.cie_length_offset) orelse return error.MissingCIE;
+        }
 
-        // const prev_cfa = context.cfa;
-        // const prev_pc = context.pc;
+        context.vm.reset();
 
-        // TODO: Cache this on self so we can re-use the allocations?
-        var vm = call_frame.VirtualMachine{};
-        defer vm.deinit(allocator);
-
-        const row = try vm.runToNative(allocator, unmapped_pc, cie.*, fde.*);
+        const row = try context.vm.runToNative(allocator, mapped_pc, cie, fde);
         context.cfa = switch (row.cfa.rule) {
             .val_offset => |offset| blk: {
                 const register = row.cfa.register orelse return error.InvalidCFARule;
                 const value = mem.readIntSliceNative(usize, try abi.regBytes(&context.ucontext, register, context.reg_ctx));
-
-                // TODO: Check isValidMemory?
                 break :blk try call_frame.applyOffset(value, offset);
             },
             .expression => |expression| {
 
                 // TODO: Evaluate expression
                 _ = expression;
+
                 return error.UnimplementedTODO;
             },
             else => return error.InvalidCFARule,
         };
 
+        if (!context.isValidMemory(context.cfa.?)) return error.InvalidCFA;
+
         // Update the context with the previous frame's values
         var next_ucontext = context.ucontext;
 
         var has_next_ip = false;
-        for (vm.rowColumns(row)) |column| {
+        for (context.vm.rowColumns(row)) |column| {
             if (column.register) |register| {
                 const dest = try abi.regBytes(&next_ucontext, register, context.reg_ctx);
                 if (register == cie.return_address_register) {
@@ -1640,15 +1669,22 @@ pub const UnwindContext = struct {
     pc: usize,
     ucontext: os.ucontext_t,
     reg_ctx: abi.RegisterContext,
+    isValidMemory: *const fn (address: usize) bool,
+    vm: call_frame.VirtualMachine = .{},
 
-    pub fn init(ucontext: *const os.ucontext_t) !UnwindContext {
+    pub fn init(ucontext: *const os.ucontext_t, isValidMemory: *const fn (address: usize) bool) !UnwindContext {
         const pc = mem.readIntSliceNative(usize, try abi.regBytes(ucontext, abi.ipRegNum(), null));
         return .{
             .cfa = null,
             .pc = pc,
             .ucontext = ucontext.*,
             .reg_ctx = undefined,
+            .isValidMemory = isValidMemory,
         };
+    }
+
+    pub fn deinit(self: *UnwindContext, allocator: mem.Allocator) void {
+        self.vm.deinit(allocator);
     }
 
     pub fn getFp(self: *const UnwindContext) !usize {
@@ -1694,7 +1730,7 @@ const EhPointerContext = struct {
 
     // Whether or not to follow indirect pointers. This should only be
     // used when decoding pointers at runtime using the current process's
-    // debug info.
+    // debug info
     follow_indirect: bool,
 
     // These relative addressing modes are only used in specific cases, and
@@ -1762,15 +1798,178 @@ fn readEhPointer(reader: anytype, enc: u8, addr_size_bytes: u8, ctx: EhPointerCo
     }
 }
 
+/// This represents the decoded .eh_frame_hdr header
+pub const ExceptionFrameHeader = struct {
+    eh_frame_ptr: usize,
+    table_enc: u8,
+    fde_count: usize,
+    entries: []const u8,
+
+    pub fn entrySize(table_enc: u8) !u8 {
+        return switch (table_enc & EH.PE.type_mask) {
+            EH.PE.udata2,
+            EH.PE.sdata2,
+            => 4,
+            EH.PE.udata4,
+            EH.PE.sdata4,
+            => 8,
+            EH.PE.udata8,
+            EH.PE.sdata8,
+            => 16,
+            // This is a binary search table, so all entries must be the same length
+            else => return badDwarf(),
+        };
+    }
+
+    pub fn findEntry(
+        self: ExceptionFrameHeader,
+        isValidMemory: *const fn (address: usize) bool,
+        eh_frame_hdr_ptr: usize,
+        pc: usize,
+        cie: *CommonInformationEntry,
+        fde: *FrameDescriptionEntry,
+    ) !void {
+        const entry_size = try entrySize(self.table_enc);
+
+        var left: usize = 0;
+        var len: usize = self.fde_count;
+
+        var stream = io.fixedBufferStream(self.entries);
+        const reader = stream.reader();
+
+        while (len > 1) {
+            const mid = left + len / 2;
+
+            try stream.seekTo(mid * entry_size);
+            const pc_begin = try readEhPointer(reader, self.table_enc, @sizeOf(usize), .{
+                .pc_rel_base = @ptrToInt(&self.entries[stream.pos]),
+                .follow_indirect = true,
+                .data_rel_base = eh_frame_hdr_ptr,
+            }, builtin.cpu.arch.endian()) orelse return badDwarf();
+
+            if (pc >= pc_begin) left = mid;
+            if (pc == pc_begin) break;
+
+            len /= 2;
+        }
+
+        try stream.seekTo(left * entry_size);
+
+        // Read past pc_begin
+        _ = try readEhPointer(reader, self.table_enc, @sizeOf(usize), .{
+            .pc_rel_base = @ptrToInt(&self.entries[stream.pos]),
+            .follow_indirect = true,
+            .data_rel_base = eh_frame_hdr_ptr,
+        }, builtin.cpu.arch.endian()) orelse return badDwarf();
+
+        const fde_ptr = try readEhPointer(reader, self.table_enc, @sizeOf(usize), .{
+            .pc_rel_base = @ptrToInt(&self.entries[stream.pos]),
+            .follow_indirect = true,
+            .data_rel_base = eh_frame_hdr_ptr,
+        }, builtin.cpu.arch.endian()) orelse return badDwarf();
+
+        // TODO: Should this also do isValidMemory(fde_ptr) + 11 (worst case header size)?
+
+        // The length of the .eh_frame section is unknown at this point, since .eh_frame_hdr only provides the start
+        if (!isValidMemory(fde_ptr) or fde_ptr < self.eh_frame_ptr) return badDwarf();
+        const eh_frame = @intToPtr([*]const u8, self.eh_frame_ptr)[0..math.maxInt(usize)];
+        const fde_offset = fde_ptr - self.eh_frame_ptr;
+
+        var eh_frame_stream = io.fixedBufferStream(eh_frame);
+        try eh_frame_stream.seekTo(fde_offset);
+
+        const fde_entry_header = try EntryHeader.read(&eh_frame_stream, builtin.cpu.arch.endian());
+        if (!isValidMemory(@ptrToInt(&fde_entry_header.entry_bytes[fde_entry_header.entry_bytes.len - 1]))) return badDwarf();
+        if (fde_entry_header.type != .fde) return badDwarf();
+
+        const cie_offset = fde_entry_header.type.fde;
+        try eh_frame_stream.seekTo(cie_offset);
+        const cie_entry_header = try EntryHeader.read(&eh_frame_stream, builtin.cpu.arch.endian());
+        if (!isValidMemory(@ptrToInt(&cie_entry_header.entry_bytes[cie_entry_header.entry_bytes.len - 1]))) return badDwarf();
+        if (cie_entry_header.type != .cie) return badDwarf();
+
+        cie.* = try CommonInformationEntry.parse(
+            cie_entry_header.entry_bytes,
+            0,
+            true,
+            cie_entry_header.length_offset,
+            @sizeOf(usize),
+            builtin.cpu.arch.endian(),
+        );
+
+        fde.* = try FrameDescriptionEntry.parse(
+            fde_entry_header.entry_bytes,
+            0,
+            true,
+            cie.*,
+            @sizeOf(usize),
+            builtin.cpu.arch.endian(),
+        );
+    }
+};
+
+pub const EntryHeader = struct {
+    /// Offset of the length in the backing buffer
+    length_offset: usize,
+    is_64: bool,
+    type: union(enum) {
+        cie,
+        /// Value is the offset of the corresponding CIE
+        fde: u64,
+        terminator: void,
+    },
+    /// The entry's contents, not including the ID field
+    entry_bytes: []const u8,
+
+    /// Reads a header for either an FDE or a CIE, then advances the stream to the position after the trailing structure.
+    /// `stream` must be a stream backed by the .eh_frame section.
+    pub fn read(stream: *std.io.FixedBufferStream([]const u8), endian: std.builtin.Endian) !EntryHeader {
+        const reader = stream.reader();
+        const length_offset = stream.pos;
+
+        var is_64: bool = undefined;
+        const length = math.cast(usize, try readUnitLength(reader, endian, &is_64)) orelse return badDwarf();
+        if (length == 0) return .{
+            .length_offset = length_offset,
+            .is_64 = is_64,
+            .type = .{ .terminator = {} },
+            .entry_bytes = &.{},
+        };
+
+        const id_len = @as(u8, if (is_64) 8 else 4);
+        const id = if (is_64) try reader.readInt(u64, endian) else try reader.readInt(u32, endian);
+        const entry_bytes = stream.buffer[stream.pos..][0 .. length - id_len];
+
+        const result = EntryHeader{
+            .length_offset = length_offset,
+            .is_64 = is_64,
+            .type = switch (id) {
+                0 => .{ .cie = {} },
+                // TODO: Support CommonInformationEntry.dwarf32_id, CommonInformationEntry.dwarf64_id
+                else => .{ .fde = stream.pos - id_len - id },
+            },
+            .entry_bytes = entry_bytes,
+        };
+
+        stream.pos += entry_bytes.len;
+        return result;
+    }
+
+    /// The length of the entry including the ID field, but not the length field itself
+    pub fn entryLength(self: EntryHeader) usize {
+        return self.entry_bytes.len + @as(u8, if (self.is_64) 8 else 4);
+    }
+};
+
 pub const CommonInformationEntry = struct {
     // Used in .eh_frame
     pub const eh_id = 0;
 
     // Used in .debug_frame (DWARF32)
-    pub const dwarf32_id = std.math.maxInt(u32);
+    pub const dwarf32_id = math.maxInt(u32);
 
     // Used in .debug_frame (DWARF64)
-    pub const dwarf64_id = std.math.maxInt(u64);
+    pub const dwarf64_id = math.maxInt(u64);
 
     // Offset of the length field of this entry in the eh_frame section.
     // This is the key that FDEs use to reference CIEs.
@@ -1804,12 +2003,17 @@ pub const CommonInformationEntry = struct {
         return false;
     }
 
-    // This function expects to read the CIE starting with the version field.
-    // The returned struct references memory backed by cie_bytes.
+    /// This function expects to read the CIE starting with the version field.
+    /// The returned struct references memory backed by cie_bytes.
+    ///
+    /// See the FrameDescriptionEntry.parse documentation for the description
+    /// of `pc_rel_offset` and `is_runtime`.
+    ///
+    /// `length_offset` specifies the offset of this CIE's length field in the
+    /// .eh_frame section.
     pub fn parse(
         cie_bytes: []const u8,
-        section_base: u64,
-        section_offset: u64,
+        pc_rel_offset: i64,
         is_runtime: bool,
         length_offset: u64,
         addr_size_bytes: u8,
@@ -1879,7 +2083,7 @@ pub const CommonInformationEntry = struct {
                             personality_enc.?,
                             addr_size_bytes,
                             .{
-                                .pc_rel_base = @ptrToInt(&cie_bytes[stream.pos]) - section_base + section_offset,
+                                .pc_rel_base = try pcRelBase(@ptrToInt(&cie_bytes[stream.pos]), pc_rel_offset),
                                 .follow_indirect = is_runtime,
                             },
                             endian,
@@ -1926,11 +2130,22 @@ pub const FrameDescriptionEntry = struct {
     aug_data: []const u8,
     instructions: []const u8,
 
-    // This function expects to read the FDE starting with the PC Begin field
+    /// This function expects to read the FDE starting at the PC Begin field.
+    /// The returned struct references memory backed by fde_bytes.
+    ///
+    /// `pc_rel_offset` specifies an offset to be applied to pc_rel_base values
+    /// used when decoding pointers. This should be set to zero if fde_bytes is
+    /// backed by the memory of the .eh_frame section in the running executable.
+    ///
+    /// Otherwise, it should be the relative offset to translate addresses from
+    /// where the section is currently stored in memory, to where it *would* be
+    /// stored at runtime: section runtime offset - backing section data base ptr.
+    ///
+    /// Similarly, `is_runtime` specifies this function is being called on a runtime section, and so
+    /// indirect pointers can be followed.
     pub fn parse(
         fde_bytes: []const u8,
-        section_base: u64,
-        section_offset: u64,
+        pc_rel_offset: i64,
         is_runtime: bool,
         cie: CommonInformationEntry,
         addr_size_bytes: u8,
@@ -1946,7 +2161,7 @@ pub const FrameDescriptionEntry = struct {
             cie.fde_pointer_enc,
             addr_size_bytes,
             .{
-                .pc_rel_base = @ptrToInt(&fde_bytes[stream.pos]) - section_base + section_offset,
+                .pc_rel_base = try pcRelBase(@ptrToInt(&fde_bytes[stream.pos]), pc_rel_offset),
                 .follow_indirect = is_runtime,
             },
             endian,
@@ -1975,7 +2190,7 @@ pub const FrameDescriptionEntry = struct {
                     cie.lsda_pointer_enc,
                     addr_size_bytes,
                     .{
-                        .pc_rel_base = @ptrToInt(&fde_bytes[stream.pos]) - section_base + section_offset,
+                        .pc_rel_base = try pcRelBase(@ptrToInt(&fde_bytes[stream.pos]), pc_rel_offset),
                         .follow_indirect = is_runtime,
                     },
                     endian,
@@ -1998,3 +2213,11 @@ pub const FrameDescriptionEntry = struct {
         };
     }
 };
+
+fn pcRelBase(field_ptr: usize, pc_rel_offset: i64) !usize {
+    if (pc_rel_offset < 0) {
+        return math.sub(usize, field_ptr, @intCast(usize, -pc_rel_offset));
+    } else {
+        return math.add(usize, field_ptr, @intCast(usize, pc_rel_offset));
+    }
+}

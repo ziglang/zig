@@ -354,6 +354,13 @@ pub const VirtualMachine = struct {
         self.* = undefined;
     }
 
+    pub fn reset(self: *VirtualMachine) void {
+        self.stack.clearRetainingCapacity();
+        self.columns.clearRetainingCapacity();
+        self.current_row = .{};
+        self.cie_row = null;
+    }
+
     /// Return a slice backed by the row's non-CFA columns
     pub fn rowColumns(self: VirtualMachine, row: Row) []Column {
         return self.columns.items[row.columns.start..][0..row.columns.len];

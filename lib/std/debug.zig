@@ -171,6 +171,7 @@ pub fn dumpStackTraceFromBase(context: StackTraceContext) void {
         }
 
         var it = StackIterator.initWithContext(null, debug_info, context) catch return;
+        defer it.deinit();
         printSourceAtAddress(debug_info, stderr, it.dwarf_context.pc, tty_config) catch return;
 
         while (it.next()) |return_address| {
@@ -219,6 +220,7 @@ pub fn captureStackTrace(first_address: ?usize, stack_trace: *std.builtin.StackT
     } else {
         // TODO: This should use the dwarf unwinder if it's available
         var it = StackIterator.init(first_address, null);
+        defer it.deinit();
         for (stack_trace.instruction_addresses, 0..) |*addr, i| {
             addr.* = it.next() orelse {
                 stack_trace.index = i;
@@ -445,8 +447,16 @@ pub const StackIterator = struct {
     pub fn initWithContext(first_address: ?usize, debug_info: *DebugInfo, context: *const os.ucontext_t) !StackIterator {
         var iterator = init(first_address, null);
         iterator.debug_info = debug_info;
-        iterator.dwarf_context = try DW.UnwindContext.init(context);
+        iterator.dwarf_context = try DW.UnwindContext.init(context, &isValidMemory);
         return iterator;
+    }
+
+    pub fn deinit(self: *StackIterator) void {
+        if (supports_context) {
+            if (self.debug_info) |debug_info| {
+                self.dwarf_context.deinit(debug_info.allocator);
+            }
+        }
     }
 
     // Offset of the saved BP wrt the frame pointer.
@@ -599,6 +609,8 @@ pub fn writeCurrentStackTrace(
 
     // TODO: Capture a context and use initWithContext
     var it = StackIterator.init(start_addr, null);
+    defer it.deinit();
+
     while (it.next()) |return_address| {
         // On arm64 macOS, the address of the last frame is 0x0 rather than 0x1 as on x86_64 macOS,
         // therefore, we do a check for `return_address == 0` before subtracting 1 from it to avoid
@@ -957,18 +969,14 @@ pub fn readElfDebugInfo(
 
         var sections: DW.DwarfInfo.SectionArray = DW.DwarfInfo.null_section_array;
 
-        // Take ownership over any owned sections from the parent scope
+        // Combine section list. This takes ownership over any owned sections from the parent scope.
         for (parent_sections, &sections) |*parent, *section| {
             if (parent.*) |*p| {
                 section.* = p.*;
                 p.owned = false;
             }
         }
-
         errdefer for (sections) |section| if (section) |s| if (s.owned) allocator.free(s.data);
-
-        // TODO: This function should take a ptr to GNU_EH_FRAME (which is .eh_frame_hdr) from the ELF headers
-        //       and prefil sections[.eh_frame_hdr]
 
         var separate_debug_filename: ?[]const u8 = null;
         var separate_debug_crc: ?u32 = null;
@@ -992,6 +1000,7 @@ pub fn readElfDebugInfo(
                 if (mem.eql(u8, "." ++ section.name, name)) section_index = i;
             }
             if (section_index == null) continue;
+            if (sections[section_index.?] != null) continue;
 
             const section_bytes = try chopSlice(mapped_mem, shdr.sh_offset, shdr.sh_size);
             sections[section_index.?] = if ((shdr.sh_flags & elf.SHF_COMPRESSED) > 0) blk: {
@@ -1496,7 +1505,8 @@ pub const DebugInfo = struct {
             // Output
             base_address: usize = undefined,
             name: []const u8 = undefined,
-            build_id: ?[]const u8 = undefined,
+            build_id: ?[]const u8 = null,
+            gnu_eh_frame: ?[]const u8 = null,
         } = .{ .address = address };
         const CtxTy = @TypeOf(ctx);
 
@@ -1523,19 +1533,24 @@ pub const DebugInfo = struct {
                     }
                 } else return;
 
-                // TODO: Look for the GNU_EH_FRAME section and pass it to readElfDebugInfo
-
                 for (info.dlpi_phdr[0..info.dlpi_phnum]) |phdr| {
-                    if (phdr.p_type != elf.PT_NOTE) continue;
-
-                    const note_bytes = @intToPtr([*]const u8, info.dlpi_addr + phdr.p_vaddr)[0..phdr.p_memsz];
-                    const name_size = mem.readIntSliceNative(u32, note_bytes[0..4]);
-                    if (name_size != 4) continue;
-                    const desc_size = mem.readIntSliceNative(u32, note_bytes[4..8]);
-                    const note_type = mem.readIntSliceNative(u32, note_bytes[8..12]);
-                    if (note_type != elf.NT_GNU_BUILD_ID) continue;
-                    if (!mem.eql(u8, "GNU\x00", note_bytes[12..16])) continue;
-                    context.build_id = note_bytes[16..][0..desc_size];
+                    switch (phdr.p_type) {
+                        elf.PT_NOTE => {
+                            // Look for .note.gnu.build-id
+                            const note_bytes = @intToPtr([*]const u8, info.dlpi_addr + phdr.p_vaddr)[0..phdr.p_memsz];
+                            const name_size = mem.readIntSliceNative(u32, note_bytes[0..4]);
+                            if (name_size != 4) continue;
+                            const desc_size = mem.readIntSliceNative(u32, note_bytes[4..8]);
+                            const note_type = mem.readIntSliceNative(u32, note_bytes[8..12]);
+                            if (note_type != elf.NT_GNU_BUILD_ID) continue;
+                            if (!mem.eql(u8, "GNU\x00", note_bytes[12..16])) continue;
+                            context.build_id = note_bytes[16..][0..desc_size];
+                        },
+                        elf.PT_GNU_EH_FRAME => {
+                            context.gnu_eh_frame = @intToPtr([*]const u8, info.dlpi_addr + phdr.p_vaddr)[0..phdr.p_memsz];
+                        },
+                        else => {},
+                    }
                 }
 
                 // Stop the iteration
@@ -1555,7 +1570,16 @@ pub const DebugInfo = struct {
         errdefer self.allocator.destroy(obj_di);
 
         var sections: DW.DwarfInfo.SectionArray = DW.DwarfInfo.null_section_array;
-        // TODO: If GNU_EH_FRAME was found, set it in sections
+        if (ctx.gnu_eh_frame) |eh_frame_hdr| {
+            // This is a special case - pointer offsets inside .eh_frame_hdr
+            // are encoded relative to its base address, so we must use the
+            // version that is already memory mapped, and not the one that
+            // will be mapped separately from the ELF file.
+            sections[@enumToInt(DW.DwarfSection.eh_frame_hdr)] = .{
+                .data = eh_frame_hdr,
+                .owned = false,
+            };
+        }
 
         obj_di.* = try readElfDebugInfo(self.allocator, if (ctx.name.len > 0) ctx.name else null, ctx.build_id, null, &sections, null);
         obj_di.base_address = ctx.base_address;
