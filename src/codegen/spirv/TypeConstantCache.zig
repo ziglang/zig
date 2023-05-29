@@ -28,6 +28,9 @@ map: std.AutoArrayHashMapUnmanaged(void, void) = .{},
 items: std.MultiArrayList(Item) = .{},
 extra: std.ArrayListUnmanaged(u32) = .{},
 
+string_bytes: std.ArrayListUnmanaged(u8) = .{},
+strings: std.AutoArrayHashMapUnmanaged(void, u32) = .{},
+
 const Item = struct {
     tag: Tag,
     /// The result-id that this item uses.
@@ -74,6 +77,10 @@ const Tag = enum {
     /// Simple structure type that does not have any decorations.
     /// data is payload to SimpleStructType
     type_struct_simple,
+    /// Simple structure type that does not have any decorations, but does
+    /// have member names trailing.
+    /// data is payload to SimpleStructType
+    type_struct_simple_with_member_names,
 
     // -- Values
     /// Value of type u8
@@ -124,7 +131,10 @@ const Tag = enum {
 
     /// Trailing:
     /// - [members_len]Ref: Member types.
+    /// - [members_len]String: Member names, -- ONLY if the tag is type_struct_simple_with_member_names
     const SimpleStructType = struct {
+        /// (optional) The name of the struct.
+        name: String,
         /// Number of members that this struct has.
         members_len: u32,
     };
@@ -252,8 +262,16 @@ pub const Key = union(enum) {
 
     pub const StructType = struct {
         // TODO: Decorations.
+        /// The name of the structure. Can be `.none`.
+        name: String,
         /// The type of each member.
         member_types: []const Ref,
+        /// Name for each member. May be omitted.
+        member_names: ?[]const String = null,
+
+        fn memberNames(self: @This()) []const String {
+            return if (self.member_names) |member_names| member_names else &.{};
+        }
     };
 
     pub const Int = struct {
@@ -323,8 +341,12 @@ pub const Key = union(enum) {
                 }
             },
             .struct_type => |struct_type| {
+                std.hash.autoHash(&hasher, struct_type.name);
                 for (struct_type.member_types) |member_type| {
                     std.hash.autoHash(&hasher, member_type);
+                }
+                for (struct_type.memberNames()) |member_name| {
+                    std.hash.autoHash(&hasher, member_name);
                 }
             },
             inline else => |key| std.hash.autoHash(&hasher, key),
@@ -347,7 +369,9 @@ pub const Key = union(enum) {
             },
             .struct_type => |a_struct| {
                 const b_struct = b.struct_type;
-                return std.mem.eql(Ref, a_struct.member_types, b_struct.member_types);
+                return a_struct.name == b_struct.name and
+                    std.mem.eql(Ref, a_struct.member_types, b_struct.member_types) and
+                    std.mem.eql(String, a_struct.memberNames(), b_struct.memberNames());
             },
             // TODO: Unroll?
             else => std.meta.eql(a, b),
@@ -381,6 +405,8 @@ pub fn deinit(self: *Self, spv: *const Module) void {
     self.map.deinit(spv.gpa);
     self.items.deinit(spv.gpa);
     self.extra.deinit(spv.gpa);
+    self.string_bytes.deinit(spv.gpa);
+    self.strings.deinit(spv.gpa);
 }
 
 /// Actually materialize the database into spir-v instructions.
@@ -474,6 +500,14 @@ fn emit(
             section.writeOperand(IdResult, result_id);
             for (struct_type.member_types) |member_type| {
                 section.writeOperand(IdResult, self.resultId(member_type));
+            }
+            if (self.getString(struct_type.name)) |name| {
+                try spv.debugName(result_id, "{s}", .{name});
+            }
+            for (struct_type.memberNames(), 0..) |member_name, i| {
+                if (self.getString(member_name)) |name| {
+                    try spv.memberDebugName(result_id, @intCast(u32, i), "{s}", .{name});
+                }
             }
             // TODO: Decorations?
         },
@@ -589,15 +623,25 @@ pub fn resolve(self: *Self, spv: *Module, key: Key) !Ref {
         },
         .struct_type => |struct_type| blk: {
             const extra = try self.addExtra(spv, Tag.SimpleStructType{
+                .name = struct_type.name,
                 .members_len = @intCast(u32, struct_type.member_types.len),
             });
             try self.extra.appendSlice(spv.gpa, @ptrCast([]const u32, struct_type.member_types));
 
-            break :blk Item{
-                .tag = .type_struct_simple,
-                .result_id = result_id,
-                .data = extra,
-            };
+            if (struct_type.member_names) |member_names| {
+                try self.extra.appendSlice(spv.gpa, @ptrCast([]const u32, member_names));
+                break :blk Item{
+                    .tag = .type_struct_simple_with_member_names,
+                    .result_id = result_id,
+                    .data = extra,
+                };
+            } else {
+                break :blk Item{
+                    .tag = .type_struct_simple,
+                    .result_id = result_id,
+                    .data = extra,
+                };
+            }
         },
         .int => |int| blk: {
             const int_type = self.lookup(int.ty).int_type;
@@ -739,7 +783,22 @@ pub fn lookup(self: *const Self, ref: Ref) Key {
             const member_types = @ptrCast([]const Ref, self.extra.items[payload.trail..][0..payload.data.members_len]);
             return .{
                 .struct_type = .{
+                    .name = payload.data.name,
                     .member_types = member_types,
+                    .member_names = null,
+                },
+            };
+        },
+        .type_struct_simple_with_member_names => {
+            const payload = self.extraDataTrail(Tag.SimpleStructType, data);
+            const trailing = self.extra.items[payload.trail..];
+            const member_types = @ptrCast([]const Ref, trailing[0..payload.data.members_len]);
+            const member_names = @ptrCast([]const String, trailing[payload.data.members_len..][0..payload.data.members_len]);
+            return .{
+                .struct_type = .{
+                    .name = payload.data.name,
+                    .member_types = member_types,
+                    .member_names = member_names,
                 },
             };
         },
@@ -822,6 +881,7 @@ fn addExtraAssumeCapacity(self: *Self, extra: anytype) !u32 {
             i32 => @bitCast(u32, field_val),
             Ref => @enumToInt(field_val),
             StorageClass => @enumToInt(field_val),
+            String => @enumToInt(field_val),
             else => @compileError("Invalid type: " ++ @typeName(field.type)),
         };
         self.extra.appendAssumeCapacity(word);
@@ -843,11 +903,58 @@ fn extraDataTrail(self: Self, comptime T: type, offset: u32) struct { data: T, t
             i32 => @bitCast(i32, word),
             Ref => @intToEnum(Ref, word),
             StorageClass => @intToEnum(StorageClass, word),
+            String => @intToEnum(String, word),
             else => @compileError("Invalid type: " ++ @typeName(field.type)),
         };
     }
     return .{
         .data = result,
         .trail = offset + @intCast(u32, fields.len),
+    };
+}
+
+/// Represents a reference to some null-terminated string.
+pub const String = enum(u32) {
+    none = std.math.maxInt(u32),
+    _,
+
+    pub const Adapter = struct {
+        self: *const Self,
+
+        pub fn eql(ctx: @This(), a: []const u8, _: void, b_index: usize) bool {
+            const offset = ctx.self.string_map.values()[b_index];
+            const b = std.mem.sliceTo(ctx.self.string_bytes.items[offset..], 0);
+            return std.mem.eql(u8, a, b);
+        }
+
+        pub fn hash(ctx: @This(), a: []const u8) u32 {
+            _ = ctx;
+            const hasher = std.hash.Wyhash.init(0);
+            hasher.update(a);
+            return @truncate(u32, hasher.final());
+        }
+    };
+};
+
+/// Add a string to the cache. Must not contain any 0 values.
+pub fn addString(self: *Self, spv: *Module, str: []const u8) String {
+    assert(std.mem.indexOfScalar(u8, str, 0) == null);
+    const adapter = String.Adapter{ .self = self };
+    const entry = try self.strings.getOrPutAdapted(spv.gpa, str, adapter);
+    if (!entry.found_existing) {
+        const offset = self.string_bytes.items.len;
+        try self.string_bytes.ensureUnusedCapacity(1 + str.len);
+        self.string_bytes.appendAssumeCapacity(str);
+        self.string_bytes.append(0);
+        entry.value_ptr.* = offset;
+    }
+
+    return @intToEnum(String, entry.index);
+}
+
+pub fn getString(self: *const Self, ref: String) ?[]const u8 {
+    return switch (ref) {
+        .none => null,
+        else => std.mem.sliceTo(self.string_bytes.items[self.strings.values()[@enumToInt(ref)]..], 0),
     };
 }
