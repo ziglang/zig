@@ -918,3 +918,13 @@ pub fn debugName(self: *Module, target: IdResult, comptime fmt: []const u8, args
         .name = name,
     });
 }
+
+pub fn memberDebugName(self: *Module, target: IdResult, member: u32, comptime fmt: []const u8, args: anytype) !void {
+    const name = try std.fmt.allocPrint(self.gpa, fmt, args);
+    defer self.gpa.free(name);
+    try self.sections.debug_names.emit(self.gpa, .OpMemberName, .{
+        .type = target,
+        .member = member,
+        .name = name,
+    });
+}

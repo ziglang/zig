@@ -11,6 +11,7 @@
 //! vectors) must have a _unique_ representation in the final binary.
 
 const std = @import("std");
+const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
 
 const Section = @import("Section.zig");
@@ -68,8 +69,11 @@ const Tag = enum {
     /// data is child type
     type_ptr_function,
     /// Simple pointer type that does not have any decorations.
-    /// data is SimplePointerType
+    /// data is payload to SimplePointerType
     type_ptr_simple,
+    /// Simple structure type that does not have any decorations.
+    /// data is payload to SimpleStructType
+    type_struct_simple,
 
     // -- Values
     /// Value of type u8
@@ -107,7 +111,7 @@ const Tag = enum {
     const ArrayType = Key.ArrayType;
 
     // Trailing:
-    // - [param_len]Ref: parameter types
+    // - [param_len]Ref: parameter types.
     const FunctionType = struct {
         param_len: u32,
         return_type: Ref,
@@ -116,6 +120,13 @@ const Tag = enum {
     const SimplePointerType = struct {
         storage_class: StorageClass,
         child_type: Ref,
+    };
+
+    /// Trailing:
+    /// - [members_len]Ref: Member types.
+    const SimpleStructType = struct {
+        /// Number of members that this struct has.
+        members_len: u32,
     };
 
     const Float64 = struct {
@@ -201,6 +212,7 @@ pub const Key = union(enum) {
     array_type: ArrayType,
     function_type: FunctionType,
     ptr_type: PointerType,
+    struct_type: StructType,
 
     // -- values
     int: Int,
@@ -236,6 +248,12 @@ pub const Key = union(enum) {
         // - Alignment
         // - ArrayStride,
         // - MaxByteOffset,
+    };
+
+    pub const StructType = struct {
+        // TODO: Decorations.
+        /// The type of each member.
+        member_types: []const Ref,
     };
 
     pub const Int = struct {
@@ -304,6 +322,11 @@ pub const Key = union(enum) {
                     std.hash.autoHash(&hasher, param_type);
                 }
             },
+            .struct_type => |struct_type| {
+                for (struct_type.member_types) |member_type| {
+                    std.hash.autoHash(&hasher, member_type);
+                }
+            },
             inline else => |key| std.hash.autoHash(&hasher, key),
         }
         return @truncate(u32, hasher.final());
@@ -318,9 +341,13 @@ pub const Key = union(enum) {
         }
         return switch (a) {
             .function_type => |a_func| {
-                const b_func = a.function_type;
+                const b_func = b.function_type;
                 return a_func.return_type == b_func.return_type and
                     std.mem.eql(Ref, a_func.parameters, b_func.parameters);
+            },
+            .struct_type => |a_struct| {
+                const b_struct = b.struct_type;
+                return std.mem.eql(Ref, a_struct.member_types, b_struct.member_types);
             },
             // TODO: Unroll?
             else => std.meta.eql(a, b),
@@ -442,6 +469,14 @@ fn emit(
             });
             // TODO: Decorations?
         },
+        .struct_type => |struct_type| {
+            try section.emitRaw(spv.gpa, .OpTypeStruct, 1 + struct_type.member_types.len);
+            section.writeOperand(IdResult, result_id);
+            for (struct_type.member_types) |member_type| {
+                section.writeOperand(IdResult, self.resultId(member_type));
+            }
+            // TODO: Decorations?
+        },
         .int => |int| {
             const int_type = self.lookup(int.ty).int_type;
             const ty_id = self.resultId(int.ty);
@@ -551,6 +586,18 @@ pub fn resolve(self: *Self, spv: *Module, key: Key) !Ref {
                     .child_type = ptr.child_type,
                 }),
             },
+        },
+        .struct_type => |struct_type| blk: {
+            const extra = try self.addExtra(spv, Tag.SimpleStructType{
+                .members_len = @intCast(u32, struct_type.member_types.len),
+            });
+            try self.extra.appendSlice(spv.gpa, @ptrCast([]const u32, struct_type.member_types));
+
+            break :blk Item{
+                .tag = .type_struct_simple,
+                .result_id = result_id,
+                .data = extra,
+            };
         },
         .int => |int| blk: {
             const int_type = self.lookup(int.ty).int_type;
@@ -684,6 +731,15 @@ pub fn lookup(self: *const Self, ref: Ref) Key {
                 .ptr_type = .{
                     .storage_class = payload.storage_class,
                     .child_type = payload.child_type,
+                },
+            };
+        },
+        .type_struct_simple => {
+            const payload = self.extraDataTrail(Tag.SimpleStructType, data);
+            const member_types = @ptrCast([]const Ref, self.extra.items[payload.trail..][0..payload.data.members_len]);
+            return .{
+                .struct_type = .{
+                    .member_types = member_types,
                 },
             };
         },
