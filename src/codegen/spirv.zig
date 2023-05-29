@@ -1345,6 +1345,21 @@ pub const DeclGen = struct {
                 }
                 unreachable; // TODO
             },
+            .Vector => {
+                // Although not 100% the same, Zig vectors map quite neatly to SPIR-V vectors (including many integer and float operations
+                // which work on them), so simply use those.
+                // Note: SPIR-V vectors only support bools, ints and floats, so pointer vectors need to be supported another way.
+                // "composite integers" (larger than the largest supported native type) can probably be represented by an array of vectors.
+                // TODO: The SPIR-V spec mentions that vector sizes may be quite restricted! look into which we can use, and whether OpTypeVector
+                // is adequate at all for this.
+
+                // TODO: Properly verify sizes and child type.
+
+                return try self.spv.resolve(.{ .vector_type = .{
+                    .component_type = try self.resolveType2(ty.elemType(), repr),
+                    .component_count = @intCast(u32, ty.vectorLen()),
+                } });
+            },
 
             else => unreachable, // TODO
         }
