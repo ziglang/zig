@@ -1293,10 +1293,14 @@ pub const DeclGen = struct {
                 const total_len = std.math.cast(u32, ty.arrayLenIncludingSentinel()) orelse {
                     return self.fail("array type of {} elements is too large", .{ty.arrayLenIncludingSentinel()});
                 };
-                _ = total_len;
-                return self.spv.resolve(.{ .array_type = .{
+                const len_ty_ref = try self.intType2(.unsigned, 32);
+                const len_ref = try self.spv.resolve(.{ .int = .{
+                    .ty = len_ty_ref,
+                    .value = .{ .uint64 = total_len },
+                } });
+                return try self.spv.resolve(.{ .array_type = .{
                     .element_type = elem_ty_ref,
-                    .length = @intToEnum(SpvRef, 0),
+                    .length = len_ref,
                 } });
             },
             else => unreachable, // TODO
