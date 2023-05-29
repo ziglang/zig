@@ -424,7 +424,7 @@ pub fn init(stream: anytype, ca_bundle: Certificate.Bundle, host: []const u8) In
     var handshake_state: HandshakeState = .encrypted_extensions;
     var cleartext_bufs: [2][8000]u8 = undefined;
     var main_cert_pub_key_algo: Certificate.AlgorithmCategory = undefined;
-    var main_cert_pub_key_buf: [300]u8 = undefined;
+    var main_cert_pub_key_buf: [600]u8 = undefined;
     var main_cert_pub_key_len: u16 = undefined;
     const now_sec = std.time.timestamp();
 
@@ -602,14 +602,11 @@ pub fn init(stream: anytype, ca_bundle: Certificate.Bundle, host: []const u8) In
                                     const components = try rsa.PublicKey.parseDer(main_cert_pub_key);
                                     const exponent = components.exponent;
                                     const modulus = components.modulus;
-                                    var rsa_mem_buf: [512 * 32]u8 = undefined;
-                                    var fba = std.heap.FixedBufferAllocator.init(&rsa_mem_buf);
-                                    const ally = fba.allocator();
                                     switch (modulus.len) {
                                         inline 128, 256, 512 => |modulus_len| {
                                             const key = try rsa.PublicKey.fromBytes(exponent, modulus);
                                             const sig = rsa.PSSSignature.fromBytes(modulus_len, encoded_sig);
-                                            try rsa.PSSSignature.verify(modulus_len, sig, verify_bytes, key, Hash, ally);
+                                            try rsa.PSSSignature.verify(modulus_len, sig, verify_bytes, key, Hash);
                                         },
                                         else => {
                                             return error.TlsBadRsaSignatureBitCount;
