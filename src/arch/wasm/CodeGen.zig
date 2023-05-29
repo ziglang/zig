@@ -5707,6 +5707,7 @@ fn airShlWithOverflow(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     const lhs = try func.resolveInst(extra.lhs);
     const rhs = try func.resolveInst(extra.rhs);
     const lhs_ty = func.air.typeOf(extra.lhs);
+    const rhs_ty = func.air.typeOf(extra.rhs);
 
     if (lhs_ty.zigTypeTag() == .Vector) {
         return func.fail("TODO: Implement overflow arithmetic for vectors", .{});
@@ -5718,7 +5719,15 @@ fn airShlWithOverflow(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         return func.fail("TODO: Implement shl_with_overflow for integer bitsize: {d}", .{int_info.bits});
     };
 
-    var shl = try (try func.binOp(lhs, rhs, lhs_ty, .shl)).toLocal(func, lhs_ty);
+    // Ensure rhs is coerced to lhs as they must have the same WebAssembly types
+    // before we can perform any binary operation.
+    const rhs_wasm_bits = toWasmBits(rhs_ty.intInfo(func.target).bits).?;
+    const rhs_final = if (wasm_bits != rhs_wasm_bits) blk: {
+        const rhs_casted = try func.intcast(rhs, rhs_ty, lhs_ty);
+        break :blk try rhs_casted.toLocal(func, lhs_ty);
+    } else rhs;
+
+    var shl = try (try func.binOp(lhs, rhs_final, lhs_ty, .shl)).toLocal(func, lhs_ty);
     defer shl.free(func);
     var result = if (wasm_bits != int_info.bits) blk: {
         break :blk try (try func.wrapOperand(shl, lhs_ty)).toLocal(func, lhs_ty);
@@ -5729,11 +5738,11 @@ fn airShlWithOverflow(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         // emit lhs to stack to we can keep 'wrapped' on the stack also
         try func.emitWValue(lhs);
         const abs = try func.signAbsValue(shl, lhs_ty);
-        const wrapped = try func.wrapBinOp(abs, rhs, lhs_ty, .shr);
+        const wrapped = try func.wrapBinOp(abs, rhs_final, lhs_ty, .shr);
         break :blk try func.cmp(.{ .stack = {} }, wrapped, lhs_ty, .neq);
     } else blk: {
         try func.emitWValue(lhs);
-        const shr = try func.binOp(result, rhs, lhs_ty, .shr);
+        const shr = try func.binOp(result, rhs_final, lhs_ty, .shr);
         break :blk try func.cmp(.{ .stack = {} }, shr, lhs_ty, .neq);
     };
     var overflow_local = try overflow_bit.toLocal(func, Type.initTag(.u1));
