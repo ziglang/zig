@@ -1014,6 +1014,17 @@ fn typeToValtype(ty: Type, target: std.Target) wasm.Valtype {
             .direct => wasm.Valtype.v128,
             .unrolled => wasm.Valtype.i32,
         },
+        .Union => switch (ty.containerLayout()) {
+            .Packed => {
+                var int_ty_payload: Type.Payload.Bits = .{
+                    .base = .{ .tag = .int_unsigned },
+                    .data = @intCast(u16, ty.bitSize(target)),
+                };
+                const int_ty = Type.initPayload(&int_ty_payload.base);
+                return typeToValtype(int_ty, target);
+            },
+            else => wasm.Valtype.i32,
+        },
         else => wasm.Valtype.i32, // all represented as reference/immediate
     };
 }
@@ -5074,33 +5085,61 @@ fn airUnionInit(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
             assert(!isByRef(union_ty, func.target));
             break :result tag_int;
         }
-        assert(isByRef(union_ty, func.target));
 
-        const result_ptr = try func.allocStack(union_ty);
-        const payload = try func.resolveInst(extra.init);
-        if (layout.tag_align >= layout.payload_align) {
-            if (isByRef(field.ty, func.target)) {
-                const payload_ptr = try func.buildPointerOffset(result_ptr, layout.tag_size, .new);
-                try func.store(payload_ptr, payload, field.ty, 0);
+        if (isByRef(union_ty, func.target)) {
+            const result_ptr = try func.allocStack(union_ty);
+            const payload = try func.resolveInst(extra.init);
+            if (layout.tag_align >= layout.payload_align) {
+                if (isByRef(field.ty, func.target)) {
+                    const payload_ptr = try func.buildPointerOffset(result_ptr, layout.tag_size, .new);
+                    try func.store(payload_ptr, payload, field.ty, 0);
+                } else {
+                    try func.store(result_ptr, payload, field.ty, @intCast(u32, layout.tag_size));
+                }
+
+                if (layout.tag_size > 0) {
+                    try func.store(result_ptr, tag_int, union_obj.tag_ty, 0);
+                }
             } else {
-                try func.store(result_ptr, payload, field.ty, @intCast(u32, layout.tag_size));
+                try func.store(result_ptr, payload, field.ty, 0);
+                if (layout.tag_size > 0) {
+                    try func.store(
+                        result_ptr,
+                        tag_int,
+                        union_obj.tag_ty,
+                        @intCast(u32, layout.payload_size),
+                    );
+                }
             }
-
-            if (layout.tag_size > 0) {
-                try func.store(result_ptr, tag_int, union_obj.tag_ty, 0);
-            }
+            break :result result_ptr;
         } else {
-            try func.store(result_ptr, payload, field.ty, 0);
-            if (layout.tag_size > 0) {
-                try func.store(
-                    result_ptr,
-                    tag_int,
-                    union_obj.tag_ty,
-                    @intCast(u32, layout.payload_size),
-                );
+            const operand = try func.resolveInst(extra.init);
+            var payload: Type.Payload.Bits = .{
+                .base = .{ .tag = .int_unsigned },
+                .data = @intCast(u16, union_ty.bitSize(func.target)),
+            };
+            const union_int_type = Type.initPayload(&payload.base);
+            if (field.ty.zigTypeTag() == .Float) {
+                var int_payload: Type.Payload.Bits = .{
+                    .base = .{ .tag = .int_unsigned },
+                    .data = @intCast(u16, field.ty.bitSize(func.target)),
+                };
+                const int_type = Type.initPayload(&int_payload.base);
+                const bitcasted = try func.bitcast(field.ty, int_type, operand);
+                const casted = try func.trunc(bitcasted, int_type, union_int_type);
+                break :result try casted.toLocal(func, field.ty);
+            } else if (field.ty.isPtrAtRuntime()) {
+                var int_payload: Type.Payload.Bits = .{
+                    .base = .{ .tag = .int_unsigned },
+                    .data = @intCast(u16, field.ty.bitSize(func.target)),
+                };
+                const int_type = Type.initPayload(&int_payload.base);
+                const casted = try func.intcast(operand, int_type, union_int_type);
+                break :result try casted.toLocal(func, field.ty);
             }
+            const casted = try func.intcast(operand, field.ty, union_int_type);
+            break :result try casted.toLocal(func, field.ty);
         }
-        break :result result_ptr;
     };
 
     return func.finishAir(inst, result, &.{extra.init});
