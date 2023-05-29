@@ -232,6 +232,30 @@ pub fn detect(cross_target: CrossTarget) DetectError!NativeTargetInfo {
     return result;
 }
 
+/// This function recursively looks for a shebang line and follows it, starting with the given file.
+/// Returns the first file found without a shebang.
+fn resolveShebangELF(start_file_name: []const u8) !fs.File {
+    // #! (2) + 255 (max length of shebang line since Linux 5.1) + \n (1)
+    var buffer: [258]u8 = undefined;
+    var file_name = start_file_name;
+    while (true) {
+        const file = try fs.openFileAbsolute(file_name, .{});
+        errdefer file.close();
+        const len = preadMin(file, &buffer, 0, buffer.len) catch |err| switch (err) {
+            error.UnexpectedEndOfFile,
+            error.UnableToReadElfFile,
+            => return file,
+            else => |e| return e,
+        };
+        const newline = mem.indexOfScalar(u8, buffer[0..len], '\n') orelse return file;
+        const line = buffer[0..newline];
+        if (!mem.startsWith(u8, line, "#!")) return file;
+        var it = mem.tokenize(u8, line[2..], " ");
+        file_name = it.next() orelse return error.MalformedShebang;
+        file.close();
+    }
+}
+
 /// In the past, this function attempted to use the executable's own binary if it was dynamically
 /// linked to answer both the C ABI question and the dynamic linker question. However, this
 /// could be problematic on a system that uses a RUNPATH for the compiler binary, locking
@@ -305,59 +329,26 @@ fn detectAbiAndDynamicLinker(
     // Best case scenario: the executable is dynamically linked, and we can iterate
     // over our own shared objects and find a dynamic linker.
     const elf_file = blk: {
-        // This block looks for a shebang line in /usr/bin/env,
-        // if it finds one, then instead of using /usr/bin/env as the ELF file to examine, it uses the file it references instead,
-        // doing the same logic recursively in case it finds another shebang line.
-
-        // Since /usr/bin/env is hard-coded into the shebang line of many portable scripts, it's a
-        // reasonably reliable path to start with.
-        var file_name: []const u8 = "/usr/bin/env";
-        // #! (2) + 255 (max length of shebang line since Linux 5.1) + \n (1)
-        var buffer: [258]u8 = undefined;
-        while (true) {
-            const file = fs.openFileAbsolute(file_name, .{}) catch |err| switch (err) {
-                error.NoSpaceLeft => unreachable,
-                error.NameTooLong => unreachable,
-                error.PathAlreadyExists => unreachable,
-                error.SharingViolation => unreachable,
-                error.InvalidUtf8 => unreachable,
-                error.BadPathName => unreachable,
-                error.PipeBusy => unreachable,
-                error.FileLocksNotSupported => unreachable,
-                error.WouldBlock => unreachable,
-                error.FileBusy => unreachable, // opened without write permissions
-
-                error.IsDir,
-                error.NotDir,
-                error.InvalidHandle,
-                error.AccessDenied,
-                error.NoDevice,
-                error.FileNotFound,
-                error.FileTooBig,
-                error.Unexpected,
-                => |e| {
-                    std.log.warn("Encountered error: {s}, falling back to default ABI and dynamic linker.\n", .{@errorName(e)});
-                    return defaultAbiAndDynamicLinker(cpu, os, cross_target);
-                },
-
-                else => |e| return e,
+        // This block looks for /usr/bin/env (or the file it references through a shebang) and uses that as the ELF file to examine.
+        // Since /usr/bin/env is hard-coded into the shebang line of many portable scripts, it's a reasonably reliable path to start with.
+        break :blk resolveShebangELF("/usr/bin/env") catch {
+            // Attempt to resolve $PREFIX/bin/env instead.
+            // This is used by non-root-based environments like Termux on Android.
+            const prefix = std.os.getenv("PREFIX") orelse {
+                std.log.warn("Could not resolve /usr/bin/env and $PREFIX is not set, falling back to default ABI and dynamic linker.\n", .{});
+                return defaultAbiAndDynamicLinker(cpu, os, cross_target);
             };
-            errdefer file.close();
-
-            const len = preadMin(file, &buffer, 0, buffer.len) catch |err| switch (err) {
-                error.UnexpectedEndOfFile,
-                error.UnableToReadElfFile,
-                => break :blk file,
-
-                else => |e| return e,
+            if (!std.fs.path.isAbsolute(prefix)) {
+                std.log.warn("Could not resolve /usr/bin/env and $PREFIX is not a valid path, falling back to default ABI and dynamic linker.\n", .{});
+                return defaultAbiAndDynamicLinker(cpu, os, cross_target);
+            }
+            var path_buf: [std.os.PATH_MAX]u8 = undefined;
+            const path = std.fmt.bufPrint(&path_buf, "{s}/bin/env", .{prefix}) catch unreachable;
+            break :blk resolveShebangELF(path) catch {
+                std.log.warn("Could not resolve /usr/bin/env or $PREFIX/bin/env, falling back to default ABI and dynamic linker.\n", .{});
+                return defaultAbiAndDynamicLinker(cpu, os, cross_target);
             };
-            const newline = mem.indexOfScalar(u8, buffer[0..len], '\n') orelse break :blk file;
-            const line = buffer[0..newline];
-            if (!mem.startsWith(u8, line, "#!")) break :blk file;
-            var it = mem.tokenize(u8, line[2..], " ");
-            file_name = it.next() orelse return defaultAbiAndDynamicLinker(cpu, os, cross_target);
-            file.close();
-        }
+        };
     };
     defer elf_file.close();
 
