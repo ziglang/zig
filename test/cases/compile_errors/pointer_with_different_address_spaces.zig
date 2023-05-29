@@ -2,7 +2,7 @@ fn entry(a: *addrspace(.gs) i32) *addrspace(.fs) i32 {
     return a;
 }
 export fn entry2() void {
-    _ = entry;
+    _ = &entry;
 }
 
 // error

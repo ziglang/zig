@@ -12,7 +12,7 @@ pub const panic = @import("common.zig").panic;
 // specified range.
 
 comptime {
-    _ = clear_cache;
+    _ = &clear_cache;
 }
 
 fn clear_cache(start: usize, end: usize) callconv(.C) void {

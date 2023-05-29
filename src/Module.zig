@@ -1638,6 +1638,10 @@ pub const Fn = struct {
     inferred_error_sets: InferredErrorSetList = .{},
 
     pub const Analysis = enum {
+        /// This function has not yet undergone analysis, because we have not
+        /// seen a potential runtime call. It may be analyzed in future.
+        none,
+        /// Analysis for this function has been queued, but not yet completed.
         queued,
         /// This function intentionally only has ZIR generated because it is marked
         /// inline, which means no runtime version of the function will be generated.
@@ -4323,7 +4327,7 @@ pub fn ensureFuncBodyAnalyzed(mod: *Module, func: *Fn) SemaError!void {
         .complete, .codegen_failure_retryable => {
             switch (func.state) {
                 .sema_failure, .dependency_failure => return error.AnalysisFail,
-                .queued => {},
+                .none, .queued => {},
                 .in_progress => unreachable,
                 .inline_only => unreachable, // don't queue work for this
                 .success => return,
@@ -4424,6 +4428,60 @@ pub fn ensureFuncBodyAnalyzed(mod: *Module, func: *Fn) SemaError!void {
             return;
         },
     }
+}
+
+/// Ensure this function's body is or will be analyzed and emitted. This should
+/// be called whenever a potential runtime call of a function is seen.
+///
+/// The caller is responsible for ensuring the function decl itself is already
+/// analyzed, and for ensuring it can exist at runtime (see
+/// `sema.fnHasRuntimeBits`). This function does *not* guarantee that the body
+/// will be analyzed when it returns: for that, see `ensureFuncBodyAnalyzed`.
+pub fn ensureFuncBodyAnalysisQueued(mod: *Module, func: *Fn) !void {
+    const decl_index = func.owner_decl;
+    const decl = mod.declPtr(decl_index);
+
+    switch (decl.analysis) {
+        .unreferenced => unreachable,
+        .in_progress => unreachable,
+        .outdated => unreachable,
+
+        .file_failure,
+        .sema_failure,
+        .liveness_failure,
+        .codegen_failure,
+        .dependency_failure,
+        .sema_failure_retryable,
+        .codegen_failure_retryable,
+        // The function analysis failed, but we've already emitted an error for
+        // that. The callee doesn't need the function to be analyzed right now,
+        // so its analysis can safely continue.
+        => return,
+
+        .complete => {},
+    }
+
+    assert(decl.has_tv);
+
+    switch (func.state) {
+        .none => {},
+        .queued => return,
+        // As above, we don't need to forward errors here.
+        .sema_failure, .dependency_failure => return,
+        .in_progress => return,
+        .inline_only => unreachable, // don't queue work for this
+        .success => return,
+    }
+
+    // Decl itself is safely analyzed, and body analysis is not yet queued
+
+    try mod.comp.work_queue.writeItem(.{ .codegen_func = func });
+    if (mod.emit_h != null) {
+        // TODO: we ideally only want to do this if the function's type changed
+        // since the last update
+        try mod.comp.work_queue.writeItem(.{ .emit_h_decl = decl_index });
+    }
+    func.state = .queued;
 }
 
 pub fn updateEmbedFile(mod: *Module, embed_file: *EmbedFile) SemaError!void {
@@ -4732,20 +4790,6 @@ fn semaDecl(mod: *Module, decl_index: Decl.Index) !bool {
             decl.owns_tv = owns_tv;
             decl.analysis = .complete;
             decl.generation = mod.generation;
-
-            const has_runtime_bits = try sema.fnHasRuntimeBits(decl.ty);
-
-            if (has_runtime_bits) {
-                // We don't fully codegen the decl until later, but we do need to reserve a global
-                // offset table index for it. This allows us to codegen decls out of dependency
-                // order, increasing how many computations can be done in parallel.
-                try mod.comp.work_queue.writeItem(.{ .codegen_func = func });
-                if (type_changed and mod.emit_h != null) {
-                    try mod.comp.work_queue.writeItem(.{ .emit_h_decl = decl_index });
-                }
-            } else if (!prev_is_inline and prev_type_has_bits) {
-                mod.comp.bin_file.freeDecl(decl_index);
-            }
 
             const is_inline = decl.ty.fnCallingConvention() == .Inline;
             if (decl.is_exported) {

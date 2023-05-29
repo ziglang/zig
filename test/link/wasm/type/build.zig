@@ -26,10 +26,10 @@ fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.Optimize
 
     const check_lib = lib.checkObject();
     check_lib.checkStart("Section type");
-    // only 3 entries, although we have more functions.
+    // only 2 entries, although we have more functions.
     // This is to test functions with the same function signature
     // have their types deduplicated.
-    check_lib.checkNext("entries 3");
+    check_lib.checkNext("entries 2");
     check_lib.checkNext("params 1");
     check_lib.checkNext("type i32");
     check_lib.checkNext("returns 1");

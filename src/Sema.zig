@@ -2452,6 +2452,7 @@ fn zirCoerceResultPtr(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileE
                         .@"align" = iac.data.alignment,
                         .@"addrspace" = addr_space,
                     });
+                    try sema.maybeQueueFuncBodyAnalysis(iac.data.decl_index);
                     return sema.addConstant(
                         ptr_ty,
                         try Value.Tag.decl_ref_mut.create(sema.arena, .{
@@ -3709,6 +3710,7 @@ fn zirResolveInferredAlloc(sema: *Sema, block: *Block, inst: Zir.Inst.Index) Com
             const final_ptr_ty_inst = try sema.addType(final_ptr_ty);
             sema.air_instructions.items(.data)[ptr_inst].ty_pl.ty = final_ptr_ty_inst;
 
+            try sema.maybeQueueFuncBodyAnalysis(decl_index);
             if (var_is_mut) {
                 sema.air_values.items[value_index] = try Value.Tag.decl_ref_mut.create(sema.arena, .{
                     .decl_index = decl_index,
@@ -3809,6 +3811,7 @@ fn zirResolveInferredAlloc(sema: *Sema, block: *Block, inst: Zir.Inst.Index) Com
                 // Even though we reuse the constant instruction, we still remove it from the
                 // block so that codegen does not see it.
                 block.instructions.shrinkRetainingCapacity(search_index);
+                try sema.maybeQueueFuncBodyAnalysis(new_decl_index);
                 sema.air_values.items[value_index] = try Value.Tag.decl_ref.create(sema.arena, new_decl_index);
                 // if bitcast ty ref needs to be made const, make_ptr_const
                 // ZIR handles it later, so we can just use the ty ref here.
@@ -5747,6 +5750,7 @@ pub fn analyzeExport(
 
     // This decl is alive no matter what, since it's being exported
     mod.markDeclAlive(exported_decl);
+    try sema.maybeQueueFuncBodyAnalysis(exported_decl_index);
 
     const gpa = mod.gpa;
 
@@ -7068,6 +7072,12 @@ fn analyzeCall(
             sema.owner_func.?.calls_or_awaits_errorable_fn = true;
         }
 
+        if (try sema.resolveMaybeUndefVal(func)) |func_val| {
+            if (func_val.castTag(.function)) |func_obj| {
+                try sema.mod.ensureFuncBodyAnalysisQueued(func_obj.data);
+            }
+        }
+
         try sema.air_extra.ensureUnusedCapacity(gpa, @typeInfo(Air.Call).Struct.fields.len +
             args.len);
         const func_inst = try block.addInst(.{
@@ -7584,6 +7594,8 @@ fn instantiateGenericCall(
     if (sema.owner_func != null and new_fn_info.return_type.isError()) {
         sema.owner_func.?.calls_or_awaits_errorable_fn = true;
     }
+
+    try sema.mod.ensureFuncBodyAnalysisQueued(callee);
 
     try sema.air_extra.ensureUnusedCapacity(sema.gpa, @typeInfo(Air.Call).Struct.fields.len +
         runtime_args_len);
@@ -9143,7 +9155,7 @@ fn funcCommon(
     }
 
     const is_inline = fn_ty.fnCallingConvention() == .Inline;
-    const anal_state: Module.Fn.Analysis = if (is_inline) .inline_only else .queued;
+    const anal_state: Module.Fn.Analysis = if (is_inline) .inline_only else .none;
 
     const comptime_args: ?[*]TypedValue = if (sema.comptime_args_fn_inst == func_inst) blk: {
         break :blk if (sema.comptime_args.len == 0) null else sema.comptime_args.ptr;
@@ -24279,9 +24291,7 @@ fn fieldCallBind(
             if (concrete_ty.getNamespace()) |namespace| {
                 if (try sema.namespaceLookup(block, src, namespace, field_name)) |decl_idx| {
                     try sema.addReferencedBy(block, src, decl_idx);
-                    const inst = try sema.analyzeDeclRef(decl_idx);
-
-                    const decl_val = try sema.analyzeLoad(block, src, inst, src);
+                    const decl_val = try sema.analyzeDeclVal(block, src, decl_idx);
                     const decl_type = sema.typeOf(decl_val);
                     if (decl_type.zigTypeTag() == .Fn and
                         decl_type.fnParamLen() >= 1)
@@ -28911,7 +28921,7 @@ fn analyzeDeclVal(
     if (sema.decl_val_table.get(decl_index)) |result| {
         return result;
     }
-    const decl_ref = try sema.analyzeDeclRef(decl_index);
+    const decl_ref = try sema.analyzeDeclRefInner(decl_index, false);
     const result = try sema.analyzeLoad(block, src, decl_ref, src);
     if (Air.refToIndex(result)) |index| {
         if (sema.air_instructions.items(.tag)[index] == .constant and !block.is_typeof) {
@@ -28970,6 +28980,7 @@ fn refValue(sema: *Sema, block: *Block, ty: Type, val: Value) !Value {
         try val.copy(anon_decl.arena()),
         0, // default alignment
     );
+    try sema.maybeQueueFuncBodyAnalysis(decl);
     try sema.mod.declareDeclDependency(sema.owner_decl_index, decl);
     return try Value.Tag.decl_ref.create(sema.arena, decl);
 }
@@ -28982,6 +28993,14 @@ fn optRefValue(sema: *Sema, block: *Block, ty: Type, opt_val: ?Value) !Value {
 }
 
 fn analyzeDeclRef(sema: *Sema, decl_index: Decl.Index) CompileError!Air.Inst.Ref {
+    return sema.analyzeDeclRefInner(decl_index, true);
+}
+
+/// Analyze a reference to the decl at the given index. Ensures the underlying decl is analyzed, but
+/// only triggers analysis for function bodies if `analyze_fn_body` is true. If it's possible for a
+/// decl_ref to end up in runtime code, the function body must be analyzed: `analyzeDeclRef` wraps
+/// this function with `analyze_fn_body` set to true.
+fn analyzeDeclRefInner(sema: *Sema, decl_index: Decl.Index, analyze_fn_body: bool) CompileError!Air.Inst.Ref {
     try sema.mod.declareDeclDependency(sema.owner_decl_index, decl_index);
     try sema.ensureDeclAnalyzed(decl_index);
 
@@ -28997,6 +29016,9 @@ fn analyzeDeclRef(sema: *Sema, decl_index: Decl.Index) CompileError!Air.Inst.Ref
         });
         return sema.addConstant(ty, try Value.Tag.decl_ref.create(sema.arena, decl_index));
     }
+    if (analyze_fn_body) {
+        try sema.maybeQueueFuncBodyAnalysis(decl_index);
+    }
     return sema.addConstant(
         try Type.ptr(sema.arena, sema.mod, .{
             .pointee_type = decl_tv.ty,
@@ -29006,6 +29028,15 @@ fn analyzeDeclRef(sema: *Sema, decl_index: Decl.Index) CompileError!Air.Inst.Ref
         }),
         try Value.Tag.decl_ref.create(sema.arena, decl_index),
     );
+}
+
+fn maybeQueueFuncBodyAnalysis(sema: *Sema, decl_index: Decl.Index) !void {
+    const decl = sema.mod.declPtr(decl_index);
+    const tv = try decl.typedValue();
+    if (tv.ty.zigTypeTag() != .Fn) return;
+    if (!try sema.fnHasRuntimeBits(tv.ty)) return;
+    const func = tv.val.castTag(.function) orelse return; // undef or extern_fn
+    try sema.mod.ensureFuncBodyAnalysisQueued(func.data);
 }
 
 fn analyzeRef(
