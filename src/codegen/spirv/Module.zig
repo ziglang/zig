@@ -21,7 +21,7 @@ const IdResultType = spec.IdResultType;
 
 const Section = @import("Section.zig");
 
-const Cache = @import("TypeConstantCache.zig");
+const Cache = @import("Cache.zig");
 pub const CacheKey = Cache.Key;
 pub const CacheRef = Cache.Ref;
 pub const CacheString = Cache.String;
