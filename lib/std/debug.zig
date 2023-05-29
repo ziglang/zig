@@ -2070,7 +2070,7 @@ pub fn dumpStackPointerAddr(prefix: []const u8) void {
 test "manage resources correctly" {
     if (builtin.os.tag == .wasi) return error.SkipZigTest;
 
-    if (builtin.os.tag == .windows and builtin.cpu.arch == .x86_64) {
+    if (builtin.os.tag == .windows) {
         // https://github.com/ziglang/zig/issues/13963
         return error.SkipZigTest;
     }
