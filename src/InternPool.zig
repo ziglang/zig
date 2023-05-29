@@ -2765,8 +2765,9 @@ pub fn indexToKey(ip: *const InternPool, index: Index) Key {
         .func => .{ .func = ip.extraData(Key.Func, data) },
         .only_possible_value => {
             const ty = @intToEnum(Index, data);
-            return switch (ip.indexToKey(ty)) {
-                .array_type, .vector_type => .{ .aggregate = .{
+            const ty_item = ip.items.get(@enumToInt(ty));
+            return switch (ty_item.tag) {
+                .type_array_big, .type_array_small, .type_vector => .{ .aggregate = .{
                     .ty = ty,
                     .storage = .{ .elems = &.{} },
                 } },
@@ -2775,16 +2776,23 @@ pub fn indexToKey(ip: *const InternPool, index: Index) Key {
                 // have a slice of comptime values that can be used here for when
                 // the struct has one possible value due to all fields comptime (same
                 // as the tuple case below).
-                .struct_type => .{ .aggregate = .{
+                .type_struct, .type_struct_ns => .{ .aggregate = .{
                     .ty = ty,
                     .storage = .{ .elems = &.{} },
                 } },
+
                 // There is only one possible value precisely due to the
                 // fact that this values slice is fully populated!
-                .anon_struct_type => |anon_struct_type| .{ .aggregate = .{
-                    .ty = ty,
-                    .storage = .{ .elems = anon_struct_type.values },
-                } },
+                .type_struct_anon, .type_tuple_anon => {
+                    const type_struct_anon = ip.extraDataTrail(TypeStructAnon, ty_item.data);
+                    const fields_len = type_struct_anon.data.fields_len;
+                    const values = ip.extra.items[type_struct_anon.end + fields_len ..][0..fields_len];
+                    return .{ .aggregate = .{
+                        .ty = ty,
+                        .storage = .{ .elems = @ptrCast([]const Index, values) },
+                    } };
+                },
+
                 else => unreachable,
             };
         },
