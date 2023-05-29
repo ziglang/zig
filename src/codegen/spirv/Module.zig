@@ -235,6 +235,10 @@ pub fn resolveId(self: *Module, key: TypeConstantCache.Key) !IdResult {
     return self.resultId(try self.resolve(key));
 }
 
+pub fn resolveString(self: *Module, str: []const u8) !TypeConstantCache.String {
+    return try self.tc_cache.addString(self, str);
+}
+
 fn orderGlobalsInto(
     self: *Module,
     decl_index: Decl.Index,
@@ -767,6 +771,21 @@ pub fn simpleStructType(self: *Module, members: []const Type.Payload.Struct.Memb
         .decorations = .{},
     };
     return try self.resolveType(Type.initPayload(&payload.base));
+}
+
+pub fn arrayType2(self: *Module, len: u32, elem_ty_ref: TypeConstantCache.Ref) !TypeConstantCache.Ref {
+    const len_ty_ref = try self.resolve(.{ .int_type = .{
+        .signedness = .unsigned,
+        .bits = 32,
+    } });
+    const len_ref = try self.resolve(.{ .int = .{
+        .ty = len_ty_ref,
+        .value = .{ .uint64 = len },
+    } });
+    return try self.resolve(.{ .array_type = .{
+        .element_type = elem_ty_ref,
+        .length = len_ref,
+    } });
 }
 
 pub fn arrayType(self: *Module, len: u32, ty: Type.Ref) !Type.Ref {

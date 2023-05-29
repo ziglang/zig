@@ -263,7 +263,7 @@ pub const Key = union(enum) {
     pub const StructType = struct {
         // TODO: Decorations.
         /// The name of the structure. Can be `.none`.
-        name: String,
+        name: String = .none,
         /// The type of each member.
         member_types: []const Ref,
         /// Name for each member. May be omitted.
@@ -922,14 +922,14 @@ pub const String = enum(u32) {
         self: *const Self,
 
         pub fn eql(ctx: @This(), a: []const u8, _: void, b_index: usize) bool {
-            const offset = ctx.self.string_map.values()[b_index];
+            const offset = ctx.self.strings.values()[b_index];
             const b = std.mem.sliceTo(ctx.self.string_bytes.items[offset..], 0);
             return std.mem.eql(u8, a, b);
         }
 
         pub fn hash(ctx: @This(), a: []const u8) u32 {
             _ = ctx;
-            const hasher = std.hash.Wyhash.init(0);
+            var hasher = std.hash.Wyhash.init(0);
             hasher.update(a);
             return @truncate(u32, hasher.final());
         }
@@ -937,16 +937,16 @@ pub const String = enum(u32) {
 };
 
 /// Add a string to the cache. Must not contain any 0 values.
-pub fn addString(self: *Self, spv: *Module, str: []const u8) String {
+pub fn addString(self: *Self, spv: *Module, str: []const u8) !String {
     assert(std.mem.indexOfScalar(u8, str, 0) == null);
     const adapter = String.Adapter{ .self = self };
     const entry = try self.strings.getOrPutAdapted(spv.gpa, str, adapter);
     if (!entry.found_existing) {
         const offset = self.string_bytes.items.len;
-        try self.string_bytes.ensureUnusedCapacity(1 + str.len);
-        self.string_bytes.appendAssumeCapacity(str);
-        self.string_bytes.append(0);
-        entry.value_ptr.* = offset;
+        try self.string_bytes.ensureUnusedCapacity(spv.gpa, 1 + str.len);
+        self.string_bytes.appendSliceAssumeCapacity(str);
+        self.string_bytes.appendAssumeCapacity(0);
+        entry.value_ptr.* = @intCast(u32, offset);
     }
 
     return @intToEnum(String, entry.index);
