@@ -1374,12 +1374,12 @@ pub const Index = enum(u32) {
         undef: DataIsIndex,
         runtime_value: DataIsIndex,
         simple_value: struct { data: SimpleValue },
-        ptr_mut_decl: struct { data: *PtrMutDecl },
         ptr_decl: struct { data: *PtrDecl },
-        ptr_int: struct { data: *PtrAddr },
-        ptr_eu_payload: DataIsIndex,
-        ptr_opt_payload: DataIsIndex,
+        ptr_mut_decl: struct { data: *PtrMutDecl },
         ptr_comptime_field: struct { data: *PtrComptimeField },
+        ptr_int: struct { data: *PtrBase },
+        ptr_eu_payload: struct { data: *PtrBase },
+        ptr_opt_payload: struct { data: *PtrBase },
         ptr_elem: struct { data: *PtrBaseIndex },
         ptr_field: struct { data: *PtrBaseIndex },
         ptr_slice: struct { data: *PtrSlice },
@@ -1774,29 +1774,25 @@ pub const Tag = enum(u8) {
     /// A value that can be represented with only an enum tag.
     /// data is SimpleValue enum value.
     simple_value,
-    /// A pointer to a decl that can be mutated at comptime.
-    /// data is extra index of PtrMutDecl, which contains the type and address.
-    ptr_mut_decl,
     /// A pointer to a decl.
-    /// data is extra index of PtrDecl, which contains the type and address.
+    /// data is extra index of `PtrDecl`, which contains the type and address.
     ptr_decl,
+    /// A pointer to a decl that can be mutated at comptime.
+    /// data is extra index of `PtrMutDecl`, which contains the type and address.
+    ptr_mut_decl,
+    /// data is extra index of `PtrComptimeField`, which contains the pointer type and field value.
+    ptr_comptime_field,
     /// A pointer with an integer value.
-    /// data is extra index of PtrAddr, which contains the type and address.
+    /// data is extra index of `PtrBase`, which contains the type and address.
     /// Only pointer types are allowed to have this encoding. Optional types must use
     /// `opt_payload` or `opt_null`.
     ptr_int,
     /// A pointer to the payload of an error union.
-    /// data is Index of a pointer value to the error union.
-    /// In order to use this encoding, one must ensure that the `InternPool`
-    /// already contains the payload pointer type corresponding to this payload.
+    /// data is extra index of `PtrBase`, which contains the type and base pointer.
     ptr_eu_payload,
     /// A pointer to the payload of an optional.
-    /// data is Index of a pointer value to the optional.
-    /// In order to use this encoding, one must ensure that the `InternPool`
-    /// already contains the payload pointer type corresponding to this payload.
+    /// data is extra index of `PtrBase`, which contains the type and base pointer.
     ptr_opt_payload,
-    /// data is extra index of PtrComptimeField, which contains the pointer type and field value.
-    ptr_comptime_field,
     /// A pointer to an array element.
     /// data is extra index of PtrBaseIndex, which contains the base array and element index.
     /// In order to use this encoding, one must ensure that the `InternPool`
@@ -2224,14 +2220,14 @@ pub const PtrMutDecl = struct {
     runtime_index: RuntimeIndex,
 };
 
-pub const PtrAddr = struct {
-    ty: Index,
-    addr: Index,
-};
-
 pub const PtrComptimeField = struct {
     ty: Index,
     field_val: Index,
+};
+
+pub const PtrBase = struct {
+    ty: Index,
+    base: Index,
 };
 
 pub const PtrBaseIndex = struct {
@@ -2598,36 +2594,23 @@ pub fn indexToKey(ip: *const InternPool, index: Index) Key {
                 } },
             } };
         },
-        .ptr_int => {
-            const info = ip.extraData(PtrAddr, data);
-            return .{ .ptr = .{
-                .ty = info.ty,
-                .addr = .{ .int = info.addr },
-            } };
-        },
-        .ptr_eu_payload => {
-            const ptr_eu_index = @intToEnum(Index, data);
-            var ptr_type = ip.indexToKey(ip.typeOf(ptr_eu_index)).ptr_type;
-            ptr_type.elem_type = ip.indexToKey(ptr_type.elem_type).error_union_type.payload_type;
-            return .{ .ptr = .{
-                .ty = ip.getAssumeExists(.{ .ptr_type = ptr_type }),
-                .addr = .{ .eu_payload = ptr_eu_index },
-            } };
-        },
-        .ptr_opt_payload => {
-            const ptr_opt_index = @intToEnum(Index, data);
-            var ptr_type = ip.indexToKey(ip.typeOf(ptr_opt_index)).ptr_type;
-            ptr_type.elem_type = ip.indexToKey(ptr_type.elem_type).opt_type;
-            return .{ .ptr = .{
-                .ty = ip.getAssumeExists(.{ .ptr_type = ptr_type }),
-                .addr = .{ .opt_payload = ptr_opt_index },
-            } };
-        },
         .ptr_comptime_field => {
             const info = ip.extraData(PtrComptimeField, data);
             return .{ .ptr = .{
                 .ty = info.ty,
                 .addr = .{ .comptime_field = info.field_val },
+            } };
+        },
+        .ptr_int, .ptr_eu_payload, .ptr_opt_payload => {
+            const info = ip.extraData(PtrBase, data);
+            return .{ .ptr = .{
+                .ty = info.ty,
+                .addr = switch (item.tag) {
+                    .ptr_int => .{ .int = info.base },
+                    .ptr_eu_payload => .{ .eu_payload = info.base },
+                    .ptr_opt_payload => .{ .opt_payload = info.base },
+                    else => unreachable,
+                },
             } };
         },
         .ptr_elem => {
@@ -3248,27 +3231,6 @@ pub fn get(ip: *InternPool, gpa: Allocator, key: Key) Allocator.Error!Index {
                                 .runtime_index = mut_decl.runtime_index,
                             }),
                         }),
-                        .int => |int| {
-                            assert(ip.typeOf(int) == .usize_type);
-                            ip.items.appendAssumeCapacity(.{
-                                .tag = .ptr_int,
-                                .data = try ip.addExtra(gpa, PtrAddr{
-                                    .ty = ptr.ty,
-                                    .addr = int,
-                                }),
-                            });
-                        },
-                        .eu_payload, .opt_payload => |data| {
-                            assert(data != .none);
-                            ip.items.appendAssumeCapacity(.{
-                                .tag = switch (ptr.addr) {
-                                    .eu_payload => .ptr_eu_payload,
-                                    .opt_payload => .ptr_opt_payload,
-                                    else => unreachable,
-                                },
-                                .data = @enumToInt(data),
-                            });
-                        },
                         .comptime_field => |field_val| {
                             assert(field_val != .none);
                             ip.items.appendAssumeCapacity(.{
@@ -3279,8 +3241,57 @@ pub fn get(ip: *InternPool, gpa: Allocator, key: Key) Allocator.Error!Index {
                                 }),
                             });
                         },
+                        .int, .eu_payload, .opt_payload => |base| {
+                            switch (ptr.addr) {
+                                .int => assert(ip.typeOf(base) == .usize_type),
+                                .eu_payload => assert(ip.indexToKey(
+                                    ip.indexToKey(ip.typeOf(base)).ptr_type.elem_type,
+                                ) == .error_union_type),
+                                .opt_payload => assert(ip.indexToKey(
+                                    ip.indexToKey(ip.typeOf(base)).ptr_type.elem_type,
+                                ) == .opt_type),
+                                else => unreachable,
+                            }
+                            ip.items.appendAssumeCapacity(.{
+                                .tag = switch (ptr.addr) {
+                                    .int => .ptr_int,
+                                    .eu_payload => .ptr_eu_payload,
+                                    .opt_payload => .ptr_opt_payload,
+                                    else => unreachable,
+                                },
+                                .data = try ip.addExtra(gpa, PtrBase{
+                                    .ty = ptr.ty,
+                                    .base = base,
+                                }),
+                            });
+                        },
                         .elem, .field => |base_index| {
-                            assert(base_index.base != .none);
+                            const base_ptr_type = ip.indexToKey(ip.typeOf(base_index.base)).ptr_type;
+                            switch (base_ptr_type.size) {
+                                .One => switch (ip.indexToKey(base_ptr_type.elem_type)) {
+                                    .array_type, .vector_type => assert(ptr.addr == .elem),
+                                    .anon_struct_type => |anon_struct_type| {
+                                        assert(ptr.addr == .field);
+                                        assert(base_index.index < anon_struct_type.types.len);
+                                    },
+                                    .struct_type => |struct_type| {
+                                        assert(ptr.addr == .field);
+                                        assert(base_index.index < ip.structPtrUnwrapConst(struct_type.index).?.fields.count());
+                                    },
+                                    .union_type => |union_type| {
+                                        assert(ptr.addr == .field);
+                                        assert(base_index.index < ip.unionPtrConst(union_type.index).fields.count());
+                                    },
+                                    .ptr_type => |slice_type| {
+                                        assert(ptr.addr == .field);
+                                        assert(slice_type.size == .Slice);
+                                        assert(base_index.index < 2);
+                                    },
+                                    else => unreachable,
+                                },
+                                .Many => assert(ptr.addr == .elem),
+                                .Slice, .C => unreachable,
+                            }
                             _ = ip.map.pop();
                             const index_index = try ip.get(gpa, .{ .int = .{
                                 .ty = .usize_type,
@@ -4750,10 +4761,10 @@ fn dumpFallible(ip: InternPool, arena: Allocator) anyerror!void {
             .simple_value => 0,
             .ptr_decl => @sizeOf(PtrDecl),
             .ptr_mut_decl => @sizeOf(PtrMutDecl),
-            .ptr_int => @sizeOf(PtrAddr),
-            .ptr_eu_payload => 0,
-            .ptr_opt_payload => 0,
             .ptr_comptime_field => @sizeOf(PtrComptimeField),
+            .ptr_int => @sizeOf(PtrBase),
+            .ptr_eu_payload => @sizeOf(PtrBase),
+            .ptr_opt_payload => @sizeOf(PtrBase),
             .ptr_elem => @sizeOf(PtrBaseIndex),
             .ptr_field => @sizeOf(PtrBaseIndex),
             .ptr_slice => @sizeOf(PtrSlice),
@@ -5281,12 +5292,12 @@ pub fn zigTypeTagOrPoison(ip: InternPool, index: Index) error{GenericPoison}!std
             .undef,
             .runtime_value,
             .simple_value,
-            .ptr_mut_decl,
             .ptr_decl,
+            .ptr_mut_decl,
+            .ptr_comptime_field,
             .ptr_int,
             .ptr_eu_payload,
             .ptr_opt_payload,
-            .ptr_comptime_field,
             .ptr_elem,
             .ptr_field,
             .ptr_slice,
