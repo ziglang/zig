@@ -1857,7 +1857,8 @@ pub const Value = struct {
                     .decl => |decl| mod.declPtr(decl).val.elemValue(mod, index),
                     .mut_decl => |mut_decl| (try mod.declPtr(mut_decl.decl).internValue(mod))
                         .toValue().elemValue(mod, index),
-                    .int, .eu_payload, .opt_payload => unreachable,
+                    .int, .eu_payload => unreachable,
+                    .opt_payload => |base| base.toValue().elemValue(mod, index),
                     .comptime_field => |field_val| field_val.toValue().elemValue(mod, index),
                     .elem => |elem| elem.base.toValue().elemValue(mod, index + elem.index),
                     .field => |field| if (field.base.toValue().pointerDecl(mod)) |decl_index| {
@@ -1866,6 +1867,7 @@ pub const Value = struct {
                         return field_val.elemValue(mod, index);
                     } else unreachable,
                 },
+                .opt => |opt| opt.val.toValue().elemValue(mod, index),
                 .aggregate => |aggregate| {
                     const len = mod.intern_pool.aggregateTypeLen(aggregate.ty);
                     if (index < len) return switch (aggregate.storage) {

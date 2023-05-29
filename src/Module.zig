@@ -6716,6 +6716,10 @@ pub fn singleConstPtrType(mod: *Module, child_type: Type) Allocator.Error!Type {
     return ptrType(mod, .{ .elem_type = child_type.toIntern(), .is_const = true });
 }
 
+pub fn manyConstPtrType(mod: *Module, child_type: Type) Allocator.Error!Type {
+    return ptrType(mod, .{ .elem_type = child_type.toIntern(), .size = .Many, .is_const = true });
+}
+
 pub fn adjustPtrTypeChild(mod: *Module, ptr_ty: Type, new_child: Type) Allocator.Error!Type {
     const info = Type.ptrInfoIp(mod.intern_pool, ptr_ty.toIntern());
     return mod.ptrType(.{

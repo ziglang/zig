@@ -25402,11 +25402,13 @@ fn elemVal(
                     const indexable_val = maybe_indexable_val orelse break :rs indexable_src;
                     const index_val = maybe_index_val orelse break :rs elem_index_src;
                     const index = @intCast(usize, index_val.toUnsignedInt(mod));
-                    const elem_ptr_ty = try sema.elemPtrType(indexable_ty, index);
-                    const elem_ptr_val = try indexable_val.elemPtr(elem_ptr_ty, index, mod);
+                    const elem_ty = indexable_ty.elemType2(mod);
+                    const many_ptr_ty = try mod.manyConstPtrType(elem_ty);
+                    const many_ptr_val = try mod.getCoerced(indexable_val, many_ptr_ty);
+                    const elem_ptr_ty = try mod.singleConstPtrType(elem_ty);
+                    const elem_ptr_val = try many_ptr_val.elemPtr(elem_ptr_ty, index, mod);
                     if (try sema.pointerDeref(block, indexable_src, elem_ptr_val, elem_ptr_ty)) |elem_val| {
-                        const result_ty = indexable_ty.elemType2(mod);
-                        return sema.addConstant(result_ty, try mod.getCoerced(elem_val, result_ty));
+                        return sema.addConstant(elem_ty, try mod.getCoerced(elem_val, elem_ty));
                     }
                     break :rs indexable_src;
                 };
@@ -29896,7 +29898,7 @@ fn analyzeSlice(
     const ptr_ptr_ty = sema.typeOf(ptr_ptr);
     const ptr_ptr_child_ty = switch (ptr_ptr_ty.zigTypeTag(mod)) {
         .Pointer => ptr_ptr_ty.childType(mod),
-        else => return sema.fail(block, ptr_src, "expected pointer, found '{}'", .{ptr_ptr_ty.fmt(sema.mod)}),
+        else => return sema.fail(block, ptr_src, "expected pointer, found '{}'", .{ptr_ptr_ty.fmt(mod)}),
     };
 
     var array_ty = ptr_ptr_child_ty;
@@ -30101,7 +30103,10 @@ fn analyzeSlice(
                 const end_int = end_val.getUnsignedInt(mod).?;
                 const sentinel_index = try sema.usizeCast(block, end_src, end_int - start_int);
 
-                const elem_ptr = try ptr_val.elemPtr(try sema.elemPtrType(new_ptr_ty, sentinel_index), sentinel_index, sema.mod);
+                const many_ptr_ty = try mod.manyConstPtrType(elem_ty);
+                const many_ptr_val = try mod.getCoerced(ptr_val, many_ptr_ty);
+                const elem_ptr_ty = try mod.singleConstPtrType(elem_ty);
+                const elem_ptr = try many_ptr_val.elemPtr(elem_ptr_ty, sentinel_index, mod);
                 const res = try sema.pointerDerefExtra(block, src, elem_ptr, elem_ty);
                 const actual_sentinel = switch (res) {
                     .runtime_load => break :sentinel_check,
@@ -30110,23 +30115,23 @@ fn analyzeSlice(
                         block,
                         src,
                         "comptime dereference requires '{}' to have a well-defined layout, but it does not.",
-                        .{ty.fmt(sema.mod)},
+                        .{ty.fmt(mod)},
                     ),
                     .out_of_bounds => |ty| return sema.fail(
                         block,
                         end_src,
                         "slice end index {d} exceeds bounds of containing decl of type '{}'",
-                        .{ end_int, ty.fmt(sema.mod) },
+                        .{ end_int, ty.fmt(mod) },
                     ),
                 };
 
-                if (!actual_sentinel.eql(expected_sentinel, elem_ty, sema.mod)) {
+                if (!actual_sentinel.eql(expected_sentinel, elem_ty, mod)) {
                     const msg = msg: {
                         const msg = try sema.errMsg(block, src, "value in memory does not match slice sentinel", .{});
                         errdefer msg.destroy(sema.gpa);
                         try sema.errNote(block, src, msg, "expected '{}', found '{}'", .{
-                            expected_sentinel.fmtValue(elem_ty, sema.mod),
-                            actual_sentinel.fmtValue(elem_ty, sema.mod),
+                            expected_sentinel.fmtValue(elem_ty, mod),
+                            actual_sentinel.fmtValue(elem_ty, mod),
                         });
 
                         break :msg msg;
@@ -30300,7 +30305,7 @@ fn cmpNumeric(
 
     const lhs_ty_tag = lhs_ty.zigTypeTag(mod);
     const rhs_ty_tag = rhs_ty.zigTypeTag(mod);
-    const target = sema.mod.getTarget();
+    const target = mod.getTarget();
 
     // One exception to heterogeneous comparison: comptime_float needs to
     // coerce to fixed-width float.
