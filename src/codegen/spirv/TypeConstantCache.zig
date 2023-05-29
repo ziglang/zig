@@ -19,6 +19,7 @@ const Module = @import("Module.zig");
 const spec = @import("spec.zig");
 const Opcode = spec.Opcode;
 const IdResult = spec.IdResult;
+const StorageClass = spec.StorageClass;
 
 const Self = @This();
 
@@ -54,9 +55,21 @@ const Tag = enum {
     /// Array type
     /// data is payload to ArrayType
     type_array,
-    /// Function (proto)type.
+    /// Function (proto)type
     /// data is payload to FunctionType
     type_function,
+    /// Pointer type in the CrossWorkgroup storage class
+    /// data is child type
+    type_ptr_generic,
+    /// Pointer type in the CrossWorkgroup storage class
+    /// data is child type
+    type_ptr_crosswgp,
+    /// Pointer type in the Function storage class
+    /// data is child type
+    type_ptr_function,
+    /// Simple pointer type that does not have any decorations.
+    /// data is SimplePointerType
+    type_ptr_simple,
 
     // -- Values
     /// Value of type u8
@@ -98,6 +111,11 @@ const Tag = enum {
     const FunctionType = struct {
         param_len: u32,
         return_type: Ref,
+    };
+
+    const SimplePointerType = struct {
+        storage_class: StorageClass,
+        child_type: Ref,
     };
 
     const Float64 = struct {
@@ -182,6 +200,7 @@ pub const Key = union(enum) {
     vector_type: VectorType,
     array_type: ArrayType,
     function_type: FunctionType,
+    ptr_type: PointerType,
 
     // -- values
     int: Int,
@@ -208,6 +227,15 @@ pub const Key = union(enum) {
     pub const FunctionType = struct {
         return_type: Ref,
         parameters: []const Ref,
+    };
+
+    pub const PointerType = struct {
+        storage_class: StorageClass,
+        child_type: Ref,
+        // TODO: Decorations:
+        // - Alignment
+        // - ArrayStride,
+        // - MaxByteOffset,
     };
 
     pub const Int = struct {
@@ -406,6 +434,14 @@ fn emit(
                 section.writeOperand(IdResult, self.resultId(param_type));
             }
         },
+        .ptr_type => |ptr| {
+            try section.emit(spv.gpa, .OpTypePointer, .{
+                .id_result = result_id,
+                .storage_class = ptr.storage_class,
+                .type = self.resultId(ptr.child_type),
+            });
+            // TODO: Decorations?
+        },
         .int => |int| {
             const int_type = self.lookup(int.ty).int_type;
             const ty_id = self.resultId(int.ty);
@@ -490,6 +526,31 @@ pub fn resolve(self: *Self, spv: *Module, key: Key) !Ref {
                 .result_id = result_id,
                 .data = extra,
             };
+        },
+        .ptr_type => |ptr| switch (ptr.storage_class) {
+            .Generic => Item{
+                .tag = .type_ptr_generic,
+                .result_id = result_id,
+                .data = @enumToInt(ptr.child_type),
+            },
+            .CrossWorkgroup => Item{
+                .tag = .type_ptr_crosswgp,
+                .result_id = result_id,
+                .data = @enumToInt(ptr.child_type),
+            },
+            .Function => Item{
+                .tag = .type_ptr_function,
+                .result_id = result_id,
+                .data = @enumToInt(ptr.child_type),
+            },
+            else => |storage_class| Item{
+                .tag = .type_ptr_simple,
+                .result_id = result_id,
+                .data = try self.addExtra(spv, Tag.SimplePointerType{
+                    .storage_class = storage_class,
+                    .child_type = ptr.child_type,
+                }),
+            },
         },
         .int => |int| blk: {
             const int_type = self.lookup(int.ty).int_type;
@@ -599,6 +660,33 @@ pub fn lookup(self: *const Self, ref: Ref) Key {
                 },
             };
         },
+        .type_ptr_generic => .{
+            .ptr_type = .{
+                .storage_class = .Generic,
+                .child_type = @intToEnum(Ref, data),
+            },
+        },
+        .type_ptr_crosswgp => .{
+            .ptr_type = .{
+                .storage_class = .CrossWorkgroup,
+                .child_type = @intToEnum(Ref, data),
+            },
+        },
+        .type_ptr_function => .{
+            .ptr_type = .{
+                .storage_class = .Function,
+                .child_type = @intToEnum(Ref, data),
+            },
+        },
+        .type_ptr_simple => {
+            const payload = self.extraData(Tag.SimplePointerType, data);
+            return .{
+                .ptr_type = .{
+                    .storage_class = payload.storage_class,
+                    .child_type = payload.child_type,
+                },
+            };
+        },
         .float16 => .{ .float = .{
             .ty = self.get(.{ .float_type = .{ .bits = 16 } }),
             .value = .{ .float16 = @bitCast(f16, @intCast(u16, data)) },
@@ -677,6 +765,7 @@ fn addExtraAssumeCapacity(self: *Self, extra: anytype) !u32 {
             u32 => field_val,
             i32 => @bitCast(u32, field_val),
             Ref => @enumToInt(field_val),
+            StorageClass => @enumToInt(field_val),
             else => @compileError("Invalid type: " ++ @typeName(field.type)),
         };
         self.extra.appendAssumeCapacity(word);
@@ -697,6 +786,7 @@ fn extraDataTrail(self: Self, comptime T: type, offset: u32) struct { data: T, t
             u32 => word,
             i32 => @bitCast(i32, word),
             Ref => @intToEnum(Ref, word),
+            StorageClass => @intToEnum(StorageClass, word),
             else => @compileError("Invalid type: " ++ @typeName(field.type)),
         };
     }

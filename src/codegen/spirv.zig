@@ -1331,6 +1331,20 @@ pub const DeclGen = struct {
                     return try self.sizeType2();
                 },
             },
+            .Pointer => {
+                const ptr_info = ty.ptrInfo().data;
+
+                const storage_class = spvStorageClass(ptr_info.@"addrspace");
+                const child_ty_ref = try self.resolveType2(ptr_info.pointee_type, .indirect);
+                const ptr_ty_ref = try self.spv.resolve(.{ .ptr_type = .{
+                    .storage_class = storage_class,
+                    .child_type = child_ty_ref,
+                } });
+                if (ptr_info.size != .Slice) {
+                    return ptr_ty_ref;
+                }
+                unreachable; // TODO
+            },
 
             else => unreachable, // TODO
         }
