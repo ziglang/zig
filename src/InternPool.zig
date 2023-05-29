@@ -2455,10 +2455,21 @@ pub fn indexToKey(ip: *const InternPool, index: Index) Key {
         },
 
         .type_slice => {
-            const ptr_type_index = @intToEnum(Index, data);
-            var result = ip.indexToKey(ptr_type_index).ptr_type;
-            result.size = .Slice;
-            return .{ .ptr_type = result };
+            assert(ip.items.items(.tag)[data] == .type_pointer);
+            const ptr_info = ip.extraData(Pointer, ip.items.items(.data)[data]);
+            return .{ .ptr_type = .{
+                .elem_type = ptr_info.child,
+                .sentinel = ptr_info.sentinel,
+                .alignment = ptr_info.flags.alignment,
+                .size = .Slice,
+                .is_const = ptr_info.flags.is_const,
+                .is_volatile = ptr_info.flags.is_volatile,
+                .is_allowzero = ptr_info.flags.is_allowzero,
+                .address_space = ptr_info.flags.address_space,
+                .vector_index = ptr_info.flags.vector_index,
+                .host_size = ptr_info.packed_offset.host_size,
+                .bit_offset = ptr_info.packed_offset.bit_offset,
+            } };
         },
 
         .type_optional => .{ .opt_type = @intToEnum(Index, data) },
