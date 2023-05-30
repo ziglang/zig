@@ -1688,7 +1688,7 @@ pub const DeclGen = struct {
         const mod = self.module;
         const ip = &mod.intern_pool;
         // TODO: remove now-redundant isUnused calls from AIR handler functions
-        if (self.liveness.isUnused(inst) and !self.air.mustLower(inst, ip.*))
+        if (self.liveness.isUnused(inst) and !self.air.mustLower(inst, ip))
             return;
 
         const air_tags = self.air.instructions.items(.tag);
@@ -3339,11 +3339,11 @@ pub const DeclGen = struct {
 
     fn typeOf(self: *DeclGen, inst: Air.Inst.Ref) Type {
         const mod = self.module;
-        return self.air.typeOf(inst, mod.intern_pool);
+        return self.air.typeOf(inst, &mod.intern_pool);
     }
 
     fn typeOfIndex(self: *DeclGen, inst: Air.Inst.Index) Type {
         const mod = self.module;
-        return self.air.typeOfIndex(inst, mod.intern_pool);
+        return self.air.typeOfIndex(inst, &mod.intern_pool);
     }
 };

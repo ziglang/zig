@@ -33624,7 +33624,7 @@ pub fn typeHasOnePossibleValue(sema: *Sema, ty: Type) CompileError!?Value {
 
 /// Returns the type of the AIR instruction.
 fn typeOf(sema: *Sema, inst: Air.Inst.Ref) Type {
-    return sema.getTmpAir().typeOf(inst, sema.mod.intern_pool);
+    return sema.getTmpAir().typeOf(inst, &sema.mod.intern_pool);
 }
 
 pub fn getTmpAir(sema: Sema) Air {

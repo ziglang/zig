@@ -225,7 +225,7 @@ pub fn categorizeOperand(
     air: Air,
     inst: Air.Inst.Index,
     operand: Air.Inst.Index,
-    ip: InternPool,
+    ip: *const InternPool,
 ) OperandCategory {
     const air_tags = air.instructions.items(.tag);
     const air_datas = air.instructions.items(.data);
@@ -1139,7 +1139,7 @@ fn analyzeInst(
         .aggregate_init => {
             const ty_pl = inst_datas[inst].ty_pl;
             const aggregate_ty = a.air.getRefType(ty_pl.ty);
-            const len = @intCast(usize, aggregate_ty.arrayLenIp(ip.*));
+            const len = @intCast(usize, aggregate_ty.arrayLenIp(ip));
             const elements = @ptrCast([]const Air.Inst.Ref, a.air.extra[ty_pl.payload..][0..len]);
 
             if (elements.len <= bpi - 1) {
@@ -1291,7 +1291,7 @@ fn analyzeOperands(
             // If our result is unused and the instruction doesn't need to be lowered, backends will
             // skip the lowering of this instruction, so we don't want to record uses of operands.
             // That way, we can mark as many instructions as possible unused.
-            if (!immediate_death or a.air.mustLower(inst, ip.*)) {
+            if (!immediate_death or a.air.mustLower(inst, ip)) {
                 // Note that it's important we iterate over the operands backwards, so that if a dying
                 // operand is used multiple times we mark its last use as its death.
                 var i = operands.len;
@@ -1837,7 +1837,7 @@ fn AnalyzeBigOperands(comptime pass: LivenessPass) type {
             // If our result is unused and the instruction doesn't need to be lowered, backends will
             // skip the lowering of this instruction, so we don't want to record uses of operands.
             // That way, we can mark as many instructions as possible unused.
-            if (big.will_die_immediately and !big.a.air.mustLower(big.inst, ip.*)) return;
+            if (big.will_die_immediately and !big.a.air.mustLower(big.inst, ip)) return;
 
             const extra_byte = (big.operands_remaining - (bpi - 1)) / 31;
             const extra_bit = @intCast(u5, big.operands_remaining - (bpi - 1) - extra_byte * 31);

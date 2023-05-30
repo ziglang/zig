@@ -498,7 +498,7 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
 
     for (body) |inst| {
         // TODO: remove now-redundant isUnused calls from AIR handler functions
-        if (self.liveness.isUnused(inst) and !self.air.mustLower(inst, ip.*))
+        if (self.liveness.isUnused(inst) and !self.air.mustLower(inst, ip))
             continue;
 
         const old_air_bookkeeping = self.air_bookkeeping;
@@ -4883,10 +4883,10 @@ fn wantSafety(self: *Self) bool {
 
 fn typeOf(self: *Self, inst: Air.Inst.Ref) Type {
     const mod = self.bin_file.options.module.?;
-    return self.air.typeOf(inst, mod.intern_pool);
+    return self.air.typeOf(inst, &mod.intern_pool);
 }
 
 fn typeOfIndex(self: *Self, inst: Air.Inst.Index) Type {
     const mod = self.bin_file.options.module.?;
-    return self.air.typeOfIndex(inst, mod.intern_pool);
+    return self.air.typeOfIndex(inst, &mod.intern_pool);
 }
