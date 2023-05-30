@@ -1,5 +1,6 @@
 const std = @import("../std.zig");
 const builtin = @import("builtin");
+const dl = @import("../dynamic_library.zig");
 const maxInt = std.math.maxInt;
 const native_abi = builtin.abi;
 const native_arch = builtin.cpu.arch;
@@ -374,6 +375,26 @@ pub const RTLD = struct {
     pub const GLOBAL = 256;
     pub const LOCAL = 0;
 };
+
+/// Handy glibc's call which takes in account not only the PTHREAD_STACK_MIN value
+/// but also enough room for the TLS size, however this is a weak symbol.
+pub fn pthread_get_minstack(attr: *std.c.pthread_attr_t) !usize {
+    switch (native_abi) {
+        .gnu, .gnuabin32, .gnuabi64, .gnueabi, .gnueabihf, .gnux32 => {
+            var dlib = try dl.DynLib.open("libc.so");
+            defer dlib.close();
+
+            var sym = dlib.lookup(*anyopaque, "__pthread_get_minstack");
+            if (sym) |ptr| {
+                const getsz = @ptrCast(*const fn (*std.c.pthread_attr_t) callconv(.C) usize, ptr);
+                return getsz(attr);
+            }
+
+            return PTHREAD_STACK_MIN;
+        },
+        else => @compileError("Unsupported libc"),
+    }
+}
 
 pub const dirent = struct {
     d_ino: c_uint,
