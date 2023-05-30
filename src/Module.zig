@@ -6683,6 +6683,8 @@ pub fn ptrType(mod: *Module, info: InternPool.Key.PtrType) Allocator.Error!Type 
     var canon_info = info;
     const have_elem_layout = info.elem_type.toType().layoutIsResolved(mod);
 
+    if (info.size == .C) canon_info.is_allowzero = true;
+
     // Canonicalize non-zero alignment. If it matches the ABI alignment of the pointee
     // type, we change it to 0 here. If this causes an assertion trip because the
     // pointee type needs to be resolved more, that needs to be done before calling
