@@ -3352,30 +3352,32 @@ pub fn get(ip: *InternPool, gpa: Allocator, key: Key) Allocator.Error!Index {
                         },
                         .elem, .field => |base_index| {
                             const base_ptr_type = ip.indexToKey(ip.typeOf(base_index.base)).ptr_type;
-                            switch (base_ptr_type.size) {
-                                .One => switch (ip.indexToKey(base_ptr_type.elem_type)) {
-                                    .array_type, .vector_type => assert(ptr.addr == .elem),
-                                    .anon_struct_type => |anon_struct_type| {
-                                        assert(ptr.addr == .field);
-                                        assert(base_index.index < anon_struct_type.types.len);
-                                    },
-                                    .struct_type => |struct_type| {
-                                        assert(ptr.addr == .field);
-                                        assert(base_index.index < ip.structPtrUnwrapConst(struct_type.index).?.fields.count());
-                                    },
-                                    .union_type => |union_type| {
-                                        assert(ptr.addr == .field);
-                                        assert(base_index.index < ip.unionPtrConst(union_type.index).fields.count());
-                                    },
-                                    .ptr_type => |slice_type| {
-                                        assert(ptr.addr == .field);
-                                        assert(slice_type.size == .Slice);
-                                        assert(base_index.index < 2);
-                                    },
-                                    else => unreachable,
+                            switch (ptr.addr) {
+                                .elem => assert(base_ptr_type.size == .Many),
+                                .field => {
+                                    assert(base_ptr_type.size == .One);
+                                    switch (ip.indexToKey(base_ptr_type.elem_type)) {
+                                        .anon_struct_type => |anon_struct_type| {
+                                            assert(ptr.addr == .field);
+                                            assert(base_index.index < anon_struct_type.types.len);
+                                        },
+                                        .struct_type => |struct_type| {
+                                            assert(ptr.addr == .field);
+                                            assert(base_index.index < ip.structPtrUnwrapConst(struct_type.index).?.fields.count());
+                                        },
+                                        .union_type => |union_type| {
+                                            assert(ptr.addr == .field);
+                                            assert(base_index.index < ip.unionPtrConst(union_type.index).fields.count());
+                                        },
+                                        .ptr_type => |slice_type| {
+                                            assert(ptr.addr == .field);
+                                            assert(slice_type.size == .Slice);
+                                            assert(base_index.index < 2);
+                                        },
+                                        else => unreachable,
+                                    }
                                 },
-                                .Many => assert(ptr.addr == .elem),
-                                .Slice, .C => unreachable,
+                                else => unreachable,
                             }
                             _ = ip.map.pop();
                             const index_index = try ip.get(gpa, .{ .int = .{

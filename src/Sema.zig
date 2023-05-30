@@ -15036,10 +15036,7 @@ fn analyzePtrArithmetic(
     const opt_off_val = try sema.resolveDefinedValue(block, offset_src, offset);
     const ptr_ty = sema.typeOf(ptr);
     const ptr_info = ptr_ty.ptrInfo(mod);
-    const elem_ty = if (ptr_info.size == .One and ptr_info.pointee_type.zigTypeTag(mod) == .Array)
-        ptr_info.pointee_type.childType(mod)
-    else
-        ptr_info.pointee_type;
+    assert(ptr_info.size == .Many or ptr_info.size == .C);
 
     const new_ptr_ty = t: {
         // Calculate the new pointer alignment.
@@ -15050,7 +15047,7 @@ fn analyzePtrArithmetic(
         }
         // If the addend is not a comptime-known value we can still count on
         // it being a multiple of the type size.
-        const elem_size = elem_ty.abiSize(mod);
+        const elem_size = ptr_info.pointee_type.abiSize(mod);
         const addend = if (opt_off_val) |off_val| a: {
             const off_int = try sema.usizeCast(block, offset_src, off_val.toUnsignedInt(mod));
             break :a elem_size * off_int;
@@ -15081,7 +15078,7 @@ fn analyzePtrArithmetic(
                 const offset_int = try sema.usizeCast(block, offset_src, offset_val.toUnsignedInt(mod));
                 if (offset_int == 0) return ptr;
                 if (try ptr_val.getUnsignedIntAdvanced(mod, sema)) |addr| {
-                    const elem_size = elem_ty.abiSize(mod);
+                    const elem_size = ptr_info.pointee_type.abiSize(mod);
                     const new_addr = switch (air_tag) {
                         .ptr_add => addr + elem_size * offset_int,
                         .ptr_sub => addr - elem_size * offset_int,
@@ -22673,12 +22670,28 @@ fn zirMemcpy(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!void
         const new_dest_ptr_ty = sema.typeOf(new_dest_ptr);
         const raw_dest_ptr = if (new_dest_ptr_ty.isSlice(mod))
             try sema.analyzeSlicePtr(block, dest_src, new_dest_ptr, new_dest_ptr_ty)
-        else
-            new_dest_ptr;
+        else if (new_dest_ptr_ty.ptrSize(mod) == .One) ptr: {
+            var dest_manyptr_ty_key = mod.intern_pool.indexToKey(new_dest_ptr_ty.toIntern()).ptr_type;
+            assert(dest_manyptr_ty_key.size == .One);
+            dest_manyptr_ty_key.elem_type = dest_elem_ty.toIntern();
+            dest_manyptr_ty_key.size = .Many;
+            break :ptr try sema.coerceCompatiblePtrs(block, try mod.ptrType(dest_manyptr_ty_key), new_dest_ptr, dest_src);
+        } else new_dest_ptr;
+
+        const new_src_ptr_ty = sema.typeOf(new_src_ptr);
+        const raw_src_ptr = if (new_src_ptr_ty.isSlice(mod))
+            try sema.analyzeSlicePtr(block, src_src, new_src_ptr, new_src_ptr_ty)
+        else if (new_src_ptr_ty.ptrSize(mod) == .One) ptr: {
+            var src_manyptr_ty_key = mod.intern_pool.indexToKey(new_src_ptr_ty.toIntern()).ptr_type;
+            assert(src_manyptr_ty_key.size == .One);
+            src_manyptr_ty_key.elem_type = src_elem_ty.toIntern();
+            src_manyptr_ty_key.size = .Many;
+            break :ptr try sema.coerceCompatiblePtrs(block, try mod.ptrType(src_manyptr_ty_key), new_src_ptr, src_src);
+        } else new_src_ptr;
 
         // ok1: dest >= src + len
         // ok2: src >= dest + len
-        const src_plus_len = try sema.analyzePtrArithmetic(block, src, new_src_ptr, len, .ptr_add, src_src, src);
+        const src_plus_len = try sema.analyzePtrArithmetic(block, src, raw_src_ptr, len, .ptr_add, src_src, src);
         const dest_plus_len = try sema.analyzePtrArithmetic(block, src, raw_dest_ptr, len, .ptr_add, dest_src, src);
         const ok1 = try block.addBinOp(.cmp_gte, raw_dest_ptr, src_plus_len);
         const ok2 = try block.addBinOp(.cmp_gte, new_src_ptr, dest_plus_len);
@@ -29968,8 +29981,14 @@ fn analyzeSlice(
 
     const ptr = if (slice_ty.isSlice(mod))
         try sema.analyzeSlicePtr(block, ptr_src, ptr_or_slice, slice_ty)
-    else
-        ptr_or_slice;
+    else if (array_ty.zigTypeTag(mod) == .Array) ptr: {
+        var manyptr_ty_key = mod.intern_pool.indexToKey(slice_ty.toIntern()).ptr_type;
+        assert(manyptr_ty_key.elem_type == array_ty.toIntern());
+        assert(manyptr_ty_key.size == .One);
+        manyptr_ty_key.elem_type = elem_ty.toIntern();
+        manyptr_ty_key.size = .Many;
+        break :ptr try sema.coerceCompatiblePtrs(block, try mod.ptrType(manyptr_ty_key), ptr_or_slice, ptr_src);
+    } else ptr_or_slice;
 
     const start = try sema.coerce(block, Type.usize, uncasted_start, start_src);
     const new_ptr = try sema.analyzePtrArithmetic(block, src, ptr, start, .ptr_add, ptr_src, start_src);
