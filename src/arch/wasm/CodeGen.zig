@@ -1726,8 +1726,8 @@ fn isByRef(ty: Type, target: std.Target) bool {
 
         .Array,
         .Frame,
-        .Union,
-        => {
+        => return ty.hasRuntimeBitsIgnoreComptime(),
+        .Union => {
             if (ty.castTag(.@"union")) |union_ty| {
                 if (union_ty.data.layout == .Packed) {
                     return ty.abiSize(target) > 8;
