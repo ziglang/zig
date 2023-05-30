@@ -978,6 +978,6 @@ const Writer = struct {
 
     fn typeOfIndex(w: *Writer, inst: Air.Inst.Index) Type {
         const mod = w.module;
-        return w.air.typeOfIndex(inst, mod.intern_pool);
+        return w.air.typeOfIndex(inst, &mod.intern_pool);
     }
 };

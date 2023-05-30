@@ -1182,7 +1182,7 @@ pub fn getMainBody(air: Air) []const Air.Inst.Index {
     return air.extra[extra.end..][0..extra.data.body_len];
 }
 
-pub fn typeOf(air: Air, inst: Air.Inst.Ref, ip: InternPool) Type {
+pub fn typeOf(air: Air, inst: Air.Inst.Ref, ip: *const InternPool) Type {
     const ref_int = @enumToInt(inst);
     if (ref_int < InternPool.static_keys.len) {
         return InternPool.static_keys[ref_int].typeOf().toType();
@@ -1190,7 +1190,7 @@ pub fn typeOf(air: Air, inst: Air.Inst.Ref, ip: InternPool) Type {
     return air.typeOfIndex(ref_int - ref_start_index, ip);
 }
 
-pub fn typeOfIndex(air: Air, inst: Air.Inst.Index, ip: InternPool) Type {
+pub fn typeOfIndex(air: Air, inst: Air.Inst.Index, ip: *const InternPool) Type {
     const datas = air.instructions.items(.data);
     switch (air.instructions.items(.tag)[inst]) {
         .add,
@@ -1520,7 +1520,7 @@ pub fn value(air: Air, inst: Inst.Ref, mod: *Module) !?Value {
     const air_datas = air.instructions.items(.data);
     switch (air.instructions.items(.tag)[inst_index]) {
         .interned => return air_datas[inst_index].interned.toValue(),
-        else => return air.typeOfIndex(inst_index, mod.intern_pool).onePossibleValue(mod),
+        else => return air.typeOfIndex(inst_index, &mod.intern_pool).onePossibleValue(mod),
     }
 }
 
@@ -1537,7 +1537,7 @@ pub fn nullTerminatedString(air: Air, index: usize) [:0]const u8 {
 /// because it can cause side effects. If an instruction does not need to be
 /// lowered, and Liveness determines its result is unused, backends should
 /// avoid lowering it.
-pub fn mustLower(air: Air, inst: Air.Inst.Index, ip: InternPool) bool {
+pub fn mustLower(air: Air, inst: Air.Inst.Index, ip: *const InternPool) bool {
     const data = air.instructions.items(.data)[inst];
     return switch (air.instructions.items(.tag)[inst]) {
         .arg,

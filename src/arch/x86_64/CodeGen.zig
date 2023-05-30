@@ -1738,7 +1738,7 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             try self.mir_to_air_map.put(self.gpa, mir_inst, inst);
         }
 
-        if (self.liveness.isUnused(inst) and !self.air.mustLower(inst, ip.*)) continue;
+        if (self.liveness.isUnused(inst) and !self.air.mustLower(inst, ip)) continue;
         wip_mir_log.debug("{}", .{self.fmtAir(inst)});
         verbose_tracking_log.debug("{}", .{self.fmtTracking()});
 
@@ -11992,10 +11992,10 @@ fn hasAllFeatures(self: *Self, features: anytype) bool {
 
 fn typeOf(self: *Self, inst: Air.Inst.Ref) Type {
     const mod = self.bin_file.options.module.?;
-    return self.air.typeOf(inst, mod.intern_pool);
+    return self.air.typeOf(inst, &mod.intern_pool);
 }
 
 fn typeOfIndex(self: *Self, inst: Air.Inst.Index) Type {
     const mod = self.bin_file.options.module.?;
-    return self.air.typeOfIndex(inst, mod.intern_pool);
+    return self.air.typeOfIndex(inst, &mod.intern_pool);
 }

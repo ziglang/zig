@@ -1574,7 +1574,7 @@ pub const Object = struct {
             },
             .Pointer => {
                 // Normalize everything that the debug info does not represent.
-                const ptr_info = Type.ptrInfoIp(mod.intern_pool, ty.toIntern());
+                const ptr_info = Type.ptrInfoIp(&mod.intern_pool, ty.toIntern());
 
                 if (ptr_info.sentinel != .none or
                     ptr_info.address_space != .generic or
@@ -4330,7 +4330,7 @@ pub const FuncGen = struct {
         const ip = &mod.intern_pool;
         const air_tags = self.air.instructions.items(.tag);
         for (body, 0..) |inst, i| {
-            if (self.liveness.isUnused(inst) and !self.air.mustLower(inst, ip.*))
+            if (self.liveness.isUnused(inst) and !self.air.mustLower(inst, ip))
                 continue;
 
             const opt_value: ?*llvm.Value = switch (air_tags[inst]) {
@@ -8055,7 +8055,7 @@ pub const FuncGen = struct {
         const mod = fg.dg.module;
         const ip = &mod.intern_pool;
         for (body_tail[1..]) |body_inst| {
-            switch (fg.liveness.categorizeOperand(fg.air, body_inst, body_tail[0], ip.*)) {
+            switch (fg.liveness.categorizeOperand(fg.air, body_inst, body_tail[0], ip)) {
                 .none => continue,
                 .write, .noret, .complex => return false,
                 .tomb => return true,
@@ -9920,12 +9920,12 @@ pub const FuncGen = struct {
 
     fn typeOf(fg: *FuncGen, inst: Air.Inst.Ref) Type {
         const mod = fg.dg.module;
-        return fg.air.typeOf(inst, mod.intern_pool);
+        return fg.air.typeOf(inst, &mod.intern_pool);
     }
 
     fn typeOfIndex(fg: *FuncGen, inst: Air.Inst.Index) Type {
         const mod = fg.dg.module;
-        return fg.air.typeOfIndex(inst, mod.intern_pool);
+        return fg.air.typeOfIndex(inst, &mod.intern_pool);
     }
 };
 

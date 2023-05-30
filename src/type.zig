@@ -102,7 +102,7 @@ pub const Type = struct {
         };
     }
 
-    pub fn ptrInfoIp(ip: InternPool, ty: InternPool.Index) InternPool.Key.PtrType {
+    pub fn ptrInfoIp(ip: *const InternPool, ty: InternPool.Index) InternPool.Key.PtrType {
         return switch (ip.indexToKey(ty)) {
             .ptr_type => |p| p,
             .opt_type => |child| switch (ip.indexToKey(child)) {
@@ -114,7 +114,7 @@ pub const Type = struct {
     }
 
     pub fn ptrInfo(ty: Type, mod: *const Module) Payload.Pointer.Data {
-        return Payload.Pointer.Data.fromKey(ptrInfoIp(mod.intern_pool, ty.toIntern()));
+        return Payload.Pointer.Data.fromKey(ptrInfoIp(&mod.intern_pool, ty.toIntern()));
     }
 
     pub fn eql(a: Type, b: Type, mod: *const Module) bool {
@@ -1832,10 +1832,10 @@ pub const Type = struct {
     }
 
     pub fn isVolatilePtr(ty: Type, mod: *const Module) bool {
-        return isVolatilePtrIp(ty, mod.intern_pool);
+        return isVolatilePtrIp(ty, &mod.intern_pool);
     }
 
-    pub fn isVolatilePtrIp(ty: Type, ip: InternPool) bool {
+    pub fn isVolatilePtrIp(ty: Type, ip: *const InternPool) bool {
         return switch (ip.indexToKey(ty.toIntern())) {
             .ptr_type => |ptr_type| ptr_type.is_volatile,
             else => false,
@@ -1920,10 +1920,10 @@ pub const Type = struct {
     /// For *T,     returns T.
     /// For [*]T,   returns T.
     pub fn childType(ty: Type, mod: *const Module) Type {
-        return childTypeIp(ty, mod.intern_pool);
+        return childTypeIp(ty, &mod.intern_pool);
     }
 
-    pub fn childTypeIp(ty: Type, ip: InternPool) Type {
+    pub fn childTypeIp(ty: Type, ip: *const InternPool) Type {
         return ip.childType(ty.toIntern()).toType();
     }
 
@@ -2164,10 +2164,10 @@ pub const Type = struct {
 
     /// Asserts the type is an array or vector or struct.
     pub fn arrayLen(ty: Type, mod: *const Module) u64 {
-        return arrayLenIp(ty, mod.intern_pool);
+        return arrayLenIp(ty, &mod.intern_pool);
     }
 
-    pub fn arrayLenIp(ty: Type, ip: InternPool) u64 {
+    pub fn arrayLenIp(ty: Type, ip: *const InternPool) u64 {
         return switch (ip.indexToKey(ty.toIntern())) {
             .vector_type => |vector_type| vector_type.len,
             .array_type => |array_type| array_type.len,
@@ -2385,10 +2385,10 @@ pub const Type = struct {
 
     /// Asserts the type is a function or a function pointer.
     pub fn fnReturnType(ty: Type, mod: *Module) Type {
-        return fnReturnTypeIp(ty, mod.intern_pool);
+        return fnReturnTypeIp(ty, &mod.intern_pool);
     }
 
-    pub fn fnReturnTypeIp(ty: Type, ip: InternPool) Type {
+    pub fn fnReturnTypeIp(ty: Type, ip: *const InternPool) Type {
         return switch (ip.indexToKey(ty.toIntern())) {
             .ptr_type => |ptr_type| ip.indexToKey(ptr_type.elem_type).func_type.return_type,
             .func_type => |func_type| func_type.return_type,

@@ -32,7 +32,7 @@ fn verifyBody(self: *Verify, body: []const Air.Inst.Index) Error!void {
     const tag = self.air.instructions.items(.tag);
     const data = self.air.instructions.items(.data);
     for (body) |inst| {
-        if (self.liveness.isUnused(inst) and !self.air.mustLower(inst, ip.*)) {
+        if (self.liveness.isUnused(inst) and !self.air.mustLower(inst, ip)) {
             // This instruction will not be lowered and should be ignored.
             continue;
         }
@@ -325,7 +325,7 @@ fn verifyBody(self: *Verify, body: []const Air.Inst.Index) Error!void {
             .aggregate_init => {
                 const ty_pl = data[inst].ty_pl;
                 const aggregate_ty = self.air.getRefType(ty_pl.ty);
-                const len = @intCast(usize, aggregate_ty.arrayLenIp(ip.*));
+                const len = @intCast(usize, aggregate_ty.arrayLenIp(ip));
                 const elements = @ptrCast([]const Air.Inst.Ref, self.air.extra[ty_pl.payload..][0..len]);
 
                 var bt = self.liveness.iterateBigTomb(inst);

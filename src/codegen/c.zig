@@ -489,12 +489,12 @@ pub const Function = struct {
 
     fn typeOf(f: *Function, inst: Air.Inst.Ref) Type {
         const mod = f.object.dg.module;
-        return f.air.typeOf(inst, mod.intern_pool);
+        return f.air.typeOf(inst, &mod.intern_pool);
     }
 
     fn typeOfIndex(f: *Function, inst: Air.Inst.Index) Type {
         const mod = f.object.dg.module;
-        return f.air.typeOfIndex(inst, mod.intern_pool);
+        return f.air.typeOfIndex(inst, &mod.intern_pool);
     }
 };
 
@@ -2808,7 +2808,7 @@ fn genBodyInner(f: *Function, body: []const Air.Inst.Index) error{ AnalysisFail,
     const air_tags = f.air.instructions.items(.tag);
 
     for (body) |inst| {
-        if (f.liveness.isUnused(inst) and !f.air.mustLower(inst, ip.*))
+        if (f.liveness.isUnused(inst) and !f.air.mustLower(inst, ip))
             continue;
 
         const result_value = switch (air_tags[inst]) {
