@@ -957,15 +957,12 @@ fn windowsCreateProcessPathExt(
     // NtQueryDirectoryFile calls.
 
     var dir = dir: {
-        if (fs.path.isAbsoluteWindowsWTF16(dir_buf.items[0..dir_path_len])) {
-            const prefixed_path = try windows.wToPrefixedFileW(dir_buf.items[0..dir_path_len]);
-            break :dir fs.cwd().openDirW(prefixed_path.span().ptr, .{}, true) catch return error.FileNotFound;
-        }
         // needs to be null-terminated
         try dir_buf.append(allocator, 0);
-        defer dir_buf.shrinkRetainingCapacity(dir_buf.items[0..dir_path_len].len);
+        defer dir_buf.shrinkRetainingCapacity(dir_path_len);
         const dir_path_z = dir_buf.items[0 .. dir_buf.items.len - 1 :0];
-        break :dir std.fs.cwd().openDirW(dir_path_z.ptr, .{}, true) catch return error.FileNotFound;
+        const prefixed_path = try windows.wToPrefixedFileW(dir_path_z);
+        break :dir fs.cwd().openDirW(prefixed_path.span().ptr, .{}, true) catch return error.FileNotFound;
     };
     defer dir.close();
 
