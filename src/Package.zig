@@ -582,6 +582,7 @@ fn fetchAndUnpack(
     });
 
     const mod = try createWithDir(gpa, global_cache_directory, pkg_dir_sub_path, build_zig_basename);
+    try all_modules.put(gpa, actual_hex, mod);
     return .{
         .mod = mod,
         .found_existing = false,
