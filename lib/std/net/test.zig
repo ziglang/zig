@@ -270,7 +270,7 @@ test "StreamServer poll - timeout" {
     defer server.deinit();
 
     try server.listen(localhost);
-    const result = try server.poll(5);
+    const result = try net.pollRead(server.sockfd.?, 5);
     try testing.expectEqual(false, result);
 }
 

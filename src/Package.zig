@@ -494,7 +494,7 @@ fn fetchAndUnpack(
         var h = std.http.Headers{ .allocator = gpa };
         defer h.deinit();
 
-        var req = try http_client.request(.GET, uri, h, .{});
+        var req = try http_client.request(.GET, uri, h, .{ .wait_timeout = 300 });
         defer req.deinit();
 
         try req.start();

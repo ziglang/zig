@@ -515,6 +515,7 @@ pub const Request = struct {
 
     redirects_left: u32,
     handle_redirects: bool,
+    wait_timeout: ?u31,
 
     response: Response,
 
@@ -687,7 +688,7 @@ pub const Request = struct {
         return index;
     }
 
-    pub const WaitError = RequestError || StartError || TransferReadError || proto.HeadersParser.CheckCompleteHeadError || Response.ParseError || Uri.ParseError || error{ TooManyHttpRedirects, CannotRedirect, HttpRedirectMissingLocation, CompressionInitializationFailed, CompressionNotSupported };
+    pub const WaitError = RequestError || StartError || TransferReadError || proto.HeadersParser.CheckCompleteHeadError || Response.ParseError || Uri.ParseError || net.PollError || error{ TooManyHttpRedirects, CannotRedirect, HttpRedirectMissingLocation, CompressionInitializationFailed, CompressionNotSupported, Timeout };
 
     /// Waits for a response from the server and parses any headers that are sent.
     /// This function will block until the final response is received.
@@ -696,6 +697,10 @@ pub const Request = struct {
     /// redirects. If a request payload is present, then this function will error with error.CannotRedirect.
     pub fn wait(req: *Request) WaitError!void {
         while (true) { // handle redirects
+            if (req.wait_timeout) |timeout| {
+                const data_available = try net.pollRead(req.connection.data.buffered.conn.stream.handle, timeout);
+                if (!data_available) return error.Timeout;
+            }
             while (true) { // read headers
                 try req.connection.data.buffered.fill();
 
@@ -1018,6 +1023,9 @@ pub const Options = struct {
     max_redirects: u32 = 3,
     header_strategy: HeaderStrategy = .{ .dynamic = 16 * 1024 },
 
+    /// Timeout in seconds
+    wait_timeout: ?u31 = null,
+
     /// Must be an already acquired connection.
     connection: ?*ConnectionPool.Node = null,
 
@@ -1075,6 +1083,7 @@ pub fn request(client: *Client, method: http.Method, uri: Uri, headers: http.Hea
         .version = options.version,
         .redirects_left = options.max_redirects,
         .handle_redirects = options.handle_redirects,
+        .wait_timeout = options.wait_timeout,
         .response = .{
             .status = undefined,
             .reason = undefined,

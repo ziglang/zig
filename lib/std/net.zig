@@ -1981,14 +1981,6 @@ pub const StreamServer = struct {
         OperationNotSupported,
     } || os.UnexpectedError;
 
-    pub const PollError = error{
-        // windows specific errors
-        SocketCanceled,
-        SocketNotListening,
-        SocketCallInProgress,
-        InvalidSocketInDescriptorSet,
-    } || os.PollError;
-
     pub const Connection = struct {
         stream: Stream,
         address: Address,
@@ -2017,52 +2009,60 @@ pub const StreamServer = struct {
             else => |e| return e,
         }
     }
-
-    /// returns true if the socket is ready to be accepted, false if timeout.
-    pub fn poll(self: *StreamServer, timeout_seconds: i32) PollError!bool {
-        std.debug.assert(timeout_seconds > 0);
-        if (std.io.is_async) {
-            @compileError("async not yet implemented for this method");
-        }
-        if (builtin.os.tag == .windows) {
-            return self.pollW(timeout_seconds);
-        }
-
-        var fds: [1]os.pollfd = undefined;
-        fds[0] = .{ .fd = self.sockfd.?, .events = os.POLL.IN, .revents = 0 };
-        const rc = try os.poll(&fds, timeout_seconds);
-        if (rc == 0) return false; // timeout;
-        std.debug.assert(rc == 1);
-        std.debug.assert(fds[0].revents == os.POLL.IN);
-        return true;
-    }
-
-    fn pollW(self: *StreamServer, timeout_seconds: i32) PollError!bool {
-        const ws2_32 = os.windows.ws2_32;
-        var fd_set: ws2_32.fd_set = .{ .fd_count = 1, .fd_array = undefined };
-        fd_set.fd_array[0] = self.sockfd.?;
-        const tv: os.timeval = .{
-            .tv_sec = @intCast(c_long, timeout_seconds),
-            .tv_usec = 0,
-        };
-        const rc = ws2_32.select(1, &fd_set, null, null, &tv);
-        if (rc == ws2_32.SOCKET_ERROR) {
-            return switch (ws2_32.WSAGetLastError()) {
-                .WSANOTINITIALISED => unreachable, // not initialized WSA
-                .WSAEFAULT => unreachable, //
-                .WSAENETDOWN => return error.NetworkSubsystemFailed,
-                .WSAEINVAL => return error.SocketNotListening,
-                .WSAEINTR => return error.SocketCanceled,
-                .WSAEINPROGRESS => return error.SocketCallInProgress,
-                .WSAENOTSOCK => return error.InvalidSocketInDescriptorSet,
-                else => |err| return os.windows.unexpectedWSAError(err),
-            };
-        }
-        if (rc == 0) return false; // timeout
-        std.debug.assert(rc == 1);
-        return true;
-    }
 };
+
+pub const PollError = error{
+    // windows specific errors
+    SocketCanceled,
+    SocketNotListening,
+    SocketCallInProgress,
+    InvalidSocketInDescriptorSet,
+} || os.PollError;
+
+/// Polls the socket for data available to be read, and will wait up to the specified amount of seconds before returning.
+/// If the timeout is 0 then this will return immediately and is considered non-blocking
+pub fn pollRead(sock_fd: os.socket_t, timeout_seconds: u31) PollError!bool {
+    if (std.io.is_async) {
+        @compileError("async not yet implemented for this method");
+    }
+    if (builtin.os.tag == .windows) {
+        return pollReadW(sock_fd, timeout_seconds);
+    }
+
+    var fds: [1]os.pollfd = undefined;
+    fds[0] = .{ .fd = sock_fd, .events = os.POLL.IN, .revents = 0 };
+    const rc = try os.poll(&fds, timeout_seconds);
+    if (rc == 0) return false; // timeout;
+    std.debug.assert(rc == 1);
+    std.debug.assert(fds[0].revents == os.POLL.IN);
+    return true;
+}
+
+fn pollReadW(sock_fd: os.socket_t, timeout_seconds: i32) PollError!bool {
+    const ws2_32 = os.windows.ws2_32;
+    var fd_set: ws2_32.fd_set = .{ .fd_count = 1, .fd_array = undefined };
+    fd_set.fd_array[0] = sock_fd;
+    const tv: os.timeval = .{
+        .tv_sec = @intCast(c_long, timeout_seconds),
+        .tv_usec = 0,
+    };
+    const rc = ws2_32.select(1, &fd_set, null, null, &tv);
+    if (rc == ws2_32.SOCKET_ERROR) {
+        return switch (ws2_32.WSAGetLastError()) {
+            .WSANOTINITIALISED => unreachable, // not initialized WSA
+            .WSAEFAULT => unreachable, //
+            .WSAENETDOWN => return error.NetworkSubsystemFailed,
+            .WSAEINVAL => return error.SocketNotListening,
+            .WSAEINTR => return error.SocketCanceled,
+            .WSAEINPROGRESS => return error.SocketCallInProgress,
+            .WSAENOTSOCK => return error.InvalidSocketInDescriptorSet,
+            else => |err| return os.windows.unexpectedWSAError(err),
+        };
+    }
+    if (rc == 0) return false; // timeout
+    std.debug.assert(rc == 1);
+    return true;
+}
 
 test {
     _ = @import("net/test.zig");
