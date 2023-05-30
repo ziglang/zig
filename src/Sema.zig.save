@@ -23345,7 +23345,6 @@ fn explainWhyTypeIsNotExtern(
             } else {
                 const pointee_ty = ty.childType();
                 try mod.errNoteNonLazy(src_loc, msg, "pointer to comptime-only type '{}'", .{pointee_ty.fmt(sema.mod)});
-                try sema.explainWhyTypeIsComptime(msg, src_loc, pointee_ty);
             }
         },
         .Void => try mod.errNoteNonLazy(src_loc, msg, "'void' is a zero bit type; for C 'void' use 'anyopaque'", .{}),
