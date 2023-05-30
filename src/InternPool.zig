@@ -2169,6 +2169,9 @@ pub const EnumAuto = struct {
     decl: Module.Decl.Index,
     /// This may be `none` if there are no declarations.
     namespace: Module.Namespace.OptionalIndex,
+    /// An integer type which is used for the numerical value of the enum, which
+    /// was inferred by Zig based on the number of tags.
+    int_tag_type: Index,
     fields_len: u32,
     /// Maps field names to declaration index.
     names_map: MapIndex,
@@ -2553,7 +2556,7 @@ pub fn indexToKey(ip: *const InternPool, index: Index) Key {
             return .{ .enum_type = .{
                 .decl = enum_auto.data.decl,
                 .namespace = enum_auto.data.namespace,
-                .tag_ty = ip.getEnumIntTagType(enum_auto.data.fields_len),
+                .tag_ty = enum_auto.data.int_tag_type,
                 .names = names,
                 .values = &.{},
                 .tag_mode = .auto,
@@ -2928,14 +2931,6 @@ fn indexToKeyFuncType(ip: InternPool, data: u32) Key.FuncType {
     };
 }
 
-/// Asserts the integer tag type is already present in the InternPool.
-fn getEnumIntTagType(ip: InternPool, fields_len: u32) Index {
-    return ip.getAssumeExists(.{ .int_type = .{
-        .bits = if (fields_len == 0) 0 else std.math.log2_int_ceil(u32, fields_len),
-        .signedness = .unsigned,
-    } });
-}
-
 fn indexToKeyEnum(ip: InternPool, data: u32, tag_mode: Key.EnumType.TagMode) Key {
     const enum_explicit = ip.extraDataTrail(EnumExplicit, data);
     const names = @ptrCast(
@@ -3222,6 +3217,7 @@ pub fn get(ip: *InternPool, gpa: Allocator, key: Key) Allocator.Error!Index {
                         .data = ip.addExtraAssumeCapacity(EnumAuto{
                             .decl = enum_type.decl,
                             .namespace = enum_type.namespace,
+                            .int_tag_type = enum_type.tag_ty,
                             .names_map = names_map,
                             .fields_len = fields_len,
                         }),
@@ -4000,18 +3996,18 @@ pub fn getIncompleteEnum(
     }
 }
 
-pub fn getIncompleteEnumAuto(
+fn getIncompleteEnumAuto(
     ip: *InternPool,
     gpa: Allocator,
     enum_type: Key.IncompleteEnumType,
 ) Allocator.Error!IncompleteEnumType {
-    // Although the integer tag type will not be stored in the `EnumAuto` struct,
-    // `InternPool` logic depends on it being present so that `typeOf` can be infallible.
-    // Ensure it is present here:
-    _ = try ip.get(gpa, .{ .int_type = .{
-        .bits = if (enum_type.fields_len == 0) 0 else std.math.log2_int_ceil(u32, enum_type.fields_len),
-        .signedness = .unsigned,
-    } });
+    const int_tag_type = if (enum_type.tag_ty != .none)
+        enum_type.tag_ty
+    else
+        try ip.get(gpa, .{ .int_type = .{
+            .bits = if (enum_type.fields_len == 0) 0 else std.math.log2_int_ceil(u32, enum_type.fields_len),
+            .signedness = .unsigned,
+        } });
 
     // We must keep the map in sync with `items`. The hash and equality functions
     // for enum types only look at the decl field, which is present even in
@@ -4029,6 +4025,7 @@ pub fn getIncompleteEnumAuto(
     const extra_index = ip.addExtraAssumeCapacity(EnumAuto{
         .decl = enum_type.decl,
         .namespace = enum_type.namespace,
+        .int_tag_type = int_tag_type,
         .names_map = names_map,
         .fields_len = enum_type.fields_len,
     });
@@ -4040,7 +4037,7 @@ pub fn getIncompleteEnumAuto(
     ip.extra.appendNTimesAssumeCapacity(@enumToInt(Index.none), enum_type.fields_len);
     return .{
         .index = @intToEnum(Index, ip.items.len - 1),
-        .tag_ty_index = undefined,
+        .tag_ty_index = extra_index + std.meta.fieldIndex(EnumAuto, "int_tag_type").?,
         .names_map = names_map,
         .names_start = extra_index + extra_fields_len,
         .values_map = .none,
