@@ -194,3 +194,20 @@ test "@min/@max notices vector bounds" {
     try expectEqual(@Vector(2, u32){ 140, 300 }, max);
     try expectEqual(@Vector(2, u32), @TypeOf(max));
 }
+
+test "@min/@max on comptime_int" {
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest; // TODO
+
+    const min = @min(1, 2, -2, -1);
+    const max = @max(1, 2, -2, -1);
+
+    try expectEqual(comptime_int, @TypeOf(min));
+    try expectEqual(comptime_int, @TypeOf(max));
+    try expectEqual(-2, min);
+    try expectEqual(2, max);
+}
