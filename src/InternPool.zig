@@ -1803,8 +1803,6 @@ pub const Tag = enum(u8) {
     ptr_field,
     /// A slice.
     /// data is extra index of PtrSlice, which contains the ptr and len values
-    /// In order to use this encoding, one must ensure that the `InternPool`
-    /// already contains the slice type corresponding to this payload.
     ptr_slice,
     /// An optional value that is non-null.
     /// data is extra index of `TypeValue`.
@@ -2236,7 +2234,11 @@ pub const PtrBaseIndex = struct {
 };
 
 pub const PtrSlice = struct {
+    /// The slice type.
+    ty: Index,
+    /// A many pointer value.
     ptr: Index,
+    /// A usize value.
     len: Index,
 };
 
@@ -2606,16 +2608,25 @@ pub fn indexToKey(ip: *const InternPool, index: Index) Key {
                 .addr = .{ .comptime_field = info.field_val },
             } };
         },
-        .ptr_int, .ptr_eu_payload, .ptr_opt_payload => {
+        .ptr_int => {
             const info = ip.extraData(PtrBase, data);
             return .{ .ptr = .{
                 .ty = info.ty,
-                .addr = switch (item.tag) {
-                    .ptr_int => .{ .int = info.base },
-                    .ptr_eu_payload => .{ .eu_payload = info.base },
-                    .ptr_opt_payload => .{ .opt_payload = info.base },
-                    else => unreachable,
-                },
+                .addr = .{ .int = info.base },
+            } };
+        },
+        .ptr_eu_payload => {
+            const info = ip.extraData(PtrBase, data);
+            return .{ .ptr = .{
+                .ty = info.ty,
+                .addr = .{ .eu_payload = info.base },
+            } };
+        },
+        .ptr_opt_payload => {
+            const info = ip.extraData(PtrBase, data);
+            return .{ .ptr = .{
+                .ty = info.ty,
+                .addr = .{ .opt_payload = info.base },
             } };
         },
         .ptr_elem => {
@@ -2652,15 +2663,64 @@ pub fn indexToKey(ip: *const InternPool, index: Index) Key {
         },
         .ptr_slice => {
             const info = ip.extraData(PtrSlice, data);
-            const ptr = ip.indexToKey(info.ptr).ptr;
-            var ptr_type = ip.indexToKey(ptr.ty).ptr_type;
-            assert(ptr_type.size == .Many);
-            ptr_type.size = .Slice;
-            return .{ .ptr = .{
-                .ty = ip.getAssumeExists(.{ .ptr_type = ptr_type }),
-                .addr = ptr.addr,
-                .len = info.len,
-            } };
+            const ptr_item = ip.items.get(@enumToInt(info.ptr));
+            return .{
+                .ptr = .{
+                    .ty = info.ty,
+                    .addr = switch (ptr_item.tag) {
+                        .ptr_decl => .{
+                            .decl = ip.extraData(PtrDecl, ptr_item.data).decl,
+                        },
+                        .ptr_mut_decl => b: {
+                            const sub_info = ip.extraData(PtrMutDecl, ptr_item.data);
+                            break :b .{ .mut_decl = .{
+                                .decl = sub_info.decl,
+                                .runtime_index = sub_info.runtime_index,
+                            } };
+                        },
+                        .ptr_comptime_field => .{
+                            .comptime_field = ip.extraData(PtrComptimeField, ptr_item.data).field_val,
+                        },
+                        .ptr_int => .{
+                            .int = ip.extraData(PtrBase, ptr_item.data).base,
+                        },
+                        .ptr_eu_payload => .{
+                            .eu_payload = ip.extraData(PtrBase, ptr_item.data).base,
+                        },
+                        .ptr_opt_payload => .{
+                            .opt_payload = ip.extraData(PtrBase, ptr_item.data).base,
+                        },
+                        .ptr_elem => b: {
+                            // Avoid `indexToKey` recursion by asserting the tag encoding.
+                            const sub_info = ip.extraData(PtrBaseIndex, ptr_item.data);
+                            const index_item = ip.items.get(@enumToInt(sub_info.index));
+                            break :b switch (index_item.tag) {
+                                .int_usize => .{ .elem = .{
+                                    .base = sub_info.base,
+                                    .index = index_item.data,
+                                } },
+                                .int_positive => @panic("TODO"), // implement along with behavior test coverage
+                                else => unreachable,
+                            };
+                        },
+                        .ptr_field => b: {
+                            // Avoid `indexToKey` recursion by asserting the tag encoding.
+                            const sub_info = ip.extraData(PtrBaseIndex, ptr_item.data);
+                            const index_item = ip.items.get(@enumToInt(sub_info.index));
+                            break :b switch (index_item.tag) {
+                                .int_usize => .{ .field = .{
+                                    .base = sub_info.base,
+                                    .index = index_item.data,
+                                } },
+                                .int_positive => @panic("TODO"), // implement along with behavior test coverage
+                                else => unreachable,
+                            };
+                        },
+                        else => unreachable,
+                    },
+                    .len = info.len,
+                },
+            };
         },
         .int_u8 => .{ .int = .{
             .ty = .u8_type,
@@ -3340,6 +3400,9 @@ pub fn get(ip: *InternPool, gpa: Allocator, key: Key) Allocator.Error!Index {
                     }
                 },
                 else => {
+                    // TODO: change Key.Ptr for slices to reference the manyptr value
+                    // rather than having an addr field directly. Then we can avoid
+                    // these problematic calls to pop(), get(), and getOrPutAdapted().
                     assert(ptr_type.size == .Slice);
                     _ = ip.map.pop();
                     var new_key = key;
@@ -3352,6 +3415,7 @@ pub fn get(ip: *InternPool, gpa: Allocator, key: Key) Allocator.Error!Index {
                     ip.items.appendAssumeCapacity(.{
                         .tag = .ptr_slice,
                         .data = try ip.addExtra(gpa, PtrSlice{
+                            .ty = ptr.ty,
                             .ptr = ptr_index,
                             .len = ptr.len,
                         }),
