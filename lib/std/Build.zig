@@ -1993,6 +1993,19 @@ pub const LazyPath = union(enum) {
         }
     }
 
+    /// Just like getPath2, but doesn't convert relative paths to absolute from the build root.
+    pub fn getPathRelative(self: FileSource, src_builder: *Build, asking_step: ?*Step) []const u8 {
+        switch (self) {
+            .path => |p| return p,
+            .generated => |gen| return gen.path orelse {
+                std.debug.getStderrMutex().lock();
+                const stderr = std.io.getStdErr();
+                dumpBadGetPathHelp(gen.step, stderr, src_builder, asking_step) catch {};
+                @panic("misconfigured build script");
+            },
+        }
+    }
+
     /// Duplicates the file source for a given builder.
     pub fn dupe(self: LazyPath, b: *Build) LazyPath {
         return switch (self) {
