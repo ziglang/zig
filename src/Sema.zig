@@ -34524,10 +34524,13 @@ fn compareScalar(
     rhs: Value,
     ty: Type,
 ) CompileError!bool {
+    const mod = sema.mod;
+    const coerced_lhs = try mod.getCoerced(lhs, ty);
+    const coerced_rhs = try mod.getCoerced(rhs, ty);
     switch (op) {
-        .eq => return sema.valuesEqual(lhs, rhs, ty),
-        .neq => return !(try sema.valuesEqual(lhs, rhs, ty)),
-        else => return Value.compareHeteroAdvanced(lhs, op, rhs, sema.mod, sema),
+        .eq => return sema.valuesEqual(coerced_lhs, coerced_rhs, ty),
+        .neq => return !(try sema.valuesEqual(coerced_lhs, coerced_rhs, ty)),
+        else => return Value.compareHeteroAdvanced(coerced_lhs, op, coerced_rhs, mod, sema),
     }
 }
 
