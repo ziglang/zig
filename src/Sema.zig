@@ -11509,7 +11509,7 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
                 while (try it.next()) |cur| {
                     cases_len += 1;
 
-                    const item_ref = try sema.addConstant(operand_ty, cur);
+                    const item_ref = try sema.addConstant(operand_ty, cur.toValue());
                     case_block.inline_case_capture = item_ref;
 
                     case_block.instructions.shrinkRetainingCapacity(0);
@@ -11647,47 +11647,70 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
 }
 
 const RangeSetUnhandledIterator = struct {
-    sema: *Sema,
-    ty: Type,
-    cur: Value,
-    max: Value,
+    mod: *Module,
+    cur: ?InternPool.Index,
+    max: InternPool.Index,
+    range_i: usize,
     ranges: []const RangeSet.Range,
-    range_i: usize = 0,
-    first: bool = true,
+    limbs: []math.big.Limb,
+
+    const preallocated_limbs = math.big.int.calcTwosCompLimbCount(128);
 
     fn init(sema: *Sema, ty: Type, range_set: RangeSet) !RangeSetUnhandledIterator {
         const mod = sema.mod;
-        const min = try ty.minInt(mod, ty);
-        const max = try ty.maxInt(mod, ty);
-
-        return RangeSetUnhandledIterator{
-            .sema = sema,
-            .ty = ty,
-            .cur = min,
-            .max = max,
+        const int_type = mod.intern_pool.indexToKey(ty.toIntern()).int_type;
+        const needed_limbs = math.big.int.calcTwosCompLimbCount(int_type.bits);
+        return .{
+            .mod = mod,
+            .cur = (try ty.minInt(mod, ty)).toIntern(),
+            .max = (try ty.maxInt(mod, ty)).toIntern(),
+            .range_i = 0,
             .ranges = range_set.ranges.items,
+            .limbs = if (needed_limbs > preallocated_limbs)
+                try sema.arena.alloc(math.big.Limb, needed_limbs)
+            else
+                &.{},
         };
     }
 
-    fn next(it: *RangeSetUnhandledIterator) !?Value {
-        while (it.range_i < it.ranges.len) : (it.range_i += 1) {
-            if (!it.first) {
-                it.cur = try it.sema.intAddScalar(it.cur, try it.sema.mod.intValue(it.ty, 1), it.ty);
-            }
-            it.first = false;
-            if (it.cur.compareScalar(.lt, it.ranges[it.range_i].first.toValue(), it.ty, it.sema.mod)) {
-                return it.cur;
-            }
-            it.cur = it.ranges[it.range_i].last.toValue();
+    fn addOne(it: *const RangeSetUnhandledIterator, val: InternPool.Index) !?InternPool.Index {
+        if (val == it.max) return null;
+        const int = it.mod.intern_pool.indexToKey(val).int;
+
+        switch (int.storage) {
+            inline .u64, .i64 => |val_int| {
+                const next_int = @addWithOverflow(val_int, 1);
+                if (next_int[1] == 0)
+                    return (try it.mod.intValue(int.ty.toType(), next_int[0])).toIntern();
+            },
+            .big_int => {},
+            .lazy_align, .lazy_size => unreachable,
         }
-        if (!it.first) {
-            it.cur = try it.sema.intAddScalar(it.cur, try it.sema.mod.intValue(it.ty, 1), it.ty);
+
+        var val_space: InternPool.Key.Int.Storage.BigIntSpace = undefined;
+        const val_bigint = int.storage.toBigInt(&val_space);
+
+        var result_limbs: [preallocated_limbs]math.big.Limb = undefined;
+        var result_bigint = math.big.int.Mutable.init(
+            if (it.limbs.len > 0) it.limbs else &result_limbs,
+            0,
+        );
+
+        result_bigint.addScalar(val_bigint, 1);
+        return (try it.mod.intValue_big(int.ty.toType(), result_bigint.toConst())).toIntern();
+    }
+
+    fn next(it: *RangeSetUnhandledIterator) !?InternPool.Index {
+        var cur = it.cur orelse return null;
+        while (it.range_i < it.ranges.len and cur == it.ranges[it.range_i].first) {
+            defer it.range_i += 1;
+            cur = (try it.addOne(it.ranges[it.range_i].last)) orelse {
+                it.cur = null;
+                return null;
+            };
         }
-        it.first = false;
-        if (it.cur.compareScalar(.lte, it.max, it.ty, it.sema.mod)) {
-            return it.cur;
-        }
-        return null;
+        it.cur = try it.addOne(cur);
+        return cur;
     }
 };
 
