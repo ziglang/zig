@@ -1915,6 +1915,18 @@ fn resolveConstValue(
     return sema.failWithNeededComptime(block, src, reason);
 }
 
+/// Will not return Value Tags: `variable`, `undef`. Instead they will emit compile errors.
+/// Lazy values are recursively resolved.
+fn resolveConstLazyValue(
+    sema: *Sema,
+    block: *Block,
+    src: LazySrcLoc,
+    air_ref: Air.Inst.Ref,
+    reason: []const u8,
+) CompileError!Value {
+    return sema.resolveLazyValue(try sema.resolveConstValue(block, src, air_ref, reason));
+}
+
 /// Value Tag `variable` causes this function to return `null`.
 /// Value Tag `undef` causes this function to return a compile error.
 fn resolveDefinedValue(
@@ -1952,10 +1964,22 @@ fn resolveMaybeUndefVal(
     }
 }
 
+/// Value Tag `variable` causes this function to return `null`.
+/// Value Tag `undef` causes this function to return the Value.
+/// Value Tag `generic_poison` causes `error.GenericPoison` to be returned.
+/// Lazy values are recursively resolved.
+fn resolveMaybeUndefLazyVal(
+    sema: *Sema,
+    inst: Air.Inst.Ref,
+) CompileError!?Value {
+    return try sema.resolveLazyValue((try sema.resolveMaybeUndefVal(inst)) orelse return null);
+}
+
 /// Value Tag `variable` results in `null`.
 /// Value Tag `undef` results in the Value.
 /// Value Tag `generic_poison` causes `error.GenericPoison` to be returned.
 /// Value Tag `decl_ref` and `decl_ref_mut` or any nested such value results in `null`.
+/// Lazy values are recursively resolved.
 fn resolveMaybeUndefValIntable(
     sema: *Sema,
     inst: Air.Inst.Ref,
@@ -1976,8 +2000,7 @@ fn resolveMaybeUndefValIntable(
             else => break,
         },
     };
-    try sema.resolveLazyValue(val);
-    return val;
+    return try sema.resolveLazyValue(val);
 }
 
 /// Returns all Value tags including `variable` and `undef`.
@@ -5257,8 +5280,7 @@ fn zirCompileLog(
 
         const arg = try sema.resolveInst(arg_ref);
         const arg_ty = sema.typeOf(arg);
-        if (try sema.resolveMaybeUndefVal(arg)) |val| {
-            try sema.resolveLazyValue(val);
+        if (try sema.resolveMaybeUndefLazyVal(arg)) |val| {
             try writer.print("@as({}, {})", .{
                 arg_ty.fmt(sema.mod), val.fmtValue(arg_ty, sema.mod),
             });
@@ -7266,15 +7288,14 @@ fn analyzeInlineCallArg(
                         // parameter or return type.
                         return error.GenericPoison;
                     },
-                    else => {
-                        // Needed so that lazy values do not trigger
-                        // assertion due to type not being resolved
-                        // when the hash function is called.
-                        try sema.resolveLazyValue(arg_val);
-                    },
+                    else => {},
                 }
-                should_memoize.* = should_memoize.* and !arg_val.canMutateComptimeVarState(mod);
-                memoized_arg_values[arg_i.*] = try arg_val.intern(param_ty.toType(), mod);
+                // Needed so that lazy values do not trigger
+                // assertion due to type not being resolved
+                // when the hash function is called.
+                const resolved_arg_val = try sema.resolveLazyValue(arg_val);
+                should_memoize.* = should_memoize.* and !resolved_arg_val.canMutateComptimeVarState(mod);
+                memoized_arg_values[arg_i.*] = try resolved_arg_val.intern(param_ty.toType(), mod);
             } else {
                 sema.inst_map.putAssumeCapacityNoClobber(inst, casted_arg);
             }
@@ -7302,15 +7323,14 @@ fn analyzeInlineCallArg(
                         // parameter or return type.
                         return error.GenericPoison;
                     },
-                    else => {
-                        // Needed so that lazy values do not trigger
-                        // assertion due to type not being resolved
-                        // when the hash function is called.
-                        try sema.resolveLazyValue(arg_val);
-                    },
+                    else => {},
                 }
-                should_memoize.* = should_memoize.* and !arg_val.canMutateComptimeVarState(mod);
-                memoized_arg_values[arg_i.*] = try arg_val.intern(sema.typeOf(uncasted_arg), mod);
+                // Needed so that lazy values do not trigger
+                // assertion due to type not being resolved
+                // when the hash function is called.
+                const resolved_arg_val = try sema.resolveLazyValue(arg_val);
+                should_memoize.* = should_memoize.* and !resolved_arg_val.canMutateComptimeVarState(mod);
+                memoized_arg_values[arg_i.*] = try resolved_arg_val.intern(sema.typeOf(uncasted_arg), mod);
             } else {
                 if (zir_tags[inst] == .param_anytype_comptime) {
                     _ = try sema.resolveConstMaybeUndefVal(arg_block, arg_src, uncasted_arg, "parameter is comptime");
@@ -7369,9 +7389,7 @@ fn analyzeGenericCallArg(
 }
 
 fn analyzeGenericCallArgVal(sema: *Sema, block: *Block, arg_src: LazySrcLoc, uncasted_arg: Air.Inst.Ref) !Value {
-    const arg_val = try sema.resolveValue(block, arg_src, uncasted_arg, "parameter is comptime");
-    try sema.resolveLazyValue(arg_val);
-    return arg_val;
+    return sema.resolveLazyValue(try sema.resolveValue(block, arg_src, uncasted_arg, "parameter is comptime"));
 }
 
 fn instantiateGenericCall(
@@ -7903,7 +7921,8 @@ fn resolveTupleLazyValues(sema: *Sema, block: *Block, src: LazySrcLoc, ty: Type)
     for (tuple.types, tuple.values) |field_ty, field_val| {
         try sema.resolveTupleLazyValues(block, src, field_ty.toType());
         if (field_val == .none) continue;
-        try sema.resolveLazyValue(field_val.toValue());
+        // TODO: mutate in intern pool
+        _ = try sema.resolveLazyValue(field_val.toValue());
     }
 }
 
@@ -10104,8 +10123,9 @@ fn zirSwitchCapture(
 
     if (block.inline_case_capture != .none) {
         const item_val = sema.resolveConstValue(block, .unneeded, block.inline_case_capture, undefined) catch unreachable;
+        const resolved_item_val = try sema.resolveLazyValue(item_val);
         if (operand_ty.zigTypeTag(mod) == .Union) {
-            const field_index = @intCast(u32, operand_ty.unionTagFieldIndex(item_val, sema.mod).?);
+            const field_index = @intCast(u32, operand_ty.unionTagFieldIndex(resolved_item_val, sema.mod).?);
             const union_obj = mod.typeToUnion(operand_ty).?;
             const field_ty = union_obj.fields.values()[field_index].ty;
             if (try sema.resolveDefinedValue(block, sema.src, operand_ptr)) |union_val| {
@@ -10141,7 +10161,7 @@ fn zirSwitchCapture(
                 return block.addStructFieldVal(operand_ptr, field_index, field_ty);
             }
         } else if (is_ref) {
-            return sema.addConstantMaybeRef(block, operand_ty, item_val, true);
+            return sema.addConstantMaybeRef(block, operand_ty, resolved_item_val, true);
         } else {
             return block.inline_case_capture;
         }
@@ -10249,7 +10269,7 @@ fn zirSwitchCapture(
                 for (items) |item| {
                     const item_ref = try sema.resolveInst(item);
                     // Previous switch validation ensured this will succeed
-                    const item_val = sema.resolveConstValue(block, .unneeded, item_ref, "") catch unreachable;
+                    const item_val = sema.resolveConstLazyValue(block, .unneeded, item_ref, "") catch unreachable;
                     const name_ip = try mod.intern_pool.getOrPutString(gpa, item_val.getError(mod).?);
                     names.putAssumeCapacityNoClobber(name_ip, {});
                 }
@@ -10259,7 +10279,7 @@ fn zirSwitchCapture(
             } else {
                 const item_ref = try sema.resolveInst(items[0]);
                 // Previous switch validation ensured this will succeed
-                const item_val = sema.resolveConstValue(block, .unneeded, item_ref, "") catch unreachable;
+                const item_val = sema.resolveConstLazyValue(block, .unneeded, item_ref, "") catch unreachable;
 
                 const item_ty = try mod.singleErrorSetType(item_val.getError(mod).?);
                 return sema.bitCast(block, item_ty, operand, operand_src, null);
@@ -10993,6 +11013,7 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
     defer merges.deinit(gpa);
 
     if (try sema.resolveDefinedValue(&child_block, src, operand)) |operand_val| {
+        const resolved_operand_val = try sema.resolveLazyValue(operand_val);
         var extra_index: usize = special.end;
         {
             var scalar_i: usize = 0;
@@ -11007,8 +11028,8 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
 
                 const item = try sema.resolveInst(item_ref);
                 // Validation above ensured these will succeed.
-                const item_val = sema.resolveConstValue(&child_block, .unneeded, item, "") catch unreachable;
-                if (operand_val.eql(item_val, operand_ty, mod)) {
+                const item_val = sema.resolveConstLazyValue(&child_block, .unneeded, item, "") catch unreachable;
+                if (resolved_operand_val.eql(item_val, operand_ty, mod)) {
                     if (is_inline) child_block.inline_case_capture = operand;
 
                     if (err_set) try sema.maybeErrorUnwrapComptime(&child_block, body, operand);
@@ -11033,8 +11054,8 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
                 for (items) |item_ref| {
                     const item = try sema.resolveInst(item_ref);
                     // Validation above ensured these will succeed.
-                    const item_val = sema.resolveConstValue(&child_block, .unneeded, item, "") catch unreachable;
-                    if (operand_val.eql(item_val, operand_ty, mod)) {
+                    const item_val = sema.resolveConstLazyValue(&child_block, .unneeded, item, "") catch unreachable;
+                    if (resolved_operand_val.eql(item_val, operand_ty, mod)) {
                         if (is_inline) child_block.inline_case_capture = operand;
 
                         if (err_set) try sema.maybeErrorUnwrapComptime(&child_block, body, operand);
@@ -11052,8 +11073,8 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
                     // Validation above ensured these will succeed.
                     const first_tv = sema.resolveInstConst(&child_block, .unneeded, item_first, "") catch unreachable;
                     const last_tv = sema.resolveInstConst(&child_block, .unneeded, item_last, "") catch unreachable;
-                    if ((try sema.compareAll(operand_val, .gte, first_tv.val, operand_ty)) and
-                        (try sema.compareAll(operand_val, .lte, last_tv.val, operand_ty)))
+                    if ((try sema.compareAll(resolved_operand_val, .gte, first_tv.val, operand_ty)) and
+                        (try sema.compareAll(resolved_operand_val, .lte, last_tv.val, operand_ty)))
                     {
                         if (is_inline) child_block.inline_case_capture = operand;
                         if (err_set) try sema.maybeErrorUnwrapComptime(&child_block, body, operand);
@@ -11135,7 +11156,7 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
         // `item` is already guaranteed to be constant known.
 
         const analyze_body = if (union_originally) blk: {
-            const item_val = sema.resolveConstValue(block, .unneeded, item, "") catch unreachable;
+            const item_val = sema.resolveConstLazyValue(block, .unneeded, item, "") catch unreachable;
             const field_ty = maybe_union_ty.unionFieldType(item_val, mod);
             break :blk field_ty.zigTypeTag(mod) != .NoReturn;
         } else true;
@@ -11683,8 +11704,7 @@ fn resolveSwitchItemVal(
     // Constructing a LazySrcLoc is costly because we only have the switch AST node.
     // Only if we know for sure we need to report a compile error do we resolve the
     // full source locations.
-    if (sema.resolveConstValue(block, .unneeded, item, "")) |val| {
-        try sema.resolveLazyValue(val);
+    if (sema.resolveConstLazyValue(block, .unneeded, item, "")) |val| {
         return val.toIntern();
     } else |err| switch (err) {
         error.NeededSourceLocation => {
@@ -20634,9 +20654,8 @@ fn zirBitCount(
             }
         },
         .Int => {
-            if (try sema.resolveMaybeUndefVal(operand)) |val| {
+            if (try sema.resolveMaybeUndefLazyVal(operand)) |val| {
                 if (val.isUndef(mod)) return sema.addConstUndef(result_scalar_ty);
-                try sema.resolveLazyValue(val);
                 return sema.addIntUnsigned(result_scalar_ty, comptimeOp(val, operand_ty, mod));
             } else {
                 try sema.requireRuntimeBlock(block, src, operand_src);
@@ -22311,18 +22330,18 @@ fn analyzeMinMax(
                 continue;
             }
 
-            try sema.resolveLazyValue(cur_val);
-            try sema.resolveLazyValue(operand_val);
+            const resolved_cur_val = try sema.resolveLazyValue(cur_val);
+            const resolved_operand_val = try sema.resolveLazyValue(operand_val);
 
             const vec_len = simd_op.len orelse {
-                const result_val = opFunc(cur_val, operand_val, mod);
+                const result_val = opFunc(resolved_cur_val, resolved_operand_val, mod);
                 cur_minmax = try sema.addConstant(simd_op.result_ty, result_val);
                 continue;
             };
             const elems = try sema.arena.alloc(InternPool.Index, vec_len);
             for (elems, 0..) |*elem, i| {
-                const lhs_elem_val = try cur_val.elemValue(mod, i);
-                const rhs_elem_val = try operand_val.elemValue(mod, i);
+                const lhs_elem_val = try resolved_cur_val.elemValue(mod, i);
+                const rhs_elem_val = try resolved_operand_val.elemValue(mod, i);
                 elem.* = try opFunc(lhs_elem_val, rhs_elem_val, mod).intern(simd_op.scalar_ty, mod);
             }
             cur_minmax = try sema.addConstant(simd_op.result_ty, (try mod.intern(.{ .aggregate = .{
@@ -30360,13 +30379,11 @@ fn cmpNumeric(
             if (try sema.resolveMaybeUndefVal(rhs)) |rhs_val| {
                 // Compare ints: const vs. undefined (or vice versa)
                 if (!lhs_val.isUndef(mod) and (lhs_ty.isInt(mod) or lhs_ty_tag == .ComptimeInt) and rhs_ty.isInt(mod) and rhs_val.isUndef(mod)) {
-                    try sema.resolveLazyValue(lhs_val);
-                    if (try sema.compareIntsOnlyPossibleResult(lhs_val, op, rhs_ty)) |res| {
+                    if (try sema.compareIntsOnlyPossibleResult(try sema.resolveLazyValue(lhs_val), op, rhs_ty)) |res| {
                         return if (res) Air.Inst.Ref.bool_true else Air.Inst.Ref.bool_false;
                     }
                 } else if (!rhs_val.isUndef(mod) and (rhs_ty.isInt(mod) or rhs_ty_tag == .ComptimeInt) and lhs_ty.isInt(mod) and lhs_val.isUndef(mod)) {
-                    try sema.resolveLazyValue(rhs_val);
-                    if (try sema.compareIntsOnlyPossibleResult(rhs_val, op.reverse(), lhs_ty)) |res| {
+                    if (try sema.compareIntsOnlyPossibleResult(try sema.resolveLazyValue(rhs_val), op.reverse(), lhs_ty)) |res| {
                         return if (res) Air.Inst.Ref.bool_true else Air.Inst.Ref.bool_false;
                     }
                 }
@@ -30389,19 +30406,17 @@ fn cmpNumeric(
             } else {
                 if (!lhs_val.isUndef(mod) and (lhs_ty.isInt(mod) or lhs_ty_tag == .ComptimeInt) and rhs_ty.isInt(mod)) {
                     // Compare ints: const vs. var
-                    try sema.resolveLazyValue(lhs_val);
-                    if (try sema.compareIntsOnlyPossibleResult(lhs_val, op, rhs_ty)) |res| {
+                    if (try sema.compareIntsOnlyPossibleResult(try sema.resolveLazyValue(lhs_val), op, rhs_ty)) |res| {
                         return if (res) Air.Inst.Ref.bool_true else Air.Inst.Ref.bool_false;
                     }
                 }
                 break :src rhs_src;
             }
         } else {
-            if (try sema.resolveMaybeUndefVal(rhs)) |rhs_val| {
+            if (try sema.resolveMaybeUndefLazyVal(rhs)) |rhs_val| {
                 if (!rhs_val.isUndef(mod) and (rhs_ty.isInt(mod) or rhs_ty_tag == .ComptimeInt) and lhs_ty.isInt(mod)) {
                     // Compare ints: var vs. const
-                    try sema.resolveLazyValue(rhs_val);
-                    if (try sema.compareIntsOnlyPossibleResult(rhs_val, op.reverse(), lhs_ty)) |res| {
+                    if (try sema.compareIntsOnlyPossibleResult(try sema.resolveLazyValue(rhs_val), op.reverse(), lhs_ty)) |res| {
                         return if (res) Air.Inst.Ref.bool_true else Air.Inst.Ref.bool_false;
                     }
                 }
@@ -30465,8 +30480,7 @@ fn cmpNumeric(
     var dest_float_type: ?Type = null;
 
     var lhs_bits: usize = undefined;
-    if (try sema.resolveMaybeUndefVal(lhs)) |lhs_val| {
-        try sema.resolveLazyValue(lhs_val);
+    if (try sema.resolveMaybeUndefLazyVal(lhs)) |lhs_val| {
         if (lhs_val.isUndef(mod))
             return sema.addConstUndef(Type.bool);
         if (lhs_val.isNan(mod)) switch (op) {
@@ -30524,8 +30538,7 @@ fn cmpNumeric(
     }
 
     var rhs_bits: usize = undefined;
-    if (try sema.resolveMaybeUndefVal(rhs)) |rhs_val| {
-        try sema.resolveLazyValue(rhs_val);
+    if (try sema.resolveMaybeUndefLazyVal(rhs)) |rhs_val| {
         if (rhs_val.isUndef(mod))
             return sema.addConstUndef(Type.bool);
         if (rhs_val.isNan(mod)) switch (op) {
@@ -31467,32 +31480,133 @@ pub fn resolveFnTypes(sema: *Sema, fn_info: InternPool.Key.FuncType) CompileErro
 
 /// Make it so that calling hash() and eql() on `val` will not assert due
 /// to a type not having its layout resolved.
-fn resolveLazyValue(sema: *Sema, val: Value) CompileError!void {
-    switch (sema.mod.intern_pool.indexToKey(val.toIntern())) {
+fn resolveLazyValue(sema: *Sema, val: Value) CompileError!Value {
+    const mod = sema.mod;
+    switch (mod.intern_pool.indexToKey(val.toIntern())) {
         .int => |int| switch (int.storage) {
-            .u64, .i64, .big_int => {},
-            .lazy_align, .lazy_size => |lazy_ty| try sema.resolveTypeLayout(lazy_ty.toType()),
+            .u64, .i64, .big_int => return val,
+            .lazy_align, .lazy_size => return (try mod.intern(.{ .int = .{
+                .ty = int.ty,
+                .storage = .{ .u64 = (try val.getUnsignedIntAdvanced(mod, sema)).? },
+            } })).toValue(),
         },
         .ptr => |ptr| {
+            const resolved_len = switch (ptr.len) {
+                .none => .none,
+                else => (try sema.resolveLazyValue(ptr.len.toValue())).toIntern(),
+            };
             switch (ptr.addr) {
-                .decl, .mut_decl => {},
-                .int => |int| try sema.resolveLazyValue(int.toValue()),
-                .eu_payload, .opt_payload => |base| try sema.resolveLazyValue(base.toValue()),
-                .comptime_field => |comptime_field| try sema.resolveLazyValue(comptime_field.toValue()),
-                .elem, .field => |base_index| try sema.resolveLazyValue(base_index.base.toValue()),
+                .decl, .mut_decl => return if (resolved_len == ptr.len)
+                    val
+                else
+                    (try mod.intern(.{ .ptr = .{
+                        .ty = ptr.ty,
+                        .addr = switch (ptr.addr) {
+                            .decl => |decl| .{ .decl = decl },
+                            .mut_decl => |mut_decl| .{ .mut_decl = mut_decl },
+                            else => unreachable,
+                        },
+                        .len = resolved_len,
+                    } })).toValue(),
+                .comptime_field => |field_val| {
+                    const resolved_field_val =
+                        (try sema.resolveLazyValue(field_val.toValue())).toIntern();
+                    return if (resolved_field_val == field_val and resolved_len == ptr.len)
+                        val
+                    else
+                        (try mod.intern(.{ .ptr = .{
+                            .ty = ptr.ty,
+                            .addr = .{ .comptime_field = resolved_field_val },
+                            .len = resolved_len,
+                        } })).toValue();
+                },
+                .int => |int| {
+                    const resolved_int = (try sema.resolveLazyValue(int.toValue())).toIntern();
+                    return if (resolved_int == int and resolved_len == ptr.len)
+                        val
+                    else
+                        (try mod.intern(.{ .ptr = .{
+                            .ty = ptr.ty,
+                            .addr = .{ .int = resolved_int },
+                            .len = resolved_len,
+                        } })).toValue();
+                },
+                .eu_payload, .opt_payload => |base| {
+                    const resolved_base = (try sema.resolveLazyValue(base.toValue())).toIntern();
+                    return if (resolved_base == base and resolved_len == ptr.len)
+                        val
+                    else
+                        (try mod.intern(.{ .ptr = .{
+                            .ty = ptr.ty,
+                            .addr = switch (ptr.addr) {
+                                .eu_payload => .{ .eu_payload = resolved_base },
+                                .opt_payload => .{ .opt_payload = resolved_base },
+                                else => unreachable,
+                            },
+                            .len = ptr.len,
+                        } })).toValue();
+                },
+                .elem, .field => |base_index| {
+                    const resolved_base = (try sema.resolveLazyValue(base_index.base.toValue())).toIntern();
+                    return if (resolved_base == base_index.base and resolved_len == ptr.len)
+                        val
+                    else
+                        (try mod.intern(.{ .ptr = .{
+                            .ty = ptr.ty,
+                            .addr = switch (ptr.addr) {
+                                .elem => .{ .elem = .{
+                                    .base = resolved_base,
+                                    .index = base_index.index,
+                                } },
+                                .field => .{ .field = .{
+                                    .base = resolved_base,
+                                    .index = base_index.index,
+                                } },
+                                else => unreachable,
+                            },
+                            .len = ptr.len,
+                        } })).toValue();
+                },
             }
-            if (ptr.len != .none) try sema.resolveLazyValue(ptr.len.toValue());
         },
         .aggregate => |aggregate| switch (aggregate.storage) {
-            .bytes => {},
-            .elems => |elems| for (elems) |elem| try sema.resolveLazyValue(elem.toValue()),
-            .repeated_elem => |elem| try sema.resolveLazyValue(elem.toValue()),
+            .bytes => return val,
+            .elems => |elems| {
+                var resolved_elems: []InternPool.Index = &.{};
+                for (elems, 0..) |elem, i| {
+                    const resolved_elem = (try sema.resolveLazyValue(elem.toValue())).toIntern();
+                    if (resolved_elems.len == 0 and resolved_elem != elem) {
+                        resolved_elems = try sema.arena.alloc(InternPool.Index, elems.len);
+                        @memcpy(resolved_elems[0..i], elems[0..i]);
+                    }
+                    if (resolved_elems.len > 0) resolved_elems[i] = resolved_elem;
+                }
+                return if (resolved_elems.len == 0) val else (try mod.intern(.{ .aggregate = .{
+                    .ty = aggregate.ty,
+                    .storage = .{ .elems = resolved_elems },
+                } })).toValue();
+            },
+            .repeated_elem => |elem| {
+                const resolved_elem = (try sema.resolveLazyValue(elem.toValue())).toIntern();
+                return if (resolved_elem == elem) val else (try mod.intern(.{ .aggregate = .{
+                    .ty = aggregate.ty,
+                    .storage = .{ .repeated_elem = resolved_elem },
+                } })).toValue();
+            },
         },
         .un => |un| {
-            try sema.resolveLazyValue(un.tag.toValue());
-            try sema.resolveLazyValue(un.val.toValue());
+            const resolved_tag = (try sema.resolveLazyValue(un.tag.toValue())).toIntern();
+            const resolved_val = (try sema.resolveLazyValue(un.val.toValue())).toIntern();
+            return if (resolved_tag == un.tag and resolved_val == un.val)
+                val
+            else
+                (try mod.intern(.{ .un = .{
+                    .ty = un.ty,
+                    .tag = resolved_tag,
+                    .val = resolved_val,
+                } })).toValue();
         },
-        else => {},
+        else => return val,
     }
 }
 
