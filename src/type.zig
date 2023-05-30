@@ -6802,7 +6802,7 @@ pub const Type = extern union {
 
     comptime {
         if (builtin.mode == .Debug) {
-            _ = dbHelper;
+            _ = &dbHelper;
         }
     }
 };

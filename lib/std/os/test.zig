@@ -704,7 +704,7 @@ test "signalfd" {
         .linux, .solaris => {},
         else => return error.SkipZigTest,
     }
-    _ = os.signalfd;
+    _ = &os.signalfd;
 }
 
 test "sync" {

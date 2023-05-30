@@ -1605,7 +1605,7 @@ pub fn HashMapUnmanaged(
 
         comptime {
             if (builtin.mode == .Debug) {
-                _ = dbHelper;
+                _ = &dbHelper;
             }
         }
     };

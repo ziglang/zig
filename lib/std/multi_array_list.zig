@@ -532,8 +532,8 @@ pub fn MultiArrayList(comptime T: type) type {
 
         comptime {
             if (builtin.mode == .Debug) {
-                _ = dbHelper;
-                _ = Slice.dbHelper;
+                _ = &dbHelper;
+                _ = &Slice.dbHelper;
             }
         }
     };

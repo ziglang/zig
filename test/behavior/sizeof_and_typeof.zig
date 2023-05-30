@@ -48,7 +48,7 @@ fn fn1(alpha: bool) void {
 }
 
 test "lazy @sizeOf result is checked for definedness" {
-    _ = fn1;
+    _ = &fn1;
 }
 
 const A = struct {

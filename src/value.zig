@@ -5709,7 +5709,7 @@ pub const Value = extern union {
 
     comptime {
         if (builtin.mode == .Debug) {
-            _ = dbHelper;
+            _ = &dbHelper;
         }
     }
 };

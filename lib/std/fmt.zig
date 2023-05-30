@@ -1959,7 +1959,7 @@ pub const parseFloat = @import("fmt/parse_float.zig").parseFloat;
 pub const ParseFloatError = @import("fmt/parse_float.zig").ParseFloatError;
 
 test {
-    _ = parseFloat;
+    _ = &parseFloat;
 }
 
 pub fn charToDigit(c: u8, radix: u8) (error{InvalidCharacter}!u8) {

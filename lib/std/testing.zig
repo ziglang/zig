@@ -1116,7 +1116,7 @@ pub fn checkAllAllocationFailures(backing_allocator: std.mem.Allocator, comptime
 pub fn refAllDecls(comptime T: type) void {
     if (!builtin.is_test) return;
     inline for (comptime std.meta.declarations(T)) |decl| {
-        if (decl.is_pub) _ = @field(T, decl.name);
+        if (decl.is_pub) _ = &@field(T, decl.name);
     }
 }
 
@@ -1132,7 +1132,7 @@ pub fn refAllDeclsRecursive(comptime T: type) void {
                     else => {},
                 }
             }
-            _ = @field(T, decl.name);
+            _ = &@field(T, decl.name);
         }
     }
 }
