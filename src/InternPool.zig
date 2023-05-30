@@ -1383,7 +1383,7 @@ pub const Index = enum(u32) {
         ptr_elem: struct { data: *PtrBaseIndex },
         ptr_field: struct { data: *PtrBaseIndex },
         ptr_slice: struct { data: *PtrSlice },
-        opt_payload: DataIsIndex,
+        opt_payload: struct { data: *TypeValue },
         opt_null: DataIsIndex,
         int_u8: struct { data: u8 },
         int_u16: struct { data: u16 },
@@ -1807,9 +1807,8 @@ pub const Tag = enum(u8) {
     /// already contains the slice type corresponding to this payload.
     ptr_slice,
     /// An optional value that is non-null.
-    /// data is Index of the payload value.
-    /// In order to use this encoding, one must ensure that the `InternPool`
-    /// already contains the optional type corresponding to this payload.
+    /// data is extra index of `TypeValue`.
+    /// The type is the optional type (not the payload type).
     opt_payload,
     /// An optional value that is null.
     /// data is Index of the optional type.
@@ -2577,15 +2576,10 @@ pub fn indexToKey(ip: *const InternPool, index: Index) Key {
             .val = .none,
         } },
         .opt_payload => {
-            const payload_val = @intToEnum(Index, data);
-            // The existence of `opt_payload` guarantees that the optional type will be
-            // stored in the `InternPool`.
-            const opt_ty = ip.getAssumeExists(.{
-                .opt_type = ip.typeOf(payload_val),
-            });
+            const extra = ip.extraData(TypeValue, data);
             return .{ .opt = .{
-                .ty = opt_ty,
-                .val = payload_val,
+                .ty = extra.ty,
+                .val = extra.val,
             } };
         },
         .ptr_decl => {
@@ -3375,7 +3369,10 @@ pub fn get(ip: *InternPool, gpa: Allocator, key: Key) Allocator.Error!Index {
                 .data = @enumToInt(opt.ty),
             } else .{
                 .tag = .opt_payload,
-                .data = @enumToInt(opt.val),
+                .data = try ip.addExtra(gpa, TypeValue{
+                    .ty = opt.ty,
+                    .val = opt.val,
+                }),
             });
         },
 
@@ -4800,7 +4797,7 @@ fn dumpFallible(ip: InternPool, arena: Allocator) anyerror!void {
             .ptr_field => @sizeOf(PtrBaseIndex),
             .ptr_slice => @sizeOf(PtrSlice),
             .opt_null => 0,
-            .opt_payload => 0,
+            .opt_payload => @sizeOf(TypeValue),
             .int_u8 => 0,
             .int_u16 => 0,
             .int_u32 => 0,
