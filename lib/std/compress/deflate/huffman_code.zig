@@ -93,7 +93,7 @@ pub const HuffmanEncoder = struct {
             return;
         }
         self.lfs = list;
-        sort.sort(LiteralNode, self.lfs, {}, byFreq);
+        mem.sort(LiteralNode, self.lfs, {}, byFreq);
 
         // Get the number of literals for each bit count
         var bit_count = self.bitCounts(list, max_bits);
@@ -202,7 +202,7 @@ pub const HuffmanEncoder = struct {
                     // more values in the level below
                     l.last_freq = l.next_pair_freq;
                     // Take leaf counts from the lower level, except counts[level] remains the same.
-                    mem.copy(u32, leaf_counts[level][0..level], leaf_counts[level - 1][0..level]);
+                    @memcpy(leaf_counts[level][0..level], leaf_counts[level - 1][0..level]);
                     levels[l.level - 1].needed = 2;
                 }
 
@@ -270,7 +270,7 @@ pub const HuffmanEncoder = struct {
             var chunk = list[list.len - @intCast(u32, bits) ..];
 
             self.lns = chunk;
-            sort.sort(LiteralNode, self.lns, {}, byLiteral);
+            mem.sort(LiteralNode, self.lns, {}, byLiteral);
 
             for (chunk) |node| {
                 self.codes[node.literal] = HuffCode{
@@ -421,7 +421,7 @@ test "generate a Huffman code from an array of frequencies" {
     try testing.expectEqual(@as(u16, 0x3f), enc.codes[16].code);
 }
 
-test "generate a Huffman code for the fixed litteral table specific to Deflate" {
+test "generate a Huffman code for the fixed literal table specific to Deflate" {
     var enc = try generateFixedLiteralEncoding(testing.allocator);
     defer enc.deinit();
 }

@@ -28,11 +28,7 @@ pub fn build(b: *std.Build) !void {
     const use_zig_libcxx = b.option(bool, "use-zig-libcxx", "If libc++ is needed, use zig's bundled version, don't try to integrate with the system") orelse false;
 
     const test_step = b.step("test", "Run all the tests");
-    const deprecated_skip_install_lib_files = b.option(bool, "skip-install-lib-files", "deprecated. see no-lib") orelse false;
-    if (deprecated_skip_install_lib_files) {
-        std.log.warn("-Dskip-install-lib-files is deprecated in favor of -Dno-lib", .{});
-    }
-    const skip_install_lib_files = b.option(bool, "no-lib", "skip copying of lib/ files and langref to installation prefix. Useful for development") orelse deprecated_skip_install_lib_files;
+    const skip_install_lib_files = b.option(bool, "no-lib", "skip copying of lib/ files and langref to installation prefix. Useful for development") orelse false;
     const skip_install_langref = b.option(bool, "no-langref", "skip copying of langref to the installation prefix") orelse skip_install_lib_files;
 
     const docgen_exe = b.addExecutable(.{
@@ -57,12 +53,6 @@ pub fn build(b: *std.Build) !void {
 
     const docs_step = b.step("docs", "Build documentation");
     docs_step.dependOn(&docgen_cmd.step);
-
-    // This is for legacy reasons, to be removed after our CI scripts are upgraded to use
-    // the file from the install prefix instead.
-    const legacy_write_to_cache = b.addWriteFiles();
-    legacy_write_to_cache.addCopyFileToSource(langref_file, "zig-cache/langref.html");
-    docs_step.dependOn(&legacy_write_to_cache.step);
 
     const check_case_exe = b.addExecutable(.{
         .name = "check-case",
@@ -175,12 +165,15 @@ pub fn build(b: *std.Build) !void {
     exe.strip = strip;
     exe.pie = pie;
     exe.sanitize_thread = sanitize_thread;
-    exe.build_id = b.option(bool, "build-id", "Include a build id note") orelse false;
     exe.entitlements = entitlements;
-    b.installArtifact(exe);
 
-    const compile_step = b.step("compile", "Build the self-hosted compiler");
-    compile_step.dependOn(&exe.step);
+    exe.build_id = b.option(
+        std.Build.Step.Compile.BuildId,
+        "build-id",
+        "Request creation of '.note.gnu.build-id' section",
+    );
+
+    b.installArtifact(exe);
 
     test_step.dependOn(&exe.step);
 
@@ -204,7 +197,7 @@ pub fn build(b: *std.Build) !void {
     exe_options.addOption(bool, "llvm_has_xtensa", llvm_has_xtensa);
     exe_options.addOption(bool, "force_gpa", force_gpa);
     exe_options.addOption(bool, "only_c", only_c);
-    exe_options.addOption(bool, "omit_pkg_fetching_code", only_c);
+    exe_options.addOption(bool, "only_core_functionality", only_c);
 
     if (link_libc) {
         exe.linkLibC();
@@ -360,7 +353,7 @@ pub fn build(b: *std.Build) !void {
     test_cases_options.addOption(bool, "llvm_has_xtensa", llvm_has_xtensa);
     test_cases_options.addOption(bool, "force_gpa", force_gpa);
     test_cases_options.addOption(bool, "only_c", only_c);
-    test_cases_options.addOption(bool, "omit_pkg_fetching_code", true);
+    test_cases_options.addOption(bool, "only_core_functionality", true);
     test_cases_options.addOption(bool, "enable_qemu", b.enable_qemu);
     test_cases_options.addOption(bool, "enable_wine", b.enable_wine);
     test_cases_options.addOption(bool, "enable_wasmtime", b.enable_wasmtime);
@@ -475,9 +468,8 @@ pub fn build(b: *std.Build) !void {
         .skip_non_native = skip_non_native,
         .skip_cross_glibc = skip_cross_glibc,
         .skip_libc = skip_libc,
-        // I observed a value of 3398275072 on my M1, and multiplied by 1.1 to
-        // get this amount:
-        .max_rss = 3738102579,
+        // I observed a value of 3932766208 on the M1 CI.
+        .max_rss = 4080218931,
     }));
 
     try addWasiUpdateStep(b, version);
@@ -512,7 +504,7 @@ fn addWasiUpdateStep(b: *std.Build, version: [:0]const u8) !void {
     exe_options.addOption(bool, "enable_tracy_callstack", false);
     exe_options.addOption(bool, "enable_tracy_allocation", false);
     exe_options.addOption(bool, "value_tracing", false);
-    exe_options.addOption(bool, "omit_pkg_fetching_code", true);
+    exe_options.addOption(bool, "only_core_functionality", true);
 
     const run_opt = b.addSystemCommand(&.{
         "wasm-opt",
@@ -536,7 +528,7 @@ fn addCompilerStep(
     b: *std.Build,
     optimize: std.builtin.OptimizeMode,
     target: std.zig.CrossTarget,
-) *std.Build.CompileStep {
+) *std.Build.Step.Compile {
     const exe = b.addExecutable(.{
         .name = "zig",
         .root_source_file = .{ .path = "src/main.zig" },
@@ -564,7 +556,7 @@ const exe_cflags = [_][]const u8{
 fn addCmakeCfgOptionsToExe(
     b: *std.Build,
     cfg: CMakeConfig,
-    exe: *std.Build.CompileStep,
+    exe: *std.Build.Step.Compile,
     use_zig_libcxx: bool,
 ) !void {
     if (exe.target.isDarwin()) {
@@ -643,7 +635,7 @@ fn addCmakeCfgOptionsToExe(
     }
 }
 
-fn addStaticLlvmOptionsToExe(exe: *std.Build.CompileStep) !void {
+fn addStaticLlvmOptionsToExe(exe: *std.Build.Step.Compile) !void {
     // Adds the Zig C++ sources which both stage1 and stage2 need.
     //
     // We need this because otherwise zig_clang_cc1_main.cpp ends up pulling
@@ -682,7 +674,7 @@ fn addStaticLlvmOptionsToExe(exe: *std.Build.CompileStep) !void {
 fn addCxxKnownPath(
     b: *std.Build,
     ctx: CMakeConfig,
-    exe: *std.Build.CompileStep,
+    exe: *std.Build.Step.Compile,
     objname: []const u8,
     errtxt: ?[]const u8,
     need_cpp_includes: bool,
@@ -712,7 +704,7 @@ fn addCxxKnownPath(
     }
 }
 
-fn addCMakeLibraryList(exe: *std.Build.CompileStep, list: []const u8) void {
+fn addCMakeLibraryList(exe: *std.Build.Step.Compile, list: []const u8) void {
     var it = mem.tokenize(u8, list, ";");
     while (it.next()) |lib| {
         if (mem.startsWith(u8, lib, "-l")) {
@@ -726,7 +718,7 @@ fn addCMakeLibraryList(exe: *std.Build.CompileStep, list: []const u8) void {
 }
 
 const CMakeConfig = struct {
-    llvm_linkage: std.Build.CompileStep.Linkage,
+    llvm_linkage: std.Build.Step.Compile.Linkage,
     cmake_binary_dir: []const u8,
     cmake_prefix_path: []const u8,
     cmake_static_library_prefix: []const u8,

@@ -36,16 +36,6 @@ pub const Field = struct {
     name: []const u8,
     value: []const u8,
 
-    pub fn modify(entry: *Field, allocator: Allocator, new_value: []const u8) !void {
-        if (entry.value.len <= new_value.len) {
-            std.mem.copy(u8, @constCast(entry.value), new_value);
-        } else {
-            allocator.free(entry.value);
-
-            entry.value = try allocator.dupe(u8, new_value);
-        }
-    }
-
     fn lessThan(ctx: void, a: Field, b: Field) bool {
         _ = ctx;
         if (a.name.ptr == b.name.ptr) return false;
@@ -201,7 +191,7 @@ pub const Headers = struct {
 
     /// Sorts the headers in lexicographical order.
     pub fn sort(headers: *Headers) void {
-        std.sort.sort(Field, headers.list.items, {}, Field.lessThan);
+        std.mem.sort(Field, headers.list.items, {}, Field.lessThan);
         headers.rebuildIndex();
     }
 

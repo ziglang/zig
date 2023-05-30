@@ -51,7 +51,7 @@ pub const StackTrace = struct {
         const debug_info = std.debug.getSelfDebugInfo() catch |err| {
             return writer.print("\nUnable to print stack trace: Unable to open debug info: {s}\n", .{@errorName(err)});
         };
-        const tty_config = std.debug.detectTTYConfig(std.io.getStdErr());
+        const tty_config = std.io.tty.detectConfig(std.io.getStdErr());
         try writer.writeAll("\n");
         std.debug.writeStackTrace(self, writer, arena.allocator(), debug_info, tty_config) catch |err| {
             try writer.print("Unable to print stack trace: {s}\n", .{@errorName(err)});
@@ -646,7 +646,7 @@ pub const CallModifier = enum {
     /// If this is not possible, a compile error is emitted instead.
     always_tail,
 
-    /// Guarantees that the call will inlined at the callsite.
+    /// Guarantees that the call will be inlined at the callsite.
     /// If this is not possible, a compile error is emitted instead.
     always_inline,
 
@@ -749,7 +749,7 @@ pub const PrefetchOptions = struct {
     /// 3 means high temporal locality. That is, the data should be kept in
     /// the cache as it is likely to be accessed again soon.
     locality: u2 = 3,
-    /// The cache that the prefetch should be preformed on.
+    /// The cache that the prefetch should be performed on.
     cache: Cache = .data,
 
     pub const Rw = enum(u1) {
@@ -836,6 +836,9 @@ pub const CompilerBackend = enum(u64) {
     /// The reference implementation self-hosted compiler of Zig, using the
     /// sparc64 backend.
     stage2_sparc64 = 10,
+    /// The reference implementation self-hosted compiler of Zig, using the
+    /// spirv backend.
+    stage2_spirv64 = 11,
 
     _,
 };
@@ -1003,6 +1006,7 @@ pub const panic_messages = struct {
     pub const for_len_mismatch = "for loop over objects with non-equal lengths";
     pub const memcpy_len_mismatch = "@memcpy arguments have non-equal lengths";
     pub const memcpy_alias = "@memcpy arguments alias";
+    pub const noreturn_returned = "'noreturn' function returned";
 };
 
 pub noinline fn returnError(st: *StackTrace) void {

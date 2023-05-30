@@ -65,9 +65,11 @@ const Section = struct {
 };
 
 const LazySymbolMetadata = struct {
-    text_atom: ?Atom.Index = null,
-    rodata_atom: ?Atom.Index = null,
-    alignment: u32,
+    const State = enum { unused, pending_flush, flushed };
+    text_atom: Atom.Index = undefined,
+    rodata_atom: Atom.Index = undefined,
+    text_state: State = .unused,
+    rodata_state: State = .unused,
 };
 
 const DeclMetadata = struct {
@@ -271,7 +273,7 @@ pub fn openPath(allocator: Allocator, sub_path: []const u8, options: link.Option
 }
 
 pub fn createEmpty(gpa: Allocator, options: link.Options) !*Elf {
-    const ptr_width: PtrWidth = switch (options.target.cpu.arch.ptrBitWidth()) {
+    const ptr_width: PtrWidth = switch (options.target.ptrBitWidth()) {
         0...32 => .p32,
         33...64 => .p64,
         else => return error.UnsupportedELFArchitecture,
@@ -472,7 +474,7 @@ pub fn populateMissingMetadata(self: *Elf) !void {
     if (self.phdr_table_load_index == null) {
         self.phdr_table_load_index = @intCast(u16, self.program_headers.items.len);
         // TODO Same as for GOT
-        const phdr_addr: u64 = if (self.base.options.target.cpu.arch.ptrBitWidth() >= 32) 0x1000000 else 0x1000;
+        const phdr_addr: u64 = if (self.base.options.target.ptrBitWidth() >= 32) 0x1000000 else 0x1000;
         const p_align = self.page_size;
         try self.program_headers.append(gpa, .{
             .p_type = elf.PT_LOAD,
@@ -519,7 +521,7 @@ pub fn populateMissingMetadata(self: *Elf) !void {
         // TODO instead of hard coding the vaddr, make a function to find a vaddr to put things at.
         // we'll need to re-use that function anyway, in case the GOT grows and overlaps something
         // else in virtual memory.
-        const got_addr: u32 = if (self.base.options.target.cpu.arch.ptrBitWidth() >= 32) 0x4000000 else 0x8000;
+        const got_addr: u32 = if (self.base.options.target.ptrBitWidth() >= 32) 0x4000000 else 0x8000;
         try self.program_headers.append(gpa, .{
             .p_type = elf.PT_LOAD,
             .p_offset = off,
@@ -542,7 +544,7 @@ pub fn populateMissingMetadata(self: *Elf) !void {
         const off = self.findFreeSpace(file_size, p_align);
         log.debug("found PT_LOAD RO free space 0x{x} to 0x{x}", .{ off, off + file_size });
         // TODO Same as for GOT
-        const rodata_addr: u32 = if (self.base.options.target.cpu.arch.ptrBitWidth() >= 32) 0xc000000 else 0xa000;
+        const rodata_addr: u32 = if (self.base.options.target.ptrBitWidth() >= 32) 0xc000000 else 0xa000;
         try self.program_headers.append(gpa, .{
             .p_type = elf.PT_LOAD,
             .p_offset = off,
@@ -565,7 +567,7 @@ pub fn populateMissingMetadata(self: *Elf) !void {
         const off = self.findFreeSpace(file_size, p_align);
         log.debug("found PT_LOAD RW free space 0x{x} to 0x{x}", .{ off, off + file_size });
         // TODO Same as for GOT
-        const rwdata_addr: u32 = if (self.base.options.target.cpu.arch.ptrBitWidth() >= 32) 0x10000000 else 0xc000;
+        const rwdata_addr: u32 = if (self.base.options.target.ptrBitWidth() >= 32) 0x10000000 else 0xc000;
         try self.program_headers.append(gpa, .{
             .p_type = elf.PT_LOAD,
             .p_offset = off,
@@ -1033,18 +1035,34 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
     sub_prog_node.activate();
     defer sub_prog_node.end();
 
-    // Most lazy symbols can be updated when the corresponding decl is,
-    // so we only have to worry about the one without an associated decl.
-    if (self.lazy_syms.get(.none)) |metadata| {
-        self.updateLazySymbol(.none, metadata) catch |err| switch (err) {
-            error.CodegenFail => return error.FlushFailure,
-            else => |e| return e,
-        };
-    }
-
     // TODO This linker code currently assumes there is only 1 compilation unit and it
     // corresponds to the Zig source code.
     const module = self.base.options.module orelse return error.LinkingWithoutZigSourceUnimplemented;
+
+    if (self.lazy_syms.getPtr(.none)) |metadata| {
+        // Most lazy symbols can be updated on first use, but
+        // anyerror needs to wait for everything to be flushed.
+        if (metadata.text_state != .unused) self.updateLazySymbolAtom(
+            File.LazySymbol.initDecl(.code, null, module),
+            metadata.text_atom,
+            self.text_section_index.?,
+        ) catch |err| return switch (err) {
+            error.CodegenFail => error.FlushFailure,
+            else => |e| e,
+        };
+        if (metadata.rodata_state != .unused) self.updateLazySymbolAtom(
+            File.LazySymbol.initDecl(.const_data, null, module),
+            metadata.rodata_atom,
+            self.rodata_section_index.?,
+        ) catch |err| return switch (err) {
+            error.CodegenFail => error.FlushFailure,
+            else => |e| e,
+        };
+    }
+    for (self.lazy_syms.values()) |*metadata| {
+        if (metadata.text_state != .unused) metadata.text_state = .flushed;
+        if (metadata.rodata_state != .unused) metadata.rodata_state = .flushed;
+    }
 
     const target_endian = self.base.options.target.cpu.arch.endian();
     const foreign_endian = target_endian != builtin.cpu.arch.endian();
@@ -1353,13 +1371,14 @@ fn linkWithLLD(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !v
         // We are about to obtain this lock, so here we give other processes a chance first.
         self.base.releaseLock();
 
-        comptime assert(Compilation.link_hash_implementation_version == 8);
+        comptime assert(Compilation.link_hash_implementation_version == 9);
 
         try man.addOptionalFile(self.base.options.linker_script);
         try man.addOptionalFile(self.base.options.version_script);
         for (self.base.options.objects) |obj| {
             _ = try man.addFile(obj.path, null);
             man.hash.add(obj.must_link);
+            man.hash.add(obj.loption);
         }
         for (comp.c_object_table.keys()) |key| {
             _ = try man.addFile(key.status.success.object_path, null);
@@ -1524,8 +1543,18 @@ fn linkWithLLD(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !v
             try argv.append("-z");
             try argv.append(try std.fmt.allocPrint(arena, "stack-size={d}", .{stack_size}));
 
-            if (self.base.options.build_id) {
-                try argv.append("--build-id");
+            switch (self.base.options.build_id) {
+                .none => {},
+                .fast, .uuid, .sha1, .md5 => {
+                    try argv.append(try std.fmt.allocPrint(arena, "--build-id={s}", .{
+                        @tagName(self.base.options.build_id),
+                    }));
+                },
+                .hexstring => |hs| {
+                    try argv.append(try std.fmt.allocPrint(arena, "--build-id=0x{s}", .{
+                        std.fmt.fmtSliceHexLower(hs.toSlice()),
+                    }));
+                },
             }
         }
 
@@ -1691,6 +1720,8 @@ fn linkWithLLD(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !v
             for (self.base.options.objects) |obj| {
                 if (Compilation.classifyFileExt(obj.path) == .shared_library) {
                     const lib_dir_path = std.fs.path.dirname(obj.path) orelse continue;
+                    if (obj.loption) continue;
+
                     if ((try rpath_table.fetchPut(lib_dir_path, {})) == null) {
                         try argv.append("-rpath");
                         try argv.append(lib_dir_path);
@@ -1738,6 +1769,11 @@ fn linkWithLLD(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !v
             } else if (!obj.must_link and whole_archive) {
                 try argv.append("-no-whole-archive");
                 whole_archive = false;
+            }
+
+            if (obj.loption) {
+                assert(obj.path[0] == ':');
+                try argv.append("-l");
             }
             try argv.append(obj.path);
         }
@@ -1997,7 +2033,7 @@ fn writeElfHeader(self: *Elf) !void {
     // OS ABI, often set to 0 regardless of target platform
     // ABI Version, possibly used by glibc but not by static executables
     // padding
-    mem.set(u8, hdr_buf[index..][0..9], 0);
+    @memset(hdr_buf[index..][0..9], 0);
     index += 9;
 
     assert(index == 16);
@@ -2377,16 +2413,27 @@ pub fn freeDecl(self: *Elf, decl_index: Module.Decl.Index) void {
     }
 }
 
-pub fn getOrCreateAtomForLazySymbol(self: *Elf, sym: File.LazySymbol, alignment: u32) !Atom.Index {
+pub fn getOrCreateAtomForLazySymbol(self: *Elf, sym: File.LazySymbol) !Atom.Index {
     const gop = try self.lazy_syms.getOrPut(self.base.allocator, sym.getDecl());
-    errdefer _ = self.lazy_syms.pop();
-    if (!gop.found_existing) gop.value_ptr.* = .{ .alignment = alignment };
-    const atom = switch (sym.kind) {
-        .code => &gop.value_ptr.text_atom,
-        .const_data => &gop.value_ptr.rodata_atom,
+    errdefer _ = if (!gop.found_existing) self.lazy_syms.pop();
+    if (!gop.found_existing) gop.value_ptr.* = .{};
+    const metadata: struct { atom: *Atom.Index, state: *LazySymbolMetadata.State } = switch (sym.kind) {
+        .code => .{ .atom = &gop.value_ptr.text_atom, .state = &gop.value_ptr.text_state },
+        .const_data => .{ .atom = &gop.value_ptr.rodata_atom, .state = &gop.value_ptr.rodata_state },
     };
-    if (atom.* == null) atom.* = try self.createAtom();
-    return atom.*.?;
+    switch (metadata.state.*) {
+        .unused => metadata.atom.* = try self.createAtom(),
+        .pending_flush => return metadata.atom.*,
+        .flushed => {},
+    }
+    metadata.state.* = .pending_flush;
+    const atom = metadata.atom.*;
+    // anyerror needs to be deferred until flushModule
+    if (sym.getDecl() != .none) try self.updateLazySymbolAtom(sym, atom, switch (sym.kind) {
+        .code => self.text_section_index.?,
+        .const_data => self.rodata_section_index.?,
+    });
+    return atom;
 }
 
 pub fn getOrCreateAtomForDecl(self: *Elf, decl_index: Module.Decl.Index) !Atom.Index {
@@ -2580,7 +2627,11 @@ pub fn updateFunc(self: *Elf, module: *Module, func: *Module.Fn, air: Air, liven
     return self.updateDeclExports(module, decl_index, module.getDeclExports(decl_index));
 }
 
-pub fn updateDecl(self: *Elf, module: *Module, decl_index: Module.Decl.Index) !void {
+pub fn updateDecl(
+    self: *Elf,
+    module: *Module,
+    decl_index: Module.Decl.Index,
+) File.UpdateDeclError!void {
     if (build_options.skip_non_native and builtin.object_format != .elf) {
         @panic("Attempted to compile for object format that was disabled by build configuration");
     }
@@ -2657,32 +2708,16 @@ pub fn updateDecl(self: *Elf, module: *Module, decl_index: Module.Decl.Index) !v
     return self.updateDeclExports(module, decl_index, module.getDeclExports(decl_index));
 }
 
-fn updateLazySymbol(self: *Elf, decl: Module.Decl.OptionalIndex, metadata: LazySymbolMetadata) !void {
-    const mod = self.base.options.module.?;
-    if (metadata.text_atom) |atom| try self.updateLazySymbolAtom(
-        File.LazySymbol.initDecl(.code, decl, mod),
-        atom,
-        self.text_section_index.?,
-        metadata.alignment,
-    );
-    if (metadata.rodata_atom) |atom| try self.updateLazySymbolAtom(
-        File.LazySymbol.initDecl(.const_data, decl, mod),
-        atom,
-        self.rodata_section_index.?,
-        metadata.alignment,
-    );
-}
-
 fn updateLazySymbolAtom(
     self: *Elf,
     sym: File.LazySymbol,
     atom_index: Atom.Index,
     shdr_index: u16,
-    required_alignment: u32,
 ) !void {
     const gpa = self.base.allocator;
     const mod = self.base.options.module.?;
 
+    var required_alignment: u32 = undefined;
     var code_buffer = std.ArrayList(u8).init(gpa);
     defer code_buffer.deinit();
 
@@ -2707,9 +2742,15 @@ fn updateLazySymbolAtom(
             .parent_decl_node = undefined,
             .lazy = .unneeded,
         };
-    const res = try codegen.generateLazySymbol(&self.base, src, sym, &code_buffer, .none, .{
-        .parent_atom_index = local_sym_index,
-    });
+    const res = try codegen.generateLazySymbol(
+        &self.base,
+        src,
+        sym,
+        &required_alignment,
+        &code_buffer,
+        .none,
+        .{ .parent_atom_index = local_sym_index },
+    );
     const code = switch (res) {
         .ok => code_buffer.items,
         .fail => |em| {
@@ -2814,7 +2855,7 @@ pub fn updateDeclExports(
     module: *Module,
     decl_index: Module.Decl.Index,
     exports: []const *Module.Export,
-) !void {
+) File.UpdateDeclExportsError!void {
     if (build_options.skip_non_native and builtin.object_format != .elf) {
         @panic("Attempted to compile for object format that was disabled by build configuration");
     }
@@ -3147,7 +3188,7 @@ fn ptrWidthBytes(self: Elf) u8 {
 /// Does not necessarily match `ptrWidthBytes` for example can be 2 bytes
 /// in a 32-bit ELF file.
 fn archPtrWidthBytes(self: Elf) u8 {
-    return @intCast(u8, self.base.options.target.cpu.arch.ptrBitWidth() / 8);
+    return @intCast(u8, self.base.options.target.ptrBitWidth() / 8);
 }
 
 fn progHeaderTo32(phdr: elf.Elf64_Phdr) elf.Elf32_Phdr {

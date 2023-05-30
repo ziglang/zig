@@ -782,36 +782,38 @@ test "big.rational mul" {
 }
 
 test "big.rational div" {
-    var a = try Rational.init(testing.allocator);
-    defer a.deinit();
-    var b = try Rational.init(testing.allocator);
-    defer b.deinit();
-    var r = try Rational.init(testing.allocator);
-    defer r.deinit();
+    {
+        var a = try Rational.init(testing.allocator);
+        defer a.deinit();
+        var b = try Rational.init(testing.allocator);
+        defer b.deinit();
+        var r = try Rational.init(testing.allocator);
+        defer r.deinit();
 
-    try a.setRatio(78923, 23341);
-    try b.setRatio(123097, 12441414);
-    try a.div(a, b);
+        try a.setRatio(78923, 23341);
+        try b.setRatio(123097, 12441414);
+        try a.div(a, b);
 
-    try r.setRatio(75531824394, 221015929);
-    try testing.expect((try a.order(r)) == .eq);
-}
+        try r.setRatio(75531824394, 221015929);
+        try testing.expect((try a.order(r)) == .eq);
+    }
 
-test "big.rational div" {
-    var a = try Rational.init(testing.allocator);
-    defer a.deinit();
-    var r = try Rational.init(testing.allocator);
-    defer r.deinit();
+    {
+        var a = try Rational.init(testing.allocator);
+        defer a.deinit();
+        var r = try Rational.init(testing.allocator);
+        defer r.deinit();
 
-    try a.setRatio(78923, 23341);
-    a.invert();
+        try a.setRatio(78923, 23341);
+        a.invert();
 
-    try r.setRatio(23341, 78923);
-    try testing.expect((try a.order(r)) == .eq);
+        try r.setRatio(23341, 78923);
+        try testing.expect((try a.order(r)) == .eq);
 
-    try a.setRatio(-78923, 23341);
-    a.invert();
+        try a.setRatio(-78923, 23341);
+        a.invert();
 
-    try r.setRatio(-23341, 78923);
-    try testing.expect((try a.order(r)) == .eq);
+        try r.setRatio(-23341, 78923);
+        try testing.expect((try a.order(r)) == .eq);
+    }
 }

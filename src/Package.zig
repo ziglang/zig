@@ -5,6 +5,7 @@ const std = @import("std");
 const fs = std.fs;
 const mem = std.mem;
 const Allocator = mem.Allocator;
+const ascii = std.ascii;
 const assert = std.debug.assert;
 const log = std.log.scoped(.package);
 const main = @import("main.zig");
@@ -215,7 +216,7 @@ pub const build_zig_basename = "build.zig";
 
 pub fn fetchAndAddDependencies(
     pkg: *Package,
-    root_pkg: *Package,
+    deps_pkg: *Package,
     arena: Allocator,
     thread_pool: *ThreadPool,
     http_client: *std.http.Client,
@@ -271,7 +272,6 @@ pub fn fetchAndAddDependencies(
         .error_bundle = error_bundle,
     };
 
-    var any_error = false;
     const deps_list = manifest.dependencies.values();
     for (manifest.dependencies.keys(), 0..) |name, i| {
         const dep = deps_list[i];
@@ -279,7 +279,7 @@ pub fn fetchAndAddDependencies(
         const sub_prefix = try std.fmt.allocPrint(arena, "{s}{s}.", .{ name_prefix, name });
         const fqn = sub_prefix[0 .. sub_prefix.len - 1];
 
-        const sub_pkg = try fetchAndUnpack(
+        const sub = try fetchAndUnpack(
             thread_pool,
             http_client,
             global_cache_directory,
@@ -290,30 +290,36 @@ pub fn fetchAndAddDependencies(
             all_modules,
         );
 
-        try sub_pkg.fetchAndAddDependencies(
-            root_pkg,
-            arena,
-            thread_pool,
-            http_client,
-            sub_pkg.root_src_directory,
-            global_cache_directory,
-            local_cache_directory,
-            dependencies_source,
-            build_roots_source,
-            sub_prefix,
-            error_bundle,
-            all_modules,
-        );
+        if (!sub.found_existing) {
+            try sub.mod.fetchAndAddDependencies(
+                deps_pkg,
+                arena,
+                thread_pool,
+                http_client,
+                sub.mod.root_src_directory,
+                global_cache_directory,
+                local_cache_directory,
+                dependencies_source,
+                build_roots_source,
+                sub_prefix,
+                error_bundle,
+                all_modules,
+            );
+        }
 
-        try pkg.add(gpa, name, sub_pkg);
-        try root_pkg.add(gpa, fqn, sub_pkg);
+        try pkg.add(gpa, name, sub.mod);
+        if (deps_pkg.table.get(dep.hash.?)) |other_sub| {
+            // This should be the same package (and hence module) since it's the same hash
+            // TODO: dedup multiple versions of the same package
+            assert(other_sub == sub.mod);
+        } else {
+            try deps_pkg.add(gpa, dep.hash.?, sub.mod);
+        }
 
         try dependencies_source.writer().print("    pub const {s} = @import(\"{}\");\n", .{
-            std.zig.fmtId(fqn), std.zig.fmtEscapes(fqn),
+            std.zig.fmtId(fqn), std.zig.fmtEscapes(dep.hash.?),
         });
     }
-
-    if (any_error) return error.InvalidBuildManifestFile;
 }
 
 pub fn createFilePkg(
@@ -409,7 +415,7 @@ fn fetchAndUnpack(
     build_roots_source: *std.ArrayList(u8),
     fqn: []const u8,
     all_modules: *AllModules,
-) !*Package {
+) !struct { mod: *Package, found_existing: bool } {
     const gpa = http_client.allocator;
     const s = fs.path.sep_str;
 
@@ -437,7 +443,10 @@ fn fetchAndUnpack(
         const gop = try all_modules.getOrPut(gpa, hex_digest.*);
         if (gop.found_existing) {
             gpa.free(build_root);
-            return gop.value_ptr.*;
+            return .{
+                .mod = gop.value_ptr.*,
+                .found_existing = true,
+            };
         }
 
         const ptr = try gpa.create(Package);
@@ -456,7 +465,10 @@ fn fetchAndUnpack(
         };
 
         gop.value_ptr.* = ptr;
-        return ptr;
+        return .{
+            .mod = ptr,
+            .found_existing = false,
+        };
     }
 
     const uri = try std.Uri.parse(dep.url);
@@ -488,16 +500,37 @@ fn fetchAndUnpack(
         try req.start();
         try req.wait();
 
-        if (mem.endsWith(u8, uri.path, ".tar.gz")) {
+        if (req.response.status != .ok) {
+            return report.fail(dep.url_tok, "Expected response status '200 OK' got '{} {s}'", .{
+                @enumToInt(req.response.status),
+                req.response.status.phrase() orelse "",
+            });
+        }
+
+        const content_type = req.response.headers.getFirstValue("Content-Type") orelse
+            return report.fail(dep.url_tok, "Missing 'Content-Type' header", .{});
+
+        if (ascii.eqlIgnoreCase(content_type, "application/gzip") or
+            ascii.eqlIgnoreCase(content_type, "application/x-gzip") or
+            ascii.eqlIgnoreCase(content_type, "application/tar+gzip"))
+        {
             // I observed the gzip stream to read 1 byte at a time, so I am using a
             // buffered reader on the front of it.
             try unpackTarball(gpa, &req, tmp_directory.handle, std.compress.gzip);
-        } else if (mem.endsWith(u8, uri.path, ".tar.xz")) {
+        } else if (ascii.eqlIgnoreCase(content_type, "application/x-xz")) {
             // I have not checked what buffer sizes the xz decompression implementation uses
             // by default, so the same logic applies for buffering the reader as for gzip.
             try unpackTarball(gpa, &req, tmp_directory.handle, std.compress.xz);
+        } else if (ascii.eqlIgnoreCase(content_type, "application/octet-stream")) {
+            // support gitlab tarball urls such as https://gitlab.com/<namespace>/<project>/-/archive/<sha>/<project>-<sha>.tar.gz
+            // whose content-disposition header is: 'attachment; filename="<project>-<sha>.tar.gz"'
+            const content_disposition = req.response.headers.getFirstValue("Content-Disposition") orelse
+                return report.fail(dep.url_tok, "Missing 'Content-Disposition' header for Content-Type=application/octet-stream", .{});
+            if (isTarAttachment(content_disposition)) {
+                try unpackTarball(gpa, &req, tmp_directory.handle, std.compress.gzip);
+            } else return report.fail(dep.url_tok, "Unsupported 'Content-Disposition' header value: '{s}' for Content-Type=application/octet-stream", .{content_disposition});
         } else {
-            return report.fail(dep.url_tok, "unknown file extension for path '{s}'", .{uri.path});
+            return report.fail(dep.url_tok, "Unsupported 'Content-Type' header value: '{s}'", .{content_type});
         }
 
         // TODO: delete files not included in the package prior to computing the package hash.
@@ -548,7 +581,11 @@ fn fetchAndUnpack(
         std.zig.fmtId(fqn), std.zig.fmtEscapes(build_root),
     });
 
-    return createWithDir(gpa, global_cache_directory, pkg_dir_sub_path, build_zig_basename);
+    const mod = try createWithDir(gpa, global_cache_directory, pkg_dir_sub_path, build_zig_basename);
+    return .{
+        .mod = mod,
+        .found_existing = false,
+    };
 }
 
 fn unpackTarball(
@@ -614,8 +651,8 @@ fn computePackageHash(
 
         while (try walker.next()) |entry| {
             switch (entry.kind) {
-                .Directory => continue,
-                .File => {},
+                .directory => continue,
+                .file => {},
                 else => return error.IllegalFileTypeInPackage,
             }
             const hashed_file = try arena.create(HashedFile);
@@ -633,7 +670,7 @@ fn computePackageHash(
         }
     }
 
-    std.sort.sort(*HashedFile, all_files.items, {}, HashedFile.lessThan);
+    mem.sort(*HashedFile, all_files.items, {}, HashedFile.lessThan);
 
     var hasher = Manifest.Hash.init(.{});
     var any_failures = false;
@@ -726,4 +763,38 @@ fn renameTmpIntoCache(
         };
         break;
     }
+}
+
+fn isTarAttachment(content_disposition: []const u8) bool {
+    const disposition_type_end = ascii.indexOfIgnoreCase(content_disposition, "attachment;") orelse return false;
+
+    var value_start = ascii.indexOfIgnoreCasePos(content_disposition, disposition_type_end + 1, "filename") orelse return false;
+    value_start += "filename".len;
+    if (content_disposition[value_start] == '*') {
+        value_start += 1;
+    }
+    if (content_disposition[value_start] != '=') return false;
+    value_start += 1;
+
+    var value_end = mem.indexOfPos(u8, content_disposition, value_start, ";") orelse content_disposition.len;
+    if (content_disposition[value_end - 1] == '\"') {
+        value_end -= 1;
+    }
+    return ascii.endsWithIgnoreCase(content_disposition[value_start..value_end], ".tar.gz");
+}
+
+test "isTarAttachment" {
+    try std.testing.expect(isTarAttachment("attaChment; FILENAME=\"stuff.tar.gz\"; size=42"));
+    try std.testing.expect(isTarAttachment("attachment; filename*=\"stuff.tar.gz\""));
+    try std.testing.expect(isTarAttachment("ATTACHMENT; filename=\"stuff.tar.gz\""));
+    try std.testing.expect(isTarAttachment("attachment; FileName=\"stuff.tar.gz\""));
+    try std.testing.expect(isTarAttachment("attachment; FileName*=UTF-8\'\'xyz%2Fstuff.tar.gz"));
+
+    try std.testing.expect(!isTarAttachment("attachment FileName=\"stuff.tar.gz\""));
+    try std.testing.expect(!isTarAttachment("attachment; FileName=\"stuff.tar\""));
+    try std.testing.expect(!isTarAttachment("attachment; FileName\"stuff.gz\""));
+    try std.testing.expect(!isTarAttachment("attachment; size=42"));
+    try std.testing.expect(!isTarAttachment("inline; size=42"));
+    try std.testing.expect(!isTarAttachment("FileName=\"stuff.tar.gz\"; attachment;"));
+    try std.testing.expect(!isTarAttachment("FileName=\"stuff.tar.gz\";"));
 }

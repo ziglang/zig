@@ -512,7 +512,18 @@ pub fn getrandom(buffer: []u8) GetRandomError!void {
         return;
     }
     switch (builtin.os.tag) {
-        .netbsd, .openbsd, .macos, .ios, .tvos, .watchos => {
+        .macos, .ios => {
+            const rc = darwin.CCRandomGenerateBytes(buffer.ptr, buffer.len);
+            if (rc != darwin.CCRNGStatus.kCCSuccess) {
+                if (rc == darwin.CCRNGStatus.kCCParamError or rc == darwin.CCRNGStatus.kCCBufferTooSmall) {
+                    return error.InvalidHandle;
+                } else {
+                    return error.SystemResources;
+                }
+            }
+            return;
+        },
+        .netbsd, .openbsd, .tvos, .watchos => {
             system.arc4random_buf(buffer.ptr, buffer.len);
             return;
         },
@@ -659,7 +670,7 @@ pub fn exit(status: u8) noreturn {
         linux.exit_group(status);
     }
     if (builtin.os.tag == .uefi) {
-        // exit() is only avaliable if exitBootServices() has not been called yet.
+        // exit() is only available if exitBootServices() has not been called yet.
         // This call to exit should not fail, so we don't care about its return value.
         if (uefi.system_table.boot_services) |bs| {
             _ = bs.exit(uefi.handle, @intToEnum(uefi.Status, status), 0, null);
@@ -991,7 +1002,7 @@ pub fn preadv(fd: fd_t, iov: []const iovec, offset: u64) PReadError!usize {
     if (have_pread_but_not_preadv) {
         // We could loop here; but proper usage of `preadv` must handle partial reads anyway.
         // So we simply read into the first vector only.
-        if (iov.len == 0) return @as(usize, 0);
+        if (iov.len == 0) return @intCast(usize, 0);
         const first = iov[0];
         return pread(fd, first.iov_base[0..first.iov_len], offset);
     }
@@ -1881,9 +1892,9 @@ pub fn execvpeZ_expandArg0(
     while (it.next()) |search_path| {
         const path_len = search_path.len + file_slice.len + 1;
         if (path_buf.len < path_len + 1) return error.NameTooLong;
-        mem.copy(u8, &path_buf, search_path);
+        @memcpy(path_buf[0..search_path.len], search_path);
         path_buf[search_path.len] = '/';
-        mem.copy(u8, path_buf[search_path.len + 1 ..], file_slice);
+        @memcpy(path_buf[search_path.len + 1 ..][0..file_slice.len], file_slice);
         path_buf[path_len] = 0;
         const full_path = path_buf[0..path_len :0].ptr;
         switch (arg0_expand) {
@@ -1917,7 +1928,7 @@ pub fn getenv(key: []const u8) ?[]const u8 {
     if (builtin.link_libc) {
         var small_key_buf: [64]u8 = undefined;
         if (key.len < small_key_buf.len) {
-            mem.copy(u8, &small_key_buf, key);
+            @memcpy(small_key_buf[0..key.len], key);
             small_key_buf[key.len] = 0;
             const key0 = small_key_buf[0..key.len :0];
             return getenvZ(key0);
@@ -2022,8 +2033,9 @@ pub fn getcwd(out_buffer: []u8) GetCwdError![]u8 {
     } else if (builtin.os.tag == .wasi and !builtin.link_libc) {
         const path = ".";
         if (out_buffer.len < path.len) return error.NameTooLong;
-        std.mem.copy(u8, out_buffer, path);
-        return out_buffer[0..path.len];
+        const result = out_buffer[0..path.len];
+        @memcpy(result, path);
+        return result;
     }
 
     const err = if (builtin.link_libc) blk: {
@@ -2673,7 +2685,7 @@ pub fn renameatW(
         .FileNameLength = @intCast(u32, new_path_w.len * 2), // already checked error.NameTooLong
         .FileName = undefined,
     };
-    std.mem.copy(u16, @as([*]u16, &rename_info.FileName)[0..new_path_w.len], new_path_w);
+    @memcpy(@as([*]u16, &rename_info.FileName)[0..new_path_w.len], new_path_w);
 
     var io_status_block: windows.IO_STATUS_BLOCK = undefined;
 
@@ -2977,7 +2989,7 @@ pub fn chdirZ(dir_path: [*:0]const u8) ChangeCurDirError!void {
     }
 }
 
-/// Windows-only. Same as `chdir` except the paramter is WTF16 encoded.
+/// Windows-only. Same as `chdir` except the parameter is WTF16 encoded.
 pub fn chdirW(dir_path: []const u16) ChangeCurDirError!void {
     windows.SetCurrentDirectory(dir_path) catch |err| switch (err) {
         error.NoDevice => return error.FileSystem,
@@ -5264,8 +5276,9 @@ pub fn getFdPath(fd: fd_t, out_buffer: *[MAX_PATH_BYTES]u8) RealPathError![]u8 {
                 }
                 const len = mem.indexOfScalar(u8, &kfile.path, 0) orelse MAX_PATH_BYTES;
                 if (len == 0) return error.NameTooLong;
-                mem.copy(u8, out_buffer, kfile.path[0..len]);
-                return out_buffer[0..len];
+                const result = out_buffer[0..len];
+                @memcpy(result, kfile.path[0..len]);
+                return result;
             } else {
                 // This fallback implementation reimplements libutil's `kinfo_getfile()`.
                 // The motivation is to avoid linking -lutil when building zig or general
@@ -5296,8 +5309,9 @@ pub fn getFdPath(fd: fd_t, out_buffer: *[MAX_PATH_BYTES]u8) RealPathError![]u8 {
                     if (kf.fd == fd) {
                         len = mem.indexOfScalar(u8, &kf.path, 0) orelse MAX_PATH_BYTES;
                         if (len == 0) return error.NameTooLong;
-                        mem.copy(u8, out_buffer, kf.path[0..len]);
-                        return out_buffer[0..len];
+                        const result = out_buffer[0..len];
+                        @memcpy(result, kf.path[0..len]);
+                        return result;
                     }
                     i += @intCast(usize, kf.structsize);
                 }
@@ -5516,6 +5530,7 @@ pub fn clock_getres(clk_id: i32, res: *timespec) ClockGetTimeError!void {
 }
 
 pub const SchedGetAffinityError = error{PermissionDenied} || UnexpectedError;
+pub const SchedSetAffinityError = error{ InvalidCpu, PermissionDenied } || UnexpectedError;
 
 pub fn sched_getaffinity(pid: pid_t) SchedGetAffinityError!cpu_set_t {
     var set: cpu_set_t = undefined;
@@ -5535,6 +5550,39 @@ pub fn sched_getaffinity(pid: pid_t) SchedGetAffinityError!cpu_set_t {
             .INVAL => unreachable,
             .SRCH => unreachable,
             .EDEADLK => unreachable,
+            .PERM => return error.PermissionDenied,
+            else => |err| return unexpectedErrno(err),
+        }
+    } else {
+        @compileError("unsupported platform");
+    }
+}
+
+pub fn sched_setaffinity(pid: pid_t, cpus: []usize) SchedSetAffinityError!cpu_set_t {
+    var set: cpu_set_t = undefined;
+    if (builtin.os.tag == .linux) {
+        system.CPU_ZERO(&set);
+        for (cpus) |cpu| {
+            system.CPU_SET(cpu, &set);
+        }
+        switch (errno(system.sched_setaffinity(pid, @sizeOf(cpu_set_t), &set))) {
+            .SUCCESS => return set,
+            .FAULT => unreachable,
+            .SRCH => unreachable,
+            .INVAL => return error.InvalidCpu,
+            .PERM => return error.PermissionDenied,
+            else => |err| return unexpectedErrno(err),
+        }
+    } else if (builtin.os.tag == .freebsd) {
+        freebsd.CPU_ZERO(&set);
+        for (cpus) |cpu| {
+            freebsd.CPU_SET(cpu, &set);
+        }
+        switch (errno(freebsd.cpuset_setaffinity(freebsd.CPU_LEVEL_WHICH, freebsd.CPU_WHICH_PID, pid, @sizeOf(cpu_set_t), &set))) {
+            .SUCCESS => return set,
+            .FAULT => unreachable,
+            .SRCH => unreachable,
+            .INVAL => return error.InvalidCpu,
             .PERM => return error.PermissionDenied,
             else => |err| return unexpectedErrno(err),
         }
@@ -5683,11 +5731,12 @@ pub fn gethostname(name_buffer: *[HOST_NAME_MAX]u8) GetHostNameError![]u8 {
             else => |err| return unexpectedErrno(err),
         }
     }
-    if (builtin.os.tag == .linux) {
+    if (builtin.os.tag == .linux or builtin.os.tag == .macos or builtin.os.tag == .freebsd) {
         const uts = uname();
         const hostname = mem.sliceTo(&uts.nodename, 0);
-        mem.copy(u8, name_buffer, hostname);
-        return name_buffer[0..hostname.len];
+        const result = name_buffer[0..hostname.len];
+        @memcpy(result, hostname);
+        return result;
     }
 
     @compileError("TODO implement gethostname for this OS");
@@ -5725,7 +5774,7 @@ pub fn res_mkquery(
     @memset(q[0..n], 0);
     q[2] = @as(u8, op) * 8 + 1;
     q[5] = 1;
-    mem.copy(u8, q[13..], name);
+    @memcpy(q[13..][0..name.len], name);
     var i: usize = 13;
     var j: usize = undefined;
     while (q[i] != 0) : (i = j + 1) {
@@ -5748,7 +5797,7 @@ pub fn res_mkquery(
     q[0] = @truncate(u8, id / 256);
     q[1] = @truncate(u8, id);
 
-    mem.copy(u8, buf, q[0..n]);
+    @memcpy(buf[0..n], q[0..n]);
     return n;
 }
 
@@ -6755,7 +6804,7 @@ fn toMemFdPath(name: []const u8) ![MFD_MAX_NAME_LEN:0]u8 {
     var path_with_null: [MFD_MAX_NAME_LEN:0]u8 = undefined;
     // >= rather than > to make room for the null byte
     if (name.len >= MFD_MAX_NAME_LEN) return error.NameTooLong;
-    mem.copy(u8, &path_with_null, name);
+    @memcpy(path_with_null[0..name.len], name);
     path_with_null[name.len] = 0;
     return path_with_null;
 }
@@ -6776,7 +6825,9 @@ pub fn getrusage(who: i32) rusage {
     }
 }
 
-pub const TermiosGetError = error{NotATerminal} || UnexpectedError;
+pub const TIOCError = error{NotATerminal};
+
+pub const TermiosGetError = TIOCError || UnexpectedError;
 
 pub fn tcgetattr(handle: fd_t) TermiosGetError!termios {
     while (true) {
@@ -6802,6 +6853,41 @@ pub fn tcsetattr(handle: fd_t, optional_action: TCSA, termios_p: termios) Termio
             .INVAL => unreachable,
             .NOTTY => return error.NotATerminal,
             .IO => return error.ProcessOrphaned,
+            else => |err| return unexpectedErrno(err),
+        }
+    }
+}
+
+pub const TermioGetPgrpError = TIOCError || UnexpectedError;
+
+/// Returns the process group ID for the TTY associated with the given handle.
+pub fn tcgetpgrp(handle: fd_t) TermioGetPgrpError!pid_t {
+    while (true) {
+        var pgrp: pid_t = undefined;
+        switch (errno(system.tcgetpgrp(handle, &pgrp))) {
+            .SUCCESS => return pgrp,
+            .BADF => unreachable,
+            .INVAL => unreachable,
+            .NOTTY => return error.NotATerminal,
+            else => |err| return unexpectedErrno(err),
+        }
+    }
+}
+
+pub const TermioSetPgrpError = TermioGetPgrpError || error{NotAPgrpMember};
+
+/// Sets the controlling process group ID for given TTY.
+/// handle must be valid fd_t to a TTY associated with calling process.
+/// pgrp must be a valid process group, and the calling process must be a member
+/// of that group.
+pub fn tcsetpgrp(handle: fd_t, pgrp: pid_t) TermioSetPgrpError!void {
+    while (true) {
+        switch (errno(system.tcsetpgrp(handle, &pgrp))) {
+            .SUCCESS => return,
+            .BADF => unreachable,
+            .INVAL => unreachable,
+            .NOTTY => return error.NotATerminal,
+            .PERM => return TermioSetPgrpError.NotAPgrpMember,
             else => |err| return unexpectedErrno(err),
         }
     }
@@ -6921,7 +7007,7 @@ pub const PrctlError = error{
     /// Can only occur with PR_SET_SPECULATION_CTRL, PR_MPX_ENABLE_MANAGEMENT,
     /// or PR_MPX_DISABLE_MANAGEMENT
     UnsupportedFeature,
-    /// Can only occur wih PR_SET_FP_MODE
+    /// Can only occur with PR_SET_FP_MODE
     OperationNotSupported,
     PermissionDenied,
 } || UnexpectedError;

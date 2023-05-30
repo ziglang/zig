@@ -3511,3 +3511,7 @@ const Token = std.zig.Token;
 const Ast = @This();
 const Allocator = std.mem.Allocator;
 const Parse = @import("Parse.zig");
+
+test {
+    testing.refAllDecls(@This());
+}

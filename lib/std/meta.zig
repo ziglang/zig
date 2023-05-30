@@ -14,48 +14,7 @@ test {
     _ = TrailerFlags;
 }
 
-pub fn tagName(v: anytype) []const u8 {
-    const T = @TypeOf(v);
-    switch (@typeInfo(T)) {
-        .ErrorSet => return @errorName(v),
-        else => return @tagName(v),
-    }
-}
-
-test "std.meta.tagName" {
-    const E1 = enum {
-        A,
-        B,
-    };
-    const E2 = enum(u8) {
-        C = 33,
-        D,
-    };
-    const U1 = union(enum) {
-        G: u8,
-        H: u16,
-    };
-    const U2 = union(E2) {
-        C: u8,
-        D: u16,
-    };
-
-    var u1g = U1{ .G = 0 };
-    var u1h = U1{ .H = 0 };
-    var u2a = U2{ .C = 0 };
-    var u2b = U2{ .D = 0 };
-
-    try testing.expect(mem.eql(u8, tagName(E1.A), "A"));
-    try testing.expect(mem.eql(u8, tagName(E1.B), "B"));
-    try testing.expect(mem.eql(u8, tagName(E2.C), "C"));
-    try testing.expect(mem.eql(u8, tagName(E2.D), "D"));
-    try testing.expect(mem.eql(u8, tagName(error.E), "E"));
-    try testing.expect(mem.eql(u8, tagName(error.F), "F"));
-    try testing.expect(mem.eql(u8, tagName(u1g), "G"));
-    try testing.expect(mem.eql(u8, tagName(u1h), "H"));
-    try testing.expect(mem.eql(u8, tagName(u2a), "C"));
-    try testing.expect(mem.eql(u8, tagName(u2b), "D"));
-}
+pub const tagName = @compileError("deprecated; use @tagName or @errorName directly");
 
 /// Given an enum or tagged union, returns true if the comptime-supplied
 /// string matches the name of the tag value.  This match process should
@@ -965,18 +924,33 @@ test "intToEnum with error return" {
         A,
         B,
     };
+    const E3 = enum(i8) { A, _ };
 
     var zero: u8 = 0;
     var one: u16 = 1;
     try testing.expect(intToEnum(E1, zero) catch unreachable == E1.A);
     try testing.expect(intToEnum(E2, one) catch unreachable == E2.B);
+    try testing.expect(intToEnum(E3, zero) catch unreachable == E3.A);
+    try testing.expect(intToEnum(E3, 127) catch unreachable == @intToEnum(E3, 127));
+    try testing.expect(intToEnum(E3, -128) catch unreachable == @intToEnum(E3, -128));
     try testing.expectError(error.InvalidEnumTag, intToEnum(E1, one));
+    try testing.expectError(error.InvalidEnumTag, intToEnum(E3, 128));
+    try testing.expectError(error.InvalidEnumTag, intToEnum(E3, -129));
 }
 
 pub const IntToEnumError = error{InvalidEnumTag};
 
 pub fn intToEnum(comptime EnumTag: type, tag_int: anytype) IntToEnumError!EnumTag {
-    inline for (@typeInfo(EnumTag).Enum.fields) |f| {
+    const enum_info = @typeInfo(EnumTag).Enum;
+
+    if (!enum_info.is_exhaustive) {
+        if (std.math.cast(enum_info.tag_type, tag_int)) |tag| {
+            return @intToEnum(EnumTag, tag);
+        }
+        return error.InvalidEnumTag;
+    }
+
+    inline for (enum_info.fields) |f| {
         const this_tag_value = @field(EnumTag, f.name);
         if (tag_int == @enumToInt(this_tag_value)) {
             return this_tag_value;
@@ -1011,7 +985,7 @@ pub fn declList(comptime Namespace: type, comptime Decl: type) []const *const De
         for (decls, 0..) |decl, i| {
             array[i] = &@field(Namespace, decl.name);
         }
-        std.sort.sort(*const Decl, &array, {}, S.declNameLessThan);
+        mem.sort(*const Decl, &array, {}, S.declNameLessThan);
         return &array;
     }
 }
@@ -1063,14 +1037,12 @@ pub fn ArgsTuple(comptime Function: type) type {
         @compileError("ArgsTuple expects a function type");
 
     const function_info = info.Fn;
-    if (function_info.is_generic)
-        @compileError("Cannot create ArgsTuple for generic function");
     if (function_info.is_var_args)
         @compileError("Cannot create ArgsTuple for variadic function");
 
     var argument_field_list: [function_info.params.len]type = undefined;
     inline for (function_info.params, 0..) |arg, i| {
-        const T = arg.type.?;
+        const T = arg.type orelse @compileError("cannot create ArgsTuple for function with an 'anytype' parameter");
         argument_field_list[i] = T;
     }
 
@@ -1142,6 +1114,7 @@ test "ArgsTuple" {
     TupleTester.assertTuple(.{u32}, ArgsTuple(fn (a: u32) []const u8));
     TupleTester.assertTuple(.{ u32, f16 }, ArgsTuple(fn (a: u32, b: f16) noreturn));
     TupleTester.assertTuple(.{ u32, f16, []const u8, void }, ArgsTuple(fn (a: u32, b: f16, c: []const u8, void) noreturn));
+    TupleTester.assertTuple(.{u32}, ArgsTuple(fn (comptime a: u32) []const u8));
 }
 
 test "Tuple" {

@@ -143,7 +143,7 @@ pub fn BitTree(comptime num_bits: usize) type {
         }
 
         pub fn reset(self: *Self) void {
-            mem.set(u16, &self.probs, 0x400);
+            @memset(&self.probs, 0x400);
         }
     };
 }

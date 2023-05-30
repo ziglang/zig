@@ -160,7 +160,7 @@ pub fn Crc32WithPoly(comptime poly: Polynomial) type {
         pub fn update(self: *Self, input: []const u8) void {
             var i: usize = 0;
             while (i + 8 <= input.len) : (i += 8) {
-                const p = input[i .. i + 8];
+                const p = input[i..][0..8];
 
                 // Unrolling this way gives ~50Mb/s increase
                 self.crc ^= std.mem.readIntLittle(u32, p[0..4]);

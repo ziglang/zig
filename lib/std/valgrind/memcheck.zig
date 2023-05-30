@@ -77,7 +77,7 @@ pub fn discard(blkindex: usize) bool {
 }
 
 /// Check that memory at qzz.ptr is addressable for qzz.len bytes.
-/// If suitable addressibility is not established, Valgrind prints an
+/// If suitable addressability is not established, Valgrind prints an
 /// error message and returns the address of the first offending byte.
 /// Otherwise it returns zero.
 pub fn checkMemIsAddressable(qzz: []u8) usize {
@@ -85,7 +85,7 @@ pub fn checkMemIsAddressable(qzz: []u8) usize {
 }
 
 /// Check that memory at qzz.ptr is addressable and defined for
-/// qzz.len bytes.  If suitable addressibility and definedness are not
+/// qzz.len bytes.  If suitable addressability and definedness are not
 /// established, Valgrind prints an error message and returns the
 /// address of the first offending byte.  Otherwise it returns zero.
 pub fn checkMemIsDefined(qzz: []u8) usize {

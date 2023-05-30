@@ -1189,77 +1189,6 @@ pub const Target = struct {
                 };
             }
 
-            pub fn ptrBitWidth(arch: Arch) u16 {
-                switch (arch) {
-                    .avr,
-                    .msp430,
-                    .spu_2,
-                    => return 16,
-
-                    .arc,
-                    .arm,
-                    .armeb,
-                    .csky,
-                    .hexagon,
-                    .m68k,
-                    .le32,
-                    .mips,
-                    .mipsel,
-                    .powerpc,
-                    .powerpcle,
-                    .r600,
-                    .riscv32,
-                    .sparc,
-                    .sparcel,
-                    .tce,
-                    .tcele,
-                    .thumb,
-                    .thumbeb,
-                    .x86,
-                    .xcore,
-                    .nvptx,
-                    .amdil,
-                    .hsail,
-                    .spir,
-                    .kalimba,
-                    .shave,
-                    .lanai,
-                    .wasm32,
-                    .renderscript32,
-                    .aarch64_32,
-                    .spirv32,
-                    .loongarch32,
-                    .dxil,
-                    .xtensa,
-                    => return 32,
-
-                    .aarch64,
-                    .aarch64_be,
-                    .mips64,
-                    .mips64el,
-                    .powerpc64,
-                    .powerpc64le,
-                    .riscv64,
-                    .x86_64,
-                    .nvptx64,
-                    .le64,
-                    .amdil64,
-                    .hsail64,
-                    .spir64,
-                    .wasm64,
-                    .renderscript64,
-                    .amdgcn,
-                    .bpfel,
-                    .bpfeb,
-                    .sparc64,
-                    .s390x,
-                    .ve,
-                    .spirv64,
-                    .loongarch64,
-                    => return 64,
-                }
-            }
-
             /// Returns a name that matches the lib/std/target/* source file name.
             pub fn genericName(arch: Arch) []const u8 {
                 return switch (arch) {
@@ -1596,7 +1525,7 @@ pub const Target = struct {
         /// Asserts that the length is less than or equal to 255 bytes.
         pub fn set(self: *DynamicLinker, dl_or_null: ?[]const u8) void {
             if (dl_or_null) |dl| {
-                mem.copy(u8, &self.buffer, dl);
+                @memcpy(self.buffer[0..dl.len], dl);
                 self.max_byte = @intCast(u8, dl.len - 1);
             } else {
                 self.max_byte = null;
@@ -1612,7 +1541,7 @@ pub const Target = struct {
                 return r.*;
             }
             fn copy(r: *DynamicLinker, s: []const u8) DynamicLinker {
-                mem.copy(u8, &r.buffer, s);
+                @memcpy(r.buffer[0..s.len], s);
                 r.max_byte = @intCast(u8, s.len - 1);
                 return r.*;
             }
@@ -1621,7 +1550,7 @@ pub const Target = struct {
         const copy = S.copy;
 
         if (self.abi == .android) {
-            const suffix = if (self.cpu.arch.ptrBitWidth() == 64) "64" else "";
+            const suffix = if (self.ptrBitWidth() == 64) "64" else "";
             return print(&result, "/system/bin/linker{s}", .{suffix});
         }
 
@@ -1904,6 +1833,83 @@ pub const Target = struct {
         };
     }
 
+    pub fn ptrBitWidth(target: std.Target) u16 {
+        switch (target.abi) {
+            .gnux32, .muslx32, .gnuabin32, .gnuilp32 => return 32,
+            .gnuabi64 => return 64,
+            else => {},
+        }
+        switch (target.cpu.arch) {
+            .avr,
+            .msp430,
+            .spu_2,
+            => return 16,
+
+            .arc,
+            .arm,
+            .armeb,
+            .csky,
+            .hexagon,
+            .m68k,
+            .le32,
+            .mips,
+            .mipsel,
+            .powerpc,
+            .powerpcle,
+            .r600,
+            .riscv32,
+            .sparcel,
+            .tce,
+            .tcele,
+            .thumb,
+            .thumbeb,
+            .x86,
+            .xcore,
+            .nvptx,
+            .amdil,
+            .hsail,
+            .spir,
+            .kalimba,
+            .shave,
+            .lanai,
+            .wasm32,
+            .renderscript32,
+            .aarch64_32,
+            .spirv32,
+            .loongarch32,
+            .dxil,
+            .xtensa,
+            => return 32,
+
+            .aarch64,
+            .aarch64_be,
+            .mips64,
+            .mips64el,
+            .powerpc64,
+            .powerpc64le,
+            .riscv64,
+            .x86_64,
+            .nvptx64,
+            .le64,
+            .amdil64,
+            .hsail64,
+            .spir64,
+            .wasm64,
+            .renderscript64,
+            .amdgcn,
+            .bpfel,
+            .bpfeb,
+            .sparc64,
+            .s390x,
+            .ve,
+            .spirv64,
+            .loongarch64,
+            => return 64,
+
+            .sparc => return if (std.Target.sparc.featureSetHas(target.cpu.features, .v9)) 64 else 32,
+        }
+    }
+
     pub const CType = enum {
         char,
         short,
@@ -1930,10 +1936,9 @@ pub const Target = struct {
             .ulong,
             .longlong,
             .ulonglong,
+            .float,
+            .double,
             => @divExact(c_type_bit_size(t, c_type), 8),
-
-            .float => 4,
-            .double => 8,
 
             .longdouble => switch (c_type_bit_size(t, c_type)) {
                 16 => 2,
@@ -1990,7 +1995,7 @@ pub const Target = struct {
                     .char => return 8,
                     .short, .ushort => return 16,
                     .int, .uint, .float => return 32,
-                    .long, .ulong => return target.cpu.arch.ptrBitWidth(),
+                    .long, .ulong => return target.ptrBitWidth(),
                     .longlong, .ulonglong, .double => return 64,
                     .longdouble => switch (target.cpu.arch) {
                         .x86 => switch (target.abi) {
@@ -2084,7 +2089,7 @@ pub const Target = struct {
                     .char => return 8,
                     .short, .ushort => return 16,
                     .int, .uint, .float => return 32,
-                    .long, .ulong => return target.cpu.arch.ptrBitWidth(),
+                    .long, .ulong => return target.ptrBitWidth(),
                     .longlong, .ulonglong, .double => return 64,
                     .longdouble => switch (target.cpu.arch) {
                         .x86 => switch (target.abi) {
@@ -2220,6 +2225,17 @@ pub const Target = struct {
                 .longdouble => return 128,
             },
 
+            .opencl => switch (c_type) {
+                .char => return 8,
+                .short, .ushort => return 16,
+                .int, .uint, .float => return 32,
+                .long, .ulong, .double => return 64,
+                .longlong, .ulonglong => return 128,
+                // Note: The OpenCL specification does not guarantee a particular size for long double,
+                // but clang uses 128 bits.
+                .longdouble => return 128,
+            },
+
             .cloudabi,
             .kfreebsd,
             .lv2,
@@ -2234,7 +2250,6 @@ pub const Target = struct {
             .contiki,
             .hermit,
             .hurd,
-            .opencl,
             .glsl450,
             .vulkan,
             .driverkit,
@@ -2246,10 +2261,7 @@ pub const Target = struct {
     pub fn c_type_alignment(target: Target, c_type: CType) u16 {
         // Overrides for unusual alignments
         switch (target.cpu.arch) {
-            .avr => switch (c_type) {
-                .short, .ushort => return 2,
-                else => return 1,
-            },
+            .avr => return 1,
             .x86 => switch (target.os.tag) {
                 .windows, .uefi => switch (c_type) {
                     .longlong, .ulonglong, .double => return 8,

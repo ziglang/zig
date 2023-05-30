@@ -139,7 +139,7 @@ pub fn HuffmanBitWriter(comptime WriterType: type) type {
                 self.bits >>= 48;
                 self.nbits -= 48;
                 var n = self.nbytes;
-                var bytes = self.bytes[n .. n + 6];
+                var bytes = self.bytes[n..][0..6];
                 bytes[0] = @truncate(u8, bits);
                 bytes[1] = @truncate(u8, bits >> 8);
                 bytes[2] = @truncate(u8, bits >> 16);
@@ -344,7 +344,7 @@ pub fn HuffmanBitWriter(comptime WriterType: type) type {
                 self.bits >>= 48;
                 self.nbits -= 48;
                 var n = self.nbytes;
-                var bytes = self.bytes[n .. n + 6];
+                var bytes = self.bytes[n..][0..6];
                 bytes[0] = @truncate(u8, bits);
                 bytes[1] = @truncate(u8, bits >> 8);
                 bytes[2] = @truncate(u8, bits >> 16);
@@ -751,7 +751,7 @@ pub fn HuffmanBitWriter(comptime WriterType: type) type {
                 var bits = self.bits;
                 self.bits >>= 48;
                 self.nbits -= 48;
-                var bytes = self.bytes[n .. n + 6];
+                var bytes = self.bytes[n..][0..6];
                 bytes[0] = @truncate(u8, bits);
                 bytes[1] = @truncate(u8, bits >> 8);
                 bytes[2] = @truncate(u8, bits >> 16);

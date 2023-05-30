@@ -98,6 +98,11 @@ pub const Scalar = struct {
         return n.fe.isZero();
     }
 
+    /// Return true if the scalar is odd.
+    pub fn isOdd(n: Scalar) bool {
+        return n.fe.isOdd();
+    }
+
     /// Return true if a and b are equivalent.
     pub fn equivalent(a: Scalar, b: Scalar) bool {
         return a.fe.equivalent(b.fe);
@@ -180,14 +185,14 @@ const ScalarDouble = struct {
         var t = ScalarDouble{ .x1 = undefined, .x2 = Fe.zero };
         {
             var b = [_]u8{0} ** encoded_length;
-            const len = math.min(s.len, 32);
-            mem.copy(u8, b[0..len], s[0..len]);
+            const len = @min(s.len, 32);
+            b[0..len].* = s[0..len].*;
             t.x1 = Fe.fromBytes(b, .Little) catch unreachable;
         }
         if (s_.len >= 32) {
             var b = [_]u8{0} ** encoded_length;
-            const len = math.min(s.len - 32, 32);
-            mem.copy(u8, b[0..len], s[32..][0..len]);
+            const len = @min(s.len - 32, 32);
+            b[0..len].* = s[32..][0..len].*;
             t.x2 = Fe.fromBytes(b, .Little) catch unreachable;
         }
         return t;

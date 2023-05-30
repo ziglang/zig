@@ -759,7 +759,7 @@ pub fn addCliTests(b: *std.Build) *Step {
             "-fno-emit-bin", "-fno-emit-h",
             "-fstrip",       "-OReleaseFast",
         });
-        run.addFileSourceArg(writefile.getFileSource("example.zig").?);
+        run.addFileSourceArg(writefile.files.items[0].getFileSource());
         const example_s = run.addPrefixedOutputFileArg("-femit-asm=", "example.s");
 
         const checkfile = b.addCheckFile(example_s, .{
@@ -1132,7 +1132,7 @@ pub fn addCases(
     b: *std.Build,
     parent_step: *Step,
     opt_test_filter: ?[]const u8,
-    check_case_exe: *std.Build.CompileStep,
+    check_case_exe: *std.Build.Step.Compile,
 ) !void {
     const arena = b.allocator;
     const gpa = b.allocator;

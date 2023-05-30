@@ -1441,7 +1441,7 @@ pub const Zld = struct {
             }
         }
 
-        std.sort.sort(Section, sections.items, {}, SortSection.lessThan);
+        mem.sort(Section, sections.items, {}, SortSection.lessThan);
 
         self.sections.shrinkRetainingCapacity(0);
         for (sections.items) |out| {
@@ -2140,7 +2140,7 @@ pub const Zld = struct {
 
         var buffer = try gpa.alloc(u8, needed_size);
         defer gpa.free(buffer);
-        mem.set(u8, buffer, 0);
+        @memset(buffer, 0);
 
         var stream = std.io.fixedBufferStream(buffer);
         const writer = stream.writer();
@@ -2237,7 +2237,7 @@ pub const Zld = struct {
             }
         }
 
-        std.sort.sort(u64, addresses.items, {}, asc_u64);
+        mem.sort(u64, addresses.items, {}, asc_u64);
 
         var offsets = std.ArrayList(u32).init(gpa);
         defer offsets.deinit();
@@ -2352,8 +2352,11 @@ pub const Zld = struct {
 
         const buffer = try self.gpa.alloc(u8, math.cast(usize, needed_size_aligned) orelse return error.Overflow);
         defer self.gpa.free(buffer);
-        mem.set(u8, buffer, 0);
-        mem.copy(u8, buffer, mem.sliceAsBytes(out_dice.items));
+        {
+            const src = mem.sliceAsBytes(out_dice.items);
+            @memcpy(buffer[0..src.len], src);
+            @memset(buffer[src.len..], 0);
+        }
 
         log.debug("writing data-in-code from 0x{x} to 0x{x}", .{ offset, offset + needed_size_aligned });
 
@@ -2484,8 +2487,8 @@ pub const Zld = struct {
 
         const buffer = try self.gpa.alloc(u8, math.cast(usize, needed_size_aligned) orelse return error.Overflow);
         defer self.gpa.free(buffer);
-        mem.set(u8, buffer, 0);
-        mem.copy(u8, buffer, self.strtab.buffer.items);
+        @memcpy(buffer[0..self.strtab.buffer.items.len], self.strtab.buffer.items);
+        @memset(buffer[self.strtab.buffer.items.len..], 0);
 
         try self.file.pwriteAll(buffer, offset);
 
@@ -2805,8 +2808,7 @@ pub const Zld = struct {
 
     pub fn makeStaticString(bytes: []const u8) [16]u8 {
         var buf = [_]u8{0} ** 16;
-        assert(bytes.len <= buf.len);
-        mem.copy(u8, &buf, bytes);
+        @memcpy(buf[0..bytes.len], bytes);
         return buf;
     }
 
@@ -3199,7 +3201,7 @@ pub const Zld = struct {
             scoped_log.debug("  object({d}): {s}", .{ id, object.name });
             if (object.in_symtab == null) continue;
             for (object.symtab, 0..) |sym, sym_id| {
-                mem.set(u8, &buf, '_');
+                @memset(&buf, '_');
                 scoped_log.debug("    %{d}: {s} @{x} in sect({d}), {s}", .{
                     sym_id,
                     object.getSymbolName(@intCast(u32, sym_id)),
@@ -3492,7 +3494,7 @@ pub fn linkWithZld(macho_file: *MachO, comp: *Compilation, prog_node: *std.Progr
         // We are about to obtain this lock, so here we give other processes a chance first.
         macho_file.base.releaseLock();
 
-        comptime assert(Compilation.link_hash_implementation_version == 8);
+        comptime assert(Compilation.link_hash_implementation_version == 9);
 
         for (options.objects) |obj| {
             _ = try man.addFile(obj.path, null);
@@ -4007,7 +4009,7 @@ pub fn linkWithZld(macho_file: *MachO, comp: *Compilation, prog_node: *std.Progr
                 log.debug("zeroing out zerofill area of length {x} at {x}", .{ size, start });
                 var padding = try zld.gpa.alloc(u8, size);
                 defer zld.gpa.free(padding);
-                mem.set(u8, padding, 0);
+                @memset(padding, 0);
                 try zld.file.pwriteAll(padding, start);
             }
         }

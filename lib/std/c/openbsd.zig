@@ -1127,6 +1127,18 @@ pub usingnamespace switch (builtin.cpu.arch) {
             sc_cookie: c_long,
         };
     },
+    .aarch64 => struct {
+        pub const ucontext_t = extern struct {
+            __sc_unused: c_int,
+            sc_mask: c_int,
+            sc_sp: c_ulong,
+            sc_lr: c_ulong,
+            sc_elr: c_ulong,
+            sc_spsr: c_ulong,
+            sc_x: [30]c_ulong,
+            sc_cookie: c_long,
+        };
+    },
     else => struct {},
 };
 
@@ -1619,3 +1631,10 @@ pub const HW_ALLOWPOWERDOWN = 22;
 pub const HW_PERFPOLICY = 23;
 pub const HW_SMT = 24;
 pub const HW_NCPUONLINE = 25;
+
+/// TODO refines if necessary
+pub const PTHREAD_STACK_MIN = switch (builtin.cpu.arch) {
+    .sparc64 => 1 << 13,
+    .mips64 => 1 << 14,
+    else => 1 << 12,
+};

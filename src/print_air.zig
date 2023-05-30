@@ -94,14 +94,20 @@ const Writer = struct {
         for (w.air.instructions.items(.tag), 0..) |tag, i| {
             const inst = @intCast(Air.Inst.Index, i);
             switch (tag) {
-                .constant, .const_ty => try w.writeInst(s, inst),
+                .constant, .const_ty => {
+                    try w.writeInst(s, inst);
+                    try s.writeByte('\n');
+                },
                 else => continue,
             }
         }
     }
 
     fn writeBody(w: *Writer, s: anytype, body: []const Air.Inst.Index) @TypeOf(s).Error!void {
-        for (body) |inst| try w.writeInst(s, inst);
+        for (body) |inst| {
+            try w.writeInst(s, inst);
+            try s.writeByte('\n');
+        }
     }
 
     fn writeInst(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {
@@ -336,7 +342,7 @@ const Writer = struct {
             .work_group_id,
             => try w.writeWorkDimension(s, inst),
         }
-        try s.writeAll(")\n");
+        try s.writeByte(')');
     }
 
     fn writeBinOp(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {
@@ -363,8 +369,6 @@ const Writer = struct {
             .inferred_alloc_const => try s.writeAll("(inferred_alloc_const)"),
             .inferred_alloc_mut => try s.writeAll("(inferred_alloc_mut)"),
             .generic_poison => try s.writeAll("(generic_poison)"),
-            .var_args_param => try s.writeAll("(var_args_param)"),
-            .bound_fn => try s.writeAll("(bound_fn)"),
             else => try ty.print(s, w.module),
         }
     }
@@ -846,7 +850,7 @@ const Writer = struct {
         else blk: {
             const slice = w.gpa.alloc([]const Air.Inst.Index, switch_br.data.cases_len + 1) catch
                 @panic("out of memory");
-            std.mem.set([]const Air.Inst.Index, slice, &.{});
+            @memset(slice, &.{});
             break :blk Liveness.SwitchBrTable{ .deaths = slice };
         };
         defer w.gpa.free(liveness.deaths);
@@ -911,7 +915,6 @@ const Writer = struct {
 
         try s.writeAll("\n");
         try s.writeByteNTimes(' ', old_indent);
-        try s.writeAll("}");
     }
 
     fn writeWasmMemorySize(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {

@@ -183,7 +183,7 @@ pub fn defaultBaseAddrs(arch: std.Target.Cpu.Arch) Bases {
 pub fn createEmpty(gpa: Allocator, options: link.Options) !*Plan9 {
     if (options.use_llvm)
         return error.LLVMBackendDoesNotSupportPlan9;
-    const sixtyfour_bit: bool = switch (options.target.cpu.arch.ptrBitWidth()) {
+    const sixtyfour_bit: bool = switch (options.target.ptrBitWidth()) {
         0...32 => false,
         33...64 => true,
         else => return error.UnsupportedP9Architecture,
@@ -681,7 +681,7 @@ pub fn flushModule(self: *Plan9, comp: *Compilation, prog_node: *std.Progress.No
         .pcsz = @intCast(u32, linecountinfo.items.len),
         .entry = @intCast(u32, self.entry_val.?),
     };
-    std.mem.copy(u8, hdr_slice, self.hdr.toU8s()[0..hdr_size]);
+    @memcpy(hdr_slice, self.hdr.toU8s()[0..hdr_size]);
     // write the fat header for 64 bit entry points
     if (self.sixtyfour_bit) {
         mem.writeIntSliceBig(u64, hdr_buf[32..40], self.entry_val.?);

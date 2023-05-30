@@ -106,7 +106,7 @@ pub fn atomicSymLink(allocator: Allocator, existing_path: []const u8, new_path: 
     var rand_buf: [AtomicFile.RANDOM_BYTES]u8 = undefined;
     const tmp_path = try allocator.alloc(u8, dirname.len + 1 + base64_encoder.calcSize(rand_buf.len));
     defer allocator.free(tmp_path);
-    mem.copy(u8, tmp_path[0..], dirname);
+    @memcpy(tmp_path[0..dirname.len], dirname);
     tmp_path[dirname.len] = path.sep;
     while (true) {
         crypto.random.bytes(rand_buf[0..]);
@@ -385,16 +385,16 @@ pub const IterableDir = struct {
                         continue :start_over;
                     }
 
-                    const entry_kind = switch (darwin_entry.d_type) {
-                        os.DT.BLK => Entry.Kind.BlockDevice,
-                        os.DT.CHR => Entry.Kind.CharacterDevice,
-                        os.DT.DIR => Entry.Kind.Directory,
-                        os.DT.FIFO => Entry.Kind.NamedPipe,
-                        os.DT.LNK => Entry.Kind.SymLink,
-                        os.DT.REG => Entry.Kind.File,
-                        os.DT.SOCK => Entry.Kind.UnixDomainSocket,
-                        os.DT.WHT => Entry.Kind.Whiteout,
-                        else => Entry.Kind.Unknown,
+                    const entry_kind: Entry.Kind = switch (darwin_entry.d_type) {
+                        os.DT.BLK => .block_device,
+                        os.DT.CHR => .character_device,
+                        os.DT.DIR => .directory,
+                        os.DT.FIFO => .named_pipe,
+                        os.DT.LNK => .sym_link,
+                        os.DT.REG => .file,
+                        os.DT.SOCK => .unix_domain_socket,
+                        os.DT.WHT => .whiteout,
+                        else => .unknown,
                     };
                     return Entry{
                         .name = name,
@@ -442,17 +442,17 @@ pub const IterableDir = struct {
                         error.FileNotFound => unreachable, // lost the race
                         else => |e| return e,
                     };
-                    const entry_kind = switch (stat_info.mode & os.S.IFMT) {
-                        os.S.IFIFO => Entry.Kind.NamedPipe,
-                        os.S.IFCHR => Entry.Kind.CharacterDevice,
-                        os.S.IFDIR => Entry.Kind.Directory,
-                        os.S.IFBLK => Entry.Kind.BlockDevice,
-                        os.S.IFREG => Entry.Kind.File,
-                        os.S.IFLNK => Entry.Kind.SymLink,
-                        os.S.IFSOCK => Entry.Kind.UnixDomainSocket,
-                        os.S.IFDOOR => Entry.Kind.Door,
-                        os.S.IFPORT => Entry.Kind.EventPort,
-                        else => Entry.Kind.Unknown,
+                    const entry_kind: Entry.Kind = switch (stat_info.mode & os.S.IFMT) {
+                        os.S.IFIFO => .named_pipe,
+                        os.S.IFCHR => .character_device,
+                        os.S.IFDIR => .directory,
+                        os.S.IFBLK => .block_device,
+                        os.S.IFREG => .file,
+                        os.S.IFLNK => .sym_link,
+                        os.S.IFSOCK => .unix_domain_socket,
+                        os.S.IFDOOR => .door,
+                        os.S.IFPORT => .event_port,
+                        else => .unknown,
                     };
                     return Entry{
                         .name = name,
@@ -501,16 +501,16 @@ pub const IterableDir = struct {
                         continue :start_over;
                     }
 
-                    const entry_kind = switch (bsd_entry.d_type) {
-                        os.DT.BLK => Entry.Kind.BlockDevice,
-                        os.DT.CHR => Entry.Kind.CharacterDevice,
-                        os.DT.DIR => Entry.Kind.Directory,
-                        os.DT.FIFO => Entry.Kind.NamedPipe,
-                        os.DT.LNK => Entry.Kind.SymLink,
-                        os.DT.REG => Entry.Kind.File,
-                        os.DT.SOCK => Entry.Kind.UnixDomainSocket,
-                        os.DT.WHT => Entry.Kind.Whiteout,
-                        else => Entry.Kind.Unknown,
+                    const entry_kind: Entry.Kind = switch (bsd_entry.d_type) {
+                        os.DT.BLK => .block_device,
+                        os.DT.CHR => .character_device,
+                        os.DT.DIR => .directory,
+                        os.DT.FIFO => .named_pipe,
+                        os.DT.LNK => .sym_link,
+                        os.DT.REG => .file,
+                        os.DT.SOCK => .unix_domain_socket,
+                        os.DT.WHT => .whiteout,
+                        else => .unknown,
                     };
                     return Entry{
                         .name = name,
@@ -595,14 +595,14 @@ pub const IterableDir = struct {
                     }
                     const statmode = stat_info.mode & os.S.IFMT;
 
-                    const entry_kind = switch (statmode) {
-                        os.S.IFDIR => Entry.Kind.Directory,
-                        os.S.IFBLK => Entry.Kind.BlockDevice,
-                        os.S.IFCHR => Entry.Kind.CharacterDevice,
-                        os.S.IFLNK => Entry.Kind.SymLink,
-                        os.S.IFREG => Entry.Kind.File,
-                        os.S.IFIFO => Entry.Kind.NamedPipe,
-                        else => Entry.Kind.Unknown,
+                    const entry_kind: Entry.Kind = switch (statmode) {
+                        os.S.IFDIR => .directory,
+                        os.S.IFBLK => .block_device,
+                        os.S.IFCHR => .character_device,
+                        os.S.IFLNK => .sym_link,
+                        os.S.IFREG => .file,
+                        os.S.IFIFO => .named_pipe,
+                        else => .unknown,
                     };
 
                     return Entry{
@@ -679,15 +679,15 @@ pub const IterableDir = struct {
                         continue :start_over;
                     }
 
-                    const entry_kind = switch (linux_entry.d_type) {
-                        linux.DT.BLK => Entry.Kind.BlockDevice,
-                        linux.DT.CHR => Entry.Kind.CharacterDevice,
-                        linux.DT.DIR => Entry.Kind.Directory,
-                        linux.DT.FIFO => Entry.Kind.NamedPipe,
-                        linux.DT.LNK => Entry.Kind.SymLink,
-                        linux.DT.REG => Entry.Kind.File,
-                        linux.DT.SOCK => Entry.Kind.UnixDomainSocket,
-                        else => Entry.Kind.Unknown,
+                    const entry_kind: Entry.Kind = switch (linux_entry.d_type) {
+                        linux.DT.BLK => .block_device,
+                        linux.DT.CHR => .character_device,
+                        linux.DT.DIR => .directory,
+                        linux.DT.FIFO => .named_pipe,
+                        linux.DT.LNK => .sym_link,
+                        linux.DT.REG => .file,
+                        linux.DT.SOCK => .unix_domain_socket,
+                        else => .unknown,
                     };
                     return Entry{
                         .name = name,
@@ -761,11 +761,11 @@ pub const IterableDir = struct {
                     // Trust that Windows gives us valid UTF-16LE
                     const name_utf8_len = std.unicode.utf16leToUtf8(self.name_data[0..], name_utf16le) catch unreachable;
                     const name_utf8 = self.name_data[0..name_utf8_len];
-                    const kind = blk: {
+                    const kind: Entry.Kind = blk: {
                         const attrs = dir_info.FileAttributes;
-                        if (attrs & w.FILE_ATTRIBUTE_DIRECTORY != 0) break :blk Entry.Kind.Directory;
-                        if (attrs & w.FILE_ATTRIBUTE_REPARSE_POINT != 0) break :blk Entry.Kind.SymLink;
-                        break :blk Entry.Kind.File;
+                        if (attrs & w.FILE_ATTRIBUTE_DIRECTORY != 0) break :blk .directory;
+                        if (attrs & w.FILE_ATTRIBUTE_REPARSE_POINT != 0) break :blk .sym_link;
+                        break :blk .file;
                     };
                     return Entry{
                         .name = name_utf8,
@@ -850,14 +850,14 @@ pub const IterableDir = struct {
                         continue :start_over;
                     }
 
-                    const entry_kind = switch (entry.d_type) {
-                        .BLOCK_DEVICE => Entry.Kind.BlockDevice,
-                        .CHARACTER_DEVICE => Entry.Kind.CharacterDevice,
-                        .DIRECTORY => Entry.Kind.Directory,
-                        .SYMBOLIC_LINK => Entry.Kind.SymLink,
-                        .REGULAR_FILE => Entry.Kind.File,
-                        .SOCKET_STREAM, .SOCKET_DGRAM => Entry.Kind.UnixDomainSocket,
-                        else => Entry.Kind.Unknown,
+                    const entry_kind: Entry.Kind = switch (entry.d_type) {
+                        .BLOCK_DEVICE => .block_device,
+                        .CHARACTER_DEVICE => .character_device,
+                        .DIRECTORY => .directory,
+                        .SYMBOLIC_LINK => .sym_link,
+                        .REGULAR_FILE => .file,
+                        .SOCKET_STREAM, .SOCKET_DGRAM => .unix_domain_socket,
+                        else => .unknown,
                     };
                     return Entry{
                         .name = name,
@@ -964,7 +964,7 @@ pub const IterableDir = struct {
                         dirname_len += 1;
                     }
                     try self.name_buffer.appendSlice(base.name);
-                    if (base.kind == .Directory) {
+                    if (base.kind == .directory) {
                         var new_dir = top.iter.dir.openIterableDir(base.name, .{}) catch |err| switch (err) {
                             error.NameTooLong => unreachable, // no path sep in base.name
                             else => |e| return e,
@@ -1157,9 +1157,9 @@ pub const Dir = struct {
             else
                 0;
             os_flags |= switch (flags.lock) {
-                .None => @as(u32, 0),
-                .Shared => os.O.SHLOCK | nonblocking_lock_flag,
-                .Exclusive => os.O.EXLOCK | nonblocking_lock_flag,
+                .none => @as(u32, 0),
+                .shared => os.O.SHLOCK | nonblocking_lock_flag,
+                .exclusive => os.O.EXLOCK | nonblocking_lock_flag,
             };
         }
         if (@hasDecl(os.O, "LARGEFILE")) {
@@ -1182,13 +1182,13 @@ pub const Dir = struct {
         // WASI doesn't have os.flock so we intetinally check OS prior to the inner if block
         // since it is not compiltime-known and we need to avoid undefined symbol in Wasm.
         if (builtin.target.os.tag != .wasi) {
-            if (!has_flock_open_flags and flags.lock != .None) {
+            if (!has_flock_open_flags and flags.lock != .none) {
                 // TODO: integrate async I/O
                 const lock_nonblocking = if (flags.lock_nonblocking) os.LOCK.NB else @as(i32, 0);
                 try os.flock(fd, switch (flags.lock) {
-                    .None => unreachable,
-                    .Shared => os.LOCK.SH | lock_nonblocking,
-                    .Exclusive => os.LOCK.EX | lock_nonblocking,
+                    .none => unreachable,
+                    .shared => os.LOCK.SH | lock_nonblocking,
+                    .exclusive => os.LOCK.EX | lock_nonblocking,
                 });
             }
         }
@@ -1241,9 +1241,9 @@ pub const Dir = struct {
         const range_off: w.LARGE_INTEGER = 0;
         const range_len: w.LARGE_INTEGER = 1;
         const exclusive = switch (flags.lock) {
-            .None => return file,
-            .Shared => false,
-            .Exclusive => true,
+            .none => return file,
+            .shared => false,
+            .exclusive => true,
         };
         try w.LockFile(
             file.handle,
@@ -1320,9 +1320,9 @@ pub const Dir = struct {
         else
             0;
         const lock_flag: u32 = if (has_flock_open_flags) switch (flags.lock) {
-            .None => @as(u32, 0),
-            .Shared => os.O.SHLOCK | nonblocking_lock_flag,
-            .Exclusive => os.O.EXLOCK | nonblocking_lock_flag,
+            .none => @as(u32, 0),
+            .shared => os.O.SHLOCK | nonblocking_lock_flag,
+            .exclusive => os.O.EXLOCK | nonblocking_lock_flag,
         } else 0;
 
         const O_LARGEFILE = if (@hasDecl(os.O, "LARGEFILE")) os.O.LARGEFILE else 0;
@@ -1339,13 +1339,13 @@ pub const Dir = struct {
         // WASI doesn't have os.flock so we intetinally check OS prior to the inner if block
         // since it is not compiltime-known and we need to avoid undefined symbol in Wasm.
         if (builtin.target.os.tag != .wasi) {
-            if (!has_flock_open_flags and flags.lock != .None) {
+            if (!has_flock_open_flags and flags.lock != .none) {
                 // TODO: integrate async I/O
                 const lock_nonblocking = if (flags.lock_nonblocking) os.LOCK.NB else @as(i32, 0);
                 try os.flock(fd, switch (flags.lock) {
-                    .None => unreachable,
-                    .Shared => os.LOCK.SH | lock_nonblocking,
-                    .Exclusive => os.LOCK.EX | lock_nonblocking,
+                    .none => unreachable,
+                    .shared => os.LOCK.SH | lock_nonblocking,
+                    .exclusive => os.LOCK.EX | lock_nonblocking,
                 });
             }
         }
@@ -1402,9 +1402,9 @@ pub const Dir = struct {
         const range_off: w.LARGE_INTEGER = 0;
         const range_len: w.LARGE_INTEGER = 1;
         const exclusive = switch (flags.lock) {
-            .None => return file,
-            .Shared => false,
-            .Exclusive => true,
+            .none => return file,
+            .shared => false,
+            .exclusive => true,
         };
         try w.LockFile(
             file.handle,
@@ -1541,9 +1541,9 @@ pub const Dir = struct {
             return error.NameTooLong;
         }
 
-        mem.copy(u8, out_buffer, out_path);
-
-        return out_buffer[0..out_path.len];
+        const result = out_buffer[0..out_path.len];
+        @memcpy(result, out_path);
+        return result;
     }
 
     /// Windows-only. Same as `Dir.realpath` except `pathname` is WTF16 encoded.
@@ -1593,9 +1593,9 @@ pub const Dir = struct {
             return error.NameTooLong;
         }
 
-        mem.copy(u8, out_buffer, out_path);
-
-        return out_buffer[0..out_path.len];
+        const result = out_buffer[0..out_path.len];
+        @memcpy(result, out_path);
+        return result;
     }
 
     /// Same as `Dir.realpath` except caller must free the returned memory.
@@ -2106,7 +2106,7 @@ pub const Dir = struct {
     /// this function recursively removes its entries and then tries again.
     /// This operation is not atomic on most file systems.
     pub fn deleteTree(self: Dir, sub_path: []const u8) DeleteTreeError!void {
-        var initial_iterable_dir = (try self.deleteTreeOpenInitialSubpath(sub_path, .File)) orelse return;
+        var initial_iterable_dir = (try self.deleteTreeOpenInitialSubpath(sub_path, .file)) orelse return;
 
         const StackItem = struct {
             name: []const u8,
@@ -2130,7 +2130,7 @@ pub const Dir = struct {
         process_stack: while (stack.len != 0) {
             var top = &(stack.slice()[stack.len - 1]);
             while (try top.iter.next()) |entry| {
-                var treat_as_dir = entry.kind == .Directory;
+                var treat_as_dir = entry.kind == .directory;
                 handle_entry: while (true) {
                     if (treat_as_dir) {
                         if (stack.ensureUnusedCapacity(1)) {
@@ -2291,7 +2291,7 @@ pub const Dir = struct {
     /// Like `deleteTree`, but only keeps one `Iterator` active at a time to minimize the function's stack size.
     /// This is slower than `deleteTree` but uses less stack space.
     pub fn deleteTreeMinStackSize(self: Dir, sub_path: []const u8) DeleteTreeError!void {
-        return self.deleteTreeMinStackSizeWithKindHint(sub_path, .File);
+        return self.deleteTreeMinStackSizeWithKindHint(sub_path, .file);
     }
 
     fn deleteTreeMinStackSizeWithKindHint(self: Dir, sub_path: []const u8, kind_hint: File.Kind) DeleteTreeError!void {
@@ -2316,7 +2316,7 @@ pub const Dir = struct {
             scan_dir: while (true) {
                 var dir_it = iterable_dir.iterateAssumeFirstIteration();
                 dir_it: while (try dir_it.next()) |entry| {
-                    var treat_as_dir = entry.kind == .Directory;
+                    var treat_as_dir = entry.kind == .directory;
                     handle_entry: while (true) {
                         if (treat_as_dir) {
                             const new_dir = iterable_dir.dir.openIterableDir(entry.name, .{ .no_follow = true }) catch |err| switch (err) {
@@ -2346,8 +2346,9 @@ pub const Dir = struct {
                             if (cleanup_dir_parent) |*d| d.close();
                             cleanup_dir_parent = iterable_dir;
                             iterable_dir = new_dir;
-                            mem.copy(u8, &dir_name_buf, entry.name);
-                            dir_name = dir_name_buf[0..entry.name.len];
+                            const result = dir_name_buf[0..entry.name.len];
+                            @memcpy(result, entry.name);
+                            dir_name = result;
                             continue :scan_dir;
                         } else {
                             if (iterable_dir.dir.deleteFile(entry.name)) {
@@ -2406,7 +2407,7 @@ pub const Dir = struct {
     fn deleteTreeOpenInitialSubpath(self: Dir, sub_path: []const u8, kind_hint: File.Kind) !?IterableDir {
         return iterable_dir: {
             // Treat as a file by default
-            var treat_as_dir = kind_hint == .Directory;
+            var treat_as_dir = kind_hint == .directory;
 
             handle_entry: while (true) {
                 if (treat_as_dir) {
@@ -2974,8 +2975,9 @@ pub fn selfExePath(out_buffer: []u8) SelfExePathError![]u8 {
         var real_path_buf: [MAX_PATH_BYTES]u8 = undefined;
         const real_path = try std.os.realpathZ(&symlink_path_buf, &real_path_buf);
         if (real_path.len > out_buffer.len) return error.NameTooLong;
-        std.mem.copy(u8, out_buffer, real_path);
-        return out_buffer[0..real_path.len];
+        const result = out_buffer[0..real_path.len];
+        @memcpy(result, real_path);
+        return result;
     }
     switch (builtin.os.tag) {
         .linux => return os.readlinkZ("/proc/self/exe", out_buffer),
@@ -2997,8 +2999,7 @@ pub fn selfExePath(out_buffer: []u8) SelfExePathError![]u8 {
         .haiku => {
             // The only possible issue when looking for the self image path is
             // when the buffer is too short.
-            // TODO replace with proper constants
-            if (os.find_path(null, 1000, null, out_buffer.ptr, out_buffer.len) != 0)
+            if (os.find_path(os.B_APP_IMAGE_SYMBOL, os.path_base_directory.B_FIND_IMAGE_PATH, null, out_buffer.ptr, out_buffer.len) != 0)
                 return error.Overflow;
             return mem.sliceTo(out_buffer, 0);
         },
@@ -3014,8 +3015,9 @@ pub fn selfExePath(out_buffer: []u8) SelfExePathError![]u8 {
                 const real_path = try os.realpathZ(os.argv[0], &real_path_buf);
                 if (real_path.len > out_buffer.len)
                     return error.NameTooLong;
-                mem.copy(u8, out_buffer, real_path);
-                return out_buffer[0..real_path.len];
+                const result = out_buffer[0..real_path.len];
+                @memcpy(result, real_path);
+                return result;
             } else if (argv0.len != 0) {
                 // argv[0] is not empty (and not a path): search it inside PATH
                 const PATH = std.os.getenvZ("PATH") orelse return error.FileNotFound;
@@ -3032,8 +3034,9 @@ pub fn selfExePath(out_buffer: []u8) SelfExePathError![]u8 {
                         // found a file, and hope it is the right file
                         if (real_path.len > out_buffer.len)
                             return error.NameTooLong;
-                        mem.copy(u8, out_buffer, real_path);
-                        return out_buffer[0..real_path.len];
+                        const result = out_buffer[0..real_path.len];
+                        @memcpy(result, real_path);
+                        return result;
                     } else |_| continue;
                 }
             }
@@ -3099,7 +3102,7 @@ const CopyFileRawError = error{SystemResources} || os.CopyFileRangeError || os.S
 // No metadata is transferred over.
 fn copy_file(fd_in: os.fd_t, fd_out: os.fd_t, maybe_size: ?u64) CopyFileRawError!void {
     if (comptime builtin.target.isDarwin()) {
-        const rc = os.system.fcopyfile(fd_in, fd_out, null, os.system.COPYFILE_DATA);
+        const rc = os.system.fcopyfile(fd_in, fd_out, null, os.system.COPYFILE.DATA);
         switch (os.errno(rc)) {
             .SUCCESS => return,
             .INVAL => unreachable,
@@ -3147,12 +3150,12 @@ fn copy_file(fd_in: os.fd_t, fd_out: os.fd_t, maybe_size: ?u64) CopyFileRawError
 
 test {
     if (builtin.os.tag != .wasi) {
-        _ = makeDirAbsolute;
-        _ = makeDirAbsoluteZ;
-        _ = copyFileAbsolute;
-        _ = updateFileAbsolute;
+        _ = &makeDirAbsolute;
+        _ = &makeDirAbsoluteZ;
+        _ = &copyFileAbsolute;
+        _ = &updateFileAbsolute;
     }
-    _ = Dir.copyFile;
+    _ = &Dir.copyFile;
     _ = @import("fs/test.zig");
     _ = @import("fs/path.zig");
     _ = @import("fs/file.zig");

@@ -1035,7 +1035,7 @@ fn allocRegOrMem(self: *Self, elem_ty: Type, reg_ok: bool, maybe_inst: ?Air.Inst
 
     if (reg_ok) {
         // Make sure the type can fit in a register before we try to allocate one.
-        const ptr_bits = self.target.cpu.arch.ptrBitWidth();
+        const ptr_bits = self.target.ptrBitWidth();
         const ptr_bytes: u64 = @divExact(ptr_bits, 8);
         if (abi_size <= ptr_bytes) {
             if (self.register_manager.tryAllocReg(maybe_inst, gp)) |reg| {
@@ -3114,7 +3114,7 @@ fn allocRegs(
     const read_locks = locks[0..read_args.len];
     const write_locks = locks[read_args.len..];
 
-    std.mem.set(?RegisterLock, locks, null);
+    @memset(locks, null);
     defer for (locks) |lock| {
         if (lock) |locked_reg| self.register_manager.unlockReg(locked_reg);
     };
@@ -4341,7 +4341,7 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallModifier
     if (args.len <= Liveness.bpi - 2) {
         var buf = [1]Air.Inst.Ref{.none} ** (Liveness.bpi - 1);
         buf[0] = callee;
-        std.mem.copy(Air.Inst.Ref, buf[1..], args);
+        @memcpy(buf[1..][0..args.len], args);
         return self.finishAir(inst, result, buf);
     }
     var bt = try self.iterateBigTomb(inst, 1 + args.len);
@@ -5263,7 +5263,7 @@ fn airAsm(self: *Self, inst: Air.Inst.Index) !void {
             buf_index += 1;
         }
         if (buf_index + inputs.len > buf.len) break :simple;
-        std.mem.copy(Air.Inst.Ref, buf[buf_index..], inputs);
+        @memcpy(buf[buf_index..][0..inputs.len], inputs);
         return self.finishAir(inst, result, buf);
     }
     var bt = try self.iterateBigTomb(inst, outputs.len + inputs.len);
@@ -6000,7 +6000,7 @@ fn airAggregateInit(self: *Self, inst: Air.Inst.Index) !void {
 
     if (elements.len <= Liveness.bpi - 1) {
         var buf = [1]Air.Inst.Ref{.none} ** (Liveness.bpi - 1);
-        std.mem.copy(Air.Inst.Ref, &buf, elements);
+        @memcpy(buf[0..elements.len], elements);
         return self.finishAir(inst, result, buf);
     }
     var bt = try self.iterateBigTomb(inst, elements.len);

@@ -424,7 +424,7 @@ pub fn init(stream: anytype, ca_bundle: Certificate.Bundle, host: []const u8) In
     var handshake_state: HandshakeState = .encrypted_extensions;
     var cleartext_bufs: [2][8000]u8 = undefined;
     var main_cert_pub_key_algo: Certificate.AlgorithmCategory = undefined;
-    var main_cert_pub_key_buf: [300]u8 = undefined;
+    var main_cert_pub_key_buf: [600]u8 = undefined;
     var main_cert_pub_key_len: u16 = undefined;
     const now_sec = std.time.timestamp();
 
@@ -602,14 +602,11 @@ pub fn init(stream: anytype, ca_bundle: Certificate.Bundle, host: []const u8) In
                                     const components = try rsa.PublicKey.parseDer(main_cert_pub_key);
                                     const exponent = components.exponent;
                                     const modulus = components.modulus;
-                                    var rsa_mem_buf: [512 * 32]u8 = undefined;
-                                    var fba = std.heap.FixedBufferAllocator.init(&rsa_mem_buf);
-                                    const ally = fba.allocator();
                                     switch (modulus.len) {
                                         inline 128, 256, 512 => |modulus_len| {
-                                            const key = try rsa.PublicKey.fromBytes(exponent, modulus, ally);
+                                            const key = try rsa.PublicKey.fromBytes(exponent, modulus);
                                             const sig = rsa.PSSSignature.fromBytes(modulus_len, encoded_sig);
-                                            try rsa.PSSSignature.verify(modulus_len, sig, verify_bytes, key, Hash, ally);
+                                            try rsa.PSSSignature.verify(modulus_len, sig, verify_bytes, key, Hash);
                                         },
                                         else => {
                                             return error.TlsBadRsaSignatureBitCount;
@@ -685,7 +682,7 @@ pub fn init(stream: anytype, ca_bundle: Certificate.Bundle, host: []const u8) In
                                 .application_cipher = app_cipher,
                                 .partially_read_buffer = undefined,
                             };
-                            mem.copy(u8, &client.partially_read_buffer, leftover);
+                            @memcpy(client.partially_read_buffer[0..leftover.len], leftover);
                             return client;
                         },
                         else => {
@@ -809,7 +806,7 @@ fn prepareCiphertextRecord(
                     .overhead_len = overhead_len,
                 };
 
-                mem.copy(u8, &cleartext_buf, bytes[bytes_i..][0..encrypted_content_len]);
+                @memcpy(cleartext_buf[0..encrypted_content_len], bytes[bytes_i..][0..encrypted_content_len]);
                 cleartext_buf[encrypted_content_len] = @enumToInt(inner_content_type);
                 bytes_i += encrypted_content_len;
                 const ciphertext_len = encrypted_content_len + 1;
@@ -924,7 +921,9 @@ pub fn readvAdvanced(c: *Client, stream: anytype, iovecs: []const std.os.iovec) 
         const amt = @intCast(u15, vp.put(partial_cleartext));
         c.partial_cleartext_idx += amt;
 
-        if (c.partial_ciphertext_end == c.partial_ciphertext_idx) {
+        if (c.partial_cleartext_idx == c.partial_ciphertext_idx and
+            c.partial_ciphertext_end == c.partial_ciphertext_idx)
+        {
             // The buffer is now empty.
             c.partial_cleartext_idx = 0;
             c.partial_ciphertext_idx = 0;
@@ -935,7 +934,7 @@ pub fn readvAdvanced(c: *Client, stream: anytype, iovecs: []const std.os.iovec) 
             c.partial_ciphertext_end = 0;
             assert(vp.total == amt);
             return amt;
-        } else if (amt <= partial_cleartext.len) {
+        } else if (amt > 0) {
             // We don't need more data, so don't call read.
             assert(vp.total == amt);
             return amt;
@@ -970,8 +969,8 @@ pub fn readvAdvanced(c: *Client, stream: anytype, iovecs: []const std.os.iovec) 
         },
     };
 
-    // Cleartext capacity of output buffer, in records, rounded up.
-    const buf_cap = (cleartext_buf_len +| (max_ciphertext_len - 1)) / max_ciphertext_len;
+    // Cleartext capacity of output buffer, in records. Minimum one full record.
+    const buf_cap = @max(cleartext_buf_len / max_ciphertext_len, 1);
     const wanted_read_len = buf_cap * (max_ciphertext_len + tls.record_header_len);
     const ask_len = @max(wanted_read_len, cleartext_stack_buffer.len);
     const ask_iovecs = limitVecs(&ask_iovecs_buf, ask_len);
@@ -1029,8 +1028,8 @@ pub fn readvAdvanced(c: *Client, stream: anytype, iovecs: []const std.os.iovec) 
             if (frag1.len < second_len)
                 return finishRead2(c, first, frag1, vp.total);
 
-            mem.copy(u8, frag[0..in], first);
-            mem.copy(u8, frag[first.len..], frag1[0..second_len]);
+            limitedOverlapCopy(frag, in);
+            @memcpy(frag[first.len..][0..second_len], frag1[0..second_len]);
             frag = frag[0..full_record_len];
             frag1 = frag1[second_len..];
             in = 0;
@@ -1059,8 +1058,8 @@ pub fn readvAdvanced(c: *Client, stream: anytype, iovecs: []const std.os.iovec) 
             if (frag1.len < second_len)
                 return finishRead2(c, first, frag1, vp.total);
 
-            mem.copy(u8, frag[0..in], first);
-            mem.copy(u8, frag[first.len..], frag1[0..second_len]);
+            limitedOverlapCopy(frag, in);
+            @memcpy(frag[first.len..][0..second_len], frag1[0..second_len]);
             frag = frag[0..full_record_len];
             frag1 = frag1[second_len..];
             in = 0;
@@ -1176,8 +1175,10 @@ pub fn readvAdvanced(c: *Client, stream: anytype, iovecs: []const std.os.iovec) 
                             if (c.partial_ciphertext_idx > c.partial_cleartext_idx) {
                                 // We have already run out of room in iovecs. Continue
                                 // appending to `partially_read_buffer`.
-                                const dest = c.partially_read_buffer[c.partial_ciphertext_idx..];
-                                mem.copy(u8, dest, msg);
+                                @memcpy(
+                                    c.partially_read_buffer[c.partial_ciphertext_idx..][0..msg.len],
+                                    msg,
+                                );
                                 c.partial_ciphertext_idx = @intCast(@TypeOf(c.partial_ciphertext_idx), c.partial_ciphertext_idx + msg.len);
                             } else {
                                 const amt = vp.put(msg);
@@ -1185,7 +1186,7 @@ pub fn readvAdvanced(c: *Client, stream: anytype, iovecs: []const std.os.iovec) 
                                     const rest = msg[amt..];
                                     c.partial_cleartext_idx = 0;
                                     c.partial_ciphertext_idx = @intCast(@TypeOf(c.partial_ciphertext_idx), rest.len);
-                                    mem.copy(u8, &c.partially_read_buffer, rest);
+                                    @memcpy(c.partially_read_buffer[0..rest.len], rest);
                                 }
                             }
                         } else {
@@ -1213,30 +1214,46 @@ fn finishRead(c: *Client, frag: []const u8, in: usize, out: usize) usize {
     if (c.partial_ciphertext_idx > c.partial_cleartext_idx) {
         // There is cleartext at the beginning already which we need to preserve.
         c.partial_ciphertext_end = @intCast(@TypeOf(c.partial_ciphertext_end), c.partial_ciphertext_idx + saved_buf.len);
-        mem.copy(u8, c.partially_read_buffer[c.partial_ciphertext_idx..], saved_buf);
+        @memcpy(c.partially_read_buffer[c.partial_ciphertext_idx..][0..saved_buf.len], saved_buf);
     } else {
         c.partial_cleartext_idx = 0;
         c.partial_ciphertext_idx = 0;
         c.partial_ciphertext_end = @intCast(@TypeOf(c.partial_ciphertext_end), saved_buf.len);
-        mem.copy(u8, &c.partially_read_buffer, saved_buf);
+        @memcpy(c.partially_read_buffer[0..saved_buf.len], saved_buf);
     }
     return out;
 }
 
+/// Note that `first` usually overlaps with `c.partially_read_buffer`.
 fn finishRead2(c: *Client, first: []const u8, frag1: []const u8, out: usize) usize {
     if (c.partial_ciphertext_idx > c.partial_cleartext_idx) {
         // There is cleartext at the beginning already which we need to preserve.
         c.partial_ciphertext_end = @intCast(@TypeOf(c.partial_ciphertext_end), c.partial_ciphertext_idx + first.len + frag1.len);
-        mem.copy(u8, c.partially_read_buffer[c.partial_ciphertext_idx..], first);
-        mem.copy(u8, c.partially_read_buffer[c.partial_ciphertext_idx + first.len ..], frag1);
+        // TODO: eliminate this call to copyForwards
+        std.mem.copyForwards(u8, c.partially_read_buffer[c.partial_ciphertext_idx..][0..first.len], first);
+        @memcpy(c.partially_read_buffer[c.partial_ciphertext_idx + first.len ..][0..frag1.len], frag1);
     } else {
         c.partial_cleartext_idx = 0;
         c.partial_ciphertext_idx = 0;
         c.partial_ciphertext_end = @intCast(@TypeOf(c.partial_ciphertext_end), first.len + frag1.len);
-        mem.copy(u8, &c.partially_read_buffer, first);
-        mem.copy(u8, c.partially_read_buffer[first.len..], frag1);
+        // TODO: eliminate this call to copyForwards
+        std.mem.copyForwards(u8, c.partially_read_buffer[0..first.len], first);
+        @memcpy(c.partially_read_buffer[first.len..][0..frag1.len], frag1);
     }
     return out;
+}
+
+fn limitedOverlapCopy(frag: []u8, in: usize) void {
+    const first = frag[in..];
+    if (first.len <= in) {
+        // A single, non-overlapping memcpy suffices.
+        @memcpy(frag[0..first.len], first);
+    } else {
+        // Need two memcpy calls because one alone would overlap.
+        @memcpy(frag[0..in], first[0..in]);
+        const leftover = first.len - in;
+        @memcpy(frag[in..][0..leftover], first[in..][0..leftover]);
+    }
 }
 
 fn straddleByte(s1: []const u8, s2: []const u8, index: usize) u8 {
@@ -1282,7 +1299,7 @@ const VecPut = struct {
             const v = vp.iovecs[vp.idx];
             const dest = v.iov_base[vp.off..v.iov_len];
             const src = bytes[bytes_i..][0..@min(dest.len, bytes.len - bytes_i)];
-            mem.copy(u8, dest, src);
+            @memcpy(dest[0..src.len], src);
             bytes_i += src.len;
             vp.off += src.len;
             if (vp.off >= v.iov_len) {
@@ -1330,18 +1347,15 @@ const VecPut = struct {
 
 /// Limit iovecs to a specific byte size.
 fn limitVecs(iovecs: []std.os.iovec, len: usize) []std.os.iovec {
-    var vec_i: usize = 0;
     var bytes_left: usize = len;
-    while (true) {
-        if (bytes_left >= iovecs[vec_i].iov_len) {
-            bytes_left -= iovecs[vec_i].iov_len;
-            vec_i += 1;
-            if (vec_i == iovecs.len or bytes_left == 0) return iovecs[0..vec_i];
-            continue;
+    for (iovecs, 0..) |*iovec, vec_i| {
+        if (bytes_left <= iovec.iov_len) {
+            iovec.iov_len = bytes_left;
+            return iovecs[0 .. vec_i + 1];
         }
-        iovecs[vec_i].iov_len = bytes_left;
-        return iovecs[0..vec_i];
+        bytes_left -= iovec.iov_len;
     }
+    return iovecs;
 }
 
 /// The priority order here is chosen based on what crypto algorithms Zig has

@@ -348,8 +348,8 @@ fn SMHasherTest(comptime hash_fn: anytype) u32 {
     var key: [256]u8 = undefined;
     var hashes_bytes: [256 * @sizeOf(HashResult)]u8 = undefined;
 
-    std.mem.set(u8, &key, 0);
-    std.mem.set(u8, &hashes_bytes, 0);
+    @memset(&key, 0);
+    @memset(&hashes_bytes, 0);
 
     var i: u32 = 0;
     while (i < 256) : (i += 1) {

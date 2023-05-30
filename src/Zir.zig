@@ -297,6 +297,14 @@ pub const Inst = struct {
         /// Uses the `pl_node` union field with payload `Call`.
         /// AST node is the function call.
         call,
+        /// Function call using `a.b()` syntax.
+        /// Uses the named field as the callee. If there is no such field, searches in the type for
+        /// a decl matching the field name. The decl is resolved and we ensure that it's a function
+        /// which can accept the object as the first parameter, with one pointer fixup. This
+        /// function is then used as the callee, with the object as an implicit first parameter.
+        /// Uses the `pl_node` union field with payload `FieldCall`.
+        /// AST node is the function call.
+        field_call,
         /// Implements the `@call` builtin.
         /// Uses the `pl_node` union field with payload `BuiltinCall`.
         /// AST node is the builtin call.
@@ -432,15 +440,6 @@ pub const Inst = struct {
         /// This instruction also accepts a pointer.
         /// Uses `pl_node` field. The AST node is the a.b syntax. Payload is Field.
         field_val,
-        /// Given a pointer to a struct or object that contains virtual fields, returns the
-        /// named field.  If there is no named field, searches in the type for a decl that
-        /// matches the field name.  The decl is resolved and we ensure that it's a function
-        /// which can accept the object as the first parameter, with one pointer fixup.  If
-        /// all of that works, this instruction produces a special "bound function" value
-        /// which contains both the function and the saved first parameter value.
-        /// Bound functions may only be used as the function parameter to a `call` or
-        /// `builtin_call` instruction.  Any other use is invalid zir and may crash the compiler.
-        field_call_bind,
         /// Given a pointer to a struct or object that contains virtual fields, returns a pointer
         /// to the named field. The field name is a comptime instruction. Used by @field.
         /// Uses `pl_node` field. The AST node is the builtin call. Payload is FieldNamed.
@@ -570,6 +569,10 @@ pub const Inst = struct {
         /// Returns a pointer to the subslice.
         /// Uses the `pl_node` field. AST node is the slice syntax. Payload is `SliceSentinel`.
         slice_sentinel,
+        /// Slice operation `array_ptr[start..][0..len]`. Optional sentinel.
+        /// Returns a pointer to the subslice.
+        /// Uses the `pl_node` field. AST node is the slice syntax. Payload is `SliceLength`.
+        slice_length,
         /// Write a value to a pointer. For loading, see `load`.
         /// Source location is assumed to be same as previous instruction.
         /// Uses the `bin` union field.
@@ -927,10 +930,10 @@ pub const Inst = struct {
         /// Implements the `@memset` builtin.
         /// Uses the `pl_node` union field with payload `Bin`.
         memset,
-        /// Implements the `@min` builtin.
+        /// Implements the `@min` builtin for 2 args.
         /// Uses the `pl_node` union field with payload `Bin`
         min,
-        /// Implements the `@max` builtin.
+        /// Implements the `@max` builtin for 2 args.
         /// Uses the `pl_node` union field with payload `Bin`
         max,
         /// Implements the `@cImport` builtin.
@@ -1047,6 +1050,7 @@ pub const Inst = struct {
                 .bool_br_or,
                 .bool_not,
                 .call,
+                .field_call,
                 .cmp_lt,
                 .cmp_lte,
                 .cmp_eq,
@@ -1079,7 +1083,6 @@ pub const Inst = struct {
                 .field_ptr,
                 .field_ptr_init,
                 .field_val,
-                .field_call_bind,
                 .field_ptr_named,
                 .field_val_named,
                 .func,
@@ -1135,6 +1138,7 @@ pub const Inst = struct {
                 .slice_start,
                 .slice_end,
                 .slice_sentinel,
+                .slice_length,
                 .import,
                 .typeof_log2_int_type,
                 .resolve_inferred_alloc,
@@ -1356,6 +1360,7 @@ pub const Inst = struct {
                 .bool_br_or,
                 .bool_not,
                 .call,
+                .field_call,
                 .cmp_lt,
                 .cmp_lte,
                 .cmp_eq,
@@ -1378,7 +1383,6 @@ pub const Inst = struct {
                 .field_ptr,
                 .field_ptr_init,
                 .field_val,
-                .field_call_bind,
                 .field_ptr_named,
                 .field_val_named,
                 .func,
@@ -1430,6 +1434,7 @@ pub const Inst = struct {
                 .slice_start,
                 .slice_end,
                 .slice_sentinel,
+                .slice_length,
                 .import,
                 .typeof_log2_int_type,
                 .switch_capture,
@@ -1595,6 +1600,7 @@ pub const Inst = struct {
                 .check_comptime_control_flow = .un_node,
                 .for_len = .pl_node,
                 .call = .pl_node,
+                .field_call = .pl_node,
                 .cmp_lt = .pl_node,
                 .cmp_lte = .pl_node,
                 .cmp_eq = .pl_node,
@@ -1635,7 +1641,6 @@ pub const Inst = struct {
                 .field_val = .pl_node,
                 .field_ptr_named = .pl_node,
                 .field_val_named = .pl_node,
-                .field_call_bind = .pl_node,
                 .func = .pl_node,
                 .func_inferred = .pl_node,
                 .func_fancy = .pl_node,
@@ -1667,6 +1672,7 @@ pub const Inst = struct {
                 .slice_start = .pl_node,
                 .slice_end = .pl_node,
                 .slice_sentinel = .pl_node,
+                .slice_length = .pl_node,
                 .store = .bin,
                 .store_node = .pl_node,
                 .store_to_block_ptr = .bin,
@@ -1905,10 +1911,20 @@ pub const Inst = struct {
         compile_log,
         /// The builtin `@TypeOf` which returns the type after Peer Type Resolution
         /// of one or more params.
-        /// `operand` is payload index to `NodeMultiOp`.
+        /// `operand` is payload index to `TypeOfPeer`.
         /// `small` is `operands_len`.
         /// The AST node is the builtin call.
         typeof_peer,
+        /// Implements the `@min` builtin for more than 2 args.
+        /// `operand` is payload index to `NodeMultiOp`.
+        /// `small` is `operands_len`.
+        /// The AST node is the builtin call.
+        min_multi,
+        /// Implements the `@max` builtin for more than 2 args.
+        /// `operand` is payload index to `NodeMultiOp`.
+        /// `small` is `operands_len`.
+        /// The AST node is the builtin call.
+        max_multi,
         /// Implements the `@addWithOverflow` builtin.
         /// `operand` is payload index to `BinNode`.
         /// `small` is unused.
@@ -1938,16 +1954,6 @@ pub const Inst = struct {
         /// The `@prefetch` builtin.
         /// `operand` is payload index to `BinNode`.
         prefetch,
-        /// Given a pointer to a struct or object that contains virtual fields, returns the
-        /// named field.  If there is no named field, searches in the type for a decl that
-        /// matches the field name.  The decl is resolved and we ensure that it's a function
-        /// which can accept the object as the first parameter, with one pointer fixup.  If
-        /// all of that works, this instruction produces a special "bound function" value
-        /// which contains both the function and the saved first parameter value.
-        /// Bound functions may only be used as the function parameter to a `call` or
-        /// `builtin_call` instruction.  Any other use is invalid zir and may crash the compiler.
-        /// Uses `pl_node` field. The AST node is the `@field` builtin. Payload is FieldNamedNode.
-        field_call_bind_named,
         /// Implements the `@fence` builtin.
         /// `operand` is payload index to `UnNode`.
         fence,
@@ -1969,7 +1975,7 @@ pub const Inst = struct {
         /// `operand` is `src_node: i32`.
         breakpoint,
         /// Implements the `@select` builtin.
-        /// operand` is payload index to `Select`.
+        /// `operand` is payload index to `Select`.
         select,
         /// Implement builtin `@errToInt`.
         /// `operand` is payload index to `UnNode`.
@@ -1989,7 +1995,7 @@ pub const Inst = struct {
         /// `operand` is payload index to `Cmpxchg`.
         cmpxchg,
         /// Implement the builtin `@addrSpaceCast`
-        /// `Operand` is payload index to `BinNode`. `lhs` is dest type, `rhs` is operand.
+        /// `operand` is payload index to `BinNode`. `lhs` is dest type, `rhs` is operand.
         addrspace_cast,
         /// Implement builtin `@cVaArg`.
         /// `operand` is payload index to `BinNode`.
@@ -2021,6 +2027,9 @@ pub const Inst = struct {
         /// Implements the `@inComptime` builtin.
         /// `operand` is `src_node: i32`.
         in_comptime,
+        /// Used as a placeholder for the capture of an `errdefer`.
+        /// This is replaced by Sema with the captured value.
+        errdefer_err_code,
 
         pub const InstData = struct {
             opcode: Extended,
@@ -2143,6 +2152,10 @@ pub const Inst = struct {
         /// Used for generic parameters where the type and value
         /// is not known until generic function instantiation.
         generic_poison,
+        /// This is a special type for variadic parameters of a function call.
+        /// Casts to it will validate that the type can be passed to a c
+        /// calling convention function.
+        var_args_param,
 
         _,
 
@@ -2454,6 +2467,7 @@ pub const Inst = struct {
                 .ty = Type.initTag(.generic_poison),
                 .val = Value.initTag(.generic_poison),
             },
+            .var_args_param = undefined,
         });
     };
 
@@ -2888,6 +2902,19 @@ pub const Inst = struct {
         };
     };
 
+    /// Stored inside extra, with trailing arguments according to `args_len`.
+    /// Implicit 0. arg_0_start: u32, // always same as `args_len`
+    /// 1. arg_end: u32, // for each `args_len`
+    /// arg_N_start is the same as arg_N-1_end
+    pub const FieldCall = struct {
+        // Note: Flags *must* come first so that unusedResultExpr
+        // can find it when it goes to modify them.
+        flags: Call.Flags,
+        obj_ptr: Ref,
+        /// Offset into `string_bytes`.
+        field_name_start: u32,
+    };
+
     pub const TypeOfPeer = struct {
         src_node: i32,
         body_len: u32,
@@ -2965,6 +2992,14 @@ pub const Inst = struct {
         start: Ref,
         end: Ref,
         sentinel: Ref,
+    };
+
+    pub const SliceLength = struct {
+        lhs: Ref,
+        start: Ref,
+        len: Ref,
+        sentinel: Ref,
+        start_src_node_offset: i32,
     };
 
     /// The meaning of these operands depends on the corresponding `Tag`.
@@ -3150,12 +3185,6 @@ pub const Inst = struct {
     };
 
     pub const FieldNamed = struct {
-        lhs: Ref,
-        field_name: Ref,
-    };
-
-    pub const FieldNamedNode = struct {
-        node: i32,
         lhs: Ref,
         field_name: Ref,
     };

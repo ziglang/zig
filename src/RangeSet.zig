@@ -60,7 +60,7 @@ pub fn spans(self: *RangeSet, first: Value, last: Value, ty: Type) !bool {
     if (self.ranges.items.len == 0)
         return false;
 
-    std.sort.sort(Range, self.ranges.items, LessThanContext{
+    std.mem.sort(Range, self.ranges.items, LessThanContext{
         .ty = ty,
         .module = self.module,
     }, lessThan);

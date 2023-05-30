@@ -411,7 +411,7 @@ pub fn collect(info: *UnwindInfo, zld: *Zld) !void {
         }
 
         var slice = common_encodings_counts.values();
-        std.sort.sort(CommonEncWithCount, slice, {}, CommonEncWithCount.greaterThan);
+        mem.sort(CommonEncWithCount, slice, {}, CommonEncWithCount.greaterThan);
 
         var i: u7 = 0;
         while (i < slice.len) : (i += 1) {
@@ -659,7 +659,7 @@ pub fn write(info: *UnwindInfo, zld: *Zld) !void {
     const padding = buffer.items.len - cwriter.bytes_written;
     if (padding > 0) {
         const offset = math.cast(usize, cwriter.bytes_written) orelse return error.Overflow;
-        mem.set(u8, buffer.items[offset..], 0);
+        @memset(buffer.items[offset..], 0);
     }
 
     try zld.file.pwriteAll(buffer.items, sect.offset);

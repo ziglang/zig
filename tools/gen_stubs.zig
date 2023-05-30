@@ -437,7 +437,7 @@ fn parseElf(parse: Parse, comptime is_64: bool, comptime endian: builtin.Endian)
     const dynstr = elf_bytes[dynstr_offset..];
 
     // Sort the list by address, ascending.
-    std.sort.sort(Sym, @alignCast(8, dyn_syms), {}, S.symbolAddrLessThan);
+    mem.sort(Sym, @alignCast(8, dyn_syms), {}, S.symbolAddrLessThan);
 
     for (dyn_syms) |sym| {
         const this_section = s(sym.st_shndx);

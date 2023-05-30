@@ -772,7 +772,7 @@ const PosixImpl = struct {
 
         waiter.event.wait(timeout) catch {
             // If we fail to cancel after a timeout, it means a wake() thread dequeued us and will wake us up.
-            // We must wait until the event is set as that's a signal that the wake() thread wont access the waiter memory anymore.
+            // We must wait until the event is set as that's a signal that the wake() thread won't access the waiter memory anymore.
             // If we return early without waiting, the waiter on the stack would be invalidated and the wake() thread risks a UAF.
             defer if (!cancelled) waiter.event.wait(null) catch unreachable;
 

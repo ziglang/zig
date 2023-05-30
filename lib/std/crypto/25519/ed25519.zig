@@ -79,8 +79,8 @@ pub const Ed25519 = struct {
             const r_bytes = r.toBytes();
 
             var t: [64]u8 = undefined;
-            mem.copy(u8, t[0..32], &r_bytes);
-            mem.copy(u8, t[32..], &public_key.bytes);
+            t[0..32].* = r_bytes;
+            t[32..].* = public_key.bytes;
             var h = Sha512.init(.{});
             h.update(&t);
 
@@ -200,8 +200,8 @@ pub const Ed25519 = struct {
         /// Return the raw signature (r, s) in little-endian format.
         pub fn toBytes(self: Signature) [encoded_length]u8 {
             var bytes: [encoded_length]u8 = undefined;
-            mem.copy(u8, bytes[0 .. encoded_length / 2], &self.r);
-            mem.copy(u8, bytes[encoded_length / 2 ..], &self.s);
+            bytes[0 .. encoded_length / 2].* = self.r;
+            bytes[encoded_length / 2 ..].* = self.s;
             return bytes;
         }
 
@@ -260,8 +260,8 @@ pub const Ed25519 = struct {
             const pk_p = Curve.basePoint.clampedMul(az[0..32].*) catch return error.IdentityElement;
             const pk_bytes = pk_p.toBytes();
             var sk_bytes: [SecretKey.encoded_length]u8 = undefined;
-            mem.copy(u8, &sk_bytes, &ss);
-            mem.copy(u8, sk_bytes[seed_length..], &pk_bytes);
+            sk_bytes[0..ss.len].* = ss;
+            sk_bytes[seed_length..].* = pk_bytes;
             return KeyPair{
                 .public_key = PublicKey.fromBytes(pk_bytes) catch unreachable,
                 .secret_key = try SecretKey.fromBytes(sk_bytes),
@@ -373,7 +373,7 @@ pub const Ed25519 = struct {
         var z_batch: [count]Curve.scalar.CompressedScalar = undefined;
         for (&z_batch) |*z| {
             crypto.random.bytes(z[0..16]);
-            mem.set(u8, z[16..], 0);
+            @memset(z[16..], 0);
         }
 
         var zs_sum = Curve.scalar.zero;
@@ -444,8 +444,8 @@ pub const Ed25519 = struct {
                 };
 
                 var prefix: [64]u8 = undefined;
-                mem.copy(u8, prefix[0..32], h[32..64]);
-                mem.copy(u8, prefix[32..64], blind_h[32..64]);
+                prefix[0..32].* = h[32..64].*;
+                prefix[32..64].* = blind_h[32..64].*;
 
                 const blind_secret_key = BlindSecretKey{
                     .prefix = prefix,

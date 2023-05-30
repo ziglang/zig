@@ -1122,6 +1122,23 @@ pub fn isPowerOfTwo(v: anytype) bool {
     return (v & (v - 1)) == 0;
 }
 
+/// Aligns the given integer type bit width to a width divisible by 8.
+pub fn ByteAlignedInt(comptime T: type) type {
+    const info = @typeInfo(T).Int;
+    const bits = (info.bits + 7) / 8 * 8;
+    const extended_type = std.meta.Int(info.signedness, bits);
+    return extended_type;
+}
+
+test "ByteAlignedInt" {
+    try testing.expect(ByteAlignedInt(u0) == u0);
+    try testing.expect(ByteAlignedInt(i0) == i0);
+    try testing.expect(ByteAlignedInt(u3) == u8);
+    try testing.expect(ByteAlignedInt(u8) == u8);
+    try testing.expect(ByteAlignedInt(i111) == i112);
+    try testing.expect(ByteAlignedInt(u129) == u136);
+}
+
 /// Rounds the given floating point number to an integer, away from zero.
 /// Uses a dedicated hardware instruction when available.
 /// This is the same as calling the builtin @round
@@ -1684,7 +1701,7 @@ pub fn break_f80(x: f80) F80 {
 pub inline fn sign(i: anytype) @TypeOf(i) {
     const T = @TypeOf(i);
     return switch (@typeInfo(T)) {
-        .Int, .ComptimeInt => @as(T, @boolToInt(i > 0)) - @boolToInt(i < 0),
+        .Int, .ComptimeInt => @as(T, @boolToInt(i > 0)) - @as(T, @boolToInt(i < 0)),
         .Float, .ComptimeFloat => @intToFloat(T, @boolToInt(i > 0)) - @intToFloat(T, @boolToInt(i < 0)),
         .Vector => |vinfo| blk: {
             switch (@typeInfo(vinfo.child)) {

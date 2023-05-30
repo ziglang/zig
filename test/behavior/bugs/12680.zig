@@ -11,6 +11,7 @@ test "export a function twice" {
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
     if (builtin.os.tag == .macos and builtin.zig_backend == .stage2_c) {
         // TODO: test.c: error: aliases are not supported on darwin
         return error.SkipZigTest;

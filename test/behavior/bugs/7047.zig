@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 
 const U = union(enum) {
     T: type,
@@ -14,6 +15,8 @@ fn S(comptime query: U) type {
 }
 
 test "compiler doesn't consider equal unions with different 'type' payload" {
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
     const s1 = S(U{ .T = u32 }).tag();
     try std.testing.expectEqual(u32, s1);
 

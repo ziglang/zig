@@ -114,7 +114,7 @@ pub fn validationWrap(allocator: anytype) ValidationAllocator(@TypeOf(allocator)
 
 /// An allocator helper function.  Adjusts an allocation length satisfy `len_align`.
 /// `full_len` should be the full capacity of the allocation which may be greater
-/// than the `len` that was requsted.  This function should only be used by allocators
+/// than the `len` that was requested.  This function should only be used by allocators
 /// that are unaffected by `len_align`.
 pub fn alignAllocLen(full_len: usize, alloc_len: usize, len_align: u29) usize {
     assert(alloc_len > 0);
@@ -192,12 +192,15 @@ test "Allocator.resize" {
     }
 }
 
+/// Deprecated: use `@memcpy` if the arguments do not overlap, or
+/// `copyForwards` if they do.
+pub const copy = copyForwards;
+
 /// Copy all of source into dest at position 0.
 /// dest.len must be >= source.len.
 /// If the slices overlap, dest.ptr must be <= src.ptr.
-pub fn copy(comptime T: type, dest: []T, source: []const T) void {
-    for (dest[0..source.len], source) |*d, s|
-        d.* = s;
+pub fn copyForwards(comptime T: type, dest: []T, source: []const T) void {
+    for (dest[0..source.len], source) |*d, s| d.* = s;
 }
 
 /// Copy all of source into dest at position 0.
@@ -216,11 +219,7 @@ pub fn copyBackwards(comptime T: type, dest: []T, source: []const T) void {
     }
 }
 
-/// Sets all elements of `dest` to `value`.
-pub fn set(comptime T: type, dest: []T, value: T) void {
-    for (dest) |*d|
-        d.* = value;
-}
+pub const set = @compileError("deprecated; use @memset instead");
 
 /// Generally, Zig users are encouraged to explicitly initialize all fields of a struct explicitly rather than using this function.
 /// However, it is recognized that there are sometimes use cases for initializing all fields to a "zero" value. For example, when
@@ -249,7 +248,7 @@ pub fn zeroes(comptime T: type) T {
             if (@sizeOf(T) == 0) return undefined;
             if (struct_info.layout == .Extern) {
                 var item: T = undefined;
-                set(u8, asBytes(&item), 0);
+                @memset(asBytes(&item), 0);
                 return item;
             } else {
                 var structure: T = undefined;
@@ -428,7 +427,7 @@ pub fn zeroInit(comptime T: type, init: anytype) T {
                 .Struct => |init_info| {
                     if (init_info.is_tuple) {
                         if (init_info.fields.len > struct_info.fields.len) {
-                            @compileError("Tuple initializer has more elments than there are fields in `" ++ @typeName(T) ++ "`");
+                            @compileError("Tuple initializer has more elements than there are fields in `" ++ @typeName(T) ++ "`");
                         }
                     } else {
                         inline for (init_info.fields) |field| {
@@ -438,7 +437,7 @@ pub fn zeroInit(comptime T: type, init: anytype) T {
                         }
                     }
 
-                    var value: T = undefined;
+                    var value: T = if (struct_info.layout == .Extern) zeroes(T) else undefined;
 
                     inline for (struct_info.fields, 0..) |field, i| {
                         if (field.is_comptime) {
@@ -567,6 +566,34 @@ test "zeroInit" {
     }, nested_baz);
 }
 
+pub fn sort(
+    comptime T: type,
+    items: []T,
+    context: anytype,
+    comptime lessThanFn: fn (@TypeOf(context), lhs: T, rhs: T) bool,
+) void {
+    std.sort.block(T, items, context, lessThanFn);
+}
+
+pub fn sortUnstable(
+    comptime T: type,
+    items: []T,
+    context: anytype,
+    comptime lessThanFn: fn (@TypeOf(context), lhs: T, rhs: T) bool,
+) void {
+    std.sort.pdq(T, items, context, lessThanFn);
+}
+
+/// TODO: currently this just calls `insertionSortContext`. The block sort implementation
+/// in this file needs to be adapted to use the sort context.
+pub fn sortContext(a: usize, b: usize, context: anytype) void {
+    std.sort.insertionContext(a, b, context);
+}
+
+pub fn sortUnstableContext(a: usize, b: usize, context: anytype) void {
+    std.sort.pdqContext(a, b, context);
+}
+
 /// Compares two slices of numbers lexicographically. O(n).
 pub fn order(comptime T: type, lhs: []const T, rhs: []const T) math.Order {
     const n = math.min(lhs.len, rhs.len);
@@ -669,7 +696,7 @@ test "Span" {
 
 /// Takes a sentinel-terminated pointer and returns a slice, iterating over the
 /// memory to find the sentinel and determine the length.
-/// Ponter attributes such as const are preserved.
+/// Pointer attributes such as const are preserved.
 /// `[*c]` pointers are assumed to be non-null and 0-terminated.
 pub fn span(ptr: anytype) Span(@TypeOf(ptr)) {
     if (@typeInfo(@TypeOf(ptr)) == .Optional) {
@@ -1012,6 +1039,54 @@ pub fn indexOfAnyPos(comptime T: type, slice: []const T, start_index: usize, val
         }
     }
     return null;
+}
+
+/// Find the first item in `slice` which is not contained in `values`.
+///
+/// Comparable to `strspn` in the C standard library.
+pub fn indexOfNone(comptime T: type, slice: []const T, values: []const T) ?usize {
+    return indexOfNonePos(T, slice, 0, values);
+}
+
+/// Find the last item in `slice` which is not contained in `values`.
+///
+/// Like `strspn` in the C standard library, but searches from the end.
+pub fn lastIndexOfNone(comptime T: type, slice: []const T, values: []const T) ?usize {
+    var i: usize = slice.len;
+    outer: while (i != 0) {
+        i -= 1;
+        for (values) |value| {
+            if (slice[i] == value) continue :outer;
+        }
+        return i;
+    }
+    return null;
+}
+
+/// Find the first item in `slice[start_index..]` which is not contained in `values`.
+/// The returned index will be relative to the start of `slice`, and never less than `start_index`.
+///
+/// Comparable to `strspn` in the C standard library.
+pub fn indexOfNonePos(comptime T: type, slice: []const T, start_index: usize, values: []const T) ?usize {
+    var i: usize = start_index;
+    outer: while (i < slice.len) : (i += 1) {
+        for (values) |value| {
+            if (slice[i] == value) continue :outer;
+        }
+        return i;
+    }
+    return null;
+}
+
+test "indexOfNone" {
+    try testing.expect(indexOfNone(u8, "abc123", "123").? == 0);
+    try testing.expect(lastIndexOfNone(u8, "abc123", "123").? == 2);
+    try testing.expect(indexOfNone(u8, "123abc", "123").? == 3);
+    try testing.expect(lastIndexOfNone(u8, "123abc", "123").? == 5);
+    try testing.expect(indexOfNone(u8, "123123", "123") == null);
+    try testing.expect(indexOfNone(u8, "333333", "123") == null);
+
+    try testing.expect(indexOfNonePos(u8, "abc123", 3, "321") == null);
 }
 
 pub fn indexOf(comptime T: type, haystack: []const T, needle: []const T) ?usize {
@@ -1667,9 +1742,9 @@ pub fn writeIntSliceLittle(comptime T: type, buffer: []u8, value: T) void {
     assert(buffer.len >= @divExact(@typeInfo(T).Int.bits, 8));
 
     if (@typeInfo(T).Int.bits == 0) {
-        return set(u8, buffer, 0);
+        return @memset(buffer, 0);
     } else if (@typeInfo(T).Int.bits == 8) {
-        set(u8, buffer, 0);
+        @memset(buffer, 0);
         buffer[0] = @bitCast(u8, value);
         return;
     }
@@ -1691,9 +1766,9 @@ pub fn writeIntSliceBig(comptime T: type, buffer: []u8, value: T) void {
     assert(buffer.len >= @divExact(@typeInfo(T).Int.bits, 8));
 
     if (@typeInfo(T).Int.bits == 0) {
-        return set(u8, buffer, 0);
+        return @memset(buffer, 0);
     } else if (@typeInfo(T).Int.bits == 8) {
-        set(u8, buffer, 0);
+        @memset(buffer, 0);
         buffer[buffer.len - 1] = @bitCast(u8, value);
         return;
     }
@@ -1836,11 +1911,15 @@ test "writeIntBig and writeIntLittle" {
 }
 
 /// Swap the byte order of all the members of the fields of a struct
-/// (Changing their endianess)
+/// (Changing their endianness)
 pub fn byteSwapAllFields(comptime S: type, ptr: *S) void {
     if (@typeInfo(S) != .Struct) @compileError("byteSwapAllFields expects a struct as the first argument");
     inline for (std.meta.fields(S)) |f| {
-        @field(ptr, f.name) = @byteSwap(@field(ptr, f.name));
+        if (@typeInfo(f.type) == .Struct) {
+            byteSwapAllFields(f.type, &@field(ptr, f.name));
+        } else {
+            @field(ptr, f.name) = @byteSwap(@field(ptr, f.name));
+        }
     }
 }
 
@@ -1850,17 +1929,33 @@ test "byteSwapAllFields" {
         f1: u16,
         f2: u32,
     };
+    const K = extern struct {
+        f0: u8,
+        f1: T,
+        f2: u16,
+    };
     var s = T{
         .f0 = 0x12,
         .f1 = 0x1234,
         .f2 = 0x12345678,
     };
+    var k = K{
+        .f0 = 0x12,
+        .f1 = s,
+        .f2 = 0x1234,
+    };
     byteSwapAllFields(T, &s);
+    byteSwapAllFields(K, &k);
     try std.testing.expectEqual(T{
         .f0 = 0x12,
         .f1 = 0x3412,
         .f2 = 0x78563412,
     }, s);
+    try std.testing.expectEqual(K{
+        .f0 = 0x12,
+        .f1 = s,
+        .f2 = 0x3412,
+    }, k);
 }
 
 /// Returns an iterator that iterates over the slices of `buffer` that are not
@@ -2706,7 +2801,7 @@ fn testReadIntImpl() !void {
     }
 }
 
-test "writeIntSlice" {
+test writeIntSlice {
     try testWriteIntImpl();
     comptime try testWriteIntImpl();
 }
@@ -3124,7 +3219,7 @@ pub fn replace(comptime T: type, input: []const T, needle: []const T, replacemen
     var replacements: usize = 0;
     while (slide < input.len) {
         if (mem.startsWith(T, input[slide..], needle)) {
-            mem.copy(T, output[i .. i + replacement.len], replacement);
+            @memcpy(output[i..][0..replacement.len], replacement);
             i += replacement.len;
             slide += needle.len;
             replacements += 1;
@@ -3169,7 +3264,7 @@ test "replace" {
     try testing.expectEqualStrings(expected, output[0..expected.len]);
 }
 
-/// Replace all occurences of `needle` with `replacement`.
+/// Replace all occurrences of `needle` with `replacement`.
 pub fn replaceScalar(comptime T: type, slice: []T, needle: T, replacement: T) void {
     for (slice, 0..) |e, i| {
         if (e == needle) {

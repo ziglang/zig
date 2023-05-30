@@ -9,7 +9,7 @@ pub const Class = enum { memory, byval, integer, double_integer };
 pub fn classifyType(ty: Type, target: std.Target) Class {
     std.debug.assert(ty.hasRuntimeBitsIgnoreComptime());
 
-    const max_byval_size = target.cpu.arch.ptrBitWidth() * 2;
+    const max_byval_size = target.ptrBitWidth() * 2;
     switch (ty.zigTypeTag()) {
         .Struct => {
             const bit_size = ty.bitSize(target);

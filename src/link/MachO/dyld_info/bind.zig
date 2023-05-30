@@ -47,7 +47,7 @@ pub fn Bind(comptime Ctx: type, comptime Target: type) type {
 
             const writer = self.buffer.writer(gpa);
 
-            std.sort.sort(Entry, self.entries.items, ctx, Entry.lessThan);
+            std.mem.sort(Entry, self.entries.items, ctx, Entry.lessThan);
 
             var start: usize = 0;
             var seg_id: ?u8 = null;

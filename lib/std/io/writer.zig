@@ -35,7 +35,7 @@ pub fn Writer(
 
         pub fn writeByteNTimes(self: Self, byte: u8, n: usize) Error!void {
             var bytes: [256]u8 = undefined;
-            mem.set(u8, bytes[0..], byte);
+            @memset(bytes[0..], byte);
 
             var remaining: usize = n;
             while (remaining > 0) {
@@ -46,39 +46,34 @@ pub fn Writer(
         }
 
         /// Write a native-endian integer.
-        /// TODO audit non-power-of-two int sizes
         pub fn writeIntNative(self: Self, comptime T: type, value: T) Error!void {
             var bytes: [(@typeInfo(T).Int.bits + 7) / 8]u8 = undefined;
-            mem.writeIntNative(T, &bytes, value);
+            mem.writeIntNative(std.math.ByteAlignedInt(@TypeOf(value)), &bytes, value);
             return self.writeAll(&bytes);
         }
 
         /// Write a foreign-endian integer.
-        /// TODO audit non-power-of-two int sizes
         pub fn writeIntForeign(self: Self, comptime T: type, value: T) Error!void {
             var bytes: [(@typeInfo(T).Int.bits + 7) / 8]u8 = undefined;
-            mem.writeIntForeign(T, &bytes, value);
+            mem.writeIntForeign(std.math.ByteAlignedInt(@TypeOf(value)), &bytes, value);
             return self.writeAll(&bytes);
         }
 
-        /// TODO audit non-power-of-two int sizes
         pub fn writeIntLittle(self: Self, comptime T: type, value: T) Error!void {
             var bytes: [(@typeInfo(T).Int.bits + 7) / 8]u8 = undefined;
-            mem.writeIntLittle(T, &bytes, value);
+            mem.writeIntLittle(std.math.ByteAlignedInt(@TypeOf(value)), &bytes, value);
             return self.writeAll(&bytes);
         }
 
-        /// TODO audit non-power-of-two int sizes
         pub fn writeIntBig(self: Self, comptime T: type, value: T) Error!void {
             var bytes: [(@typeInfo(T).Int.bits + 7) / 8]u8 = undefined;
-            mem.writeIntBig(T, &bytes, value);
+            mem.writeIntBig(std.math.ByteAlignedInt(@TypeOf(value)), &bytes, value);
             return self.writeAll(&bytes);
         }
 
-        /// TODO audit non-power-of-two int sizes
         pub fn writeInt(self: Self, comptime T: type, value: T, endian: std.builtin.Endian) Error!void {
             var bytes: [(@typeInfo(T).Int.bits + 7) / 8]u8 = undefined;
-            mem.writeInt(T, &bytes, value, endian);
+            mem.writeInt(std.math.ByteAlignedInt(@TypeOf(value)), &bytes, value, endian);
             return self.writeAll(&bytes);
         }
 

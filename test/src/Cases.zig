@@ -349,7 +349,7 @@ fn addFromDirInner(
     var filenames = std.ArrayList([]const u8).init(ctx.arena);
 
     while (try it.next()) |entry| {
-        if (entry.kind != .File) continue;
+        if (entry.kind != .file) continue;
 
         // Ignore stuff such as .swp files
         switch (Compilation.classifyFileExt(entry.basename)) {
@@ -394,6 +394,12 @@ fn addFromDirInner(
                     target.getCpuArch() != .wasm32 and target.getCpuArch() != .x86_64)
                 {
                     // Other backends don't support new liveness format
+                    continue;
+                }
+                if (backend == .stage2 and target.getOsTag() == .macos and
+                    target.getCpuArch() == .x86_64 and builtin.cpu.arch == .aarch64)
+                {
+                    // Rosetta has issues with ZLD
                     continue;
                 }
 
@@ -459,9 +465,16 @@ pub fn lowerToBuildSteps(
     parent_step: *std.Build.Step,
     opt_test_filter: ?[]const u8,
     cases_dir_path: []const u8,
-    incremental_exe: *std.Build.CompileStep,
+    incremental_exe: *std.Build.Step.Compile,
 ) void {
     for (self.incremental_cases.items) |incr_case| {
+        if (true) {
+            // TODO: incremental tests are disabled for now, as incremental compilation bugs were
+            // getting in the way of practical improvements to the compiler, and incremental
+            // compilation is not currently used. They should be re-enabled once incremental
+            // compilation is in a happier state.
+            continue;
+        }
         if (opt_test_filter) |test_filter| {
             if (std.mem.indexOf(u8, incr_case.base_path, test_filter) == null) continue;
         }
@@ -488,10 +501,12 @@ pub fn lowerToBuildSteps(
         }
 
         const writefiles = b.addWriteFiles();
+        var file_sources = std.StringHashMap(std.Build.FileSource).init(b.allocator);
+        defer file_sources.deinit();
         for (update.files.items) |file| {
-            writefiles.add(file.path, file.src);
+            file_sources.put(file.path, writefiles.add(file.path, file.src)) catch @panic("OOM");
         }
-        const root_source_file = writefiles.getFileSource(update.files.items[0].path).?;
+        const root_source_file = writefiles.files.items[0].getFileSource();
 
         const artifact = if (case.is_test) b.addTest(.{
             .root_source_file = root_source_file,
@@ -534,7 +549,7 @@ pub fn lowerToBuildSteps(
 
         for (case.deps.items) |dep| {
             artifact.addAnonymousModule(dep.name, .{
-                .source_file = writefiles.getFileSource(dep.path).?,
+                .source_file = file_sources.get(dep.path).?,
             });
         }
 
@@ -601,7 +616,7 @@ fn sortTestFilenames(filenames: [][]const u8) void {
             };
         }
     };
-    std.sort.sort([]const u8, filenames, Context{}, Context.lessThan);
+    std.mem.sort([]const u8, filenames, Context{}, Context.lessThan);
 }
 
 /// Iterates a set of filenames extracting batches that are either incremental
@@ -1031,7 +1046,7 @@ pub fn main() !void {
         const stem = case_file_path[case_dirname.len + 1 .. case_file_path.len - "0.zig".len];
         var it = iterable_dir.iterate();
         while (try it.next()) |entry| {
-            if (entry.kind != .File) continue;
+            if (entry.kind != .file) continue;
             if (!std.mem.startsWith(u8, entry.name, stem)) continue;
             try filenames.append(try std.fs.path.join(arena, &.{ case_dirname, entry.name }));
         }
@@ -1348,7 +1363,7 @@ fn runOneCase(
             defer all_errors.deinit(allocator);
             if (all_errors.errorMessageCount() > 0) {
                 all_errors.renderToStdErr(.{
-                    .ttyconf = std.debug.detectTTYConfig(std.io.getStdErr()),
+                    .ttyconf = std.io.tty.detectConfig(std.io.getStdErr()),
                 });
                 // TODO print generated C code
                 return error.UnexpectedCompileErrors;

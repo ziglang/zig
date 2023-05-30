@@ -3,7 +3,7 @@ step: *Step,
 test_index: usize,
 test_filter: ?[]const u8,
 optimize_modes: []const OptimizeMode,
-check_exe: *std.Build.CompileStep,
+check_exe: *std.Build.Step.Compile,
 
 const Expect = [@typeInfo(OptimizeMode).Enum.fields.len][]const u8;
 
@@ -72,11 +72,10 @@ fn addExpect(
         if (mem.indexOf(u8, annotated_case_name, filter) == null) return;
     }
 
-    const src_basename = "source.zig";
-    const write_src = b.addWriteFile(src_basename, source);
+    const write_src = b.addWriteFile("source.zig", source);
     const exe = b.addExecutable(.{
         .name = "test",
-        .root_source_file = write_src.getFileSource(src_basename).?,
+        .root_source_file = write_src.files.items[0].getFileSource(),
         .optimize = optimize_mode,
         .target = .{},
     });

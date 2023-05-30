@@ -1229,6 +1229,22 @@ pub const Instruction = union(enum) {
         };
     }
 
+    pub fn lduba(rs1: Register, rs2: Register, asi: ASI, rd: Register) Instruction {
+        return format3i(0b11, 0b01_0001, rs1, rs2, rd, asi);
+    }
+
+    pub fn lduha(rs1: Register, rs2: Register, asi: ASI, rd: Register) Instruction {
+        return format3i(0b11, 0b01_0010, rs1, rs2, rd, asi);
+    }
+
+    pub fn lduwa(rs1: Register, rs2: Register, asi: ASI, rd: Register) Instruction {
+        return format3i(0b11, 0b01_0000, rs1, rs2, rd, asi);
+    }
+
+    pub fn ldxa(rs1: Register, rs2: Register, asi: ASI, rd: Register) Instruction {
+        return format3i(0b11, 0b01_1011, rs1, rs2, rd, asi);
+    }
+
     pub fn @"and"(comptime s2: type, rs1: Register, rs2: s2, rd: Register) Instruction {
         return switch (s2) {
             Register => format3a(0b10, 0b00_0001, rs1, rs2, rd),
@@ -1415,6 +1431,22 @@ pub const Instruction = union(enum) {
             i13 => format3b(0b11, 0b00_1110, rs1, rs2, rd),
             else => unreachable,
         };
+    }
+
+    pub fn stba(rs1: Register, rs2: Register, asi: ASI, rd: Register) Instruction {
+        return format3i(0b11, 0b01_0101, rs1, rs2, rd, asi);
+    }
+
+    pub fn stha(rs1: Register, rs2: Register, asi: ASI, rd: Register) Instruction {
+        return format3i(0b11, 0b01_0110, rs1, rs2, rd, asi);
+    }
+
+    pub fn stwa(rs1: Register, rs2: Register, asi: ASI, rd: Register) Instruction {
+        return format3i(0b11, 0b01_0100, rs1, rs2, rd, asi);
+    }
+
+    pub fn stxa(rs1: Register, rs2: Register, asi: ASI, rd: Register) Instruction {
+        return format3i(0b11, 0b01_1110, rs1, rs2, rd, asi);
     }
 
     pub fn sub(comptime s2: type, rs1: Register, rs2: s2, rd: Register) Instruction {

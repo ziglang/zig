@@ -66,7 +66,7 @@ pub const Md5 = struct {
         // Partial buffer exists from previous update. Copy into buffer then hash.
         if (d.buf_len != 0 and d.buf_len + b.len >= 64) {
             off += 64 - d.buf_len;
-            mem.copy(u8, d.buf[d.buf_len..], b[0..off]);
+            @memcpy(d.buf[d.buf_len..][0..off], b[0..off]);
 
             d.round(&d.buf);
             d.buf_len = 0;
@@ -78,8 +78,9 @@ pub const Md5 = struct {
         }
 
         // Copy any remainder for next pass.
-        mem.copy(u8, d.buf[d.buf_len..], b[off..]);
-        d.buf_len += @intCast(u8, b[off..].len);
+        const b_slice = b[off..];
+        @memcpy(d.buf[d.buf_len..][0..b_slice.len], b_slice);
+        d.buf_len += @intCast(u8, b_slice.len);
 
         // Md5 uses the bottom 64-bits for length padding
         d.total_len +%= b.len;
@@ -87,7 +88,7 @@ pub const Md5 = struct {
 
     pub fn final(d: *Self, out: *[digest_length]u8) void {
         // The buffer here will never be completely full.
-        mem.set(u8, d.buf[d.buf_len..], 0);
+        @memset(d.buf[d.buf_len..], 0);
 
         // Append padding bits.
         d.buf[d.buf_len] = 0x80;
@@ -96,7 +97,7 @@ pub const Md5 = struct {
         // > 448 mod 512 so need to add an extra round to wrap around.
         if (64 - d.buf_len < 8) {
             d.round(d.buf[0..]);
-            mem.set(u8, d.buf[0..], 0);
+            @memset(d.buf[0..], 0);
         }
 
         // Append message length.
