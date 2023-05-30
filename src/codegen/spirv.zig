@@ -432,8 +432,6 @@ pub const DeclGen = struct {
         dg: *DeclGen,
         /// Cached reference of the u32 type.
         u32_ty_ref: CacheRef,
-        /// Cached type id of the u32 type.
-        u32_ty_id: IdRef,
         /// The members of the resulting structure type
         members: std.ArrayList(CacheRef),
         /// The initializers of each of the members.
@@ -466,9 +464,7 @@ pub const DeclGen = struct {
             }
 
             const word = @bitCast(Word, self.partial_word.buffer);
-            const result_id = self.dg.spv.allocId();
-            // TODO: Integrate with caching mechanism
-            try self.dg.spv.emitConstant(self.u32_ty_id, result_id, .{ .uint32 = word });
+            const result_id = try self.dg.spv.constInt(self.u32_ty_ref, word);
             try self.members.append(self.u32_ty_ref);
             try self.initializers.append(result_id);
 
@@ -519,11 +515,7 @@ pub const DeclGen = struct {
         }
 
         fn addNullPtr(self: *@This(), ptr_ty_ref: CacheRef) !void {
-            const result_id = self.dg.spv.allocId();
-            try self.dg.spv.sections.types_globals_constants.emit(self.dg.spv.gpa, .OpConstantNull, .{
-                .id_result_type = self.dg.typeId(ptr_ty_ref),
-                .id_result = result_id,
-            });
+            const result_id = try self.dg.spv.constNull(ptr_ty_ref);
             try self.addPtr(ptr_ty_ref, result_id);
         }
 
@@ -909,7 +901,6 @@ pub const DeclGen = struct {
         var icl = IndirectConstantLowering{
             .dg = self,
             .u32_ty_ref = u32_ty_ref,
-            .u32_ty_id = self.typeId(u32_ty_ref),
             .members = std.ArrayList(CacheRef).init(self.gpa),
             .initializers = std.ArrayList(IdRef).init(self.gpa),
             .decl_deps = std.AutoArrayHashMap(SpvModule.Decl.Index, void).init(self.gpa),
@@ -978,19 +969,12 @@ pub const DeclGen = struct {
     /// This function should only be called during function code generation.
     fn constant(self: *DeclGen, ty: Type, val: Value, repr: Repr) !IdRef {
         const target = self.getTarget();
-        const section = &self.spv.sections.types_globals_constants;
         const result_ty_ref = try self.resolveType(ty, repr);
-        const result_ty_id = self.typeId(result_ty_ref);
 
         log.debug("constant: ty = {}, val = {}", .{ ty.fmt(self.module), val.fmtValue(ty, self.module) });
 
         if (val.isUndef()) {
-            const result_id = self.spv.allocId();
-            try section.emit(self.spv.gpa, .OpUndef, .{
-                .id_result_type = result_ty_id,
-                .id_result = result_id,
-            });
-            return result_id;
+            return self.spv.constUndef(result_ty_ref);
         }
 
         switch (ty.zigTypeTag()) {
@@ -1002,28 +986,15 @@ pub const DeclGen = struct {
                 }
             },
             .Bool => switch (repr) {
-                .direct => {
-                    const result_id = self.spv.allocId();
-                    const operands = .{ .id_result_type = result_ty_id, .id_result = result_id };
-                    if (val.toBool()) {
-                        try section.emit(self.spv.gpa, .OpConstantTrue, operands);
-                    } else {
-                        try section.emit(self.spv.gpa, .OpConstantFalse, operands);
-                    }
-                    return result_id;
-                },
+                .direct => return try self.spv.constBool(result_ty_ref, val.toBool()),
                 .indirect => return try self.spv.constInt(result_ty_ref, @boolToInt(val.toBool())),
             },
-            .Float => {
-                const result_id = self.spv.allocId();
-                switch (ty.floatBits(target)) {
-                    16 => try self.spv.emitConstant(result_ty_id, result_id, .{ .float32 = val.toFloat(f16) }),
-                    32 => try self.spv.emitConstant(result_ty_id, result_id, .{ .float32 = val.toFloat(f32) }),
-                    64 => try self.spv.emitConstant(result_ty_id, result_id, .{ .float64 = val.toFloat(f64) }),
-                    80, 128 => unreachable, // TODO
-                    else => unreachable,
-                }
-                return result_id;
+            .Float => return switch (ty.floatBits(target)) {
+                16 => try self.spv.resolveId(.{ .float = .{ .ty = result_ty_ref, .value = .{ .float16 = val.toFloat(f16) } } }),
+                32 => try self.spv.resolveId(.{ .float = .{ .ty = result_ty_ref, .value = .{ .float32 = val.toFloat(f32) } } }),
+                64 => try self.spv.resolveId(.{ .float = .{ .ty = result_ty_ref, .value = .{ .float64 = val.toFloat(f64) } } }),
+                80, 128 => unreachable, // TODO
+                else => unreachable,
             },
             .ErrorSet => {
                 const value = switch (val.tag()) {
@@ -1081,7 +1052,7 @@ pub const DeclGen = struct {
                 try self.func.decl_deps.put(self.spv.gpa, spv_decl_index, {});
 
                 try self.func.body.emit(self.spv.gpa, .OpLoad, .{
-                    .id_result_type = result_ty_id,
+                    .id_result_type = self.typeId(result_ty_ref),
                     .id_result = result_id,
                     .pointer = self.spv.declPtr(spv_decl_index).result_id,
                 });
@@ -2607,9 +2578,8 @@ pub const DeclGen = struct {
             .Struct => switch (object_ty.containerLayout()) {
                 .Packed => unreachable, // TODO
                 else => {
-                    const u32_ty_id = self.typeId(try self.intType(.unsigned, 32));
-                    const field_index_id = self.spv.allocId();
-                    try self.spv.emitConstant(u32_ty_id, field_index_id, .{ .uint32 = field_index });
+                    const field_index_ty_ref = try self.intType(.unsigned, 32);
+                    const field_index_id = try self.spv.constInt(field_index_ty_ref, field_index);
                     const result_ty_ref = try self.resolveType(result_ptr_ty, .direct);
                     return try self.accessChain(result_ty_ref, object_ptr, &.{field_index_id});
                 },

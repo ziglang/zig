@@ -127,7 +127,7 @@ sections: struct {
     // OpModuleProcessed - skip for now.
     /// Annotation instructions (OpDecorate etc).
     annotations: Section = .{},
-    /// Global variable declarations
+    /// Type declarations, constants, global variables
     /// From this section, OpLine and OpNoLine is allowed.
     /// According to the SPIR-V documentation, this section normally
     /// also holds type and constant instructions. These are managed
@@ -135,10 +135,6 @@ sections: struct {
     /// manages that section. These will be inserted between this and
     /// the previous section when emitting the final binary.
     /// TODO: Do we need this section? Globals are also managed with another mechanism.
-    ///   The only thing that needs to be kept here is OpUndef
-    globals: Section = .{},
-    /// Type declarations, constants, global variables
-    /// Below this section, OpLine and OpNoLine is allowed.
     types_globals_constants: Section = .{},
     // Functions without a body - skip for now.
     /// Regular function definitions.
@@ -192,7 +188,6 @@ pub fn deinit(self: *Module) void {
     self.sections.debug_strings.deinit(self.gpa);
     self.sections.debug_names.deinit(self.gpa);
     self.sections.annotations.deinit(self.gpa);
-    self.sections.globals.deinit(self.gpa);
     self.sections.functions.deinit(self.gpa);
 
     self.source_file_names.deinit(self.gpa);
@@ -365,7 +360,6 @@ pub fn flush(self: *Module, file: std.fs.File) !void {
         self.sections.annotations.toWords(),
         types_constants.toWords(),
         self.sections.types_globals_constants.toWords(),
-        self.sections.globals.toWords(),
         globals.toWords(),
         self.sections.functions.toWords(),
     };
@@ -482,19 +476,6 @@ pub fn constComposite(self: *Module, ty_ref: CacheRef, members: []const IdRef) !
         .constituents = members,
     });
     return result_id;
-}
-
-pub fn emitConstant(
-    self: *Module,
-    ty_id: IdRef,
-    result_id: IdRef,
-    value: spec.LiteralContextDependentNumber,
-) !void {
-    try self.sections.types_globals_constants.emit(self.gpa, .OpConstant, .{
-        .id_result_type = ty_id,
-        .id_result = result_id,
-        .value = value,
-    });
 }
 
 /// Decorate a result-id.
