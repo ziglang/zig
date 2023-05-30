@@ -2079,10 +2079,13 @@ pub const Value = struct {
             },
             else => val,
         };
+        var ptr_ty_key = mod.intern_pool.indexToKey(elem_ptr_ty.toIntern()).ptr_type;
+        assert(ptr_ty_key.size != .Slice);
+        ptr_ty_key.size = .Many;
         return (try mod.intern(.{ .ptr = .{
             .ty = elem_ptr_ty.toIntern(),
             .addr = .{ .elem = .{
-                .base = ptr_val.toIntern(),
+                .base = (try mod.getCoerced(ptr_val, try mod.ptrType(ptr_ty_key))).toIntern(),
                 .index = index,
             } },
         } })).toValue();
