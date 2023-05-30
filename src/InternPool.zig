@@ -222,6 +222,11 @@ pub const Key = union(enum) {
     /// A comptime function call with a memoized result.
     memoized_call: Key.MemoizedCall,
 
+    pub const TypeValue = struct {
+        ty: Index,
+        val: Index,
+    };
+
     pub const IntType = std.builtin.Type.Int;
 
     pub const ErrorUnionType = struct {
@@ -1372,7 +1377,7 @@ pub const Index = enum(u32) {
         },
 
         undef: DataIsIndex,
-        runtime_value: DataIsIndex,
+        runtime_value: struct { data: *Tag.TypeValue },
         simple_value: struct { data: SimpleValue },
         ptr_decl: struct { data: *PtrDecl },
         ptr_mut_decl: struct { data: *PtrMutDecl },
@@ -1383,7 +1388,7 @@ pub const Index = enum(u32) {
         ptr_elem: struct { data: *PtrBaseIndex },
         ptr_field: struct { data: *PtrBaseIndex },
         ptr_slice: struct { data: *PtrSlice },
-        opt_payload: struct { data: *TypeValue },
+        opt_payload: struct { data: *Tag.TypeValue },
         opt_null: DataIsIndex,
         int_u8: struct { data: u8 },
         int_u16: struct { data: u16 },
@@ -1399,7 +1404,7 @@ pub const Index = enum(u32) {
         int_lazy_size: struct { data: *IntLazy },
         error_set_error: struct { data: *Key.Error },
         error_union_error: struct { data: *Key.Error },
-        error_union_payload: struct { data: *TypeValue },
+        error_union_payload: struct { data: *Tag.TypeValue },
         enum_literal: struct { data: NullTerminatedString },
         enum_tag: struct { data: *Key.EnumTag },
         float_f16: struct { data: f16 },
@@ -1410,7 +1415,7 @@ pub const Index = enum(u32) {
         float_c_longdouble_f80: struct { data: *Float80 },
         float_c_longdouble_f128: struct { data: *Float128 },
         float_comptime_float: struct { data: *Float128 },
-        variable: struct { data: *Variable },
+        variable: struct { data: *Tag.Variable },
         extern_func: struct { data: *Key.ExternFunc },
         func: struct { data: *Key.Func },
         only_possible_value: DataIsIndex,
@@ -1769,7 +1774,7 @@ pub const Tag = enum(u8) {
     undef,
     /// A wrapper for values which are comptime-known but should
     /// semantically be runtime-known.
-    /// `data` is `Index` of the value.
+    /// data is extra index of `TypeValue`.
     runtime_value,
     /// A value that can be represented with only an enum tag.
     /// data is SimpleValue enum value.
@@ -1924,8 +1929,117 @@ pub const Tag = enum(u8) {
     /// data is extra index to `Key.MemoizedDecl`
     memoized_decl,
     /// A memoized comptime function call result.
-    /// data is extra index to `MemoizedFunc`
+    /// data is extra index to `MemoizedCall`
     memoized_call,
+
+    const ErrorUnionType = Key.ErrorUnionType;
+    const OpaqueType = Key.OpaqueType;
+    const TypeValue = Key.TypeValue;
+    const Error = Key.Error;
+    const EnumTag = Key.EnumTag;
+    const ExternFunc = Key.ExternFunc;
+    const Func = Key.Func;
+    const Union = Key.Union;
+    const MemoizedDecl = Key.MemoizedDecl;
+
+    fn Payload(comptime tag: Tag) type {
+        return switch (tag) {
+            .type_int_signed => unreachable,
+            .type_int_unsigned => unreachable,
+            .type_array_big => Array,
+            .type_array_small => Vector,
+            .type_vector => Vector,
+            .type_pointer => Pointer,
+            .type_slice => unreachable,
+            .type_optional => unreachable,
+            .type_anyframe => unreachable,
+            .type_error_union => ErrorUnionType,
+            .type_error_set => ErrorSet,
+            .type_inferred_error_set => unreachable,
+            .type_enum_auto => EnumAuto,
+            .type_enum_explicit => EnumExplicit,
+            .type_enum_nonexhaustive => EnumExplicit,
+            .simple_type => unreachable,
+            .type_opaque => OpaqueType,
+            .type_struct => unreachable,
+            .type_struct_ns => unreachable,
+            .type_struct_anon => TypeStructAnon,
+            .type_tuple_anon => TypeStructAnon,
+            .type_union_tagged => unreachable,
+            .type_union_untagged => unreachable,
+            .type_union_safety => unreachable,
+            .type_function => TypeFunction,
+
+            .undef => unreachable,
+            .runtime_value => TypeValue,
+            .simple_value => unreachable,
+            .ptr_decl => PtrDecl,
+            .ptr_mut_decl => PtrMutDecl,
+            .ptr_comptime_field => PtrComptimeField,
+            .ptr_int => PtrBase,
+            .ptr_eu_payload => PtrBase,
+            .ptr_opt_payload => PtrBase,
+            .ptr_elem => PtrBaseIndex,
+            .ptr_field => PtrBaseIndex,
+            .ptr_slice => PtrSlice,
+            .opt_payload => TypeValue,
+            .opt_null => unreachable,
+            .int_u8 => unreachable,
+            .int_u16 => unreachable,
+            .int_u32 => unreachable,
+            .int_i32 => unreachable,
+            .int_usize => unreachable,
+            .int_comptime_int_u32 => unreachable,
+            .int_comptime_int_i32 => unreachable,
+            .int_small => IntSmall,
+            .int_positive => unreachable,
+            .int_negative => unreachable,
+            .int_lazy_align => IntLazy,
+            .int_lazy_size => IntLazy,
+            .error_set_error => Error,
+            .error_union_error => Error,
+            .error_union_payload => TypeValue,
+            .enum_literal => unreachable,
+            .enum_tag => EnumTag,
+            .float_f16 => unreachable,
+            .float_f32 => unreachable,
+            .float_f64 => unreachable,
+            .float_f80 => unreachable,
+            .float_f128 => unreachable,
+            .float_c_longdouble_f80 => unreachable,
+            .float_c_longdouble_f128 => unreachable,
+            .float_comptime_float => unreachable,
+            .variable => Variable,
+            .extern_func => ExternFunc,
+            .func => Func,
+            .only_possible_value => unreachable,
+            .union_value => Union,
+            .bytes => Bytes,
+            .aggregate => Aggregate,
+            .repeated => Repeated,
+            .memoized_decl => MemoizedDecl,
+            .memoized_call => MemoizedCall,
+        };
+    }
+
+    pub const Variable = struct {
+        ty: Index,
+        /// May be `none`.
+        init: Index,
+        decl: Module.Decl.Index,
+        /// Library name if specified.
+        /// For example `extern "c" var stderrp = ...` would have 'c' as library name.
+        lib_name: OptionalNullTerminatedString,
+        flags: Flags,
+
+        pub const Flags = packed struct(u32) {
+            is_extern: bool,
+            is_const: bool,
+            is_threadlocal: bool,
+            is_weak_linkage: bool,
+            _: u28 = 0,
+        };
+    };
 };
 
 /// Trailing:
@@ -2137,11 +2251,6 @@ pub const Array = struct {
     }
 };
 
-pub const TypeValue = struct {
-    ty: Index,
-    val: Index,
-};
-
 /// Trailing:
 /// 0. field name: NullTerminatedString for each fields_len; declaration order
 /// 1. tag value: Index for each fields_len; declaration order
@@ -2188,25 +2297,6 @@ pub const PackedU64 = packed struct(u64) {
     pub fn init(x: u64) PackedU64 {
         return @bitCast(PackedU64, x);
     }
-};
-
-pub const Variable = struct {
-    /// This is a value if has_init is true, otherwise a type.
-    init: Index,
-    decl: Module.Decl.Index,
-    /// Library name if specified.
-    /// For example `extern "c" var stderrp = ...` would have 'c' as library name.
-    lib_name: OptionalNullTerminatedString,
-    flags: Flags,
-
-    pub const Flags = packed struct(u32) {
-        has_init: bool,
-        is_extern: bool,
-        is_const: bool,
-        is_threadlocal: bool,
-        is_weak_linkage: bool,
-        _: u27 = 0,
-    };
 };
 
 pub const PtrDecl = struct {
@@ -2569,19 +2659,13 @@ pub fn indexToKey(ip: *const InternPool, index: Index) Key {
         .type_function => .{ .func_type = ip.indexToKeyFuncType(data) },
 
         .undef => .{ .undef = @intToEnum(Index, data) },
-        .runtime_value => {
-            const val = @intToEnum(Index, data);
-            return .{ .runtime_value = .{
-                .ty = ip.typeOf(val),
-                .val = val,
-            } };
-        },
+        .runtime_value => .{ .runtime_value = ip.extraData(Tag.TypeValue, data) },
         .opt_null => .{ .opt = .{
             .ty = @intToEnum(Index, data),
             .val = .none,
         } },
         .opt_payload => {
-            const extra = ip.extraData(TypeValue, data);
+            const extra = ip.extraData(Tag.TypeValue, data);
             return .{ .opt = .{
                 .ty = extra.ty,
                 .val = extra.val,
@@ -2806,10 +2890,10 @@ pub fn indexToKey(ip: *const InternPool, index: Index) Key {
             .storage = .{ .f128 = ip.extraData(Float128, data).get() },
         } },
         .variable => {
-            const extra = ip.extraData(Variable, data);
+            const extra = ip.extraData(Tag.Variable, data);
             return .{ .variable = .{
-                .ty = if (extra.flags.has_init) ip.typeOf(extra.init) else extra.init,
-                .init = if (extra.flags.has_init) extra.init else .none,
+                .ty = extra.ty,
+                .init = extra.init,
                 .decl = extra.decl,
                 .lib_name = extra.lib_name,
                 .is_extern = extra.flags.is_extern,
@@ -2887,7 +2971,7 @@ pub fn indexToKey(ip: *const InternPool, index: Index) Key {
             } };
         },
         .error_union_payload => {
-            const extra = ip.extraData(TypeValue, data);
+            const extra = ip.extraData(Tag.TypeValue, data);
             return .{ .error_union = .{
                 .ty = extra.ty,
                 .val = .{ .payload = extra.val },
@@ -3124,7 +3208,7 @@ pub fn get(ip: *InternPool, gpa: Allocator, key: Key) Allocator.Error!Index {
             assert(runtime_value.ty == ip.typeOf(runtime_value.val));
             ip.items.appendAssumeCapacity(.{
                 .tag = .runtime_value,
-                .data = @enumToInt(runtime_value.val),
+                .data = try ip.addExtra(gpa, runtime_value),
             });
         },
 
@@ -3266,12 +3350,12 @@ pub fn get(ip: *InternPool, gpa: Allocator, key: Key) Allocator.Error!Index {
             if (has_init) assert(variable.ty == ip.typeOf(variable.init));
             ip.items.appendAssumeCapacity(.{
                 .tag = .variable,
-                .data = try ip.addExtra(gpa, Variable{
-                    .init = if (has_init) variable.init else variable.ty,
+                .data = try ip.addExtra(gpa, Tag.Variable{
+                    .ty = variable.ty,
+                    .init = variable.init,
                     .decl = variable.decl,
                     .lib_name = variable.lib_name,
                     .flags = .{
-                        .has_init = has_init,
                         .is_extern = variable.is_extern,
                         .is_const = variable.is_const,
                         .is_threadlocal = variable.is_threadlocal,
@@ -3431,7 +3515,7 @@ pub fn get(ip: *InternPool, gpa: Allocator, key: Key) Allocator.Error!Index {
                 .data = @enumToInt(opt.ty),
             } else .{
                 .tag = .opt_payload,
-                .data = try ip.addExtra(gpa, TypeValue{
+                .data = try ip.addExtra(gpa, Tag.TypeValue{
                     .ty = opt.ty,
                     .val = opt.val,
                 }),
@@ -3642,7 +3726,7 @@ pub fn get(ip: *InternPool, gpa: Allocator, key: Key) Allocator.Error!Index {
                 },
                 .payload => |payload| .{
                     .tag = .error_union_payload,
-                    .data = try ip.addExtra(gpa, TypeValue{
+                    .data = try ip.addExtra(gpa, Tag.TypeValue{
                         .ty = error_union.ty,
                         .val = payload,
                     }),
@@ -4222,7 +4306,7 @@ fn addExtraAssumeCapacity(ip: *InternPool, extra: anytype) u32 {
             TypeFunction.Flags => @bitCast(u32, @field(extra, field.name)),
             Pointer.PackedOffset => @bitCast(u32, @field(extra, field.name)),
             Pointer.VectorIndex => @enumToInt(@field(extra, field.name)),
-            Variable.Flags => @bitCast(u32, @field(extra, field.name)),
+            Tag.Variable.Flags => @bitCast(u32, @field(extra, field.name)),
             else => @compileError("bad field type: " ++ @typeName(field.type)),
         });
     }
@@ -4290,7 +4374,7 @@ fn extraDataTrail(ip: InternPool, comptime T: type, index: usize) struct { data:
             TypeFunction.Flags => @bitCast(TypeFunction.Flags, int32),
             Pointer.PackedOffset => @bitCast(Pointer.PackedOffset, int32),
             Pointer.VectorIndex => @intToEnum(Pointer.VectorIndex, int32),
-            Variable.Flags => @bitCast(Variable.Flags, int32),
+            Tag.Variable.Flags => @bitCast(Tag.Variable.Flags, int32),
             else => @compileError("bad field type: " ++ @typeName(field.type)),
         };
     }
@@ -4737,7 +4821,7 @@ pub fn isAggregateType(ip: InternPool, ty: Index) bool {
 /// The is only legal because the initializer is not part of the hash.
 pub fn mutateVarInit(ip: *InternPool, index: Index, init_index: Index) void {
     assert(ip.items.items(.tag)[@enumToInt(index)] == .variable);
-    const field_index = inline for (@typeInfo(Variable).Struct.fields, 0..) |field, field_index| {
+    const field_index = inline for (@typeInfo(Tag.Variable).Struct.fields, 0..) |field, field_index| {
         if (comptime std.mem.eql(u8, field.name, "init")) break field_index;
     } else unreachable;
     ip.extra.items[ip.items.items(.data)[@enumToInt(index)] + field_index] = @enumToInt(init_index);
@@ -4847,7 +4931,7 @@ fn dumpFallible(ip: InternPool, arena: Allocator) anyerror!void {
             },
 
             .undef => 0,
-            .runtime_value => 0,
+            .runtime_value => @sizeOf(Tag.TypeValue),
             .simple_type => 0,
             .simple_value => 0,
             .ptr_decl => @sizeOf(PtrDecl),
@@ -4860,7 +4944,7 @@ fn dumpFallible(ip: InternPool, arena: Allocator) anyerror!void {
             .ptr_field => @sizeOf(PtrBaseIndex),
             .ptr_slice => @sizeOf(PtrSlice),
             .opt_null => 0,
-            .opt_payload => @sizeOf(TypeValue),
+            .opt_payload => @sizeOf(Tag.TypeValue),
             .int_u8 => 0,
             .int_u16 => 0,
             .int_u32 => 0,
@@ -4880,7 +4964,7 @@ fn dumpFallible(ip: InternPool, arena: Allocator) anyerror!void {
             .int_lazy_align, .int_lazy_size => @sizeOf(IntLazy),
 
             .error_set_error, .error_union_error => @sizeOf(Key.Error),
-            .error_union_payload => @sizeOf(TypeValue),
+            .error_union_payload => @sizeOf(Tag.TypeValue),
             .enum_literal => 0,
             .enum_tag => @sizeOf(Key.EnumTag),
 
@@ -4905,7 +4989,7 @@ fn dumpFallible(ip: InternPool, arena: Allocator) anyerror!void {
             .float_c_longdouble_f80 => @sizeOf(Float80),
             .float_c_longdouble_f128 => @sizeOf(Float128),
             .float_comptime_float => @sizeOf(Float128),
-            .variable => @sizeOf(Variable) + @sizeOf(Module.Decl),
+            .variable => @sizeOf(Tag.Variable) + @sizeOf(Module.Decl),
             .extern_func => @sizeOf(Key.ExternFunc) + @sizeOf(Module.Decl),
             .func => @sizeOf(Key.Func) + @sizeOf(Module.Fn) + @sizeOf(Module.Decl),
             .only_possible_value => 0,
@@ -5179,6 +5263,7 @@ pub fn typeOf(ip: InternPool, index: Index) Index {
         .generic_poison_type,
         .empty_struct_type,
         => .type_type,
+
         .undef => .undefined_type,
         .zero, .one, .negative_one => .comptime_int_type,
         .zero_usize, .one_usize => .usize_type,
@@ -5190,8 +5275,109 @@ pub fn typeOf(ip: InternPool, index: Index) Index {
         .bool_true, .bool_false => .bool_type,
         .empty_struct => .empty_struct_type,
         .generic_poison => .generic_poison_type,
-        .var_args_param_type, .none => unreachable,
-        _ => ip.indexToKey(index).typeOf(),
+
+        // This optimization on tags is needed so that indexToKey can call
+        // typeOf without being recursive.
+        _ => switch (ip.items.items(.tag)[@enumToInt(index)]) {
+            .type_int_signed,
+            .type_int_unsigned,
+            .type_array_big,
+            .type_array_small,
+            .type_vector,
+            .type_pointer,
+            .type_slice,
+            .type_optional,
+            .type_anyframe,
+            .type_error_union,
+            .type_error_set,
+            .type_inferred_error_set,
+            .type_enum_auto,
+            .type_enum_explicit,
+            .type_enum_nonexhaustive,
+            .simple_type,
+            .type_opaque,
+            .type_struct,
+            .type_struct_ns,
+            .type_struct_anon,
+            .type_tuple_anon,
+            .type_union_tagged,
+            .type_union_untagged,
+            .type_union_safety,
+            .type_function,
+            => .type_type,
+
+            .undef,
+            .opt_null,
+            .only_possible_value,
+            => @intToEnum(Index, ip.items.items(.data)[@enumToInt(index)]),
+
+            .simple_value => unreachable, // handled via Index above
+
+            inline .ptr_decl,
+            .ptr_mut_decl,
+            .ptr_comptime_field,
+            .ptr_int,
+            .ptr_eu_payload,
+            .ptr_opt_payload,
+            .ptr_elem,
+            .ptr_field,
+            .ptr_slice,
+            .opt_payload,
+            .error_union_payload,
+            .runtime_value,
+            .int_small,
+            .int_lazy_align,
+            .int_lazy_size,
+            .error_set_error,
+            .error_union_error,
+            .enum_tag,
+            .variable,
+            .extern_func,
+            .func,
+            .union_value,
+            .bytes,
+            .aggregate,
+            .repeated,
+            => |t| {
+                const extra_index = ip.items.items(.data)[@enumToInt(index)];
+                const field_index = std.meta.fieldIndex(t.Payload(), "ty").?;
+                return @intToEnum(Index, ip.extra.items[extra_index + field_index]);
+            },
+
+            .int_u8 => .u8_type,
+            .int_u16 => .u16_type,
+            .int_u32 => .u32_type,
+            .int_i32 => .i32_type,
+            .int_usize => .usize_type,
+
+            .int_comptime_int_u32,
+            .int_comptime_int_i32,
+            => .comptime_int_type,
+
+            // Note these are stored in limbs data, not extra data.
+            .int_positive,
+            .int_negative,
+            => ip.limbData(Int, ip.items.items(.data)[@enumToInt(index)]).ty,
+
+            .enum_literal => .enum_literal_type,
+            .float_f16 => .f16_type,
+            .float_f32 => .f32_type,
+            .float_f64 => .f64_type,
+            .float_f80 => .f80_type,
+            .float_f128 => .f128_type,
+
+            .float_c_longdouble_f80,
+            .float_c_longdouble_f128,
+            => .c_longdouble_type,
+
+            .float_comptime_float => .comptime_float_type,
+
+            .memoized_decl => unreachable,
+            .memoized_call => unreachable,
+        },
+
+        .var_args_param_type => unreachable,
+        .none => unreachable,
     };
 }
 
