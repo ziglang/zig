@@ -47,7 +47,6 @@ fn SipHashStateless(comptime T: type, comptime c_rounds: usize, comptime d_round
     return struct {
         const Self = @This();
         const block_length = 64;
-        const digest_length = 64;
         const key_length = 16;
 
         v0: u64,
@@ -56,7 +55,7 @@ fn SipHashStateless(comptime T: type, comptime c_rounds: usize, comptime d_round
         v3: u64,
         msg_len: u8,
 
-        pub fn init(key: *const [key_length]u8) Self {
+        fn init(key: *const [key_length]u8) Self {
             const k0 = mem.readIntLittle(u64, key[0..8]);
             const k1 = mem.readIntLittle(u64, key[8..16]);
 
@@ -75,7 +74,7 @@ fn SipHashStateless(comptime T: type, comptime c_rounds: usize, comptime d_round
             return d;
         }
 
-        pub fn update(self: *Self, b: []const u8) void {
+        fn update(self: *Self, b: []const u8) void {
             std.debug.assert(b.len % 8 == 0);
 
             var off: usize = 0;
@@ -87,12 +86,7 @@ fn SipHashStateless(comptime T: type, comptime c_rounds: usize, comptime d_round
             self.msg_len +%= @truncate(u8, b.len);
         }
 
-        pub fn peek(self: Self) [digest_length]u8 {
-            var copy = self;
-            return copy.finalResult();
-        }
-
-        pub fn final(self: *Self, b: []const u8) T {
+        fn final(self: *Self, b: []const u8) T {
             std.debug.assert(b.len < 8);
 
             self.msg_len +%= @truncate(u8, b.len);
@@ -129,14 +123,8 @@ fn SipHashStateless(comptime T: type, comptime c_rounds: usize, comptime d_round
             return (@as(u128, b2) << 64) | b1;
         }
 
-        pub fn finalResult(self: *Self) [digest_length]u8 {
-            var result: [digest_length]u8 = undefined;
-            self.final(&result);
-            return result;
-        }
-
         fn round(self: *Self, b: [8]u8) void {
-            const m = mem.readIntLittle(u64, b[0..8]);
+            const m = mem.readIntLittle(u64, &b);
             self.v3 ^= m;
 
             comptime var i: usize = 0;
@@ -164,7 +152,7 @@ fn SipHashStateless(comptime T: type, comptime c_rounds: usize, comptime d_round
             d.v2 = math.rotl(u64, d.v2, @as(u64, 32));
         }
 
-        pub fn hash(msg: []const u8, key: *const [key_length]u8) T {
+        fn hash(msg: []const u8, key: *const [key_length]u8) T {
             const aligned_len = msg.len - (msg.len % 8);
             var c = Self.init(key);
             @call(.always_inline, update, .{ &c, msg[0..aligned_len] });
