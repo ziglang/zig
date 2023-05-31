@@ -2479,8 +2479,9 @@ pub const Type = struct {
                 .inferred_error_set_type,
                 => return null,
 
-                inline .array_type, .vector_type => |seq_type| {
-                    if (seq_type.len == 0) return (try mod.intern(.{ .aggregate = .{
+                inline .array_type, .vector_type => |seq_type, seq_tag| {
+                    const has_sentinel = seq_tag == .array_type and seq_type.sentinel != .none;
+                    if (seq_type.len + @boolToInt(has_sentinel) == 0) return (try mod.intern(.{ .aggregate = .{
                         .ty = ty.toIntern(),
                         .storage = .{ .elems = &.{} },
                     } })).toValue();
