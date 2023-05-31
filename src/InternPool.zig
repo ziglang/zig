@@ -249,35 +249,47 @@ pub const Key = union(enum) {
         }
     };
 
-    pub const PtrType = struct {
-        elem_type: Index,
+    /// Extern layout so it can be hashed with `std.mem.asBytes`.
+    pub const PtrType = extern struct {
+        child: Index,
         sentinel: Index = .none,
-        /// `none` indicates the ABI alignment of the pointee_type. In this
-        /// case, this field *must* be set to `none`, otherwise the
-        /// `InternPool` equality and hashing functions will return incorrect
-        /// results.
-        alignment: Alignment = .none,
-        /// If this is non-zero it means the pointer points to a sub-byte
-        /// range of data, which is backed by a "host integer" with this
-        /// number of bytes.
-        /// When host_size=pointee_abi_size and bit_offset=0, this must be
-        /// represented with host_size=0 instead.
-        host_size: u16 = 0,
-        bit_offset: u16 = 0,
-        vector_index: VectorIndex = .none,
-        size: std.builtin.Type.Pointer.Size = .One,
-        is_const: bool = false,
-        is_volatile: bool = false,
-        is_allowzero: bool = false,
-        /// See src/target.zig defaultAddressSpace function for how to obtain
-        /// an appropriate value for this field.
-        address_space: std.builtin.AddressSpace = .generic,
+        flags: Flags = .{},
+        packed_offset: PackedOffset = .{ .bit_offset = 0, .host_size = 0 },
 
         pub const VectorIndex = enum(u16) {
             none = std.math.maxInt(u16),
             runtime = std.math.maxInt(u16) - 1,
             _,
         };
+
+        pub const Flags = packed struct(u32) {
+            size: Size = .One,
+            /// `none` indicates the ABI alignment of the pointee_type. In this
+            /// case, this field *must* be set to `none`, otherwise the
+            /// `InternPool` equality and hashing functions will return incorrect
+            /// results.
+            alignment: Alignment = .none,
+            is_const: bool = false,
+            is_volatile: bool = false,
+            is_allowzero: bool = false,
+            /// See src/target.zig defaultAddressSpace function for how to obtain
+            /// an appropriate value for this field.
+            address_space: AddressSpace = .generic,
+            vector_index: VectorIndex = .none,
+        };
+
+        pub const PackedOffset = packed struct(u32) {
+            /// If this is non-zero it means the pointer points to a sub-byte
+            /// range of data, which is backed by a "host integer" with this
+            /// number of bytes.
+            /// When host_size=pointee_abi_size and bit_offset=0, this must be
+            /// represented with host_size=0 instead.
+            host_size: u16,
+            bit_offset: u16,
+        };
+
+        pub const Size = std.builtin.Type.Pointer.Size;
+        pub const AddressSpace = std.builtin.AddressSpace;
     };
 
     pub const ArrayType = struct {
@@ -635,17 +647,13 @@ pub const Key = union(enum) {
     }
 
     pub fn hash64(key: Key, ip: *const InternPool) u64 {
-        var hasher = std.hash.Wyhash.init(0);
-        key.hashWithHasher(&hasher, ip);
-        return hasher.final();
-    }
-
-    pub fn hashWithHasher(key: Key, hasher: *std.hash.Wyhash, ip: *const InternPool) void {
+        const asBytes = std.mem.asBytes;
         const KeyTag = @typeInfo(Key).Union.tag_type.?;
-        std.hash.autoHash(hasher, @as(KeyTag, key));
+        const seed = @enumToInt(@as(KeyTag, key));
         switch (key) {
+            .ptr_type => |x| return WyhashKing.hash(seed, asBytes(&x)),
+
             inline .int_type,
-            .ptr_type,
             .array_type,
             .vector_type,
             .opt_type,
@@ -663,73 +671,110 @@ pub const Key = union(enum) {
             .enum_literal,
             .enum_tag,
             .inferred_error_set_type,
-            => |info| std.hash.autoHash(hasher, info),
+            => |info| {
+                var hasher = std.hash.Wyhash.init(seed);
+                std.hash.autoHash(&hasher, info);
+                return hasher.final();
+            },
 
-            .runtime_value => |runtime_value| std.hash.autoHash(hasher, runtime_value.val),
-            .opaque_type => |opaque_type| std.hash.autoHash(hasher, opaque_type.decl),
-            .enum_type => |enum_type| std.hash.autoHash(hasher, enum_type.decl),
+            .runtime_value => |runtime_value| {
+                var hasher = std.hash.Wyhash.init(seed);
+                std.hash.autoHash(&hasher, runtime_value.val);
+                return hasher.final();
+            },
+            .opaque_type => |opaque_type| {
+                var hasher = std.hash.Wyhash.init(seed);
+                std.hash.autoHash(&hasher, opaque_type.decl);
+                return hasher.final();
+            },
+            .enum_type => |enum_type| {
+                var hasher = std.hash.Wyhash.init(seed);
+                std.hash.autoHash(&hasher, enum_type.decl);
+                return hasher.final();
+            },
 
-            .variable => |variable| std.hash.autoHash(hasher, variable.decl),
+            .variable => |variable| {
+                var hasher = std.hash.Wyhash.init(seed);
+                std.hash.autoHash(&hasher, variable.decl);
+                return hasher.final();
+            },
             .extern_func => |extern_func| {
-                std.hash.autoHash(hasher, extern_func.ty);
-                std.hash.autoHash(hasher, extern_func.decl);
+                var hasher = std.hash.Wyhash.init(seed);
+                std.hash.autoHash(&hasher, extern_func.ty);
+                std.hash.autoHash(&hasher, extern_func.decl);
+                return hasher.final();
             },
             .func => |func| {
-                std.hash.autoHash(hasher, func.ty);
-                std.hash.autoHash(hasher, func.index);
+                var hasher = std.hash.Wyhash.init(seed);
+                std.hash.autoHash(&hasher, func.ty);
+                std.hash.autoHash(&hasher, func.index);
+                return hasher.final();
             },
 
             .int => |int| {
+                var hasher = std.hash.Wyhash.init(seed);
                 // Canonicalize all integers by converting them to BigIntConst.
                 switch (int.storage) {
                     .u64, .i64, .big_int => {
                         var buffer: Key.Int.Storage.BigIntSpace = undefined;
                         const big_int = int.storage.toBigInt(&buffer);
 
-                        std.hash.autoHash(hasher, int.ty);
-                        std.hash.autoHash(hasher, big_int.positive);
-                        for (big_int.limbs) |limb| std.hash.autoHash(hasher, limb);
+                        std.hash.autoHash(&hasher, int.ty);
+                        std.hash.autoHash(&hasher, big_int.positive);
+                        for (big_int.limbs) |limb| std.hash.autoHash(&hasher, limb);
                     },
                     .lazy_align, .lazy_size => |lazy_ty| {
                         std.hash.autoHash(
-                            hasher,
+                            &hasher,
                             @as(@typeInfo(Key.Int.Storage).Union.tag_type.?, int.storage),
                         );
-                        std.hash.autoHash(hasher, lazy_ty);
+                        std.hash.autoHash(&hasher, lazy_ty);
                     },
                 }
+                return hasher.final();
             },
 
             .float => |float| {
-                std.hash.autoHash(hasher, float.ty);
+                var hasher = std.hash.Wyhash.init(seed);
+                std.hash.autoHash(&hasher, float.ty);
                 switch (float.storage) {
                     inline else => |val| std.hash.autoHash(
-                        hasher,
+                        &hasher,
                         @bitCast(std.meta.Int(.unsigned, @bitSizeOf(@TypeOf(val))), val),
                     ),
                 }
+                return hasher.final();
             },
 
             .ptr => |ptr| {
-                std.hash.autoHash(hasher, ptr.ty);
-                std.hash.autoHash(hasher, ptr.len);
                 // Int-to-ptr pointers are hashed separately than decl-referencing pointers.
                 // This is sound due to pointer provenance rules.
-                std.hash.autoHash(hasher, @as(@typeInfo(Key.Ptr.Addr).Union.tag_type.?, ptr.addr));
-                switch (ptr.addr) {
-                    .decl => |decl| std.hash.autoHash(hasher, decl),
-                    .mut_decl => |mut_decl| std.hash.autoHash(hasher, mut_decl),
-                    .int => |int| std.hash.autoHash(hasher, int),
-                    .eu_payload => |eu_payload| std.hash.autoHash(hasher, eu_payload),
-                    .opt_payload => |opt_payload| std.hash.autoHash(hasher, opt_payload),
-                    .comptime_field => |comptime_field| std.hash.autoHash(hasher, comptime_field),
-                    .elem => |elem| std.hash.autoHash(hasher, elem),
-                    .field => |field| std.hash.autoHash(hasher, field),
-                }
+                const addr: @typeInfo(Key.Ptr.Addr).Union.tag_type.? = ptr.addr;
+                const seed2 = seed + @enumToInt(addr);
+                const common = asBytes(&ptr.ty) ++ asBytes(&ptr.len);
+                return switch (ptr.addr) {
+                    .decl => |x| WyhashKing.hash(seed2, common ++ asBytes(&x)),
+
+                    .mut_decl => |x| WyhashKing.hash(
+                        seed2,
+                        asBytes(&x.decl) ++ asBytes(&x.runtime_index),
+                    ),
+
+                    .int, .eu_payload, .opt_payload, .comptime_field => |int| WyhashKing.hash(
+                        seed2,
+                        asBytes(&int),
+                    ),
+
+                    .elem, .field => |x| WyhashKing.hash(
+                        seed2,
+                        asBytes(&x.base) ++ asBytes(&x.index),
+                    ),
+                };
             },
 
             .aggregate => |aggregate| {
-                std.hash.autoHash(hasher, aggregate.ty);
+                var hasher = std.hash.Wyhash.init(seed);
+                std.hash.autoHash(&hasher, aggregate.ty);
                 const len = ip.aggregateTypeLen(aggregate.ty);
                 const child = switch (ip.indexToKey(aggregate.ty)) {
                     .array_type => |array_type| array_type.child,
@@ -741,16 +786,16 @@ pub const Key = union(enum) {
                 if (child == .u8_type) {
                     switch (aggregate.storage) {
                         .bytes => |bytes| for (bytes[0..@intCast(usize, len)]) |byte| {
-                            std.hash.autoHash(hasher, KeyTag.int);
-                            std.hash.autoHash(hasher, byte);
+                            std.hash.autoHash(&hasher, KeyTag.int);
+                            std.hash.autoHash(&hasher, byte);
                         },
                         .elems => |elems| for (elems[0..@intCast(usize, len)]) |elem| {
                             const elem_key = ip.indexToKey(elem);
-                            std.hash.autoHash(hasher, @as(KeyTag, elem_key));
+                            std.hash.autoHash(&hasher, @as(KeyTag, elem_key));
                             switch (elem_key) {
                                 .undef => {},
                                 .int => |int| std.hash.autoHash(
-                                    hasher,
+                                    &hasher,
                                     @intCast(u8, int.storage.u64),
                                 ),
                                 else => unreachable,
@@ -760,11 +805,11 @@ pub const Key = union(enum) {
                             const elem_key = ip.indexToKey(elem);
                             var remaining = len;
                             while (remaining > 0) : (remaining -= 1) {
-                                std.hash.autoHash(hasher, @as(KeyTag, elem_key));
+                                std.hash.autoHash(&hasher, @as(KeyTag, elem_key));
                                 switch (elem_key) {
                                     .undef => {},
                                     .int => |int| std.hash.autoHash(
-                                        hasher,
+                                        &hasher,
                                         @intCast(u8, int.storage.u64),
                                     ),
                                     else => unreachable,
@@ -772,47 +817,60 @@ pub const Key = union(enum) {
                             }
                         },
                     }
-                    return;
+                    return hasher.final();
                 }
 
                 switch (aggregate.storage) {
                     .bytes => unreachable,
                     .elems => |elems| for (elems[0..@intCast(usize, len)]) |elem|
-                        std.hash.autoHash(hasher, elem),
+                        std.hash.autoHash(&hasher, elem),
                     .repeated_elem => |elem| {
                         var remaining = len;
-                        while (remaining > 0) : (remaining -= 1) std.hash.autoHash(hasher, elem);
+                        while (remaining > 0) : (remaining -= 1) std.hash.autoHash(&hasher, elem);
                     },
                 }
+                return hasher.final();
             },
 
             .error_set_type => |error_set_type| {
-                for (error_set_type.names) |elem| std.hash.autoHash(hasher, elem);
+                var hasher = std.hash.Wyhash.init(seed);
+                for (error_set_type.names) |elem| std.hash.autoHash(&hasher, elem);
+                return hasher.final();
             },
 
             .anon_struct_type => |anon_struct_type| {
-                for (anon_struct_type.types) |elem| std.hash.autoHash(hasher, elem);
-                for (anon_struct_type.values) |elem| std.hash.autoHash(hasher, elem);
-                for (anon_struct_type.names) |elem| std.hash.autoHash(hasher, elem);
+                var hasher = std.hash.Wyhash.init(seed);
+                for (anon_struct_type.types) |elem| std.hash.autoHash(&hasher, elem);
+                for (anon_struct_type.values) |elem| std.hash.autoHash(&hasher, elem);
+                for (anon_struct_type.names) |elem| std.hash.autoHash(&hasher, elem);
+                return hasher.final();
             },
 
             .func_type => |func_type| {
-                for (func_type.param_types) |param_type| std.hash.autoHash(hasher, param_type);
-                std.hash.autoHash(hasher, func_type.return_type);
-                std.hash.autoHash(hasher, func_type.comptime_bits);
-                std.hash.autoHash(hasher, func_type.noalias_bits);
-                std.hash.autoHash(hasher, func_type.alignment);
-                std.hash.autoHash(hasher, func_type.cc);
-                std.hash.autoHash(hasher, func_type.is_var_args);
-                std.hash.autoHash(hasher, func_type.is_generic);
-                std.hash.autoHash(hasher, func_type.is_noinline);
+                var hasher = std.hash.Wyhash.init(seed);
+                for (func_type.param_types) |param_type| std.hash.autoHash(&hasher, param_type);
+                std.hash.autoHash(&hasher, func_type.return_type);
+                std.hash.autoHash(&hasher, func_type.comptime_bits);
+                std.hash.autoHash(&hasher, func_type.noalias_bits);
+                std.hash.autoHash(&hasher, func_type.alignment);
+                std.hash.autoHash(&hasher, func_type.cc);
+                std.hash.autoHash(&hasher, func_type.is_var_args);
+                std.hash.autoHash(&hasher, func_type.is_generic);
+                std.hash.autoHash(&hasher, func_type.is_noinline);
+                return hasher.final();
             },
 
-            .memoized_decl => |memoized_decl| std.hash.autoHash(hasher, memoized_decl.val),
+            .memoized_decl => |memoized_decl| {
+                var hasher = std.hash.Wyhash.init(seed);
+                std.hash.autoHash(&hasher, memoized_decl.val);
+                return hasher.final();
+            },
 
             .memoized_call => |memoized_call| {
-                std.hash.autoHash(hasher, memoized_call.func);
-                for (memoized_call.arg_values) |arg| std.hash.autoHash(hasher, arg);
+                var hasher = std.hash.Wyhash.init(seed);
+                std.hash.autoHash(&hasher, memoized_call.func);
+                for (memoized_call.arg_values) |arg| std.hash.autoHash(&hasher, arg);
+                return hasher.final();
             },
         }
     }
@@ -1340,7 +1398,7 @@ pub const Index = enum(u32) {
         type_array_big: struct { data: *Array },
         type_array_small: struct { data: *Vector },
         type_vector: struct { data: *Vector },
-        type_pointer: struct { data: *Pointer },
+        type_pointer: struct { data: *Tag.TypePointer },
         type_slice: DataIsIndex,
         type_optional: DataIsIndex,
         type_anyframe: DataIsIndex,
@@ -1564,44 +1622,56 @@ pub const static_keys = [_]Key{
     .{ .simple_type = .type_info },
 
     .{ .ptr_type = .{
-        .elem_type = .u8_type,
-        .size = .Many,
+        .child = .u8_type,
+        .flags = .{
+            .size = .Many,
+        },
     } },
 
     // manyptr_const_u8_type
     .{ .ptr_type = .{
-        .elem_type = .u8_type,
-        .size = .Many,
-        .is_const = true,
+        .child = .u8_type,
+        .flags = .{
+            .size = .Many,
+            .is_const = true,
+        },
     } },
 
     // manyptr_const_u8_sentinel_0_type
     .{ .ptr_type = .{
-        .elem_type = .u8_type,
+        .child = .u8_type,
         .sentinel = .zero_u8,
-        .size = .Many,
-        .is_const = true,
+        .flags = .{
+            .size = .Many,
+            .is_const = true,
+        },
     } },
 
     .{ .ptr_type = .{
-        .elem_type = .comptime_int_type,
-        .size = .One,
-        .is_const = true,
+        .child = .comptime_int_type,
+        .flags = .{
+            .size = .One,
+            .is_const = true,
+        },
     } },
 
     // slice_const_u8_type
     .{ .ptr_type = .{
-        .elem_type = .u8_type,
-        .size = .Slice,
-        .is_const = true,
+        .child = .u8_type,
+        .flags = .{
+            .size = .Slice,
+            .is_const = true,
+        },
     } },
 
     // slice_const_u8_sentinel_0_type
     .{ .ptr_type = .{
-        .elem_type = .u8_type,
+        .child = .u8_type,
         .sentinel = .zero_u8,
-        .size = .Slice,
-        .is_const = true,
+        .flags = .{
+            .size = .Slice,
+            .is_const = true,
+        },
     } },
 
     // anyerror_void_error_union_type
@@ -1702,7 +1772,6 @@ pub const Tag = enum(u8) {
     /// data is payload to Vector.
     type_vector,
     /// A fully explicitly specified pointer type.
-    /// data is payload to Pointer.
     type_pointer,
     /// A slice type.
     /// data is Index of underlying pointer type.
@@ -1941,6 +2010,7 @@ pub const Tag = enum(u8) {
     const Func = Key.Func;
     const Union = Key.Union;
     const MemoizedDecl = Key.MemoizedDecl;
+    const TypePointer = Key.PtrType;
 
     fn Payload(comptime tag: Tag) type {
         return switch (tag) {
@@ -1949,7 +2019,7 @@ pub const Tag = enum(u8) {
             .type_array_big => Array,
             .type_array_small => Vector,
             .type_vector => Vector,
-            .type_pointer => Pointer,
+            .type_pointer => TypePointer,
             .type_slice => unreachable,
             .type_optional => unreachable,
             .type_anyframe => unreachable,
@@ -2165,32 +2235,6 @@ pub const SimpleValue = enum(u32) {
     @"unreachable",
 
     generic_poison,
-};
-
-pub const Pointer = struct {
-    child: Index,
-    sentinel: Index,
-    flags: Flags,
-    packed_offset: PackedOffset,
-
-    pub const Flags = packed struct(u32) {
-        size: Size,
-        alignment: Alignment,
-        is_const: bool,
-        is_volatile: bool,
-        is_allowzero: bool,
-        address_space: AddressSpace,
-        vector_index: VectorIndex,
-    };
-
-    pub const PackedOffset = packed struct(u32) {
-        host_size: u16,
-        bit_offset: u16,
-    };
-
-    pub const Size = std.builtin.Type.Pointer.Size;
-    pub const AddressSpace = std.builtin.AddressSpace;
-    pub const VectorIndex = Key.PtrType.VectorIndex;
 };
 
 /// Stored as a power-of-two, with one special value to indicate none.
@@ -2531,39 +2575,13 @@ pub fn indexToKey(ip: *const InternPool, index: Index) Key {
             } };
         },
 
-        .type_pointer => {
-            const ptr_info = ip.extraData(Pointer, data);
-            return .{ .ptr_type = .{
-                .elem_type = ptr_info.child,
-                .sentinel = ptr_info.sentinel,
-                .alignment = ptr_info.flags.alignment,
-                .size = ptr_info.flags.size,
-                .is_const = ptr_info.flags.is_const,
-                .is_volatile = ptr_info.flags.is_volatile,
-                .is_allowzero = ptr_info.flags.is_allowzero,
-                .address_space = ptr_info.flags.address_space,
-                .vector_index = ptr_info.flags.vector_index,
-                .host_size = ptr_info.packed_offset.host_size,
-                .bit_offset = ptr_info.packed_offset.bit_offset,
-            } };
-        },
+        .type_pointer => .{ .ptr_type = ip.extraData(Tag.TypePointer, data) },
 
         .type_slice => {
             assert(ip.items.items(.tag)[data] == .type_pointer);
-            const ptr_info = ip.extraData(Pointer, ip.items.items(.data)[data]);
-            return .{ .ptr_type = .{
-                .elem_type = ptr_info.child,
-                .sentinel = ptr_info.sentinel,
-                .alignment = ptr_info.flags.alignment,
-                .size = .Slice,
-                .is_const = ptr_info.flags.is_const,
-                .is_volatile = ptr_info.flags.is_volatile,
-                .is_allowzero = ptr_info.flags.is_allowzero,
-                .address_space = ptr_info.flags.address_space,
-                .vector_index = ptr_info.flags.vector_index,
-                .host_size = ptr_info.packed_offset.host_size,
-                .bit_offset = ptr_info.packed_offset.bit_offset,
-            } };
+            var ptr_info = ip.extraData(Tag.TypePointer, ip.items.items(.data)[data]);
+            ptr_info.flags.size = .Slice;
+            return .{ .ptr_type = ptr_info };
         },
 
         .type_optional => .{ .opt_type = @intToEnum(Index, data) },
@@ -3066,13 +3084,13 @@ pub fn get(ip: *InternPool, gpa: Allocator, key: Key) Allocator.Error!Index {
             });
         },
         .ptr_type => |ptr_type| {
-            assert(ptr_type.elem_type != .none);
-            assert(ptr_type.sentinel == .none or ip.typeOf(ptr_type.sentinel) == ptr_type.elem_type);
+            assert(ptr_type.child != .none);
+            assert(ptr_type.sentinel == .none or ip.typeOf(ptr_type.sentinel) == ptr_type.child);
 
-            if (ptr_type.size == .Slice) {
+            if (ptr_type.flags.size == .Slice) {
                 _ = ip.map.pop();
                 var new_key = key;
-                new_key.ptr_type.size = .Many;
+                new_key.ptr_type.flags.size = .Many;
                 const ptr_type_index = try ip.get(gpa, new_key);
                 assert(!(try ip.map.getOrPutAdapted(gpa, key, adapter)).found_existing);
                 try ip.items.ensureUnusedCapacity(gpa, 1);
@@ -3083,27 +3101,12 @@ pub fn get(ip: *InternPool, gpa: Allocator, key: Key) Allocator.Error!Index {
                 return @intToEnum(Index, ip.items.len - 1);
             }
 
-            const is_allowzero = ptr_type.is_allowzero or ptr_type.size == .C;
+            var ptr_type_adjusted = ptr_type;
+            if (ptr_type.flags.size == .C) ptr_type_adjusted.flags.is_allowzero = true;
 
             ip.items.appendAssumeCapacity(.{
                 .tag = .type_pointer,
-                .data = try ip.addExtra(gpa, Pointer{
-                    .child = ptr_type.elem_type,
-                    .sentinel = ptr_type.sentinel,
-                    .flags = .{
-                        .alignment = ptr_type.alignment,
-                        .is_const = ptr_type.is_const,
-                        .is_volatile = ptr_type.is_volatile,
-                        .is_allowzero = is_allowzero,
-                        .size = ptr_type.size,
-                        .address_space = ptr_type.address_space,
-                        .vector_index = ptr_type.vector_index,
-                    },
-                    .packed_offset = .{
-                        .host_size = ptr_type.host_size,
-                        .bit_offset = ptr_type.bit_offset,
-                    },
-                }),
+                .data = try ip.addExtra(gpa, ptr_type_adjusted),
             });
         },
         .array_type => |array_type| {
@@ -3379,7 +3382,7 @@ pub fn get(ip: *InternPool, gpa: Allocator, key: Key) Allocator.Error!Index {
             const ptr_type = ip.indexToKey(ptr.ty).ptr_type;
             switch (ptr.len) {
                 .none => {
-                    assert(ptr_type.size != .Slice);
+                    assert(ptr_type.flags.size != .Slice);
                     switch (ptr.addr) {
                         .decl => |decl| ip.items.appendAssumeCapacity(.{
                             .tag = .ptr_decl,
@@ -3410,10 +3413,10 @@ pub fn get(ip: *InternPool, gpa: Allocator, key: Key) Allocator.Error!Index {
                             switch (ptr.addr) {
                                 .int => assert(ip.typeOf(base) == .usize_type),
                                 .eu_payload => assert(ip.indexToKey(
-                                    ip.indexToKey(ip.typeOf(base)).ptr_type.elem_type,
+                                    ip.indexToKey(ip.typeOf(base)).ptr_type.child,
                                 ) == .error_union_type),
                                 .opt_payload => assert(ip.indexToKey(
-                                    ip.indexToKey(ip.typeOf(base)).ptr_type.elem_type,
+                                    ip.indexToKey(ip.typeOf(base)).ptr_type.child,
                                 ) == .opt_type),
                                 else => unreachable,
                             }
@@ -3433,10 +3436,10 @@ pub fn get(ip: *InternPool, gpa: Allocator, key: Key) Allocator.Error!Index {
                         .elem, .field => |base_index| {
                             const base_ptr_type = ip.indexToKey(ip.typeOf(base_index.base)).ptr_type;
                             switch (ptr.addr) {
-                                .elem => assert(base_ptr_type.size == .Many),
+                                .elem => assert(base_ptr_type.flags.size == .Many),
                                 .field => {
-                                    assert(base_ptr_type.size == .One);
-                                    switch (ip.indexToKey(base_ptr_type.elem_type)) {
+                                    assert(base_ptr_type.flags.size == .One);
+                                    switch (ip.indexToKey(base_ptr_type.child)) {
                                         .anon_struct_type => |anon_struct_type| {
                                             assert(ptr.addr == .field);
                                             assert(base_index.index < anon_struct_type.types.len);
@@ -3451,7 +3454,7 @@ pub fn get(ip: *InternPool, gpa: Allocator, key: Key) Allocator.Error!Index {
                                         },
                                         .ptr_type => |slice_type| {
                                             assert(ptr.addr == .field);
-                                            assert(slice_type.size == .Slice);
+                                            assert(slice_type.flags.size == .Slice);
                                             assert(base_index.index < 2);
                                         },
                                         else => unreachable,
@@ -3485,12 +3488,12 @@ pub fn get(ip: *InternPool, gpa: Allocator, key: Key) Allocator.Error!Index {
                     // TODO: change Key.Ptr for slices to reference the manyptr value
                     // rather than having an addr field directly. Then we can avoid
                     // these problematic calls to pop(), get(), and getOrPutAdapted().
-                    assert(ptr_type.size == .Slice);
+                    assert(ptr_type.flags.size == .Slice);
                     _ = ip.map.pop();
                     var new_key = key;
                     new_key.ptr.ty = ip.slicePtrType(ptr.ty);
                     new_key.ptr.len = .none;
-                    assert(ip.indexToKey(new_key.ptr.ty).ptr_type.size == .Many);
+                    assert(ip.indexToKey(new_key.ptr.ty).ptr_type.flags.size == .Many);
                     const ptr_index = try ip.get(gpa, new_key);
                     assert(!(try ip.map.getOrPutAdapted(gpa, key, adapter)).found_existing);
                     try ip.items.ensureUnusedCapacity(gpa, 1);
@@ -4302,10 +4305,10 @@ fn addExtraAssumeCapacity(ip: *InternPool, extra: anytype) u32 {
             NullTerminatedString => @enumToInt(@field(extra, field.name)),
             OptionalNullTerminatedString => @enumToInt(@field(extra, field.name)),
             i32 => @bitCast(u32, @field(extra, field.name)),
-            Pointer.Flags => @bitCast(u32, @field(extra, field.name)),
+            Tag.TypePointer.Flags => @bitCast(u32, @field(extra, field.name)),
             TypeFunction.Flags => @bitCast(u32, @field(extra, field.name)),
-            Pointer.PackedOffset => @bitCast(u32, @field(extra, field.name)),
-            Pointer.VectorIndex => @enumToInt(@field(extra, field.name)),
+            Tag.TypePointer.PackedOffset => @bitCast(u32, @field(extra, field.name)),
+            Tag.TypePointer.VectorIndex => @enumToInt(@field(extra, field.name)),
             Tag.Variable.Flags => @bitCast(u32, @field(extra, field.name)),
             else => @compileError("bad field type: " ++ @typeName(field.type)),
         });
@@ -4370,10 +4373,10 @@ fn extraDataTrail(ip: *const InternPool, comptime T: type, index: usize) struct 
             NullTerminatedString => @intToEnum(NullTerminatedString, int32),
             OptionalNullTerminatedString => @intToEnum(OptionalNullTerminatedString, int32),
             i32 => @bitCast(i32, int32),
-            Pointer.Flags => @bitCast(Pointer.Flags, int32),
+            Tag.TypePointer.Flags => @bitCast(Tag.TypePointer.Flags, int32),
             TypeFunction.Flags => @bitCast(TypeFunction.Flags, int32),
-            Pointer.PackedOffset => @bitCast(Pointer.PackedOffset, int32),
-            Pointer.VectorIndex => @intToEnum(Pointer.VectorIndex, int32),
+            Tag.TypePointer.PackedOffset => @bitCast(Tag.TypePointer.PackedOffset, int32),
+            Tag.TypePointer.VectorIndex => @intToEnum(Tag.TypePointer.VectorIndex, int32),
             Tag.Variable.Flags => @bitCast(Tag.Variable.Flags, int32),
             else => @compileError("bad field type: " ++ @typeName(field.type)),
         };
@@ -4487,7 +4490,7 @@ test "basic usage" {
 
 pub fn childType(ip: *const InternPool, i: Index) Index {
     return switch (ip.indexToKey(i)) {
-        .ptr_type => |ptr_type| ptr_type.elem_type,
+        .ptr_type => |ptr_type| ptr_type.child,
         .vector_type => |vector_type| vector_type.child,
         .array_type => |array_type| array_type.child,
         .opt_type, .anyframe_type => |child| child,
@@ -4559,7 +4562,7 @@ pub fn getCoerced(ip: *InternPool, gpa: Allocator, val: Index, new_ty: Index) Al
             return ip.get(gpa, .{ .ptr = .{
                 .ty = new_ty,
                 .addr = .{ .int = .zero_usize },
-                .len = switch (ip.indexToKey(new_ty).ptr_type.size) {
+                .len = switch (ip.indexToKey(new_ty).ptr_type.flags.size) {
                     .One, .Many, .C => .none,
                     .Slice => try ip.get(gpa, .{ .undef = .usize_type }),
                 },
@@ -4623,7 +4626,7 @@ pub fn getCoerced(ip: *InternPool, gpa: Allocator, val: Index, new_ty: Index) Al
                     .none => try ip.get(gpa, .{ .ptr = .{
                         .ty = new_ty,
                         .addr = .{ .int = .zero_usize },
-                        .len = switch (ip.indexToKey(new_ty).ptr_type.size) {
+                        .len = switch (ip.indexToKey(new_ty).ptr_type.flags.size) {
                             .One, .Many, .C => .none,
                             .Slice => try ip.get(gpa, .{ .undef = .usize_type }),
                         },
@@ -4889,7 +4892,7 @@ fn dumpFallible(ip: *const InternPool, arena: Allocator) anyerror!void {
             .type_array_small => @sizeOf(Vector),
             .type_array_big => @sizeOf(Array),
             .type_vector => @sizeOf(Vector),
-            .type_pointer => @sizeOf(Pointer),
+            .type_pointer => @sizeOf(Tag.TypePointer),
             .type_slice => 0,
             .type_optional => 0,
             .type_anyframe => 0,
@@ -5007,6 +5010,7 @@ fn dumpFallible(ip: *const InternPool, arena: Allocator) anyerror!void {
         pub fn lessThan(ctx: @This(), a_index: usize, b_index: usize) bool {
             const values = ctx.map.values();
             return values[a_index].bytes > values[b_index].bytes;
+            //return values[a_index].count > values[b_index].count;
         }
     };
     counts.sort(SortContext{ .map = &counts });
@@ -5621,3 +5625,79 @@ pub fn zigTypeTagOrPoison(ip: *const InternPool, index: Index) error{GenericPois
         .none => unreachable, // special tag
     };
 }
+
+/// I got this from King, using this temporarily until std lib hashing can be
+/// improved to make stateless hashing performant. Currently the
+/// implementations suffer from not special casing small lengths and not taking
+/// advantage of comptime-known lengths, both of which this implementation
+/// does.
+const WyhashKing = struct {
+    inline fn mum(pair: *[2]u64) void {
+        const x = @as(u128, pair[0]) *% pair[1];
+        pair[0] = @truncate(u64, x);
+        pair[1] = @truncate(u64, x >> 64);
+    }
+
+    inline fn mix(a: u64, b: u64) u64 {
+        var pair = [_]u64{ a, b };
+        mum(&pair);
+        return pair[0] ^ pair[1];
+    }
+
+    inline fn read(comptime I: type, in: []const u8) I {
+        return std.mem.readIntLittle(I, in[0..@sizeOf(I)]);
+    }
+
+    const secret = [_]u64{
+        0xa0761d6478bd642f,
+        0xe7037ed1a0b428db,
+        0x8ebc6af09c88c6e3,
+        0x589965cc75374cc3,
+    };
+
+    fn hash(seed: u64, input: anytype) u64 {
+        var in: []const u8 = input;
+        var last = std.mem.zeroes([2]u64);
+        const starting_len: u64 = input.len;
+        var state = seed ^ mix(seed ^ secret[0], secret[1]);
+
+        if (in.len <= 16) {
+            if (in.len >= 4) {
+                const end = (in.len >> 3) << 2;
+                last[0] = (@as(u64, read(u32, in)) << 32) | read(u32, in[end..]);
+                last[1] = (@as(u64, read(u32, in[in.len - 4 ..])) << 32) | read(u32, in[in.len - 4 - end ..]);
+            } else if (in.len > 0) {
+                last[0] = (@as(u64, in[0]) << 16) | (@as(u64, in[in.len >> 1]) << 8) | in[in.len - 1];
+            }
+        } else {
+            large: {
+                if (in.len <= 48) break :large;
+                var split = [_]u64{ state, state, state };
+                while (true) {
+                    for (&split, 0..) |*lane, i| {
+                        const a = read(u64, in[(i * 2) * 8 ..]) ^ secret[i + 1];
+                        const b = read(u64, in[((i * 2) + 1) * 8 ..]) ^ lane.*;
+                        lane.* = mix(a, b);
+                    }
+                    in = in[48..];
+                    if (in.len > 48) continue;
+                    state = split[0] ^ (split[1] ^ split[2]);
+                    break :large;
+                }
+            }
+            while (true) {
+                if (in.len <= 16) break;
+                state = mix(read(u64, in) ^ secret[1], read(u64, in[8..]) ^ state);
+                in = in[16..];
+                if (in.len <= 16) break;
+            }
+            last[0] = read(u64, in[in.len - 16 ..]);
+            last[1] = read(u64, in[in.len - 8 ..]);
+        }
+
+        last[0] ^= secret[1];
+        last[1] ^= state;
+        mum(&last);
+        return mix(last[0] ^ secret[0] ^ starting_len, last[1] ^ secret[1]);
+    }
+};

@@ -673,7 +673,7 @@ fn lowerParentPtr(
                 mod.intern_pool.typeOf(elem.base).toType().elemType2(mod).abiSize(mod))),
         ),
         .field => |field| {
-            const base_type = mod.intern_pool.indexToKey(mod.intern_pool.typeOf(field.base)).ptr_type.elem_type;
+            const base_type = mod.intern_pool.indexToKey(mod.intern_pool.typeOf(field.base)).ptr_type.child;
             return lowerParentPtr(
                 bin_file,
                 src_loc,
@@ -681,7 +681,7 @@ fn lowerParentPtr(
                 code,
                 debug_output,
                 reloc_info.offset(switch (mod.intern_pool.indexToKey(base_type)) {
-                    .ptr_type => |ptr_type| switch (ptr_type.size) {
+                    .ptr_type => |ptr_type| switch (ptr_type.flags.size) {
                         .One, .Many, .C => unreachable,
                         .Slice => switch (field.index) {
                             0 => 0,

@@ -6430,8 +6430,10 @@ pub fn populateTestFunctions(
                 // func
                 try mod.intern(.{ .ptr = .{
                     .ty = try mod.intern(.{ .ptr_type = .{
-                        .elem_type = test_decl.ty.toIntern(),
-                        .is_const = true,
+                        .child = test_decl.ty.toIntern(),
+                        .flags = .{
+                            .is_const = true,
+                        },
                     } }),
                     .addr = .{ .decl = test_decl_index },
                 } }),
@@ -6466,9 +6468,11 @@ pub fn populateTestFunctions(
 
     {
         const new_ty = try mod.ptrType(.{
-            .elem_type = test_fn_ty.toIntern(),
-            .is_const = true,
-            .size = .Slice,
+            .child = test_fn_ty.toIntern(),
+            .flags = .{
+                .is_const = true,
+                .size = .Slice,
+            },
         });
         const new_val = decl.val;
         const new_init = try mod.intern(.{ .ptr = .{
@@ -6681,65 +6685,68 @@ pub fn optionalType(mod: *Module, child_type: InternPool.Index) Allocator.Error!
 
 pub fn ptrType(mod: *Module, info: InternPool.Key.PtrType) Allocator.Error!Type {
     var canon_info = info;
-    const have_elem_layout = info.elem_type.toType().layoutIsResolved(mod);
+    const have_elem_layout = info.child.toType().layoutIsResolved(mod);
 
-    if (info.size == .C) canon_info.is_allowzero = true;
+    if (info.flags.size == .C) canon_info.flags.is_allowzero = true;
 
     // Canonicalize non-zero alignment. If it matches the ABI alignment of the pointee
     // type, we change it to 0 here. If this causes an assertion trip because the
     // pointee type needs to be resolved more, that needs to be done before calling
     // this ptr() function.
-    if (info.alignment.toByteUnitsOptional()) |info_align| {
-        if (have_elem_layout and info_align == info.elem_type.toType().abiAlignment(mod)) {
-            canon_info.alignment = .none;
+    if (info.flags.alignment.toByteUnitsOptional()) |info_align| {
+        if (have_elem_layout and info_align == info.child.toType().abiAlignment(mod)) {
+            canon_info.flags.alignment = .none;
         }
     }
 
-    switch (info.vector_index) {
+    switch (info.flags.vector_index) {
         // Canonicalize host_size. If it matches the bit size of the pointee type,
         // we change it to 0 here. If this causes an assertion trip, the pointee type
         // needs to be resolved before calling this ptr() function.
-        .none => if (have_elem_layout and info.host_size != 0) {
-            const elem_bit_size = info.elem_type.toType().bitSize(mod);
-            assert(info.bit_offset + elem_bit_size <= info.host_size * 8);
-            if (info.host_size * 8 == elem_bit_size) {
-                canon_info.host_size = 0;
+        .none => if (have_elem_layout and info.packed_offset.host_size != 0) {
+            const elem_bit_size = info.child.toType().bitSize(mod);
+            assert(info.packed_offset.bit_offset + elem_bit_size <= info.packed_offset.host_size * 8);
+            if (info.packed_offset.host_size * 8 == elem_bit_size) {
+                canon_info.packed_offset.host_size = 0;
             }
         },
         .runtime => {},
-        _ => assert(@enumToInt(info.vector_index) < info.host_size),
+        _ => assert(@enumToInt(info.flags.vector_index) < info.packed_offset.host_size),
     }
 
     return (try intern(mod, .{ .ptr_type = canon_info })).toType();
 }
 
 pub fn singleMutPtrType(mod: *Module, child_type: Type) Allocator.Error!Type {
-    return ptrType(mod, .{ .elem_type = child_type.toIntern() });
+    return ptrType(mod, .{ .child = child_type.toIntern() });
 }
 
 pub fn singleConstPtrType(mod: *Module, child_type: Type) Allocator.Error!Type {
-    return ptrType(mod, .{ .elem_type = child_type.toIntern(), .is_const = true });
+    return ptrType(mod, .{
+        .child = child_type.toIntern(),
+        .flags = .{
+            .is_const = true,
+        },
+    });
 }
 
 pub fn manyConstPtrType(mod: *Module, child_type: Type) Allocator.Error!Type {
-    return ptrType(mod, .{ .elem_type = child_type.toIntern(), .size = .Many, .is_const = true });
+    return ptrType(mod, .{
+        .child = child_type.toIntern(),
+        .flags = .{
+            .size = .Many,
+            .is_const = true,
+        },
+    });
 }
 
 pub fn adjustPtrTypeChild(mod: *Module, ptr_ty: Type, new_child: Type) Allocator.Error!Type {
     const info = Type.ptrInfoIp(&mod.intern_pool, ptr_ty.toIntern());
     return mod.ptrType(.{
-        .elem_type = new_child.toIntern(),
-
+        .child = new_child.toIntern(),
         .sentinel = info.sentinel,
-        .alignment = info.alignment,
-        .host_size = info.host_size,
-        .bit_offset = info.bit_offset,
-        .vector_index = info.vector_index,
-        .size = info.size,
-        .is_const = info.is_const,
-        .is_volatile = info.is_volatile,
-        .is_allowzero = info.is_allowzero,
-        .address_space = info.address_space,
+        .flags = info.flags,
+        .packed_offset = info.packed_offset,
     });
 }
 

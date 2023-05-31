@@ -2080,8 +2080,8 @@ pub const Value = struct {
             else => val,
         };
         var ptr_ty_key = mod.intern_pool.indexToKey(elem_ptr_ty.toIntern()).ptr_type;
-        assert(ptr_ty_key.size != .Slice);
-        ptr_ty_key.size = .Many;
+        assert(ptr_ty_key.flags.size != .Slice);
+        ptr_ty_key.flags.size = .Many;
         return (try mod.intern(.{ .ptr = .{
             .ty = elem_ptr_ty.toIntern(),
             .addr = .{ .elem = .{
