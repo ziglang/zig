@@ -126,8 +126,8 @@ pub const XxHash64 = struct {
         return b +% prime_4;
     }
 
-    pub fn hash(input: []const u8) u64 {
-        var hasher = XxHash64.init(0);
+    pub fn hash(seed: u64, input: []const u8) u64 {
+        var hasher = XxHash64.init(seed);
         hasher.update(input);
         return hasher.final();
     }
@@ -236,8 +236,8 @@ pub const XxHash32 = struct {
         return acc;
     }
 
-    pub fn hash(input: []const u8) u32 {
-        var hasher = XxHash32.init(0);
+    pub fn hash(seed: u32, input: []const u8) u32 {
+        var hasher = XxHash32.init(seed);
         hasher.update(input);
         return hasher.final();
     }
