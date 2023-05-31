@@ -925,7 +925,6 @@ pub const DeclGen = struct {
             .error_set_type,
             .inferred_error_set_type,
             // memoization, not values
-            .memoized_decl,
             .memoized_call,
             => unreachable,
 

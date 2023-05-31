@@ -5183,33 +5183,26 @@ fn zirStr(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Ins
 
 fn addStrLit(sema: *Sema, block: *Block, bytes: []const u8) CompileError!Air.Inst.Ref {
     const mod = sema.mod;
-    const memoized_decl_index = memoized: {
-        const ty = try mod.arrayType(.{
-            .len = bytes.len,
-            .child = .u8_type,
-            .sentinel = .zero_u8,
+    const gpa = sema.gpa;
+    const ty = try mod.arrayType(.{
+        .len = bytes.len,
+        .child = .u8_type,
+        .sentinel = .zero_u8,
+    });
+    const val = try mod.intern(.{ .aggregate = .{
+        .ty = ty.toIntern(),
+        .storage = .{ .bytes = bytes },
+    } });
+    const gop = try mod.memoized_decls.getOrPut(gpa, val);
+    if (!gop.found_existing) {
+        const new_decl_index = try mod.createAnonymousDecl(block, .{
+            .ty = ty,
+            .val = val.toValue(),
         });
-        const val = try mod.intern(.{ .aggregate = .{
-            .ty = ty.toIntern(),
-            .storage = .{ .bytes = bytes },
-        } });
-
-        _ = try sema.typeHasRuntimeBits(ty);
-        const new_decl_index = try mod.createAnonymousDecl(block, .{ .ty = ty, .val = val.toValue() });
-        errdefer mod.abortAnonDecl(new_decl_index);
-
-        const memoized_index = try mod.intern(.{ .memoized_decl = .{
-            .val = val,
-            .decl = new_decl_index,
-        } });
-        const memoized_decl_index = mod.intern_pool.indexToKey(memoized_index).memoized_decl.decl;
-        if (memoized_decl_index != new_decl_index)
-            mod.abortAnonDecl(new_decl_index)
-        else
-            try mod.finalizeAnonDecl(new_decl_index);
-        break :memoized memoized_decl_index;
-    };
-    return sema.analyzeDeclRef(memoized_decl_index);
+        gop.value_ptr.* = new_decl_index;
+        try mod.finalizeAnonDecl(new_decl_index);
+    }
+    return sema.analyzeDeclRef(gop.value_ptr.*);
 }
 
 fn zirInt(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
@@ -32156,7 +32149,6 @@ pub fn resolveTypeRequiresComptime(sema: *Sema, ty: Type) CompileError!bool {
             .aggregate,
             .un,
             // memoization, not types
-            .memoized_decl,
             .memoized_call,
             => unreachable,
         },
@@ -33666,7 +33658,6 @@ pub fn typeHasOnePossibleValue(sema: *Sema, ty: Type) CompileError!?Value {
             .aggregate,
             .un,
             // memoization, not types
-            .memoized_decl,
             .memoized_call,
             => unreachable,
         },
@@ -34155,7 +34146,6 @@ pub fn typeRequiresComptime(sema: *Sema, ty: Type) CompileError!bool {
             .aggregate,
             .un,
             // memoization, not types
-            .memoized_decl,
             .memoized_call,
             => unreachable,
         },

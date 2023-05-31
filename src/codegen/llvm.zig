@@ -3796,9 +3796,7 @@ pub const DeclGen = struct {
                     return llvm_union_ty.constNamedStruct(&fields, fields_len);
                 }
             },
-            .memoized_decl,
-            .memoized_call,
-            => unreachable,
+            .memoized_call => unreachable,
         }
     }
 

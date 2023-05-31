@@ -446,7 +446,6 @@ pub const Type = struct {
             .aggregate,
             .un,
             // memoization, not types
-            .memoized_decl,
             .memoized_call,
             => unreachable,
         }
@@ -663,7 +662,6 @@ pub const Type = struct {
                 .aggregate,
                 .un,
                 // memoization, not types
-                .memoized_decl,
                 .memoized_call,
                 => unreachable,
             },
@@ -773,7 +771,6 @@ pub const Type = struct {
             .aggregate,
             .un,
             // memoization, not types
-            .memoized_decl,
             .memoized_call,
             => unreachable,
         };
@@ -1108,7 +1105,6 @@ pub const Type = struct {
                 .aggregate,
                 .un,
                 // memoization, not types
-                .memoized_decl,
                 .memoized_call,
                 => unreachable,
             },
@@ -1526,7 +1522,6 @@ pub const Type = struct {
                 .aggregate,
                 .un,
                 // memoization, not types
-                .memoized_decl,
                 .memoized_call,
                 => unreachable,
             },
@@ -1761,7 +1756,6 @@ pub const Type = struct {
             .aggregate,
             .un,
             // memoization, not types
-            .memoized_decl,
             .memoized_call,
             => unreachable,
         }
@@ -2315,7 +2309,6 @@ pub const Type = struct {
                 .aggregate,
                 .un,
                 // memoization, not types
-                .memoized_decl,
                 .memoized_call,
                 => unreachable,
             },
@@ -2666,7 +2659,6 @@ pub const Type = struct {
                 .aggregate,
                 .un,
                 // memoization, not types
-                .memoized_decl,
                 .memoized_call,
                 => unreachable,
             },
@@ -2812,7 +2804,6 @@ pub const Type = struct {
                 .aggregate,
                 .un,
                 // memoization, not types
-                .memoized_decl,
                 .memoized_call,
                 => unreachable,
             },
