@@ -39,6 +39,16 @@ const hashes = [_]Hash{
         .init_u64 = 0,
     },
     Hash{
+        .ty = hash.XxHash64,
+        .name = "xxhash64",
+        .init_u64 = 0,
+    },
+    Hash{
+        .ty = hash.XxHash32,
+        .name = "xxhash32",
+        .init_u64 = 0,
+    },
+    Hash{
         .ty = hash.Fnv1a_64,
         .name = "fnv1a",
     },
