@@ -221,8 +221,6 @@ pub const Key = union(enum) {
     /// An instance of a union.
     un: Union,
 
-    /// A declaration with a memoized value.
-    memoized_decl: MemoizedDecl,
     /// A comptime function call with a memoized result.
     memoized_call: Key.MemoizedCall,
 
@@ -639,11 +637,6 @@ pub const Key = union(enum) {
         };
     };
 
-    pub const MemoizedDecl = struct {
-        val: Index,
-        decl: Module.Decl.Index,
-    };
-
     pub const MemoizedCall = struct {
         func: Module.Fn.Index,
         arg_values: []const Index,
@@ -852,8 +845,6 @@ pub const Key = union(enum) {
                 std.hash.autoHash(&hasher, func_type.is_noinline);
                 return hasher.final();
             },
-
-            .memoized_decl => |x| WyhashKing.hash(seed, asBytes(&x.val)),
 
             .memoized_call => |memoized_call| {
                 var hasher = std.hash.Wyhash.init(seed);
@@ -1134,11 +1125,6 @@ pub const Key = union(enum) {
                     a_info.is_noinline == b_info.is_noinline;
             },
 
-            .memoized_decl => |a_info| {
-                const b_info = b.memoized_decl;
-                return a_info.val == b_info.val;
-            },
-
             .memoized_call => |a_info| {
                 const b_info = b.memoized_call;
                 return a_info.func == b_info.func and
@@ -1197,9 +1183,7 @@ pub const Key = union(enum) {
                 .generic_poison => .generic_poison_type,
             },
 
-            .memoized_decl,
-            .memoized_call,
-            => unreachable,
+            .memoized_call => unreachable,
         };
     }
 };
@@ -1481,7 +1465,6 @@ pub const Index = enum(u32) {
         },
         repeated: struct { data: *Repeated },
 
-        memoized_decl: struct { data: *Key.MemoizedDecl },
         memoized_call: struct {
             const @"data.args_len" = opaque {};
             data: *MemoizedCall,
@@ -1989,9 +1972,6 @@ pub const Tag = enum(u8) {
     /// data is extra index to `Repeated`.
     repeated,
 
-    /// A memoized declaration value.
-    /// data is extra index to `Key.MemoizedDecl`
-    memoized_decl,
     /// A memoized comptime function call result.
     /// data is extra index to `MemoizedCall`
     memoized_call,
@@ -2004,7 +1984,6 @@ pub const Tag = enum(u8) {
     const ExternFunc = Key.ExternFunc;
     const Func = Key.Func;
     const Union = Key.Union;
-    const MemoizedDecl = Key.MemoizedDecl;
     const TypePointer = Key.PtrType;
 
     fn Payload(comptime tag: Tag) type {
@@ -2082,7 +2061,6 @@ pub const Tag = enum(u8) {
             .bytes => Bytes,
             .aggregate => Aggregate,
             .repeated => Repeated,
-            .memoized_decl => MemoizedDecl,
             .memoized_call => MemoizedCall,
         };
     }
@@ -3000,7 +2978,6 @@ pub fn indexToKey(ip: *const InternPool, index: Index) Key {
         .enum_literal => .{ .enum_literal = @intToEnum(NullTerminatedString, data) },
         .enum_tag => .{ .enum_tag = ip.extraData(Tag.EnumTag, data) },
 
-        .memoized_decl => .{ .memoized_decl = ip.extraData(Key.MemoizedDecl, data) },
         .memoized_call => {
             const extra = ip.extraDataTrail(MemoizedCall, data);
             return .{ .memoized_call = .{
@@ -3992,14 +3969,6 @@ pub fn get(ip: *InternPool, gpa: Allocator, key: Key) Allocator.Error!Index {
             ip.items.appendAssumeCapacity(.{
                 .tag = .union_value,
                 .data = try ip.addExtra(gpa, un),
-            });
-        },
-
-        .memoized_decl => |memoized_decl| {
-            assert(memoized_decl.val != .none);
-            ip.items.appendAssumeCapacity(.{
-                .tag = .memoized_decl,
-                .data = try ip.addExtra(gpa, memoized_decl),
             });
         },
 
@@ -5005,7 +4974,6 @@ fn dumpFallible(ip: *const InternPool, arena: Allocator) anyerror!void {
             .only_possible_value => 0,
             .union_value => @sizeOf(Key.Union),
 
-            .memoized_decl => @sizeOf(Key.MemoizedDecl),
             .memoized_call => b: {
                 const info = ip.extraData(MemoizedCall, data);
                 break :b @sizeOf(MemoizedCall) + (@sizeOf(Index) * info.args_len);
@@ -5383,7 +5351,6 @@ pub fn typeOf(ip: *const InternPool, index: Index) Index {
 
             .float_comptime_float => .comptime_float_type,
 
-            .memoized_decl => unreachable,
             .memoized_call => unreachable,
         },
 
@@ -5624,7 +5591,6 @@ pub fn zigTypeTagOrPoison(ip: *const InternPool, index: Index) error{GenericPois
             .aggregate,
             .repeated,
             // memoization, not types
-            .memoized_decl,
             .memoized_call,
             => unreachable,
         },

@@ -279,9 +279,7 @@ pub fn print(
                 } else try writer.writeAll("...");
                 return writer.writeAll(" }");
             },
-            .memoized_decl,
-            .memoized_call,
-            => unreachable,
+            .memoized_call => unreachable,
         },
     };
 }

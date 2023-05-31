@@ -610,9 +610,7 @@ pub fn generateSymbol(
                 }
             }
         },
-        .memoized_decl,
-        .memoized_call,
-        => unreachable,
+        .memoized_call => unreachable,
     }
     return .ok;
 }

@@ -88,6 +88,9 @@ embed_table: std.StringHashMapUnmanaged(*EmbedFile) = .{},
 /// Stores all Type and Value objects; periodically garbage collected.
 intern_pool: InternPool = .{},
 
+/// This is currently only used for string literals.
+memoized_decls: std.AutoHashMapUnmanaged(InternPool.Index, Decl.Index) = .{},
+
 /// The set of all the generic function instantiations. This is used so that when a generic
 /// function is called twice with the same comptime parameter arguments, both calls dispatch
 /// to the same function.
@@ -561,6 +564,7 @@ pub const Decl = struct {
             }
             mod.destroyFunc(func);
         }
+        _ = mod.memoized_decls.remove(decl.val.ip_index);
         if (decl.value_arena) |value_arena| {
             value_arena.deinit(gpa);
             decl.value_arena = null;
@@ -3285,6 +3289,7 @@ pub fn deinit(mod: *Module) void {
     mod.namespaces_free_list.deinit(gpa);
     mod.allocated_namespaces.deinit(gpa);
 
+    mod.memoized_decls.deinit(gpa);
     mod.intern_pool.deinit(gpa);
 }
 
