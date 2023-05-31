@@ -1886,11 +1886,8 @@ pub const Type = struct {
     /// See also `isPtrLikeOptional`.
     pub fn optionalReprIsPayload(ty: Type, mod: *const Module) bool {
         return switch (mod.intern_pool.indexToKey(ty.toIntern())) {
-            .opt_type => |child_type| switch (mod.intern_pool.indexToKey(child_type)) {
-                .ptr_type => |ptr_type| switch (ptr_type.flags.size) {
-                    .C => false,
-                    .Slice, .Many, .One => !ptr_type.flags.is_allowzero,
-                },
+            .opt_type => |child_type| child_type == .anyerror_type or switch (mod.intern_pool.indexToKey(child_type)) {
+                .ptr_type => |ptr_type| ptr_type.flags.size != .C and !ptr_type.flags.is_allowzero,
                 .error_set_type => true,
                 else => false,
             },
