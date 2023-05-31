@@ -1216,10 +1216,10 @@ pub const Value = struct {
         return bigint.clz(ty.intInfo(mod).bits);
     }
 
-    pub fn ctz(val: Value, _: Type, mod: *Module) u64 {
+    pub fn ctz(val: Value, ty: Type, mod: *Module) u64 {
         var bigint_buf: BigIntSpace = undefined;
         const bigint = val.toBigInt(&bigint_buf, mod);
-        return bigint.ctz();
+        return bigint.ctz(ty.intInfo(mod).bits);
     }
 
     pub fn popCount(val: Value, ty: Type, mod: *Module) u64 {
