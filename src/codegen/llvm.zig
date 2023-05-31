@@ -1577,25 +1577,27 @@ pub const Object = struct {
                 const ptr_info = Type.ptrInfoIp(&mod.intern_pool, ty.toIntern());
 
                 if (ptr_info.sentinel != .none or
-                    ptr_info.address_space != .generic or
-                    ptr_info.bit_offset != 0 or
-                    ptr_info.host_size != 0 or
-                    ptr_info.vector_index != .none or
-                    ptr_info.is_allowzero or
-                    ptr_info.is_const or
-                    ptr_info.is_volatile or
-                    ptr_info.size == .Many or ptr_info.size == .C or
-                    !ptr_info.elem_type.toType().hasRuntimeBitsIgnoreComptime(mod))
+                    ptr_info.flags.address_space != .generic or
+                    ptr_info.packed_offset.bit_offset != 0 or
+                    ptr_info.packed_offset.host_size != 0 or
+                    ptr_info.flags.vector_index != .none or
+                    ptr_info.flags.is_allowzero or
+                    ptr_info.flags.is_const or
+                    ptr_info.flags.is_volatile or
+                    ptr_info.flags.size == .Many or ptr_info.flags.size == .C or
+                    !ptr_info.child.toType().hasRuntimeBitsIgnoreComptime(mod))
                 {
                     const bland_ptr_ty = try mod.ptrType(.{
-                        .elem_type = if (!ptr_info.elem_type.toType().hasRuntimeBitsIgnoreComptime(mod))
+                        .child = if (!ptr_info.child.toType().hasRuntimeBitsIgnoreComptime(mod))
                             .anyopaque_type
                         else
-                            ptr_info.elem_type,
-                        .alignment = ptr_info.alignment,
-                        .size = switch (ptr_info.size) {
-                            .Many, .C, .One => .One,
-                            .Slice => .Slice,
+                            ptr_info.child,
+                        .flags = .{
+                            .alignment = ptr_info.flags.alignment,
+                            .size = switch (ptr_info.flags.size) {
+                                .Many, .C, .One => .One,
+                                .Slice => .Slice,
+                            },
                         },
                     });
                     const ptr_di_ty = try o.lowerDebugType(bland_ptr_ty, resolve);
@@ -1683,7 +1685,7 @@ pub const Object = struct {
                     return full_di_ty;
                 }
 
-                const elem_di_ty = try o.lowerDebugType(ptr_info.elem_type.toType(), .fwd);
+                const elem_di_ty = try o.lowerDebugType(ptr_info.child.toType(), .fwd);
                 const name = try ty.nameAlloc(gpa, o.module);
                 defer gpa.free(name);
                 const ptr_di_ty = dib.createPointerType(
@@ -5856,8 +5858,10 @@ pub const FuncGen = struct {
                 const struct_llvm_ty = try self.dg.lowerType(struct_ty);
                 const field_ptr = self.builder.buildStructGEP(struct_llvm_ty, struct_llvm_val, llvm_field.index, "");
                 const field_ptr_ty = try mod.ptrType(.{
-                    .elem_type = llvm_field.ty.toIntern(),
-                    .alignment = InternPool.Alignment.fromNonzeroByteUnits(llvm_field.alignment),
+                    .child = llvm_field.ty.toIntern(),
+                    .flags = .{
+                        .alignment = InternPool.Alignment.fromNonzeroByteUnits(llvm_field.alignment),
+                    },
                 });
                 if (isByRef(field_ty, mod)) {
                     if (canElideLoad(self, body_tail))
@@ -6732,8 +6736,10 @@ pub const FuncGen = struct {
         const struct_llvm_ty = try self.dg.lowerType(struct_ty);
         const field_ptr = self.builder.buildStructGEP(struct_llvm_ty, self.err_ret_trace.?, llvm_field.index, "");
         const field_ptr_ty = try mod.ptrType(.{
-            .elem_type = llvm_field.ty.toIntern(),
-            .alignment = InternPool.Alignment.fromNonzeroByteUnits(llvm_field.alignment),
+            .child = llvm_field.ty.toIntern(),
+            .flags = .{
+                .alignment = InternPool.Alignment.fromNonzeroByteUnits(llvm_field.alignment),
+            },
         });
         return self.load(field_ptr, field_ptr_ty);
     }
@@ -9131,10 +9137,12 @@ pub const FuncGen = struct {
                         indices[1] = llvm_u32.constInt(llvm_i, .False);
                         const field_ptr = self.builder.buildInBoundsGEP(llvm_result_ty, alloca_inst, &indices, indices.len, "");
                         const field_ptr_ty = try mod.ptrType(.{
-                            .elem_type = self.typeOf(elem).toIntern(),
-                            .alignment = InternPool.Alignment.fromNonzeroByteUnits(
-                                result_ty.structFieldAlign(i, mod),
-                            ),
+                            .child = self.typeOf(elem).toIntern(),
+                            .flags = .{
+                                .alignment = InternPool.Alignment.fromNonzeroByteUnits(
+                                    result_ty.structFieldAlign(i, mod),
+                                ),
+                            },
                         });
                         try self.store(field_ptr, field_ptr_ty, llvm_elem, .NotAtomic);
                     }
@@ -9160,7 +9168,7 @@ pub const FuncGen = struct {
 
                 const array_info = result_ty.arrayInfo(mod);
                 const elem_ptr_ty = try mod.ptrType(.{
-                    .elem_type = array_info.elem_type.toIntern(),
+                    .child = array_info.elem_type.toIntern(),
                 });
 
                 for (elements, 0..) |elem, i| {
@@ -9282,8 +9290,10 @@ pub const FuncGen = struct {
         const index_type = self.context.intType(32);
 
         const field_ptr_ty = try mod.ptrType(.{
-            .elem_type = field.ty.toIntern(),
-            .alignment = InternPool.Alignment.fromNonzeroByteUnits(field_align),
+            .child = field.ty.toIntern(),
+            .flags = .{
+                .alignment = InternPool.Alignment.fromNonzeroByteUnits(field_align),
+            },
         });
         if (layout.tag_size == 0) {
             const indices: [3]*llvm.Value = .{

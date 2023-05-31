@@ -85,7 +85,7 @@ pub const Type = struct {
 
     /// Asserts the type is a pointer.
     pub fn ptrIsMutable(ty: Type, mod: *const Module) bool {
-        return !mod.intern_pool.indexToKey(ty.toIntern()).ptr_type.is_const;
+        return !mod.intern_pool.indexToKey(ty.toIntern()).ptr_type.flags.is_const;
     }
 
     pub const ArrayInfo = struct {
@@ -488,7 +488,7 @@ pub const Type = struct {
                     // Pointers to zero-bit types still have a runtime address; however, pointers
                     // to comptime-only types do not, with the exception of function pointers.
                     if (ignore_comptime_only) return true;
-                    const child_ty = ptr_type.elem_type.toType();
+                    const child_ty = ptr_type.child.toType();
                     if (child_ty.zigTypeTag(mod) == .Fn) return !mod.typeToFunc(child_ty).?.is_generic;
                     if (strat == .sema) return !(try strat.sema.typeRequiresComptime(ty));
                     return !comptimeOnly(ty, mod);
@@ -689,7 +689,7 @@ pub const Type = struct {
 
             .array_type => |array_type| array_type.child.toType().hasWellDefinedLayout(mod),
             .opt_type => ty.isPtrLikeOptional(mod),
-            .ptr_type => |ptr_type| ptr_type.size != .Slice,
+            .ptr_type => |ptr_type| ptr_type.flags.size != .Slice,
 
             .simple_type => |t| switch (t) {
                 .f16,
@@ -823,13 +823,13 @@ pub const Type = struct {
     pub fn ptrAlignmentAdvanced(ty: Type, mod: *Module, opt_sema: ?*Sema) !u32 {
         return switch (mod.intern_pool.indexToKey(ty.toIntern())) {
             .ptr_type => |ptr_type| {
-                if (ptr_type.alignment.toByteUnitsOptional()) |a| {
+                if (ptr_type.flags.alignment.toByteUnitsOptional()) |a| {
                     return @intCast(u32, a);
                 } else if (opt_sema) |sema| {
-                    const res = try ptr_type.elem_type.toType().abiAlignmentAdvanced(mod, .{ .sema = sema });
+                    const res = try ptr_type.child.toType().abiAlignmentAdvanced(mod, .{ .sema = sema });
                     return res.scalar;
                 } else {
-                    return (ptr_type.elem_type.toType().abiAlignmentAdvanced(mod, .eager) catch unreachable).scalar;
+                    return (ptr_type.child.toType().abiAlignmentAdvanced(mod, .eager) catch unreachable).scalar;
                 }
             },
             .opt_type => |child| child.toType().ptrAlignmentAdvanced(mod, opt_sema),
@@ -839,8 +839,8 @@ pub const Type = struct {
 
     pub fn ptrAddressSpace(ty: Type, mod: *const Module) std.builtin.AddressSpace {
         return switch (mod.intern_pool.indexToKey(ty.toIntern())) {
-            .ptr_type => |ptr_type| ptr_type.address_space,
-            .opt_type => |child| mod.intern_pool.indexToKey(child).ptr_type.address_space,
+            .ptr_type => |ptr_type| ptr_type.flags.address_space,
+            .opt_type => |child| mod.intern_pool.indexToKey(child).ptr_type.flags.address_space,
             else => unreachable,
         };
     }
@@ -1297,7 +1297,7 @@ pub const Type = struct {
                     if (int_type.bits == 0) return AbiSizeAdvanced{ .scalar = 0 };
                     return AbiSizeAdvanced{ .scalar = intAbiSize(int_type.bits, target) };
                 },
-                .ptr_type => |ptr_type| switch (ptr_type.size) {
+                .ptr_type => |ptr_type| switch (ptr_type.flags.size) {
                     .Slice => return .{ .scalar = @divExact(target.ptrBitWidth(), 8) * 2 },
                     else => return .{ .scalar = @divExact(target.ptrBitWidth(), 8) },
                 },
@@ -1620,7 +1620,7 @@ pub const Type = struct {
 
         switch (mod.intern_pool.indexToKey(ty.toIntern())) {
             .int_type => |int_type| return int_type.bits,
-            .ptr_type => |ptr_type| switch (ptr_type.size) {
+            .ptr_type => |ptr_type| switch (ptr_type.flags.size) {
                 .Slice => return target.ptrBitWidth() * 2,
                 else => return target.ptrBitWidth(),
             },
@@ -1795,7 +1795,7 @@ pub const Type = struct {
 
     pub fn isSinglePointer(ty: Type, mod: *const Module) bool {
         return switch (mod.intern_pool.indexToKey(ty.toIntern())) {
-            .ptr_type => |ptr_info| ptr_info.size == .One,
+            .ptr_type => |ptr_info| ptr_info.flags.size == .One,
             else => false,
         };
     }
@@ -1808,14 +1808,14 @@ pub const Type = struct {
     /// Returns `null` if `ty` is not a pointer.
     pub fn ptrSizeOrNull(ty: Type, mod: *const Module) ?std.builtin.Type.Pointer.Size {
         return switch (mod.intern_pool.indexToKey(ty.toIntern())) {
-            .ptr_type => |ptr_info| ptr_info.size,
+            .ptr_type => |ptr_info| ptr_info.flags.size,
             else => null,
         };
     }
 
     pub fn isSlice(ty: Type, mod: *const Module) bool {
         return switch (mod.intern_pool.indexToKey(ty.toIntern())) {
-            .ptr_type => |ptr_type| ptr_type.size == .Slice,
+            .ptr_type => |ptr_type| ptr_type.flags.size == .Slice,
             else => false,
         };
     }
@@ -1826,7 +1826,7 @@ pub const Type = struct {
 
     pub fn isConstPtr(ty: Type, mod: *const Module) bool {
         return switch (mod.intern_pool.indexToKey(ty.toIntern())) {
-            .ptr_type => |ptr_type| ptr_type.is_const,
+            .ptr_type => |ptr_type| ptr_type.flags.is_const,
             else => false,
         };
     }
@@ -1837,14 +1837,14 @@ pub const Type = struct {
 
     pub fn isVolatilePtrIp(ty: Type, ip: *const InternPool) bool {
         return switch (ip.indexToKey(ty.toIntern())) {
-            .ptr_type => |ptr_type| ptr_type.is_volatile,
+            .ptr_type => |ptr_type| ptr_type.flags.is_volatile,
             else => false,
         };
     }
 
     pub fn isAllowzeroPtr(ty: Type, mod: *const Module) bool {
         return switch (mod.intern_pool.indexToKey(ty.toIntern())) {
-            .ptr_type => |ptr_type| ptr_type.is_allowzero,
+            .ptr_type => |ptr_type| ptr_type.flags.is_allowzero,
             .opt_type => true,
             else => false,
         };
@@ -1852,21 +1852,21 @@ pub const Type = struct {
 
     pub fn isCPtr(ty: Type, mod: *const Module) bool {
         return switch (mod.intern_pool.indexToKey(ty.toIntern())) {
-            .ptr_type => |ptr_type| ptr_type.size == .C,
+            .ptr_type => |ptr_type| ptr_type.flags.size == .C,
             else => false,
         };
     }
 
     pub fn isPtrAtRuntime(ty: Type, mod: *const Module) bool {
         return switch (mod.intern_pool.indexToKey(ty.toIntern())) {
-            .ptr_type => |ptr_type| switch (ptr_type.size) {
+            .ptr_type => |ptr_type| switch (ptr_type.flags.size) {
                 .Slice => false,
                 .One, .Many, .C => true,
             },
             .opt_type => |child| switch (mod.intern_pool.indexToKey(child)) {
-                .ptr_type => |p| switch (p.size) {
+                .ptr_type => |p| switch (p.flags.size) {
                     .Slice, .C => false,
-                    .Many, .One => !p.is_allowzero,
+                    .Many, .One => !p.flags.is_allowzero,
                 },
                 else => false,
             },
@@ -1887,14 +1887,14 @@ pub const Type = struct {
     pub fn optionalReprIsPayload(ty: Type, mod: *const Module) bool {
         return switch (mod.intern_pool.indexToKey(ty.toIntern())) {
             .opt_type => |child_type| switch (mod.intern_pool.indexToKey(child_type)) {
-                .ptr_type => |ptr_type| switch (ptr_type.size) {
+                .ptr_type => |ptr_type| switch (ptr_type.flags.size) {
                     .C => false,
-                    .Slice, .Many, .One => !ptr_type.is_allowzero,
+                    .Slice, .Many, .One => !ptr_type.flags.is_allowzero,
                 },
                 .error_set_type => true,
                 else => false,
             },
-            .ptr_type => |ptr_type| ptr_type.size == .C,
+            .ptr_type => |ptr_type| ptr_type.flags.size == .C,
             else => false,
         };
     }
@@ -1904,11 +1904,11 @@ pub const Type = struct {
     /// This function must be kept in sync with `Sema.typePtrOrOptionalPtrTy`.
     pub fn isPtrLikeOptional(ty: Type, mod: *const Module) bool {
         return switch (mod.intern_pool.indexToKey(ty.toIntern())) {
-            .ptr_type => |ptr_type| ptr_type.size == .C,
+            .ptr_type => |ptr_type| ptr_type.flags.size == .C,
             .opt_type => |child| switch (mod.intern_pool.indexToKey(child)) {
-                .ptr_type => |ptr_type| switch (ptr_type.size) {
+                .ptr_type => |ptr_type| switch (ptr_type.flags.size) {
                     .Slice, .C => false,
-                    .Many, .One => !ptr_type.is_allowzero,
+                    .Many, .One => !ptr_type.flags.is_allowzero,
                 },
                 else => false,
             },
@@ -1938,9 +1938,9 @@ pub const Type = struct {
     /// For anyframe->T, returns T.
     pub fn elemType2(ty: Type, mod: *const Module) Type {
         return switch (mod.intern_pool.indexToKey(ty.toIntern())) {
-            .ptr_type => |ptr_type| switch (ptr_type.size) {
-                .One => ptr_type.elem_type.toType().shallowElemType(mod),
-                .Many, .C, .Slice => ptr_type.elem_type.toType(),
+            .ptr_type => |ptr_type| switch (ptr_type.flags.size) {
+                .One => ptr_type.child.toType().shallowElemType(mod),
+                .Many, .C, .Slice => ptr_type.child.toType(),
             },
             .anyframe_type => |child| {
                 assert(child != .none);
@@ -1974,7 +1974,7 @@ pub const Type = struct {
         return switch (mod.intern_pool.indexToKey(ty.toIntern())) {
             .opt_type => |child| child.toType(),
             .ptr_type => |ptr_type| b: {
-                assert(ptr_type.size == .C);
+                assert(ptr_type.flags.size == .C);
                 break :b ty;
             },
             else => unreachable,
@@ -2390,7 +2390,7 @@ pub const Type = struct {
 
     pub fn fnReturnTypeIp(ty: Type, ip: *const InternPool) Type {
         return switch (ip.indexToKey(ty.toIntern())) {
-            .ptr_type => |ptr_type| ip.indexToKey(ptr_type.elem_type).func_type.return_type,
+            .ptr_type => |ptr_type| ip.indexToKey(ptr_type.child).func_type.return_type,
             .func_type => |func_type| func_type.return_type,
             else => unreachable,
         }.toType();
@@ -2672,7 +2672,7 @@ pub const Type = struct {
             else => switch (mod.intern_pool.indexToKey(ty.toIntern())) {
                 .int_type => false,
                 .ptr_type => |ptr_type| {
-                    const child_ty = ptr_type.elem_type.toType();
+                    const child_ty = ptr_type.child.toType();
                     if (child_ty.zigTypeTag(mod) == .Fn) {
                         return false;
                     } else {
@@ -3374,17 +3374,17 @@ pub const Type = struct {
 
                 pub fn fromKey(p: InternPool.Key.PtrType) Data {
                     return .{
-                        .pointee_type = p.elem_type.toType(),
+                        .pointee_type = p.child.toType(),
                         .sentinel = if (p.sentinel != .none) p.sentinel.toValue() else null,
-                        .@"align" = @intCast(u32, p.alignment.toByteUnits(0)),
-                        .@"addrspace" = p.address_space,
-                        .bit_offset = p.bit_offset,
-                        .host_size = p.host_size,
-                        .vector_index = p.vector_index,
-                        .@"allowzero" = p.is_allowzero,
-                        .mutable = !p.is_const,
-                        .@"volatile" = p.is_volatile,
-                        .size = p.size,
+                        .@"align" = @intCast(u32, p.flags.alignment.toByteUnits(0)),
+                        .@"addrspace" = p.flags.address_space,
+                        .bit_offset = p.packed_offset.bit_offset,
+                        .host_size = p.packed_offset.host_size,
+                        .vector_index = p.flags.vector_index,
+                        .@"allowzero" = p.flags.is_allowzero,
+                        .mutable = !p.flags.is_const,
+                        .@"volatile" = p.flags.is_volatile,
+                        .size = p.flags.size,
                     };
                 }
             };
@@ -3478,17 +3478,21 @@ pub const Type = struct {
         }
 
         return mod.ptrType(.{
-            .elem_type = d.pointee_type.ip_index,
+            .child = d.pointee_type.ip_index,
             .sentinel = if (d.sentinel) |s| s.ip_index else .none,
-            .alignment = InternPool.Alignment.fromByteUnits(d.@"align"),
-            .host_size = d.host_size,
-            .bit_offset = d.bit_offset,
-            .vector_index = d.vector_index,
-            .size = d.size,
-            .is_const = !d.mutable,
-            .is_volatile = d.@"volatile",
-            .is_allowzero = d.@"allowzero",
-            .address_space = d.@"addrspace",
+            .flags = .{
+                .alignment = InternPool.Alignment.fromByteUnits(d.@"align"),
+                .vector_index = d.vector_index,
+                .size = d.size,
+                .is_const = !d.mutable,
+                .is_volatile = d.@"volatile",
+                .is_allowzero = d.@"allowzero",
+                .address_space = d.@"addrspace",
+            },
+            .packed_offset = .{
+                .host_size = d.host_size,
+                .bit_offset = d.bit_offset,
+            },
         });
     }
 

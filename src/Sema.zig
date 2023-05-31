@@ -2490,9 +2490,11 @@ fn zirCoerceResultPtr(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileE
                 const operand = try trash_block.addBitCast(pointee_ty, .void_value);
 
                 const ptr_ty = try mod.ptrType(.{
-                    .elem_type = pointee_ty.toIntern(),
-                    .alignment = ia1.alignment,
-                    .address_space = addr_space,
+                    .child = pointee_ty.toIntern(),
+                    .flags = .{
+                        .alignment = ia1.alignment,
+                        .address_space = addr_space,
+                    },
                 });
                 const bitcasted_ptr = try block.addBitCast(ptr_ty, ptr);
 
@@ -2519,9 +2521,11 @@ fn zirCoerceResultPtr(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileE
                     try sema.resolveTypeLayout(pointee_ty);
                 }
                 const ptr_ty = try mod.ptrType(.{
-                    .elem_type = pointee_ty.toIntern(),
-                    .alignment = alignment,
-                    .address_space = addr_space,
+                    .child = pointee_ty.toIntern(),
+                    .flags = .{
+                        .alignment = alignment,
+                        .address_space = addr_space,
+                    },
                 });
                 try sema.maybeQueueFuncBodyAnalysis(decl_index);
                 return sema.addConstant(ptr_ty, (try mod.intern(.{ .ptr = .{
@@ -3771,10 +3775,12 @@ fn zirResolveInferredAlloc(sema: *Sema, block: *Block, inst: Zir.Inst.Index) Com
             if (iac.is_const) try decl.intern(mod);
             const final_elem_ty = decl.ty;
             const final_ptr_ty = try mod.ptrType(.{
-                .elem_type = final_elem_ty.toIntern(),
-                .is_const = false,
-                .alignment = iac.alignment,
-                .address_space = target_util.defaultAddressSpace(target, .local),
+                .child = final_elem_ty.toIntern(),
+                .flags = .{
+                    .is_const = false,
+                    .alignment = iac.alignment,
+                    .address_space = target_util.defaultAddressSpace(target, .local),
+                },
             });
 
             try sema.maybeQueueFuncBodyAnalysis(decl_index);
@@ -3797,9 +3803,11 @@ fn zirResolveInferredAlloc(sema: *Sema, block: *Block, inst: Zir.Inst.Index) Com
             const final_elem_ty = try sema.resolvePeerTypes(block, ty_src, peer_inst_list, .none);
 
             const final_ptr_ty = try mod.ptrType(.{
-                .elem_type = final_elem_ty.toIntern(),
-                .alignment = ia1.alignment,
-                .address_space = target_util.defaultAddressSpace(target, .local),
+                .child = final_elem_ty.toIntern(),
+                .flags = .{
+                    .alignment = ia1.alignment,
+                    .address_space = target_util.defaultAddressSpace(target, .local),
+                },
             });
 
             if (!ia1.is_const) {
@@ -3916,9 +3924,11 @@ fn zirResolveInferredAlloc(sema: *Sema, block: *Block, inst: Zir.Inst.Index) Com
             defer trash_block.instructions.deinit(gpa);
 
             const mut_final_ptr_ty = try mod.ptrType(.{
-                .elem_type = final_elem_ty.toIntern(),
-                .alignment = ia1.alignment,
-                .address_space = target_util.defaultAddressSpace(target, .local),
+                .child = final_elem_ty.toIntern(),
+                .flags = .{
+                    .alignment = ia1.alignment,
+                    .address_space = target_util.defaultAddressSpace(target, .local),
+                },
             });
             const dummy_ptr = try trash_block.addTy(.alloc, mut_final_ptr_ty);
             const empty_trash_count = trash_block.instructions.items.len;
@@ -12038,7 +12048,7 @@ fn zirHasField(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
 
     const has_field = hf: {
         switch (ip.indexToKey(ty.toIntern())) {
-            .ptr_type => |ptr_type| switch (ptr_type.size) {
+            .ptr_type => |ptr_type| switch (ptr_type.flags.size) {
                 .Slice => {
                     if (mem.eql(u8, field_name, "ptr")) break :hf true;
                     if (mem.eql(u8, field_name, "len")) break :hf true;
@@ -16019,9 +16029,11 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                 );
                 break :v try mod.intern(.{ .ptr = .{
                     .ty = (try mod.ptrType(.{
-                        .elem_type = param_info_ty.toIntern(),
-                        .size = .Slice,
-                        .is_const = true,
+                        .child = param_info_ty.toIntern(),
+                        .flags = .{
+                            .size = .Slice,
+                            .is_const = true,
+                        },
                     })).toIntern(),
                     .addr = .{ .decl = new_decl },
                     .len = (try mod.intValue(Type.usize, param_vals.len)).toIntern(),
@@ -16329,9 +16341,11 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
 
             // Build our ?[]const Error value
             const slice_errors_ty = try mod.ptrType(.{
-                .elem_type = error_field_ty.toIntern(),
-                .size = .Slice,
-                .is_const = true,
+                .child = error_field_ty.toIntern(),
+                .flags = .{
+                    .size = .Slice,
+                    .is_const = true,
+                },
             });
             const opt_slice_errors_ty = try mod.optionalType(slice_errors_ty.toIntern());
             const errors_payload_val: InternPool.Index = if (error_field_vals) |vals| v: {
@@ -16471,9 +16485,11 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                 );
                 break :v try mod.intern(.{ .ptr = .{
                     .ty = (try mod.ptrType(.{
-                        .elem_type = enum_field_ty.toIntern(),
-                        .size = .Slice,
-                        .is_const = true,
+                        .child = enum_field_ty.toIntern(),
+                        .flags = .{
+                            .size = .Slice,
+                            .is_const = true,
+                        },
                     })).toIntern(),
                     .addr = .{ .decl = new_decl },
                     .len = (try mod.intValue(Type.usize, enum_field_vals.len)).toIntern(),
@@ -16614,9 +16630,11 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                 );
                 break :v try mod.intern(.{ .ptr = .{
                     .ty = (try mod.ptrType(.{
-                        .elem_type = union_field_ty.toIntern(),
-                        .size = .Slice,
-                        .is_const = true,
+                        .child = union_field_ty.toIntern(),
+                        .flags = .{
+                            .size = .Slice,
+                            .is_const = true,
+                        },
                     })).toIntern(),
                     .addr = .{ .decl = new_decl },
                     .len = (try mod.intValue(Type.usize, union_field_vals.len)).toIntern(),
@@ -16833,9 +16851,11 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                 );
                 break :v try mod.intern(.{ .ptr = .{
                     .ty = (try mod.ptrType(.{
-                        .elem_type = struct_field_ty.toIntern(),
-                        .size = .Slice,
-                        .is_const = true,
+                        .child = struct_field_ty.toIntern(),
+                        .flags = .{
+                            .size = .Slice,
+                            .is_const = true,
+                        },
                     })).toIntern(),
                     .addr = .{ .decl = new_decl },
                     .len = (try mod.intValue(Type.usize, struct_field_vals.len)).toIntern(),
@@ -16976,9 +16996,11 @@ fn typeInfoDecls(
     );
     return try mod.intern(.{ .ptr = .{
         .ty = (try mod.ptrType(.{
-            .elem_type = declaration_ty.toIntern(),
-            .size = .Slice,
-            .is_const = true,
+            .child = declaration_ty.toIntern(),
+            .flags = .{
+                .size = .Slice,
+                .is_const = true,
+            },
         })).toIntern(),
         .addr = .{ .decl = new_decl },
         .len = (try mod.intValue(Type.usize, decl_vals.items.len)).toIntern(),
@@ -18047,16 +18069,20 @@ fn zirPtrType(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
     }
 
     const ty = try mod.ptrType(.{
-        .elem_type = elem_ty.toIntern(),
+        .child = elem_ty.toIntern(),
         .sentinel = sentinel,
-        .alignment = abi_align,
-        .address_space = address_space,
-        .bit_offset = bit_offset,
-        .host_size = host_size,
-        .is_const = !inst_data.flags.is_mutable,
-        .is_allowzero = inst_data.flags.is_allowzero,
-        .is_volatile = inst_data.flags.is_volatile,
-        .size = inst_data.size,
+        .flags = .{
+            .alignment = abi_align,
+            .address_space = address_space,
+            .is_const = !inst_data.flags.is_mutable,
+            .is_allowzero = inst_data.flags.is_allowzero,
+            .is_volatile = inst_data.flags.is_volatile,
+            .size = inst_data.size,
+        },
+        .packed_offset = .{
+            .bit_offset = bit_offset,
+            .host_size = host_size,
+        },
     });
     return sema.addType(ty);
 }
@@ -19209,14 +19235,16 @@ fn zirReify(
             }
 
             const ty = try mod.ptrType(.{
-                .size = ptr_size,
-                .is_const = is_const_val.toBool(),
-                .is_volatile = is_volatile_val.toBool(),
-                .alignment = abi_align,
-                .address_space = mod.toEnum(std.builtin.AddressSpace, address_space_val),
-                .elem_type = elem_ty.toIntern(),
-                .is_allowzero = is_allowzero_val.toBool(),
+                .child = elem_ty.toIntern(),
                 .sentinel = actual_sentinel,
+                .flags = .{
+                    .size = ptr_size,
+                    .is_const = is_const_val.toBool(),
+                    .is_volatile = is_volatile_val.toBool(),
+                    .alignment = abi_align,
+                    .address_space = mod.toEnum(std.builtin.AddressSpace, address_space_val),
+                    .is_allowzero = is_allowzero_val.toBool(),
+                },
             });
             return sema.addType(ty);
         },
@@ -22704,9 +22732,9 @@ fn zirMemcpy(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!void
             try sema.analyzeSlicePtr(block, dest_src, new_dest_ptr, new_dest_ptr_ty)
         else if (new_dest_ptr_ty.ptrSize(mod) == .One) ptr: {
             var dest_manyptr_ty_key = mod.intern_pool.indexToKey(new_dest_ptr_ty.toIntern()).ptr_type;
-            assert(dest_manyptr_ty_key.size == .One);
-            dest_manyptr_ty_key.elem_type = dest_elem_ty.toIntern();
-            dest_manyptr_ty_key.size = .Many;
+            assert(dest_manyptr_ty_key.flags.size == .One);
+            dest_manyptr_ty_key.child = dest_elem_ty.toIntern();
+            dest_manyptr_ty_key.flags.size = .Many;
             break :ptr try sema.coerceCompatiblePtrs(block, try mod.ptrType(dest_manyptr_ty_key), new_dest_ptr, dest_src);
         } else new_dest_ptr;
 
@@ -22715,9 +22743,9 @@ fn zirMemcpy(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!void
             try sema.analyzeSlicePtr(block, src_src, new_src_ptr, new_src_ptr_ty)
         else if (new_src_ptr_ty.ptrSize(mod) == .One) ptr: {
             var src_manyptr_ty_key = mod.intern_pool.indexToKey(new_src_ptr_ty.toIntern()).ptr_type;
-            assert(src_manyptr_ty_key.size == .One);
-            src_manyptr_ty_key.elem_type = src_elem_ty.toIntern();
-            src_manyptr_ty_key.size = .Many;
+            assert(src_manyptr_ty_key.flags.size == .One);
+            src_manyptr_ty_key.child = src_elem_ty.toIntern();
+            src_manyptr_ty_key.flags.size = .Many;
             break :ptr try sema.coerceCompatiblePtrs(block, try mod.ptrType(src_manyptr_ty_key), new_src_ptr, src_src);
         } else new_src_ptr;
 
@@ -24026,8 +24054,10 @@ fn panicWithMsg(
     const stack_trace_ty = try sema.resolveTypeFields(unresolved_stack_trace_ty);
     const target = mod.getTarget();
     const ptr_stack_trace_ty = try mod.ptrType(.{
-        .elem_type = stack_trace_ty.toIntern(),
-        .address_space = target_util.defaultAddressSpace(target, .global_constant), // TODO might need a place that is more dynamic
+        .child = stack_trace_ty.toIntern(),
+        .flags = .{
+            .address_space = target_util.defaultAddressSpace(target, .global_constant), // TODO might need a place that is more dynamic
+        },
     });
     const opt_ptr_stack_trace_ty = try mod.optionalType(ptr_stack_trace_ty.toIntern());
     const null_stack_trace = try sema.addConstant(opt_ptr_stack_trace_ty, (try mod.intern(.{ .opt = .{
@@ -29620,10 +29650,12 @@ fn analyzeDeclRefInner(sema: *Sema, decl_index: Decl.Index, analyze_fn_body: boo
     const decl = mod.declPtr(decl_index);
     const decl_tv = try decl.typedValue();
     const ptr_ty = try mod.ptrType(.{
-        .elem_type = decl_tv.ty.toIntern(),
-        .alignment = InternPool.Alignment.fromByteUnits(decl.@"align"),
-        .is_const = if (decl.val.getVariable(mod)) |variable| variable.is_const else true,
-        .address_space = decl.@"addrspace",
+        .child = decl_tv.ty.toIntern(),
+        .flags = .{
+            .alignment = InternPool.Alignment.fromByteUnits(decl.@"align"),
+            .is_const = if (decl.val.getVariable(mod)) |variable| variable.is_const else true,
+            .address_space = decl.@"addrspace",
+        },
     });
     if (analyze_fn_body) {
         try sema.maybeQueueFuncBodyAnalysis(decl_index);
@@ -30015,10 +30047,10 @@ fn analyzeSlice(
         try sema.analyzeSlicePtr(block, ptr_src, ptr_or_slice, slice_ty)
     else if (array_ty.zigTypeTag(mod) == .Array) ptr: {
         var manyptr_ty_key = mod.intern_pool.indexToKey(slice_ty.toIntern()).ptr_type;
-        assert(manyptr_ty_key.elem_type == array_ty.toIntern());
-        assert(manyptr_ty_key.size == .One);
-        manyptr_ty_key.elem_type = elem_ty.toIntern();
-        manyptr_ty_key.size = .Many;
+        assert(manyptr_ty_key.child == array_ty.toIntern());
+        assert(manyptr_ty_key.flags.size == .One);
+        manyptr_ty_key.child = elem_ty.toIntern();
+        manyptr_ty_key.flags.size = .Many;
         break :ptr try sema.coerceCompatiblePtrs(block, try mod.ptrType(manyptr_ty_key), ptr_or_slice, ptr_src);
     } else ptr_or_slice;
 
@@ -31958,7 +31990,7 @@ pub fn resolveTypeRequiresComptime(sema: *Sema, ty: Type) CompileError!bool {
         else => switch (mod.intern_pool.indexToKey(ty.toIntern())) {
             .int_type => false,
             .ptr_type => |ptr_type| {
-                const child_ty = ptr_type.elem_type.toType();
+                const child_ty = ptr_type.child.toType();
                 if (child_ty.zigTypeTag(mod) == .Fn) {
                     return mod.typeToFunc(child_ty).?.is_generic;
                 } else {
@@ -33903,15 +33935,15 @@ fn usizeCast(sema: *Sema, block: *Block, src: LazySrcLoc, int: u64) CompileError
 fn typePtrOrOptionalPtrTy(sema: *Sema, ty: Type) !?Type {
     const mod = sema.mod;
     return switch (mod.intern_pool.indexToKey(ty.toIntern())) {
-        .ptr_type => |ptr_type| switch (ptr_type.size) {
+        .ptr_type => |ptr_type| switch (ptr_type.flags.size) {
             .One, .Many, .C => ty,
             .Slice => null,
         },
         .opt_type => |opt_child| switch (mod.intern_pool.indexToKey(opt_child)) {
-            .ptr_type => |ptr_type| switch (ptr_type.size) {
+            .ptr_type => |ptr_type| switch (ptr_type.flags.size) {
                 .Slice, .C => null,
                 .Many, .One => {
-                    if (ptr_type.is_allowzero) return null;
+                    if (ptr_type.flags.is_allowzero) return null;
 
                     // optionals of zero sized types behave like bools, not pointers
                     const payload_ty = opt_child.toType();
@@ -33942,7 +33974,7 @@ pub fn typeRequiresComptime(sema: *Sema, ty: Type) CompileError!bool {
         else => switch (mod.intern_pool.indexToKey(ty.toIntern())) {
             .int_type => return false,
             .ptr_type => |ptr_type| {
-                const child_ty = ptr_type.elem_type.toType();
+                const child_ty = ptr_type.child.toType();
                 if (child_ty.zigTypeTag(mod) == .Fn) {
                     return mod.typeToFunc(child_ty).?.is_generic;
                 } else {

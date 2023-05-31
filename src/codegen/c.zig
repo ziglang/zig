@@ -630,7 +630,7 @@ pub const DeclGen = struct {
                     try writer.writeByte(')');
                 }
                 try writer.writeAll("&(");
-                if (mod.intern_pool.indexToKey(ptr_base_ty.toIntern()).ptr_type.size == .One)
+                if (mod.intern_pool.indexToKey(ptr_base_ty.toIntern()).ptr_type.flags.size == .One)
                     try writer.writeByte('*');
                 try dg.renderParentPtr(writer, elem.base, location);
                 try writer.print(")[{d}]", .{elem.index});
@@ -642,7 +642,7 @@ pub const DeclGen = struct {
                 _ = try dg.typeToIndex(base_ty, .complete);
                 const field_ty = switch (mod.intern_pool.indexToKey(base_ty.toIntern())) {
                     .anon_struct_type, .struct_type, .union_type => base_ty.structFieldType(field.index, mod),
-                    .ptr_type => |ptr_type| switch (ptr_type.size) {
+                    .ptr_type => |ptr_type| switch (ptr_type.flags.size) {
                         .One, .Many, .C => unreachable,
                         .Slice => switch (field.index) {
                             Value.slice_ptr_index => base_ty.slicePtrFieldType(mod),
@@ -6285,8 +6285,10 @@ fn airMemset(f: *Function, inst: Air.Inst.Index, safety: bool) !CValue {
         // casted to a regular pointer, otherwise an error like this occurs:
         // error: array type 'uint32_t[20]' (aka 'unsigned int[20]') is not assignable
         const elem_ptr_ty = try mod.ptrType(.{
-            .size = .C,
-            .elem_type = elem_ty.ip_index,
+            .child = elem_ty.ip_index,
+            .flags = .{
+                .size = .C,
+            },
         });
 
         const index = try f.allocLocal(inst, Type.usize);
