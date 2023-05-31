@@ -17961,20 +17961,21 @@ fn finishStructInit(
         return sema.failWithOwnedErrorMsg(msg);
     }
 
-    const is_comptime = for (field_inits) |field_init| {
+    // Find which field forces the expression to be runtime, if any.
+    const opt_runtime_index = for (field_inits, 0..) |field_init, i| {
         if (!(try sema.isComptimeKnown(field_init))) {
-            break false;
+            break i;
         }
-    } else true;
+    } else null;
 
-    if (is_comptime) {
+    const runtime_index = opt_runtime_index orelse {
         const values = try sema.arena.alloc(Value, field_inits.len);
         for (field_inits, 0..) |field_init, i| {
             values[i] = (sema.resolveMaybeUndefVal(field_init) catch unreachable).?;
         }
         const struct_val = try Value.Tag.aggregate.create(sema.arena, values);
         return sema.addConstantMaybeRef(block, struct_ty, struct_val, is_ref);
-    }
+    };
 
     if (is_ref) {
         try sema.resolveStructLayout(struct_ty);
@@ -17994,7 +17995,15 @@ fn finishStructInit(
         return sema.makePtrConst(block, alloc);
     }
 
-    try sema.requireRuntimeBlock(block, dest_src, null);
+    sema.requireRuntimeBlock(block, .unneeded, null) catch |err| switch (err) {
+        error.NeededSourceLocation => {
+            const decl = sema.mod.declPtr(block.src_decl);
+            const field_src = Module.initSrc(dest_src.node_offset.x, sema.gpa, decl, runtime_index);
+            try sema.requireRuntimeBlock(block, dest_src, field_src);
+            unreachable;
+        },
+        else => |e| return e,
+    };
     try sema.queueFullTypeResolution(struct_ty);
     return block.addAggregateInit(struct_ty, field_inits);
 }
@@ -18014,6 +18023,7 @@ fn zirStructInitAnon(
     defer fields.deinit(sema.gpa);
     try fields.ensureUnusedCapacity(sema.gpa, types.len);
 
+    // Find which field forces the expression to be runtime, if any.
     const opt_runtime_index = rs: {
         var runtime_index: ?usize = null;
         var extra_index = extra.end;
