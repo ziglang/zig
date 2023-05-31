@@ -308,7 +308,7 @@ pub const Block = struct {
                         prefix ++ "the function returns a comptime-only type '{}'",
                         .{rt.return_ty.fmt(sema.mod)},
                     );
-                    try sema.explainWhyTypeIsComptime(rt.block, rt.func_src, parent, src_loc, rt.return_ty);
+                    try sema.explainWhyTypeIsComptime(parent, src_loc, rt.return_ty);
                 },
             }
         }
@@ -4804,7 +4804,7 @@ fn zirValidateDeref(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileErr
             errdefer msg.destroy(sema.gpa);
 
             const src_decl = sema.mod.declPtr(block.src_decl);
-            try sema.explainWhyTypeIsComptime(block, src, msg, src.toSrcLoc(src_decl), elem_ty);
+            try sema.explainWhyTypeIsComptime(msg, src.toSrcLoc(src_decl), elem_ty);
             break :msg msg;
         };
         return sema.failWithOwnedErrorMsg(msg);
@@ -5578,7 +5578,7 @@ fn analyzeBlockBody(
             try sema.errNote(child_block, runtime_src, msg, "runtime control flow here", .{});
 
             const child_src_decl = mod.declPtr(child_block.src_decl);
-            try sema.explainWhyTypeIsComptime(child_block, type_src, msg, type_src.toSrcLoc(child_src_decl), resolved_ty);
+            try sema.explainWhyTypeIsComptime(msg, type_src.toSrcLoc(child_src_decl), resolved_ty);
 
             break :msg msg;
         };
@@ -9026,7 +9026,7 @@ fn funcCommon(
                 "function with comptime-only return type '{}' requires all parameters to be comptime",
                 .{return_type.fmt(sema.mod)},
             );
-            try sema.explainWhyTypeIsComptime(block, ret_ty_src, msg, ret_ty_src.toSrcLoc(sema.owner_decl), return_type);
+            try sema.explainWhyTypeIsComptime(msg, ret_ty_src.toSrcLoc(sema.owner_decl), return_type);
 
             const tags = sema.code.instructions.items(.tag);
             const data = sema.code.instructions.items(.data);
@@ -9248,7 +9248,7 @@ fn analyzeParameter(
             errdefer msg.destroy(sema.gpa);
 
             const src_decl = sema.mod.declPtr(block.src_decl);
-            try sema.explainWhyTypeIsComptime(block, param_src, msg, param_src.toSrcLoc(src_decl), param.ty);
+            try sema.explainWhyTypeIsComptime(msg, param_src.toSrcLoc(src_decl), param.ty);
 
             try sema.addDeclaredHereNote(msg, param.ty);
             break :msg msg;
@@ -22905,6 +22905,17 @@ fn zirBuiltinExtern(
     if (!ty.isPtrAtRuntime()) {
         return sema.fail(block, ty_src, "expected (optional) pointer", .{});
     }
+    if (!try sema.validateExternType(ty.childType(), .other)) {
+        const msg = msg: {
+            const mod = sema.mod;
+            const msg = try sema.errMsg(block, ty_src, "extern symbol cannot have type '{}'", .{ty.fmt(mod)});
+            errdefer msg.destroy(sema.gpa);
+            const src_decl = sema.mod.declPtr(block.src_decl);
+            try sema.explainWhyTypeIsNotExtern(msg, ty_src.toSrcLoc(src_decl), ty, .other);
+            break :msg msg;
+        };
+        return sema.failWithOwnedErrorMsg(msg);
+    }
 
     const options = sema.resolveExternOptions(block, .unneeded, extra.rhs) catch |err| switch (err) {
         error.NeededSourceLocation => {
@@ -23055,7 +23066,7 @@ fn validateVarType(
         errdefer msg.destroy(sema.gpa);
 
         const src_decl = mod.declPtr(block.src_decl);
-        try sema.explainWhyTypeIsComptime(block, src, msg, src.toSrcLoc(src_decl), var_ty);
+        try sema.explainWhyTypeIsComptime(msg, src.toSrcLoc(src_decl), var_ty);
         if (var_ty.zigTypeTag() == .ComptimeInt or var_ty.zigTypeTag() == .ComptimeFloat) {
             try sema.errNote(block, src, msg, "to modify this variable at runtime, it must be given an explicit fixed-size number type", .{});
         }
@@ -23124,8 +23135,6 @@ const TypeSet = std.HashMapUnmanaged(Type, void, Type.HashContext64, std.hash_ma
 
 fn explainWhyTypeIsComptime(
     sema: *Sema,
-    block: *Block,
-    src: LazySrcLoc,
     msg: *Module.ErrorMsg,
     src_loc: Module.SrcLoc,
     ty: Type,
@@ -23134,13 +23143,11 @@ fn explainWhyTypeIsComptime(
     defer type_set.deinit(sema.gpa);
 
     try sema.resolveTypeFully(ty);
-    return sema.explainWhyTypeIsComptimeInner(block, src, msg, src_loc, ty, &type_set);
+    return sema.explainWhyTypeIsComptimeInner(msg, src_loc, ty, &type_set);
 }
 
 fn explainWhyTypeIsComptimeInner(
     sema: *Sema,
-    block: *Block,
-    src: LazySrcLoc,
     msg: *Module.ErrorMsg,
     src_loc: Module.SrcLoc,
     ty: Type,
@@ -23181,7 +23188,7 @@ fn explainWhyTypeIsComptimeInner(
         },
 
         .Array, .Vector => {
-            try sema.explainWhyTypeIsComptimeInner(block, src, msg, src_loc, ty.elemType(), type_set);
+            try sema.explainWhyTypeIsComptimeInner(msg, src_loc, ty.elemType(), type_set);
         },
         .Pointer => {
             const elem_ty = ty.elemType2();
@@ -23199,15 +23206,15 @@ fn explainWhyTypeIsComptimeInner(
                 }
                 return;
             }
-            try sema.explainWhyTypeIsComptimeInner(block, src, msg, src_loc, ty.elemType(), type_set);
+            try sema.explainWhyTypeIsComptimeInner(msg, src_loc, ty.elemType(), type_set);
         },
 
         .Optional => {
             var buf: Type.Payload.ElemType = undefined;
-            try sema.explainWhyTypeIsComptimeInner(block, src, msg, src_loc, ty.optionalChild(&buf), type_set);
+            try sema.explainWhyTypeIsComptimeInner(msg, src_loc, ty.optionalChild(&buf), type_set);
         },
         .ErrorUnion => {
-            try sema.explainWhyTypeIsComptimeInner(block, src, msg, src_loc, ty.errorUnionPayload(), type_set);
+            try sema.explainWhyTypeIsComptimeInner(msg, src_loc, ty.errorUnionPayload(), type_set);
         },
 
         .Struct => {
@@ -23223,7 +23230,7 @@ fn explainWhyTypeIsComptimeInner(
 
                     if (try sema.typeRequiresComptime(field.ty)) {
                         try mod.errNoteNonLazy(field_src_loc, msg, "struct requires comptime because of this field", .{});
-                        try sema.explainWhyTypeIsComptimeInner(block, src, msg, field_src_loc, field.ty, type_set);
+                        try sema.explainWhyTypeIsComptimeInner(msg, field_src_loc, field.ty, type_set);
                     }
                 }
             }
@@ -23243,7 +23250,7 @@ fn explainWhyTypeIsComptimeInner(
 
                     if (try sema.typeRequiresComptime(field.ty)) {
                         try mod.errNoteNonLazy(field_src_loc, msg, "union requires comptime because of this field", .{});
-                        try sema.explainWhyTypeIsComptimeInner(block, src, msg, field_src_loc, field.ty, type_set);
+                        try sema.explainWhyTypeIsComptimeInner(msg, field_src_loc, field.ty, type_set);
                     }
                 }
             }
@@ -23286,7 +23293,7 @@ fn validateExternType(
         .Float,
         .AnyFrame,
         => return true,
-        .Pointer => return !ty.isSlice(),
+        .Pointer => return !(ty.isSlice() or try sema.typeRequiresComptime(ty)),
         .Int => switch (ty.intInfo(sema.mod.getTarget()).bits) {
             8, 16, 32, 64, 128 => return true,
             else => return false,
@@ -23352,7 +23359,15 @@ fn explainWhyTypeIsNotExtern(
         .Frame,
         => return,
 
-        .Pointer => try mod.errNoteNonLazy(src_loc, msg, "slices have no guaranteed in-memory representation", .{}),
+        .Pointer => {
+            if (ty.isSlice()) {
+                try mod.errNoteNonLazy(src_loc, msg, "slices have no guaranteed in-memory representation", .{});
+            } else {
+                const pointee_ty = ty.childType();
+                try mod.errNoteNonLazy(src_loc, msg, "pointer to comptime-only type '{}'", .{pointee_ty.fmt(sema.mod)});
+                try sema.explainWhyTypeIsComptime(msg, src_loc, pointee_ty);
+            }
+        },
         .Void => try mod.errNoteNonLazy(src_loc, msg, "'void' is a zero bit type; for C 'void' use 'anyopaque'", .{}),
         .NoReturn => try mod.errNoteNonLazy(src_loc, msg, "'noreturn' is only allowed as a return type", .{}),
         .Int => if (!std.math.isPowerOfTwo(ty.intInfo(sema.mod.getTarget()).bits)) {
@@ -25041,7 +25056,7 @@ fn validateRuntimeElemAccess(
             errdefer msg.destroy(sema.gpa);
 
             const src_decl = sema.mod.declPtr(block.src_decl);
-            try sema.explainWhyTypeIsComptime(block, elem_index_src, msg, parent_src.toSrcLoc(src_decl), parent_ty);
+            try sema.explainWhyTypeIsComptime(msg, parent_src.toSrcLoc(src_decl), parent_ty);
 
             break :msg msg;
         };
