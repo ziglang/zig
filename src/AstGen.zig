@@ -2982,11 +2982,27 @@ fn deferStmt(
     if (have_err_code) try gz.addDbgBlockEnd();
     _ = try defer_gen.addBreak(.break_inline, 0, .void_value);
 
+    // We must handle ref_table for remapped_err_code manually.
     const body = defer_gen.instructionsSlice();
-    const body_len = gz.astgen.countBodyLenAfterFixups(body);
+    const body_len = blk: {
+        var refs: u32 = 0;
+        if (have_err_code) {
+            var cur_inst = remapped_err_code;
+            while (gz.astgen.ref_table.get(cur_inst)) |ref_inst| {
+                refs += 1;
+                cur_inst = ref_inst;
+            }
+        }
+        break :blk gz.astgen.countBodyLenAfterFixups(body) + refs;
+    };
 
     const index = @intCast(u32, gz.astgen.extra.items.len);
     try gz.astgen.extra.ensureUnusedCapacity(gz.astgen.gpa, body_len);
+    if (have_err_code) {
+        if (gz.astgen.ref_table.fetchRemove(remapped_err_code)) |kv| {
+            gz.astgen.appendPossiblyRefdBodyInst(&gz.astgen.extra, kv.value);
+        }
+    }
     gz.astgen.appendBodyWithFixups(body);
 
     const defer_scope = try block_arena.create(Scope.Defer);
