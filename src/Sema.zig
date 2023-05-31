@@ -15966,8 +15966,6 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
         } })).toValue()),
         .Fn => {
             // TODO: look into memoizing this result.
-            const info = mod.typeToFunc(ty).?;
-
             var params_anon_decl = try block.startAnonDecl();
             defer params_anon_decl.deinit();
 
@@ -15993,8 +15991,10 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
             const param_info_decl = mod.declPtr(param_info_decl_index);
             const param_info_ty = param_info_decl.val.toType();
 
-            const param_vals = try sema.arena.alloc(InternPool.Index, info.param_types.len);
-            for (param_vals, info.param_types, 0..) |*param_val, param_ty, i| {
+            const param_vals = try sema.arena.alloc(InternPool.Index, mod.typeToFunc(ty).?.param_types.len);
+            for (param_vals, 0..) |*param_val, i| {
+                const info = mod.typeToFunc(ty).?;
+                const param_ty = info.param_types[i];
                 const is_generic = param_ty == .generic_poison_type;
                 const param_ty_val = try mod.intern_pool.get(gpa, .{ .opt = .{
                     .ty = try mod.intern_pool.get(gpa, .{ .opt_type = .type_type }),
@@ -16046,6 +16046,7 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                 } });
             };
 
+            const info = mod.typeToFunc(ty).?;
             const ret_ty_opt = try mod.intern(.{ .opt = .{
                 .ty = try mod.intern_pool.get(gpa, .{ .opt_type = .type_type }),
                 .val = if (info.return_type == .generic_poison_type) .none else info.return_type,
