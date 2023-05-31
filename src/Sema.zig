@@ -25520,7 +25520,19 @@ fn elemVal(
                 return block.addBinOp(.ptr_elem_val, indexable, elem_index);
             },
             .One => {
-                assert(indexable_ty.childType(mod).zigTypeTag(mod) == .Array); // Guaranteed by checkIndexable
+                const array_ty = indexable_ty.childType(mod); // Guaranteed by checkIndexable
+                assert(array_ty.zigTypeTag(mod) == .Array);
+
+                if (array_ty.sentinel(mod)) |sentinel| {
+                    // index must be defined since it can access out of bounds
+                    if (try sema.resolveDefinedValue(block, elem_index_src, elem_index)) |index_val| {
+                        const index = @intCast(usize, index_val.toUnsignedInt(mod));
+                        if (index == array_ty.arrayLen(mod)) {
+                            return sema.addConstant(array_ty.childType(mod), sentinel);
+                        }
+                    }
+                }
+
                 const elem_ptr = try sema.elemPtr(block, indexable_src, indexable, elem_index, elem_index_src, false, oob_safety);
                 return sema.analyzeLoad(block, indexable_src, elem_ptr, elem_index_src);
             },
