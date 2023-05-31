@@ -24146,20 +24146,6 @@ fn panicIndexOutOfBounds(
     try sema.safetyCheckFormatted(parent_block, ok, "panicOutOfBounds", &.{ index, len });
 }
 
-fn panicStartGreaterThanEnd(
-    sema: *Sema,
-    parent_block: *Block,
-    start: Air.Inst.Ref,
-    end: Air.Inst.Ref,
-) !void {
-    assert(!parent_block.is_comptime);
-    const ok = try parent_block.addBinOp(.cmp_lte, start, end);
-    if (!sema.mod.comp.formatted_panics) {
-        return sema.addSafetyCheck(parent_block, ok, .start_index_greater_than_end);
-    }
-    try sema.safetyCheckFormatted(parent_block, ok, "panicStartGreaterThanEnd", &.{ start, end });
-}
-
 fn panicInactiveUnionField(
     sema: *Sema,
     parent_block: *Block,
@@ -30209,11 +30195,12 @@ fn analyzeSlice(
     };
     const slice_sentinel = if (sentinel_opt != .none) sentinel else null;
 
+    var checked_start_lte_end = by_length;
+    var runtime_src: ?LazySrcLoc = null;
+
     // requirement: start <= end
-    var need_start_gt_end_check = true;
     if (try sema.resolveDefinedValue(block, end_src, end)) |end_val| {
         if (try sema.resolveDefinedValue(block, start_src, start)) |start_val| {
-            need_start_gt_end_check = false;
             if (!by_length and !(try sema.compareAll(start_val, .lte, end_val, Type.usize))) {
                 return sema.fail(
                     block,
@@ -30225,6 +30212,7 @@ fn analyzeSlice(
                     },
                 );
             }
+            checked_start_lte_end = true;
             if (try sema.resolveMaybeUndefVal(new_ptr)) |ptr_val| sentinel_check: {
                 const expected_sentinel = sentinel orelse break :sentinel_check;
                 const start_int = start_val.getUnsignedInt(mod).?;
@@ -30266,13 +30254,26 @@ fn analyzeSlice(
                     };
                     return sema.failWithOwnedErrorMsg(msg);
                 }
+            } else {
+                runtime_src = ptr_src;
             }
+        } else {
+            runtime_src = start_src;
         }
+    } else {
+        runtime_src = end_src;
     }
 
-    if (!by_length and block.wantSafety() and !block.is_comptime and need_start_gt_end_check) {
+    if (!checked_start_lte_end and block.wantSafety() and !block.is_comptime) {
         // requirement: start <= end
-        try sema.panicStartGreaterThanEnd(block, start, end);
+        assert(!block.is_comptime);
+        try sema.requireRuntimeBlock(block, src, runtime_src.?);
+        const ok = try block.addBinOp(.cmp_lte, start, end);
+        if (!sema.mod.comp.formatted_panics) {
+            try sema.addSafetyCheck(block, ok, .start_index_greater_than_end);
+        } else {
+            try sema.safetyCheckFormatted(block, ok, "panicStartGreaterThanEnd", &.{ start, end });
+        }
     }
     const new_len = if (by_length)
         try sema.coerce(block, Type.usize, uncasted_end_opt, end_src)
@@ -30354,14 +30355,7 @@ fn analyzeSlice(
         .size = .Slice,
     });
 
-    const runtime_src = if ((try sema.resolveMaybeUndefVal(ptr_or_slice)) == null)
-        ptr_src
-    else if ((try sema.resolveMaybeUndefVal(start)) == null)
-        start_src
-    else
-        end_src;
-
-    try sema.requireRuntimeBlock(block, src, runtime_src);
+    try sema.requireRuntimeBlock(block, src, runtime_src.?);
     if (block.wantSafety()) {
         // requirement: slicing C ptr is non-null
         if (ptr_ptr_child_ty.isCPtr(mod)) {
