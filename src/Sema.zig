@@ -15392,7 +15392,9 @@ fn zirCmpEq(
                     if (lval.isUndef(mod) or rval.isUndef(mod)) {
                         return sema.addConstUndef(Type.bool);
                     }
-                    if (lval.toIntern() == rval.toIntern()) {
+                    const lkey = mod.intern_pool.indexToKey(lval.toIntern());
+                    const rkey = mod.intern_pool.indexToKey(rval.toIntern());
+                    if ((lkey.err.name == rkey.err.name) == (op == .eq)) {
                         return Air.Inst.Ref.bool_true;
                     } else {
                         return Air.Inst.Ref.bool_false;
