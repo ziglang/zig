@@ -197,7 +197,7 @@ pub const Key = union(enum) {
     undef: Index,
     runtime_value: TypeValue,
     simple_value: SimpleValue,
-    variable: Key.Variable,
+    variable: Variable,
     extern_func: ExternFunc,
     func: Func,
     int: Key.Int,
@@ -205,19 +205,19 @@ pub const Key = union(enum) {
     error_union: ErrorUnion,
     enum_literal: NullTerminatedString,
     /// A specific enum tag, indicated by the integer tag value.
-    enum_tag: Key.EnumTag,
+    enum_tag: EnumTag,
     /// An empty enum or union. TODO: this value's existence is strange, because such a type in
     /// reality has no values. See #15909.
     /// Payload is the type for which we are an empty value.
     empty_enum_value: Index,
-    float: Key.Float,
+    float: Float,
     ptr: Ptr,
     opt: Opt,
     /// An instance of a struct, array, or vector.
     /// Each element/field stored as an `Index`.
     /// In the case of sentinel-terminated arrays, the sentinel value *is* stored,
     /// so the slice length will be one more than the type's array length.
-    aggregate: Key.Aggregate,
+    aggregate: Aggregate,
     /// An instance of a union.
     un: Union,
 
@@ -226,14 +226,15 @@ pub const Key = union(enum) {
     /// A comptime function call with a memoized result.
     memoized_call: Key.MemoizedCall,
 
-    pub const TypeValue = struct {
+    pub const TypeValue = extern struct {
         ty: Index,
         val: Index,
     };
 
     pub const IntType = std.builtin.Type.Int;
 
-    pub const ErrorUnionType = struct {
+    /// Extern for hashing via memory reinterpretation.
+    pub const ErrorUnionType = extern struct {
         error_set_type: Index,
         payload_type: Index,
     };
@@ -296,25 +297,27 @@ pub const Key = union(enum) {
         pub const AddressSpace = std.builtin.AddressSpace;
     };
 
-    pub const ArrayType = struct {
+    /// Extern so that hashing can be done via memory reinterpreting.
+    pub const ArrayType = extern struct {
         len: u64,
         child: Index,
         sentinel: Index = .none,
     };
 
-    pub const VectorType = struct {
+    /// Extern so that hashing can be done via memory reinterpreting.
+    pub const VectorType = extern struct {
         len: u32,
         child: Index,
     };
 
-    pub const OpaqueType = struct {
+    pub const OpaqueType = extern struct {
         /// The Decl that corresponds to the opaque itself.
         decl: Module.Decl.Index,
         /// Represents the declarations inside this opaque.
         namespace: Module.Namespace.Index,
     };
 
-    pub const StructType = struct {
+    pub const StructType = extern struct {
         /// The `none` tag is used to represent a struct with no fields.
         index: Module.Struct.OptionalIndex,
         /// May be `none` if the struct has no declarations.
@@ -501,7 +504,8 @@ pub const Key = union(enum) {
         lib_name: OptionalNullTerminatedString,
     };
 
-    pub const Func = struct {
+    /// Extern so it can be hashed by reinterpreting memory.
+    pub const Func = extern struct {
         ty: Index,
         index: Module.Fn.Index,
     };
@@ -534,7 +538,7 @@ pub const Key = union(enum) {
         };
     };
 
-    pub const Error = struct {
+    pub const Error = extern struct {
         ty: Index,
         name: NullTerminatedString,
     };
@@ -549,7 +553,7 @@ pub const Key = union(enum) {
         };
     };
 
-    pub const EnumTag = struct {
+    pub const EnumTag = extern struct {
         /// The enum type.
         ty: Index,
         /// The integer tag value which has the integer tag type of the enum.
@@ -600,14 +604,14 @@ pub const Key = union(enum) {
     };
 
     /// `null` is represented by the `val` field being `none`.
-    pub const Opt = struct {
+    pub const Opt = extern struct {
         /// This is the optional type; not the payload type.
         ty: Index,
         /// This could be `none`, indicating the optional is `null`.
         val: Index,
     };
 
-    pub const Union = struct {
+    pub const Union = extern struct {
         /// This is the union type; not the field type.
         ty: Index,
         /// Indicates the active field.
@@ -654,10 +658,10 @@ pub const Key = union(enum) {
         const asBytes = std.mem.asBytes;
         const KeyTag = @typeInfo(Key).Union.tag_type.?;
         const seed = @enumToInt(@as(KeyTag, key));
-        switch (key) {
-            .ptr_type => |x| return WyhashKing.hash(seed, asBytes(&x)),
-
-            inline .int_type,
+        return switch (key) {
+            // TODO: assert no padding in these types
+            inline .ptr_type,
+            .func,
             .array_type,
             .vector_type,
             .opt_type,
@@ -667,31 +671,26 @@ pub const Key = union(enum) {
             .simple_value,
             .opt,
             .struct_type,
-            .union_type,
-            .un,
             .undef,
             .err,
-            .error_union,
             .enum_literal,
             .enum_tag,
             .empty_enum_value,
             .inferred_error_set_type,
-            => |info| {
-                var hasher = std.hash.Wyhash.init(seed);
-                std.hash.autoHash(&hasher, info);
-                return hasher.final();
+            .un,
+            => |x| WyhashKing.hash(seed, asBytes(&x)),
+
+            .int_type => |x| WyhashKing.hash(seed + @enumToInt(x.signedness), asBytes(&x.bits)),
+            .union_type => |x| WyhashKing.hash(seed + @enumToInt(x.runtime_tag), asBytes(&x.index)),
+
+            .error_union => |x| switch (x.val) {
+                .err_name => |y| WyhashKing.hash(seed + 0, asBytes(&x.ty) ++ asBytes(&y)),
+                .payload => |y| WyhashKing.hash(seed + 1, asBytes(&x.ty) ++ asBytes(&y)),
             },
 
-            .runtime_value => |runtime_value| {
-                var hasher = std.hash.Wyhash.init(seed);
-                std.hash.autoHash(&hasher, runtime_value.val);
-                return hasher.final();
-            },
-            .opaque_type => |opaque_type| {
-                var hasher = std.hash.Wyhash.init(seed);
-                std.hash.autoHash(&hasher, opaque_type.decl);
-                return hasher.final();
-            },
+            .runtime_value => |x| WyhashKing.hash(seed, asBytes(&x.val)),
+            .opaque_type => |x| WyhashKing.hash(seed, asBytes(&x.decl)),
+
             .enum_type => |enum_type| {
                 var hasher = std.hash.Wyhash.init(seed);
                 std.hash.autoHash(&hasher, enum_type.decl);
@@ -703,18 +702,7 @@ pub const Key = union(enum) {
                 std.hash.autoHash(&hasher, variable.decl);
                 return hasher.final();
             },
-            .extern_func => |extern_func| {
-                var hasher = std.hash.Wyhash.init(seed);
-                std.hash.autoHash(&hasher, extern_func.ty);
-                std.hash.autoHash(&hasher, extern_func.decl);
-                return hasher.final();
-            },
-            .func => |func| {
-                var hasher = std.hash.Wyhash.init(seed);
-                std.hash.autoHash(&hasher, func.ty);
-                std.hash.autoHash(&hasher, func.index);
-                return hasher.final();
-            },
+            .extern_func => |x| WyhashKing.hash(seed, asBytes(&x.ty) ++ asBytes(&x.decl)),
 
             .int => |int| {
                 var hasher = std.hash.Wyhash.init(seed);
@@ -865,11 +853,7 @@ pub const Key = union(enum) {
                 return hasher.final();
             },
 
-            .memoized_decl => |memoized_decl| {
-                var hasher = std.hash.Wyhash.init(seed);
-                std.hash.autoHash(&hasher, memoized_decl.val);
-                return hasher.final();
-            },
+            .memoized_decl => |x| WyhashKing.hash(seed, asBytes(&x.val)),
 
             .memoized_call => |memoized_call| {
                 var hasher = std.hash.Wyhash.init(seed);
@@ -877,7 +861,7 @@ pub const Key = union(enum) {
                 for (memoized_call.arg_values) |arg| std.hash.autoHash(&hasher, arg);
                 return hasher.final();
             },
-        }
+        };
     }
 
     pub fn eql(a: Key, b: Key, ip: *const InternPool) bool {
@@ -1474,7 +1458,7 @@ pub const Index = enum(u32) {
         error_union_error: struct { data: *Key.Error },
         error_union_payload: struct { data: *Tag.TypeValue },
         enum_literal: struct { data: NullTerminatedString },
-        enum_tag: struct { data: *Key.EnumTag },
+        enum_tag: struct { data: *Tag.EnumTag },
         float_f16: struct { data: f16 },
         float_f32: struct { data: f32 },
         float_f64: struct { data: *Float64 },
@@ -1491,7 +1475,7 @@ pub const Index = enum(u32) {
         bytes: struct { data: *Bytes },
         aggregate: struct {
             const @"data.ty.data.len orelse data.ty.data.fields_len" = opaque {};
-            data: *Aggregate,
+            data: *Tag.Aggregate,
             @"trailing.element_values.len": *@"data.ty.data.len orelse data.ty.data.fields_len",
             trailing: struct { element_values: []Index },
         },
@@ -1944,7 +1928,7 @@ pub const Tag = enum(u8) {
     /// data is `NullTerminatedString` of the error name.
     enum_literal,
     /// An enum tag value.
-    /// data is extra index of `Key.EnumTag`.
+    /// data is extra index of `EnumTag`.
     enum_tag,
     /// An f16 value.
     /// data is float value bitcasted to u16 and zero-extended.
@@ -2121,6 +2105,14 @@ pub const Tag = enum(u8) {
             _: u28 = 0,
         };
     };
+
+    /// Trailing:
+    /// 0. element: Index for each len
+    /// len is determined by the aggregate type.
+    pub const Aggregate = struct {
+        /// The type of the aggregate.
+        ty: Index,
+    };
 };
 
 /// Trailing:
@@ -2159,14 +2151,6 @@ pub const Bytes = struct {
     ty: Index,
     /// Index into string_bytes, of len ip.aggregateTypeLen(ty)
     bytes: String,
-};
-
-/// Trailing:
-/// 0. element: Index for each len
-/// len is determined by the aggregate type.
-pub const Aggregate = struct {
-    /// The type of the aggregate.
-    ty: Index,
 };
 
 pub const Repeated = struct {
@@ -2982,7 +2966,7 @@ pub fn indexToKey(ip: *const InternPool, index: Index) Key {
             } };
         },
         .aggregate => {
-            const extra = ip.extraDataTrail(Aggregate, data);
+            const extra = ip.extraDataTrail(Tag.Aggregate, data);
             const len = @intCast(u32, ip.aggregateTypeLenIncludingSentinel(extra.data.ty));
             const fields = @ptrCast([]const Index, ip.extra.items[extra.end..][0..len]);
             return .{ .aggregate = .{
@@ -3014,7 +2998,7 @@ pub fn indexToKey(ip: *const InternPool, index: Index) Key {
             } };
         },
         .enum_literal => .{ .enum_literal = @intToEnum(NullTerminatedString, data) },
-        .enum_tag => .{ .enum_tag = ip.extraData(Key.EnumTag, data) },
+        .enum_tag => .{ .enum_tag = ip.extraData(Tag.EnumTag, data) },
 
         .memoized_decl => .{ .memoized_decl = ip.extraData(Key.MemoizedDecl, data) },
         .memoized_call => {
@@ -3989,11 +3973,11 @@ pub fn get(ip: *InternPool, gpa: Allocator, key: Key) Allocator.Error!Index {
 
             try ip.extra.ensureUnusedCapacity(
                 gpa,
-                @typeInfo(Aggregate).Struct.fields.len + len_including_sentinel,
+                @typeInfo(Tag.Aggregate).Struct.fields.len + len_including_sentinel,
             );
             ip.items.appendAssumeCapacity(.{
                 .tag = .aggregate,
-                .data = ip.addExtraAssumeCapacity(Aggregate{
+                .data = ip.addExtraAssumeCapacity(Tag.Aggregate{
                     .ty = aggregate.ty,
                 }),
             });
@@ -4992,7 +4976,7 @@ fn dumpFallible(ip: *const InternPool, arena: Allocator) anyerror!void {
             .error_set_error, .error_union_error => @sizeOf(Key.Error),
             .error_union_payload => @sizeOf(Tag.TypeValue),
             .enum_literal => 0,
-            .enum_tag => @sizeOf(Key.EnumTag),
+            .enum_tag => @sizeOf(Tag.EnumTag),
 
             .bytes => b: {
                 const info = ip.extraData(Bytes, data);
@@ -5001,9 +4985,9 @@ fn dumpFallible(ip: *const InternPool, arena: Allocator) anyerror!void {
                     @boolToInt(ip.string_bytes.items[@enumToInt(info.bytes) + len - 1] != 0);
             },
             .aggregate => b: {
-                const info = ip.extraData(Aggregate, data);
+                const info = ip.extraData(Tag.Aggregate, data);
                 const fields_len = @intCast(u32, ip.aggregateTypeLenIncludingSentinel(info.ty));
-                break :b @sizeOf(Aggregate) + (@sizeOf(Index) * fields_len);
+                break :b @sizeOf(Tag.Aggregate) + (@sizeOf(Index) * fields_len);
             },
             .repeated => @sizeOf(Repeated),
 
