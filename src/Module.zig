@@ -6021,6 +6021,7 @@ pub fn errNoteNonLazy(
     comptime format: []const u8,
     args: anytype,
 ) error{OutOfMemory}!void {
+    if (src_loc.lazy == .unneeded) return;
     const msg = try std.fmt.allocPrint(mod.gpa, format, args);
     errdefer mod.gpa.free(msg);
 
