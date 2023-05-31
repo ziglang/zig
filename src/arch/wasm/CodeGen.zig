@@ -3156,6 +3156,7 @@ fn lowerConstant(func: *CodeGen, arg_val: Value, ty: Type) InnerError!WValue {
         .extern_func,
         .func,
         .enum_literal,
+        .empty_enum_value,
         => unreachable, // non-runtime values
         .int => {
             const int_info = ty.intInfo(mod);

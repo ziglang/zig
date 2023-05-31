@@ -439,6 +439,7 @@ pub const Type = struct {
             .error_union,
             .enum_literal,
             .enum_tag,
+            .empty_enum_value,
             .float,
             .ptr,
             .opt,
@@ -655,6 +656,7 @@ pub const Type = struct {
                 .error_union,
                 .enum_literal,
                 .enum_tag,
+                .empty_enum_value,
                 .float,
                 .ptr,
                 .opt,
@@ -764,6 +766,7 @@ pub const Type = struct {
             .error_union,
             .enum_literal,
             .enum_tag,
+            .empty_enum_value,
             .float,
             .ptr,
             .opt,
@@ -1098,6 +1101,7 @@ pub const Type = struct {
                 .error_union,
                 .enum_literal,
                 .enum_tag,
+                .empty_enum_value,
                 .float,
                 .ptr,
                 .opt,
@@ -1515,6 +1519,7 @@ pub const Type = struct {
                 .error_union,
                 .enum_literal,
                 .enum_tag,
+                .empty_enum_value,
                 .float,
                 .ptr,
                 .opt,
@@ -1749,6 +1754,7 @@ pub const Type = struct {
             .error_union,
             .enum_literal,
             .enum_tag,
+            .empty_enum_value,
             .float,
             .ptr,
             .opt,
@@ -2302,6 +2308,7 @@ pub const Type = struct {
                 .error_union,
                 .enum_literal,
                 .enum_tag,
+                .empty_enum_value,
                 .float,
                 .ptr,
                 .opt,
@@ -2584,7 +2591,10 @@ pub const Type = struct {
                 .union_type => |union_type| {
                     const union_obj = mod.unionPtr(union_type.index);
                     const tag_val = (try union_obj.tag_ty.onePossibleValue(mod)) orelse return null;
-                    if (union_obj.fields.count() == 0) return Value.@"unreachable";
+                    if (union_obj.fields.count() == 0) {
+                        const only = try mod.intern(.{ .empty_enum_value = ty.toIntern() });
+                        return only.toValue();
+                    }
                     const only_field = union_obj.fields.values()[0];
                     const val_val = (try only_field.ty.onePossibleValue(mod)) orelse return null;
                     const only = try mod.intern(.{ .un = .{
@@ -2613,7 +2623,10 @@ pub const Type = struct {
                         if (enum_type.tag_ty.toType().hasRuntimeBits(mod)) return null;
 
                         switch (enum_type.names.len) {
-                            0 => return Value.@"unreachable",
+                            0 => {
+                                const only = try mod.intern(.{ .empty_enum_value = ty.toIntern() });
+                                return only.toValue();
+                            },
                             1 => {
                                 if (enum_type.values.len == 0) {
                                     const only = try mod.intern(.{ .enum_tag = .{
@@ -2645,6 +2658,7 @@ pub const Type = struct {
                 .error_union,
                 .enum_literal,
                 .enum_tag,
+                .empty_enum_value,
                 .float,
                 .ptr,
                 .opt,
@@ -2790,6 +2804,7 @@ pub const Type = struct {
                 .error_union,
                 .enum_literal,
                 .enum_tag,
+                .empty_enum_value,
                 .float,
                 .ptr,
                 .opt,

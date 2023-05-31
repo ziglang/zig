@@ -946,6 +946,7 @@ pub const DeclGen = struct {
             .extern_func,
             .func,
             .enum_literal,
+            .empty_enum_value,
             => unreachable, // non-runtime values
             .int => |int| switch (int.storage) {
                 .u64, .i64, .big_int => try writer.print("{}", .{try dg.fmtIntLiteral(ty, val, location)}),

@@ -1725,8 +1725,12 @@ fn analyzeBodyInner(
                 break :blk Air.Inst.Ref.void_value;
             },
         };
-        if (sema.isNoReturn(air_inst))
+        if (sema.isNoReturn(air_inst)) {
+            // We're going to assume that the body itself is noreturn, so let's ensure that now
+            assert(block.instructions.items.len > 0);
+            assert(sema.isNoReturn(Air.indexToRef(block.instructions.items[block.instructions.items.len - 1])));
             break always_noreturn;
+        }
         map.putAssumeCapacity(inst, air_inst);
         i += 1;
     };
@@ -32150,6 +32154,7 @@ pub fn resolveTypeRequiresComptime(sema: *Sema, ty: Type) CompileError!bool {
             .error_union,
             .enum_literal,
             .enum_tag,
+            .empty_enum_value,
             .float,
             .ptr,
             .opt,
@@ -33015,10 +33020,6 @@ fn semaUnionFields(mod: *Module, union_obj: *Module.Union) CompileError!void {
         enum_field_names = try sema.arena.alloc(InternPool.NullTerminatedString, fields_len);
     }
 
-    if (fields_len == 0) {
-        return;
-    }
-
     const bits_per_field = 4;
     const fields_per_u32 = 32 / bits_per_field;
     const bit_bags_count = std.math.divCeil(usize, fields_len, fields_per_u32) catch unreachable;
@@ -33301,7 +33302,7 @@ fn generateUnionTagTypeNumbered(
         .decl = new_decl_index,
         .namespace = .none,
         .tag_ty = if (enum_field_vals.len == 0)
-            .noreturn_type
+            (try mod.intType(.unsigned, 0)).toIntern()
         else
             mod.intern_pool.typeOf(enum_field_vals[0]),
         .names = enum_field_names,
@@ -33351,7 +33352,7 @@ fn generateUnionTagTypeSimple(
         .decl = new_decl_index,
         .namespace = .none,
         .tag_ty = if (enum_field_names.len == 0)
-            .noreturn_type
+            (try mod.intType(.unsigned, 0)).toIntern()
         else
             (try mod.smallestUnsignedInt(enum_field_names.len - 1)).toIntern(),
         .names = enum_field_names,
@@ -33590,7 +33591,10 @@ pub fn typeHasOnePossibleValue(sema: *Sema, ty: Type) CompileError!?Value {
                 const tag_val = (try sema.typeHasOnePossibleValue(union_obj.tag_ty)) orelse
                     return null;
                 const fields = union_obj.fields.values();
-                if (fields.len == 0) return Value.@"unreachable";
+                if (fields.len == 0) {
+                    const only = try mod.intern(.{ .empty_enum_value = ty.toIntern() });
+                    return only.toValue();
+                }
                 const only_field = fields[0];
                 if (only_field.ty.eql(resolved_ty, sema.mod)) {
                     const msg = try Module.ErrorMsg.create(
@@ -33630,7 +33634,10 @@ pub fn typeHasOnePossibleValue(sema: *Sema, ty: Type) CompileError!?Value {
                     if (enum_type.tag_ty.toType().hasRuntimeBits(mod)) return null;
 
                     switch (enum_type.names.len) {
-                        0 => return Value.@"unreachable",
+                        0 => {
+                            const only = try mod.intern(.{ .empty_enum_value = ty.toIntern() });
+                            return only.toValue();
+                        },
                         1 => return try mod.getCoerced((if (enum_type.values.len == 0)
                             try mod.intern(.{ .int = .{
                                 .ty = enum_type.tag_ty,
@@ -33655,6 +33662,7 @@ pub fn typeHasOnePossibleValue(sema: *Sema, ty: Type) CompileError!?Value {
             .error_union,
             .enum_literal,
             .enum_tag,
+            .empty_enum_value,
             .float,
             .ptr,
             .opt,
@@ -34143,6 +34151,7 @@ pub fn typeRequiresComptime(sema: *Sema, ty: Type) CompileError!bool {
             .error_union,
             .enum_literal,
             .enum_tag,
+            .empty_enum_value,
             .float,
             .ptr,
             .opt,
@@ -34848,7 +34857,7 @@ fn errorSetMerge(sema: *Sema, lhs: Type, rhs: Type) !Type {
 
 /// Avoids crashing the compiler when asking if inferred allocations are noreturn.
 fn isNoReturn(sema: *Sema, ref: Air.Inst.Ref) bool {
-    if (ref == .noreturn_type) return true;
+    if (ref == .unreachable_value) return true;
     if (Air.refToIndex(ref)) |inst| switch (sema.air_instructions.items(.tag)[inst]) {
         .inferred_alloc, .inferred_alloc_comptime => return false,
         else => {},

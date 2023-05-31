@@ -660,6 +660,7 @@ pub const DeclGen = struct {
                 .extern_func,
                 .func,
                 .enum_literal,
+                .empty_enum_value,
                 => unreachable, // non-runtime values
                 .int => try self.addInt(ty, val),
                 .err => |err| {

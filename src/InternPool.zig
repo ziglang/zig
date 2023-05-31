@@ -206,6 +206,10 @@ pub const Key = union(enum) {
     enum_literal: NullTerminatedString,
     /// A specific enum tag, indicated by the integer tag value.
     enum_tag: Key.EnumTag,
+    /// An empty enum or union. TODO: this value's existence is strange, because such a type in
+    /// reality has no values. See #15909.
+    /// Payload is the type for which we are an empty value.
+    empty_enum_value: Index,
     float: Key.Float,
     ptr: Ptr,
     opt: Opt,
@@ -670,6 +674,7 @@ pub const Key = union(enum) {
             .error_union,
             .enum_literal,
             .enum_tag,
+            .empty_enum_value,
             .inferred_error_set_type,
             => |info| {
                 var hasher = std.hash.Wyhash.init(seed);
@@ -957,6 +962,10 @@ pub const Key = union(enum) {
                 const b_info = b.enum_tag;
                 return std.meta.eql(a_info, b_info);
             },
+            .empty_enum_value => |a_info| {
+                const b_info = b.empty_enum_value;
+                return a_info == b_info;
+            },
 
             .variable => |a_info| {
                 const b_info = b.variable;
@@ -1192,6 +1201,7 @@ pub const Key = union(enum) {
             .enum_literal => .enum_literal_type,
 
             .undef => |x| x,
+            .empty_enum_value => |x| x,
 
             .simple_value => |s| switch (s) {
                 .undefined => .undefined_type,
@@ -1980,6 +1990,7 @@ pub const Tag = enum(u8) {
     /// The set of values that are encoded this way is:
     /// * An array or vector which has length 0.
     /// * A struct which has all fields comptime-known.
+    /// * An empty enum or union. TODO: this value's existence is strange, because such a type in reality has no values. See #15909
     /// data is Index of the type, which is known to be zero bits at runtime.
     only_possible_value,
     /// data is extra index to Key.Union.
@@ -2952,6 +2963,13 @@ pub fn indexToKey(ip: *const InternPool, index: Index) Key {
                     } };
                 },
 
+                .type_enum_auto,
+                .type_enum_explicit,
+                .type_union_tagged,
+                .type_union_untagged,
+                .type_union_safety,
+                => .{ .empty_enum_value = ty },
+
                 else => unreachable,
             };
         },
@@ -3754,6 +3772,11 @@ pub fn get(ip: *InternPool, gpa: Allocator, key: Key) Allocator.Error!Index {
                 .data = try ip.addExtra(gpa, enum_tag),
             });
         },
+
+        .empty_enum_value => |enum_or_union_ty| ip.items.appendAssumeCapacity(.{
+            .tag = .only_possible_value,
+            .data = @enumToInt(enum_or_union_ty),
+        }),
 
         .float => |float| {
             switch (float.ty) {
@@ -5416,7 +5439,6 @@ pub fn isNoReturn(ip: *const InternPool, ty: Index) bool {
         .noreturn_type => true,
         else => switch (ip.indexToKey(ty)) {
             .error_set_type => |error_set_type| error_set_type.names.len == 0,
-            .enum_type => |enum_type| enum_type.names.len == 0,
             else => false,
         },
     };
