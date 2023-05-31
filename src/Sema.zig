@@ -882,7 +882,7 @@ fn analyzeBodyInner(
 
     var dbg_block_begins: u32 = 0;
 
-    // We use a while(true) loop here to avoid a redundant way of breaking out of
+    // We use a while (true) loop here to avoid a redundant way of breaking out of
     // the loop. The only way to break out of the loop is with a `noreturn`
     // instruction.
     var i: usize = 0;
@@ -18073,7 +18073,7 @@ fn zirStructInitAnon(
         return sema.addConstantMaybeRef(block, tuple_ty, tuple_val, is_ref);
     };
 
-    sema.requireRuntimeBlock(block, src, .unneeded) catch |err| switch (err) {
+    sema.requireRuntimeBlock(block, .unneeded, null) catch |err| switch (err) {
         error.NeededSourceLocation => {
             const decl = sema.mod.declPtr(block.src_decl);
             const field_src = Module.initSrc(src.node_offset.x, sema.gpa, decl, runtime_index);
@@ -18179,7 +18179,7 @@ fn zirArrayInit(
         return sema.addConstantMaybeRef(block, array_ty, array_val, is_ref);
     };
 
-    sema.requireRuntimeBlock(block, src, .unneeded) catch |err| switch (err) {
+    sema.requireRuntimeBlock(block, .unneeded, null) catch |err| switch (err) {
         error.NeededSourceLocation => {
             const decl = sema.mod.declPtr(block.src_decl);
             const elem_src = Module.initSrc(src.node_offset.x, sema.gpa, decl, runtime_index);
