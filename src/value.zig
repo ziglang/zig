@@ -2131,19 +2131,20 @@ pub const Value = struct {
     }
 
     /// Asserts the value is not undefined and not unreachable.
-    /// Integer value 0 is considered null because of C pointers.
+    /// C pointers with an integer value of 0 are also considered null.
     pub fn isNull(val: Value, mod: *Module) bool {
         return switch (val.toIntern()) {
             .undef => unreachable,
             .unreachable_value => unreachable,
-
             .null_value => true,
-
             else => return switch (mod.intern_pool.indexToKey(val.toIntern())) {
                 .undef => unreachable,
-                .int => {
-                    var buf: BigIntSpace = undefined;
-                    return val.toBigInt(&buf, mod).eqZero();
+                .ptr => |ptr| switch (ptr.addr) {
+                    .int => {
+                        var buf: BigIntSpace = undefined;
+                        return val.toBigInt(&buf, mod).eqZero();
+                    },
+                    else => false,
                 },
                 .opt => |opt| opt.val == .none,
                 else => false,
