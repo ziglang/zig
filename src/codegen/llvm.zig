@@ -3246,6 +3246,7 @@ pub const DeclGen = struct {
             },
             .variable,
             .enum_literal,
+            .empty_enum_value,
             => unreachable, // non-runtime values
             .extern_func, .func => {
                 const fn_decl_index = switch (val_key) {

@@ -441,6 +441,7 @@ pub const Value = struct {
             .err,
             .enum_literal,
             .enum_tag,
+            .empty_enum_value,
             .float,
             => val,
 

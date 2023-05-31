@@ -248,6 +248,7 @@ pub fn print(
                 try writer.writeAll(")");
                 return;
             },
+            .empty_enum_value => return writer.writeAll("(empty enum value)"),
             .float => |float| switch (float.storage) {
                 inline else => |x| return writer.print("{}", .{x}),
             },
