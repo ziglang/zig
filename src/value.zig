@@ -625,15 +625,14 @@ pub const Value = struct {
                     .int => |int| int.toValue().getUnsignedIntAdvanced(mod, opt_sema),
                     .elem => |elem| {
                         const base_addr = (try elem.base.toValue().getUnsignedIntAdvanced(mod, opt_sema)) orelse return null;
-                        const elem_size = ptr.ty.toType().elemType2(mod).abiSize(mod);
-                        return base_addr + elem.index * elem_size;
+                        const elem_ty = mod.intern_pool.typeOf(elem.base).toType().elemType2(mod);
+                        return base_addr + elem.index * elem_ty.abiSize(mod);
                     },
                     .field => |field| {
-                        const struct_ty = ptr.ty.toType().childType(mod);
-                        if (opt_sema) |sema| try sema.resolveTypeLayout(struct_ty);
                         const base_addr = (try field.base.toValue().getUnsignedIntAdvanced(mod, opt_sema)) orelse return null;
-                        const field_offset = ptr.ty.toType().childType(mod).structFieldOffset(field.index, mod);
-                        return base_addr + field_offset;
+                        const struct_ty = mod.intern_pool.typeOf(field.base).toType().childType(mod);
+                        if (opt_sema) |sema| try sema.resolveTypeLayout(struct_ty);
+                        return base_addr + struct_ty.structFieldOffset(field.index, mod);
                     },
                     else => null,
                 },

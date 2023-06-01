@@ -28508,7 +28508,11 @@ fn beginComptimePtrLoad(
             .int => return error.RuntimeLoad,
             .eu_payload, .opt_payload => |container_ptr| blk: {
                 const container_ty = mod.intern_pool.typeOf(container_ptr).toType().childType(mod);
-                const payload_ty = ptr.ty.toType().childType(mod);
+                const payload_ty = switch (ptr.addr) {
+                    .eu_payload => container_ty.errorUnionPayload(mod),
+                    .opt_payload => container_ty.optionalChild(mod),
+                    else => unreachable,
+                };
                 var deref = try sema.beginComptimePtrLoad(block, src, container_ptr.toValue(), container_ty);
 
                 // eu_payload and opt_payload never have a well-defined layout
@@ -28554,7 +28558,7 @@ fn beginComptimePtrLoad(
                 };
             },
             .elem => |elem_ptr| blk: {
-                const elem_ty = ptr.ty.toType().elemType2(mod);
+                const elem_ty = mod.intern_pool.typeOf(elem_ptr.base).toType().elemType2(mod);
                 var deref = try sema.beginComptimePtrLoad(block, src, elem_ptr.base.toValue(), null);
 
                 // This code assumes that elem_ptrs have been "flattened" in order for direct dereference

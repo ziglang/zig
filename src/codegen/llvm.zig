@@ -3915,7 +3915,8 @@ pub const DeclGen = struct {
                     const indices: [1]*llvm.Value = .{
                         llvm_usize.constInt(elem_ptr.index, .False),
                     };
-                    const elem_llvm_ty = try dg.lowerType(ptr.ty.toType().elemType2(mod));
+                    const elem_ty = mod.intern_pool.typeOf(elem_ptr.base).toType().elemType2(mod);
+                    const elem_llvm_ty = try dg.lowerType(elem_ty);
                     return elem_llvm_ty.constInBoundsGEP(parent_llvm_ptr, &indices, indices.len);
                 },
                 .field => |field_ptr| {
