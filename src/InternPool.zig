@@ -1453,7 +1453,7 @@ pub const Index = enum(u32) {
         float_comptime_float: struct { data: *Float128 },
         variable: struct { data: *Tag.Variable },
         extern_func: struct { data: *Key.ExternFunc },
-        func: struct { data: *Key.Func },
+        func: struct { data: *Tag.Func },
         only_possible_value: DataIsIndex,
         union_value: struct { data: *Key.Union },
         bytes: struct { data: *Bytes },
@@ -1949,7 +1949,7 @@ pub const Tag = enum(u8) {
     /// data is extra index to Key.ExternFunc.
     extern_func,
     /// A regular function.
-    /// data is extra index to Key.Func.
+    /// data is extra index to Func.
     func,
     /// This represents the only possible value for *some* types which have
     /// only one possible value. Not all only-possible-values are encoded this way;
@@ -2893,8 +2893,8 @@ pub fn indexToKey(ip: *const InternPool, index: Index) Key {
                 .is_weak_linkage = extra.flags.is_weak_linkage,
             } };
         },
-        .extern_func => .{ .extern_func = ip.extraData(Key.ExternFunc, data) },
-        .func => .{ .func = ip.extraData(Key.Func, data) },
+        .extern_func => .{ .extern_func = ip.extraData(Tag.ExternFunc, data) },
+        .func => .{ .func = ip.extraData(Tag.Func, data) },
         .only_possible_value => {
             const ty = @intToEnum(Index, data);
             const ty_item = ip.items.get(@enumToInt(ty));
@@ -3349,12 +3349,12 @@ pub fn get(ip: *InternPool, gpa: Allocator, key: Key) Allocator.Error!Index {
 
         .extern_func => |extern_func| ip.items.appendAssumeCapacity(.{
             .tag = .extern_func,
-            .data = try ip.addExtra(gpa, extern_func),
+            .data = try ip.addExtra(gpa, @as(Tag.ExternFunc, extern_func)),
         }),
 
         .func => |func| ip.items.appendAssumeCapacity(.{
             .tag = .func,
-            .data = try ip.addExtra(gpa, func),
+            .data = try ip.addExtra(gpa, @as(Tag.Func, func)),
         }),
 
         .ptr => |ptr| {
@@ -4715,7 +4715,7 @@ pub fn indexToFunc(ip: *const InternPool, val: Index) Module.Fn.OptionalIndex {
     const tags = ip.items.items(.tag);
     if (tags[@enumToInt(val)] != .func) return .none;
     const datas = ip.items.items(.data);
-    return ip.extraData(Key.Func, datas[@enumToInt(val)]).index.toOptional();
+    return ip.extraData(Tag.Func, datas[@enumToInt(val)]).index.toOptional();
 }
 
 pub fn indexToInferredErrorSetType(ip: *const InternPool, val: Index) Module.Fn.InferredErrorSet.OptionalIndex {
@@ -4807,10 +4807,11 @@ pub fn mutateVarInit(ip: *InternPool, index: Index, init_index: Index) void {
 }
 
 pub fn dump(ip: *const InternPool) void {
-    dumpFallible(ip, std.heap.page_allocator) catch return;
+    dumpStatsFallible(ip, std.heap.page_allocator) catch return;
+    dumpAllFallible(ip) catch return;
 }
 
-fn dumpFallible(ip: *const InternPool, arena: Allocator) anyerror!void {
+fn dumpStatsFallible(ip: *const InternPool, arena: Allocator) anyerror!void {
     const items_size = (1 + 4) * ip.items.len;
     const extra_size = 4 * ip.extra.items.len;
     const limbs_size = 8 * ip.limbs.items.len;
@@ -4969,8 +4970,8 @@ fn dumpFallible(ip: *const InternPool, arena: Allocator) anyerror!void {
             .float_c_longdouble_f128 => @sizeOf(Float128),
             .float_comptime_float => @sizeOf(Float128),
             .variable => @sizeOf(Tag.Variable) + @sizeOf(Module.Decl),
-            .extern_func => @sizeOf(Key.ExternFunc) + @sizeOf(Module.Decl),
-            .func => @sizeOf(Key.Func) + @sizeOf(Module.Fn) + @sizeOf(Module.Decl),
+            .extern_func => @sizeOf(Tag.ExternFunc) + @sizeOf(Module.Decl),
+            .func => @sizeOf(Tag.Func) + @sizeOf(Module.Fn) + @sizeOf(Module.Decl),
             .only_possible_value => 0,
             .union_value => @sizeOf(Key.Union),
 
@@ -4989,13 +4990,104 @@ fn dumpFallible(ip: *const InternPool, arena: Allocator) anyerror!void {
         }
     };
     counts.sort(SortContext{ .map = &counts });
-    const len = @min(25, counts.count());
-    std.debug.print("  top 25 tags:\n", .{});
+    const len = @min(50, counts.count());
+    std.debug.print("  top 50 tags:\n", .{});
     for (counts.keys()[0..len], counts.values()[0..len]) |tag, stats| {
         std.debug.print("    {s}: {d} occurrences, {d} total bytes\n", .{
             @tagName(tag), stats.count, stats.bytes,
         });
     }
+}
+
+fn dumpAllFallible(ip: *const InternPool) anyerror!void {
+    const tags = ip.items.items(.tag);
+    const datas = ip.items.items(.data);
+    var bw = std.io.bufferedWriter(std.io.getStdErr().writer());
+    const w = bw.writer();
+    for (tags, datas, 0..) |tag, data, i| {
+        try w.print("${d} = {s}(", .{ i, @tagName(tag) });
+        switch (tag) {
+            .simple_type => try w.print("{s}", .{@tagName(@intToEnum(SimpleType, data))}),
+            .simple_value => try w.print("{s}", .{@tagName(@intToEnum(SimpleValue, data))}),
+
+            .type_int_signed,
+            .type_int_unsigned,
+            .type_array_small,
+            .type_array_big,
+            .type_vector,
+            .type_pointer,
+            .type_optional,
+            .type_anyframe,
+            .type_error_union,
+            .type_error_set,
+            .type_inferred_error_set,
+            .type_enum_explicit,
+            .type_enum_nonexhaustive,
+            .type_enum_auto,
+            .type_opaque,
+            .type_struct,
+            .type_struct_ns,
+            .type_struct_anon,
+            .type_tuple_anon,
+            .type_union_tagged,
+            .type_union_untagged,
+            .type_union_safety,
+            .type_function,
+            .undef,
+            .runtime_value,
+            .ptr_decl,
+            .ptr_mut_decl,
+            .ptr_comptime_field,
+            .ptr_int,
+            .ptr_eu_payload,
+            .ptr_opt_payload,
+            .ptr_elem,
+            .ptr_field,
+            .ptr_slice,
+            .opt_payload,
+            .int_u8,
+            .int_u16,
+            .int_u32,
+            .int_i32,
+            .int_usize,
+            .int_comptime_int_u32,
+            .int_comptime_int_i32,
+            .int_small,
+            .int_positive,
+            .int_negative,
+            .int_lazy_align,
+            .int_lazy_size,
+            .error_set_error,
+            .error_union_error,
+            .error_union_payload,
+            .enum_literal,
+            .enum_tag,
+            .bytes,
+            .aggregate,
+            .repeated,
+            .float_f16,
+            .float_f32,
+            .float_f64,
+            .float_f80,
+            .float_f128,
+            .float_c_longdouble_f80,
+            .float_c_longdouble_f128,
+            .float_comptime_float,
+            .variable,
+            .extern_func,
+            .func,
+            .union_value,
+            .memoized_call,
+            => try w.print("{d}", .{data}),
+
+            .opt_null,
+            .type_slice,
+            .only_possible_value,
+            => try w.print("${d}", .{data}),
+        }
+        try w.writeAll(")\n");
+    }
+    try bw.flush();
 }
 
 pub fn structPtr(ip: *InternPool, index: Module.Struct.Index) *Module.Struct {
