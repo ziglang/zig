@@ -387,36 +387,26 @@ pub fn generateSymbol(
             }
         },
         .aggregate => |aggregate| switch (mod.intern_pool.indexToKey(typed_value.ty.toIntern())) {
-            .array_type => |array_type| {
-                switch (aggregate.storage) {
-                    .bytes => |bytes| try code.appendSlice(bytes),
-                    .elems, .repeated_elem => {
-                        var index: u64 = 0;
-                        while (index < array_type.len) : (index += 1) {
-                            switch (try generateSymbol(bin_file, src_loc, .{
-                                .ty = array_type.child.toType(),
-                                .val = switch (aggregate.storage) {
-                                    .bytes => unreachable,
-                                    .elems => |elems| elems[@intCast(usize, index)],
-                                    .repeated_elem => |elem| elem,
-                                }.toValue(),
-                            }, code, debug_output, reloc_info)) {
-                                .ok => {},
-                                .fail => |em| return .{ .fail = em },
-                            }
+            .array_type => |array_type| switch (aggregate.storage) {
+                .bytes => |bytes| try code.appendSlice(bytes),
+                .elems, .repeated_elem => {
+                    var index: u64 = 0;
+                    var len_including_sentinel =
+                        array_type.len + @boolToInt(array_type.sentinel != .none);
+                    while (index < len_including_sentinel) : (index += 1) {
+                        switch (try generateSymbol(bin_file, src_loc, .{
+                            .ty = array_type.child.toType(),
+                            .val = switch (aggregate.storage) {
+                                .bytes => unreachable,
+                                .elems => |elems| elems[@intCast(usize, index)],
+                                .repeated_elem => |elem| elem,
+                            }.toValue(),
+                        }, code, debug_output, reloc_info)) {
+                            .ok => {},
+                            .fail => |em| return .{ .fail = em },
                         }
-                    },
-                }
-
-                if (array_type.sentinel != .none) {
-                    switch (try generateSymbol(bin_file, src_loc, .{
-                        .ty = array_type.child.toType(),
-                        .val = array_type.sentinel.toValue(),
-                    }, code, debug_output, reloc_info)) {
-                        .ok => {},
-                        .fail => |em| return .{ .fail = em },
                     }
-                }
+                },
             },
             .vector_type => |vector_type| {
                 switch (aggregate.storage) {
