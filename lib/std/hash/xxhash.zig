@@ -74,39 +74,65 @@ pub const XxHash64 = struct {
     }
 
     pub fn final(self: *XxHash64) u64 {
-        var acc: u64 = undefined;
+        return self.finalize(.unknown, self.buf[0..self.buf_len]);
+    }
 
-        if (self.byte_count < 32) {
-            acc = self.seed +% prime_5;
-        } else {
-            acc = rotl(u64, self.acc1, 1) +% rotl(u64, self.acc2, 7) +%
-                rotl(u64, self.acc3, 12) +% rotl(u64, self.acc4, 18);
-            acc = mergeAccumulator(acc, self.acc1);
-            acc = mergeAccumulator(acc, self.acc2);
-            acc = mergeAccumulator(acc, self.acc3);
-            acc = mergeAccumulator(acc, self.acc4);
+    const Size = enum {
+        small,
+        large,
+        unknown,
+    };
+
+    inline fn finalize(self: *XxHash64, comptime size: Size, partial: []const u8) u64 {
+        std.debug.assert(partial.len < 32);
+        var acc: u64 = undefined;
+        switch (size) {
+            .small => {
+                std.debug.assert(partial.len < 32);
+                acc = self.seed +% prime_5;
+            },
+            .large => {
+                acc = rotl(u64, self.acc1, 1) +% rotl(u64, self.acc2, 7) +%
+                    rotl(u64, self.acc3, 12) +% rotl(u64, self.acc4, 18);
+                acc = mergeAccumulator(acc, self.acc1);
+                acc = mergeAccumulator(acc, self.acc2);
+                acc = mergeAccumulator(acc, self.acc3);
+                acc = mergeAccumulator(acc, self.acc4);
+            },
+            .unknown => {
+                if (self.byte_count < 32) {
+                    acc = self.seed +% prime_5;
+                } else {
+                    acc = rotl(u64, self.acc1, 1) +% rotl(u64, self.acc2, 7) +%
+                        rotl(u64, self.acc3, 12) +% rotl(u64, self.acc4, 18);
+                    acc = mergeAccumulator(acc, self.acc1);
+                    acc = mergeAccumulator(acc, self.acc2);
+                    acc = mergeAccumulator(acc, self.acc3);
+                    acc = mergeAccumulator(acc, self.acc4);
+                }
+            },
         }
 
-        acc = acc +% @as(u64, self.byte_count) +% @as(u64, self.buf_len);
+        acc = acc +% @as(u64, self.byte_count) +% @as(u64, partial.len);
 
         var pos: usize = 0;
-        while (pos + 8 <= self.buf_len) : (pos += 8) {
-            const lane = mem.readIntLittle(u64, self.buf[pos..][0..8]);
+        while (pos + 8 <= partial.len) : (pos += 8) {
+            const lane = mem.readIntLittle(u64, partial[pos..][0..8]);
             acc ^= round(0, lane);
             acc = rotl(u64, acc, 27) *% prime_1;
             acc +%= prime_4;
         }
 
-        if (pos + 4 <= self.buf_len) {
-            const lane = @as(u64, mem.readIntLittle(u32, self.buf[pos..][0..4]));
+        if (pos + 4 <= partial.len) {
+            const lane = @as(u64, mem.readIntLittle(u32, partial[pos..][0..4]));
             acc ^= lane *% prime_1;
             acc = rotl(u64, acc, 23) *% prime_2;
             acc +%= prime_3;
             pos += 4;
         }
 
-        while (pos < self.buf_len) : (pos += 1) {
-            const lane = @as(u64, self.buf[pos]);
+        while (pos < partial.len) : (pos += 1) {
+            const lane = @as(u64, partial[pos]);
             acc ^= lane *% prime_5;
             acc = rotl(u64, acc, 11) *% prime_1;
         }
@@ -130,6 +156,25 @@ pub const XxHash64 = struct {
         var hasher = XxHash64.init(seed);
         hasher.update(input);
         return hasher.final();
+    }
+
+    pub const small_key_max_size = 31;
+
+    pub fn hashSmall(seed: u64, input: []const u8) u64 {
+        std.debug.assert(input.len < small_key_max_size);
+        var hasher = XxHash64.init(seed);
+        return hasher.finalize(.small, input);
+    }
+
+    pub fn hashExact(comptime N: usize, seed: u64, input: *const [N]u8) u64 {
+        if (N <= small_key_max_size) return hashSmall(seed, input);
+
+        var hasher = XxHash64.init(seed);
+        comptime var i = 0;
+        inline while (i + 32 <= input.len) : (i += 32) {
+            hasher.processStripe(input[i..][0..32]);
+        }
+        return hasher.finalize(.large, input[i..]);
     }
 };
 

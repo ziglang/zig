@@ -18,6 +18,8 @@ const Hash = struct {
     name: []const u8,
     has_iterative_api: bool = true,
     has_crypto_api: bool = false,
+    has_small_api: bool = false,
+    has_exact_api: ?[]const comptime_int = null,
     init_u8s: ?[]const u8 = null,
     init_u64: ?u64 = null,
 };
@@ -27,6 +29,8 @@ const hashes = [_]Hash{
         .ty = hash.XxHash64,
         .name = "xxhash64",
         .init_u64 = 0,
+        .has_small_api = true,
+        .has_exact_api = @as([]const comptime_int, &[_]comptime_int{ 8, 16, 32, 48, 64, 80, 96, 112, 128 }),
     },
     Hash{
         .ty = hash.XxHash32,
@@ -177,6 +181,86 @@ pub fn benchmarkHashSmallKeys(comptime H: anytype, key_size: usize, bytes: usize
     };
 }
 
+pub fn benchmarkHashExactApi(comptime H: anytype, comptime key_size: usize, bytes: usize, allocator: std.mem.Allocator) !Result {
+    var blocks = try allocator.alloc(u8, bytes);
+    defer allocator.free(blocks);
+    random.bytes(blocks);
+
+    const key_count = bytes / key_size;
+
+    var timer = try Timer.start();
+
+    var sum: u64 = 0;
+    for (0..key_count) |i| {
+        const small_key = blocks[i * key_size ..][0..key_size];
+        const final: u64 = blk: {
+            if (H.init_u8s) |init| {
+                if (H.has_crypto_api) {
+                    break :blk @truncate(H.ty.toInt(small_key, init[0..H.ty.key_length]));
+                } else {
+                    break :blk H.ty.hashExact(key_size, init, small_key);
+                }
+            }
+            if (H.init_u64) |init| {
+                break :blk H.ty.hashExact(key_size, init, small_key);
+            }
+            break :blk H.ty.hashExact(key_size, small_key);
+        };
+        sum +%= final;
+    }
+    const elapsed_ns = timer.read();
+
+    const elapsed_s = @as(f64, @floatFromInt(elapsed_ns)) / time.ns_per_s;
+    const throughput: u64 = @intFromFloat(@as(f64, @floatFromInt(bytes)) / elapsed_s);
+
+    std.mem.doNotOptimizeAway(sum);
+
+    return Result{
+        .hash = sum,
+        .throughput = throughput,
+    };
+}
+
+pub fn benchmarkHashSmallApi(comptime H: anytype, key_size: usize, bytes: usize, allocator: std.mem.Allocator) !Result {
+    var blocks = try allocator.alloc(u8, bytes);
+    defer allocator.free(blocks);
+    random.bytes(blocks);
+
+    const key_count = bytes / key_size;
+
+    var timer = try Timer.start();
+
+    var sum: u64 = 0;
+    for (0..key_count) |i| {
+        const small_key = blocks[i * key_size ..][0..key_size];
+        const final: u64 = blk: {
+            if (H.init_u8s) |init| {
+                if (H.has_crypto_api) {
+                    break :blk @truncate(H.ty.toInt(small_key, init[0..H.ty.key_length]));
+                } else {
+                    break :blk H.ty.hashSmall(init, small_key);
+                }
+            }
+            if (H.init_u64) |init| {
+                break :blk H.ty.hashSmall(init, small_key);
+            }
+            break :blk H.ty.hashSmall(small_key);
+        };
+        sum +%= final;
+    }
+    const elapsed_ns = timer.read();
+
+    const elapsed_s = @as(f64, @floatFromInt(elapsed_ns)) / time.ns_per_s;
+    const throughput: u64 = @intFromFloat(@as(f64, @floatFromInt(bytes)) / elapsed_s);
+
+    std.mem.doNotOptimizeAway(sum);
+
+    return Result{
+        .throughput = throughput,
+        .hash = sum,
+    };
+}
+
 fn usage() void {
     std.debug.print(
         \\throughput_test [options]
@@ -205,9 +289,11 @@ pub fn main() !void {
 
     var filter: ?[]u8 = "";
     var count: usize = mode(128 * MiB);
-    var key_size: usize = 32;
+    var key_size: ?usize = null;
     var seed: u32 = 0;
     var test_iterative_only = false;
+
+    const default_small_key_size = 32;
 
     var i: usize = 1;
     while (i < args.len) : (i += 1) {
@@ -248,7 +334,7 @@ pub fn main() !void {
             }
 
             key_size = try std.fmt.parseUnsigned(usize, args[i], 10);
-            if (key_size > block_size) {
+            if (key_size.? > block_size) {
                 try stdout.print("key_size cannot exceed block size of {}\n", .{block_size});
                 std.os.exit(1);
             }
@@ -269,7 +355,7 @@ pub fn main() !void {
 
     inline for (hashes) |H| {
         if (filter == null or std.mem.indexOf(u8, H.name, filter.?) != null) {
-            if (!test_iterative_only or H.has_iterative_api) {
+            if (!test_iterative_only or H.has_iterative_api or H.has_small_api) {
                 try stdout.print("{s}\n", .{H.name});
 
                 // Always reseed prior to every call so we are hashing the same buffer contents.
@@ -281,14 +367,68 @@ pub fn main() !void {
                 }
 
                 if (!test_iterative_only) {
-                    prng.seed(seed);
-                    const result_small = try benchmarkHashSmallKeys(H, key_size, count, allocator);
-                    try stdout.print("  small keys: {:3}B {:5} MiB/s {} Hashes/s [{x:0<16}]\n", .{
-                        key_size,
-                        result_small.throughput / (1 * MiB),
-                        result_small.throughput / key_size,
-                        result_small.hash,
-                    });
+                    if (key_size) |size| {
+                        prng.seed(seed);
+                        const result_small = try benchmarkHashSmallKeys(H, size, count, allocator);
+                        try stdout.print("  small keys: {:3}B {:5} MiB/s {} Hashes/s [{x:0<16}]\n", .{
+                            size,
+                            result_small.throughput / (1 * MiB),
+                            result_small.throughput / size,
+                            result_small.hash,
+                        });
+
+                        if (H.has_small_api and size <= H.ty.small_key_max_size) {
+                            prng.seed(seed);
+                            const result = try benchmarkHashSmallApi(H, size, count, allocator);
+                            try stdout.print("   small api: {:5} MiB/s [{x:0<16}]\n", .{
+                                result.throughput / (1 * MiB),
+                                result.hash,
+                            });
+                        }
+                        if (H.has_exact_api) |sizes| {
+                            inline for (sizes) |exact_size| {
+                                if (size == exact_size) {
+                                    prng.seed(seed);
+                                    const result = try benchmarkHashExactApi(H, exact_size, count, allocator);
+                                    try stdout.print("   exact api: {:5} MiB/s [{x:0<16}]\n", .{
+                                        result.throughput / (1 * MiB),
+                                        result.hash,
+                                    });
+                                }
+                            }
+                        }
+                    } else {
+                        prng.seed(seed);
+                        const result_small = try benchmarkHashSmallKeys(H, default_small_key_size, count, allocator);
+                        try stdout.print("  small keys: {:3}B {:5} MiB/s {} Hashes/s [{x:0<16}]\n", .{
+                            default_small_key_size,
+                            result_small.throughput / (1 * MiB),
+                            result_small.throughput / default_small_key_size,
+                            result_small.hash,
+                        });
+
+                        if (H.has_small_api) {
+                            try stdout.print("   small api:\n", .{});
+                            for (1..H.ty.small_key_max_size + 1) |size| {
+                                prng.seed(seed);
+                                const result = try benchmarkHashSmallApi(H, size, count, allocator);
+                                try stdout.print("       {d: >3}B {:5} MiB/s [{x:0<16}]\n", .{
+                                    size,
+                                    result.throughput / (1 * MiB),
+                                    result.hash,
+                                });
+                            }
+                        }
+
+                        if (H.has_exact_api) |sizes| {
+                            try stdout.print("   exact api:\n", .{});
+                            inline for (sizes) |size| {
+                                prng.seed(seed);
+                                const result = try benchmarkHashExactApi(H, size, count, allocator);
+                                try stdout.print("       {d: >3}B {:5} MiB/s [{x:0<16}]\n", .{ size, result.throughput / (1 * MiB), result.hash });
+                            }
+                        }
+                    }
                 }
             }
         }
