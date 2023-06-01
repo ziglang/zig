@@ -611,6 +611,10 @@ pub fn generateSymbol(
                 }
             }
 
+            if (layout.padding > 0) {
+                try code.writer().writeByteNTimes(0, layout.padding);
+            }
+
             return Result.ok;
         },
         .Optional => {

@@ -1014,6 +1014,17 @@ fn typeToValtype(ty: Type, target: std.Target) wasm.Valtype {
             .direct => wasm.Valtype.v128,
             .unrolled => wasm.Valtype.i32,
         },
+        .Union => switch (ty.containerLayout()) {
+            .Packed => {
+                var int_ty_payload: Type.Payload.Bits = .{
+                    .base = .{ .tag = .int_unsigned },
+                    .data = @intCast(u16, ty.bitSize(target)),
+                };
+                const int_ty = Type.initPayload(&int_ty_payload.base);
+                return typeToValtype(int_ty, target);
+            },
+            else => wasm.Valtype.i32,
+        },
         else => wasm.Valtype.i32, // all represented as reference/immediate
     };
 }
@@ -1715,8 +1726,15 @@ fn isByRef(ty: Type, target: std.Target) bool {
 
         .Array,
         .Frame,
-        .Union,
         => return ty.hasRuntimeBitsIgnoreComptime(),
+        .Union => {
+            if (ty.castTag(.@"union")) |union_ty| {
+                if (union_ty.data.layout == .Packed) {
+                    return ty.abiSize(target) > 8;
+                }
+            }
+            return ty.hasRuntimeBitsIgnoreComptime();
+        },
         .Struct => {
             if (ty.castTag(.@"struct")) |struct_ty| {
                 const struct_obj = struct_ty.data;
@@ -2311,6 +2329,7 @@ fn airStore(func: *CodeGen, inst: Air.Inst.Index, safety: bool) InnerError!void 
 
 fn store(func: *CodeGen, lhs: WValue, rhs: WValue, ty: Type, offset: u32) InnerError!void {
     assert(!(lhs != .stack and rhs == .stack));
+    const abi_size = ty.abiSize(func.target);
     switch (ty.zigTypeTag()) {
         .ErrorUnion => {
             const pl_ty = ty.errorUnionPayload();
@@ -2318,7 +2337,7 @@ fn store(func: *CodeGen, lhs: WValue, rhs: WValue, ty: Type, offset: u32) InnerE
                 return func.store(lhs, rhs, Type.anyerror, 0);
             }
 
-            const len = @intCast(u32, ty.abiSize(func.target));
+            const len = @intCast(u32, abi_size);
             return func.memcpy(lhs, rhs, .{ .imm32 = len });
         },
         .Optional => {
@@ -2334,16 +2353,16 @@ fn store(func: *CodeGen, lhs: WValue, rhs: WValue, ty: Type, offset: u32) InnerE
                 return func.store(lhs, rhs, Type.anyerror, 0);
             }
 
-            const len = @intCast(u32, ty.abiSize(func.target));
+            const len = @intCast(u32, abi_size);
             return func.memcpy(lhs, rhs, .{ .imm32 = len });
         },
         .Struct, .Array, .Union => if (isByRef(ty, func.target)) {
-            const len = @intCast(u32, ty.abiSize(func.target));
+            const len = @intCast(u32, abi_size);
             return func.memcpy(lhs, rhs, .{ .imm32 = len });
         },
         .Vector => switch (determineSimdStoreStrategy(ty, func.target)) {
             .unrolled => {
-                const len = @intCast(u32, ty.abiSize(func.target));
+                const len = @intCast(u32, abi_size);
                 return func.memcpy(lhs, rhs, .{ .imm32 = len });
             },
             .direct => {
@@ -2375,7 +2394,7 @@ fn store(func: *CodeGen, lhs: WValue, rhs: WValue, ty: Type, offset: u32) InnerE
                 return;
             }
         },
-        .Int => if (ty.intInfo(func.target).bits > 64) {
+        .Int, .Float => if (abi_size > 8 and abi_size <= 16) {
             try func.emitWValue(lhs);
             const lsb = try func.load(rhs, Type.u64, 0);
             try func.store(.{ .stack = {} }, lsb, Type.u64, 0 + lhs.offset());
@@ -2384,8 +2403,15 @@ fn store(func: *CodeGen, lhs: WValue, rhs: WValue, ty: Type, offset: u32) InnerE
             const msb = try func.load(rhs, Type.u64, 8);
             try func.store(.{ .stack = {} }, msb, Type.u64, 8 + lhs.offset());
             return;
+        } else if (abi_size > 16) {
+            try func.memcpy(lhs, rhs, .{ .imm32 = @intCast(u32, ty.abiSize(func.target)) });
         },
-        else => {},
+        else => if (abi_size > 8) {
+            return func.fail("TODO: `store` for type `{}` with abisize `{d}`", .{
+                ty.fmt(func.bin_file.base.options.module.?),
+                abi_size,
+            });
+        },
     }
     try func.emitWValue(lhs);
     // In this case we're actually interested in storing the stack position
@@ -2393,11 +2419,9 @@ fn store(func: *CodeGen, lhs: WValue, rhs: WValue, ty: Type, offset: u32) InnerE
     try func.lowerToStack(rhs);
 
     const valtype = typeToValtype(ty, func.target);
-    const abi_size = @intCast(u8, ty.abiSize(func.target));
-
     const opcode = buildOpcode(.{
         .valtype1 = valtype,
-        .width = abi_size * 8,
+        .width = @intCast(u8, abi_size * 8),
         .op = .store,
     });
 
@@ -3131,6 +3155,14 @@ fn lowerConstant(func: *CodeGen, arg_val: Value, ty: Type) InnerError!WValue {
             val.writeToMemory(ty, func.bin_file.base.options.module.?, &buf) catch unreachable;
             return func.storeSimdImmd(buf);
         },
+        .Union => {
+            // in this case we have a packed union which will not be passed by reference.
+            const union_ty = ty.cast(Type.Payload.Union).?.data;
+            const union_obj = val.castTag(.@"union").?.data;
+            const field_index = ty.unionTagFieldIndex(union_obj.tag, func.bin_file.base.options.module.?).?;
+            const field_ty = union_ty.fields.values()[field_index].ty;
+            return func.lowerConstant(union_obj.val, field_ty);
+        },
         else => |zig_type| return func.fail("Wasm TODO: LowerConstant for zigTypeTag {}", .{zig_type}),
     }
 }
@@ -3146,7 +3178,7 @@ fn storeSimdImmd(func: *CodeGen, value: [16]u8) !WValue {
 fn emitUndefined(func: *CodeGen, ty: Type) InnerError!WValue {
     switch (ty.zigTypeTag()) {
         .Bool, .ErrorSet => return WValue{ .imm32 = 0xaaaaaaaa },
-        .Int => switch (ty.intInfo(func.target).bits) {
+        .Int, .Enum => switch (ty.intInfo(func.target).bits) {
             0...32 => return WValue{ .imm32 = 0xaaaaaaaa },
             33...64 => return WValue{ .imm64 = 0xaaaaaaaaaaaaaaaa },
             else => unreachable,
@@ -3617,7 +3649,6 @@ fn airStructFieldVal(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         .Packed => switch (struct_ty.zigTypeTag()) {
             .Struct => result: {
                 const struct_obj = struct_ty.castTag(.@"struct").?.data;
-                assert(struct_obj.layout == .Packed);
                 const offset = struct_obj.packedFieldBitOffset(func.target, field_index);
                 const backing_ty = struct_obj.backing_int_ty;
                 const wasm_bits = toWasmBits(backing_ty.intInfo(func.target).bits) orelse {
@@ -3661,7 +3692,44 @@ fn airStructFieldVal(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
                 const truncated = try func.trunc(shifted_value, field_ty, backing_ty);
                 break :result try truncated.toLocal(func, field_ty);
             },
-            .Union => return func.fail("TODO: airStructFieldVal for packed unions", .{}),
+            .Union => result: {
+                if (isByRef(struct_ty, func.target)) {
+                    if (!isByRef(field_ty, func.target)) {
+                        const val = try func.load(operand, field_ty, 0);
+                        break :result try val.toLocal(func, field_ty);
+                    } else {
+                        const new_stack_val = try func.allocStack(field_ty);
+                        try func.store(new_stack_val, operand, field_ty, 0);
+                        break :result new_stack_val;
+                    }
+                }
+
+                var payload: Type.Payload.Bits = .{
+                    .base = .{ .tag = .int_unsigned },
+                    .data = @intCast(u16, struct_ty.bitSize(func.target)),
+                };
+                const union_int_type = Type.initPayload(&payload.base);
+                if (field_ty.zigTypeTag() == .Float) {
+                    var int_payload: Type.Payload.Bits = .{
+                        .base = .{ .tag = .int_unsigned },
+                        .data = @intCast(u16, field_ty.bitSize(func.target)),
+                    };
+                    const int_type = Type.initPayload(&int_payload.base);
+                    const truncated = try func.trunc(operand, int_type, union_int_type);
+                    const bitcasted = try func.bitcast(field_ty, int_type, truncated);
+                    break :result try bitcasted.toLocal(func, field_ty);
+                } else if (field_ty.isPtrAtRuntime()) {
+                    var int_payload: Type.Payload.Bits = .{
+                        .base = .{ .tag = .int_unsigned },
+                        .data = @intCast(u16, field_ty.bitSize(func.target)),
+                    };
+                    const int_type = Type.initPayload(&int_payload.base);
+                    const truncated = try func.trunc(operand, int_type, union_int_type);
+                    break :result try truncated.toLocal(func, field_ty);
+                }
+                const truncated = try func.trunc(operand, field_ty, union_int_type);
+                break :result try truncated.toLocal(func, field_ty);
+            },
             else => unreachable,
         },
         else => result: {
@@ -3907,7 +3975,12 @@ fn airUnwrapErrUnionPayload(func: *CodeGen, inst: Air.Inst.Index, op_is_ptr: boo
     const payload_ty = err_ty.errorUnionPayload();
 
     const result = result: {
-        if (!payload_ty.hasRuntimeBitsIgnoreComptime()) break :result WValue{ .none = {} };
+        if (!payload_ty.hasRuntimeBitsIgnoreComptime()) {
+            if (op_is_ptr) {
+                break :result func.reuseOperand(ty_op.operand, operand);
+            }
+            break :result WValue{ .none = {} };
+        }
 
         const pl_offset = @intCast(u32, errUnionPayloadOffset(payload_ty, func.target));
         if (op_is_ptr or isByRef(payload_ty, func.target)) {
@@ -4397,7 +4470,7 @@ fn airPtrElemVal(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     try func.addTag(.i32_add);
 
     const elem_result = val: {
-        var result = try func.allocLocal(elem_ty);
+        var result = try func.allocLocal(Type.usize);
         try func.addLabel(.local_set, result.local.value);
         if (isByRef(elem_ty, func.target)) {
             break :val result;
@@ -4864,6 +4937,9 @@ fn airAggregateInit(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
                 const result = try func.allocStack(result_ty);
                 const elem_ty = result_ty.childType();
                 const elem_size = @intCast(u32, elem_ty.abiSize(func.target));
+                const sentinel = if (result_ty.sentinel()) |sent| blk: {
+                    break :blk try func.lowerConstant(sent, elem_ty);
+                } else null;
 
                 // When the element type is by reference, we must copy the entire
                 // value. It is therefore safer to move the offset pointer and store
@@ -4876,9 +4952,12 @@ fn airAggregateInit(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
                         const elem_val = try func.resolveInst(elem);
                         try func.store(offset, elem_val, elem_ty, 0);
 
-                        if (elem_index < elements.len - 1) {
+                        if (elem_index < elements.len - 1 and sentinel == null) {
                             _ = try func.buildPointerOffset(offset, elem_size, .modify);
                         }
+                    }
+                    if (sentinel) |sent| {
+                        try func.store(offset, sent, elem_ty, 0);
                     }
                 } else {
                     var offset: u32 = 0;
@@ -4886,6 +4965,9 @@ fn airAggregateInit(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
                         const elem_val = try func.resolveInst(elem);
                         try func.store(result, elem_val, elem_ty, offset);
                         offset += elem_size;
+                    }
+                    if (sentinel) |sent| {
+                        try func.store(result, sent, elem_ty, offset);
                     }
                 }
                 break :result_value result;
@@ -4982,31 +5064,85 @@ fn airUnionInit(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     const result = result: {
         const union_ty = func.air.typeOfIndex(inst);
         const layout = union_ty.unionGetLayout(func.target);
+        const union_obj = union_ty.cast(Type.Payload.Union).?.data;
+        const field = union_obj.fields.values()[extra.field_index];
+        const field_name = union_obj.fields.keys()[extra.field_index];
+
+        const tag_int = blk: {
+            const tag_ty = union_ty.unionTagTypeHypothetical();
+            const enum_field_index = tag_ty.enumFieldIndex(field_name).?;
+            var tag_val_payload: Value.Payload.U32 = .{
+                .base = .{ .tag = .enum_field_index },
+                .data = @intCast(u32, enum_field_index),
+            };
+            const tag_val = Value.initPayload(&tag_val_payload.base);
+            break :blk try func.lowerConstant(tag_val, tag_ty);
+        };
         if (layout.payload_size == 0) {
             if (layout.tag_size == 0) {
                 break :result WValue{ .none = {} };
             }
             assert(!isByRef(union_ty, func.target));
-            break :result WValue{ .imm32 = extra.field_index };
+            break :result tag_int;
         }
-        assert(isByRef(union_ty, func.target));
 
-        const result_ptr = try func.allocStack(union_ty);
-        const payload = try func.resolveInst(extra.init);
-        const union_obj = union_ty.cast(Type.Payload.Union).?.data;
-        assert(union_obj.haveFieldTypes());
-        const field = union_obj.fields.values()[extra.field_index];
+        if (isByRef(union_ty, func.target)) {
+            const result_ptr = try func.allocStack(union_ty);
+            const payload = try func.resolveInst(extra.init);
+            if (layout.tag_align >= layout.payload_align) {
+                if (isByRef(field.ty, func.target)) {
+                    const payload_ptr = try func.buildPointerOffset(result_ptr, layout.tag_size, .new);
+                    try func.store(payload_ptr, payload, field.ty, 0);
+                } else {
+                    try func.store(result_ptr, payload, field.ty, @intCast(u32, layout.tag_size));
+                }
 
-        if (layout.tag_align >= layout.payload_align) {
-            const payload_ptr = try func.buildPointerOffset(result_ptr, layout.tag_size, .new);
-            try func.store(payload_ptr, payload, field.ty, 0);
+                if (layout.tag_size > 0) {
+                    try func.store(result_ptr, tag_int, union_obj.tag_ty, 0);
+                }
+            } else {
+                try func.store(result_ptr, payload, field.ty, 0);
+                if (layout.tag_size > 0) {
+                    try func.store(
+                        result_ptr,
+                        tag_int,
+                        union_obj.tag_ty,
+                        @intCast(u32, layout.payload_size),
+                    );
+                }
+            }
+            break :result result_ptr;
         } else {
-            try func.store(result_ptr, payload, field.ty, 0);
+            const operand = try func.resolveInst(extra.init);
+            var payload: Type.Payload.Bits = .{
+                .base = .{ .tag = .int_unsigned },
+                .data = @intCast(u16, union_ty.bitSize(func.target)),
+            };
+            const union_int_type = Type.initPayload(&payload.base);
+            if (field.ty.zigTypeTag() == .Float) {
+                var int_payload: Type.Payload.Bits = .{
+                    .base = .{ .tag = .int_unsigned },
+                    .data = @intCast(u16, field.ty.bitSize(func.target)),
+                };
+                const int_type = Type.initPayload(&int_payload.base);
+                const bitcasted = try func.bitcast(field.ty, int_type, operand);
+                const casted = try func.trunc(bitcasted, int_type, union_int_type);
+                break :result try casted.toLocal(func, field.ty);
+            } else if (field.ty.isPtrAtRuntime()) {
+                var int_payload: Type.Payload.Bits = .{
+                    .base = .{ .tag = .int_unsigned },
+                    .data = @intCast(u16, field.ty.bitSize(func.target)),
+                };
+                const int_type = Type.initPayload(&int_payload.base);
+                const casted = try func.intcast(operand, int_type, union_int_type);
+                break :result try casted.toLocal(func, field.ty);
+            }
+            const casted = try func.intcast(operand, field.ty, union_int_type);
+            break :result try casted.toLocal(func, field.ty);
         }
-        break :result result_ptr;
     };
 
-    func.finishAir(inst, result, &.{extra.init});
+    return func.finishAir(inst, result, &.{extra.init});
 }
 
 fn airPrefetch(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
@@ -5073,8 +5209,8 @@ fn cmpOptionals(func: *CodeGen, lhs: WValue, rhs: WValue, operand_ty: Type, op: 
 fn cmpBigInt(func: *CodeGen, lhs: WValue, rhs: WValue, operand_ty: Type, op: std.math.CompareOperator) InnerError!WValue {
     assert(operand_ty.abiSize(func.target) >= 16);
     assert(!(lhs != .stack and rhs == .stack));
-    if (operand_ty.intInfo(func.target).bits > 128) {
-        return func.fail("TODO: Support cmpBigInt for integer bitsize: '{d}'", .{operand_ty.intInfo(func.target).bits});
+    if (operand_ty.bitSize(func.target) > 128) {
+        return func.fail("TODO: Support cmpBigInt for integer bitsize: '{d}'", .{operand_ty.bitSize(func.target)});
     }
 
     var lhs_high_bit = try (try func.load(lhs, Type.u64, 0)).toLocal(func, Type.u64);
@@ -5295,11 +5431,23 @@ fn airMemcpy(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     const bin_op = func.air.instructions.items(.data)[inst].bin_op;
     const dst = try func.resolveInst(bin_op.lhs);
     const dst_ty = func.air.typeOf(bin_op.lhs);
+    const ptr_elem_ty = dst_ty.childType();
     const src = try func.resolveInst(bin_op.rhs);
     const src_ty = func.air.typeOf(bin_op.rhs);
     const len = switch (dst_ty.ptrSize()) {
-        .Slice => try func.sliceLen(dst),
-        .One => @as(WValue, .{ .imm32 = @intCast(u32, dst_ty.childType().arrayLen()) }),
+        .Slice => blk: {
+            const slice_len = try func.sliceLen(dst);
+            if (ptr_elem_ty.abiSize(func.target) != 1) {
+                try func.emitWValue(slice_len);
+                try func.emitWValue(.{ .imm32 = @intCast(u32, ptr_elem_ty.abiSize(func.target)) });
+                try func.addTag(.i32_mul);
+                try func.addLabel(.local_set, slice_len.local.value);
+            }
+            break :blk slice_len;
+        },
+        .One => @as(WValue, .{
+            .imm32 = @intCast(u32, ptr_elem_ty.arrayLen() * ptr_elem_ty.childType().abiSize(func.target)),
+        }),
         .C, .Many => unreachable,
     };
     const dst_ptr = try func.sliceOrArrayPtr(dst, dst_ty);
@@ -5559,6 +5707,7 @@ fn airShlWithOverflow(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     const lhs = try func.resolveInst(extra.lhs);
     const rhs = try func.resolveInst(extra.rhs);
     const lhs_ty = func.air.typeOf(extra.lhs);
+    const rhs_ty = func.air.typeOf(extra.rhs);
 
     if (lhs_ty.zigTypeTag() == .Vector) {
         return func.fail("TODO: Implement overflow arithmetic for vectors", .{});
@@ -5570,7 +5719,15 @@ fn airShlWithOverflow(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         return func.fail("TODO: Implement shl_with_overflow for integer bitsize: {d}", .{int_info.bits});
     };
 
-    var shl = try (try func.binOp(lhs, rhs, lhs_ty, .shl)).toLocal(func, lhs_ty);
+    // Ensure rhs is coerced to lhs as they must have the same WebAssembly types
+    // before we can perform any binary operation.
+    const rhs_wasm_bits = toWasmBits(rhs_ty.intInfo(func.target).bits).?;
+    const rhs_final = if (wasm_bits != rhs_wasm_bits) blk: {
+        const rhs_casted = try func.intcast(rhs, rhs_ty, lhs_ty);
+        break :blk try rhs_casted.toLocal(func, lhs_ty);
+    } else rhs;
+
+    var shl = try (try func.binOp(lhs, rhs_final, lhs_ty, .shl)).toLocal(func, lhs_ty);
     defer shl.free(func);
     var result = if (wasm_bits != int_info.bits) blk: {
         break :blk try (try func.wrapOperand(shl, lhs_ty)).toLocal(func, lhs_ty);
@@ -5581,11 +5738,11 @@ fn airShlWithOverflow(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         // emit lhs to stack to we can keep 'wrapped' on the stack also
         try func.emitWValue(lhs);
         const abs = try func.signAbsValue(shl, lhs_ty);
-        const wrapped = try func.wrapBinOp(abs, rhs, lhs_ty, .shr);
+        const wrapped = try func.wrapBinOp(abs, rhs_final, lhs_ty, .shr);
         break :blk try func.cmp(.{ .stack = {} }, wrapped, lhs_ty, .neq);
     } else blk: {
         try func.emitWValue(lhs);
-        const shr = try func.binOp(result, rhs, lhs_ty, .shr);
+        const shr = try func.binOp(result, rhs_final, lhs_ty, .shr);
         break :blk try func.cmp(.{ .stack = {} }, shr, lhs_ty, .neq);
     };
     var overflow_local = try overflow_bit.toLocal(func, Type.initTag(.u1));
