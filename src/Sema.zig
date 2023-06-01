@@ -889,17 +889,18 @@ fn analyzeBodyInner(
 
     try sema.inst_map.ensureSpaceForInstructions(sema.gpa, body);
 
+    // Most of the time, we don't need to construct a new capture scope for a
+    // block. However, successive iterations of comptime loops can capture
+    // different values for the same Zir.Inst.Index, so in those cases, we will
+    // have to create nested capture scopes; see the `.repeat` case below.
     const parent_capture_scope = block.wip_capture_scope;
-
-    var wip_captures = WipCaptureScope{
-        .finalized = true,
+    parent_capture_scope.incRef();
+    var wip_captures: WipCaptureScope = .{
         .scope = parent_capture_scope,
-        .perm_arena = sema.perm_arena,
         .gpa = sema.gpa,
+        .finalized = true, // don't finalize the parent scope
     };
-    defer if (wip_captures.scope != parent_capture_scope) {
-        wip_captures.deinit();
-    };
+    defer wip_captures.deinit();
 
     const mod = sema.mod;
     const map = &sema.inst_map;
@@ -1452,6 +1453,11 @@ fn analyzeBodyInner(
                     const src = LazySrcLoc.nodeOffset(datas[inst].node);
                     try sema.emitBackwardBranch(block, src);
                     if (wip_captures.scope.captures.count() != orig_captures) {
+                        // We need to construct new capture scopes for the next loop iteration so it
+                        // can capture values without clobbering the earlier iteration's captures.
+                        // At first, we reused the parent capture scope as an optimization, but for
+                        // successive scopes we have to create new ones as children of the parent
+                        // scope.
                         try wip_captures.reset(parent_capture_scope);
                         block.wip_capture_scope = wip_captures.scope;
                         orig_captures = 0;
@@ -1467,6 +1473,11 @@ fn analyzeBodyInner(
                 const src = LazySrcLoc.nodeOffset(datas[inst].node);
                 try sema.emitBackwardBranch(block, src);
                 if (wip_captures.scope.captures.count() != orig_captures) {
+                    // We need to construct new capture scopes for the next loop iteration so it
+                    // can capture values without clobbering the earlier iteration's captures.
+                    // At first, we reused the parent capture scope as an optimization, but for
+                    // successive scopes we have to create new ones as children of the parent
+                    // scope.
                     try wip_captures.reset(parent_capture_scope);
                     block.wip_capture_scope = wip_captures.scope;
                     orig_captures = 0;
@@ -1749,6 +1760,8 @@ fn analyzeBodyInner(
     if (noreturn_inst) |some| try block.instructions.append(sema.gpa, some);
 
     if (!wip_captures.finalized) {
+        // We've updated the capture scope due to a `repeat` instruction where
+        // the body had a capture; finalize our child scope and reset
         try wip_captures.finalize();
         block.wip_capture_scope = parent_capture_scope;
     }
@@ -3007,7 +3020,7 @@ fn zirEnumDecl(
         defer sema.func = prev_func;
         defer sema.func_index = prev_func_index;
 
-        var wip_captures = try WipCaptureScope.init(gpa, sema.perm_arena, new_decl.src_scope);
+        var wip_captures = try WipCaptureScope.init(gpa, new_decl.src_scope);
         defer wip_captures.deinit();
 
         var enum_block: Block = .{
@@ -6888,7 +6901,7 @@ fn analyzeCall(
         sema.error_return_trace_index_on_fn_entry = block.error_return_trace_index;
         defer sema.error_return_trace_index_on_fn_entry = parent_err_ret_index;
 
-        var wip_captures = try WipCaptureScope.init(gpa, sema.perm_arena, fn_owner_decl.src_scope);
+        var wip_captures = try WipCaptureScope.init(gpa, fn_owner_decl.src_scope);
         defer wip_captures.deinit();
 
         var child_block: Block = .{
@@ -7751,7 +7764,7 @@ fn resolveGenericInstantiationType(
     };
     defer child_sema.deinit();
 
-    var wip_captures = try WipCaptureScope.init(gpa, sema.perm_arena, new_decl.src_scope);
+    var wip_captures = try WipCaptureScope.init(gpa, new_decl.src_scope);
     defer wip_captures.deinit();
 
     var child_block: Block = .{
@@ -11151,7 +11164,7 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
         const body = sema.code.extra[extra_index..][0..body_len];
         extra_index += body_len;
 
-        var wip_captures = try WipCaptureScope.init(gpa, sema.perm_arena, child_block.wip_capture_scope);
+        var wip_captures = try WipCaptureScope.init(gpa, child_block.wip_capture_scope);
         defer wip_captures.deinit();
 
         case_block.instructions.shrinkRetainingCapacity(0);
@@ -11396,7 +11409,7 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
             var cond_body = try case_block.instructions.toOwnedSlice(gpa);
             defer gpa.free(cond_body);
 
-            var wip_captures = try WipCaptureScope.init(gpa, sema.perm_arena, child_block.wip_capture_scope);
+            var wip_captures = try WipCaptureScope.init(gpa, child_block.wip_capture_scope);
             defer wip_captures.deinit();
 
             case_block.instructions.shrinkRetainingCapacity(0);
@@ -11577,7 +11590,7 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
             }),
         };
 
-        var wip_captures = try WipCaptureScope.init(gpa, sema.perm_arena, child_block.wip_capture_scope);
+        var wip_captures = try WipCaptureScope.init(gpa, child_block.wip_capture_scope);
         defer wip_captures.deinit();
 
         case_block.instructions.shrinkRetainingCapacity(0);
@@ -15720,13 +15733,15 @@ fn zirClosureCapture(
     // ...in which case the closure_capture instruction has access to a runtime
     // value only. In such case we preserve the type and use a dummy runtime value.
     const operand = try sema.resolveInst(inst_data.operand);
-    const val = (try sema.resolveMaybeUndefValAllowVariables(operand)) orelse
-        Value.@"unreachable";
-
-    try block.wip_capture_scope.captures.putNoClobber(sema.gpa, inst, .{
-        .ty = sema.typeOf(operand),
-        .val = try val.copy(sema.perm_arena),
-    });
+    const ty = sema.typeOf(operand);
+    const capture: CaptureScope.Capture = blk: {
+        if (try sema.resolveMaybeUndefValAllowVariables(operand)) |val| {
+            const ip_index = try val.intern(ty, sema.mod);
+            break :blk .{ .comptime_val = ip_index };
+        }
+        break :blk .{ .runtime_val = ty.toIntern() };
+    };
+    try block.wip_capture_scope.captures.putNoClobber(sema.gpa, inst, capture);
 }
 
 fn zirClosureGet(
@@ -15740,7 +15755,7 @@ fn zirClosureGet(
     var scope: *CaptureScope = mod.declPtr(block.src_decl).src_scope.?;
     // Note: The target closure must be in this scope list.
     // If it's not here, the zir is invalid, or the list is broken.
-    const tv = while (true) {
+    const capture = while (true) {
         // Note: We don't need to add a dependency here, because
         // decls always depend on their lexical parents.
 
@@ -15753,13 +15768,13 @@ fn zirClosureGet(
             }
             return error.AnalysisFail;
         }
-        if (scope.captures.getPtr(inst_data.inst)) |tv| {
-            break tv;
+        if (scope.captures.get(inst_data.inst)) |capture| {
+            break capture;
         }
         scope = scope.parent.?;
     };
 
-    if (tv.val.toIntern() == .unreachable_value and !block.is_typeof and sema.func_index == .none) {
+    if (capture == .runtime_val and !block.is_typeof and sema.func_index == .none) {
         const msg = msg: {
             const name = name: {
                 const file = sema.owner_decl.getFileScope(mod);
@@ -15787,7 +15802,7 @@ fn zirClosureGet(
         return sema.failWithOwnedErrorMsg(msg);
     }
 
-    if (tv.val.toIntern() == .unreachable_value and !block.is_typeof and !block.is_comptime and sema.func_index != .none) {
+    if (capture == .runtime_val and !block.is_typeof and !block.is_comptime and sema.func_index != .none) {
         const msg = msg: {
             const name = name: {
                 const file = sema.owner_decl.getFileScope(mod);
@@ -15817,13 +15832,17 @@ fn zirClosureGet(
         return sema.failWithOwnedErrorMsg(msg);
     }
 
-    if (tv.val.toIntern() == .unreachable_value) {
-        assert(block.is_typeof);
-        // We need a dummy runtime instruction with the correct type.
-        return block.addTy(.alloc, tv.ty);
+    switch (capture) {
+        .runtime_val => |ty_ip_index| {
+            assert(block.is_typeof);
+            // We need a dummy runtime instruction with the correct type.
+            return block.addTy(.alloc, ty_ip_index.toType());
+        },
+        .comptime_val => |val_ip_index| {
+            const ty = mod.intern_pool.typeOf(val_ip_index).toType();
+            return sema.addConstant(ty, val_ip_index.toValue());
+        },
     }
-
-    return sema.addConstant(tv.ty, tv.val);
 }
 
 fn zirRetAddr(
@@ -31838,7 +31857,7 @@ fn semaBackingIntType(mod: *Module, struct_obj: *Module.Struct) CompileError!voi
         var sema: Sema = .{ .mod = mod, .gpa = gpa, .arena = analysis_arena.allocator(), .perm_arena = decl_arena_allocator, .code = zir, .owner_decl = decl, .owner_decl_index = decl_index, .func = null, .func_index = .none, .fn_ret_ty = Type.void, .owner_func = null, .owner_func_index = .none };
         defer sema.deinit();
 
-        var wip_captures = try WipCaptureScope.init(gpa, decl_arena_allocator, decl.src_scope);
+        var wip_captures = try WipCaptureScope.init(gpa, decl.src_scope);
         defer wip_captures.deinit();
 
         var block: Block = .{
@@ -32591,7 +32610,7 @@ fn semaStructFields(mod: *Module, struct_obj: *Module.Struct) CompileError!void 
     };
     defer sema.deinit();
 
-    var wip_captures = try WipCaptureScope.init(gpa, decl_arena_allocator, decl.src_scope);
+    var wip_captures = try WipCaptureScope.init(gpa, decl.src_scope);
     defer wip_captures.deinit();
 
     var block_scope: Block = .{
@@ -32933,7 +32952,7 @@ fn semaUnionFields(mod: *Module, union_obj: *Module.Union) CompileError!void {
     };
     defer sema.deinit();
 
-    var wip_captures = try WipCaptureScope.init(gpa, decl_arena_allocator, decl.src_scope);
+    var wip_captures = try WipCaptureScope.init(gpa, decl.src_scope);
     defer wip_captures.deinit();
 
     var block_scope: Block = .{
@@ -33360,7 +33379,7 @@ fn generateUnionTagTypeSimple(
 }
 
 fn getBuiltin(sema: *Sema, name: []const u8) CompileError!Air.Inst.Ref {
-    var wip_captures = try WipCaptureScope.init(sema.gpa, sema.perm_arena, sema.owner_decl.src_scope);
+    var wip_captures = try WipCaptureScope.init(sema.gpa, sema.owner_decl.src_scope);
     defer wip_captures.deinit();
 
     var block: Block = .{
@@ -33405,7 +33424,7 @@ fn getBuiltin(sema: *Sema, name: []const u8) CompileError!Air.Inst.Ref {
 fn getBuiltinType(sema: *Sema, name: []const u8) CompileError!Type {
     const ty_inst = try sema.getBuiltin(name);
 
-    var wip_captures = try WipCaptureScope.init(sema.gpa, sema.perm_arena, sema.owner_decl.src_scope);
+    var wip_captures = try WipCaptureScope.init(sema.gpa, sema.owner_decl.src_scope);
     defer wip_captures.deinit();
 
     var block: Block = .{
