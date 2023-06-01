@@ -13094,7 +13094,7 @@ fn zirArrayMul(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
         const val = v: {
             // Optimization for the common pattern of a single element repeated N times, such
             // as zero-filling a byte array.
-            if (lhs_len == 1) {
+            if (lhs_len == 1 and lhs_info.sentinel == null) {
                 const elem_val = try lhs_sub_val.elemValue(mod, 0);
                 break :v try mod.intern(.{ .aggregate = .{
                     .ty = result_ty.toIntern(),
