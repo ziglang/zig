@@ -2331,14 +2331,15 @@ pub const Object = struct {
                     try param_di_types.append(try o.lowerDebugType(ptr_ty, .full));
                 }
 
-                for (mod.typeToFunc(ty).?.param_types) |param_ty| {
-                    if (!param_ty.toType().hasRuntimeBitsIgnoreComptime(mod)) continue;
+                for (0..mod.typeToFunc(ty).?.param_types.len) |i| {
+                    const param_ty = mod.typeToFunc(ty).?.param_types[i].toType();
+                    if (!param_ty.hasRuntimeBitsIgnoreComptime(mod)) continue;
 
-                    if (isByRef(param_ty.toType(), mod)) {
-                        const ptr_ty = try mod.singleMutPtrType(param_ty.toType());
+                    if (isByRef(param_ty, mod)) {
+                        const ptr_ty = try mod.singleMutPtrType(param_ty);
                         try param_di_types.append(try o.lowerDebugType(ptr_ty, .full));
                     } else {
-                        try param_di_types.append(try o.lowerDebugType(param_ty.toType(), .full));
+                        try param_di_types.append(try o.lowerDebugType(param_ty, .full));
                     }
                 }
 

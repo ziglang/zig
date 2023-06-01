@@ -2119,7 +2119,8 @@ pub const Value = struct {
                         if (try (try val.elemValue(mod, index)).anyUndef(mod)) break true;
                     } else false,
                 },
-                .aggregate => |aggregate| for (aggregate.storage.values()) |elem| {
+                .aggregate => |aggregate| for (0..aggregate.storage.values().len) |i| {
+                    const elem = mod.intern_pool.indexToKey(val.toIntern()).aggregate.storage.values()[i];
                     if (try anyUndef(elem.toValue(), mod)) break true;
                 } else false,
                 else => false,

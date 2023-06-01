@@ -16452,7 +16452,7 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
 
             const enum_field_vals = try sema.arena.alloc(InternPool.Index, enum_type.names.len);
             for (enum_field_vals, 0..) |*field_val, i| {
-                const name_ip = enum_type.names[i];
+                const name_ip = mod.intern_pool.indexToKey(ty.toIntern()).enum_type.names[i];
                 const name = mod.intern_pool.stringToSlice(name_ip);
                 const name_val = v: {
                     var anon_decl = try block.startAnonDecl();
