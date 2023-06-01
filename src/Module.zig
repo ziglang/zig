@@ -277,21 +277,40 @@ pub const Export = struct {
 };
 
 pub const CaptureScope = struct {
+    refs: u32,
     parent: ?*CaptureScope,
 
     /// Values from this decl's evaluation that will be closed over in
-    /// child decls. Values stored in the value_arena of the linked decl.
-    /// During sema, this map is backed by the gpa.  Once sema completes,
-    /// it is reallocated using the value_arena.
-    captures: std.AutoHashMapUnmanaged(Zir.Inst.Index, TypedValue) = .{},
+    /// child decls. This map is backed by the gpa, and deinited when
+    /// the refcount reaches 0.
+    captures: std.AutoHashMapUnmanaged(Zir.Inst.Index, Capture) = .{},
 
-    pub fn failed(noalias self: *const @This()) bool {
+    pub const Capture = union(enum) {
+        comptime_val: InternPool.Index, // index of value
+        runtime_val: InternPool.Index, // index of type
+    };
+
+    pub fn failed(noalias self: *const CaptureScope) bool {
         return self.captures.available == 0 and self.captures.size == std.math.maxInt(u32);
     }
 
-    pub fn fail(noalias self: *@This()) void {
+    pub fn fail(noalias self: *CaptureScope, gpa: Allocator) void {
+        self.captures.deinit(gpa);
         self.captures.available = 0;
         self.captures.size = std.math.maxInt(u32);
+    }
+
+    pub fn incRef(self: *CaptureScope) void {
+        self.refs += 1;
+    }
+
+    pub fn decRef(self: *CaptureScope, gpa: Allocator) void {
+        self.refs -= 1;
+        if (self.refs > 0) return;
+        if (self.parent) |p| p.decRef(gpa);
+        if (!self.failed()) {
+            self.captures.deinit(gpa);
+        }
     }
 };
 
@@ -299,39 +318,34 @@ pub const WipCaptureScope = struct {
     scope: *CaptureScope,
     finalized: bool,
     gpa: Allocator,
-    perm_arena: Allocator,
 
-    pub fn init(gpa: Allocator, perm_arena: Allocator, parent: ?*CaptureScope) !@This() {
-        const scope = try perm_arena.create(CaptureScope);
-        scope.* = .{ .parent = parent };
-        return @This(){
+    pub fn init(gpa: Allocator, parent: ?*CaptureScope) !WipCaptureScope {
+        const scope = try gpa.create(CaptureScope);
+        if (parent) |p| p.incRef();
+        scope.* = .{ .refs = 1, .parent = parent };
+        return .{
             .scope = scope,
             .finalized = false,
             .gpa = gpa,
-            .perm_arena = perm_arena,
         };
     }
 
-    pub fn finalize(noalias self: *@This()) !void {
-        assert(!self.finalized);
-        // use a temp to avoid unintentional aliasing due to RLS
-        const tmp = try self.scope.captures.clone(self.perm_arena);
-        self.scope.captures.deinit(self.gpa);
-        self.scope.captures = tmp;
+    pub fn finalize(noalias self: *WipCaptureScope) !void {
         self.finalized = true;
     }
 
-    pub fn reset(noalias self: *@This(), parent: ?*CaptureScope) !void {
-        if (!self.finalized) try self.finalize();
-        self.scope = try self.perm_arena.create(CaptureScope);
-        self.scope.* = .{ .parent = parent };
-        self.finalized = false;
+    pub fn reset(noalias self: *WipCaptureScope, parent: ?*CaptureScope) !void {
+        self.scope.decRef(self.gpa);
+        self.scope = try self.gpa.create(CaptureScope);
+        if (parent) |p| p.incRef();
+        self.scope.* = .{ .refs = 1, .parent = parent };
     }
 
-    pub fn deinit(noalias self: *@This()) void {
-        if (!self.finalized) {
-            self.scope.captures.deinit(self.gpa);
-            self.scope.fail();
+    pub fn deinit(noalias self: *WipCaptureScope) void {
+        if (self.finalized) {
+            self.scope.decRef(self.gpa);
+        } else {
+            self.scope.fail(self.gpa);
         }
         self.* = undefined;
     }
@@ -3311,6 +3325,7 @@ pub fn destroyDecl(mod: *Module, decl_index: Decl.Index) void {
                 mod.destroyNamespace(i);
             }
         }
+        if (decl.src_scope) |scope| scope.decRef(gpa);
         decl.clearValues(mod);
         decl.dependants.deinit(gpa);
         decl.dependencies.deinit(gpa);
@@ -4425,7 +4440,7 @@ pub fn semaFile(mod: *Module, file: *File) SemaError!void {
         };
         defer sema.deinit();
 
-        var wip_captures = try WipCaptureScope.init(gpa, new_decl_arena_allocator, null);
+        var wip_captures = try WipCaptureScope.init(gpa, null);
         defer wip_captures.deinit();
 
         if (sema.analyzeStructDecl(new_decl, main_struct_inst, struct_index)) |_| {
@@ -4538,7 +4553,7 @@ fn semaDecl(mod: *Module, decl_index: Decl.Index) !bool {
     }
     log.debug("semaDecl {*} ({s})", .{ decl, decl.name });
 
-    var wip_captures = try WipCaptureScope.init(gpa, decl_arena_allocator, decl.src_scope);
+    var wip_captures = try WipCaptureScope.init(gpa, decl.src_scope);
     defer wip_captures.deinit();
 
     var block_scope: Sema.Block = .{
@@ -5499,7 +5514,7 @@ pub fn analyzeFnBody(mod: *Module, func_index: Fn.Index, arena: Allocator) SemaE
     try sema.air_extra.ensureTotalCapacity(gpa, reserved_count);
     sema.air_extra.items.len += reserved_count;
 
-    var wip_captures = try WipCaptureScope.init(gpa, decl_arena_allocator, decl.src_scope);
+    var wip_captures = try WipCaptureScope.init(gpa, decl.src_scope);
     defer wip_captures.deinit();
 
     var inner_block: Sema.Block = .{
@@ -5771,6 +5786,7 @@ pub fn allocateNewDecl(
         };
     };
 
+    if (src_scope) |scope| scope.incRef();
     decl_and_index.new_decl.* = .{
         .name = undefined,
         .src_namespace = namespace,
