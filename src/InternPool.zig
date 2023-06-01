@@ -2899,7 +2899,17 @@ pub fn indexToKey(ip: *const InternPool, index: Index) Key {
             const ty = @intToEnum(Index, data);
             const ty_item = ip.items.get(@enumToInt(ty));
             return switch (ty_item.tag) {
-                .type_array_big, .type_array_small, .type_vector => .{ .aggregate = .{
+                .type_array_big => {
+                    const sentinel = @ptrCast(
+                        *const [1]Index,
+                        &ip.extra.items[ty_item.data + std.meta.fieldIndex(Array, "sentinel").?],
+                    );
+                    return .{ .aggregate = .{
+                        .ty = ty,
+                        .storage = .{ .elems = sentinel[0..@boolToInt(sentinel[0] != .none)] },
+                    } };
+                },
+                .type_array_small, .type_vector => .{ .aggregate = .{
                     .ty = ty,
                     .storage = .{ .elems = &.{} },
                 } },
@@ -4799,11 +4809,9 @@ pub fn isAggregateType(ip: *const InternPool, ty: Index) bool {
 
 /// The is only legal because the initializer is not part of the hash.
 pub fn mutateVarInit(ip: *InternPool, index: Index, init_index: Index) void {
-    assert(ip.items.items(.tag)[@enumToInt(index)] == .variable);
-    const field_index = inline for (@typeInfo(Tag.Variable).Struct.fields, 0..) |field, field_index| {
-        if (comptime std.mem.eql(u8, field.name, "init")) break field_index;
-    } else unreachable;
-    ip.extra.items[ip.items.items(.data)[@enumToInt(index)] + field_index] = @enumToInt(init_index);
+    const item = ip.items.get(@enumToInt(index));
+    assert(item.tag == .variable);
+    ip.extra.items[item.data + std.meta.fieldIndex(Tag.Variable, "init").?] = @enumToInt(init_index);
 }
 
 pub fn dump(ip: *const InternPool) void {
