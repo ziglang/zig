@@ -3320,6 +3320,7 @@ fn valueAsI32(func: *const CodeGen, val: Value, ty: Type) i32 {
             .enum_tag => |enum_tag| intIndexAsI32(&mod.intern_pool, enum_tag.int, mod),
             .int => |int| intStorageAsI32(int.storage, mod),
             .ptr => |ptr| intIndexAsI32(&mod.intern_pool, ptr.addr.int, mod),
+            .err => |err| @bitCast(i32, mod.global_error_set.get(mod.intern_pool.stringToSlice(err.name)).?),
             else => unreachable,
         },
     }
