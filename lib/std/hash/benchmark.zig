@@ -98,7 +98,7 @@ const Result = struct {
     throughput: u64,
 };
 
-const block_size: usize = 8 * 8192;
+const block_size: usize = 64 * 8192;
 
 pub fn benchmarkHash(comptime H: anytype, bytes: usize, allocator: std.mem.Allocator) !Result {
     var blocks = try allocator.alloc(u8, bytes);
