@@ -337,6 +337,7 @@ pub const CaptureScope = struct {
         if (!self.failed()) {
             self.captures.deinit(gpa);
         }
+        gpa.destroy(self);
     }
 };
 

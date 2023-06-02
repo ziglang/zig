@@ -3951,6 +3951,15 @@ pub fn get(ip: *InternPool, gpa: Allocator, key: Key) Allocator.Error!Index {
                         else => unreachable,
                     },
                 }
+                // We can't dedup '0' bytes in the pool or it could add garbage to string_bytes. So
+                // if there are any 0 bytes, we have to skip the bytes case. Note that it's okay for
+                // our sentinel to be 0 since getOrPutTrailingString would add a 0 sentinel anyway.
+                for (ip.string_bytes.items[string_bytes_index..]) |x| {
+                    if (x == 0) {
+                        ip.string_bytes.shrinkRetainingCapacity(string_bytes_index);
+                        break :bytes;
+                    }
+                }
                 if (sentinel != .none) ip.string_bytes.appendAssumeCapacity(
                     @intCast(u8, ip.indexToKey(sentinel).int.storage.u64),
                 );
@@ -3975,7 +3984,17 @@ pub fn get(ip: *InternPool, gpa: Allocator, key: Key) Allocator.Error!Index {
                     .ty = aggregate.ty,
                 }),
             });
-            ip.extra.appendSliceAssumeCapacity(@ptrCast([]const u32, aggregate.storage.elems));
+            switch (aggregate.storage) {
+                .bytes => |bytes| for (bytes) |b| {
+                    const elem = try ip.get(gpa, .{ .int = .{
+                        .ty = .u8_type,
+                        .storage = .{ .u64 = b },
+                    } });
+                    ip.extra.appendAssumeCapacity(@enumToInt(elem));
+                },
+                .elems => |elems| ip.extra.appendSliceAssumeCapacity(@ptrCast([]const u32, elems)),
+                .repeated_elem => |elem| ip.extra.appendNTimesAssumeCapacity(@enumToInt(elem), len),
+            }
             if (sentinel != .none) ip.extra.appendAssumeCapacity(@enumToInt(sentinel));
         },
 
@@ -5203,7 +5222,7 @@ pub fn destroyFunc(ip: *InternPool, gpa: Allocator, index: Module.Fn.Index) void
     ip.funcPtr(index).* = undefined;
     ip.funcs_free_list.append(gpa, index) catch {
         // In order to keep `destroyFunc` a non-fallible function, we ignore memory
-        // allocation failures here, instead leaking the Union until garbage collection.
+        // allocation failures here, instead leaking the Fn until garbage collection.
     };
 }
 
