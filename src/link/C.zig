@@ -6,6 +6,7 @@ const fs = std.fs;
 
 const C = @This();
 const Module = @import("../Module.zig");
+const InternPool = @import("../InternPool.zig");
 const Compilation = @import("../Compilation.zig");
 const codegen = @import("../codegen/c.zig");
 const link = @import("../link.zig");
@@ -289,11 +290,11 @@ pub fn flushModule(self: *C, _: *Compilation, prog_node: *std.Progress.Node) !vo
     }
 
     {
-        var export_names = std.StringHashMapUnmanaged(void){};
+        var export_names: std.AutoHashMapUnmanaged(InternPool.NullTerminatedString, void) = .{};
         defer export_names.deinit(gpa);
         try export_names.ensureTotalCapacity(gpa, @intCast(u32, module.decl_exports.entries.len));
         for (module.decl_exports.values()) |exports| for (exports.items) |@"export"|
-            try export_names.put(gpa, @"export".options.name, {});
+            try export_names.put(gpa, @"export".name, {});
 
         while (f.remaining_decls.popOrNull()) |kv| {
             const decl_index = kv.key;
@@ -553,7 +554,7 @@ fn flushDecl(
     self: *C,
     f: *Flush,
     decl_index: Module.Decl.Index,
-    export_names: std.StringHashMapUnmanaged(void),
+    export_names: std.AutoHashMapUnmanaged(InternPool.NullTerminatedString, void),
 ) FlushDeclError!void {
     const gpa = self.base.allocator;
     const mod = self.base.options.module.?;
@@ -571,7 +572,7 @@ fn flushDecl(
 
     try self.flushLazyFns(f, decl_block.lazy_fns);
     try f.all_buffers.ensureUnusedCapacity(gpa, 1);
-    if (!(decl.isExtern(mod) and export_names.contains(mem.span(decl.name))))
+    if (!(decl.isExtern(mod) and export_names.contains(decl.name)))
         f.appendBufAssumeCapacity(decl_block.fwd_decl.items);
 }
 

@@ -142,11 +142,12 @@ pub fn generateLazySymbol(
 
     if (lazy_sym.ty.isAnyError(mod)) {
         alignment.* = 4;
-        const err_names = mod.error_name_list.items;
+        const err_names = mod.global_error_set.keys();
         mem.writeInt(u32, try code.addManyAsArray(4), @intCast(u32, err_names.len), endian);
         var offset = code.items.len;
         try code.resize((1 + err_names.len + 1) * 4);
-        for (err_names) |err_name| {
+        for (err_names) |err_name_nts| {
+            const err_name = mod.intern_pool.stringToSlice(err_name_nts);
             mem.writeInt(u32, code.items[offset..][0..4], @intCast(u32, code.items.len), endian);
             offset += 4;
             try code.ensureUnusedCapacity(err_name.len + 1);
@@ -251,15 +252,13 @@ pub fn generateSymbol(
             val.writeTwosComplement(try code.addManyAsSlice(abi_size), endian);
         },
         .err => |err| {
-            const name = mod.intern_pool.stringToSlice(err.name);
-            const kv = try mod.getErrorValue(name);
-            try code.writer().writeInt(u16, @intCast(u16, kv.value), endian);
+            const int = try mod.getErrorValue(err.name);
+            try code.writer().writeInt(u16, @intCast(u16, int), endian);
         },
         .error_union => |error_union| {
             const payload_ty = typed_value.ty.errorUnionPayload(mod);
-
             const err_val = switch (error_union.val) {
-                .err_name => |err_name| @intCast(u16, (try mod.getErrorValue(mod.intern_pool.stringToSlice(err_name))).value),
+                .err_name => |err_name| @intCast(u16, try mod.getErrorValue(err_name)),
                 .payload => @as(u16, 0),
             };
 
@@ -974,11 +973,8 @@ pub fn genTypedValue(
             }, owner_decl_index);
         },
         .ErrorSet => {
-            const err_name = mod.intern_pool.stringToSlice(
-                mod.intern_pool.indexToKey(typed_value.val.toIntern()).err.name,
-            );
-            const global_error_set = mod.global_error_set;
-            const error_index = global_error_set.get(err_name).?;
+            const err_name = mod.intern_pool.indexToKey(typed_value.val.toIntern()).err.name;
+            const error_index = mod.global_error_set.getIndex(err_name).?;
             return GenResult.mcv(.{ .immediate = error_index });
         },
         .ErrorUnion => {

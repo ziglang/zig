@@ -2208,7 +2208,7 @@ fn airCall(func: *CodeGen, inst: Air.Inst.Index, modifier: std.builtin.CallModif
             const atom = func.bin_file.getAtomPtr(atom_index);
             const type_index = try func.bin_file.storeDeclType(extern_func.decl, func_type);
             try func.bin_file.addOrUpdateImport(
-                mem.sliceTo(ext_decl.name, 0),
+                mod.intern_pool.stringToSlice(ext_decl.name),
                 atom.getSymbolIndex().?,
                 mod.intern_pool.stringToSliceUnwrap(ext_decl.getOwnedExternFunc(mod).?.lib_name),
                 type_index,
@@ -3180,9 +3180,8 @@ fn lowerConstant(func: *CodeGen, arg_val: Value, ty: Type) InnerError!WValue {
             }
         },
         .err => |err| {
-            const name = mod.intern_pool.stringToSlice(err.name);
-            const kv = try mod.getErrorValue(name);
-            return WValue{ .imm32 = kv.value };
+            const int = try mod.getErrorValue(err.name);
+            return WValue{ .imm32 = int };
         },
         .error_union => |error_union| {
             const err_tv: TypedValue = switch (error_union.val) {
@@ -3320,18 +3319,15 @@ fn valueAsI32(func: *const CodeGen, val: Value, ty: Type) i32 {
             .enum_tag => |enum_tag| intIndexAsI32(&mod.intern_pool, enum_tag.int, mod),
             .int => |int| intStorageAsI32(int.storage, mod),
             .ptr => |ptr| intIndexAsI32(&mod.intern_pool, ptr.addr.int, mod),
-            .err => |err| @bitCast(i32, mod.global_error_set.get(mod.intern_pool.stringToSlice(err.name)).?),
+            .err => |err| @bitCast(i32, @intCast(Module.ErrorInt, mod.global_error_set.getIndex(err.name).?)),
             else => unreachable,
         },
     }
 
-    switch (ty.zigTypeTag(mod)) {
-        .ErrorSet => {
-            const kv = func.bin_file.base.options.module.?.getErrorValue(val.getError(mod).?) catch unreachable; // passed invalid `Value` to function
-            return @bitCast(i32, kv.value);
-        },
+    return switch (ty.zigTypeTag(mod)) {
+        .ErrorSet => @bitCast(i32, val.getErrorInt(mod)),
         else => unreachable, // Programmer called this function for an illegal type
-    }
+    };
 }
 
 fn intIndexAsI32(ip: *const InternPool, int: InternPool.Index, mod: *Module) i32 {
@@ -6874,8 +6870,7 @@ fn getTagNameFunction(func: *CodeGen, enum_ty: Type) InnerError!u32 {
     defer arena_allocator.deinit();
     const arena = arena_allocator.allocator();
 
-    const fqn = try mod.declPtr(enum_decl_index).getFullyQualifiedName(mod);
-    defer mod.gpa.free(fqn);
+    const fqn = mod.intern_pool.stringToSlice(try mod.declPtr(enum_decl_index).getFullyQualifiedName(mod));
     const func_name = try std.fmt.allocPrintZ(arena, "__zig_tag_name_{s}", .{fqn});
 
     // check if we already generated code for this.
@@ -7037,9 +7032,8 @@ fn airErrorSetHasValue(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
 
     var lowest: ?u32 = null;
     var highest: ?u32 = null;
-    for (names) |name_ip| {
-        const name = mod.intern_pool.stringToSlice(name_ip);
-        const err_int = mod.global_error_set.get(name).?;
+    for (names) |name| {
+        const err_int = @intCast(Module.ErrorInt, mod.global_error_set.getIndex(name).?);
         if (lowest) |*l| {
             if (err_int < l.*) {
                 l.* = err_int;

@@ -2546,7 +2546,7 @@ pub const Type = struct {
                         defer mod.gpa.free(field_vals);
                         for (field_vals, s.fields.values()) |*field_val, field| {
                             if (field.is_comptime) {
-                                field_val.* = try field.default_val.intern(field.ty, mod);
+                                field_val.* = field.default_val;
                                 continue;
                             }
                             if (try field.ty.onePossibleValue(mod)) |field_opv| {
@@ -2977,18 +2977,14 @@ pub const Type = struct {
         return mod.intern_pool.indexToKey(ty.toIntern()).enum_type.names.len;
     }
 
-    pub fn enumFieldName(ty: Type, field_index: usize, mod: *Module) [:0]const u8 {
-        const ip = &mod.intern_pool;
-        const field_name = ip.indexToKey(ty.toIntern()).enum_type.names[field_index];
-        return ip.stringToSlice(field_name);
+    pub fn enumFieldName(ty: Type, field_index: usize, mod: *Module) InternPool.NullTerminatedString {
+        return mod.intern_pool.indexToKey(ty.toIntern()).enum_type.names[field_index];
     }
 
-    pub fn enumFieldIndex(ty: Type, field_name: []const u8, mod: *Module) ?u32 {
+    pub fn enumFieldIndex(ty: Type, field_name: InternPool.NullTerminatedString, mod: *Module) ?u32 {
         const ip = &mod.intern_pool;
         const enum_type = ip.indexToKey(ty.toIntern()).enum_type;
-        // If the string is not interned, then the field certainly is not present.
-        const field_name_interned = ip.getString(field_name).unwrap() orelse return null;
-        return enum_type.nameIndex(ip, field_name_interned);
+        return enum_type.nameIndex(ip, field_name);
     }
 
     /// Asserts `ty` is an enum. `enum_tag` can either be `enum_field_index` or
@@ -3017,19 +3013,16 @@ pub const Type = struct {
         }
     }
 
-    pub fn structFieldName(ty: Type, field_index: usize, mod: *Module) []const u8 {
-        switch (mod.intern_pool.indexToKey(ty.toIntern())) {
+    pub fn structFieldName(ty: Type, field_index: usize, mod: *Module) InternPool.NullTerminatedString {
+        return switch (mod.intern_pool.indexToKey(ty.toIntern())) {
             .struct_type => |struct_type| {
                 const struct_obj = mod.structPtrUnwrap(struct_type.index).?;
                 assert(struct_obj.haveFieldTypes());
                 return struct_obj.fields.keys()[field_index];
             },
-            .anon_struct_type => |anon_struct| {
-                const name = anon_struct.names[field_index];
-                return mod.intern_pool.stringToSlice(name);
-            },
+            .anon_struct_type => |anon_struct| anon_struct.names[field_index],
             else => unreachable,
-        }
+        };
     }
 
     pub fn structFieldCount(ty: Type, mod: *Module) usize {
@@ -3082,7 +3075,10 @@ pub const Type = struct {
         switch (mod.intern_pool.indexToKey(ty.toIntern())) {
             .struct_type => |struct_type| {
                 const struct_obj = mod.structPtrUnwrap(struct_type.index).?;
-                return struct_obj.fields.values()[index].default_val;
+                const val = struct_obj.fields.values()[index].default_val;
+                // TODO: avoid using `unreachable` to indicate this.
+                if (val == .none) return Value.@"unreachable";
+                return val.toValue();
             },
             .anon_struct_type => |anon_struct| {
                 const val = anon_struct.values[index];
@@ -3100,7 +3096,7 @@ pub const Type = struct {
                 const struct_obj = mod.structPtrUnwrap(struct_type.index).?;
                 const field = struct_obj.fields.values()[index];
                 if (field.is_comptime) {
-                    return field.default_val;
+                    return field.default_val.toValue();
                 } else {
                     return field.ty.onePossibleValue(mod);
                 }

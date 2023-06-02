@@ -4350,7 +4350,7 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallModifier
                 .data = .{ .reg = .x30 },
             });
         } else if (func_value.getExternFunc(mod)) |extern_func| {
-            const decl_name = mem.sliceTo(mod.declPtr(extern_func.decl).name, 0);
+            const decl_name = mod.intern_pool.stringToSlice(mod.declPtr(extern_func.decl).name);
             const lib_name = mod.intern_pool.stringToSliceUnwrap(extern_func.lib_name);
             if (self.bin_file.cast(link.File.MachO)) |macho_file| {
                 const sym_index = try macho_file.getGlobalSymbol(decl_name, lib_name);

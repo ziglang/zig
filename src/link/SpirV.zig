@@ -147,7 +147,7 @@ pub fn updateDeclExports(
         const spv_decl_index = entry.value_ptr.*;
 
         for (exports) |exp| {
-            try self.spv.declareEntryPoint(spv_decl_index, exp.options.name);
+            try self.spv.declareEntryPoint(spv_decl_index, mod.intern_pool.stringToSlice(exp.name));
         }
     }
 
@@ -190,7 +190,8 @@ pub fn flushModule(self: *SpirV, comp: *Compilation, prog_node: *std.Progress.No
     var error_info = std.ArrayList(u8).init(self.spv.arena);
     try error_info.appendSlice("zig_errors");
     const module = self.base.options.module.?;
-    for (module.error_name_list.items) |name| {
+    for (module.global_error_set.keys()) |name_nts| {
+        const name = module.intern_pool.stringToSlice(name_nts);
         // Errors can contain pretty much any character - to encode them in a string we must escape
         // them somehow. Easiest here is to use some established scheme, one which also preseves the
         // name if it contains no strange characters is nice for debugging. URI encoding fits the bill.

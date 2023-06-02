@@ -452,6 +452,7 @@ pub const Function = struct {
             var promoted = f.object.dg.ctypes.promote(gpa);
             defer f.object.dg.ctypes.demote(promoted);
             const arena = promoted.arena.allocator();
+            const mod = f.object.dg.module;
 
             gop.value_ptr.* = .{
                 .fn_name = switch (key) {
@@ -460,7 +461,7 @@ pub const Function = struct {
                     .never_inline,
                     => |owner_decl| try std.fmt.allocPrint(arena, "zig_{s}_{}__{d}", .{
                         @tagName(key),
-                        fmtIdent(mem.span(f.object.dg.module.declPtr(owner_decl).name)),
+                        fmtIdent(mod.intern_pool.stringToSlice(mod.declPtr(owner_decl).name)),
                         @enumToInt(owner_decl),
                     }),
                 },
@@ -1465,7 +1466,7 @@ pub const DeclGen = struct {
                     try writer.writeAll(" .payload = {");
                 }
                 if (field_ty.hasRuntimeBits(mod)) {
-                    try writer.print(" .{ } = ", .{fmtIdent(field_name)});
+                    try writer.print(" .{ } = ", .{fmtIdent(mod.intern_pool.stringToSlice(field_name))});
                     try dg.renderValue(writer, field_ty, un.val.toValue(), initializer_type);
                     try writer.writeByte(' ');
                 } else for (ty.unionFields(mod).values()) |field| {
@@ -1849,9 +1850,9 @@ pub const DeclGen = struct {
         try mod.markDeclAlive(decl);
 
         if (mod.decl_exports.get(decl_index)) |exports| {
-            try writer.writeAll(exports.items[export_index].options.name);
+            try writer.writeAll(mod.intern_pool.stringToSlice(exports.items[export_index].name));
         } else if (decl.isExtern(mod)) {
-            try writer.writeAll(mem.span(decl.name));
+            try writer.writeAll(mod.intern_pool.stringToSlice(decl.name));
         } else {
             // MSVC has a limit of 4095 character token length limit, and fmtIdent can (worst case),
             // expand to 3x the length of its input, but let's cut it off at a much shorter limit.
@@ -1987,7 +1988,7 @@ fn renderTypeName(
             try w.print("{s} {s}{}__{d}", .{
                 @tagName(tag)["fwd_".len..],
                 attributes,
-                fmtIdent(mem.span(mod.declPtr(owner_decl).name)),
+                fmtIdent(mod.intern_pool.stringToSlice(mod.declPtr(owner_decl).name)),
                 @enumToInt(owner_decl),
             });
         },
@@ -2406,11 +2407,12 @@ pub fn genErrDecls(o: *Object) !void {
     try writer.writeAll("enum {\n");
     o.indent_writer.pushIndent();
     var max_name_len: usize = 0;
-    for (mod.error_name_list.items[1..], 1..) |name, value| {
-        max_name_len = std.math.max(name.len, max_name_len);
+    for (mod.global_error_set.keys()[1..], 1..) |name_nts, value| {
+        const name = mod.intern_pool.stringToSlice(name_nts);
+        max_name_len = @max(name.len, max_name_len);
         const err_val = try mod.intern(.{ .err = .{
             .ty = .anyerror_type,
-            .name = mod.intern_pool.getString(name).unwrap().?,
+            .name = name_nts,
         } });
         try o.dg.renderValue(writer, Type.anyerror, err_val.toValue(), .Other);
         try writer.print(" = {d}u,\n", .{value});
@@ -2424,7 +2426,8 @@ pub fn genErrDecls(o: *Object) !void {
     defer o.dg.gpa.free(name_buf);
 
     @memcpy(name_buf[0..name_prefix.len], name_prefix);
-    for (mod.error_name_list.items) |name| {
+    for (mod.global_error_set.keys()) |name_nts| {
+        const name = mod.intern_pool.stringToSlice(name_nts);
         @memcpy(name_buf[name_prefix.len..][0..name.len], name);
         const identifier = name_buf[0 .. name_prefix.len + name.len];
 
@@ -2446,14 +2449,15 @@ pub fn genErrDecls(o: *Object) !void {
     }
 
     const name_array_ty = try mod.arrayType(.{
-        .len = mod.error_name_list.items.len,
+        .len = mod.global_error_set.count(),
         .child = .slice_const_u8_sentinel_0_type,
     });
 
     try writer.writeAll("static ");
     try o.dg.renderTypeAndName(writer, name_array_ty, .{ .identifier = array_identifier }, Const, 0, .complete);
     try writer.writeAll(" = {");
-    for (mod.error_name_list.items, 0..) |name, value| {
+    for (mod.global_error_set.keys(), 0..) |name_nts, value| {
+        const name = mod.intern_pool.stringToSlice(name_nts);
         if (value != 0) try writer.writeByte(',');
 
         const len_val = try mod.intValue(Type.usize, name.len);
@@ -2469,14 +2473,16 @@ fn genExports(o: *Object) !void {
     const tracy = trace(@src());
     defer tracy.end();
 
+    const mod = o.dg.module;
+    const ip = &mod.intern_pool;
     const fwd_decl_writer = o.dg.fwd_decl.writer();
-    if (o.dg.module.decl_exports.get(o.dg.decl_index.unwrap().?)) |exports| {
+    if (mod.decl_exports.get(o.dg.decl_index.unwrap().?)) |exports| {
         for (exports.items[1..], 1..) |@"export", i| {
             try fwd_decl_writer.writeAll("zig_export(");
             try o.dg.renderFunctionSignature(fwd_decl_writer, o.dg.decl_index.unwrap().?, .forward, .{ .export_index = @intCast(u32, i) });
             try fwd_decl_writer.print(", {s}, {s});\n", .{
-                fmtStringLiteral(exports.items[0].options.name, null),
-                fmtStringLiteral(@"export".options.name, null),
+                fmtStringLiteral(ip.stringToSlice(exports.items[0].name), null),
+                fmtStringLiteral(ip.stringToSlice(@"export".name), null),
             });
         }
     }
@@ -2680,9 +2686,10 @@ pub fn genDecl(o: *Object) !void {
         if (!is_global) try w.writeAll("static ");
         if (variable.is_threadlocal) try w.writeAll("zig_threadlocal ");
         if (variable.is_weak_linkage) try w.writeAll("zig_weak_linkage ");
-        if (decl.@"linksection") |section| try w.print("zig_linksection(\"{s}\", ", .{section});
+        if (mod.intern_pool.stringToSliceUnwrap(decl.@"linksection")) |s|
+            try w.print("zig_linksection(\"{s}\", ", .{s});
         try o.dg.renderTypeAndName(w, tv.ty, decl_c_value, .{}, decl.@"align", .complete);
-        if (decl.@"linksection" != null) try w.writeAll(", read, write)");
+        if (decl.@"linksection" != .none) try w.writeAll(", read, write)");
         try w.writeAll(" = ");
         try o.dg.renderValue(w, tv.ty, variable.init.toValue(), .StaticInitializer);
         try w.writeByte(';');
@@ -2697,9 +2704,10 @@ pub fn genDecl(o: *Object) !void {
 
         const w = o.writer();
         if (!is_global) try w.writeAll("static ");
-        if (decl.@"linksection") |section| try w.print("zig_linksection(\"{s}\", ", .{section});
+        if (mod.intern_pool.stringToSliceUnwrap(decl.@"linksection")) |s|
+            try w.print("zig_linksection(\"{s}\", ", .{s});
         try o.dg.renderTypeAndName(w, tv.ty, decl_c_value, Const, decl.@"align", .complete);
-        if (decl.@"linksection" != null) try w.writeAll(", read)");
+        if (decl.@"linksection" != .none) try w.writeAll(", read)");
         try w.writeAll(" = ");
         try o.dg.renderValue(w, tv.ty, tv.val, .StaticInitializer);
         try w.writeAll(";\n");
@@ -4229,7 +4237,9 @@ fn airDbgInline(f: *Function, inst: Air.Inst.Index) !CValue {
     const mod = f.object.dg.module;
     const writer = f.object.writer();
     const function = mod.funcPtr(ty_fn.func);
-    try writer.print("/* dbg func:{s} */\n", .{mod.declPtr(function.owner_decl).name});
+    try writer.print("/* dbg func:{s} */\n", .{
+        mod.intern_pool.stringToSlice(mod.declPtr(function.owner_decl).name),
+    });
     return .none;
 }
 
@@ -5176,6 +5186,7 @@ fn fieldLocation(
     byte_offset: u32,
     end: void,
 } {
+    const ip = &mod.intern_pool;
     return switch (container_ty.zigTypeTag(mod)) {
         .Struct => switch (container_ty.containerLayout(mod)) {
             .Auto, .Extern => for (field_index..container_ty.structFieldCount(mod)) |next_field_index| {
@@ -5186,7 +5197,7 @@ fn fieldLocation(
                 break .{ .field = if (container_ty.isSimpleTuple(mod))
                     .{ .field = next_field_index }
                 else
-                    .{ .identifier = container_ty.structFieldName(next_field_index, mod) } };
+                    .{ .identifier = ip.stringToSlice(container_ty.structFieldName(next_field_index, mod)) } };
             } else if (container_ty.hasRuntimeBitsIgnoreComptime(mod)) .end else .begin,
             .Packed => if (field_ptr_ty.ptrInfo(mod).host_size == 0)
                 .{ .byte_offset = container_ty.packedStructFieldByteOffset(field_index, mod) }
@@ -5204,9 +5215,9 @@ fn fieldLocation(
                         .begin;
                 const field_name = container_ty.unionFields(mod).keys()[field_index];
                 return .{ .field = if (container_ty.unionTagTypeSafety(mod)) |_|
-                    .{ .payload_identifier = field_name }
+                    .{ .payload_identifier = ip.stringToSlice(field_name) }
                 else
-                    .{ .identifier = field_name } };
+                    .{ .identifier = ip.stringToSlice(field_name) } };
             },
             .Packed => .begin,
         },
@@ -5347,6 +5358,7 @@ fn fieldPtr(
 
 fn airStructFieldVal(f: *Function, inst: Air.Inst.Index) !CValue {
     const mod = f.object.dg.module;
+    const ip = &mod.intern_pool;
     const ty_pl = f.air.instructions.items(.data)[inst].ty_pl;
     const extra = f.air.extraData(Air.StructField, ty_pl.payload).data;
 
@@ -5369,7 +5381,7 @@ fn airStructFieldVal(f: *Function, inst: Air.Inst.Index) !CValue {
             .Auto, .Extern => if (struct_ty.isSimpleTuple(mod))
                 .{ .field = extra.field_index }
             else
-                .{ .identifier = struct_ty.structFieldName(extra.field_index, mod) },
+                .{ .identifier = ip.stringToSlice(struct_ty.structFieldName(extra.field_index, mod)) },
             .Packed => {
                 const struct_obj = mod.typeToStruct(struct_ty).?;
                 const int_info = struct_ty.intInfo(mod);
@@ -5431,7 +5443,7 @@ fn airStructFieldVal(f: *Function, inst: Air.Inst.Index) !CValue {
         .anon_struct_type => |anon_struct_type| if (anon_struct_type.names.len == 0)
             .{ .field = extra.field_index }
         else
-            .{ .identifier = struct_ty.structFieldName(extra.field_index, mod) },
+            .{ .identifier = ip.stringToSlice(struct_ty.structFieldName(extra.field_index, mod)) },
 
         .union_type => |union_type| field_name: {
             const union_obj = mod.unionPtr(union_type.index);
@@ -5462,9 +5474,9 @@ fn airStructFieldVal(f: *Function, inst: Air.Inst.Index) !CValue {
             } else {
                 const name = union_obj.fields.keys()[extra.field_index];
                 break :field_name if (union_type.hasTag()) .{
-                    .payload_identifier = name,
+                    .payload_identifier = ip.stringToSlice(name),
                 } else .{
-                    .identifier = name,
+                    .identifier = ip.stringToSlice(name),
                 };
             }
         },
@@ -6723,6 +6735,7 @@ fn airReduce(f: *Function, inst: Air.Inst.Index) !CValue {
 
 fn airAggregateInit(f: *Function, inst: Air.Inst.Index) !CValue {
     const mod = f.object.dg.module;
+    const ip = &mod.intern_pool;
     const ty_pl = f.air.instructions.items(.data)[inst].ty_pl;
     const inst_ty = f.typeOfIndex(inst);
     const len = @intCast(usize, inst_ty.arrayLen(mod));
@@ -6773,7 +6786,7 @@ fn airAggregateInit(f: *Function, inst: Air.Inst.Index) !CValue {
                 try f.writeCValueMember(writer, local, if (inst_ty.isSimpleTuple(mod))
                     .{ .field = field_i }
                 else
-                    .{ .identifier = inst_ty.structFieldName(field_i, mod) });
+                    .{ .identifier = ip.stringToSlice(inst_ty.structFieldName(field_i, mod)) });
                 try a.assign(f, writer);
                 try f.writeCValue(writer, element, .Other);
                 try a.end(f, writer);
@@ -6851,6 +6864,7 @@ fn airAggregateInit(f: *Function, inst: Air.Inst.Index) !CValue {
 
 fn airUnionInit(f: *Function, inst: Air.Inst.Index) !CValue {
     const mod = f.object.dg.module;
+    const ip = &mod.intern_pool;
     const ty_pl = f.air.instructions.items(.data)[inst].ty_pl;
     const extra = f.air.extraData(Air.UnionInit, ty_pl.payload).data;
 
@@ -6886,8 +6900,8 @@ fn airUnionInit(f: *Function, inst: Air.Inst.Index) !CValue {
             try writer.print("{}", .{try f.fmtIntLiteral(tag_ty, int_val)});
             try a.end(f, writer);
         }
-        break :field .{ .payload_identifier = field_name };
-    } else .{ .identifier = field_name };
+        break :field .{ .payload_identifier = ip.stringToSlice(field_name) };
+    } else .{ .identifier = ip.stringToSlice(field_name) };
 
     const a = try Assignment.start(f, writer, payload_ty);
     try f.writeCValueMember(writer, local, field);
