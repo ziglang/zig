@@ -99,9 +99,11 @@ const Result = struct {
 };
 
 const block_size: usize = 8 * 8192;
+const alignment: usize = 64;
 
 pub fn benchmarkHash(comptime H: anytype, bytes: usize, allocator: std.mem.Allocator) !Result {
-    var blocks = try allocator.alloc(u8, bytes);
+    const blocks_count = bytes / block_size;
+    var blocks = try allocator.alloc(u8, block_size + alignment * (blocks_count - 1));
     defer allocator.free(blocks);
     random.bytes(blocks);
 
@@ -115,19 +117,18 @@ pub fn benchmarkHash(comptime H: anytype, bytes: usize, allocator: std.mem.Alloc
         break :blk H.ty.init();
     };
 
-    var offset: usize = 0;
     var timer = try Timer.start();
     const start = timer.lap();
-    while (offset < bytes) : (offset += block_size) {
-        h.update(blocks[offset..][0..block_size]);
+    for (0..blocks_count) |i| {
+        h.update(blocks[i * alignment ..][0..block_size]);
     }
+    const final = if (H.has_crypto_api) @truncate(u64, h.finalInt()) else h.final();
+    std.mem.doNotOptimizeAway(final);
+
     const end = timer.read();
 
     const elapsed_s = @intToFloat(f64, end - start) / time.ns_per_s;
     const throughput = @floatToInt(u64, @intToFloat(f64, bytes) / elapsed_s);
-
-    const final = if (H.has_crypto_api) @truncate(u64, h.finalInt()) else h.final();
-    std.mem.doNotOptimizeAway(final);
 
     return Result{
         .hash = final,
@@ -142,12 +143,11 @@ pub fn benchmarkHashSmallKeys(comptime H: anytype, key_size: usize, bytes: usize
 
     const key_count = bytes / key_size;
 
-    var i: usize = 0;
     var timer = try Timer.start();
     const start = timer.lap();
 
     var sum: u64 = 0;
-    while (i < key_count) : (i += 1) {
+    for (0..key_count) |i| {
         const small_key = blocks[i * key_size ..][0..key_size];
         const final = blk: {
             if (H.init_u8s) |init| {
