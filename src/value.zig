@@ -1842,6 +1842,7 @@ pub const Value = struct {
     pub fn elemValue(val: Value, mod: *Module, index: usize) Allocator.Error!Value {
         return switch (val.ip_index) {
             .none => switch (val.tag()) {
+                .bytes => try mod.intValue(Type.u8, val.castTag(.bytes).?.data[index]),
                 .repeated => val.castTag(.repeated).?.data,
                 .aggregate => val.castTag(.aggregate).?.data[index],
                 .slice => val.castTag(.slice).?.data.ptr.elemValue(mod, index),
