@@ -1,8 +1,9 @@
-const std = @import("../std.zig");
+const std = @import("std");
 const builtin = @import("builtin");
 const mem = std.mem;
 const math = std.math;
 const htest = @import("test.zig");
+const StreamingCache = std.hash.StreamingCache;
 
 /////////////////////
 // Sha224 + Sha256
@@ -85,10 +86,8 @@ fn Sha2x32(comptime params: Sha2Params32) type {
         pub const Options = struct {};
 
         s: [8]u32 align(16),
-        // Streaming Cache
-        buf: [64]u8 = undefined,
-        buf_len: u8 = 0,
         total_len: u64 = 0,
+        cache: StreamingCache(64),
 
         pub fn init(options: Options) Self {
             _ = options;
@@ -103,6 +102,7 @@ fn Sha2x32(comptime params: Sha2Params32) type {
                     params.iv6,
                     params.iv7,
                 },
+                .cache = .{},
             };
         }
 
@@ -112,29 +112,9 @@ fn Sha2x32(comptime params: Sha2Params32) type {
             d.final(out);
         }
 
-        pub fn update(d: *Self, b: []const u8) void {
-            var off: usize = 0;
-
-            // Partial buffer exists from previous update. Copy into buffer then hash.
-            if (d.buf_len != 0 and d.buf_len + b.len >= 64) {
-                off += 64 - d.buf_len;
-                @memcpy(d.buf[d.buf_len..][0..off], b[0..off]);
-
-                d.round(&d.buf);
-                d.buf_len = 0;
-            }
-
-            // Full middle blocks.
-            while (off + 64 <= b.len) : (off += 64) {
-                d.round(b[off..][0..64]);
-            }
-
-            // Copy any remainder for next pass.
-            const b_slice = b[off..];
-            @memcpy(d.buf[d.buf_len..][0..b_slice.len], b_slice);
-            d.buf_len += @intCast(u8, b[off..].len);
-
-            d.total_len += b.len;
+        pub fn update(self: *Self, input: []const u8) void {
+            self.cache.update(self, round, input);
+            self.total_len += input.len;
         }
 
         pub fn peek(d: Self) [digest_length]u8 {
@@ -142,33 +122,35 @@ fn Sha2x32(comptime params: Sha2Params32) type {
             return copy.finalResult();
         }
 
-        pub fn final(d: *Self, out: *[digest_length]u8) void {
-            // The buffer here will never be completely full.
-            @memset(d.buf[d.buf_len..], 0);
+        pub fn final(self: *Self, out: *[digest_length]u8) void {
+            var input = self.cache.buf[0..];
+            var input_len = self.cache.buf_len;
+            std.debug.assert(input_len < block_length);
+            @memset(input[input_len..], 0);
 
             // Append padding bits.
-            d.buf[d.buf_len] = 0x80;
-            d.buf_len += 1;
+            input[input_len] = 0x80;
+            input_len += 1;
 
             // > 448 mod 512 so need to add an extra round to wrap around.
-            if (64 - d.buf_len < 8) {
-                d.round(&d.buf);
-                @memset(d.buf[0..], 0);
+            if (64 - input_len < 8) {
+                self.round(input);
+                @memset(input, 0);
             }
 
             // Append message length.
             var i: usize = 1;
-            var len = d.total_len >> 5;
-            d.buf[63] = @intCast(u8, d.total_len & 0x1f) << 3;
+            var len = self.total_len >> 5;
+            input[63] = @intCast(u8, self.total_len & 0x1f) << 3;
             while (i < 8) : (i += 1) {
-                d.buf[63 - i] = @intCast(u8, len & 0xff);
+                input[63 - i] = @intCast(u8, len & 0xff);
                 len >>= 8;
             }
 
-            d.round(&d.buf);
+            self.round(input);
 
             // May truncate for possible 224 output
-            const rr = d.s[0 .. params.digest_bits / 32];
+            const rr = self.s[0 .. params.digest_bits / 32];
 
             for (rr, 0..) |s, j| {
                 mem.writeIntBig(u32, out[4 * j ..][0..4], s);
@@ -577,10 +559,8 @@ fn Sha2x64(comptime params: Sha2Params64) type {
         pub const Options = struct {};
 
         s: [8]u64,
-        // Streaming Cache
-        buf: [128]u8 = undefined,
-        buf_len: u8 = 0,
         total_len: u128 = 0,
+        cache: StreamingCache(128),
 
         pub fn init(options: Options) Self {
             _ = options;
@@ -595,6 +575,7 @@ fn Sha2x64(comptime params: Sha2Params64) type {
                     params.iv6,
                     params.iv7,
                 },
+                .cache = .{},
             };
         }
 
@@ -604,29 +585,9 @@ fn Sha2x64(comptime params: Sha2Params64) type {
             d.final(out);
         }
 
-        pub fn update(d: *Self, b: []const u8) void {
-            var off: usize = 0;
-
-            // Partial buffer exists from previous update. Copy into buffer then hash.
-            if (d.buf_len != 0 and d.buf_len + b.len >= 128) {
-                off += 128 - d.buf_len;
-                @memcpy(d.buf[d.buf_len..][0..off], b[0..off]);
-
-                d.round(&d.buf);
-                d.buf_len = 0;
-            }
-
-            // Full middle blocks.
-            while (off + 128 <= b.len) : (off += 128) {
-                d.round(b[off..][0..128]);
-            }
-
-            // Copy any remainder for next pass.
-            const b_slice = b[off..];
-            @memcpy(d.buf[d.buf_len..][0..b_slice.len], b_slice);
-            d.buf_len += @intCast(u8, b[off..].len);
-
-            d.total_len += b.len;
+        pub fn update(self: *Self, input: []const u8) void {
+            self.cache.update(self, round, input);
+            self.total_len += input.len;
         }
 
         pub fn peek(d: Self) [digest_length]u8 {
@@ -634,33 +595,35 @@ fn Sha2x64(comptime params: Sha2Params64) type {
             return copy.finalResult();
         }
 
-        pub fn final(d: *Self, out: *[digest_length]u8) void {
-            // The buffer here will never be completely full.
-            @memset(d.buf[d.buf_len..], 0);
+        pub fn final(self: *Self, out: *[digest_length]u8) void {
+            var input = self.cache.buf[0..];
+            var input_len = self.cache.buf_len;
+            std.debug.assert(input_len < block_length);
+            @memset(input[input_len..], 0);
 
             // Append padding bits.
-            d.buf[d.buf_len] = 0x80;
-            d.buf_len += 1;
+            input[input_len] = 0x80;
+            input_len += 1;
 
             // > 896 mod 1024 so need to add an extra round to wrap around.
-            if (128 - d.buf_len < 16) {
-                d.round(d.buf[0..]);
-                @memset(d.buf[0..], 0);
+            if (128 - input_len < 16) {
+                self.round(input);
+                @memset(input, 0);
             }
 
             // Append message length.
             var i: usize = 1;
-            var len = d.total_len >> 5;
-            d.buf[127] = @intCast(u8, d.total_len & 0x1f) << 3;
+            var len = self.total_len >> 5;
+            input[127] = @intCast(u8, self.total_len & 0x1f) << 3;
             while (i < 16) : (i += 1) {
-                d.buf[127 - i] = @intCast(u8, len & 0xff);
+                input[127 - i] = @intCast(u8, len & 0xff);
                 len >>= 8;
             }
 
-            d.round(d.buf[0..]);
+            self.round(input);
 
             // May truncate for possible 384 output
-            const rr = d.s[0 .. params.digest_bits / 64];
+            const rr = self.s[0 .. params.digest_bits / 64];
 
             for (rr, 0..) |s, j| {
                 mem.writeIntBig(u64, out[8 * j ..][0..8], s);
