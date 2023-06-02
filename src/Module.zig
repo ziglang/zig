@@ -576,7 +576,6 @@ pub const Decl = struct {
             }
             mod.destroyFunc(func);
         }
-        _ = mod.memoized_decls.remove(decl.val.ip_index);
     }
 
     /// This name is relative to the containing namespace of the decl.
@@ -690,10 +689,30 @@ pub const Decl = struct {
     }
 
     pub fn getFullyQualifiedName(decl: Decl, mod: *Module) !InternPool.NullTerminatedString {
-        const gpa = mod.gpa;
+        if (decl.name_fully_qualified) return decl.name;
+
         const ip = &mod.intern_pool;
+        const count = count: {
+            var count: usize = ip.stringToSlice(decl.name).len + 1;
+            var ns: Namespace.Index = decl.src_namespace;
+            while (true) {
+                const namespace = mod.namespacePtr(ns);
+                const ns_decl_index = namespace.getDeclIndex(mod);
+                const ns_decl = mod.declPtr(ns_decl_index);
+                count += ip.stringToSlice(ns_decl.name).len + 1;
+                ns = namespace.parent.unwrap() orelse {
+                    count += namespace.file_scope.sub_file_path.len;
+                    break :count count;
+                };
+            }
+        };
+
+        const gpa = mod.gpa;
         const start = ip.string_bytes.items.len;
-        try decl.renderFullyQualifiedName(mod, ip.string_bytes.writer(gpa));
+        // Protects reads of interned strings from being reallocated during the call to
+        // renderFullyQualifiedName.
+        try ip.string_bytes.ensureUnusedCapacity(gpa, count);
+        decl.renderFullyQualifiedName(mod, ip.string_bytes.writer(gpa)) catch unreachable;
 
         // Sanitize the name for nvptx which is more restrictive.
         // TODO This should be handled by the backend, not the frontend. Have a
@@ -4018,7 +4037,7 @@ pub fn ensureDeclAnalyzed(mod: *Module, decl_index: Decl.Index) SemaError!void {
         .unreferenced => false,
     };
 
-    var decl_prog_node = mod.sema_prog_node.start(mod.intern_pool.stringToSlice(decl.name), 0);
+    var decl_prog_node = mod.sema_prog_node.start("", 0);
     decl_prog_node.activate();
     defer decl_prog_node.end();
 
@@ -5774,9 +5793,11 @@ pub fn createAnonymousDeclFromDecl(
     const new_decl_index = try mod.allocateNewDecl(namespace, src_decl.src_node, src_scope);
     errdefer mod.destroyDecl(new_decl_index);
     const ip = &mod.intern_pool;
-    const name = try ip.getOrPutStringFmt(mod.gpa, "{s}__anon_{d}", .{
+    // This protects the getOrPutStringFmt from reallocating src decl name while reading it.
+    try ip.string_bytes.ensureUnusedCapacity(mod.gpa, ip.stringToSlice(src_decl.name).len + 20);
+    const name = ip.getOrPutStringFmt(mod.gpa, "{s}__anon_{d}", .{
         ip.stringToSlice(src_decl.name), @enumToInt(new_decl_index),
-    });
+    }) catch unreachable;
     try mod.initNewAnonDecl(new_decl_index, src_decl.src_line, namespace, tv, name);
     return new_decl_index;
 }

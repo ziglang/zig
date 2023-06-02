@@ -17065,6 +17065,7 @@ fn typeInfoNamespaceDecls(
     seen_namespaces: *std.AutoHashMap(*Namespace, void),
 ) !void {
     const mod = sema.mod;
+    const ip = &mod.intern_pool;
     const gop = try seen_namespaces.getOrPut(namespace);
     if (gop.found_existing) return;
     const decls = namespace.decls.keys();
@@ -17081,7 +17082,9 @@ fn typeInfoNamespaceDecls(
         const name_val = v: {
             var anon_decl = try block.startAnonDecl();
             defer anon_decl.deinit();
-            const name = mod.intern_pool.stringToSlice(decl.name);
+            // Protects the decl name slice from being invalidated at the call to intern().
+            try ip.string_bytes.ensureUnusedCapacity(sema.gpa, ip.stringToSlice(decl.name).len + 1);
+            const name = ip.stringToSlice(decl.name);
             const new_decl_ty = try mod.arrayType(.{
                 .len = name.len,
                 .child = .u8_type,
