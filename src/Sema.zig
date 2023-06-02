@@ -92,6 +92,14 @@ no_partial_func_ty: bool = false,
 /// here so the values can be dropped without any cleanup.
 unresolved_inferred_allocs: std.AutoHashMapUnmanaged(Air.Inst.Index, InferredAlloc) = .{},
 
+/// Indices of comptime-mutable decls created by this Sema. These decls' values
+/// should be interned after analysis completes, as they may refer to memory in
+/// the Sema arena.
+/// TODO: this is a workaround for memory bugs triggered by the removal of
+/// Decl.value_arena. A better solution needs to be found. Probably this will
+/// involve transitioning comptime-mutable memory away from using Decls at all.
+comptime_mutable_decls: *std.ArrayList(Decl.Index),
+
 const std = @import("std");
 const math = std.math;
 const mem = std.mem;
@@ -2545,6 +2553,7 @@ fn zirCoerceResultPtr(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileE
                     },
                 });
                 try sema.maybeQueueFuncBodyAnalysis(decl_index);
+                try sema.comptime_mutable_decls.append(decl_index);
                 return sema.addConstant(ptr_ty, (try mod.intern(.{ .ptr = .{
                     .ty = ptr_ty.toIntern(),
                     .addr = .{ .mut_decl = .{
@@ -7761,6 +7770,7 @@ fn resolveGenericInstantiationType(
         .is_generic_instantiation = true,
         .branch_quota = sema.branch_quota,
         .branch_count = sema.branch_count,
+        .comptime_mutable_decls = sema.comptime_mutable_decls,
     };
     defer child_sema.deinit();
 
@@ -31849,7 +31859,24 @@ fn semaBackingIntType(mod: *Module, struct_obj: *Module.Struct) CompileError!voi
         var analysis_arena = std.heap.ArenaAllocator.init(gpa);
         defer analysis_arena.deinit();
 
-        var sema: Sema = .{ .mod = mod, .gpa = gpa, .arena = analysis_arena.allocator(), .perm_arena = decl_arena_allocator, .code = zir, .owner_decl = decl, .owner_decl_index = decl_index, .func = null, .func_index = .none, .fn_ret_ty = Type.void, .owner_func = null, .owner_func_index = .none };
+        var comptime_mutable_decls = std.ArrayList(Decl.Index).init(gpa);
+        defer comptime_mutable_decls.deinit();
+
+        var sema: Sema = .{
+            .mod = mod,
+            .gpa = gpa,
+            .arena = analysis_arena.allocator(),
+            .perm_arena = decl_arena_allocator,
+            .code = zir,
+            .owner_decl = decl,
+            .owner_decl_index = decl_index,
+            .func = null,
+            .func_index = .none,
+            .fn_ret_ty = Type.void,
+            .owner_func = null,
+            .owner_func_index = .none,
+            .comptime_mutable_decls = &comptime_mutable_decls,
+        };
         defer sema.deinit();
 
         var wip_captures = try WipCaptureScope.init(gpa, decl.src_scope);
@@ -31885,6 +31912,10 @@ fn semaBackingIntType(mod: *Module, struct_obj: *Module.Struct) CompileError!voi
         try sema.checkBackingIntType(&block, backing_int_src, backing_int_ty, fields_bit_sum);
         struct_obj.backing_int_ty = backing_int_ty;
         try wip_captures.finalize();
+        for (comptime_mutable_decls.items) |ct_decl_index| {
+            const ct_decl = mod.declPtr(ct_decl_index);
+            try ct_decl.intern(mod);
+        }
     } else {
         if (fields_bit_sum > std.math.maxInt(u16)) {
             var sema: Sema = .{
@@ -31900,6 +31931,7 @@ fn semaBackingIntType(mod: *Module, struct_obj: *Module.Struct) CompileError!voi
                 .fn_ret_ty = Type.void,
                 .owner_func = null,
                 .owner_func_index = .none,
+                .comptime_mutable_decls = undefined,
             };
             defer sema.deinit();
 
@@ -32589,6 +32621,9 @@ fn semaStructFields(mod: *Module, struct_obj: *Module.Struct) CompileError!void 
     var analysis_arena = std.heap.ArenaAllocator.init(gpa);
     defer analysis_arena.deinit();
 
+    var comptime_mutable_decls = std.ArrayList(Decl.Index).init(gpa);
+    defer comptime_mutable_decls.deinit();
+
     var sema: Sema = .{
         .mod = mod,
         .gpa = gpa,
@@ -32602,6 +32637,7 @@ fn semaStructFields(mod: *Module, struct_obj: *Module.Struct) CompileError!void 
         .fn_ret_ty = Type.void,
         .owner_func = null,
         .owner_func_index = .none,
+        .comptime_mutable_decls = &comptime_mutable_decls,
     };
     defer sema.deinit();
 
@@ -32872,6 +32908,10 @@ fn semaStructFields(mod: *Module, struct_obj: *Module.Struct) CompileError!void 
         }
     }
     try wip_captures.finalize();
+    for (comptime_mutable_decls.items) |ct_decl_index| {
+        const ct_decl = mod.declPtr(ct_decl_index);
+        try ct_decl.intern(mod);
+    }
 
     struct_obj.have_field_inits = true;
 }
@@ -32931,6 +32971,9 @@ fn semaUnionFields(mod: *Module, union_obj: *Module.Union) CompileError!void {
     var analysis_arena = std.heap.ArenaAllocator.init(gpa);
     defer analysis_arena.deinit();
 
+    var comptime_mutable_decls = std.ArrayList(Decl.Index).init(gpa);
+    defer comptime_mutable_decls.deinit();
+
     var sema: Sema = .{
         .mod = mod,
         .gpa = gpa,
@@ -32944,6 +32987,7 @@ fn semaUnionFields(mod: *Module, union_obj: *Module.Union) CompileError!void {
         .fn_ret_ty = Type.void,
         .owner_func = null,
         .owner_func_index = .none,
+        .comptime_mutable_decls = &comptime_mutable_decls,
     };
     defer sema.deinit();
 
@@ -32970,6 +33014,10 @@ fn semaUnionFields(mod: *Module, union_obj: *Module.Union) CompileError!void {
     }
 
     try wip_captures.finalize();
+    for (comptime_mutable_decls.items) |ct_decl_index| {
+        const ct_decl = mod.declPtr(ct_decl_index);
+        try ct_decl.intern(mod);
+    }
 
     try union_obj.fields.ensureTotalCapacity(decl_arena_allocator, fields_len);
 
@@ -33807,6 +33855,7 @@ fn analyzeComptimeAlloc(
     const decl = sema.mod.declPtr(decl_index);
     decl.@"align" = alignment;
 
+    try sema.comptime_mutable_decls.append(decl_index);
     try sema.mod.declareDeclDependency(sema.owner_decl_index, decl_index);
     return sema.addConstant(ptr_type, (try sema.mod.intern(.{ .ptr = .{
         .ty = ptr_type.toIntern(),
