@@ -1,3 +1,5 @@
+pub const StreamingCache = @import("hash/streaming_cache.zig").StreamingCache;
+
 const adler = @import("hash/adler.zig");
 pub const Adler32 = adler.Adler32;
 

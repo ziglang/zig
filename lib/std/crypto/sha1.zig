@@ -1,6 +1,7 @@
-const std = @import("../std.zig");
+const std = @import("std");
 const mem = std.mem;
 const math = std.math;
+const StreamingCache = std.hash.StreamingCache;
 
 const RoundParam = struct {
     a: usize,
@@ -32,10 +33,8 @@ pub const Sha1 = struct {
     pub const Options = struct {};
 
     s: [5]u32,
-    // Streaming Cache
-    buf: [64]u8 = undefined,
-    buf_len: u8 = 0,
     total_len: u64 = 0,
+    cache: StreamingCache(64),
 
     pub fn init(options: Options) Self {
         _ = options;
@@ -47,6 +46,7 @@ pub const Sha1 = struct {
                 0x10325476,
                 0xC3D2E1F0,
             },
+            .cache = .{},
         };
     }
 
@@ -56,69 +56,52 @@ pub const Sha1 = struct {
         d.final(out);
     }
 
-    pub fn update(d: *Self, b: []const u8) void {
-        var off: usize = 0;
-
-        // Partial buffer exists from previous update. Copy into buffer then hash.
-        if (d.buf_len != 0 and d.buf_len + b.len >= 64) {
-            off += 64 - d.buf_len;
-            @memcpy(d.buf[d.buf_len..][0..off], b[0..off]);
-
-            d.round(d.buf[0..]);
-            d.buf_len = 0;
-        }
-
-        // Full middle blocks.
-        while (off + 64 <= b.len) : (off += 64) {
-            d.round(b[off..][0..64]);
-        }
-
-        // Copy any remainder for next pass.
-        @memcpy(d.buf[d.buf_len..][0 .. b.len - off], b[off..]);
-        d.buf_len += @intCast(u8, b[off..].len);
-
-        d.total_len += b.len;
+    pub fn update(self: *Self, input: []const u8) void {
+        self.cache.update(self, round, input);
+        self.total_len += input.len;
     }
 
-    pub fn final(d: *Self, out: *[digest_length]u8) void {
-        // The buffer here will never be completely full.
-        @memset(d.buf[d.buf_len..], 0);
+    pub fn final(self: *Self, out: *[digest_length]u8) void {
+        var input = self.cache.buf[0..];
+        var input_len = self.cache.buf_len;
+        std.debug.assert(input_len < block_length);
+        @memset(input[input_len..], 0);
 
         // Append padding bits.
-        d.buf[d.buf_len] = 0x80;
-        d.buf_len += 1;
+        input[input_len] = 0x80;
+        input_len += 1;
 
         // > 448 mod 512 so need to add an extra round to wrap around.
-        if (64 - d.buf_len < 8) {
-            d.round(d.buf[0..]);
-            @memset(d.buf[0..], 0);
+        if (64 - input_len < 8) {
+            self.round(input);
+            @memset(input, 0);
         }
 
         // Append message length.
         var i: usize = 1;
-        var len = d.total_len >> 5;
-        d.buf[63] = @intCast(u8, d.total_len & 0x1f) << 3;
+        var len = self.total_len >> 5;
+        input[63] = @intCast(u8, self.total_len & 0x1f) << 3;
         while (i < 8) : (i += 1) {
-            d.buf[63 - i] = @intCast(u8, len & 0xff);
+            input[63 - i] = @intCast(u8, len & 0xff);
             len >>= 8;
         }
 
-        d.round(d.buf[0..]);
+        self.round(input);
 
-        for (d.s, 0..) |s, j| {
+        for (self.s, 0..) |s, j| {
             mem.writeIntBig(u32, out[4 * j ..][0..4], s);
         }
     }
 
-    fn round(d: *Self, b: *const [64]u8) void {
+    fn round(self: *Self, b: *const [64]u8) void {
         var s: [16]u32 = undefined;
 
         var v: [5]u32 = [_]u32{
-            d.s[0],
-            d.s[1],
-            d.s[2],
-            d.s[3],
-            d.s[4],
+            self.s[0],
+            self.s[1],
+            self.s[2],
+            self.s[3],
+            self.s[4],
         };
 
         const round0a = comptime [_]RoundParam{
@@ -250,11 +233,11 @@ pub const Sha1 = struct {
             v[r.b] = math.rotl(u32, v[r.b], @as(u32, 30));
         }
 
-        d.s[0] +%= v[0];
-        d.s[1] +%= v[1];
-        d.s[2] +%= v[2];
-        d.s[3] +%= v[3];
-        d.s[4] +%= v[4];
+        self.s[0] +%= v[0];
+        self.s[1] +%= v[1];
+        self.s[2] +%= v[2];
+        self.s[3] +%= v[3];
+        self.s[4] +%= v[4];
     }
 
     pub const Error = error{};
