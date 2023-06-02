@@ -257,6 +257,7 @@ pub fn MultiArrayList(comptime T: type) type {
         /// Asserts the list has at least one item.
         /// Invalidates pointers to fields of the removed element.
         pub fn pop(self: *Self) T {
+            assert(self.len > 0);
             const val = self.get(self.len - 1);
             self.len -= 1;
             return val;
