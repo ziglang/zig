@@ -5451,7 +5451,7 @@ fn zirCImport(sema: *Sema, parent_block: *Block, inst: Zir.Inst.Index) CompileEr
 
     // we check this here to avoid undefined symbols
     if (!@import("build_options").have_llvm)
-        return sema.fail(parent_block, src, "cannot do C import on Zig compiler not built with LLVM-extension", .{});
+        return sema.fail(parent_block, src, "C import unavailable; Zig compiler built without LLVM extensions", .{});
 
     var c_import_buf = std.ArrayList(u8).init(sema.gpa);
     defer c_import_buf.deinit();
