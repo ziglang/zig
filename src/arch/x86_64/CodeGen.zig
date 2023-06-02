@@ -2026,13 +2026,9 @@ fn genLazy(self: *Self, lazy_sym: link.File.LazySymbol) InnerError!void {
             try self.genLazySymbolRef(.lea, data_reg, .{ .kind = .const_data, .ty = enum_ty });
 
             var data_off: i32 = 0;
-            for (
-                exitlude_jump_relocs,
-                enum_ty.enumFields(mod),
-                0..,
-            ) |*exitlude_jump_reloc, tag_name_ip, index_usize| {
+            for (exitlude_jump_relocs, 0..) |*exitlude_jump_reloc, index_usize| {
                 const index = @intCast(u32, index_usize);
-                const tag_name = mod.intern_pool.stringToSlice(tag_name_ip);
+                const tag_name = mod.intern_pool.stringToSlice(enum_ty.enumFields(mod)[index_usize]);
                 const tag_val = try mod.enumValueFieldIndex(enum_ty, index);
                 const tag_mcv = try self.genTypedValue(.{ .ty = enum_ty, .val = tag_val });
                 try self.genBinOpMir(.{ ._, .cmp }, enum_ty, enum_mcv, tag_mcv);

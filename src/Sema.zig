@@ -5227,6 +5227,8 @@ fn zirStr(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Ins
 fn addStrLit(sema: *Sema, block: *Block, bytes: []const u8) CompileError!Air.Inst.Ref {
     const mod = sema.mod;
     const gpa = sema.gpa;
+    // TODO: write something like getCoercedInts to avoid needing to dupe
+    const duped_bytes = try sema.arena.dupe(u8, bytes);
     const ty = try mod.arrayType(.{
         .len = bytes.len,
         .child = .u8_type,
@@ -5234,7 +5236,7 @@ fn addStrLit(sema: *Sema, block: *Block, bytes: []const u8) CompileError!Air.Ins
     });
     const val = try mod.intern(.{ .aggregate = .{
         .ty = ty.toIntern(),
-        .storage = .{ .bytes = bytes },
+        .storage = .{ .bytes = duped_bytes },
     } });
     const gop = try mod.memoized_decls.getOrPut(gpa, val);
     if (!gop.found_existing) {
@@ -11478,7 +11480,8 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
                         operand_ty.fmt(mod),
                     });
                 }
-                for (operand_ty.errorSetNames(mod)) |error_name_ip| {
+                for (0..operand_ty.errorSetNames(mod).len) |i| {
+                    const error_name_ip = operand_ty.errorSetNames(mod)[i];
                     const error_name = mod.intern_pool.stringToSlice(error_name_ip);
                     if (seen_errors.contains(error_name)) continue;
                     cases_len += 1;
@@ -15851,7 +15854,8 @@ fn zirBuiltinSrc(
     const func_name_val = blk: {
         var anon_decl = try block.startAnonDecl();
         defer anon_decl.deinit();
-        const name = mod.intern_pool.stringToSlice(fn_owner_decl.name);
+        // TODO: write something like getCoercedInts to avoid needing to dupe
+        const name = try sema.arena.dupe(u8, mod.intern_pool.stringToSlice(fn_owner_decl.name));
         const new_decl_ty = try mod.arrayType(.{
             .len = name.len,
             .child = .u8_type,
@@ -16287,7 +16291,8 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
             const error_field_vals = if (ty.isAnyError(mod)) null else blk: {
                 const vals = try sema.arena.alloc(InternPool.Index, ty.errorSetNames(mod).len);
                 for (vals, 0..) |*field_val, i| {
-                    const name = ip.stringToSlice(ty.errorSetNames(mod)[i]);
+                    // TODO: write something like getCoercedInts to avoid needing to dupe
+                    const name = try sema.arena.dupe(u8, ip.stringToSlice(ty.errorSetNames(mod)[i]));
                     const name_val = v: {
                         var anon_decl = try block.startAnonDecl();
                         defer anon_decl.deinit();
@@ -16417,8 +16422,8 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
 
             const enum_field_vals = try sema.arena.alloc(InternPool.Index, enum_type.names.len);
             for (enum_field_vals, 0..) |*field_val, i| {
-                const name_ip = ip.indexToKey(ty.toIntern()).enum_type.names[i];
-                const name = ip.stringToSlice(name_ip);
+                // TODO: write something like getCoercedInts to avoid needing to dupe
+                const name = try sema.arena.dupe(u8, ip.stringToSlice(ip.indexToKey(ty.toIntern()).enum_type.names[i]));
                 const name_val = v: {
                     var anon_decl = try block.startAnonDecl();
                     defer anon_decl.deinit();
@@ -16556,7 +16561,8 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
 
             for (union_field_vals, 0..) |*field_val, i| {
                 const field = union_fields.values()[i];
-                const name = ip.stringToSlice(union_fields.keys()[i]);
+                // TODO: write something like getCoercedInts to avoid needing to dupe
+                const name = try sema.arena.dupe(u8, ip.stringToSlice(union_fields.keys()[i]));
                 const name_val = v: {
                     var anon_decl = try block.startAnonDecl();
                     defer anon_decl.deinit();
@@ -16714,9 +16720,10 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                             const name_val = v: {
                                 var anon_decl = try block.startAnonDecl();
                                 defer anon_decl.deinit();
+                                // TODO: write something like getCoercedInts to avoid needing to dupe
                                 const bytes = if (tuple.names.len != 0)
                                     // https://github.com/ziglang/zig/issues/15709
-                                    @as([]const u8, ip.stringToSlice(tuple.names[i]))
+                                    try sema.arena.dupe(u8, ip.stringToSlice(ip.indexToKey(struct_ty.toIntern()).anon_struct_type.names[i]))
                                 else
                                     try std.fmt.allocPrint(sema.arena, "{d}", .{i});
                                 const new_decl_ty = try mod.arrayType(.{
@@ -16771,7 +16778,8 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                     struct_obj.fields.keys(),
                     struct_obj.fields.values(),
                 ) |*field_val, name_nts, field| {
-                    const name = ip.stringToSlice(name_nts);
+                    // TODO: write something like getCoercedInts to avoid needing to dupe
+                    const name = try sema.arena.dupe(u8, ip.stringToSlice(name_nts));
                     const name_val = v: {
                         var anon_decl = try block.startAnonDecl();
                         defer anon_decl.deinit();
@@ -17020,9 +17028,8 @@ fn typeInfoNamespaceDecls(
         const name_val = v: {
             var anon_decl = try block.startAnonDecl();
             defer anon_decl.deinit();
-            // Protects the decl name slice from being invalidated at the call to intern().
-            try ip.string_bytes.ensureUnusedCapacity(sema.gpa, ip.stringToSlice(decl.name).len + 1);
-            const name = ip.stringToSlice(decl.name);
+            // TODO: write something like getCoercedInts to avoid needing to dupe
+            const name = try sema.arena.dupe(u8, ip.stringToSlice(decl.name));
             const new_decl_ty = try mod.arrayType(.{
                 .len = name.len,
                 .child = .u8_type,
@@ -19060,6 +19067,7 @@ fn zirTagName(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
             };
             return sema.failWithOwnedErrorMsg(msg);
         };
+        // TODO: write something like getCoercedInts to avoid needing to dupe
         const field_name = enum_ty.enumFieldName(field_index, mod);
         return sema.addStrLit(block, ip.stringToSlice(field_name));
     }
@@ -19601,7 +19609,6 @@ fn zirReify(
             // Tag type
             const fields_len = try sema.usizeCast(block, src, fields_val.sliceLen(mod));
             var explicit_tags_seen: []bool = &.{};
-            var explicit_enum_info: ?InternPool.Key.EnumType = null;
             var enum_field_names: []InternPool.NullTerminatedString = &.{};
             if (tag_type_val.optionalValue(mod)) |payload_val| {
                 union_obj.tag_ty = payload_val.toType();
@@ -19611,7 +19618,6 @@ fn zirReify(
                     else => return sema.fail(block, src, "Type.Union.tag_type must be an enum type", .{}),
                 };
 
-                explicit_enum_info = enum_type;
                 explicit_tags_seen = try sema.arena.alloc(bool, enum_type.names.len);
                 @memset(explicit_tags_seen, false);
             } else {
@@ -19640,7 +19646,8 @@ fn zirReify(
                     enum_field_names[i] = field_name;
                 }
 
-                if (explicit_enum_info) |tag_info| {
+                if (explicit_tags_seen.len > 0) {
+                    const tag_info = ip.indexToKey(union_obj.tag_ty.toIntern()).enum_type;
                     const enum_index = tag_info.nameIndex(ip, field_name) orelse {
                         const msg = msg: {
                             const msg = try sema.errMsg(block, src, "no field named '{s}' in enum '{}'", .{ ip.stringToSlice(field_name), union_obj.tag_ty.fmt(mod) });
@@ -19705,7 +19712,8 @@ fn zirReify(
                 }
             }
 
-            if (explicit_enum_info) |tag_info| {
+            if (explicit_tags_seen.len > 0) {
+                const tag_info = ip.indexToKey(union_obj.tag_ty.toIntern()).enum_type;
                 if (tag_info.names.len > fields_len) {
                     const msg = msg: {
                         const msg = try sema.errMsg(block, src, "enum field(s) missing in union", .{});
@@ -31611,17 +31619,17 @@ fn resolvePeerTypes(
     return chosen_ty;
 }
 
-pub fn resolveFnTypes(sema: *Sema, fn_info: InternPool.Key.FuncType) CompileError!void {
+pub fn resolveFnTypes(sema: *Sema, fn_ty: Type) CompileError!void {
     const mod = sema.mod;
-    try sema.resolveTypeFully(fn_info.return_type.toType());
+    try sema.resolveTypeFully(mod.typeToFunc(fn_ty).?.return_type.toType());
 
-    if (mod.comp.bin_file.options.error_return_tracing and fn_info.return_type.toType().isError(mod)) {
+    if (mod.comp.bin_file.options.error_return_tracing and mod.typeToFunc(fn_ty).?.return_type.toType().isError(mod)) {
         // Ensure the type exists so that backends can assume that.
         _ = try sema.getBuiltinType("StackTrace");
     }
 
-    for (fn_info.param_types) |param_ty| {
-        try sema.resolveTypeFully(param_ty.toType());
+    for (0..mod.typeToFunc(fn_ty).?.param_types.len) |i| {
+        try sema.resolveTypeFully(mod.typeToFunc(fn_ty).?.param_types[i].toType());
     }
 }
 
@@ -33063,7 +33071,6 @@ fn semaUnionFields(mod: *Module, union_obj: *Module.Union) CompileError!void {
     var enum_field_names: []InternPool.NullTerminatedString = &.{};
     var enum_field_vals: std.AutoArrayHashMapUnmanaged(InternPool.Index, void) = .{};
     var explicit_tags_seen: []bool = &.{};
-    var explicit_enum_info: ?InternPool.Key.EnumType = null;
     if (tag_type_ref != .none) {
         const tag_ty_src: LazySrcLoc = .{ .node_offset_container_tag = src.node_offset.x };
         const provided_ty = try sema.resolveType(&block_scope, tag_ty_src, tag_type_ref);
@@ -33100,7 +33107,6 @@ fn semaUnionFields(mod: *Module, union_obj: *Module.Union) CompileError!void {
             };
             // The fields of the union must match the enum exactly.
             // A flag per field is used to check for missing and extraneous fields.
-            explicit_enum_info = enum_type;
             explicit_tags_seen = try sema.arena.alloc(bool, enum_type.names.len);
             @memset(explicit_tags_seen, false);
         }
@@ -33242,7 +33248,8 @@ fn semaUnionFields(mod: *Module, union_obj: *Module.Union) CompileError!void {
             return sema.failWithOwnedErrorMsg(msg);
         }
 
-        if (explicit_enum_info) |tag_info| {
+        if (explicit_tags_seen.len > 0) {
+            const tag_info = ip.indexToKey(union_obj.tag_ty.toIntern()).enum_type;
             const enum_index = tag_info.nameIndex(ip, field_name) orelse {
                 const msg = msg: {
                     const ty_src = mod.fieldSrcLoc(union_obj.owner_decl, .{
@@ -33332,7 +33339,8 @@ fn semaUnionFields(mod: *Module, union_obj: *Module.Union) CompileError!void {
         }
     }
 
-    if (explicit_enum_info) |tag_info| {
+    if (explicit_tags_seen.len > 0) {
+        const tag_info = ip.indexToKey(union_obj.tag_ty.toIntern()).enum_type;
         if (tag_info.names.len > fields_len) {
             const msg = msg: {
                 const msg = try sema.errMsg(&block_scope, src, "enum field(s) missing in union", .{});
@@ -33692,9 +33700,10 @@ pub fn typeHasOnePossibleValue(sema: *Sema, ty: Type) CompileError!?Value {
                 }
                 // In this case the struct has all comptime-known fields and
                 // therefore has one possible value.
+                // TODO: write something like getCoercedInts to avoid needing to dupe
                 return (try mod.intern(.{ .aggregate = .{
                     .ty = ty.toIntern(),
-                    .storage = .{ .elems = tuple.values },
+                    .storage = .{ .elems = try sema.arena.dupe(InternPool.Index, tuple.values) },
                 } })).toValue();
             },
 

@@ -2576,9 +2576,12 @@ pub const Type = struct {
                     }
                     // In this case the struct has all comptime-known fields and
                     // therefore has one possible value.
+                    // TODO: write something like getCoercedInts to avoid needing to dupe
+                    const duped_values = try mod.gpa.dupe(InternPool.Index, tuple.values);
+                    defer mod.gpa.free(duped_values);
                     return (try mod.intern(.{ .aggregate = .{
                         .ty = ty.toIntern(),
-                        .storage = .{ .elems = tuple.values },
+                        .storage = .{ .elems = duped_values },
                     } })).toValue();
                 },
 
