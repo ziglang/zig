@@ -542,7 +542,7 @@ pub const ChildProcess = struct {
             } else if (builtin.output_mode == .Exe) {
                 // Then we have Zig start code and this works.
                 // TODO type-safety for null-termination of `os.environ`.
-                break :m @ptrCast([*:null]?[*:0]const u8, os.environ.ptr);
+                break :m @ptrCast([*:null]const ?[*:0]const u8, os.environ.ptr);
             } else {
                 // TODO come up with a solution for this.
                 @compileError("missing std lib enhancement: ChildProcess implementation has no way to collect the environment variables to forward to the child process");
@@ -1425,9 +1425,9 @@ pub fn createWindowsEnvBlock(allocator: mem.Allocator, env_map: *const EnvMap) !
     return try allocator.realloc(result, i);
 }
 
-pub fn createNullDelimitedEnvMap(arena: mem.Allocator, env_map: *const EnvMap) ![:null]?[*:0]const u8 {
+pub fn createNullDelimitedEnvMap(arena: mem.Allocator, env_map: *const EnvMap) ![:null]?[*:0]u8 {
     const envp_count = env_map.count();
-    const envp_buf = try arena.allocSentinel(?[*:0]const u8, envp_count, null);
+    const envp_buf = try arena.allocSentinel(?[*:0]u8, envp_count, null);
     {
         var it = env_map.iterator();
         var i: usize = 0;

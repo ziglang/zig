@@ -26460,7 +26460,11 @@ fn coerceExtra(
                     }
 
                     if (dest_info.sentinel == null or inst_info.sentinel == null or
-                        !dest_info.sentinel.?.eql(inst_info.sentinel.?, dest_info.pointee_type, mod))
+                        !dest_info.sentinel.?.eql(
+                        try mod.getCoerced(inst_info.sentinel.?, dest_info.pointee_type),
+                        dest_info.pointee_type,
+                        mod,
+                    ))
                         break :p;
 
                     const slice_ptr = try sema.analyzeSlicePtr(block, inst_src, inst, inst_ty);
@@ -27340,7 +27344,11 @@ fn coerceInMemoryAllowed(
         }
         const ok_sent = dest_info.sentinel == null or
             (src_info.sentinel != null and
-            dest_info.sentinel.?.eql(src_info.sentinel.?, dest_info.elem_type, mod));
+            dest_info.sentinel.?.eql(
+            try mod.getCoerced(src_info.sentinel.?, dest_info.elem_type),
+            dest_info.elem_type,
+            mod,
+        ));
         if (!ok_sent) {
             return InMemoryCoercionResult{ .array_sentinel = .{
                 .actual = src_info.sentinel orelse Value.@"unreachable",
@@ -27694,8 +27702,11 @@ fn coerceInMemoryAllowedPtrs(
     }
 
     const ok_sent = dest_info.sentinel == null or src_info.size == .C or
-        (src_info.sentinel != null and
-        dest_info.sentinel.?.eql(src_info.sentinel.?, dest_info.pointee_type, sema.mod));
+        (src_info.sentinel != null and dest_info.sentinel.?.eql(
+        try mod.getCoerced(src_info.sentinel.?, dest_info.pointee_type),
+        dest_info.pointee_type,
+        sema.mod,
+    ));
     if (!ok_sent) {
         return InMemoryCoercionResult{ .ptr_sentinel = .{
             .actual = src_info.sentinel orelse Value.@"unreachable",

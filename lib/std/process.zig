@@ -1143,7 +1143,7 @@ pub fn execve(
         } else if (builtin.output_mode == .Exe) {
             // Then we have Zig start code and this works.
             // TODO type-safety for null-termination of `os.environ`.
-            break :m @ptrCast([*:null]?[*:0]const u8, os.environ.ptr);
+            break :m @ptrCast([*:null]const ?[*:0]const u8, os.environ.ptr);
         } else {
             // TODO come up with a solution for this.
             @compileError("missing std lib enhancement: std.process.execv implementation has no way to collect the environment variables to forward to the child process");
