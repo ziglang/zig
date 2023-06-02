@@ -6322,11 +6322,12 @@ pub fn populateTestFunctions(
     main_progress_node: *std.Progress.Node,
 ) !void {
     const gpa = mod.gpa;
+    const ip = &mod.intern_pool;
     const builtin_pkg = mod.main_pkg.table.get("builtin").?;
     const builtin_file = (mod.importPkg(builtin_pkg) catch unreachable).file;
     const root_decl = mod.declPtr(builtin_file.root_decl.unwrap().?);
     const builtin_namespace = mod.namespacePtr(root_decl.src_namespace);
-    const test_functions_str = try mod.intern_pool.getOrPutString(gpa, "test_functions");
+    const test_functions_str = try ip.getOrPutString(gpa, "test_functions");
     const decl_index = builtin_namespace.decls.getKeyAdapted(
         test_functions_str,
         DeclAdapter{ .mod = mod },
@@ -6362,7 +6363,9 @@ pub fn populateTestFunctions(
 
         for (test_fn_vals, mod.test_functions.keys()) |*test_fn_val, test_decl_index| {
             const test_decl = mod.declPtr(test_decl_index);
-            const test_decl_name = mod.intern_pool.stringToSlice(test_decl.name);
+            // Protects test_decl_name from being invalidated during call to intern() below.
+            try ip.string_bytes.ensureUnusedCapacity(gpa, ip.stringToSlice(test_decl.name).len + 10);
+            const test_decl_name = ip.stringToSlice(test_decl.name);
             const test_name_decl_index = n: {
                 const test_name_decl_ty = try mod.arrayType(.{
                     .len = test_decl_name.len,
@@ -6444,7 +6447,7 @@ pub fn populateTestFunctions(
             .addr = .{ .decl = array_decl_index },
             .len = (try mod.intValue(Type.usize, mod.test_functions.count())).toIntern(),
         } });
-        mod.intern_pool.mutateVarInit(decl.val.toIntern(), new_init);
+        ip.mutateVarInit(decl.val.toIntern(), new_init);
 
         // Since we are replacing the Decl's value we must perform cleanup on the
         // previous value.
