@@ -3951,24 +3951,20 @@ pub fn get(ip: *InternPool, gpa: Allocator, key: Key) Allocator.Error!Index {
                         else => unreachable,
                     },
                 }
-                // We can't dedup '0' bytes in the pool or it could add garbage to string_bytes. So
-                // if there are any 0 bytes, we have to skip the bytes case. Note that it's okay for
-                // our sentinel to be 0 since getOrPutTrailingString would add a 0 sentinel anyway.
-                for (ip.string_bytes.items[string_bytes_index..]) |x| {
-                    if (x == 0) {
-                        ip.string_bytes.shrinkRetainingCapacity(string_bytes_index);
-                        break :bytes;
-                    }
-                }
+                const has_internal_null =
+                    std.mem.indexOfScalar(u8, ip.string_bytes.items[string_bytes_index..], 0) != null;
                 if (sentinel != .none) ip.string_bytes.appendAssumeCapacity(
                     @intCast(u8, ip.indexToKey(sentinel).int.storage.u64),
                 );
-                const bytes = try ip.getOrPutTrailingString(gpa, len_including_sentinel);
+                const string = if (has_internal_null)
+                    @intToEnum(String, string_bytes_index)
+                else
+                    (try ip.getOrPutTrailingString(gpa, len_including_sentinel)).toString();
                 ip.items.appendAssumeCapacity(.{
                     .tag = .bytes,
                     .data = ip.addExtraAssumeCapacity(Bytes{
                         .ty = aggregate.ty,
-                        .bytes = bytes.toString(),
+                        .bytes = string,
                     }),
                 });
                 return @intToEnum(Index, ip.items.len - 1);
@@ -3984,17 +3980,7 @@ pub fn get(ip: *InternPool, gpa: Allocator, key: Key) Allocator.Error!Index {
                     .ty = aggregate.ty,
                 }),
             });
-            switch (aggregate.storage) {
-                .bytes => |bytes| for (bytes) |b| {
-                    const elem = try ip.get(gpa, .{ .int = .{
-                        .ty = .u8_type,
-                        .storage = .{ .u64 = b },
-                    } });
-                    ip.extra.appendAssumeCapacity(@enumToInt(elem));
-                },
-                .elems => |elems| ip.extra.appendSliceAssumeCapacity(@ptrCast([]const u32, elems)),
-                .repeated_elem => |elem| ip.extra.appendNTimesAssumeCapacity(@enumToInt(elem), len),
-            }
+            ip.extra.appendSliceAssumeCapacity(@ptrCast([]const u32, aggregate.storage.elems));
             if (sentinel != .none) ip.extra.appendAssumeCapacity(@enumToInt(sentinel));
         },
 
