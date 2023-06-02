@@ -17,11 +17,22 @@ const Hash = struct {
     ty: type,
     name: []const u8,
     has_iterative_api: bool = true,
+    has_crypto_api: bool = false,
     init_u8s: ?[]const u8 = null,
     init_u64: ?u64 = null,
 };
 
 const hashes = [_]Hash{
+    Hash{
+        .ty = hash.XxHash64,
+        .name = "xxhash64",
+        .init_u64 = 0,
+    },
+    Hash{
+        .ty = hash.XxHash32,
+        .name = "xxhash32",
+        .init_u64 = 0,
+    },
     Hash{
         .ty = hash.Wyhash,
         .name = "wyhash",
@@ -68,6 +79,18 @@ const hashes = [_]Hash{
         .name = "murmur3-32",
         .has_iterative_api = false,
     },
+    Hash{
+        .ty = hash.SipHash64(1, 3),
+        .name = "siphash64",
+        .has_crypto_api = true,
+        .init_u8s = &[_]u8{0} ** 16,
+    },
+    Hash{
+        .ty = hash.SipHash128(1, 3),
+        .name = "siphash128",
+        .has_crypto_api = true,
+        .init_u8s = &[_]u8{0} ** 16,
+    },
 };
 
 const Result = struct {
@@ -76,11 +99,17 @@ const Result = struct {
 };
 
 const block_size: usize = 8 * 8192;
+const alignment: usize = 64;
 
-pub fn benchmarkHash(comptime H: anytype, bytes: usize) !Result {
+pub fn benchmarkHash(comptime H: anytype, bytes: usize, allocator: std.mem.Allocator) !Result {
+    const blocks_count = bytes / block_size;
+    var blocks = try allocator.alloc(u8, block_size + alignment * (blocks_count - 1));
+    defer allocator.free(blocks);
+    random.bytes(blocks);
+
     var h = blk: {
         if (H.init_u8s) |init| {
-            break :blk H.ty.init(init);
+            break :blk H.ty.init(init[0..H.ty.key_length]);
         }
         if (H.init_u64) |init| {
             break :blk H.ty.init(init);
@@ -88,52 +117,59 @@ pub fn benchmarkHash(comptime H: anytype, bytes: usize) !Result {
         break :blk H.ty.init();
     };
 
-    var block: [block_size]u8 = undefined;
-    random.bytes(block[0..]);
-
-    var offset: usize = 0;
     var timer = try Timer.start();
     const start = timer.lap();
-    while (offset < bytes) : (offset += block.len) {
-        h.update(block[0..]);
+    for (0..blocks_count) |i| {
+        h.update(blocks[i * alignment ..][0..block_size]);
     }
+    const final = if (H.has_crypto_api) @truncate(u64, h.finalInt()) else h.final();
+    std.mem.doNotOptimizeAway(final);
+
     const end = timer.read();
 
     const elapsed_s = @intToFloat(f64, end - start) / time.ns_per_s;
     const throughput = @floatToInt(u64, @intToFloat(f64, bytes) / elapsed_s);
 
     return Result{
-        .hash = h.final(),
+        .hash = final,
         .throughput = throughput,
     };
 }
 
-pub fn benchmarkHashSmallKeys(comptime H: anytype, key_size: usize, bytes: usize) !Result {
-    const key_count = bytes / key_size;
-    var block: [block_size]u8 = undefined;
-    random.bytes(block[0..]);
+pub fn benchmarkHashSmallKeys(comptime H: anytype, key_size: usize, bytes: usize, allocator: std.mem.Allocator) !Result {
+    var blocks = try allocator.alloc(u8, bytes);
+    defer allocator.free(blocks);
+    random.bytes(blocks);
 
-    var i: usize = 0;
+    const key_count = bytes / key_size;
+
     var timer = try Timer.start();
     const start = timer.lap();
 
     var sum: u64 = 0;
-    while (i < key_count) : (i += 1) {
-        const small_key = block[0..key_size];
-        sum +%= blk: {
+    for (0..key_count) |i| {
+        const small_key = blocks[i * key_size ..][0..key_size];
+        const final = blk: {
             if (H.init_u8s) |init| {
-                break :blk H.ty.hash(init, small_key);
+                if (H.has_crypto_api) {
+                    break :blk @truncate(u64, H.ty.toInt(small_key, init[0..H.ty.key_length]));
+                } else {
+                    break :blk H.ty.hash(init, small_key);
+                }
             }
             if (H.init_u64) |init| {
                 break :blk H.ty.hash(init, small_key);
             }
             break :blk H.ty.hash(small_key);
         };
+        sum +%= final;
     }
     const end = timer.read();
 
     const elapsed_s = @intToFloat(f64, end - start) / time.ns_per_s;
     const throughput = @floatToInt(u64, @intToFloat(f64, bytes) / elapsed_s);
+
+    std.mem.doNotOptimizeAway(sum);
 
     return Result{
         .hash = sum,
@@ -227,6 +263,10 @@ pub fn main() !void {
         }
     }
 
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    defer std.testing.expect(gpa.deinit() == .ok) catch @panic("leak");
+    const allocator = gpa.allocator();
+
     inline for (hashes) |H| {
         if (filter == null or std.mem.indexOf(u8, H.name, filter.?) != null) {
             if (!test_iterative_only or H.has_iterative_api) {
@@ -236,13 +276,13 @@ pub fn main() !void {
                 // This allows easier comparison between different implementations.
                 if (H.has_iterative_api) {
                     prng.seed(seed);
-                    const result = try benchmarkHash(H, count);
+                    const result = try benchmarkHash(H, count, allocator);
                     try stdout.print("   iterative: {:5} MiB/s [{x:0<16}]\n", .{ result.throughput / (1 * MiB), result.hash });
                 }
 
                 if (!test_iterative_only) {
                     prng.seed(seed);
-                    const result_small = try benchmarkHashSmallKeys(H, key_size, count);
+                    const result_small = try benchmarkHashSmallKeys(H, key_size, count, allocator);
                     try stdout.print("  small keys: {:5} MiB/s [{x:0<16}]\n", .{ result_small.throughput / (1 * MiB), result_small.hash });
                 }
             }
