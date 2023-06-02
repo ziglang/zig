@@ -99,6 +99,7 @@ tmp_hack_arena: std.heap.ArenaAllocator,
 /// This is currently only used for string literals.
 memoized_decls: std.AutoHashMapUnmanaged(InternPool.Index, Decl.Index) = .{},
 
+monomorphed_func_keys: std.ArrayListUnmanaged(InternPool.Index) = .{},
 /// The set of all the generic function instantiations. This is used so that when a generic
 /// function is called twice with the same comptime parameter arguments, both calls dispatch
 /// to the same function.
@@ -202,24 +203,40 @@ pub const CImportError = struct {
     }
 };
 
-const MonomorphedFuncsSet = std.HashMapUnmanaged(
-    Fn.Index,
-    void,
+pub const MonomorphedFuncKey = struct { func: Fn.Index, args_index: u32, args_len: u32 };
+
+pub const MonomorphedFuncAdaptedKey = struct { func: Fn.Index, args: []const InternPool.Index };
+
+pub const MonomorphedFuncsSet = std.HashMapUnmanaged(
+    MonomorphedFuncKey,
+    InternPool.Index,
     MonomorphedFuncsContext,
     std.hash_map.default_max_load_percentage,
 );
 
-const MonomorphedFuncsContext = struct {
+pub const MonomorphedFuncsContext = struct {
     mod: *Module,
 
-    pub fn eql(ctx: @This(), a: Fn.Index, b: Fn.Index) bool {
-        _ = ctx;
-        return a == b;
+    pub fn eql(_: @This(), a: MonomorphedFuncKey, b: MonomorphedFuncKey) bool {
+        return std.meta.eql(a, b);
     }
 
-    /// Must match `Sema.GenericCallAdapter.hash`.
-    pub fn hash(ctx: @This(), key: Fn.Index) u64 {
-        return ctx.mod.funcPtr(key).hash;
+    pub fn hash(ctx: @This(), key: MonomorphedFuncKey) u64 {
+        const key_args = ctx.mod.monomorphed_func_keys.items[key.args_index..][0..key.args_len];
+        return std.hash.Wyhash.hash(@enumToInt(key.func), std.mem.sliceAsBytes(key_args));
+    }
+};
+
+pub const MonomorphedFuncsAdaptedContext = struct {
+    mod: *Module,
+
+    pub fn eql(ctx: @This(), adapted_key: MonomorphedFuncAdaptedKey, other_key: MonomorphedFuncKey) bool {
+        const other_key_args = ctx.mod.monomorphed_func_keys.items[other_key.args_index..][0..other_key.args_len];
+        return adapted_key.func == other_key.func and std.mem.eql(InternPool.Index, adapted_key.args, other_key_args);
+    }
+
+    pub fn hash(_: @This(), adapted_key: MonomorphedFuncAdaptedKey) u64 {
+        return std.hash.Wyhash.hash(@enumToInt(adapted_key.func), std.mem.sliceAsBytes(adapted_key.args));
     }
 };
 
@@ -571,9 +588,6 @@ pub const Decl = struct {
     pub fn clearValues(decl: *Decl, mod: *Module) void {
         if (decl.getOwnedFunctionIndex(mod).unwrap()) |func| {
             _ = mod.align_stack_fns.remove(func);
-            if (mod.funcPtr(func).comptime_args != null) {
-                _ = mod.monomorphed_funcs.removeContext(func, .{ .mod = mod });
-            }
             mod.destroyFunc(func);
         }
     }
