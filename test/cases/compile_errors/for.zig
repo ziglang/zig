@@ -37,7 +37,7 @@ export fn d() void {
 // :2:19: note: length 11 here
 // :10:14: error: type 'bool' is not indexable and not a range
 // :10:14: note: for loop operand must be a range, array, slice, tuple, or vector
-// :17:16: error: pointer capture of non pointer type '[10]u8'
+// :17:16: error: pointer capture of non-pointer type '[10]u8'
 // :17:10: note: consider using '&' here
 // :24:5: error: unbounded for loop
 // :24:10: note: type '[*]const u8' has no upper bound

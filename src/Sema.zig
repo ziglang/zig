@@ -10013,7 +10013,7 @@ fn zirElemPtr(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
     if (indexable_ty.zigTypeTag(mod) != .Pointer) {
         const capture_src: LazySrcLoc = .{ .for_capture_from_input = inst_data.src_node };
         const msg = msg: {
-            const msg = try sema.errMsg(block, capture_src, "pointer capture of non pointer type '{}'", .{
+            const msg = try sema.errMsg(block, capture_src, "pointer capture of non-pointer type '{}'", .{
                 indexable_ty.fmt(mod),
             });
             errdefer msg.destroy(sema.gpa);
@@ -13127,7 +13127,7 @@ fn zirBitNot(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.
     const scalar_type = operand_type.scalarType(mod);
 
     if (scalar_type.zigTypeTag(mod) != .Int) {
-        return sema.fail(block, src, "unable to perform binary not operation on type '{}'", .{
+        return sema.fail(block, src, "unable to perform bitwise NOT operation on type '{}'", .{
             operand_type.fmt(mod),
         });
     }
