@@ -1097,8 +1097,7 @@ pub fn lowerUnnamedConst(self: *Coff, tv: TypedValue, decl_index: Module.Decl.In
     const atom_index = try self.createAtom();
 
     const sym_name = blk: {
-        const decl_name = try decl.getFullyQualifiedName(mod);
-        defer gpa.free(decl_name);
+        const decl_name = mod.intern_pool.stringToSlice(try decl.getFullyQualifiedName(mod));
 
         const index = unnamed_consts.items.len;
         break :blk try std.fmt.allocPrint(gpa, "__unnamed_{s}_{d}", .{ decl_name, index });
@@ -1324,12 +1323,10 @@ fn getDeclOutputSection(self: *Coff, decl_index: Module.Decl.Index) u16 {
 }
 
 fn updateDeclCode(self: *Coff, decl_index: Module.Decl.Index, code: []u8, complex_type: coff.ComplexType) !void {
-    const gpa = self.base.allocator;
     const mod = self.base.options.module.?;
     const decl = mod.declPtr(decl_index);
 
-    const decl_name = try decl.getFullyQualifiedName(mod);
-    defer gpa.free(decl_name);
+    const decl_name = mod.intern_pool.stringToSlice(try decl.getFullyQualifiedName(mod));
 
     log.debug("updateDeclCode {s}{*}", .{ decl_name, decl });
     const required_alignment = decl.getAlignment(mod);
@@ -1420,6 +1417,8 @@ pub fn updateDeclExports(
         @panic("Attempted to compile for object format that was disabled by build configuration");
     }
 
+    const ip = &mod.intern_pool;
+
     if (build_options.have_llvm) {
         // Even in the case of LLVM, we need to notice certain exported symbols in order to
         // detect the default subsystem.
@@ -1431,20 +1430,20 @@ pub fn updateDeclExports(
                 else => std.builtin.CallingConvention.C,
             };
             const decl_cc = exported_decl.ty.fnCallingConvention(mod);
-            if (decl_cc == .C and mem.eql(u8, exp.options.name, "main") and
+            if (decl_cc == .C and ip.stringEqlSlice(exp.name, "main") and
                 self.base.options.link_libc)
             {
                 mod.stage1_flags.have_c_main = true;
             } else if (decl_cc == winapi_cc and self.base.options.target.os.tag == .windows) {
-                if (mem.eql(u8, exp.options.name, "WinMain")) {
+                if (ip.stringEqlSlice(exp.name, "WinMain")) {
                     mod.stage1_flags.have_winmain = true;
-                } else if (mem.eql(u8, exp.options.name, "wWinMain")) {
+                } else if (ip.stringEqlSlice(exp.name, "wWinMain")) {
                     mod.stage1_flags.have_wwinmain = true;
-                } else if (mem.eql(u8, exp.options.name, "WinMainCRTStartup")) {
+                } else if (ip.stringEqlSlice(exp.name, "WinMainCRTStartup")) {
                     mod.stage1_flags.have_winmain_crt_startup = true;
-                } else if (mem.eql(u8, exp.options.name, "wWinMainCRTStartup")) {
+                } else if (ip.stringEqlSlice(exp.name, "wWinMainCRTStartup")) {
                     mod.stage1_flags.have_wwinmain_crt_startup = true;
-                } else if (mem.eql(u8, exp.options.name, "DllMainCRTStartup")) {
+                } else if (ip.stringEqlSlice(exp.name, "DllMainCRTStartup")) {
                     mod.stage1_flags.have_dllmain_crt_startup = true;
                 }
             }
@@ -1452,9 +1451,6 @@ pub fn updateDeclExports(
 
         if (self.llvm_object) |llvm_object| return llvm_object.updateDeclExports(mod, decl_index, exports);
     }
-
-    const tracy = trace(@src());
-    defer tracy.end();
 
     const gpa = self.base.allocator;
 
@@ -1465,12 +1461,13 @@ pub fn updateDeclExports(
     const decl_metadata = self.decls.getPtr(decl_index).?;
 
     for (exports) |exp| {
-        log.debug("adding new export '{s}'", .{exp.options.name});
+        const exp_name = mod.intern_pool.stringToSlice(exp.name);
+        log.debug("adding new export '{s}'", .{exp_name});
 
-        if (exp.options.section) |section_name| {
+        if (mod.intern_pool.stringToSliceUnwrap(exp.section)) |section_name| {
             if (!mem.eql(u8, section_name, ".text")) {
                 try mod.failed_exports.putNoClobber(
-                    mod.gpa,
+                    gpa,
                     exp,
                     try Module.ErrorMsg.create(
                         gpa,
@@ -1483,9 +1480,9 @@ pub fn updateDeclExports(
             }
         }
 
-        if (exp.options.linkage == .LinkOnce) {
+        if (exp.linkage == .LinkOnce) {
             try mod.failed_exports.putNoClobber(
-                mod.gpa,
+                gpa,
                 exp,
                 try Module.ErrorMsg.create(
                     gpa,
@@ -1497,19 +1494,19 @@ pub fn updateDeclExports(
             continue;
         }
 
-        const sym_index = decl_metadata.getExport(self, exp.options.name) orelse blk: {
+        const sym_index = decl_metadata.getExport(self, exp_name) orelse blk: {
             const sym_index = try self.allocateSymbol();
             try decl_metadata.exports.append(gpa, sym_index);
             break :blk sym_index;
         };
         const sym_loc = SymbolWithLoc{ .sym_index = sym_index, .file = null };
         const sym = self.getSymbolPtr(sym_loc);
-        try self.setSymbolName(sym, exp.options.name);
+        try self.setSymbolName(sym, exp_name);
         sym.value = decl_sym.value;
         sym.section_number = @intToEnum(coff.SectionNumber, self.text_section_index.? + 1);
         sym.type = .{ .complex_type = .FUNCTION, .base_type = .NULL };
 
-        switch (exp.options.linkage) {
+        switch (exp.linkage) {
             .Strong => {
                 sym.storage_class = .EXTERNAL;
             },
@@ -1522,9 +1519,15 @@ pub fn updateDeclExports(
     }
 }
 
-pub fn deleteDeclExport(self: *Coff, decl_index: Module.Decl.Index, name: []const u8) void {
+pub fn deleteDeclExport(
+    self: *Coff,
+    decl_index: Module.Decl.Index,
+    name_ip: InternPool.NullTerminatedString,
+) void {
     if (self.llvm_object) |_| return;
     const metadata = self.decls.getPtr(decl_index) orelse return;
+    const mod = self.base.options.module.?;
+    const name = mod.intern_pool.stringToSlice(name_ip);
     const sym_index = metadata.getExportPtr(self, name) orelse return;
 
     const gpa = self.base.allocator;
@@ -2540,6 +2543,7 @@ const ImportTable = @import("Coff/ImportTable.zig");
 const Liveness = @import("../Liveness.zig");
 const LlvmObject = @import("../codegen/llvm.zig").Object;
 const Module = @import("../Module.zig");
+const InternPool = @import("../InternPool.zig");
 const Object = @import("Coff/Object.zig");
 const Relocation = @import("Coff/Relocation.zig");
 const TableSection = @import("table_section.zig").TableSection;

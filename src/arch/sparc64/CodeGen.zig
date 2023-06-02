@@ -276,8 +276,6 @@ pub fn generate(
     assert(fn_owner_decl.has_tv);
     const fn_type = fn_owner_decl.ty;
 
-    log.debug("fn {s}", .{fn_owner_decl.name});
-
     var branch_stack = std.ArrayList(Branch).init(bin_file.allocator);
     defer {
         assert(branch_stack.items.len == 1);

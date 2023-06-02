@@ -1953,11 +1953,11 @@ pub const CType = extern union {
                             .name = try if (ty.isSimpleTuple(mod))
                                 std.fmt.allocPrintZ(arena, "f{}", .{field_i})
                             else
-                                arena.dupeZ(u8, switch (zig_ty_tag) {
+                                arena.dupeZ(u8, mod.intern_pool.stringToSlice(switch (zig_ty_tag) {
                                     .Struct => ty.structFieldName(field_i, mod),
                                     .Union => ty.unionFields(mod).keys()[field_i],
                                     else => unreachable,
-                                }),
+                                })),
                             .type = store.set.typeToIndex(field_ty, mod, switch (kind) {
                                 .forward, .forward_parameter => .forward,
                                 .complete, .parameter, .payload => .complete,
@@ -2102,12 +2102,13 @@ pub const CType = extern union {
                                 }) or !mem.eql(
                                     u8,
                                     if (ty.isSimpleTuple(mod))
-                                        std.fmt.bufPrint(&name_buf, "f{}", .{field_i}) catch unreachable
-                                    else switch (zig_ty_tag) {
-                                        .Struct => ty.structFieldName(field_i, mod),
-                                        .Union => ty.unionFields(mod).keys()[field_i],
-                                        else => unreachable,
-                                    },
+                                        std.fmt.bufPrintZ(&name_buf, "f{}", .{field_i}) catch unreachable
+                                    else
+                                        mod.intern_pool.stringToSlice(switch (zig_ty_tag) {
+                                            .Struct => ty.structFieldName(field_i, mod),
+                                            .Union => ty.unionFields(mod).keys()[field_i],
+                                            else => unreachable,
+                                        }),
                                     mem.span(c_field.name),
                                 ) or AlignAs.fieldAlign(ty, field_i, mod).@"align" !=
                                     c_field.alignas.@"align") return false;
@@ -2225,11 +2226,12 @@ pub const CType = extern union {
                                 });
                                 hasher.update(if (ty.isSimpleTuple(mod))
                                     std.fmt.bufPrint(&name_buf, "f{}", .{field_i}) catch unreachable
-                                else switch (zig_ty_tag) {
-                                    .Struct => ty.structFieldName(field_i, mod),
-                                    .Union => ty.unionFields(mod).keys()[field_i],
-                                    else => unreachable,
-                                });
+                                else
+                                    mod.intern_pool.stringToSlice(switch (zig_ty_tag) {
+                                        .Struct => ty.structFieldName(field_i, mod),
+                                        .Union => ty.unionFields(mod).keys()[field_i],
+                                        else => unreachable,
+                                    }));
                                 autoHash(hasher, AlignAs.fieldAlign(ty, field_i, mod).@"align");
                             }
                         },

@@ -24,9 +24,6 @@ pub const Value = struct {
     /// This union takes advantage of the fact that the first page of memory
     /// is unmapped, giving us 4096 possible enum tags that have no payload.
     legacy: extern union {
-        /// If the tag value is less than Tag.no_payload_count, then no pointer
-        /// dereference is needed.
-        tag_if_small_enough: Tag,
         ptr_otherwise: *Payload,
     },
 
@@ -64,8 +61,6 @@ pub const Value = struct {
         /// An instance of a union.
         @"union",
 
-        pub const no_payload_count = 0;
-
         pub fn Type(comptime t: Tag) type {
             return switch (t) {
                 .eu_payload,
@@ -96,16 +91,7 @@ pub const Value = struct {
         }
     };
 
-    pub fn initTag(small_tag: Tag) Value {
-        assert(@enumToInt(small_tag) < Tag.no_payload_count);
-        return Value{
-            .ip_index = .none,
-            .legacy = .{ .tag_if_small_enough = small_tag },
-        };
-    }
-
     pub fn initPayload(payload: *Payload) Value {
-        assert(@enumToInt(payload.tag) >= Tag.no_payload_count);
         return Value{
             .ip_index = .none,
             .legacy = .{ .ptr_otherwise = payload },
@@ -114,11 +100,7 @@ pub const Value = struct {
 
     pub fn tag(self: Value) Tag {
         assert(self.ip_index == .none);
-        if (@enumToInt(self.legacy.tag_if_small_enough) < Tag.no_payload_count) {
-            return self.legacy.tag_if_small_enough;
-        } else {
-            return self.legacy.ptr_otherwise.tag;
-        }
+        return self.legacy.ptr_otherwise.tag;
     }
 
     /// Prefer `castTag` to this.
@@ -129,12 +111,7 @@ pub const Value = struct {
         if (@hasField(T, "base_tag")) {
             return self.castTag(T.base_tag);
         }
-        if (@enumToInt(self.legacy.tag_if_small_enough) < Tag.no_payload_count) {
-            return null;
-        }
         inline for (@typeInfo(Tag).Enum.fields) |field| {
-            if (field.value < Tag.no_payload_count)
-                continue;
             const t = @intToEnum(Tag, field.value);
             if (self.legacy.ptr_otherwise.tag == t) {
                 if (T == t.Type()) {
@@ -149,9 +126,6 @@ pub const Value = struct {
     pub fn castTag(self: Value, comptime t: Tag) ?*t.Type() {
         if (self.ip_index != .none) return null;
 
-        if (@enumToInt(self.legacy.tag_if_small_enough) < Tag.no_payload_count)
-            return null;
-
         if (self.legacy.ptr_otherwise.tag == t)
             return @fieldParentPtr(t.Type(), "base", self.legacy.ptr_otherwise);
 
@@ -164,12 +138,7 @@ pub const Value = struct {
         if (self.ip_index != .none) {
             return Value{ .ip_index = self.ip_index, .legacy = undefined };
         }
-        if (@enumToInt(self.legacy.tag_if_small_enough) < Tag.no_payload_count) {
-            return Value{
-                .ip_index = .none,
-                .legacy = .{ .tag_if_small_enough = self.legacy.tag_if_small_enough },
-            };
-        } else switch (self.legacy.ptr_otherwise.tag) {
+        switch (self.legacy.ptr_otherwise.tag) {
             .bytes => {
                 const bytes = self.castTag(.bytes).?.data;
                 const new_payload = try arena.create(Payload.Bytes);
@@ -313,17 +282,41 @@ pub const Value = struct {
     }
 
     /// Asserts that the value is representable as an array of bytes.
+    /// Returns the value as a null-terminated string stored in the InternPool.
+    pub fn toIpString(val: Value, ty: Type, mod: *Module) !InternPool.NullTerminatedString {
+        const ip = &mod.intern_pool;
+        return switch (mod.intern_pool.indexToKey(val.toIntern())) {
+            .enum_literal => |enum_literal| enum_literal,
+            .ptr => |ptr| switch (ptr.len) {
+                .none => unreachable,
+                else => try arrayToIpString(val, ptr.len.toValue().toUnsignedInt(mod), mod),
+            },
+            .aggregate => |aggregate| switch (aggregate.storage) {
+                .bytes => |bytes| try ip.getOrPutString(mod.gpa, bytes),
+                .elems => try arrayToIpString(val, ty.arrayLen(mod), mod),
+                .repeated_elem => |elem| {
+                    const byte = @intCast(u8, elem.toValue().toUnsignedInt(mod));
+                    const len = @intCast(usize, ty.arrayLen(mod));
+                    try ip.string_bytes.appendNTimes(mod.gpa, byte, len);
+                    return ip.getOrPutTrailingString(mod.gpa, len);
+                },
+            },
+            else => unreachable,
+        };
+    }
+
+    /// Asserts that the value is representable as an array of bytes.
     /// Copies the value into a freshly allocated slice of memory, which is owned by the caller.
     pub fn toAllocatedBytes(val: Value, ty: Type, allocator: Allocator, mod: *Module) ![]u8 {
         return switch (mod.intern_pool.indexToKey(val.toIntern())) {
             .enum_literal => |enum_literal| allocator.dupe(u8, mod.intern_pool.stringToSlice(enum_literal)),
             .ptr => |ptr| switch (ptr.len) {
                 .none => unreachable,
-                else => arrayToAllocatedBytes(val, ptr.len.toValue().toUnsignedInt(mod), allocator, mod),
+                else => try arrayToAllocatedBytes(val, ptr.len.toValue().toUnsignedInt(mod), allocator, mod),
             },
             .aggregate => |aggregate| switch (aggregate.storage) {
                 .bytes => |bytes| try allocator.dupe(u8, bytes),
-                .elems => arrayToAllocatedBytes(val, ty.arrayLen(mod), allocator, mod),
+                .elems => try arrayToAllocatedBytes(val, ty.arrayLen(mod), allocator, mod),
                 .repeated_elem => |elem| {
                     const byte = @intCast(u8, elem.toValue().toUnsignedInt(mod));
                     const result = try allocator.alloc(u8, @intCast(usize, ty.arrayLen(mod)));
@@ -342,6 +335,23 @@ pub const Value = struct {
             elem.* = @intCast(u8, elem_val.toUnsignedInt(mod));
         }
         return result;
+    }
+
+    fn arrayToIpString(val: Value, len_u64: u64, mod: *Module) !InternPool.NullTerminatedString {
+        const gpa = mod.gpa;
+        const ip = &mod.intern_pool;
+        const len = @intCast(usize, len_u64);
+        try ip.string_bytes.ensureUnusedCapacity(gpa, len);
+        for (0..len) |i| {
+            // I don't think elemValue has the possibility to affect ip.string_bytes. Let's
+            // assert just to be sure.
+            const prev = ip.string_bytes.items.len;
+            const elem_val = try val.elemValue(mod, i);
+            assert(ip.string_bytes.items.len == prev);
+            const byte = @intCast(u8, elem_val.toUnsignedInt(mod));
+            ip.string_bytes.appendAssumeCapacity(byte);
+        }
+        return ip.getOrPutTrailingString(gpa, len);
     }
 
     pub fn intern(val: Value, ty: Type, mod: *Module) Allocator.Error!InternPool.Index {
@@ -498,7 +508,7 @@ pub const Value = struct {
             // Assume it is already an integer and return it directly.
             .simple_type, .int_type => val,
             .enum_literal => |enum_literal| {
-                const field_index = ty.enumFieldIndex(ip.stringToSlice(enum_literal), mod).?;
+                const field_index = ty.enumFieldIndex(enum_literal, mod).?;
                 return switch (ip.indexToKey(ty.toIntern())) {
                     // Assume it is already an integer and return it directly.
                     .simple_type, .int_type => val,
@@ -776,7 +786,7 @@ pub const Value = struct {
                     .error_union => |error_union| error_union.val.err_name,
                     else => unreachable,
                 };
-                const int = mod.global_error_set.get(mod.intern_pool.stringToSlice(name)).?;
+                const int = @intCast(Module.ErrorInt, mod.global_error_set.getIndex(name).?);
                 std.mem.writeInt(Int, buffer[0..@sizeOf(Int)], @intCast(Int, int), endian);
             },
             .Union => switch (ty.containerLayout(mod)) {
@@ -1028,10 +1038,10 @@ pub const Value = struct {
                 // TODO revisit this when we have the concept of the error tag type
                 const Int = u16;
                 const int = std.mem.readInt(Int, buffer[0..@sizeOf(Int)], endian);
-                const name = mod.error_name_list.items[@intCast(usize, int)];
+                const name = mod.global_error_set.keys()[@intCast(usize, int)];
                 return (try mod.intern(.{ .err = .{
                     .ty = ty.toIntern(),
-                    .name = mod.intern_pool.getString(name).unwrap().?,
+                    .name = name,
                 } })).toValue();
             },
             .Pointer => {
@@ -2155,15 +2165,29 @@ pub const Value = struct {
     /// unreachable. For error unions, prefer `errorUnionIsPayload` to find out whether
     /// something is an error or not because it works without having to figure out the
     /// string.
-    pub fn getError(self: Value, mod: *const Module) ?[]const u8 {
-        return mod.intern_pool.stringToSliceUnwrap(switch (mod.intern_pool.indexToKey(self.toIntern())) {
-            .err => |err| err.name.toOptional(),
+    pub fn getError(val: Value, mod: *const Module) ?[]const u8 {
+        return switch (getErrorName(val, mod)) {
+            .empty => null,
+            else => |s| mod.intern_pool.stringToSlice(s),
+        };
+    }
+
+    pub fn getErrorName(val: Value, mod: *const Module) InternPool.NullTerminatedString {
+        return switch (mod.intern_pool.indexToKey(val.toIntern())) {
+            .err => |err| err.name,
             .error_union => |error_union| switch (error_union.val) {
-                .err_name => |err_name| err_name.toOptional(),
-                .payload => .none,
+                .err_name => |err_name| err_name,
+                .payload => .empty,
             },
             else => unreachable,
-        });
+        };
+    }
+
+    pub fn getErrorInt(val: Value, mod: *const Module) Module.ErrorInt {
+        return switch (getErrorName(val, mod)) {
+            .empty => 0,
+            else => |s| @intCast(Module.ErrorInt, mod.global_error_set.getIndex(s).?),
+        };
     }
 
     /// Assumes the type is an error union. Returns true if and only if the value is
@@ -4225,7 +4249,7 @@ pub const Value = struct {
         var fields: [tags.len]std.builtin.Type.StructField = undefined;
         for (&fields, tags) |*field, t| field.* = .{
             .name = t.name,
-            .type = *if (t.value < Tag.no_payload_count) void else @field(Tag, t.name).Type(),
+            .type = *@field(Tag, t.name).Type(),
             .default_value = null,
             .is_comptime = false,
             .alignment = 0,

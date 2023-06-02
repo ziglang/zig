@@ -1416,7 +1416,7 @@ pub fn updateDecl(wasm: *Wasm, mod: *Module, decl_index: Module.Decl.Index) !voi
 
     if (decl.isExtern(mod)) {
         const variable = decl.getOwnedVariable(mod).?;
-        const name = mem.sliceTo(decl.name, 0);
+        const name = mod.intern_pool.stringToSlice(decl.name);
         const lib_name = mod.intern_pool.stringToSliceUnwrap(variable.lib_name);
         return wasm.addOrUpdateImport(name, atom.sym_index, lib_name, null);
     }
@@ -1453,8 +1453,7 @@ pub fn updateDeclLineNumber(wasm: *Wasm, mod: *Module, decl_index: Module.Decl.I
         defer tracy.end();
 
         const decl = mod.declPtr(decl_index);
-        const decl_name = try decl.getFullyQualifiedName(mod);
-        defer wasm.base.allocator.free(decl_name);
+        const decl_name = mod.intern_pool.stringToSlice(try decl.getFullyQualifiedName(mod));
 
         log.debug("updateDeclLineNumber {s}{*}", .{ decl_name, decl });
         try dw.updateDeclLineNumber(mod, decl_index);
@@ -1467,8 +1466,7 @@ fn finishUpdateDecl(wasm: *Wasm, decl_index: Module.Decl.Index, code: []const u8
     const atom_index = wasm.decls.get(decl_index).?;
     const atom = wasm.getAtomPtr(atom_index);
     const symbol = &wasm.symbols.items[atom.sym_index];
-    const full_name = try decl.getFullyQualifiedName(mod);
-    defer wasm.base.allocator.free(full_name);
+    const full_name = mod.intern_pool.stringToSlice(try decl.getFullyQualifiedName(mod));
     symbol.name = try wasm.string_table.put(wasm.base.allocator, full_name);
     try atom.code.appendSlice(wasm.base.allocator, code);
     try wasm.resolved_symbols.put(wasm.base.allocator, atom.symbolLoc(), {});
@@ -1535,9 +1533,10 @@ pub fn lowerUnnamedConst(wasm: *Wasm, tv: TypedValue, decl_index: Module.Decl.In
     const parent_atom = wasm.getAtomPtr(parent_atom_index);
     const local_index = parent_atom.locals.items.len;
     try parent_atom.locals.append(wasm.base.allocator, atom_index);
-    const fqdn = try decl.getFullyQualifiedName(mod);
-    defer wasm.base.allocator.free(fqdn);
-    const name = try std.fmt.allocPrintZ(wasm.base.allocator, "__unnamed_{s}_{d}", .{ fqdn, local_index });
+    const fqn = mod.intern_pool.stringToSlice(try decl.getFullyQualifiedName(mod));
+    const name = try std.fmt.allocPrintZ(wasm.base.allocator, "__unnamed_{s}_{d}", .{
+        fqn, local_index,
+    });
     defer wasm.base.allocator.free(name);
     var value_bytes = std.ArrayList(u8).init(wasm.base.allocator);
     defer value_bytes.deinit();
@@ -1690,11 +1689,12 @@ pub fn updateDeclExports(
     const decl = mod.declPtr(decl_index);
     const atom_index = try wasm.getOrCreateAtomForDecl(decl_index);
     const atom = wasm.getAtom(atom_index);
+    const gpa = mod.gpa;
 
     for (exports) |exp| {
-        if (exp.options.section) |section| {
-            try mod.failed_exports.putNoClobber(mod.gpa, exp, try Module.ErrorMsg.create(
-                mod.gpa,
+        if (mod.intern_pool.stringToSliceUnwrap(exp.section)) |section| {
+            try mod.failed_exports.putNoClobber(gpa, exp, try Module.ErrorMsg.create(
+                gpa,
                 decl.srcLoc(mod),
                 "Unimplemented: ExportOptions.section '{s}'",
                 .{section},
@@ -1702,24 +1702,24 @@ pub fn updateDeclExports(
             continue;
         }
 
-        const export_name = try wasm.string_table.put(wasm.base.allocator, exp.options.name);
+        const export_name = try wasm.string_table.put(wasm.base.allocator, mod.intern_pool.stringToSlice(exp.name));
         if (wasm.globals.getPtr(export_name)) |existing_loc| {
             if (existing_loc.index == atom.sym_index) continue;
             const existing_sym: Symbol = existing_loc.getSymbol(wasm).*;
 
-            const exp_is_weak = exp.options.linkage == .Internal or exp.options.linkage == .Weak;
+            const exp_is_weak = exp.linkage == .Internal or exp.linkage == .Weak;
             // When both the to-be-exported symbol and the already existing symbol
             // are strong symbols, we have a linker error.
             // In the other case we replace one with the other.
             if (!exp_is_weak and !existing_sym.isWeak()) {
-                try mod.failed_exports.put(mod.gpa, exp, try Module.ErrorMsg.create(
-                    mod.gpa,
+                try mod.failed_exports.put(gpa, exp, try Module.ErrorMsg.create(
+                    gpa,
                     decl.srcLoc(mod),
                     \\LinkError: symbol '{s}' defined multiple times
                     \\  first definition in '{s}'
                     \\  next definition in '{s}'
                 ,
-                    .{ exp.options.name, wasm.name, wasm.name },
+                    .{ mod.intern_pool.stringToSlice(exp.name), wasm.name, wasm.name },
                 ));
                 continue;
             } else if (exp_is_weak) {
@@ -1736,7 +1736,7 @@ pub fn updateDeclExports(
         const exported_atom = wasm.getAtom(exported_atom_index);
         const sym_loc = exported_atom.symbolLoc();
         const symbol = sym_loc.getSymbol(wasm);
-        switch (exp.options.linkage) {
+        switch (exp.linkage) {
             .Internal => {
                 symbol.setFlag(.WASM_SYM_VISIBILITY_HIDDEN);
             },
@@ -1745,8 +1745,8 @@ pub fn updateDeclExports(
             },
             .Strong => {}, // symbols are strong by default
             .LinkOnce => {
-                try mod.failed_exports.putNoClobber(mod.gpa, exp, try Module.ErrorMsg.create(
-                    mod.gpa,
+                try mod.failed_exports.putNoClobber(gpa, exp, try Module.ErrorMsg.create(
+                    gpa,
                     decl.srcLoc(mod),
                     "Unimplemented: LinkOnce",
                     .{},
@@ -1755,7 +1755,7 @@ pub fn updateDeclExports(
             },
         }
         // Ensure the symbol will be exported using the given name
-        if (!mem.eql(u8, exp.options.name, sym_loc.getName(wasm))) {
+        if (!mod.intern_pool.stringEqlSlice(exp.name, sym_loc.getName(wasm))) {
             try wasm.export_names.put(wasm.base.allocator, sym_loc, export_name);
         }
 
@@ -1769,7 +1769,7 @@ pub fn updateDeclExports(
 
         // if the symbol was previously undefined, remove it as an import
         _ = wasm.imports.remove(sym_loc);
-        _ = wasm.undefs.swapRemove(exp.options.name);
+        _ = wasm.undefs.swapRemove(mod.intern_pool.stringToSlice(exp.name));
     }
 }
 
@@ -2987,7 +2987,8 @@ fn populateErrorNameTable(wasm: *Wasm) !void {
     // Addend for each relocation to the table
     var addend: u32 = 0;
     const mod = wasm.base.options.module.?;
-    for (mod.error_name_list.items) |error_name| {
+    for (mod.global_error_set.keys()) |error_name_nts| {
+        const error_name = mod.intern_pool.stringToSlice(error_name_nts);
         const len = @intCast(u32, error_name.len + 1); // names are 0-termianted
 
         const slice_ty = Type.slice_const_u8_sentinel_0;

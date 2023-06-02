@@ -201,10 +201,10 @@ pub fn print(
             },
             .variable => return writer.writeAll("(variable)"),
             .extern_func => |extern_func| return writer.print("(extern function '{s}')", .{
-                mod.declPtr(extern_func.decl).name,
+                mod.intern_pool.stringToSlice(mod.declPtr(extern_func.decl).name),
             }),
-            .func => |func| return writer.print("(function '{s}')", .{
-                mod.declPtr(mod.funcPtr(func.index).owner_decl).name,
+            .func => |func| return writer.print("(function '{d}')", .{
+                mod.intern_pool.stringToSlice(mod.declPtr(mod.funcPtr(func.index).owner_decl).name),
             }),
             .int => |int| switch (int.storage) {
                 inline .u64, .i64, .big_int => |x| return writer.print("{}", .{x}),
@@ -296,19 +296,20 @@ fn printAggregate(
     }
     if (ty.zigTypeTag(mod) == .Struct) {
         try writer.writeAll(".{");
-        const max_len = std.math.min(ty.structFieldCount(mod), max_aggregate_items);
+        const max_len = @min(ty.structFieldCount(mod), max_aggregate_items);
 
-        var i: u32 = 0;
-        while (i < max_len) : (i += 1) {
+        for (0..max_len) |i| {
             if (i != 0) try writer.writeAll(", ");
-            if (switch (mod.intern_pool.indexToKey(ty.toIntern())) {
-                .struct_type => |struct_type| mod.structPtrUnwrap(struct_type.index).?.fields.keys()[i],
-                .anon_struct_type => |anon_struct_type| if (anon_struct_type.isTuple())
-                    null
-                else
-                    mod.intern_pool.stringToSlice(anon_struct_type.names[i]),
+
+            const field_name = switch (mod.intern_pool.indexToKey(ty.toIntern())) {
+                .struct_type => |x| mod.structPtrUnwrap(x.index).?.fields.keys()[i].toOptional(),
+                .anon_struct_type => |x| if (x.isTuple()) .none else x.names[i].toOptional(),
                 else => unreachable,
-            }) |field_name| try writer.print(".{s} = ", .{field_name});
+            };
+
+            if (field_name.unwrap()) |name_ip| try writer.print(".{s} = ", .{
+                mod.intern_pool.stringToSlice(name_ip),
+            });
             try print(.{
                 .ty = ty.structFieldType(i, mod),
                 .val = try val.fieldValue(mod, i),

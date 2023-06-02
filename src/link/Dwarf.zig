@@ -358,8 +358,9 @@ pub const DeclState = struct {
                             struct_obj.fields.keys(),
                             struct_obj.fields.values(),
                             0..,
-                        ) |field_name, field, field_index| {
+                        ) |field_name_ip, field, field_index| {
                             if (!field.ty.hasRuntimeBits(mod)) continue;
+                            const field_name = mod.intern_pool.stringToSlice(field_name_ip);
                             // DW.AT.member
                             try dbg_info_buffer.ensureUnusedCapacity(field_name.len + 2);
                             dbg_info_buffer.appendAssumeCapacity(@enumToInt(AbbrevKind.struct_member));
@@ -469,7 +470,8 @@ pub const DeclState = struct {
                     // DW.AT.member
                     try dbg_info_buffer.append(@enumToInt(AbbrevKind.struct_member));
                     // DW.AT.name, DW.FORM.string
-                    try dbg_info_buffer.writer().print("{s}\x00", .{field_name});
+                    try dbg_info_buffer.appendSlice(mod.intern_pool.stringToSlice(field_name));
+                    try dbg_info_buffer.append(0);
                     // DW.AT.type, DW.FORM.ref4
                     const index = dbg_info_buffer.items.len;
                     try dbg_info_buffer.resize(index + 4);
@@ -949,8 +951,7 @@ pub fn initDeclState(self: *Dwarf, mod: *Module, decl_index: Module.Decl.Index) 
     defer tracy.end();
 
     const decl = mod.declPtr(decl_index);
-    const decl_name = try decl.getFullyQualifiedName(mod);
-    defer self.allocator.free(decl_name);
+    const decl_name = mod.intern_pool.stringToSlice(try decl.getFullyQualifiedName(mod));
 
     log.debug("initDeclState {s}{*}", .{ decl_name, decl });
 
@@ -1273,7 +1274,6 @@ pub fn commitDeclState(
         }
     }
 
-    log.debug("updateDeclDebugInfoAllocation for '{s}'", .{decl.name});
     try self.updateDeclDebugInfoAllocation(di_atom_index, @intCast(u32, dbg_info_buffer.items.len));
 
     while (decl_state.abbrev_relocs.popOrNull()) |reloc| {
@@ -1345,7 +1345,6 @@ pub fn commitDeclState(
         }
     }
 
-    log.debug("writeDeclDebugInfo for '{s}", .{decl.name});
     try self.writeDeclDebugInfo(di_atom_index, dbg_info_buffer.items);
 }
 
@@ -2523,15 +2522,7 @@ pub fn flushModule(self: *Dwarf, module: *Module) !void {
 
         // TODO: don't create a zig type for this, just make the dwarf info
         // without touching the zig type system.
-        const names = try arena.alloc(InternPool.NullTerminatedString, module.global_error_set.count());
-        {
-            var it = module.global_error_set.keyIterator();
-            var i: usize = 0;
-            while (it.next()) |key| : (i += 1) {
-                names[i] = module.intern_pool.getString(key.*).unwrap().?;
-            }
-        }
-
+        const names = try arena.dupe(InternPool.NullTerminatedString, module.global_error_set.keys());
         std.mem.sort(InternPool.NullTerminatedString, names, {}, InternPool.NullTerminatedString.indexLessThan);
 
         const error_ty = try module.intern(.{ .error_set_type = .{ .names = names } });
@@ -2682,8 +2673,8 @@ fn addDbgInfoErrorSet(
 
     const error_names = ty.errorSetNames(mod);
     for (error_names) |error_name_ip| {
+        const int = try mod.getErrorValue(error_name_ip);
         const error_name = mod.intern_pool.stringToSlice(error_name_ip);
-        const kv = mod.getErrorValue(error_name) catch unreachable;
         // DW.AT.enumerator
         try dbg_info_buffer.ensureUnusedCapacity(error_name.len + 2 + @sizeOf(u64));
         dbg_info_buffer.appendAssumeCapacity(@enumToInt(AbbrevKind.enum_variant));
@@ -2691,7 +2682,7 @@ fn addDbgInfoErrorSet(
         dbg_info_buffer.appendSliceAssumeCapacity(error_name);
         dbg_info_buffer.appendAssumeCapacity(0);
         // DW.AT.const_value, DW.FORM.data8
-        mem.writeInt(u64, dbg_info_buffer.addManyAsArrayAssumeCapacity(8), kv.value, target_endian);
+        mem.writeInt(u64, dbg_info_buffer.addManyAsArrayAssumeCapacity(8), int, target_endian);
     }
 
     // DW.AT.enumeration_type delimit children

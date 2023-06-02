@@ -124,6 +124,8 @@ pub const String = enum(u32) {
 
 /// An index into `string_bytes`.
 pub const NullTerminatedString = enum(u32) {
+    /// This is distinct from `none` - it is a valid index that represents empty string.
+    empty = 0,
     _,
 
     pub fn toString(self: NullTerminatedString) String {
@@ -157,6 +159,8 @@ pub const NullTerminatedString = enum(u32) {
 
 /// An index into `string_bytes` which might be `none`.
 pub const OptionalNullTerminatedString = enum(u32) {
+    /// This is distinct from `none` - it is a valid index that represents empty string.
+    empty = 0,
     none = std.math.maxInt(u32),
     _,
 
@@ -2446,6 +2450,9 @@ pub const MemoizedCall = struct {
 
 pub fn init(ip: *InternPool, gpa: Allocator) !void {
     assert(ip.items.len == 0);
+
+    // Reserve string index 0 for an empty string.
+    assert((try ip.getOrPutString(gpa, "")) == .empty);
 
     // So that we can use `catch unreachable` below.
     try ip.items.ensureUnusedCapacity(gpa, static_keys.len);
@@ -5222,6 +5229,28 @@ pub fn getOrPutString(
     return ip.getOrPutTrailingString(gpa, s.len + 1);
 }
 
+pub fn getOrPutStringFmt(
+    ip: *InternPool,
+    gpa: Allocator,
+    comptime format: []const u8,
+    args: anytype,
+) Allocator.Error!NullTerminatedString {
+    const start = ip.string_bytes.items.len;
+    try ip.string_bytes.writer(gpa).print(format, args);
+    try ip.string_bytes.append(gpa, 0);
+    return ip.getOrPutTrailingString(gpa, ip.string_bytes.items.len - start);
+}
+
+pub fn getOrPutStringOpt(
+    ip: *InternPool,
+    gpa: Allocator,
+    optional_string: ?[]const u8,
+) Allocator.Error!OptionalNullTerminatedString {
+    const s = optional_string orelse return .none;
+    const interned = try getOrPutString(ip, gpa, s);
+    return interned.toOptional();
+}
+
 /// Uses the last len bytes of ip.string_bytes as the key.
 pub fn getOrPutTrailingString(
     ip: *InternPool,
@@ -5271,6 +5300,10 @@ pub fn stringToSlice(ip: *const InternPool, s: NullTerminatedString) [:0]const u
 
 pub fn stringToSliceUnwrap(ip: *const InternPool, s: OptionalNullTerminatedString) ?[:0]const u8 {
     return ip.stringToSlice(s.unwrap() orelse return null);
+}
+
+pub fn stringEqlSlice(ip: *const InternPool, a: NullTerminatedString, b: []const u8) bool {
+    return std.mem.eql(u8, stringToSlice(ip, a), b);
 }
 
 pub fn typeOf(ip: *const InternPool, index: Index) Index {

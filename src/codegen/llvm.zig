@@ -585,13 +585,13 @@ pub const Object = struct {
         const slice_ty = Type.slice_const_u8_sentinel_0;
         const slice_alignment = slice_ty.abiAlignment(mod);
 
-        const error_name_list = mod.error_name_list.items;
+        const error_name_list = mod.global_error_set.keys();
         const llvm_errors = try mod.gpa.alloc(*llvm.Value, error_name_list.len);
         defer mod.gpa.free(llvm_errors);
 
         llvm_errors[0] = llvm_slice_ty.getUndef();
-        for (llvm_errors[1..], 0..) |*llvm_error, i| {
-            const name = error_name_list[1..][i];
+        for (llvm_errors[1..], error_name_list[1..]) |*llvm_error, name_nts| {
+            const name = mod.intern_pool.stringToSlice(name_nts);
             const str_init = self.context.constString(name.ptr, @intCast(c_uint, name.len), .False);
             const str_global = self.llvm_module.addGlobal(str_init.typeOf(), "");
             str_global.setInitializer(str_init);
@@ -671,7 +671,7 @@ pub const Object = struct {
             const llvm_global = entry.value_ptr.*;
             // Same logic as below but for externs instead of exports.
             const decl = mod.declPtr(decl_index);
-            const other_global = object.getLlvmGlobal(decl.name) orelse continue;
+            const other_global = object.getLlvmGlobal(mod.intern_pool.stringToSlice(decl.name)) orelse continue;
             if (other_global == llvm_global) continue;
 
             llvm_global.replaceAllUsesWith(other_global);
@@ -689,8 +689,7 @@ pub const Object = struct {
                 // case, we need to replace all uses of it with this exported global.
                 // TODO update std.builtin.ExportOptions to have the name be a
                 // null-terminated slice.
-                const exp_name_z = try mod.gpa.dupeZ(u8, exp.options.name);
-                defer mod.gpa.free(exp_name_z);
+                const exp_name_z = mod.intern_pool.stringToSlice(exp.name);
 
                 const other_global = object.getLlvmGlobal(exp_name_z.ptr) orelse continue;
                 if (other_global == llvm_global) continue;
@@ -923,9 +922,8 @@ pub const Object = struct {
             dg.addFnAttrString(llvm_func, "no-stack-arg-probe", "");
         }
 
-        if (decl.@"linksection") |section| {
+        if (mod.intern_pool.stringToSliceUnwrap(decl.@"linksection")) |section|
             llvm_func.setSection(section);
-        }
 
         // Remove all the basic blocks of a function in order to start over, generating
         // LLVM IR from an empty function body.
@@ -1173,7 +1171,7 @@ pub const Object = struct {
                 0;
             const subprogram = dib.createFunction(
                 di_file.?.toScope(),
-                decl.name,
+                mod.intern_pool.stringToSlice(decl.name),
                 llvm_func.getValueName(),
                 di_file.?,
                 line_number,
@@ -1273,22 +1271,26 @@ pub const Object = struct {
         if (decl.isExtern(mod)) {
             var free_decl_name = false;
             const decl_name = decl_name: {
+                const decl_name = mod.intern_pool.stringToSlice(decl.name);
+
                 if (mod.getTarget().isWasm() and try decl.isFunction(mod)) {
                     if (mod.intern_pool.stringToSliceUnwrap(decl.getOwnedExternFunc(mod).?.lib_name)) |lib_name| {
                         if (!std.mem.eql(u8, lib_name, "c")) {
                             free_decl_name = true;
-                            break :decl_name try std.fmt.allocPrintZ(gpa, "{s}|{s}", .{ decl.name, lib_name });
+                            break :decl_name try std.fmt.allocPrintZ(gpa, "{s}|{s}", .{
+                                decl_name, lib_name,
+                            });
                         }
                     }
                 }
-                break :decl_name std.mem.span(decl.name);
+
+                break :decl_name decl_name;
             };
             defer if (free_decl_name) gpa.free(decl_name);
 
             llvm_global.setValueName(decl_name);
             if (self.getLlvmGlobal(decl_name)) |other_global| {
                 if (other_global != llvm_global) {
-                    log.debug("updateDeclExports isExtern()=true setValueName({s}) conflict", .{decl.name});
                     try self.extern_collisions.put(gpa, decl_index, {});
                 }
             }
@@ -1298,11 +1300,11 @@ pub const Object = struct {
             if (self.di_map.get(decl)) |di_node| {
                 if (try decl.isFunction(mod)) {
                     const di_func = @ptrCast(*llvm.DISubprogram, di_node);
-                    const linkage_name = llvm.MDString.get(self.context, decl.name, std.mem.len(decl.name));
+                    const linkage_name = llvm.MDString.get(self.context, decl_name.ptr, decl_name.len);
                     di_func.replaceLinkageName(linkage_name);
                 } else {
                     const di_global = @ptrCast(*llvm.DIGlobalVariable, di_node);
-                    const linkage_name = llvm.MDString.get(self.context, decl.name, std.mem.len(decl.name));
+                    const linkage_name = llvm.MDString.get(self.context, decl_name.ptr, decl_name.len);
                     di_global.replaceLinkageName(linkage_name);
                 }
             }
@@ -1317,7 +1319,7 @@ pub const Object = struct {
                 }
             }
         } else if (exports.len != 0) {
-            const exp_name = exports[0].options.name;
+            const exp_name = mod.intern_pool.stringToSlice(exports[0].name);
             llvm_global.setValueName2(exp_name.ptr, exp_name.len);
             llvm_global.setUnnamedAddr(.False);
             if (mod.wantDllExports()) llvm_global.setDLLStorageClass(.DLLExport);
@@ -1332,21 +1334,19 @@ pub const Object = struct {
                     di_global.replaceLinkageName(linkage_name);
                 }
             }
-            switch (exports[0].options.linkage) {
+            switch (exports[0].linkage) {
                 .Internal => unreachable,
                 .Strong => llvm_global.setLinkage(.External),
                 .Weak => llvm_global.setLinkage(.WeakODR),
                 .LinkOnce => llvm_global.setLinkage(.LinkOnceODR),
             }
-            switch (exports[0].options.visibility) {
+            switch (exports[0].visibility) {
                 .default => llvm_global.setVisibility(.Default),
                 .hidden => llvm_global.setVisibility(.Hidden),
                 .protected => llvm_global.setVisibility(.Protected),
             }
-            if (exports[0].options.section) |section| {
-                const section_z = try gpa.dupeZ(u8, section);
-                defer gpa.free(section_z);
-                llvm_global.setSection(section_z);
+            if (mod.intern_pool.stringToSliceUnwrap(exports[0].section)) |section| {
+                llvm_global.setSection(section);
             }
             if (decl.val.getVariable(mod)) |variable| {
                 if (variable.is_threadlocal) {
@@ -1356,13 +1356,12 @@ pub const Object = struct {
 
             // If a Decl is exported more than one time (which is rare),
             // we add aliases for all but the first export.
-            // TODO LLVM C API does not support deleting aliases. We need to
-            // patch it to support this or figure out how to wrap the C++ API ourselves.
+            // TODO LLVM C API does not support deleting aliases.
+            // The planned solution to this is https://github.com/ziglang/zig/issues/13265
             // Until then we iterate over existing aliases and make them point
             // to the correct decl, or otherwise add a new alias. Old aliases are leaked.
             for (exports[1..]) |exp| {
-                const exp_name_z = try gpa.dupeZ(u8, exp.options.name);
-                defer gpa.free(exp_name_z);
+                const exp_name_z = mod.intern_pool.stringToSlice(exp.name);
 
                 if (self.llvm_module.getNamedGlobalAlias(exp_name_z.ptr, exp_name_z.len)) |alias| {
                     alias.setAliasee(llvm_global);
@@ -1376,8 +1375,7 @@ pub const Object = struct {
                 }
             }
         } else {
-            const fqn = try decl.getFullyQualifiedName(mod);
-            defer gpa.free(fqn);
+            const fqn = mod.intern_pool.stringToSlice(try decl.getFullyQualifiedName(mod));
             llvm_global.setValueName2(fqn.ptr, fqn.len);
             llvm_global.setLinkage(.Internal);
             if (mod.wantDllExports()) llvm_global.setDLLStorageClass(.Default);
@@ -2092,8 +2090,7 @@ pub const Object = struct {
                     const field_offset = std.mem.alignForwardGeneric(u64, offset, field_align);
                     offset = field_offset + field_size;
 
-                    const field_name = try gpa.dupeZ(u8, fields.keys()[field_and_index.index]);
-                    defer gpa.free(field_name);
+                    const field_name = mod.intern_pool.stringToSlice(fields.keys()[field_and_index.index]);
 
                     try di_fields.append(gpa, dib.createMemberType(
                         fwd_decl.toScope(),
@@ -2200,12 +2197,9 @@ pub const Object = struct {
                     const field_size = field.ty.abiSize(mod);
                     const field_align = field.normalAlignment(mod);
 
-                    const field_name_copy = try gpa.dupeZ(u8, field_name);
-                    defer gpa.free(field_name_copy);
-
                     di_fields.appendAssumeCapacity(dib.createMemberType(
                         fwd_decl.toScope(),
-                        field_name_copy,
+                        mod.intern_pool.stringToSlice(field_name),
                         null, // file
                         0, // line
                         field_size * 8, // size in bits
@@ -2327,7 +2321,7 @@ pub const Object = struct {
                 if (fn_info.return_type.toType().isError(mod) and
                     o.module.comp.bin_file.options.error_return_tracing)
                 {
-                    const ptr_ty = try mod.singleMutPtrType(o.getStackTraceType());
+                    const ptr_ty = try mod.singleMutPtrType(try o.getStackTraceType());
                     try param_di_types.append(try o.lowerDebugType(ptr_ty, .full));
                 }
 
@@ -2384,7 +2378,7 @@ pub const Object = struct {
         const fields: [0]*llvm.DIType = .{};
         return o.di_builder.?.createStructType(
             try o.namespaceToDebugScope(decl.src_namespace),
-            decl.name, // TODO use fully qualified name
+            mod.intern_pool.stringToSlice(decl.name), // TODO use fully qualified name
             try o.getDIFile(o.gpa, mod.namespacePtr(decl.src_namespace).file_scope),
             decl.src_line + 1,
             0, // size in bits
@@ -2399,18 +2393,18 @@ pub const Object = struct {
         );
     }
 
-    fn getStackTraceType(o: *Object) Type {
+    fn getStackTraceType(o: *Object) Allocator.Error!Type {
         const mod = o.module;
 
         const std_pkg = mod.main_pkg.table.get("std").?;
         const std_file = (mod.importPkg(std_pkg) catch unreachable).file;
 
-        const builtin_str: []const u8 = "builtin";
+        const builtin_str = try mod.intern_pool.getOrPutString(mod.gpa, "builtin");
         const std_namespace = mod.namespacePtr(mod.declPtr(std_file.root_decl.unwrap().?).src_namespace);
         const builtin_decl = std_namespace.decls
             .getKeyAdapted(builtin_str, Module.DeclAdapter{ .mod = mod }).?;
 
-        const stack_trace_str: []const u8 = "StackTrace";
+        const stack_trace_str = try mod.intern_pool.getOrPutString(mod.gpa, "StackTrace");
         // buffer is only used for int_type, `builtin` is a struct.
         const builtin_ty = mod.declPtr(builtin_decl).val.toType();
         const builtin_namespace = builtin_ty.getNamespace(mod).?;
@@ -2452,16 +2446,13 @@ pub const DeclGen = struct {
         const decl_index = dg.decl_index;
         assert(decl.has_tv);
 
-        log.debug("gen: {s} type: {}, value: {}", .{
-            decl.name, decl.ty.fmtDebug(), decl.val.fmtDebug(),
-        });
         if (decl.val.getExternFunc(mod)) |extern_func| {
             _ = try dg.resolveLlvmFunction(extern_func.decl);
         } else {
             const target = mod.getTarget();
             var global = try dg.resolveGlobalDecl(decl_index);
             global.setAlignment(decl.getAlignment(mod));
-            if (decl.@"linksection") |section| global.setSection(section);
+            if (mod.intern_pool.stringToSliceUnwrap(decl.@"linksection")) |s| global.setSection(s);
             assert(decl.has_tv);
             const init_val = if (decl.val.getVariable(mod)) |variable| init_val: {
                 break :init_val variable.init;
@@ -2495,7 +2486,8 @@ pub const DeclGen = struct {
                     new_global.setLinkage(global.getLinkage());
                     new_global.setUnnamedAddr(global.getUnnamedAddress());
                     new_global.setAlignment(global.getAlignment());
-                    if (decl.@"linksection") |section| new_global.setSection(section);
+                    if (mod.intern_pool.stringToSliceUnwrap(decl.@"linksection")) |s|
+                        new_global.setSection(s);
                     new_global.setInitializer(llvm_init);
                     // TODO: How should this work then the address space of a global changed?
                     global.replaceAllUsesWith(new_global);
@@ -2513,7 +2505,7 @@ pub const DeclGen = struct {
                 const is_internal_linkage = !dg.module.decl_exports.contains(decl_index);
                 const di_global = dib.createGlobalVariableExpression(
                     di_file.toScope(),
-                    decl.name,
+                    mod.intern_pool.stringToSlice(decl.name),
                     global.getValueName(),
                     di_file,
                     line_number,
@@ -2544,8 +2536,7 @@ pub const DeclGen = struct {
 
         const fn_type = try dg.lowerType(zig_fn_type);
 
-        const fqn = try decl.getFullyQualifiedName(mod);
-        defer dg.gpa.free(fqn);
+        const fqn = mod.intern_pool.stringToSlice(try decl.getFullyQualifiedName(mod));
 
         const llvm_addrspace = toLlvmAddressSpace(decl.@"addrspace", target);
         const llvm_fn = dg.llvmModule().addFunctionInAddressSpace(fqn, fn_type, llvm_addrspace);
@@ -2557,7 +2548,7 @@ pub const DeclGen = struct {
             llvm_fn.setUnnamedAddr(.True);
         } else {
             if (target.isWasm()) {
-                dg.addFnAttrString(llvm_fn, "wasm-import-name", std.mem.sliceTo(decl.name, 0));
+                dg.addFnAttrString(llvm_fn, "wasm-import-name", mod.intern_pool.stringToSlice(decl.name));
                 if (mod.intern_pool.stringToSliceUnwrap(decl.getOwnedExternFunc(mod).?.lib_name)) |lib_name| {
                     if (!std.mem.eql(u8, lib_name, "c")) {
                         dg.addFnAttrString(llvm_fn, "wasm-import-module", lib_name);
@@ -2699,8 +2690,7 @@ pub const DeclGen = struct {
 
         const mod = dg.module;
         const decl = mod.declPtr(decl_index);
-        const fqn = try decl.getFullyQualifiedName(mod);
-        defer dg.gpa.free(fqn);
+        const fqn = mod.intern_pool.stringToSlice(try decl.getFullyQualifiedName(mod));
 
         const target = mod.getTarget();
 
@@ -2716,7 +2706,7 @@ pub const DeclGen = struct {
 
         // This is needed for declarations created by `@extern`.
         if (decl.isExtern(mod)) {
-            llvm_global.setValueName(decl.name);
+            llvm_global.setValueName(mod.intern_pool.stringToSlice(decl.name));
             llvm_global.setUnnamedAddr(.False);
             llvm_global.setLinkage(.External);
             if (decl.val.getVariable(mod)) |variable| {
@@ -2811,8 +2801,7 @@ pub const DeclGen = struct {
                 if (gop.found_existing) return gop.value_ptr.*;
 
                 const opaque_type = mod.intern_pool.indexToKey(t.toIntern()).opaque_type;
-                const name = try mod.opaqueFullyQualifiedName(opaque_type);
-                defer gpa.free(name);
+                const name = mod.intern_pool.stringToSlice(try mod.opaqueFullyQualifiedName(opaque_type));
 
                 const llvm_struct_ty = dg.context.structCreateNamed(name);
                 gop.value_ptr.* = llvm_struct_ty; // must be done before any recursive calls
@@ -2963,8 +2952,7 @@ pub const DeclGen = struct {
                     return int_llvm_ty;
                 }
 
-                const name = try struct_obj.getFullyQualifiedName(mod);
-                defer gpa.free(name);
+                const name = mod.intern_pool.stringToSlice(try struct_obj.getFullyQualifiedName(mod));
 
                 const llvm_struct_ty = dg.context.structCreateNamed(name);
                 gop.value_ptr.* = llvm_struct_ty; // must be done before any recursive calls
@@ -3040,8 +3028,7 @@ pub const DeclGen = struct {
                     return enum_tag_llvm_ty;
                 }
 
-                const name = try union_obj.getFullyQualifiedName(mod);
-                defer gpa.free(name);
+                const name = mod.intern_pool.stringToSlice(try union_obj.getFullyQualifiedName(mod));
 
                 const llvm_union_ty = dg.context.structCreateNamed(name);
                 gop.value_ptr.* = llvm_union_ty; // must be done before any recursive calls
@@ -3119,7 +3106,7 @@ pub const DeclGen = struct {
         if (fn_info.return_type.toType().isError(mod) and
             mod.comp.bin_file.options.error_return_tracing)
         {
-            const ptr_ty = try mod.singleMutPtrType(dg.object.getStackTraceType());
+            const ptr_ty = try mod.singleMutPtrType(try dg.object.getStackTraceType());
             try llvm_params.append(try dg.lowerType(ptr_ty));
         }
 
@@ -3266,9 +3253,8 @@ pub const DeclGen = struct {
             },
             .err => |err| {
                 const llvm_ty = try dg.lowerType(Type.anyerror);
-                const name = mod.intern_pool.stringToSlice(err.name);
-                const kv = try mod.getErrorValue(name);
-                return llvm_ty.constInt(kv.value, .False);
+                const int = try mod.getErrorValue(err.name);
+                return llvm_ty.constInt(int, .False);
             },
             .error_union => |error_union| {
                 const err_tv: TypedValue = switch (error_union.val) {
@@ -5960,8 +5946,7 @@ pub const FuncGen = struct {
             .base_line = self.base_line,
         });
 
-        const fqn = try decl.getFullyQualifiedName(mod);
-        defer self.gpa.free(fqn);
+        const fqn = mod.intern_pool.stringToSlice(try decl.getFullyQualifiedName(mod));
 
         const is_internal_linkage = !mod.decl_exports.contains(decl_index);
         const fn_ty = try mod.funcType(.{
@@ -5981,7 +5966,7 @@ pub const FuncGen = struct {
         });
         const subprogram = dib.createFunction(
             di_file.toScope(),
-            decl.name,
+            mod.intern_pool.stringToSlice(decl.name),
             fqn,
             di_file,
             line_number,
@@ -8629,9 +8614,8 @@ pub const FuncGen = struct {
         const end_block = self.context.appendBasicBlock(self.llvm_func, "End");
         const switch_instr = self.builder.buildSwitch(operand, invalid_block, @intCast(c_uint, names.len));
 
-        for (names) |name_ip| {
-            const name = mod.intern_pool.stringToSlice(name_ip);
-            const err_int = mod.global_error_set.get(name).?;
+        for (names) |name| {
+            const err_int = @intCast(Module.ErrorInt, mod.global_error_set.getIndex(name).?);
             const this_tag_int_value = try self.dg.lowerValue(.{
                 .ty = Type.err_int,
                 .val = try mod.intValue(Type.err_int, err_int),
@@ -8681,8 +8665,7 @@ pub const FuncGen = struct {
         defer arena_allocator.deinit();
         const arena = arena_allocator.allocator();
 
-        const fqn = try mod.declPtr(enum_type.decl).getFullyQualifiedName(mod);
-        defer self.gpa.free(fqn);
+        const fqn = mod.intern_pool.stringToSlice(try mod.declPtr(enum_type.decl).getFullyQualifiedName(mod));
         const llvm_fn_name = try std.fmt.allocPrintZ(arena, "__zig_is_named_enum_value_{s}", .{fqn});
 
         const param_types = [_]*llvm.Type{try self.dg.lowerType(enum_type.tag_ty.toType())};
@@ -8754,8 +8737,7 @@ pub const FuncGen = struct {
         defer arena_allocator.deinit();
         const arena = arena_allocator.allocator();
 
-        const fqn = try mod.declPtr(enum_type.decl).getFullyQualifiedName(mod);
-        defer self.gpa.free(fqn);
+        const fqn = mod.intern_pool.stringToSlice(try mod.declPtr(enum_type.decl).getFullyQualifiedName(mod));
         const llvm_fn_name = try std.fmt.allocPrintZ(arena, "__zig_tag_name_{s}", .{fqn});
 
         const slice_ty = Type.slice_const_u8_sentinel_0;

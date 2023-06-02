@@ -502,8 +502,6 @@ pub const File = struct {
     /// of the final binary.
     pub fn lowerUnnamedConst(base: *File, tv: TypedValue, decl_index: Module.Decl.Index) UpdateDeclError!u32 {
         if (build_options.only_c) @compileError("unreachable");
-        const decl = base.options.module.?.declPtr(decl_index);
-        log.debug("lowerUnnamedConst {*} ({s})", .{ decl, decl.name });
         switch (base.tag) {
             // zig fmt: off
             .coff  => return @fieldParentPtr(Coff,  "base", base).lowerUnnamedConst(tv, decl_index),
@@ -543,7 +541,6 @@ pub const File = struct {
     /// May be called before or after updateDeclExports for any given Decl.
     pub fn updateDecl(base: *File, module: *Module, decl_index: Module.Decl.Index) UpdateDeclError!void {
         const decl = module.declPtr(decl_index);
-        log.debug("updateDecl {*} ({s}), type={}", .{ decl, decl.name, decl.ty.fmt(module) });
         assert(decl.has_tv);
         if (build_options.only_c) {
             assert(base.tag == .c);
@@ -566,10 +563,6 @@ pub const File = struct {
     /// May be called before or after updateDeclExports for any given Decl.
     pub fn updateFunc(base: *File, module: *Module, func_index: Module.Fn.Index, air: Air, liveness: Liveness) UpdateDeclError!void {
         const func = module.funcPtr(func_index);
-        const owner_decl = module.declPtr(func.owner_decl);
-        log.debug("updateFunc {*} ({s}), type={}", .{
-            owner_decl, owner_decl.name, owner_decl.ty.fmt(module),
-        });
         if (build_options.only_c) {
             assert(base.tag == .c);
             return @fieldParentPtr(C, "base", base).updateFunc(module, func, air, liveness);
@@ -590,9 +583,6 @@ pub const File = struct {
 
     pub fn updateDeclLineNumber(base: *File, module: *Module, decl_index: Module.Decl.Index) UpdateDeclError!void {
         const decl = module.declPtr(decl_index);
-        log.debug("updateDeclLineNumber {*} ({s}), line={}", .{
-            decl, decl.name, decl.src_line + 1,
-        });
         assert(decl.has_tv);
         if (build_options.only_c) {
             assert(base.tag == .c);
@@ -868,7 +858,6 @@ pub const File = struct {
         exports: []const *Module.Export,
     ) UpdateDeclExportsError!void {
         const decl = module.declPtr(decl_index);
-        log.debug("updateDeclExports {*} ({s})", .{ decl, decl.name });
         assert(decl.has_tv);
         if (build_options.only_c) {
             assert(base.tag == .c);

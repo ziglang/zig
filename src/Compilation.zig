@@ -1317,7 +1317,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
                 .global_zir_cache = global_zir_cache,
                 .local_zir_cache = local_zir_cache,
                 .emit_h = emit_h,
-                .error_name_list = .{},
+                .tmp_hack_arena = std.heap.ArenaAllocator.init(gpa),
             };
             try module.init();
 
@@ -2627,7 +2627,7 @@ pub fn getAllErrorsAlloc(self: *Compilation) !ErrorBundle {
             var it = module.failed_files.iterator();
             while (it.next()) |entry| {
                 if (entry.value_ptr.*) |msg| {
-                    try addModuleErrorMsg(&bundle, msg.*);
+                    try addModuleErrorMsg(module, &bundle, msg.*);
                 } else {
                     // Must be ZIR errors. Note that this may include AST errors.
                     // addZirErrorMessages asserts that the tree is loaded.
@@ -2640,7 +2640,7 @@ pub fn getAllErrorsAlloc(self: *Compilation) !ErrorBundle {
             var it = module.failed_embed_files.iterator();
             while (it.next()) |entry| {
                 const msg = entry.value_ptr.*;
-                try addModuleErrorMsg(&bundle, msg.*);
+                try addModuleErrorMsg(module, &bundle, msg.*);
             }
         }
         {
@@ -2650,7 +2650,7 @@ pub fn getAllErrorsAlloc(self: *Compilation) !ErrorBundle {
                 // Skip errors for Decls within files that had a parse failure.
                 // We'll try again once parsing succeeds.
                 if (module.declFileScope(decl_index).okToReportErrors()) {
-                    try addModuleErrorMsg(&bundle, entry.value_ptr.*.*);
+                    try addModuleErrorMsg(module, &bundle, entry.value_ptr.*.*);
                     if (module.cimport_errors.get(entry.key_ptr.*)) |cimport_errors| for (cimport_errors) |c_error| {
                         try bundle.addRootErrorMessage(.{
                             .msg = try bundle.addString(std.mem.span(c_error.msg)),
@@ -2675,12 +2675,12 @@ pub fn getAllErrorsAlloc(self: *Compilation) !ErrorBundle {
                 // Skip errors for Decls within files that had a parse failure.
                 // We'll try again once parsing succeeds.
                 if (module.declFileScope(decl_index).okToReportErrors()) {
-                    try addModuleErrorMsg(&bundle, entry.value_ptr.*.*);
+                    try addModuleErrorMsg(module, &bundle, entry.value_ptr.*.*);
                 }
             }
         }
         for (module.failed_exports.values()) |value| {
-            try addModuleErrorMsg(&bundle, value.*);
+            try addModuleErrorMsg(module, &bundle, value.*);
         }
     }
 
@@ -2728,7 +2728,7 @@ pub fn getAllErrorsAlloc(self: *Compilation) !ErrorBundle {
                 };
             }
 
-            try addModuleErrorMsg(&bundle, err_msg);
+            try addModuleErrorMsg(module, &bundle, err_msg);
         }
     }
 
@@ -2784,8 +2784,9 @@ pub const ErrorNoteHashContext = struct {
     }
 };
 
-pub fn addModuleErrorMsg(eb: *ErrorBundle.Wip, module_err_msg: Module.ErrorMsg) !void {
+pub fn addModuleErrorMsg(mod: *Module, eb: *ErrorBundle.Wip, module_err_msg: Module.ErrorMsg) !void {
     const gpa = eb.gpa;
+    const ip = &mod.intern_pool;
     const err_source = module_err_msg.src_loc.file_scope.getSource(gpa) catch |err| {
         const file_path = try module_err_msg.src_loc.file_scope.fullPath(gpa);
         defer gpa.free(file_path);
@@ -2811,7 +2812,7 @@ pub fn addModuleErrorMsg(eb: *ErrorBundle.Wip, module_err_msg: Module.ErrorMsg) 
                 .src_loc = .none,
             });
             break;
-        } else if (module_reference.decl == null) {
+        } else if (module_reference.decl == .none) {
             try ref_traces.append(gpa, .{
                 .decl_name = 0,
                 .src_loc = .none,
@@ -2824,7 +2825,7 @@ pub fn addModuleErrorMsg(eb: *ErrorBundle.Wip, module_err_msg: Module.ErrorMsg) 
         const rt_file_path = try module_reference.src_loc.file_scope.fullPath(gpa);
         defer gpa.free(rt_file_path);
         try ref_traces.append(gpa, .{
-            .decl_name = try eb.addString(std.mem.sliceTo(module_reference.decl.?, 0)),
+            .decl_name = try eb.addString(ip.stringToSliceUnwrap(module_reference.decl).?),
             .src_loc = try eb.addSourceLocation(.{
                 .src_path = try eb.addString(rt_file_path),
                 .span_start = span.start,

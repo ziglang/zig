@@ -40,6 +40,7 @@ const Liveness = @import("../Liveness.zig");
 const LlvmObject = @import("../codegen/llvm.zig").Object;
 const Md5 = std.crypto.hash.Md5;
 const Module = @import("../Module.zig");
+const InternPool = @import("../InternPool.zig");
 const Relocation = @import("MachO/Relocation.zig");
 const StringTable = @import("strtab.zig").StringTable;
 const TableSection = @import("table_section.zig").TableSection;
@@ -1921,8 +1922,7 @@ pub fn lowerUnnamedConst(self: *MachO, typed_value: TypedValue, decl_index: Modu
     const unnamed_consts = gop.value_ptr;
 
     const decl = mod.declPtr(decl_index);
-    const decl_name = try decl.getFullyQualifiedName(mod);
-    defer gpa.free(decl_name);
+    const decl_name = mod.intern_pool.stringToSlice(try decl.getFullyQualifiedName(mod));
 
     const name_str_index = blk: {
         const index = unnamed_consts.items.len;
@@ -2206,8 +2206,7 @@ fn updateThreadlocalVariable(self: *MachO, module: *Module, decl_index: Module.D
 
     const required_alignment = decl.getAlignment(mod);
 
-    const decl_name = try decl.getFullyQualifiedName(module);
-    defer gpa.free(decl_name);
+    const decl_name = mod.intern_pool.stringToSlice(try decl.getFullyQualifiedName(module));
 
     const init_sym_name = try std.fmt.allocPrint(gpa, "{s}$tlv$init", .{decl_name});
     defer gpa.free(init_sym_name);
@@ -2306,8 +2305,7 @@ fn updateDeclCode(self: *MachO, decl_index: Module.Decl.Index, code: []u8) !u64 
 
     const required_alignment = decl.getAlignment(mod);
 
-    const decl_name = try decl.getFullyQualifiedName(mod);
-    defer gpa.free(decl_name);
+    const decl_name = mod.intern_pool.stringToSlice(try decl.getFullyQualifiedName(mod));
 
     const decl_metadata = self.decls.get(decl_index).?;
     const atom_index = decl_metadata.atom;
@@ -2403,12 +2401,14 @@ pub fn updateDeclExports(
     const decl_metadata = self.decls.getPtr(decl_index).?;
 
     for (exports) |exp| {
-        const exp_name = try std.fmt.allocPrint(gpa, "_{s}", .{exp.options.name});
+        const exp_name = try std.fmt.allocPrint(gpa, "_{s}", .{
+            mod.intern_pool.stringToSlice(exp.name),
+        });
         defer gpa.free(exp_name);
 
         log.debug("adding new export '{s}'", .{exp_name});
 
-        if (exp.options.section) |section_name| {
+        if (mod.intern_pool.stringToSliceUnwrap(exp.section)) |section_name| {
             if (!mem.eql(u8, section_name, "__text")) {
                 try mod.failed_exports.putNoClobber(
                     mod.gpa,
@@ -2424,7 +2424,7 @@ pub fn updateDeclExports(
             }
         }
 
-        if (exp.options.linkage == .LinkOnce) {
+        if (exp.linkage == .LinkOnce) {
             try mod.failed_exports.putNoClobber(
                 mod.gpa,
                 exp,
@@ -2453,7 +2453,7 @@ pub fn updateDeclExports(
             .n_value = decl_sym.n_value,
         };
 
-        switch (exp.options.linkage) {
+        switch (exp.linkage) {
             .Internal => {
                 // Symbol should be hidden, or in MachO lingo, private extern.
                 // We should also mark the symbol as Weak: n_desc == N_WEAK_DEF.
@@ -2488,12 +2488,17 @@ pub fn updateDeclExports(
     }
 }
 
-pub fn deleteDeclExport(self: *MachO, decl_index: Module.Decl.Index, name: []const u8) Allocator.Error!void {
+pub fn deleteDeclExport(
+    self: *MachO,
+    decl_index: Module.Decl.Index,
+    name: InternPool.NullTerminatedString,
+) Allocator.Error!void {
     if (self.llvm_object) |_| return;
     const metadata = self.decls.getPtr(decl_index) orelse return;
 
     const gpa = self.base.allocator;
-    const exp_name = try std.fmt.allocPrint(gpa, "_{s}", .{name});
+    const mod = self.base.options.module.?;
+    const exp_name = try std.fmt.allocPrint(gpa, "_{s}", .{mod.intern_pool.stringToSlice(name)});
     defer gpa.free(exp_name);
     const sym_index = metadata.getExportPtr(self, exp_name) orelse return;
 
