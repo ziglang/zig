@@ -11165,6 +11165,7 @@ fn backendSupportsF16(target: std.Target) bool {
         .mips64,
         .mips64el,
         => false,
+        .aarch64 => std.Target.aarch64.featureSetHas(target.cpu.features, .fp_armv8),
         else => true,
     };
 }
@@ -11175,6 +11176,7 @@ fn backendSupportsF16(target: std.Target) bool {
 fn backendSupportsF128(target: std.Target) bool {
     return switch (target.cpu.arch) {
         .amdgcn => false,
+        .aarch64 => std.Target.aarch64.featureSetHas(target.cpu.features, .fp_armv8),
         else => true,
     };
 }
