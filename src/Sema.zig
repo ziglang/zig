@@ -26782,11 +26782,12 @@ fn coerceValueInMemory(
                     else => unreachable,
                 };
                 if (src_ty_child != dst_ty_child) break :direct;
+                // TODO: write something like getCoercedInts to avoid needing to dupe
                 return (try mod.intern(.{ .aggregate = .{
                     .ty = dst_ty.toIntern(),
                     .storage = switch (aggregate.storage) {
-                        .bytes => |bytes| .{ .bytes = bytes[0..dest_len] },
-                        .elems => |elems| .{ .elems = elems[0..dest_len] },
+                        .bytes => |bytes| .{ .bytes = try sema.arena.dupe(u8, bytes[0..dest_len]) },
+                        .elems => |elems| .{ .elems = try sema.arena.dupe(InternPool.Index, elems[0..dest_len]) },
                         .repeated_elem => |elem| .{ .repeated_elem = elem },
                     },
                 } })).toValue();
