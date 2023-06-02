@@ -5448,7 +5448,6 @@ pub fn analyzeFnBody(mod: *Module, func_index: Fn.Index, arena: Allocator) SemaE
     defer comptime_mutable_decls.deinit();
 
     const fn_ty = decl.ty;
-    const fn_ty_info = mod.typeToFunc(fn_ty).?;
 
     var sema: Sema = .{
         .mod = mod,
@@ -5459,7 +5458,7 @@ pub fn analyzeFnBody(mod: *Module, func_index: Fn.Index, arena: Allocator) SemaE
         .owner_decl_index = decl_index,
         .func = func,
         .func_index = func_index.toOptional(),
-        .fn_ret_ty = fn_ty_info.return_type.toType(),
+        .fn_ret_ty = mod.typeToFunc(fn_ty).?.return_type.toType(),
         .owner_func = func,
         .owner_func_index = func_index.toOptional(),
         .branch_quota = @max(func.branch_quota, Sema.default_branch_quota),
@@ -5499,7 +5498,7 @@ pub fn analyzeFnBody(mod: *Module, func_index: Fn.Index, arena: Allocator) SemaE
     // This could be a generic function instantiation, however, in which case we need to
     // map the comptime parameters to constant values and only emit arg AIR instructions
     // for the runtime ones.
-    const runtime_params_len = @intCast(u32, fn_ty_info.param_types.len);
+    const runtime_params_len = @intCast(u32, mod.typeToFunc(fn_ty).?.param_types.len);
     try inner_block.instructions.ensureTotalCapacityPrecise(gpa, runtime_params_len);
     try sema.air_instructions.ensureUnusedCapacity(gpa, fn_info.total_params_len * 2); // * 2 for the `addType`
     try sema.inst_map.ensureSpaceForInstructions(gpa, fn_info.param_body);
@@ -5525,7 +5524,7 @@ pub fn analyzeFnBody(mod: *Module, func_index: Fn.Index, arena: Allocator) SemaE
             sema.inst_map.putAssumeCapacityNoClobber(inst, arg);
             total_param_index += 1;
             continue;
-        } else fn_ty_info.param_types[runtime_param_index].toType();
+        } else mod.typeToFunc(fn_ty).?.param_types[runtime_param_index].toType();
 
         const opt_opv = sema.typeHasOnePossibleValue(param_ty) catch |err| switch (err) {
             error.NeededSourceLocation => unreachable,
@@ -5623,7 +5622,7 @@ pub fn analyzeFnBody(mod: *Module, func_index: Fn.Index, arena: Allocator) SemaE
     // Crucially, this happens *after* we set the function state to success above,
     // so that dependencies on the function body will now be satisfied rather than
     // result in circular dependency errors.
-    sema.resolveFnTypes(mod.typeToFunc(fn_ty).?) catch |err| switch (err) {
+    sema.resolveFnTypes(fn_ty) catch |err| switch (err) {
         error.NeededSourceLocation => unreachable,
         error.GenericPoison => unreachable,
         error.ComptimeReturn => unreachable,
@@ -6378,9 +6377,9 @@ pub fn populateTestFunctions(
 
         for (test_fn_vals, mod.test_functions.keys()) |*test_fn_val, test_decl_index| {
             const test_decl = mod.declPtr(test_decl_index);
-            // Protects test_decl_name from being invalidated during call to intern() below.
-            try ip.string_bytes.ensureUnusedCapacity(gpa, ip.stringToSlice(test_decl.name).len + 10);
-            const test_decl_name = ip.stringToSlice(test_decl.name);
+            // TODO: write something like getCoercedInts to avoid needing to dupe
+            const test_decl_name = try gpa.dupe(u8, ip.stringToSlice(test_decl.name));
+            defer gpa.free(test_decl_name);
             const test_name_decl_index = n: {
                 const test_name_decl_ty = try mod.arrayType(.{
                     .len = test_decl_name.len,

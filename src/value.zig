@@ -1904,6 +1904,7 @@ pub const Value = struct {
         start: usize,
         end: usize,
     ) error{OutOfMemory}!Value {
+        // TODO: write something like getCoercedInts to avoid needing to dupe
         return switch (val.ip_index) {
             .none => switch (val.tag()) {
                 .slice => val.castTag(.slice).?.data.ptr.sliceArray(mod, arena, start, end),
@@ -1937,8 +1938,8 @@ pub const Value = struct {
                         else => unreachable,
                     }.toIntern(),
                     .storage = switch (aggregate.storage) {
-                        .bytes => |bytes| .{ .bytes = bytes[start..end] },
-                        .elems => |elems| .{ .elems = elems[start..end] },
+                        .bytes => .{ .bytes = try arena.dupe(u8, mod.intern_pool.indexToKey(val.toIntern()).aggregate.storage.bytes[start..end]) },
+                        .elems => .{ .elems = try arena.dupe(InternPool.Index, mod.intern_pool.indexToKey(val.toIntern()).aggregate.storage.elems[start..end]) },
                         .repeated_elem => |elem| .{ .repeated_elem = elem },
                     },
                 } })).toValue(),

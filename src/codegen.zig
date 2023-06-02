@@ -517,7 +517,7 @@ pub fn generateSymbol(
                         const field_ty = field.ty;
                         if (!field_ty.hasRuntimeBits(mod)) continue;
 
-                        const field_val = switch (aggregate.storage) {
+                        const field_val = switch (mod.intern_pool.indexToKey(typed_value.val.toIntern()).aggregate.storage) {
                             .bytes => |bytes| try mod.intern_pool.get(mod.gpa, .{ .int = .{
                                 .ty = field_ty.toIntern(),
                                 .storage = .{ .u64 = bytes[index] },
