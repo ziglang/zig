@@ -1862,11 +1862,11 @@ pub const ExceptionFrameHeader = struct {
             .data_rel_base = eh_frame_hdr_ptr,
         }, builtin.cpu.arch.endian()) orelse return badDwarf();
 
-        const fde_ptr = try readEhPointer(reader, self.table_enc, @sizeOf(usize), .{
+        const fde_ptr = math.cast(usize, try readEhPointer(reader, self.table_enc, @sizeOf(usize), .{
             .pc_rel_base = @ptrToInt(&self.entries[stream.pos]),
             .follow_indirect = true,
             .data_rel_base = eh_frame_hdr_ptr,
-        }, builtin.cpu.arch.endian()) orelse return badDwarf();
+        }, builtin.cpu.arch.endian()) orelse return badDwarf()) orelse return badDwarf();
 
         // TODO: Should this also do isValidMemory(fde_ptr) + 11 (worst case header size)?
 
