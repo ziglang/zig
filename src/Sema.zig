@@ -7685,8 +7685,7 @@ fn instantiateGenericCall(
     // Make a runtime call to the new function, making sure to omit the comptime args.
     const comptime_args = callee.comptime_args.?;
     const func_ty = mod.declPtr(callee.owner_decl).ty;
-    const new_fn_info = mod.typeToFunc(func_ty).?;
-    const runtime_args_len = @intCast(u32, new_fn_info.param_types.len);
+    const runtime_args_len = @intCast(u32, mod.typeToFunc(func_ty).?.param_types.len);
     const runtime_args = try sema.arena.alloc(Air.Inst.Ref, runtime_args_len);
     {
         var runtime_i: u32 = 0;
@@ -7702,7 +7701,7 @@ fn instantiateGenericCall(
                 uncasted_args[total_i],
                 comptime_args[total_i],
                 runtime_args,
-                new_fn_info,
+                mod.typeToFunc(func_ty).?,
                 &runtime_i,
             ) catch |err| switch (err) {
                 error.NeededSourceLocation => {
@@ -7713,7 +7712,7 @@ fn instantiateGenericCall(
                         uncasted_args[total_i],
                         comptime_args[total_i],
                         runtime_args,
-                        new_fn_info,
+                        mod.typeToFunc(func_ty).?,
                         &runtime_i,
                     );
                     unreachable;
@@ -7723,12 +7722,12 @@ fn instantiateGenericCall(
             total_i += 1;
         }
 
-        try sema.queueFullTypeResolution(new_fn_info.return_type.toType());
+        try sema.queueFullTypeResolution(mod.typeToFunc(func_ty).?.return_type.toType());
     }
 
     if (call_dbg_node) |some| try sema.zirDbgStmt(block, some);
 
-    if (sema.owner_func != null and new_fn_info.return_type.toType().isError(mod)) {
+    if (sema.owner_func != null and mod.typeToFunc(func_ty).?.return_type.toType().isError(mod)) {
         sema.owner_func.?.calls_or_awaits_errorable_fn = true;
     }
 
@@ -16346,10 +16345,9 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
             // Optional value is only null if anyerror
             // Value can be zero-length slice otherwise
             const error_field_vals = if (ty.isAnyError(mod)) null else blk: {
-                const names = ty.errorSetNames(mod);
-                const vals = try sema.arena.alloc(InternPool.Index, names.len);
-                for (vals, names) |*field_val, name_ip| {
-                    const name = ip.stringToSlice(name_ip);
+                const vals = try sema.arena.alloc(InternPool.Index, ty.errorSetNames(mod).len);
+                for (vals, 0..) |*field_val, i| {
+                    const name = ip.stringToSlice(ty.errorSetNames(mod)[i]);
                     const name_val = v: {
                         var anon_decl = try block.startAnonDecl();
                         defer anon_decl.deinit();
