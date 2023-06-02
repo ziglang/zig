@@ -4614,18 +4614,27 @@ pub fn getCoerced(ip: *InternPool, gpa: Allocator, val: Index, new_ty: Index) Al
                     .int => |int| return ip.getCoerced(gpa, int, new_ty),
                     else => {},
                 },
-            .opt => |opt| if (ip.isPointerType(new_ty))
-                return switch (opt.val) {
+            .opt => |opt| switch (ip.indexToKey(new_ty)) {
+                .ptr_type => |ptr_type| return switch (opt.val) {
                     .none => try ip.get(gpa, .{ .ptr = .{
                         .ty = new_ty,
                         .addr = .{ .int = .zero_usize },
-                        .len = switch (ip.indexToKey(new_ty).ptr_type.flags.size) {
+                        .len = switch (ptr_type.flags.size) {
                             .One, .Many, .C => .none,
                             .Slice => try ip.get(gpa, .{ .undef = .usize_type }),
                         },
                     } }),
                     else => |payload| try ip.getCoerced(gpa, payload, new_ty),
                 },
+                .opt_type => |child_type| return try ip.get(gpa, .{ .opt = .{
+                    .ty = new_ty,
+                    .val = switch (opt.val) {
+                        .none => .none,
+                        else => try ip.getCoerced(gpa, opt.val, child_type),
+                    },
+                } }),
+                else => {},
+            },
             .err => |err| if (ip.isErrorSetType(new_ty))
                 return ip.get(gpa, .{ .err = .{
                     .ty = new_ty,
