@@ -27498,17 +27498,20 @@ fn coerceInMemoryAllowedFns(
             } };
         }
 
-        if (src_info.return_type != .noreturn_type) {
-            const dest_return_type = dest_info.return_type.toType();
-            const src_return_type = src_info.return_type.toType();
-            const rt = try sema.coerceInMemoryAllowed(block, dest_return_type, src_return_type, false, target, dest_src, src_src);
-            if (rt != .ok) {
-                return InMemoryCoercionResult{ .fn_return_type = .{
-                    .child = try rt.dupe(sema.arena),
-                    .actual = dest_return_type,
-                    .wanted = src_return_type,
-                } };
-            }
+        switch (src_info.return_type) {
+            .noreturn_type, .generic_poison_type => {},
+            else => {
+                const dest_return_type = dest_info.return_type.toType();
+                const src_return_type = src_info.return_type.toType();
+                const rt = try sema.coerceInMemoryAllowed(block, dest_return_type, src_return_type, false, target, dest_src, src_src);
+                if (rt != .ok) {
+                    return InMemoryCoercionResult{ .fn_return_type = .{
+                        .child = try rt.dupe(sema.arena),
+                        .actual = dest_return_type,
+                        .wanted = src_return_type,
+                    } };
+                }
+            },
         }
     }
 
@@ -27548,15 +27551,20 @@ fn coerceInMemoryAllowedFns(
             } };
         }
 
-        // Note: Cast direction is reversed here.
-        const param = try sema.coerceInMemoryAllowed(block, src_param_ty, dest_param_ty, false, target, dest_src, src_src);
-        if (param != .ok) {
-            return InMemoryCoercionResult{ .fn_param = .{
-                .child = try param.dupe(sema.arena),
-                .actual = src_param_ty,
-                .wanted = dest_param_ty,
-                .index = param_i,
-            } };
+        switch (src_param_ty.toIntern()) {
+            .generic_poison_type => {},
+            else => {
+                // Note: Cast direction is reversed here.
+                const param = try sema.coerceInMemoryAllowed(block, src_param_ty, dest_param_ty, false, target, dest_src, src_src);
+                if (param != .ok) {
+                    return InMemoryCoercionResult{ .fn_param = .{
+                        .child = try param.dupe(sema.arena),
+                        .actual = src_param_ty,
+                        .wanted = dest_param_ty,
+                        .index = param_i,
+                    } };
+                }
+            },
         }
     }
 
