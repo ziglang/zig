@@ -22462,9 +22462,7 @@ fn analyzeMinMax(
             if (std.debug.runtime_safety) {
                 assert(try sema.intFitsInType(val, refined_ty, null));
             }
-            cur_minmax = try sema.addConstant(refined_ty, (try sema.resolveMaybeUndefVal(
-                try sema.coerceInMemory(block, val, orig_ty, refined_ty, src),
-            )).?);
+            cur_minmax = try sema.coerceInMemory(block, val, orig_ty, refined_ty, src);
         }
 
         break :refined refined_ty;
@@ -26649,16 +26647,16 @@ fn coerceExtra(
     return sema.failWithOwnedErrorMsg(msg);
 }
 
-fn coerceInMemory(
+fn coerceValueInMemory(
     sema: *Sema,
     block: *Block,
     val: Value,
     src_ty: Type,
     dst_ty: Type,
     dst_ty_src: LazySrcLoc,
-) CompileError!Air.Inst.Ref {
+) CompileError!Value {
     const mod = sema.mod;
-    switch (mod.intern_pool.indexToKey(val.toIntern())) {
+    return switch (mod.intern_pool.indexToKey(val.toIntern())) {
         .aggregate => |aggregate| {
             const dst_ty_key = mod.intern_pool.indexToKey(dst_ty.toIntern());
             const dest_len = try sema.usizeCast(
@@ -26678,14 +26676,14 @@ fn coerceInMemory(
                     else => unreachable,
                 };
                 if (src_ty_child != dst_ty_child) break :direct;
-                return try sema.addConstant(dst_ty, (try mod.intern(.{ .aggregate = .{
+                return (try mod.intern(.{ .aggregate = .{
                     .ty = dst_ty.toIntern(),
                     .storage = switch (aggregate.storage) {
                         .bytes => |bytes| .{ .bytes = bytes[0..dest_len] },
                         .elems => |elems| .{ .elems = elems[0..dest_len] },
                         .repeated_elem => |elem| .{ .repeated_elem = elem },
                     },
-                } })).toValue());
+                } })).toValue();
             }
             const dest_elems = try sema.arena.alloc(InternPool.Index, dest_len);
             for (dest_elems, 0..) |*dest_elem, i| {
@@ -26702,17 +26700,28 @@ fn coerceInMemory(
                     .repeated_elem => |elem| elem,
                 }, elem_ty);
             }
-            return sema.addConstant(dst_ty, (try mod.intern(.{ .aggregate = .{
+            return (try mod.intern(.{ .aggregate = .{
                 .ty = dst_ty.toIntern(),
                 .storage = .{ .elems = dest_elems },
-            } })).toValue());
+            } })).toValue();
         },
-        .float => |float| return sema.addConstant(dst_ty, (try mod.intern(.{ .float = .{
+        .float => |float| (try mod.intern(.{ .float = .{
             .ty = dst_ty.toIntern(),
             .storage = float.storage,
-        } })).toValue()),
-        else => return sema.addConstant(dst_ty, try mod.getCoerced(val, dst_ty)),
-    }
+        } })).toValue(),
+        else => try mod.getCoerced(val, dst_ty),
+    };
+}
+
+fn coerceInMemory(
+    sema: *Sema,
+    block: *Block,
+    val: Value,
+    src_ty: Type,
+    dst_ty: Type,
+    dst_ty_src: LazySrcLoc,
+) CompileError!Air.Inst.Ref {
+    return sema.addConstant(dst_ty, try sema.coerceValueInMemory(block, val, src_ty, dst_ty, dst_ty_src));
 }
 
 const InMemoryCoercionResult = union(enum) {
@@ -33921,8 +33930,11 @@ fn pointerDerefExtra(sema: *Sema, block: *Block, src: LazySrcLoc, ptr_val: Value
         if (coerce_in_mem_ok) {
             // We have a Value that lines up in virtual memory exactly with what we want to load,
             // and it is in-memory coercible to load_ty. It may be returned without modifications.
-            // Move mutable decl values to the InternPool and assert other decls are already in the InternPool.
-            return .{ .val = (if (deref.is_mutable) try tv.val.intern(tv.ty, mod) else tv.val.toIntern()).toValue() };
+            // Move mutable decl values to the InternPool and assert other decls are already in
+            // the InternPool.
+            const uncoerced_val = if (deref.is_mutable) try tv.val.intern(tv.ty, mod) else tv.val.toIntern();
+            const coerced_val = try sema.coerceValueInMemory(block, uncoerced_val.toValue(), tv.ty, load_ty, src);
+            return .{ .val = coerced_val };
         }
     }
 
