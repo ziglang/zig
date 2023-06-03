@@ -292,6 +292,7 @@ pub fn main() !void {
     var key_size: ?usize = null;
     var seed: u32 = 0;
     var test_iterative_only = false;
+    var test_small_only = false;
 
     const default_small_key_size = 32;
 
@@ -340,6 +341,8 @@ pub fn main() !void {
             }
         } else if (std.mem.eql(u8, args[i], "--iterative-only")) {
             test_iterative_only = true;
+        } else if (std.mem.eql(u8, args[i], "--small-only")) {
+            test_small_only = true;
         } else if (std.mem.eql(u8, args[i], "--help")) {
             usage();
             return;
@@ -354,13 +357,13 @@ pub fn main() !void {
     const allocator = gpa.allocator();
 
     inline for (hashes) |H| {
-        if (filter == null or std.mem.indexOf(u8, H.name, filter.?) != null) {
+        if (filter == null or std.mem.indexOf(u8, H.name, filter.?) != null) loop: {
             if (!test_iterative_only or H.has_iterative_api or H.has_small_api) {
                 try stdout.print("{s}\n", .{H.name});
 
                 // Always reseed prior to every call so we are hashing the same buffer contents.
                 // This allows easier comparison between different implementations.
-                if (H.has_iterative_api) {
+                if (H.has_iterative_api and !test_small_only) {
                     prng.seed(seed);
                     const result = try benchmarkHash(H, count, allocator);
                     try stdout.print("   iterative: {:5} MiB/s [{x:0<16}]\n", .{ result.throughput / (1 * MiB), result.hash });
@@ -377,6 +380,7 @@ pub fn main() !void {
                             result_small.hash,
                         });
 
+                        if (test_small_only) break :loop;
                         if (H.has_small_api and size <= H.ty.small_key_max_size) {
                             prng.seed(seed);
                             const result = try benchmarkHashSmallApi(H, size, count, allocator);
@@ -407,6 +411,7 @@ pub fn main() !void {
                             result_small.hash,
                         });
 
+                        if (test_small_only) break :loop;
                         if (H.has_small_api) {
                             try stdout.print("   small api:\n", .{});
                             for (1..H.ty.small_key_max_size + 1) |size| {
