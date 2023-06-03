@@ -2836,3 +2836,136 @@ pub const utsname = extern struct {
 };
 
 pub extern "c" fn uname(u: *utsname) c_int;
+
+pub const pmc_id_t = u32;
+pub const pmc_value_t = u64;
+
+pub const PMC = struct {
+    pub const NAME_MAX = 64;
+    pub const CLASS_MAX = 8;
+    pub const ID_INVALID = !0;
+};
+
+pub const pmc_cputype = enum(u32) {
+    CPU_AMD_K7 = 0x00,
+    CPU_AMD_K8 = 0x01,
+    CPU_INTEL_P5 = 0x80,
+    CPU_INTEL_P6 = 0x81,
+    CPU_INTEL_CL = 0x82,
+    CPU_INTEL_PII = 0x83,
+    CPU_INTEL_PIII = 0x84,
+    CPU_INTEL_PM = 0x85,
+    CPU_INTEL_PIV = 0x86,
+    CPU_INTEL_CORE = 0x87,
+    CPU_INTEL_CORE2 = 0x88,
+    CPU_INTEL_CORE2EXTREME = 0x89,
+    CPU_INTEL_ATOM = 0x8A,
+    CPU_INTEL_COREI7 = 0x8B,
+    CPU_INTEL_WESTMERE = 0x8C,
+    CPU_INTEL_SANDYBRIDGE = 0x8D,
+    CPU_INTEL_IVYBRIDGE = 0x8E,
+    CPU_INTEL_SANDYBRIDGE_XEON = 0x8F,
+    CPU_INTEL_IVYBRIDGE_XEON = 0x90,
+    CPU_INTEL_HASWELL = 0x91,
+    CPU_INTEL_ATOM_SILVERMONT = 0x92,
+    CPU_INTEL_NEHALEM_EX = 0x93,
+    CPU_INTEL_WESTMERE_EX = 0x94,
+    CPU_INTEL_HASWELL_XEON = 0x95,
+    CPU_INTEL_BROADWELL = 0x96,
+    CPU_INTEL_BROADWELL_XEON = 0x97,
+    CPU_INTEL_SKYLAKE = 0x98,
+    CPU_INTEL_SKYLAKE_XEON = 0x99,
+    CPU_INTEL_ATOM_GOLDMONT = 0x9A,
+    CPU_INTEL_ICELAKE = 0x9B,
+    CPU_INTEL_ICELAKE_XEON = 0x9C,
+    CPU_INTEL_ALDERLAKE = 0x9D,
+    CPU_INTEL_ATOM_GOLDMONT_P = 0x9E,
+    CPU_INTEL_ATOM_TREMONT = 0x9F,
+    CPU_INTEL_XSCALE = 0x100,
+    CPU_MIPS_24K = 0x200,
+    CPU_MIPS_OCTEON = 0x201,
+    CPU_MIPS_74K = 0x202,
+    CPU_MIPS_BERI = 0x203,
+    CPU_PPC_7450 = 0x300,
+    CPU_PPC_E500 = 0x340,
+    CPU_PPC_970 = 0x380,
+    CPU_PPC_POWER8 = 0x390,
+    CPU_GENERIC = 0x400,
+    CPU_ARMV7_CORTEX_A5 = 0x500,
+    CPU_ARMV7_CORTEX_A7 = 0x501,
+    CPU_ARMV7_CORTEX_A8 = 0x502,
+    CPU_ARMV7_CORTEX_A9 = 0x503,
+    CPU_ARMV7_CORTEX_A15 = 0x504,
+    CPU_ARMV7_CORTEX_A17 = 0x505,
+    CPU_ARMV7_CORTEX_A53 = 0x600,
+    CPU_ARMV7_CORTEX_A57 = 0x601,
+    CPU_ARMV7_CORTEX_A76 = 0x602,
+};
+
+pub const pmc_class = enum(u32) {
+    CLASS_TSC = 0x00,
+    CLASS_K7 = 0x01,
+    CLASS_K8 = 0x02,
+    CLASS_P5 = 0x03,
+    CLASS_P6 = 0x04,
+    CLASS_P4 = 0x05,
+    CLASS_IAF = 0x06,
+    CLASS_IAP = 0x07,
+    CLASS_UCF = 0x08,
+    CLASS_UCP = 0x09,
+    CLASS_XSCALE = 0x0A,
+    CLASS_MIPS24K = 0x0B,
+    CLASS_OCTEON = 0x0C,
+    CLASS_PPC7450 = 0x0D,
+    CLASS_PPC970 = 0x0E,
+    CLASS_SOFT = 0x0F,
+    CLASS_ARMV7 = 0x10,
+    CLASS_ARMV8 = 0x11,
+    CLASS_MIPS74K = 0x12,
+    CLASS_E500 = 0x13,
+    CLASS_BERI = 0x14,
+    CLASS_POWER8 = 0x15,
+};
+
+pub const pmc_mode = enum(u32) {
+    MODE_SS = 0,
+    MODE_SC = 1,
+    MODE_TS = 2,
+    MODE_TC = 3,
+};
+
+pub const pmc_driverstats = extern struct {
+    intr_ignored: c_uint,
+    intr_processed: c_uint,
+    intr_bufferfull: c_uint,
+    syscalls: c_uint,
+    syscall_errors: c_uint,
+    buffer_requests: c_uint,
+    buffer_requests_failed: c_uint,
+    log_sweeps: c_uint,
+};
+
+pub const pmc_classinfo = extern struct {
+    class: pmc_class,
+    caps: u32,
+    width: u32,
+    num: u32,
+};
+
+pub const pmc_cpuinfo = extern struct {
+    cputype: pmc_cputype,
+    ncpu: u32,
+    npmc: u32,
+    nclass: u32,
+    classes: [PMC.CLASS_MAX]pmc_classinfo,
+};
+
+pub extern "c" fn pmc_init() void;
+pub extern "c" fn pmc_allocate(spec: [*:0]const u8, mode: pmc_mode, flags: u32, cpu: c_int, pmcid: *pmc_id_t, count: u64) c_int;
+pub extern "c" fn pmc_attach(pmc: pmc_id_t, pid: pid_t) c_int;
+pub extern "c" fn pmc_capabilities(pmc: pmc_id_t, caps: *u32) c_int;
+pub extern "c" fn pmc_detach(pmc: pmc_id_t, pid: pid_t) c_int;
+pub extern "c" fn pmc_get_driver_stats(gms: *pmc_driverstats) c_int;
+pub extern "c" fn pmc_get_msr(pmc: pmc_id_t, msr: *u32) c_int;
+pub extern "c" fn pmc_ncpu() c_int;
+pub extern "c" fn pmc_release(pmc: pmc_id_t) c_int;
