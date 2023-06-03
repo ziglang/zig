@@ -2801,7 +2801,8 @@ fn zirStructDecl(
         .index = struct_index.toOptional(),
         .namespace = new_namespace_index.toOptional(),
     } });
-    errdefer mod.intern_pool.remove(struct_ty);
+    // TODO: figure out InternPool removals for incremental compilation
+    //errdefer mod.intern_pool.remove(struct_ty);
 
     new_decl.val = struct_ty.toValue();
     new_namespace.ty = struct_ty.toType();
@@ -3012,7 +3013,8 @@ fn zirEnumDecl(
         else
             .explicit,
     });
-    errdefer if (!done) mod.intern_pool.remove(incomplete_enum.index);
+    // TODO: figure out InternPool removals for incremental compilation
+    //errdefer if (!done) mod.intern_pool.remove(incomplete_enum.index);
 
     new_decl.val = incomplete_enum.index.toValue();
     new_namespace.ty = incomplete_enum.index.toType();
@@ -3260,7 +3262,8 @@ fn zirUnionDecl(
             .ReleaseFast, .ReleaseSmall => .none,
         },
     } });
-    errdefer mod.intern_pool.remove(union_ty);
+    // TODO: figure out InternPool removals for incremental compilation
+    //errdefer mod.intern_pool.remove(union_ty);
 
     new_decl.val = union_ty.toValue();
     new_namespace.ty = union_ty.toType();
@@ -3321,7 +3324,8 @@ fn zirOpaqueDecl(
         .decl = new_decl_index,
         .namespace = new_namespace_index,
     } });
-    errdefer mod.intern_pool.remove(opaque_ty);
+    // TODO: figure out InternPool removals for incremental compilation
+    //errdefer mod.intern_pool.remove(opaque_ty);
 
     new_decl.val = opaque_ty.toValue();
     new_namespace.ty = opaque_ty.toType();
@@ -19424,7 +19428,10 @@ fn zirReify(
             }, name_strategy, "enum", inst);
             const new_decl = mod.declPtr(new_decl_index);
             new_decl.owns_tv = true;
-            errdefer mod.abortAnonDecl(new_decl_index);
+            errdefer {
+                new_decl.has_tv = false; // namespace and val were destroyed by later errdefers
+                mod.abortAnonDecl(new_decl_index);
+            }
 
             // Define our empty enum decl
             const fields_len = @intCast(u32, try sema.usizeCast(block, src, fields_val.sliceLen(mod)));
@@ -19439,7 +19446,8 @@ fn zirReify(
                     .explicit,
                 .tag_ty = int_tag_ty.toIntern(),
             });
-            errdefer ip.remove(incomplete_enum.index);
+            // TODO: figure out InternPool removals for incremental compilation
+            //errdefer ip.remove(incomplete_enum.index);
 
             new_decl.val = incomplete_enum.index.toValue();
 
@@ -19514,7 +19522,10 @@ fn zirReify(
             }, name_strategy, "opaque", inst);
             const new_decl = mod.declPtr(new_decl_index);
             new_decl.owns_tv = true;
-            errdefer mod.abortAnonDecl(new_decl_index);
+            errdefer {
+                new_decl.has_tv = false; // namespace and val were destroyed by later errdefers
+                mod.abortAnonDecl(new_decl_index);
+            }
 
             const new_namespace_index = try mod.createNamespace(.{
                 .parent = block.namespace.toOptional(),
@@ -19528,7 +19539,8 @@ fn zirReify(
                 .decl = new_decl_index,
                 .namespace = new_namespace_index,
             } });
-            errdefer ip.remove(opaque_ty);
+            // TODO: figure out InternPool removals for incremental compilation
+            //errdefer ip.remove(opaque_ty);
 
             new_decl.val = opaque_ty.toValue();
             new_namespace.ty = opaque_ty.toType();
@@ -19568,7 +19580,10 @@ fn zirReify(
             }, name_strategy, "union", inst);
             const new_decl = mod.declPtr(new_decl_index);
             new_decl.owns_tv = true;
-            errdefer mod.abortAnonDecl(new_decl_index);
+            errdefer {
+                new_decl.has_tv = false; // namespace and val were destroyed by later errdefers
+                mod.abortAnonDecl(new_decl_index);
+            }
 
             const new_namespace_index = try mod.createNamespace(.{
                 .parent = block.namespace.toOptional(),
@@ -19601,7 +19616,8 @@ fn zirReify(
                     .ReleaseFast, .ReleaseSmall => .none,
                 },
             } });
-            errdefer ip.remove(union_ty);
+            // TODO: figure out InternPool removals for incremental compilation
+            //errdefer ip.remove(union_ty);
 
             new_decl.val = union_ty.toValue();
             new_namespace.ty = union_ty.toType();
@@ -19865,7 +19881,10 @@ fn reifyStruct(
     }, name_strategy, "struct", inst);
     const new_decl = mod.declPtr(new_decl_index);
     new_decl.owns_tv = true;
-    errdefer mod.abortAnonDecl(new_decl_index);
+    errdefer {
+        new_decl.has_tv = false; // namespace and val were destroyed by later errdefers
+        mod.abortAnonDecl(new_decl_index);
+    }
 
     const new_namespace_index = try mod.createNamespace(.{
         .parent = block.namespace.toOptional(),
@@ -19892,7 +19911,8 @@ fn reifyStruct(
         .index = struct_index.toOptional(),
         .namespace = new_namespace_index.toOptional(),
     } });
-    errdefer ip.remove(struct_ty);
+    // TODO: figure out InternPool removals for incremental compilation
+    //errdefer ip.remove(struct_ty);
 
     new_decl.val = struct_ty.toValue();
     new_namespace.ty = struct_ty.toType();
@@ -27515,8 +27535,8 @@ fn coerceInMemoryAllowedFns(
                 if (rt != .ok) {
                     return InMemoryCoercionResult{ .fn_return_type = .{
                         .child = try rt.dupe(sema.arena),
-                        .actual = dest_return_type,
-                        .wanted = src_return_type,
+                        .actual = src_return_type,
+                        .wanted = dest_return_type,
                     } };
                 }
             },
@@ -29505,7 +29525,8 @@ fn coerceTupleToStruct(
         .ty = struct_ty.toIntern(),
         .storage = .{ .elems = field_vals },
     } });
-    errdefer ip.remove(struct_val);
+    // TODO: figure out InternPool removals for incremental compilation
+    //errdefer ip.remove(struct_val);
 
     return sema.addConstant(struct_ty, struct_val.toValue());
 }
@@ -34666,14 +34687,14 @@ fn floatToIntScalar(
     var big_int = try float128IntPartToBigInt(sema.arena, float);
     defer big_int.deinit();
 
-    const result = try mod.intValue_big(int_ty, big_int.toConst());
+    const cti_result = try mod.intValue_big(Type.comptime_int, big_int.toConst());
 
-    if (!(try sema.intFitsInType(result, int_ty, null))) {
+    if (!(try sema.intFitsInType(cti_result, int_ty, null))) {
         return sema.fail(block, src, "float value '{}' cannot be stored in integer type '{}'", .{
             val.fmtValue(float_ty, sema.mod), int_ty.fmt(sema.mod),
         });
     }
-    return result;
+    return mod.getCoerced(cti_result, int_ty);
 }
 
 /// Asserts the value is an integer, and the destination type is ComptimeInt or Int.

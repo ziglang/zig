@@ -400,14 +400,21 @@ pub const Key = union(enum) {
         /// integer tag type of the enum.
         pub fn tagValueIndex(self: EnumType, ip: *const InternPool, tag_val: Index) ?u32 {
             assert(tag_val != .none);
+            // TODO: we should probably decide a single interface for this function, but currently
+            // it's being called with both tag values and underlying ints. Fix this!
+            const int_tag_val = switch (ip.indexToKey(tag_val)) {
+                .enum_tag => |enum_tag| enum_tag.int,
+                .int => tag_val,
+                else => unreachable,
+            };
             if (self.values_map.unwrap()) |values_map| {
                 const map = &ip.maps.items[@enumToInt(values_map)];
                 const adapter: Index.Adapter = .{ .indexes = self.values };
-                const field_index = map.getIndexAdapted(tag_val, adapter) orelse return null;
+                const field_index = map.getIndexAdapted(int_tag_val, adapter) orelse return null;
                 return @intCast(u32, field_index);
             }
-            // Auto-numbered enum. Convert `tag_val` to field index.
-            switch (ip.indexToKey(tag_val).int.storage) {
+            // Auto-numbered enum. Convert `int_tag_val` to field index.
+            switch (ip.indexToKey(int_tag_val).int.storage) {
                 .u64 => |x| {
                     if (x >= self.names.len) return null;
                     return @intCast(u32, x);
@@ -4261,12 +4268,8 @@ fn addMap(ip: *InternPool, gpa: Allocator) Allocator.Error!MapIndex {
 
 /// This operation only happens under compile error conditions.
 /// Leak the index until the next garbage collection.
-pub fn remove(ip: *InternPool, index: Index) void {
-    _ = ip;
-    _ = index;
-    @setCold(true);
-    @panic("TODO this is a bit problematic to implement, could we maybe just never support a remove() operation on InternPool?");
-}
+/// TODO: this is a bit problematic to implement, can we get away without it?
+pub const remove = @compileError("InternPool.remove is not currently a supported operation; put a TODO there instead");
 
 fn addInt(ip: *InternPool, gpa: Allocator, ty: Index, tag: Tag, limbs: []const Limb) !void {
     const limbs_len = @intCast(u32, limbs.len);
@@ -5161,7 +5164,10 @@ pub fn createStruct(
     gpa: Allocator,
     initialization: Module.Struct,
 ) Allocator.Error!Module.Struct.Index {
-    if (ip.structs_free_list.popOrNull()) |index| return index;
+    if (ip.structs_free_list.popOrNull()) |index| {
+        ip.allocated_structs.at(@enumToInt(index)).* = initialization;
+        return index;
+    }
     const ptr = try ip.allocated_structs.addOne(gpa);
     ptr.* = initialization;
     return @intToEnum(Module.Struct.Index, ip.allocated_structs.len - 1);
@@ -5180,7 +5186,10 @@ pub fn createUnion(
     gpa: Allocator,
     initialization: Module.Union,
 ) Allocator.Error!Module.Union.Index {
-    if (ip.unions_free_list.popOrNull()) |index| return index;
+    if (ip.unions_free_list.popOrNull()) |index| {
+        ip.allocated_unions.at(@enumToInt(index)).* = initialization;
+        return index;
+    }
     const ptr = try ip.allocated_unions.addOne(gpa);
     ptr.* = initialization;
     return @intToEnum(Module.Union.Index, ip.allocated_unions.len - 1);
@@ -5199,7 +5208,10 @@ pub fn createFunc(
     gpa: Allocator,
     initialization: Module.Fn,
 ) Allocator.Error!Module.Fn.Index {
-    if (ip.funcs_free_list.popOrNull()) |index| return index;
+    if (ip.funcs_free_list.popOrNull()) |index| {
+        ip.allocated_funcs.at(@enumToInt(index)).* = initialization;
+        return index;
+    }
     const ptr = try ip.allocated_funcs.addOne(gpa);
     ptr.* = initialization;
     return @intToEnum(Module.Fn.Index, ip.allocated_funcs.len - 1);
@@ -5218,7 +5230,10 @@ pub fn createInferredErrorSet(
     gpa: Allocator,
     initialization: Module.Fn.InferredErrorSet,
 ) Allocator.Error!Module.Fn.InferredErrorSet.Index {
-    if (ip.inferred_error_sets_free_list.popOrNull()) |index| return index;
+    if (ip.inferred_error_sets_free_list.popOrNull()) |index| {
+        ip.allocated_inferred_error_sets.at(@enumToInt(index)).* = initialization;
+        return index;
+    }
     const ptr = try ip.allocated_inferred_error_sets.addOne(gpa);
     ptr.* = initialization;
     return @intToEnum(Module.Fn.InferredErrorSet.Index, ip.allocated_inferred_error_sets.len - 1);

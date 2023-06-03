@@ -16,5 +16,4 @@ comptime {
 // backend=llvm
 // target=native
 //
-// :11:13: error: 'error.B' not a member of error set 'error{A,C}'
-// :5:14: note: error set declared here
+// :11:13: error: 'error.B' not a member of error set 'error{C,A}'

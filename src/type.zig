@@ -345,6 +345,9 @@ pub const Type = struct {
                 }
             },
             .anon_struct_type => |anon_struct| {
+                if (anon_struct.types.len == 0) {
+                    return writer.writeAll("@TypeOf(.{})");
+                }
                 try writer.writeAll("struct{");
                 for (anon_struct.types, anon_struct.values, 0..) |field_ty, val, i| {
                     if (i != 0) try writer.writeAll(", ");
