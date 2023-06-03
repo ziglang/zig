@@ -4374,7 +4374,8 @@ pub fn semaFile(mod: *Module, file: *File) SemaError!void {
         .index = struct_index.toOptional(),
         .namespace = new_namespace_index.toOptional(),
     } });
-    errdefer mod.intern_pool.remove(struct_ty);
+    // TODO: figure out InternPool removals for incremental compilation
+    //errdefer mod.intern_pool.remove(struct_ty);
 
     new_namespace.ty = struct_ty.toType();
     file.root_decl = new_decl_index.toOptional();
@@ -5682,7 +5683,10 @@ fn markOutdatedDecl(mod: *Module, decl_index: Decl.Index) !void {
 }
 
 pub fn createNamespace(mod: *Module, initialization: Namespace) !Namespace.Index {
-    if (mod.namespaces_free_list.popOrNull()) |index| return index;
+    if (mod.namespaces_free_list.popOrNull()) |index| {
+        mod.allocated_namespaces.at(@enumToInt(index)).* = initialization;
+        return index;
+    }
     const ptr = try mod.allocated_namespaces.addOne(mod.gpa);
     ptr.* = initialization;
     return @intToEnum(Namespace.Index, mod.allocated_namespaces.len - 1);

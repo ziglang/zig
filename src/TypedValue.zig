@@ -203,7 +203,7 @@ pub fn print(
             .extern_func => |extern_func| return writer.print("(extern function '{s}')", .{
                 mod.intern_pool.stringToSlice(mod.declPtr(extern_func.decl).name),
             }),
-            .func => |func| return writer.print("(function '{d}')", .{
+            .func => |func| return writer.print("(function '{s}')", .{
                 mod.intern_pool.stringToSlice(mod.declPtr(mod.funcPtr(func.index).owner_decl).name),
             }),
             .int => |int| switch (int.storage) {
@@ -234,7 +234,12 @@ pub fn print(
                 if (level == 0) {
                     return writer.writeAll("(enum)");
                 }
-
+                const enum_type = mod.intern_pool.indexToKey(ty.toIntern()).enum_type;
+                if (enum_type.tagValueIndex(&mod.intern_pool, val.toIntern())) |tag_index| {
+                    const tag_name = mod.intern_pool.stringToSlice(enum_type.names[tag_index]);
+                    try writer.print(".{}", .{std.zig.fmtId(tag_name)});
+                    return;
+                }
                 try writer.writeAll("@intToEnum(");
                 try print(.{
                     .ty = Type.type,
@@ -250,9 +255,129 @@ pub fn print(
             },
             .empty_enum_value => return writer.writeAll("(empty enum value)"),
             .float => |float| switch (float.storage) {
-                inline else => |x| return writer.print("{}", .{x}),
+                inline else => |x| return writer.print("{d}", .{@floatCast(f64, x)}),
             },
-            .ptr => return writer.writeAll("(ptr)"),
+            .ptr => |ptr| {
+                if (ptr.addr == .int) {
+                    const i = mod.intern_pool.indexToKey(ptr.addr.int).int;
+                    switch (i.storage) {
+                        inline else => |addr| return writer.print("{x:0>8}", .{addr}),
+                    }
+                }
+
+                const ptr_ty = mod.intern_pool.indexToKey(ty.toIntern()).ptr_type;
+                if (ptr_ty.flags.size == .Slice) {
+                    if (level == 0) {
+                        return writer.writeAll(".{ ... }");
+                    }
+                    const elem_ty = ptr_ty.child.toType();
+                    const len = ptr.len.toValue().toUnsignedInt(mod);
+                    if (elem_ty.eql(Type.u8, mod)) str: {
+                        const max_len = @min(len, max_string_len);
+                        var buf: [max_string_len]u8 = undefined;
+                        for (buf[0..max_len], 0..) |*c, i| {
+                            const elem = try val.elemValue(mod, i);
+                            if (elem.isUndef(mod)) break :str;
+                            c.* = @intCast(u8, elem.toUnsignedInt(mod));
+                        }
+                        const truncated = if (len > max_string_len) " (truncated)" else "";
+                        return writer.print("\"{}{s}\"", .{ std.zig.fmtEscapes(buf[0..max_len]), truncated });
+                    }
+                    try writer.writeAll(".{ ");
+                    const max_len = @min(len, max_aggregate_items);
+                    for (0..max_len) |i| {
+                        if (i != 0) try writer.writeAll(", ");
+                        try print(.{
+                            .ty = elem_ty,
+                            .val = try val.elemValue(mod, i),
+                        }, writer, level - 1, mod);
+                    }
+                    if (len > max_aggregate_items) {
+                        try writer.writeAll(", ...");
+                    }
+                    return writer.writeAll(" }");
+                }
+
+                switch (ptr.addr) {
+                    .decl => |decl_index| {
+                        const decl = mod.declPtr(decl_index);
+                        if (level == 0) return writer.print("(decl '{s}')", .{mod.intern_pool.stringToSlice(decl.name)});
+                        return print(.{
+                            .ty = decl.ty,
+                            .val = decl.val,
+                        }, writer, level - 1, mod);
+                    },
+                    .mut_decl => |mut_decl| {
+                        const decl = mod.declPtr(mut_decl.decl);
+                        if (level == 0) return writer.print("(mut decl '{s}')", .{mod.intern_pool.stringToSlice(decl.name)});
+                        return print(.{
+                            .ty = decl.ty,
+                            .val = decl.val,
+                        }, writer, level - 1, mod);
+                    },
+                    .comptime_field => |field_val_ip| {
+                        return print(.{
+                            .ty = mod.intern_pool.typeOf(field_val_ip).toType(),
+                            .val = field_val_ip.toValue(),
+                        }, writer, level - 1, mod);
+                    },
+                    .int => unreachable,
+                    .eu_payload => |eu_ip| {
+                        try writer.writeAll("(payload of ");
+                        try print(.{
+                            .ty = mod.intern_pool.typeOf(eu_ip).toType(),
+                            .val = eu_ip.toValue(),
+                        }, writer, level - 1, mod);
+                        try writer.writeAll(")");
+                    },
+                    .opt_payload => |opt_ip| {
+                        try print(.{
+                            .ty = mod.intern_pool.typeOf(opt_ip).toType(),
+                            .val = opt_ip.toValue(),
+                        }, writer, level - 1, mod);
+                        try writer.writeAll(".?");
+                    },
+                    .elem => |elem| {
+                        try print(.{
+                            .ty = mod.intern_pool.typeOf(elem.base).toType(),
+                            .val = elem.base.toValue(),
+                        }, writer, level - 1, mod);
+                        try writer.print("[{}]", .{elem.index});
+                    },
+                    .field => |field| {
+                        const container_ty = mod.intern_pool.typeOf(field.base).toType();
+                        try print(.{
+                            .ty = container_ty,
+                            .val = field.base.toValue(),
+                        }, writer, level - 1, mod);
+
+                        switch (container_ty.zigTypeTag(mod)) {
+                            .Struct => {
+                                if (container_ty.isTuple(mod)) {
+                                    try writer.print("[{d}]", .{field.index});
+                                }
+                                const field_name_ip = container_ty.structFieldName(field.index, mod);
+                                const field_name = mod.intern_pool.stringToSlice(field_name_ip);
+                                try writer.print(".{}", .{std.zig.fmtId(field_name)});
+                            },
+                            .Union => {
+                                const field_name_ip = container_ty.unionFields(mod).keys()[field.index];
+                                const field_name = mod.intern_pool.stringToSlice(field_name_ip);
+                                try writer.print(".{}", .{std.zig.fmtId(field_name)});
+                            },
+                            .Pointer => {
+                                std.debug.assert(container_ty.isSlice(mod));
+                                try writer.writeAll(switch (field.index) {
+                                    Value.slice_ptr_index => ".ptr",
+                                    Value.slice_len_index => ".len",
+                                    else => unreachable,
+                                });
+                            },
+                            else => unreachable,
+                        }
+                    },
+                }
+            },
             .opt => |opt| switch (opt.val) {
                 .none => return writer.writeAll("null"),
                 else => |payload| {
@@ -261,7 +386,15 @@ pub fn print(
                 },
             },
             .aggregate => |aggregate| switch (aggregate.storage) {
-                .bytes => |bytes| return writer.print("\"{}\"", .{std.zig.fmtEscapes(bytes)}),
+                .bytes => |bytes| {
+                    // Strip the 0 sentinel off of strings before printing
+                    const zero_sent = blk: {
+                        const sent = ty.sentinel(mod) orelse break :blk false;
+                        break :blk sent.eql(Value.zero_u8, Type.u8, mod);
+                    };
+                    const str = if (zero_sent) bytes[0..bytes.len - 1] else bytes;
+                    return writer.print("\"{}\"", .{std.zig.fmtEscapes(str)});
+                },
                 .elems, .repeated_elem => return printAggregate(ty, val, writer, level, mod),
             },
             .un => |un| {
