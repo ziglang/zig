@@ -86,7 +86,6 @@ fn handleRequest(res: *Server.Response) !void {
         try res.writeAll("World!\n");
         // try res.finish();
         try res.connection.writeAll("0\r\nX-Checksum: aaaa\r\n\r\n");
-        try res.connection.flush();
     } else if (mem.eql(u8, res.request.target, "/redirect/1")) {
         res.transfer_encoding = .chunked;
 
