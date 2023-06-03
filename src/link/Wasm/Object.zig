@@ -979,7 +979,7 @@ pub fn parseIntoAtoms(object: *Object, gpa: Allocator, object_index: u16, wasm_b
 
         const segment: *Wasm.Segment = &wasm_bin.segments.items[final_index];
         if (relocatable_data.type == .data) { //code section and debug sections are 1-byte aligned
-            segment.alignment = std.math.max(segment.alignment, atom.alignment);
+            segment.alignment = @max(segment.alignment, atom.alignment);
         }
 
         try wasm_bin.appendAtomAtIndex(final_index, atom_index);

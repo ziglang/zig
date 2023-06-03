@@ -277,7 +277,7 @@ pub const IO_Uring = struct {
     fn copy_cqes_ready(self: *IO_Uring, cqes: []linux.io_uring_cqe, wait_nr: u32) u32 {
         _ = wait_nr;
         const ready = self.cq_ready();
-        const count = std.math.min(cqes.len, ready);
+        const count = @min(cqes.len, ready);
         var head = self.cq.head.*;
         var tail = head +% count;
         // TODO Optimize this by using 1 or 2 memcpy's (if the tail wraps) rather than a loop.
@@ -1093,7 +1093,7 @@ pub const SubmissionQueue = struct {
     pub fn init(fd: os.fd_t, p: linux.io_uring_params) !SubmissionQueue {
         assert(fd >= 0);
         assert((p.features & linux.IORING_FEAT_SINGLE_MMAP) != 0);
-        const size = std.math.max(
+        const size = @max(
             p.sq_off.array + p.sq_entries * @sizeOf(u32),
             p.cq_off.cqes + p.cq_entries * @sizeOf(linux.io_uring_cqe),
         );

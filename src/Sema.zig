@@ -21306,9 +21306,9 @@ fn analyzeShuffle(
     // to it up to the length of the longer vector. This recursion terminates
     // in 1 call because these calls to analyzeShuffle guarantee a_len == b_len.
     if (a_len != b_len) {
-        const min_len = std.math.min(a_len, b_len);
+        const min_len = @min(a_len, b_len);
         const max_src = if (a_len > b_len) a_src else b_src;
-        const max_len = try sema.usizeCast(block, max_src, std.math.max(a_len, b_len));
+        const max_len = try sema.usizeCast(block, max_src, @max(a_len, b_len));
 
         const expand_mask_values = try sema.arena.alloc(Value, max_len);
         i = 0;
@@ -30019,7 +30019,7 @@ fn cmpNumeric(
     }
 
     const dest_ty = if (dest_float_type) |ft| ft else blk: {
-        const max_bits = std.math.max(lhs_bits, rhs_bits);
+        const max_bits = @max(lhs_bits, rhs_bits);
         const casted_bits = std.math.cast(u16, max_bits) orelse return sema.fail(block, src, "{d} exceeds maximum integer bit count", .{max_bits});
         const signedness: std.builtin.Signedness = if (dest_int_is_signed) .signed else .unsigned;
         break :blk try Module.makeIntType(sema.arena, signedness, casted_bits);
@@ -33615,7 +33615,7 @@ fn intAddScalar(sema: *Sema, lhs: Value, rhs: Value) !Value {
     const rhs_bigint = try rhs.toBigIntAdvanced(&rhs_space, target, sema);
     const limbs = try sema.arena.alloc(
         std.math.big.Limb,
-        std.math.max(lhs_bigint.limbs.len, rhs_bigint.limbs.len) + 1,
+        @max(lhs_bigint.limbs.len, rhs_bigint.limbs.len) + 1,
     );
     var result_bigint = std.math.big.int.Mutable{ .limbs = limbs, .positive = undefined, .len = undefined };
     result_bigint.add(lhs_bigint, rhs_bigint);
@@ -33673,7 +33673,7 @@ fn intSubScalar(sema: *Sema, lhs: Value, rhs: Value) !Value {
     const rhs_bigint = try rhs.toBigIntAdvanced(&rhs_space, target, sema);
     const limbs = try sema.arena.alloc(
         std.math.big.Limb,
-        std.math.max(lhs_bigint.limbs.len, rhs_bigint.limbs.len) + 1,
+        @max(lhs_bigint.limbs.len, rhs_bigint.limbs.len) + 1,
     );
     var result_bigint = std.math.big.int.Mutable{ .limbs = limbs, .positive = undefined, .len = undefined };
     result_bigint.sub(lhs_bigint, rhs_bigint);

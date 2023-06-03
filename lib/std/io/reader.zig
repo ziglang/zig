@@ -71,7 +71,7 @@ pub fn Reader(
             array_list: *std.ArrayListAligned(u8, alignment),
             max_append_size: usize,
         ) !void {
-            try array_list.ensureTotalCapacity(math.min(max_append_size, 4096));
+            try array_list.ensureTotalCapacity(@min(max_append_size, 4096));
             const original_len = array_list.items.len;
             var start_index: usize = original_len;
             while (true) {
@@ -326,7 +326,7 @@ pub fn Reader(
             var remaining = num_bytes;
 
             while (remaining > 0) {
-                const amt = std.math.min(remaining, options.buf_size);
+                const amt = @min(remaining, options.buf_size);
                 try self.readNoEof(buf[0..amt]);
                 remaining -= amt;
             }

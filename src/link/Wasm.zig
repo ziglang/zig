@@ -2012,7 +2012,7 @@ fn parseAtom(wasm: *Wasm, atom_index: Atom.Index, kind: Kind) !void {
     };
 
     const segment: *Segment = &wasm.segments.items[final_index];
-    segment.alignment = std.math.max(segment.alignment, atom.alignment);
+    segment.alignment = @max(segment.alignment, atom.alignment);
 
     try wasm.appendAtomAtIndex(final_index, atom_index);
 }

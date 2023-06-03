@@ -2398,7 +2398,7 @@ pub fn genErrDecls(o: *Object) !void {
     o.indent_writer.pushIndent();
     var max_name_len: usize = 0;
     for (o.dg.module.error_name_list.items, 0..) |name, value| {
-        max_name_len = std.math.max(name.len, max_name_len);
+        max_name_len = @max(name.len, max_name_len);
         var err_pl = Value.Payload.Error{ .data = .{ .name = name } };
         try o.dg.renderValue(writer, Type.anyerror, Value.initPayload(&err_pl.base), .Other);
         try writer.print(" = {d}u,\n", .{value});

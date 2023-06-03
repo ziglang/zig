@@ -120,7 +120,7 @@ pub const ArenaAllocator = struct {
         }
         const total_size = switch (mode) {
             .retain_capacity => current_capacity,
-            .retain_with_limit => |limit| std.math.min(limit, current_capacity),
+            .retain_with_limit => |limit| @min(limit, current_capacity),
             .free_all => unreachable,
         };
         const align_bits = std.math.log2_int(usize, @alignOf(BufNode));

@@ -59,7 +59,7 @@ pub const Params = struct {
         const pb = @intCast(u3, props);
 
         const dict_size_provided = try reader.readIntLittle(u32);
-        const dict_size = math.max(0x1000, dict_size_provided);
+        const dict_size = @max(0x1000, dict_size_provided);
 
         const unpacked_size = switch (options.unpacked_size) {
             .read_from_header => blk: {

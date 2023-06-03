@@ -99,7 +99,7 @@ const CodeDirectory = struct {
 
     fn addSpecialHash(self: *CodeDirectory, index: u32, hash: [hash_size]u8) void {
         assert(index > 0);
-        self.inner.nSpecialSlots = std.math.max(self.inner.nSpecialSlots, index);
+        self.inner.nSpecialSlots = @max(self.inner.nSpecialSlots, index);
         self.special_slots[index - 1] = hash;
     }
 
@@ -426,11 +426,11 @@ pub fn estimateSize(self: CodeSignature, file_size: u64) u32 {
     var n_special_slots: u32 = 0;
     if (self.requirements) |req| {
         ssize += @sizeOf(macho.BlobIndex) + req.size();
-        n_special_slots = std.math.max(n_special_slots, req.slotType());
+        n_special_slots = @max(n_special_slots, req.slotType());
     }
     if (self.entitlements) |ent| {
         ssize += @sizeOf(macho.BlobIndex) + ent.size() + hash_size;
-        n_special_slots = std.math.max(n_special_slots, ent.slotType());
+        n_special_slots = @max(n_special_slots, ent.slotType());
     }
     if (self.signature) |sig| {
         ssize += @sizeOf(macho.BlobIndex) + sig.size();

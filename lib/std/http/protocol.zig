@@ -82,7 +82,7 @@ pub const HeadersParser = struct {
     /// If the amount returned is less than `bytes.len`, you may assume that the parser is in a content state and the
     /// first byte of content is located at `bytes[result]`.
     pub fn findHeadersEnd(r: *HeadersParser, bytes: []const u8) u32 {
-        const vector_len: comptime_int = comptime std.math.max(std.simd.suggestVectorSize(u8) orelse 1, 8);
+        const vector_len: comptime_int = comptime @max(std.simd.suggestVectorSize(u8) orelse 1, 8);
         const len = @intCast(u32, bytes.len);
         var index: u32 = 0;
 

@@ -177,13 +177,13 @@ pub fn parseWithoutScheme(text: []const u8) ParseError!Uri {
 
             if (std.mem.lastIndexOf(u8, authority, ":")) |index| {
                 if (index >= end_of_host) { // if not part of the V6 address field
-                    end_of_host = std.math.min(end_of_host, index);
+                    end_of_host = @min(end_of_host, index);
                     uri.port = std.fmt.parseInt(u16, authority[index + 1 ..], 10) catch return error.InvalidPort;
                 }
             }
         } else if (std.mem.lastIndexOf(u8, authority, ":")) |index| {
             if (index >= start_of_host) { // if not part of the userinfo field
-                end_of_host = std.math.min(end_of_host, index);
+                end_of_host = @min(end_of_host, index);
                 uri.port = std.fmt.parseInt(u16, authority[index + 1 ..], 10) catch return error.InvalidPort;
             }
         }

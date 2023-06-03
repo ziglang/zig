@@ -570,7 +570,7 @@ pub fn Modulus(comptime max_bits: comptime_int) type {
             var out = self.zero;
             var i = x.limbs_count() - 1;
             if (self.limbs_count() >= 2) {
-                const start = math.min(i, self.limbs_count() - 2);
+                const start = @min(i, self.limbs_count() - 2);
                 var j = start;
                 while (true) : (j -= 1) {
                     out.v.limbs.set(j, x.limbs.get(i));

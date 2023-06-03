@@ -149,7 +149,7 @@ pub fn print(
             }
             if (ty.zigTypeTag() == .Struct) {
                 try writer.writeAll(".{");
-                const max_len = std.math.min(ty.structFieldCount(), max_aggregate_items);
+                const max_len = @min(ty.structFieldCount(), max_aggregate_items);
 
                 var i: u32 = 0;
                 while (i < max_len) : (i += 1) {
@@ -172,7 +172,7 @@ pub fn print(
                 const len = ty.arrayLen();
 
                 if (elem_ty.eql(Type.u8, mod)) str: {
-                    const max_len = @intCast(usize, std.math.min(len, max_string_len));
+                    const max_len = @intCast(usize, @min(len, max_string_len));
                     var buf: [max_string_len]u8 = undefined;
 
                     var i: u32 = 0;
@@ -188,7 +188,7 @@ pub fn print(
 
                 try writer.writeAll(".{ ");
 
-                const max_len = std.math.min(len, max_aggregate_items);
+                const max_len = @min(len, max_aggregate_items);
                 var i: u32 = 0;
                 while (i < max_len) : (i += 1) {
                     if (i != 0) try writer.writeAll(", ");
@@ -356,7 +356,7 @@ pub fn print(
                 .val = val.castTag(.repeated).?.data,
             };
             const len = ty.arrayLen();
-            const max_len = std.math.min(len, max_aggregate_items);
+            const max_len = @min(len, max_aggregate_items);
             while (i < max_len) : (i += 1) {
                 if (i != 0) try writer.writeAll(", ");
                 try print(elem_tv, writer, level - 1, mod);
@@ -386,7 +386,7 @@ pub fn print(
             const len = payload.len.toUnsignedInt(target);
 
             if (elem_ty.eql(Type.u8, mod)) str: {
-                const max_len = @intCast(usize, std.math.min(len, max_string_len));
+                const max_len = @intCast(usize, @min(len, max_string_len));
                 var buf: [max_string_len]u8 = undefined;
 
                 var i: u32 = 0;
@@ -404,7 +404,7 @@ pub fn print(
 
             try writer.writeAll(".{ ");
 
-            const max_len = std.math.min(len, max_aggregate_items);
+            const max_len = @min(len, max_aggregate_items);
             var i: u32 = 0;
             while (i < max_len) : (i += 1) {
                 if (i != 0) try writer.writeAll(", ");

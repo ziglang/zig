@@ -3682,7 +3682,7 @@ pub const Type = extern union {
             .array_u8_sentinel_0 => return 8 * (ty.castTag(.array_u8_sentinel_0).?.data + 1),
             .array => {
                 const payload = ty.castTag(.array).?.data;
-                const elem_size = std.math.max(payload.elem_type.abiAlignment(target), payload.elem_type.abiSize(target));
+                const elem_size = @max(payload.elem_type.abiAlignment(target), payload.elem_type.abiSize(target));
                 if (elem_size == 0 or payload.len == 0)
                     return @as(u64, 0);
                 const elem_bit_size = try bitSizeAdvanced(payload.elem_type, target, opt_sema);
@@ -3690,7 +3690,7 @@ pub const Type = extern union {
             },
             .array_sentinel => {
                 const payload = ty.castTag(.array_sentinel).?.data;
-                const elem_size = std.math.max(
+                const elem_size = @max(
                     payload.elem_type.abiAlignment(target),
                     payload.elem_type.abiSize(target),
                 );

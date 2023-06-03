@@ -596,7 +596,7 @@ pub fn sortUnstableContext(a: usize, b: usize, context: anytype) void {
 
 /// Compares two slices of numbers lexicographically. O(n).
 pub fn order(comptime T: type, lhs: []const T, rhs: []const T) math.Order {
-    const n = math.min(lhs.len, rhs.len);
+    const n = @min(lhs.len, rhs.len);
     var i: usize = 0;
     while (i < n) : (i += 1) {
         switch (math.order(lhs[i], rhs[i])) {
@@ -642,7 +642,7 @@ pub fn eql(comptime T: type, a: []const T, b: []const T) bool {
 /// Compares two slices and returns the index of the first inequality.
 /// Returns null if the slices are equal.
 pub fn indexOfDiff(comptime T: type, a: []const T, b: []const T) ?usize {
-    const shortest = math.min(a.len, b.len);
+    const shortest = @min(a.len, b.len);
     if (a.ptr == b.ptr)
         return if (a.len == b.len) null else shortest;
     var index: usize = 0;
@@ -2947,7 +2947,7 @@ pub fn min(comptime T: type, slice: []const T) T {
     assert(slice.len > 0);
     var best = slice[0];
     for (slice[1..]) |item| {
-        best = math.min(best, item);
+        best = @min(best, item);
     }
     return best;
 }
@@ -2964,7 +2964,7 @@ pub fn max(comptime T: type, slice: []const T) T {
     assert(slice.len > 0);
     var best = slice[0];
     for (slice[1..]) |item| {
-        best = math.max(best, item);
+        best = @max(best, item);
     }
     return best;
 }
@@ -2983,8 +2983,8 @@ pub fn minMax(comptime T: type, slice: []const T) struct { min: T, max: T } {
     var minVal = slice[0];
     var maxVal = slice[0];
     for (slice[1..]) |item| {
-        minVal = math.min(minVal, item);
-        maxVal = math.max(maxVal, item);
+        minVal = @min(minVal, item);
+        maxVal = @max(maxVal, item);
     }
     return .{ .min = minVal, .max = maxVal };
 }

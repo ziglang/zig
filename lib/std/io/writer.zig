@@ -39,7 +39,7 @@ pub fn Writer(
 
             var remaining: usize = n;
             while (remaining > 0) {
-                const to_write = std.math.min(remaining, bytes.len);
+                const to_write = @min(remaining, bytes.len);
                 try self.writeAll(bytes[0..to_write]);
                 remaining -= to_write;
             }
