@@ -2430,7 +2430,7 @@ pub const Value = struct {
         if (lhs.isUndef(mod) or rhs.isUndef(mod)) return Value.undef;
 
         if (ty.zigTypeTag(mod) == .ComptimeInt) {
-            return intMul(lhs, rhs, ty, arena, mod);
+            return intMul(lhs, rhs, ty, undefined, arena, mod);
         }
 
         if (ty.isAnyFloat()) {
@@ -2710,14 +2710,42 @@ pub const Value = struct {
         return mod.intValue_big(ty, result_bigint.toConst());
     }
 
-    pub fn intDiv(lhs: Value, rhs: Value, ty: Type, allocator: Allocator, mod: *Module) !Value {
+    /// If the value overflowed the type, returns a comptime_int (or vector thereof) instead, setting
+    /// overflow_idx to the vector index the overflow was at (or 0 for a scalar).
+    pub fn intDiv(lhs: Value, rhs: Value, ty: Type, overflow_idx: *?usize, allocator: Allocator, mod: *Module) !Value {
+        var overflow: usize = undefined;
+        return intDivInner(lhs, rhs, ty, &overflow, allocator, mod) catch |err| switch (err) {
+            error.Overflow => {
+                const is_vec = ty.isVector(mod);
+                overflow_idx.* = if (is_vec) overflow else 0;
+                const safe_ty = if (is_vec) try mod.vectorType(.{
+                    .len = ty.vectorLen(mod),
+                    .child = .comptime_int_type,
+                }) else Type.comptime_int;
+                return intDivInner(lhs, rhs, safe_ty, undefined, allocator, mod) catch |err1| switch (err1) {
+                    error.Overflow => unreachable,
+                    else => |e| return e,
+                };
+            },
+            else => |e| return e,
+        };
+    }
+
+    fn intDivInner(lhs: Value, rhs: Value, ty: Type, overflow_idx: *usize, allocator: Allocator, mod: *Module) !Value {
         if (ty.zigTypeTag(mod) == .Vector) {
             const result_data = try allocator.alloc(InternPool.Index, ty.vectorLen(mod));
             const scalar_ty = ty.scalarType(mod);
             for (result_data, 0..) |*scalar, i| {
                 const lhs_elem = try lhs.elemValue(mod, i);
                 const rhs_elem = try rhs.elemValue(mod, i);
-                scalar.* = try (try intDivScalar(lhs_elem, rhs_elem, scalar_ty, allocator, mod)).intern(scalar_ty, mod);
+                const val = intDivScalar(lhs_elem, rhs_elem, scalar_ty, allocator, mod) catch |err| switch (err) {
+                    error.Overflow => {
+                        overflow_idx.* = i;
+                        return error.Overflow;
+                    },
+                    else => |e| return e,
+                };
+                scalar.* = try val.intern(scalar_ty, mod);
             }
             return (try mod.intern(.{ .aggregate = .{
                 .ty = ty.toIntern(),
@@ -2749,6 +2777,12 @@ pub const Value = struct {
         var result_q = BigIntMutable{ .limbs = limbs_q, .positive = undefined, .len = undefined };
         var result_r = BigIntMutable{ .limbs = limbs_r, .positive = undefined, .len = undefined };
         result_q.divTrunc(&result_r, lhs_bigint, rhs_bigint, limbs_buffer);
+        if (ty.toIntern() != .comptime_int_type) {
+            const info = ty.intInfo(mod);
+            if (!result_q.toConst().fitsInTwosComp(info.signedness, info.bits)) {
+                return error.Overflow;
+            }
+        }
         return mod.intValue_big(ty, result_q.toConst());
     }
 
@@ -2934,14 +2968,42 @@ pub const Value = struct {
         } })).toValue();
     }
 
-    pub fn intMul(lhs: Value, rhs: Value, ty: Type, allocator: Allocator, mod: *Module) !Value {
+    /// If the value overflowed the type, returns a comptime_int (or vector thereof) instead, setting
+    /// overflow_idx to the vector index the overflow was at (or 0 for a scalar).
+    pub fn intMul(lhs: Value, rhs: Value, ty: Type, overflow_idx: *?usize, allocator: Allocator, mod: *Module) !Value {
+        var overflow: usize = undefined;
+        return intMulInner(lhs, rhs, ty, &overflow, allocator, mod) catch |err| switch (err) {
+            error.Overflow => {
+                const is_vec = ty.isVector(mod);
+                overflow_idx.* = if (is_vec) overflow else 0;
+                const safe_ty = if (is_vec) try mod.vectorType(.{
+                    .len = ty.vectorLen(mod),
+                    .child = .comptime_int_type,
+                }) else Type.comptime_int;
+                return intMulInner(lhs, rhs, safe_ty, undefined, allocator, mod) catch |err1| switch (err1) {
+                    error.Overflow => unreachable,
+                    else => |e| return e,
+                };
+            },
+            else => |e| return e,
+        };
+    }
+
+    fn intMulInner(lhs: Value, rhs: Value, ty: Type, overflow_idx: *usize, allocator: Allocator, mod: *Module) !Value {
         if (ty.zigTypeTag(mod) == .Vector) {
             const result_data = try allocator.alloc(InternPool.Index, ty.vectorLen(mod));
             const scalar_ty = ty.scalarType(mod);
             for (result_data, 0..) |*scalar, i| {
                 const lhs_elem = try lhs.elemValue(mod, i);
                 const rhs_elem = try rhs.elemValue(mod, i);
-                scalar.* = try (try intMulScalar(lhs_elem, rhs_elem, scalar_ty, allocator, mod)).intern(scalar_ty, mod);
+                const val = intMulScalar(lhs_elem, rhs_elem, scalar_ty, allocator, mod) catch |err| switch (err) {
+                    error.Overflow => {
+                        overflow_idx.* = i;
+                        return error.Overflow;
+                    },
+                    else => |e| return e,
+                };
+                scalar.* = try val.intern(scalar_ty, mod);
             }
             return (try mod.intern(.{ .aggregate = .{
                 .ty = ty.toIntern(),
@@ -2952,6 +3014,11 @@ pub const Value = struct {
     }
 
     pub fn intMulScalar(lhs: Value, rhs: Value, ty: Type, allocator: Allocator, mod: *Module) !Value {
+        if (ty.toIntern() != .comptime_int_type) {
+            const res = try intMulWithOverflowScalar(lhs, rhs, ty, allocator, mod);
+            if (res.overflow_bit.compareAllWithZero(.neq, mod)) return error.Overflow;
+            return res.wrapped_result;
+        }
         // TODO is this a performance issue? maybe we should try the operation without
         // resorting to BigInt first.
         var lhs_space: Value.BigIntSpace = undefined;

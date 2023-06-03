@@ -3125,11 +3125,11 @@ fn zirEnumDecl(
             return sema.failWithOwnedErrorMsg(msg);
         }
 
-        if (has_tag_value) {
+        const tag_overflow = if (has_tag_value) overflow: {
             const tag_val_ref = @intToEnum(Zir.Inst.Ref, sema.code.extra[extra_index]);
             extra_index += 1;
             const tag_inst = try sema.resolveInst(tag_val_ref);
-            const tag_val = sema.resolveConstValue(block, .unneeded, tag_inst, "") catch |err| switch (err) {
+            last_tag_val = sema.resolveConstValue(block, .unneeded, tag_inst, "") catch |err| switch (err) {
                 error.NeededSourceLocation => {
                     const value_src = mod.fieldSrcLoc(new_decl_index, .{
                         .index = field_i,
@@ -3140,43 +3140,50 @@ fn zirEnumDecl(
                 },
                 else => |e| return e,
             };
-            last_tag_val = tag_val;
-            if (try incomplete_enum.addFieldValue(&mod.intern_pool, gpa, tag_val.toIntern())) |other_index| {
+            if (!(try sema.intFitsInType(last_tag_val.?, int_tag_ty, null))) break :overflow true;
+            last_tag_val = try mod.getCoerced(last_tag_val.?, int_tag_ty);
+            if (try incomplete_enum.addFieldValue(&mod.intern_pool, gpa, last_tag_val.?.toIntern())) |other_index| {
                 const value_src = mod.fieldSrcLoc(new_decl_index, .{
                     .index = field_i,
                     .range = .value,
                 }).lazy;
                 const other_field_src = mod.fieldSrcLoc(new_decl_index, .{ .index = other_index }).lazy;
                 const msg = msg: {
-                    const msg = try sema.errMsg(block, value_src, "enum tag value {} already taken", .{tag_val.fmtValue(int_tag_ty, sema.mod)});
+                    const msg = try sema.errMsg(block, value_src, "enum tag value {} already taken", .{last_tag_val.?.fmtValue(int_tag_ty, sema.mod)});
                     errdefer msg.destroy(gpa);
                     try sema.errNote(block, other_field_src, msg, "other occurrence here", .{});
                     break :msg msg;
                 };
                 return sema.failWithOwnedErrorMsg(msg);
             }
-        } else if (any_values) {
-            const tag_val = if (last_tag_val) |val|
-                try sema.intAdd(val, try mod.intValue(int_tag_ty, 1), int_tag_ty)
+            break :overflow false;
+        } else if (any_values) overflow: {
+            var overflow: ?usize = null;
+            last_tag_val = if (last_tag_val) |val|
+                try sema.intAdd(val, try mod.intValue(int_tag_ty, 1), int_tag_ty, &overflow)
             else
                 try mod.intValue(int_tag_ty, 0);
-            last_tag_val = tag_val;
-            if (try incomplete_enum.addFieldValue(&mod.intern_pool, gpa, tag_val.toIntern())) |other_index| {
+            if (overflow != null) break :overflow true;
+            if (try incomplete_enum.addFieldValue(&mod.intern_pool, gpa, last_tag_val.?.toIntern())) |other_index| {
                 const field_src = mod.fieldSrcLoc(new_decl_index, .{ .index = field_i }).lazy;
                 const other_field_src = mod.fieldSrcLoc(new_decl_index, .{ .index = other_index }).lazy;
                 const msg = msg: {
-                    const msg = try sema.errMsg(block, field_src, "enum tag value {} already taken", .{tag_val.fmtValue(int_tag_ty, sema.mod)});
+                    const msg = try sema.errMsg(block, field_src, "enum tag value {} already taken", .{last_tag_val.?.fmtValue(int_tag_ty, sema.mod)});
                     errdefer msg.destroy(gpa);
                     try sema.errNote(block, other_field_src, msg, "other occurrence here", .{});
                     break :msg msg;
                 };
                 return sema.failWithOwnedErrorMsg(msg);
             }
-        } else {
-            last_tag_val = try mod.intValue(int_tag_ty, field_i);
-        }
+            break :overflow false;
+        } else overflow: {
+            last_tag_val = try mod.intValue(Type.comptime_int, field_i);
+            if (!try sema.intFitsInType(last_tag_val.?, int_tag_ty, null)) break :overflow true;
+            last_tag_val = try mod.getCoerced(last_tag_val.?, int_tag_ty);
+            break :overflow false;
+        };
 
-        if (!(try sema.intFitsInType(last_tag_val.?, int_tag_ty, null))) {
+        if (tag_overflow) {
             const value_src = mod.fieldSrcLoc(new_decl_index, .{
                 .index = field_i,
                 .range = if (has_tag_value) .value else .name,
@@ -9692,7 +9699,7 @@ fn intCast(
                 const dest_range_val = if (wanted_info.signedness == .signed) range_val: {
                     const one = try mod.intValue(unsigned_operand_ty, 1);
                     const range_minus_one = try dest_max_val.shl(one, unsigned_operand_ty, sema.arena, mod);
-                    break :range_val try sema.intAdd(range_minus_one, one, unsigned_operand_ty);
+                    break :range_val try sema.intAdd(range_minus_one, one, unsigned_operand_ty, undefined);
                 } else try mod.getCoerced(dest_max_val, unsigned_operand_ty);
                 const dest_range = try sema.addConstant(unsigned_operand_ty, dest_range_val);
 
@@ -11229,7 +11236,10 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
 
                 while (item.compareScalar(.lte, item_last, operand_ty, mod)) : ({
                     // Previous validation has resolved any possible lazy values.
-                    item = try sema.intAddScalar(item, try mod.intValue(operand_ty, 1), operand_ty);
+                    item = sema.intAddScalar(item, try mod.intValue(operand_ty, 1), operand_ty) catch |err| switch (err) {
+                        error.Overflow => unreachable,
+                        else => |e| return e,
+                    };
                 }) {
                     cases_len += 1;
 
@@ -13363,10 +13373,10 @@ fn zirDiv(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Ins
 
             if (maybe_rhs_val) |rhs_val| {
                 if (is_int) {
-                    const res = try lhs_val.intDiv(rhs_val, resolved_type, sema.arena, mod);
-                    var vector_index: usize = undefined;
-                    if (!(try sema.intFitsInType(res, resolved_type, &vector_index))) {
-                        return sema.failWithIntegerOverflow(block, src, resolved_type, res, vector_index);
+                    var overflow_idx: ?usize = null;
+                    const res = try lhs_val.intDiv(rhs_val, resolved_type, &overflow_idx, sema.arena, mod);
+                    if (overflow_idx) |vec_idx| {
+                        return sema.failWithIntegerOverflow(block, src, resolved_type, res, vec_idx);
                     }
                     return sema.addConstant(resolved_type, res);
                 } else {
@@ -13490,10 +13500,10 @@ fn zirDivExact(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                     if (!(modulus_val.compareAllWithZero(.eq, mod))) {
                         return sema.fail(block, src, "exact division produced remainder", .{});
                     }
-                    const res = try lhs_val.intDiv(rhs_val, resolved_type, sema.arena, mod);
-                    var vector_index: usize = undefined;
-                    if (!(try sema.intFitsInType(res, resolved_type, &vector_index))) {
-                        return sema.failWithIntegerOverflow(block, src, resolved_type, res, vector_index);
+                    var overflow_idx: ?usize = null;
+                    const res = try lhs_val.intDiv(rhs_val, resolved_type, &overflow_idx, sema.arena, mod);
+                    if (overflow_idx) |vec_idx| {
+                        return sema.failWithIntegerOverflow(block, src, resolved_type, res, vec_idx);
                     }
                     return sema.addConstant(resolved_type, res);
                 } else {
@@ -13785,10 +13795,10 @@ fn zirDivTrunc(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
 
             if (maybe_rhs_val) |rhs_val| {
                 if (is_int) {
-                    const res = try lhs_val.intDiv(rhs_val, resolved_type, sema.arena, mod);
-                    var vector_index: usize = undefined;
-                    if (!(try sema.intFitsInType(res, resolved_type, &vector_index))) {
-                        return sema.failWithIntegerOverflow(block, src, resolved_type, res, vector_index);
+                    var overflow_idx: ?usize = null;
+                    const res = try lhs_val.intDiv(rhs_val, resolved_type, &overflow_idx, sema.arena, mod);
+                    if (overflow_idx) |vec_idx| {
+                        return sema.failWithIntegerOverflow(block, src, resolved_type, res, vec_idx);
                     }
                     return sema.addConstant(resolved_type, res);
                 } else {
@@ -14651,10 +14661,10 @@ fn analyzeArithmetic(
                     }
                     if (maybe_rhs_val) |rhs_val| {
                         if (is_int) {
-                            const sum = try sema.intAdd(lhs_val, rhs_val, resolved_type);
-                            var vector_index: usize = undefined;
-                            if (!(try sema.intFitsInType(sum, resolved_type, &vector_index))) {
-                                return sema.failWithIntegerOverflow(block, src, resolved_type, sum, vector_index);
+                            var overflow_idx: ?usize = null;
+                            const sum = try sema.intAdd(lhs_val, rhs_val, resolved_type, &overflow_idx);
+                            if (overflow_idx) |vec_idx| {
+                                return sema.failWithIntegerOverflow(block, src, resolved_type, sum, vec_idx);
                             }
                             return sema.addConstant(resolved_type, sum);
                         } else {
@@ -14709,7 +14719,7 @@ fn analyzeArithmetic(
                     }
                     if (maybe_lhs_val) |lhs_val| {
                         const val = if (scalar_tag == .ComptimeInt)
-                            try sema.intAdd(lhs_val, rhs_val, resolved_type)
+                            try sema.intAdd(lhs_val, rhs_val, resolved_type, undefined)
                         else
                             try lhs_val.intAddSat(rhs_val, resolved_type, sema.arena, mod);
 
@@ -14748,10 +14758,10 @@ fn analyzeArithmetic(
                     }
                     if (maybe_rhs_val) |rhs_val| {
                         if (is_int) {
-                            const diff = try sema.intSub(lhs_val, rhs_val, resolved_type);
-                            var vector_index: usize = undefined;
-                            if (!(try sema.intFitsInType(diff, resolved_type, &vector_index))) {
-                                return sema.failWithIntegerOverflow(block, src, resolved_type, diff, vector_index);
+                            var overflow_idx: ?usize = null;
+                            const diff = try sema.intSub(lhs_val, rhs_val, resolved_type, &overflow_idx);
+                            if (overflow_idx) |vec_idx| {
+                                return sema.failWithIntegerOverflow(block, src, resolved_type, diff, vec_idx);
                             }
                             return sema.addConstant(resolved_type, diff);
                         } else {
@@ -14806,7 +14816,7 @@ fn analyzeArithmetic(
                     }
                     if (maybe_rhs_val) |rhs_val| {
                         const val = if (scalar_tag == .ComptimeInt)
-                            try sema.intSub(lhs_val, rhs_val, resolved_type)
+                            try sema.intSub(lhs_val, rhs_val, resolved_type, undefined)
                         else
                             try lhs_val.intSubSat(rhs_val, resolved_type, sema.arena, mod);
 
@@ -14901,10 +14911,10 @@ fn analyzeArithmetic(
                             }
                         }
                         if (is_int) {
-                            const product = try lhs_val.intMul(rhs_val, resolved_type, sema.arena, sema.mod);
-                            var vector_index: usize = undefined;
-                            if (!(try sema.intFitsInType(product, resolved_type, &vector_index))) {
-                                return sema.failWithIntegerOverflow(block, src, resolved_type, product, vector_index);
+                            var overflow_idx: ?usize = null;
+                            const product = try lhs_val.intMul(rhs_val, resolved_type, &overflow_idx, sema.arena, sema.mod);
+                            if (overflow_idx) |vec_idx| {
+                                return sema.failWithIntegerOverflow(block, src, resolved_type, product, vec_idx);
                             }
                             return sema.addConstant(resolved_type, product);
                         } else {
@@ -15008,7 +15018,7 @@ fn analyzeArithmetic(
                         }
 
                         const val = if (scalar_tag == .ComptimeInt)
-                            try lhs_val.intMul(rhs_val, resolved_type, sema.arena, sema.mod)
+                            try lhs_val.intMul(rhs_val, resolved_type, undefined, sema.arena, sema.mod)
                         else
                             try lhs_val.intMulSat(rhs_val, resolved_type, sema.arena, sema.mod);
 
@@ -33117,7 +33127,7 @@ fn semaUnionFields(mod: *Module, union_obj: *Module.Union) CompileError!void {
             }
 
             if (fields_len > 0) {
-                const field_count_val = try mod.intValue(int_tag_ty, fields_len - 1);
+                const field_count_val = try mod.intValue(Type.comptime_int, fields_len - 1);
                 if (!(try sema.intFitsInType(field_count_val, int_tag_ty, null))) {
                     const msg = msg: {
                         const msg = try sema.errMsg(&block_scope, tag_ty_src, "specified integer tag type cannot represent every field", .{});
@@ -33217,7 +33227,7 @@ fn semaUnionFields(mod: *Module, union_obj: *Module.Union) CompileError!void {
                 break :blk val;
             } else blk: {
                 const val = if (last_tag_val) |val|
-                    try sema.intAdd(val, Value.one_comptime_int, int_tag_ty)
+                    try sema.intAdd(val, Value.one_comptime_int, int_tag_ty, undefined)
                 else
                     try mod.intValue(int_tag_ty, 0);
                 last_tag_val = val;
@@ -34435,7 +34445,28 @@ fn queueFullTypeResolution(sema: *Sema, ty: Type) !void {
     try sema.types_to_resolve.put(sema.gpa, ty.toIntern(), {});
 }
 
-fn intAdd(sema: *Sema, lhs: Value, rhs: Value, ty: Type) !Value {
+/// If the value overflowed the type, returns a comptime_int (or vector thereof) instead, setting
+/// overflow_idx to the vector index the overflow was at (or 0 for a scalar).
+fn intAdd(sema: *Sema, lhs: Value, rhs: Value, ty: Type, overflow_idx: *?usize) !Value {
+    var overflow: usize = undefined;
+    return sema.intAddInner(lhs, rhs, ty, &overflow) catch |err| switch (err) {
+        error.Overflow => {
+            const is_vec = ty.isVector(sema.mod);
+            overflow_idx.* = if (is_vec) overflow else 0;
+            const safe_ty = if (is_vec) try sema.mod.vectorType(.{
+                .len = ty.vectorLen(sema.mod),
+                .child = .comptime_int_type,
+            }) else Type.comptime_int;
+            return sema.intAddInner(lhs, rhs, safe_ty, undefined) catch |err1| switch (err1) {
+                error.Overflow => unreachable,
+                else => |e| return e,
+            };
+        },
+        else => |e| return e,
+    };
+}
+
+fn intAddInner(sema: *Sema, lhs: Value, rhs: Value, ty: Type, overflow_idx: *usize) !Value {
     const mod = sema.mod;
     if (ty.zigTypeTag(mod) == .Vector) {
         const result_data = try sema.arena.alloc(InternPool.Index, ty.vectorLen(mod));
@@ -34443,7 +34474,14 @@ fn intAdd(sema: *Sema, lhs: Value, rhs: Value, ty: Type) !Value {
         for (result_data, 0..) |*scalar, i| {
             const lhs_elem = try lhs.elemValue(mod, i);
             const rhs_elem = try rhs.elemValue(mod, i);
-            scalar.* = try (try sema.intAddScalar(lhs_elem, rhs_elem, scalar_ty)).intern(scalar_ty, mod);
+            const val = sema.intAddScalar(lhs_elem, rhs_elem, scalar_ty) catch |err| switch (err) {
+                error.Overflow => {
+                    overflow_idx.* = i;
+                    return error.Overflow;
+                },
+                else => |e| return e,
+            };
+            scalar.* = try val.intern(scalar_ty, mod);
         }
         return (try mod.intern(.{ .aggregate = .{
             .ty = ty.toIntern(),
@@ -34455,6 +34493,11 @@ fn intAdd(sema: *Sema, lhs: Value, rhs: Value, ty: Type) !Value {
 
 fn intAddScalar(sema: *Sema, lhs: Value, rhs: Value, scalar_ty: Type) !Value {
     const mod = sema.mod;
+    if (scalar_ty.toIntern() != .comptime_int_type) {
+        const res = try sema.intAddWithOverflowScalar(lhs, rhs, scalar_ty);
+        if (res.overflow_bit.compareAllWithZero(.neq, mod)) return error.Overflow;
+        return res.wrapped_result;
+    }
     // TODO is this a performance issue? maybe we should try the operation without
     // resorting to BigInt first.
     var lhs_space: Value.BigIntSpace = undefined;
@@ -34467,10 +34510,6 @@ fn intAddScalar(sema: *Sema, lhs: Value, rhs: Value, scalar_ty: Type) !Value {
     );
     var result_bigint = std.math.big.int.Mutable{ .limbs = limbs, .positive = undefined, .len = undefined };
     result_bigint.add(lhs_bigint, rhs_bigint);
-    if (scalar_ty.toIntern() != .comptime_int_type) {
-        const int_info = scalar_ty.intInfo(mod);
-        result_bigint.truncate(result_bigint.toConst(), int_info.signedness, int_info.bits);
-    }
     return mod.intValue_big(scalar_ty, result_bigint.toConst());
 }
 
@@ -34485,7 +34524,7 @@ fn numberAddWrapScalar(
     if (lhs.isUndef(mod) or rhs.isUndef(mod)) return Value.undef;
 
     if (ty.zigTypeTag(mod) == .ComptimeInt) {
-        return sema.intAdd(lhs, rhs, ty);
+        return sema.intAdd(lhs, rhs, ty, undefined);
     }
 
     if (ty.isAnyFloat()) {
@@ -34496,7 +34535,28 @@ fn numberAddWrapScalar(
     return overflow_result.wrapped_result;
 }
 
-fn intSub(sema: *Sema, lhs: Value, rhs: Value, ty: Type) !Value {
+/// If the value overflowed the type, returns a comptime_int (or vector thereof) instead, setting
+/// overflow_idx to the vector index the overflow was at (or 0 for a scalar).
+fn intSub(sema: *Sema, lhs: Value, rhs: Value, ty: Type, overflow_idx: *?usize) !Value {
+    var overflow: usize = undefined;
+    return sema.intSubInner(lhs, rhs, ty, &overflow) catch |err| switch (err) {
+        error.Overflow => {
+            const is_vec = ty.isVector(sema.mod);
+            overflow_idx.* = if (is_vec) overflow else 0;
+            const safe_ty = if (is_vec) try sema.mod.vectorType(.{
+                .len = ty.vectorLen(sema.mod),
+                .child = .comptime_int_type,
+            }) else Type.comptime_int;
+            return sema.intSubInner(lhs, rhs, safe_ty, undefined) catch |err1| switch (err1) {
+                error.Overflow => unreachable,
+                else => |e| return e,
+            };
+        },
+        else => |e| return e,
+    };
+}
+
+fn intSubInner(sema: *Sema, lhs: Value, rhs: Value, ty: Type, overflow_idx: *usize) !Value {
     const mod = sema.mod;
     if (ty.zigTypeTag(mod) == .Vector) {
         const result_data = try sema.arena.alloc(InternPool.Index, ty.vectorLen(mod));
@@ -34504,7 +34564,14 @@ fn intSub(sema: *Sema, lhs: Value, rhs: Value, ty: Type) !Value {
         for (result_data, 0..) |*scalar, i| {
             const lhs_elem = try lhs.elemValue(sema.mod, i);
             const rhs_elem = try rhs.elemValue(sema.mod, i);
-            scalar.* = try (try sema.intSubScalar(lhs_elem, rhs_elem, scalar_ty)).intern(scalar_ty, mod);
+            const val = sema.intSubScalar(lhs_elem, rhs_elem, scalar_ty) catch |err| switch (err) {
+                error.Overflow => {
+                    overflow_idx.* = i;
+                    return error.Overflow;
+                },
+                else => |e| return e,
+            };
+            scalar.* = try val.intern(scalar_ty, mod);
         }
         return (try mod.intern(.{ .aggregate = .{
             .ty = ty.toIntern(),
@@ -34516,6 +34583,11 @@ fn intSub(sema: *Sema, lhs: Value, rhs: Value, ty: Type) !Value {
 
 fn intSubScalar(sema: *Sema, lhs: Value, rhs: Value, scalar_ty: Type) !Value {
     const mod = sema.mod;
+    if (scalar_ty.toIntern() != .comptime_int_type) {
+        const res = try sema.intSubWithOverflowScalar(lhs, rhs, scalar_ty);
+        if (res.overflow_bit.compareAllWithZero(.neq, mod)) return error.Overflow;
+        return res.wrapped_result;
+    }
     // TODO is this a performance issue? maybe we should try the operation without
     // resorting to BigInt first.
     var lhs_space: Value.BigIntSpace = undefined;
@@ -34542,7 +34614,7 @@ fn numberSubWrapScalar(
     if (lhs.isUndef(mod) or rhs.isUndef(mod)) return Value.undef;
 
     if (ty.zigTypeTag(mod) == .ComptimeInt) {
-        return sema.intSub(lhs, rhs, ty);
+        return sema.intSub(lhs, rhs, ty, undefined);
     }
 
     if (ty.isAnyFloat()) {
