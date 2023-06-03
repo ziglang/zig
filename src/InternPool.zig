@@ -69,6 +69,7 @@ const assert = std.debug.assert;
 const BigIntConst = std.math.big.int.Const;
 const BigIntMutable = std.math.big.int.Mutable;
 const Limb = std.math.big.Limb;
+const Hash = std.hash.Wyhash;
 
 const InternPool = @This();
 const Module = @import("Module.zig");
@@ -675,34 +676,34 @@ pub const Key = union(enum) {
             .empty_enum_value,
             .inferred_error_set_type,
             .un,
-            => |x| WyhashKing.hash(seed, asBytes(&x)),
+            => |x| Hash.hash(seed, asBytes(&x)),
 
-            .int_type => |x| WyhashKing.hash(seed + @enumToInt(x.signedness), asBytes(&x.bits)),
-            .union_type => |x| WyhashKing.hash(seed + @enumToInt(x.runtime_tag), asBytes(&x.index)),
+            .int_type => |x| Hash.hash(seed + @enumToInt(x.signedness), asBytes(&x.bits)),
+            .union_type => |x| Hash.hash(seed + @enumToInt(x.runtime_tag), asBytes(&x.index)),
 
             .error_union => |x| switch (x.val) {
-                .err_name => |y| WyhashKing.hash(seed + 0, asBytes(&x.ty) ++ asBytes(&y)),
-                .payload => |y| WyhashKing.hash(seed + 1, asBytes(&x.ty) ++ asBytes(&y)),
+                .err_name => |y| Hash.hash(seed + 0, asBytes(&x.ty) ++ asBytes(&y)),
+                .payload => |y| Hash.hash(seed + 1, asBytes(&x.ty) ++ asBytes(&y)),
             },
 
-            .runtime_value => |x| WyhashKing.hash(seed, asBytes(&x.val)),
-            .opaque_type => |x| WyhashKing.hash(seed, asBytes(&x.decl)),
+            .runtime_value => |x| Hash.hash(seed, asBytes(&x.val)),
+            .opaque_type => |x| Hash.hash(seed, asBytes(&x.decl)),
 
             .enum_type => |enum_type| {
-                var hasher = std.hash.Wyhash.init(seed);
+                var hasher = Hash.init(seed);
                 std.hash.autoHash(&hasher, enum_type.decl);
                 return hasher.final();
             },
 
             .variable => |variable| {
-                var hasher = std.hash.Wyhash.init(seed);
+                var hasher = Hash.init(seed);
                 std.hash.autoHash(&hasher, variable.decl);
                 return hasher.final();
             },
-            .extern_func => |x| WyhashKing.hash(seed, asBytes(&x.ty) ++ asBytes(&x.decl)),
+            .extern_func => |x| Hash.hash(seed, asBytes(&x.ty) ++ asBytes(&x.decl)),
 
             .int => |int| {
-                var hasher = std.hash.Wyhash.init(seed);
+                var hasher = Hash.init(seed);
                 // Canonicalize all integers by converting them to BigIntConst.
                 switch (int.storage) {
                     .u64, .i64, .big_int => {
@@ -725,7 +726,7 @@ pub const Key = union(enum) {
             },
 
             .float => |float| {
-                var hasher = std.hash.Wyhash.init(seed);
+                var hasher = Hash.init(seed);
                 std.hash.autoHash(&hasher, float.ty);
                 switch (float.storage) {
                     inline else => |val| std.hash.autoHash(
@@ -743,19 +744,19 @@ pub const Key = union(enum) {
                 const seed2 = seed + @enumToInt(addr);
                 const common = asBytes(&ptr.ty) ++ asBytes(&ptr.len);
                 return switch (ptr.addr) {
-                    .decl => |x| WyhashKing.hash(seed2, common ++ asBytes(&x)),
+                    .decl => |x| Hash.hash(seed2, common ++ asBytes(&x)),
 
-                    .mut_decl => |x| WyhashKing.hash(
+                    .mut_decl => |x| Hash.hash(
                         seed2,
                         asBytes(&x.decl) ++ asBytes(&x.runtime_index),
                     ),
 
-                    .int, .eu_payload, .opt_payload, .comptime_field => |int| WyhashKing.hash(
+                    .int, .eu_payload, .opt_payload, .comptime_field => |int| Hash.hash(
                         seed2,
                         asBytes(&int),
                     ),
 
-                    .elem, .field => |x| WyhashKing.hash(
+                    .elem, .field => |x| Hash.hash(
                         seed2,
                         asBytes(&x.base) ++ asBytes(&x.index),
                     ),
@@ -763,7 +764,7 @@ pub const Key = union(enum) {
             },
 
             .aggregate => |aggregate| {
-                var hasher = std.hash.Wyhash.init(seed);
+                var hasher = Hash.init(seed);
                 std.hash.autoHash(&hasher, aggregate.ty);
                 const len = ip.aggregateTypeLen(aggregate.ty);
                 const child = switch (ip.indexToKey(aggregate.ty)) {
@@ -823,13 +824,13 @@ pub const Key = union(enum) {
             },
 
             .error_set_type => |error_set_type| {
-                var hasher = std.hash.Wyhash.init(seed);
+                var hasher = Hash.init(seed);
                 for (error_set_type.names) |elem| std.hash.autoHash(&hasher, elem);
                 return hasher.final();
             },
 
             .anon_struct_type => |anon_struct_type| {
-                var hasher = std.hash.Wyhash.init(seed);
+                var hasher = Hash.init(seed);
                 for (anon_struct_type.types) |elem| std.hash.autoHash(&hasher, elem);
                 for (anon_struct_type.values) |elem| std.hash.autoHash(&hasher, elem);
                 for (anon_struct_type.names) |elem| std.hash.autoHash(&hasher, elem);
@@ -837,7 +838,7 @@ pub const Key = union(enum) {
             },
 
             .func_type => |func_type| {
-                var hasher = std.hash.Wyhash.init(seed);
+                var hasher = Hash.init(seed);
                 for (func_type.param_types) |param_type| std.hash.autoHash(&hasher, param_type);
                 std.hash.autoHash(&hasher, func_type.return_type);
                 std.hash.autoHash(&hasher, func_type.comptime_bits);
@@ -851,7 +852,7 @@ pub const Key = union(enum) {
             },
 
             .memoized_call => |memoized_call| {
-                var hasher = std.hash.Wyhash.init(seed);
+                var hasher = Hash.init(seed);
                 std.hash.autoHash(&hasher, memoized_call.func);
                 for (memoized_call.arg_values) |arg| std.hash.autoHash(&hasher, arg);
                 return hasher.final();
@@ -5744,79 +5745,3 @@ pub fn zigTypeTagOrPoison(ip: *const InternPool, index: Index) error{GenericPois
         .none => unreachable, // special tag
     };
 }
-
-/// I got this from King, using this temporarily until std lib hashing can be
-/// improved to make stateless hashing performant. Currently the
-/// implementations suffer from not special casing small lengths and not taking
-/// advantage of comptime-known lengths, both of which this implementation
-/// does.
-const WyhashKing = struct {
-    inline fn mum(pair: *[2]u64) void {
-        const x = @as(u128, pair[0]) *% pair[1];
-        pair[0] = @truncate(u64, x);
-        pair[1] = @truncate(u64, x >> 64);
-    }
-
-    inline fn mix(a: u64, b: u64) u64 {
-        var pair = [_]u64{ a, b };
-        mum(&pair);
-        return pair[0] ^ pair[1];
-    }
-
-    inline fn read(comptime I: type, in: []const u8) I {
-        return std.mem.readIntLittle(I, in[0..@sizeOf(I)]);
-    }
-
-    const secret = [_]u64{
-        0xa0761d6478bd642f,
-        0xe7037ed1a0b428db,
-        0x8ebc6af09c88c6e3,
-        0x589965cc75374cc3,
-    };
-
-    fn hash(seed: u64, input: anytype) u64 {
-        var in: []const u8 = input;
-        var last = std.mem.zeroes([2]u64);
-        const starting_len: u64 = input.len;
-        var state = seed ^ mix(seed ^ secret[0], secret[1]);
-
-        if (in.len <= 16) {
-            if (in.len >= 4) {
-                const end = (in.len >> 3) << 2;
-                last[0] = (@as(u64, read(u32, in)) << 32) | read(u32, in[end..]);
-                last[1] = (@as(u64, read(u32, in[in.len - 4 ..])) << 32) | read(u32, in[in.len - 4 - end ..]);
-            } else if (in.len > 0) {
-                last[0] = (@as(u64, in[0]) << 16) | (@as(u64, in[in.len >> 1]) << 8) | in[in.len - 1];
-            }
-        } else {
-            large: {
-                if (in.len <= 48) break :large;
-                var split = [_]u64{ state, state, state };
-                while (true) {
-                    for (&split, 0..) |*lane, i| {
-                        const a = read(u64, in[(i * 2) * 8 ..]) ^ secret[i + 1];
-                        const b = read(u64, in[((i * 2) + 1) * 8 ..]) ^ lane.*;
-                        lane.* = mix(a, b);
-                    }
-                    in = in[48..];
-                    if (in.len > 48) continue;
-                    state = split[0] ^ (split[1] ^ split[2]);
-                    break :large;
-                }
-            }
-            while (true) {
-                if (in.len <= 16) break;
-                state = mix(read(u64, in) ^ secret[1], read(u64, in[8..]) ^ state);
-                in = in[16..];
-                if (in.len <= 16) break;
-            }
-            last[0] = read(u64, in[in.len - 16 ..]);
-            last[1] = read(u64, in[in.len - 8 ..]);
-        }
-
-        last[0] ^= secret[1];
-        last[1] ^= state;
-        mum(&last);
-        return mix(last[0] ^ secret[0] ^ starting_len, last[1] ^ secret[1]);
-    }
-};
