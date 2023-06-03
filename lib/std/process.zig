@@ -310,7 +310,7 @@ pub fn getEnvMap(allocator: Allocator) !EnvMap {
 
         for (environ) |env| {
             const pair = mem.sliceTo(env, 0);
-            var parts = mem.split(u8, pair, "=");
+            var parts = mem.splitScalar(u8, pair, '=');
             const key = parts.first();
             const value = parts.rest();
             try result.put(key, value);
@@ -1200,7 +1200,7 @@ fn totalSystemMemoryLinux() !usize {
     var buf: [50]u8 = undefined;
     const amt = try file.read(&buf);
     if (amt != 50) return error.Unexpected;
-    var it = std.mem.tokenize(u8, buf[0..amt], " \n");
+    var it = std.mem.tokenizeAny(u8, buf[0..amt], " \n");
     const label = it.next().?;
     if (!std.mem.eql(u8, label, "MemTotal:")) return error.Unexpected;
     const int_text = it.next() orelse return error.Unexpected;

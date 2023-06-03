@@ -1388,7 +1388,7 @@ pub fn findProgram(self: *Build, names: []const []const u8, paths: []const []con
             if (fs.path.isAbsolute(name)) {
                 return name;
             }
-            var it = mem.tokenize(u8, PATH, &[_]u8{fs.path.delimiter});
+            var it = mem.tokenizeScalar(u8, PATH, fs.path.delimiter);
             while (it.next()) |path| {
                 const full_path = self.pathJoin(&.{
                     path,

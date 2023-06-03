@@ -109,7 +109,7 @@ pub fn loadMetaData(gpa: Allocator, contents: []const u8) LoadMetaDataError!*ABI
             const target_name = mem.sliceTo(contents[index..], 0);
             index += target_name.len + 1;
 
-            var component_it = mem.tokenize(u8, target_name, "-");
+            var component_it = mem.tokenizeScalar(u8, target_name, '-');
             const arch_name = component_it.next() orelse {
                 log.err("abilists: expected arch name", .{});
                 return error.ZigInstallationCorrupt;

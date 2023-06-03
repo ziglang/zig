@@ -1958,72 +1958,117 @@ test "byteSwapAllFields" {
     }, k);
 }
 
+/// Deprecated: use `tokenizeAny`, `tokenizeSequence`, or `tokenizeScalar`
+pub const tokenize = tokenizeAny;
+
 /// Returns an iterator that iterates over the slices of `buffer` that are not
-/// any of the bytes in `delimiter_bytes`.
+/// any of the items in `delimiters`.
 ///
-/// `tokenize(u8, "   abc def    ghi  ", " ")` will return slices
+/// `tokenizeAny(u8, "   abc|def ||  ghi  ", " |")` will return slices
 /// for "abc", "def", "ghi", null, in that order.
 ///
 /// If `buffer` is empty, the iterator will return null.
-/// If `delimiter_bytes` does not exist in buffer,
+/// If none of `delimiters` exist in buffer,
 /// the iterator will return `buffer`, null, in that order.
 ///
-/// See also: `split` and `splitBackwards`.
-pub fn tokenize(comptime T: type, buffer: []const T, delimiter_bytes: []const T) TokenIterator(T) {
+/// See also: `tokenizeSequence`, `tokenizeScalar`,
+///           `splitSequence`,`splitAny`, `splitScalar`,
+///           `splitBackwardsSequence`, `splitBackwardsAny`, and `splitBackwardsScalar`
+pub fn tokenizeAny(comptime T: type, buffer: []const T, delimiters: []const T) TokenIterator(T, .any) {
     return .{
         .index = 0,
         .buffer = buffer,
-        .delimiter_bytes = delimiter_bytes,
+        .delimiter = delimiters,
     };
 }
 
-test "tokenize" {
-    var it = tokenize(u8, "   abc def   ghi  ", " ");
+/// Returns an iterator that iterates over the slices of `buffer` that are not
+/// the sequence in `delimiter`.
+///
+/// `tokenizeSequence(u8, "<>abc><def<><>ghi", "<>")` will return slices
+/// for "abc><def", "ghi", null, in that order.
+///
+/// If `buffer` is empty, the iterator will return null.
+/// If `delimiter` does not exist in buffer,
+/// the iterator will return `buffer`, null, in that order.
+/// The delimiter length must not be zero.
+///
+/// See also: `tokenizeAny`, `tokenizeScalar`,
+///           `splitSequence`,`splitAny`, and `splitScalar`
+///           `splitBackwardsSequence`, `splitBackwardsAny`, and `splitBackwardsScalar`
+pub fn tokenizeSequence(comptime T: type, buffer: []const T, delimiter: []const T) TokenIterator(T, .sequence) {
+    assert(delimiter.len != 0);
+    return .{
+        .index = 0,
+        .buffer = buffer,
+        .delimiter = delimiter,
+    };
+}
+
+/// Returns an iterator that iterates over the slices of `buffer` that are not
+/// `delimiter`.
+///
+/// `tokenizeScalar(u8, "   abc def     ghi  ", ' ')` will return slices
+/// for "abc", "def", "ghi", null, in that order.
+///
+/// If `buffer` is empty, the iterator will return null.
+/// If `delimiter` does not exist in buffer,
+/// the iterator will return `buffer`, null, in that order.
+///
+/// See also: `tokenizeAny`, `tokenizeSequence`,
+///           `splitSequence`,`splitAny`, and `splitScalar`
+///           `splitBackwardsSequence`, `splitBackwardsAny`, and `splitBackwardsScalar`
+pub fn tokenizeScalar(comptime T: type, buffer: []const T, delimiter: T) TokenIterator(T, .scalar) {
+    return .{
+        .index = 0,
+        .buffer = buffer,
+        .delimiter = delimiter,
+    };
+}
+
+test "tokenizeScalar" {
+    var it = tokenizeScalar(u8, "   abc def   ghi  ", ' ');
     try testing.expect(eql(u8, it.next().?, "abc"));
     try testing.expect(eql(u8, it.peek().?, "def"));
     try testing.expect(eql(u8, it.next().?, "def"));
     try testing.expect(eql(u8, it.next().?, "ghi"));
     try testing.expect(it.next() == null);
 
-    it = tokenize(u8, "..\\bob", "\\");
+    it = tokenizeScalar(u8, "..\\bob", '\\');
     try testing.expect(eql(u8, it.next().?, ".."));
     try testing.expect(eql(u8, "..", "..\\bob"[0..it.index]));
     try testing.expect(eql(u8, it.next().?, "bob"));
     try testing.expect(it.next() == null);
 
-    it = tokenize(u8, "//a/b", "/");
+    it = tokenizeScalar(u8, "//a/b", '/');
     try testing.expect(eql(u8, it.next().?, "a"));
     try testing.expect(eql(u8, it.next().?, "b"));
     try testing.expect(eql(u8, "//a/b", "//a/b"[0..it.index]));
     try testing.expect(it.next() == null);
 
-    it = tokenize(u8, "|", "|");
+    it = tokenizeScalar(u8, "|", '|');
     try testing.expect(it.next() == null);
     try testing.expect(it.peek() == null);
 
-    it = tokenize(u8, "", "|");
+    it = tokenizeScalar(u8, "", '|');
     try testing.expect(it.next() == null);
     try testing.expect(it.peek() == null);
 
-    it = tokenize(u8, "hello", "");
+    it = tokenizeScalar(u8, "hello", ' ');
     try testing.expect(eql(u8, it.next().?, "hello"));
     try testing.expect(it.next() == null);
 
-    it = tokenize(u8, "hello", " ");
-    try testing.expect(eql(u8, it.next().?, "hello"));
-    try testing.expect(it.next() == null);
-
-    var it16 = tokenize(
+    var it16 = tokenizeScalar(
         u16,
         std.unicode.utf8ToUtf16LeStringLiteral("hello"),
-        std.unicode.utf8ToUtf16LeStringLiteral(" "),
+        ' ',
     );
     try testing.expect(eql(u16, it16.next().?, std.unicode.utf8ToUtf16LeStringLiteral("hello")));
     try testing.expect(it16.next() == null);
 }
 
-test "tokenize (multibyte)" {
-    var it = tokenize(u8, "a|b,c/d e", " /,|");
+test "tokenizeAny" {
+    var it = tokenizeAny(u8, "a|b,c/d e", " /,|");
     try testing.expect(eql(u8, it.next().?, "a"));
     try testing.expect(eql(u8, it.peek().?, "b"));
     try testing.expect(eql(u8, it.next().?, "b"));
@@ -2033,7 +2078,11 @@ test "tokenize (multibyte)" {
     try testing.expect(it.next() == null);
     try testing.expect(it.peek() == null);
 
-    var it16 = tokenize(
+    it = tokenizeAny(u8, "hello", "");
+    try testing.expect(eql(u8, it.next().?, "hello"));
+    try testing.expect(it.next() == null);
+
+    var it16 = tokenizeAny(
         u16,
         std.unicode.utf8ToUtf16LeStringLiteral("a|b,c/d e"),
         std.unicode.utf8ToUtf16LeStringLiteral(" /,|"),
@@ -2046,32 +2095,87 @@ test "tokenize (multibyte)" {
     try testing.expect(it16.next() == null);
 }
 
-test "tokenize (reset)" {
-    var it = tokenize(u8, "   abc def   ghi  ", " ");
-    try testing.expect(eql(u8, it.next().?, "abc"));
-    try testing.expect(eql(u8, it.next().?, "def"));
-    try testing.expect(eql(u8, it.next().?, "ghi"));
-
-    it.reset();
-
-    try testing.expect(eql(u8, it.next().?, "abc"));
-    try testing.expect(eql(u8, it.next().?, "def"));
-    try testing.expect(eql(u8, it.next().?, "ghi"));
+test "tokenizeSequence" {
+    var it = tokenizeSequence(u8, "a<>b<><>c><>d><", "<>");
+    try testing.expectEqualStrings("a", it.next().?);
+    try testing.expectEqualStrings("b", it.peek().?);
+    try testing.expectEqualStrings("b", it.next().?);
+    try testing.expectEqualStrings("c>", it.next().?);
+    try testing.expectEqualStrings("d><", it.next().?);
     try testing.expect(it.next() == null);
+    try testing.expect(it.peek() == null);
+
+    var it16 = tokenizeSequence(
+        u16,
+        std.unicode.utf8ToUtf16LeStringLiteral("a<>b<><>c><>d><"),
+        std.unicode.utf8ToUtf16LeStringLiteral("<>"),
+    );
+    try testing.expect(eql(u16, it16.next().?, std.unicode.utf8ToUtf16LeStringLiteral("a")));
+    try testing.expect(eql(u16, it16.next().?, std.unicode.utf8ToUtf16LeStringLiteral("b")));
+    try testing.expect(eql(u16, it16.next().?, std.unicode.utf8ToUtf16LeStringLiteral("c>")));
+    try testing.expect(eql(u16, it16.next().?, std.unicode.utf8ToUtf16LeStringLiteral("d><")));
+    try testing.expect(it16.next() == null);
 }
 
+test "tokenize (reset)" {
+    {
+        var it = tokenizeAny(u8, "   abc def   ghi  ", " ");
+        try testing.expect(eql(u8, it.next().?, "abc"));
+        try testing.expect(eql(u8, it.next().?, "def"));
+        try testing.expect(eql(u8, it.next().?, "ghi"));
+
+        it.reset();
+
+        try testing.expect(eql(u8, it.next().?, "abc"));
+        try testing.expect(eql(u8, it.next().?, "def"));
+        try testing.expect(eql(u8, it.next().?, "ghi"));
+        try testing.expect(it.next() == null);
+    }
+    {
+        var it = tokenizeSequence(u8, "<><>abc<>def<><>ghi<>", "<>");
+        try testing.expect(eql(u8, it.next().?, "abc"));
+        try testing.expect(eql(u8, it.next().?, "def"));
+        try testing.expect(eql(u8, it.next().?, "ghi"));
+
+        it.reset();
+
+        try testing.expect(eql(u8, it.next().?, "abc"));
+        try testing.expect(eql(u8, it.next().?, "def"));
+        try testing.expect(eql(u8, it.next().?, "ghi"));
+        try testing.expect(it.next() == null);
+    }
+    {
+        var it = tokenizeScalar(u8, "   abc def   ghi  ", ' ');
+        try testing.expect(eql(u8, it.next().?, "abc"));
+        try testing.expect(eql(u8, it.next().?, "def"));
+        try testing.expect(eql(u8, it.next().?, "ghi"));
+
+        it.reset();
+
+        try testing.expect(eql(u8, it.next().?, "abc"));
+        try testing.expect(eql(u8, it.next().?, "def"));
+        try testing.expect(eql(u8, it.next().?, "ghi"));
+        try testing.expect(it.next() == null);
+    }
+}
+
+/// Deprecated: use `splitSequence`, `splitAny`, or `splitScalar`
+pub const split = splitSequence;
+
 /// Returns an iterator that iterates over the slices of `buffer` that
-/// are separated by bytes in `delimiter`.
+/// are separated by the byte sequence in `delimiter`.
 ///
-/// `split(u8, "abc|def||ghi", "|")` will return slices
+/// `splitSequence(u8, "abc||def||||ghi", "||")` will return slices
 /// for "abc", "def", "", "ghi", null, in that order.
 ///
 /// If `delimiter` does not exist in buffer,
 /// the iterator will return `buffer`, null, in that order.
 /// The delimiter length must not be zero.
 ///
-/// See also: `tokenize` and `splitBackwards`.
-pub fn split(comptime T: type, buffer: []const T, delimiter: []const T) SplitIterator(T) {
+/// See also: `splitAny`, `splitScalar`, `splitBackwardsSequence`,
+///           `splitBackwardsAny`,`splitBackwardsScalar`,
+///           `tokenizeAny`, `tokenizeSequence`, and `tokenizeScalar`.
+pub fn splitSequence(comptime T: type, buffer: []const T, delimiter: []const T) SplitIterator(T, .sequence) {
     assert(delimiter.len != 0);
     return .{
         .index = 0,
@@ -2080,8 +2184,48 @@ pub fn split(comptime T: type, buffer: []const T, delimiter: []const T) SplitIte
     };
 }
 
-test "split" {
-    var it = split(u8, "abc|def||ghi", "|");
+/// Returns an iterator that iterates over the slices of `buffer` that
+/// are separated by any item in `delimiters`.
+///
+/// `splitAny(u8, "abc,def||ghi", "|,")` will return slices
+/// for "abc", "def", "", "ghi", null, in that order.
+///
+/// If none of `delimiters` exist in buffer,
+/// the iterator will return `buffer`, null, in that order.
+///
+/// See also: `splitSequence`, `splitScalar`, `splitBackwardsSequence`,
+///           `splitBackwardsAny`,`splitBackwardsScalar`,
+///           `tokenizeAny`, `tokenizeSequence`, and `tokenizeScalar`.
+pub fn splitAny(comptime T: type, buffer: []const T, delimiters: []const T) SplitIterator(T, .any) {
+    return .{
+        .index = 0,
+        .buffer = buffer,
+        .delimiter = delimiters,
+    };
+}
+
+/// Returns an iterator that iterates over the slices of `buffer` that
+/// are separated by `delimiter`.
+///
+/// `splitScalar(u8, "abc|def||ghi", '|')` will return slices
+/// for "abc", "def", "", "ghi", null, in that order.
+///
+/// If `delimiter` does not exist in buffer,
+/// the iterator will return `buffer`, null, in that order.
+///
+/// See also: `splitSequence`, `splitAny`, `splitBackwardsSequence`,
+///           `splitBackwardsAny`,`splitBackwardsScalar`,
+///           `tokenizeAny`, `tokenizeSequence`, and `tokenizeScalar`.
+pub fn splitScalar(comptime T: type, buffer: []const T, delimiter: T) SplitIterator(T, .scalar) {
+    return .{
+        .index = 0,
+        .buffer = buffer,
+        .delimiter = delimiter,
+    };
+}
+
+test "splitScalar" {
+    var it = splitScalar(u8, "abc|def||ghi", '|');
     try testing.expectEqualSlices(u8, it.rest(), "abc|def||ghi");
     try testing.expectEqualSlices(u8, it.first(), "abc");
 
@@ -2097,30 +2241,30 @@ test "split" {
     try testing.expectEqualSlices(u8, it.rest(), "");
     try testing.expect(it.next() == null);
 
-    it = split(u8, "", "|");
+    it = splitScalar(u8, "", '|');
     try testing.expectEqualSlices(u8, it.first(), "");
     try testing.expect(it.next() == null);
 
-    it = split(u8, "|", "|");
+    it = splitScalar(u8, "|", '|');
     try testing.expectEqualSlices(u8, it.first(), "");
     try testing.expectEqualSlices(u8, it.next().?, "");
     try testing.expect(it.next() == null);
 
-    it = split(u8, "hello", " ");
+    it = splitScalar(u8, "hello", ' ');
     try testing.expectEqualSlices(u8, it.first(), "hello");
     try testing.expect(it.next() == null);
 
-    var it16 = split(
+    var it16 = splitScalar(
         u16,
         std.unicode.utf8ToUtf16LeStringLiteral("hello"),
-        std.unicode.utf8ToUtf16LeStringLiteral(" "),
+        ' ',
     );
     try testing.expectEqualSlices(u16, it16.first(), std.unicode.utf8ToUtf16LeStringLiteral("hello"));
     try testing.expect(it16.next() == null);
 }
 
-test "split (multibyte)" {
-    var it = split(u8, "a, b ,, c, d, e", ", ");
+test "splitSequence" {
+    var it = splitSequence(u8, "a, b ,, c, d, e", ", ");
     try testing.expectEqualSlices(u8, it.first(), "a");
     try testing.expectEqualSlices(u8, it.rest(), "b ,, c, d, e");
     try testing.expectEqualSlices(u8, it.next().?, "b ,");
@@ -2129,7 +2273,7 @@ test "split (multibyte)" {
     try testing.expectEqualSlices(u8, it.next().?, "e");
     try testing.expect(it.next() == null);
 
-    var it16 = split(
+    var it16 = splitSequence(
         u16,
         std.unicode.utf8ToUtf16LeStringLiteral("a, b ,, c, d, e"),
         std.unicode.utf8ToUtf16LeStringLiteral(", "),
@@ -2142,42 +2286,144 @@ test "split (multibyte)" {
     try testing.expect(it16.next() == null);
 }
 
-test "split (reset)" {
-    var it = split(u8, "abc def ghi", " ");
-    try testing.expect(eql(u8, it.first(), "abc"));
-    try testing.expect(eql(u8, it.next().?, "def"));
-    try testing.expect(eql(u8, it.next().?, "ghi"));
-
-    it.reset();
-
-    try testing.expect(eql(u8, it.first(), "abc"));
-    try testing.expect(eql(u8, it.next().?, "def"));
-    try testing.expect(eql(u8, it.next().?, "ghi"));
+test "splitAny" {
+    var it = splitAny(u8, "a,b, c d e", ", ");
+    try testing.expectEqualSlices(u8, it.first(), "a");
+    try testing.expectEqualSlices(u8, it.rest(), "b, c d e");
+    try testing.expectEqualSlices(u8, it.next().?, "b");
+    try testing.expectEqualSlices(u8, it.next().?, "");
+    try testing.expectEqualSlices(u8, it.next().?, "c");
+    try testing.expectEqualSlices(u8, it.next().?, "d");
+    try testing.expectEqualSlices(u8, it.next().?, "e");
     try testing.expect(it.next() == null);
+
+    it = splitAny(u8, "hello", "");
+    try testing.expect(eql(u8, it.next().?, "hello"));
+    try testing.expect(it.next() == null);
+
+    var it16 = splitAny(
+        u16,
+        std.unicode.utf8ToUtf16LeStringLiteral("a,b, c d e"),
+        std.unicode.utf8ToUtf16LeStringLiteral(", "),
+    );
+    try testing.expectEqualSlices(u16, it16.first(), std.unicode.utf8ToUtf16LeStringLiteral("a"));
+    try testing.expectEqualSlices(u16, it16.next().?, std.unicode.utf8ToUtf16LeStringLiteral("b"));
+    try testing.expectEqualSlices(u16, it16.next().?, std.unicode.utf8ToUtf16LeStringLiteral(""));
+    try testing.expectEqualSlices(u16, it16.next().?, std.unicode.utf8ToUtf16LeStringLiteral("c"));
+    try testing.expectEqualSlices(u16, it16.next().?, std.unicode.utf8ToUtf16LeStringLiteral("d"));
+    try testing.expectEqualSlices(u16, it16.next().?, std.unicode.utf8ToUtf16LeStringLiteral("e"));
+    try testing.expect(it16.next() == null);
 }
 
-/// Returns an iterator that iterates backwards over the slices of `buffer`
-/// that are separated by bytes in `delimiter`.
+test "split (reset)" {
+    {
+        var it = splitSequence(u8, "abc def ghi", " ");
+        try testing.expect(eql(u8, it.first(), "abc"));
+        try testing.expect(eql(u8, it.next().?, "def"));
+        try testing.expect(eql(u8, it.next().?, "ghi"));
+
+        it.reset();
+
+        try testing.expect(eql(u8, it.first(), "abc"));
+        try testing.expect(eql(u8, it.next().?, "def"));
+        try testing.expect(eql(u8, it.next().?, "ghi"));
+        try testing.expect(it.next() == null);
+    }
+    {
+        var it = splitAny(u8, "abc def,ghi", " ,");
+        try testing.expect(eql(u8, it.first(), "abc"));
+        try testing.expect(eql(u8, it.next().?, "def"));
+        try testing.expect(eql(u8, it.next().?, "ghi"));
+
+        it.reset();
+
+        try testing.expect(eql(u8, it.first(), "abc"));
+        try testing.expect(eql(u8, it.next().?, "def"));
+        try testing.expect(eql(u8, it.next().?, "ghi"));
+        try testing.expect(it.next() == null);
+    }
+    {
+        var it = splitScalar(u8, "abc def ghi", ' ');
+        try testing.expect(eql(u8, it.first(), "abc"));
+        try testing.expect(eql(u8, it.next().?, "def"));
+        try testing.expect(eql(u8, it.next().?, "ghi"));
+
+        it.reset();
+
+        try testing.expect(eql(u8, it.first(), "abc"));
+        try testing.expect(eql(u8, it.next().?, "def"));
+        try testing.expect(eql(u8, it.next().?, "ghi"));
+        try testing.expect(it.next() == null);
+    }
+}
+
+/// Deprecated: use `splitBackwardsSequence`, `splitBackwardsAny`, or `splitBackwardsScalar`
+pub const splitBackwards = splitBackwardsSequence;
+
+/// Returns an iterator that iterates backwards over the slices of `buffer` that
+/// are separated by the sequence in `delimiter`.
 ///
-/// `splitBackwards(u8, "abc|def||ghi", "|")` will return slices
+/// `splitBackwardsSequence(u8, "abc||def||||ghi", "||")` will return slices
 /// for "ghi", "", "def", "abc", null, in that order.
 ///
 /// If `delimiter` does not exist in buffer,
 /// the iterator will return `buffer`, null, in that order.
 /// The delimiter length must not be zero.
 ///
-/// See also: `tokenize` and `split`.
-pub fn splitBackwards(comptime T: type, buffer: []const T, delimiter: []const T) SplitBackwardsIterator(T) {
+/// See also: `splitBackwardsAny`, `splitBackwardsScalar`,
+///           `splitSequence`, `splitAny`,`splitScalar`,
+///           `tokenizeAny`, `tokenizeSequence`, and `tokenizeScalar`.
+pub fn splitBackwardsSequence(comptime T: type, buffer: []const T, delimiter: []const T) SplitBackwardsIterator(T, .sequence) {
     assert(delimiter.len != 0);
-    return SplitBackwardsIterator(T){
+    return .{
         .index = buffer.len,
         .buffer = buffer,
         .delimiter = delimiter,
     };
 }
 
-test "splitBackwards" {
-    var it = splitBackwards(u8, "abc|def||ghi", "|");
+/// Returns an iterator that iterates backwards over the slices of `buffer` that
+/// are separated by any item in `delimiters`.
+///
+/// `splitBackwardsAny(u8, "abc,def||ghi", "|,")` will return slices
+/// for "ghi", "", "def", "abc", null, in that order.
+///
+/// If none of `delimiters` exist in buffer,
+/// the iterator will return `buffer`, null, in that order.
+///
+/// See also: `splitBackwardsSequence`, `splitBackwardsScalar`,
+///           `splitSequence`, `splitAny`,`splitScalar`,
+///           `tokenizeAny`, `tokenizeSequence`, and `tokenizeScalar`.
+pub fn splitBackwardsAny(comptime T: type, buffer: []const T, delimiters: []const T) SplitBackwardsIterator(T, .any) {
+    return .{
+        .index = buffer.len,
+        .buffer = buffer,
+        .delimiter = delimiters,
+    };
+}
+
+/// Returns an iterator that iterates backwards over the slices of `buffer` that
+/// are separated by `delimiter`.
+///
+/// `splitBackwardsScalar(u8, "abc|def||ghi", '|')` will return slices
+/// for "ghi", "", "def", "abc", null, in that order.
+///
+/// If `delimiter` does not exist in buffer,
+/// the iterator will return `buffer`, null, in that order.
+///
+/// See also: `splitBackwardsSequence`, `splitBackwardsAny`,
+///           `splitSequence`, `splitAny`,`splitScalar`,
+///           `tokenizeAny`, `tokenizeSequence`, and `tokenizeScalar`.
+pub fn splitBackwardsScalar(comptime T: type, buffer: []const T, delimiter: T) SplitBackwardsIterator(T, .scalar) {
+    return .{
+        .index = buffer.len,
+        .buffer = buffer,
+        .delimiter = delimiter,
+    };
+}
+
+test "splitBackwardsScalar" {
+    var it = splitBackwardsScalar(u8, "abc|def||ghi", '|');
     try testing.expectEqualSlices(u8, it.rest(), "abc|def||ghi");
     try testing.expectEqualSlices(u8, it.first(), "ghi");
 
@@ -2193,30 +2439,30 @@ test "splitBackwards" {
     try testing.expectEqualSlices(u8, it.rest(), "");
     try testing.expect(it.next() == null);
 
-    it = splitBackwards(u8, "", "|");
+    it = splitBackwardsScalar(u8, "", '|');
     try testing.expectEqualSlices(u8, it.first(), "");
     try testing.expect(it.next() == null);
 
-    it = splitBackwards(u8, "|", "|");
+    it = splitBackwardsScalar(u8, "|", '|');
     try testing.expectEqualSlices(u8, it.first(), "");
     try testing.expectEqualSlices(u8, it.next().?, "");
     try testing.expect(it.next() == null);
 
-    it = splitBackwards(u8, "hello", " ");
+    it = splitBackwardsScalar(u8, "hello", ' ');
     try testing.expectEqualSlices(u8, it.first(), "hello");
     try testing.expect(it.next() == null);
 
-    var it16 = splitBackwards(
+    var it16 = splitBackwardsScalar(
         u16,
         std.unicode.utf8ToUtf16LeStringLiteral("hello"),
-        std.unicode.utf8ToUtf16LeStringLiteral(" "),
+        ' ',
     );
     try testing.expectEqualSlices(u16, it16.first(), std.unicode.utf8ToUtf16LeStringLiteral("hello"));
     try testing.expect(it16.next() == null);
 }
 
-test "splitBackwards (multibyte)" {
-    var it = splitBackwards(u8, "a, b ,, c, d, e", ", ");
+test "splitBackwardsSequence" {
+    var it = splitBackwardsSequence(u8, "a, b ,, c, d, e", ", ");
     try testing.expectEqualSlices(u8, it.rest(), "a, b ,, c, d, e");
     try testing.expectEqualSlices(u8, it.first(), "e");
 
@@ -2235,7 +2481,7 @@ test "splitBackwards (multibyte)" {
     try testing.expectEqualSlices(u8, it.rest(), "");
     try testing.expect(it.next() == null);
 
-    var it16 = splitBackwards(
+    var it16 = splitBackwardsSequence(
         u16,
         std.unicode.utf8ToUtf16LeStringLiteral("a, b ,, c, d, e"),
         std.unicode.utf8ToUtf16LeStringLiteral(", "),
@@ -2248,18 +2494,83 @@ test "splitBackwards (multibyte)" {
     try testing.expect(it16.next() == null);
 }
 
-test "splitBackwards (reset)" {
-    var it = splitBackwards(u8, "abc def ghi", " ");
-    try testing.expect(eql(u8, it.first(), "ghi"));
-    try testing.expect(eql(u8, it.next().?, "def"));
-    try testing.expect(eql(u8, it.next().?, "abc"));
+test "splitBackwardsAny" {
+    var it = splitBackwardsAny(u8, "a,b, c d e", ", ");
+    try testing.expectEqualSlices(u8, it.rest(), "a,b, c d e");
+    try testing.expectEqualSlices(u8, it.first(), "e");
 
-    it.reset();
+    try testing.expectEqualSlices(u8, it.rest(), "a,b, c d");
+    try testing.expectEqualSlices(u8, it.next().?, "d");
 
-    try testing.expect(eql(u8, it.first(), "ghi"));
-    try testing.expect(eql(u8, it.next().?, "def"));
-    try testing.expect(eql(u8, it.next().?, "abc"));
+    try testing.expectEqualSlices(u8, it.rest(), "a,b, c");
+    try testing.expectEqualSlices(u8, it.next().?, "c");
+
+    try testing.expectEqualSlices(u8, it.rest(), "a,b,");
+    try testing.expectEqualSlices(u8, it.next().?, "");
+
+    try testing.expectEqualSlices(u8, it.rest(), "a,b");
+    try testing.expectEqualSlices(u8, it.next().?, "b");
+
+    try testing.expectEqualSlices(u8, it.rest(), "a");
+    try testing.expectEqualSlices(u8, it.next().?, "a");
+
+    try testing.expectEqualSlices(u8, it.rest(), "");
     try testing.expect(it.next() == null);
+
+    var it16 = splitBackwardsAny(
+        u16,
+        std.unicode.utf8ToUtf16LeStringLiteral("a,b, c d e"),
+        std.unicode.utf8ToUtf16LeStringLiteral(", "),
+    );
+    try testing.expectEqualSlices(u16, it16.first(), std.unicode.utf8ToUtf16LeStringLiteral("e"));
+    try testing.expectEqualSlices(u16, it16.next().?, std.unicode.utf8ToUtf16LeStringLiteral("d"));
+    try testing.expectEqualSlices(u16, it16.next().?, std.unicode.utf8ToUtf16LeStringLiteral("c"));
+    try testing.expectEqualSlices(u16, it16.next().?, std.unicode.utf8ToUtf16LeStringLiteral(""));
+    try testing.expectEqualSlices(u16, it16.next().?, std.unicode.utf8ToUtf16LeStringLiteral("b"));
+    try testing.expectEqualSlices(u16, it16.next().?, std.unicode.utf8ToUtf16LeStringLiteral("a"));
+    try testing.expect(it16.next() == null);
+}
+
+test "splitBackwards (reset)" {
+    {
+        var it = splitBackwardsSequence(u8, "abc def ghi", " ");
+        try testing.expect(eql(u8, it.first(), "ghi"));
+        try testing.expect(eql(u8, it.next().?, "def"));
+        try testing.expect(eql(u8, it.next().?, "abc"));
+
+        it.reset();
+
+        try testing.expect(eql(u8, it.first(), "ghi"));
+        try testing.expect(eql(u8, it.next().?, "def"));
+        try testing.expect(eql(u8, it.next().?, "abc"));
+        try testing.expect(it.next() == null);
+    }
+    {
+        var it = splitBackwardsAny(u8, "abc def,ghi", " ,");
+        try testing.expect(eql(u8, it.first(), "ghi"));
+        try testing.expect(eql(u8, it.next().?, "def"));
+        try testing.expect(eql(u8, it.next().?, "abc"));
+
+        it.reset();
+
+        try testing.expect(eql(u8, it.first(), "ghi"));
+        try testing.expect(eql(u8, it.next().?, "def"));
+        try testing.expect(eql(u8, it.next().?, "abc"));
+        try testing.expect(it.next() == null);
+    }
+    {
+        var it = splitBackwardsScalar(u8, "abc def ghi", ' ');
+        try testing.expect(eql(u8, it.first(), "ghi"));
+        try testing.expect(eql(u8, it.next().?, "def"));
+        try testing.expect(eql(u8, it.next().?, "abc"));
+
+        it.reset();
+
+        try testing.expect(eql(u8, it.first(), "ghi"));
+        try testing.expect(eql(u8, it.next().?, "def"));
+        try testing.expect(eql(u8, it.next().?, "abc"));
+        try testing.expect(it.next() == null);
+    }
 }
 
 /// Returns an iterator with a sliding window of slices for `buffer`.
@@ -2430,10 +2741,15 @@ test "endsWith" {
     try testing.expect(!endsWith(u8, "Bob", "Bo"));
 }
 
-pub fn TokenIterator(comptime T: type) type {
+pub const DelimiterType = enum { sequence, any, scalar };
+
+pub fn TokenIterator(comptime T: type, comptime delimiter_type: DelimiterType) type {
     return struct {
         buffer: []const T,
-        delimiter_bytes: []const T,
+        delimiter: switch (delimiter_type) {
+            .sequence, .any => []const T,
+            .scalar => T,
+        },
         index: usize,
 
         const Self = @This();
@@ -2450,7 +2766,10 @@ pub fn TokenIterator(comptime T: type) type {
         /// complete. Does not advance to the next token.
         pub fn peek(self: *Self) ?[]const T {
             // move to beginning of token
-            while (self.index < self.buffer.len and self.isSplitByte(self.buffer[self.index])) : (self.index += 1) {}
+            while (self.index < self.buffer.len and self.isDelimiter(self.index)) : (self.index += switch (delimiter_type) {
+                .sequence => self.delimiter.len,
+                .any, .scalar => 1,
+            }) {}
             const start = self.index;
             if (start == self.buffer.len) {
                 return null;
@@ -2458,7 +2777,7 @@ pub fn TokenIterator(comptime T: type) type {
 
             // move to end of token
             var end = start;
-            while (end < self.buffer.len and !self.isSplitByte(self.buffer[end])) : (end += 1) {}
+            while (end < self.buffer.len and !self.isDelimiter(end)) : (end += 1) {}
 
             return self.buffer[start..end];
         }
@@ -2467,7 +2786,10 @@ pub fn TokenIterator(comptime T: type) type {
         pub fn rest(self: Self) []const T {
             // move to beginning of token
             var index: usize = self.index;
-            while (index < self.buffer.len and self.isSplitByte(self.buffer[index])) : (index += 1) {}
+            while (index < self.buffer.len and self.isDelimiter(index)) : (index += switch (delimiter_type) {
+                .sequence => self.delimiter.len,
+                .any, .scalar => 1,
+            }) {}
             return self.buffer[index..];
         }
 
@@ -2476,22 +2798,32 @@ pub fn TokenIterator(comptime T: type) type {
             self.index = 0;
         }
 
-        fn isSplitByte(self: Self, byte: T) bool {
-            for (self.delimiter_bytes) |delimiter_byte| {
-                if (byte == delimiter_byte) {
-                    return true;
-                }
+        fn isDelimiter(self: Self, index: usize) bool {
+            switch (delimiter_type) {
+                .sequence => return startsWith(T, self.buffer[index..], self.delimiter),
+                .any => {
+                    const item = self.buffer[index];
+                    for (self.delimiter) |delimiter_item| {
+                        if (item == delimiter_item) {
+                            return true;
+                        }
+                    }
+                    return false;
+                },
+                .scalar => return self.buffer[index] == self.delimiter,
             }
-            return false;
         }
     };
 }
 
-pub fn SplitIterator(comptime T: type) type {
+pub fn SplitIterator(comptime T: type, comptime delimiter_type: DelimiterType) type {
     return struct {
         buffer: []const T,
         index: ?usize,
-        delimiter: []const T,
+        delimiter: switch (delimiter_type) {
+            .sequence, .any => []const T,
+            .scalar => T,
+        },
 
         const Self = @This();
 
@@ -2505,8 +2837,15 @@ pub fn SplitIterator(comptime T: type) type {
         /// Returns a slice of the next field, or null if splitting is complete.
         pub fn next(self: *Self) ?[]const T {
             const start = self.index orelse return null;
-            const end = if (indexOfPos(T, self.buffer, start, self.delimiter)) |delim_start| blk: {
-                self.index = delim_start + self.delimiter.len;
+            const end = if (switch (delimiter_type) {
+                .sequence => indexOfPos(T, self.buffer, start, self.delimiter),
+                .any => indexOfAnyPos(T, self.buffer, start, self.delimiter),
+                .scalar => indexOfScalarPos(T, self.buffer, start, self.delimiter),
+            }) |delim_start| blk: {
+                self.index = delim_start + switch (delimiter_type) {
+                    .sequence => self.delimiter.len,
+                    .any, .scalar => 1,
+                };
                 break :blk delim_start;
             } else blk: {
                 self.index = null;
@@ -2529,11 +2868,14 @@ pub fn SplitIterator(comptime T: type) type {
     };
 }
 
-pub fn SplitBackwardsIterator(comptime T: type) type {
+pub fn SplitBackwardsIterator(comptime T: type, comptime delimiter_type: DelimiterType) type {
     return struct {
         buffer: []const T,
         index: ?usize,
-        delimiter: []const T,
+        delimiter: switch (delimiter_type) {
+            .sequence, .any => []const T,
+            .scalar => T,
+        },
 
         const Self = @This();
 
@@ -2547,9 +2889,16 @@ pub fn SplitBackwardsIterator(comptime T: type) type {
         /// Returns a slice of the next field, or null if splitting is complete.
         pub fn next(self: *Self) ?[]const T {
             const end = self.index orelse return null;
-            const start = if (lastIndexOf(T, self.buffer[0..end], self.delimiter)) |delim_start| blk: {
+            const start = if (switch (delimiter_type) {
+                .sequence => lastIndexOf(T, self.buffer[0..end], self.delimiter),
+                .any => lastIndexOfAny(T, self.buffer[0..end], self.delimiter),
+                .scalar => lastIndexOfScalar(T, self.buffer[0..end], self.delimiter),
+            }) |delim_start| blk: {
                 self.index = delim_start;
-                break :blk delim_start + self.delimiter.len;
+                break :blk delim_start + switch (delimiter_type) {
+                    .sequence => self.delimiter.len,
+                    .any, .scalar => 1,
+                };
             } else blk: {
                 self.index = null;
                 break :blk 0;

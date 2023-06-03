@@ -4950,7 +4950,7 @@ fn findGuidePaths(self: *Autodoc, file: *File, str: []const u8) ![]const u8 {
 
     // TODO: this algo is kinda inefficient
 
-    var it = std.mem.split(u8, str, "\n");
+    var it = std.mem.splitScalar(u8, str, '\n');
     while (it.next()) |line| {
         const trimmed_line = std.mem.trim(u8, line, " ");
         if (std.mem.startsWith(u8, trimmed_line, guide_prefix)) {

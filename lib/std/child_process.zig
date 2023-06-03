@@ -850,7 +850,7 @@ pub const ChildProcess = struct {
                     return original_err;
                 }
 
-                var it = mem.tokenize(u16, PATH, &[_]u16{';'});
+                var it = mem.tokenizeScalar(u16, PATH, ';');
                 while (it.next()) |search_path| {
                     dir_buf.clearRetainingCapacity();
                     try dir_buf.appendSlice(self.allocator, search_path);
@@ -1064,7 +1064,7 @@ fn windowsCreateProcessPathExt(
     // Now we know that at least *a* file matching the wildcard exists, we can loop
     // through PATHEXT in order and exec any that exist
 
-    var ext_it = mem.tokenize(u16, pathext, &[_]u16{';'});
+    var ext_it = mem.tokenizeScalar(u16, pathext, ';');
     while (ext_it.next()) |ext| {
         if (!windowsCreateProcessSupportsExtension(ext)) continue;
 

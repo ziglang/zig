@@ -294,7 +294,7 @@ fn renderErrorMessageToWriter(
 ///
 /// This is used to split the message in `@compileError("hello\nworld")` for example.
 fn writeMsg(eb: ErrorBundle, err_msg: ErrorMessage, stderr: anytype, indent: usize) !void {
-    var lines = std.mem.split(u8, eb.nullTerminatedString(err_msg.msg), "\n");
+    var lines = std.mem.splitScalar(u8, eb.nullTerminatedString(err_msg.msg), '\n');
     while (lines.next()) |line| {
         try stderr.writeAll(line);
         if (lines.index == null) break;

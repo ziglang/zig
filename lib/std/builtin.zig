@@ -531,7 +531,7 @@ pub const Version = struct {
         // found no digits or '.' before unexpected character
         if (end == 0) return error.InvalidVersion;
 
-        var it = std.mem.split(u8, text[0..end], ".");
+        var it = std.mem.splitScalar(u8, text[0..end], '.');
         // substring is not empty, first call will succeed
         const major = it.first();
         if (major.len == 0) return error.InvalidVersion;

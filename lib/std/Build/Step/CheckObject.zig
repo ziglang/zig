@@ -103,8 +103,8 @@ const Action = struct {
         assert(act.tag == .match or act.tag == .not_present);
         const phrase = act.phrase.resolve(b, step);
         var candidate_var: ?struct { name: []const u8, value: u64 } = null;
-        var hay_it = mem.tokenize(u8, mem.trim(u8, haystack, " "), " ");
-        var needle_it = mem.tokenize(u8, mem.trim(u8, phrase, " "), " ");
+        var hay_it = mem.tokenizeScalar(u8, mem.trim(u8, haystack, " "), ' ');
+        var needle_it = mem.tokenizeScalar(u8, mem.trim(u8, phrase, " "), ' ');
 
         while (needle_it.next()) |needle_tok| {
             const hay_tok = hay_it.next() orelse return false;
@@ -155,7 +155,7 @@ const Action = struct {
         var op_stack = std.ArrayList(enum { add, sub, mod, mul }).init(gpa);
         var values = std.ArrayList(u64).init(gpa);
 
-        var it = mem.tokenize(u8, phrase, " ");
+        var it = mem.tokenizeScalar(u8, phrase, ' ');
         while (it.next()) |next| {
             if (mem.eql(u8, next, "+")) {
                 try op_stack.append(.add);
@@ -365,7 +365,7 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
     var vars = std.StringHashMap(u64).init(gpa);
 
     for (self.checks.items) |chk| {
-        var it = mem.tokenize(u8, output, "\r\n");
+        var it = mem.tokenizeAny(u8, output, "\r\n");
         for (chk.actions.items) |act| {
             switch (act.tag) {
                 .match => {

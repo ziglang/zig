@@ -804,7 +804,7 @@ const TestManifest = struct {
     };
 
     const TrailingIterator = struct {
-        inner: std.mem.TokenIterator(u8),
+        inner: std.mem.TokenIterator(u8, .any),
 
         fn next(self: *TrailingIterator) ?[]const u8 {
             const next_inner = self.inner.next() orelse return null;
@@ -814,7 +814,7 @@ const TestManifest = struct {
 
     fn ConfigValueIterator(comptime T: type) type {
         return struct {
-            inner: std.mem.SplitIterator(u8),
+            inner: std.mem.SplitIterator(u8, .scalar),
 
             fn next(self: *@This()) !?T {
                 const next_raw = self.inner.next() orelse return null;
@@ -855,7 +855,7 @@ const TestManifest = struct {
         const actual_start = start orelse return error.MissingTestManifest;
         const manifest_bytes = bytes[actual_start..end];
 
-        var it = std.mem.tokenize(u8, manifest_bytes, "\r\n");
+        var it = std.mem.tokenizeAny(u8, manifest_bytes, "\r\n");
 
         // First line is the test type
         const tt: Type = blk: {
@@ -886,7 +886,7 @@ const TestManifest = struct {
             if (trimmed.len == 0) break;
 
             // Parse key=value(s)
-            var kv_it = std.mem.split(u8, trimmed, "=");
+            var kv_it = std.mem.splitScalar(u8, trimmed, '=');
             const key = kv_it.first();
             try manifest.config_map.putNoClobber(key, kv_it.next() orelse return error.MissingValuesForConfig);
         }
@@ -904,7 +904,7 @@ const TestManifest = struct {
     ) ConfigValueIterator(T) {
         const bytes = self.config_map.get(key) orelse TestManifestConfigDefaults.get(self.type, key);
         return ConfigValueIterator(T){
-            .inner = std.mem.split(u8, bytes, ","),
+            .inner = std.mem.splitScalar(u8, bytes, ','),
         };
     }
 
@@ -932,7 +932,7 @@ const TestManifest = struct {
 
     fn trailing(self: TestManifest) TrailingIterator {
         return .{
-            .inner = std.mem.tokenize(u8, self.trailing_bytes, "\r\n"),
+            .inner = std.mem.tokenizeAny(u8, self.trailing_bytes, "\r\n"),
         };
     }
 
@@ -1408,7 +1408,7 @@ fn runOneCase(
                 // Render the expected lines into a string that we can compare verbatim.
                 var expected_generated = std.ArrayList(u8).init(arena);
 
-                var actual_line_it = std.mem.split(u8, actual_stderr.items, "\n");
+                var actual_line_it = std.mem.splitScalar(u8, actual_stderr.items, '\n');
                 for (expected_errors) |expect_line| {
                     const actual_line = actual_line_it.next() orelse {
                         try expected_generated.appendSlice(expect_line);
