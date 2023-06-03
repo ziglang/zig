@@ -283,7 +283,12 @@ pub fn main() !void {
                 if (!test_iterative_only) {
                     prng.seed(seed);
                     const result_small = try benchmarkHashSmallKeys(H, key_size, count, allocator);
-                    try stdout.print("  small keys: {:5} MiB/s [{x:0<16}]\n", .{ result_small.throughput / (1 * MiB), result_small.hash });
+                    try stdout.print("  small keys: {:3}B {:5} MiB/s {} Hashes/s [{x:0<16}]\n", .{
+                        key_size,
+                        result_small.throughput / (1 * MiB),
+                        result_small.throughput / key_size,
+                        result_small.hash,
+                    });
                 }
             }
         }
