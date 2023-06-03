@@ -2458,7 +2458,7 @@ pub const Value = struct {
         const rhs_bigint = rhs.toBigInt(&rhs_space, mod);
         const limbs = try arena.alloc(
             std.math.big.Limb,
-            std.math.max(
+            @max(
                 // For the saturate
                 std.math.big.int.calcTwosCompLimbCount(info.bits),
                 lhs_bigint.limbs.len + rhs_bigint.limbs.len,
@@ -2572,7 +2572,7 @@ pub const Value = struct {
         const limbs = try arena.alloc(
             std.math.big.Limb,
             // + 1 for negatives
-            std.math.max(lhs_bigint.limbs.len, rhs_bigint.limbs.len) + 1,
+            @max(lhs_bigint.limbs.len, rhs_bigint.limbs.len) + 1,
         );
         var result_bigint = BigIntMutable{ .limbs = limbs, .positive = undefined, .len = undefined };
         result_bigint.bitAnd(lhs_bigint, rhs_bigint);
@@ -2638,7 +2638,7 @@ pub const Value = struct {
         const rhs_bigint = rhs.toBigInt(&rhs_space, mod);
         const limbs = try arena.alloc(
             std.math.big.Limb,
-            std.math.max(lhs_bigint.limbs.len, rhs_bigint.limbs.len),
+            @max(lhs_bigint.limbs.len, rhs_bigint.limbs.len),
         );
         var result_bigint = BigIntMutable{ .limbs = limbs, .positive = undefined, .len = undefined };
         result_bigint.bitOr(lhs_bigint, rhs_bigint);
@@ -2677,7 +2677,7 @@ pub const Value = struct {
         const limbs = try arena.alloc(
             std.math.big.Limb,
             // + 1 for negatives
-            std.math.max(lhs_bigint.limbs.len, rhs_bigint.limbs.len) + 1,
+            @max(lhs_bigint.limbs.len, rhs_bigint.limbs.len) + 1,
         );
         var result_bigint = BigIntMutable{ .limbs = limbs, .positive = undefined, .len = undefined };
         result_bigint.bitXor(lhs_bigint, rhs_bigint);

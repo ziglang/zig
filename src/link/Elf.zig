@@ -2326,7 +2326,7 @@ fn allocateAtom(self: *Elf, atom_index: Atom.Index, new_block_size: u64, alignme
             self.debug_aranges_section_dirty = true;
         }
     }
-    shdr.sh_addralign = math.max(shdr.sh_addralign, alignment);
+    shdr.sh_addralign = @max(shdr.sh_addralign, alignment);
 
     // This function can also reallocate an atom.
     // In this case we need to "unplug" it from its previous location before

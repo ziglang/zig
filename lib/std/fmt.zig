@@ -921,8 +921,8 @@ fn formatSizeImpl(comptime base: comptime_int) type {
 
             const log2 = math.log2(value);
             const magnitude = switch (base) {
-                1000 => math.min(log2 / comptime math.log2(1000), mags_si.len - 1),
-                1024 => math.min(log2 / 10, mags_iec.len - 1),
+                1000 => @min(log2 / comptime math.log2(1000), mags_si.len - 1),
+                1024 => @min(log2 / 10, mags_iec.len - 1),
                 else => unreachable,
             };
             const new_value = lossyCast(f64, value) / math.pow(f64, lossyCast(f64, base), lossyCast(f64, magnitude));
@@ -1103,7 +1103,7 @@ pub fn formatFloatScientific(
 
             var printed: usize = 0;
             if (float_decimal.digits.len > 1) {
-                const num_digits = math.min(float_decimal.digits.len, precision + 1);
+                const num_digits = @min(float_decimal.digits.len, precision + 1);
                 try writer.writeAll(float_decimal.digits[1..num_digits]);
                 printed += num_digits - 1;
             }
@@ -1116,7 +1116,7 @@ pub fn formatFloatScientific(
         try writer.writeAll(float_decimal.digits[0..1]);
         try writer.writeAll(".");
         if (float_decimal.digits.len > 1) {
-            const num_digits = if (@TypeOf(value) == f32) math.min(@as(usize, 9), float_decimal.digits.len) else float_decimal.digits.len;
+            const num_digits = if (@TypeOf(value) == f32) @min(@as(usize, 9), float_decimal.digits.len) else float_decimal.digits.len;
 
             try writer.writeAll(float_decimal.digits[1..num_digits]);
         } else {
@@ -1299,7 +1299,7 @@ pub fn formatFloatDecimal(
         var num_digits_whole = if (float_decimal.exp > 0) @intCast(usize, float_decimal.exp) else 0;
 
         // the actual slice into the buffer, we may need to zero-pad between num_digits_whole and this.
-        var num_digits_whole_no_pad = math.min(num_digits_whole, float_decimal.digits.len);
+        var num_digits_whole_no_pad = @min(num_digits_whole, float_decimal.digits.len);
 
         if (num_digits_whole > 0) {
             // We may have to zero pad, for instance 1e4 requires zero padding.
@@ -1326,7 +1326,7 @@ pub fn formatFloatDecimal(
         // Zero-fill until we reach significant digits or run out of precision.
         if (float_decimal.exp <= 0) {
             const zero_digit_count = @intCast(usize, -float_decimal.exp);
-            const zeros_to_print = math.min(zero_digit_count, precision);
+            const zeros_to_print = @min(zero_digit_count, precision);
 
             var i: usize = 0;
             while (i < zeros_to_print) : (i += 1) {
@@ -1357,7 +1357,7 @@ pub fn formatFloatDecimal(
         var num_digits_whole = if (float_decimal.exp > 0) @intCast(usize, float_decimal.exp) else 0;
 
         // the actual slice into the buffer, we may need to zero-pad between num_digits_whole and this.
-        var num_digits_whole_no_pad = math.min(num_digits_whole, float_decimal.digits.len);
+        var num_digits_whole_no_pad = @min(num_digits_whole, float_decimal.digits.len);
 
         if (num_digits_whole > 0) {
             // We may have to zero pad, for instance 1e4 requires zero padding.
@@ -1410,12 +1410,12 @@ pub fn formatInt(
 
     // The type must have the same size as `base` or be wider in order for the
     // division to work
-    const min_int_bits = comptime math.max(value_info.bits, 8);
+    const min_int_bits = comptime @max(value_info.bits, 8);
     const MinInt = std.meta.Int(.unsigned, min_int_bits);
 
     const abs_value = math.absCast(int_value);
     // The worst case in terms of space needed is base 2, plus 1 for the sign
-    var buf: [1 + math.max(value_info.bits, 1)]u8 = undefined;
+    var buf: [1 + @max(@as(comptime_int, value_info.bits), 1)]u8 = undefined;
 
     var a: MinInt = abs_value;
     var index: usize = buf.len;

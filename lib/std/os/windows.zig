@@ -272,7 +272,7 @@ pub fn RtlGenRandom(output: []u8) RtlGenRandomError!void {
     const max_read_size: ULONG = maxInt(ULONG);
 
     while (total_read < output.len) {
-        const to_read: ULONG = math.min(buff.len, max_read_size);
+        const to_read: ULONG = @min(buff.len, max_read_size);
 
         if (advapi32.RtlGenRandom(buff.ptr, to_read) == 0) {
             return unexpectedError(kernel32.GetLastError());
@@ -501,7 +501,7 @@ pub fn ReadFile(in_hFile: HANDLE, buffer: []u8, offset: ?u64, io_mode: std.io.Mo
         return @as(usize, bytes_transferred);
     } else {
         while (true) {
-            const want_read_count = @intCast(DWORD, math.min(@as(DWORD, maxInt(DWORD)), buffer.len));
+            const want_read_count: DWORD = @min(@as(DWORD, maxInt(DWORD)), buffer.len);
             var amt_read: DWORD = undefined;
             var overlapped_data: OVERLAPPED = undefined;
             const overlapped: ?*OVERLAPPED = if (offset) |off| blk: {

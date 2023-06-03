@@ -1507,7 +1507,7 @@ pub fn HashMapUnmanaged(
 
         fn grow(self: *Self, allocator: Allocator, new_capacity: Size, ctx: Context) Allocator.Error!void {
             @setCold(true);
-            const new_cap = std.math.max(new_capacity, minimal_capacity);
+            const new_cap = @max(new_capacity, minimal_capacity);
             assert(new_cap > self.capacity());
             assert(std.math.isPowerOfTwo(new_cap));
 
@@ -1540,7 +1540,7 @@ pub fn HashMapUnmanaged(
             const header_align = @alignOf(Header);
             const key_align = if (@sizeOf(K) == 0) 1 else @alignOf(K);
             const val_align = if (@sizeOf(V) == 0) 1 else @alignOf(V);
-            const max_align = comptime math.max3(header_align, key_align, val_align);
+            const max_align = comptime @max(header_align, key_align, val_align);
 
             const meta_size = @sizeOf(Header) + new_capacity * @sizeOf(Metadata);
             comptime assert(@alignOf(Metadata) == 1);
@@ -1575,7 +1575,7 @@ pub fn HashMapUnmanaged(
             const header_align = @alignOf(Header);
             const key_align = if (@sizeOf(K) == 0) 1 else @alignOf(K);
             const val_align = if (@sizeOf(V) == 0) 1 else @alignOf(V);
-            const max_align = comptime math.max3(header_align, key_align, val_align);
+            const max_align = comptime @max(header_align, key_align, val_align);
 
             const cap = self.capacity();
             const meta_size = @sizeOf(Header) + cap * @sizeOf(Metadata);

@@ -2907,7 +2907,7 @@ fn airMulDivBinOp(self: *Self, inst: Air.Inst.Index) !void {
         const dst_info = dst_ty.intInfo(mod);
         const src_ty = try mod.intType(dst_info.signedness, switch (tag) {
             else => unreachable,
-            .mul, .mulwrap => math.max3(
+            .mul, .mulwrap => @max(
                 self.activeIntBits(bin_op.lhs),
                 self.activeIntBits(bin_op.rhs),
                 dst_info.bits / 2,
@@ -3349,7 +3349,7 @@ fn airMulWithOverflow(self: *Self, inst: Air.Inst.Index) !void {
 
             const lhs_active_bits = self.activeIntBits(bin_op.lhs);
             const rhs_active_bits = self.activeIntBits(bin_op.rhs);
-            const src_bits = math.max3(lhs_active_bits, rhs_active_bits, dst_info.bits / 2);
+            const src_bits = @max(lhs_active_bits, rhs_active_bits, dst_info.bits / 2);
             const src_ty = try mod.intType(dst_info.signedness, src_bits);
 
             const lhs = try self.resolveInst(bin_op.lhs);

@@ -1824,7 +1824,7 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
         },
         .switch_prong => {
             const payload = node.castTag(.switch_prong).?.data;
-            var items = try c.gpa.alloc(NodeIndex, std.math.max(payload.cases.len, 1));
+            var items = try c.gpa.alloc(NodeIndex, @max(payload.cases.len, 1));
             defer c.gpa.free(items);
             items[0] = 0;
             for (payload.cases, 0..) |item, i| {
@@ -1973,7 +1973,7 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
             const payload = node.castTag(.tuple).?.data;
             _ = try c.addToken(.period, ".");
             const l_brace = try c.addToken(.l_brace, "{");
-            var inits = try c.gpa.alloc(NodeIndex, std.math.max(payload.len, 2));
+            var inits = try c.gpa.alloc(NodeIndex, @max(payload.len, 2));
             defer c.gpa.free(inits);
             inits[0] = 0;
             inits[1] = 0;
@@ -2007,7 +2007,7 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
             const payload = node.castTag(.container_init_dot).?.data;
             _ = try c.addToken(.period, ".");
             const l_brace = try c.addToken(.l_brace, "{");
-            var inits = try c.gpa.alloc(NodeIndex, std.math.max(payload.len, 2));
+            var inits = try c.gpa.alloc(NodeIndex, @max(payload.len, 2));
             defer c.gpa.free(inits);
             inits[0] = 0;
             inits[1] = 0;
@@ -2046,7 +2046,7 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
             const lhs = try renderNode(c, payload.lhs);
 
             const l_brace = try c.addToken(.l_brace, "{");
-            var inits = try c.gpa.alloc(NodeIndex, std.math.max(payload.inits.len, 1));
+            var inits = try c.gpa.alloc(NodeIndex, @max(payload.inits.len, 1));
             defer c.gpa.free(inits);
             inits[0] = 0;
             for (payload.inits, 0..) |init, i| {
@@ -2102,7 +2102,7 @@ fn renderRecord(c: *Context, node: Node) !NodeIndex {
     const num_vars = payload.variables.len;
     const num_funcs = payload.functions.len;
     const total_members = payload.fields.len + num_vars + num_funcs;
-    const members = try c.gpa.alloc(NodeIndex, std.math.max(total_members, 2));
+    const members = try c.gpa.alloc(NodeIndex, @max(total_members, 2));
     defer c.gpa.free(members);
     members[0] = 0;
     members[1] = 0;
@@ -2195,7 +2195,7 @@ fn renderFieldAccess(c: *Context, lhs: NodeIndex, field_name: []const u8) !NodeI
 
 fn renderArrayInit(c: *Context, lhs: NodeIndex, inits: []const Node) !NodeIndex {
     const l_brace = try c.addToken(.l_brace, "{");
-    var rendered = try c.gpa.alloc(NodeIndex, std.math.max(inits.len, 1));
+    var rendered = try c.gpa.alloc(NodeIndex, @max(inits.len, 1));
     defer c.gpa.free(rendered);
     rendered[0] = 0;
     for (inits, 0..) |init, i| {
@@ -2904,7 +2904,7 @@ fn renderMacroFunc(c: *Context, node: Node) !NodeIndex {
 
 fn renderParams(c: *Context, params: []Payload.Param, is_var_args: bool) !std.ArrayList(NodeIndex) {
     _ = try c.addToken(.l_paren, "(");
-    var rendered = try std.ArrayList(NodeIndex).initCapacity(c.gpa, std.math.max(params.len, 1));
+    var rendered = try std.ArrayList(NodeIndex).initCapacity(c.gpa, @max(params.len, 1));
     errdefer rendered.deinit();
 
     for (params, 0..) |param, i| {

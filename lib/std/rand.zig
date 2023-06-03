@@ -410,7 +410,7 @@ pub const Random = struct {
             r.uintLessThan(T, sum)
         else if (comptime std.meta.trait.isFloat(T))
             // take care that imprecision doesn't lead to a value slightly greater than sum
-            std.math.min(r.float(T) * sum, sum - std.math.floatEps(T))
+            @min(r.float(T) * sum, sum - std.math.floatEps(T))
         else
             @compileError("weightedIndex does not support proportions of type " ++ @typeName(T));
 

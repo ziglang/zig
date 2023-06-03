@@ -541,7 +541,7 @@ const WindowsThreadImpl = struct {
         // Going lower makes it default to that specified in the executable (~1mb).
         // Its also fine if the limit here is incorrect as stack size is only a hint.
         var stack_size = std.math.cast(u32, config.stack_size) orelse std.math.maxInt(u32);
-        stack_size = std.math.max(64 * 1024, stack_size);
+        stack_size = @max(64 * 1024, stack_size);
 
         instance.thread.thread_handle = windows.kernel32.CreateThread(
             null,
@@ -690,7 +690,7 @@ const PosixThreadImpl = struct {
         defer assert(c.pthread_attr_destroy(&attr) == .SUCCESS);
 
         // Use the same set of parameters used by the libc-less impl.
-        const stack_size = std.math.max(config.stack_size, c.PTHREAD_STACK_MIN);
+        const stack_size = @max(config.stack_size, c.PTHREAD_STACK_MIN);
         assert(c.pthread_attr_setstacksize(&attr, stack_size) == .SUCCESS);
         assert(c.pthread_attr_setguardsize(&attr, std.mem.page_size) == .SUCCESS);
 
@@ -930,7 +930,7 @@ const LinuxThreadImpl = struct {
             var bytes: usize = page_size;
             guard_offset = bytes;
 
-            bytes += std.math.max(page_size, config.stack_size);
+            bytes += @max(page_size, config.stack_size);
             bytes = std.mem.alignForward(bytes, page_size);
             stack_offset = bytes;
 

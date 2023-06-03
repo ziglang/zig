@@ -252,7 +252,7 @@ test "iterative non-divisible update" {
         var wy = Wyhash.init(seed);
         var i: usize = 0;
         while (i < end) : (i += 33) {
-            wy.update(buf[i..std.math.min(i + 33, end)]);
+            wy.update(buf[i..@min(i + 33, end)]);
         }
         const iterative_hash = wy.final();
 

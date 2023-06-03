@@ -433,7 +433,7 @@ test "iterative non-divisible update" {
         var siphash = Siphash.init(key);
         var i: usize = 0;
         while (i < end) : (i += 7) {
-            siphash.update(buf[i..std.math.min(i + 7, end)]);
+            siphash.update(buf[i..@min(i + 7, end)]);
         }
         const iterative_hash = siphash.finalInt();
 

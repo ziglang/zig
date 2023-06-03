@@ -8,7 +8,6 @@ const elf = std.elf;
 const windows = std.os.windows;
 const system = std.os.system;
 const maxInt = std.math.maxInt;
-const max = std.math.max;
 
 pub const DynLib = switch (builtin.os.tag) {
     .linux => if (builtin.link_libc) DlDynlib else ElfDynLib,
@@ -152,7 +151,7 @@ pub const ElfDynLib = struct {
             }) {
                 const ph = @intToPtr(*elf.Phdr, ph_addr);
                 switch (ph.p_type) {
-                    elf.PT_LOAD => virt_addr_end = max(virt_addr_end, ph.p_vaddr + ph.p_memsz),
+                    elf.PT_LOAD => virt_addr_end = @max(virt_addr_end, ph.p_vaddr + ph.p_memsz),
                     elf.PT_DYNAMIC => maybe_dynv = @intToPtr([*]usize, elf_addr + ph.p_offset),
                     else => {},
                 }
