@@ -99,11 +99,9 @@ const Result = struct {
 };
 
 const block_size: usize = 8 * 8192;
-const alignment: usize = 64;
 
 pub fn benchmarkHash(comptime H: anytype, bytes: usize, allocator: std.mem.Allocator) !Result {
-    const blocks_count = bytes / block_size;
-    var blocks = try allocator.alloc(u8, block_size + alignment * (blocks_count - 1));
+    var blocks = try allocator.alloc(u8, bytes);
     defer allocator.free(blocks);
     random.bytes(blocks);
 
@@ -117,10 +115,11 @@ pub fn benchmarkHash(comptime H: anytype, bytes: usize, allocator: std.mem.Alloc
         break :blk H.ty.init();
     };
 
+    var offset: usize = 0;
     var timer = try Timer.start();
     const start = timer.lap();
-    for (0..blocks_count) |i| {
-        h.update(blocks[i * alignment ..][0..block_size]);
+    while (offset < bytes) : (offset += block_size) {
+        h.update(blocks[offset..][0..block_size]);
     }
     const final = if (H.has_crypto_api) @as(u64, @truncate(h.finalInt())) else h.final();
     std.mem.doNotOptimizeAway(final);
