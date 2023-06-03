@@ -351,6 +351,9 @@ pub fn Min(comptime A: type, comptime B: type) type {
     return @TypeOf(@as(A, 0) + @as(B, 0));
 }
 
+// TODO: remove after release of 0.11
+/// DEPRECATED: use @min instead.
+///
 /// Returns the smaller number. When one parameter's type's full range
 /// fits in the other, the return type is the smaller type.
 pub fn min(x: anytype, y: anytype) Min(@TypeOf(x), @TypeOf(y)) {
@@ -406,6 +409,9 @@ test "min" {
     }
 }
 
+// TODO: remove after release of 0.11
+/// DEPRECATED: use @min instead.
+///
 /// Finds the minimum of three numbers.
 pub fn min3(x: anytype, y: anytype, z: anytype) @TypeOf(x, y, z) {
     return min(x, min(y, z));
@@ -420,6 +426,9 @@ test "min3" {
     try testing.expect(min3(@as(i32, 2), @as(i32, 1), @as(i32, 0)) == 0);
 }
 
+// TODO: remove after release of 0.11
+/// DEPRECATED: use @max instead.
+///
 /// Returns the maximum of two numbers. Return type is the one with the
 /// larger range.
 pub fn max(x: anytype, y: anytype) @TypeOf(x, y) {
@@ -431,6 +440,9 @@ test "max" {
     try testing.expect(max(@as(i32, 2), @as(i32, -1)) == 2);
 }
 
+// TODO: remove after release of 0.11
+/// DEPRECATED: use @max instead.
+///
 /// Finds the maximum of three numbers.
 pub fn max3(x: anytype, y: anytype, z: anytype) @TypeOf(x, y, z) {
     return max(x, max(y, z));
