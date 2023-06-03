@@ -134,24 +134,18 @@ pub fn PriorityQueue(comptime T: type, comptime Context: type, comptime compareF
             while (true) {
                 var left_index = (index << 1) + 1;
                 var right_index = left_index + 1;
-                var left = if (left_index < self.len) self.items[left_index] else null;
-                var right = if (right_index < self.len) self.items[right_index] else null;
 
                 var smallest_index = index;
                 var smallest = self.items[index];
-
-                if (left) |e| {
-                    if (compareFn(self.context, e, smallest) == .lt) {
-                        smallest_index = left_index;
-                        smallest = e;
-                    }
+                var candidate_index = left_index;
+                
+                if (right_index < self.len && compareFn(self.context, self.items[right_index], self.items[left_index]) == .lt) {
+                    candidate_index = right_index;
                 }
-
-                if (right) |e| {
-                    if (compareFn(self.context, e, smallest) == .lt) {
-                        smallest_index = right_index;
-                        smallest = e;
-                    }
+                
+                if (candidate_index < self.len && compareFn(self.context, self.items[candidate_index], smallest) == .lt) {
+                    smallest_index = candidate_index;
+                    smallest = self.items[candidate_index];
                 }
 
                 if (smallest_index == index) return;
