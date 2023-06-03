@@ -1182,7 +1182,7 @@ pub fn getMainBody(air: Air) []const Air.Inst.Index {
     return air.extra[extra.end..][0..extra.data.body_len];
 }
 
-pub fn typeOf(air: Air, inst: Air.Inst.Ref, ip: *const InternPool) Type {
+pub fn typeOf(air: *const Air, inst: Air.Inst.Ref, ip: *const InternPool) Type {
     const ref_int = @intFromEnum(inst);
     if (ref_int < InternPool.static_keys.len) {
         return InternPool.static_keys[ref_int].typeOf().toType();
@@ -1190,7 +1190,7 @@ pub fn typeOf(air: Air, inst: Air.Inst.Ref, ip: *const InternPool) Type {
     return air.typeOfIndex(ref_int - ref_start_index, ip);
 }
 
-pub fn typeOfIndex(air: Air, inst: Air.Inst.Index, ip: *const InternPool) Type {
+pub fn typeOfIndex(air: *const Air, inst: Air.Inst.Index, ip: *const InternPool) Type {
     const datas = air.instructions.items(.data);
     switch (air.instructions.items(.tag)[inst]) {
         .add,
