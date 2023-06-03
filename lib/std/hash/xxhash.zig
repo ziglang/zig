@@ -34,7 +34,9 @@ pub const XxHash64 = struct {
         };
     }
 
-    pub fn update(self: *XxHash64, input: []const u8) void {
+    pub fn update(self: *XxHash64, input: anytype) void {
+        validateType(@TypeOf(input));
+
         if (input.len < 32 - self.buf_len) {
             @memcpy(self.buf[self.buf_len..][0..input.len], input);
             self.buf_len += input.len;
@@ -47,16 +49,33 @@ pub const XxHash64 = struct {
             i = 32 - self.buf_len;
             @memcpy(self.buf[self.buf_len..][0..i], input[0..i]);
             self.processStripe(&self.buf);
-            self.buf_len = 0;
+            self.byte_count += self.buf_len;
+        }
+
+        i += self.updateEmpty(input[i..]);
+
+        const remaining_bytes = input[i..];
+        @memcpy(self.buf[0..remaining_bytes.len], remaining_bytes);
+        self.buf_len = remaining_bytes.len;
+    }
+
+    inline fn updateEmpty(self: *XxHash64, input: anytype) usize {
+        var i: usize = 0;
+
+        const unroll_count = 32;
+        const unrolled_bytes = 32 * unroll_count;
+        while (i + unrolled_bytes < input.len) : (i += unrolled_bytes) {
+            inline for (0..unroll_count) |j| {
+                self.processStripe(input[i + j * 32..][0..32]);
+            }
         }
 
         while (i + 32 <= input.len) : (i += 32) {
             self.processStripe(input[i..][0..32]);
         }
+        self.byte_count += i;
 
-        const remaining_bytes = input[i..];
-        @memcpy(self.buf[0..remaining_bytes.len], remaining_bytes);
-        self.buf_len = remaining_bytes.len;
+        return i;
     }
 
     inline fn processStripe(self: *XxHash64, buf: *const [32]u8) void {
@@ -64,7 +83,6 @@ pub const XxHash64 = struct {
         self.acc2 = round(self.acc2, mem.readIntLittle(u64, buf[8..16]));
         self.acc3 = round(self.acc3, mem.readIntLittle(u64, buf[16..24]));
         self.acc4 = round(self.acc4, mem.readIntLittle(u64, buf[24..32]));
-        self.byte_count += 32;
     }
 
     inline fn round(acc: u64, lane: u64) u64 {
@@ -83,7 +101,7 @@ pub const XxHash64 = struct {
         unknown,
     };
 
-    inline fn finalize(self: *XxHash64, comptime size: Size, partial: []const u8) u64 {
+    inline fn finalize(self: *XxHash64, comptime size: Size, partial: anytype) u64 {
         std.debug.assert(partial.len < 32);
         var acc: u64 = undefined;
         switch (size) {
@@ -152,10 +170,30 @@ pub const XxHash64 = struct {
         return b +% prime_4;
     }
 
-    pub fn hash(seed: u64, input: []const u8) u64 {
+    pub fn hash(seed: u64, input: anytype) u64 {
+        const info = @typeInfo(@TypeOf(input));
+
         var hasher = XxHash64.init(seed);
-        hasher.update(input);
-        return hasher.final();
+        switch (info) {
+            .Array => {
+                // we shouldn't have to manually unroll the loop for an array
+                const i = hasher.updateEmpty(input);
+                return hasher.finalize(if (input.len < 32) .small else .large, input[i..]);
+            },
+            .Pointer => |ptr_info| switch (ptr_info.size) {
+                .One => if (std.meta.Elem(@TypeOf(input)) == u8) {
+                    // we shouldn't have to manually unroll the loop for an array
+                    const i = hasher.updateEmpty(input);
+                    return hasher.finalize(if (input.len < 32) .small else .large, input[i..]);
+                } else @compileError("expected input of type [N]u8, *const [N]u8 or []const u8, got " ++ @typeName(input)),
+                .Slice => {
+                    const i = hasher.updateEmpty(input);
+                    return hasher.finalize(.unknown, input[i..]);
+                },
+                else => @compileError("expected input of type [N]u8, *const [N]u8 or []const u8, got " ++ @typeName(input)),
+            },
+            else => @compileError("expected input of type [N]u8, *const [N]u8 or []const u8, got " ++ @typeName(input)),
+        }
     }
 
     pub const small_key_max_size = 31;
@@ -164,17 +202,6 @@ pub const XxHash64 = struct {
         std.debug.assert(input.len < small_key_max_size);
         var hasher = XxHash64.init(seed);
         return hasher.finalize(.small, input);
-    }
-
-    pub fn hashExact(comptime N: usize, seed: u64, input: *const [N]u8) u64 {
-        if (N <= small_key_max_size) return hashSmall(seed, input);
-
-        var hasher = XxHash64.init(seed);
-        comptime var i = 0;
-        inline while (i + 32 <= input.len) : (i += 32) {
-            hasher.processStripe(input[i..][0..32]);
-        }
-        return hasher.finalize(.large, input[i..]);
     }
 };
 
@@ -287,6 +314,13 @@ pub const XxHash32 = struct {
         return hasher.final();
     }
 };
+
+fn validateType(comptime T: type) void {
+    std.debug.assert((std.meta.trait.isSlice(T) or
+        std.meta.trait.is(.Array)(T) or
+        std.meta.trait.isPtrTo(.Array)(T)) and
+        std.meta.Elem(T) == u8);
+}
 
 fn testExpect(comptime H: type, seed: anytype, input: []const u8, expected: u64) !void {
     try expectEqual(expected, H.hash(0, input));
