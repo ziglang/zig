@@ -971,12 +971,10 @@ fn checkTextFmt(comptime fmt: []const u8) void {
     if (fmt.len != 1)
         @compileError("unsupported format string '" ++ fmt ++ "' when formatting text");
     switch (fmt[0]) {
+        // Example of deprecation:
+        // '[deprecated_specifier]' => @compileError("specifier '[deprecated_specifier]' has been deprecated, wrap your argument in `std.some_function` instead"),
         'x' => @compileError("specifier 'x' has been deprecated, wrap your argument in std.fmt.fmtSliceHexLower instead"),
         'X' => @compileError("specifier 'X' has been deprecated, wrap your argument in std.fmt.fmtSliceHexUpper instead"),
-        'e' => @compileError("specifier 'e' has been deprecated, wrap your argument in std.fmt.fmtSliceEscapeLower instead"),
-        'E' => @compileError("specifier 'E' has been deprecated, wrap your argument in std.fmt.fmtSliceEscapeUpper instead"),
-        'z' => @compileError("specifier 'z' has been deprecated, wrap your argument in std.zig.fmtId instead"),
-        'Z' => @compileError("specifier 'Z' has been deprecated, wrap your argument in std.zig.fmtEscapes instead"),
         else => {},
     }
 }
