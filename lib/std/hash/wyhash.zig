@@ -35,13 +35,14 @@ pub const Wyhash = struct {
         self.total_len += input.len;
     }
 
-    // TODO: this should be idempotent
     pub fn final(self: *Wyhash) u64 {
         var input = self.cache.buf[0..self.cache.buf_len];
+        var newSelf = self.shallowCopy(); // ensure idempotency
 
         if (self.total_len <= 16) {
-            self.smallKey(input);
+            newSelf.smallKey(input);
         } else {
+            // Use self cache to avoid another memcpy
             if (self.cache.buf_len < 16) {
                 var scratch: [16]u8 = undefined;
                 const rem = 16 - self.cache.buf_len;
@@ -51,10 +52,22 @@ pub const Wyhash = struct {
                 // Same as input with lookbehind to pad to 16-bytes
                 input = scratch[rem..];
             }
-            self.finalInternal(input);
+
+            newSelf.final1(input);
         }
 
-        return self.finalInternal2();
+        return newSelf.final2();
+    }
+
+    // Copies the core wyhash state but not any internal buffers.
+    fn shallowCopy(self: *Wyhash) Wyhash {
+        return .{
+            .a = self.a,
+            .b = self.b,
+            .state = self.state,
+            .total_len = self.total_len,
+            .cache = undefined,
+        };
     }
 
     inline fn smallKey(self: *Wyhash, input: []const u8) void {
@@ -103,7 +116,7 @@ pub const Wyhash = struct {
 
     // Input must reside in a 16-byte buffer. The input slice passed be offset into it in which
     // case this function will index in front of the slice.
-    inline fn finalInternal(self: *Wyhash, input: []const u8) void {
+    inline fn final1(self: *Wyhash, input: []const u8) void {
         std.debug.assert(input.len < 48);
         self.state[0] ^= self.state[1] ^ self.state[2];
 
@@ -117,7 +130,7 @@ pub const Wyhash = struct {
         self.b = read(8, (input.ptr + input.len - 8)[0..8]);
     }
 
-    inline fn finalInternal2(self: *Wyhash) u64 {
+    inline fn final2(self: *Wyhash) u64 {
         self.a ^= secret[1];
         self.b ^= self.state[0];
         mum(&self.a, &self.b);
@@ -134,11 +147,11 @@ pub const Wyhash = struct {
             while (i + 48 <= input.len) : (i += 48) {
                 self.round(input[i..][0..48]);
             }
-            self.finalInternal(input[i..]);
+            self.final1(input[i..]);
         }
 
         self.total_len = input.len;
-        return self.finalInternal2();
+        return self.final2();
     }
 };
 
@@ -177,6 +190,16 @@ test "test vectors streaming" {
             const len = if (i + step > e.input.len) e.input.len - i else step;
             wh.update(e.input[i..][0..len]);
         }
+        try expectEqual(e.expected, wh.final());
+    }
+}
+
+test "test ensure idempotent final call" {
+    const e: TestVector = .{ .seed = 6, .expected = 0xc39cab13b115aad3, .input = "12345678901234567890123456789012345678901234567890123456789012345678901234567890" };
+    var wh = Wyhash.init(e.seed);
+    wh.update(e.input);
+
+    for (0..10) |_| {
         try expectEqual(e.expected, wh.final());
     }
 }
