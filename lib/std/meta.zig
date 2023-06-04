@@ -711,8 +711,6 @@ test "std.meta.DeclEnum" {
     try expectEqualEnum(enum { a, b, c }, DeclEnum(C));
 }
 
-pub const TagType = @compileError("deprecated; use Tag");
-
 pub fn Tag(comptime T: type) type {
     return switch (@typeInfo(T)) {
         .Enum => |info| info.tag_type,
