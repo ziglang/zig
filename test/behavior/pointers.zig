@@ -357,9 +357,9 @@ test "pointer sentinel with +inf" {
 
     const S = struct {
         fn doTheTest() !void {
-            const inf = std.math.inf_f32;
-            var ptr: [*:inf]const f32 = &[_:inf]f32{ 1.1, 2.2, 3.3, 4.4 };
-            try expect(ptr[4] == inf); // TODO this should be comptime try expect, see #3731
+            const inf_f32 = comptime std.math.inf(f32);
+            var ptr: [*:inf_f32]const f32 = &[_:inf_f32]f32{ 1.1, 2.2, 3.3, 4.4 };
+            try expect(ptr[4] == inf_f32); // TODO this should be comptime try expect, see #3731
         }
     };
     try S.doTheTest();

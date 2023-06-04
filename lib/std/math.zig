@@ -48,43 +48,41 @@ pub const floatMax = @import("math/float.zig").floatMax;
 pub const floatEps = @import("math/float.zig").floatEps;
 pub const inf = @import("math/float.zig").inf;
 
-// TODO Replace with @compileError("deprecated for foobar") after 0.10.0 is released.
-pub const f16_true_min: comptime_float = floatTrueMin(f16); // prev: 0.000000059604644775390625
-pub const f32_true_min: comptime_float = floatTrueMin(f32); // prev: 1.40129846432481707092e-45
-pub const f64_true_min: comptime_float = floatTrueMin(f64); // prev: 4.94065645841246544177e-324
-pub const f80_true_min = floatTrueMin(f80); // prev: make_f80(.{ .fraction = 1, .exp = 0 })
-pub const f128_true_min = floatTrueMin(f128); // prev: @bitCast(f128, @as(u128, 0x00000000000000000000000000000001))
-pub const f16_min: comptime_float = floatMin(f16); // prev: 0.00006103515625
-pub const f32_min: comptime_float = floatMin(f32); // prev: 1.17549435082228750797e-38
-pub const f64_min: comptime_float = floatMin(f64); // prev: 2.2250738585072014e-308
-pub const f80_min = floatMin(f80); // prev: make_f80(.{ .fraction = 0x8000000000000000, .exp = 1 })
-pub const f128_min = floatMin(f128); // prev: @bitCast(f128, @as(u128, 0x00010000000000000000000000000000))
-pub const f16_max: comptime_float = floatMax(f16); // prev: 65504
-pub const f32_max: comptime_float = floatMax(f32); // prev: 3.40282346638528859812e+38
-pub const f64_max: comptime_float = floatMax(f64); // prev: 1.79769313486231570815e+308
-pub const f80_max = floatMax(f80); // prev: make_f80(.{ .fraction = 0xFFFFFFFFFFFFFFFF, .exp = 0x7FFE })
-pub const f128_max = floatMax(f128); // prev: @bitCast(f128, @as(u128, 0x7FFEFFFFFFFFFFFFFFFFFFFFFFFFFFFF))
-pub const f16_epsilon: comptime_float = floatEps(f16); // prev: 0.0009765625
-pub const f32_epsilon: comptime_float = floatEps(f32); // prev: 1.1920928955078125e-07
-pub const f64_epsilon: comptime_float = floatEps(f64); // prev: 2.22044604925031308085e-16
-pub const f80_epsilon = floatEps(f80); // prev: make_f80(.{ .fraction = 0x8000000000000000, .exp = 0x3FC0 })
-pub const f128_epsilon = floatEps(f128); // prev: @bitCast(f128, @as(u128, 0x3F8F0000000000000000000000000000))
-pub const f16_toint: comptime_float = 1.0 / f16_epsilon; // same as before
-pub const f32_toint: comptime_float = 1.0 / f32_epsilon; // same as before
-pub const f64_toint: comptime_float = 1.0 / f64_epsilon; // same as before
-pub const f80_toint = 1.0 / f80_epsilon; // same as before
-pub const f128_toint = 1.0 / f128_epsilon; // same as before
-pub const inf_u16 = @bitCast(u16, inf_f16); // prev: @as(u16, 0x7C00)
-pub const inf_f16 = inf(f16); // prev: @bitCast(f16, inf_u16)
-pub const inf_u32 = @bitCast(u32, inf_f32); // prev: @as(u32, 0x7F800000)
-pub const inf_f32 = inf(f32); // prev: @bitCast(f32, inf_u32)
-pub const inf_u64 = @bitCast(u64, inf_f64); // prev: @as(u64, 0x7FF << 52)
-pub const inf_f64 = inf(f64); // prev: @bitCast(f64, inf_u64)
-pub const inf_f80 = inf(f80); // prev: make_f80(F80{ .fraction = 0x8000000000000000, .exp = 0x7fff })
-pub const inf_u128 = @bitCast(u128, inf_f128); // prev: @as(u128, 0x7fff0000000000000000000000000000)
-pub const inf_f128 = inf(f128); // prev: @bitCast(f128, inf_u128)
-pub const epsilon = floatEps;
-// End of "soft deprecated" section
+pub const f16_true_min = @compileError("Deprecated: use `floatTrueMin(f16)` instead");
+pub const f32_true_min = @compileError("Deprecated: use `floatTrueMin(f32)` instead");
+pub const f64_true_min = @compileError("Deprecated: use `floatTrueMin(f64)` instead");
+pub const f80_true_min = @compileError("Deprecated: use `floatTrueMin(f80)` instead");
+pub const f128_true_min = @compileError("Deprecated: use `floatTrueMin(f128)` instead");
+pub const f16_min = @compileError("Deprecated: use `floatMin(f16)` instead");
+pub const f32_min = @compileError("Deprecated: use `floatMin(f32)` instead");
+pub const f64_min = @compileError("Deprecated: use `floatMin(f64)` instead");
+pub const f80_min = @compileError("Deprecated: use `floatMin(f80)` instead");
+pub const f128_min = @compileError("Deprecated: use `floatMin(f128)` instead");
+pub const f16_max = @compileError("Deprecated: use `floatMax(f16)` instead");
+pub const f32_max = @compileError("Deprecated: use `floatMax(f32)` instead");
+pub const f64_max = @compileError("Deprecated: use `floatMax(f64)` instead");
+pub const f80_max = @compileError("Deprecated: use `floatMax(f80)` instead");
+pub const f128_max = @compileError("Deprecated: use `floatMax(f128)` instead");
+pub const f16_epsilon = @compileError("Deprecated: use `floatEps(f16)` instead");
+pub const f32_epsilon = @compileError("Deprecated: use `floatEps(f32)` instead");
+pub const f64_epsilon = @compileError("Deprecated: use `floatEps(f64)` instead");
+pub const f80_epsilon = @compileError("Deprecated: use `floatEps(f80)` instead");
+pub const f128_epsilon = @compileError("Deprecated: use `floatEps(f128)` instead");
+pub const f16_toint = @compileError("Deprecated: use `1.0 / floatEps(f16)` instead");
+pub const f32_toint = @compileError("Deprecated: use `1.0 / floatEps(f32)` instead");
+pub const f64_toint = @compileError("Deprecated: use `1.0 / floatEps(f64)` instead");
+pub const f80_toint = @compileError("Deprecated: use `1.0 / floatEps(f80)` instead");
+pub const f128_toint = @compileError("Deprecated: use `1.0 / floatEps(f128)` instead");
+pub const inf_u16 = @compileError("Deprecated: use `@bitCast(u16, inf(f16))` instead");
+pub const inf_f16 = @compileError("Deprecated: use `inf(f16)` instead");
+pub const inf_u32 = @compileError("Deprecated: use `@bitCast(u32, inf(f32))` instead");
+pub const inf_f32 = @compileError("Deprecated: use `inf(f32)` instead");
+pub const inf_u64 = @compileError("Deprecated: use `@bitCast(u64, inf(f64))` instead");
+pub const inf_f64 = @compileError("Deprecated: use `inf(f64)` instead");
+pub const inf_f80 = @compileError("Deprecated: use `inf(f80)` instead");
+pub const inf_u128 = @compileError("Deprecated: use `@bitCast(u128, inf(f128))` instead");
+pub const inf_f128 = @compileError("Deprecated: use `inf(f128)` instead");
+pub const epsilon = @compileError("Deprecated: use `floatEps` instead");
 
 pub const nan_u16 = @as(u16, 0x7C01);
 pub const nan_f16 = @bitCast(f16, nan_u16);
@@ -329,7 +327,92 @@ pub const Complex = complex.Complex;
 pub const big = @import("math/big.zig");
 
 test {
-    std.testing.refAllDecls(@This());
+    _ = floatExponentBits;
+    _ = floatMantissaBits;
+    _ = floatFractionalBits;
+    _ = floatExponentMin;
+    _ = floatExponentMax;
+    _ = floatTrueMin;
+    _ = floatMin;
+    _ = floatMax;
+    _ = floatEps;
+    _ = inf;
+
+    _ = nan_u16;
+    _ = nan_f16;
+
+    _ = qnan_u16;
+    _ = qnan_f16;
+
+    _ = nan_u32;
+    _ = nan_f32;
+
+    _ = qnan_u32;
+    _ = qnan_f32;
+
+    _ = nan_u64;
+    _ = nan_f64;
+
+    _ = qnan_u64;
+    _ = qnan_f64;
+
+    _ = nan_f80;
+    _ = qnan_f80;
+
+    _ = nan_u128;
+    _ = nan_f128;
+
+    _ = qnan_u128;
+    _ = qnan_f128;
+
+    _ = nan;
+    _ = snan;
+
+    _ = isNan;
+    _ = isSignalNan;
+    _ = frexp;
+    _ = Frexp;
+    _ = modf;
+    _ = modf32_result;
+    _ = modf64_result;
+    _ = copysign;
+    _ = isFinite;
+    _ = isInf;
+    _ = isPositiveInf;
+    _ = isNegativeInf;
+    _ = isNormal;
+    _ = signbit;
+    _ = scalbn;
+    _ = ldexp;
+    _ = pow;
+    _ = powi;
+    _ = sqrt;
+    _ = cbrt;
+    _ = acos;
+    _ = asin;
+    _ = atan;
+    _ = atan2;
+    _ = hypot;
+    _ = expm1;
+    _ = ilogb;
+    _ = ln;
+    _ = log;
+    _ = log2;
+    _ = log10;
+    _ = log10_int;
+    _ = log1p;
+    _ = asinh;
+    _ = acosh;
+    _ = atanh;
+    _ = sinh;
+    _ = cosh;
+    _ = tanh;
+    _ = gcd;
+
+    _ = complex;
+    _ = Complex;
+
+    _ = big;
 }
 
 /// Given two types, returns the smallest one which is capable of holding the
