@@ -2960,10 +2960,21 @@ fn lowerParentPtr(func: *CodeGen, ptr_val: Value) InnerError!WValue {
             const offset = index * elem_type.abiSize(mod);
             const array_ptr = try func.lowerParentPtr(elem.base.toValue());
 
-            return WValue{ .memory_offset = .{
-                .pointer = array_ptr.memory,
-                .offset = @intCast(u32, offset),
-            } };
+            return switch (array_ptr) {
+                .memory => |ptr_| WValue{
+                    .memory_offset = .{
+                        .pointer = ptr_,
+                        .offset = @intCast(u32, offset),
+                    },
+                },
+                .memory_offset => |mem_off| WValue{
+                    .memory_offset = .{
+                        .pointer = mem_off.pointer,
+                        .offset = @intCast(u32, offset) + mem_off.offset,
+                    },
+                },
+                else => unreachable,
+            };
         },
         .field => |field| {
             const parent_ty = mod.intern_pool.typeOf(field.base).toType().childType(mod);
@@ -3253,7 +3264,12 @@ fn lowerConstant(func: *CodeGen, arg_val: Value, ty: Type) InnerError!WValue {
             },
             else => unreachable,
         },
-        .un => return func.fail("Wasm TODO: LowerConstant for {}", .{ty.fmt(mod)}),
+        .un => |union_obj| {
+            // in this case we have a packed union which will not be passed by reference.
+            const field_index = ty.unionTagFieldIndex(union_obj.tag.toValue(), func.bin_file.base.options.module.?).?;
+            const field_ty = ty.unionFields(mod).values()[field_index].ty;
+            return func.lowerConstant(union_obj.val.toValue(), field_ty);
+        },
         .memoized_call => unreachable,
     }
 }
@@ -7173,7 +7189,7 @@ fn airCmpxchg(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         break :val try WValue.toLocal(.stack, func, result_ty);
     };
 
-    return func.finishAir(inst, result_ptr, &.{ extra.ptr, extra.new_value, extra.expected_value });
+    return func.finishAir(inst, result_ptr, &.{ extra.ptr, extra.expected_value, extra.new_value });
 }
 
 fn airAtomicLoad(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
