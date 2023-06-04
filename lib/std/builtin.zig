@@ -221,7 +221,6 @@ pub const SourceLocation = struct {
 };
 
 pub const TypeId = std.meta.Tag(Type);
-pub const TypeInfo = @compileError("deprecated; use Type");
 
 /// This data structure is used by the Zig language code generation and
 /// therefore must be kept in sync with the compiler implementation.
@@ -387,8 +386,6 @@ pub const Type = union(enum) {
         fields: []const UnionField,
         decls: []const Declaration,
     };
-
-    pub const FnArg = @compileError("deprecated; use Fn.Param");
 
     /// This data structure is used by the Zig language code generation and
     /// therefore must be kept in sync with the compiler implementation.

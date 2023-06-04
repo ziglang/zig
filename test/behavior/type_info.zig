@@ -257,7 +257,7 @@ fn testUnion() !void {
     try expect(typeinfo_info.Union.tag_type.? == TypeId);
     try expect(typeinfo_info.Union.fields.len == 24);
     try expect(typeinfo_info.Union.fields[4].type == @TypeOf(@typeInfo(u8).Int));
-    try expect(typeinfo_info.Union.decls.len == 22);
+    try expect(typeinfo_info.Union.decls.len == 21);
 
     const TestNoTagUnion = union {
         Foo: void,
