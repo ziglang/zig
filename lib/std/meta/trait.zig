@@ -271,7 +271,7 @@ pub fn isIndexable(comptime T: type) bool {
 test "isIndexable" {
     const array = [_]u8{0} ** 10;
     const slice = @as([]const u8, &array);
-    const vector: meta.Vector(2, u32) = [_]u32{0} ** 2;
+    const vector: @Vector(2, u32) = [_]u32{0} ** 2;
     const tuple = .{ 1, 2, 3 };
 
     try testing.expect(isIndexable(@TypeOf(array)));
