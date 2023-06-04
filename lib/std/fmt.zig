@@ -727,12 +727,6 @@ fn formatValue(
     options: FormatOptions,
     writer: anytype,
 ) !void {
-    if (comptime std.mem.eql(u8, fmt, "B")) {
-        @compileError("specifier 'B' has been deprecated, wrap your argument in std.fmt.fmtIntSizeDec instead");
-    } else if (comptime std.mem.eql(u8, fmt, "Bi")) {
-        @compileError("specifier 'Bi' has been deprecated, wrap your argument in std.fmt.fmtIntSizeBin instead");
-    }
-
     const T = @TypeOf(value);
     switch (@typeInfo(T)) {
         .Float, .ComptimeFloat => return formatFloatValue(value, fmt, options, writer),
