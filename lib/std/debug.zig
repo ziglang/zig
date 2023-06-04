@@ -81,8 +81,6 @@ const PdbOrDwarf = union(enum) {
 
 var stderr_mutex = std.Thread.Mutex{};
 
-pub const warn = @compileError("deprecated; use `std.log` functions for logging or `std.debug.print` for 'printf debugging'");
-
 /// Print to stderr, unbuffered, and silently returning on failure. Intended
 /// for use in "printf debugging." Use `std.log` functions for proper logging.
 pub fn print(comptime fmt: []const u8, args: anytype) void {
