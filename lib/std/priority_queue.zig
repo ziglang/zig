@@ -139,11 +139,11 @@ pub fn PriorityQueue(comptime T: type, comptime Context: type, comptime compareF
                 var smallest = self.items[index];
                 var candidate_index = left_index;
                 
-                if (right_index < self.len && compareFn(self.context, self.items[right_index], self.items[left_index]) == .lt) {
+                if (right_index < self.len and compareFn(self.context, self.items[right_index], self.items[left_index]) == .lt) {
                     candidate_index = right_index;
                 }
                 
-                if (candidate_index < self.len && compareFn(self.context, self.items[candidate_index], smallest) == .lt) {
+                if (candidate_index < self.len and compareFn(self.context, self.items[candidate_index], smallest) == .lt) {
                     smallest_index = candidate_index;
                     smallest = self.items[candidate_index];
                 }
