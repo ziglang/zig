@@ -850,6 +850,8 @@ pub const Inst = struct {
     pub const Index = u32;
 
     pub const Ref = enum(u32) {
+        u0_type = @intFromEnum(InternPool.Index.u0_type),
+        i0_type = @intFromEnum(InternPool.Index.i0_type),
         u1_type = @intFromEnum(InternPool.Index.u1_type),
         u8_type = @intFromEnum(InternPool.Index.u8_type),
         i8_type = @intFromEnum(InternPool.Index.i8_type),
@@ -909,6 +911,7 @@ pub const Inst = struct {
         single_const_pointer_to_comptime_int_type = @intFromEnum(InternPool.Index.single_const_pointer_to_comptime_int_type),
         slice_const_u8_type = @intFromEnum(InternPool.Index.slice_const_u8_type),
         slice_const_u8_sentinel_0_type = @intFromEnum(InternPool.Index.slice_const_u8_sentinel_0_type),
+        optional_noreturn_type = @intFromEnum(InternPool.Index.optional_noreturn_type),
         anyerror_void_error_union_type = @intFromEnum(InternPool.Index.anyerror_void_error_union_type),
         generic_poison_type = @intFromEnum(InternPool.Index.generic_poison_type),
         empty_struct_type = @intFromEnum(InternPool.Index.empty_struct_type),

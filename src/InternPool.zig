@@ -1243,11 +1243,13 @@ pub const Item = struct {
 /// When adding a tag to this enum, consider adding a corresponding entry to
 /// `primitives` in AstGen.zig.
 pub const Index = enum(u32) {
-    pub const first_type: Index = .u1_type;
+    pub const first_type: Index = .u0_type;
     pub const last_type: Index = .empty_struct_type;
     pub const first_value: Index = .undef;
     pub const last_value: Index = .empty_struct;
 
+    u0_type,
+    i0_type,
     u1_type,
     u8_type,
     i8_type,
@@ -1307,6 +1309,7 @@ pub const Index = enum(u32) {
     single_const_pointer_to_comptime_int_type,
     slice_const_u8_type,
     slice_const_u8_sentinel_0_type,
+    optional_noreturn_type,
     anyerror_void_error_union_type,
     generic_poison_type,
     /// `@TypeOf(.{})`
@@ -1535,6 +1538,16 @@ pub const Index = enum(u32) {
 pub const static_keys = [_]Key{
     .{ .int_type = .{
         .signedness = .unsigned,
+        .bits = 0,
+    } },
+
+    .{ .int_type = .{
+        .signedness = .signed,
+        .bits = 0,
+    } },
+
+    .{ .int_type = .{
+        .signedness = .unsigned,
         .bits = 1,
     } },
 
@@ -1639,6 +1652,7 @@ pub const static_keys = [_]Key{
     .{ .simple_type = .extern_options },
     .{ .simple_type = .type_info },
 
+    // [*]u8
     .{ .ptr_type = .{
         .child = .u8_type,
         .flags = .{
@@ -1646,7 +1660,7 @@ pub const static_keys = [_]Key{
         },
     } },
 
-    // manyptr_const_u8_type
+    // [*]const u8
     .{ .ptr_type = .{
         .child = .u8_type,
         .flags = .{
@@ -1655,7 +1669,7 @@ pub const static_keys = [_]Key{
         },
     } },
 
-    // manyptr_const_u8_sentinel_0_type
+    // [*:0]const u8
     .{ .ptr_type = .{
         .child = .u8_type,
         .sentinel = .zero_u8,
@@ -1665,6 +1679,7 @@ pub const static_keys = [_]Key{
         },
     } },
 
+    // comptime_int
     .{ .ptr_type = .{
         .child = .comptime_int_type,
         .flags = .{
@@ -1673,7 +1688,7 @@ pub const static_keys = [_]Key{
         },
     } },
 
-    // slice_const_u8_type
+    // []const u8
     .{ .ptr_type = .{
         .child = .u8_type,
         .flags = .{
@@ -1682,7 +1697,7 @@ pub const static_keys = [_]Key{
         },
     } },
 
-    // slice_const_u8_sentinel_0_type
+    // [:0]const u8
     .{ .ptr_type = .{
         .child = .u8_type,
         .sentinel = .zero_u8,
@@ -1692,7 +1707,10 @@ pub const static_keys = [_]Key{
         },
     } },
 
-    // anyerror_void_error_union_type
+    // ?noreturn
+    .{ .opt_type = .noreturn_type },
+
+    // anyerror!void
     .{ .error_union_type = .{
         .error_set_type = .anyerror_type,
         .payload_type = .void_type,
@@ -5465,6 +5483,8 @@ pub fn typeOf(ip: *const InternPool, index: Index) Index {
     // An alternative would be to topological sort the static keys, but this would
     // mean that the range of type indices would not be dense.
     return switch (index) {
+        .u0_type,
+        .i0_type,
         .u1_type,
         .u8_type,
         .i8_type,
@@ -5524,6 +5544,7 @@ pub fn typeOf(ip: *const InternPool, index: Index) Index {
         .single_const_pointer_to_comptime_int_type,
         .slice_const_u8_type,
         .slice_const_u8_sentinel_0_type,
+        .optional_noreturn_type,
         .anyerror_void_error_union_type,
         .generic_poison_type,
         .empty_struct_type,
@@ -5685,6 +5706,8 @@ pub fn isNoReturn(ip: *const InternPool, ty: Index) bool {
 /// rather than the more straightforward implementation of calling `indexToKey`.
 pub fn zigTypeTagOrPoison(ip: *const InternPool, index: Index) error{GenericPoison}!std.builtin.TypeId {
     return switch (index) {
+        .u0_type,
+        .i0_type,
         .u1_type,
         .u8_type,
         .i8_type,
@@ -5756,6 +5779,7 @@ pub fn zigTypeTagOrPoison(ip: *const InternPool, index: Index) error{GenericPois
         .slice_const_u8_sentinel_0_type,
         => .Pointer,
 
+        .optional_noreturn_type => .Optional,
         .anyerror_void_error_union_type => .ErrorUnion,
         .empty_struct_type => .Struct,
 

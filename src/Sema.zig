@@ -33749,6 +33749,8 @@ pub fn resolveTypeFields(sema: *Sema, ty: Type) CompileError!Type {
 
         .none => unreachable,
 
+        .u0_type,
+        .i0_type,
         .u1_type,
         .u8_type,
         .i8_type,
@@ -33797,6 +33799,7 @@ pub fn resolveTypeFields(sema: *Sema, ty: Type) CompileError!Type {
         .single_const_pointer_to_comptime_int_type,
         .slice_const_u8_type,
         .slice_const_u8_sentinel_0_type,
+        .optional_noreturn_type,
         .anyerror_void_error_union_type,
         .generic_poison_type,
         .empty_struct_type,
@@ -34935,231 +34938,311 @@ fn getBuiltinType(sema: *Sema, name: []const u8) CompileError!Type {
 pub fn typeHasOnePossibleValue(sema: *Sema, ty: Type) CompileError!?Value {
     const mod = sema.mod;
     return switch (ty.toIntern()) {
+        .u0_type,
+        .i0_type,
+        => try mod.intValue(ty, 0),
+        .u1_type,
+        .u8_type,
+        .i8_type,
+        .u16_type,
+        .i16_type,
+        .u29_type,
+        .u32_type,
+        .i32_type,
+        .u64_type,
+        .i64_type,
+        .u80_type,
+        .u128_type,
+        .i128_type,
+        .usize_type,
+        .isize_type,
+        .c_char_type,
+        .c_short_type,
+        .c_ushort_type,
+        .c_int_type,
+        .c_uint_type,
+        .c_long_type,
+        .c_ulong_type,
+        .c_longlong_type,
+        .c_ulonglong_type,
+        .c_longdouble_type,
+        .f16_type,
+        .f32_type,
+        .f64_type,
+        .f80_type,
+        .f128_type,
+        .anyopaque_type,
+        .bool_type,
+        .type_type,
+        .anyerror_type,
+        .comptime_int_type,
+        .comptime_float_type,
+        .enum_literal_type,
+        .atomic_order_type,
+        .atomic_rmw_op_type,
+        .calling_convention_type,
+        .address_space_type,
+        .float_mode_type,
+        .reduce_op_type,
+        .call_modifier_type,
+        .prefetch_options_type,
+        .export_options_type,
+        .extern_options_type,
+        .type_info_type,
+        .manyptr_u8_type,
+        .manyptr_const_u8_type,
+        .manyptr_const_u8_sentinel_0_type,
+        .single_const_pointer_to_comptime_int_type,
+        .slice_const_u8_type,
+        .slice_const_u8_sentinel_0_type,
+        .anyerror_void_error_union_type,
+        => null,
+        .void_type => Value.void,
+        .noreturn_type => Value.@"unreachable",
+        .anyframe_type => unreachable,
+        .null_type => Value.null,
+        .undefined_type => Value.undef,
+        .optional_noreturn_type => try mod.nullValue(ty),
+        .generic_poison_type => error.GenericPoison,
         .empty_struct_type => Value.empty_struct,
-        else => switch (mod.intern_pool.indexToKey(ty.toIntern())) {
-            .int_type => |int_type| {
-                if (int_type.bits == 0) {
-                    return try mod.intValue(ty, 0);
-                } else {
-                    return null;
-                }
-            },
-
-            .ptr_type,
-            .error_union_type,
-            .func_type,
-            .anyframe_type,
-            .error_set_type,
-            .inferred_error_set_type,
+        // values, not types
+        .undef,
+        .zero,
+        .zero_usize,
+        .zero_u8,
+        .one,
+        .one_usize,
+        .one_u8,
+        .four_u8,
+        .negative_one,
+        .calling_convention_c,
+        .calling_convention_inline,
+        .void_value,
+        .unreachable_value,
+        .null_value,
+        .bool_true,
+        .bool_false,
+        .empty_struct,
+        .generic_poison,
+        // invalid
+        .var_args_param_type,
+        .none,
+        => unreachable,
+        _ => switch (mod.intern_pool.items.items(.tag)[@intFromEnum(ty.toIntern())]) {
+            .type_int_signed, // i0 handled above
+            .type_int_unsigned, // u0 handled above
+            .type_pointer,
+            .type_slice,
+            .type_optional, // ?noreturn handled above
+            .type_anyframe,
+            .type_error_union,
+            .type_error_set,
+            .type_inferred_error_set,
+            .type_opaque,
+            .type_function,
             => null,
-
-            inline .array_type, .vector_type => |seq_type, seq_tag| {
-                const has_sentinel = seq_tag == .array_type and seq_type.sentinel != .none;
-                if (seq_type.len + @intFromBool(has_sentinel) == 0) return (try mod.intern(.{ .aggregate = .{
-                    .ty = ty.toIntern(),
-                    .storage = .{ .elems = &.{} },
-                } })).toValue();
-
-                if (try sema.typeHasOnePossibleValue(seq_type.child.toType())) |opv| {
-                    return (try mod.intern(.{ .aggregate = .{
-                        .ty = ty.toIntern(),
-                        .storage = .{ .repeated_elem = opv.toIntern() },
-                    } })).toValue();
-                }
-                return null;
-            },
-            .opt_type => |child| {
-                if (child == .noreturn_type) {
-                    return try mod.nullValue(ty);
-                } else {
-                    return null;
-                }
-            },
-
-            .simple_type => |t| switch (t) {
-                .f16,
-                .f32,
-                .f64,
-                .f80,
-                .f128,
-                .usize,
-                .isize,
-                .c_char,
-                .c_short,
-                .c_ushort,
-                .c_int,
-                .c_uint,
-                .c_long,
-                .c_ulong,
-                .c_longlong,
-                .c_ulonglong,
-                .c_longdouble,
-                .anyopaque,
-                .bool,
-                .type,
-                .anyerror,
-                .comptime_int,
-                .comptime_float,
-                .enum_literal,
-                .atomic_order,
-                .atomic_rmw_op,
-                .calling_convention,
-                .address_space,
-                .float_mode,
-                .reduce_op,
-                .call_modifier,
-                .prefetch_options,
-                .export_options,
-                .extern_options,
-                .type_info,
-                => null,
-
-                .void => Value.void,
-                .noreturn => Value.@"unreachable",
-                .null => Value.null,
-                .undefined => Value.undef,
-
-                .generic_poison => return error.GenericPoison,
-            },
-            .struct_type => |struct_type| {
-                const resolved_ty = try sema.resolveTypeFields(ty);
-                if (mod.structPtrUnwrap(struct_type.index)) |s| {
-                    const field_vals = try sema.arena.alloc(InternPool.Index, s.fields.count());
-                    for (field_vals, s.fields.values(), 0..) |*field_val, field, i| {
-                        if (field.is_comptime) {
-                            field_val.* = field.default_val;
-                            continue;
-                        }
-                        if (field.ty.eql(resolved_ty, sema.mod)) {
-                            const msg = try Module.ErrorMsg.create(
-                                sema.gpa,
-                                s.srcLoc(sema.mod),
-                                "struct '{}' depends on itself",
-                                .{ty.fmt(sema.mod)},
-                            );
-                            try sema.addFieldErrNote(resolved_ty, i, msg, "while checking this field", .{});
-                            return sema.failWithOwnedErrorMsg(msg);
-                        }
-                        if (try sema.typeHasOnePossibleValue(field.ty)) |field_opv| {
-                            field_val.* = try field_opv.intern(field.ty, mod);
-                        } else return null;
-                    }
-
-                    // In this case the struct has no runtime-known fields and
-                    // therefore has one possible value.
-                    return (try mod.intern(.{ .aggregate = .{
-                        .ty = ty.toIntern(),
-                        .storage = .{ .elems = field_vals },
-                    } })).toValue();
-                }
-
-                // In this case the struct has no fields at all and
-                // therefore has one possible value.
-                return (try mod.intern(.{ .aggregate = .{
-                    .ty = ty.toIntern(),
-                    .storage = .{ .elems = &.{} },
-                } })).toValue();
-            },
-
-            .anon_struct_type => |tuple| {
-                for (tuple.values) |val| {
-                    if (val == .none) return null;
-                }
-                // In this case the struct has all comptime-known fields and
-                // therefore has one possible value.
-                // TODO: write something like getCoercedInts to avoid needing to dupe
-                return (try mod.intern(.{ .aggregate = .{
-                    .ty = ty.toIntern(),
-                    .storage = .{ .elems = try sema.arena.dupe(InternPool.Index, tuple.values) },
-                } })).toValue();
-            },
-
-            .union_type => |union_type| {
-                const resolved_ty = try sema.resolveTypeFields(ty);
-                const union_obj = mod.unionPtr(union_type.index);
-                const tag_val = (try sema.typeHasOnePossibleValue(union_obj.tag_ty)) orelse
-                    return null;
-                const fields = union_obj.fields.values();
-                if (fields.len == 0) {
-                    const only = try mod.intern(.{ .empty_enum_value = ty.toIntern() });
-                    return only.toValue();
-                }
-                const only_field = fields[0];
-                if (only_field.ty.eql(resolved_ty, sema.mod)) {
-                    const msg = try Module.ErrorMsg.create(
-                        sema.gpa,
-                        union_obj.srcLoc(sema.mod),
-                        "union '{}' depends on itself",
-                        .{ty.fmt(sema.mod)},
-                    );
-                    try sema.addFieldErrNote(resolved_ty, 0, msg, "while checking this field", .{});
-                    return sema.failWithOwnedErrorMsg(msg);
-                }
-                const val_val = (try sema.typeHasOnePossibleValue(only_field.ty)) orelse
-                    return null;
-                const only = try mod.intern(.{ .un = .{
-                    .ty = resolved_ty.toIntern(),
-                    .tag = tag_val.toIntern(),
-                    .val = val_val.toIntern(),
-                } });
-                return only.toValue();
-            },
-            .opaque_type => null,
-            .enum_type => |enum_type| switch (enum_type.tag_mode) {
-                .nonexhaustive => {
-                    if (enum_type.tag_ty == .comptime_int_type) return null;
-
-                    if (try sema.typeHasOnePossibleValue(enum_type.tag_ty.toType())) |int_opv| {
-                        const only = try mod.intern(.{ .enum_tag = .{
-                            .ty = ty.toIntern(),
-                            .int = int_opv.toIntern(),
-                        } });
-                        return only.toValue();
-                    }
-
-                    return null;
-                },
-                .auto, .explicit => {
-                    if (enum_type.tag_ty.toType().hasRuntimeBits(mod)) return null;
-
-                    switch (enum_type.names.len) {
-                        0 => {
-                            const only = try mod.intern(.{ .empty_enum_value = ty.toIntern() });
-                            return only.toValue();
-                        },
-                        1 => return try mod.getCoerced((if (enum_type.values.len == 0)
-                            try mod.intern(.{ .int = .{
-                                .ty = enum_type.tag_ty,
-                                .storage = .{ .u64 = 0 },
-                            } })
-                        else
-                            enum_type.values[0]).toValue(), ty),
-                        else => return null,
-                    }
-                },
-            },
-
+            .simple_type, // handled above
             // values, not types
             .undef,
             .runtime_value,
             .simple_value,
+            .ptr_decl,
+            .ptr_mut_decl,
+            .ptr_comptime_field,
+            .ptr_int,
+            .ptr_eu_payload,
+            .ptr_opt_payload,
+            .ptr_elem,
+            .ptr_field,
+            .ptr_slice,
+            .opt_payload,
+            .opt_null,
+            .int_u8,
+            .int_u16,
+            .int_u32,
+            .int_i32,
+            .int_usize,
+            .int_comptime_int_u32,
+            .int_comptime_int_i32,
+            .int_small,
+            .int_positive,
+            .int_negative,
+            .int_lazy_align,
+            .int_lazy_size,
+            .error_set_error,
+            .error_union_error,
+            .error_union_payload,
+            .enum_literal,
+            .enum_tag,
+            .float_f16,
+            .float_f32,
+            .float_f64,
+            .float_f80,
+            .float_f128,
+            .float_c_longdouble_f80,
+            .float_c_longdouble_f128,
+            .float_comptime_float,
             .variable,
             .extern_func,
             .func,
-            .int,
-            .err,
-            .error_union,
-            .enum_literal,
-            .enum_tag,
-            .empty_enum_value,
-            .float,
-            .ptr,
-            .opt,
+            .only_possible_value,
+            .union_value,
+            .bytes,
             .aggregate,
-            .un,
-            // memoization, not types
+            .repeated,
+            // memoized value, not types
             .memoized_call,
             => unreachable,
+            .type_array_big,
+            .type_array_small,
+            .type_vector,
+            .type_enum_auto,
+            .type_enum_explicit,
+            .type_enum_nonexhaustive,
+            .type_struct,
+            .type_struct_ns,
+            .type_struct_anon,
+            .type_tuple_anon,
+            .type_union_tagged,
+            .type_union_untagged,
+            .type_union_safety,
+            => switch (mod.intern_pool.indexToKey(ty.toIntern())) {
+                inline .array_type, .vector_type => |seq_type, seq_tag| {
+                    const has_sentinel = seq_tag == .array_type and seq_type.sentinel != .none;
+                    if (seq_type.len + @intFromBool(has_sentinel) == 0) return (try mod.intern(.{ .aggregate = .{
+                        .ty = ty.toIntern(),
+                        .storage = .{ .elems = &.{} },
+                    } })).toValue();
+
+                    if (try sema.typeHasOnePossibleValue(seq_type.child.toType())) |opv| {
+                        return (try mod.intern(.{ .aggregate = .{
+                            .ty = ty.toIntern(),
+                            .storage = .{ .repeated_elem = opv.toIntern() },
+                        } })).toValue();
+                    }
+                    return null;
+                },
+
+                .struct_type => |struct_type| {
+                    const resolved_ty = try sema.resolveTypeFields(ty);
+                    if (mod.structPtrUnwrap(struct_type.index)) |s| {
+                        const field_vals = try sema.arena.alloc(InternPool.Index, s.fields.count());
+                        for (field_vals, s.fields.values(), 0..) |*field_val, field, i| {
+                            if (field.is_comptime) {
+                                field_val.* = field.default_val;
+                                continue;
+                            }
+                            if (field.ty.eql(resolved_ty, sema.mod)) {
+                                const msg = try Module.ErrorMsg.create(
+                                    sema.gpa,
+                                    s.srcLoc(sema.mod),
+                                    "struct '{}' depends on itself",
+                                    .{ty.fmt(sema.mod)},
+                                );
+                                try sema.addFieldErrNote(resolved_ty, i, msg, "while checking this field", .{});
+                                return sema.failWithOwnedErrorMsg(msg);
+                            }
+                            if (try sema.typeHasOnePossibleValue(field.ty)) |field_opv| {
+                                field_val.* = try field_opv.intern(field.ty, mod);
+                            } else return null;
+                        }
+
+                        // In this case the struct has no runtime-known fields and
+                        // therefore has one possible value.
+                        return (try mod.intern(.{ .aggregate = .{
+                            .ty = ty.toIntern(),
+                            .storage = .{ .elems = field_vals },
+                        } })).toValue();
+                    }
+
+                    // In this case the struct has no fields at all and
+                    // therefore has one possible value.
+                    return (try mod.intern(.{ .aggregate = .{
+                        .ty = ty.toIntern(),
+                        .storage = .{ .elems = &.{} },
+                    } })).toValue();
+                },
+
+                .anon_struct_type => |tuple| {
+                    for (tuple.values) |val| {
+                        if (val == .none) return null;
+                    }
+                    // In this case the struct has all comptime-known fields and
+                    // therefore has one possible value.
+                    // TODO: write something like getCoercedInts to avoid needing to dupe
+                    return (try mod.intern(.{ .aggregate = .{
+                        .ty = ty.toIntern(),
+                        .storage = .{ .elems = try sema.arena.dupe(InternPool.Index, tuple.values) },
+                    } })).toValue();
+                },
+
+                .union_type => |union_type| {
+                    const resolved_ty = try sema.resolveTypeFields(ty);
+                    const union_obj = mod.unionPtr(union_type.index);
+                    const tag_val = (try sema.typeHasOnePossibleValue(union_obj.tag_ty)) orelse
+                        return null;
+                    const fields = union_obj.fields.values();
+                    if (fields.len == 0) {
+                        const only = try mod.intern(.{ .empty_enum_value = ty.toIntern() });
+                        return only.toValue();
+                    }
+                    const only_field = fields[0];
+                    if (only_field.ty.eql(resolved_ty, sema.mod)) {
+                        const msg = try Module.ErrorMsg.create(
+                            sema.gpa,
+                            union_obj.srcLoc(sema.mod),
+                            "union '{}' depends on itself",
+                            .{ty.fmt(sema.mod)},
+                        );
+                        try sema.addFieldErrNote(resolved_ty, 0, msg, "while checking this field", .{});
+                        return sema.failWithOwnedErrorMsg(msg);
+                    }
+                    const val_val = (try sema.typeHasOnePossibleValue(only_field.ty)) orelse
+                        return null;
+                    const only = try mod.intern(.{ .un = .{
+                        .ty = resolved_ty.toIntern(),
+                        .tag = tag_val.toIntern(),
+                        .val = val_val.toIntern(),
+                    } });
+                    return only.toValue();
+                },
+
+                .enum_type => |enum_type| switch (enum_type.tag_mode) {
+                    .nonexhaustive => {
+                        if (enum_type.tag_ty == .comptime_int_type) return null;
+
+                        if (try sema.typeHasOnePossibleValue(enum_type.tag_ty.toType())) |int_opv| {
+                            const only = try mod.intern(.{ .enum_tag = .{
+                                .ty = ty.toIntern(),
+                                .int = int_opv.toIntern(),
+                            } });
+                            return only.toValue();
+                        }
+
+                        return null;
+                    },
+                    .auto, .explicit => {
+                        if (enum_type.tag_ty.toType().hasRuntimeBits(mod)) return null;
+
+                        switch (enum_type.names.len) {
+                            0 => {
+                                const only = try mod.intern(.{ .empty_enum_value = ty.toIntern() });
+                                return only.toValue();
+                            },
+                            1 => return try mod.getCoerced((if (enum_type.values.len == 0)
+                                try mod.intern(.{ .int = .{
+                                    .ty = enum_type.tag_ty,
+                                    .storage = .{ .u64 = 0 },
+                                } })
+                            else
+                                enum_type.values[0]).toValue(), ty),
+                            else => return null,
+                        }
+                    },
+                },
+
+                else => unreachable,
+            },
         },
     };
 }
