@@ -2770,8 +2770,8 @@ fn zirStructDecl(
     // InternPool index.
 
     const new_decl_index = try sema.createAnonymousDeclTypeNamed(block, src, .{
-        .ty = Type.type,
-        .val = undefined,
+        .ty = Type.noreturn,
+        .val = Value.@"unreachable",
     }, small.name_strategy, "struct", inst);
     const new_decl = mod.declPtr(new_decl_index);
     new_decl.owns_tv = true;
@@ -2804,6 +2804,7 @@ fn zirStructDecl(
     // TODO: figure out InternPool removals for incremental compilation
     //errdefer mod.intern_pool.remove(struct_ty);
 
+    new_decl.ty = Type.type;
     new_decl.val = struct_ty.toValue();
     new_namespace.ty = struct_ty.toType();
 
@@ -2973,8 +2974,8 @@ fn zirEnumDecl(
 
     var done = false;
     const new_decl_index = try sema.createAnonymousDeclTypeNamed(block, src, .{
-        .ty = Type.type,
-        .val = undefined,
+        .ty = Type.noreturn,
+        .val = Value.@"unreachable",
     }, small.name_strategy, "enum", inst);
     const new_decl = mod.declPtr(new_decl_index);
     new_decl.owns_tv = true;
@@ -3016,6 +3017,7 @@ fn zirEnumDecl(
     // TODO: figure out InternPool removals for incremental compilation
     //errdefer if (!done) mod.intern_pool.remove(incomplete_enum.index);
 
+    new_decl.ty = Type.type;
     new_decl.val = incomplete_enum.index.toValue();
     new_namespace.ty = incomplete_enum.index.toType();
 
@@ -3232,8 +3234,8 @@ fn zirUnionDecl(
     // InternPool index.
 
     const new_decl_index = try sema.createAnonymousDeclTypeNamed(block, src, .{
-        .ty = Type.type,
-        .val = undefined,
+        .ty = Type.noreturn,
+        .val = Value.@"unreachable",
     }, small.name_strategy, "union", inst);
     const new_decl = mod.declPtr(new_decl_index);
     new_decl.owns_tv = true;
@@ -3272,6 +3274,7 @@ fn zirUnionDecl(
     // TODO: figure out InternPool removals for incremental compilation
     //errdefer mod.intern_pool.remove(union_ty);
 
+    new_decl.ty = Type.type;
     new_decl.val = union_ty.toValue();
     new_namespace.ty = union_ty.toType();
 
@@ -3312,8 +3315,8 @@ fn zirOpaqueDecl(
     // type gains an InternPool index.
 
     const new_decl_index = try sema.createAnonymousDeclTypeNamed(block, src, .{
-        .ty = Type.type,
-        .val = undefined,
+        .ty = Type.noreturn,
+        .val = Value.@"unreachable",
     }, small.name_strategy, "opaque", inst);
     const new_decl = mod.declPtr(new_decl_index);
     new_decl.owns_tv = true;
@@ -3334,6 +3337,7 @@ fn zirOpaqueDecl(
     // TODO: figure out InternPool removals for incremental compilation
     //errdefer mod.intern_pool.remove(opaque_ty);
 
+    new_decl.ty = Type.type;
     new_decl.val = opaque_ty.toValue();
     new_namespace.ty = opaque_ty.toType();
 
@@ -19433,8 +19437,8 @@ fn zirReify(
             // an InternPool index.
 
             const new_decl_index = try sema.createAnonymousDeclTypeNamed(block, src, .{
-                .ty = Type.type,
-                .val = undefined,
+                .ty = Type.noreturn,
+                .val = Value.@"unreachable",
             }, name_strategy, "enum", inst);
             const new_decl = mod.declPtr(new_decl_index);
             new_decl.owns_tv = true;
@@ -19459,6 +19463,7 @@ fn zirReify(
             // TODO: figure out InternPool removals for incremental compilation
             //errdefer ip.remove(incomplete_enum.index);
 
+            new_decl.ty = Type.type;
             new_decl.val = incomplete_enum.index.toValue();
 
             for (0..fields_len) |field_i| {
@@ -19527,8 +19532,8 @@ fn zirReify(
             // after the opaque type gains an InternPool index.
 
             const new_decl_index = try sema.createAnonymousDeclTypeNamed(block, src, .{
-                .ty = Type.type,
-                .val = undefined,
+                .ty = Type.noreturn,
+                .val = Value.@"unreachable",
             }, name_strategy, "opaque", inst);
             const new_decl = mod.declPtr(new_decl_index);
             new_decl.owns_tv = true;
@@ -19552,6 +19557,7 @@ fn zirReify(
             // TODO: figure out InternPool removals for incremental compilation
             //errdefer ip.remove(opaque_ty);
 
+            new_decl.ty = Type.type;
             new_decl.val = opaque_ty.toValue();
             new_namespace.ty = opaque_ty.toType();
 
@@ -19585,8 +19591,8 @@ fn zirReify(
             // InternPool index.
 
             const new_decl_index = try sema.createAnonymousDeclTypeNamed(block, src, .{
-                .ty = Type.type,
-                .val = undefined,
+                .ty = Type.noreturn,
+                .val = Value.@"unreachable",
             }, name_strategy, "union", inst);
             const new_decl = mod.declPtr(new_decl_index);
             new_decl.owns_tv = true;
@@ -19629,6 +19635,7 @@ fn zirReify(
             // TODO: figure out InternPool removals for incremental compilation
             //errdefer ip.remove(union_ty);
 
+            new_decl.ty = Type.type;
             new_decl.val = union_ty.toValue();
             new_namespace.ty = union_ty.toType();
 
@@ -19886,8 +19893,8 @@ fn reifyStruct(
     // InternPool index.
 
     const new_decl_index = try sema.createAnonymousDeclTypeNamed(block, src, .{
-        .ty = Type.type,
-        .val = undefined,
+        .ty = Type.noreturn,
+        .val = Value.@"unreachable",
     }, name_strategy, "struct", inst);
     const new_decl = mod.declPtr(new_decl_index);
     new_decl.owns_tv = true;
@@ -19924,6 +19931,7 @@ fn reifyStruct(
     // TODO: figure out InternPool removals for incremental compilation
     //errdefer ip.remove(struct_ty);
 
+    new_decl.ty = Type.type;
     new_decl.val = struct_ty.toValue();
     new_namespace.ty = struct_ty.toType();
 
@@ -33427,8 +33435,8 @@ fn generateUnionTagTypeNumbered(
         break :name try ip.getOrPutTrailingString(gpa, ip.string_bytes.items.len - start);
     };
     try mod.initNewAnonDecl(new_decl_index, src_decl.src_line, block.namespace, .{
-        .ty = Type.type,
-        .val = undefined,
+        .ty = Type.noreturn,
+        .val = Value.@"unreachable",
     }, name);
     errdefer mod.abortAnonDecl(new_decl_index);
 
@@ -33449,6 +33457,7 @@ fn generateUnionTagTypeNumbered(
         .tag_mode = .explicit,
     } });
 
+    new_decl.ty = Type.type;
     new_decl.val = enum_ty.toValue();
 
     try mod.finalizeAnonDecl(new_decl_index);
@@ -33468,8 +33477,8 @@ fn generateUnionTagTypeSimple(
     const new_decl_index = new_decl_index: {
         const union_obj = maybe_union_obj orelse {
             break :new_decl_index try mod.createAnonymousDecl(block, .{
-                .ty = Type.type,
-                .val = undefined,
+                .ty = Type.noreturn,
+                .val = Value.@"unreachable",
             });
         };
         const src_decl = mod.declPtr(block.src_decl);
@@ -33487,8 +33496,8 @@ fn generateUnionTagTypeSimple(
             break :name try ip.getOrPutTrailingString(gpa, ip.string_bytes.items.len - start);
         };
         try mod.initNewAnonDecl(new_decl_index, src_decl.src_line, block.namespace, .{
-            .ty = Type.type,
-            .val = undefined,
+            .ty = Type.noreturn,
+            .val = Value.@"unreachable",
         }, name);
         mod.declPtr(new_decl_index).name_fully_qualified = true;
         break :new_decl_index new_decl_index;
@@ -33509,6 +33518,7 @@ fn generateUnionTagTypeSimple(
 
     const new_decl = mod.declPtr(new_decl_index);
     new_decl.owns_tv = true;
+    new_decl.ty = Type.type;
     new_decl.val = enum_ty.toValue();
 
     try mod.finalizeAnonDecl(new_decl_index);
