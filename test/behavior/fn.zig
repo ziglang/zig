@@ -211,7 +211,7 @@ test "pass by non-copying value through var arg" {
 }
 
 fn addPointCoordsVar(pt: anytype) !i32 {
-    comptime try expect(@TypeOf(pt) == Point);
+    try comptime expect(@TypeOf(pt) == Point);
     return pt.x + pt.y;
 }
 
@@ -285,7 +285,7 @@ test "implicit cast fn call result to optional in field result" {
         };
     };
     try S.entry();
-    comptime try S.entry();
+    try comptime S.entry();
 }
 
 test "void parameters" {
@@ -344,7 +344,7 @@ fn fn4() u32 {
 
 test "number literal as an argument" {
     try numberLiteralArg(3);
-    comptime try numberLiteralArg(3);
+    try comptime numberLiteralArg(3);
 }
 
 fn numberLiteralArg(a: anytype) !void {
@@ -369,7 +369,7 @@ test "function call with anon list literal" {
         }
     };
     try S.doTheTest();
-    comptime try S.doTheTest();
+    try comptime S.doTheTest();
 }
 
 test "function call with anon list literal - 2D" {
@@ -391,7 +391,7 @@ test "function call with anon list literal - 2D" {
         }
     };
     try S.doTheTest();
-    comptime try S.doTheTest();
+    try comptime S.doTheTest();
 }
 
 test "ability to give comptime types and non comptime types to same parameter" {
@@ -410,7 +410,7 @@ test "ability to give comptime types and non comptime types to same parameter" {
         }
     };
     try S.doTheTest();
-    comptime try S.doTheTest();
+    try comptime S.doTheTest();
 }
 
 test "function with inferred error set but returning no error" {

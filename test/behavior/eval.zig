@@ -56,7 +56,7 @@ fn staticAdd(a: i32, b: i32) i32 {
 
 test "const expr eval on single expr blocks" {
     try expect(constExprEvalOnSingleExprBlocksFn(1, true) == 3);
-    comptime try expect(constExprEvalOnSingleExprBlocksFn(1, true) == 3);
+    try comptime expect(constExprEvalOnSingleExprBlocksFn(1, true) == 3);
 }
 
 fn constExprEvalOnSingleExprBlocksFn(x: i32, b: bool) i32 {
@@ -436,7 +436,7 @@ test "f64 at compile time is lossy" {
 }
 
 test {
-    comptime try expect(@as(f128, 1 << 113) == 10384593717069655257060992658440192);
+    try comptime expect(@as(f128, 1 << 113) == 10384593717069655257060992658440192);
 }
 
 fn copyWithPartialInline(s: []u32, b: []u8) void {
@@ -625,7 +625,7 @@ test "const global shares pointer with other same one" {
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     try assertEqualPtrs(&hi1[0], &hi2[0]);
-    comptime try expect(&hi1[0] == &hi2[0]);
+    try comptime expect(&hi1[0] == &hi2[0]);
 }
 fn assertEqualPtrs(ptr1: *const u8, ptr2: *const u8) !void {
     try expect(ptr1 == ptr2);
@@ -646,8 +646,8 @@ fn assertEqualPtrs(ptr1: *const u8, ptr2: *const u8) !void {
 test "string literal used as comptime slice is memoized" {
     const a = "link";
     const b = "link";
-    comptime try expect(TypeWithCompTimeSlice(a).Node == TypeWithCompTimeSlice(b).Node);
-    comptime try expect(TypeWithCompTimeSlice("link").Node == TypeWithCompTimeSlice("link").Node);
+    try comptime expect(TypeWithCompTimeSlice(a).Node == TypeWithCompTimeSlice(b).Node);
+    try comptime expect(TypeWithCompTimeSlice("link").Node == TypeWithCompTimeSlice("link").Node);
 }
 
 pub fn TypeWithCompTimeSlice(comptime field_name: []const u8) type {
@@ -1072,7 +1072,7 @@ test "comptime break operand passing through runtime condition converted to runt
     };
 
     try S.doTheTest('b');
-    comptime try S.doTheTest('b');
+    try comptime S.doTheTest('b');
 }
 
 test "comptime break operand passing through runtime switch converted to runtime break" {
@@ -1092,7 +1092,7 @@ test "comptime break operand passing through runtime switch converted to runtime
     };
 
     try S.doTheTest('b');
-    comptime try S.doTheTest('b');
+    try comptime S.doTheTest('b');
 }
 
 test "no dependency loop for alignment of self struct" {
@@ -1349,7 +1349,7 @@ test "value in if block is comptime-known" {
         const s = if (false) S{ .str = "a" } else S{ .str = "b" };
         break :blk "foo" ++ s.str;
     };
-    comptime try expect(std.mem.eql(u8, first, second));
+    try comptime expect(std.mem.eql(u8, first, second));
 }
 
 test "lazy sizeof is resolved in division" {
@@ -1448,7 +1448,7 @@ test "length of global array is determinable at comptime" {
             try std.testing.expect(bytes.len == 1024);
         }
     };
-    comptime try S.foo();
+    try comptime S.foo();
 }
 
 test "continue nested inline for loop" {
@@ -1574,7 +1574,7 @@ test "comptime function turns function value to function pointer" {
             fnPtr(Nil),
         };
     };
-    comptime try expect(S.foo[0] == &S.Nil);
+    try comptime expect(S.foo[0] == &S.Nil);
 }
 
 test "container level const and var have unique addresses" {

@@ -222,8 +222,8 @@ pub fn isSingleItemPtr(comptime T: type) bool {
 
 test "isSingleItemPtr" {
     const array = [_]u8{0} ** 10;
-    comptime try testing.expect(isSingleItemPtr(@TypeOf(&array[0])));
-    comptime try testing.expect(!isSingleItemPtr(@TypeOf(array)));
+    try comptime testing.expect(isSingleItemPtr(@TypeOf(&array[0])));
+    try comptime testing.expect(!isSingleItemPtr(@TypeOf(array)));
     var runtime_zero: usize = 0;
     try testing.expect(!isSingleItemPtr(@TypeOf(array[runtime_zero..1])));
 }

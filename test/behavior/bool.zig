@@ -49,7 +49,7 @@ test "compile time bool not" {
 
 test "short circuit" {
     try testShortCircuit(false, true);
-    comptime try testShortCircuit(false, true);
+    try comptime testShortCircuit(false, true);
 }
 
 fn testShortCircuit(f: bool, t: bool) !void {

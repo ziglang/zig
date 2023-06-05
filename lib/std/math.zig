@@ -854,7 +854,7 @@ test "IntFittingRange" {
 
 test "overflow functions" {
     try testOverflow();
-    comptime try testOverflow();
+    try comptime testOverflow();
 }
 
 fn testOverflow() !void {
@@ -898,7 +898,7 @@ pub fn absInt(x: anytype) !@TypeOf(x) {
 
 test "absInt" {
     try testAbsInt();
-    comptime try testAbsInt();
+    try comptime testAbsInt();
 }
 fn testAbsInt() !void {
     try testing.expect((absInt(@as(i32, -10)) catch unreachable) == 10);
@@ -920,7 +920,7 @@ pub fn divTrunc(comptime T: type, numerator: T, denominator: T) !T {
 
 test "divTrunc" {
     try testDivTrunc();
-    comptime try testDivTrunc();
+    try comptime testDivTrunc();
 }
 fn testDivTrunc() !void {
     try testing.expect((divTrunc(i32, 5, 3) catch unreachable) == 1);
@@ -944,7 +944,7 @@ pub fn divFloor(comptime T: type, numerator: T, denominator: T) !T {
 
 test "divFloor" {
     try testDivFloor();
-    comptime try testDivFloor();
+    try comptime testDivFloor();
 }
 fn testDivFloor() !void {
     try testing.expect((divFloor(i32, 5, 3) catch unreachable) == 1);
@@ -981,7 +981,7 @@ pub fn divCeil(comptime T: type, numerator: T, denominator: T) !T {
 
 test "divCeil" {
     try testDivCeil();
-    comptime try testDivCeil();
+    try comptime testDivCeil();
 }
 fn testDivCeil() !void {
     try testing.expectEqual(@as(i32, 2), divCeil(i32, 5, 3) catch unreachable);
@@ -1025,7 +1025,7 @@ pub fn divExact(comptime T: type, numerator: T, denominator: T) !T {
 
 test "divExact" {
     try testDivExact();
-    comptime try testDivExact();
+    try comptime testDivExact();
 }
 fn testDivExact() !void {
     try testing.expect((divExact(i32, 10, 5) catch unreachable) == 2);
@@ -1051,7 +1051,7 @@ pub fn mod(comptime T: type, numerator: T, denominator: T) !T {
 
 test "mod" {
     try testMod();
-    comptime try testMod();
+    try comptime testMod();
 }
 fn testMod() !void {
     try testing.expect((mod(i32, -5, 3) catch unreachable) == 1);
@@ -1077,7 +1077,7 @@ pub fn rem(comptime T: type, numerator: T, denominator: T) !T {
 
 test "rem" {
     try testRem();
-    comptime try testRem();
+    try comptime testRem();
 }
 fn testRem() !void {
     try testing.expect((rem(i32, -5, 3) catch unreachable) == -2);
@@ -1253,7 +1253,7 @@ pub fn floorPowerOfTwo(comptime T: type, value: T) T {
 
 test "floorPowerOfTwo" {
     try testFloorPowerOfTwo();
-    comptime try testFloorPowerOfTwo();
+    try comptime testFloorPowerOfTwo();
 }
 
 fn testFloorPowerOfTwo() !void {
@@ -1315,7 +1315,7 @@ pub fn ceilPowerOfTwoAssert(comptime T: type, value: T) T {
 
 test "ceilPowerOfTwoPromote" {
     try testCeilPowerOfTwoPromote();
-    comptime try testCeilPowerOfTwoPromote();
+    try comptime testCeilPowerOfTwoPromote();
 }
 
 fn testCeilPowerOfTwoPromote() !void {
@@ -1332,7 +1332,7 @@ fn testCeilPowerOfTwoPromote() !void {
 
 test "ceilPowerOfTwo" {
     try testCeilPowerOfTwo();
-    comptime try testCeilPowerOfTwo();
+    try comptime testCeilPowerOfTwo();
 }
 
 fn testCeilPowerOfTwo() !void {
@@ -1751,7 +1751,7 @@ test "boolMask" {
         }
     }.runTest;
     try runTest();
-    comptime try runTest();
+    try comptime runTest();
 }
 
 /// Return the mod of `num` with the smallest integer type
@@ -1882,5 +1882,5 @@ test "sign" {
         return error.SkipZigTest;
     }
     try testSign();
-    comptime try testSign();
+    try comptime testSign();
 }

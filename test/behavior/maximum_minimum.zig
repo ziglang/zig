@@ -19,7 +19,7 @@ test "@max" {
         }
     };
     try S.doTheTest();
-    comptime try S.doTheTest();
+    try comptime S.doTheTest();
 }
 
 test "@max on vectors" {
@@ -50,7 +50,7 @@ test "@max on vectors" {
         }
     };
     try S.doTheTest();
-    comptime try S.doTheTest();
+    try comptime S.doTheTest();
 }
 
 test "@min" {
@@ -68,7 +68,7 @@ test "@min" {
         }
     };
     try S.doTheTest();
-    comptime try S.doTheTest();
+    try comptime S.doTheTest();
 }
 
 test "@min for vectors" {
@@ -99,7 +99,7 @@ test "@min for vectors" {
         }
     };
     try S.doTheTest();
-    comptime try S.doTheTest();
+    try comptime S.doTheTest();
 }
 
 test "@min/max for floats" {
@@ -123,9 +123,9 @@ test "@min/max for floats" {
 
     inline for (.{ f16, f32, f64, f80, f128, c_longdouble }) |T| {
         try S.doTheTest(T);
-        comptime try S.doTheTest(T);
+        try comptime S.doTheTest(T);
     }
-    comptime try S.doTheTest(comptime_float);
+    try comptime S.doTheTest(comptime_float);
 }
 
 test "@min/@max on lazy values" {

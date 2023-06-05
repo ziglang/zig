@@ -21,7 +21,7 @@ test "implicit cast vector to array - bool" {
         }
     };
     try S.doTheTest();
-    comptime try S.doTheTest();
+    try comptime S.doTheTest();
 }
 
 test "vector wrap operators" {
@@ -45,7 +45,7 @@ test "vector wrap operators" {
         }
     };
     try S.doTheTest();
-    comptime try S.doTheTest();
+    try comptime S.doTheTest();
 }
 
 test "vector bin compares with mem.eql" {
@@ -69,7 +69,7 @@ test "vector bin compares with mem.eql" {
         }
     };
     try S.doTheTest();
-    comptime try S.doTheTest();
+    try comptime S.doTheTest();
 }
 
 test "vector int operators" {
@@ -91,7 +91,7 @@ test "vector int operators" {
         }
     };
     try S.doTheTest();
-    comptime try S.doTheTest();
+    try comptime S.doTheTest();
 }
 
 test "vector float operators" {
@@ -114,7 +114,7 @@ test "vector float operators" {
             }
         };
         try S.doTheTest();
-        comptime try S.doTheTest();
+        try comptime S.doTheTest();
     }
 }
 
@@ -135,7 +135,7 @@ test "vector bit operators" {
         }
     };
     try S.doTheTest();
-    comptime try S.doTheTest();
+    try comptime S.doTheTest();
 }
 
 test "implicit cast vector to array" {
@@ -153,7 +153,7 @@ test "implicit cast vector to array" {
         }
     };
     try S.doTheTest();
-    comptime try S.doTheTest();
+    try comptime S.doTheTest();
 }
 
 test "array to vector" {
@@ -171,7 +171,7 @@ test "array to vector" {
         }
     };
     try S.doTheTest();
-    comptime try S.doTheTest();
+    try comptime S.doTheTest();
 }
 
 test "array to vector with element type coercion" {
@@ -192,7 +192,7 @@ test "array to vector with element type coercion" {
         }
     };
     try S.doTheTest();
-    comptime try S.doTheTest();
+    try comptime S.doTheTest();
 }
 
 test "peer type resolution with coercible element types" {
@@ -212,7 +212,7 @@ test "peer type resolution with coercible element types" {
             try std.testing.expect(@TypeOf(c) == @Vector(2, u16));
         }
     };
-    comptime try S.doTheTest();
+    try comptime S.doTheTest();
 }
 
 test "tuple to vector" {
@@ -242,7 +242,7 @@ test "tuple to vector" {
         }
     };
     try S.doTheTest();
-    comptime try S.doTheTest();
+    try comptime S.doTheTest();
 }
 
 test "vector casts of sizes not divisible by 8" {
@@ -278,7 +278,7 @@ test "vector casts of sizes not divisible by 8" {
         }
     };
     try S.doTheTest();
-    comptime try S.doTheTest();
+    try comptime S.doTheTest();
 }
 
 test "vector @splat" {
@@ -326,7 +326,7 @@ test "vector @splat" {
         }
     };
     try S.doTheTest();
-    comptime try S.doTheTest();
+    try comptime S.doTheTest();
 }
 
 test "load vector elements via comptime index" {
@@ -348,7 +348,7 @@ test "load vector elements via comptime index" {
     };
 
     try S.doTheTest();
-    comptime try S.doTheTest();
+    try comptime S.doTheTest();
 }
 
 test "store vector elements via comptime index" {
@@ -376,7 +376,7 @@ test "store vector elements via comptime index" {
     };
 
     try S.doTheTest();
-    comptime try S.doTheTest();
+    try comptime S.doTheTest();
 }
 
 test "load vector elements via runtime index" {
@@ -398,7 +398,7 @@ test "load vector elements via runtime index" {
     };
 
     try S.doTheTest();
-    comptime try S.doTheTest();
+    try comptime S.doTheTest();
 }
 
 test "store vector elements via runtime index" {
@@ -421,7 +421,7 @@ test "store vector elements via runtime index" {
     };
 
     try S.doTheTest();
-    comptime try S.doTheTest();
+    try comptime S.doTheTest();
 }
 
 test "initialize vector which is a struct field" {
@@ -443,7 +443,7 @@ test "initialize vector which is a struct field" {
         }
     };
     try S.doTheTest();
-    comptime try S.doTheTest();
+    try comptime S.doTheTest();
 }
 
 test "vector comparison operators" {
@@ -484,7 +484,7 @@ test "vector comparison operators" {
         }
     };
     try S.doTheTest();
-    comptime try S.doTheTest();
+    try comptime S.doTheTest();
 }
 
 test "vector division operators" {
@@ -567,7 +567,7 @@ test "vector division operators" {
     };
 
     try S.doTheTest();
-    comptime try S.doTheTest();
+    try comptime S.doTheTest();
 }
 
 test "vector bitwise not operator" {
@@ -599,7 +599,7 @@ test "vector bitwise not operator" {
     };
 
     try S.doTheTest();
-    comptime try S.doTheTest();
+    try comptime S.doTheTest();
 }
 
 test "vector shift operators" {
@@ -693,7 +693,7 @@ test "vector shift operators" {
     }
 
     try S.doTheTest();
-    comptime try S.doTheTest();
+    try comptime S.doTheTest();
 }
 
 test "vector reduce operation" {
@@ -837,7 +837,7 @@ test "vector reduce operation" {
     };
 
     try S.doTheTest();
-    comptime try S.doTheTest();
+    try comptime S.doTheTest();
 }
 
 test "vector @reduce comptime" {
@@ -849,9 +849,9 @@ test "vector @reduce comptime" {
     const value = @Vector(4, i32){ 1, -1, 1, -1 };
     const result = value > @splat(4, @as(i32, 0));
     // result is { true, false, true, false };
-    comptime try expect(@TypeOf(result) == @Vector(4, bool));
+    try comptime expect(@TypeOf(result) == @Vector(4, bool));
     const is_all_true = @reduce(.And, result);
-    comptime try expect(@TypeOf(is_all_true) == bool);
+    try comptime expect(@TypeOf(is_all_true) == bool);
     try expect(is_all_true == false);
 }
 
@@ -903,7 +903,7 @@ test "saturating add" {
         }
     };
     try S.doTheTest();
-    comptime try S.doTheTest();
+    try comptime S.doTheTest();
 }
 
 test "saturating subtraction" {
@@ -926,7 +926,7 @@ test "saturating subtraction" {
         }
     };
     try S.doTheTest();
-    comptime try S.doTheTest();
+    try comptime S.doTheTest();
 }
 
 test "saturating multiplication" {
@@ -953,7 +953,7 @@ test "saturating multiplication" {
     };
 
     try S.doTheTest();
-    comptime try S.doTheTest();
+    try comptime S.doTheTest();
 }
 
 test "saturating shift-left" {
@@ -976,7 +976,7 @@ test "saturating shift-left" {
         }
     };
     try S.doTheTest();
-    comptime try S.doTheTest();
+    try comptime S.doTheTest();
 }
 
 test "multiplication-assignment operator with an array operand" {
@@ -997,7 +997,7 @@ test "multiplication-assignment operator with an array operand" {
         }
     };
     try S.doTheTest();
-    comptime try S.doTheTest();
+    try comptime S.doTheTest();
 }
 
 test "@addWithOverflow" {
@@ -1041,7 +1041,7 @@ test "@addWithOverflow" {
         }
     };
     try S.doTheTest();
-    comptime try S.doTheTest();
+    try comptime S.doTheTest();
 }
 
 test "@subWithOverflow" {
@@ -1071,7 +1071,7 @@ test "@subWithOverflow" {
         }
     };
     try S.doTheTest();
-    comptime try S.doTheTest();
+    try comptime S.doTheTest();
 }
 
 test "@mulWithOverflow" {
@@ -1092,7 +1092,7 @@ test "@mulWithOverflow" {
         }
     };
     try S.doTheTest();
-    comptime try S.doTheTest();
+    try comptime S.doTheTest();
 }
 
 test "@shlWithOverflow" {
@@ -1113,7 +1113,7 @@ test "@shlWithOverflow" {
         }
     };
     try S.doTheTest();
-    comptime try S.doTheTest();
+    try comptime S.doTheTest();
 }
 
 test "alignment of vectors" {

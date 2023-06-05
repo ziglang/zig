@@ -9,7 +9,7 @@ test "@popCount integers" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
-    comptime try testPopCountIntegers();
+    try comptime testPopCountIntegers();
     try testPopCountIntegers();
 }
 
@@ -75,7 +75,7 @@ test "@popCount vectors" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
-    comptime try testPopCountVectors();
+    try comptime testPopCountVectors();
     try testPopCountVectors();
 }
 

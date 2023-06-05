@@ -10,11 +10,11 @@ test "super basic invocations" {
         }
     }.foo;
     try expect(@call(.auto, foo, .{}) == 1234);
-    comptime try expect(@call(.always_inline, foo, .{}) == 1234);
+    try comptime expect(@call(.always_inline, foo, .{}) == 1234);
     {
         // comptime call without comptime keyword
         const result = @call(.compile_time, foo, .{}) == 1234;
-        comptime try expect(result);
+        try comptime expect(result);
     }
 }
 
@@ -42,7 +42,7 @@ test "basic invocations" {
     {
         // comptime call without comptime keyword
         const result = @call(.compile_time, foo, .{}) == 1234;
-        comptime try expect(result);
+        try comptime expect(result);
     }
     {
         // call of non comptime-known function
@@ -71,7 +71,7 @@ test "tuple parameters" {
     try expect(@call(.auto, add, .{ a, b }) == 46);
     try expect(@call(.auto, add, .{ 12, 34 }) == 46);
     if (false) {
-        comptime try expect(@call(.auto, add, .{ 12, 34 }) == 46); // TODO
+        try comptime expect(@call(.auto, add, .{ 12, 34 }) == 46); // TODO
     }
     try expect(comptime @call(.auto, add, .{ 12, 34 }) == 46);
     {
@@ -344,7 +344,7 @@ test "inline call doesn't re-evaluate non generic struct" {
     };
     const ArgTuple = std.meta.ArgsTuple(@TypeOf(S.foo));
     try @call(.always_inline, S.foo, ArgTuple{.{ .a = 123, .b = 45 }});
-    comptime try @call(.always_inline, S.foo, ArgTuple{.{ .a = 123, .b = 45 }});
+    try comptime @call(.always_inline, S.foo, ArgTuple{.{ .a = 123, .b = 45 }});
 }
 
 test "Enum constructed by @Type passed as generic argument" {

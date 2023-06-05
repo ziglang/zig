@@ -351,7 +351,7 @@ test "byte-aligned field pointer offsets" {
     };
 
     try S.doTheTest();
-    comptime try S.doTheTest();
+    try comptime S.doTheTest();
 }
 
 test "load pointer from packed struct" {

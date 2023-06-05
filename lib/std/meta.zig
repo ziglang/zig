@@ -210,7 +210,7 @@ pub fn sentinel(comptime T: type) ?Elem(T) {
 
 test "std.meta.sentinel" {
     try testSentinel();
-    comptime try testSentinel();
+    try comptime testSentinel();
 }
 
 fn testSentinel() !void {

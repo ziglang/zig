@@ -95,16 +95,16 @@ test "shift int128" {
     const types = .{ u128, i128 };
     inline for (types) |t| {
         try testShlTrunc(t, 0x8, 123);
-        comptime try testShlTrunc(t, 0x8, 123);
+        try comptime testShlTrunc(t, 0x8, 123);
 
         try testShlTrunc(t, 0x40000000_00000000, 64);
-        comptime try testShlTrunc(t, 0x40000000_00000000, 64);
+        try comptime testShlTrunc(t, 0x40000000_00000000, 64);
 
         try testShlTrunc(t, 0x01000000_00000000_00000000, 38);
-        comptime try testShlTrunc(t, 0x01000000_00000000_00000000, 38);
+        try comptime testShlTrunc(t, 0x01000000_00000000_00000000, 38);
 
         try testShlTrunc(t, 0x00000008_00000000_00000000_00000000, 27);
-        comptime try testShlTrunc(t, 0x00000008_00000000_00000000_00000000, 27);
+        try comptime testShlTrunc(t, 0x00000008_00000000_00000000_00000000, 27);
     }
 }
 
