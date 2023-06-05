@@ -719,9 +719,7 @@ pub const HashOptions = struct {
 /// The function returns a string that includes all the parameters required for verification.
 ///
 /// IMPORTANT: by design, bcrypt silently truncates passwords to 72 bytes.
-///
-/// If this is an issue for your application, hash the password first using a function such as SHA-512,
-/// and then use the resulting hash as the password parameter for bcrypt.
+/// If this is an issue for your application, set the `silently_truncate_password` option to `false`.
 pub fn strHash(
     password: []const u8,
     options: HashOptions,
