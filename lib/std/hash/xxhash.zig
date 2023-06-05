@@ -32,14 +32,15 @@ pub const XxHash64 = struct {
             };
         }
 
-        inline fn updateEmpty(self: *Accumulator, input: anytype) usize {
+        inline fn updateEmpty(self: *Accumulator, input: anytype, comptime unroll_count: usize) usize {
             var i: usize = 0;
 
-            const unroll_count = 32;
-            const unrolled_bytes = unroll_count * 32;
-            while (i + unrolled_bytes <= input.len) : (i += unrolled_bytes) {
-                inline for (0..unroll_count) |j| {
-                    self.processStripe(input[i + j * 32 ..][0..32]);
+            if (unroll_count > 0) {
+                const unrolled_bytes = unroll_count * 32;
+                while (i + unrolled_bytes <= input.len) : (i += unrolled_bytes) {
+                    inline for (0..unroll_count) |j| {
+                        self.processStripe(input[i + j * 32 ..][0..32]);
+                    }
                 }
             }
 
@@ -145,7 +146,7 @@ pub const XxHash64 = struct {
             self.byte_count += self.buf_len;
         }
 
-        i += self.accumulator.updateEmpty(input[i..]);
+        i += self.accumulator.updateEmpty(input[i..], 32);
         self.byte_count += i;
 
         const remaining_bytes = input[i..];
@@ -175,31 +176,14 @@ pub const XxHash64 = struct {
     };
 
     pub fn hash(seed: u64, input: anytype) u64 {
-        const info = @typeInfo(@TypeOf(input));
+        validateType(@TypeOf(input));
 
-        switch (info) {
-            .Array => {
-                var hasher = Accumulator.init(seed);
-                const i = hasher.updateEmpty(input);
-                const unfinished = if (comptime input.len < 32) seed +% prime_5 else hasher.merge();
-                return finalize(unfinished, i, input[i..]);
-            },
-            .Pointer => |ptr_info| switch (ptr_info.size) {
-                .One => if (std.meta.Elem(@TypeOf(input)) == u8) {
-                    var hasher = Accumulator.init(seed);
-                    const i = hasher.updateEmpty(input);
-                    const unfinished = if (comptime input.len < 32) seed +% prime_5 else hasher.merge();
-                    return finalize(unfinished, i, input[i..]);
-                } else @compileError("expected input of type [N]u8, *const [N]u8 or []const u8, got " ++ @typeName(input)),
-                .Slice => {
-                    var hasher = Accumulator.init(seed);
-                    const i = hasher.updateEmpty(input);
-                    const unfinished = if (input.len < 32) seed +% prime_5 else hasher.merge();
-                    return finalize(unfinished, i, input[i..]);
-                },
-                else => @compileError("expected input of type [N]u8, *const [N]u8 or []const u8, got " ++ @typeName(input)),
-            },
-            else => @compileError("expected input of type [N]u8, *const [N]u8 or []const u8, got " ++ @typeName(input)),
+        if (input.len < 32) {
+            return finalize(seed +% prime_5, 0, input);
+        } else {
+            var hasher = Accumulator.init(seed);
+            const i = hasher.updateEmpty(input, 0);
+            return finalize(hasher.merge(), i, input[i..]);
         }
     }
 
