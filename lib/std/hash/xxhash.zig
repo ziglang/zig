@@ -288,26 +288,33 @@ pub const XxHash32 = struct {
     }
 };
 
-test "xxhash64" {
-    const hash = XxHash64.hash;
+fn testExpect(comptime H: type, seed: anytype, input: []const u8, expected: u64) !void {
+    try expectEqual(expected, H.hash(0, input));
 
-    try expectEqual(hash(0, ""), 0xef46db3751d8e999);
-    try expectEqual(hash(0, "a"), 0xd24ec4f1a98c6e5b);
-    try expectEqual(hash(0, "abc"), 0x44bc2cf5ad770999);
-    try expectEqual(hash(0, "message digest"), 0x066ed728fceeb3be);
-    try expectEqual(hash(0, "abcdefghijklmnopqrstuvwxyz"), 0xcfe1f278fa89835c);
-    try expectEqual(hash(0, "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"), 0xaaa46907d3047814);
-    try expectEqual(hash(0, "12345678901234567890123456789012345678901234567890123456789012345678901234567890"), 0xe04a477f19ee145d);
+    var hasher = H.init(seed);
+    hasher.update(input);
+    try expectEqual(expected, hasher.final());
+}
+
+test "xxhash64" {
+    const H = XxHash64;
+    try testExpect(H, 0, "", 0xef46db3751d8e999);
+    try testExpect(H, 0, "a", 0xd24ec4f1a98c6e5b);
+    try testExpect(H, 0, "abc", 0x44bc2cf5ad770999);
+    try testExpect(H, 0, "message digest", 0x066ed728fceeb3be);
+    try testExpect(H, 0, "abcdefghijklmnopqrstuvwxyz", 0xcfe1f278fa89835c);
+    try testExpect(H, 0, "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789", 0xaaa46907d3047814);
+    try testExpect(H, 0, "12345678901234567890123456789012345678901234567890123456789012345678901234567890", 0xe04a477f19ee145d);
 }
 
 test "xxhash32" {
-    const hash = XxHash32.hash;
+    const H = XxHash32;
 
-    try expectEqual(hash(0, ""), 0x02cc5d05);
-    try expectEqual(hash(0, "a"), 0x550d7456);
-    try expectEqual(hash(0, "abc"), 0x32d153ff);
-    try expectEqual(hash(0, "message digest"), 0x7c948494);
-    try expectEqual(hash(0, "abcdefghijklmnopqrstuvwxyz"), 0x63a14d5f);
-    try expectEqual(hash(0, "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"), 0x9c285e64);
-    try expectEqual(hash(0, "12345678901234567890123456789012345678901234567890123456789012345678901234567890"), 0x9c05f475);
+    try testExpect(H, 0, "", 0x02cc5d05);
+    try testExpect(H, 0, "a", 0x550d7456);
+    try testExpect(H, 0, "abc", 0x32d153ff);
+    try testExpect(H, 0, "message digest", 0x7c948494);
+    try testExpect(H, 0, "abcdefghijklmnopqrstuvwxyz", 0x63a14d5f);
+    try testExpect(H, 0, "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789", 0x9c285e64);
+    try testExpect(H, 0, "12345678901234567890123456789012345678901234567890123456789012345678901234567890", 0x9c05f475);
 }
