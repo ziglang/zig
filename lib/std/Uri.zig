@@ -584,7 +584,7 @@ test "RFC example 1" {
     }, try parse(uri));
 }
 
-test "RFX example 2" {
+test "RFC example 2" {
     const uri = "urn:example:animal:ferret:nose";
     try std.testing.expectEqual(Uri{
         .scheme = uri[0..3],
