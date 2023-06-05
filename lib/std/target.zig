@@ -2236,6 +2236,15 @@ pub const Target = struct {
                 .longdouble => return 128,
             },
 
+            .ps4, .ps5 => switch (c_type) {
+                .char => return 8,
+                .short, .ushort => return 16,
+                .int, .uint, .float => return 32,
+                .long, .ulong => return 64,
+                .longlong, .ulonglong, .double => return 64,
+                .longdouble => return 80,
+            },
+
             .cloudabi,
             .kfreebsd,
             .lv2,
@@ -2243,8 +2252,6 @@ pub const Target = struct {
             .rtems,
             .nacl,
             .aix,
-            .ps4,
-            .ps5,
             .elfiamcu,
             .mesa3d,
             .contiki,
