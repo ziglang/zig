@@ -190,8 +190,42 @@ pub const XxHash64 = struct {
     pub const small_key_max_size = 31;
 
     pub fn hashSmall(seed: u64, input: []const u8) u64 {
-        std.debug.assert(input.len < small_key_max_size);
-        return finalize(seed +% prime_5, 0, input);
+        std.debug.assert(input.len <= small_key_max_size);
+        return switch (input.len) {
+            0 => hash(seed, input[0..0]),
+            1 => hash(seed, input[0..1]),
+            2 => hash(seed, input[0..2]),
+            3 => hash(seed, input[0..3]),
+            4 => hash(seed, input[0..4]),
+            5 => hash(seed, input[0..5]),
+            6 => hash(seed, input[0..6]),
+            7 => hash(seed, input[0..7]),
+            8 => hash(seed, input[0..8]),
+            9 => hash(seed, input[0..9]),
+            10 => hash(seed, input[0..10]),
+            11 => hash(seed, input[0..11]),
+            12 => hash(seed, input[0..12]),
+            13 => hash(seed, input[0..13]),
+            14 => hash(seed, input[0..14]),
+            15 => hash(seed, input[0..15]),
+            16 => hash(seed, input[0..16]),
+            17 => hash(seed, input[0..17]),
+            18 => hash(seed, input[0..18]),
+            19 => hash(seed, input[0..19]),
+            20 => hash(seed, input[0..20]),
+            21 => hash(seed, input[0..21]),
+            22 => hash(seed, input[0..22]),
+            23 => hash(seed, input[0..23]),
+            24 => hash(seed, input[0..24]),
+            25 => hash(seed, input[0..25]),
+            26 => hash(seed, input[0..26]),
+            27 => hash(seed, input[0..27]),
+            28 => hash(seed, input[0..28]),
+            29 => hash(seed, input[0..29]),
+            30 => hash(seed, input[0..30]),
+            31 => hash(seed, input[0..31]),
+            else => unreachable,
+        };
     }
 };
 
