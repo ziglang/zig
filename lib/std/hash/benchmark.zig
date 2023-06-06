@@ -105,6 +105,8 @@ pub fn benchmarkHash(comptime H: anytype, bytes: usize, allocator: std.mem.Alloc
     defer allocator.free(blocks);
     random.bytes(blocks);
 
+    const block_count = bytes / block_size;
+
     var h = blk: {
         if (H.init_u8s) |init| {
             break :blk H.ty.init(init[0..H.ty.key_length]);
@@ -115,19 +117,18 @@ pub fn benchmarkHash(comptime H: anytype, bytes: usize, allocator: std.mem.Alloc
         break :blk H.ty.init();
     };
 
-    var offset: usize = 0;
     var timer = try Timer.start();
-    const start = timer.lap();
-    while (offset < bytes) : (offset += block_size) {
-        h.update(blocks[offset..][0..block_size]);
+    for (0..block_count) |i| {
+        h.update(blocks[i * block_size ..][0..block_size]);
     }
     const final = if (H.has_crypto_api) @as(u64, @truncate(h.finalInt())) else h.final();
     std.mem.doNotOptimizeAway(final);
 
-    const end = timer.read();
+    const elapsed_ns = timer.read();
 
-    const elapsed_s = @as(f64, @floatFromInt(end - start)) / time.ns_per_s;
-    const throughput = @as(u64, @intFromFloat(@as(f64, @floatFromInt(bytes)) / elapsed_s));
+    const elapsed_s = @as(f64, @floatFromInt(elapsed_ns)) / time.ns_per_s;
+    const size_float: f64 = @floatFromInt(block_size * block_count);
+    const throughput: u64 = @intFromFloat(size_float / elapsed_s);
 
     return Result{
         .hash = final,
@@ -143,7 +144,6 @@ pub fn benchmarkHashSmallKeys(comptime H: anytype, key_size: usize, bytes: usize
     const key_count = bytes / key_size;
 
     var timer = try Timer.start();
-    const start = timer.lap();
 
     var sum: u64 = 0;
     for (0..key_count) |i| {
@@ -163,10 +163,11 @@ pub fn benchmarkHashSmallKeys(comptime H: anytype, key_size: usize, bytes: usize
         };
         sum +%= final;
     }
-    const end = timer.read();
+    const elapsed_ns = timer.read();
 
-    const elapsed_s = @as(f64, @floatFromInt(end - start)) / time.ns_per_s;
-    const throughput = @as(u64, @intFromFloat(@as(f64, @floatFromInt(bytes)) / elapsed_s));
+    const elapsed_s = @as(f64, @floatFromInt(elapsed_ns)) / time.ns_per_s;
+    const size_float: f64 = @floatFromInt(key_count * key_size);
+    const throughput: u64 = @intFromFloat(size_float / elapsed_s);
 
     std.mem.doNotOptimizeAway(sum);
 
