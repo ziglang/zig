@@ -230,11 +230,7 @@ pub const XxHash64 = struct {
 };
 
 pub const XxHash32 = struct {
-    acc1: u32,
-    acc2: u32,
-    acc3: u32,
-    acc4: u32,
-
+    accumulator: Accumulator,
     seed: u32,
     buf: [16]u8,
     buf_len: usize,
@@ -246,13 +242,57 @@ pub const XxHash32 = struct {
     const prime_4 = 0x27D4EB2F; // 0b00100111110101001110101100101111
     const prime_5 = 0x165667B1; // 0b00010110010101100110011110110001
 
+    const Accumulator = struct {
+        acc1: u32,
+        acc2: u32,
+        acc3: u32,
+        acc4: u32,
+
+        fn init(seed: u32) Accumulator {
+            return .{
+                .acc1 = seed +% prime_1 +% prime_2,
+                .acc2 = seed +% prime_2,
+                .acc3 = seed,
+                .acc4 = seed -% prime_1,
+            };
+        }
+
+        inline fn updateEmpty(self: *Accumulator, input: anytype, comptime unroll_count: usize) usize {
+            var i: usize = 0;
+
+            if (unroll_count > 0) {
+                const unrolled_bytes = unroll_count * 16;
+                while (i + unrolled_bytes <= input.len) : (i += unrolled_bytes) {
+                    inline for (0..unroll_count) |j| {
+                        self.processStripe(input[i + j * 16 ..][0..16]);
+                    }
+                }
+            }
+
+            while (i + 16 <= input.len) : (i += 16) {
+                self.processStripe(input[i..][0..16]);
+            }
+
+            return i;
+        }
+
+        inline fn processStripe(self: *Accumulator, buf: *const [16]u8) void {
+            self.acc1 = round(self.acc1, mem.readIntLittle(u32, buf[0..4]));
+            self.acc2 = round(self.acc2, mem.readIntLittle(u32, buf[4..8]));
+            self.acc3 = round(self.acc3, mem.readIntLittle(u32, buf[8..12]));
+            self.acc4 = round(self.acc4, mem.readIntLittle(u32, buf[12..16]));
+        }
+
+        inline fn merge(self: Accumulator) u32 {
+            return rotl(u32, self.acc1, 1) +% rotl(u32, self.acc2, 7) +%
+                rotl(u32, self.acc3, 12) +% rotl(u32, self.acc4, 18);
+        }
+    };
+
     pub fn init(seed: u32) XxHash32 {
         return XxHash32{
+            .accumulator = Accumulator.init(seed),
             .seed = seed,
-            .acc1 = seed +% prime_1 +% prime_2,
-            .acc2 = seed +% prime_2,
-            .acc3 = seed,
-            .acc4 = seed -% prime_1,
             .buf = undefined,
             .buf_len = 0,
             .byte_count = 0,
@@ -260,6 +300,8 @@ pub const XxHash32 = struct {
     }
 
     pub fn update(self: *XxHash32, input: []const u8) void {
+        validateType(@TypeOf(input));
+
         if (input.len < 16 - self.buf_len) {
             @memcpy(self.buf[self.buf_len..][0..input.len], input);
             self.buf_len += input.len;
@@ -271,25 +313,17 @@ pub const XxHash32 = struct {
         if (self.buf_len > 0) {
             i = 16 - self.buf_len;
             @memcpy(self.buf[self.buf_len..][0..i], input[0..i]);
-            self.processStripe(&self.buf);
+            self.accumulator.processStripe(&self.buf);
+            self.byte_count += self.buf_len;
             self.buf_len = 0;
         }
 
-        while (i + 16 <= input.len) : (i += 16) {
-            self.processStripe(input[i..][0..16]);
-        }
+        i += self.accumulator.updateEmpty(input[i..], 16);
+        self.byte_count += i;
 
         const remaining_bytes = input[i..];
         @memcpy(self.buf[0..remaining_bytes.len], remaining_bytes);
         self.buf_len = remaining_bytes.len;
-    }
-
-    inline fn processStripe(self: *XxHash32, buf: *const [16]u8) void {
-        self.acc1 = round(self.acc1, mem.readIntLittle(u32, buf[0..4]));
-        self.acc2 = round(self.acc2, mem.readIntLittle(u32, buf[4..8]));
-        self.acc3 = round(self.acc3, mem.readIntLittle(u32, buf[8..12]));
-        self.acc4 = round(self.acc4, mem.readIntLittle(u32, buf[12..16]));
-        self.byte_count += 16;
     }
 
     inline fn round(acc: u32, lane: u32) u32 {
@@ -299,31 +333,36 @@ pub const XxHash32 = struct {
     }
 
     pub fn final(self: *XxHash32) u32 {
-        var acc: u32 = undefined;
+        const unfinished = if (self.byte_count < 16)
+            self.seed +% prime_5
+        else
+            self.accumulator.merge();
 
-        if (self.byte_count < 16) {
-            acc = self.seed +% prime_5;
-        } else {
-            acc = rotl(u32, self.acc1, 1) +% rotl(u32, self.acc2, 7) +%
-                rotl(u32, self.acc3, 12) +% rotl(u32, self.acc4, 18);
-        }
+        return finalize(unfinished, self.byte_count, self.buf[0..self.buf_len]);
+    }
 
-        acc = acc +% @as(u32, @intCast(self.byte_count)) +% @as(u32, @intCast(self.buf_len));
+    inline fn finalize(unfinished: u32, byte_count: usize, partial: anytype) u32 {
+        std.debug.assert(partial.len < 16);
+        var acc = unfinished +% @as(u32, @intCast(byte_count)) +% @as(u32, @intCast(partial.len));
 
         var pos: usize = 0;
-        while (pos + 4 <= self.buf_len) : (pos += 4) {
-            const lane = mem.readIntLittle(u32, self.buf[pos..][0..4]);
+        while (pos + 4 <= partial.len) : (pos += 4) {
+            const lane = mem.readIntLittle(u32, partial[pos..][0..4]);
             acc +%= lane *% prime_3;
             acc = rotl(u32, acc, 17) *% prime_4;
         }
 
-        while (pos < self.buf_len) : (pos += 1) {
-            const lane = @as(u32, self.buf[pos]);
+        while (pos < partial.len) : (pos += 1) {
+            const lane = @as(u32, partial[pos]);
             acc +%= lane *% prime_5;
             acc = rotl(u32, acc, 11) *% prime_1;
         }
 
-        acc ^= acc >> 15;
+        return avalanche(acc);
+    }
+
+    inline fn avalanche(value: u32) u32 {
+        var acc = value ^ value >> 15;
         acc *%= prime_2;
         acc ^= acc >> 13;
         acc *%= prime_3;
@@ -332,10 +371,41 @@ pub const XxHash32 = struct {
         return acc;
     }
 
-    pub fn hash(seed: u32, input: []const u8) u32 {
-        var hasher = XxHash32.init(seed);
-        hasher.update(input);
-        return hasher.final();
+    pub const small_key_max_size = 15;
+
+    pub fn hash(seed: u32, input: anytype) u32 {
+        validateType(@TypeOf(input));
+
+        if (input.len < 16) {
+            return finalize(seed +% prime_5, 0, input);
+        } else {
+            var hasher = Accumulator.init(seed);
+            const i = hasher.updateEmpty(input, 0);
+            return finalize(hasher.merge(), i, input[i..]);
+        }
+    }
+
+    pub fn hashSmall(seed: u32, input: []const u8) u32 {
+        std.debug.assert(input.len <= small_key_max_size);
+        return switch (input.len) {
+            0 => hash(seed, input[0..0]),
+            1 => hash(seed, input[0..1]),
+            2 => hash(seed, input[0..2]),
+            3 => hash(seed, input[0..3]),
+            4 => hash(seed, input[0..4]),
+            5 => hash(seed, input[0..5]),
+            6 => hash(seed, input[0..6]),
+            7 => hash(seed, input[0..7]),
+            8 => hash(seed, input[0..8]),
+            9 => hash(seed, input[0..9]),
+            10 => hash(seed, input[0..10]),
+            11 => hash(seed, input[0..11]),
+            12 => hash(seed, input[0..12]),
+            13 => hash(seed, input[0..13]),
+            14 => hash(seed, input[0..14]),
+            15 => hash(seed, input[0..15]),
+            else => unreachable,
+        };
     }
 };
 

@@ -36,6 +36,8 @@ const hashes = [_]Hash{
         .ty = hash.XxHash32,
         .name = "xxhash32",
         .init_u64 = 0,
+        .has_small_api = true,
+        .has_anytype_api = @as([]const comptime_int, &[_]comptime_int{ 8, 16, 32, 48, 64, 80, 96, 112, 128 }),
     },
     Hash{
         .ty = hash.Wyhash,
