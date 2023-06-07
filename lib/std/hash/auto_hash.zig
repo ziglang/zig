@@ -343,7 +343,7 @@ test "testHash optional" {
     const b: ?u32 = null;
     try testing.expectEqual(testHash(a), testHash(@as(u32, 123)));
     try testing.expect(testHash(a) != testHash(b));
-    try testing.expectEqual(testHash(b), 0);
+    try testing.expectEqual(testHash(b), 0x409638ee2bde459); // wyhash empty input hash
 }
 
 test "testHash array" {
