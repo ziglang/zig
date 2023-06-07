@@ -39,7 +39,7 @@ pub fn finalize(rebase: *Rebase, gpa: Allocator) !void {
 
     const writer = rebase.buffer.writer(gpa);
 
-    std.sort.sort(Entry, rebase.entries.items, {}, Entry.lessThan);
+    std.mem.sort(Entry, rebase.entries.items, {}, Entry.lessThan);
 
     try setTypePointer(writer);
 

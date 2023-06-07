@@ -501,7 +501,7 @@ fn gen(self: *Self) !void {
             // (or w0 when pointer size is 32 bits). As this register
             // might get overwritten along the way, save the address
             // to the stack.
-            const ptr_bits = self.target.cpu.arch.ptrBitWidth();
+            const ptr_bits = self.target.ptrBitWidth();
             const ptr_bytes = @divExact(ptr_bits, 8);
             const ret_ptr_reg = self.registerAlias(.x0, Type.usize);
 
@@ -1512,7 +1512,7 @@ fn airSlice(self: *Self, inst: Air.Inst.Index) !void {
         const len = try self.resolveInst(bin_op.rhs);
         const len_ty = self.air.typeOf(bin_op.rhs);
 
-        const ptr_bits = self.target.cpu.arch.ptrBitWidth();
+        const ptr_bits = self.target.ptrBitWidth();
         const ptr_bytes = @divExact(ptr_bits, 8);
 
         const stack_offset = try self.allocMem(ptr_bytes * 2, ptr_bytes * 2, inst);
@@ -3362,7 +3362,7 @@ fn airSlicePtr(self: *Self, inst: Air.Inst.Index) !void {
 fn airSliceLen(self: *Self, inst: Air.Inst.Index) !void {
     const ty_op = self.air.instructions.items(.data)[inst].ty_op;
     const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
-        const ptr_bits = self.target.cpu.arch.ptrBitWidth();
+        const ptr_bits = self.target.ptrBitWidth();
         const ptr_bytes = @divExact(ptr_bits, 8);
         const mcv = try self.resolveInst(ty_op.operand);
         switch (mcv) {
@@ -3386,7 +3386,7 @@ fn airSliceLen(self: *Self, inst: Air.Inst.Index) !void {
 fn airPtrSliceLenPtr(self: *Self, inst: Air.Inst.Index) !void {
     const ty_op = self.air.instructions.items(.data)[inst].ty_op;
     const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
-        const ptr_bits = self.target.cpu.arch.ptrBitWidth();
+        const ptr_bits = self.target.ptrBitWidth();
         const ptr_bytes = @divExact(ptr_bits, 8);
         const mcv = try self.resolveInst(ty_op.operand);
         switch (mcv) {
@@ -4321,7 +4321,7 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallModifier
             } else if (self.bin_file.cast(link.File.Plan9)) |p9| {
                 const decl_block_index = try p9.seeDecl(func.owner_decl);
                 const decl_block = p9.getDeclBlock(decl_block_index);
-                const ptr_bits = self.target.cpu.arch.ptrBitWidth();
+                const ptr_bits = self.target.ptrBitWidth();
                 const ptr_bytes: u64 = @divExact(ptr_bits, 8);
                 const got_addr = p9.bases.data;
                 const got_index = decl_block.got_index.?;
@@ -5929,7 +5929,7 @@ fn airArrayToSlice(self: *Self, inst: Air.Inst.Index) !void {
         const array_ty = ptr_ty.childType();
         const array_len = @intCast(u32, array_ty.arrayLen());
 
-        const ptr_bits = self.target.cpu.arch.ptrBitWidth();
+        const ptr_bits = self.target.ptrBitWidth();
         const ptr_bytes = @divExact(ptr_bits, 8);
 
         const stack_offset = try self.allocMem(ptr_bytes * 2, ptr_bytes * 2, inst);

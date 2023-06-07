@@ -5,7 +5,6 @@ const mem = std.mem;
 const io = std.io;
 const os = std.os;
 const fs = std.fs;
-const process = std.process;
 const testing = std.testing;
 const elf = std.elf;
 const DW = std.dwarf;
@@ -109,31 +108,6 @@ pub fn getSelfDebugInfo() !*DebugInfo {
     }
 }
 
-pub fn detectTTYConfig(file: std.fs.File) TTY.Config {
-    if (builtin.os.tag == .wasi) {
-        // Per https://github.com/WebAssembly/WASI/issues/162 ANSI codes
-        // aren't currently supported.
-        return .no_color;
-    } else if (process.hasEnvVarConstant("ZIG_DEBUG_COLOR")) {
-        return .escape_codes;
-    } else if (process.hasEnvVarConstant("NO_COLOR")) {
-        return .no_color;
-    } else if (file.supportsAnsiEscapeCodes()) {
-        return .escape_codes;
-    } else if (native_os == .windows and file.isTty()) {
-        var info: windows.CONSOLE_SCREEN_BUFFER_INFO = undefined;
-        if (windows.kernel32.GetConsoleScreenBufferInfo(file.handle, &info) != windows.TRUE) {
-            // TODO: Should this return an error instead?
-            return .no_color;
-        }
-        return .{ .windows_api = .{
-            .handle = file.handle,
-            .reset_attributes = info.wAttributes,
-        } };
-    }
-    return .no_color;
-}
-
 /// Tries to print the current stack trace to stderr, unbuffered, and ignores any error returned.
 /// TODO multithreaded awareness
 pub fn dumpCurrentStackTrace(start_addr: ?usize) void {
@@ -154,7 +128,7 @@ pub fn dumpCurrentStackTrace(start_addr: ?usize) void {
             stderr.print("Unable to dump stack trace: Unable to open debug info: {s}\n", .{@errorName(err)}) catch return;
             return;
         };
-        writeCurrentStackTrace(stderr, debug_info, detectTTYConfig(io.getStdErr()), start_addr) catch |err| {
+        writeCurrentStackTrace(stderr, debug_info, io.tty.detectConfig(io.getStdErr()), start_addr) catch |err| {
             stderr.print("Unable to dump stack trace: {s}\n", .{@errorName(err)}) catch return;
             return;
         };
@@ -182,7 +156,7 @@ pub fn dumpStackTraceFromBase(bp: usize, ip: usize) void {
             stderr.print("Unable to dump stack trace: Unable to open debug info: {s}\n", .{@errorName(err)}) catch return;
             return;
         };
-        const tty_config = detectTTYConfig(io.getStdErr());
+        const tty_config = io.tty.detectConfig(io.getStdErr());
         if (native_os == .windows) {
             writeCurrentStackTraceWindows(stderr, debug_info, tty_config, ip) catch return;
             return;
@@ -265,7 +239,7 @@ pub fn dumpStackTrace(stack_trace: std.builtin.StackTrace) void {
             stderr.print("Unable to dump stack trace: Unable to open debug info: {s}\n", .{@errorName(err)}) catch return;
             return;
         };
-        writeStackTrace(stack_trace, stderr, getDebugInfoAllocator(), debug_info, detectTTYConfig(io.getStdErr())) catch |err| {
+        writeStackTrace(stack_trace, stderr, getDebugInfoAllocator(), debug_info, io.tty.detectConfig(io.getStdErr())) catch |err| {
             stderr.print("Unable to dump stack trace: {s}\n", .{@errorName(err)}) catch return;
             return;
         };
@@ -403,7 +377,7 @@ pub fn writeStackTrace(
     out_stream: anytype,
     allocator: mem.Allocator,
     debug_info: *DebugInfo,
-    tty_config: TTY.Config,
+    tty_config: io.tty.Config,
 ) !void {
     _ = allocator;
     if (builtin.strip_debug_info) return error.MissingDebugInfo;
@@ -421,9 +395,9 @@ pub fn writeStackTrace(
     if (stack_trace.index > stack_trace.instruction_addresses.len) {
         const dropped_frames = stack_trace.index - stack_trace.instruction_addresses.len;
 
-        tty_config.setColor(out_stream, .Bold) catch {};
+        tty_config.setColor(out_stream, .bold) catch {};
         try out_stream.print("({d} additional stack frames skipped...)\n", .{dropped_frames});
-        tty_config.setColor(out_stream, .Reset) catch {};
+        tty_config.setColor(out_stream, .reset) catch {};
     }
 }
 
@@ -562,7 +536,7 @@ pub const StackIterator = struct {
 pub fn writeCurrentStackTrace(
     out_stream: anytype,
     debug_info: *DebugInfo,
-    tty_config: TTY.Config,
+    tty_config: io.tty.Config,
     start_addr: ?usize,
 ) !void {
     if (native_os == .windows) {
@@ -634,7 +608,7 @@ pub noinline fn walkStackWindows(addresses: []usize) usize {
 pub fn writeCurrentStackTraceWindows(
     out_stream: anytype,
     debug_info: *DebugInfo,
-    tty_config: TTY.Config,
+    tty_config: io.tty.Config,
     start_addr: ?usize,
 ) !void {
     var addr_buf: [1024]usize = undefined;
@@ -650,95 +624,6 @@ pub fn writeCurrentStackTraceWindows(
         try printSourceAtAddress(debug_info, out_stream, addr - 1, tty_config);
     }
 }
-
-/// Provides simple functionality for manipulating the terminal in some way,
-/// for debugging purposes, such as coloring text, etc.
-pub const TTY = struct {
-    pub const Color = enum {
-        Red,
-        Green,
-        Yellow,
-        Cyan,
-        White,
-        Dim,
-        Bold,
-        Reset,
-    };
-
-    pub const Config = union(enum) {
-        no_color,
-        escape_codes,
-        windows_api: if (native_os == .windows) WindowsContext else void,
-
-        pub const WindowsContext = struct {
-            handle: File.Handle,
-            reset_attributes: u16,
-        };
-
-        pub fn setColor(conf: Config, out_stream: anytype, color: Color) !void {
-            nosuspend switch (conf) {
-                .no_color => return,
-                .escape_codes => {
-                    const color_string = switch (color) {
-                        .Red => "\x1b[31;1m",
-                        .Green => "\x1b[32;1m",
-                        .Yellow => "\x1b[33;1m",
-                        .Cyan => "\x1b[36;1m",
-                        .White => "\x1b[37;1m",
-                        .Bold => "\x1b[1m",
-                        .Dim => "\x1b[2m",
-                        .Reset => "\x1b[0m",
-                    };
-                    try out_stream.writeAll(color_string);
-                },
-                .windows_api => |ctx| if (native_os == .windows) {
-                    const attributes = switch (color) {
-                        .Red => windows.FOREGROUND_RED | windows.FOREGROUND_INTENSITY,
-                        .Green => windows.FOREGROUND_GREEN | windows.FOREGROUND_INTENSITY,
-                        .Yellow => windows.FOREGROUND_RED | windows.FOREGROUND_GREEN | windows.FOREGROUND_INTENSITY,
-                        .Cyan => windows.FOREGROUND_GREEN | windows.FOREGROUND_BLUE | windows.FOREGROUND_INTENSITY,
-                        .White, .Bold => windows.FOREGROUND_RED | windows.FOREGROUND_GREEN | windows.FOREGROUND_BLUE | windows.FOREGROUND_INTENSITY,
-                        .Dim => windows.FOREGROUND_INTENSITY,
-                        .Reset => ctx.reset_attributes,
-                    };
-                    try windows.SetConsoleTextAttribute(ctx.handle, attributes);
-                } else {
-                    unreachable;
-                },
-            };
-        }
-
-        pub fn writeDEC(conf: Config, writer: anytype, codepoint: u8) !void {
-            const bytes = switch (conf) {
-                .no_color, .windows_api => switch (codepoint) {
-                    0x50...0x5e => @as(*const [1]u8, &codepoint),
-                    0x6a => "+", // ┘
-                    0x6b => "+", // ┐
-                    0x6c => "+", // ┌
-                    0x6d => "+", // └
-                    0x6e => "+", // ┼
-                    0x71 => "-", // ─
-                    0x74 => "+", // ├
-                    0x75 => "+", // ┤
-                    0x76 => "+", // ┴
-                    0x77 => "+", // ┬
-                    0x78 => "|", // │
-                    else => " ", // TODO
-                },
-                .escape_codes => switch (codepoint) {
-                    // Here we avoid writing the DEC beginning sequence and
-                    // ending sequence in separate syscalls by putting the
-                    // beginning and ending sequence into the same string
-                    // literals, to prevent terminals ending up in bad states
-                    // in case a crash happens between syscalls.
-                    inline 0x50...0x7f => |x| "\x1B\x28\x30" ++ [1]u8{x} ++ "\x1B\x28\x42",
-                    else => unreachable,
-                },
-            };
-            return writer.writeAll(bytes);
-        }
-    };
-};
 
 fn machoSearchSymbols(symbols: []const MachoSymbol, address: usize) ?*const MachoSymbol {
     var min: usize = 0;
@@ -785,7 +670,7 @@ test "machoSearchSymbols" {
     try testing.expectEqual(&symbols[2], machoSearchSymbols(&symbols, 5000).?);
 }
 
-fn printUnknownSource(debug_info: *DebugInfo, out_stream: anytype, address: usize, tty_config: TTY.Config) !void {
+fn printUnknownSource(debug_info: *DebugInfo, out_stream: anytype, address: usize, tty_config: io.tty.Config) !void {
     const module_name = debug_info.getModuleNameForAddress(address);
     return printLineInfo(
         out_stream,
@@ -798,7 +683,7 @@ fn printUnknownSource(debug_info: *DebugInfo, out_stream: anytype, address: usiz
     );
 }
 
-pub fn printSourceAtAddress(debug_info: *DebugInfo, out_stream: anytype, address: usize, tty_config: TTY.Config) !void {
+pub fn printSourceAtAddress(debug_info: *DebugInfo, out_stream: anytype, address: usize, tty_config: io.tty.Config) !void {
     const module = debug_info.getModuleForAddress(address) catch |err| switch (err) {
         error.MissingDebugInfo, error.InvalidDebugInfo => return printUnknownSource(debug_info, out_stream, address, tty_config),
         else => return err,
@@ -827,11 +712,11 @@ fn printLineInfo(
     address: usize,
     symbol_name: []const u8,
     compile_unit_name: []const u8,
-    tty_config: TTY.Config,
+    tty_config: io.tty.Config,
     comptime printLineFromFile: anytype,
 ) !void {
     nosuspend {
-        try tty_config.setColor(out_stream, .Bold);
+        try tty_config.setColor(out_stream, .bold);
 
         if (line_info) |*li| {
             try out_stream.print("{s}:{d}:{d}", .{ li.file_name, li.line, li.column });
@@ -839,11 +724,11 @@ fn printLineInfo(
             try out_stream.writeAll("???:?:?");
         }
 
-        try tty_config.setColor(out_stream, .Reset);
+        try tty_config.setColor(out_stream, .reset);
         try out_stream.writeAll(": ");
-        try tty_config.setColor(out_stream, .Dim);
+        try tty_config.setColor(out_stream, .dim);
         try out_stream.print("0x{x} in {s} ({s})", .{ address, symbol_name, compile_unit_name });
-        try tty_config.setColor(out_stream, .Reset);
+        try tty_config.setColor(out_stream, .reset);
         try out_stream.writeAll("\n");
 
         // Show the matching source code line if possible
@@ -854,9 +739,9 @@ fn printLineInfo(
                     const space_needed = @intCast(usize, li.column - 1);
 
                     try out_stream.writeByteNTimes(' ', space_needed);
-                    try tty_config.setColor(out_stream, .Green);
+                    try tty_config.setColor(out_stream, .green);
                     try out_stream.writeAll("^");
-                    try tty_config.setColor(out_stream, .Reset);
+                    try tty_config.setColor(out_stream, .reset);
                 }
                 try out_stream.writeAll("\n");
             } else |err| switch (err) {
@@ -1211,7 +1096,7 @@ fn readMachODebugInfo(allocator: mem.Allocator, macho_file: File) !ModuleDebugIn
     // Even though lld emits symbols in ascending order, this debug code
     // should work for programs linked in any valid way.
     // This sort is so that we can binary search later.
-    std.sort.sort(MachoSymbol, symbols, {}, MachoSymbol.addressLessThan);
+    mem.sort(MachoSymbol, symbols, {}, MachoSymbol.addressLessThan);
 
     return ModuleDebugInfo{
         .base_address = undefined,
@@ -2185,7 +2070,7 @@ pub fn dumpStackPointerAddr(prefix: []const u8) void {
 test "manage resources correctly" {
     if (builtin.os.tag == .wasi) return error.SkipZigTest;
 
-    if (builtin.os.tag == .windows and builtin.cpu.arch == .x86_64) {
+    if (builtin.os.tag == .windows) {
         // https://github.com/ziglang/zig/issues/13963
         return error.SkipZigTest;
     }
@@ -2193,7 +2078,7 @@ test "manage resources correctly" {
     const writer = std.io.null_writer;
     var di = try openSelfDebugInfo(testing.allocator);
     defer di.deinit();
-    try printSourceAtAddress(&di, writer, showMyTrace(), detectTTYConfig(std.io.getStdErr()));
+    try printSourceAtAddress(&di, writer, showMyTrace(), io.tty.detectConfig(std.io.getStdErr()));
 }
 
 noinline fn showMyTrace() usize {
@@ -2253,7 +2138,7 @@ pub fn ConfigurableTrace(comptime size: usize, comptime stack_frame_count: usize
         pub fn dump(t: @This()) void {
             if (!enabled) return;
 
-            const tty_config = detectTTYConfig(std.io.getStdErr());
+            const tty_config = io.tty.detectConfig(std.io.getStdErr());
             const stderr = io.getStdErr().writer();
             const end = @min(t.index, size);
             const debug_info = getSelfDebugInfo() catch |err| {

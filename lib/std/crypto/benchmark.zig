@@ -34,19 +34,24 @@ const hashes = [_]Crypto{
     Crypto{ .ty = crypto.hash.Blake3, .name = "blake3" },
 };
 
+const block_size: usize = 8 * 8192;
+
 pub fn benchmarkHash(comptime Hash: anytype, comptime bytes: comptime_int) !u64 {
+    const blocks_count = bytes / block_size;
+    var block: [block_size]u8 = undefined;
+    random.bytes(&block);
+
     var h = Hash.init(.{});
 
-    var block: [Hash.digest_length]u8 = undefined;
-    random.bytes(block[0..]);
-
-    var offset: usize = 0;
     var timer = try Timer.start();
     const start = timer.lap();
-    while (offset < bytes) : (offset += block.len) {
-        h.update(block[0..]);
+    for (0..blocks_count) |_| {
+        h.update(&block);
     }
-    mem.doNotOptimizeAway(&h);
+    var final: [Hash.digest_length]u8 = undefined;
+    h.final(&final);
+    std.mem.doNotOptimizeAway(final);
+
     const end = timer.read();
 
     const elapsed_s = @intToFloat(f64, end - start) / time.ns_per_s;

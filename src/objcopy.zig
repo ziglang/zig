@@ -402,7 +402,7 @@ const BinaryElfOutput = struct {
             }
         }
 
-        std.sort.sort(*BinaryElfSegment, self.segments.items, {}, segmentSortCompare);
+        mem.sort(*BinaryElfSegment, self.segments.items, {}, segmentSortCompare);
 
         for (self.segments.items, 0..) |firstSegment, i| {
             if (firstSegment.firstSection) |firstSection| {
@@ -427,7 +427,7 @@ const BinaryElfOutput = struct {
             }
         }
 
-        std.sort.sort(*BinaryElfSection, self.sections.items, {}, sectionSortCompare);
+        mem.sort(*BinaryElfSection, self.sections.items, {}, sectionSortCompare);
 
         return self;
     }

@@ -143,9 +143,11 @@ const Section = struct {
 const LazySymbolTable = std.AutoArrayHashMapUnmanaged(Module.Decl.OptionalIndex, LazySymbolMetadata);
 
 const LazySymbolMetadata = struct {
-    text_atom: ?Atom.Index = null,
-    rdata_atom: ?Atom.Index = null,
-    alignment: u32,
+    const State = enum { unused, pending_flush, flushed };
+    text_atom: Atom.Index = undefined,
+    rdata_atom: Atom.Index = undefined,
+    text_state: State = .unused,
+    rdata_state: State = .unused,
 };
 
 const DeclMetadata = struct {
@@ -243,7 +245,7 @@ pub fn openPath(allocator: Allocator, sub_path: []const u8, options: link.Option
 }
 
 pub fn createEmpty(gpa: Allocator, options: link.Options) !*Coff {
-    const ptr_width: PtrWidth = switch (options.target.cpu.arch.ptrBitWidth()) {
+    const ptr_width: PtrWidth = switch (options.target.ptrBitWidth()) {
         0...32 => .p32,
         33...64 => .p64,
         else => return error.UnsupportedCOFFArchitecture,
@@ -1137,7 +1139,11 @@ pub fn lowerUnnamedConst(self: *Coff, tv: TypedValue, decl_index: Module.Decl.In
     return atom.getSymbolIndex().?;
 }
 
-pub fn updateDecl(self: *Coff, module: *Module, decl_index: Module.Decl.Index) !void {
+pub fn updateDecl(
+    self: *Coff,
+    module: *Module,
+    decl_index: Module.Decl.Index,
+) link.File.UpdateDeclError!void {
     if (build_options.skip_non_native and builtin.object_format != .coff) {
         @panic("Attempted to compile for object format that was disabled by build configuration");
     }
@@ -1189,32 +1195,16 @@ pub fn updateDecl(self: *Coff, module: *Module, decl_index: Module.Decl.Index) !
     return self.updateDeclExports(module, decl_index, module.getDeclExports(decl_index));
 }
 
-fn updateLazySymbol(self: *Coff, decl: Module.Decl.OptionalIndex, metadata: LazySymbolMetadata) !void {
-    const mod = self.base.options.module.?;
-    if (metadata.text_atom) |atom| try self.updateLazySymbolAtom(
-        link.File.LazySymbol.initDecl(.code, decl, mod),
-        atom,
-        self.text_section_index.?,
-        metadata.alignment,
-    );
-    if (metadata.rdata_atom) |atom| try self.updateLazySymbolAtom(
-        link.File.LazySymbol.initDecl(.const_data, decl, mod),
-        atom,
-        self.rdata_section_index.?,
-        metadata.alignment,
-    );
-}
-
 fn updateLazySymbolAtom(
     self: *Coff,
     sym: link.File.LazySymbol,
     atom_index: Atom.Index,
     section_index: u16,
-    required_alignment: u32,
 ) !void {
     const gpa = self.base.allocator;
     const mod = self.base.options.module.?;
 
+    var required_alignment: u32 = undefined;
     var code_buffer = std.ArrayList(u8).init(gpa);
     defer code_buffer.deinit();
 
@@ -1235,9 +1225,15 @@ fn updateLazySymbolAtom(
             .parent_decl_node = undefined,
             .lazy = .unneeded,
         };
-    const res = try codegen.generateLazySymbol(&self.base, src, sym, &code_buffer, .none, .{
-        .parent_atom_index = local_sym_index,
-    });
+    const res = try codegen.generateLazySymbol(
+        &self.base,
+        src,
+        sym,
+        &required_alignment,
+        &code_buffer,
+        .none,
+        .{ .parent_atom_index = local_sym_index },
+    );
     const code = switch (res) {
         .ok => code_buffer.items,
         .fail => |em| {
@@ -1265,20 +1261,27 @@ fn updateLazySymbolAtom(
     try self.writeAtom(atom_index, code);
 }
 
-pub fn getOrCreateAtomForLazySymbol(
-    self: *Coff,
-    sym: link.File.LazySymbol,
-    alignment: u32,
-) !Atom.Index {
+pub fn getOrCreateAtomForLazySymbol(self: *Coff, sym: link.File.LazySymbol) !Atom.Index {
     const gop = try self.lazy_syms.getOrPut(self.base.allocator, sym.getDecl());
-    errdefer _ = self.lazy_syms.pop();
-    if (!gop.found_existing) gop.value_ptr.* = .{ .alignment = alignment };
-    const atom = switch (sym.kind) {
-        .code => &gop.value_ptr.text_atom,
-        .const_data => &gop.value_ptr.rdata_atom,
+    errdefer _ = if (!gop.found_existing) self.lazy_syms.pop();
+    if (!gop.found_existing) gop.value_ptr.* = .{};
+    const metadata: struct { atom: *Atom.Index, state: *LazySymbolMetadata.State } = switch (sym.kind) {
+        .code => .{ .atom = &gop.value_ptr.text_atom, .state = &gop.value_ptr.text_state },
+        .const_data => .{ .atom = &gop.value_ptr.rdata_atom, .state = &gop.value_ptr.rdata_state },
     };
-    if (atom.* == null) atom.* = try self.createAtom();
-    return atom.*.?;
+    switch (metadata.state.*) {
+        .unused => metadata.atom.* = try self.createAtom(),
+        .pending_flush => return metadata.atom.*,
+        .flushed => {},
+    }
+    metadata.state.* = .pending_flush;
+    const atom = metadata.atom.*;
+    // anyerror needs to be deferred until flushModule
+    if (sym.getDecl() != .none) try self.updateLazySymbolAtom(sym, atom, switch (sym.kind) {
+        .code => self.text_section_index.?,
+        .const_data => self.rdata_section_index.?,
+    });
+    return atom;
 }
 
 pub fn getOrCreateAtomForDecl(self: *Coff, decl_index: Module.Decl.Index) !Atom.Index {
@@ -1410,7 +1413,7 @@ pub fn updateDeclExports(
     module: *Module,
     decl_index: Module.Decl.Index,
     exports: []const *Module.Export,
-) !void {
+) link.File.UpdateDeclExportsError!void {
     if (build_options.skip_non_native and builtin.object_format != .coff) {
         @panic("Attempted to compile for object format that was disabled by build configuration");
     }
@@ -1605,16 +1608,34 @@ pub fn flushModule(self: *Coff, comp: *Compilation, prog_node: *std.Progress.Nod
     sub_prog_node.activate();
     defer sub_prog_node.end();
 
-    // Most lazy symbols can be updated when the corresponding decl is,
-    // so we only have to worry about the one without an associated decl.
-    if (self.lazy_syms.get(.none)) |metadata| {
-        self.updateLazySymbol(.none, metadata) catch |err| switch (err) {
-            error.CodegenFail => return error.FlushFailure,
-            else => |e| return e,
+    const gpa = self.base.allocator;
+
+    const module = self.base.options.module orelse return error.LinkingWithoutZigSourceUnimplemented;
+
+    if (self.lazy_syms.getPtr(.none)) |metadata| {
+        // Most lazy symbols can be updated on first use, but
+        // anyerror needs to wait for everything to be flushed.
+        if (metadata.text_state != .unused) self.updateLazySymbolAtom(
+            link.File.LazySymbol.initDecl(.code, null, module),
+            metadata.text_atom,
+            self.text_section_index.?,
+        ) catch |err| return switch (err) {
+            error.CodegenFail => error.FlushFailure,
+            else => |e| e,
+        };
+        if (metadata.rdata_state != .unused) self.updateLazySymbolAtom(
+            link.File.LazySymbol.initDecl(.const_data, null, module),
+            metadata.rdata_atom,
+            self.rdata_section_index.?,
+        ) catch |err| return switch (err) {
+            error.CodegenFail => error.FlushFailure,
+            else => |e| e,
         };
     }
-
-    const gpa = self.base.allocator;
+    for (self.lazy_syms.values()) |*metadata| {
+        if (metadata.text_state != .unused) metadata.text_state = .flushed;
+        if (metadata.rdata_state != .unused) metadata.rdata_state = .flushed;
+    }
 
     while (self.unresolved.popOrNull()) |entry| {
         assert(entry.value); // We only expect imports generated by the incremental linker for now.
@@ -1816,7 +1837,7 @@ fn writeBaseRelocations(self: *Coff) !void {
             pages.appendAssumeCapacity(page.*);
         }
     }
-    std.sort.sort(u32, pages.items, {}, std.sort.asc(u32));
+    mem.sort(u32, pages.items, {}, std.sort.asc(u32));
 
     var buffer = std.ArrayList(u8).init(gpa);
     defer buffer.deinit();

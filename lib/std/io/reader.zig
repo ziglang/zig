@@ -51,7 +51,7 @@ pub fn Reader(
         }
 
         /// If the number read would be smaller than `buf.len`, `error.EndOfStream` is returned instead.
-        pub fn readNoEof(self: Self, buf: []u8) !void {
+        pub fn readNoEof(self: Self, buf: []u8) (Error || error{EndOfStream})!void {
             const amt_read = try self.readAll(buf);
             if (amt_read < buf.len) return error.EndOfStream;
         }
@@ -71,7 +71,7 @@ pub fn Reader(
             array_list: *std.ArrayListAligned(u8, alignment),
             max_append_size: usize,
         ) !void {
-            try array_list.ensureTotalCapacity(math.min(max_append_size, 4096));
+            try array_list.ensureTotalCapacity(@min(max_append_size, 4096));
             const original_len = array_list.items.len;
             var start_index: usize = original_len;
             while (true) {
@@ -103,9 +103,10 @@ pub fn Reader(
             var array_list = std.ArrayList(u8).init(allocator);
             defer array_list.deinit();
             try self.readAllArrayList(&array_list, max_size);
-            return array_list.toOwnedSlice();
+            return try array_list.toOwnedSlice();
         }
 
+        /// Deprecated: use `streamUntilDelimiter` with ArrayList's writer instead.
         /// Replaces the `std.ArrayList` contents by reading from the stream until `delimiter` is found.
         /// Does not include the delimiter in the result.
         /// If the `std.ArrayList` length would exceed `max_size`, `error.StreamTooLong` is returned and the
@@ -117,21 +118,10 @@ pub fn Reader(
             max_size: usize,
         ) !void {
             array_list.shrinkRetainingCapacity(0);
-            while (true) {
-                if (array_list.items.len == max_size) {
-                    return error.StreamTooLong;
-                }
-
-                var byte: u8 = try self.readByte();
-
-                if (byte == delimiter) {
-                    return;
-                }
-
-                try array_list.append(byte);
-            }
+            try self.streamUntilDelimiter(array_list.writer(), delimiter, max_size);
         }
 
+        /// Deprecated: use `streamUntilDelimiter` with ArrayList's writer instead.
         /// Allocates enough memory to read until `delimiter`. If the allocated
         /// memory would be greater than `max_size`, returns `error.StreamTooLong`.
         /// Caller owns returned memory.
@@ -144,10 +134,11 @@ pub fn Reader(
         ) ![]u8 {
             var array_list = std.ArrayList(u8).init(allocator);
             defer array_list.deinit();
-            try self.readUntilDelimiterArrayList(&array_list, delimiter, max_size);
-            return array_list.toOwnedSlice();
+            try self.streamUntilDelimiter(array_list.writer(), delimiter, max_size);
+            return try array_list.toOwnedSlice();
         }
 
+        /// Deprecated: use `streamUntilDelimiter` with FixedBufferStream's writer instead.
         /// Reads from the stream until specified byte is found. If the buffer is not
         /// large enough to hold the entire contents, `error.StreamTooLong` is returned.
         /// If end-of-stream is found, `error.EndOfStream` is returned.
@@ -155,19 +146,14 @@ pub fn Reader(
         /// delimiter byte is written to the output buffer but is not included
         /// in the returned slice.
         pub fn readUntilDelimiter(self: Self, buf: []u8, delimiter: u8) ![]u8 {
-            var index: usize = 0;
-            while (true) {
-                if (index >= buf.len) return error.StreamTooLong;
-
-                const byte = try self.readByte();
-                buf[index] = byte;
-
-                if (byte == delimiter) return buf[0..index];
-
-                index += 1;
-            }
+            var fbs = std.io.fixedBufferStream(buf);
+            try self.streamUntilDelimiter(fbs.writer(), delimiter, fbs.buffer.len);
+            const output = fbs.getWritten();
+            buf[output.len] = delimiter; // emulating old behaviour
+            return output;
         }
 
+        /// Deprecated: use `streamUntilDelimiter` with ArrayList's (or any other's) writer instead.
         /// Allocates enough memory to read until `delimiter` or end-of-stream.
         /// If the allocated memory would be greater than `max_size`, returns
         /// `error.StreamTooLong`. If end-of-stream is found, returns the rest
@@ -183,17 +169,16 @@ pub fn Reader(
         ) !?[]u8 {
             var array_list = std.ArrayList(u8).init(allocator);
             defer array_list.deinit();
-            self.readUntilDelimiterArrayList(&array_list, delimiter, max_size) catch |err| switch (err) {
+            self.streamUntilDelimiter(array_list.writer(), delimiter, max_size) catch |err| switch (err) {
                 error.EndOfStream => if (array_list.items.len == 0) {
                     return null;
-                } else {
-                    return try array_list.toOwnedSlice();
                 },
                 else => |e| return e,
             };
             return try array_list.toOwnedSlice();
         }
 
+        /// Deprecated: use `streamUntilDelimiter` with FixedBufferStream's writer instead.
         /// Reads from the stream until specified byte is found. If the buffer is not
         /// large enough to hold the entire contents, `error.StreamTooLong` is returned.
         /// If end-of-stream is found, returns the rest of the stream. If this
@@ -202,32 +187,46 @@ pub fn Reader(
         /// delimiter byte is written to the output buffer but is not included
         /// in the returned slice.
         pub fn readUntilDelimiterOrEof(self: Self, buf: []u8, delimiter: u8) !?[]u8 {
-            var index: usize = 0;
-            while (true) {
-                if (index >= buf.len) return error.StreamTooLong;
+            var fbs = std.io.fixedBufferStream(buf);
+            self.streamUntilDelimiter(fbs.writer(), delimiter, fbs.buffer.len) catch |err| switch (err) {
+                error.EndOfStream => if (fbs.getWritten().len == 0) {
+                    return null;
+                },
 
-                const byte = self.readByte() catch |err| switch (err) {
-                    error.EndOfStream => {
-                        if (index == 0) {
-                            return null;
-                        } else {
-                            return buf[0..index];
-                        }
-                    },
-                    else => |e| return e,
-                };
-                buf[index] = byte;
+                else => |e| return e,
+            };
+            const output = fbs.getWritten();
+            buf[output.len] = delimiter; // emulating old behaviour
+            return output;
+        }
 
-                if (byte == delimiter) return buf[0..index];
-
-                index += 1;
+        /// Appends to the `writer` contents by reading from the stream until `delimiter` is found.
+        /// Does not write the delimiter itself.
+        /// If `optional_max_size` is not null and amount of written bytes exceeds `optional_max_size`,
+        /// returns `error.StreamTooLong` and finishes appending.
+        /// If `optional_max_size` is null, appending is unbounded.
+        pub fn streamUntilDelimiter(self: Self, writer: anytype, delimiter: u8, optional_max_size: ?usize) (Error || error{ EndOfStream, StreamTooLong } || @TypeOf(writer).Error)!void {
+            if (optional_max_size) |max_size| {
+                for (0..max_size) |_| {
+                    const byte: u8 = try self.readByte(); // (Error || error{EndOfStream})
+                    if (byte == delimiter) return;
+                    try writer.writeByte(byte); // @TypeOf(writer).Error
+                }
+                return error.StreamTooLong;
+            } else {
+                while (true) {
+                    const byte: u8 = try self.readByte(); // (Error || error{EndOfStream})
+                    if (byte == delimiter) return;
+                    try writer.writeByte(byte); // @TypeOf(writer).Error
+                }
+                // Can not throw `error.StreamTooLong` since there are no boundary.
             }
         }
 
         /// Reads from the stream until specified byte is found, discarding all data,
         /// including the delimiter.
         /// If end-of-stream is found, this function succeeds.
-        pub fn skipUntilDelimiterOrEof(self: Self, delimiter: u8) !void {
+        pub fn skipUntilDelimiterOrEof(self: Self, delimiter: u8) Error!void {
             while (true) {
                 const byte = self.readByte() catch |err| switch (err) {
                     error.EndOfStream => return,
@@ -238,7 +237,7 @@ pub fn Reader(
         }
 
         /// Reads 1 byte from the stream or returns `error.EndOfStream`.
-        pub fn readByte(self: Self) !u8 {
+        pub fn readByte(self: Self) (Error || error{EndOfStream})!u8 {
             var result: [1]u8 = undefined;
             const amt_read = try self.read(result[0..]);
             if (amt_read < 1) return error.EndOfStream;
@@ -246,13 +245,13 @@ pub fn Reader(
         }
 
         /// Same as `readByte` except the returned byte is signed.
-        pub fn readByteSigned(self: Self) !i8 {
+        pub fn readByteSigned(self: Self) (Error || error{EndOfStream})!i8 {
             return @bitCast(i8, try self.readByte());
         }
 
         /// Reads exactly `num_bytes` bytes and returns as an array.
         /// `num_bytes` must be comptime-known
-        pub fn readBytesNoEof(self: Self, comptime num_bytes: usize) ![num_bytes]u8 {
+        pub fn readBytesNoEof(self: Self, comptime num_bytes: usize) (Error || error{EndOfStream})![num_bytes]u8 {
             var bytes: [num_bytes]u8 = undefined;
             try self.readNoEof(&bytes);
             return bytes;
@@ -264,7 +263,7 @@ pub fn Reader(
             self: Self,
             comptime num_bytes: usize,
             bounded: *std.BoundedArray(u8, num_bytes),
-        ) !void {
+        ) Error!void {
             while (bounded.len < num_bytes) {
                 const bytes_read = try self.read(bounded.unusedCapacitySlice());
                 if (bytes_read == 0) return;
@@ -273,20 +272,20 @@ pub fn Reader(
         }
 
         /// Reads at most `num_bytes` and returns as a bounded array.
-        pub fn readBoundedBytes(self: Self, comptime num_bytes: usize) !std.BoundedArray(u8, num_bytes) {
+        pub fn readBoundedBytes(self: Self, comptime num_bytes: usize) Error!std.BoundedArray(u8, num_bytes) {
             var result = std.BoundedArray(u8, num_bytes){};
             try self.readIntoBoundedBytes(num_bytes, &result);
             return result;
         }
 
         /// Reads a native-endian integer
-        pub fn readIntNative(self: Self, comptime T: type) !T {
+        pub fn readIntNative(self: Self, comptime T: type) (Error || error{EndOfStream})!T {
             const bytes = try self.readBytesNoEof((@typeInfo(T).Int.bits + 7) / 8);
             return mem.readIntNative(T, &bytes);
         }
 
         /// Reads a foreign-endian integer
-        pub fn readIntForeign(self: Self, comptime T: type) !T {
+        pub fn readIntForeign(self: Self, comptime T: type) (Error || error{EndOfStream})!T {
             const bytes = try self.readBytesNoEof((@typeInfo(T).Int.bits + 7) / 8);
             return mem.readIntForeign(T, &bytes);
         }
@@ -361,7 +360,7 @@ pub fn Reader(
         }
 
         /// Reads an integer with the same size as the given enum's tag type. If the integer matches
-        /// an enum tag, casts the integer to the enum tag and returns it. Otherwise, returns an error.
+        /// an enum tag, casts the integer to the enum tag and returns it. Otherwise, returns an `error.InvalidValue`.
         /// TODO optimization taking advantage of most fields being in order
         pub fn readEnum(self: Self, comptime Enum: type, endian: std.builtin.Endian) !Enum {
             const E = error{
@@ -553,10 +552,18 @@ test "Reader.readUntilDelimiter returns StreamTooLong, then bytes read until the
 }
 
 test "Reader.readUntilDelimiter returns EndOfStream" {
-    var buf: [5]u8 = undefined;
-    var fis = std.io.fixedBufferStream("");
-    const reader = fis.reader();
-    try std.testing.expectError(error.EndOfStream, reader.readUntilDelimiter(&buf, '\n'));
+    {
+        var buf: [5]u8 = undefined;
+        var fis = std.io.fixedBufferStream("");
+        const reader = fis.reader();
+        try std.testing.expectError(error.EndOfStream, reader.readUntilDelimiter(&buf, '\n'));
+    }
+    {
+        var buf: [5]u8 = undefined;
+        var fis = std.io.fixedBufferStream("1234");
+        const reader = fis.reader();
+        try std.testing.expectError(error.EndOfStream, reader.readUntilDelimiter(&buf, '\n'));
+    }
 }
 
 test "Reader.readUntilDelimiter returns bytes read until delimiter, then EndOfStream" {
@@ -564,13 +571,6 @@ test "Reader.readUntilDelimiter returns bytes read until delimiter, then EndOfSt
     var fis = std.io.fixedBufferStream("1234\n");
     const reader = fis.reader();
     try std.testing.expectEqualStrings("1234", try reader.readUntilDelimiter(&buf, '\n'));
-    try std.testing.expectError(error.EndOfStream, reader.readUntilDelimiter(&buf, '\n'));
-}
-
-test "Reader.readUntilDelimiter returns EndOfStream" {
-    var buf: [5]u8 = undefined;
-    var fis = std.io.fixedBufferStream("1234");
-    const reader = fis.reader();
     try std.testing.expectError(error.EndOfStream, reader.readUntilDelimiter(&buf, '\n'));
 }
 
@@ -708,4 +708,23 @@ test "Reader.readUntilDelimiterOrEof writes all bytes read to the output buffer"
     try std.testing.expectEqualStrings("0000\n", &buf);
     try std.testing.expectError(error.StreamTooLong, reader.readUntilDelimiterOrEof(&buf, '\n'));
     try std.testing.expectEqualStrings("12345", &buf);
+}
+
+test "Reader.streamUntilDelimiter writes all bytes without delimiter to the output" {
+    const input_string = "some_string_with_delimiter!";
+    var input_fbs = std.io.fixedBufferStream(input_string);
+    const reader = input_fbs.reader();
+
+    var output: [input_string.len]u8 = undefined;
+    var output_fbs = std.io.fixedBufferStream(&output);
+    const writer = output_fbs.writer();
+
+    try reader.streamUntilDelimiter(writer, '!', input_fbs.buffer.len);
+    try std.testing.expectEqualStrings("some_string_with_delimiter", output_fbs.getWritten());
+    try std.testing.expectError(error.EndOfStream, reader.streamUntilDelimiter(writer, '!', input_fbs.buffer.len));
+
+    input_fbs.reset();
+    output_fbs.reset();
+
+    try std.testing.expectError(error.StreamTooLong, reader.streamUntilDelimiter(writer, '!', 5));
 }

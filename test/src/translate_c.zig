@@ -104,11 +104,11 @@ pub const TranslateCContext = struct {
 
         const write_src = b.addWriteFiles();
         for (case.sources.items) |src_file| {
-            write_src.add(src_file.filename, src_file.source);
+            _ = write_src.add(src_file.filename, src_file.source);
         }
 
         const translate_c = b.addTranslateC(.{
-            .source_file = write_src.getFileSource(case.sources.items[0].filename).?,
+            .source_file = write_src.files.items[0].getFileSource(),
             .target = case.target,
             .optimize = .Debug,
         });

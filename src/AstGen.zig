@@ -849,10 +849,35 @@ fn expr(gz: *GenZir, scope: *Scope, ri: ResultInfo, node: Ast.Node.Index) InnerE
             return rvalue(gz, ri, result, node);
         },
         .slice => {
+            const extra = tree.extraData(node_datas[node].rhs, Ast.Node.Slice);
+            const lhs_node = node_datas[node].lhs;
+            const lhs_tag = node_tags[lhs_node];
+            const lhs_is_slice_sentinel = lhs_tag == .slice_sentinel;
+            const lhs_is_open_slice = lhs_tag == .slice_open or
+                (lhs_is_slice_sentinel and tree.extraData(node_datas[lhs_node].rhs, Ast.Node.SliceSentinel).end == 0);
+            if (lhs_is_open_slice and nodeIsTriviallyZero(tree, extra.start)) {
+                const lhs = try expr(gz, scope, .{ .rl = .ref }, node_datas[lhs_node].lhs);
+
+                const start = if (lhs_is_slice_sentinel) start: {
+                    const lhs_extra = tree.extraData(node_datas[lhs_node].rhs, Ast.Node.SliceSentinel);
+                    break :start try expr(gz, scope, .{ .rl = .{ .coerced_ty = .usize_type } }, lhs_extra.start);
+                } else try expr(gz, scope, .{ .rl = .{ .coerced_ty = .usize_type } }, node_datas[lhs_node].rhs);
+
+                const cursor = maybeAdvanceSourceCursorToMainToken(gz, node);
+                const len = if (extra.end != 0) try expr(gz, scope, .{ .rl = .{ .coerced_ty = .usize_type } }, extra.end) else .none;
+                try emitDbgStmt(gz, cursor);
+                const result = try gz.addPlNode(.slice_length, node, Zir.Inst.SliceLength{
+                    .lhs = lhs,
+                    .start = start,
+                    .len = len,
+                    .start_src_node_offset = gz.nodeIndexToRelative(lhs_node),
+                    .sentinel = .none,
+                });
+                return rvalue(gz, ri, result, node);
+            }
             const lhs = try expr(gz, scope, .{ .rl = .ref }, node_datas[node].lhs);
 
             const cursor = maybeAdvanceSourceCursorToMainToken(gz, node);
-            const extra = tree.extraData(node_datas[node].rhs, Ast.Node.Slice);
             const start = try expr(gz, scope, .{ .rl = .{ .coerced_ty = .usize_type } }, extra.start);
             const end = try expr(gz, scope, .{ .rl = .{ .coerced_ty = .usize_type } }, extra.end);
             try emitDbgStmt(gz, cursor);
@@ -864,10 +889,36 @@ fn expr(gz: *GenZir, scope: *Scope, ri: ResultInfo, node: Ast.Node.Index) InnerE
             return rvalue(gz, ri, result, node);
         },
         .slice_sentinel => {
+            const extra = tree.extraData(node_datas[node].rhs, Ast.Node.SliceSentinel);
+            const lhs_node = node_datas[node].lhs;
+            const lhs_tag = node_tags[lhs_node];
+            const lhs_is_slice_sentinel = lhs_tag == .slice_sentinel;
+            const lhs_is_open_slice = lhs_tag == .slice_open or
+                (lhs_is_slice_sentinel and tree.extraData(node_datas[lhs_node].rhs, Ast.Node.SliceSentinel).end == 0);
+            if (lhs_is_open_slice and nodeIsTriviallyZero(tree, extra.start)) {
+                const lhs = try expr(gz, scope, .{ .rl = .ref }, node_datas[lhs_node].lhs);
+
+                const start = if (lhs_is_slice_sentinel) start: {
+                    const lhs_extra = tree.extraData(node_datas[lhs_node].rhs, Ast.Node.SliceSentinel);
+                    break :start try expr(gz, scope, .{ .rl = .{ .coerced_ty = .usize_type } }, lhs_extra.start);
+                } else try expr(gz, scope, .{ .rl = .{ .coerced_ty = .usize_type } }, node_datas[lhs_node].rhs);
+
+                const cursor = maybeAdvanceSourceCursorToMainToken(gz, node);
+                const len = if (extra.end != 0) try expr(gz, scope, .{ .rl = .{ .coerced_ty = .usize_type } }, extra.end) else .none;
+                const sentinel = try expr(gz, scope, .{ .rl = .none }, extra.sentinel);
+                try emitDbgStmt(gz, cursor);
+                const result = try gz.addPlNode(.slice_length, node, Zir.Inst.SliceLength{
+                    .lhs = lhs,
+                    .start = start,
+                    .len = len,
+                    .start_src_node_offset = gz.nodeIndexToRelative(lhs_node),
+                    .sentinel = sentinel,
+                });
+                return rvalue(gz, ri, result, node);
+            }
             const lhs = try expr(gz, scope, .{ .rl = .ref }, node_datas[node].lhs);
 
             const cursor = maybeAdvanceSourceCursorToMainToken(gz, node);
-            const extra = tree.extraData(node_datas[node].rhs, Ast.Node.SliceSentinel);
             const start = try expr(gz, scope, .{ .rl = .{ .coerced_ty = .usize_type } }, extra.start);
             const end = if (extra.end != 0) try expr(gz, scope, .{ .rl = .{ .coerced_ty = .usize_type } }, extra.end) else .none;
             const sentinel = try expr(gz, scope, .{ .rl = .none }, extra.sentinel);
@@ -2431,7 +2482,7 @@ fn addEnsureResult(gz: *GenZir, maybe_unused_result: Zir.Inst.Ref, statement: As
         switch (zir_tags[inst]) {
             // For some instructions, modify the zir data
             // so we can avoid a separate ensure_result_used instruction.
-            .call => {
+            .call, .field_call => {
                 const extra_index = gz.astgen.instructions.items(.data)[inst].pl_node.payload_index;
                 const slot = &gz.astgen.extra.items[extra_index];
                 var flags = @bitCast(Zir.Inst.Call.Flags, slot.*);
@@ -2506,7 +2557,6 @@ fn addEnsureResult(gz: *GenZir, maybe_unused_result: Zir.Inst.Ref, statement: As
             .field_ptr,
             .field_ptr_init,
             .field_val,
-            .field_call_bind,
             .field_ptr_named,
             .field_val_named,
             .func,
@@ -2557,6 +2607,7 @@ fn addEnsureResult(gz: *GenZir, maybe_unused_result: Zir.Inst.Ref, statement: As
             .slice_start,
             .slice_end,
             .slice_sentinel,
+            .slice_length,
             .import,
             .switch_block,
             .switch_cond,
@@ -2905,7 +2956,15 @@ fn deferStmt(
     const sub_scope = if (!have_err_code) &defer_gen.base else blk: {
         try gz.addDbgBlockBegin();
         const ident_name = try gz.astgen.identAsString(payload_token);
-        remapped_err_code = @intCast(u32, try gz.astgen.instructions.addOne(gz.astgen.gpa));
+        remapped_err_code = @intCast(Zir.Inst.Index, gz.astgen.instructions.len);
+        try gz.astgen.instructions.append(gz.astgen.gpa, .{
+            .tag = .extended,
+            .data = .{ .extended = .{
+                .opcode = .errdefer_err_code,
+                .small = undefined,
+                .operand = undefined,
+            } },
+        });
         const remapped_err_code_ref = Zir.indexToRef(remapped_err_code);
         local_val_scope = .{
             .parent = &defer_gen.base,
@@ -2923,11 +2982,27 @@ fn deferStmt(
     if (have_err_code) try gz.addDbgBlockEnd();
     _ = try defer_gen.addBreak(.break_inline, 0, .void_value);
 
+    // We must handle ref_table for remapped_err_code manually.
     const body = defer_gen.instructionsSlice();
-    const body_len = gz.astgen.countBodyLenAfterFixups(body);
+    const body_len = blk: {
+        var refs: u32 = 0;
+        if (have_err_code) {
+            var cur_inst = remapped_err_code;
+            while (gz.astgen.ref_table.get(cur_inst)) |ref_inst| {
+                refs += 1;
+                cur_inst = ref_inst;
+            }
+        }
+        break :blk gz.astgen.countBodyLenAfterFixups(body) + refs;
+    };
 
     const index = @intCast(u32, gz.astgen.extra.items.len);
     try gz.astgen.extra.ensureUnusedCapacity(gz.astgen.gpa, body_len);
+    if (have_err_code) {
+        if (gz.astgen.ref_table.fetchRemove(remapped_err_code)) |kv| {
+            gz.astgen.appendPossiblyRefdBodyInst(&gz.astgen.extra, kv.value);
+        }
+    }
     gz.astgen.appendBodyWithFixups(body);
 
     const defer_scope = try block_arena.create(Scope.Defer);
@@ -7614,14 +7689,16 @@ fn failWithNumberError(astgen: *AstGen, err: std.zig.number_literal.Error, token
         .invalid_digit => |info| return astgen.failOff(token, @intCast(u32, info.i), "invalid digit '{c}' for {s} base", .{ bytes[info.i], @tagName(info.base) }),
         .invalid_digit_exponent => |i| return astgen.failOff(token, @intCast(u32, i), "invalid digit '{c}' in exponent", .{bytes[i]}),
         .duplicate_exponent => |i| return astgen.failOff(token, @intCast(u32, i), "duplicate exponent", .{}),
-        .invalid_hex_exponent => |i| return astgen.failOff(token, @intCast(u32, i), "hex exponent in decimal float", .{}),
         .exponent_after_underscore => |i| return astgen.failOff(token, @intCast(u32, i), "expected digit before exponent", .{}),
         .special_after_underscore => |i| return astgen.failOff(token, @intCast(u32, i), "expected digit before '{c}'", .{bytes[i]}),
         .trailing_special => |i| return astgen.failOff(token, @intCast(u32, i), "expected digit after '{c}'", .{bytes[i - 1]}),
         .trailing_underscore => |i| return astgen.failOff(token, @intCast(u32, i), "trailing digit separator", .{}),
         .duplicate_period => unreachable, // Validated by tokenizer
         .invalid_character => unreachable, // Validated by tokenizer
-        .invalid_exponent_sign => unreachable, // Validated by tokenizer
+        .invalid_exponent_sign => |i| {
+            assert(bytes.len >= 2 and bytes[0] == '0' and bytes[1] == 'x'); // Validated by tokenizer
+            return astgen.failOff(token, @intCast(u32, i), "sign '{c}' cannot follow digit '{c}' in hex base", .{ bytes[i], bytes[i - 1] });
+        },
     }
 }
 
@@ -7907,6 +7984,48 @@ fn typeOf(
     return rvalue(gz, ri, typeof_inst, node);
 }
 
+fn minMax(
+    gz: *GenZir,
+    scope: *Scope,
+    ri: ResultInfo,
+    node: Ast.Node.Index,
+    args: []const Ast.Node.Index,
+    comptime op: enum { min, max },
+) InnerError!Zir.Inst.Ref {
+    const astgen = gz.astgen;
+    if (args.len < 2) {
+        return astgen.failNode(node, "expected at least 2 arguments, found 0", .{});
+    }
+    if (args.len == 2) {
+        const tag: Zir.Inst.Tag = switch (op) {
+            .min => .min,
+            .max => .max,
+        };
+        const a = try expr(gz, scope, .{ .rl = .none }, args[0]);
+        const b = try expr(gz, scope, .{ .rl = .none }, args[1]);
+        const result = try gz.addPlNode(tag, node, Zir.Inst.Bin{
+            .lhs = a,
+            .rhs = b,
+        });
+        return rvalue(gz, ri, result, node);
+    }
+    const payload_index = try addExtra(astgen, Zir.Inst.NodeMultiOp{
+        .src_node = gz.nodeIndexToRelative(node),
+    });
+    var extra_index = try reserveExtra(gz.astgen, args.len);
+    for (args) |arg| {
+        const arg_ref = try expr(gz, scope, .{ .rl = .none }, arg);
+        astgen.extra.items[extra_index] = @enumToInt(arg_ref);
+        extra_index += 1;
+    }
+    const tag: Zir.Inst.Extended = switch (op) {
+        .min => .min_multi,
+        .max => .max_multi,
+    };
+    const result = try gz.addExtendedMultiOpPayloadIndex(tag, payload_index, args.len);
+    return rvalue(gz, ri, result, node);
+}
+
 fn builtinCall(
     gz: *GenZir,
     scope: *Scope,
@@ -7997,6 +8116,8 @@ fn builtinCall(
         .TypeOf     => return typeOf(   gz, scope, ri, node, params),
         .union_init => return unionInit(gz, scope, ri, node, params),
         .c_import   => return cImport(  gz, scope,     node, params[0]),
+        .min        => return minMax(   gz, scope, ri, node, params, .min),
+        .max        => return minMax(   gz, scope, ri, node, params, .max),
         // zig fmt: on
 
         .@"export" => {
@@ -8218,7 +8339,7 @@ fn builtinCall(
         .trap => {
             try emitDbgNode(gz, node);
             _ = try gz.addNode(.trap, node);
-            return rvalue(gz, ri, .void_value, node);
+            return rvalue(gz, ri, .unreachable_value, node);
         },
         .error_to_int => {
             const operand = try expr(gz, scope, .{ .rl = .none }, params[0]);
@@ -8358,25 +8479,6 @@ fn builtinCall(
             return rvalue(gz, ri, result, node);
         },
 
-        .max => {
-            const a = try expr(gz, scope, .{ .rl = .none }, params[0]);
-            const b = try expr(gz, scope, .{ .rl = .none }, params[1]);
-            const result = try gz.addPlNode(.max, node, Zir.Inst.Bin{
-                .lhs = a,
-                .rhs = b,
-            });
-            return rvalue(gz, ri, result, node);
-        },
-        .min => {
-            const a = try expr(gz, scope, .{ .rl = .none }, params[0]);
-            const b = try expr(gz, scope, .{ .rl = .none }, params[1]);
-            const result = try gz.addPlNode(.min, node, Zir.Inst.Bin{
-                .lhs = a,
-                .rhs = b,
-            });
-            return rvalue(gz, ri, result, node);
-        },
-
         .add_with_overflow => return overflowArithmetic(gz, scope, ri, node, params, .add_with_overflow),
         .sub_with_overflow => return overflowArithmetic(gz, scope, ri, node, params, .sub_with_overflow),
         .mul_with_overflow => return overflowArithmetic(gz, scope, ri, node, params, .mul_with_overflow),
@@ -8429,7 +8531,7 @@ fn builtinCall(
         },
         .call => {
             const modifier = try comptimeExpr(gz, scope, .{ .rl = .{ .coerced_ty = .modifier_type } }, params[0]);
-            const callee = try calleeExpr(gz, scope, params[1]);
+            const callee = try expr(gz, scope, .{ .rl = .none }, params[1]);
             const args = try expr(gz, scope, .{ .rl = .none }, params[2]);
             const result = try gz.addPlNode(.builtin_call, node, Zir.Inst.BuiltinCall{
                 .modifier = modifier,
@@ -8889,7 +8991,10 @@ fn callExpr(
         } });
     }
 
-    assert(callee != .none);
+    switch (callee) {
+        .direct => |obj| assert(obj != .none),
+        .field => |field| assert(field.obj_ptr != .none),
+    }
     assert(node != 0);
 
     const call_index = @intCast(Zir.Inst.Index, astgen.instructions.len);
@@ -8928,89 +9033,98 @@ fn callExpr(
         else => false,
     };
 
-    const payload_index = try addExtra(astgen, Zir.Inst.Call{
-        .callee = callee,
-        .flags = .{
-            .pop_error_return_trace = !propagate_error_trace,
-            .packed_modifier = @intCast(Zir.Inst.Call.Flags.PackedModifier, @enumToInt(modifier)),
-            .args_len = @intCast(Zir.Inst.Call.Flags.PackedArgsLen, call.ast.params.len),
+    switch (callee) {
+        .direct => |callee_obj| {
+            const payload_index = try addExtra(astgen, Zir.Inst.Call{
+                .callee = callee_obj,
+                .flags = .{
+                    .pop_error_return_trace = !propagate_error_trace,
+                    .packed_modifier = @intCast(Zir.Inst.Call.Flags.PackedModifier, @enumToInt(modifier)),
+                    .args_len = @intCast(Zir.Inst.Call.Flags.PackedArgsLen, call.ast.params.len),
+                },
+            });
+            if (call.ast.params.len != 0) {
+                try astgen.extra.appendSlice(astgen.gpa, astgen.scratch.items[scratch_top..]);
+            }
+            gz.astgen.instructions.set(call_index, .{
+                .tag = .call,
+                .data = .{ .pl_node = .{
+                    .src_node = gz.nodeIndexToRelative(node),
+                    .payload_index = payload_index,
+                } },
+            });
         },
-    });
-    if (call.ast.params.len != 0) {
-        try astgen.extra.appendSlice(astgen.gpa, astgen.scratch.items[scratch_top..]);
+        .field => |callee_field| {
+            const payload_index = try addExtra(astgen, Zir.Inst.FieldCall{
+                .obj_ptr = callee_field.obj_ptr,
+                .field_name_start = callee_field.field_name_start,
+                .flags = .{
+                    .pop_error_return_trace = !propagate_error_trace,
+                    .packed_modifier = @intCast(Zir.Inst.Call.Flags.PackedModifier, @enumToInt(modifier)),
+                    .args_len = @intCast(Zir.Inst.Call.Flags.PackedArgsLen, call.ast.params.len),
+                },
+            });
+            if (call.ast.params.len != 0) {
+                try astgen.extra.appendSlice(astgen.gpa, astgen.scratch.items[scratch_top..]);
+            }
+            gz.astgen.instructions.set(call_index, .{
+                .tag = .field_call,
+                .data = .{ .pl_node = .{
+                    .src_node = gz.nodeIndexToRelative(node),
+                    .payload_index = payload_index,
+                } },
+            });
+        },
     }
-    gz.astgen.instructions.set(call_index, .{
-        .tag = .call,
-        .data = .{ .pl_node = .{
-            .src_node = gz.nodeIndexToRelative(node),
-            .payload_index = payload_index,
-        } },
-    });
     return rvalue(gz, ri, call_inst, node); // TODO function call with result location
 }
 
-/// calleeExpr generates the function part of a call expression (f in f(x)), or the
-/// callee argument to the @call() builtin. If the lhs is a field access or the
-/// @field() builtin, we need to generate a special field_call_bind instruction
-/// instead of the normal field_val or field_ptr.  If this is a inst.func() call,
-/// this instruction will capture the value of the first argument before evaluating
-/// the other arguments. We need to use .ref here to guarantee we will be able to
-/// promote an lvalue to an address if the first parameter requires it.  This
-/// unfortunately also means we need to take a reference to any types on the lhs.
+const Callee = union(enum) {
+    field: struct {
+        /// A *pointer* to the object the field is fetched on, so that we can
+        /// promote the lvalue to an address if the first parameter requires it.
+        obj_ptr: Zir.Inst.Ref,
+        /// Offset into `string_bytes`.
+        field_name_start: u32,
+    },
+    direct: Zir.Inst.Ref,
+};
+
+/// calleeExpr generates the function part of a call expression (f in f(x)), but
+/// *not* the callee argument to the @call() builtin. Its purpose is to
+/// distinguish between standard calls and method call syntax `a.b()`. Thus, if
+/// the lhs is a field access, we return using the `field` union field;
+/// otherwise, we use the `direct` union field.
 fn calleeExpr(
     gz: *GenZir,
     scope: *Scope,
     node: Ast.Node.Index,
-) InnerError!Zir.Inst.Ref {
+) InnerError!Callee {
     const astgen = gz.astgen;
     const tree = astgen.tree;
 
     const tag = tree.nodes.items(.tag)[node];
     switch (tag) {
-        .field_access => return addFieldAccess(.field_call_bind, gz, scope, .{ .rl = .ref }, node),
-
-        .builtin_call_two,
-        .builtin_call_two_comma,
-        .builtin_call,
-        .builtin_call_comma,
-        => {
-            const node_datas = tree.nodes.items(.data);
+        .field_access => {
             const main_tokens = tree.nodes.items(.main_token);
-            const builtin_token = main_tokens[node];
-            const builtin_name = tree.tokenSlice(builtin_token);
+            const node_datas = tree.nodes.items(.data);
+            const object_node = node_datas[node].lhs;
+            const dot_token = main_tokens[node];
+            const field_ident = dot_token + 1;
+            const str_index = try astgen.identAsString(field_ident);
+            // Capture the object by reference so we can promote it to an
+            // address in Sema if needed.
+            const lhs = try expr(gz, scope, .{ .rl = .ref }, object_node);
 
-            var inline_params: [2]Ast.Node.Index = undefined;
-            var params: []Ast.Node.Index = switch (tag) {
-                .builtin_call,
-                .builtin_call_comma,
-                => tree.extra_data[node_datas[node].lhs..node_datas[node].rhs],
+            const cursor = maybeAdvanceSourceCursorToMainToken(gz, node);
+            try emitDbgStmt(gz, cursor);
 
-                .builtin_call_two,
-                .builtin_call_two_comma,
-                => blk: {
-                    inline_params = .{ node_datas[node].lhs, node_datas[node].rhs };
-                    const len: usize = if (inline_params[0] == 0) @as(usize, 0) else if (inline_params[1] == 0) @as(usize, 1) else @as(usize, 2);
-                    break :blk inline_params[0..len];
-                },
-
-                else => unreachable,
-            };
-
-            // If anything is wrong, fall back to builtinCall.
-            // It will emit any necessary compile errors and notes.
-            if (std.mem.eql(u8, builtin_name, "@field") and params.len == 2) {
-                const lhs = try expr(gz, scope, .{ .rl = .ref }, params[0]);
-                const field_name = try comptimeExpr(gz, scope, .{ .rl = .{ .ty = .const_slice_u8_type } }, params[1]);
-                return gz.addExtendedPayload(.field_call_bind_named, Zir.Inst.FieldNamedNode{
-                    .node = gz.nodeIndexToRelative(node),
-                    .lhs = lhs,
-                    .field_name = field_name,
-                });
-            }
-
-            return builtinCall(gz, scope, .{ .rl = .none }, node, params);
+            return .{ .field = .{
+                .obj_ptr = lhs,
+                .field_name_start = str_index,
+            } };
         },
-        else => return expr(gz, scope, .{ .rl = .none }, node),
+        else => return .{ .direct = try expr(gz, scope, .{ .rl = .none }, node) },
     }
 }
 

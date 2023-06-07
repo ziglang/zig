@@ -65,7 +65,7 @@
 //!
 //! Unfortunately, there is no easy solution for issue 5. The most reliable
 //! strategy is to keep testing; test newer Zig versions, different libcs,
-//! different distros, and design your filter to accomidate all of them.
+//! different distros, and design your filter to accommodate all of them.
 //! Alternatively, you could inject a filter at runtime. Since filters are
 //! preserved across execve(2), a filter could be setup before executing your
 //! program, without your program having any knowledge of this happening. This

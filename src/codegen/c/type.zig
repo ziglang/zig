@@ -879,7 +879,7 @@ pub const CType = extern union {
             .pointer_const,
             .pointer_volatile,
             .pointer_const_volatile,
-            => @divExact(target.cpu.arch.ptrBitWidth(), 8),
+            => @divExact(target.ptrBitWidth(), 8),
             .uint16_t, .int16_t, .zig_f16 => 2,
             .uint32_t, .int32_t, .zig_f32 => 4,
             .uint64_t, .int64_t, .zig_f64 => 8,
@@ -1292,7 +1292,7 @@ pub const CType = extern union {
         fn sortFields(self: *@This(), fields_len: usize) []Payload.Fields.Field {
             const Field = Payload.Fields.Field;
             const slice = self.storage.anon.fields[0..fields_len];
-            std.sort.sort(Field, slice, {}, struct {
+            mem.sort(Field, slice, {}, struct {
                 fn before(_: void, lhs: Field, rhs: Field) bool {
                     return lhs.alignas.@"align" > rhs.alignas.@"align";
                 }

@@ -469,8 +469,8 @@ const UnsupportedImpl = struct {
         return unsupported(self);
     }
 
-    fn unsupported(unusued: anytype) noreturn {
-        _ = unusued;
+    fn unsupported(unused: anytype) noreturn {
+        _ = unused;
         @compileError("Unsupported operating system " ++ @tagName(target.os.tag));
     }
 };
@@ -690,7 +690,7 @@ const PosixThreadImpl = struct {
         defer assert(c.pthread_attr_destroy(&attr) == .SUCCESS);
 
         // Use the same set of parameters used by the libc-less impl.
-        const stack_size = std.math.max(config.stack_size, 16 * 1024);
+        const stack_size = std.math.max(config.stack_size, c.PTHREAD_STACK_MIN);
         assert(c.pthread_attr_setstacksize(&attr, stack_size) == .SUCCESS);
         assert(c.pthread_attr_setguardsize(&attr, std.mem.page_size) == .SUCCESS);
 

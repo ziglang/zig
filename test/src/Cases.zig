@@ -349,7 +349,7 @@ fn addFromDirInner(
     var filenames = std.ArrayList([]const u8).init(ctx.arena);
 
     while (try it.next()) |entry| {
-        if (entry.kind != .File) continue;
+        if (entry.kind != .file) continue;
 
         // Ignore stuff such as .swp files
         switch (Compilation.classifyFileExt(entry.basename)) {
@@ -394,6 +394,12 @@ fn addFromDirInner(
                     target.getCpuArch() != .wasm32 and target.getCpuArch() != .x86_64)
                 {
                     // Other backends don't support new liveness format
+                    continue;
+                }
+                if (backend == .stage2 and target.getOsTag() == .macos and
+                    target.getCpuArch() == .x86_64 and builtin.cpu.arch == .aarch64)
+                {
+                    // Rosetta has issues with ZLD
                     continue;
                 }
 
@@ -459,9 +465,16 @@ pub fn lowerToBuildSteps(
     parent_step: *std.Build.Step,
     opt_test_filter: ?[]const u8,
     cases_dir_path: []const u8,
-    incremental_exe: *std.Build.CompileStep,
+    incremental_exe: *std.Build.Step.Compile,
 ) void {
     for (self.incremental_cases.items) |incr_case| {
+        if (true) {
+            // TODO: incremental tests are disabled for now, as incremental compilation bugs were
+            // getting in the way of practical improvements to the compiler, and incremental
+            // compilation is not currently used. They should be re-enabled once incremental
+            // compilation is in a happier state.
+            continue;
+        }
         if (opt_test_filter) |test_filter| {
             if (std.mem.indexOf(u8, incr_case.base_path, test_filter) == null) continue;
         }
@@ -488,10 +501,12 @@ pub fn lowerToBuildSteps(
         }
 
         const writefiles = b.addWriteFiles();
+        var file_sources = std.StringHashMap(std.Build.FileSource).init(b.allocator);
+        defer file_sources.deinit();
         for (update.files.items) |file| {
-            writefiles.add(file.path, file.src);
+            file_sources.put(file.path, writefiles.add(file.path, file.src)) catch @panic("OOM");
         }
-        const root_source_file = writefiles.getFileSource(update.files.items[0].path).?;
+        const root_source_file = writefiles.files.items[0].getFileSource();
 
         const artifact = if (case.is_test) b.addTest(.{
             .root_source_file = root_source_file,
@@ -534,7 +549,7 @@ pub fn lowerToBuildSteps(
 
         for (case.deps.items) |dep| {
             artifact.addAnonymousModule(dep.name, .{
-                .source_file = writefiles.getFileSource(dep.path).?,
+                .source_file = file_sources.get(dep.path).?,
             });
         }
 
@@ -601,7 +616,7 @@ fn sortTestFilenames(filenames: [][]const u8) void {
             };
         }
     };
-    std.sort.sort([]const u8, filenames, Context{}, Context.lessThan);
+    std.mem.sort([]const u8, filenames, Context{}, Context.lessThan);
 }
 
 /// Iterates a set of filenames extracting batches that are either incremental
@@ -789,7 +804,7 @@ const TestManifest = struct {
     };
 
     const TrailingIterator = struct {
-        inner: std.mem.TokenIterator(u8),
+        inner: std.mem.TokenIterator(u8, .any),
 
         fn next(self: *TrailingIterator) ?[]const u8 {
             const next_inner = self.inner.next() orelse return null;
@@ -799,7 +814,7 @@ const TestManifest = struct {
 
     fn ConfigValueIterator(comptime T: type) type {
         return struct {
-            inner: std.mem.SplitIterator(u8),
+            inner: std.mem.SplitIterator(u8, .scalar),
 
             fn next(self: *@This()) !?T {
                 const next_raw = self.inner.next() orelse return null;
@@ -840,7 +855,7 @@ const TestManifest = struct {
         const actual_start = start orelse return error.MissingTestManifest;
         const manifest_bytes = bytes[actual_start..end];
 
-        var it = std.mem.tokenize(u8, manifest_bytes, "\r\n");
+        var it = std.mem.tokenizeAny(u8, manifest_bytes, "\r\n");
 
         // First line is the test type
         const tt: Type = blk: {
@@ -871,7 +886,7 @@ const TestManifest = struct {
             if (trimmed.len == 0) break;
 
             // Parse key=value(s)
-            var kv_it = std.mem.split(u8, trimmed, "=");
+            var kv_it = std.mem.splitScalar(u8, trimmed, '=');
             const key = kv_it.first();
             try manifest.config_map.putNoClobber(key, kv_it.next() orelse return error.MissingValuesForConfig);
         }
@@ -889,7 +904,7 @@ const TestManifest = struct {
     ) ConfigValueIterator(T) {
         const bytes = self.config_map.get(key) orelse TestManifestConfigDefaults.get(self.type, key);
         return ConfigValueIterator(T){
-            .inner = std.mem.split(u8, bytes, ","),
+            .inner = std.mem.splitScalar(u8, bytes, ','),
         };
     }
 
@@ -917,7 +932,7 @@ const TestManifest = struct {
 
     fn trailing(self: TestManifest) TrailingIterator {
         return .{
-            .inner = std.mem.tokenize(u8, self.trailing_bytes, "\r\n"),
+            .inner = std.mem.tokenizeAny(u8, self.trailing_bytes, "\r\n"),
         };
     }
 
@@ -1031,7 +1046,7 @@ pub fn main() !void {
         const stem = case_file_path[case_dirname.len + 1 .. case_file_path.len - "0.zig".len];
         var it = iterable_dir.iterate();
         while (try it.next()) |entry| {
-            if (entry.kind != .File) continue;
+            if (entry.kind != .file) continue;
             if (!std.mem.startsWith(u8, entry.name, stem)) continue;
             try filenames.append(try std.fs.path.join(arena, &.{ case_dirname, entry.name }));
         }
@@ -1348,7 +1363,7 @@ fn runOneCase(
             defer all_errors.deinit(allocator);
             if (all_errors.errorMessageCount() > 0) {
                 all_errors.renderToStdErr(.{
-                    .ttyconf = std.debug.detectTTYConfig(std.io.getStdErr()),
+                    .ttyconf = std.io.tty.detectConfig(std.io.getStdErr()),
                 });
                 // TODO print generated C code
                 return error.UnexpectedCompileErrors;
@@ -1393,7 +1408,7 @@ fn runOneCase(
                 // Render the expected lines into a string that we can compare verbatim.
                 var expected_generated = std.ArrayList(u8).init(arena);
 
-                var actual_line_it = std.mem.split(u8, actual_stderr.items, "\n");
+                var actual_line_it = std.mem.splitScalar(u8, actual_stderr.items, '\n');
                 for (expected_errors) |expect_line| {
                     const actual_line = actual_line_it.next() orelse {
                         try expected_generated.appendSlice(expect_line);

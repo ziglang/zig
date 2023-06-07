@@ -1638,6 +1638,10 @@ pub const Fn = struct {
     inferred_error_sets: InferredErrorSetList = .{},
 
     pub const Analysis = enum {
+        /// This function has not yet undergone analysis, because we have not
+        /// seen a potential runtime call. It may be analyzed in future.
+        none,
+        /// Analysis for this function has been queued, but not yet completed.
         queued,
         /// This function intentionally only has ZIR generated because it is marked
         /// inline, which means no runtime version of the function will be generated.
@@ -2489,8 +2493,21 @@ pub const SrcLoc = struct {
                 const node_datas = tree.nodes.items(.data);
                 const node_tags = tree.nodes.items(.tag);
                 const node = src_loc.declRelativeToNodeIndex(node_off);
+                var buf: [1]Ast.Node.Index = undefined;
                 const tok_index = switch (node_tags[node]) {
                     .field_access => node_datas[node].rhs,
+                    .call_one,
+                    .call_one_comma,
+                    .async_call_one,
+                    .async_call_one_comma,
+                    .call,
+                    .call_comma,
+                    .async_call,
+                    .async_call_comma,
+                    => blk: {
+                        const full = tree.fullCall(&buf, node).?;
+                        break :blk tree.lastToken(full.ast.fn_expr);
+                    },
                     else => tree.firstToken(node) - 2,
                 };
                 const start = tree.tokens.items(.start)[tok_index];
@@ -3083,7 +3100,8 @@ pub const LazySrcLoc = union(enum) {
     /// The payload is offset from the containing Decl AST node.
     /// The source location points to the field name of:
     ///  * a field access expression (`a.b`), or
-    ///  * the operand ("b" node) of a field initialization expression (`.a = b`)
+    ///  * the callee of a method call (`a.b()`), or
+    ///  * the operand ("b" node) of a field initialization expression (`.a = b`), or
     /// The Decl is determined contextually.
     node_offset_field_name: i32,
     /// The source location points to the pointer of a pointer deref expression,
@@ -3604,7 +3622,7 @@ pub fn astGenFile(mod: *Module, file: *File) !void {
                 file.sub_file_path, want_local_cache, &digest,
             });
 
-            break :lock .Shared;
+            break :lock .shared;
         },
         .parse_failure, .astgen_failure, .success_zir => lock: {
             const unchanged_metadata =
@@ -3619,7 +3637,7 @@ pub fn astGenFile(mod: *Module, file: *File) !void {
 
             log.debug("metadata changed: {s}", .{file.sub_file_path});
 
-            break :lock .Exclusive;
+            break :lock .exclusive;
         },
     };
 
@@ -3671,74 +3689,13 @@ pub fn astGenFile(mod: *Module, file: *File) !void {
                 file.sub_file_path, header.instructions_len,
             });
 
-            var instructions: std.MultiArrayList(Zir.Inst) = .{};
-            defer instructions.deinit(gpa);
-
-            try instructions.setCapacity(gpa, header.instructions_len);
-            instructions.len = header.instructions_len;
-
-            var zir: Zir = .{
-                .instructions = instructions.toOwnedSlice(),
-                .string_bytes = &.{},
-                .extra = &.{},
+            file.zir = loadZirCacheBody(gpa, header, cache_file) catch |err| switch (err) {
+                error.UnexpectedFileSize => {
+                    log.warn("unexpected EOF reading cached ZIR for {s}", .{file.sub_file_path});
+                    break :update;
+                },
+                else => |e| return e,
             };
-            var keep_zir = false;
-            defer if (!keep_zir) zir.deinit(gpa);
-
-            zir.string_bytes = try gpa.alloc(u8, header.string_bytes_len);
-            zir.extra = try gpa.alloc(u32, header.extra_len);
-
-            const safety_buffer = if (data_has_safety_tag)
-                try gpa.alloc([8]u8, header.instructions_len)
-            else
-                undefined;
-            defer if (data_has_safety_tag) gpa.free(safety_buffer);
-
-            const data_ptr = if (data_has_safety_tag)
-                @ptrCast([*]u8, safety_buffer.ptr)
-            else
-                @ptrCast([*]u8, zir.instructions.items(.data).ptr);
-
-            var iovecs = [_]std.os.iovec{
-                .{
-                    .iov_base = @ptrCast([*]u8, zir.instructions.items(.tag).ptr),
-                    .iov_len = header.instructions_len,
-                },
-                .{
-                    .iov_base = data_ptr,
-                    .iov_len = header.instructions_len * 8,
-                },
-                .{
-                    .iov_base = zir.string_bytes.ptr,
-                    .iov_len = header.string_bytes_len,
-                },
-                .{
-                    .iov_base = @ptrCast([*]u8, zir.extra.ptr),
-                    .iov_len = header.extra_len * 4,
-                },
-            };
-            const amt_read = try cache_file.readvAll(&iovecs);
-            const amt_expected = zir.instructions.len * 9 +
-                zir.string_bytes.len +
-                zir.extra.len * 4;
-            if (amt_read != amt_expected) {
-                log.warn("unexpected EOF reading cached ZIR for {s}", .{file.sub_file_path});
-                break :update;
-            }
-            if (data_has_safety_tag) {
-                const tags = zir.instructions.items(.tag);
-                for (zir.instructions.items(.data), 0..) |*data, i| {
-                    const union_tag = Zir.Inst.Tag.data_tags[@enumToInt(tags[i])];
-                    const as_struct = @ptrCast(*HackDataLayout, data);
-                    as_struct.* = .{
-                        .safety_tag = @enumToInt(union_tag),
-                        .data = safety_buffer[i],
-                    };
-                }
-            }
-
-            keep_zir = true;
-            file.zir = zir;
             file.zir_loaded = true;
             file.stat = .{
                 .size = header.stat_size,
@@ -3762,11 +3719,11 @@ pub fn astGenFile(mod: *Module, file: *File) !void {
         }
 
         // If we already have the exclusive lock then it is our job to update.
-        if (builtin.os.tag == .wasi or lock == .Exclusive) break;
+        if (builtin.os.tag == .wasi or lock == .exclusive) break;
         // Otherwise, unlock to give someone a chance to get the exclusive lock
         // and then upgrade to an exclusive lock.
         cache_file.unlock();
-        lock = .Exclusive;
+        lock = .exclusive;
         try cache_file.lock(lock);
     }
 
@@ -3914,6 +3871,76 @@ pub fn astGenFile(mod: *Module, file: *File) !void {
         try file.outdated_decls.resize(gpa, 1);
         file.outdated_decls.items[0] = root_decl;
     }
+}
+
+pub fn loadZirCache(gpa: Allocator, cache_file: std.fs.File) !Zir {
+    return loadZirCacheBody(gpa, try cache_file.reader().readStruct(Zir.Header), cache_file);
+}
+
+fn loadZirCacheBody(gpa: Allocator, header: Zir.Header, cache_file: std.fs.File) !Zir {
+    var instructions: std.MultiArrayList(Zir.Inst) = .{};
+    errdefer instructions.deinit(gpa);
+
+    try instructions.setCapacity(gpa, header.instructions_len);
+    instructions.len = header.instructions_len;
+
+    var zir: Zir = .{
+        .instructions = instructions.toOwnedSlice(),
+        .string_bytes = &.{},
+        .extra = &.{},
+    };
+    errdefer zir.deinit(gpa);
+
+    zir.string_bytes = try gpa.alloc(u8, header.string_bytes_len);
+    zir.extra = try gpa.alloc(u32, header.extra_len);
+
+    const safety_buffer = if (data_has_safety_tag)
+        try gpa.alloc([8]u8, header.instructions_len)
+    else
+        undefined;
+    defer if (data_has_safety_tag) gpa.free(safety_buffer);
+
+    const data_ptr = if (data_has_safety_tag)
+        @ptrCast([*]u8, safety_buffer.ptr)
+    else
+        @ptrCast([*]u8, zir.instructions.items(.data).ptr);
+
+    var iovecs = [_]std.os.iovec{
+        .{
+            .iov_base = @ptrCast([*]u8, zir.instructions.items(.tag).ptr),
+            .iov_len = header.instructions_len,
+        },
+        .{
+            .iov_base = data_ptr,
+            .iov_len = header.instructions_len * 8,
+        },
+        .{
+            .iov_base = zir.string_bytes.ptr,
+            .iov_len = header.string_bytes_len,
+        },
+        .{
+            .iov_base = @ptrCast([*]u8, zir.extra.ptr),
+            .iov_len = header.extra_len * 4,
+        },
+    };
+    const amt_read = try cache_file.readvAll(&iovecs);
+    const amt_expected = zir.instructions.len * 9 +
+        zir.string_bytes.len +
+        zir.extra.len * 4;
+    if (amt_read != amt_expected) return error.UnexpectedFileSize;
+    if (data_has_safety_tag) {
+        const tags = zir.instructions.items(.tag);
+        for (zir.instructions.items(.data), 0..) |*data, i| {
+            const union_tag = Zir.Inst.Tag.data_tags[@enumToInt(tags[i])];
+            const as_struct = @ptrCast(*HackDataLayout, data);
+            as_struct.* = .{
+                .safety_tag = @enumToInt(union_tag),
+                .data = safety_buffer[i],
+            };
+        }
+    }
+
+    return zir;
 }
 
 /// Patch ups:
@@ -4300,7 +4327,7 @@ pub fn ensureFuncBodyAnalyzed(mod: *Module, func: *Fn) SemaError!void {
         .complete, .codegen_failure_retryable => {
             switch (func.state) {
                 .sema_failure, .dependency_failure => return error.AnalysisFail,
-                .queued => {},
+                .none, .queued => {},
                 .in_progress => unreachable,
                 .inline_only => unreachable, // don't queue work for this
                 .success => return,
@@ -4401,6 +4428,60 @@ pub fn ensureFuncBodyAnalyzed(mod: *Module, func: *Fn) SemaError!void {
             return;
         },
     }
+}
+
+/// Ensure this function's body is or will be analyzed and emitted. This should
+/// be called whenever a potential runtime call of a function is seen.
+///
+/// The caller is responsible for ensuring the function decl itself is already
+/// analyzed, and for ensuring it can exist at runtime (see
+/// `sema.fnHasRuntimeBits`). This function does *not* guarantee that the body
+/// will be analyzed when it returns: for that, see `ensureFuncBodyAnalyzed`.
+pub fn ensureFuncBodyAnalysisQueued(mod: *Module, func: *Fn) !void {
+    const decl_index = func.owner_decl;
+    const decl = mod.declPtr(decl_index);
+
+    switch (decl.analysis) {
+        .unreferenced => unreachable,
+        .in_progress => unreachable,
+        .outdated => unreachable,
+
+        .file_failure,
+        .sema_failure,
+        .liveness_failure,
+        .codegen_failure,
+        .dependency_failure,
+        .sema_failure_retryable,
+        .codegen_failure_retryable,
+        // The function analysis failed, but we've already emitted an error for
+        // that. The callee doesn't need the function to be analyzed right now,
+        // so its analysis can safely continue.
+        => return,
+
+        .complete => {},
+    }
+
+    assert(decl.has_tv);
+
+    switch (func.state) {
+        .none => {},
+        .queued => return,
+        // As above, we don't need to forward errors here.
+        .sema_failure, .dependency_failure => return,
+        .in_progress => return,
+        .inline_only => unreachable, // don't queue work for this
+        .success => return,
+    }
+
+    // Decl itself is safely analyzed, and body analysis is not yet queued
+
+    try mod.comp.work_queue.writeItem(.{ .codegen_func = func });
+    if (mod.emit_h != null) {
+        // TODO: we ideally only want to do this if the function's type changed
+        // since the last update
+        try mod.comp.work_queue.writeItem(.{ .emit_h_decl = decl_index });
+    }
+    func.state = .queued;
 }
 
 pub fn updateEmbedFile(mod: *Module, embed_file: *EmbedFile) SemaError!void {
@@ -4709,20 +4790,6 @@ fn semaDecl(mod: *Module, decl_index: Decl.Index) !bool {
             decl.owns_tv = owns_tv;
             decl.analysis = .complete;
             decl.generation = mod.generation;
-
-            const has_runtime_bits = try sema.fnHasRuntimeBits(decl.ty);
-
-            if (has_runtime_bits) {
-                // We don't fully codegen the decl until later, but we do need to reserve a global
-                // offset table index for it. This allows us to codegen decls out of dependency
-                // order, increasing how many computations can be done in parallel.
-                try mod.comp.work_queue.writeItem(.{ .codegen_func = func });
-                if (type_changed and mod.emit_h != null) {
-                    try mod.comp.work_queue.writeItem(.{ .emit_h_decl = decl_index });
-                }
-            } else if (!prev_is_inline and prev_type_has_bits) {
-                mod.comp.bin_file.freeDecl(decl_index);
-            }
 
             const is_inline = decl.ty.fnCallingConvention() == .Inline;
             if (decl.is_exported) {
@@ -5271,6 +5338,9 @@ fn scanDecl(iter: *ScanDeclIter, decl_sub_index: usize, flags: u4) Allocator.Err
             }
         },
     };
+    var must_free_decl_name = true;
+    defer if (must_free_decl_name) gpa.free(decl_name);
+
     const is_exported = export_bit and decl_name_index != 0;
     if (kind == .@"usingnamespace") try namespace.usingnamespace_set.ensureUnusedCapacity(gpa, 1);
 
@@ -5287,6 +5357,7 @@ fn scanDecl(iter: *ScanDeclIter, decl_sub_index: usize, flags: u4) Allocator.Err
         const new_decl = mod.declPtr(new_decl_index);
         new_decl.kind = kind;
         new_decl.name = decl_name;
+        must_free_decl_name = false;
         if (kind == .@"usingnamespace") {
             namespace.usingnamespace_set.putAssumeCapacity(new_decl_index, is_pub);
         }
@@ -5330,9 +5401,29 @@ fn scanDecl(iter: *ScanDeclIter, decl_sub_index: usize, flags: u4) Allocator.Err
         new_decl.alive = true; // This Decl corresponds to an AST node and therefore always alive.
         return;
     }
-    gpa.free(decl_name);
     const decl_index = gop.key_ptr.*;
     const decl = mod.declPtr(decl_index);
+    if (kind == .@"test") {
+        const src_loc = SrcLoc{
+            .file_scope = decl.getFileScope(),
+            .parent_decl_node = decl.src_node,
+            .lazy = .{ .token_offset = 1 },
+        };
+        const msg = try ErrorMsg.create(
+            gpa,
+            src_loc,
+            "duplicate test name: {s}",
+            .{decl_name},
+        );
+        errdefer msg.destroy(gpa);
+        try mod.failed_decls.putNoClobber(gpa, decl_index, msg);
+        const other_src_loc = SrcLoc{
+            .file_scope = namespace.file_scope,
+            .parent_decl_node = decl_node,
+            .lazy = .{ .token_offset = 1 },
+        };
+        try mod.errNoteNonLazy(other_src_loc, msg, "other test here", .{});
+    }
     log.debug("scan existing {*} ({s}) of {*}", .{ decl, decl.name, namespace });
     // Update the AST node of the decl; even if its contents are unchanged, it may
     // have been re-ordered.
@@ -5930,6 +6021,10 @@ pub fn errNoteNonLazy(
     comptime format: []const u8,
     args: anytype,
 ) error{OutOfMemory}!void {
+    if (src_loc.lazy == .unneeded) {
+        assert(parent.src_loc.lazy == .unneeded);
+        return;
+    }
     const msg = try std.fmt.allocPrint(mod.gpa, format, args);
     errdefer mod.gpa.free(msg);
 
@@ -6065,7 +6160,7 @@ pub const PeerTypeCandidateSrc = union(enum) {
     none: void,
     /// When we want to know the the src of candidate i, look up at
     /// index i in this slice
-    override: []?LazySrcLoc,
+    override: []const ?LazySrcLoc,
     /// resolvePeerTypes originates from a @TypeOf(...) call
     typeof_builtin_call_node_offset: i32,
 
@@ -6082,6 +6177,8 @@ pub const PeerTypeCandidateSrc = union(enum) {
                 return null;
             },
             .override => |candidate_srcs| {
+                if (candidate_i >= candidate_srcs.len)
+                    return null;
                 return candidate_srcs[candidate_i];
             },
             .typeof_builtin_call_node_offset => |node_offset| {

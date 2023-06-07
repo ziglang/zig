@@ -876,7 +876,7 @@ fn airArrayToSlice(self: *Self, inst: Air.Inst.Index) !void {
         const array_ty = ptr_ty.childType();
         const array_len = @intCast(u32, array_ty.arrayLen());
 
-        const ptr_bits = self.target.cpu.arch.ptrBitWidth();
+        const ptr_bits = self.target.ptrBitWidth();
         const ptr_bytes = @divExact(ptr_bits, 8);
 
         const stack_offset = try self.allocMem(inst, ptr_bytes * 2, ptr_bytes * 2);
@@ -2241,7 +2241,7 @@ fn airPtrElemPtr(self: *Self, inst: Air.Inst.Index) !void {
 fn airPtrSliceLenPtr(self: *Self, inst: Air.Inst.Index) !void {
     const ty_op = self.air.instructions.items(.data)[inst].ty_op;
     const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
-        const ptr_bits = self.target.cpu.arch.ptrBitWidth();
+        const ptr_bits = self.target.ptrBitWidth();
         const ptr_bytes = @divExact(ptr_bits, 8);
         const mcv = try self.resolveInst(ty_op.operand);
         switch (mcv) {
@@ -2427,7 +2427,7 @@ fn airSlice(self: *Self, inst: Air.Inst.Index) !void {
         const len = try self.resolveInst(bin_op.rhs);
         const len_ty = self.air.typeOf(bin_op.rhs);
 
-        const ptr_bits = self.target.cpu.arch.ptrBitWidth();
+        const ptr_bits = self.target.ptrBitWidth();
         const ptr_bytes = @divExact(ptr_bits, 8);
 
         const stack_offset = try self.allocMem(inst, ptr_bytes * 2, ptr_bytes * 2);
@@ -2485,7 +2485,7 @@ fn airSliceElemVal(self: *Self, inst: Air.Inst.Index) !void {
 fn airSliceLen(self: *Self, inst: Air.Inst.Index) !void {
     const ty_op = self.air.instructions.items(.data)[inst].ty_op;
     const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
-        const ptr_bits = self.target.cpu.arch.ptrBitWidth();
+        const ptr_bits = self.target.ptrBitWidth();
         const ptr_bytes = @divExact(ptr_bits, 8);
         const mcv = try self.resolveInst(ty_op.operand);
         switch (mcv) {

@@ -850,7 +850,7 @@ pub const ChildProcess = struct {
                     return original_err;
                 }
 
-                var it = mem.tokenize(u16, PATH, &[_]u16{';'});
+                var it = mem.tokenizeScalar(u16, PATH, ';');
                 while (it.next()) |search_path| {
                     dir_buf.clearRetainingCapacity();
                     try dir_buf.appendSlice(self.allocator, search_path);
@@ -957,15 +957,12 @@ fn windowsCreateProcessPathExt(
     // NtQueryDirectoryFile calls.
 
     var dir = dir: {
-        if (fs.path.isAbsoluteWindowsWTF16(dir_buf.items[0..dir_path_len])) {
-            const prefixed_path = try windows.wToPrefixedFileW(dir_buf.items[0..dir_path_len]);
-            break :dir fs.cwd().openDirW(prefixed_path.span().ptr, .{}, true) catch return error.FileNotFound;
-        }
         // needs to be null-terminated
         try dir_buf.append(allocator, 0);
-        defer dir_buf.shrinkRetainingCapacity(dir_buf.items[0..dir_path_len].len);
+        defer dir_buf.shrinkRetainingCapacity(dir_path_len);
         const dir_path_z = dir_buf.items[0 .. dir_buf.items.len - 1 :0];
-        break :dir std.fs.cwd().openDirW(dir_path_z.ptr, .{}, true) catch return error.FileNotFound;
+        const prefixed_path = try windows.wToPrefixedFileW(dir_path_z);
+        break :dir fs.cwd().openDirW(prefixed_path.span().ptr, .{}, true) catch return error.FileNotFound;
     };
     defer dir.close();
 
@@ -1067,7 +1064,7 @@ fn windowsCreateProcessPathExt(
     // Now we know that at least *a* file matching the wildcard exists, we can loop
     // through PATHEXT in order and exec any that exist
 
-    var ext_it = mem.tokenize(u16, pathext, &[_]u16{';'});
+    var ext_it = mem.tokenizeScalar(u16, pathext, ';');
     while (ext_it.next()) |ext| {
         if (!windowsCreateProcessSupportsExtension(ext)) continue;
 
@@ -1174,7 +1171,7 @@ fn windowsCreateProcess(app_name: [*:0]u16, cmd_line: [*:0]u16, envp_ptr: ?[*]u1
     );
 }
 
-/// Case-insenstive UTF-16 lookup
+/// Case-insensitive UTF-16 lookup
 fn windowsCreateProcessSupportsExtension(ext: []const u16) bool {
     if (ext.len != 4) return false;
     const State = enum {

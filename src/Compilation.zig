@@ -29,6 +29,7 @@ const wasi_libc = @import("wasi_libc.zig");
 const fatal = @import("main.zig").fatal;
 const clangMain = @import("main.zig").clangMain;
 const Module = @import("Module.zig");
+const BuildId = std.Build.CompileStep.BuildId;
 const Cache = std.Build.Cache;
 const translate_c = @import("translate_c.zig");
 const clang = @import("clang.zig");
@@ -450,6 +451,11 @@ pub const CacheMode = link.CacheMode;
 pub const LinkObject = struct {
     path: []const u8,
     must_link: bool = false,
+    // When the library is passed via a positional argument, it will be
+    // added as a full path. If it's `-l<lib>`, then just the basename.
+    //
+    // Consistent with `withLOption` variable name in lld ELF driver.
+    loption: bool = false,
 };
 
 pub const InitOptions = struct {
@@ -563,7 +569,7 @@ pub const InitOptions = struct {
     linker_print_map: bool = false,
     linker_opt_bisect_limit: i32 = -1,
     each_lib_rpath: ?bool = null,
-    build_id: ?bool = null,
+    build_id: ?BuildId = null,
     disable_c_depfile: bool = false,
     linker_z_nodelete: bool = false,
     linker_z_notext: bool = false,
@@ -671,7 +677,7 @@ fn addPackageTableToCacheHash(
         }
     }
     // Sort the slice by package name
-    std.sort.sort(Package.Table.KV, packages, {}, struct {
+    mem.sort(Package.Table.KV, packages, {}, struct {
         fn lessThan(_: void, lhs: Package.Table.KV, rhs: Package.Table.KV) bool {
             return std.mem.lessThan(u8, lhs.key, rhs.key);
         }
@@ -797,7 +803,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
         const unwind_tables = options.want_unwind_tables orelse
             (link_libunwind or target_util.needUnwindTables(options.target));
         const link_eh_frame_hdr = options.link_eh_frame_hdr or unwind_tables;
-        const build_id = options.build_id orelse false;
+        const build_id = options.build_id orelse .none;
 
         // Make a decision on whether to use LLD or our own linker.
         const use_lld = options.use_lld orelse blk: {
@@ -828,7 +834,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
                 options.output_mode == .Lib or
                 options.linker_script != null or options.version_script != null or
                 options.emit_implib != null or
-                build_id or
+                build_id != .none or
                 options.symbol_wrap_set.count() > 0)
             {
                 break :blk true;
@@ -2055,7 +2061,7 @@ pub fn update(comp: *Compilation, main_progress_node: *std.Progress.Node) !void 
         return;
     }
 
-    if (!build_options.only_c and !build_options.omit_pkg_fetching_code) {
+    if (!build_options.only_c and !build_options.only_core_functionality) {
         if (comp.emit_docs) |doc_location| {
             if (comp.bin_file.options.module) |module| {
                 var autodoc = Autodoc.init(module, doc_location);
@@ -2195,7 +2201,7 @@ fn prepareWholeEmitSubPath(arena: Allocator, opt_emit: ?EmitLoc) error{OutOfMemo
 /// to remind the programmer to update multiple related pieces of code that
 /// are in different locations. Bump this number when adding or deleting
 /// anything from the link cache manifest.
-pub const link_hash_implementation_version = 8;
+pub const link_hash_implementation_version = 9;
 
 fn addNonIncrementalStuffToCacheManifest(comp: *Compilation, man: *Cache.Manifest) !void {
     const gpa = comp.gpa;
@@ -2205,7 +2211,7 @@ fn addNonIncrementalStuffToCacheManifest(comp: *Compilation, man: *Cache.Manifes
     defer arena_allocator.deinit();
     const arena = arena_allocator.allocator();
 
-    comptime assert(link_hash_implementation_version == 8);
+    comptime assert(link_hash_implementation_version == 9);
 
     if (comp.bin_file.options.module) |mod| {
         const main_zig_file = try mod.main_pkg.root_src_directory.join(arena, &[_][]const u8{
@@ -2243,6 +2249,7 @@ fn addNonIncrementalStuffToCacheManifest(comp: *Compilation, man: *Cache.Manifes
     for (comp.bin_file.options.objects) |obj| {
         _ = try man.addFile(obj.path, null);
         man.hash.add(obj.must_link);
+        man.hash.add(obj.loption);
     }
 
     for (comp.c_object_table.keys()) |key| {
@@ -3192,6 +3199,13 @@ fn processOneJob(comp: *Compilation, job: Job, prog_node: *std.Progress.Node) !v
                 error.OutOfMemory => return error.OutOfMemory,
                 error.AnalysisFail => return,
             };
+            const decl = module.declPtr(decl_index);
+            if (decl.kind == .@"test" and comp.bin_file.options.is_test) {
+                // Tests are always emitted in test binaries. The decl_refs are created by
+                // Module.populateTestFunctions, but this will not queue body analysis, so do
+                // that now.
+                try module.ensureFuncBodyAnalysisQueued(decl.val.castTag(.function).?.data);
+            }
         },
         .update_embed_file => |embed_file| {
             const named_frame = tracy.namedFrame("update_embed_file");
@@ -4597,6 +4611,27 @@ pub const FileExt = enum {
             => false,
         };
     }
+
+    pub fn canonicalName(ext: FileExt, target: Target) [:0]const u8 {
+        return switch (ext) {
+            .c => ".c",
+            .cpp => ".cpp",
+            .cu => ".cu",
+            .h => ".h",
+            .m => ".m",
+            .mm => ".mm",
+            .ll => ".ll",
+            .bc => ".bc",
+            .assembly => ".s",
+            .assembly_with_cpp => ".S",
+            .shared_library => target.dynamicLibSuffix(),
+            .object => target.ofmt.fileExt(target.cpu.arch),
+            .static_library => target.staticLibSuffix(),
+            .zig => ".zig",
+            .def => ".def",
+            .unknown => "",
+        };
+    }
 };
 
 pub fn hasObjectExt(filename: []const u8) bool {
@@ -4636,7 +4671,7 @@ pub fn hasSharedLibraryExt(filename: []const u8) bool {
         return true;
     }
     // Look for .so.X, .so.X.Y, .so.X.Y.Z
-    var it = mem.split(u8, filename, ".");
+    var it = mem.splitScalar(u8, filename, '.');
     _ = it.first();
     var so_txt = it.next() orelse return false;
     while (!mem.eql(u8, so_txt, "so")) {
@@ -5016,14 +5051,14 @@ fn parseLldStderr(comp: *Compilation, comptime prefix: []const u8, stderr: []con
     defer context_lines.deinit();
 
     var current_err: ?*LldError = null;
-    var lines = mem.split(u8, stderr, std.cstr.line_sep);
+    var lines = mem.splitSequence(u8, stderr, std.cstr.line_sep);
     while (lines.next()) |line| {
         if (mem.startsWith(u8, line, prefix ++ ":")) {
             if (current_err) |err| {
                 err.context_lines = try context_lines.toOwnedSlice();
             }
 
-            var split = std.mem.split(u8, line, "error: ");
+            var split = std.mem.splitSequence(u8, line, "error: ");
             _ = split.first();
 
             const duped_msg = try std.fmt.allocPrint(comp.gpa, "{s}: {s}", .{ prefix, split.rest() });
@@ -5076,6 +5111,7 @@ pub fn getZigBackend(comp: Compilation) std.builtin.CompilerBackend {
         .aarch64, .aarch64_be, .aarch64_32 => .stage2_aarch64,
         .riscv64 => .stage2_riscv64,
         .sparc64 => .stage2_sparc64,
+        .spirv64 => .stage2_spirv64,
         else => .other,
     };
 }

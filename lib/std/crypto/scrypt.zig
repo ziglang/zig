@@ -287,7 +287,7 @@ const crypt_format = struct {
         out.r = try Codec.intDecode(u30, str[4..9]);
         out.p = try Codec.intDecode(u30, str[9..14]);
 
-        var it = mem.split(u8, str[14..], "$");
+        var it = mem.splitScalar(u8, str[14..], '$');
 
         const salt = it.first();
         if (@hasField(T, "salt")) out.salt = salt;

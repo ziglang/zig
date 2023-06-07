@@ -213,7 +213,12 @@ pub extern "c" fn sendto(
 ) isize;
 pub extern "c" fn sendmsg(sockfd: c.fd_t, msg: *const c.msghdr_const, flags: u32) isize;
 
-pub extern "c" fn recv(sockfd: c.fd_t, arg1: ?*anyopaque, arg2: usize, arg3: c_int) isize;
+pub extern "c" fn recv(
+    sockfd: c.fd_t,
+    arg1: ?*anyopaque,
+    arg2: usize,
+    arg3: c_int,
+) if (builtin.os.tag == .windows) c_int else isize;
 pub extern "c" fn recvfrom(
     sockfd: c.fd_t,
     noalias buf: *anyopaque,
@@ -221,7 +226,7 @@ pub extern "c" fn recvfrom(
     flags: u32,
     noalias src_addr: ?*c.sockaddr,
     noalias addrlen: ?*c.socklen_t,
-) isize;
+) if (builtin.os.tag == .windows) c_int else isize;
 pub extern "c" fn recvmsg(sockfd: c.fd_t, msg: *c.msghdr, flags: u32) isize;
 
 pub extern "c" fn kill(pid: c.pid_t, sig: c_int) c_int;

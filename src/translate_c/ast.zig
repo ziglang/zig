@@ -120,7 +120,7 @@ pub const Node = extern union {
         std_math_Log2Int,
         /// @intCast(lhs, rhs)
         int_cast,
-        /// @import("std").zig.c_translation.promoteIntLiteral(value, type, radix)
+        /// @import("std").zig.c_translation.promoteIntLiteral(value, type, base)
         helpers_promoteIntLiteral,
         /// @import("std").meta.alignment(value)
         std_meta_alignment,
@@ -699,7 +699,7 @@ pub const Payload = struct {
         data: struct {
             value: Node,
             type: Node,
-            radix: Node,
+            base: Node,
         },
     };
 
@@ -898,7 +898,7 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
         .helpers_promoteIntLiteral => {
             const payload = node.castTag(.helpers_promoteIntLiteral).?.data;
             const import_node = try renderStdImport(c, &.{ "zig", "c_translation", "promoteIntLiteral" });
-            return renderCall(c, import_node, &.{ payload.type, payload.value, payload.radix });
+            return renderCall(c, import_node, &.{ payload.type, payload.value, payload.base });
         },
         .std_meta_alignment => {
             const payload = node.castTag(.std_meta_alignment).?.data;

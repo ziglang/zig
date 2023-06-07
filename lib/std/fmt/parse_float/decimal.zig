@@ -34,13 +34,13 @@ pub fn Decimal(comptime T: type) type {
         /// For a double-precision IEEE-754 float, this required 767 digits,
         /// so we store the max digits + 1.
         ///
-        /// We can exactly represent a float in radix `b` from radix 2 if
+        /// We can exactly represent a float in base `b` from base 2 if
         /// `b` is divisible by 2. This function calculates the exact number of
         /// digits required to exactly represent that float.
         ///
         /// According to the "Handbook of Floating Point Arithmetic",
         /// for IEEE754, with emin being the min exponent, p2 being the
-        /// precision, and b being the radix, the number of digits follows as:
+        /// precision, and b being the base, the number of digits follows as:
         ///
         /// `−emin + p2 + ⌊(emin + 1) log(2, b) − log(1 − 2^(−p2), b)⌋`
         ///

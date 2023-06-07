@@ -2143,7 +2143,7 @@ fn sortDataSegments(wasm: *Wasm) !void {
         }
     };
 
-    std.sort.sort([]const u8, keys, {}, SortContext.sort);
+    mem.sort([]const u8, keys, {}, SortContext.sort);
     for (keys) |key| {
         const segment_index = wasm.data_segments.get(key).?;
         new_mapping.putAssumeCapacity(key, segment_index);
@@ -2187,7 +2187,7 @@ fn setupInitFunctions(wasm: *Wasm) !void {
     }
 
     // sort the initfunctions based on their priority
-    std.sort.sort(InitFuncLoc, wasm.init_funcs.items, {}, InitFuncLoc.lessThan);
+    mem.sort(InitFuncLoc, wasm.init_funcs.items, {}, InitFuncLoc.lessThan);
 }
 
 /// Generates an atom containing the global error set' size.
@@ -3150,7 +3150,7 @@ fn linkWithZld(wasm: *Wasm, comp: *Compilation, prog_node: *std.Progress.Node) l
         // We are about to obtain this lock, so here we give other processes a chance first.
         wasm.base.releaseLock();
 
-        comptime assert(Compilation.link_hash_implementation_version == 8);
+        comptime assert(Compilation.link_hash_implementation_version == 9);
 
         for (options.objects) |obj| {
             _ = try man.addFile(obj.path, null);
@@ -3687,7 +3687,7 @@ fn writeToFile(
             }
         }.sort;
 
-        std.sort.sort(*Atom, sorted_atoms.items, wasm, atom_sort_fn);
+        mem.sort(*Atom, sorted_atoms.items, wasm, atom_sort_fn);
 
         for (sorted_atoms.items) |sorted_atom| {
             try leb.writeULEB128(binary_writer, sorted_atom.size);
@@ -3797,8 +3797,29 @@ fn writeToFile(
     if (!wasm.base.options.strip) {
         // The build id must be computed on the main sections only,
         // so we have to do it now, before the debug sections.
-        if (wasm.base.options.build_id) {
-            try emitBuildIdSection(&binary_bytes);
+        switch (wasm.base.options.build_id) {
+            .none => {},
+            .fast => {
+                var id: [16]u8 = undefined;
+                std.crypto.hash.sha3.TurboShake128(null).hash(binary_bytes.items, &id, .{});
+                var uuid: [36]u8 = undefined;
+                _ = try std.fmt.bufPrint(&uuid, "{s}-{s}-{s}-{s}-{s}", .{
+                    std.fmt.fmtSliceHexLower(id[0..4]),
+                    std.fmt.fmtSliceHexLower(id[4..6]),
+                    std.fmt.fmtSliceHexLower(id[6..8]),
+                    std.fmt.fmtSliceHexLower(id[8..10]),
+                    std.fmt.fmtSliceHexLower(id[10..]),
+                });
+                try emitBuildIdSection(&binary_bytes, &uuid);
+            },
+            .hexstring => |hs| {
+                var buffer: [32 * 2]u8 = undefined;
+                const str = std.fmt.bufPrint(&buffer, "{s}", .{
+                    std.fmt.fmtSliceHexLower(hs.toSlice()),
+                }) catch unreachable;
+                try emitBuildIdSection(&binary_bytes, str);
+            },
+            else => |mode| log.err("build-id '{s}' is not supported for WASM", .{@tagName(mode)}),
         }
 
         // if (wasm.dwarf) |*dwarf| {
@@ -3942,25 +3963,17 @@ fn emitProducerSection(binary_bytes: *std.ArrayList(u8)) !void {
     );
 }
 
-fn emitBuildIdSection(binary_bytes: *std.ArrayList(u8)) !void {
+fn emitBuildIdSection(binary_bytes: *std.ArrayList(u8), build_id: []const u8) !void {
     const header_offset = try reserveCustomSectionHeader(binary_bytes);
 
     const writer = binary_bytes.writer();
-    const build_id = "build_id";
-    try leb.writeULEB128(writer, @intCast(u32, build_id.len));
-    try writer.writeAll(build_id);
-
-    var id: [16]u8 = undefined;
-    std.crypto.hash.sha3.TurboShake128(null).hash(binary_bytes.items, &id, .{});
-    var uuid: [36]u8 = undefined;
-    _ = try std.fmt.bufPrint(&uuid, "{s}-{s}-{s}-{s}-{s}", .{
-        std.fmt.fmtSliceHexLower(id[0..4]),  std.fmt.fmtSliceHexLower(id[4..6]), std.fmt.fmtSliceHexLower(id[6..8]),
-        std.fmt.fmtSliceHexLower(id[8..10]), std.fmt.fmtSliceHexLower(id[10..]),
-    });
+    const hdr_build_id = "build_id";
+    try leb.writeULEB128(writer, @intCast(u32, hdr_build_id.len));
+    try writer.writeAll(hdr_build_id);
 
     try leb.writeULEB128(writer, @as(u32, 1));
-    try leb.writeULEB128(writer, @as(u32, uuid.len));
-    try writer.writeAll(&uuid);
+    try leb.writeULEB128(writer, @intCast(u32, build_id.len));
+    try writer.writeAll(build_id);
 
     try writeCustomSectionHeader(
         binary_bytes.items,
@@ -4037,8 +4050,8 @@ fn emitNameSection(wasm: *Wasm, binary_bytes: *std.ArrayList(u8), arena: std.mem
         data_segment_index += 1;
     }
 
-    std.sort.sort(Name, funcs.values(), {}, Name.lessThan);
-    std.sort.sort(Name, globals.items, {}, Name.lessThan);
+    mem.sort(Name, funcs.values(), {}, Name.lessThan);
+    mem.sort(Name, globals.items, {}, Name.lessThan);
 
     const header_offset = try reserveCustomSectionHeader(binary_bytes);
     const writer = binary_bytes.writer();
@@ -4186,7 +4199,7 @@ fn linkWithLLD(wasm: *Wasm, comp: *Compilation, prog_node: *std.Progress.Node) !
         // We are about to obtain this lock, so here we give other processes a chance first.
         wasm.base.releaseLock();
 
-        comptime assert(Compilation.link_hash_implementation_version == 8);
+        comptime assert(Compilation.link_hash_implementation_version == 9);
 
         for (wasm.base.options.objects) |obj| {
             _ = try man.addFile(obj.path, null);
