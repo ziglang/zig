@@ -3597,7 +3597,7 @@ pub const cpu_set_t = [CPU_SETSIZE / @sizeOf(usize)]usize;
 pub const cpu_count_t = std.meta.Int(.unsigned, std.math.log2(CPU_SETSIZE * 8));
 
 fn cpu_mask(s: usize) cpu_count_t {
-    var x = s & (CPU_SETSIZE * 8);
+    var x = s & (@sizeOf(usize) - 1);
     return @intCast(cpu_count_t, 1) << @intCast(u4, x);
 }
 
@@ -3616,14 +3616,14 @@ pub fn CPU_ZERO(set: *cpu_set_t) void {
 pub fn CPU_SET(cpu: usize, set: *cpu_set_t) void {
     const x = cpu / @sizeOf(usize);
     if (x < @sizeOf(cpu_set_t)) {
-        (set.*)[x] |= cpu_mask(x);
+        (set.*)[x] |= cpu_mask(cpu);
     }
 }
 
 pub fn CPU_ISSET(cpu: usize, set: cpu_set_t) bool {
     const x = cpu / @sizeOf(usize);
     if (x < @sizeOf(cpu_set_t)) {
-        return set[x] & cpu_mask(x) != 0;
+        return set[x] & cpu_mask(cpu) != 0;
     }
     return false;
 }
@@ -3631,7 +3631,7 @@ pub fn CPU_ISSET(cpu: usize, set: cpu_set_t) bool {
 pub fn CPU_CLR(cpu: usize, set: *cpu_set_t) void {
     const x = cpu / @sizeOf(usize);
     if (x < @sizeOf(cpu_set_t)) {
-        (set.*)[x] &= !cpu_mask(x);
+        (set.*)[x] &= !cpu_mask(cpu);
     }
 }
 
