@@ -1521,7 +1521,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             .llvm_cpu_features = llvm_cpu_features,
             .skip_linker_dependencies = options.skip_linker_dependencies,
             .parent_compilation_link_libc = options.parent_compilation_link_libc,
-            .each_lib_rpath = options.each_lib_rpath orelse options.is_native_os,
+            .each_lib_rpath = options.each_lib_rpath orelse false,
             .build_id = build_id,
             .cache_mode = cache_mode,
             .disable_lld_caching = options.disable_lld_caching or cache_mode == .whole,
