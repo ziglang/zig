@@ -507,7 +507,7 @@ test "std.meta.FieldType" {
     try testing.expect(FieldType(U, .d) == *const u8);
 }
 
-pub fn fieldNames(comptime T: type) *const [fields(T).len][]const u8 {
+pub fn fieldNames(comptime T: type) *[fields(T).len][]const u8 {
     return comptime blk: {
         const fieldInfos = fields(T);
         var names: [fieldInfos.len][]const u8 = undefined;
