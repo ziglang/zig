@@ -18,6 +18,7 @@ pub fn build(b: *std.Build) void {
         check.checkNext("{*} (__TEXT,__text) external _iAmUnused");
 
         const run = b.addRunArtifact(exe);
+        run.skip_foreign_checks = true;
         run.expectStdOutEqual("Hello!\n");
         test_step.dependOn(&run.step);
     }
@@ -32,6 +33,7 @@ pub fn build(b: *std.Build) void {
         check.checkNotPresent("{*} (__TEXT,__text) external _iAmUnused");
 
         const run = b.addRunArtifact(exe);
+        run.skip_foreign_checks = true;
         run.expectStdOutEqual("Hello!\n");
         test_step.dependOn(&run.step);
     }

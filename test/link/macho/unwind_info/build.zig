@@ -48,6 +48,7 @@ fn testUnwindInfo(
     check.checkNext("{*} (__TEXT,__text) external ___gxx_personality_v0");
 
     const run = b.addRunArtifact(exe);
+    run.skip_foreign_checks = true;
     run.expectStdOutEqual(
         \\Constructed: a
         \\Constructed: b

@@ -49,6 +49,7 @@ fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.Optimize
     });
 
     const run = b.addRunArtifact(exe);
+    run.skip_foreign_checks = true;
     run.expectStdOutEqual("Hello!\n");
     test_step.dependOn(&run.step);
 }

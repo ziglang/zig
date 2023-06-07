@@ -36,6 +36,7 @@ fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.Optimize
     check_exe.checkComputeCompare("vmaddr entryoff +", .{ .op = .eq, .value = .{ .variable = "n_value" } });
 
     const run = b.addRunArtifact(exe);
+    run.skip_foreign_checks = true;
     run.expectStdOutEqual("42");
     test_step.dependOn(&run.step);
 }

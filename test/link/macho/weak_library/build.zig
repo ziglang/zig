@@ -47,6 +47,7 @@ fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.Optimize
     check.checkNext("(undefined) weak external _asStr (from liba)");
 
     const run = b.addRunArtifact(exe);
+    run.skip_foreign_checks = true;
     run.expectStdOutEqual("42 42");
     test_step.dependOn(&run.step);
 }
