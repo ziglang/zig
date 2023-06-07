@@ -1766,6 +1766,7 @@ test "parseInt" {
     try std.testing.expect((try parseInt(u8, "+0", 10)) == 0);
 
     // ensure minInt is parsed correctly
+    try std.testing.expect((try parseInt(i1, "-1", 10)) == math.minInt(i1));
     try std.testing.expect((try parseInt(i8, "-128", 10)) == math.minInt(i8));
     try std.testing.expect((try parseInt(i43, "-4398046511104", 10)) == math.minInt(i43));
 
@@ -1847,7 +1848,15 @@ fn parseWithSign(
         if (c == '_') continue;
         const digit = try charToDigit(c, buf_base);
 
-        if (x != 0) x = try math.mul(T, x, math.cast(T, buf_base) orelse return error.Overflow);
+        if (x != 0) {
+            x = try math.mul(T, x, math.cast(T, buf_base) orelse return error.Overflow);
+        } else if (sign == .neg) {
+            // The first digit of a negative number.
+            // Consider parsing "-4" as an i3.
+            // This should work, but positive 4 overflows i3, so we can't cast the digit to T and subtract.
+            x = math.cast(T, -@intCast(i8, digit)) orelse return error.Overflow;
+            continue;
+        }
         x = try add(T, x, math.cast(T, digit) orelse return error.Overflow);
     }
 
