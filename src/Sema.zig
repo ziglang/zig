@@ -9991,7 +9991,7 @@ fn zirElemPtr(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
                 indexable_ty.fmt(mod),
             });
             errdefer msg.destroy(sema.gpa);
-            if (indexable_ty.zigTypeTag(mod) == .Array) {
+            if (indexable_ty.isIndexable(mod)) {
                 try sema.errNote(block, src, msg, "consider using '&' here", .{});
             }
             break :msg msg;
@@ -26088,8 +26088,19 @@ fn elemPtrOneLayerOnly(
             return block.addPtrElemPtr(indexable, elem_index, result_ty);
         },
         .One => {
-            assert(indexable_ty.childType(mod).zigTypeTag(mod) == .Array); // Guaranteed by checkIndexable
-            return sema.elemPtrArray(block, src, indexable_src, indexable, elem_index_src, elem_index, init, oob_safety);
+            const child_ty = indexable_ty.childType(mod);
+            switch (child_ty.zigTypeTag(mod)) {
+                .Array, .Vector => {
+                    return sema.elemPtrArray(block, src, indexable_src, indexable, elem_index_src, elem_index, init, oob_safety);
+                },
+                .Struct => {
+                    assert(child_ty.isTuple(mod));
+                    const index_val = try sema.resolveConstValue(block, elem_index_src, elem_index, "tuple field access index must be comptime-known");
+                    const index = @intCast(u32, index_val.toUnsignedInt(mod));
+                    return sema.tupleFieldPtr(block, indexable_src, indexable, elem_index_src, index, false);
+                },
+                else => unreachable, // Guaranteed by checkIndexable
+            }
         },
     }
 }
@@ -26139,19 +26150,15 @@ fn elemVal(
                 return block.addBinOp(.ptr_elem_val, indexable, elem_index);
             },
             .One => {
-                const array_ty = indexable_ty.childType(mod); // Guaranteed by checkIndexable
-                assert(array_ty.zigTypeTag(mod) == .Array);
-
-                if (array_ty.sentinel(mod)) |sentinel| {
-                    // index must be defined since it can access out of bounds
-                    if (try sema.resolveDefinedValue(block, elem_index_src, elem_index)) |index_val| {
-                        const index = @intCast(usize, index_val.toUnsignedInt(mod));
-                        if (index == array_ty.arrayLen(mod)) {
-                            return sema.addConstant(array_ty.childType(mod), sentinel);
-                        }
-                    }
+                arr_sent: {
+                    const inner_ty = indexable_ty.childType(mod);
+                    if (inner_ty.zigTypeTag(mod) != .Array) break :arr_sent;
+                    const sentinel = inner_ty.sentinel(mod) orelse break :arr_sent;
+                    const index_val = try sema.resolveDefinedValue(block, elem_index_src, elem_index) orelse break :arr_sent;
+                    const index = try sema.usizeCast(block, src, index_val.toUnsignedInt(mod));
+                    if (index != inner_ty.arrayLen(mod)) break :arr_sent;
+                    return sema.addConstant(inner_ty.childType(mod), sentinel);
                 }
-
                 const elem_ptr = try sema.elemPtr(block, indexable_src, indexable, elem_index, elem_index_src, false, oob_safety);
                 return sema.analyzeLoad(block, indexable_src, elem_ptr, elem_index_src);
             },

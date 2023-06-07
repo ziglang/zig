@@ -2832,7 +2832,11 @@ pub const Type = struct {
             .Array, .Vector => true,
             .Pointer => switch (ty.ptrSize(mod)) {
                 .Slice, .Many, .C => true,
-                .One => ty.childType(mod).zigTypeTag(mod) == .Array,
+                .One => switch (ty.childType(mod).zigTypeTag(mod)) {
+                    .Array, .Vector => true,
+                    .Struct => ty.childType(mod).isTuple(mod),
+                    else => false,
+                },
             },
             .Struct => ty.isTuple(mod),
             else => false,
@@ -2845,7 +2849,11 @@ pub const Type = struct {
             .Pointer => switch (ty.ptrSize(mod)) {
                 .Many, .C => false,
                 .Slice => true,
-                .One => ty.childType(mod).zigTypeTag(mod) == .Array,
+                .One => switch (ty.childType(mod).zigTypeTag(mod)) {
+                    .Array, .Vector => true,
+                    .Struct => ty.childType(mod).isTuple(mod),
+                    else => false,
+                },
             },
             .Struct => ty.isTuple(mod),
             else => false,
