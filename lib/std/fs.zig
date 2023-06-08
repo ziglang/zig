@@ -662,6 +662,7 @@ pub const IterableDir = struct {
                             .NOTDIR => unreachable,
                             .NOENT => return error.DirNotFound, // The directory being iterated was deleted during iteration.
                             .INVAL => return error.Unexpected, // Linux may in some cases return EINVAL when reading /proc/$PID/net.
+                            .ACCES => return error.AccessDenied, // Do not have permission to iterate this directory.
                             else => |err| return os.unexpectedErrno(err),
                         }
                         if (rc == 0) return null;
