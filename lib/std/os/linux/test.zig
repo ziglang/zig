@@ -120,3 +120,59 @@ test "fadvise" {
     const ret = linux.fadvise(file.handle, 0, 0, linux.POSIX_FADV.SEQUENTIAL);
     try expectEqual(@as(usize, 0), ret);
 }
+
+test "cpu_set_t" {
+    if (builtin.link_libc) return error.SkipZigTest;
+
+    // CPU_ZERO
+    var set: linux.cpu_set_t = linux.cpu_set_t{ 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15 };
+    linux.CPU_ZERO(&set);
+    for (0..16) |i| {
+        try expectEqual(@as(usize, 0x00), set[i]);
+    }
+
+    // CPU_SET
+    for (0..linux.CPU_SETSIZE) |i| {
+        linux.CPU_SET(@as(usize, i), &set);
+        try expect(linux.CPU_ISSET(@as(usize, i), set));
+    }
+    for (0..16) |i| {
+        try expectEqual(@as(usize, 0xFF), set[i]);
+    }
+
+    // CPU_CLR
+    for (0..linux.CPU_SETSIZE) |i| {
+        linux.CPU_CLR(@as(usize, i), &set);
+        try expect(linux.CPU_ISSET(@as(usize, i), set) == false);
+    }
+
+    // CPU_SET
+    const cases = [_][4]usize{
+        [_]usize{ 2, 0, 0, 0 },
+        [_]usize{ 7, 8, 0, 0 },
+        [_]usize{ 5, 14, 24, 0 },
+        [_]usize{ 4, 12, 13, 127 },
+    };
+    for (cases) |case| {
+        linux.CPU_ZERO(&set);
+        for (case) |pos| {
+            linux.CPU_SET(pos, &set);
+        }
+        for (0..16) |i| {
+            var expected: usize = 0x00;
+            for (case) |pos| {
+                if (pos / @sizeOf(usize) == i) {
+                    expected |= @as(usize, 1) << @intCast(u6, pos % @sizeOf(usize));
+                }
+            }
+            try expectEqual(expected, set[i]);
+        }
+    }
+
+    // CPU_SET invalid cpu number
+    linux.CPU_ZERO(&set);
+    linux.CPU_SET(@as(usize, 128), &set);
+    for (0..16) |i| {
+        try expectEqual(@as(usize, 0x00), set[i]);
+    }
+}
