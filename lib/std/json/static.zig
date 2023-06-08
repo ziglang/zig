@@ -13,7 +13,7 @@ const isNumberFormattedLikeAnInteger = @import("./scanner.zig").isNumberFormatte
 const Value = @import("./dynamic.zig").Value;
 const Array = @import("./dynamic.zig").Array;
 
-/// Controls how to deal with various inconsistencies between the JSON document and Zig struct type passed in.
+/// Controls how to deal with various inconsistencies between the JSON document and the Zig struct type passed in.
 /// For duplicate fields or unknown fields, set options in this struct.
 /// For missing fields, give the Zig struct fields default values.
 pub const ParseOptions = struct {
@@ -51,6 +51,7 @@ pub fn Parsed(comptime T: type) type {
 
 /// Parses the json document from `s` and returns the result packaged in a `std.json.Parsed`.
 /// You must call `deinit()` of the returned object to clean up allocated resources.
+/// If you are using a `std.heap.ArenaAllocator` or similar, consider calling `parseFromSliceLeaky` instead.
 /// Note that `error.BufferUnderrun` is not actually possible to return from this function.
 pub fn parseFromSlice(
     comptime T: type,
@@ -129,6 +130,7 @@ pub fn parseFromTokenSourceLeaky(
     return value;
 }
 
+/// Like `parseFromSlice`, but the input is an already-parsed `std.json.Value` object.
 pub fn parseFromValue(
     comptime T: type,
     allocator: Allocator,
