@@ -96,10 +96,10 @@ pub fn ValidationAllocator(comptime T: type) type {
             log2_buf_align: u8,
             ret_addr: usize,
         ) void {
-            _ = ctx;
-            _ = log2_buf_align;
-            _ = ret_addr;
+            const self = @ptrCast(*Self, @alignCast(@alignOf(Self), ctx));
             assert(buf.len > 0);
+            const underlying = self.getUnderlyingAllocatorPtr();
+            underlying.rawFree(buf, log2_buf_align, ret_addr);
         }
 
         pub fn reset(self: *Self) void {
