@@ -972,7 +972,7 @@ pub const IterableDir = struct {
                         {
                             errdefer new_dir.close();
                             try self.stack.append(StackItem{
-                                .iter = new_dir.iterate(),
+                                .iter = new_dir.iterateAssumeFirstIteration(),
                                 .dirname_len = self.name_buffer.items.len,
                             });
                             top = &self.stack.items[self.stack.items.len - 1];
