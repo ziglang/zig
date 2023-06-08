@@ -3632,7 +3632,7 @@ pub fn CPU_ISSET(cpu: usize, set: cpu_set_t) bool {
 pub fn CPU_CLR(cpu: usize, set: *cpu_set_t) void {
     const x = cpu / @sizeOf(usize);
     if (x < CPU_SETLEN) {
-        (set.*)[x] &= !cpu_mask(cpu);
+        (set.*)[x] &= ~cpu_mask(cpu);
     }
 }
 
