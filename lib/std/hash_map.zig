@@ -1113,6 +1113,7 @@ pub fn HashMapUnmanaged(
                 old_key.* = undefined;
                 old_val.* = undefined;
                 self.size -= 1;
+                self.available += 1;
                 return result;
             }
 
@@ -2192,4 +2193,28 @@ test "std.hash_map removeByPtr 0 sized key" {
     }
 
     try testing.expect(map.count() == 0);
+}
+
+test "std.hash_map repeat fetchRemove" {
+    var map = AutoHashMapUnmanaged(u64, void){};
+    defer map.deinit(testing.allocator);
+
+    try map.ensureTotalCapacity(testing.allocator, 4);
+
+    map.putAssumeCapacity(0, {});
+    map.putAssumeCapacity(1, {});
+    map.putAssumeCapacity(2, {});
+    map.putAssumeCapacity(3, {});
+
+    // fetchRemove() should make slots available.
+    var i: usize = 0;
+    while (i < 10) : (i += 1) {
+        try testing.expect(map.fetchRemove(3) != null);
+        map.putAssumeCapacity(3, {});
+    }
+
+    try testing.expect(map.get(0) != null);
+    try testing.expect(map.get(1) != null);
+    try testing.expect(map.get(2) != null);
+    try testing.expect(map.get(3) != null);
 }
