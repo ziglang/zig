@@ -2150,7 +2150,7 @@ fn setFrameLoc(
     const frame_i = @enumToInt(frame_index);
     if (aligned) {
         const alignment = @as(i32, 1) << self.frame_allocs.items(.abi_align)[frame_i];
-        offset.* = mem.alignForwardGeneric(i32, offset.*, alignment);
+        offset.* = mem.alignForward(i32, offset.*, alignment);
     }
     self.frame_locs.set(frame_i, .{ .base = base, .disp = offset.* });
     offset.* += self.frame_allocs.items(.abi_size)[frame_i];
@@ -2207,7 +2207,7 @@ fn computeFrameLayout(self: *Self) !FrameLayout {
     self.setFrameLoc(.stack_frame, .rsp, &rsp_offset, true);
     for (stack_frame_order) |frame_index| self.setFrameLoc(frame_index, .rsp, &rsp_offset, true);
     rsp_offset += stack_frame_align_offset;
-    rsp_offset = mem.alignForwardGeneric(i32, rsp_offset, @as(i32, 1) << needed_align);
+    rsp_offset = mem.alignForward(i32, rsp_offset, @as(i32, 1) << needed_align);
     rsp_offset -= stack_frame_align_offset;
     frame_size[@enumToInt(FrameIndex.call_frame)] =
         @intCast(u31, rsp_offset - frame_offset[@enumToInt(FrameIndex.stack_frame)]);
@@ -11807,7 +11807,7 @@ fn resolveCallingConventionValues(
                 const param_size = @intCast(u31, ty.abiSize(mod));
                 const param_align = @intCast(u31, ty.abiAlignment(mod));
                 result.stack_byte_count =
-                    mem.alignForwardGeneric(u31, result.stack_byte_count, param_align);
+                    mem.alignForward(u31, result.stack_byte_count, param_align);
                 arg.* = .{ .load_frame = .{
                     .index = stack_frame_base,
                     .off = result.stack_byte_count,
@@ -11847,7 +11847,7 @@ fn resolveCallingConventionValues(
                 const param_size = @intCast(u31, ty.abiSize(mod));
                 const param_align = @intCast(u31, ty.abiAlignment(mod));
                 result.stack_byte_count =
-                    mem.alignForwardGeneric(u31, result.stack_byte_count, param_align);
+                    mem.alignForward(u31, result.stack_byte_count, param_align);
                 arg.* = .{ .load_frame = .{
                     .index = stack_frame_base,
                     .off = result.stack_byte_count,
@@ -11858,7 +11858,7 @@ fn resolveCallingConventionValues(
         else => return self.fail("TODO implement function parameters and return values for {} on x86_64", .{cc}),
     }
 
-    result.stack_byte_count = mem.alignForwardGeneric(u31, result.stack_byte_count, result.stack_align);
+    result.stack_byte_count = mem.alignForward(u31, result.stack_byte_count, result.stack_align);
     return result;
 }
 

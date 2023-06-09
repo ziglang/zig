@@ -208,7 +208,7 @@ pub fn allocAdvancedWithRetAddr(
     comptime assert(a <= mem.page_size);
 
     if (n == 0) {
-        const ptr = comptime std.mem.alignBackward(math.maxInt(usize), a);
+        const ptr = comptime std.mem.alignBackward(usize, math.maxInt(usize), a);
         return @intToPtr([*]align(a) T, ptr)[0..0];
     }
 
@@ -267,7 +267,7 @@ pub fn reallocAdvanced(
     }
     if (new_n == 0) {
         self.free(old_mem);
-        const ptr = comptime std.mem.alignBackward(math.maxInt(usize), Slice.alignment);
+        const ptr = comptime std.mem.alignBackward(usize, math.maxInt(usize), Slice.alignment);
         return @intToPtr([*]align(Slice.alignment) T, ptr)[0..0];
     }
 

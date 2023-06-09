@@ -792,7 +792,7 @@ fn allocMem(self: *Self, inst: Air.Inst.Index, abi_size: u32, abi_align: u32) !u
     if (abi_align > self.stack_align)
         self.stack_align = abi_align;
     // TODO find a free slot instead of always appending
-    const offset = mem.alignForwardGeneric(u32, self.next_stack_offset, abi_align);
+    const offset = mem.alignForward(u32, self.next_stack_offset, abi_align);
     self.next_stack_offset = offset + abi_size;
     if (self.next_stack_offset > self.max_end_stack)
         self.max_end_stack = self.next_stack_offset;

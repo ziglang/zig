@@ -17,7 +17,7 @@ pub const default_dyld_path: [*:0]const u8 = "/usr/lib/dyld";
 fn calcInstallNameLen(cmd_size: u64, name: []const u8, assume_max_path_len: bool) u64 {
     const darwin_path_max = 1024;
     const name_len = if (assume_max_path_len) darwin_path_max else name.len + 1;
-    return mem.alignForwardGeneric(u64, cmd_size + name_len, @alignOf(u64));
+    return mem.alignForward(u64, cmd_size + name_len, @alignOf(u64));
 }
 
 const CalcLCsSizeCtx = struct {
@@ -149,7 +149,7 @@ pub fn calcNumOfLCs(lc_buffer: []const u8) u32 {
 
 pub fn writeDylinkerLC(lc_writer: anytype) !void {
     const name_len = mem.sliceTo(default_dyld_path, 0).len;
-    const cmdsize = @intCast(u32, mem.alignForwardGeneric(
+    const cmdsize = @intCast(u32, mem.alignForward(
         u64,
         @sizeOf(macho.dylinker_command) + name_len,
         @sizeOf(u64),
@@ -176,7 +176,7 @@ const WriteDylibLCCtx = struct {
 
 fn writeDylibLC(ctx: WriteDylibLCCtx, lc_writer: anytype) !void {
     const name_len = ctx.name.len + 1;
-    const cmdsize = @intCast(u32, mem.alignForwardGeneric(
+    const cmdsize = @intCast(u32, mem.alignForward(
         u64,
         @sizeOf(macho.dylib_command) + name_len,
         @sizeOf(u64),
@@ -253,7 +253,7 @@ pub fn writeRpathLCs(gpa: Allocator, options: *const link.Options, lc_writer: an
 
     while (try it.next()) |rpath| {
         const rpath_len = rpath.len + 1;
-        const cmdsize = @intCast(u32, mem.alignForwardGeneric(
+        const cmdsize = @intCast(u32, mem.alignForward(
             u64,
             @sizeOf(macho.rpath_command) + rpath_len,
             @sizeOf(u64),

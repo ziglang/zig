@@ -1944,7 +1944,7 @@ pub const Target = struct {
                 16 => 2,
                 32 => 4,
                 64 => 8,
-                80 => @intCast(u16, mem.alignForward(10, c_type_alignment(t, .longdouble))),
+                80 => @intCast(u16, mem.alignForward(usize, 10, c_type_alignment(t, .longdouble))),
                 128 => 16,
                 else => unreachable,
             },

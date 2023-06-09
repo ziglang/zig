@@ -124,7 +124,7 @@ pub const ElfDynLib = struct {
         // corresponding to the actual LOAD sections.
         const file_bytes = try os.mmap(
             null,
-            mem.alignForward(size, mem.page_size),
+            mem.alignForward(usize, size, mem.page_size),
             os.PROT.READ,
             os.MAP.PRIVATE,
             fd,
@@ -187,7 +187,7 @@ pub const ElfDynLib = struct {
                         // extra nonsense mapped before/after the VirtAddr,MemSiz
                         const aligned_addr = (base + ph.p_vaddr) & ~(@as(usize, mem.page_size) - 1);
                         const extra_bytes = (base + ph.p_vaddr) - aligned_addr;
-                        const extended_memsz = mem.alignForward(ph.p_memsz + extra_bytes, mem.page_size);
+                        const extended_memsz = mem.alignForward(usize, ph.p_memsz + extra_bytes, mem.page_size);
                         const ptr = @intToPtr([*]align(mem.page_size) u8, aligned_addr);
                         const prot = elfToMmapProt(ph.p_flags);
                         if ((ph.p_flags & elf.PF_W) == 0) {

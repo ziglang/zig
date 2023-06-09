@@ -1024,7 +1024,7 @@ fn ElfFile(comptime is_64: bool) type {
                         dest.sh_size = @intCast(Elf_OffSize, data.len);
 
                     const addralign = if (src.sh_addralign == 0 or dest.sh_type == elf.SHT_NOBITS) 1 else src.sh_addralign;
-                    dest.sh_offset = std.mem.alignForwardGeneric(Elf_OffSize, eof_offset, addralign);
+                    dest.sh_offset = std.mem.alignForward(Elf_OffSize, eof_offset, addralign);
                     if (src.sh_offset != dest.sh_offset and section.segment != null and update.action != .empty and dest.sh_type != elf.SHT_NOTE) {
                         if (src.sh_offset > dest.sh_offset) {
                             dest.sh_offset = src.sh_offset; // add padding to avoid modifing the program segments
@@ -1085,7 +1085,7 @@ fn ElfFile(comptime is_64: bool) type {
                 // add a ".gnu_debuglink" section
                 if (options.debuglink) |link| {
                     const payload = payload: {
-                        const crc_offset = std.mem.alignForward(link.name.len + 1, 4);
+                        const crc_offset = std.mem.alignForward(usize, link.name.len + 1, 4);
                         const buf = try allocator.alignedAlloc(u8, 4, crc_offset + 4);
                         @memcpy(buf[0..link.name.len], link.name);
                         @memset(buf[link.name.len..crc_offset], 0);
@@ -1117,7 +1117,7 @@ fn ElfFile(comptime is_64: bool) type {
 
             // write the section header at the tail
             {
-                const offset = std.mem.alignForwardGeneric(Elf_OffSize, eof_offset, @alignOf(Elf_Shdr));
+                const offset = std.mem.alignForward(Elf_OffSize, eof_offset, @alignOf(Elf_Shdr));
 
                 const data = std.mem.sliceAsBytes(updated_section_header);
                 assert(data.len == @as(usize, updated_elf_header.e_shentsize) * new_shnum);

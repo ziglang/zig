@@ -2152,7 +2152,7 @@ pub fn writeDbgAranges(self: *Dwarf, addr: u64, size: u64) !void {
     di_buf.appendAssumeCapacity(0); // segment_selector_size
 
     const end_header_offset = di_buf.items.len;
-    const begin_entries_offset = mem.alignForward(end_header_offset, ptr_width_bytes * 2);
+    const begin_entries_offset = mem.alignForward(usize, end_header_offset, ptr_width_bytes * 2);
     di_buf.appendNTimesAssumeCapacity(0, begin_entries_offset - end_header_offset);
 
     // Currently only one compilation unit is supported, so the address range is simply
