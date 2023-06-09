@@ -3592,18 +3592,32 @@ pub const dl_phdr_info = extern struct {
     dlpi_phnum: u16,
 };
 
-pub const CPU_SETSIZE = 128;
-pub const CPU_SETLEN = CPU_SETSIZE / @sizeOf(usize);
-pub const cpu_set_t = [CPU_SETLEN]usize;
-pub const cpu_count_t = std.meta.Int(.unsigned, std.math.log2(CPU_SETSIZE * 8));
+/// Layout of cpu_set_t:
+/// M = @sizeof(usize), N = CPU_SETSIZE / M
+/// +-------------------+-------+-------+-----+---------+
+/// |       ELT 0       | ELT 1 | ELT 2 | ... | ELT N-1 |
+/// +---+---------------+-------+-------+-----+---------+
+/// | 0 | 1 | ... | M-1 |  ...  |  ...  | ... |   ...   |
+/// +---+---+-----+-----+-------+-------+-----+---------+
+pub const CPU_SETSIZE = 1024;
+pub const cpu_set_t = [CPU_SETSIZE / @sizeOf(usize)]usize;
 
-fn cpu_mask(s: usize) cpu_count_t {
-    var x = s & (@sizeOf(usize) - 1);
-    return @intCast(cpu_count_t, 1) << @intCast(u4, x);
+/// the n-th cpu bit is at ELT: n / M, BIT: n % M
+/// if n-th bit is 1, the n-th cpu is in the cpu_set, otherwise it is not
+const cpu_shift = std.math.log2(@sizeOf(usize));
+const cpu_shift_t = std.meta.Int(.unsigned, cpu_shift);
+inline fn cpu_elt(cpu: usize) usize {
+    // when M is 2^k, n / M <=> n >> k
+    return cpu >> cpu_shift;
+}
+inline fn cpu_mask(cpu: usize) usize {
+    // when M is 2^k, n % M <=> n & (M - 1)
+    var x = cpu & (@sizeOf(usize) - 1);
+    return @as(usize, 1) << @intCast(cpu_shift_t, x);
 }
 
-pub fn CPU_COUNT(set: cpu_set_t) cpu_count_t {
-    var sum: cpu_count_t = 0;
+pub fn CPU_COUNT(set: cpu_set_t) usize {
+    var sum: usize = 0;
     for (set) |x| {
         sum += @popCount(x);
     }
@@ -3615,25 +3629,24 @@ pub fn CPU_ZERO(set: *cpu_set_t) void {
 }
 
 pub fn CPU_SET(cpu: usize, set: *cpu_set_t) void {
-    const x = cpu / @sizeOf(usize);
-    if (x < CPU_SETLEN) {
-        (set.*)[x] |= cpu_mask(cpu);
+    if (cpu >= CPU_SETSIZE) {
+        return;
     }
+    (set.*)[cpu_elt(cpu)] |= cpu_mask(cpu);
 }
 
 pub fn CPU_ISSET(cpu: usize, set: cpu_set_t) bool {
-    const x = cpu / @sizeOf(usize);
-    if (x < CPU_SETLEN) {
-        return set[x] & cpu_mask(cpu) != 0;
+    if (cpu >= CPU_SETSIZE) {
+        return false;
     }
-    return false;
+    return set[cpu_elt(cpu)] & cpu_mask(cpu) != 0;
 }
 
 pub fn CPU_CLR(cpu: usize, set: *cpu_set_t) void {
-    const x = cpu / @sizeOf(usize);
-    if (x < CPU_SETLEN) {
-        (set.*)[x] &= ~cpu_mask(cpu);
+    if (cpu >= CPU_SETSIZE) {
+        return;
     }
+    (set.*)[cpu_elt(cpu)] &= ~cpu_mask(cpu);
 }
 
 pub const MINSIGSTKSZ = switch (native_arch) {

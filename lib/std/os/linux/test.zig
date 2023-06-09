@@ -125,7 +125,10 @@ test "cpu_set_t" {
     if (builtin.link_libc) return error.SkipZigTest;
 
     // CPU_ZERO
-    var set: linux.cpu_set_t = linux.cpu_set_t{ 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15 };
+    var set: linux.cpu_set_t = std.mem.zeroes(linux.cpu_set_t);
+    for (set, 0..) |_, i| {
+        set[i] = i;
+    }
     linux.CPU_ZERO(&set);
     for (0..16) |i| {
         try expectEqual(@as(usize, 0x00), set[i]);
@@ -133,8 +136,8 @@ test "cpu_set_t" {
 
     // CPU_SET
     for (0..linux.CPU_SETSIZE) |i| {
-        linux.CPU_SET(@as(usize, i), &set);
-        try expect(linux.CPU_ISSET(@as(usize, i), set));
+        linux.CPU_SET(i, &set);
+        try expect(linux.CPU_ISSET(i, set));
     }
     for (0..16) |i| {
         try expectEqual(@as(usize, 0xFF), set[i]);
@@ -142,8 +145,8 @@ test "cpu_set_t" {
 
     // CPU_CLR
     for (0..linux.CPU_SETSIZE) |i| {
-        linux.CPU_CLR(@as(usize, i), &set);
-        try expect(linux.CPU_ISSET(@as(usize, i), set) == false);
+        linux.CPU_CLR(i, &set);
+        try expect(linux.CPU_ISSET(i, set) == false);
     }
 
     // CPU_SET
