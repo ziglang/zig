@@ -214,4 +214,9 @@ test "cpu_set_t" {
     for (res_xor) |pos| {
         try expect(linux.CPU_ISSET(pos, res));
     }
+
+    try expectEqual(false, linux.CPU_EQUAL(op1, op2));
+    setup_cpu_set(&a, &op1);
+    setup_cpu_set(&a, &op2);
+    try expectEqual(true, linux.CPU_EQUAL(op1, op2));
 }
