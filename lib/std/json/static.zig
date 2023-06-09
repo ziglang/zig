@@ -197,7 +197,7 @@ fn parseInternal(
                 else => return error.UnexpectedToken,
             };
             // Check for a named value.
-            if (std.meta.stringToEnum(T, slice)) |value| return value;
+            if (std.enums.fromString(T, slice)) |value| return value;
             // Check for a numeric value.
             if (!isNumberFormattedLikeAnInteger(slice)) return error.InvalidEnumTag;
             const n = std.fmt.parseInt(enumInfo.tag_type, slice, 10) catch return error.InvalidEnumTag;

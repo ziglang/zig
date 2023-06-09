@@ -409,7 +409,7 @@ fn generic(lower: *Lower, inst: Mir.Inst) Error!void {
         const err_msg = "unsupported mnemonic: ";
         const mnemonic = std.fmt.bufPrint(&buf, "{s}{s}{s}", parts) catch
             return lower.fail(err_msg ++ "'{s}{s}{s}'", parts);
-        break :mnemonic std.meta.stringToEnum(Mnemonic, mnemonic) orelse
+        break :mnemonic std.enums.fromString(Mnemonic, mnemonic) orelse
             return lower.fail(err_msg ++ "'{s}'", .{mnemonic});
     }, switch (inst.ops) {
         .none => &.{},
