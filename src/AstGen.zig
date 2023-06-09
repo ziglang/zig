@@ -11761,9 +11761,9 @@ const GenZir = struct {
     ) !Zir.Inst.Index {
         const gpa = gz.astgen.gpa;
         const param_body = param_gz.instructionsSlice();
+        const body_len = gz.astgen.countBodyLenAfterFixups(param_body);
         try gz.astgen.instructions.ensureUnusedCapacity(gpa, 1);
-        try gz.astgen.extra.ensureUnusedCapacity(gpa, @typeInfo(Zir.Inst.Param).Struct.fields.len +
-            param_body.len);
+        try gz.astgen.extra.ensureUnusedCapacity(gpa, @typeInfo(Zir.Inst.Param).Struct.fields.len + body_len);
 
         const doc_comment_index = if (first_doc_comment) |first|
             try gz.astgen.docCommentAsStringFromFirst(abs_tok_index, first)
@@ -11773,9 +11773,9 @@ const GenZir = struct {
         const payload_index = gz.astgen.addExtraAssumeCapacity(Zir.Inst.Param{
             .name = name,
             .doc_comment = doc_comment_index,
-            .body_len = @intCast(u32, param_body.len),
+            .body_len = @intCast(u32, body_len),
         });
-        gz.astgen.extra.appendSliceAssumeCapacity(param_body);
+        gz.astgen.appendBodyWithFixups(param_body);
         param_gz.unstack();
 
         const new_index = @intCast(Zir.Inst.Index, gz.astgen.instructions.len);
