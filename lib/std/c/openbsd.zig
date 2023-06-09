@@ -1638,3 +1638,7 @@ pub const PTHREAD_STACK_MIN = switch (builtin.cpu.arch) {
     .mips64 => 1 << 14,
     else => 1 << 12,
 };
+
+pub extern "c" fn malloc_conceal(usize) ?*anyopaque;
+pub extern "c" fn calloc_conceal(usize, usize) ?*anyopaque;
+pub extern "c" fn freezero(?*anyopaque, usize) void;
