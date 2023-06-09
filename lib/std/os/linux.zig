@@ -3616,14 +3616,6 @@ inline fn cpu_mask(cpu: usize) usize {
     return @as(usize, 1) << @intCast(cpu_shift_t, x);
 }
 
-pub fn CPU_COUNT(set: cpu_set_t) usize {
-    var sum: usize = 0;
-    for (set) |x| {
-        sum += @popCount(x);
-    }
-    return sum;
-}
-
 pub fn CPU_ZERO(set: *cpu_set_t) void {
     @memset(set, 0);
 }
@@ -3634,7 +3626,12 @@ pub fn CPU_SET(cpu: usize, set: *cpu_set_t) void {
     }
     (set.*)[cpu_elt(cpu)] |= cpu_mask(cpu);
 }
-
+pub fn CPU_CLR(cpu: usize, set: *cpu_set_t) void {
+    if (cpu >= CPU_SETSIZE) {
+        return;
+    }
+    (set.*)[cpu_elt(cpu)] &= ~cpu_mask(cpu);
+}
 pub fn CPU_ISSET(cpu: usize, set: cpu_set_t) bool {
     if (cpu >= CPU_SETSIZE) {
         return false;
@@ -3642,11 +3639,32 @@ pub fn CPU_ISSET(cpu: usize, set: cpu_set_t) bool {
     return set[cpu_elt(cpu)] & cpu_mask(cpu) != 0;
 }
 
-pub fn CPU_CLR(cpu: usize, set: *cpu_set_t) void {
-    if (cpu >= CPU_SETSIZE) {
-        return;
+pub fn CPU_COUNT(set: cpu_set_t) usize {
+    var sum: usize = 0;
+    for (set) |x| {
+        sum += @popCount(x);
     }
-    (set.*)[cpu_elt(cpu)] &= ~cpu_mask(cpu);
+    return sum;
+}
+
+pub fn CPU_AND(destset: cpu_set_t, srcset1: cpu_set_t, srcset2: cpu_set_t) void {
+    for (srcset1, srcset2, 0..) |a, b, i| {
+        destset[i] = a & b;
+    }
+}
+pub fn CPU_OR(destset: cpu_set_t, srcset1: cpu_set_t, srcset2: cpu_set_t) void {
+    for (srcset1, srcset2, 0..) |a, b, i| {
+        destset[i] = a | b;
+    }
+}
+pub fn CPU_XOR(destset: cpu_set_t, srcset1: cpu_set_t, srcset2: cpu_set_t) void {
+    for (srcset1, srcset2, 0..) |a, b, i| {
+        destset[i] = a ^ b;
+    }
+}
+
+pub fn CPU_EQUAL(srcset1: cpu_set_t, srcset2: cpu_set_t) bool {
+    return std.mem.eql(cpu_set_t, srcset1, srcset2);
 }
 
 pub const MINSIGSTKSZ = switch (native_arch) {
