@@ -19794,6 +19794,16 @@ fn zirIntToPtr(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
     const target = sema.mod.getTarget();
     const ptr_align = try ptr_ty.ptrAlignmentAdvanced(target, sema);
 
+    if (ptr_ty.isSlice()) {
+        const msg = msg: {
+            const msg = try sema.errMsg(block, type_src, "integer cannot be converted to slice type '{}'", .{ptr_ty.fmt(sema.mod)});
+            errdefer msg.destroy(sema.gpa);
+            try sema.errNote(block, type_src, msg, "slice length cannot be inferred from address", .{});
+            break :msg msg;
+        };
+        return sema.failWithOwnedErrorMsg(msg);
+    }
+
     if (try sema.resolveDefinedValue(block, operand_src, operand_coerced)) |val| {
         const addr = val.toUnsignedInt(target);
         if (!ptr_ty.isAllowzeroPtr() and addr == 0)
