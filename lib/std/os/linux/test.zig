@@ -121,6 +121,13 @@ test "fadvise" {
     try expectEqual(@as(usize, 0), ret);
 }
 
+fn setup_cpu_set(cpus: *const [4]usize, set: *linux.cpu_set_t) void {
+    linux.CPU_ZERO(set);
+    for (cpus) |pos| {
+        linux.CPU_SET(pos, set);
+    }
+}
+
 test "cpu_set_t" {
     if (builtin.link_libc) return error.SkipZigTest;
 
@@ -134,10 +141,11 @@ test "cpu_set_t" {
         try expectEqual(@as(usize, 0x00), set[i]);
     }
 
-    // CPU_SET
+    // CPU_COUNT
     for (0..linux.CPU_SETSIZE) |i| {
         linux.CPU_SET(i, &set);
         try expect(linux.CPU_ISSET(i, set));
+        try expectEqual(i + 1, linux.CPU_COUNT(set));
     }
     for (0..16) |i| {
         try expectEqual(@as(usize, 0xFF), set[i]);
@@ -157,10 +165,7 @@ test "cpu_set_t" {
         [_]usize{ 4, 12, 13, 127 },
     };
     for (cases) |case| {
-        linux.CPU_ZERO(&set);
-        for (case) |pos| {
-            linux.CPU_SET(pos, &set);
-        }
+        setup_cpu_set(&case, &set);
         for (0..16) |i| {
             var expected: usize = 0x00;
             for (case) |pos| {
@@ -177,5 +182,36 @@ test "cpu_set_t" {
     linux.CPU_SET(@as(usize, 128), &set);
     for (0..16) |i| {
         try expectEqual(@as(usize, 0x00), set[i]);
+    }
+
+    var op1: linux.cpu_set_t = std.mem.zeroes(linux.cpu_set_t);
+    var op2: linux.cpu_set_t = std.mem.zeroes(linux.cpu_set_t);
+    var res: linux.cpu_set_t = std.mem.zeroes(linux.cpu_set_t);
+
+    const a = [_]usize{ 5, 14, 24, 78 };
+    const b = [_]usize{ 1, 5, 9, 24 };
+    const res_and = [_]usize{ 5, 24 };
+    const res_or = [_]usize{ 1, 5, 9, 14, 24, 78 };
+    const res_xor = [_]usize{ 1, 9, 14, 78 };
+
+    setup_cpu_set(&a, &op1);
+    setup_cpu_set(&b, &op2);
+
+    linux.CPU_AND(&res, op1, op2);
+    try expectEqual(res_and.len, linux.CPU_COUNT(res));
+    for (res_and) |pos| {
+        try expect(linux.CPU_ISSET(pos, res));
+    }
+
+    linux.CPU_OR(&res, op1, op2);
+    try expectEqual(res_or.len, linux.CPU_COUNT(res));
+    for (res_or) |pos| {
+        try expect(linux.CPU_ISSET(pos, res));
+    }
+
+    linux.CPU_XOR(&res, op1, op2);
+    try expectEqual(res_xor.len, linux.CPU_COUNT(res));
+    for (res_xor) |pos| {
+        try expect(linux.CPU_ISSET(pos, res));
     }
 }

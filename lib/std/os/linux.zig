@@ -3647,18 +3647,18 @@ pub fn CPU_COUNT(set: cpu_set_t) usize {
     return sum;
 }
 
-pub fn CPU_AND(destset: cpu_set_t, srcset1: cpu_set_t, srcset2: cpu_set_t) void {
-    for (&destset, srcset1, srcset2) |*dst, a, b| {
+pub fn CPU_AND(destset: *cpu_set_t, srcset1: cpu_set_t, srcset2: cpu_set_t) void {
+    for (destset, srcset1, srcset2) |*dst, a, b| {
         dst.* = a & b;
     }
 }
-pub fn CPU_OR(destset: cpu_set_t, srcset1: cpu_set_t, srcset2: cpu_set_t) void {
-    for (&destset, srcset1, srcset2) |*dst, a, b| {
+pub fn CPU_OR(destset: *cpu_set_t, srcset1: cpu_set_t, srcset2: cpu_set_t) void {
+    for (destset, srcset1, srcset2) |*dst, a, b| {
         dst.* = a | b;
     }
 }
-pub fn CPU_XOR(destset: cpu_set_t, srcset1: cpu_set_t, srcset2: cpu_set_t) void {
-    for (&destset, srcset1, srcset2) |*dst, a, b| {
+pub fn CPU_XOR(destset: *cpu_set_t, srcset1: cpu_set_t, srcset2: cpu_set_t) void {
+    for (destset, srcset1, srcset2) |*dst, a, b| {
         dst.* = a ^ b;
     }
 }
