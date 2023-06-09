@@ -1545,13 +1545,13 @@ pub fn HashMapUnmanaged(
             const meta_size = @sizeOf(Header) + new_capacity * @sizeOf(Metadata);
             comptime assert(@alignOf(Metadata) == 1);
 
-            const keys_start = std.mem.alignForward(meta_size, key_align);
+            const keys_start = std.mem.alignForward(usize, meta_size, key_align);
             const keys_end = keys_start + new_capacity * @sizeOf(K);
 
-            const vals_start = std.mem.alignForward(keys_end, val_align);
+            const vals_start = std.mem.alignForward(usize, keys_end, val_align);
             const vals_end = vals_start + new_capacity * @sizeOf(V);
 
-            const total_size = std.mem.alignForward(vals_end, max_align);
+            const total_size = std.mem.alignForward(usize, vals_end, max_align);
 
             const slice = try allocator.alignedAlloc(u8, max_align, total_size);
             const ptr = @ptrToInt(slice.ptr);
@@ -1581,13 +1581,13 @@ pub fn HashMapUnmanaged(
             const meta_size = @sizeOf(Header) + cap * @sizeOf(Metadata);
             comptime assert(@alignOf(Metadata) == 1);
 
-            const keys_start = std.mem.alignForward(meta_size, key_align);
+            const keys_start = std.mem.alignForward(usize, meta_size, key_align);
             const keys_end = keys_start + cap * @sizeOf(K);
 
-            const vals_start = std.mem.alignForward(keys_end, val_align);
+            const vals_start = std.mem.alignForward(usize, keys_end, val_align);
             const vals_end = vals_start + cap * @sizeOf(V);
 
-            const total_size = std.mem.alignForward(vals_end, max_align);
+            const total_size = std.mem.alignForward(usize, vals_end, max_align);
 
             const slice = @intToPtr([*]align(max_align) u8, @ptrToInt(self.header()))[0..total_size];
             allocator.free(slice);

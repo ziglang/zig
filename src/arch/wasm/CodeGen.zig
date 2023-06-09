@@ -1286,7 +1286,7 @@ fn genFunc(func: *CodeGen) InnerError!void {
         // store stack pointer so we can restore it when we return from the function
         try prologue.append(.{ .tag = .local_tee, .data = .{ .label = func.initial_stack_value.local.value } });
         // get the total stack size
-        const aligned_stack = std.mem.alignForwardGeneric(u32, func.stack_size, func.stack_alignment);
+        const aligned_stack = std.mem.alignForward(u32, func.stack_size, func.stack_alignment);
         try prologue.append(.{ .tag = .i32_const, .data = .{ .imm32 = @intCast(i32, aligned_stack) } });
         // substract it from the current stack pointer
         try prologue.append(.{ .tag = .i32_sub, .data = .{ .tag = {} } });
@@ -1531,7 +1531,7 @@ fn allocStack(func: *CodeGen, ty: Type) !WValue {
         func.stack_alignment = abi_align;
     }
 
-    const offset = std.mem.alignForwardGeneric(u32, func.stack_size, abi_align);
+    const offset = std.mem.alignForward(u32, func.stack_size, abi_align);
     defer func.stack_size = offset + abi_size;
 
     return WValue{ .stack_offset = .{ .value = offset, .references = 1 } };
@@ -1564,7 +1564,7 @@ fn allocStackPtr(func: *CodeGen, inst: Air.Inst.Index) !WValue {
         func.stack_alignment = abi_alignment;
     }
 
-    const offset = std.mem.alignForwardGeneric(u32, func.stack_size, abi_alignment);
+    const offset = std.mem.alignForward(u32, func.stack_size, abi_alignment);
     defer func.stack_size = offset + abi_size;
 
     return WValue{ .stack_offset = .{ .value = offset, .references = 1 } };
@@ -2975,7 +2975,7 @@ fn lowerParentPtr(func: *CodeGen, ptr_val: Value, offset: u32) InnerError!WValue
                         if (layout.payload_align > layout.tag_align) break :blk 0;
 
                         // tag is stored first so calculate offset from where payload starts
-                        break :blk @intCast(u32, std.mem.alignForwardGeneric(u64, layout.tag_size, layout.tag_align));
+                        break :blk @intCast(u32, std.mem.alignForward(u64, layout.tag_size, layout.tag_align));
                     },
                 },
                 .Pointer => switch (parent_ty.ptrSize(mod)) {

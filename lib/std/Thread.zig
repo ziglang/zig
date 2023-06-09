@@ -931,18 +931,18 @@ const LinuxThreadImpl = struct {
             guard_offset = bytes;
 
             bytes += @max(page_size, config.stack_size);
-            bytes = std.mem.alignForward(bytes, page_size);
+            bytes = std.mem.alignForward(usize, bytes, page_size);
             stack_offset = bytes;
 
-            bytes = std.mem.alignForward(bytes, linux.tls.tls_image.alloc_align);
+            bytes = std.mem.alignForward(usize, bytes, linux.tls.tls_image.alloc_align);
             tls_offset = bytes;
             bytes += linux.tls.tls_image.alloc_size;
 
-            bytes = std.mem.alignForward(bytes, @alignOf(Instance));
+            bytes = std.mem.alignForward(usize, bytes, @alignOf(Instance));
             instance_offset = bytes;
             bytes += @sizeOf(Instance);
 
-            bytes = std.mem.alignForward(bytes, page_size);
+            bytes = std.mem.alignForward(usize, bytes, page_size);
             break :blk bytes;
         };
 

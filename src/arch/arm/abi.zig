@@ -13,7 +13,7 @@ pub const Class = union(enum) {
     i64_array: u8,
 
     fn arrSize(total_size: u64, arr_size: u64) Class {
-        const count = @intCast(u8, std.mem.alignForwardGeneric(u64, total_size, arr_size) / arr_size);
+        const count = @intCast(u8, std.mem.alignForward(u64, total_size, arr_size) / arr_size);
         if (arr_size == 32) {
             return .{ .i32_array = count };
         } else {

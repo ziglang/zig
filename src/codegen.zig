@@ -290,7 +290,7 @@ pub fn generateSymbol(
                     .fail => |em| return .{ .fail = em },
                 }
                 const unpadded_end = code.items.len - begin;
-                const padded_end = mem.alignForwardGeneric(u64, unpadded_end, abi_align);
+                const padded_end = mem.alignForward(u64, unpadded_end, abi_align);
                 const padding = math.cast(usize, padded_end - unpadded_end) orelse return error.Overflow;
 
                 if (padding > 0) {
@@ -303,7 +303,7 @@ pub fn generateSymbol(
                 const begin = code.items.len;
                 try code.writer().writeInt(u16, err_val, endian);
                 const unpadded_end = code.items.len - begin;
-                const padded_end = mem.alignForwardGeneric(u64, unpadded_end, abi_align);
+                const padded_end = mem.alignForward(u64, unpadded_end, abi_align);
                 const padding = math.cast(usize, padded_end - unpadded_end) orelse return error.Overflow;
 
                 if (padding > 0) {
@@ -1020,7 +1020,7 @@ pub fn errUnionPayloadOffset(payload_ty: Type, mod: *Module) u64 {
     if (payload_align >= error_align or !payload_ty.hasRuntimeBitsIgnoreComptime(mod)) {
         return 0;
     } else {
-        return mem.alignForwardGeneric(u64, Type.anyerror.abiSize(mod), payload_align);
+        return mem.alignForward(u64, Type.anyerror.abiSize(mod), payload_align);
     }
 }
 
@@ -1029,7 +1029,7 @@ pub fn errUnionErrorOffset(payload_ty: Type, mod: *Module) u64 {
     const payload_align = payload_ty.abiAlignment(mod);
     const error_align = Type.anyerror.abiAlignment(mod);
     if (payload_align >= error_align and payload_ty.hasRuntimeBitsIgnoreComptime(mod)) {
-        return mem.alignForwardGeneric(u64, payload_ty.abiSize(mod), error_align);
+        return mem.alignForward(u64, payload_ty.abiSize(mod), error_align);
     } else {
         return 0;
     }

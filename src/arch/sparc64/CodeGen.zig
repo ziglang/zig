@@ -423,7 +423,7 @@ fn gen(self: *Self) !void {
 
         // Backpatch stack offset
         const total_stack_size = self.max_end_stack + abi.stack_reserved_area;
-        const stack_size = mem.alignForwardGeneric(u32, total_stack_size, self.stack_align);
+        const stack_size = mem.alignForward(u32, total_stack_size, self.stack_align);
         if (math.cast(i13, stack_size)) |size| {
             self.mir_instructions.set(save_inst, .{
                 .tag = .save,
@@ -2781,7 +2781,7 @@ fn allocMem(self: *Self, inst: Air.Inst.Index, abi_size: u32, abi_align: u32) !u
     if (abi_align > self.stack_align)
         self.stack_align = abi_align;
     // TODO find a free slot instead of always appending
-    const offset = mem.alignForwardGeneric(u32, self.next_stack_offset, abi_align) + abi_size;
+    const offset = mem.alignForward(u32, self.next_stack_offset, abi_align) + abi_size;
     self.next_stack_offset = offset;
     if (self.next_stack_offset > self.max_end_stack)
         self.max_end_stack = self.next_stack_offset;

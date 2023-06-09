@@ -233,7 +233,7 @@ fn initTLS(phdrs: []elf.Phdr) void {
                 l += tls_align_factor - delta;
             l += @sizeOf(CustomData);
             tcb_offset = l;
-            l += mem.alignForward(tls_tcb_size, tls_align_factor);
+            l += mem.alignForward(usize, tls_tcb_size, tls_align_factor);
             data_offset = l;
             l += tls_data_alloc_size;
             break :blk l;
@@ -241,14 +241,14 @@ fn initTLS(phdrs: []elf.Phdr) void {
         .VariantII => blk: {
             var l: usize = 0;
             data_offset = l;
-            l += mem.alignForward(tls_data_alloc_size, tls_align_factor);
+            l += mem.alignForward(usize, tls_data_alloc_size, tls_align_factor);
             // The thread pointer is aligned to p_align
             tcb_offset = l;
             l += tls_tcb_size;
             // The CustomData structure is right after the TCB with no padding
             // in between so it can be easily found
             l += @sizeOf(CustomData);
-            l = mem.alignForward(l, @alignOf(DTV));
+            l = mem.alignForward(usize, l, @alignOf(DTV));
             dtv_offset = l;
             l += @sizeOf(DTV);
             break :blk l;
@@ -329,7 +329,7 @@ pub fn initStaticTLS(phdrs: []elf.Phdr) void {
 
         // Make sure the slice is correctly aligned.
         const begin_addr = @ptrToInt(alloc_tls_area.ptr);
-        const begin_aligned_addr = mem.alignForward(begin_addr, tls_image.alloc_align);
+        const begin_aligned_addr = mem.alignForward(usize, begin_addr, tls_image.alloc_align);
         const start = begin_aligned_addr - begin_addr;
         break :blk alloc_tls_area[start .. start + tls_image.alloc_size];
     };

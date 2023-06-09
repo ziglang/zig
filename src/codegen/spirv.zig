@@ -472,12 +472,12 @@ pub const DeclGen = struct {
             try self.initializers.append(result_id);
 
             self.partial_word.len = 0;
-            self.size = std.mem.alignForwardGeneric(u32, self.size, @sizeOf(Word));
+            self.size = std.mem.alignForward(u32, self.size, @sizeOf(Word));
         }
 
         /// Fill the buffer with undefined values until the size is aligned to `align`.
         fn fillToAlign(self: *@This(), alignment: u32) !void {
-            const target_size = std.mem.alignForwardGeneric(u32, self.size, alignment);
+            const target_size = std.mem.alignForward(u32, self.size, alignment);
             try self.addUndef(target_size - self.size);
         }
 

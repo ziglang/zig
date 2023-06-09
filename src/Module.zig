@@ -1293,7 +1293,7 @@ pub const Union = struct {
         payload_align = @max(payload_align, 1);
         if (!have_tag or !u.tag_ty.hasRuntimeBits(mod)) {
             return .{
-                .abi_size = std.mem.alignForwardGeneric(u64, payload_size, payload_align),
+                .abi_size = std.mem.alignForward(u64, payload_size, payload_align),
                 .abi_align = payload_align,
                 .most_aligned_field = most_aligned_field,
                 .most_aligned_field_size = most_aligned_field_size,
@@ -1314,18 +1314,18 @@ pub const Union = struct {
         if (tag_align >= payload_align) {
             // {Tag, Payload}
             size += tag_size;
-            size = std.mem.alignForwardGeneric(u64, size, payload_align);
+            size = std.mem.alignForward(u64, size, payload_align);
             size += payload_size;
             const prev_size = size;
-            size = std.mem.alignForwardGeneric(u64, size, tag_align);
+            size = std.mem.alignForward(u64, size, tag_align);
             padding = @intCast(u32, size - prev_size);
         } else {
             // {Payload, Tag}
             size += payload_size;
-            size = std.mem.alignForwardGeneric(u64, size, tag_align);
+            size = std.mem.alignForward(u64, size, tag_align);
             size += tag_size;
             const prev_size = size;
-            size = std.mem.alignForwardGeneric(u64, size, payload_align);
+            size = std.mem.alignForward(u64, size, payload_align);
             padding = @intCast(u32, size - prev_size);
         }
         return .{

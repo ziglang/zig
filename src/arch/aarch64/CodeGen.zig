@@ -566,7 +566,7 @@ fn gen(self: *Self) !void {
 
         // Backpatch stack offset
         const total_stack_size = self.max_end_stack + self.saved_regs_stack_space;
-        const aligned_total_stack_end = mem.alignForwardGeneric(u32, total_stack_size, self.stack_align);
+        const aligned_total_stack_end = mem.alignForward(u32, total_stack_size, self.stack_align);
         const stack_size = aligned_total_stack_end - self.saved_regs_stack_space;
         self.max_end_stack = stack_size;
         if (math.cast(u12, stack_size)) |size| {
@@ -1011,7 +1011,7 @@ fn allocMem(
         std.math.ceilPowerOfTwoAssert(u32, abi_size);
 
     // TODO find a free slot instead of always appending
-    const offset = mem.alignForwardGeneric(u32, self.next_stack_offset, adjusted_align) + abi_size;
+    const offset = mem.alignForward(u32, self.next_stack_offset, adjusted_align) + abi_size;
     self.next_stack_offset = offset;
     self.max_end_stack = @max(self.max_end_stack, self.next_stack_offset);
 
@@ -6328,7 +6328,7 @@ fn resolveCallingConventionValues(self: *Self, fn_ty: Type) !CallMCValues {
                     const param_size = @intCast(u32, ty.toType().abiSize(mod));
                     const param_alignment = ty.toType().abiAlignment(mod);
 
-                    stack_offset = std.mem.alignForwardGeneric(u32, stack_offset, param_alignment);
+                    stack_offset = std.mem.alignForward(u32, stack_offset, param_alignment);
                     result.args[i] = .{ .stack_argument_offset = stack_offset };
                     stack_offset += param_size;
                 } else {

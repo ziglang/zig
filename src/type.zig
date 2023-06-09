@@ -1339,7 +1339,7 @@ pub const Type = struct {
                             .storage = .{ .lazy_size = ty.toIntern() },
                         } })).toValue() },
                     };
-                    const result = std.mem.alignForwardGeneric(u32, total_bytes, alignment);
+                    const result = std.mem.alignForward(u32, total_bytes, alignment);
                     return AbiSizeAdvanced{ .scalar = result };
                 },
 
@@ -1380,14 +1380,14 @@ pub const Type = struct {
                     var size: u64 = 0;
                     if (code_align > payload_align) {
                         size += code_size;
-                        size = std.mem.alignForwardGeneric(u64, size, payload_align);
+                        size = std.mem.alignForward(u64, size, payload_align);
                         size += payload_size;
-                        size = std.mem.alignForwardGeneric(u64, size, code_align);
+                        size = std.mem.alignForward(u64, size, code_align);
                     } else {
                         size += payload_size;
-                        size = std.mem.alignForwardGeneric(u64, size, code_align);
+                        size = std.mem.alignForward(u64, size, code_align);
                         size += code_size;
-                        size = std.mem.alignForwardGeneric(u64, size, payload_align);
+                        size = std.mem.alignForward(u64, size, payload_align);
                     }
                     return AbiSizeAdvanced{ .scalar = size };
                 },
@@ -1595,7 +1595,7 @@ pub const Type = struct {
 
     fn intAbiSize(bits: u16, target: Target) u64 {
         const alignment = intAbiAlignment(bits, target);
-        return std.mem.alignForwardGeneric(u64, @intCast(u16, (@as(u17, bits) + 7) / 8), alignment);
+        return std.mem.alignForward(u64, @intCast(u16, (@as(u17, bits) + 7) / 8), alignment);
     }
 
     fn intAbiAlignment(bits: u16, target: Target) u32 {
@@ -3194,7 +3194,7 @@ pub const Type = struct {
 
             const field_align = field.alignment(mod, it.struct_obj.layout);
             it.big_align = @max(it.big_align, field_align);
-            const field_offset = std.mem.alignForwardGeneric(u64, it.offset, field_align);
+            const field_offset = std.mem.alignForward(u64, it.offset, field_align);
             it.offset = field_offset + field.ty.abiSize(mod);
             return FieldOffset{ .field = i, .offset = field_offset };
         }
@@ -3223,7 +3223,7 @@ pub const Type = struct {
                         return field_offset.offset;
                 }
 
-                return std.mem.alignForwardGeneric(u64, it.offset, @max(it.big_align, 1));
+                return std.mem.alignForward(u64, it.offset, @max(it.big_align, 1));
             },
 
             .anon_struct_type => |tuple| {
@@ -3239,11 +3239,11 @@ pub const Type = struct {
 
                     const field_align = field_ty.toType().abiAlignment(mod);
                     big_align = @max(big_align, field_align);
-                    offset = std.mem.alignForwardGeneric(u64, offset, field_align);
+                    offset = std.mem.alignForward(u64, offset, field_align);
                     if (i == index) return offset;
                     offset += field_ty.toType().abiSize(mod);
                 }
-                offset = std.mem.alignForwardGeneric(u64, offset, @max(big_align, 1));
+                offset = std.mem.alignForward(u64, offset, @max(big_align, 1));
                 return offset;
             },
 
@@ -3254,7 +3254,7 @@ pub const Type = struct {
                 const layout = union_obj.getLayout(mod, true);
                 if (layout.tag_align >= layout.payload_align) {
                     // {Tag, Payload}
-                    return std.mem.alignForwardGeneric(u64, layout.tag_size, layout.payload_align);
+                    return std.mem.alignForward(u64, layout.tag_size, layout.payload_align);
                 } else {
                     // {Payload, Tag}
                     return 0;

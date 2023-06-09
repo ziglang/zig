@@ -282,7 +282,7 @@ pub fn writeAdhocSignature(
     self.code_directory.inner.execSegFlags = if (opts.output_mode == .Exe) macho.CS_EXECSEG_MAIN_BINARY else 0;
     self.code_directory.inner.codeLimit = opts.file_size;
 
-    const total_pages = @intCast(u32, mem.alignForward(opts.file_size, self.page_size) / self.page_size);
+    const total_pages = @intCast(u32, mem.alignForward(usize, opts.file_size, self.page_size) / self.page_size);
 
     try self.code_directory.code_slots.ensureTotalCapacityPrecise(gpa, total_pages);
     self.code_directory.code_slots.items.len = total_pages;
@@ -357,7 +357,7 @@ fn parallelHash(
 ) !void {
     var wg: WaitGroup = .{};
 
-    const total_num_chunks = mem.alignForward(file_size, self.page_size) / self.page_size;
+    const total_num_chunks = mem.alignForward(usize, file_size, self.page_size) / self.page_size;
     assert(self.code_directory.code_slots.items.len >= total_num_chunks);
 
     const buffer = try gpa.alloc(u8, self.page_size * total_num_chunks);
@@ -421,7 +421,7 @@ pub fn size(self: CodeSignature) u32 {
 pub fn estimateSize(self: CodeSignature, file_size: u64) u32 {
     var ssize: u64 = @sizeOf(macho.SuperBlob) + @sizeOf(macho.BlobIndex) + self.code_directory.size();
     // Approx code slots
-    const total_pages = mem.alignForwardGeneric(u64, file_size, self.page_size) / self.page_size;
+    const total_pages = mem.alignForward(u64, file_size, self.page_size) / self.page_size;
     ssize += total_pages * hash_size;
     var n_special_slots: u32 = 0;
     if (self.requirements) |req| {
@@ -436,7 +436,7 @@ pub fn estimateSize(self: CodeSignature, file_size: u64) u32 {
         ssize += @sizeOf(macho.BlobIndex) + sig.size();
     }
     ssize += n_special_slots * hash_size;
-    return @intCast(u32, mem.alignForwardGeneric(u64, ssize, @sizeOf(u64)));
+    return @intCast(u32, mem.alignForward(u64, ssize, @sizeOf(u64)));
 }
 
 pub fn clear(self: *CodeSignature, allocator: Allocator) void {

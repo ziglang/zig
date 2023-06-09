@@ -4213,23 +4213,17 @@ test "sliceAsBytes preserves pointer attributes" {
 /// Round an address up to the next (or current) aligned address.
 /// The alignment must be a power of 2 and greater than 0.
 /// Asserts that rounding up the address does not cause integer overflow.
-pub fn alignForward(addr: usize, alignment: usize) usize {
-    return alignForwardGeneric(usize, addr, alignment);
+pub fn alignForward(comptime T: type, addr: T, alignment: T) T {
+    assert(isValidAlignGeneric(T, alignment));
+    return alignBackward(T, addr + (alignment - 1), alignment);
 }
 
 pub fn alignForwardLog2(addr: usize, log2_alignment: u8) usize {
     const alignment = @as(usize, 1) << @intCast(math.Log2Int(usize), log2_alignment);
-    return alignForward(addr, alignment);
+    return alignForward(usize, addr, alignment);
 }
 
-/// Round an address up to the next (or current) aligned address.
-/// The alignment must be a power of 2 and greater than 0.
-/// Asserts that rounding up the address does not cause integer overflow.
-pub fn alignForwardGeneric(comptime T: type, addr: T, alignment: T) T {
-    assert(alignment > 0);
-    assert(std.math.isPowerOfTwo(alignment));
-    return alignBackwardGeneric(T, addr + (alignment - 1), alignment);
-}
+pub const alignForwardGeneric = @compileError("renamed to alignForward");
 
 /// Force an evaluation of the expression; this tries to prevent
 /// the compiler from optimizing the computation away even if the
@@ -4322,44 +4316,40 @@ test "doNotOptimizeAway" {
 }
 
 test "alignForward" {
-    try testing.expect(alignForward(1, 1) == 1);
-    try testing.expect(alignForward(2, 1) == 2);
-    try testing.expect(alignForward(1, 2) == 2);
-    try testing.expect(alignForward(2, 2) == 2);
-    try testing.expect(alignForward(3, 2) == 4);
-    try testing.expect(alignForward(4, 2) == 4);
-    try testing.expect(alignForward(7, 8) == 8);
-    try testing.expect(alignForward(8, 8) == 8);
-    try testing.expect(alignForward(9, 8) == 16);
-    try testing.expect(alignForward(15, 8) == 16);
-    try testing.expect(alignForward(16, 8) == 16);
-    try testing.expect(alignForward(17, 8) == 24);
+    try testing.expect(alignForward(usize, 1, 1) == 1);
+    try testing.expect(alignForward(usize, 2, 1) == 2);
+    try testing.expect(alignForward(usize, 1, 2) == 2);
+    try testing.expect(alignForward(usize, 2, 2) == 2);
+    try testing.expect(alignForward(usize, 3, 2) == 4);
+    try testing.expect(alignForward(usize, 4, 2) == 4);
+    try testing.expect(alignForward(usize, 7, 8) == 8);
+    try testing.expect(alignForward(usize, 8, 8) == 8);
+    try testing.expect(alignForward(usize, 9, 8) == 16);
+    try testing.expect(alignForward(usize, 15, 8) == 16);
+    try testing.expect(alignForward(usize, 16, 8) == 16);
+    try testing.expect(alignForward(usize, 17, 8) == 24);
 }
 
 /// Round an address down to the previous (or current) aligned address.
 /// Unlike `alignBackward`, `alignment` can be any positive number, not just a power of 2.
 pub fn alignBackwardAnyAlign(i: usize, alignment: usize) usize {
     if (isValidAlign(alignment))
-        return alignBackward(i, alignment);
+        return alignBackward(usize, i, alignment);
     assert(alignment != 0);
     return i - @mod(i, alignment);
 }
 
 /// Round an address down to the previous (or current) aligned address.
 /// The alignment must be a power of 2 and greater than 0.
-pub fn alignBackward(addr: usize, alignment: usize) usize {
-    return alignBackwardGeneric(usize, addr, alignment);
-}
-
-/// Round an address down to the previous (or current) aligned address.
-/// The alignment must be a power of 2 and greater than 0.
-pub fn alignBackwardGeneric(comptime T: type, addr: T, alignment: T) T {
+pub fn alignBackward(comptime T: type, addr: T, alignment: T) T {
     assert(isValidAlignGeneric(T, alignment));
     // 000010000 // example alignment
     // 000001111 // subtract 1
     // 111110000 // binary not
     return addr & ~(alignment - 1);
 }
+
+pub const alignBackwardGeneric = @compileError("renamed to alignBackward");
 
 /// Returns whether `alignment` is a valid alignment, meaning it is
 /// a positive power of 2.
@@ -4391,7 +4381,7 @@ pub fn isAligned(addr: usize, alignment: usize) bool {
 }
 
 pub fn isAlignedGeneric(comptime T: type, addr: T, alignment: T) bool {
-    return alignBackwardGeneric(T, addr, alignment) == addr;
+    return alignBackward(T, addr, alignment) == addr;
 }
 
 test "isAligned" {
@@ -4439,7 +4429,7 @@ pub fn alignInBytes(bytes: []u8, comptime new_alignment: usize) ?[]align(new_ali
     const begin_address = @ptrToInt(bytes.ptr);
     const end_address = begin_address + bytes.len;
 
-    const begin_address_aligned = mem.alignForward(begin_address, new_alignment);
+    const begin_address_aligned = mem.alignForward(usize, begin_address, new_alignment);
     const new_length = std.math.sub(usize, end_address, begin_address_aligned) catch |e| switch (e) {
         error.Overflow => return null,
     };
