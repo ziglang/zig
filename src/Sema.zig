@@ -11900,6 +11900,10 @@ fn maybeErrorUnwrap(sema: *Sema, block: *Block, body: []const Zir.Inst.Index, op
             .as_node => try sema.zirAsNode(block, inst),
             .field_val => try sema.zirFieldVal(block, inst),
             .@"unreachable" => {
+                if (!block.wantSafety()) {
+                    return false;
+                }
+
                 if (!sema.mod.comp.formatted_panics) {
                     try sema.safetyPanic(block, .unwrap_error);
                     return true;
