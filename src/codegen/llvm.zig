@@ -1169,13 +1169,14 @@ pub const Object = struct {
                 llvm.DIFlags.NoReturn
             else
                 0;
+            const decl_di_ty = try o.lowerDebugType(decl.ty, .full);
             const subprogram = dib.createFunction(
                 di_file.?.toScope(),
                 mod.intern_pool.stringToSlice(decl.name),
                 llvm_func.getValueName(),
                 di_file.?,
                 line_number,
-                try o.lowerDebugType(decl.ty, .full),
+                decl_di_ty,
                 is_internal_linkage,
                 true, // is definition
                 line_number + func.lbrace_line, // scope line
