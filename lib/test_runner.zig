@@ -36,7 +36,7 @@ pub fn main() void {
         @panic("unable to parse command line args");
 
     var i: u32 = 1;
-    var test_i: u64 = undefined;
+    var test_i: usize = undefined;
     var mode: Mode = .terminal;
 
     while (i < args.len) : (i += 1) {
@@ -45,7 +45,7 @@ pub fn main() void {
         } else if (std.mem.eql(u8, args[i], "--test_panic_index")) {
             i += 1;
             if (i < args.len) {
-                test_i = std.fmt.parseInt(u64, args[i], 10) catch {
+                test_i = std.fmt.parseInt(usize, args[i], 10) catch {
                     callError(args);
                 };
                 mode = .panic_test;
@@ -370,7 +370,7 @@ fn mainTerminal(args: [][:0]const u8) void {
     }
 }
 
-fn panicTest(test_i: u64) void {
+fn panicTest(test_i: usize) void {
     const test_fn_list = builtin.test_functions;
     var async_frame_buffer: []align(std.Target.stack_align) u8 = undefined;
     // TODO this is on the next line (using `undefined` above) because otherwise zig incorrectly
