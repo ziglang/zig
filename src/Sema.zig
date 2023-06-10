@@ -26060,6 +26060,7 @@ fn unionFieldPtr(
     assert(unresolved_union_ty.zigTypeTag(mod) == .Union);
 
     const union_ptr_ty = sema.typeOf(union_ptr);
+    const union_ptr_info = union_ptr_ty.ptrInfo(mod);
     const union_ty = try sema.resolveTypeFields(unresolved_union_ty);
     const union_obj = mod.typeToUnion(union_ty).?;
     const field_index = try sema.unionFieldIndex(block, union_ty, field_name, field_name_src);
@@ -26067,10 +26068,16 @@ fn unionFieldPtr(
     const ptr_field_ty = try mod.ptrType(.{
         .child = field.ty.toIntern(),
         .flags = .{
-            .is_const = !union_ptr_ty.ptrIsMutable(mod),
-            .is_volatile = union_ptr_ty.isVolatilePtr(mod),
-            .address_space = union_ptr_ty.ptrAddressSpace(mod),
+            .is_const = union_ptr_info.flags.is_const,
+            .is_volatile = union_ptr_info.flags.is_volatile,
+            .address_space = union_ptr_info.flags.address_space,
+            .alignment = if (union_obj.layout == .Auto) blk: {
+                const union_align = union_ptr_info.flags.alignment.toByteUnitsOptional() orelse try sema.typeAbiAlignment(union_ty);
+                const field_align = try sema.unionFieldAlignment(field);
+                break :blk InternPool.Alignment.fromByteUnits(@min(union_align, field_align));
+            } else union_ptr_info.flags.alignment,
         },
+        .packed_offset = union_ptr_info.packed_offset,
     });
     const enum_field_index = @as(u32, @intCast(union_obj.tag_ty.enumFieldIndex(field_name, mod).?));
 

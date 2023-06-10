@@ -1583,3 +1583,112 @@ test "coerce enum literal to union in result loc" {
     try U.doTest(true);
     try comptime U.doTest(true);
 }
+
+test "defined-layout union field pointer has correct alignment" {
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest; // TODO
+
+    const S = struct {
+        fn doTheTest(comptime U: type) !void {
+            var a: U = .{ .x = 123 };
+            var b: U align(1) = .{ .x = 456 };
+            var c: U align(64) = .{ .x = 789 };
+
+            const ap = &a.x;
+            const bp = &b.x;
+            const cp = &c.x;
+
+            comptime assert(@TypeOf(ap) == *u32);
+            comptime assert(@TypeOf(bp) == *align(1) u32);
+            comptime assert(@TypeOf(cp) == *align(64) u32);
+
+            try expectEqual(@as(u32, 123), ap.*);
+            try expectEqual(@as(u32, 456), bp.*);
+            try expectEqual(@as(u32, 789), cp.*);
+        }
+    };
+
+    const U1 = extern union { x: u32 };
+    const U2 = packed union { x: u32 };
+
+    try S.doTheTest(U1);
+    try S.doTheTest(U2);
+    try comptime S.doTheTest(U1);
+    try comptime S.doTheTest(U2);
+}
+
+test "undefined-layout union field pointer has correct alignment" {
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest; // TODO
+
+    const S = struct {
+        fn doTheTest(comptime U: type) !void {
+            var a: U = .{ .x = 123 };
+            var b: U align(1) = .{ .x = 456 };
+            var c: U align(64) = .{ .x = 789 };
+
+            const ap = &a.x;
+            const bp = &b.x;
+            const cp = &c.x;
+
+            comptime assert(@TypeOf(ap) == *u32);
+            comptime assert(@TypeOf(bp) == *align(1) u32);
+            comptime assert(@TypeOf(cp) == *u32); // undefined layout so does not inherit larger aligns
+
+            try expectEqual(@as(u32, 123), ap.*);
+            try expectEqual(@as(u32, 456), bp.*);
+            try expectEqual(@as(u32, 789), cp.*);
+        }
+    };
+
+    const U1 = union { x: u32 };
+    const U2 = union(enum) { x: u32 };
+
+    try S.doTheTest(U1);
+    try S.doTheTest(U2);
+    try comptime S.doTheTest(U1);
+    try comptime S.doTheTest(U2);
+}
+
+test "packed union field pointer has correct alignment" {
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest; // TODO
+
+    const U = packed union { x: u20 };
+    const S = packed struct(u24) { a: u2, u: U, b: u2 };
+
+    var a: S = undefined;
+    var b: S align(1) = undefined;
+    var c: S align(64) = undefined;
+
+    const ap = &a.u.x;
+    const bp = &b.u.x;
+    const cp = &c.u.x;
+
+    comptime assert(@TypeOf(ap) == *align(4:2:3) u20);
+    comptime assert(@TypeOf(bp) == *align(1:2:3) u20);
+    comptime assert(@TypeOf(cp) == *align(64:2:3) u20);
+
+    a.u = .{ .x = 123 };
+    b.u = .{ .x = 456 };
+    c.u = .{ .x = 789 };
+
+    try expectEqual(@as(u20, 123), ap.*);
+    try expectEqual(@as(u20, 456), bp.*);
+    try expectEqual(@as(u20, 789), cp.*);
+}
