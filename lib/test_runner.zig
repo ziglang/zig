@@ -36,7 +36,7 @@ pub fn main() void {
         @panic("unable to parse command line args");
 
     var i: u32 = 1;
-    var test_i: ?u64 = null;
+    var test_i: u64 = undefined;
     var mode: Mode = .terminal;
 
     while (i < args.len) : (i += 1) {
@@ -49,7 +49,7 @@ pub fn main() void {
                     callError(args);
                 };
                 mode = .panic_test;
-                std.testing.is_panic_parentproc = false;
+                if (std.testing.can_panic_test) std.testing.is_panic_parentproc = false;
             } else {
                 callError(args);
             }
@@ -61,7 +61,7 @@ pub fn main() void {
     switch (mode) {
         .listen => return mainServer() catch @panic("internal test runner failure"),
         .terminal => return mainTerminal(args),
-        .panic_test => return panicTest(test_i.?),
+        .panic_test => return panicTest(test_i),
     }
 }
 
@@ -158,14 +158,6 @@ fn mainServer() !void {
     }
 }
 
-// TODO
-// - [ ] has test_i:
-//   * spawn and compare specific function
-//   * compare result: if returning from execution => @panic("FoundNoPanicInTest");
-// - [ ] not test_i:
-//   * iterate through all functions
-//   * compare result: compare execution result with special case for panic msg "FoundNoPanicInTest"
-
 fn mainTerminal(args: [][:0]const u8) void {
     var test_i_buf: [20]u8 = undefined;
     // TODO make environment buffer size configurable and use a sane default
@@ -228,7 +220,6 @@ fn mainTerminal(args: [][:0]const u8) void {
                 test_node.end();
             },
             error.SpawnZigTest => {
-                progress.log("error.SpawnZigTest\n", .{});
                 if (!std.testing.can_panic_test)
                     @panic("Found error.SpawnZigTest without panic test capabilities.");
                 if (std.testing.panic_msg == null)
@@ -239,7 +230,7 @@ fn mainTerminal(args: [][:0]const u8) void {
                     &.{ args[0], "--test_panic_index", test_i_written },
                     std.testing.allocator,
                 );
-                progress.log("spawning '{s} {s} {s}'\n", .{ args[0], "--test_panic_index", test_i_written });
+                progress.log("SPAWN '{s} {s} {s}'\n", .{ args[0], "--test_panic_index", test_i_written });
 
                 child_proc.stdin_behavior = .Ignore;
                 child_proc.stdout_behavior = .Pipe;
@@ -291,7 +282,7 @@ fn mainTerminal(args: [][:0]const u8) void {
                         }
 
                         if (!found_eol) {
-                            progress.log("FAIL no end of line in panic format\nstdout: ({s})\nstderr: ({s})\n", .{ stdout.items, stderr.items });
+                            progress.log("FAIL no end of line in panic format, Signal: {d}\nstdout: ({s})\nstderr: ({s})\n", .{ code, stdout.items, stderr.items });
                             fail_count += 1;
                             test_node.end();
                             continue;
@@ -319,7 +310,7 @@ fn mainTerminal(args: [][:0]const u8) void {
                             const current_panic_msg = stderr.items[panic_msg_start..panic_msg_end];
 
                             if (!std.mem.eql(u8, "SKIP (async test)", current_panic_msg) and !std.mem.eql(u8, expected_panic_msg, current_panic_msg)) {
-                                progress.log("FAIL expected_panic_msg: '{s}', got: '{s}'\n", .{ expected_panic_msg, current_panic_msg });
+                                progress.log("FAIL expected_panic_msg: '{s}', got: '{s}', Signal: {d}\n", .{ expected_panic_msg, current_panic_msg, code });
                                 std.testing.panic_msg = null;
                                 fail_count += 1;
                                 test_node.end();
@@ -332,7 +323,7 @@ fn mainTerminal(args: [][:0]const u8) void {
                             break;
                         }
                         if (!parsed_panic_msg) {
-                            progress.log("FAIL invalid panic_msg format expect 'XYZ thread thread_id panic: msg'\nstdout: ({s})\nstderr: ({s})\n", .{ stdout.items, stderr.items });
+                            progress.log("FAIL panic_msg format expected 'XYZ thread thread_id panic: msg'\nstdout: ({s})\nstderr: ({s})\n", .{ stdout.items, stderr.items });
                             fail_count += 1;
                             test_node.end();
                             continue;
