@@ -90,7 +90,7 @@ pub fn main() !void {
 
     var install_prefix: ?[]const u8 = null;
     var dir_list = std.Build.DirList{};
-    var enable_summary: ?bool = null;
+    var summary: ?Summary = null;
     var max_rss: usize = 0;
     var color: Color = .auto;
 
@@ -178,6 +178,15 @@ pub fn main() !void {
                     std.debug.print("Expected [auto|on|off] after {s}, found '{s}'\n\n", .{ arg, next_arg });
                     usageAndErr(builder, false, stderr_stream);
                 };
+            } else if (mem.eql(u8, arg, "--summary")) {
+                const next_arg = nextArg(args, &arg_idx) orelse {
+                    std.debug.print("Expected [all|failures|none] after {s}\n\n", .{arg});
+                    usageAndErr(builder, false, stderr_stream);
+                };
+                summary = std.meta.stringToEnum(Summary, next_arg) orelse {
+                    std.debug.print("Expected [all|failures|none] after {s}, found '{s}'\n\n", .{ arg, next_arg });
+                    usageAndErr(builder, false, stderr_stream);
+                };
             } else if (mem.eql(u8, arg, "--zig-lib-dir")) {
                 builder.zig_lib_dir = nextArg(args, &arg_idx) orelse {
                     std.debug.print("Expected argument after {s}\n\n", .{arg});
@@ -234,10 +243,6 @@ pub fn main() !void {
                 builder.enable_darling = true;
             } else if (mem.eql(u8, arg, "-fno-darling")) {
                 builder.enable_darling = false;
-            } else if (mem.eql(u8, arg, "-fsummary")) {
-                enable_summary = true;
-            } else if (mem.eql(u8, arg, "-fno-summary")) {
-                enable_summary = false;
             } else if (mem.eql(u8, arg, "-freference-trace")) {
                 builder.reference_trace = 256;
             } else if (mem.startsWith(u8, arg, "-freference-trace=")) {
@@ -302,7 +307,7 @@ pub fn main() !void {
         .memory_blocked_steps = std.ArrayList(*Step).init(arena),
 
         .claimed_rss = 0,
-        .enable_summary = enable_summary,
+        .summary = summary,
         .ttyconf = ttyconf,
         .stderr = stderr,
     };
@@ -332,7 +337,7 @@ const Run = struct {
     memory_blocked_steps: std.ArrayList(*Step),
 
     claimed_rss: usize,
-    enable_summary: ?bool,
+    summary: ?Summary,
     ttyconf: std.io.tty.Config,
     stderr: std.fs.File,
 };
@@ -469,12 +474,12 @@ fn runStepNames(
 
     // A proper command line application defaults to silently succeeding.
     // The user may request verbose mode if they have a different preference.
-    if (failure_count == 0 and run.enable_summary != true) return cleanExit();
+    if (failure_count == 0 and run.summary != Summary.all) return cleanExit();
 
     const ttyconf = run.ttyconf;
     const stderr = run.stderr;
 
-    if (run.enable_summary != false) {
+    if (run.summary != Summary.none) {
         const total_count = success_count + failure_count + pending_count + skipped_count;
         ttyconf.setColor(stderr, .cyan) catch {};
         stderr.writeAll("Build Summary:") catch {};
@@ -488,23 +493,32 @@ fn runStepNames(
         if (test_fail_count > 0) stderr.writer().print("; {d} failed", .{test_fail_count}) catch {};
         if (test_leak_count > 0) stderr.writer().print("; {d} leaked", .{test_leak_count}) catch {};
 
-        if (run.enable_summary == null) {
+        if (run.summary == null) {
             ttyconf.setColor(stderr, .dim) catch {};
-            stderr.writeAll(" (disable with -fno-summary)") catch {};
+            stderr.writeAll(" (disable with --summary none)") catch {};
             ttyconf.setColor(stderr, .reset) catch {};
         }
         stderr.writeAll("\n") catch {};
+        const failures_only = run.summary != Summary.all;
 
         // Print a fancy tree with build results.
         var print_node: PrintNode = .{ .parent = null };
         if (step_names.len == 0) {
             print_node.last = true;
-            printTreeStep(b, b.default_step, stderr, ttyconf, &print_node, &step_stack) catch {};
+            printTreeStep(b, b.default_step, stderr, ttyconf, &print_node, &step_stack, failures_only) catch {};
         } else {
+            const last_index = if (!failures_only) b.top_level_steps.count() else blk: {
+                var i: usize = step_names.len;
+                while (i > 0) {
+                    i -= 1;
+                    if (b.top_level_steps.get(step_names[i]).?.step.state != .success) break :blk i;
+                }
+                break :blk b.top_level_steps.count();
+            };
             for (step_names, 0..) |step_name, i| {
                 const tls = b.top_level_steps.get(step_name).?;
-                print_node.last = i + 1 == b.top_level_steps.count();
-                printTreeStep(b, &tls.step, stderr, ttyconf, &print_node, &step_stack) catch {};
+                print_node.last = i + 1 == last_index;
+                printTreeStep(b, &tls.step, stderr, ttyconf, &print_node, &step_stack, failures_only) catch {};
             }
         }
     }
@@ -556,8 +570,10 @@ fn printTreeStep(
     ttyconf: std.io.tty.Config,
     parent_node: *PrintNode,
     step_stack: *std.AutoArrayHashMapUnmanaged(*Step, void),
+    failures_only: bool,
 ) !void {
     const first = step_stack.swapRemove(s);
+    if (failures_only and s.state == .success) return;
     try printPrefix(parent_node, stderr, ttyconf);
 
     if (!first) try ttyconf.setColor(stderr, .dim);
@@ -688,12 +704,20 @@ fn printTreeStep(
             },
         }
 
+        const last_index = if (!failures_only) s.dependencies.items.len -| 1 else blk: {
+            var i: usize = s.dependencies.items.len;
+            while (i > 0) {
+                i -= 1;
+                if (s.dependencies.items[i].state != .success) break :blk i;
+            }
+            break :blk s.dependencies.items.len -| 1;
+        };
         for (s.dependencies.items, 0..) |dep, i| {
             var print_node: PrintNode = .{
                 .parent = parent_node,
-                .last = i == s.dependencies.items.len - 1,
+                .last = i == last_index,
             };
-            try printTreeStep(b, dep, stderr, ttyconf, &print_node, step_stack);
+            try printTreeStep(b, dep, stderr, ttyconf, &print_node, step_stack, failures_only);
         }
     } else {
         if (s.dependencies.items.len == 0) {
@@ -948,8 +972,10 @@ fn usage(builder: *std.Build, already_ran_build: bool, out_stream: anytype) !voi
         \\  -l, --list-steps             Print available steps
         \\  --verbose                    Print commands before executing them
         \\  --color [auto|off|on]        Enable or disable colored error messages
-        \\  -fsummary                    Print the build summary, even on success
-        \\  -fno-summary                 Omit the build summary, even on failure
+        \\  --summary [mode]             Control the printing of the build summary
+        \\    all                        Print the build summary in its entirety
+        \\    failures                   (Default) Only print failed steps
+        \\    none                       Do not print the build summary
         \\  -j<N>                        Limit concurrent jobs (default is to use all CPU cores)
         \\  --maxrss <bytes>             Limit memory usage (default is to use available memory)
         \\
@@ -1025,6 +1051,7 @@ fn cleanExit() void {
 }
 
 const Color = enum { auto, off, on };
+const Summary = enum { all, failures, none };
 
 fn get_tty_conf(color: Color, stderr: std.fs.File) std.io.tty.Config {
     return switch (color) {
