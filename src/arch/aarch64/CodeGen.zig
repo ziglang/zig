@@ -4335,14 +4335,9 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallModifier
                     },
                 });
             } else if (self.bin_file.cast(link.File.Plan9)) |p9| {
-                const decl_block_index = try p9.seeDecl(func.owner_decl);
-                const decl_block = p9.getDeclBlock(decl_block_index);
-                const ptr_bits = self.target.ptrBitWidth();
-                const ptr_bytes: u64 = @divExact(ptr_bits, 8);
-                const got_addr = p9.bases.data;
-                const got_index = decl_block.got_index.?;
-                const fn_got_addr = got_addr + got_index * ptr_bytes;
-                try self.genSetReg(Type.usize, .x30, .{ .memory = fn_got_addr });
+                const atom_index = try p9.seeDecl(func.owner_decl);
+                const atom = p9.getAtom(atom_index);
+                try self.genSetReg(Type.usize, .x30, .{ .memory = atom.getOffsetTableAddress(p9) });
             } else unreachable;
 
             _ = try self.addInst(.{

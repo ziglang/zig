@@ -852,10 +852,9 @@ fn genDeclRef(
         const sym_index = coff_file.getAtom(atom_index).getSymbolIndex().?;
         return GenResult.mcv(.{ .load_got = sym_index });
     } else if (bin_file.cast(link.File.Plan9)) |p9| {
-        const decl_block_index = try p9.seeDecl(decl_index);
-        const decl_block = p9.getDeclBlock(decl_block_index);
-        const got_addr = p9.bases.data + decl_block.got_index.? * ptr_bytes;
-        return GenResult.mcv(.{ .memory = got_addr });
+        const atom_index = try p9.seeDecl(decl_index);
+        const atom = p9.getAtom(atom_index);
+        return GenResult.mcv(.{ .memory = atom.getOffsetTableAddress(p9) });
     } else {
         return GenResult.fail(bin_file.allocator, src_loc, "TODO genDeclRef for target {}", .{target});
     }

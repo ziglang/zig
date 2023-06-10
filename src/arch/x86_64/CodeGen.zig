@@ -8115,16 +8115,11 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallModifier
                 try self.genSetReg(.rax, Type.usize, .{ .lea_got = sym_index });
                 try self.asmRegister(.{ ._, .call }, .rax);
             } else if (self.bin_file.cast(link.File.Plan9)) |p9| {
-                const decl_block_index = try p9.seeDecl(owner_decl);
-                const decl_block = p9.getDeclBlock(decl_block_index);
-                const ptr_bits = self.target.ptrBitWidth();
-                const ptr_bytes: u64 = @divExact(ptr_bits, 8);
-                const got_addr = p9.bases.data;
-                const got_index = decl_block.got_index.?;
-                const fn_got_addr = got_addr + got_index * ptr_bytes;
+                const atom_index = try p9.seeDecl(owner_decl);
+                const atom = p9.getAtom(atom_index);
                 try self.asmMemory(.{ ._, .call }, Memory.sib(.qword, .{
                     .base = .{ .reg = .ds },
-                    .disp = @intCast(i32, fn_got_addr),
+                    .disp = @intCast(i32, atom.getOffsetTableAddress(p9)),
                 }));
             } else unreachable;
         } else if (func_value.getExternFunc(mod)) |extern_func| {
@@ -10076,6 +10071,28 @@ fn genLazySymbolRef(
         const atom = elf_file.getAtom(atom_index);
         _ = try atom.getOrCreateOffsetTableEntry(elf_file);
         const got_addr = atom.getOffsetTableAddress(elf_file);
+        const got_mem =
+            Memory.sib(.qword, .{ .base = .{ .reg = .ds }, .disp = @intCast(i32, got_addr) });
+        switch (tag) {
+            .lea, .mov => try self.asmRegisterMemory(.{ ._, .mov }, reg.to64(), got_mem),
+            .call => try self.asmMemory(.{ ._, .call }, got_mem),
+            else => unreachable,
+        }
+        switch (tag) {
+            .lea, .call => {},
+            .mov => try self.asmRegisterMemory(
+                .{ ._, tag },
+                reg.to64(),
+                Memory.sib(.qword, .{ .base = .{ .reg = reg.to64() } }),
+            ),
+            else => unreachable,
+        }
+    } else if (self.bin_file.cast(link.File.Plan9)) |p9_file| {
+        const atom_index = p9_file.getOrCreateAtomForLazySymbol(lazy_sym) catch |err|
+            return self.fail("{s} creating lazy symbol", .{@errorName(err)});
+        var atom = p9_file.getAtom(atom_index);
+        _ = atom.getOrCreateOffsetTableEntry(p9_file);
+        const got_addr = atom.getOffsetTableAddress(p9_file);
         const got_mem =
             Memory.sib(.qword, .{ .base = .{ .reg = .ds }, .disp = @intCast(i32, got_addr) });
         switch (tag) {

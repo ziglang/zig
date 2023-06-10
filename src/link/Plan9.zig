@@ -79,6 +79,8 @@ data_decl_table: std.AutoArrayHashMapUnmanaged(Module.Decl.Index, []u8) = .{},
 /// with `Decl` `main`, and lives as long as that `Decl`.
 unnamed_const_atoms: UnnamedConstTable = .{},
 
+lazy_syms: LazySymbolTable = .{},
+
 relocs: std.AutoHashMapUnmanaged(Module.Decl.Index, std.ArrayListUnmanaged(Reloc)) = .{},
 hdr: aout.ExecHdr = undefined,
 
@@ -94,7 +96,7 @@ got_index_free_list: std.ArrayListUnmanaged(usize) = .{},
 
 syms_index_free_list: std.ArrayListUnmanaged(usize) = .{},
 
-decl_blocks: std.ArrayListUnmanaged(DeclBlock) = .{},
+atoms: std.ArrayListUnmanaged(Atom) = .{},
 decls: std.AutoHashMapUnmanaged(Module.Decl.Index, DeclMetadata) = .{},
 
 const Reloc = struct {
@@ -109,11 +111,28 @@ const Bases = struct {
     data: u64,
 };
 
-const UnnamedConstTable = std.AutoHashMapUnmanaged(Module.Decl.Index, std.ArrayListUnmanaged(struct { info: DeclBlock, code: []const u8 }));
+const UnnamedConstTable = std.AutoHashMapUnmanaged(Module.Decl.Index, std.ArrayListUnmanaged(struct { info: Atom, code: []const u8 }));
+
+const LazySymbolTable = std.AutoArrayHashMapUnmanaged(Module.Decl.OptionalIndex, LazySymbolMetadata);
+
+const LazySymbolMetadata = struct {
+    const State = enum { unused, pending_flush, flushed };
+    text_atom: Atom.Index = undefined,
+    rodata_atom: Atom.Index = undefined,
+    text_state: State = .unused,
+    rodata_state: State = .unused,
+
+    fn numberOfAtoms(self: LazySymbolMetadata) u32 {
+        var n: u32 = 0;
+        if (self.text_state != .unused) n += 1;
+        if (self.rodata_state != .unused) n += 1;
+        return n;
+    }
+};
 
 pub const PtrWidth = enum { p32, p64 };
 
-pub const DeclBlock = struct {
+pub const Atom = struct {
     type: aout.Sym.Type,
     /// offset in the text or data sects
     offset: ?u64,
@@ -121,12 +140,36 @@ pub const DeclBlock = struct {
     sym_index: ?usize,
     /// offset into got
     got_index: ?usize,
+    /// We can optionally store code with the atom
+    /// It is still owned by whatever created it
+    /// This can be useful so that we don't need
+    /// to setup so much infrastructure just to store code
+    /// for stuff like LazySymbols.
+    code: ?[]const u8 = null,
 
     pub const Index = u32;
+
+    pub fn getOrCreateOffsetTableEntry(self: *Atom, plan9: *Plan9) usize {
+        if (self.got_index == null) self.got_index = plan9.allocateGotIndex();
+        return self.got_index.?;
+    }
+
+    pub fn getOrCreateSymbolTableEntry(self: *Atom, plan9: *Plan9) !usize {
+        if (self.sym_index == null) self.sym_index = try plan9.allocateSymbolIndex();
+        return self.sym_index.?;
+    }
+
+    // asserts that self.got_index != null
+    pub fn getOffsetTableAddress(self: Atom, plan9: *Plan9) u64 {
+        const ptr_bytes = @divExact(plan9.base.options.target.ptrBitWidth(), 8);
+        const got_addr = plan9.bases.data;
+        const got_index = self.got_index.?;
+        return got_addr + got_index * ptr_bytes;
+    }
 };
 
 const DeclMetadata = struct {
-    index: DeclBlock.Index,
+    index: Atom.Index,
     exports: std.ArrayListUnmanaged(usize) = .{},
 
     fn getExport(m: DeclMetadata, p9: *const Plan9, name: []const u8) ?usize {
@@ -352,7 +395,7 @@ pub fn lowerUnnamedConst(self: *Plan9, tv: TypedValue, decl_index: Module.Decl.I
 
     const sym_index = try self.allocateSymbolIndex();
 
-    const info: DeclBlock = .{
+    const info: Atom = .{
         .type = .d,
         .offset = null,
         .sym_index = sym_index,
@@ -433,22 +476,22 @@ fn updateFinish(self: *Plan9, decl_index: Module.Decl.Index) !void {
     const is_fn = (decl.ty.zigTypeTag(mod) == .Fn);
     const sym_t: aout.Sym.Type = if (is_fn) .t else .d;
 
-    const decl_block = self.getDeclBlockPtr(self.decls.get(decl_index).?.index);
+    const atom = self.getAtomPtr(self.decls.get(decl_index).?.index);
     // write the internal linker metadata
-    decl_block.type = sym_t;
+    atom.type = sym_t;
     // write the symbol
     // we already have the got index
     const sym: aout.Sym = .{
         .value = undefined, // the value of stuff gets filled in in flushModule
-        .type = decl_block.type,
+        .type = atom.type,
         .name = try self.base.allocator.dupe(u8, mod.intern_pool.stringToSlice(decl.name)),
     };
 
-    if (decl_block.sym_index) |s| {
+    if (atom.sym_index) |s| {
         self.syms.items[s] = sym;
     } else {
         const s = try self.allocateSymbolIndex();
-        decl_block.sym_index = s;
+        atom.sym_index = s;
         self.syms.items[s] = sym;
     }
 }
@@ -461,6 +504,7 @@ fn allocateSymbolIndex(self: *Plan9) !usize {
         return self.syms.items.len - 1;
     }
 }
+
 fn allocateGotIndex(self: *Plan9) usize {
     if (self.got_index_free_list.popOrNull()) |i| {
         return i;
@@ -495,7 +539,7 @@ pub fn changeLine(l: *std.ArrayList(u8), delta_line: i32) !void {
     }
 }
 
-// counts decls and unnamed consts
+// counts decls, unnamed consts, and lazy syms
 fn atomCount(self: *Plan9) usize {
     var fn_decl_count: usize = 0;
     var itf_files = self.fn_decl_table.iterator();
@@ -510,7 +554,12 @@ fn atomCount(self: *Plan9) usize {
     while (it_unc.next()) |unnamed_consts| {
         unnamed_const_count += unnamed_consts.value_ptr.items.len;
     }
-    return data_decl_count + fn_decl_count + unnamed_const_count;
+    var lazy_atom_count: usize = 0;
+    var it_lazy = self.lazy_syms.iterator();
+    while (it_lazy.next()) |kv| {
+        lazy_atom_count += kv.value_ptr.numberOfAtoms();
+    }
+    return data_decl_count + fn_decl_count + unnamed_const_count + lazy_atom_count;
 }
 
 pub fn flushModule(self: *Plan9, comp: *Compilation, prog_node: *std.Progress.Node) link.File.FlushError!void {
@@ -532,7 +581,32 @@ pub fn flushModule(self: *Plan9, comp: *Compilation, prog_node: *std.Progress.No
 
     const mod = self.base.options.module orelse return error.LinkingWithoutZigSourceUnimplemented;
 
-    assert(self.got_len == self.atomCount() + self.got_index_free_list.items.len);
+    // finish up the lazy syms
+    if (self.lazy_syms.getPtr(.none)) |metadata| {
+        // Most lazy symbols can be updated on first use, but
+        // anyerror needs to wait for everything to be flushed.
+        if (metadata.text_state != .unused) self.updateLazySymbolAtom(
+            File.LazySymbol.initDecl(.code, null, mod),
+            metadata.text_atom,
+        ) catch |err| return switch (err) {
+            error.CodegenFail => error.FlushFailure,
+            else => |e| e,
+        };
+        if (metadata.rodata_state != .unused) self.updateLazySymbolAtom(
+            File.LazySymbol.initDecl(.const_data, null, mod),
+            metadata.rodata_atom,
+        ) catch |err| return switch (err) {
+            error.CodegenFail => error.FlushFailure,
+            else => |e| e,
+        };
+    }
+    for (self.lazy_syms.values()) |*metadata| {
+        if (metadata.text_state != .unused) metadata.text_state = .flushed;
+        if (metadata.rodata_state != .unused) metadata.rodata_state = .flushed;
+    }
+    // make sure the got table is good
+    const atom_count = self.atomCount();
+    assert(self.got_len == atom_count + self.got_index_free_list.items.len);
     const got_size = self.got_len * if (!self.sixtyfour_bit) @as(u32, 4) else 8;
     var got_table = try self.base.allocator.alloc(u8, got_size);
     defer self.base.allocator.free(got_table);
@@ -562,7 +636,7 @@ pub fn flushModule(self: *Plan9, comp: *Compilation, prog_node: *std.Progress.No
             var it = fentry.value_ptr.functions.iterator();
             while (it.next()) |entry| {
                 const decl_index = entry.key_ptr.*;
-                const decl_block = self.getDeclBlockPtr(self.decls.get(decl_index).?.index);
+                const atom = self.getAtomPtr(self.decls.get(decl_index).?.index);
                 const out = entry.value_ptr.*;
                 {
                     // connect the previous decl to the next
@@ -580,14 +654,13 @@ pub fn flushModule(self: *Plan9, comp: *Compilation, prog_node: *std.Progress.No
                 iovecs_i += 1;
                 const off = self.getAddr(text_i, .t);
                 text_i += out.code.len;
-                decl_block.offset = off;
+                atom.offset = off;
                 if (!self.sixtyfour_bit) {
-                    mem.writeIntNative(u32, got_table[decl_block.got_index.? * 4 ..][0..4], @intCast(u32, off));
-                    mem.writeInt(u32, got_table[decl_block.got_index.? * 4 ..][0..4], @intCast(u32, off), self.base.options.target.cpu.arch.endian());
+                    mem.writeInt(u32, got_table[atom.got_index.? * 4 ..][0..4], @intCast(u32, off), self.base.options.target.cpu.arch.endian());
                 } else {
-                    mem.writeInt(u64, got_table[decl_block.got_index.? * 8 ..][0..8], off, self.base.options.target.cpu.arch.endian());
+                    mem.writeInt(u64, got_table[atom.got_index.? * 8 ..][0..8], off, self.base.options.target.cpu.arch.endian());
                 }
-                self.syms.items[decl_block.sym_index.?].value = off;
+                self.syms.items[atom.sym_index.?].value = off;
                 if (mod.decl_exports.get(decl_index)) |exports| {
                     try self.addDeclExports(mod, decl_index, exports.items);
                 }
@@ -597,9 +670,30 @@ pub fn flushModule(self: *Plan9, comp: *Compilation, prog_node: *std.Progress.No
             // just a nop to make it even, the plan9 linker does this
             try linecountinfo.append(129);
         }
-        // etext symbol
-        self.syms.items[2].value = self.getAddr(text_i, .t);
     }
+    // the text lazy symbols
+    {
+        var it = self.lazy_syms.iterator();
+        while (it.next()) |kv| {
+            const meta = kv.value_ptr;
+            const text_atom = if (meta.text_state != .unused) self.getAtomPtr(meta.text_atom) else continue;
+            const code = text_atom.code.?;
+            foff += code.len;
+            iovecs[iovecs_i] = .{ .iov_base = code.ptr, .iov_len = code.len };
+            iovecs_i += 1;
+            const off = self.getAddr(text_i, .t);
+            text_i += code.len;
+            text_atom.offset = off;
+            if (!self.sixtyfour_bit) {
+                mem.writeInt(u32, got_table[text_atom.got_index.? * 4 ..][0..4], @intCast(u32, off), self.base.options.target.cpu.arch.endian());
+            } else {
+                mem.writeInt(u64, got_table[text_atom.got_index.? * 8 ..][0..8], off, self.base.options.target.cpu.arch.endian());
+            }
+            self.syms.items[text_atom.sym_index.?].value = off;
+        }
+    }
+    // etext symbol
+    self.syms.items[2].value = self.getAddr(text_i, .t);
     // global offset table is in data
     iovecs[iovecs_i] = .{ .iov_base = got_table.ptr, .iov_len = got_table.len };
     iovecs_i += 1;
@@ -609,7 +703,7 @@ pub fn flushModule(self: *Plan9, comp: *Compilation, prog_node: *std.Progress.No
         var it = self.data_decl_table.iterator();
         while (it.next()) |entry| {
             const decl_index = entry.key_ptr.*;
-            const decl_block = self.getDeclBlockPtr(self.decls.get(decl_index).?.index);
+            const atom = self.getAtomPtr(self.decls.get(decl_index).?.index);
             const code = entry.value_ptr.*;
 
             foff += code.len;
@@ -617,13 +711,13 @@ pub fn flushModule(self: *Plan9, comp: *Compilation, prog_node: *std.Progress.No
             iovecs_i += 1;
             const off = self.getAddr(data_i, .d);
             data_i += code.len;
-            decl_block.offset = off;
+            atom.offset = off;
             if (!self.sixtyfour_bit) {
-                mem.writeInt(u32, got_table[decl_block.got_index.? * 4 ..][0..4], @intCast(u32, off), self.base.options.target.cpu.arch.endian());
+                mem.writeInt(u32, got_table[atom.got_index.? * 4 ..][0..4], @intCast(u32, off), self.base.options.target.cpu.arch.endian());
             } else {
-                mem.writeInt(u64, got_table[decl_block.got_index.? * 8 ..][0..8], off, self.base.options.target.cpu.arch.endian());
+                mem.writeInt(u64, got_table[atom.got_index.? * 8 ..][0..8], off, self.base.options.target.cpu.arch.endian());
             }
-            self.syms.items[decl_block.sym_index.?].value = off;
+            self.syms.items[atom.sym_index.?].value = off;
             if (mod.decl_exports.get(decl_index)) |exports| {
                 try self.addDeclExports(mod, decl_index, exports.items);
             }
@@ -648,11 +742,30 @@ pub fn flushModule(self: *Plan9, comp: *Compilation, prog_node: *std.Progress.No
                 self.syms.items[unnamed_const.info.sym_index.?].value = off;
             }
         }
+        // the lazy data symbols
+        var it_lazy = self.lazy_syms.iterator();
+        while (it_lazy.next()) |kv| {
+            const meta = kv.value_ptr;
+            const data_atom = if (meta.rodata_state != .unused) self.getAtomPtr(meta.rodata_atom) else continue;
+            const code = data_atom.code.?;
+            foff += code.len;
+            iovecs[iovecs_i] = .{ .iov_base = code.ptr, .iov_len = code.len };
+            iovecs_i += 1;
+            const off = self.getAddr(data_i, .d);
+            data_i += code.len;
+            data_atom.offset = off;
+            if (!self.sixtyfour_bit) {
+                mem.writeInt(u32, got_table[data_atom.got_index.? * 4 ..][0..4], @intCast(u32, off), self.base.options.target.cpu.arch.endian());
+            } else {
+                mem.writeInt(u64, got_table[data_atom.got_index.? * 8 ..][0..8], off, self.base.options.target.cpu.arch.endian());
+            }
+            self.syms.items[data_atom.sym_index.?].value = off;
+        }
         // edata symbol
         self.syms.items[0].value = self.getAddr(data_i, .b);
+        // end
+        self.syms.items[1].value = self.getAddr(data_i, .b);
     }
-    // edata
-    self.syms.items[1].value = self.getAddr(0x0, .b);
     var sym_buf = std.ArrayList(u8).init(self.base.allocator);
     try self.writeSyms(&sym_buf);
     const syms = try sym_buf.toOwnedSlice();
@@ -686,8 +799,10 @@ pub fn flushModule(self: *Plan9, comp: *Compilation, prog_node: *std.Progress.No
             const source_decl = mod.declPtr(source_decl_index);
             for (kv.value_ptr.items) |reloc| {
                 const target_decl_index = reloc.target;
-                const target_decl_block = self.getDeclBlock(self.decls.get(target_decl_index).?.index);
-                const target_decl_offset = target_decl_block.offset.?;
+                const target_decl = mod.declPtr(target_decl_index);
+                _ = target_decl;
+                const target_atom = self.getAtom(self.decls.get(target_decl_index).?.index);
+                const target_decl_offset = target_atom.offset.?;
 
                 const offset = reloc.offset;
                 const addend = reloc.addend;
@@ -722,7 +837,7 @@ fn addDeclExports(
     exports: []const *Module.Export,
 ) !void {
     const metadata = self.decls.getPtr(decl_index).?;
-    const decl_block = self.getDeclBlock(metadata.index);
+    const atom = self.getAtom(metadata.index);
 
     for (exports) |exp| {
         const exp_name = mod.intern_pool.stringToSlice(exp.opts.name);
@@ -739,8 +854,8 @@ fn addDeclExports(
             }
         }
         const sym = .{
-            .value = decl_block.offset.?,
-            .type = decl_block.type.toGlobal(),
+            .value = atom.offset.?,
+            .type = atom.type.toGlobal(),
             .name = try self.base.allocator.dupe(u8, exp_name),
         };
 
@@ -780,12 +895,12 @@ pub fn freeDecl(self: *Plan9, decl_index: Module.Decl.Index) void {
     }
     if (self.decls.fetchRemove(decl_index)) |const_kv| {
         var kv = const_kv;
-        const decl_block = self.getDeclBlock(kv.value.index);
-        if (decl_block.got_index) |i| {
+        const atom = self.getAtom(kv.value.index);
+        if (atom.got_index) |i| {
             // TODO: if this catch {} is triggered, an assertion in flushModule will be triggered, because got_index_free_list will have the wrong length
             self.got_index_free_list.append(self.base.allocator, i) catch {};
         }
-        if (decl_block.sym_index) |i| {
+        if (atom.sym_index) |i| {
             self.syms_index_free_list.append(self.base.allocator, i) catch {};
             self.syms.items[i] = aout.Sym.undefined_symbol;
         }
@@ -809,11 +924,11 @@ fn freeUnnamedConsts(self: *Plan9, decl_index: Module.Decl.Index) void {
     unnamed_consts.clearAndFree(self.base.allocator);
 }
 
-fn createDeclBlock(self: *Plan9) !DeclBlock.Index {
+fn createAtom(self: *Plan9) !Atom.Index {
     const gpa = self.base.allocator;
-    const index = @intCast(DeclBlock.Index, self.decl_blocks.items.len);
-    const decl_block = try self.decl_blocks.addOne(gpa);
-    decl_block.* = .{
+    const index = @intCast(Atom.Index, self.atoms.items.len);
+    const atom = try self.atoms.addOne(gpa);
+    atom.* = .{
         .type = .t,
         .offset = null,
         .sym_index = null,
@@ -822,11 +937,11 @@ fn createDeclBlock(self: *Plan9) !DeclBlock.Index {
     return index;
 }
 
-pub fn seeDecl(self: *Plan9, decl_index: Module.Decl.Index) !DeclBlock.Index {
+pub fn seeDecl(self: *Plan9, decl_index: Module.Decl.Index) !Atom.Index {
     const gop = try self.decls.getOrPut(self.base.allocator, decl_index);
     if (!gop.found_existing) {
-        const index = try self.createDeclBlock();
-        self.getDeclBlockPtr(index).got_index = self.allocateGotIndex();
+        const index = try self.createAtom();
+        self.getAtomPtr(index).got_index = self.allocateGotIndex();
         gop.value_ptr.* = .{
             .index = index,
             .exports = .{},
@@ -846,6 +961,89 @@ pub fn updateDeclExports(
     _ = module;
     _ = exports;
 }
+
+pub fn getOrCreateAtomForLazySymbol(self: *Plan9, sym: File.LazySymbol) !Atom.Index {
+    const gop = try self.lazy_syms.getOrPut(self.base.allocator, sym.getDecl(self.base.options.module.?));
+    errdefer _ = if (!gop.found_existing) self.lazy_syms.pop();
+
+    if (!gop.found_existing) gop.value_ptr.* = .{};
+
+    const metadata: struct { atom: *Atom.Index, state: *LazySymbolMetadata.State } = switch (sym.kind) {
+        .code => .{ .atom = &gop.value_ptr.text_atom, .state = &gop.value_ptr.text_state },
+        .const_data => .{ .atom = &gop.value_ptr.rodata_atom, .state = &gop.value_ptr.rodata_state },
+    };
+    switch (metadata.state.*) {
+        .unused => metadata.atom.* = try self.createAtom(),
+        .pending_flush => return metadata.atom.*,
+        .flushed => {},
+    }
+    metadata.state.* = .pending_flush;
+    const atom = metadata.atom.*;
+    _ = try self.getAtomPtr(atom).getOrCreateSymbolTableEntry(self);
+    _ = self.getAtomPtr(atom).getOrCreateOffsetTableEntry(self);
+    // anyerror needs to be deferred until flushModule
+    if (sym.getDecl(self.base.options.module.?) != .none) {
+        try self.updateLazySymbolAtom(sym, atom);
+    }
+    return atom;
+}
+
+fn updateLazySymbolAtom(self: *Plan9, sym: File.LazySymbol, atom_index: Atom.Index) !void {
+    const gpa = self.base.allocator;
+    const mod = self.base.options.module.?;
+
+    const atom = self.getAtomPtr(atom_index);
+    const local_sym_index = atom.sym_index.?;
+
+    var required_alignment: u32 = undefined;
+    var code_buffer = std.ArrayList(u8).init(gpa);
+    defer code_buffer.deinit();
+
+    // create the symbol for the name
+    const name = try std.fmt.allocPrint(gpa, "__lazy_{s}_{}", .{
+        @tagName(sym.kind),
+        sym.ty.fmt(mod),
+    });
+
+    const symbol: aout.Sym = .{
+        .value = undefined,
+        .type = if (sym.kind == .code) .t else .d,
+        .name = name,
+    };
+    self.syms.items[atom.sym_index.?] = symbol;
+
+    // generate the code
+    const src = if (sym.ty.getOwnerDeclOrNull(mod)) |owner_decl|
+        mod.declPtr(owner_decl).srcLoc(mod)
+    else
+        Module.SrcLoc{
+            .file_scope = undefined,
+            .parent_decl_node = undefined,
+            .lazy = .unneeded,
+        };
+    const res = try codegen.generateLazySymbol(
+        &self.base,
+        src,
+        sym,
+        &required_alignment,
+        &code_buffer,
+        .none,
+        .{ .parent_atom_index = @intCast(u32, local_sym_index) },
+    );
+    const code = switch (res) {
+        .ok => code_buffer.items,
+        .fail => |em| {
+            log.err("{s}", .{em.msg});
+            return error.CodegenFail;
+        },
+    };
+    // duped_code is freed when the atom is freed
+    var duped_code = try self.base.allocator.dupe(u8, code);
+    errdefer self.base.allocator.free(duped_code);
+
+    atom.code = duped_code;
+}
+
 pub fn deinit(self: *Plan9) void {
     const gpa = self.base.allocator;
     {
@@ -861,6 +1059,14 @@ pub fn deinit(self: *Plan9) void {
         self.freeUnnamedConsts(kv.key_ptr.*);
     }
     self.unnamed_const_atoms.deinit(gpa);
+    var it_lzc = self.lazy_syms.iterator();
+    while (it_lzc.next()) |kv| {
+        if (kv.value_ptr.text_state != .unused)
+            gpa.free(self.syms.items[self.getAtom(kv.value_ptr.text_atom).sym_index.?].name);
+        if (kv.value_ptr.rodata_state != .unused)
+            gpa.free(self.syms.items[self.getAtom(kv.value_ptr.rodata_atom).sym_index.?].name);
+    }
+    self.lazy_syms.deinit(gpa);
     var itf_files = self.fn_decl_table.iterator();
     while (itf_files.next()) |ent| {
         // get the submap
@@ -883,7 +1089,12 @@ pub fn deinit(self: *Plan9) void {
     self.syms_index_free_list.deinit(gpa);
     self.file_segments.deinit(gpa);
     self.path_arena.deinit();
-    self.decl_blocks.deinit(gpa);
+    for (self.atoms.items) |atom| {
+        if (atom.code) |c| {
+            gpa.free(c);
+        }
+    }
+    self.atoms.deinit(gpa);
 
     {
         var it = self.decls.iterator();
@@ -911,7 +1122,7 @@ pub fn openPath(allocator: Allocator, sub_path: []const u8, options: link.Option
 
     self.bases = defaultBaseAddrs(options.target.cpu.arch);
 
-    // first 3 symbols in our table are edata, end, etext
+    // first 4 symbols in our table are edata, end, etext, and got
     try self.syms.appendSlice(self.base.allocator, &.{
         .{
             .value = 0xcafebabe,
@@ -927,6 +1138,12 @@ pub fn openPath(allocator: Allocator, sub_path: []const u8, options: link.Option
             .value = 0xcafebabe,
             .type = .T,
             .name = "etext",
+        },
+        // we include the global offset table to make it easier for debugging
+        .{
+            .value = self.getAddr(0, .d), // the global offset table starts at 0
+            .type = .d,
+            .name = "__GOT",
         },
     });
 
@@ -950,6 +1167,11 @@ pub fn writeSyms(self: *Plan9, buf: *std.ArrayList(u8)) !void {
     const mod = self.base.options.module.?;
     const ip = &mod.intern_pool;
     const writer = buf.writer();
+    // write the first four symbols (edata, etext, end, __GOT)
+    try self.writeSym(writer, self.syms.items[0]);
+    try self.writeSym(writer, self.syms.items[1]);
+    try self.writeSym(writer, self.syms.items[2]);
+    try self.writeSym(writer, self.syms.items[3]);
     // write the f symbols
     {
         var it = self.file_segments.iterator();
@@ -968,14 +1190,24 @@ pub fn writeSyms(self: *Plan9, buf: *std.ArrayList(u8)) !void {
         while (it.next()) |entry| {
             const decl_index = entry.key_ptr.*;
             const decl_metadata = self.decls.get(decl_index).?;
-            const decl_block = self.getDeclBlock(decl_metadata.index);
-            const sym = self.syms.items[decl_block.sym_index.?];
+            const atom = self.getAtom(decl_metadata.index);
+            const sym = self.syms.items[atom.sym_index.?];
             try self.writeSym(writer, sym);
             if (self.base.options.module.?.decl_exports.get(decl_index)) |exports| {
                 for (exports.items) |e| if (decl_metadata.getExport(self, ip.stringToSlice(e.opts.name))) |exp_i| {
                     try self.writeSym(writer, self.syms.items[exp_i]);
                 };
             }
+        }
+    }
+    // the data lazy symbols
+    {
+        var it = self.lazy_syms.iterator();
+        while (it.next()) |kv| {
+            const meta = kv.value_ptr;
+            const data_atom = if (meta.rodata_state != .unused) self.getAtomPtr(meta.rodata_atom) else continue;
+            const sym = self.syms.items[data_atom.sym_index.?];
+            try self.writeSym(writer, sym);
         }
     }
     // text symbols are the hardest:
@@ -994,8 +1226,8 @@ pub fn writeSyms(self: *Plan9, buf: *std.ArrayList(u8)) !void {
             while (submap_it.next()) |entry| {
                 const decl_index = entry.key_ptr.*;
                 const decl_metadata = self.decls.get(decl_index).?;
-                const decl_block = self.getDeclBlock(decl_metadata.index);
-                const sym = self.syms.items[decl_block.sym_index.?];
+                const atom = self.getAtom(decl_metadata.index);
+                const sym = self.syms.items[atom.sym_index.?];
                 try self.writeSym(writer, sym);
                 if (self.base.options.module.?.decl_exports.get(decl_index)) |exports| {
                     for (exports.items) |e| if (decl_metadata.getExport(self, ip.stringToSlice(e.opts.name))) |exp_i| {
@@ -1005,6 +1237,16 @@ pub fn writeSyms(self: *Plan9, buf: *std.ArrayList(u8)) !void {
                         try self.writeSym(writer, s);
                     };
                 }
+            }
+        }
+        // the text lazy symbols
+        {
+            var it = self.lazy_syms.iterator();
+            while (it.next()) |kv| {
+                const meta = kv.value_ptr;
+                const text_atom = if (meta.text_state != .unused) self.getAtomPtr(meta.text_atom) else continue;
+                const sym = self.syms.items[text_atom.sym_index.?];
+                try self.writeSym(writer, sym);
             }
         }
     }
@@ -1056,10 +1298,10 @@ pub fn getDeclVAddr(
     return 0;
 }
 
-pub fn getDeclBlock(self: *const Plan9, index: DeclBlock.Index) DeclBlock {
-    return self.decl_blocks.items[index];
+pub fn getAtom(self: *const Plan9, index: Atom.Index) Atom {
+    return self.atoms.items[index];
 }
 
-fn getDeclBlockPtr(self: *Plan9, index: DeclBlock.Index) *DeclBlock {
-    return &self.decl_blocks.items[index];
+fn getAtomPtr(self: *Plan9, index: Atom.Index) *Atom {
+    return &self.atoms.items[index];
 }
