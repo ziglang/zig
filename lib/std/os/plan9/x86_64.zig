@@ -9,8 +9,8 @@ pub fn syscall1(sys: plan9.SYS, arg0: usize) usize {
         \\pop %%r11
         \\pop %%r11
         : [ret] "={rax}" (-> usize),
-        : [syscall_number] "{rbp}" (@enumToInt(sys)),
-          [arg0] "{r8}" (arg0),
+        : [arg0] "{r8}" (arg0),
+          [syscall_number] "{rbp}" (@enumToInt(sys)),
         : "rcx", "rax", "rbp", "r11", "memory"
     );
 }
