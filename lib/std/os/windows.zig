@@ -2251,6 +2251,53 @@ fn getFullPathNameW(path: [*:0]const u16, out: []u16) !usize {
     return result;
 }
 
+pub const GetTempPathError = error{
+    NameTooLong,
+    Unexpected,
+};
+
+/// Returns a slice of `buffer`, indexed from 0.
+pub fn GetTempPath(buffer: []u8) GetTempPathError![]u8 {
+    var utf16le_buf: [PATH_MAX_WIDE]u16 = undefined;
+    const result = kernel32.GetTempPathW(utf16le_buf.len, &utf16le_buf);
+    if (result == 0) {
+        switch (kernel32.GetLastError()) {
+            else => |err| return unexpectedError(err),
+        }
+    }
+    assert(result <= utf16le_buf.len);
+    const utf16le_slice = utf16le_buf[0..result];
+    // Trust that Windows gives us valid UTF-16LE.
+    var end_index: usize = 0;
+    var it = std.unicode.Utf16LeIterator.init(utf16le_slice);
+    while (it.nextCodepoint() catch unreachable) |codepoint| {
+        const seq_len = std.unicode.utf8CodepointSequenceLength(codepoint) catch unreachable;
+        if (end_index + seq_len >= buffer.len)
+            return error.NameTooLong;
+        end_index += std.unicode.utf8Encode(codepoint, buffer[end_index..]) catch unreachable;
+    }
+    return buffer[0..end_index];
+}
+
+test "GetTempPath" {
+    if (builtin.os.tag != .windows)
+        return;
+
+    var buffer: [PATH_MAX_WIDE]u8 = undefined;
+
+    // Buffer too small.
+    try std.testing.expectError(error.NameTooLong, GetTempPath(buffer[0..1]));
+
+    // Large-enough buffer.
+    const path = try GetTempPath(buffer[0..]);
+    try std.testing.expect(path.len > 0);
+
+    // Per the documentation for this API:
+    //
+    // > The returned string ends with a backslash, for example, "C:\TEMP\".
+    try std.testing.expect(path[path.len - 1] == '\\');
+}
+
 inline fn MAKELANGID(p: c_ushort, s: c_ushort) LANGID {
     return (s << 10) | p;
 }

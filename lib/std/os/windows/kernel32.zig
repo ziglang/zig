@@ -229,6 +229,11 @@ pub extern "kernel32" fn GetProcessHeap() callconv(WINAPI) ?HANDLE;
 
 pub extern "kernel32" fn GetProcessTimes(in_hProcess: HANDLE, out_lpCreationTime: *FILETIME, out_lpExitTime: *FILETIME, out_lpKernelTime: *FILETIME, out_lpUserTime: *FILETIME) callconv(WINAPI) BOOL;
 
+pub extern "kernel32" fn GetTempPathW(
+    nBufferLength: u32,
+    lpBuffer: [*]u16,
+) callconv(WINAPI) u32;
+
 pub extern "kernel32" fn GetQueuedCompletionStatus(CompletionPort: HANDLE, lpNumberOfBytesTransferred: *DWORD, lpCompletionKey: *ULONG_PTR, lpOverlapped: *?*OVERLAPPED, dwMilliseconds: DWORD) callconv(WINAPI) BOOL;
 pub extern "kernel32" fn GetQueuedCompletionStatusEx(
     CompletionPort: HANDLE,
