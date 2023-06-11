@@ -2198,6 +2198,7 @@ pub const Object = struct {
                     const field_size = field.ty.abiSize(mod);
                     const field_align = field.normalAlignment(mod);
 
+                    const field_di_ty = try o.lowerDebugType(field.ty, .full);
                     di_fields.appendAssumeCapacity(dib.createMemberType(
                         fwd_decl.toScope(),
                         mod.intern_pool.stringToSlice(field_name),
@@ -2207,7 +2208,7 @@ pub const Object = struct {
                         field_align * 8, // align in bits
                         0, // offset in bits
                         0, // flags
-                        try o.lowerDebugType(field.ty, .full),
+                        field_di_ty,
                     ));
                 }
 
@@ -2377,8 +2378,9 @@ pub const Object = struct {
         const mod = o.module;
         const decl = mod.declPtr(decl_index);
         const fields: [0]*llvm.DIType = .{};
+        const di_scope = try o.namespaceToDebugScope(decl.src_namespace);
         return o.di_builder.?.createStructType(
-            try o.namespaceToDebugScope(decl.src_namespace),
+            di_scope,
             mod.intern_pool.stringToSlice(decl.name), // TODO use fully qualified name
             try o.getDIFile(o.gpa, mod.namespacePtr(decl.src_namespace).file_scope),
             decl.src_line + 1,
@@ -5940,8 +5942,6 @@ pub const FuncGen = struct {
             .base_line = self.base_line,
         });
 
-        const fqn = mod.intern_pool.stringToSlice(try decl.getFullyQualifiedName(mod));
-
         const is_internal_linkage = !mod.decl_exports.contains(decl_index);
         const fn_ty = try mod.funcType(.{
             .param_types = &.{},
@@ -5958,13 +5958,15 @@ pub const FuncGen = struct {
             .section_is_generic = false,
             .addrspace_is_generic = false,
         });
+        const fn_di_ty = try self.dg.object.lowerDebugType(fn_ty, .full);
+        const fqn = mod.intern_pool.stringToSlice(try decl.getFullyQualifiedName(mod));
         const subprogram = dib.createFunction(
             di_file.toScope(),
             mod.intern_pool.stringToSlice(decl.name),
             fqn,
             di_file,
             line_number,
-            try self.dg.object.lowerDebugType(fn_ty, .full),
+            fn_di_ty,
             is_internal_linkage,
             true, // is definition
             line_number + func.lbrace_line, // scope line
