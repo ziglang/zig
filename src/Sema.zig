@@ -16418,9 +16418,7 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
         },
         .Enum => {
             // TODO: look into memoizing this result.
-            const enum_type = ip.indexToKey(ty.toIntern()).enum_type;
-
-            const is_exhaustive = Value.makeBool(enum_type.tag_mode != .nonexhaustive);
+            const is_exhaustive = Value.makeBool(ip.indexToKey(ty.toIntern()).enum_type.tag_mode != .nonexhaustive);
 
             var fields_anon_decl = try block.startAnonDecl();
             defer fields_anon_decl.deinit();
@@ -16438,10 +16436,18 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                 break :t enum_field_ty_decl.val.toType();
             };
 
-            const enum_field_vals = try sema.arena.alloc(InternPool.Index, enum_type.names.len);
+            const enum_field_vals = try sema.arena.alloc(InternPool.Index, ip.indexToKey(ty.toIntern()).enum_type.names.len);
             for (enum_field_vals, 0..) |*field_val, i| {
+                const enum_type = ip.indexToKey(ty.toIntern()).enum_type;
+                const value_val = if (enum_type.values.len > 0)
+                    try mod.intern_pool.getCoerced(gpa, enum_type.values[i], .comptime_int_type)
+                else
+                    try mod.intern(.{ .int = .{
+                        .ty = .comptime_int_type,
+                        .storage = .{ .u64 = @intCast(u64, i) },
+                    } });
                 // TODO: write something like getCoercedInts to avoid needing to dupe
-                const name = try sema.arena.dupe(u8, ip.stringToSlice(ip.indexToKey(ty.toIntern()).enum_type.names[i]));
+                const name = try sema.arena.dupe(u8, ip.stringToSlice(enum_type.names[i]));
                 const name_val = v: {
                     var anon_decl = try block.startAnonDecl();
                     defer anon_decl.deinit();
@@ -16468,7 +16474,7 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                     // name: []const u8,
                     name_val,
                     // value: comptime_int,
-                    (try mod.intValue(Type.comptime_int, i)).toIntern(),
+                    value_val,
                 };
                 field_val.* = try mod.intern(.{ .aggregate = .{
                     .ty = enum_field_ty.toIntern(),
@@ -16503,7 +16509,7 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                 } });
             };
 
-            const decls_val = try sema.typeInfoDecls(block, src, type_info_ty, enum_type.namespace);
+            const decls_val = try sema.typeInfoDecls(block, src, type_info_ty, ip.indexToKey(ty.toIntern()).enum_type.namespace);
 
             const type_enum_ty = t: {
                 const type_enum_ty_decl_index = (try sema.namespaceLookup(
@@ -16520,7 +16526,7 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
 
             const field_values = .{
                 // tag_type: type,
-                enum_type.tag_ty,
+                ip.indexToKey(ty.toIntern()).enum_type.tag_ty,
                 // fields: []const EnumField,
                 fields_val,
                 // decls: []const Declaration,
