@@ -392,7 +392,7 @@ pub fn print(
                         const sent = ty.sentinel(mod) orelse break :blk false;
                         break :blk sent.eql(Value.zero_u8, Type.u8, mod);
                     };
-                    const str = if (zero_sent) bytes[0..bytes.len - 1] else bytes;
+                    const str = if (zero_sent) bytes[0 .. bytes.len - 1] else bytes;
                     return writer.print("\"{}\"", .{std.zig.fmtEscapes(str)});
                 },
                 .elems, .repeated_elem => return printAggregate(ty, val, writer, level, mod),
