@@ -7170,23 +7170,24 @@ fn analyzeCall(
                 try sema.ensureResultUsed(block, sema.typeOf(func_inst), call_src);
             }
             return sema.handleTailCall(block, call_src, func_ty, func_inst);
-        } else if (block.wantSafety() and func_ty_info.return_type == .noreturn_type) {
+        }
+        if (block.wantSafety() and func_ty_info.return_type == .noreturn_type) skip_safety: {
             // Function pointers and extern functions aren't guaranteed to
             // actually be noreturn so we add a safety check for them.
-            check: {
-                const func_val = (try sema.resolveMaybeUndefVal(func)) orelse break :check;
+            if (try sema.resolveMaybeUndefVal(func)) |func_val| {
                 switch (mod.intern_pool.indexToKey(func_val.toIntern())) {
-                    .func, .extern_func, .ptr => {
-                        _ = try block.addNoOp(.unreach);
-                        return Air.Inst.Ref.unreachable_value;
+                    .func => break :skip_safety,
+                    .ptr => |ptr| switch (ptr.addr) {
+                        .decl => |decl| if (!mod.declPtr(decl).isExtern(mod)) break :skip_safety,
+                        else => {},
                     },
-                    else => break :check,
+                    else => {},
                 }
             }
-
             try sema.safetyPanic(block, .noreturn_returned);
             return Air.Inst.Ref.unreachable_value;
-        } else if (func_ty_info.return_type == .noreturn_type) {
+        }
+        if (func_ty_info.return_type == .noreturn_type) {
             _ = try block.addNoOp(.unreach);
             return Air.Inst.Ref.unreachable_value;
         }
