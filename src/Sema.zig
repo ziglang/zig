@@ -28186,11 +28186,12 @@ fn beginComptimePtrMutation(
                         const elem_abi_size_u64 = try sema.typeAbiSize(base_elem_ty);
                         if (elem_abi_size_u64 < try sema.typeAbiSize(ptr_elem_ty)) {
                             const elem_abi_size = try sema.usizeCast(block, src, elem_abi_size_u64);
+                            const elem_idx = try sema.usizeCast(block, src, elem_ptr.index);
                             return .{
                                 .mut_decl = parent.mut_decl,
                                 .pointee = .{ .reinterpret = .{
                                     .val_ptr = val_ptr,
-                                    .byte_offset = elem_abi_size * elem_ptr.index,
+                                    .byte_offset = elem_abi_size * elem_idx,
                                 } },
                                 .ty = parent.ty,
                             };
@@ -28223,7 +28224,7 @@ fn beginComptimePtrMutation(
                                         block,
                                         src,
                                         elem_ty,
-                                        &elems[elem_ptr.index],
+                                        &elems[@intCast(usize, elem_ptr.index)],
                                         ptr_elem_ty,
                                         parent.mut_decl,
                                     );
@@ -28254,7 +28255,7 @@ fn beginComptimePtrMutation(
                                         block,
                                         src,
                                         elem_ty,
-                                        &elems[elem_ptr.index],
+                                        &elems[@intCast(usize, elem_ptr.index)],
                                         ptr_elem_ty,
                                         parent.mut_decl,
                                     );
@@ -28265,7 +28266,7 @@ fn beginComptimePtrMutation(
                                     block,
                                     src,
                                     elem_ty,
-                                    &val_ptr.castTag(.aggregate).?.data[elem_ptr.index],
+                                    &val_ptr.castTag(.aggregate).?.data[@intCast(usize, elem_ptr.index)],
                                     ptr_elem_ty,
                                     parent.mut_decl,
                                 ),
@@ -28291,7 +28292,7 @@ fn beginComptimePtrMutation(
                                         block,
                                         src,
                                         elem_ty,
-                                        &elems[elem_ptr.index],
+                                        &elems[@intCast(usize, elem_ptr.index)],
                                         ptr_elem_ty,
                                         parent.mut_decl,
                                     );
@@ -28331,11 +28332,12 @@ fn beginComptimePtrMutation(
 
                     const elem_abi_size_u64 = try sema.typeAbiSize(base_elem_ty);
                     const elem_abi_size = try sema.usizeCast(block, src, elem_abi_size_u64);
+                    const elem_idx = try sema.usizeCast(block, src, elem_ptr.index);
                     return ComptimePtrMutationKit{
                         .mut_decl = parent.mut_decl,
                         .pointee = .{ .reinterpret = .{
                             .val_ptr = reinterpret.val_ptr,
-                            .byte_offset = reinterpret.byte_offset + elem_abi_size * elem_ptr.index,
+                            .byte_offset = reinterpret.byte_offset + elem_abi_size * elem_idx,
                         } },
                         .ty = parent.ty,
                     };
@@ -28750,9 +28752,10 @@ fn beginComptimePtrLoad(
                     // the pointee array directly from our parent array.
                     if (load_ty.isArrayOrVector(mod) and load_ty.childType(mod).eql(elem_ty, mod)) {
                         const N = try sema.usizeCast(block, src, load_ty.arrayLenIncludingSentinel(mod));
+                        const elem_idx = try sema.usizeCast(block, src, elem_ptr.index);
                         deref.pointee = if (elem_ptr.index + N <= check_len) TypedValue{
                             .ty = try Type.array(sema.arena, N, null, elem_ty, mod),
-                            .val = try array_tv.val.sliceArray(mod, sema.arena, elem_ptr.index, elem_ptr.index + N),
+                            .val = try array_tv.val.sliceArray(mod, sema.arena, elem_idx, elem_idx + N),
                         } else null;
                         break :blk deref;
                     }
@@ -28773,7 +28776,7 @@ fn beginComptimePtrLoad(
                 }
                 deref.pointee = TypedValue{
                     .ty = elem_ty,
-                    .val = try array_tv.val.elemValue(mod, elem_ptr.index),
+                    .val = try array_tv.val.elemValue(mod, @intCast(usize, elem_ptr.index)),
                 };
                 break :blk deref;
             },

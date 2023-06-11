@@ -642,7 +642,7 @@ pub const DeclGen = struct {
                 // Ensure complete type definition is visible before accessing fields.
                 _ = try dg.typeToIndex(base_ty, .complete);
                 const field_ty = switch (mod.intern_pool.indexToKey(base_ty.toIntern())) {
-                    .anon_struct_type, .struct_type, .union_type => base_ty.structFieldType(field.index, mod),
+                    .anon_struct_type, .struct_type, .union_type => base_ty.structFieldType(@intCast(usize, field.index), mod),
                     .ptr_type => |ptr_type| switch (ptr_type.flags.size) {
                         .One, .Many, .C => unreachable,
                         .Slice => switch (field.index) {

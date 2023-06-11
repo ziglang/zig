@@ -3824,13 +3824,13 @@ pub fn get(ip: *InternPool, gpa: Allocator, key: Key) Allocator.Error!Index {
                     assert(child == .u8_type);
                     if (bytes.len != len) {
                         assert(bytes.len == len_including_sentinel);
-                        assert(bytes[len] == ip.indexToKey(sentinel).int.storage.u64);
+                        assert(bytes[@intCast(usize, len)] == ip.indexToKey(sentinel).int.storage.u64);
                     }
                 },
                 .elems => |elems| {
                     if (elems.len != len) {
                         assert(elems.len == len_including_sentinel);
-                        assert(elems[len] == sentinel);
+                        assert(elems[@intCast(usize, len)] == sentinel);
                     }
                 },
                 .repeated_elem => |elem| {
@@ -3936,7 +3936,7 @@ pub fn get(ip: *InternPool, gpa: Allocator, key: Key) Allocator.Error!Index {
 
             if (child == .u8_type) bytes: {
                 const string_bytes_index = ip.string_bytes.items.len;
-                try ip.string_bytes.ensureUnusedCapacity(gpa, len_including_sentinel + 1);
+                try ip.string_bytes.ensureUnusedCapacity(gpa, @intCast(usize, len_including_sentinel + 1));
                 try ip.extra.ensureUnusedCapacity(gpa, @typeInfo(Bytes).Struct.fields.len);
                 switch (aggregate.storage) {
                     .bytes => |bytes| ip.string_bytes.appendSliceAssumeCapacity(bytes),
@@ -3953,7 +3953,7 @@ pub fn get(ip: *InternPool, gpa: Allocator, key: Key) Allocator.Error!Index {
                     .repeated_elem => |elem| switch (ip.indexToKey(elem)) {
                         .undef => break :bytes,
                         .int => |int| @memset(
-                            ip.string_bytes.addManyAsSliceAssumeCapacity(len),
+                            ip.string_bytes.addManyAsSliceAssumeCapacity(@intCast(usize, len)),
                             @intCast(u8, int.storage.u64),
                         ),
                         else => unreachable,
@@ -3967,7 +3967,7 @@ pub fn get(ip: *InternPool, gpa: Allocator, key: Key) Allocator.Error!Index {
                 const string = if (has_internal_null)
                     @intToEnum(String, string_bytes_index)
                 else
-                    (try ip.getOrPutTrailingString(gpa, len_including_sentinel)).toString();
+                    (try ip.getOrPutTrailingString(gpa, @intCast(usize, len_including_sentinel))).toString();
                 ip.items.appendAssumeCapacity(.{
                     .tag = .bytes,
                     .data = ip.addExtraAssumeCapacity(Bytes{
@@ -3980,7 +3980,7 @@ pub fn get(ip: *InternPool, gpa: Allocator, key: Key) Allocator.Error!Index {
 
             try ip.extra.ensureUnusedCapacity(
                 gpa,
-                @typeInfo(Tag.Aggregate).Struct.fields.len + len_including_sentinel,
+                @typeInfo(Tag.Aggregate).Struct.fields.len + @intCast(usize, len_including_sentinel),
             );
             ip.items.appendAssumeCapacity(.{
                 .tag = .aggregate,

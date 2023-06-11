@@ -395,7 +395,8 @@ pub const Value = struct {
                 } });
             },
             .aggregate => {
-                const old_elems = val.castTag(.aggregate).?.data[0..ty.arrayLen(mod)];
+                const len = @intCast(usize, ty.arrayLen(mod));
+                const old_elems = val.castTag(.aggregate).?.data[0..len];
                 const new_elems = try mod.gpa.alloc(InternPool.Index, old_elems.len);
                 defer mod.gpa.free(new_elems);
                 const ty_key = mod.intern_pool.indexToKey(ty.toIntern());
@@ -642,7 +643,7 @@ pub const Value = struct {
                         const base_addr = (try field.base.toValue().getUnsignedIntAdvanced(mod, opt_sema)) orelse return null;
                         const struct_ty = mod.intern_pool.typeOf(field.base).toType().childType(mod);
                         if (opt_sema) |sema| try sema.resolveTypeLayout(struct_ty);
-                        return base_addr + struct_ty.structFieldOffset(field.index, mod);
+                        return base_addr + struct_ty.structFieldOffset(@intCast(usize, field.index), mod);
                     },
                     else => null,
                 },
@@ -1798,10 +1799,10 @@ pub const Value = struct {
                     .int, .eu_payload => unreachable,
                     .opt_payload => |base| base.toValue().elemValue(mod, index),
                     .comptime_field => |field_val| field_val.toValue().elemValue(mod, index),
-                    .elem => |elem| elem.base.toValue().elemValue(mod, index + elem.index),
+                    .elem => |elem| elem.base.toValue().elemValue(mod, index + @intCast(usize, elem.index)),
                     .field => |field| if (field.base.toValue().pointerDecl(mod)) |decl_index| {
                         const base_decl = mod.declPtr(decl_index);
-                        const field_val = try base_decl.val.fieldValue(mod, field.index);
+                        const field_val = try base_decl.val.fieldValue(mod, @intCast(usize, field.index));
                         return field_val.elemValue(mod, index);
                     } else unreachable,
                 },
@@ -1921,7 +1922,7 @@ pub const Value = struct {
                     .comptime_field => |comptime_field| comptime_field.toValue()
                         .sliceArray(mod, arena, start, end),
                     .elem => |elem| elem.base.toValue()
-                        .sliceArray(mod, arena, start + elem.index, end + elem.index),
+                        .sliceArray(mod, arena, start + @intCast(usize, elem.index), end + @intCast(usize, elem.index)),
                     else => unreachable,
                 },
                 .aggregate => |aggregate| (try mod.intern(.{ .aggregate = .{

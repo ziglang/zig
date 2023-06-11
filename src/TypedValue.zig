@@ -356,12 +356,12 @@ pub fn print(
                                 if (container_ty.isTuple(mod)) {
                                     try writer.print("[{d}]", .{field.index});
                                 }
-                                const field_name_ip = container_ty.structFieldName(field.index, mod);
+                                const field_name_ip = container_ty.structFieldName(@intCast(usize, field.index), mod);
                                 const field_name = mod.intern_pool.stringToSlice(field_name_ip);
                                 try writer.print(".{}", .{std.zig.fmtId(field_name)});
                             },
                             .Union => {
-                                const field_name_ip = container_ty.unionFields(mod).keys()[field.index];
+                                const field_name_ip = container_ty.unionFields(mod).keys()[@intCast(usize, field.index)];
                                 const field_name = mod.intern_pool.stringToSlice(field_name_ip);
                                 try writer.print(".{}", .{std.zig.fmtId(field_name)});
                             },
