@@ -1498,7 +1498,7 @@ pub const Index = enum(u32) {
 
     comptime {
         if (builtin.mode == .Debug) {
-            _ = dbHelper;
+            _ = &dbHelper;
         }
     }
 };
