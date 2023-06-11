@@ -681,6 +681,15 @@ pub fn GetCurrentDirectory(buffer: []u8) GetCurrentDirectoryError![]u8 {
     assert(result <= utf16le_buf.len);
     const utf16le_slice = utf16le_buf[0..result];
     // Trust that Windows gives us valid UTF-16LE.
+    return utf16LeToUtf8String(utf16le_slice, buffer);
+}
+
+/// Converts a UTF-16LE string to a UTF-8 string,
+/// returning a subslice of `buffer` containing the result.
+/// Fails with `NameTooLong` if the UTF-8 string would be longer than `buffer.len`.
+///
+/// Assumes valid UTF-16LE, crashing if it encounters invalid unicode.
+fn utf16LeToUtf8String(utf16le_slice: []const u16, buffer: []u8) ![]u8 {
     var end_index: usize = 0;
     var it = std.unicode.Utf16LeIterator.init(utf16le_slice);
     while (it.nextCodepoint() catch unreachable) |codepoint| {
@@ -2268,15 +2277,7 @@ pub fn GetTempPath(buffer: []u8) GetTempPathError![]u8 {
     assert(result <= utf16le_buf.len);
     const utf16le_slice = utf16le_buf[0..result];
     // Trust that Windows gives us valid UTF-16LE.
-    var end_index: usize = 0;
-    var it = std.unicode.Utf16LeIterator.init(utf16le_slice);
-    while (it.nextCodepoint() catch unreachable) |codepoint| {
-        const seq_len = std.unicode.utf8CodepointSequenceLength(codepoint) catch unreachable;
-        if (end_index + seq_len >= buffer.len)
-            return error.NameTooLong;
-        end_index += std.unicode.utf8Encode(codepoint, buffer[end_index..]) catch unreachable;
-    }
-    return buffer[0..end_index];
+    return utf16LeToUtf8String(utf16le_slice, buffer);
 }
 
 test "GetTempPath" {
