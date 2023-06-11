@@ -2074,7 +2074,6 @@ pub fn update(comp: *Compilation, main_progress_node: *std.Progress.Node) !void 
     if (!build_options.only_c and !build_options.only_core_functionality) {
         if (comp.emit_docs) |doc_location| {
             if (comp.bin_file.options.module) |module| {
-                if (true) @panic("TODO: get autodoc working again in this branch");
                 var autodoc = Autodoc.init(module, doc_location);
                 defer autodoc.deinit();
                 try autodoc.generateZirData();
