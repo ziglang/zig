@@ -149,7 +149,8 @@ discarded: std.AutoHashMapUnmanaged(SymbolLoc, SymbolLoc) = .{},
 /// into the final binary.
 resolved_symbols: std.AutoArrayHashMapUnmanaged(SymbolLoc, void) = .{},
 /// Symbols that remain undefined after symbol resolution.
-undefs: std.StringArrayHashMapUnmanaged(SymbolLoc) = .{},
+/// Note: The key represents an offset into the string table, rather than the actual string.
+undefs: std.AutoArrayHashMapUnmanaged(u32, SymbolLoc) = .{},
 /// Maps a symbol's location to an atom. This can be used to find meta
 /// data of a symbol, such as its size, or its offset to perform a relocation.
 /// Undefined (and synthetic) symbols do not have an Atom and therefore cannot be mapped.
@@ -514,6 +515,10 @@ pub fn createEmpty(gpa: Allocator, options: link.Options) !*Wasm {
 /// Leaves index undefined and the default flags (0).
 fn createSyntheticSymbol(wasm: *Wasm, name: []const u8, tag: Symbol.Tag) !SymbolLoc {
     const name_offset = try wasm.string_table.put(wasm.base.allocator, name);
+    return wasm.createSyntheticSymbolOffset(name_offset, tag);
+}
+
+fn createSyntheticSymbolOffset(wasm: *Wasm, name_offset: u32, tag: Symbol.Tag) !SymbolLoc {
     const sym_index = @intCast(u32, wasm.symbols.items.len);
     const loc: SymbolLoc = .{ .index = sym_index, .file = null };
     try wasm.symbols.append(wasm.base.allocator, .{
@@ -691,7 +696,7 @@ fn resolveSymbolsInObject(wasm: *Wasm, object_index: u16) !void {
             try wasm.resolved_symbols.putNoClobber(wasm.base.allocator, location, {});
 
             if (symbol.isUndefined()) {
-                try wasm.undefs.putNoClobber(wasm.base.allocator, sym_name, location);
+                try wasm.undefs.putNoClobber(wasm.base.allocator, sym_name_index, location);
             }
             continue;
         }
@@ -801,7 +806,7 @@ fn resolveSymbolsInObject(wasm: *Wasm, object_index: u16) !void {
         try wasm.resolved_symbols.put(wasm.base.allocator, location, {});
         assert(wasm.resolved_symbols.swapRemove(existing_loc));
         if (existing_sym.isUndefined()) {
-            _ = wasm.undefs.swapRemove(sym_name);
+            _ = wasm.undefs.swapRemove(sym_name_index);
         }
     }
 }
@@ -812,15 +817,16 @@ fn resolveSymbolsInArchives(wasm: *Wasm) !void {
     log.debug("Resolving symbols in archives", .{});
     var index: u32 = 0;
     undef_loop: while (index < wasm.undefs.count()) {
-        const sym_name = wasm.undefs.keys()[index];
+        const sym_name_index = wasm.undefs.keys()[index];
 
         for (wasm.archives.items) |archive| {
+            const sym_name = wasm.string_table.get(sym_name_index);
+            log.debug("Detected symbol '{s}' in archive '{s}', parsing objects..", .{ sym_name, archive.name });
             const offset = archive.toc.get(sym_name) orelse {
                 // symbol does not exist in this archive
                 continue;
             };
 
-            log.debug("Detected symbol '{s}' in archive '{s}', parsing objects..", .{ sym_name, archive.name });
             // Symbol is found in unparsed object file within current archive.
             // Parse object and and resolve symbols again before we check remaining
             // undefined symbols.
@@ -1191,28 +1197,36 @@ fn validateFeatures(
 /// if one or multiple undefined references exist. When none exist, the symbol will
 /// not be created, ensuring we don't unneccesarily emit unreferenced symbols.
 fn resolveLazySymbols(wasm: *Wasm) !void {
-    if (wasm.undefs.fetchSwapRemove("__heap_base")) |kv| {
-        const loc = try wasm.createSyntheticSymbol("__heap_base", .data);
-        try wasm.discarded.putNoClobber(wasm.base.allocator, kv.value, loc);
-        _ = wasm.resolved_symbols.swapRemove(loc); // we don't want to emit this symbol, only use it for relocations.
+    if (wasm.string_table.getOffset("__heap_base")) |name_offset| {
+        if (wasm.undefs.fetchSwapRemove(name_offset)) |kv| {
+            const loc = try wasm.createSyntheticSymbolOffset(name_offset, .data);
+            try wasm.discarded.putNoClobber(wasm.base.allocator, kv.value, loc);
+            _ = wasm.resolved_symbols.swapRemove(loc); // we don't want to emit this symbol, only use it for relocations.
+        }
     }
 
-    if (wasm.undefs.fetchSwapRemove("__heap_end")) |kv| {
-        const loc = try wasm.createSyntheticSymbol("__heap_end", .data);
-        try wasm.discarded.putNoClobber(wasm.base.allocator, kv.value, loc);
-        _ = wasm.resolved_symbols.swapRemove(loc);
+    if (wasm.string_table.getOffset("__heap_end")) |name_offset| {
+        if (wasm.undefs.fetchSwapRemove(name_offset)) |kv| {
+            const loc = try wasm.createSyntheticSymbolOffset(name_offset, .data);
+            try wasm.discarded.putNoClobber(wasm.base.allocator, kv.value, loc);
+            _ = wasm.resolved_symbols.swapRemove(loc);
+        }
     }
 
     if (!wasm.base.options.shared_memory) {
-        if (wasm.undefs.fetchSwapRemove("__tls_base")) |kv| {
-            const loc = try wasm.createSyntheticSymbol("__tls_base", .global);
-            try wasm.discarded.putNoClobber(wasm.base.allocator, kv.value, loc);
+        if (wasm.string_table.getOffset("__tls_base")) |name_offset| {
+            if (wasm.undefs.fetchSwapRemove(name_offset)) |kv| {
+                const loc = try wasm.createSyntheticSymbolOffset(name_offset, .global);
+                try wasm.discarded.putNoClobber(wasm.base.allocator, kv.value, loc);
+            }
         }
     }
-    if (wasm.undefs.fetchSwapRemove("__zig_errors_len")) |kv| {
-        const loc = try wasm.createSyntheticSymbol("__zig_errors_len", .data);
-        try wasm.discarded.putNoClobber(wasm.base.allocator, kv.value, loc);
-        _ = wasm.resolved_symbols.swapRemove(kv.value);
+    if (wasm.string_table.getOffset("__zig_errors_len")) |name_offset| {
+        if (wasm.undefs.fetchSwapRemove(name_offset)) |kv| {
+            const loc = try wasm.createSyntheticSymbolOffset(name_offset, .data);
+            try wasm.discarded.putNoClobber(wasm.base.allocator, kv.value, loc);
+            _ = wasm.resolved_symbols.swapRemove(kv.value);
+        }
     }
 }
 
@@ -1611,7 +1625,7 @@ pub fn getGlobalSymbol(wasm: *Wasm, name: []const u8, lib_name: ?[]const u8) !u3
     wasm.symbols.items[sym_index] = symbol;
     gop.value_ptr.* = .{ .index = sym_index, .file = null };
     try wasm.resolved_symbols.put(wasm.base.allocator, gop.value_ptr.*, {});
-    try wasm.undefs.putNoClobber(wasm.base.allocator, name, gop.value_ptr.*);
+    try wasm.undefs.putNoClobber(wasm.base.allocator, name_index, gop.value_ptr.*);
     return sym_index;
 }
 
@@ -1769,7 +1783,7 @@ pub fn updateDeclExports(
 
         // if the symbol was previously undefined, remove it as an import
         _ = wasm.imports.remove(sym_loc);
-        _ = wasm.undefs.swapRemove(mod.intern_pool.stringToSlice(exp.name));
+        _ = wasm.undefs.swapRemove(export_name);
     }
 }
 
@@ -1885,7 +1899,7 @@ pub fn addOrUpdateImport(
         const loc: SymbolLoc = .{ .file = null, .index = symbol_index };
         global_gop.value_ptr.* = loc;
         try wasm.resolved_symbols.put(wasm.base.allocator, loc, {});
-        try wasm.undefs.putNoClobber(wasm.base.allocator, full_name, loc);
+        try wasm.undefs.putNoClobber(wasm.base.allocator, decl_name_index, loc);
     }
 
     if (type_index) |ty_index| {
