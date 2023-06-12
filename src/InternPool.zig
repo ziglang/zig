@@ -5294,7 +5294,7 @@ pub fn getOrPutStringFmt(
     args: anytype,
 ) Allocator.Error!NullTerminatedString {
     // ensure that references to string_bytes in args do not get invalidated
-    const len = std.fmt.count(format, args) + 1;
+    const len = @intCast(usize, std.fmt.count(format, args) + 1);
     try ip.string_bytes.ensureUnusedCapacity(gpa, len);
     ip.string_bytes.writer(undefined).print(format, args) catch unreachable;
     ip.string_bytes.appendAssumeCapacity(0);
