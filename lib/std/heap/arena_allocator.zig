@@ -108,21 +108,18 @@ pub const ArenaAllocator = struct {
         // Thus, only the first hand full of calls to reset() will actually need to iterate the linked
         // list, all future calls are just taking the first node, and only resetting the `end_index`
         // value.
-        const current_capacity = if (mode != .free_all)
-            @sizeOf(BufNode) + self.queryCapacity() // we need at least space for exactly one node + the current capacity
-        else
-            0;
-        if (mode == .free_all or current_capacity == 0) {
+        const requested_capacity = switch (mode) {
+            .retain_capacity => self.queryCapacity(),
+            .retain_with_limit => |limit| std.math.min(limit, self.queryCapacity()),
+            .free_all => 0,
+        };
+        if (requested_capacity == 0) {
             // just reset when we don't have anything to reallocate
             self.deinit();
             self.state = State{};
             return true;
         }
-        const total_size = switch (mode) {
-            .retain_capacity => current_capacity,
-            .retain_with_limit => |limit| std.math.min(@sizeOf(BufNode) + limit, current_capacity),
-            .free_all => unreachable,
-        };
+        const total_size = requested_capacity + @sizeOf(BufNode);
         const align_bits = std.math.log2_int(usize, @alignOf(BufNode));
         // Free all nodes except for the last one
         var it = self.state.buffer_list.first;
