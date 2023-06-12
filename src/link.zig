@@ -562,10 +562,9 @@ pub const File = struct {
 
     /// May be called before or after updateDeclExports for any given Decl.
     pub fn updateFunc(base: *File, module: *Module, func_index: Module.Fn.Index, air: Air, liveness: Liveness) UpdateDeclError!void {
-        const func = module.funcPtr(func_index);
         if (build_options.only_c) {
             assert(base.tag == .c);
-            return @fieldParentPtr(C, "base", base).updateFunc(module, func, air, liveness);
+            return @fieldParentPtr(C, "base", base).updateFunc(module, func_index, air, liveness);
         }
         switch (base.tag) {
             // zig fmt: off
