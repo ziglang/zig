@@ -30,6 +30,7 @@ pub fn build(b: *std.Build) !void {
     const test_step = b.step("test", "Run all the tests");
     const skip_install_lib_files = b.option(bool, "no-lib", "skip copying of lib/ files and langref to installation prefix. Useful for development") orelse false;
     const skip_install_langref = b.option(bool, "no-langref", "skip copying of langref to the installation prefix") orelse skip_install_lib_files;
+    const no_bin = b.option(bool, "no-bin", "skip emitting compiler binary") orelse false;
 
     const docgen_exe = b.addExecutable(.{
         .name = "docgen",
@@ -166,6 +167,7 @@ pub fn build(b: *std.Build) !void {
     exe.pie = pie;
     exe.sanitize_thread = sanitize_thread;
     exe.entitlements = entitlements;
+    if (no_bin) exe.emit_bin = .no_emit;
 
     exe.build_id = b.option(
         std.Build.Step.Compile.BuildId,
