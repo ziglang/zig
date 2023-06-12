@@ -3664,7 +3664,12 @@ pub fn CPU_XOR(destset: *cpu_set_t, srcset1: cpu_set_t, srcset2: cpu_set_t) void
 }
 
 pub fn CPU_EQUAL(srcset1: cpu_set_t, srcset2: cpu_set_t) bool {
-    return std.mem.eql(cpu_set_t, srcset1, srcset2);
+    for (srcset1, srcset2) |a, b| {
+        if (a != b) {
+            return false;
+        }
+    }
+    return true;
 }
 
 pub const MINSIGSTKSZ = switch (native_arch) {
