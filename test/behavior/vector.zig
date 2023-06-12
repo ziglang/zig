@@ -1330,3 +1330,16 @@ test "addition of vectors represented as strings" {
     const bar: V = @typeName(u32).*;
     try expectEqual(V{ 219, 162, 161 }, foo + bar);
 }
+
+test "compare vectors with different element types" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest; // TODO
+
+    var a: @Vector(2, u8) = .{ 1, 2 };
+    var b: @Vector(2, u9) = .{ 3, 0 };
+    try expectEqual(@Vector(2, bool){ true, false }, a < b);
+}

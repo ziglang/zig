@@ -19794,6 +19794,16 @@ fn zirIntToPtr(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
     const target = sema.mod.getTarget();
     const ptr_align = try ptr_ty.ptrAlignmentAdvanced(target, sema);
 
+    if (ptr_ty.isSlice()) {
+        const msg = msg: {
+            const msg = try sema.errMsg(block, type_src, "integer cannot be converted to slice type '{}'", .{ptr_ty.fmt(sema.mod)});
+            errdefer msg.destroy(sema.gpa);
+            try sema.errNote(block, type_src, msg, "slice length cannot be inferred from address", .{});
+            break :msg msg;
+        };
+        return sema.failWithOwnedErrorMsg(msg);
+    }
+
     if (try sema.resolveDefinedValue(block, operand_src, operand_coerced)) |val| {
         const addr = val.toUnsignedInt(target);
         if (!ptr_ty.isAllowzeroPtr() and addr == 0)
@@ -30148,15 +30158,19 @@ fn cmpVector(
     assert(rhs_ty.zigTypeTag() == .Vector);
     try sema.checkVectorizableBinaryOperands(block, src, lhs_ty, rhs_ty, lhs_src, rhs_src);
 
+    const resolved_ty = try sema.resolvePeerTypes(block, src, &.{ lhs, rhs }, .{ .override = &.{ lhs_src, rhs_src } });
+    const casted_lhs = try sema.coerce(block, resolved_ty, lhs, lhs_src);
+    const casted_rhs = try sema.coerce(block, resolved_ty, rhs, rhs_src);
+
     const result_ty = try Type.vector(sema.arena, lhs_ty.vectorLen(), Type.bool);
 
     const runtime_src: LazySrcLoc = src: {
-        if (try sema.resolveMaybeUndefVal(lhs)) |lhs_val| {
-            if (try sema.resolveMaybeUndefVal(rhs)) |rhs_val| {
+        if (try sema.resolveMaybeUndefVal(casted_lhs)) |lhs_val| {
+            if (try sema.resolveMaybeUndefVal(casted_rhs)) |rhs_val| {
                 if (lhs_val.isUndef() or rhs_val.isUndef()) {
                     return sema.addConstUndef(result_ty);
                 }
-                const cmp_val = try sema.compareVector(lhs_val, op, rhs_val, lhs_ty);
+                const cmp_val = try sema.compareVector(lhs_val, op, rhs_val, resolved_ty);
                 return sema.addConstant(result_ty, cmp_val);
             } else {
                 break :src rhs_src;
@@ -30167,7 +30181,7 @@ fn cmpVector(
     };
 
     try sema.requireRuntimeBlock(block, src, runtime_src);
-    return block.addCmpVector(lhs, rhs, op);
+    return block.addCmpVector(casted_lhs, casted_rhs, op);
 }
 
 fn wrapOptional(

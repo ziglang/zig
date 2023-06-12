@@ -415,3 +415,16 @@ test "inline while with @call" {
     }
     try expect(a == 10);
 }
+
+test "method call as parameter type" {
+    const S = struct {
+        fn foo(x: anytype, y: @TypeOf(x).Inner()) @TypeOf(y) {
+            return y;
+        }
+        fn Inner() type {
+            return u64;
+        }
+    };
+    try expectEqual(@as(u64, 123), S.foo(S{}, 123));
+    try expectEqual(@as(u64, 500), S.foo(S{}, 500));
+}
