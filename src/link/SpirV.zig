@@ -147,7 +147,7 @@ pub fn updateDeclExports(
         const spv_decl_index = entry.value_ptr.*;
 
         for (exports) |exp| {
-            try self.spv.declareEntryPoint(spv_decl_index, mod.intern_pool.stringToSlice(exp.name));
+            try self.spv.declareEntryPoint(spv_decl_index, mod.intern_pool.stringToSlice(exp.opts.name));
         }
     }
 

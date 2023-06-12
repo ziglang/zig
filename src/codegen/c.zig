@@ -1850,9 +1850,9 @@ pub const DeclGen = struct {
         try mod.markDeclAlive(decl);
 
         if (mod.decl_exports.get(decl_index)) |exports| {
-            try writer.writeAll(mod.intern_pool.stringToSlice(exports.items[export_index].name));
+            try writer.print("{}", .{exports.items[export_index].opts.name.fmt(&mod.intern_pool)});
         } else if (decl.isExtern(mod)) {
-            try writer.writeAll(mod.intern_pool.stringToSlice(decl.name));
+            try writer.print("{}", .{decl.name.fmt(&mod.intern_pool)});
         } else {
             // MSVC has a limit of 4095 character token length limit, and fmtIdent can (worst case),
             // expand to 3x the length of its input, but let's cut it off at a much shorter limit.
@@ -2481,8 +2481,8 @@ fn genExports(o: *Object) !void {
             try fwd_decl_writer.writeAll("zig_export(");
             try o.dg.renderFunctionSignature(fwd_decl_writer, o.dg.decl_index.unwrap().?, .forward, .{ .export_index = @intCast(u32, i) });
             try fwd_decl_writer.print(", {s}, {s});\n", .{
-                fmtStringLiteral(ip.stringToSlice(exports.items[0].name), null),
-                fmtStringLiteral(ip.stringToSlice(@"export".name), null),
+                fmtStringLiteral(ip.stringToSlice(exports.items[0].opts.name), null),
+                fmtStringLiteral(ip.stringToSlice(@"export".opts.name), null),
             });
         }
     }

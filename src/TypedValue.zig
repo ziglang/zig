@@ -76,6 +76,7 @@ pub fn print(
 ) (@TypeOf(writer).Error || Allocator.Error)!void {
     var val = tv.val;
     var ty = tv.ty;
+    const ip = &mod.intern_pool;
     while (true) switch (val.ip_index) {
         .none => switch (val.tag()) {
             .aggregate => return printAggregate(ty, val, writer, level, mod),
@@ -87,7 +88,7 @@ pub fn print(
                 try writer.writeAll(".{ ");
 
                 try print(.{
-                    .ty = mod.unionPtr(mod.intern_pool.indexToKey(ty.toIntern()).union_type.index).tag_ty,
+                    .ty = mod.unionPtr(ip.indexToKey(ty.toIntern()).union_type.index).tag_ty,
                     .val = union_val.tag,
                 }, writer, level - 1, mod);
                 try writer.writeAll(" = ");
@@ -174,7 +175,7 @@ pub fn print(
                 ty = ty.optionalChild(mod);
             },
         },
-        else => switch (mod.intern_pool.indexToKey(val.toIntern())) {
+        else => switch (ip.indexToKey(val.toIntern())) {
             .int_type,
             .ptr_type,
             .array_type,
@@ -200,11 +201,11 @@ pub fn print(
                 else => return writer.writeAll(@tagName(simple_value)),
             },
             .variable => return writer.writeAll("(variable)"),
-            .extern_func => |extern_func| return writer.print("(extern function '{s}')", .{
-                mod.intern_pool.stringToSlice(mod.declPtr(extern_func.decl).name),
+            .extern_func => |extern_func| return writer.print("(extern function '{}')", .{
+                mod.declPtr(extern_func.decl).name.fmt(ip),
             }),
-            .func => |func| return writer.print("(function '{s}')", .{
-                mod.intern_pool.stringToSlice(mod.declPtr(mod.funcPtr(func.index).owner_decl).name),
+            .func => |func| return writer.print("(function '{}')", .{
+                mod.declPtr(mod.funcPtr(func.index).owner_decl).name.fmt(ip),
             }),
             .int => |int| switch (int.storage) {
                 inline .u64, .i64, .big_int => |x| return writer.print("{}", .{x}),
@@ -215,29 +216,28 @@ pub fn print(
                     lazy_ty.toType().abiSize(mod),
                 }),
             },
-            .err => |err| return writer.print("error.{s}", .{
-                mod.intern_pool.stringToSlice(err.name),
+            .err => |err| return writer.print("error.{}", .{
+                err.name.fmt(ip),
             }),
             .error_union => |error_union| switch (error_union.val) {
-                .err_name => |err_name| return writer.print("error.{s}", .{
-                    mod.intern_pool.stringToSlice(err_name),
+                .err_name => |err_name| return writer.print("error.{}", .{
+                    err_name.fmt(ip),
                 }),
                 .payload => |payload| {
                     val = payload.toValue();
                     ty = ty.errorUnionPayload(mod);
                 },
             },
-            .enum_literal => |enum_literal| return writer.print(".{s}", .{
-                mod.intern_pool.stringToSlice(enum_literal),
+            .enum_literal => |enum_literal| return writer.print(".{}", .{
+                enum_literal.fmt(ip),
             }),
             .enum_tag => |enum_tag| {
                 if (level == 0) {
                     return writer.writeAll("(enum)");
                 }
-                const enum_type = mod.intern_pool.indexToKey(ty.toIntern()).enum_type;
-                if (enum_type.tagValueIndex(&mod.intern_pool, val.toIntern())) |tag_index| {
-                    const tag_name = mod.intern_pool.stringToSlice(enum_type.names[tag_index]);
-                    try writer.print(".{}", .{std.zig.fmtId(tag_name)});
+                const enum_type = ip.indexToKey(ty.toIntern()).enum_type;
+                if (enum_type.tagValueIndex(ip, val.toIntern())) |tag_index| {
+                    try writer.print(".{i}", .{enum_type.names[tag_index].fmt(ip)});
                     return;
                 }
                 try writer.writeAll("@intToEnum(");
@@ -247,7 +247,7 @@ pub fn print(
                 }, writer, level - 1, mod);
                 try writer.writeAll(", ");
                 try print(.{
-                    .ty = mod.intern_pool.typeOf(enum_tag.int).toType(),
+                    .ty = ip.typeOf(enum_tag.int).toType(),
                     .val = enum_tag.int.toValue(),
                 }, writer, level - 1, mod);
                 try writer.writeAll(")");
@@ -259,13 +259,13 @@ pub fn print(
             },
             .ptr => |ptr| {
                 if (ptr.addr == .int) {
-                    const i = mod.intern_pool.indexToKey(ptr.addr.int).int;
+                    const i = ip.indexToKey(ptr.addr.int).int;
                     switch (i.storage) {
                         inline else => |addr| return writer.print("{x:0>8}", .{addr}),
                     }
                 }
 
-                const ptr_ty = mod.intern_pool.indexToKey(ty.toIntern()).ptr_type;
+                const ptr_ty = ip.indexToKey(ty.toIntern()).ptr_type;
                 if (ptr_ty.flags.size == .Slice) {
                     if (level == 0) {
                         return writer.writeAll(".{ ... }");
@@ -301,7 +301,7 @@ pub fn print(
                 switch (ptr.addr) {
                     .decl => |decl_index| {
                         const decl = mod.declPtr(decl_index);
-                        if (level == 0) return writer.print("(decl '{s}')", .{mod.intern_pool.stringToSlice(decl.name)});
+                        if (level == 0) return writer.print("(decl '{}')", .{decl.name.fmt(ip)});
                         return print(.{
                             .ty = decl.ty,
                             .val = decl.val,
@@ -309,7 +309,7 @@ pub fn print(
                     },
                     .mut_decl => |mut_decl| {
                         const decl = mod.declPtr(mut_decl.decl);
-                        if (level == 0) return writer.print("(mut decl '{s}')", .{mod.intern_pool.stringToSlice(decl.name)});
+                        if (level == 0) return writer.print("(mut decl '{}')", .{decl.name.fmt(ip)});
                         return print(.{
                             .ty = decl.ty,
                             .val = decl.val,
@@ -317,7 +317,7 @@ pub fn print(
                     },
                     .comptime_field => |field_val_ip| {
                         return print(.{
-                            .ty = mod.intern_pool.typeOf(field_val_ip).toType(),
+                            .ty = ip.typeOf(field_val_ip).toType(),
                             .val = field_val_ip.toValue(),
                         }, writer, level - 1, mod);
                     },
@@ -325,27 +325,27 @@ pub fn print(
                     .eu_payload => |eu_ip| {
                         try writer.writeAll("(payload of ");
                         try print(.{
-                            .ty = mod.intern_pool.typeOf(eu_ip).toType(),
+                            .ty = ip.typeOf(eu_ip).toType(),
                             .val = eu_ip.toValue(),
                         }, writer, level - 1, mod);
                         try writer.writeAll(")");
                     },
                     .opt_payload => |opt_ip| {
                         try print(.{
-                            .ty = mod.intern_pool.typeOf(opt_ip).toType(),
+                            .ty = ip.typeOf(opt_ip).toType(),
                             .val = opt_ip.toValue(),
                         }, writer, level - 1, mod);
                         try writer.writeAll(".?");
                     },
                     .elem => |elem| {
                         try print(.{
-                            .ty = mod.intern_pool.typeOf(elem.base).toType(),
+                            .ty = ip.typeOf(elem.base).toType(),
                             .val = elem.base.toValue(),
                         }, writer, level - 1, mod);
                         try writer.print("[{}]", .{elem.index});
                     },
                     .field => |field| {
-                        const container_ty = mod.intern_pool.typeOf(field.base).toType();
+                        const container_ty = ip.typeOf(field.base).toType();
                         try print(.{
                             .ty = container_ty,
                             .val = field.base.toValue(),
@@ -356,14 +356,12 @@ pub fn print(
                                 if (container_ty.isTuple(mod)) {
                                     try writer.print("[{d}]", .{field.index});
                                 }
-                                const field_name_ip = container_ty.structFieldName(@intCast(usize, field.index), mod);
-                                const field_name = mod.intern_pool.stringToSlice(field_name_ip);
-                                try writer.print(".{}", .{std.zig.fmtId(field_name)});
+                                const field_name = container_ty.structFieldName(@intCast(usize, field.index), mod);
+                                try writer.print(".{i}", .{field_name.fmt(ip)});
                             },
                             .Union => {
-                                const field_name_ip = container_ty.unionFields(mod).keys()[@intCast(usize, field.index)];
-                                const field_name = mod.intern_pool.stringToSlice(field_name_ip);
-                                try writer.print(".{}", .{std.zig.fmtId(field_name)});
+                                const field_name = container_ty.unionFields(mod).keys()[@intCast(usize, field.index)];
+                                try writer.print(".{i}", .{field_name.fmt(ip)});
                             },
                             .Pointer => {
                                 std.debug.assert(container_ty.isSlice(mod));
@@ -440,9 +438,7 @@ fn printAggregate(
                 else => unreachable,
             };
 
-            if (field_name.unwrap()) |name_ip| try writer.print(".{s} = ", .{
-                mod.intern_pool.stringToSlice(name_ip),
-            });
+            if (field_name.unwrap()) |name| try writer.print(".{} = ", .{name.fmt(&mod.intern_pool)});
             try print(.{
                 .ty = ty.structFieldType(i, mod),
                 .val = try val.fieldValue(mod, i),

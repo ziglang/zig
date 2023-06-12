@@ -725,10 +725,10 @@ fn addDeclExports(
     const decl_block = self.getDeclBlock(metadata.index);
 
     for (exports) |exp| {
-        const exp_name = mod.intern_pool.stringToSlice(exp.name);
+        const exp_name = mod.intern_pool.stringToSlice(exp.opts.name);
         // plan9 does not support custom sections
-        if (mod.intern_pool.stringToSliceUnwrap(exp.section)) |section_name| {
-            if (!mem.eql(u8, section_name, ".text") or !mem.eql(u8, section_name, ".data")) {
+        if (exp.opts.section.unwrap()) |section_name| {
+            if (!mod.intern_pool.stringEqlSlice(section_name, ".text") and !mod.intern_pool.stringEqlSlice(section_name, ".data")) {
                 try mod.failed_exports.put(mod.gpa, exp, try Module.ErrorMsg.create(
                     self.base.allocator,
                     mod.declPtr(decl_index).srcLoc(mod),
@@ -972,7 +972,7 @@ pub fn writeSyms(self: *Plan9, buf: *std.ArrayList(u8)) !void {
             const sym = self.syms.items[decl_block.sym_index.?];
             try self.writeSym(writer, sym);
             if (self.base.options.module.?.decl_exports.get(decl_index)) |exports| {
-                for (exports.items) |e| if (decl_metadata.getExport(self, ip.stringToSlice(e.name))) |exp_i| {
+                for (exports.items) |e| if (decl_metadata.getExport(self, ip.stringToSlice(e.opts.name))) |exp_i| {
                     try self.writeSym(writer, self.syms.items[exp_i]);
                 };
             }
@@ -998,7 +998,7 @@ pub fn writeSyms(self: *Plan9, buf: *std.ArrayList(u8)) !void {
                 const sym = self.syms.items[decl_block.sym_index.?];
                 try self.writeSym(writer, sym);
                 if (self.base.options.module.?.decl_exports.get(decl_index)) |exports| {
-                    for (exports.items) |e| if (decl_metadata.getExport(self, ip.stringToSlice(e.name))) |exp_i| {
+                    for (exports.items) |e| if (decl_metadata.getExport(self, ip.stringToSlice(e.opts.name))) |exp_i| {
                         const s = self.syms.items[exp_i];
                         if (mem.eql(u8, s.name, "_start"))
                             self.entry_val = s.value;

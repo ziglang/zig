@@ -2401,15 +2401,15 @@ pub fn updateDeclExports(
     const decl_metadata = self.decls.getPtr(decl_index).?;
 
     for (exports) |exp| {
-        const exp_name = try std.fmt.allocPrint(gpa, "_{s}", .{
-            mod.intern_pool.stringToSlice(exp.name),
+        const exp_name = try std.fmt.allocPrint(gpa, "_{}", .{
+            exp.opts.name.fmt(&mod.intern_pool),
         });
         defer gpa.free(exp_name);
 
         log.debug("adding new export '{s}'", .{exp_name});
 
-        if (mod.intern_pool.stringToSliceUnwrap(exp.section)) |section_name| {
-            if (!mem.eql(u8, section_name, "__text")) {
+        if (exp.opts.section.unwrap()) |section_name| {
+            if (!mod.intern_pool.stringEqlSlice(section_name, "__text")) {
                 try mod.failed_exports.putNoClobber(
                     mod.gpa,
                     exp,
@@ -2424,7 +2424,7 @@ pub fn updateDeclExports(
             }
         }
 
-        if (exp.linkage == .LinkOnce) {
+        if (exp.opts.linkage == .LinkOnce) {
             try mod.failed_exports.putNoClobber(
                 mod.gpa,
                 exp,
@@ -2453,7 +2453,7 @@ pub fn updateDeclExports(
             .n_value = decl_sym.n_value,
         };
 
-        switch (exp.linkage) {
+        switch (exp.opts.linkage) {
             .Internal => {
                 // Symbol should be hidden, or in MachO lingo, private extern.
                 // We should also mark the symbol as Weak: n_desc == N_WEAK_DEF.

@@ -2879,9 +2879,9 @@ pub fn updateDeclExports(
     try self.global_symbols.ensureUnusedCapacity(gpa, exports.len);
 
     for (exports) |exp| {
-        const exp_name = mod.intern_pool.stringToSlice(exp.name);
-        if (mod.intern_pool.stringToSliceUnwrap(exp.section)) |section_name| {
-            if (!mem.eql(u8, section_name, ".text")) {
+        const exp_name = mod.intern_pool.stringToSlice(exp.opts.name);
+        if (exp.opts.section.unwrap()) |section_name| {
+            if (!mod.intern_pool.stringEqlSlice(section_name, ".text")) {
                 try mod.failed_exports.ensureUnusedCapacity(mod.gpa, 1);
                 mod.failed_exports.putAssumeCapacityNoClobber(
                     exp,
@@ -2890,7 +2890,7 @@ pub fn updateDeclExports(
                 continue;
             }
         }
-        const stb_bits: u8 = switch (exp.linkage) {
+        const stb_bits: u8 = switch (exp.opts.linkage) {
             .Internal => elf.STB_LOCAL,
             .Strong => blk: {
                 const entry_name = self.base.options.entry orelse "_start";

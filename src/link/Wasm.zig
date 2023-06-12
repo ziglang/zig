@@ -1706,7 +1706,7 @@ pub fn updateDeclExports(
     const gpa = mod.gpa;
 
     for (exports) |exp| {
-        if (mod.intern_pool.stringToSliceUnwrap(exp.section)) |section| {
+        if (mod.intern_pool.stringToSliceUnwrap(exp.opts.section)) |section| {
             try mod.failed_exports.putNoClobber(gpa, exp, try Module.ErrorMsg.create(
                 gpa,
                 decl.srcLoc(mod),
@@ -1716,12 +1716,12 @@ pub fn updateDeclExports(
             continue;
         }
 
-        const export_name = try wasm.string_table.put(wasm.base.allocator, mod.intern_pool.stringToSlice(exp.name));
+        const export_name = try wasm.string_table.put(wasm.base.allocator, mod.intern_pool.stringToSlice(exp.opts.name));
         if (wasm.globals.getPtr(export_name)) |existing_loc| {
             if (existing_loc.index == atom.sym_index) continue;
             const existing_sym: Symbol = existing_loc.getSymbol(wasm).*;
 
-            const exp_is_weak = exp.linkage == .Internal or exp.linkage == .Weak;
+            const exp_is_weak = exp.opts.linkage == .Internal or exp.opts.linkage == .Weak;
             // When both the to-be-exported symbol and the already existing symbol
             // are strong symbols, we have a linker error.
             // In the other case we replace one with the other.
@@ -1729,11 +1729,11 @@ pub fn updateDeclExports(
                 try mod.failed_exports.put(gpa, exp, try Module.ErrorMsg.create(
                     gpa,
                     decl.srcLoc(mod),
-                    \\LinkError: symbol '{s}' defined multiple times
+                    \\LinkError: symbol '{}' defined multiple times
                     \\  first definition in '{s}'
                     \\  next definition in '{s}'
                 ,
-                    .{ mod.intern_pool.stringToSlice(exp.name), wasm.name, wasm.name },
+                    .{ exp.opts.name.fmt(&mod.intern_pool), wasm.name, wasm.name },
                 ));
                 continue;
             } else if (exp_is_weak) {
@@ -1750,7 +1750,7 @@ pub fn updateDeclExports(
         const exported_atom = wasm.getAtom(exported_atom_index);
         const sym_loc = exported_atom.symbolLoc();
         const symbol = sym_loc.getSymbol(wasm);
-        switch (exp.linkage) {
+        switch (exp.opts.linkage) {
             .Internal => {
                 symbol.setFlag(.WASM_SYM_VISIBILITY_HIDDEN);
             },
@@ -1769,7 +1769,7 @@ pub fn updateDeclExports(
             },
         }
         // Ensure the symbol will be exported using the given name
-        if (!mod.intern_pool.stringEqlSlice(exp.name, sym_loc.getName(wasm))) {
+        if (!mod.intern_pool.stringEqlSlice(exp.opts.name, sym_loc.getName(wasm))) {
             try wasm.export_names.put(wasm.base.allocator, sym_loc, export_name);
         }
 

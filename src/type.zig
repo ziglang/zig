@@ -284,7 +284,7 @@ pub const Type = struct {
                 try writer.writeAll("error{");
                 for (names, 0..) |name, i| {
                     if (i != 0) try writer.writeByte(',');
-                    try writer.writeAll(mod.intern_pool.stringToSlice(name));
+                    try writer.print("{}", .{name.fmt(&mod.intern_pool)});
                 }
                 try writer.writeAll("}");
             },
@@ -341,7 +341,7 @@ pub const Type = struct {
                     try decl.renderFullyQualifiedName(mod, writer);
                 } else if (struct_type.namespace.unwrap()) |namespace_index| {
                     const namespace = mod.namespacePtr(namespace_index);
-                    try namespace.renderFullyQualifiedName(mod, "", writer);
+                    try namespace.renderFullyQualifiedName(mod, .empty, writer);
                 } else {
                     try writer.writeAll("@TypeOf(.{})");
                 }
@@ -357,9 +357,7 @@ pub const Type = struct {
                         try writer.writeAll("comptime ");
                     }
                     if (anon_struct.names.len != 0) {
-                        const name = mod.intern_pool.stringToSlice(anon_struct.names[i]);
-                        try writer.writeAll(name);
-                        try writer.writeAll(": ");
+                        try writer.print("{}: ", .{anon_struct.names[i].fmt(&mod.intern_pool)});
                     }
 
                     try print(field_ty.toType(), writer, mod);

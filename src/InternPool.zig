@@ -156,6 +156,35 @@ pub const NullTerminatedString = enum(u32) {
         _ = ctx;
         return @enumToInt(a) < @enumToInt(b);
     }
+
+    pub fn toUnsigned(self: NullTerminatedString, ip: *const InternPool) ?u32 {
+        const s = ip.stringToSlice(self);
+        if (s.len > 1 and s[0] == '0') return null;
+        if (std.mem.indexOfScalar(u8, s, '_')) |_| return null;
+        return std.fmt.parseUnsigned(u32, s, 10) catch null;
+    }
+
+    const FormatData = struct {
+        string: NullTerminatedString,
+        ip: *const InternPool,
+    };
+    fn format(
+        data: FormatData,
+        comptime specifier: []const u8,
+        _: std.fmt.FormatOptions,
+        writer: anytype,
+    ) @TypeOf(writer).Error!void {
+        const s = data.ip.stringToSlice(data.string);
+        if (comptime std.mem.eql(u8, specifier, "")) {
+            try writer.writeAll(s);
+        } else if (comptime std.mem.eql(u8, specifier, "i")) {
+            try writer.print("{}", .{std.zig.fmtId(s)});
+        } else @compileError("invalid format string '" ++ specifier ++ "' for '" ++ @typeName(NullTerminatedString) ++ "'");
+    }
+
+    pub fn fmt(self: NullTerminatedString, ip: *const InternPool) std.fmt.Formatter(format) {
+        return .{ .data = .{ .string = self, .ip = ip } };
+    }
 };
 
 /// An index into `string_bytes` which might be `none`.
@@ -5252,10 +5281,9 @@ pub fn getOrPutString(
     gpa: Allocator,
     s: []const u8,
 ) Allocator.Error!NullTerminatedString {
-    const string_bytes = &ip.string_bytes;
-    try string_bytes.ensureUnusedCapacity(gpa, s.len + 1);
-    string_bytes.appendSliceAssumeCapacity(s);
-    string_bytes.appendAssumeCapacity(0);
+    try ip.string_bytes.ensureUnusedCapacity(gpa, s.len + 1);
+    ip.string_bytes.appendSliceAssumeCapacity(s);
+    ip.string_bytes.appendAssumeCapacity(0);
     return ip.getOrPutTrailingString(gpa, s.len + 1);
 }
 
@@ -5265,10 +5293,12 @@ pub fn getOrPutStringFmt(
     comptime format: []const u8,
     args: anytype,
 ) Allocator.Error!NullTerminatedString {
-    const start = ip.string_bytes.items.len;
-    try ip.string_bytes.writer(gpa).print(format, args);
-    try ip.string_bytes.append(gpa, 0);
-    return ip.getOrPutTrailingString(gpa, ip.string_bytes.items.len - start);
+    // ensure that references to string_bytes in args do not get invalidated
+    const len = std.fmt.count(format, args) + 1;
+    try ip.string_bytes.ensureUnusedCapacity(gpa, len);
+    ip.string_bytes.writer(undefined).print(format, args) catch unreachable;
+    ip.string_bytes.appendAssumeCapacity(0);
+    return ip.getOrPutTrailingString(gpa, len);
 }
 
 pub fn getOrPutStringOpt(

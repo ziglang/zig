@@ -1430,20 +1430,20 @@ pub fn updateDeclExports(
                 else => std.builtin.CallingConvention.C,
             };
             const decl_cc = exported_decl.ty.fnCallingConvention(mod);
-            if (decl_cc == .C and ip.stringEqlSlice(exp.name, "main") and
+            if (decl_cc == .C and ip.stringEqlSlice(exp.opts.name, "main") and
                 self.base.options.link_libc)
             {
                 mod.stage1_flags.have_c_main = true;
             } else if (decl_cc == winapi_cc and self.base.options.target.os.tag == .windows) {
-                if (ip.stringEqlSlice(exp.name, "WinMain")) {
+                if (ip.stringEqlSlice(exp.opts.name, "WinMain")) {
                     mod.stage1_flags.have_winmain = true;
-                } else if (ip.stringEqlSlice(exp.name, "wWinMain")) {
+                } else if (ip.stringEqlSlice(exp.opts.name, "wWinMain")) {
                     mod.stage1_flags.have_wwinmain = true;
-                } else if (ip.stringEqlSlice(exp.name, "WinMainCRTStartup")) {
+                } else if (ip.stringEqlSlice(exp.opts.name, "WinMainCRTStartup")) {
                     mod.stage1_flags.have_winmain_crt_startup = true;
-                } else if (ip.stringEqlSlice(exp.name, "wWinMainCRTStartup")) {
+                } else if (ip.stringEqlSlice(exp.opts.name, "wWinMainCRTStartup")) {
                     mod.stage1_flags.have_wwinmain_crt_startup = true;
-                } else if (ip.stringEqlSlice(exp.name, "DllMainCRTStartup")) {
+                } else if (ip.stringEqlSlice(exp.opts.name, "DllMainCRTStartup")) {
                     mod.stage1_flags.have_dllmain_crt_startup = true;
                 }
             }
@@ -1461,10 +1461,9 @@ pub fn updateDeclExports(
     const decl_metadata = self.decls.getPtr(decl_index).?;
 
     for (exports) |exp| {
-        const exp_name = mod.intern_pool.stringToSlice(exp.name);
-        log.debug("adding new export '{s}'", .{exp_name});
+        log.debug("adding new export '{}'", .{exp.opts.name.fmt(&mod.intern_pool)});
 
-        if (mod.intern_pool.stringToSliceUnwrap(exp.section)) |section_name| {
+        if (mod.intern_pool.stringToSliceUnwrap(exp.opts.section)) |section_name| {
             if (!mem.eql(u8, section_name, ".text")) {
                 try mod.failed_exports.putNoClobber(
                     gpa,
@@ -1480,7 +1479,7 @@ pub fn updateDeclExports(
             }
         }
 
-        if (exp.linkage == .LinkOnce) {
+        if (exp.opts.linkage == .LinkOnce) {
             try mod.failed_exports.putNoClobber(
                 gpa,
                 exp,
@@ -1494,19 +1493,19 @@ pub fn updateDeclExports(
             continue;
         }
 
-        const sym_index = decl_metadata.getExport(self, exp_name) orelse blk: {
+        const sym_index = decl_metadata.getExport(self, mod.intern_pool.stringToSlice(exp.opts.name)) orelse blk: {
             const sym_index = try self.allocateSymbol();
             try decl_metadata.exports.append(gpa, sym_index);
             break :blk sym_index;
         };
         const sym_loc = SymbolWithLoc{ .sym_index = sym_index, .file = null };
         const sym = self.getSymbolPtr(sym_loc);
-        try self.setSymbolName(sym, exp_name);
+        try self.setSymbolName(sym, mod.intern_pool.stringToSlice(exp.opts.name));
         sym.value = decl_sym.value;
         sym.section_number = @intToEnum(coff.SectionNumber, self.text_section_index.? + 1);
         sym.type = .{ .complex_type = .FUNCTION, .base_type = .NULL };
 
-        switch (exp.linkage) {
+        switch (exp.opts.linkage) {
             .Strong => {
                 sym.storage_class = .EXTERNAL;
             },

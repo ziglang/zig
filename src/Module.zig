@@ -270,11 +270,7 @@ pub const GlobalEmitH = struct {
 pub const ErrorInt = u32;
 
 pub const Export = struct {
-    name: InternPool.NullTerminatedString,
-    linkage: std.builtin.GlobalLinkage,
-    section: InternPool.OptionalNullTerminatedString,
-    visibility: std.builtin.SymbolVisibility,
-
+    opts: Options,
     src: LazySrcLoc,
     /// The Decl that performs the export. Note that this is *not* the Decl being exported.
     owner_decl: Decl.Index,
@@ -291,6 +287,13 @@ pub const Export = struct {
         failed_retryable,
         complete,
     },
+
+    pub const Options = struct {
+        name: InternPool.NullTerminatedString,
+        linkage: std.builtin.GlobalLinkage = .Strong,
+        section: InternPool.OptionalNullTerminatedString = .none,
+        visibility: std.builtin.SymbolVisibility = .default,
+    };
 
     pub fn getSrcLoc(exp: Export, mod: *Module) SrcLoc {
         const src_decl = mod.declPtr(exp.src_decl);
@@ -691,16 +694,15 @@ pub const Decl = struct {
     }
 
     pub fn renderFullyQualifiedName(decl: Decl, mod: *Module, writer: anytype) !void {
-        const unqualified_name = mod.intern_pool.stringToSlice(decl.name);
         if (decl.name_fully_qualified) {
-            return writer.writeAll(unqualified_name);
+            try writer.print("{}", .{decl.name.fmt(&mod.intern_pool)});
+        } else {
+            try mod.namespacePtr(decl.src_namespace).renderFullyQualifiedName(mod, decl.name, writer);
         }
-        return mod.namespacePtr(decl.src_namespace).renderFullyQualifiedName(mod, unqualified_name, writer);
     }
 
     pub fn renderFullyQualifiedDebugName(decl: Decl, mod: *Module, writer: anytype) !void {
-        const unqualified_name = mod.intern_pool.stringToSlice(decl.name);
-        return mod.namespacePtr(decl.src_namespace).renderFullyQualifiedDebugName(mod, unqualified_name, writer);
+        return mod.namespacePtr(decl.src_namespace).renderFullyQualifiedDebugName(mod, decl.name, writer);
     }
 
     pub fn getFullyQualifiedName(decl: Decl, mod: *Module) !InternPool.NullTerminatedString {
@@ -712,8 +714,7 @@ pub const Decl = struct {
             var ns: Namespace.Index = decl.src_namespace;
             while (true) {
                 const namespace = mod.namespacePtr(ns);
-                const ns_decl_index = namespace.getDeclIndex(mod);
-                const ns_decl = mod.declPtr(ns_decl_index);
+                const ns_decl = mod.declPtr(namespace.getDeclIndex(mod));
                 count += ip.stringToSlice(ns_decl.name).len + 1;
                 ns = namespace.parent.unwrap() orelse {
                     count += namespace.file_scope.sub_file_path.len;
@@ -1722,44 +1723,34 @@ pub const Namespace = struct {
     pub fn renderFullyQualifiedName(
         ns: Namespace,
         mod: *Module,
-        name: []const u8,
+        name: InternPool.NullTerminatedString,
         writer: anytype,
     ) @TypeOf(writer).Error!void {
         if (ns.parent.unwrap()) |parent| {
-            const decl_index = ns.getDeclIndex(mod);
-            const decl = mod.declPtr(decl_index);
-            const decl_name = mod.intern_pool.stringToSlice(decl.name);
-            try mod.namespacePtr(parent).renderFullyQualifiedName(mod, decl_name, writer);
+            const decl = mod.declPtr(ns.getDeclIndex(mod));
+            try mod.namespacePtr(parent).renderFullyQualifiedName(mod, decl.name, writer);
         } else {
             try ns.file_scope.renderFullyQualifiedName(writer);
         }
-        if (name.len != 0) {
-            try writer.writeAll(".");
-            try writer.writeAll(name);
-        }
+        if (name != .empty) try writer.print(".{}", .{name.fmt(&mod.intern_pool)});
     }
 
     /// This renders e.g. "std/fs.zig:Dir.OpenOptions"
     pub fn renderFullyQualifiedDebugName(
         ns: Namespace,
         mod: *Module,
-        name: []const u8,
+        name: InternPool.NullTerminatedString,
         writer: anytype,
     ) @TypeOf(writer).Error!void {
-        var separator_char: u8 = '.';
-        if (ns.parent.unwrap()) |parent| {
-            const decl_index = ns.getDeclIndex(mod);
-            const decl = mod.declPtr(decl_index);
-            const decl_name = mod.intern_pool.stringToSlice(decl.name);
-            try mod.namespacePtr(parent).renderFullyQualifiedDebugName(mod, decl_name, writer);
-        } else {
+        const separator_char: u8 = if (ns.parent.unwrap()) |parent| sep: {
+            const decl = mod.declPtr(ns.getDeclIndex(mod));
+            try mod.namespacePtr(parent).renderFullyQualifiedDebugName(mod, decl.name, writer);
+            break :sep '.';
+        } else sep: {
             try ns.file_scope.renderFullyQualifiedDebugName(writer);
-            separator_char = ':';
-        }
-        if (name.len != 0) {
-            try writer.writeByte(separator_char);
-            try writer.writeAll(name);
-        }
+            break :sep ':';
+        };
+        if (name != .empty) try writer.print("{c}{}", .{ separator_char, name.fmt(&mod.intern_pool) });
     }
 
     pub fn getDeclIndex(ns: Namespace, mod: *Module) Decl.Index {
@@ -4185,10 +4176,10 @@ pub fn ensureFuncBodyAnalyzed(mod: *Module, func_index: Fn.Index) SemaError!void
             defer liveness.deinit(gpa);
 
             if (dump_air) {
-                const fqn = mod.intern_pool.stringToSlice(try decl.getFullyQualifiedName(mod));
-                std.debug.print("# Begin Function AIR: {s}:\n", .{fqn});
+                const fqn = try decl.getFullyQualifiedName(mod);
+                std.debug.print("# Begin Function AIR: {}:\n", .{fqn.fmt(&mod.intern_pool)});
                 @import("print_air.zig").dump(mod, air, liveness);
-                std.debug.print("# End Function AIR: {s}\n\n", .{fqn});
+                std.debug.print("# End Function AIR: {}\n\n", .{fqn.fmt(&mod.intern_pool)});
             }
 
             if (std.debug.runtime_safety) {
@@ -4620,10 +4611,7 @@ fn semaDecl(mod: *Module, decl_index: Decl.Index) !bool {
                     return sema.fail(&block_scope, export_src, "export of inline function", .{});
                 }
                 // The scope needs to have the decl in it.
-                const options: std.builtin.ExportOptions = .{
-                    .name = mod.intern_pool.stringToSlice(decl.name),
-                };
-                try sema.analyzeExport(&block_scope, export_src, options, decl_index);
+                try sema.analyzeExport(&block_scope, export_src, .{ .name = decl.name }, decl_index);
             }
             return type_changed or is_inline != prev_is_inline;
         }
@@ -4720,10 +4708,7 @@ fn semaDecl(mod: *Module, decl_index: Decl.Index) !bool {
     if (decl.is_exported) {
         const export_src: LazySrcLoc = .{ .token_offset = @boolToInt(decl.is_pub) };
         // The scope needs to have the decl in it.
-        const options: std.builtin.ExportOptions = .{
-            .name = mod.intern_pool.stringToSlice(decl.name),
-        };
-        try sema.analyzeExport(&block_scope, export_src, options, decl_index);
+        try sema.analyzeExport(&block_scope, export_src, .{ .name = decl.name }, decl_index);
     }
 
     return type_changed;
@@ -5222,12 +5207,9 @@ fn scanDecl(iter: *ScanDeclIter, decl_sub_index: usize, flags: u4) Allocator.Err
             .parent_decl_node = decl.src_node,
             .lazy = .{ .token_offset = 1 },
         };
-        const msg = try ErrorMsg.create(
-            gpa,
-            src_loc,
-            "duplicate test name: {s}",
-            .{ip.stringToSlice(decl_name)},
-        );
+        const msg = try ErrorMsg.create(gpa, src_loc, "duplicate test name: {}", .{
+            decl_name.fmt(&mod.intern_pool),
+        });
         errdefer msg.destroy(gpa);
         try mod.failed_decls.putNoClobber(gpa, decl_index, msg);
         const other_src_loc = SrcLoc{
@@ -5417,16 +5399,16 @@ fn deleteDeclExports(mod: *Module, decl_index: Decl.Index) Allocator.Error!void 
             }
         }
         if (mod.comp.bin_file.cast(link.File.Elf)) |elf| {
-            elf.deleteDeclExport(decl_index, exp.name);
+            elf.deleteDeclExport(decl_index, exp.opts.name);
         }
         if (mod.comp.bin_file.cast(link.File.MachO)) |macho| {
-            try macho.deleteDeclExport(decl_index, exp.name);
+            try macho.deleteDeclExport(decl_index, exp.opts.name);
         }
         if (mod.comp.bin_file.cast(link.File.Wasm)) |wasm| {
             wasm.deleteDeclExport(decl_index);
         }
         if (mod.comp.bin_file.cast(link.File.Coff)) |coff| {
-            coff.deleteDeclExport(decl_index, exp.name);
+            coff.deleteDeclExport(decl_index, exp.opts.name);
         }
         if (mod.failed_exports.fetchSwapRemove(exp)) |failed_kv| {
             failed_kv.value.destroy(mod.gpa);
@@ -5810,12 +5792,9 @@ pub fn createAnonymousDeclFromDecl(
 ) !Decl.Index {
     const new_decl_index = try mod.allocateNewDecl(namespace, src_decl.src_node, src_scope);
     errdefer mod.destroyDecl(new_decl_index);
-    const ip = &mod.intern_pool;
-    // This protects the getOrPutStringFmt from reallocating src decl name while reading it.
-    try ip.string_bytes.ensureUnusedCapacity(mod.gpa, ip.stringToSlice(src_decl.name).len + 20);
-    const name = ip.getOrPutStringFmt(mod.gpa, "{s}__anon_{d}", .{
-        ip.stringToSlice(src_decl.name), @enumToInt(new_decl_index),
-    }) catch unreachable;
+    const name = try mod.intern_pool.getOrPutStringFmt(mod.gpa, "{}__anon_{d}", .{
+        src_decl.name.fmt(&mod.intern_pool), @enumToInt(new_decl_index),
+    });
     try mod.initNewAnonDecl(new_decl_index, src_decl.src_line, namespace, tv, name);
     return new_decl_index;
 }
@@ -6301,13 +6280,13 @@ pub fn processExports(mod: *Module) !void {
         const exported_decl = entry.key_ptr.*;
         const exports = entry.value_ptr.items;
         for (exports) |new_export| {
-            const gop = try symbol_exports.getOrPut(gpa, new_export.name);
+            const gop = try symbol_exports.getOrPut(gpa, new_export.opts.name);
             if (gop.found_existing) {
                 new_export.status = .failed_retryable;
                 try mod.failed_exports.ensureUnusedCapacity(gpa, 1);
                 const src_loc = new_export.getSrcLoc(mod);
-                const msg = try ErrorMsg.create(gpa, src_loc, "exported symbol collision: {s}", .{
-                    mod.intern_pool.stringToSlice(new_export.name),
+                const msg = try ErrorMsg.create(gpa, src_loc, "exported symbol collision: {}", .{
+                    new_export.opts.name.fmt(&mod.intern_pool),
                 });
                 errdefer msg.destroy(gpa);
                 const other_export = gop.value_ptr.*;
@@ -6752,18 +6731,9 @@ pub fn errorUnionType(mod: *Module, error_set_ty: Type, payload_ty: Type) Alloca
     } })).toType();
 }
 
-pub fn singleErrorSetType(mod: *Module, name: []const u8) Allocator.Error!Type {
-    const gpa = mod.gpa;
-    const ip = &mod.intern_pool;
-    return singleErrorSetTypeNts(mod, try ip.getOrPutString(gpa, name));
-}
-
-pub fn singleErrorSetTypeNts(mod: *Module, name: InternPool.NullTerminatedString) Allocator.Error!Type {
-    const gpa = mod.gpa;
-    const ip = &mod.intern_pool;
-    const names = [1]InternPool.NullTerminatedString{name};
-    const i = try ip.get(gpa, .{ .error_set_type = .{ .names = &names } });
-    return i.toType();
+pub fn singleErrorSetType(mod: *Module, name: InternPool.NullTerminatedString) Allocator.Error!Type {
+    const names: *const [1]InternPool.NullTerminatedString = &name;
+    return (try mod.intern_pool.get(mod.gpa, .{ .error_set_type = .{ .names = names } })).toType();
 }
 
 /// Sorts `names` in place.

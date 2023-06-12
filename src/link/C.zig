@@ -294,7 +294,7 @@ pub fn flushModule(self: *C, _: *Compilation, prog_node: *std.Progress.Node) !vo
         defer export_names.deinit(gpa);
         try export_names.ensureTotalCapacity(gpa, @intCast(u32, module.decl_exports.entries.len));
         for (module.decl_exports.values()) |exports| for (exports.items) |@"export"|
-            try export_names.put(gpa, @"export".name, {});
+            try export_names.put(gpa, @"export".opts.name, {});
 
         while (f.remaining_decls.popOrNull()) |kv| {
             const decl_index = kv.key;

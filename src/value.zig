@@ -525,23 +525,6 @@ pub const Value = struct {
         };
     }
 
-    pub fn tagName(val: Value, mod: *Module) []const u8 {
-        const ip = &mod.intern_pool;
-        const enum_tag = switch (ip.indexToKey(val.toIntern())) {
-            .un => |un| ip.indexToKey(un.tag).enum_tag,
-            .enum_tag => |x| x,
-            .enum_literal => |name| return ip.stringToSlice(name),
-            else => unreachable,
-        };
-        const enum_type = ip.indexToKey(enum_tag.ty).enum_type;
-        const field_index = field_index: {
-            const field_index = enum_type.tagValueIndex(ip, val.toIntern()).?;
-            break :field_index @intCast(u32, field_index);
-        };
-        const field_name = enum_type.names[field_index];
-        return ip.stringToSlice(field_name);
-    }
-
     /// Asserts the value is an integer.
     pub fn toBigInt(val: Value, space: *BigIntSpace, mod: *Module) BigIntConst {
         return val.toBigIntAdvanced(space, mod, null) catch unreachable;
@@ -2092,33 +2075,23 @@ pub const Value = struct {
         };
     }
 
-    /// Valid only for error (union) types. Asserts the value is not undefined and not
-    /// unreachable. For error unions, prefer `errorUnionIsPayload` to find out whether
-    /// something is an error or not because it works without having to figure out the
-    /// string.
-    pub fn getError(val: Value, mod: *const Module) ?[]const u8 {
-        return switch (getErrorName(val, mod)) {
-            .empty => null,
-            else => |s| mod.intern_pool.stringToSlice(s),
-        };
-    }
-
-    pub fn getErrorName(val: Value, mod: *const Module) InternPool.NullTerminatedString {
+    /// Valid only for error (union) types. Asserts the value is not undefined and not unreachable.
+    pub fn getErrorName(val: Value, mod: *const Module) InternPool.OptionalNullTerminatedString {
         return switch (mod.intern_pool.indexToKey(val.toIntern())) {
-            .err => |err| err.name,
+            .err => |err| err.name.toOptional(),
             .error_union => |error_union| switch (error_union.val) {
-                .err_name => |err_name| err_name,
-                .payload => .empty,
+                .err_name => |err_name| err_name.toOptional(),
+                .payload => .none,
             },
             else => unreachable,
         };
     }
 
     pub fn getErrorInt(val: Value, mod: *const Module) Module.ErrorInt {
-        return switch (getErrorName(val, mod)) {
-            .empty => 0,
-            else => |s| @intCast(Module.ErrorInt, mod.global_error_set.getIndex(s).?),
-        };
+        return if (getErrorName(val, mod).unwrap()) |err_name|
+            @intCast(Module.ErrorInt, mod.global_error_set.getIndex(err_name).?)
+        else
+            0;
     }
 
     /// Assumes the type is an error union. Returns true if and only if the value is
