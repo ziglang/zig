@@ -139,6 +139,7 @@ pub const ArenaAllocator = struct {
         // reset the state before we try resizing the buffers, so we definitely have reset the arena to 0.
         self.state.end_index = 0;
         if (maybe_first_node) |first_node| {
+            self.state.buffer_list.first = first_node;
             // perfect, no need to invoke the child_allocator
             if (first_node.data == total_size)
                 return true;
@@ -269,4 +270,20 @@ test "ArenaAllocator (reset with preheating)" {
             alloced_bytes += slice.len;
         }
     }
+}
+
+test "ArenaAllocator (reset while retaining a buffer)" {
+    var arena_allocator = ArenaAllocator.init(std.testing.allocator);
+    defer arena_allocator.deinit();
+    const a = arena_allocator.allocator();
+
+    // Create two internal buffers
+    _ = try a.alloc(u8, 1);
+    _ = try a.alloc(u8, 1000);
+
+    // Check that we have at least two buffers
+    try std.testing.expect(arena_allocator.state.buffer_list.first.?.next != null);
+
+    // This retains the first allocated buffer
+    try std.testing.expect(arena_allocator.reset(.{ .retain_with_limit = 1 }));
 }
