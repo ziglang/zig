@@ -36,7 +36,9 @@ pub const P384 = struct {
 
     /// Reject the neutral element.
     pub fn rejectIdentity(p: P384) IdentityElementError!void {
-        if (p.x.isZero()) {
+        const affine_0 = @boolToInt(p.x.equivalent(AffineCoordinates.identityElement.x)) & (@boolToInt(p.y.isZero()) | @boolToInt(p.y.equivalent(AffineCoordinates.identityElement.y)));
+        const is_identity = @boolToInt(p.z.isZero()) | affine_0;
+        if (is_identity != 0) {
             return error.IdentityElement;
         }
     }
@@ -286,12 +288,14 @@ pub const P384 = struct {
 
     /// Return affine coordinates.
     pub fn affineCoordinates(p: P384) AffineCoordinates {
+        const affine_0 = @boolToInt(p.x.equivalent(AffineCoordinates.identityElement.x)) & (@boolToInt(p.y.isZero()) | @boolToInt(p.y.equivalent(AffineCoordinates.identityElement.y)));
+        const is_identity = @boolToInt(p.z.isZero()) | affine_0;
         const zinv = p.z.invert();
         var ret = AffineCoordinates{
             .x = p.x.mul(zinv),
             .y = p.y.mul(zinv),
         };
-        ret.cMov(AffineCoordinates.identityElement, @boolToInt(p.x.isZero()));
+        ret.cMov(AffineCoordinates.identityElement, is_identity);
         return ret;
     }
 
