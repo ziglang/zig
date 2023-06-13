@@ -441,7 +441,7 @@ fn updateFinish(self: *Plan9, decl_index: Module.Decl.Index) !void {
     const sym: aout.Sym = .{
         .value = undefined, // the value of stuff gets filled in in flushModule
         .type = decl_block.type,
-        .name = mod.intern_pool.stringToSlice(decl.name),
+        .name = try self.base.allocator.dupe(u8, mod.intern_pool.stringToSlice(decl.name)),
     };
 
     if (decl_block.sym_index) |s| {
@@ -741,7 +741,7 @@ fn addDeclExports(
         const sym = .{
             .value = decl_block.offset.?,
             .type = decl_block.type.toGlobal(),
-            .name = exp_name,
+            .name = try self.base.allocator.dupe(u8, exp_name),
         };
 
         if (metadata.getExport(self, exp_name)) |i| {
