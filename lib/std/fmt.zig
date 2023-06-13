@@ -1539,7 +1539,7 @@ fn formatDuration(data: FormatDurationData, comptime fmt: []const u8, options: s
 }
 
 /// Return a Formatter for number of nanoseconds according to its magnitude:
-/// [#y][#w][#d][#h][#m]#[.###][n|u|m]s
+/// [#y][#w][#d][#h][#m]#[.###][n|μ|m]s
 pub fn fmtDuration(ns: u64) Formatter(formatDuration) {
     const data = FormatDurationData{ .ns = ns };
     return .{ .data = data };
@@ -1604,7 +1604,7 @@ fn formatDurationSigned(ns: i64, comptime fmt: []const u8, options: std.fmt.Form
 }
 
 /// Return a Formatter for number of nanoseconds according to its signed magnitude:
-/// [#y][#w][#d][#h][#m]#[.###][n|u|m]s
+/// [#y][#w][#d][#h][#m]#[.###][n|μ|m]s
 pub fn fmtDurationSigned(ns: i64) Formatter(formatDurationSigned) {
     return .{ .data = ns };
 }
@@ -1617,18 +1617,18 @@ test "fmtDurationSigned" {
         .{ .s = "-1ns", .d = -(1) },
         .{ .s = "999ns", .d = std.time.ns_per_us - 1 },
         .{ .s = "-999ns", .d = -(std.time.ns_per_us - 1) },
-        .{ .s = "1us", .d = std.time.ns_per_us },
-        .{ .s = "-1us", .d = -(std.time.ns_per_us) },
-        .{ .s = "1.45us", .d = 1450 },
-        .{ .s = "-1.45us", .d = -(1450) },
-        .{ .s = "1.5us", .d = 3 * std.time.ns_per_us / 2 },
-        .{ .s = "-1.5us", .d = -(3 * std.time.ns_per_us / 2) },
-        .{ .s = "14.5us", .d = 14500 },
-        .{ .s = "-14.5us", .d = -(14500) },
-        .{ .s = "145us", .d = 145000 },
-        .{ .s = "-145us", .d = -(145000) },
-        .{ .s = "999.999us", .d = std.time.ns_per_ms - 1 },
-        .{ .s = "-999.999us", .d = -(std.time.ns_per_ms - 1) },
+        .{ .s = "1μs", .d = std.time.ns_per_us },
+        .{ .s = "-1μs", .d = -(std.time.ns_per_us) },
+        .{ .s = "1.45μs", .d = 1450 },
+        .{ .s = "-1.45μs", .d = -(1450) },
+        .{ .s = "1.5μs", .d = 3 * std.time.ns_per_us / 2 },
+        .{ .s = "-1.5μs", .d = -(3 * std.time.ns_per_us / 2) },
+        .{ .s = "14.5μs", .d = 14500 },
+        .{ .s = "-14.5μs", .d = -(14500) },
+        .{ .s = "145μs", .d = 145000 },
+        .{ .s = "-145μs", .d = -(145000) },
+        .{ .s = "999.999μs", .d = std.time.ns_per_ms - 1 },
+        .{ .s = "-999.999μs", .d = -(std.time.ns_per_ms - 1) },
         .{ .s = "1ms", .d = std.time.ns_per_ms + 1 },
         .{ .s = "-1ms", .d = -(std.time.ns_per_ms + 1) },
         .{ .s = "1.5ms", .d = 3 * std.time.ns_per_ms / 2 },
@@ -1661,8 +1661,8 @@ test "fmtDurationSigned" {
         .{ .s = "-1y1h1.001s", .d = -(365 * std.time.ns_per_day + std.time.ns_per_hour + std.time.ns_per_s + std.time.ns_per_ms) },
         .{ .s = "1y1h1s", .d = 365 * std.time.ns_per_day + std.time.ns_per_hour + std.time.ns_per_s + 999 * std.time.ns_per_us },
         .{ .s = "-1y1h1s", .d = -(365 * std.time.ns_per_day + std.time.ns_per_hour + std.time.ns_per_s + 999 * std.time.ns_per_us) },
-        .{ .s = "1y1h999.999us", .d = 365 * std.time.ns_per_day + std.time.ns_per_hour + std.time.ns_per_ms - 1 },
-        .{ .s = "-1y1h999.999us", .d = -(365 * std.time.ns_per_day + std.time.ns_per_hour + std.time.ns_per_ms - 1) },
+        .{ .s = "1y1h999.999μs", .d = 365 * std.time.ns_per_day + std.time.ns_per_hour + std.time.ns_per_ms - 1 },
+        .{ .s = "-1y1h999.999μs", .d = -(365 * std.time.ns_per_day + std.time.ns_per_hour + std.time.ns_per_ms - 1) },
         .{ .s = "1y1h1ms", .d = 365 * std.time.ns_per_day + std.time.ns_per_hour + std.time.ns_per_ms },
         .{ .s = "-1y1h1ms", .d = -(365 * std.time.ns_per_day + std.time.ns_per_hour + std.time.ns_per_ms) },
         .{ .s = "1y1h1ms", .d = 365 * std.time.ns_per_day + std.time.ns_per_hour + std.time.ns_per_ms + 1 },
