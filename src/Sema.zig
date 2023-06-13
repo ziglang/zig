@@ -6748,7 +6748,7 @@ fn analyzeCall(
             func,
             func_src,
             call_src,
-            func_ty_info,
+            func_ty,
             ensure_result_used,
             uncasted_args,
             call_tag,
@@ -7367,8 +7367,16 @@ fn analyzeGenericCallArg(
     }
 }
 
-fn analyzeGenericCallArgVal(sema: *Sema, block: *Block, arg_src: LazySrcLoc, uncasted_arg: Air.Inst.Ref) !Value {
-    return sema.resolveLazyValue(try sema.resolveValue(block, arg_src, uncasted_arg, "parameter is comptime"));
+fn analyzeGenericCallArgVal(
+    sema: *Sema,
+    block: *Block,
+    arg_src: LazySrcLoc,
+    arg_ty: Type,
+    uncasted_arg: Air.Inst.Ref,
+    reason: []const u8,
+) !Value {
+    const casted_arg = try sema.coerce(block, arg_ty, uncasted_arg, arg_src);
+    return sema.resolveLazyValue(try sema.resolveValue(block, arg_src, casted_arg, reason));
 }
 
 fn instantiateGenericCall(
@@ -7377,7 +7385,7 @@ fn instantiateGenericCall(
     func: Air.Inst.Ref,
     func_src: LazySrcLoc,
     call_src: LazySrcLoc,
-    func_ty_info: InternPool.Key.FuncType,
+    generic_func_ty: Type,
     ensure_result_used: bool,
     uncasted_args: []const Air.Inst.Ref,
     call_tag: Air.Inst.Tag,
@@ -7404,24 +7412,25 @@ fn instantiateGenericCall(
     const fn_info = fn_zir.getFnInfo(module_fn.zir_body_inst);
     const zir_tags = fn_zir.instructions.items(.tag);
 
-    const generic_args = try sema.arena.alloc(InternPool.Index, func_ty_info.param_types.len);
+    const monomorphed_args = try sema.arena.alloc(InternPool.Index, mod.typeToFunc(generic_func_ty).?.param_types.len);
     const callee_index = callee: {
         var arg_i: usize = 0;
-        var generic_arg_i: u32 = 0;
+        var monomorphed_arg_i: u32 = 0;
         var known_unique = false;
         for (fn_info.param_body) |inst| {
+            const generic_func_ty_info = mod.typeToFunc(generic_func_ty).?;
             var is_comptime = false;
             var is_anytype = false;
             switch (zir_tags[inst]) {
                 .param => {
-                    is_comptime = func_ty_info.paramIsComptime(@intCast(u5, arg_i));
+                    is_comptime = generic_func_ty_info.paramIsComptime(@intCast(u5, arg_i));
                 },
                 .param_comptime => {
                     is_comptime = true;
                 },
                 .param_anytype => {
                     is_anytype = true;
-                    is_comptime = func_ty_info.paramIsComptime(@intCast(u5, arg_i));
+                    is_comptime = generic_func_ty_info.paramIsComptime(@intCast(u5, arg_i));
                 },
                 .param_anytype_comptime => {
                     is_anytype = true;
@@ -7431,69 +7440,60 @@ fn instantiateGenericCall(
             }
 
             defer arg_i += 1;
+            const param_ty = generic_func_ty_info.param_types[arg_i];
+            const is_generic = !is_anytype and param_ty == .generic_poison_type;
+
             if (known_unique) {
-                if (is_comptime or is_anytype) {
-                    generic_arg_i += 1;
+                if (is_comptime or is_anytype or is_generic) {
+                    monomorphed_arg_i += 1;
                 }
                 continue;
             }
 
-            const arg_ty = sema.typeOf(uncasted_args[arg_i]);
+            const uncasted_arg = uncasted_args[arg_i];
+            const arg_ty = if (is_generic) mod.monomorphed_funcs.getAdapted(
+                Module.MonomorphedFuncAdaptedKey{
+                    .func = module_fn_index,
+                    .args = monomorphed_args[0..monomorphed_arg_i],
+                },
+                Module.MonomorphedFuncsAdaptedContext{ .mod = mod },
+            ) orelse {
+                known_unique = true;
+                monomorphed_arg_i += 1;
+                continue;
+            } else if (is_anytype) sema.typeOf(uncasted_arg).toIntern() else param_ty;
+            const was_comptime = is_comptime;
+            if (!is_comptime and try sema.typeRequiresComptime(arg_ty.toType())) is_comptime = true;
             if (is_comptime or is_anytype) {
                 // Tuple default values are a part of the type and need to be
                 // resolved to hash the type.
-                try sema.resolveTupleLazyValues(block, call_src, arg_ty);
+                try sema.resolveTupleLazyValues(block, call_src, arg_ty.toType());
             }
 
             if (is_comptime) {
-                const arg_val = sema.analyzeGenericCallArgVal(block, .unneeded, uncasted_args[arg_i]) catch |err| switch (err) {
+                const casted_arg = sema.analyzeGenericCallArgVal(block, .unneeded, arg_ty.toType(), uncasted_arg, "") catch |err| switch (err) {
                     error.NeededSourceLocation => {
                         const decl = mod.declPtr(block.src_decl);
                         const arg_src = mod.argSrc(call_src.node_offset.x, decl, arg_i, bound_arg_src);
-                        _ = try sema.analyzeGenericCallArgVal(block, arg_src, uncasted_args[arg_i]);
+                        _ = try sema.analyzeGenericCallArgVal(
+                            block,
+                            arg_src,
+                            arg_ty.toType(),
+                            uncasted_arg,
+                            if (was_comptime)
+                                "parameter is comptime"
+                            else
+                                "argument to parameter with comptime-only type must be comptime-known",
+                        );
                         unreachable;
                     },
                     else => |e| return e,
                 };
-
-                if (is_anytype) {
-                    generic_args[generic_arg_i] = arg_val.toIntern();
-                } else {
-                    const final_arg_ty = mod.monomorphed_funcs.getAdapted(
-                        Module.MonomorphedFuncAdaptedKey{
-                            .func = module_fn_index,
-                            .args = generic_args[0..generic_arg_i],
-                        },
-                        Module.MonomorphedFuncsAdaptedContext{ .mod = mod },
-                    ) orelse {
-                        known_unique = true;
-                        generic_arg_i += 1;
-                        continue;
-                    };
-                    const casted_arg = sema.coerce(block, final_arg_ty.toType(), uncasted_args[arg_i], .unneeded) catch |err| switch (err) {
-                        error.NeededSourceLocation => {
-                            const decl = mod.declPtr(block.src_decl);
-                            const arg_src = mod.argSrc(call_src.node_offset.x, decl, arg_i, bound_arg_src);
-                            _ = try sema.coerce(block, final_arg_ty.toType(), uncasted_args[arg_i], arg_src);
-                            unreachable;
-                        },
-                        else => |e| return e,
-                    };
-                    const casted_arg_val = sema.analyzeGenericCallArgVal(block, .unneeded, casted_arg) catch |err| switch (err) {
-                        error.NeededSourceLocation => {
-                            const decl = mod.declPtr(block.src_decl);
-                            const arg_src = mod.argSrc(call_src.node_offset.x, decl, arg_i, bound_arg_src);
-                            _ = try sema.analyzeGenericCallArgVal(block, arg_src, casted_arg);
-                            unreachable;
-                        },
-                        else => |e| return e,
-                    };
-                    generic_args[generic_arg_i] = casted_arg_val.toIntern();
-                }
-                generic_arg_i += 1;
-            } else if (is_anytype) {
-                generic_args[generic_arg_i] = arg_ty.toIntern();
-                generic_arg_i += 1;
+                monomorphed_args[monomorphed_arg_i] = casted_arg.toIntern();
+                monomorphed_arg_i += 1;
+            } else if (is_anytype or is_generic) {
+                monomorphed_args[monomorphed_arg_i] = try mod.intern(.{ .undef = arg_ty });
+                monomorphed_arg_i += 1;
             }
         }
 
@@ -7501,7 +7501,7 @@ fn instantiateGenericCall(
             if (mod.monomorphed_funcs.getAdapted(
                 Module.MonomorphedFuncAdaptedKey{
                     .func = module_fn_index,
-                    .args = generic_args[0..generic_arg_i],
+                    .args = monomorphed_args[0..monomorphed_arg_i],
                 },
                 Module.MonomorphedFuncsAdaptedContext{ .mod = mod },
             )) |callee_func| break :callee mod.intern_pool.indexToKey(callee_func).func.index;
@@ -7550,11 +7550,11 @@ fn instantiateGenericCall(
             new_decl,
             new_decl_index,
             uncasted_args,
-            generic_arg_i,
+            monomorphed_arg_i,
             module_fn_index,
             new_module_func_index,
             namespace_index,
-            func_ty_info,
+            generic_func_ty,
             call_src,
             bound_arg_src,
         ) catch |err| switch (err) {
@@ -7673,11 +7673,11 @@ fn resolveGenericInstantiationType(
     new_decl: *Decl,
     new_decl_index: Decl.Index,
     uncasted_args: []const Air.Inst.Ref,
-    generic_args_len: u32,
+    monomorphed_args_len: u32,
     module_fn_index: Module.Fn.Index,
     new_module_func: Module.Fn.Index,
     namespace: Namespace.Index,
-    func_ty_info: InternPool.Key.FuncType,
+    generic_func_ty: Type,
     call_src: LazySrcLoc,
     bound_arg_src: ?LazySrcLoc,
 ) !Module.Fn.Index {
@@ -7737,18 +7737,19 @@ fn resolveGenericInstantiationType(
 
     var arg_i: usize = 0;
     for (fn_info.param_body) |inst| {
+        const generic_func_ty_info = mod.typeToFunc(generic_func_ty).?;
         var is_comptime = false;
         var is_anytype = false;
         switch (zir_tags[inst]) {
             .param => {
-                is_comptime = func_ty_info.paramIsComptime(@intCast(u5, arg_i));
+                is_comptime = generic_func_ty_info.paramIsComptime(@intCast(u5, arg_i));
             },
             .param_comptime => {
                 is_comptime = true;
             },
             .param_anytype => {
                 is_anytype = true;
-                is_comptime = func_ty_info.paramIsComptime(@intCast(u5, arg_i));
+                is_comptime = generic_func_ty_info.paramIsComptime(@intCast(u5, arg_i));
             },
             .param_anytype_comptime => {
                 is_anytype = true;
@@ -7802,25 +7803,26 @@ fn resolveGenericInstantiationType(
     const new_func = new_func_val.getFunctionIndex(mod).unwrap().?;
     assert(new_func == new_module_func);
 
-    const generic_args_index = @intCast(u32, mod.monomorphed_func_keys.items.len);
-    const generic_args = try mod.monomorphed_func_keys.addManyAsSlice(gpa, generic_args_len);
-    var generic_arg_i: u32 = 0;
-    try mod.monomorphed_funcs.ensureUnusedCapacityContext(gpa, generic_args_len + 1, .{ .mod = mod });
+    const monomorphed_args_index = @intCast(u32, mod.monomorphed_func_keys.items.len);
+    const monomorphed_args = try mod.monomorphed_func_keys.addManyAsSlice(gpa, monomorphed_args_len);
+    var monomorphed_arg_i: u32 = 0;
+    try mod.monomorphed_funcs.ensureUnusedCapacityContext(gpa, monomorphed_args_len + 1, .{ .mod = mod });
 
     arg_i = 0;
     for (fn_info.param_body) |inst| {
+        const generic_func_ty_info = mod.typeToFunc(generic_func_ty).?;
         var is_comptime = false;
         var is_anytype = false;
         switch (zir_tags[inst]) {
             .param => {
-                is_comptime = func_ty_info.paramIsComptime(@intCast(u5, arg_i));
+                is_comptime = generic_func_ty_info.paramIsComptime(@intCast(u5, arg_i));
             },
             .param_comptime => {
                 is_comptime = true;
             },
             .param_anytype => {
                 is_anytype = true;
-                is_comptime = func_ty_info.paramIsComptime(@intCast(u5, arg_i));
+                is_comptime = generic_func_ty_info.paramIsComptime(@intCast(u5, arg_i));
             },
             .param_anytype_comptime => {
                 is_anytype = true;
@@ -7829,40 +7831,30 @@ fn resolveGenericInstantiationType(
             else => continue,
         }
 
-        // We populate the Type here regardless because it is needed by
-        // `GenericCallAdapter.eql` as well as function body analysis.
-        // Whether it is anytype is communicated by `isAnytypeParam`.
+        const param_ty = generic_func_ty_info.param_types[arg_i];
+        const is_generic = !is_anytype and param_ty == .generic_poison_type;
+
         const arg = child_sema.inst_map.get(inst).?;
         const arg_ty = child_sema.typeOf(arg);
 
-        if (try sema.typeRequiresComptime(arg_ty)) {
-            is_comptime = true;
-        }
+        if (is_generic) if (mod.monomorphed_funcs.fetchPutAssumeCapacityContext(.{
+            .func = module_fn_index,
+            .args_index = monomorphed_args_index,
+            .args_len = monomorphed_arg_i,
+        }, arg_ty.toIntern(), .{ .mod = mod })) |kv| assert(kv.value == arg_ty.toIntern());
+        if (!is_comptime and try sema.typeRequiresComptime(arg_ty)) is_comptime = true;
 
         if (is_comptime) {
             const arg_val = (child_sema.resolveMaybeUndefValAllowVariables(arg) catch unreachable).?;
-            if (!is_anytype) {
-                if (mod.monomorphed_funcs.fetchPutAssumeCapacityContext(.{
-                    .func = module_fn_index,
-                    .args_index = generic_args_index,
-                    .args_len = generic_arg_i,
-                }, arg_ty.toIntern(), .{ .mod = mod })) |kv| assert(kv.value == arg_ty.toIntern());
-            }
-            generic_args[generic_arg_i] = arg_val.toIntern();
-            generic_arg_i += 1;
-            child_sema.comptime_args[arg_i] = .{
-                .ty = arg_ty,
-                .val = (try arg_val.intern(arg_ty, mod)).toValue(),
-            };
+            monomorphed_args[monomorphed_arg_i] = arg_val.toIntern();
+            monomorphed_arg_i += 1;
+            child_sema.comptime_args[arg_i] = .{ .ty = arg_ty, .val = arg_val };
         } else {
-            if (is_anytype) {
-                generic_args[generic_arg_i] = arg_ty.toIntern();
-                generic_arg_i += 1;
+            if (is_anytype or is_generic) {
+                monomorphed_args[monomorphed_arg_i] = try mod.intern(.{ .undef = arg_ty.toIntern() });
+                monomorphed_arg_i += 1;
             }
-            child_sema.comptime_args[arg_i] = .{
-                .ty = arg_ty,
-                .val = Value.generic_poison,
-            };
+            child_sema.comptime_args[arg_i] = .{ .ty = arg_ty, .val = Value.generic_poison };
         }
 
         arg_i += 1;
@@ -7895,8 +7887,8 @@ fn resolveGenericInstantiationType(
 
     mod.monomorphed_funcs.putAssumeCapacityNoClobberContext(.{
         .func = module_fn_index,
-        .args_index = generic_args_index,
-        .args_len = generic_arg_i,
+        .args_index = monomorphed_args_index,
+        .args_len = monomorphed_arg_i,
     }, new_decl.val.toIntern(), .{ .mod = mod });
 
     // Queue up a `codegen_func` work item for the new Fn. The `comptime_args` field
