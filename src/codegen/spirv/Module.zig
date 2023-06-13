@@ -11,7 +11,8 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
 
-const ZigDecl = @import("../../Module.zig").Decl;
+const ZigModule = @import("../../Module.zig");
+const ZigDecl = ZigModule.Decl;
 
 const spec = @import("spec.zig");
 const Word = spec.Word;
@@ -389,8 +390,8 @@ pub fn addFunction(self: *Module, decl_index: Decl.Index, func: Fn) !void {
 /// Fetch the result-id of an OpString instruction that encodes the path of the source
 /// file of the decl. This function may also emit an OpSource with source-level information regarding
 /// the decl.
-pub fn resolveSourceFileName(self: *Module, decl: *ZigDecl) !IdRef {
-    const path = decl.getFileScope().sub_file_path;
+pub fn resolveSourceFileName(self: *Module, zig_module: *ZigModule, zig_decl: *ZigDecl) !IdRef {
+    const path = zig_decl.getFileScope(zig_module).sub_file_path;
     const result = try self.source_file_names.getOrPut(self.gpa, path);
     if (!result.found_existing) {
         const file_result_id = self.allocId();

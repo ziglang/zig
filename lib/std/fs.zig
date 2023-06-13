@@ -662,6 +662,7 @@ pub const IterableDir = struct {
                             .NOTDIR => unreachable,
                             .NOENT => return error.DirNotFound, // The directory being iterated was deleted during iteration.
                             .INVAL => return error.Unexpected, // Linux may in some cases return EINVAL when reading /proc/$PID/net.
+                            .ACCES => return error.AccessDenied, // Do not have permission to iterate this directory.
                             else => |err| return os.unexpectedErrno(err),
                         }
                         if (rc == 0) return null;
@@ -957,7 +958,17 @@ pub const IterableDir = struct {
                 var top = &self.stack.items[self.stack.items.len - 1];
                 var containing = top;
                 var dirname_len = top.dirname_len;
-                if (try top.iter.next()) |base| {
+                if (top.iter.next() catch |err| {
+                    // If we get an error, then we want the user to be able to continue
+                    // walking if they want, which means that we need to pop the directory
+                    // that errored from the stack. Otherwise, all future `next` calls would
+                    // likely just fail with the same error.
+                    var item = self.stack.pop();
+                    if (self.stack.items.len != 0) {
+                        item.iter.dir.close();
+                    }
+                    return err;
+                }) |base| {
                     self.name_buffer.shrinkRetainingCapacity(dirname_len);
                     if (self.name_buffer.items.len != 0) {
                         try self.name_buffer.append(path.sep);
@@ -972,7 +983,7 @@ pub const IterableDir = struct {
                         {
                             errdefer new_dir.close();
                             try self.stack.append(StackItem{
-                                .iter = new_dir.iterate(),
+                                .iter = new_dir.iterateAssumeFirstIteration(),
                                 .dirname_len = self.name_buffer.items.len,
                             });
                             top = &self.stack.items[self.stack.items.len - 1];

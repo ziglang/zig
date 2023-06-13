@@ -19,6 +19,7 @@ const BigIntConst = std.math.big.int.Const;
 const BigIntMutable = std.math.big.int.Mutable;
 const Ast = std.zig.Ast;
 
+const InternPool = @import("InternPool.zig");
 const Zir = @This();
 const Type = @import("type.zig").Type;
 const Value = @import("value.zig").Value;
@@ -2041,448 +2042,103 @@ pub const Inst = struct {
     /// The position of a ZIR instruction within the `Zir` instructions array.
     pub const Index = u32;
 
-    /// A reference to a TypedValue or ZIR instruction.
+    /// A reference to ZIR instruction, or to an InternPool index, or neither.
     ///
-    /// If the Ref has a tag in this enum, it refers to a TypedValue.
-    ///
-    /// If the value of a Ref does not have a tag, it refers to a ZIR instruction.
-    ///
-    /// The first values after the the last tag refer to ZIR instructions which may
-    /// be derived by subtracting `typed_value_map.len`.
-    ///
-    /// When adding a tag to this enum, consider adding a corresponding entry to
-    /// `primitives` in astgen.
+    /// If the integer tag value is < InternPool.static_len, then it
+    /// corresponds to an InternPool index. Otherwise, this refers to a ZIR
+    /// instruction.
     ///
     /// The tag type is specified so that it is safe to bitcast between `[]u32`
     /// and `[]Ref`.
     pub const Ref = enum(u32) {
+        u1_type = @enumToInt(InternPool.Index.u1_type),
+        u8_type = @enumToInt(InternPool.Index.u8_type),
+        i8_type = @enumToInt(InternPool.Index.i8_type),
+        u16_type = @enumToInt(InternPool.Index.u16_type),
+        i16_type = @enumToInt(InternPool.Index.i16_type),
+        u29_type = @enumToInt(InternPool.Index.u29_type),
+        u32_type = @enumToInt(InternPool.Index.u32_type),
+        i32_type = @enumToInt(InternPool.Index.i32_type),
+        u64_type = @enumToInt(InternPool.Index.u64_type),
+        i64_type = @enumToInt(InternPool.Index.i64_type),
+        u80_type = @enumToInt(InternPool.Index.u80_type),
+        u128_type = @enumToInt(InternPool.Index.u128_type),
+        i128_type = @enumToInt(InternPool.Index.i128_type),
+        usize_type = @enumToInt(InternPool.Index.usize_type),
+        isize_type = @enumToInt(InternPool.Index.isize_type),
+        c_char_type = @enumToInt(InternPool.Index.c_char_type),
+        c_short_type = @enumToInt(InternPool.Index.c_short_type),
+        c_ushort_type = @enumToInt(InternPool.Index.c_ushort_type),
+        c_int_type = @enumToInt(InternPool.Index.c_int_type),
+        c_uint_type = @enumToInt(InternPool.Index.c_uint_type),
+        c_long_type = @enumToInt(InternPool.Index.c_long_type),
+        c_ulong_type = @enumToInt(InternPool.Index.c_ulong_type),
+        c_longlong_type = @enumToInt(InternPool.Index.c_longlong_type),
+        c_ulonglong_type = @enumToInt(InternPool.Index.c_ulonglong_type),
+        c_longdouble_type = @enumToInt(InternPool.Index.c_longdouble_type),
+        f16_type = @enumToInt(InternPool.Index.f16_type),
+        f32_type = @enumToInt(InternPool.Index.f32_type),
+        f64_type = @enumToInt(InternPool.Index.f64_type),
+        f80_type = @enumToInt(InternPool.Index.f80_type),
+        f128_type = @enumToInt(InternPool.Index.f128_type),
+        anyopaque_type = @enumToInt(InternPool.Index.anyopaque_type),
+        bool_type = @enumToInt(InternPool.Index.bool_type),
+        void_type = @enumToInt(InternPool.Index.void_type),
+        type_type = @enumToInt(InternPool.Index.type_type),
+        anyerror_type = @enumToInt(InternPool.Index.anyerror_type),
+        comptime_int_type = @enumToInt(InternPool.Index.comptime_int_type),
+        comptime_float_type = @enumToInt(InternPool.Index.comptime_float_type),
+        noreturn_type = @enumToInt(InternPool.Index.noreturn_type),
+        anyframe_type = @enumToInt(InternPool.Index.anyframe_type),
+        null_type = @enumToInt(InternPool.Index.null_type),
+        undefined_type = @enumToInt(InternPool.Index.undefined_type),
+        enum_literal_type = @enumToInt(InternPool.Index.enum_literal_type),
+        atomic_order_type = @enumToInt(InternPool.Index.atomic_order_type),
+        atomic_rmw_op_type = @enumToInt(InternPool.Index.atomic_rmw_op_type),
+        calling_convention_type = @enumToInt(InternPool.Index.calling_convention_type),
+        address_space_type = @enumToInt(InternPool.Index.address_space_type),
+        float_mode_type = @enumToInt(InternPool.Index.float_mode_type),
+        reduce_op_type = @enumToInt(InternPool.Index.reduce_op_type),
+        call_modifier_type = @enumToInt(InternPool.Index.call_modifier_type),
+        prefetch_options_type = @enumToInt(InternPool.Index.prefetch_options_type),
+        export_options_type = @enumToInt(InternPool.Index.export_options_type),
+        extern_options_type = @enumToInt(InternPool.Index.extern_options_type),
+        type_info_type = @enumToInt(InternPool.Index.type_info_type),
+        manyptr_u8_type = @enumToInt(InternPool.Index.manyptr_u8_type),
+        manyptr_const_u8_type = @enumToInt(InternPool.Index.manyptr_const_u8_type),
+        manyptr_const_u8_sentinel_0_type = @enumToInt(InternPool.Index.manyptr_const_u8_sentinel_0_type),
+        single_const_pointer_to_comptime_int_type = @enumToInt(InternPool.Index.single_const_pointer_to_comptime_int_type),
+        slice_const_u8_type = @enumToInt(InternPool.Index.slice_const_u8_type),
+        slice_const_u8_sentinel_0_type = @enumToInt(InternPool.Index.slice_const_u8_sentinel_0_type),
+        anyerror_void_error_union_type = @enumToInt(InternPool.Index.anyerror_void_error_union_type),
+        generic_poison_type = @enumToInt(InternPool.Index.generic_poison_type),
+        empty_struct_type = @enumToInt(InternPool.Index.empty_struct_type),
+        undef = @enumToInt(InternPool.Index.undef),
+        zero = @enumToInt(InternPool.Index.zero),
+        zero_usize = @enumToInt(InternPool.Index.zero_usize),
+        zero_u8 = @enumToInt(InternPool.Index.zero_u8),
+        one = @enumToInt(InternPool.Index.one),
+        one_usize = @enumToInt(InternPool.Index.one_usize),
+        one_u8 = @enumToInt(InternPool.Index.one_u8),
+        four_u8 = @enumToInt(InternPool.Index.four_u8),
+        negative_one = @enumToInt(InternPool.Index.negative_one),
+        calling_convention_c = @enumToInt(InternPool.Index.calling_convention_c),
+        calling_convention_inline = @enumToInt(InternPool.Index.calling_convention_inline),
+        void_value = @enumToInt(InternPool.Index.void_value),
+        unreachable_value = @enumToInt(InternPool.Index.unreachable_value),
+        null_value = @enumToInt(InternPool.Index.null_value),
+        bool_true = @enumToInt(InternPool.Index.bool_true),
+        bool_false = @enumToInt(InternPool.Index.bool_false),
+        empty_struct = @enumToInt(InternPool.Index.empty_struct),
+        generic_poison = @enumToInt(InternPool.Index.generic_poison),
+
+        /// This tag is here to match Air and InternPool, however it is unused
+        /// for ZIR purposes.
+        var_args_param_type = @enumToInt(InternPool.Index.var_args_param_type),
         /// This Ref does not correspond to any ZIR instruction or constant
         /// value and may instead be used as a sentinel to indicate null.
-        none,
-
-        u1_type,
-        u8_type,
-        i8_type,
-        u16_type,
-        i16_type,
-        u29_type,
-        u32_type,
-        i32_type,
-        u64_type,
-        i64_type,
-        u128_type,
-        i128_type,
-        usize_type,
-        isize_type,
-        c_char_type,
-        c_short_type,
-        c_ushort_type,
-        c_int_type,
-        c_uint_type,
-        c_long_type,
-        c_ulong_type,
-        c_longlong_type,
-        c_ulonglong_type,
-        c_longdouble_type,
-        f16_type,
-        f32_type,
-        f64_type,
-        f80_type,
-        f128_type,
-        anyopaque_type,
-        bool_type,
-        void_type,
-        type_type,
-        anyerror_type,
-        comptime_int_type,
-        comptime_float_type,
-        noreturn_type,
-        anyframe_type,
-        null_type,
-        undefined_type,
-        enum_literal_type,
-        atomic_order_type,
-        atomic_rmw_op_type,
-        calling_convention_type,
-        address_space_type,
-        float_mode_type,
-        reduce_op_type,
-        modifier_type,
-        prefetch_options_type,
-        export_options_type,
-        extern_options_type,
-        type_info_type,
-        manyptr_u8_type,
-        manyptr_const_u8_type,
-        fn_noreturn_no_args_type,
-        fn_void_no_args_type,
-        fn_naked_noreturn_no_args_type,
-        fn_ccc_void_no_args_type,
-        single_const_pointer_to_comptime_int_type,
-        const_slice_u8_type,
-        anyerror_void_error_union_type,
-        generic_poison_type,
-
-        /// `undefined` (untyped)
-        undef,
-        /// `0` (comptime_int)
-        zero,
-        /// `1` (comptime_int)
-        one,
-        /// `{}`
-        void_value,
-        /// `unreachable` (noreturn type)
-        unreachable_value,
-        /// `null` (untyped)
-        null_value,
-        /// `true`
-        bool_true,
-        /// `false`
-        bool_false,
-        /// `.{}` (untyped)
-        empty_struct,
-        /// `0` (usize)
-        zero_usize,
-        /// `1` (usize)
-        one_usize,
-        /// `std.builtin.CallingConvention.C`
-        calling_convention_c,
-        /// `std.builtin.CallingConvention.Inline`
-        calling_convention_inline,
-        /// Used for generic parameters where the type and value
-        /// is not known until generic function instantiation.
-        generic_poison,
-        /// This is a special type for variadic parameters of a function call.
-        /// Casts to it will validate that the type can be passed to a c
-        /// calling convention function.
-        var_args_param,
-
+        none = @enumToInt(InternPool.Index.none),
         _,
-
-        pub const typed_value_map = std.enums.directEnumArray(Ref, TypedValue, 0, .{
-            .none = undefined,
-
-            .u1_type = .{
-                .ty = Type.initTag(.type),
-                .val = Value.initTag(.u1_type),
-            },
-            .u8_type = .{
-                .ty = Type.initTag(.type),
-                .val = Value.initTag(.u8_type),
-            },
-            .i8_type = .{
-                .ty = Type.initTag(.type),
-                .val = Value.initTag(.i8_type),
-            },
-            .u16_type = .{
-                .ty = Type.initTag(.type),
-                .val = Value.initTag(.u16_type),
-            },
-            .i16_type = .{
-                .ty = Type.initTag(.type),
-                .val = Value.initTag(.i16_type),
-            },
-            .u29_type = .{
-                .ty = Type.initTag(.type),
-                .val = Value.initTag(.u29_type),
-            },
-            .u32_type = .{
-                .ty = Type.initTag(.type),
-                .val = Value.initTag(.u32_type),
-            },
-            .i32_type = .{
-                .ty = Type.initTag(.type),
-                .val = Value.initTag(.i32_type),
-            },
-            .u64_type = .{
-                .ty = Type.initTag(.type),
-                .val = Value.initTag(.u64_type),
-            },
-            .i64_type = .{
-                .ty = Type.initTag(.type),
-                .val = Value.initTag(.i64_type),
-            },
-            .u128_type = .{
-                .ty = Type.initTag(.type),
-                .val = Value.initTag(.u128_type),
-            },
-            .i128_type = .{
-                .ty = Type.initTag(.type),
-                .val = Value.initTag(.i128_type),
-            },
-            .usize_type = .{
-                .ty = Type.initTag(.type),
-                .val = Value.initTag(.usize_type),
-            },
-            .isize_type = .{
-                .ty = Type.initTag(.type),
-                .val = Value.initTag(.isize_type),
-            },
-            .c_char_type = .{
-                .ty = Type.initTag(.type),
-                .val = Value.initTag(.c_char_type),
-            },
-            .c_short_type = .{
-                .ty = Type.initTag(.type),
-                .val = Value.initTag(.c_short_type),
-            },
-            .c_ushort_type = .{
-                .ty = Type.initTag(.type),
-                .val = Value.initTag(.c_ushort_type),
-            },
-            .c_int_type = .{
-                .ty = Type.initTag(.type),
-                .val = Value.initTag(.c_int_type),
-            },
-            .c_uint_type = .{
-                .ty = Type.initTag(.type),
-                .val = Value.initTag(.c_uint_type),
-            },
-            .c_long_type = .{
-                .ty = Type.initTag(.type),
-                .val = Value.initTag(.c_long_type),
-            },
-            .c_ulong_type = .{
-                .ty = Type.initTag(.type),
-                .val = Value.initTag(.c_ulong_type),
-            },
-            .c_longlong_type = .{
-                .ty = Type.initTag(.type),
-                .val = Value.initTag(.c_longlong_type),
-            },
-            .c_ulonglong_type = .{
-                .ty = Type.initTag(.type),
-                .val = Value.initTag(.c_ulonglong_type),
-            },
-            .c_longdouble_type = .{
-                .ty = Type.initTag(.type),
-                .val = Value.initTag(.c_longdouble_type),
-            },
-            .f16_type = .{
-                .ty = Type.initTag(.type),
-                .val = Value.initTag(.f16_type),
-            },
-            .f32_type = .{
-                .ty = Type.initTag(.type),
-                .val = Value.initTag(.f32_type),
-            },
-            .f64_type = .{
-                .ty = Type.initTag(.type),
-                .val = Value.initTag(.f64_type),
-            },
-            .f80_type = .{
-                .ty = Type.initTag(.type),
-                .val = Value.initTag(.f80_type),
-            },
-            .f128_type = .{
-                .ty = Type.initTag(.type),
-                .val = Value.initTag(.f128_type),
-            },
-            .anyopaque_type = .{
-                .ty = Type.initTag(.type),
-                .val = Value.initTag(.anyopaque_type),
-            },
-            .bool_type = .{
-                .ty = Type.initTag(.type),
-                .val = Value.initTag(.bool_type),
-            },
-            .void_type = .{
-                .ty = Type.initTag(.type),
-                .val = Value.initTag(.void_type),
-            },
-            .type_type = .{
-                .ty = Type.initTag(.type),
-                .val = Value.initTag(.type_type),
-            },
-            .anyerror_type = .{
-                .ty = Type.initTag(.type),
-                .val = Value.initTag(.anyerror_type),
-            },
-            .comptime_int_type = .{
-                .ty = Type.initTag(.type),
-                .val = Value.initTag(.comptime_int_type),
-            },
-            .comptime_float_type = .{
-                .ty = Type.initTag(.type),
-                .val = Value.initTag(.comptime_float_type),
-            },
-            .noreturn_type = .{
-                .ty = Type.initTag(.type),
-                .val = Value.initTag(.noreturn_type),
-            },
-            .anyframe_type = .{
-                .ty = Type.initTag(.type),
-                .val = Value.initTag(.anyframe_type),
-            },
-            .null_type = .{
-                .ty = Type.initTag(.type),
-                .val = Value.initTag(.null_type),
-            },
-            .undefined_type = .{
-                .ty = Type.initTag(.type),
-                .val = Value.initTag(.undefined_type),
-            },
-            .fn_noreturn_no_args_type = .{
-                .ty = Type.initTag(.type),
-                .val = Value.initTag(.fn_noreturn_no_args_type),
-            },
-            .fn_void_no_args_type = .{
-                .ty = Type.initTag(.type),
-                .val = Value.initTag(.fn_void_no_args_type),
-            },
-            .fn_naked_noreturn_no_args_type = .{
-                .ty = Type.initTag(.type),
-                .val = Value.initTag(.fn_naked_noreturn_no_args_type),
-            },
-            .fn_ccc_void_no_args_type = .{
-                .ty = Type.initTag(.type),
-                .val = Value.initTag(.fn_ccc_void_no_args_type),
-            },
-            .single_const_pointer_to_comptime_int_type = .{
-                .ty = Type.initTag(.type),
-                .val = Value.initTag(.single_const_pointer_to_comptime_int_type),
-            },
-            .const_slice_u8_type = .{
-                .ty = Type.initTag(.type),
-                .val = Value.initTag(.const_slice_u8_type),
-            },
-            .anyerror_void_error_union_type = .{
-                .ty = Type.initTag(.type),
-                .val = Value.initTag(.anyerror_void_error_union_type),
-            },
-            .generic_poison_type = .{
-                .ty = Type.initTag(.type),
-                .val = Value.initTag(.generic_poison_type),
-            },
-            .enum_literal_type = .{
-                .ty = Type.initTag(.type),
-                .val = Value.initTag(.enum_literal_type),
-            },
-            .manyptr_u8_type = .{
-                .ty = Type.initTag(.type),
-                .val = Value.initTag(.manyptr_u8_type),
-            },
-            .manyptr_const_u8_type = .{
-                .ty = Type.initTag(.type),
-                .val = Value.initTag(.manyptr_const_u8_type),
-            },
-            .atomic_order_type = .{
-                .ty = Type.initTag(.type),
-                .val = Value.initTag(.atomic_order_type),
-            },
-            .atomic_rmw_op_type = .{
-                .ty = Type.initTag(.type),
-                .val = Value.initTag(.atomic_rmw_op_type),
-            },
-            .calling_convention_type = .{
-                .ty = Type.initTag(.type),
-                .val = Value.initTag(.calling_convention_type),
-            },
-            .address_space_type = .{
-                .ty = Type.initTag(.type),
-                .val = Value.initTag(.address_space_type),
-            },
-            .float_mode_type = .{
-                .ty = Type.initTag(.type),
-                .val = Value.initTag(.float_mode_type),
-            },
-            .reduce_op_type = .{
-                .ty = Type.initTag(.type),
-                .val = Value.initTag(.reduce_op_type),
-            },
-            .modifier_type = .{
-                .ty = Type.initTag(.type),
-                .val = Value.initTag(.modifier_type),
-            },
-            .prefetch_options_type = .{
-                .ty = Type.initTag(.type),
-                .val = Value.initTag(.prefetch_options_type),
-            },
-            .export_options_type = .{
-                .ty = Type.initTag(.type),
-                .val = Value.initTag(.export_options_type),
-            },
-            .extern_options_type = .{
-                .ty = Type.initTag(.type),
-                .val = Value.initTag(.extern_options_type),
-            },
-            .type_info_type = .{
-                .ty = Type.initTag(.type),
-                .val = Value.initTag(.type_info_type),
-            },
-
-            .undef = .{
-                .ty = Type.initTag(.undefined),
-                .val = Value.initTag(.undef),
-            },
-            .zero = .{
-                .ty = Type.initTag(.comptime_int),
-                .val = Value.initTag(.zero),
-            },
-            .zero_usize = .{
-                .ty = Type.initTag(.usize),
-                .val = Value.initTag(.zero),
-            },
-            .one = .{
-                .ty = Type.initTag(.comptime_int),
-                .val = Value.initTag(.one),
-            },
-            .one_usize = .{
-                .ty = Type.initTag(.usize),
-                .val = Value.initTag(.one),
-            },
-            .void_value = .{
-                .ty = Type.initTag(.void),
-                .val = Value.initTag(.void_value),
-            },
-            .unreachable_value = .{
-                .ty = Type.initTag(.noreturn),
-                .val = Value.initTag(.unreachable_value),
-            },
-            .null_value = .{
-                .ty = Type.initTag(.null),
-                .val = Value.initTag(.null_value),
-            },
-            .bool_true = .{
-                .ty = Type.initTag(.bool),
-                .val = Value.initTag(.bool_true),
-            },
-            .bool_false = .{
-                .ty = Type.initTag(.bool),
-                .val = Value.initTag(.bool_false),
-            },
-            .empty_struct = .{
-                .ty = Type.initTag(.empty_struct_literal),
-                .val = Value.initTag(.empty_struct_value),
-            },
-            .calling_convention_c = .{
-                .ty = Type.initTag(.calling_convention),
-                .val = .{ .ptr_otherwise = &calling_convention_c_payload.base },
-            },
-            .calling_convention_inline = .{
-                .ty = Type.initTag(.calling_convention),
-                .val = .{ .ptr_otherwise = &calling_convention_inline_payload.base },
-            },
-            .generic_poison = .{
-                .ty = Type.initTag(.generic_poison),
-                .val = Value.initTag(.generic_poison),
-            },
-            .var_args_param = undefined,
-        });
-    };
-
-    /// We would like this to be const but `Value` wants a mutable pointer for
-    /// its payload field. Nothing should mutate this though.
-    var calling_convention_c_payload: Value.Payload.U32 = .{
-        .base = .{ .tag = .enum_field_index },
-        .data = @enumToInt(std.builtin.CallingConvention.C),
-    };
-
-    /// We would like this to be const but `Value` wants a mutable pointer for
-    /// its payload field. Nothing should mutate this though.
-    var calling_convention_inline_payload: Value.Payload.U32 = .{
-        .base = .{ .tag = .enum_field_index },
-        .data = @enumToInt(std.builtin.CallingConvention.Inline),
     };
 
     /// All instructions have an 8-byte payload, which is contained within
@@ -4163,17 +3819,23 @@ pub fn getFnInfo(zir: Zir, fn_inst: Inst.Index) FnInfo {
     };
 }
 
-const ref_start_index: u32 = Inst.Ref.typed_value_map.len;
+pub const ref_start_index: u32 = InternPool.static_len;
 
 pub fn indexToRef(inst: Inst.Index) Inst.Ref {
     return @intToEnum(Inst.Ref, ref_start_index + inst);
 }
 
 pub fn refToIndex(inst: Inst.Ref) ?Inst.Index {
+    assert(inst != .none);
     const ref_int = @enumToInt(inst);
     if (ref_int >= ref_start_index) {
         return ref_int - ref_start_index;
     } else {
         return null;
     }
+}
+
+pub fn refToIndexAllowNone(inst: Inst.Ref) ?Inst.Index {
+    if (inst == .none) return null;
+    return refToIndex(inst);
 }

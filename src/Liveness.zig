@@ -5,14 +5,16 @@
 //! Some instructions are special, such as:
 //! * Conditional Branches
 //! * Switch Branches
-const Liveness = @This();
 const std = @import("std");
-const trace = @import("tracy.zig").trace;
 const log = std.log.scoped(.liveness);
 const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
-const Air = @import("Air.zig");
 const Log2Int = std.math.Log2Int;
+
+const Liveness = @This();
+const trace = @import("tracy.zig").trace;
+const Air = @import("Air.zig");
+const InternPool = @import("InternPool.zig");
 
 pub const Verify = @import("Liveness/Verify.zig");
 
@@ -129,7 +131,7 @@ fn LivenessPassData(comptime pass: LivenessPass) type {
     };
 }
 
-pub fn analyze(gpa: Allocator, air: Air) Allocator.Error!Liveness {
+pub fn analyze(gpa: Allocator, air: Air, intern_pool: *const InternPool) Allocator.Error!Liveness {
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -142,6 +144,7 @@ pub fn analyze(gpa: Allocator, air: Air) Allocator.Error!Liveness {
         ),
         .extra = .{},
         .special = .{},
+        .intern_pool = intern_pool,
     };
     errdefer gpa.free(a.tomb_bits);
     errdefer a.special.deinit(gpa);
@@ -222,6 +225,7 @@ pub fn categorizeOperand(
     air: Air,
     inst: Air.Inst.Index,
     operand: Air.Inst.Index,
+    ip: *const InternPool,
 ) OperandCategory {
     const air_tags = air.instructions.items(.tag);
     const air_datas = air.instructions.items(.data);
@@ -317,9 +321,10 @@ pub fn categorizeOperand(
 
         .arg,
         .alloc,
+        .inferred_alloc,
+        .inferred_alloc_comptime,
         .ret_ptr,
-        .constant,
-        .const_ty,
+        .interned,
         .trap,
         .breakpoint,
         .dbg_stmt,
@@ -530,7 +535,7 @@ pub fn categorizeOperand(
         .aggregate_init => {
             const ty_pl = air_datas[inst].ty_pl;
             const aggregate_ty = air.getRefType(ty_pl.ty);
-            const len = @intCast(usize, aggregate_ty.arrayLen());
+            const len = @intCast(usize, aggregate_ty.arrayLenIp(ip));
             const elements = @ptrCast([]const Air.Inst.Ref, air.extra[ty_pl.payload..][0..len]);
 
             if (elements.len <= bpi - 1) {
@@ -621,7 +626,7 @@ pub fn categorizeOperand(
 
                 var operand_live: bool = true;
                 for (air.extra[cond_extra.end..][0..2]) |cond_inst| {
-                    if (l.categorizeOperand(air, cond_inst, operand) == .tomb)
+                    if (l.categorizeOperand(air, cond_inst, operand, ip) == .tomb)
                         operand_live = false;
 
                     switch (air_tags[cond_inst]) {
@@ -818,6 +823,7 @@ pub const BigTomb = struct {
 const Analysis = struct {
     gpa: Allocator,
     air: Air,
+    intern_pool: *const InternPool,
     tomb_bits: []usize,
     special: std.AutoHashMapUnmanaged(Air.Inst.Index, u32),
     extra: std.ArrayListUnmanaged(u32),
@@ -867,6 +873,7 @@ fn analyzeInst(
     data: *LivenessPassData(pass),
     inst: Air.Inst.Index,
 ) Allocator.Error!void {
+    const ip = a.intern_pool;
     const inst_tags = a.air.instructions.items(.tag);
     const inst_datas = a.air.instructions.items(.data);
 
@@ -967,9 +974,7 @@ fn analyzeInst(
         .work_group_id,
         => return analyzeOperands(a, pass, data, inst, .{ .none, .none, .none }),
 
-        .constant,
-        .const_ty,
-        => unreachable,
+        .inferred_alloc, .inferred_alloc_comptime, .interned => unreachable,
 
         .trap,
         .unreach,
@@ -1134,7 +1139,7 @@ fn analyzeInst(
         .aggregate_init => {
             const ty_pl = inst_datas[inst].ty_pl;
             const aggregate_ty = a.air.getRefType(ty_pl.ty);
-            const len = @intCast(usize, aggregate_ty.arrayLen());
+            const len = @intCast(usize, aggregate_ty.arrayLenIp(ip));
             const elements = @ptrCast([]const Air.Inst.Ref, a.air.extra[ty_pl.payload..][0..len]);
 
             if (elements.len <= bpi - 1) {
@@ -1253,19 +1258,17 @@ fn analyzeOperands(
 ) Allocator.Error!void {
     const gpa = a.gpa;
     const inst_tags = a.air.instructions.items(.tag);
+    const ip = a.intern_pool;
 
     switch (pass) {
         .loop_analysis => {
             _ = data.live_set.remove(inst);
 
             for (operands) |op_ref| {
-                const operand = Air.refToIndex(op_ref) orelse continue;
+                const operand = Air.refToIndexAllowNone(op_ref) orelse continue;
 
                 // Don't compute any liveness for constants
-                switch (inst_tags[operand]) {
-                    .constant, .const_ty => continue,
-                    else => {},
-                }
+                if (inst_tags[operand] == .interned) continue;
 
                 _ = try data.live_set.put(gpa, operand, {});
             }
@@ -1288,20 +1291,17 @@ fn analyzeOperands(
             // If our result is unused and the instruction doesn't need to be lowered, backends will
             // skip the lowering of this instruction, so we don't want to record uses of operands.
             // That way, we can mark as many instructions as possible unused.
-            if (!immediate_death or a.air.mustLower(inst)) {
+            if (!immediate_death or a.air.mustLower(inst, ip)) {
                 // Note that it's important we iterate over the operands backwards, so that if a dying
                 // operand is used multiple times we mark its last use as its death.
                 var i = operands.len;
                 while (i > 0) {
                     i -= 1;
                     const op_ref = operands[i];
-                    const operand = Air.refToIndex(op_ref) orelse continue;
+                    const operand = Air.refToIndexAllowNone(op_ref) orelse continue;
 
                     // Don't compute any liveness for constants
-                    switch (inst_tags[operand]) {
-                        .constant, .const_ty => continue,
-                        else => {},
-                    }
+                    if (inst_tags[operand] == .interned) continue;
 
                     const mask = @as(Bpi, 1) << @intCast(OperandInt, i);
 
@@ -1407,7 +1407,7 @@ fn analyzeInstBlock(
 
             // If the block is noreturn, block deaths not only aren't useful, they're impossible to
             // find: there could be more stuff alive after the block than before it!
-            if (!a.air.getRefType(ty_pl.ty).isNoReturn()) {
+            if (!a.intern_pool.isNoReturn(a.air.getRefType(ty_pl.ty).ip_index)) {
                 // The block kills the difference in the live sets
                 const block_scope = data.block_scopes.get(inst).?;
                 const num_deaths = data.live_set.count() - block_scope.live_set.count();
@@ -1819,6 +1819,7 @@ fn AnalyzeBigOperands(comptime pass: LivenessPass) type {
 
         /// Must be called with operands in reverse order.
         fn feed(big: *Self, op_ref: Air.Inst.Ref) !void {
+            const ip = big.a.intern_pool;
             // Note that after this, `operands_remaining` becomes the index of the current operand
             big.operands_remaining -= 1;
 
@@ -1831,15 +1832,12 @@ fn AnalyzeBigOperands(comptime pass: LivenessPass) type {
 
             // Don't compute any liveness for constants
             const inst_tags = big.a.air.instructions.items(.tag);
-            switch (inst_tags[operand]) {
-                .constant, .const_ty => return,
-                else => {},
-            }
+            if (inst_tags[operand] == .interned) return
 
             // If our result is unused and the instruction doesn't need to be lowered, backends will
             // skip the lowering of this instruction, so we don't want to record uses of operands.
             // That way, we can mark as many instructions as possible unused.
-            if (big.will_die_immediately and !big.a.air.mustLower(big.inst)) return;
+            if (big.will_die_immediately and !big.a.air.mustLower(big.inst, ip)) return;
 
             const extra_byte = (big.operands_remaining - (bpi - 1)) / 31;
             const extra_bit = @intCast(u5, big.operands_remaining - (bpi - 1) - extra_byte * 31);

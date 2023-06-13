@@ -1,5 +1,5 @@
-const Set1 = error{A, B};
-const Set2 = error{A, C};
+const Set1 = error{ A, B };
+const Set2 = error{ A, C };
 export fn entry() void {
     foo(Set1.B);
 }
@@ -12,5 +12,5 @@ fn foo(set1: Set1) void {
 // backend=stage2
 // target=native
 //
-// :7:19: error: expected type 'error{A,C}', found 'error{A,B}'
+// :7:19: error: expected type 'error{C,A}', found 'error{A,B}'
 // :7:19: note: 'error.B' not a member of destination error set

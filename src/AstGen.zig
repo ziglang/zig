@@ -3934,7 +3934,7 @@ fn fnDecl(
     var section_gz = decl_gz.makeSubBlock(params_scope);
     defer section_gz.unstack();
     const section_ref: Zir.Inst.Ref = if (fn_proto.ast.section_expr == 0) .none else inst: {
-        const inst = try expr(&decl_gz, params_scope, .{ .rl = .{ .coerced_ty = .const_slice_u8_type } }, fn_proto.ast.section_expr);
+        const inst = try expr(&decl_gz, params_scope, .{ .rl = .{ .coerced_ty = .slice_const_u8_type } }, fn_proto.ast.section_expr);
         if (section_gz.instructionsSlice().len == 0) {
             // In this case we will send a len=0 body which can be encoded more efficiently.
             break :inst inst;
@@ -4137,7 +4137,7 @@ fn globalVarDecl(
         break :inst try expr(&block_scope, &block_scope.base, .{ .rl = .{ .ty = .address_space_type } }, var_decl.ast.addrspace_node);
     };
     const section_inst: Zir.Inst.Ref = if (var_decl.ast.section_node == 0) .none else inst: {
-        break :inst try comptimeExpr(&block_scope, &block_scope.base, .{ .rl = .{ .ty = .const_slice_u8_type } }, var_decl.ast.section_node);
+        break :inst try comptimeExpr(&block_scope, &block_scope.base, .{ .rl = .{ .ty = .slice_const_u8_type } }, var_decl.ast.section_node);
     };
     const has_section_or_addrspace = section_inst != .none or addrspace_inst != .none;
     wip_members.nextDecl(is_pub, is_export, align_inst != .none, has_section_or_addrspace);
@@ -4497,7 +4497,7 @@ fn testDecl(
         .cc_gz = null,
         .align_ref = .none,
         .align_gz = null,
-        .ret_ref = .void_type,
+        .ret_ref = .anyerror_void_error_union_type,
         .ret_gz = null,
         .section_ref = .none,
         .section_gz = null,
@@ -4510,7 +4510,7 @@ fn testDecl(
         .body_gz = &fn_block,
         .lib_name = 0,
         .is_var_args = false,
-        .is_inferred_error = true,
+        .is_inferred_error = false,
         .is_test = true,
         .is_extern = false,
         .is_noinline = false,
@@ -7878,7 +7878,7 @@ fn unionInit(
     params: []const Ast.Node.Index,
 ) InnerError!Zir.Inst.Ref {
     const union_type = try typeExpr(gz, scope, params[0]);
-    const field_name = try comptimeExpr(gz, scope, .{ .rl = .{ .ty = .const_slice_u8_type } }, params[1]);
+    const field_name = try comptimeExpr(gz, scope, .{ .rl = .{ .ty = .slice_const_u8_type } }, params[1]);
     const field_type = try gz.addPlNode(.field_type_ref, params[1], Zir.Inst.FieldTypeRef{
         .container_type = union_type,
         .field_name = field_name,
@@ -8100,12 +8100,12 @@ fn builtinCall(
             if (ri.rl == .ref) {
                 return gz.addPlNode(.field_ptr_named, node, Zir.Inst.FieldNamed{
                     .lhs = try expr(gz, scope, .{ .rl = .ref }, params[0]),
-                    .field_name = try comptimeExpr(gz, scope, .{ .rl = .{ .ty = .const_slice_u8_type } }, params[1]),
+                    .field_name = try comptimeExpr(gz, scope, .{ .rl = .{ .ty = .slice_const_u8_type } }, params[1]),
                 });
             }
             const result = try gz.addPlNode(.field_val_named, node, Zir.Inst.FieldNamed{
                 .lhs = try expr(gz, scope, .{ .rl = .none }, params[0]),
-                .field_name = try comptimeExpr(gz, scope, .{ .rl = .{ .ty = .const_slice_u8_type } }, params[1]),
+                .field_name = try comptimeExpr(gz, scope, .{ .rl = .{ .ty = .slice_const_u8_type } }, params[1]),
             });
             return rvalue(gz, ri, result, node);
         },
@@ -8271,11 +8271,11 @@ fn builtinCall(
         .align_of    => return simpleUnOpType(gz, scope, ri, node, params[0], .align_of),
 
         .ptr_to_int            => return simpleUnOp(gz, scope, ri, node, .{ .rl = .none },                           params[0], .ptr_to_int),
-        .compile_error         => return simpleUnOp(gz, scope, ri, node, .{ .rl = .{ .ty = .const_slice_u8_type } }, params[0], .compile_error),
+        .compile_error         => return simpleUnOp(gz, scope, ri, node, .{ .rl = .{ .ty = .slice_const_u8_type } }, params[0], .compile_error),
         .set_eval_branch_quota => return simpleUnOp(gz, scope, ri, node, .{ .rl = .{ .coerced_ty = .u32_type } },    params[0], .set_eval_branch_quota),
         .enum_to_int           => return simpleUnOp(gz, scope, ri, node, .{ .rl = .none },                           params[0], .enum_to_int),
         .bool_to_int           => return simpleUnOp(gz, scope, ri, node, bool_ri,                                    params[0], .bool_to_int),
-        .embed_file            => return simpleUnOp(gz, scope, ri, node, .{ .rl = .{ .ty = .const_slice_u8_type } }, params[0], .embed_file),
+        .embed_file            => return simpleUnOp(gz, scope, ri, node, .{ .rl = .{ .ty = .slice_const_u8_type } }, params[0], .embed_file),
         .error_name            => return simpleUnOp(gz, scope, ri, node, .{ .rl = .{ .ty = .anyerror_type } },       params[0], .error_name),
         .set_runtime_safety    => return simpleUnOp(gz, scope, ri, node, bool_ri,                                    params[0], .set_runtime_safety),
         .sqrt                  => return simpleUnOp(gz, scope, ri, node, .{ .rl = .none },                           params[0], .sqrt),
@@ -8334,7 +8334,7 @@ fn builtinCall(
         },
         .panic => {
             try emitDbgNode(gz, node);
-            return simpleUnOp(gz, scope, ri, node, .{ .rl = .{ .ty = .const_slice_u8_type } }, params[0], .panic);
+            return simpleUnOp(gz, scope, ri, node, .{ .rl = .{ .ty = .slice_const_u8_type } }, params[0], .panic);
         },
         .trap => {
             try emitDbgNode(gz, node);
@@ -8450,7 +8450,7 @@ fn builtinCall(
         },
         .c_define => {
             if (!gz.c_import) return gz.astgen.failNode(node, "C define valid only inside C import block", .{});
-            const name = try comptimeExpr(gz, scope, .{ .rl = .{ .ty = .const_slice_u8_type } }, params[0]);
+            const name = try comptimeExpr(gz, scope, .{ .rl = .{ .ty = .slice_const_u8_type } }, params[0]);
             const value = try comptimeExpr(gz, scope, .{ .rl = .none }, params[1]);
             const result = try gz.addExtendedPayload(.c_define, Zir.Inst.BinNode{
                 .node = gz.nodeIndexToRelative(node),
@@ -8530,7 +8530,7 @@ fn builtinCall(
             return rvalue(gz, ri, result, node);
         },
         .call => {
-            const modifier = try comptimeExpr(gz, scope, .{ .rl = .{ .coerced_ty = .modifier_type } }, params[0]);
+            const modifier = try comptimeExpr(gz, scope, .{ .rl = .{ .coerced_ty = .call_modifier_type } }, params[0]);
             const callee = try expr(gz, scope, .{ .rl = .none }, params[1]);
             const args = try expr(gz, scope, .{ .rl = .none }, params[2]);
             const result = try gz.addPlNode(.builtin_call, node, Zir.Inst.BuiltinCall{
@@ -8546,7 +8546,7 @@ fn builtinCall(
         },
         .field_parent_ptr => {
             const parent_type = try typeExpr(gz, scope, params[0]);
-            const field_name = try comptimeExpr(gz, scope, .{ .rl = .{ .ty = .const_slice_u8_type } }, params[1]);
+            const field_name = try comptimeExpr(gz, scope, .{ .rl = .{ .ty = .slice_const_u8_type } }, params[1]);
             const result = try gz.addPlNode(.field_parent_ptr, node, Zir.Inst.FieldParentPtr{
                 .parent_type = parent_type,
                 .field_name = field_name,
@@ -8701,7 +8701,7 @@ fn hasDeclOrField(
     tag: Zir.Inst.Tag,
 ) InnerError!Zir.Inst.Ref {
     const container_type = try typeExpr(gz, scope, lhs_node);
-    const name = try comptimeExpr(gz, scope, .{ .rl = .{ .ty = .const_slice_u8_type } }, rhs_node);
+    const name = try comptimeExpr(gz, scope, .{ .rl = .{ .ty = .slice_const_u8_type } }, rhs_node);
     const result = try gz.addPlNode(tag, node, Zir.Inst.Bin{
         .lhs = container_type,
         .rhs = name,
@@ -8851,7 +8851,7 @@ fn simpleCBuiltin(
 ) InnerError!Zir.Inst.Ref {
     const name: []const u8 = if (tag == .c_undef) "C undef" else "C include";
     if (!gz.c_import) return gz.astgen.failNode(node, "{s} valid only inside C import block", .{name});
-    const operand = try comptimeExpr(gz, scope, .{ .rl = .{ .ty = .const_slice_u8_type } }, operand_node);
+    const operand = try comptimeExpr(gz, scope, .{ .rl = .{ .ty = .slice_const_u8_type } }, operand_node);
     _ = try gz.addExtendedPayload(tag, Zir.Inst.UnNode{
         .node = gz.nodeIndexToRelative(node),
         .operand = operand,
@@ -8869,7 +8869,7 @@ fn offsetOf(
     tag: Zir.Inst.Tag,
 ) InnerError!Zir.Inst.Ref {
     const type_inst = try typeExpr(gz, scope, lhs_node);
-    const field_name = try comptimeExpr(gz, scope, .{ .rl = .{ .ty = .const_slice_u8_type } }, rhs_node);
+    const field_name = try comptimeExpr(gz, scope, .{ .rl = .{ .ty = .slice_const_u8_type } }, rhs_node);
     const result = try gz.addPlNode(tag, node, Zir.Inst.Bin{
         .lhs = type_inst,
         .rhs = field_name,
@@ -10271,6 +10271,8 @@ fn rvalue(
                 as_ty | @enumToInt(Zir.Inst.Ref.i32_type),
                 as_ty | @enumToInt(Zir.Inst.Ref.u64_type),
                 as_ty | @enumToInt(Zir.Inst.Ref.i64_type),
+                as_ty | @enumToInt(Zir.Inst.Ref.u128_type),
+                as_ty | @enumToInt(Zir.Inst.Ref.i128_type),
                 as_ty | @enumToInt(Zir.Inst.Ref.usize_type),
                 as_ty | @enumToInt(Zir.Inst.Ref.isize_type),
                 as_ty | @enumToInt(Zir.Inst.Ref.c_char_type),
@@ -10296,15 +10298,30 @@ fn rvalue(
                 as_ty | @enumToInt(Zir.Inst.Ref.comptime_int_type),
                 as_ty | @enumToInt(Zir.Inst.Ref.comptime_float_type),
                 as_ty | @enumToInt(Zir.Inst.Ref.noreturn_type),
+                as_ty | @enumToInt(Zir.Inst.Ref.anyframe_type),
                 as_ty | @enumToInt(Zir.Inst.Ref.null_type),
                 as_ty | @enumToInt(Zir.Inst.Ref.undefined_type),
-                as_ty | @enumToInt(Zir.Inst.Ref.fn_noreturn_no_args_type),
-                as_ty | @enumToInt(Zir.Inst.Ref.fn_void_no_args_type),
-                as_ty | @enumToInt(Zir.Inst.Ref.fn_naked_noreturn_no_args_type),
-                as_ty | @enumToInt(Zir.Inst.Ref.fn_ccc_void_no_args_type),
-                as_ty | @enumToInt(Zir.Inst.Ref.single_const_pointer_to_comptime_int_type),
-                as_ty | @enumToInt(Zir.Inst.Ref.const_slice_u8_type),
                 as_ty | @enumToInt(Zir.Inst.Ref.enum_literal_type),
+                as_ty | @enumToInt(Zir.Inst.Ref.atomic_order_type),
+                as_ty | @enumToInt(Zir.Inst.Ref.atomic_rmw_op_type),
+                as_ty | @enumToInt(Zir.Inst.Ref.calling_convention_type),
+                as_ty | @enumToInt(Zir.Inst.Ref.address_space_type),
+                as_ty | @enumToInt(Zir.Inst.Ref.float_mode_type),
+                as_ty | @enumToInt(Zir.Inst.Ref.reduce_op_type),
+                as_ty | @enumToInt(Zir.Inst.Ref.call_modifier_type),
+                as_ty | @enumToInt(Zir.Inst.Ref.prefetch_options_type),
+                as_ty | @enumToInt(Zir.Inst.Ref.export_options_type),
+                as_ty | @enumToInt(Zir.Inst.Ref.extern_options_type),
+                as_ty | @enumToInt(Zir.Inst.Ref.type_info_type),
+                as_ty | @enumToInt(Zir.Inst.Ref.manyptr_u8_type),
+                as_ty | @enumToInt(Zir.Inst.Ref.manyptr_const_u8_type),
+                as_ty | @enumToInt(Zir.Inst.Ref.manyptr_const_u8_sentinel_0_type),
+                as_ty | @enumToInt(Zir.Inst.Ref.single_const_pointer_to_comptime_int_type),
+                as_ty | @enumToInt(Zir.Inst.Ref.slice_const_u8_type),
+                as_ty | @enumToInt(Zir.Inst.Ref.slice_const_u8_sentinel_0_type),
+                as_ty | @enumToInt(Zir.Inst.Ref.anyerror_void_error_union_type),
+                as_ty | @enumToInt(Zir.Inst.Ref.generic_poison_type),
+                as_ty | @enumToInt(Zir.Inst.Ref.empty_struct_type),
                 as_comptime_int | @enumToInt(Zir.Inst.Ref.zero),
                 as_comptime_int | @enumToInt(Zir.Inst.Ref.one),
                 as_bool | @enumToInt(Zir.Inst.Ref.bool_true),
@@ -10677,8 +10694,8 @@ fn identAsString(astgen: *AstGen, ident_token: Ast.TokenIndex) !u32 {
     const string_bytes = &astgen.string_bytes;
     const str_index = @intCast(u32, string_bytes.items.len);
     try astgen.appendIdentStr(ident_token, string_bytes);
-    const key = string_bytes.items[str_index..];
-    const gop = try astgen.string_table.getOrPutContextAdapted(gpa, @as([]const u8, key), StringIndexAdapter{
+    const key: []const u8 = string_bytes.items[str_index..];
+    const gop = try astgen.string_table.getOrPutContextAdapted(gpa, key, StringIndexAdapter{
         .bytes = string_bytes,
     }, StringIndexContext{
         .bytes = string_bytes,
@@ -11761,9 +11778,9 @@ const GenZir = struct {
     ) !Zir.Inst.Index {
         const gpa = gz.astgen.gpa;
         const param_body = param_gz.instructionsSlice();
+        const body_len = gz.astgen.countBodyLenAfterFixups(param_body);
         try gz.astgen.instructions.ensureUnusedCapacity(gpa, 1);
-        try gz.astgen.extra.ensureUnusedCapacity(gpa, @typeInfo(Zir.Inst.Param).Struct.fields.len +
-            param_body.len);
+        try gz.astgen.extra.ensureUnusedCapacity(gpa, @typeInfo(Zir.Inst.Param).Struct.fields.len + body_len);
 
         const doc_comment_index = if (first_doc_comment) |first|
             try gz.astgen.docCommentAsStringFromFirst(abs_tok_index, first)
@@ -11773,9 +11790,9 @@ const GenZir = struct {
         const payload_index = gz.astgen.addExtraAssumeCapacity(Zir.Inst.Param{
             .name = name,
             .doc_comment = doc_comment_index,
-            .body_len = @intCast(u32, param_body.len),
+            .body_len = @intCast(u32, body_len),
         });
-        gz.astgen.extra.appendSliceAssumeCapacity(param_body);
+        gz.astgen.appendBodyWithFixups(param_body);
         param_gz.unstack();
 
         const new_index = @intCast(Zir.Inst.Index, gz.astgen.instructions.len);

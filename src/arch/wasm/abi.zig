@@ -5,8 +5,10 @@
 //! Note: Above mentioned document is not an official specification, therefore called a convention.
 
 const std = @import("std");
-const Type = @import("../../type.zig").Type;
 const Target = std.Target;
+
+const Type = @import("../../type.zig").Type;
+const Module = @import("../../Module.zig");
 
 /// Defines how to pass a type as part of a function signature,
 /// both for parameters as well as return values.
@@ -19,27 +21,28 @@ const direct: [2]Class = .{ .direct, .none };
 /// Classifies a given Zig type to determine how they must be passed
 /// or returned as value within a wasm function.
 /// When all elements result in `.none`, no value must be passed in or returned.
-pub fn classifyType(ty: Type, target: Target) [2]Class {
-    if (!ty.hasRuntimeBitsIgnoreComptime()) return none;
-    switch (ty.zigTypeTag()) {
+pub fn classifyType(ty: Type, mod: *Module) [2]Class {
+    const target = mod.getTarget();
+    if (!ty.hasRuntimeBitsIgnoreComptime(mod)) return none;
+    switch (ty.zigTypeTag(mod)) {
         .Struct => {
-            if (ty.containerLayout() == .Packed) {
-                if (ty.bitSize(target) <= 64) return direct;
+            if (ty.containerLayout(mod) == .Packed) {
+                if (ty.bitSize(mod) <= 64) return direct;
                 return .{ .direct, .direct };
             }
             // When the struct type is non-scalar
-            if (ty.structFieldCount() > 1) return memory;
+            if (ty.structFieldCount(mod) > 1) return memory;
             // When the struct's alignment is non-natural
-            const field = ty.structFields().values()[0];
+            const field = ty.structFields(mod).values()[0];
             if (field.abi_align != 0) {
-                if (field.abi_align > field.ty.abiAlignment(target)) {
+                if (field.abi_align > field.ty.abiAlignment(mod)) {
                     return memory;
                 }
             }
-            return classifyType(field.ty, target);
+            return classifyType(field.ty, mod);
         },
         .Int, .Enum, .ErrorSet, .Vector => {
-            const int_bits = ty.intInfo(target).bits;
+            const int_bits = ty.intInfo(mod).bits;
             if (int_bits <= 64) return direct;
             if (int_bits <= 128) return .{ .direct, .direct };
             return memory;
@@ -53,22 +56,22 @@ pub fn classifyType(ty: Type, target: Target) [2]Class {
         .Bool => return direct,
         .Array => return memory,
         .Optional => {
-            std.debug.assert(ty.isPtrLikeOptional());
+            std.debug.assert(ty.isPtrLikeOptional(mod));
             return direct;
         },
         .Pointer => {
-            std.debug.assert(!ty.isSlice());
+            std.debug.assert(!ty.isSlice(mod));
             return direct;
         },
         .Union => {
-            if (ty.containerLayout() == .Packed) {
-                if (ty.bitSize(target) <= 64) return direct;
+            if (ty.containerLayout(mod) == .Packed) {
+                if (ty.bitSize(mod) <= 64) return direct;
                 return .{ .direct, .direct };
             }
-            const layout = ty.unionGetLayout(target);
+            const layout = ty.unionGetLayout(mod);
             std.debug.assert(layout.tag_size == 0);
-            if (ty.unionFields().count() > 1) return memory;
-            return classifyType(ty.unionFields().values()[0].ty, target);
+            if (ty.unionFields(mod).count() > 1) return memory;
+            return classifyType(ty.unionFields(mod).values()[0].ty, mod);
         },
         .ErrorUnion,
         .Frame,
@@ -90,29 +93,29 @@ pub fn classifyType(ty: Type, target: Target) [2]Class {
 /// Returns the scalar type a given type can represent.
 /// Asserts given type can be represented as scalar, such as
 /// a struct with a single scalar field.
-pub fn scalarType(ty: Type, target: std.Target) Type {
-    switch (ty.zigTypeTag()) {
+pub fn scalarType(ty: Type, mod: *Module) Type {
+    switch (ty.zigTypeTag(mod)) {
         .Struct => {
-            switch (ty.containerLayout()) {
+            switch (ty.containerLayout(mod)) {
                 .Packed => {
-                    const struct_obj = ty.castTag(.@"struct").?.data;
-                    return scalarType(struct_obj.backing_int_ty, target);
+                    const struct_obj = mod.typeToStruct(ty).?;
+                    return scalarType(struct_obj.backing_int_ty, mod);
                 },
                 else => {
-                    std.debug.assert(ty.structFieldCount() == 1);
-                    return scalarType(ty.structFieldType(0), target);
+                    std.debug.assert(ty.structFieldCount(mod) == 1);
+                    return scalarType(ty.structFieldType(0, mod), mod);
                 },
             }
         },
         .Union => {
-            if (ty.containerLayout() != .Packed) {
-                const layout = ty.unionGetLayout(target);
+            if (ty.containerLayout(mod) != .Packed) {
+                const layout = ty.unionGetLayout(mod);
                 if (layout.payload_size == 0 and layout.tag_size != 0) {
-                    return scalarType(ty.unionTagTypeSafety().?, target);
+                    return scalarType(ty.unionTagTypeSafety(mod).?, mod);
                 }
-                std.debug.assert(ty.unionFields().count() == 1);
+                std.debug.assert(ty.unionFields(mod).count() == 1);
             }
-            return scalarType(ty.unionFields().values()[0].ty, target);
+            return scalarType(ty.unionFields(mod).values()[0].ty, mod);
         },
         else => return ty,
     }
