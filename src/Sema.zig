@@ -23069,7 +23069,7 @@ fn analyzeMinMax(
             if (std.debug.runtime_safety) {
                 assert(try sema.intFitsInType(val, refined_ty, null));
             }
-            cur_minmax = try sema.coerceInMemory(block, val, orig_ty, refined_ty, src);
+            cur_minmax = try sema.coerceInMemory(val, refined_ty);
         }
 
         break :refined refined_ty;
@@ -26610,7 +26610,7 @@ fn coerceExtra(
     var in_memory_result = try sema.coerceInMemoryAllowed(block, dest_ty, inst_ty, false, target, dest_ty_src, inst_src);
     if (in_memory_result == .ok) {
         if (maybe_inst_val) |val| {
-            return sema.coerceInMemory(block, val, inst_ty, dest_ty, dest_ty_src);
+            return sema.coerceInMemory(val, dest_ty);
         }
         try sema.requireRuntimeBlock(block, inst_src, null);
         return block.addBitCast(dest_ty, inst);
@@ -27278,89 +27278,12 @@ fn coerceExtra(
     return sema.failWithOwnedErrorMsg(msg);
 }
 
-fn coerceValueInMemory(
-    sema: *Sema,
-    block: *Block,
-    val: Value,
-    src_ty: Type,
-    dst_ty: Type,
-    dst_ty_src: LazySrcLoc,
-) CompileError!Value {
-    const mod = sema.mod;
-    return switch (mod.intern_pool.indexToKey(val.toIntern())) {
-        .aggregate => |aggregate| {
-            const dst_ty_key = mod.intern_pool.indexToKey(dst_ty.toIntern());
-            const dest_len = try sema.usizeCast(
-                block,
-                dst_ty_src,
-                mod.intern_pool.aggregateTypeLen(dst_ty.toIntern()),
-            );
-            direct: {
-                const src_ty_child = switch (mod.intern_pool.indexToKey(src_ty.toIntern())) {
-                    inline .array_type, .vector_type => |seq_type| seq_type.child,
-                    .anon_struct_type, .struct_type => break :direct,
-                    else => unreachable,
-                };
-                const dst_ty_child = switch (dst_ty_key) {
-                    inline .array_type, .vector_type => |seq_type| seq_type.child,
-                    .anon_struct_type, .struct_type => break :direct,
-                    else => unreachable,
-                };
-                if (src_ty_child != dst_ty_child) break :direct;
-                // TODO: write something like getCoercedInts to avoid needing to dupe
-                return (try mod.intern(.{ .aggregate = .{
-                    .ty = dst_ty.toIntern(),
-                    .storage = switch (aggregate.storage) {
-                        .bytes => |bytes| .{ .bytes = try sema.arena.dupe(u8, bytes[0..dest_len]) },
-                        .elems => |elems| .{ .elems = try sema.arena.dupe(InternPool.Index, elems[0..dest_len]) },
-                        .repeated_elem => |elem| .{ .repeated_elem = elem },
-                    },
-                } })).toValue();
-            }
-            const dest_elems = try sema.arena.alloc(InternPool.Index, dest_len);
-            for (dest_elems, 0..) |*dest_elem, i| {
-                const elem_ty = switch (dst_ty_key) {
-                    inline .array_type, .vector_type => |seq_type| seq_type.child,
-                    .anon_struct_type => |anon_struct_type| anon_struct_type.types[i],
-                    .struct_type => |struct_type| mod.structPtrUnwrap(struct_type.index).?
-                        .fields.values()[i].ty.toIntern(),
-                    else => unreachable,
-                };
-                const cur_val = switch (aggregate.storage) {
-                    .bytes => |bytes| (try mod.intValue(Type.u8, bytes[i])).toIntern(),
-                    .elems => |elems| elems[i],
-                    .repeated_elem => |elem| elem,
-                };
-                dest_elem.* = (try sema.coerceValueInMemory(
-                    block,
-                    cur_val.toValue(),
-                    mod.intern_pool.typeOf(cur_val).toType(),
-                    elem_ty.toType(),
-                    dst_ty_src,
-                )).toIntern();
-            }
-            return (try mod.intern(.{ .aggregate = .{
-                .ty = dst_ty.toIntern(),
-                .storage = .{ .elems = dest_elems },
-            } })).toValue();
-        },
-        .float => |float| (try mod.intern(.{ .float = .{
-            .ty = dst_ty.toIntern(),
-            .storage = float.storage,
-        } })).toValue(),
-        else => try mod.getCoerced(val, dst_ty),
-    };
-}
-
 fn coerceInMemory(
     sema: *Sema,
-    block: *Block,
     val: Value,
-    src_ty: Type,
     dst_ty: Type,
-    dst_ty_src: LazySrcLoc,
 ) CompileError!Air.Inst.Ref {
-    return sema.addConstant(dst_ty, try sema.coerceValueInMemory(block, val, src_ty, dst_ty, dst_ty_src));
+    return sema.addConstant(dst_ty, try sema.mod.getCoerced(val, dst_ty));
 }
 
 const InMemoryCoercionResult = union(enum) {
@@ -29820,7 +29743,7 @@ fn coerceArrayLike(
     if (in_memory_result == .ok) {
         if (try sema.resolveMaybeUndefVal(inst)) |inst_val| {
             // These types share the same comptime value representation.
-            return sema.coerceInMemory(block, inst_val, inst_ty, dest_ty, dest_ty_src);
+            return sema.coerceInMemory(inst_val, dest_ty);
         }
         try sema.requireRuntimeBlock(block, inst_src, null);
         return block.addBitCast(dest_ty, inst);
@@ -31653,40 +31576,12 @@ const PeerResolveStrategy = enum {
     /// The peers must all be of the same type.
     exact,
 
-    const Reason = struct {
-        peers: std.DynamicBitSet,
-        fn reset(r: *Reason) void {
-            r.peers.setRangeValue(.{ .start = 0, .end = r.peers.capacity() }, false);
-        }
-    };
-
-    fn name(s: PeerResolveStrategy) []const u8 {
-        return switch (s) {
-            .unknown, .exact => "exact",
-            .error_set => "error set",
-            .error_union => "error union",
-            .nullable => "null",
-            .optional => "optional",
-            .array => "array",
-            .vector => "vector",
-            .c_ptr => "C pointer",
-            .ptr => "pointer",
-            .func => "function",
-            .enum_or_union => "enum or union",
-            .comptime_int => "comptime_int",
-            .comptime_float => "comptime_float",
-            .fixed_int => "fixed-width int",
-            .fixed_float => "fixed-width float",
-            .coercible_struct => "anonymous struct or tuple",
-        };
-    }
-
     /// Given two strategies, find a strategy that satisfies both, if one exists. If no such
     /// strategy exists, any strategy may be returned; an error will be emitted when the caller
     /// attempts to use the strategy to resolve the type.
-    /// Strategy `a` comes from the peers set in `reason`, while strategy `b` comes from the peer at
-    /// index `b_peer_idx`. `reason` will be updated to reflect the reason for the new strategy.
-    fn merge(a: PeerResolveStrategy, b: PeerResolveStrategy, reason: *Reason, b_peer_idx: usize) PeerResolveStrategy {
+    /// Strategy `a` comes from the peer in `reason_peer`, while strategy `b` comes from the peer at
+    /// index `b_peer_idx`. `reason_peer` is updated to reflect the reason for the new strategy.
+    fn merge(a: PeerResolveStrategy, b: PeerResolveStrategy, reason_peer: *usize, b_peer_idx: usize) PeerResolveStrategy {
         // Our merging should be order-independent. Thus, even though the union order is arbitrary,
         // by sorting the tags and switching first on the smaller, we have half as many cases to
         // worry about (since we avoid the duplicates).
@@ -31698,14 +31593,13 @@ const PeerResolveStrategy = enum {
             all_s0,
             all_s1,
             either,
-            both,
         };
 
         const res: struct { ReasonMethod, PeerResolveStrategy } = switch (s0) {
             .unknown => .{ .all_s1, s1 },
             .error_set => switch (s1) {
                 .error_set => .{ .either, .error_set },
-                else => .{ .both, .error_union },
+                else => .{ .all_s0, .error_union },
             },
             .error_union => switch (s1) {
                 .error_union => .{ .either, .error_union },
@@ -31714,7 +31608,7 @@ const PeerResolveStrategy = enum {
             .nullable => switch (s1) {
                 .nullable => .{ .either, .nullable },
                 .c_ptr => .{ .all_s1, .c_ptr },
-                else => .{ .both, .optional },
+                else => .{ .all_s0, .optional },
             },
             .optional => switch (s1) {
                 .optional => .{ .either, .optional },
@@ -31772,23 +31666,17 @@ const PeerResolveStrategy = enum {
         switch (res[0]) {
             .all_s0 => {
                 if (!s0_is_a) {
-                    reason.reset();
-                    reason.peers.set(b_peer_idx);
+                    reason_peer.* = b_peer_idx;
                 }
             },
             .all_s1 => {
                 if (s0_is_a) {
-                    reason.reset();
-                    reason.peers.set(b_peer_idx);
+                    reason_peer.* = b_peer_idx;
                 }
             },
             .either => {
-                // Prefer b, since it's a single peer
-                reason.reset();
-                reason.peers.set(b_peer_idx);
-            },
-            .both => {
-                reason.peers.set(b_peer_idx);
+                // Prefer the earliest peer
+                reason_peer.* = @min(reason_peer.*, b_peer_idx);
             },
         }
 
@@ -31820,12 +31708,7 @@ const PeerResolveStrategy = enum {
 const PeerResolveResult = union(enum) {
     /// The peer type resolution was successful, and resulted in the given type.
     success: Type,
-    /// The chosen strategy was incompatible with the given peer.
-    bad_strat: struct {
-        strat: PeerResolveStrategy,
-        peer_idx: usize,
-    },
-    /// There was some conflict between two specific peers.
+    /// There was some generic conflict between two peers.
     conflict: struct {
         peer_idx_a: usize,
         peer_idx_b: usize,
@@ -31847,7 +31730,6 @@ const PeerResolveResult = union(enum) {
         src: LazySrcLoc,
         instructions: []const Air.Inst.Ref,
         candidate_srcs: Module.PeerTypeCandidateSrc,
-        strat_reason: PeerResolveStrategy.Reason,
     ) !*Module.ErrorMsg {
         const mod = sema.mod;
         const decl_ptr = mod.declPtr(block.src_decl);
@@ -31867,41 +31749,6 @@ const PeerResolveResult = union(enum) {
 
             switch (cur) {
                 .success => unreachable,
-                .bad_strat => |bad_strat| bad_strat: {
-                    if (strat_reason.peers.count() == 1) {
-                        // We can write this error more simply as a conflict between two peers
-                        conflict_idx = .{
-                            strat_reason.peers.findFirstSet().?,
-                            bad_strat.peer_idx,
-                        };
-                        break :bad_strat;
-                    }
-
-                    const fmt = "type resolution strategy failed";
-                    const msg = if (opt_msg) |msg| msg: {
-                        try sema.errNote(block, src, msg, fmt, .{});
-                        break :msg msg;
-                    } else msg: {
-                        const msg = try sema.errMsg(block, src, fmt, .{});
-                        opt_msg = msg;
-                        break :msg msg;
-                    };
-
-                    const peer_ty = peer_tys[bad_strat.peer_idx];
-                    const peer_src = candidate_srcs.resolve(mod, decl_ptr, bad_strat.peer_idx) orelse src;
-                    try sema.errNote(block, peer_src, msg, "strategy '{s}' failed for type '{}' here", .{ bad_strat.strat.name(), peer_ty.fmt(mod) });
-
-                    try sema.errNote(block, src, msg, "strategy chosen using {} peers", .{strat_reason.peers.count()});
-                    var it = strat_reason.peers.iterator(.{});
-                    while (it.next()) |strat_peer_idx| {
-                        const strat_peer_ty = peer_tys[strat_peer_idx];
-                        const strat_peer_src = candidate_srcs.resolve(mod, decl_ptr, strat_peer_idx) orelse src;
-                        try sema.errNote(block, strat_peer_src, msg, "peer of type '{}' here", .{strat_peer_ty.fmt(mod)});
-                    }
-
-                    // No child error
-                    break;
-                },
                 .conflict => |conflict| {
                     // Fall through to two-peer conflict handling below
                     conflict_idx = .{
@@ -31925,7 +31772,7 @@ const PeerResolveResult = union(enum) {
                 },
             }
 
-            // This is the path for reporting a conflict between two peers.
+            // This is the path for reporting a generic conflict between two peers.
 
             if (conflict_idx[1] < conflict_idx[0]) {
                 // b comes first in source, so it's better if it comes first in the error
@@ -31987,14 +31834,10 @@ fn resolvePeerTypes(
         val.* = try sema.resolveMaybeUndefVal(inst);
     }
 
-    var strat_reason: PeerResolveStrategy.Reason = .{
-        .peers = try std.DynamicBitSet.initEmpty(sema.arena, instructions.len),
-    };
-
-    switch (try sema.resolvePeerTypesInner(block, src, peer_tys, peer_vals, &strat_reason)) {
+    switch (try sema.resolvePeerTypesInner(block, src, peer_tys, peer_vals)) {
         .success => |ty| return ty,
         else => |result| {
-            const msg = try result.report(sema, block, src, instructions, candidate_srcs, strat_reason);
+            const msg = try result.report(sema, block, src, instructions, candidate_srcs);
             return sema.failWithOwnedErrorMsg(msg);
         },
     }
@@ -32006,16 +31849,14 @@ fn resolvePeerTypesInner(
     src: LazySrcLoc,
     peer_tys: []?Type,
     peer_vals: []?Value,
-    strat_reason: *PeerResolveStrategy.Reason,
 ) !PeerResolveResult {
     const mod = sema.mod;
 
-    strat_reason.reset();
-
+    var strat_reason: usize = 0;
     var s: PeerResolveStrategy = .unknown;
     for (peer_tys, 0..) |opt_ty, i| {
         const ty = opt_ty orelse continue;
-        s = s.merge(PeerResolveStrategy.select(ty, mod), strat_reason, i);
+        s = s.merge(PeerResolveStrategy.select(ty, mod), &strat_reason, i);
     }
 
     if (s == .unknown) {
@@ -32041,9 +31882,9 @@ fn resolvePeerTypesInner(
             var final_set: ?Type = null;
             for (peer_tys, 0..) |opt_ty, i| {
                 const ty = opt_ty orelse continue;
-                if (ty.zigTypeTag(mod) != .ErrorSet) return .{ .bad_strat = .{
-                    .strat = s,
-                    .peer_idx = i,
+                if (ty.zigTypeTag(mod) != .ErrorSet) return .{ .conflict = .{
+                    .peer_idx_a = strat_reason,
+                    .peer_idx_b = i,
                 } };
                 if (final_set) |cur_set| {
                     final_set = try sema.maybeMergeErrorSets(block, src, cur_set, ty);
@@ -32091,7 +31932,6 @@ fn resolvePeerTypesInner(
                 src,
                 peer_tys,
                 peer_vals,
-                strat_reason,
             )) {
                 .success => |ty| ty,
                 else => |result| return result,
@@ -32102,9 +31942,9 @@ fn resolvePeerTypesInner(
         .nullable => {
             for (peer_tys, 0..) |opt_ty, i| {
                 const ty = opt_ty orelse continue;
-                if (!ty.eql(Type.null, mod)) return .{ .bad_strat = .{
-                    .strat = s,
-                    .peer_idx = i,
+                if (!ty.eql(Type.null, mod)) return .{ .conflict = .{
+                    .peer_idx_a = strat_reason,
+                    .peer_idx_b = i,
                 } };
             }
             return .{ .success = Type.null };
@@ -32130,7 +31970,6 @@ fn resolvePeerTypesInner(
                 src,
                 peer_tys,
                 peer_vals,
-                strat_reason,
             )) {
                 .success => |ty| ty,
                 else => |result| return result,
@@ -32154,9 +31993,9 @@ fn resolvePeerTypesInner(
 
                 if (!ty.isArrayOrVector(mod)) {
                     // We allow tuples of the correct length. We won't validate their elem type, since the elements can be coerced.
-                    const arr_like = sema.typeIsArrayLike(ty) orelse return .{ .bad_strat = .{
-                        .strat = s,
-                        .peer_idx = i,
+                    const arr_like = sema.typeIsArrayLike(ty) orelse return .{ .conflict = .{
+                        .peer_idx_a = strat_reason,
+                        .peer_idx_b = i,
                     } };
 
                     if (opt_first_idx) |first_idx| {
@@ -32224,9 +32063,9 @@ fn resolvePeerTypesInner(
 
                 if (!ty.isArrayOrVector(mod)) {
                     // Allow tuples of the correct length
-                    const arr_like = sema.typeIsArrayLike(ty) orelse return .{ .bad_strat = .{
-                        .strat = s,
-                        .peer_idx = i,
+                    const arr_like = sema.typeIsArrayLike(ty) orelse return .{ .conflict = .{
+                        .peer_idx_a = strat_reason,
+                        .peer_idx_b = i,
                     } };
 
                     if (len) |expect_len| {
@@ -32266,7 +32105,6 @@ fn resolvePeerTypesInner(
                 src,
                 peer_tys,
                 peer_vals,
-                strat_reason,
             )) {
                 .success => |ty| ty,
                 else => |result| return result,
@@ -32300,9 +32138,9 @@ fn resolvePeerTypesInner(
                     else => {},
                 }
 
-                if (!ty.isPtrAtRuntime(mod)) return .{ .bad_strat = .{
-                    .strat = s,
-                    .peer_idx = i,
+                if (!ty.isPtrAtRuntime(mod)) return .{ .conflict = .{
+                    .peer_idx_a = strat_reason,
+                    .peer_idx_b = i,
                 } };
 
                 // Goes through optionals
@@ -32316,7 +32154,6 @@ fn resolvePeerTypesInner(
                 };
 
                 // Try peer -> cur, then cur -> peer
-                const old_pointee_type = ptr_info.pointee_type;
                 ptr_info.pointee_type = (try sema.resolvePairInMemoryCoercible(block, src, ptr_info.pointee_type, peer_info.pointee_type)) orelse {
                     return .{ .conflict = .{
                         .peer_idx_a = first_idx,
@@ -32325,8 +32162,8 @@ fn resolvePeerTypesInner(
                 };
 
                 if (ptr_info.sentinel != null and peer_info.sentinel != null) {
-                    const peer_sent = try sema.coerceValueInMemory(block, ptr_info.sentinel.?, old_pointee_type, ptr_info.pointee_type, .unneeded);
-                    const ptr_sent = try sema.coerceValueInMemory(block, peer_info.sentinel.?, peer_info.pointee_type, ptr_info.pointee_type, .unneeded);
+                    const peer_sent = try mod.getCoerced(ptr_info.sentinel.?, ptr_info.pointee_type);
+                    const ptr_sent = try mod.getCoerced(peer_info.sentinel.?, ptr_info.pointee_type);
                     if (ptr_sent.eql(peer_sent, ptr_info.pointee_type, mod)) {
                         ptr_info.sentinel = ptr_sent;
                     } else {
@@ -32379,18 +32216,18 @@ fn resolvePeerTypesInner(
                         .pointee_type = ty,
                         .@"addrspace" = target_util.defaultAddressSpace(target, .global_constant),
                     },
-                    else => return .{ .bad_strat = .{
-                        .strat = s,
-                        .peer_idx = i,
+                    else => return .{ .conflict = .{
+                        .peer_idx_a = strat_reason,
+                        .peer_idx_b = i,
                     } },
                 };
 
                 switch (peer_info.size) {
                     .One, .Many => {},
                     .Slice => opt_slice_idx = i,
-                    .C => return .{ .bad_strat = .{
-                        .strat = s,
-                        .peer_idx = i,
+                    .C => return .{ .conflict = .{
+                        .peer_idx_a = strat_reason,
+                        .peer_idx_b = i,
                     } },
                 }
 
@@ -32605,10 +32442,8 @@ fn resolvePeerTypesInner(
                     no_sentinel: {
                         if (peer_sentinel == null) break :no_sentinel;
                         if (cur_sentinel == null) break :no_sentinel;
-                        const peer_sent_ty = mod.intern_pool.typeOf(peer_sentinel.?.toIntern()).toType();
-                        const cur_sent_ty = mod.intern_pool.typeOf(cur_sentinel.?.toIntern()).toType();
-                        const peer_sent_coerced = try sema.coerceValueInMemory(block, peer_sentinel.?, peer_sent_ty, sentinel_ty, .unneeded);
-                        const cur_sent_coerced = try sema.coerceValueInMemory(block, cur_sentinel.?, cur_sent_ty, sentinel_ty, .unneeded);
+                        const peer_sent_coerced = try mod.getCoerced(peer_sentinel.?, sentinel_ty);
+                        const cur_sent_coerced = try mod.getCoerced(cur_sentinel.?, sentinel_ty);
                         if (!peer_sent_coerced.eql(cur_sent_coerced, sentinel_ty, mod)) break :no_sentinel;
                         // Sentinels match
                         if (ptr_info.size == .One) {
@@ -32664,9 +32499,9 @@ fn resolvePeerTypesInner(
                     first_idx = i;
                     continue;
                 };
-                if (ty.zigTypeTag(mod) != .Fn) return .{ .bad_strat = .{
-                    .strat = s,
-                    .peer_idx = i,
+                if (ty.zigTypeTag(mod) != .Fn) return .{ .conflict = .{
+                    .peer_idx_a = strat_reason,
+                    .peer_idx_b = i,
                 } };
                 // ty -> cur_ty
                 if (.ok == try sema.coerceInMemoryAllowedFns(block, cur_ty, ty, target, src, src)) {
@@ -32694,9 +32529,9 @@ fn resolvePeerTypesInner(
                 const ty = opt_ty orelse continue;
                 switch (ty.zigTypeTag(mod)) {
                     .EnumLiteral, .Enum, .Union => {},
-                    else => return .{ .bad_strat = .{
-                        .strat = s,
-                        .peer_idx = i,
+                    else => return .{ .conflict = .{
+                        .peer_idx_a = strat_reason,
+                        .peer_idx_b = i,
                     } },
                 }
                 const cur_ty = opt_cur_ty orelse {
@@ -32751,9 +32586,9 @@ fn resolvePeerTypesInner(
                 const ty = opt_ty orelse continue;
                 switch (ty.zigTypeTag(mod)) {
                     .ComptimeInt => {},
-                    else => return .{ .bad_strat = .{
-                        .strat = s,
-                        .peer_idx = i,
+                    else => return .{ .conflict = .{
+                        .peer_idx_a = strat_reason,
+                        .peer_idx_b = i,
                     } },
                 }
             }
@@ -32765,9 +32600,9 @@ fn resolvePeerTypesInner(
                 const ty = opt_ty orelse continue;
                 switch (ty.zigTypeTag(mod)) {
                     .ComptimeInt, .ComptimeFloat => {},
-                    else => return .{ .bad_strat = .{
-                        .strat = s,
-                        .peer_idx = i,
+                    else => return .{ .conflict = .{
+                        .peer_idx_a = strat_reason,
+                        .peer_idx_b = i,
                     } },
                 }
             }
@@ -32789,18 +32624,18 @@ fn resolvePeerTypesInner(
                 switch (peer_tag) {
                     .ComptimeInt => {
                         // If the value is undefined, we can't refine to a fixed-width int
-                        if (opt_val == null or opt_val.?.isUndef(mod)) return .{ .bad_strat = .{
-                            .strat = s,
-                            .peer_idx = i,
+                        if (opt_val == null or opt_val.?.isUndef(mod)) return .{ .conflict = .{
+                            .peer_idx_a = strat_reason,
+                            .peer_idx_b = i,
                         } };
                         any_comptime_known = true;
                         ptr_opt_val.* = try sema.resolveLazyValue(opt_val.?);
                         continue;
                     },
                     .Int => {},
-                    else => return .{ .bad_strat = .{
-                        .strat = s,
-                        .peer_idx = i,
+                    else => return .{ .conflict = .{
+                        .peer_idx_a = strat_reason,
+                        .peer_idx_b = i,
                     } },
                 }
 
@@ -32868,9 +32703,9 @@ fn resolvePeerTypesInner(
                 switch (ty.zigTypeTag(mod)) {
                     .ComptimeFloat, .ComptimeInt => {},
                     .Int => {
-                        if (opt_val == null) return .{ .bad_strat = .{
-                            .strat = s,
-                            .peer_idx = i,
+                        if (opt_val == null) return .{ .conflict = .{
+                            .peer_idx_a = strat_reason,
+                            .peer_idx_b = i,
                         } };
                     },
                     .Float => {
@@ -32890,9 +32725,9 @@ fn resolvePeerTypesInner(
                             opt_cur_ty = ty;
                         }
                     },
-                    else => return .{ .bad_strat = .{
-                        .strat = s,
-                        .peer_idx = i,
+                    else => return .{ .conflict = .{
+                        .peer_idx_a = strat_reason,
+                        .peer_idx_b = i,
                     } },
                 }
             }
@@ -32915,9 +32750,9 @@ fn resolvePeerTypesInner(
                 const ty = opt_ty orelse continue;
 
                 if (!ty.isTupleOrAnonStruct(mod)) {
-                    return .{ .bad_strat = .{
-                        .strat = s,
-                        .peer_idx = i,
+                    return .{ .conflict = .{
+                        .peer_idx_a = strat_reason,
+                        .peer_idx_b = i,
                     } };
                 }
 
@@ -32973,7 +32808,7 @@ fn resolvePeerTypesInner(
                 }
 
                 // Resolve field type recursively
-                field_ty.* = switch (try sema.resolvePeerTypesInner(block, src, sub_peer_tys, sub_peer_vals, strat_reason)) {
+                field_ty.* = switch (try sema.resolvePeerTypesInner(block, src, sub_peer_tys, sub_peer_vals)) {
                     .success => |ty| ty.toIntern(),
                     else => |result| {
                         const result_buf = try sema.arena.create(PeerResolveResult);
@@ -35538,7 +35373,7 @@ fn pointerDerefExtra(sema: *Sema, block: *Block, src: LazySrcLoc, ptr_val: Value
             // Move mutable decl values to the InternPool and assert other decls are already in
             // the InternPool.
             const uncoerced_val = if (deref.is_mutable) try tv.val.intern(tv.ty, mod) else tv.val.toIntern();
-            const coerced_val = try sema.coerceValueInMemory(block, uncoerced_val.toValue(), tv.ty, load_ty, src);
+            const coerced_val = try mod.getCoerced(uncoerced_val.toValue(), load_ty);
             return .{ .val = coerced_val };
         }
     }

@@ -4568,6 +4568,7 @@ pub fn sliceLen(ip: *const InternPool, i: Index) Index {
 /// * int <=> int
 /// * int <=> enum
 /// * enum_literal => enum
+/// * float <=> float
 /// * ptr <=> ptr
 /// * opt ptr <=> ptr
 /// * opt ptr <=> opt ptr
@@ -4579,6 +4580,7 @@ pub fn sliceLen(ip: *const InternPool, i: Index) Index {
 /// * error set => error union
 /// * payload => error union
 /// * fn <=> fn
+/// * aggregate <=> aggregate (where children can also be coerced)
 pub fn getCoerced(ip: *InternPool, gpa: Allocator, val: Index, new_ty: Index) Allocator.Error!Index {
     const old_ty = ip.typeOf(val);
     if (old_ty == new_ty) return val;
@@ -4622,6 +4624,23 @@ pub fn getCoerced(ip: *InternPool, gpa: Allocator, val: Index, new_ty: Index) Al
                 } }),
                 else => if (ip.isIntegerType(new_ty))
                     return getCoercedInts(ip, gpa, int, new_ty),
+            },
+            .float => |float| switch (ip.indexToKey(new_ty)) {
+                .simple_type => |simple| switch (simple) {
+                    .f16,
+                    .f32,
+                    .f64,
+                    .f80,
+                    .f128,
+                    .c_longdouble,
+                    .comptime_float,
+                    => return ip.get(gpa, .{ .float = .{
+                        .ty = new_ty,
+                        .storage = float.storage,
+                    } }),
+                    else => {},
+                },
+                else => {},
             },
             .enum_tag => |enum_tag| if (ip.isIntegerType(new_ty))
                 return getCoercedInts(ip, gpa, ip.indexToKey(enum_tag.int).int, new_ty),
@@ -4688,6 +4707,80 @@ pub fn getCoerced(ip: *InternPool, gpa: Allocator, val: Index, new_ty: Index) Al
                     .ty = new_ty,
                     .val = error_union.val,
                 } }),
+            .aggregate => |aggregate| {
+                const new_len = @intCast(usize, ip.aggregateTypeLen(new_ty));
+                direct: {
+                    const old_ty_child = switch (ip.indexToKey(old_ty)) {
+                        inline .array_type, .vector_type => |seq_type| seq_type.child,
+                        .anon_struct_type, .struct_type => break :direct,
+                        else => unreachable,
+                    };
+                    const new_ty_child = switch (ip.indexToKey(new_ty)) {
+                        inline .array_type, .vector_type => |seq_type| seq_type.child,
+                        .anon_struct_type, .struct_type => break :direct,
+                        else => unreachable,
+                    };
+                    if (old_ty_child != new_ty_child) break :direct;
+                    // TODO: write something like getCoercedInts to avoid needing to dupe here
+                    switch (aggregate.storage) {
+                        .bytes => |bytes| {
+                            const bytes_copy = try gpa.dupe(u8, bytes[0..new_len]);
+                            defer gpa.free(bytes_copy);
+                            return ip.get(gpa, .{ .aggregate = .{
+                                .ty = new_ty,
+                                .storage = .{ .bytes = bytes_copy },
+                            } });
+                        },
+                        .elems => |elems| {
+                            const elems_copy = try gpa.dupe(InternPool.Index, elems[0..new_len]);
+                            defer gpa.free(elems_copy);
+                            return ip.get(gpa, .{ .aggregate = .{
+                                .ty = new_ty,
+                                .storage = .{ .elems = elems_copy },
+                            } });
+                        },
+                        .repeated_elem => |elem| {
+                            return ip.get(gpa, .{ .aggregate = .{
+                                .ty = new_ty,
+                                .storage = .{ .repeated_elem = elem },
+                            } });
+                        },
+                    }
+                }
+                // Direct approach failed - we must recursively coerce elems
+                const agg_elems = try gpa.alloc(InternPool.Index, new_len);
+                defer gpa.free(agg_elems);
+                // First, fill the vector with the uncoerced elements. We do this to avoid key
+                // lifetime issues, since it'll allow us to avoid referencing `aggregate` after we
+                // begin interning elems.
+                switch (aggregate.storage) {
+                    .bytes => {
+                        // We have to intern each value here, so unfortunately we can't easily avoid
+                        // the repeated indexToKey calls.
+                        for (agg_elems, 0..) |*elem, i| {
+                            const x = ip.indexToKey(val).aggregate.storage.bytes[i];
+                            elem.* = try ip.get(gpa, .{ .int = .{
+                                .ty = .u8_type,
+                                .storage = .{ .u64 = x },
+                            } });
+                        }
+                    },
+                    .elems => |elems| @memcpy(agg_elems, elems[0..new_len]),
+                    .repeated_elem => |elem| @memset(agg_elems, elem),
+                }
+                // Now, coerce each element to its new type.
+                for (agg_elems, 0..) |*elem, i| {
+                    const new_elem_ty = switch (ip.indexToKey(new_ty)) {
+                        inline .array_type, .vector_type => |seq_type| seq_type.child,
+                        .anon_struct_type => |anon_struct_type| anon_struct_type.types[i],
+                        .struct_type => |struct_type| ip.structPtr(struct_type.index.unwrap().?)
+                            .fields.values()[i].ty.toIntern(),
+                        else => unreachable,
+                    };
+                    elem.* = try ip.getCoerced(gpa, elem.*, new_elem_ty);
+                }
+                return ip.get(gpa, .{ .aggregate = .{ .ty = new_ty, .storage = .{ .elems = agg_elems } } });
+            },
             else => {},
         },
     }
