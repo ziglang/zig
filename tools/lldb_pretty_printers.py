@@ -478,6 +478,24 @@ class InternPool_Index_SynthProvider:
         except: return -1
     def get_child_at_index(self, index): return (self.tag, self.data, self.trailing)[index] if index in range(3) else None
 
+def InternPool_NullTerminatedString_SummaryProvider(value, _=None):
+    try:
+        ip = InternPool_Find(value.thread)
+        if not ip: return
+        items = ip.GetChildMemberWithName('string_bytes').GetChildMemberWithName('items')
+        b = bytearray()
+        i = 0
+        while True:
+            x = items.GetChildAtIndex(value.unsigned + i).GetValueAsUnsigned()
+            if x == 0: break
+            b.append(x)
+            i += 1
+        s = b.decode(encoding='utf8', errors='backslashreplace')
+        s1 = s if s.isprintable() else ''.join((c if c.isprintable() else '\\x%02x' % ord(c) for c in s))
+        return '"%s"' % s1
+    except:
+        pass
+
 def type_Type_pointer(payload):
     pointee_type = payload.GetChildMemberWithName('pointee_type')
     sentinel = payload.GetChildMemberWithName('sentinel').GetChildMemberWithName('child')
@@ -690,6 +708,7 @@ def __lldb_init_module(debugger, _=None):
     add(debugger, category='zig.stage2', type='Module.Decl::Module.Decl.Index', synth=True)
     add(debugger, category='zig.stage2', type='Module.LazySrcLoc', identifier='zig_TaggedUnion', synth=True)
     add(debugger, category='zig.stage2', type='InternPool.Index', synth=True)
+    add(debugger, category='zig.stage2', type='InternPool.NullTerminatedString', summary=True)
     add(debugger, category='zig.stage2', type='InternPool.Key', identifier='zig_TaggedUnion', synth=True)
     add(debugger, category='zig.stage2', type='InternPool.Key.Int.Storage', identifier='zig_TaggedUnion', synth=True)
     add(debugger, category='zig.stage2', type='InternPool.Key.ErrorUnion.Value', identifier='zig_TaggedUnion', synth=True)
