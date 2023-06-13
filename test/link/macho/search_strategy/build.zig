@@ -24,7 +24,8 @@ fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.Optimize
         check.checkStart("cmd LOAD_DYLIB");
         check.checkNext("name @rpath/libsearch_dylibs_first.dylib");
 
-        const run = check.runAndCompare();
+        const run = b.addRunArtifact(exe);
+        run.skip_foreign_checks = true;
         run.expectStdOutEqual("Hello world");
         test_step.dependOn(&run.step);
     }

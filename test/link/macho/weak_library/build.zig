@@ -46,7 +46,8 @@ fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.Optimize
     check.checkInSymtab();
     check.checkNext("(undefined) weak external _asStr (from liba)");
 
-    const run_cmd = check.runAndCompare();
-    run_cmd.expectStdOutEqual("42 42");
-    test_step.dependOn(&run_cmd.step);
+    const run = b.addRunArtifact(exe);
+    run.skip_foreign_checks = true;
+    run.expectStdOutEqual("42 42");
+    test_step.dependOn(&run.step);
 }

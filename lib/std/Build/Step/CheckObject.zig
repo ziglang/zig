@@ -42,22 +42,6 @@ pub fn create(
     return self;
 }
 
-/// Runs and (optionally) compares the output of a binary.
-/// Asserts `self` was generated from an executable step.
-/// TODO this doesn't actually compare, and there's no apparent reason for it
-/// to depend on the check object step. I don't see why this function should exist,
-/// the caller could just add the run step directly.
-pub fn runAndCompare(self: *CheckObject) *std.Build.Step.Run {
-    const dependencies_len = self.step.dependencies.items.len;
-    assert(dependencies_len > 0);
-    const exe_step = self.step.dependencies.items[dependencies_len - 1];
-    const exe = exe_step.cast(std.Build.Step.Compile).?;
-    const run = self.step.owner.addRunArtifact(exe);
-    run.skip_foreign_checks = true;
-    run.step.dependOn(&self.step);
-    return run;
-}
-
 const SearchPhrase = struct {
     string: []const u8,
     file_source: ?std.Build.FileSource = null,
