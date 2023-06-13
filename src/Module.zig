@@ -2471,12 +2471,23 @@ pub const SrcLoc = struct {
                     }
                 } else unreachable;
             },
-            .node_offset_switch_prong_capture => |node_off| {
+            .node_offset_switch_prong_capture,
+            .node_offset_switch_prong_tag_capture,
+            => |node_off| {
                 const tree = try src_loc.file_scope.getTree(gpa);
                 const case_node = src_loc.declRelativeToNodeIndex(node_off);
                 const case = tree.fullSwitchCase(case_node).?;
-                const start_tok = case.payload_token.?;
                 const token_tags = tree.tokens.items(.tag);
+                const start_tok = switch (src_loc.lazy) {
+                    .node_offset_switch_prong_capture => case.payload_token.?,
+                    .node_offset_switch_prong_tag_capture => blk: {
+                        var tok = case.payload_token.?;
+                        if (token_tags[tok] == .asterisk) tok += 1;
+                        tok += 2; // skip over comma
+                        break :blk tok;
+                    },
+                    else => unreachable,
+                };
                 const end_tok = switch (token_tags[start_tok]) {
                     .asterisk => start_tok + 1,
                     else => start_tok,
@@ -2957,6 +2968,9 @@ pub const LazySrcLoc = union(enum) {
     /// The source location points to the capture of a switch_prong.
     /// The Decl is determined contextually.
     node_offset_switch_prong_capture: i32,
+    /// The source location points to the tag capture of a switch_prong.
+    /// The Decl is determined contextually.
+    node_offset_switch_prong_tag_capture: i32,
     /// The source location points to the align expr of a function type
     /// expression, found by taking this AST node index offset from the containing
     /// Decl AST node, which points to a function type AST node. Next, navigate to
@@ -3130,6 +3144,7 @@ pub const LazySrcLoc = union(enum) {
             .node_offset_switch_special_prong,
             .node_offset_switch_range,
             .node_offset_switch_prong_capture,
+            .node_offset_switch_prong_tag_capture,
             .node_offset_fn_type_align,
             .node_offset_fn_type_addrspace,
             .node_offset_fn_type_section,
@@ -5867,10 +5882,26 @@ fn lockAndClearFileCompileError(mod: *Module, file: *File) void {
 }
 
 pub const SwitchProngSrc = union(enum) {
+    /// The item for a scalar prong.
     scalar: u32,
+    /// A given single item for a multi prong.
     multi: Multi,
+    /// A given range item for a multi prong.
     range: Multi,
+    /// The item for the special prong.
+    special,
+    /// The main capture for a scalar prong.
+    scalar_capture: u32,
+    /// The main capture for a multi prong.
     multi_capture: u32,
+    /// The main capture for the special prong.
+    special_capture,
+    /// The tag capture for a scalar prong.
+    scalar_tag_capture: u32,
+    /// The tag capture for a multi prong.
+    multi_tag_capture: u32,
+    /// The tag capture for the special prong.
+    special_tag_capture,
 
     pub const Multi = struct {
         prong: u32,
@@ -5886,6 +5917,7 @@ pub const SwitchProngSrc = union(enum) {
         mod: *Module,
         decl: *Decl,
         switch_node_offset: i32,
+        /// Ignored if `prong_src` is not `.range`
         range_expand: RangeExpand,
     ) LazySrcLoc {
         @setCold(true);
@@ -5906,63 +5938,97 @@ pub const SwitchProngSrc = union(enum) {
 
         var multi_i: u32 = 0;
         var scalar_i: u32 = 0;
-        for (case_nodes) |case_node| {
+        const case_node = for (case_nodes) |case_node| {
             const case = tree.fullSwitchCase(case_node).?;
-            if (case.ast.values.len == 0)
-                continue;
-            if (case.ast.values.len == 1 and
-                node_tags[case.ast.values[0]] == .identifier and
-                mem.eql(u8, tree.tokenSlice(main_tokens[case.ast.values[0]]), "_"))
-            {
-                continue;
+
+            const is_special = special: {
+                if (case.ast.values.len == 0) break :special true;
+                if (case.ast.values.len == 1 and node_tags[case.ast.values[0]] == .identifier) {
+                    break :special mem.eql(u8, tree.tokenSlice(main_tokens[case.ast.values[0]]), "_");
+                }
+                break :special false;
+            };
+
+            if (is_special) {
+                switch (prong_src) {
+                    .special, .special_capture, .special_tag_capture => break case_node,
+                    else => continue,
+                }
             }
+
             const is_multi = case.ast.values.len != 1 or
                 node_tags[case.ast.values[0]] == .switch_range;
 
             switch (prong_src) {
-                .scalar => |i| if (!is_multi and i == scalar_i) return LazySrcLoc.nodeOffset(
-                    decl.nodeIndexToRelative(case.ast.values[0]),
-                ),
-                .multi_capture => |i| if (is_multi and i == multi_i) {
-                    return LazySrcLoc{ .node_offset_switch_prong_capture = decl.nodeIndexToRelative(case_node) };
-                },
-                .multi => |s| if (is_multi and s.prong == multi_i) {
-                    var item_i: u32 = 0;
-                    for (case.ast.values) |item_node| {
-                        if (node_tags[item_node] == .switch_range) continue;
+                .scalar,
+                .scalar_capture,
+                .scalar_tag_capture,
+                => |i| if (!is_multi and i == scalar_i) break case_node,
 
-                        if (item_i == s.item) return LazySrcLoc.nodeOffset(
-                            decl.nodeIndexToRelative(item_node),
-                        );
-                        item_i += 1;
-                    } else unreachable;
-                },
-                .range => |s| if (is_multi and s.prong == multi_i) {
-                    var range_i: u32 = 0;
-                    for (case.ast.values) |range| {
-                        if (node_tags[range] != .switch_range) continue;
+                .multi_capture,
+                .multi_tag_capture,
+                => |i| if (is_multi and i == multi_i) break case_node,
 
-                        if (range_i == s.item) switch (range_expand) {
-                            .none => return LazySrcLoc.nodeOffset(
-                                decl.nodeIndexToRelative(range),
-                            ),
-                            .first => return LazySrcLoc.nodeOffset(
-                                decl.nodeIndexToRelative(node_datas[range].lhs),
-                            ),
-                            .last => return LazySrcLoc.nodeOffset(
-                                decl.nodeIndexToRelative(node_datas[range].rhs),
-                            ),
-                        };
-                        range_i += 1;
-                    } else unreachable;
-                },
+                .multi,
+                .range,
+                => |m| if (is_multi and m.prong == multi_i) break case_node,
+
+                .special,
+                .special_capture,
+                .special_tag_capture,
+                => {},
             }
+
             if (is_multi) {
                 multi_i += 1;
             } else {
                 scalar_i += 1;
             }
         } else unreachable;
+
+        const case = tree.fullSwitchCase(case_node).?;
+
+        switch (prong_src) {
+            .scalar, .special => return LazySrcLoc.nodeOffset(
+                decl.nodeIndexToRelative(case.ast.values[0]),
+            ),
+            .multi => |m| {
+                var item_i: u32 = 0;
+                for (case.ast.values) |item_node| {
+                    if (node_tags[item_node] == .switch_range) continue;
+                    if (item_i == m.item) return LazySrcLoc.nodeOffset(
+                        decl.nodeIndexToRelative(item_node),
+                    );
+                    item_i += 1;
+                }
+                unreachable;
+            },
+            .range => |m| {
+                var range_i: u32 = 0;
+                for (case.ast.values) |range| {
+                    if (node_tags[range] != .switch_range) continue;
+                    if (range_i == m.item) switch (range_expand) {
+                        .none => return LazySrcLoc.nodeOffset(
+                            decl.nodeIndexToRelative(range),
+                        ),
+                        .first => return LazySrcLoc.nodeOffset(
+                            decl.nodeIndexToRelative(node_datas[range].lhs),
+                        ),
+                        .last => return LazySrcLoc.nodeOffset(
+                            decl.nodeIndexToRelative(node_datas[range].rhs),
+                        ),
+                    };
+                    range_i += 1;
+                }
+                unreachable;
+            },
+            .scalar_capture, .multi_capture, .special_capture => {
+                return .{ .node_offset_switch_prong_capture = decl.nodeIndexToRelative(case_node) };
+            },
+            .scalar_tag_capture, .multi_tag_capture, .special_tag_capture => {
+                return .{ .node_offset_switch_prong_tag_capture = decl.nodeIndexToRelative(case_node) };
+            },
+        }
     }
 };
 

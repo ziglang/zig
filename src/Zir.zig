@@ -667,38 +667,9 @@ pub const Inst = struct {
         /// A switch expression. Uses the `pl_node` union field.
         /// AST node is the switch, payload is `SwitchBlock`.
         switch_block,
-        /// Produces the value that will be switched on. For example, for
-        /// integers, it returns the integer with no modifications. For tagged unions, it
-        /// returns the active enum tag.
-        /// Uses the `un_node` union field.
-        switch_cond,
-        /// Same as `switch_cond`, except the input operand is a pointer to
-        /// what will be switched on.
-        /// Uses the `un_node` union field.
-        switch_cond_ref,
-        /// Produces the capture value for a switch prong.
-        /// Uses the `switch_capture` field.
-        /// If the `prong_index` field is max int, it means this is the capture
-        /// for the else/`_` prong.
-        switch_capture,
-        /// Produces the capture value for a switch prong.
-        /// Result is a pointer to the value.
-        /// Uses the `switch_capture` field.
-        /// If the `prong_index` field is max int, it means this is the capture
-        /// for the else/`_` prong.
-        switch_capture_ref,
-        /// Produces the capture value for a switch prong.
-        /// The prong is one of the multi cases.
-        /// Uses the `switch_capture` field.
-        switch_capture_multi,
-        /// Produces the capture value for a switch prong.
-        /// The prong is one of the multi cases.
-        /// Result is a pointer to the value.
-        /// Uses the `switch_capture` field.
-        switch_capture_multi_ref,
-        /// Produces the capture value for an inline switch prong tag capture.
-        /// Uses the `un_tok` field.
-        switch_capture_tag,
+        /// A switch expression. Uses the `pl_node` union field.
+        /// AST node is the switch, payload is `SwitchBlock`. Operand is a pointer.
+        switch_block_ref,
         /// Given a
         ///   *A returns *A
         ///   *E!A returns *A
@@ -1144,14 +1115,8 @@ pub const Inst = struct {
                 .typeof_log2_int_type,
                 .resolve_inferred_alloc,
                 .set_eval_branch_quota,
-                .switch_capture,
-                .switch_capture_ref,
-                .switch_capture_multi,
-                .switch_capture_multi_ref,
-                .switch_capture_tag,
                 .switch_block,
-                .switch_cond,
-                .switch_cond_ref,
+                .switch_block_ref,
                 .array_base_ptr,
                 .field_base_ptr,
                 .validate_array_init_ty,
@@ -1438,14 +1403,8 @@ pub const Inst = struct {
                 .slice_length,
                 .import,
                 .typeof_log2_int_type,
-                .switch_capture,
-                .switch_capture_ref,
-                .switch_capture_multi,
-                .switch_capture_multi_ref,
-                .switch_capture_tag,
                 .switch_block,
-                .switch_cond,
-                .switch_cond_ref,
+                .switch_block_ref,
                 .array_base_ptr,
                 .field_base_ptr,
                 .struct_init_empty,
@@ -1696,13 +1655,7 @@ pub const Inst = struct {
                 .err_union_code_ptr = .un_node,
                 .enum_literal = .str_tok,
                 .switch_block = .pl_node,
-                .switch_cond = .un_node,
-                .switch_cond_ref = .un_node,
-                .switch_capture = .switch_capture,
-                .switch_capture_ref = .switch_capture,
-                .switch_capture_multi = .switch_capture,
-                .switch_capture_multi_ref = .switch_capture,
-                .switch_capture_tag = .un_tok,
+                .switch_block_ref = .pl_node,
                 .array_base_ptr = .un_node,
                 .field_base_ptr = .un_node,
                 .validate_array_init_ty = .pl_node,
@@ -2028,9 +1981,10 @@ pub const Inst = struct {
         /// Implements the `@inComptime` builtin.
         /// `operand` is `src_node: i32`.
         in_comptime,
-        /// Used as a placeholder for the capture of an `errdefer`.
-        /// This is replaced by Sema with the captured value.
-        errdefer_err_code,
+        /// Used as a placeholder instruction which is just a dummy index for Sema to replace
+        /// with a specific value. For instance, this is used for the capture of an `errdefer`.
+        /// This should never appear in a body.
+        value_placeholder,
 
         pub const InstData = struct {
             opcode: Extended,
@@ -2269,10 +2223,6 @@ pub const Inst = struct {
             operand: Ref,
             payload_index: u32,
         },
-        switch_capture: struct {
-            switch_inst: Index,
-            prong_index: u32,
-        },
         dbg_stmt: LineColumn,
         /// Used for unary operators which reference an inst,
         /// with an AST node source location.
@@ -2342,7 +2292,6 @@ pub const Inst = struct {
             bool_br,
             @"unreachable",
             @"break",
-            switch_capture,
             dbg_stmt,
             inst_node,
             str_op,
@@ -2681,36 +2630,52 @@ pub const Inst = struct {
     };
 
     /// 0. multi_cases_len: u32 // If has_multi_cases is set.
-    /// 1. else_body { // If has_else or has_under is set.
-    ///        body_len: u32,
-    ///        body member Index for every body_len
+    /// 1. tag_capture_inst: u32 // If any_has_tag_capture is set. Index of instruction prongs use to refer to the inline tag capture.
+    /// 2. else_body { // If has_else or has_under is set.
+    ///        info: ProngInfo,
+    ///        body member Index for every info.body_len
     ///     }
-    /// 2. scalar_cases: { // for every scalar_cases_len
+    /// 3. scalar_cases: { // for every scalar_cases_len
     ///        item: Ref,
-    ///        body_len: u32,
-    ///        body member Index for every body_len
+    ///        info: ProngInfo,
+    ///        body member Index for every info.body_len
     ///     }
-    /// 3. multi_cases: { // for every multi_cases_len
+    /// 4. multi_cases: { // for every multi_cases_len
     ///        items_len: u32,
     ///        ranges_len: u32,
-    ///        body_len: u32,
+    ///        info: ProngInfo,
     ///        item: Ref // for every items_len
     ///        ranges: { // for every ranges_len
     ///            item_first: Ref,
     ///            item_last: Ref,
     ///        }
-    ///        body member Index for every body_len
+    ///        body member Index for every info.body_len
     ///    }
+    ///
+    /// When analyzing a case body, the switch instruction itself refers to the
+    /// captured payload. Whether this is captured by reference or by value
+    /// depends on whether the `byref` bit is set for the corresponding body.
     pub const SwitchBlock = struct {
-        /// This is always a `switch_cond` or `switch_cond_ref` instruction.
-        /// If it is a `switch_cond_ref` instruction, bits.is_ref is always true.
-        /// If it is a `switch_cond` instruction, bits.is_ref is always false.
-        /// Both `switch_cond` and `switch_cond_ref` return a value, not a pointer,
-        /// that is useful for the case items, but cannot be used for capture values.
-        /// For the capture values, Sema is expected to find the operand of this operand
-        /// and use that.
+        /// The operand passed to the `switch` expression. If this is a
+        /// `switch_block`, this is the operand value; if `switch_block_ref` it
+        /// is a pointer to the operand. `switch_block_ref` is always used if
+        /// any prong has a byref capture.
         operand: Ref,
         bits: Bits,
+
+        /// These are stored in trailing data in `extra` for each prong.
+        pub const ProngInfo = packed struct(u32) {
+            body_len: u28,
+            capture: Capture,
+            is_inline: bool,
+            has_tag_capture: bool,
+
+            pub const Capture = enum(u2) {
+                none,
+                by_val,
+                by_ref,
+            };
+        };
 
         pub const Bits = packed struct {
             /// If true, one or more prongs have multiple items.
@@ -2719,9 +2684,11 @@ pub const Inst = struct {
             has_else: bool,
             /// If true, there is an underscore prong. This is mutually exclusive with `has_else`.
             has_under: bool,
+            /// If true, at least one prong has an inline tag capture.
+            any_has_tag_capture: bool,
             scalar_cases_len: ScalarCasesLen,
 
-            pub const ScalarCasesLen = u29;
+            pub const ScalarCasesLen = u28;
 
             pub fn specialProng(bits: Bits) SpecialProng {
                 const has_else: u2 = @boolToInt(bits.has_else);
@@ -2735,103 +2702,10 @@ pub const Inst = struct {
             }
         };
 
-        pub const ScalarProng = struct {
-            item: Ref,
-            body: []const Index,
-        };
-
-        /// TODO performance optimization: instead of having this helper method
-        /// change the definition of switch_capture instruction to store extra_index
-        /// instead of prong_index. This way, Sema won't be doing O(N^2) iterations
-        /// over the switch prongs.
-        pub fn getScalarProng(
-            self: SwitchBlock,
-            zir: Zir,
-            extra_end: usize,
-            prong_index: usize,
-        ) ScalarProng {
-            var extra_index: usize = extra_end;
-
-            if (self.bits.has_multi_cases) {
-                extra_index += 1;
-            }
-
-            if (self.bits.specialProng() != .none) {
-                const body_len = @truncate(u31, zir.extra[extra_index]);
-                extra_index += 1;
-                const body = zir.extra[extra_index..][0..body_len];
-                extra_index += body.len;
-            }
-
-            var scalar_i: usize = 0;
-            while (true) : (scalar_i += 1) {
-                const item = @intToEnum(Ref, zir.extra[extra_index]);
-                extra_index += 1;
-                const body_len = @truncate(u31, zir.extra[extra_index]);
-                extra_index += 1;
-                const body = zir.extra[extra_index..][0..body_len];
-                extra_index += body.len;
-
-                if (scalar_i < prong_index) continue;
-
-                return .{
-                    .item = item,
-                    .body = body,
-                };
-            }
-        }
-
         pub const MultiProng = struct {
             items: []const Ref,
             body: []const Index,
         };
-
-        pub fn getMultiProng(
-            self: SwitchBlock,
-            zir: Zir,
-            extra_end: usize,
-            prong_index: usize,
-        ) MultiProng {
-            // +1 for self.bits.has_multi_cases == true
-            var extra_index: usize = extra_end + 1;
-
-            if (self.bits.specialProng() != .none) {
-                const body_len = @truncate(u31, zir.extra[extra_index]);
-                extra_index += 1;
-                const body = zir.extra[extra_index..][0..body_len];
-                extra_index += body.len;
-            }
-
-            var scalar_i: usize = 0;
-            while (scalar_i < self.bits.scalar_cases_len) : (scalar_i += 1) {
-                extra_index += 1;
-                const body_len = @truncate(u31, zir.extra[extra_index]);
-                extra_index += 1;
-                extra_index += body_len;
-            }
-            var multi_i: u32 = 0;
-            while (true) : (multi_i += 1) {
-                const items_len = zir.extra[extra_index];
-                extra_index += 1;
-                const ranges_len = zir.extra[extra_index];
-                extra_index += 1;
-                const body_len = @truncate(u31, zir.extra[extra_index]);
-                extra_index += 1;
-                const items = zir.refSlice(extra_index, items_len);
-                extra_index += items_len;
-                // Each range has a start and an end.
-                extra_index += 2 * ranges_len;
-
-                const body = zir.extra[extra_index..][0..body_len];
-                extra_index += body_len;
-
-                if (multi_i < prong_index) continue;
-                return .{
-                    .items = items,
-                    .body = body,
-                };
-            }
-        }
     };
 
     pub const Field = struct {
