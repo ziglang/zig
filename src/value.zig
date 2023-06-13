@@ -4146,6 +4146,20 @@ pub const Value = struct {
         return val.toIntern() == .generic_poison;
     }
 
+    /// For an integer (comptime or fixed-width) `val`, returns the comptime-known bounds of the value.
+    /// If `val` is not undef, the bounds are both `val`.
+    /// If `val` is undef and has a fixed-width type, the bounds are the bounds of the type.
+    /// If `val` is undef and is a `comptime_int`, returns null.
+    pub fn intValueBounds(val: Value, mod: *Module) !?[2]Value {
+        if (!val.isUndef(mod)) return .{ val, val };
+        const ty = mod.intern_pool.typeOf(val.toIntern());
+        if (ty == .comptime_int_type) return null;
+        return .{
+            try ty.toType().minInt(mod, ty.toType()),
+            try ty.toType().maxInt(mod, ty.toType()),
+        };
+    }
+
     /// This type is not copyable since it may contain pointers to its inner data.
     pub const Payload = struct {
         tag: Tag,

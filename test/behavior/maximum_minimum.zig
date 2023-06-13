@@ -1,6 +1,7 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const mem = std.mem;
+const assert = std.debug.assert;
 const expect = std.testing.expect;
 const expectEqual = std.testing.expectEqual;
 
@@ -209,4 +210,88 @@ test "@min/@max on comptime_int" {
     try expectEqual(comptime_int, @TypeOf(max));
     try expectEqual(-2, min);
     try expectEqual(2, max);
+}
+
+test "@min/@max notices bounds from types" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
+    var x: u16 = 123;
+    var y: u32 = 456;
+    var z: u8 = 10;
+
+    const min = @min(x, y, z);
+    const max = @max(x, y, z);
+
+    comptime assert(@TypeOf(min) == u8);
+    comptime assert(@TypeOf(max) == u32);
+
+    try expectEqual(z, min);
+    try expectEqual(y, max);
+}
+
+test "@min/@max notices bounds from vector types" {
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
+    var x: @Vector(2, u16) = .{ 30, 67 };
+    var y: @Vector(2, u32) = .{ 20, 500 };
+    var z: @Vector(2, u8) = .{ 60, 15 };
+
+    const min = @min(x, y, z);
+    const max = @max(x, y, z);
+
+    comptime assert(@TypeOf(min) == @Vector(2, u8));
+    comptime assert(@TypeOf(max) == @Vector(2, u32));
+
+    try expectEqual(@Vector(2, u8){ 20, 15 }, min);
+    try expectEqual(@Vector(2, u32){ 60, 500 }, max);
+}
+
+test "@min/@max notices bounds from types when comptime-known value is undef" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
+    var x: u32 = 1_000_000;
+    const y: u16 = undefined;
+    // y is comptime-known, but is undef, so bounds cannot be refined using its value
+
+    const min = @min(x, y);
+    const max = @max(x, y);
+
+    comptime assert(@TypeOf(min) == u16);
+    comptime assert(@TypeOf(max) == u32);
+
+    // Cannot assert values as one was undefined
+}
+
+test "@min/@max notices bounds from vector types when element of comptime-known vector is undef" {
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
+    var x: @Vector(2, u32) = .{ 1_000_000, 12345 };
+    const y: @Vector(2, u16) = .{ 10, undefined };
+    // y is comptime-known, but an element is undef, so bounds cannot be refined using its value
+
+    const min = @min(x, y);
+    const max = @max(x, y);
+
+    comptime assert(@TypeOf(min) == @Vector(2, u16));
+    comptime assert(@TypeOf(max) == @Vector(2, u32));
+
+    try expectEqual(@as(u16, 10), min[0]);
+    try expectEqual(@as(u32, 1_000_000), max[0]);
+    // Cannot assert values at index 1 as one was undefined
 }
