@@ -67,7 +67,7 @@ test "array concat with undefined" {
     };
 
     try S.doTheTest();
-    comptime try S.doTheTest();
+    try comptime S.doTheTest();
 }
 
 test "array concat with tuple" {
@@ -154,9 +154,9 @@ test "array len field" {
     var arr = [4]u8{ 0, 0, 0, 0 };
     var ptr = &arr;
     try expect(arr.len == 4);
-    comptime try expect(arr.len == 4);
+    try comptime expect(arr.len == 4);
     try expect(ptr.len == 4);
-    comptime try expect(ptr.len == 4);
+    try comptime expect(ptr.len == 4);
     try expect(@TypeOf(arr.len) == usize);
 }
 
@@ -186,7 +186,7 @@ test "array with sentinels" {
     };
 
     try S.doTheTest(false);
-    comptime try S.doTheTest(true);
+    try comptime S.doTheTest(true);
 }
 
 test "void arrays" {
@@ -247,7 +247,7 @@ test "single-item pointer to array indexing and slicing" {
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     try testSingleItemPtrArrayIndexSlice();
-    comptime try testSingleItemPtrArrayIndexSlice();
+    try comptime testSingleItemPtrArrayIndexSlice();
 }
 
 fn testSingleItemPtrArrayIndexSlice() !void {
@@ -300,7 +300,7 @@ test "anonymous list literal syntax" {
         }
     };
     try S.doTheTest();
-    comptime try S.doTheTest();
+    try comptime S.doTheTest();
 }
 
 var s_array: [8]Sub = undefined;
@@ -349,7 +349,7 @@ test "implicit cast single-item pointer" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     try testImplicitCastSingleItemPtr();
-    comptime try testImplicitCastSingleItemPtr();
+    try comptime testImplicitCastSingleItemPtr();
 }
 
 fn testImplicitCastSingleItemPtr() !void {
@@ -410,7 +410,7 @@ test "array literal as argument to function" {
         }
     };
     try S.entry(2);
-    comptime try S.entry(2);
+    try comptime S.entry(2);
 }
 
 test "double nested array to const slice cast in array literal" {
@@ -472,7 +472,7 @@ test "double nested array to const slice cast in array literal" {
         }
     };
     try S.entry(2);
-    comptime try S.entry(2);
+    try comptime S.entry(2);
 }
 
 test "anonymous literal in array" {
@@ -498,7 +498,7 @@ test "anonymous literal in array" {
         }
     };
     try S.doTheTest();
-    comptime try S.doTheTest();
+    try comptime S.doTheTest();
 }
 
 test "access the null element of a null terminated array" {
@@ -515,7 +515,7 @@ test "access the null element of a null terminated array" {
         }
     };
     try S.doTheTest();
-    comptime try S.doTheTest();
+    try comptime S.doTheTest();
 }
 
 test "type deduction for array subscript expression" {
@@ -534,7 +534,7 @@ test "type deduction for array subscript expression" {
         }
     };
     try S.doTheTest();
-    comptime try S.doTheTest();
+    try comptime S.doTheTest();
 }
 
 test "sentinel element count towards the ABI size calculation" {
@@ -558,7 +558,7 @@ test "sentinel element count towards the ABI size calculation" {
     };
 
     try S.doTheTest();
-    comptime try S.doTheTest();
+    try comptime S.doTheTest();
 }
 
 test "zero-sized array with recursive type definition" {
@@ -613,7 +613,7 @@ test "type coercion of anon struct literal to array" {
         }
     };
     try S.doTheTest();
-    comptime try S.doTheTest();
+    try comptime S.doTheTest();
 }
 
 test "type coercion of pointer to anon struct literal to pointer to array" {
@@ -646,7 +646,7 @@ test "type coercion of pointer to anon struct literal to pointer to array" {
         }
     };
     try S.doTheTest();
-    comptime try S.doTheTest();
+    try comptime S.doTheTest();
 }
 
 test "array with comptime-only element type" {

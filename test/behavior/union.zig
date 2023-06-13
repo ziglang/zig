@@ -113,7 +113,7 @@ const ExternPtrOrInt = extern union {
     int: u64,
 };
 test "extern union size" {
-    comptime try expect(@sizeOf(ExternPtrOrInt) == 8);
+    try comptime expect(@sizeOf(ExternPtrOrInt) == 8);
 }
 
 test "0-sized extern union definition" {
@@ -165,7 +165,7 @@ test "access a member of tagged union with conflicting enum tag name" {
         const B = void;
     };
 
-    comptime try expect(Bar.A == u8);
+    try comptime expect(Bar.A == u8);
 }
 
 test "constant tagged union with payload" {
@@ -225,7 +225,7 @@ test "union with specified enum tag" {
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     try doTest();
-    comptime try doTest();
+    try comptime doTest();
 }
 
 test "packed union generates correctly aligned type" {
@@ -274,7 +274,7 @@ test "comparison between union and enum literal" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     try testComparison();
-    comptime try testComparison();
+    try comptime testComparison();
 }
 
 const TheTag = enum { A, B, C };
@@ -289,7 +289,7 @@ test "cast union to tag type of union" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     try testCastUnionToTag();
-    comptime try testCastUnionToTag();
+    try comptime testCastUnionToTag();
 }
 
 fn testCastUnionToTag() !void {
@@ -372,14 +372,14 @@ const PackedPtrOrInt = packed union {
     int: u64,
 };
 test "packed union size" {
-    comptime try expect(@sizeOf(PackedPtrOrInt) == 8);
+    try comptime expect(@sizeOf(PackedPtrOrInt) == 8);
 }
 
 const ZeroBits = union {
     OnlyField: void,
 };
 test "union with only 1 field which is void should be zero bits" {
-    comptime try expect(@sizeOf(ZeroBits) == 0);
+    try comptime expect(@sizeOf(ZeroBits) == 0);
 }
 
 test "tagged union initialization with runtime void" {
@@ -430,7 +430,7 @@ test "union with only 1 field casted to its enum type" {
 
     var e = Expr{ .Literal = Literal{ .Bool = true } };
     const ExprTag = Tag(Expr);
-    comptime try expect(Tag(ExprTag) == u0);
+    try comptime expect(Tag(ExprTag) == u0);
     var t = @as(ExprTag, e);
     try expect(t == Expr.Literal);
 }
@@ -439,7 +439,7 @@ test "union with one member defaults to u0 tag type" {
     const U0 = union(enum) {
         X: u32,
     };
-    comptime try expect(Tag(Tag(U0)) == u0);
+    try comptime expect(Tag(Tag(U0)) == u0);
 }
 
 const Foo1 = union(enum) {
@@ -547,7 +547,7 @@ test "method call on an empty union" {
         }
     };
     try S.doTheTest();
-    comptime try S.doTheTest();
+    try comptime S.doTheTest();
 }
 
 const Point = struct {
@@ -628,7 +628,7 @@ test "tagged union with all void fields but a meaningful tag" {
         }
     };
     try S.doTheTest();
-    comptime try S.doTheTest();
+    try comptime S.doTheTest();
 }
 
 test "union(enum(u32)) with specified and unspecified tag values" {
@@ -637,9 +637,9 @@ test "union(enum(u32)) with specified and unspecified tag values" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
-    comptime try expect(Tag(Tag(MultipleChoice2)) == u32);
+    try comptime expect(Tag(Tag(MultipleChoice2)) == u32);
     try testEnumWithSpecifiedAndUnspecifiedTagValues(MultipleChoice2{ .C = 123 });
-    comptime try testEnumWithSpecifiedAndUnspecifiedTagValues(MultipleChoice2{ .C = 123 });
+    try comptime testEnumWithSpecifiedAndUnspecifiedTagValues(MultipleChoice2{ .C = 123 });
 }
 
 const MultipleChoice2 = union(enum(u32)) {
@@ -718,11 +718,11 @@ test "union with only 1 field casted to its enum type which has enum value speci
     };
 
     var e = Expr{ .Literal = Literal{ .Bool = true } };
-    comptime try expect(Tag(ExprTag) == comptime_int);
+    try comptime expect(Tag(ExprTag) == comptime_int);
     comptime var t = @as(ExprTag, e);
     try expect(t == Expr.Literal);
     try expect(@enumToInt(t) == 33);
-    comptime try expect(@enumToInt(t) == 33);
+    try comptime expect(@enumToInt(t) == 33);
 }
 
 test "@enumToInt works on unions" {
@@ -805,7 +805,7 @@ test "return union init with void payload" {
         }
     };
     try S.entry();
-    comptime try S.entry();
+    try comptime S.entry();
 }
 
 test "@unionInit stored to a const" {
@@ -833,7 +833,7 @@ test "@unionInit stored to a const" {
         }
     };
 
-    comptime try S.doTheTest();
+    try comptime S.doTheTest();
     try S.doTheTest();
 }
 
@@ -905,7 +905,7 @@ test "union with comptime_int tag" {
         Y: u16,
         Z: u8,
     };
-    comptime try expect(Tag(Tag(Union)) == comptime_int);
+    try comptime expect(Tag(Tag(Union)) == comptime_int);
 }
 
 test "extern union doesn't trigger field check at comptime" {
@@ -915,7 +915,7 @@ test "extern union doesn't trigger field check at comptime" {
     };
 
     const x = U{ .x = 0x55AAAA55 };
-    comptime try expect(x.y == 0x55);
+    try comptime expect(x.y == 0x55);
 }
 
 test "anonymous union literal syntax" {
@@ -942,7 +942,7 @@ test "anonymous union literal syntax" {
         }
     };
     try S.doTheTest();
-    comptime try S.doTheTest();
+    try comptime S.doTheTest();
 }
 
 test "function call result coerces from tagged union to the tag" {
@@ -975,7 +975,7 @@ test "function call result coerces from tagged union to the tag" {
         }
     };
     try S.doTheTest();
-    comptime try S.doTheTest();
+    try comptime S.doTheTest();
 }
 
 test "cast from anonymous struct to union" {
@@ -1007,7 +1007,7 @@ test "cast from anonymous struct to union" {
         }
     };
     try S.doTheTest();
-    comptime try S.doTheTest();
+    try comptime S.doTheTest();
 }
 
 test "cast from pointer to anonymous struct to pointer to union" {
@@ -1039,7 +1039,7 @@ test "cast from pointer to anonymous struct to pointer to union" {
         }
     };
     try S.doTheTest();
-    comptime try S.doTheTest();
+    try comptime S.doTheTest();
 }
 
 test "switching on non exhaustive union" {
@@ -1067,7 +1067,7 @@ test "switching on non exhaustive union" {
         }
     };
     try S.doTheTest();
-    comptime try S.doTheTest();
+    try comptime S.doTheTest();
 }
 
 test "containers with single-field enums" {
@@ -1096,7 +1096,7 @@ test "containers with single-field enums" {
     };
 
     try S.doTheTest();
-    comptime try S.doTheTest();
+    try comptime S.doTheTest();
 }
 
 test "@unionInit on union with tag but no fields" {
@@ -1130,7 +1130,7 @@ test "@unionInit on union with tag but no fields" {
     };
 
     try S.doTheTest();
-    comptime try S.doTheTest();
+    try comptime S.doTheTest();
 }
 
 test "union enum type gets a separate scope" {
@@ -1552,7 +1552,7 @@ test "reinterpreting enum value inside packed union" {
         }
     };
     try U.doTest();
-    comptime try U.doTest();
+    try comptime U.doTest();
 }
 
 test "access the tag of a global tagged union" {
@@ -1581,5 +1581,5 @@ test "coerce enum literal to union in result loc" {
         }
     };
     try U.doTest(true);
-    comptime try U.doTest(true);
+    try comptime U.doTest(true);
 }

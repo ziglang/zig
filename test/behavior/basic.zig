@@ -17,7 +17,7 @@ test "empty function with comments" {
 
 test "truncate" {
     try expect(testTruncate(0x10fd) == 0xfd);
-    comptime try expect(testTruncate(0x10fd) == 0xfd);
+    try comptime expect(testTruncate(0x10fd) == 0xfd);
 }
 fn testTruncate(x: u32) u8 {
     return @truncate(u8, x);
@@ -462,7 +462,7 @@ test "struct inside function" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     try testStructInFn();
-    comptime try testStructInFn();
+    try comptime testStructInFn();
 }
 
 fn testStructInFn() !void {
@@ -577,7 +577,7 @@ fn emptyFn() void {}
 const addr1 = @ptrCast(*const u8, &emptyFn);
 test "comptime cast fn to ptr" {
     const addr2 = @ptrCast(*const u8, &emptyFn);
-    comptime try expect(addr1 == addr2);
+    try comptime expect(addr1 == addr2);
 }
 
 test "equality compare fn ptrs" {
@@ -688,8 +688,8 @@ test "string concatenation" {
     const a = "OK" ++ " IT " ++ "WORKED";
     const b = "OK IT WORKED";
 
-    comptime try expect(@TypeOf(a) == *const [12:0]u8);
-    comptime try expect(@TypeOf(b) == *const [12:0]u8);
+    try comptime expect(@TypeOf(a) == *const [12:0]u8);
+    try comptime expect(@TypeOf(b) == *const [12:0]u8);
 
     const len = b.len;
     const len_with_null = len + 1;
@@ -759,7 +759,7 @@ test "auto created variables have correct alignment" {
         }
     };
     try expect(S.foo("\x7a\x7a\x7a\x7a") == 0x7a7a7a7a);
-    comptime try expect(S.foo("\x7a\x7a\x7a\x7a") == 0x7a7a7a7a);
+    try comptime expect(S.foo("\x7a\x7a\x7a\x7a") == 0x7a7a7a7a);
 }
 
 test "extern variable with non-pointer opaque type" {

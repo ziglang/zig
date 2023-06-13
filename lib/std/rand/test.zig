@@ -79,7 +79,7 @@ const Dilbert = struct {
 
 test "Random int" {
     try testRandomInt();
-    comptime try testRandomInt();
+    try comptime testRandomInt();
 }
 fn testRandomInt() !void {
     var rng = SequentialPrng.init();
@@ -126,7 +126,7 @@ fn testRandomInt() !void {
 
 test "Random boolean" {
     try testRandomBoolean();
-    comptime try testRandomBoolean();
+    try comptime testRandomBoolean();
 }
 fn testRandomBoolean() !void {
     var rng = SequentialPrng.init();
@@ -140,7 +140,7 @@ fn testRandomBoolean() !void {
 
 test "Random enum" {
     try testRandomEnumValue();
-    comptime try testRandomEnumValue();
+    try comptime testRandomEnumValue();
 }
 fn testRandomEnumValue() !void {
     const TestEnum = enum {
@@ -159,7 +159,7 @@ fn testRandomEnumValue() !void {
 test "Random intLessThan" {
     @setEvalBranchQuota(10000);
     try testRandomIntLessThan();
-    comptime try testRandomIntLessThan();
+    try comptime testRandomIntLessThan();
 }
 fn testRandomIntLessThan() !void {
     var rng = SequentialPrng.init();
@@ -201,7 +201,7 @@ fn testRandomIntLessThan() !void {
 test "Random intAtMost" {
     @setEvalBranchQuota(10000);
     try testRandomIntAtMost();
-    comptime try testRandomIntAtMost();
+    try comptime testRandomIntAtMost();
 }
 fn testRandomIntAtMost() !void {
     var rng = SequentialPrng.init();

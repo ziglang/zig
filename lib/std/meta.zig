@@ -146,7 +146,7 @@ test "std.meta.Child" {
     try testing.expect(Child(*u8) == u8);
     try testing.expect(Child([]u8) == u8);
     try testing.expect(Child(?u8) == u8);
-    try testing.expect(Child(Vector(2, u8)) == u8);
+    try testing.expect(Child(@Vector(2, u8)) == u8);
 }
 
 /// Given a "memory span" type (array, slice, vector, or pointer to such), returns the "element type".
@@ -173,8 +173,8 @@ test "std.meta.Elem" {
     try testing.expect(Elem([*]u8) == u8);
     try testing.expect(Elem([]u8) == u8);
     try testing.expect(Elem(*[10]u8) == u8);
-    try testing.expect(Elem(Vector(2, u8)) == u8);
-    try testing.expect(Elem(*Vector(2, u8)) == u8);
+    try testing.expect(Elem(@Vector(2, u8)) == u8);
+    try testing.expect(Elem(*@Vector(2, u8)) == u8);
     try testing.expect(Elem(?[*]u8) == u8);
 }
 
@@ -210,7 +210,7 @@ pub fn sentinel(comptime T: type) ?Elem(T) {
 
 test "std.meta.sentinel" {
     try testSentinel();
-    comptime try testSentinel();
+    try comptime testSentinel();
 }
 
 fn testSentinel() !void {
@@ -711,8 +711,6 @@ test "std.meta.DeclEnum" {
     try expectEqualEnum(enum { a, b, c }, DeclEnum(C));
 }
 
-pub const TagType = @compileError("deprecated; use Tag");
-
 pub fn Tag(comptime T: type) type {
     return switch (@typeInfo(T)) {
         .Enum => |info| info.tag_type,
@@ -1012,16 +1010,6 @@ test "std.meta.Float" {
     try testing.expectEqual(f32, Float(32));
     try testing.expectEqual(f64, Float(64));
     try testing.expectEqual(f128, Float(128));
-}
-
-/// Deprecated. Use `@Vector`.
-pub fn Vector(comptime len: u32, comptime child: type) type {
-    return @Type(.{
-        .Vector = .{
-            .len = len,
-            .child = child,
-        },
-    });
 }
 
 /// For a given function type, returns a tuple type which fields will

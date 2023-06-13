@@ -263,7 +263,7 @@ pub fn expectApproxEqRel(expected: anytype, actual: @TypeOf(expected), tolerance
 
 test "expectApproxEqRel" {
     inline for ([_]type{ f16, f32, f64, f128 }) |T| {
-        const eps_value = comptime math.epsilon(T);
+        const eps_value = comptime math.floatEps(T);
         const sqrt_eps_value = comptime @sqrt(eps_value);
 
         const pos_x: T = 12.0;

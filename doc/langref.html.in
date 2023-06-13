@@ -3306,7 +3306,7 @@ const Divided = packed struct {
 
 test "@bitCast between packed structs" {
     try doTheTest();
-    comptime try doTheTest();
+    try comptime doTheTest();
 }
 
 fn doTheTest() !void {
@@ -5815,10 +5815,10 @@ test "error union" {
     foo = error.SomeError;
 
     // Use compile-time reflection to access the payload type of an error union:
-    comptime try expect(@typeInfo(@TypeOf(foo)).ErrorUnion.payload == i32);
+    try comptime expect(@typeInfo(@TypeOf(foo)).ErrorUnion.payload == i32);
 
     // Use compile-time reflection to access the error set type of an error union:
-    comptime try expect(@typeInfo(@TypeOf(foo)).ErrorUnion.error_set == anyerror);
+    try comptime expect(@typeInfo(@TypeOf(foo)).ErrorUnion.error_set == anyerror);
 }
       {#code_end#}
       {#header_open|Merging Error Sets#}
@@ -6199,7 +6199,7 @@ test "optional type" {
     foo = 1234;
 
     // Use compile-time reflection to access the child type of the optional:
-    comptime try expect(@typeInfo(@TypeOf(foo)).Optional.child == i32);
+    try comptime expect(@typeInfo(@TypeOf(foo)).Optional.child == i32);
 }
       {#code_end#}
       {#header_close#}
@@ -6632,8 +6632,8 @@ test "peer resolve int widening" {
 test "peer resolve arrays of different size to const slice" {
     try expect(mem.eql(u8, boolToStr(true), "true"));
     try expect(mem.eql(u8, boolToStr(false), "false"));
-    comptime try expect(mem.eql(u8, boolToStr(true), "true"));
-    comptime try expect(mem.eql(u8, boolToStr(false), "false"));
+    try comptime expect(mem.eql(u8, boolToStr(true), "true"));
+    try comptime expect(mem.eql(u8, boolToStr(false), "false"));
 }
 fn boolToStr(b: bool) []const u8 {
     return if (b) "true" else "false";
@@ -6641,7 +6641,7 @@ fn boolToStr(b: bool) []const u8 {
 
 test "peer resolve array and const slice" {
     try testPeerResolveArrayConstSlice(true);
-    comptime try testPeerResolveArrayConstSlice(true);
+    try comptime testPeerResolveArrayConstSlice(true);
 }
 fn testPeerResolveArrayConstSlice(b: bool) !void {
     const value1 = if (b) "aoeu" else @as([]const u8, "zz");
@@ -9184,7 +9184,7 @@ const expect = std.testing.expect;
 test "vector @splat" {
     const scalar: u32 = 5;
     const result = @splat(4, scalar);
-    comptime try expect(@TypeOf(result) == @Vector(4, u32));
+    try comptime expect(@TypeOf(result) == @Vector(4, u32));
     try expect(std.mem.eql(u32, &@as([4]u32, result), &[_]u32{ 5, 5, 5, 5 }));
 }
       {#code_end#}
@@ -9228,9 +9228,9 @@ test "vector @reduce" {
     const value = @Vector(4, i32){ 1, -1, 1, -1 };
     const result = value > @splat(4, @as(i32, 0));
     // result is { true, false, true, false };
-    comptime try expect(@TypeOf(result) == @Vector(4, bool));
+    try comptime expect(@TypeOf(result) == @Vector(4, bool));
     const is_all_true = @reduce(.And, result);
-    comptime try expect(@TypeOf(is_all_true) == bool);
+    try comptime expect(@TypeOf(is_all_true) == bool);
     try expect(is_all_true == false);
 }
       {#code_end#}
@@ -9571,7 +9571,7 @@ const expect = std.testing.expect;
 test "no runtime side effects" {
     var data: i32 = 0;
     const T = @TypeOf(foo(i32, &data));
-    comptime try expect(T == i32);
+    try comptime expect(T == i32);
     try expect(data == 0);
 }
 

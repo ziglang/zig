@@ -70,7 +70,7 @@ test "return variable while defer expression in scope to modify it" {
     };
 
     try S.doTheTest();
-    comptime try S.doTheTest();
+    try comptime S.doTheTest();
 }
 
 var result: [3]u8 = undefined;
@@ -131,7 +131,7 @@ test "errdefer with payload" {
         }
     };
     try S.doTheTest();
-    comptime try S.doTheTest();
+    try comptime S.doTheTest();
 }
 
 test "reference to errdefer payload" {
@@ -157,7 +157,7 @@ test "reference to errdefer payload" {
         }
     };
     try S.doTheTest();
-    comptime try S.doTheTest();
+    try comptime S.doTheTest();
 }
 
 test "simple else prong doesn't emit an error for unreachable else prong" {

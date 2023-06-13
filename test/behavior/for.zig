@@ -23,7 +23,7 @@ test "continue in for loop" {
 
 test "break from outer for loop" {
     try testBreakOuter();
-    comptime try testBreakOuter();
+    try comptime testBreakOuter();
 }
 
 fn testBreakOuter() !void {
@@ -40,7 +40,7 @@ fn testBreakOuter() !void {
 
 test "continue outer for loop" {
     try testContinueOuter();
-    comptime try testContinueOuter();
+    try comptime testContinueOuter();
 }
 
 fn testContinueOuter() !void {
@@ -129,7 +129,7 @@ test "for with null and T peer types and inferred result location type" {
         }
     };
     try S.doTheTest(&[_]u8{ 1, 2 });
-    comptime try S.doTheTest(&[_]u8{ 1, 2 });
+    try comptime S.doTheTest(&[_]u8{ 1, 2 });
 }
 
 test "2 break statements and an else" {
@@ -150,7 +150,7 @@ test "2 break statements and an else" {
         }
     };
     try S.entry(true, false);
-    comptime try S.entry(true, false);
+    try comptime S.entry(true, false);
 }
 
 test "for loop with pointer elem var" {
@@ -197,7 +197,7 @@ test "for copies its payload" {
         }
     };
     try S.doTheTest();
-    comptime try S.doTheTest();
+    try comptime S.doTheTest();
 }
 
 test "for on slice with allowzero ptr" {
@@ -214,7 +214,7 @@ test "for on slice with allowzero ptr" {
         }
     };
     try S.doTheTest(&[_]u8{ 1, 2, 3, 4 });
-    comptime try S.doTheTest(&[_]u8{ 1, 2, 3, 4 });
+    try comptime S.doTheTest(&[_]u8{ 1, 2, 3, 4 });
 }
 
 test "else continue outer for" {
