@@ -22670,8 +22670,8 @@ fn zirMulAdd(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.
     const maybe_addend = try sema.resolveMaybeUndefVal(addend);
     const mod = sema.mod;
 
-    switch (ty.zigTypeTag(mod)) {
-        .ComptimeFloat, .Float, .Vector => {},
+    switch (ty.scalarType(mod).zigTypeTag(mod)) {
+        .ComptimeFloat, .Float => {},
         else => return sema.fail(block, src, "expected vector of floats or float type, found '{}'", .{ty.fmt(sema.mod)}),
     }
 
