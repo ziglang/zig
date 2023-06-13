@@ -5152,6 +5152,7 @@ fn storeToInferredAllocComptime(
             operand_val,
             iac.alignment.toByteUnits(0),
         );
+        try sema.comptime_mutable_decls.append(iac.decl_index);
         return;
     }
 
