@@ -11912,11 +11912,11 @@ fn maybeErrorUnwrap(sema: *Sema, block: *Block, body: []const Zir.Inst.Index, op
     const tags = sema.code.instructions.items(.tag);
     for (body) |inst| {
         switch (tags[inst]) {
+            .@"unreachable" => if (!block.wantSafety()) return false,
             .save_err_ret_index,
             .dbg_block_begin,
             .dbg_block_end,
             .dbg_stmt,
-            .@"unreachable",
             .str,
             .as_node,
             .panic,
