@@ -1256,10 +1256,8 @@ fn limitedOverlapCopy(frag: []u8, in: usize) void {
         // A single, non-overlapping memcpy suffices.
         @memcpy(frag[0..first.len], first);
     } else {
-        // Need two memcpy calls because one alone would overlap.
-        @memcpy(frag[0..in], first[0..in]);
-        const leftover = first.len - in;
-        @memcpy(frag[in..][0..leftover], first[in..][0..leftover]);
+        // One memcpy call would overlap, so just do this instead.
+        std.mem.copyForwards(u8, frag, first);
     }
 }
 

@@ -2158,6 +2158,9 @@ pub const Const = struct {
     pub fn to(self: Const, comptime T: type) ConvertError!T {
         switch (@typeInfo(T)) {
             .Int => |info| {
+                // Make sure -0 is handled correctly.
+                if (self.eqZero()) return 0;
+
                 const UT = std.meta.Int(.unsigned, info.bits);
 
                 if (!self.fitsInTwosComp(info.signedness, info.bits)) {
@@ -2509,7 +2512,7 @@ pub const Const = struct {
         return total_limb_lz + bits - total_limb_bits;
     }
 
-    pub fn ctz(a: Const) Limb {
+    pub fn ctz(a: Const, bits: Limb) Limb {
         // Limbs are stored in little-endian order.
         var result: Limb = 0;
         for (a.limbs) |limb| {
@@ -2517,7 +2520,7 @@ pub const Const = struct {
             result += limb_tz;
             if (limb_tz != @sizeOf(Limb) * 8) break;
         }
-        return result;
+        return @min(result, bits);
     }
 };
 

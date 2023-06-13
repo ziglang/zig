@@ -149,7 +149,8 @@ discarded: std.AutoHashMapUnmanaged(SymbolLoc, SymbolLoc) = .{},
 /// into the final binary.
 resolved_symbols: std.AutoArrayHashMapUnmanaged(SymbolLoc, void) = .{},
 /// Symbols that remain undefined after symbol resolution.
-undefs: std.StringArrayHashMapUnmanaged(SymbolLoc) = .{},
+/// Note: The key represents an offset into the string table, rather than the actual string.
+undefs: std.AutoArrayHashMapUnmanaged(u32, SymbolLoc) = .{},
 /// Maps a symbol's location to an atom. This can be used to find meta
 /// data of a symbol, such as its size, or its offset to perform a relocation.
 /// Undefined (and synthetic) symbols do not have an Atom and therefore cannot be mapped.
@@ -514,6 +515,10 @@ pub fn createEmpty(gpa: Allocator, options: link.Options) !*Wasm {
 /// Leaves index undefined and the default flags (0).
 fn createSyntheticSymbol(wasm: *Wasm, name: []const u8, tag: Symbol.Tag) !SymbolLoc {
     const name_offset = try wasm.string_table.put(wasm.base.allocator, name);
+    return wasm.createSyntheticSymbolOffset(name_offset, tag);
+}
+
+fn createSyntheticSymbolOffset(wasm: *Wasm, name_offset: u32, tag: Symbol.Tag) !SymbolLoc {
     const sym_index = @intCast(u32, wasm.symbols.items.len);
     const loc: SymbolLoc = .{ .index = sym_index, .file = null };
     try wasm.symbols.append(wasm.base.allocator, .{
@@ -691,7 +696,7 @@ fn resolveSymbolsInObject(wasm: *Wasm, object_index: u16) !void {
             try wasm.resolved_symbols.putNoClobber(wasm.base.allocator, location, {});
 
             if (symbol.isUndefined()) {
-                try wasm.undefs.putNoClobber(wasm.base.allocator, sym_name, location);
+                try wasm.undefs.putNoClobber(wasm.base.allocator, sym_name_index, location);
             }
             continue;
         }
@@ -801,7 +806,7 @@ fn resolveSymbolsInObject(wasm: *Wasm, object_index: u16) !void {
         try wasm.resolved_symbols.put(wasm.base.allocator, location, {});
         assert(wasm.resolved_symbols.swapRemove(existing_loc));
         if (existing_sym.isUndefined()) {
-            _ = wasm.undefs.swapRemove(sym_name);
+            _ = wasm.undefs.swapRemove(sym_name_index);
         }
     }
 }
@@ -812,15 +817,16 @@ fn resolveSymbolsInArchives(wasm: *Wasm) !void {
     log.debug("Resolving symbols in archives", .{});
     var index: u32 = 0;
     undef_loop: while (index < wasm.undefs.count()) {
-        const sym_name = wasm.undefs.keys()[index];
+        const sym_name_index = wasm.undefs.keys()[index];
 
         for (wasm.archives.items) |archive| {
+            const sym_name = wasm.string_table.get(sym_name_index);
+            log.debug("Detected symbol '{s}' in archive '{s}', parsing objects..", .{ sym_name, archive.name });
             const offset = archive.toc.get(sym_name) orelse {
                 // symbol does not exist in this archive
                 continue;
             };
 
-            log.debug("Detected symbol '{s}' in archive '{s}', parsing objects..", .{ sym_name, archive.name });
             // Symbol is found in unparsed object file within current archive.
             // Parse object and and resolve symbols again before we check remaining
             // undefined symbols.
@@ -1191,28 +1197,36 @@ fn validateFeatures(
 /// if one or multiple undefined references exist. When none exist, the symbol will
 /// not be created, ensuring we don't unneccesarily emit unreferenced symbols.
 fn resolveLazySymbols(wasm: *Wasm) !void {
-    if (wasm.undefs.fetchSwapRemove("__heap_base")) |kv| {
-        const loc = try wasm.createSyntheticSymbol("__heap_base", .data);
-        try wasm.discarded.putNoClobber(wasm.base.allocator, kv.value, loc);
-        _ = wasm.resolved_symbols.swapRemove(loc); // we don't want to emit this symbol, only use it for relocations.
+    if (wasm.string_table.getOffset("__heap_base")) |name_offset| {
+        if (wasm.undefs.fetchSwapRemove(name_offset)) |kv| {
+            const loc = try wasm.createSyntheticSymbolOffset(name_offset, .data);
+            try wasm.discarded.putNoClobber(wasm.base.allocator, kv.value, loc);
+            _ = wasm.resolved_symbols.swapRemove(loc); // we don't want to emit this symbol, only use it for relocations.
+        }
     }
 
-    if (wasm.undefs.fetchSwapRemove("__heap_end")) |kv| {
-        const loc = try wasm.createSyntheticSymbol("__heap_end", .data);
-        try wasm.discarded.putNoClobber(wasm.base.allocator, kv.value, loc);
-        _ = wasm.resolved_symbols.swapRemove(loc);
+    if (wasm.string_table.getOffset("__heap_end")) |name_offset| {
+        if (wasm.undefs.fetchSwapRemove(name_offset)) |kv| {
+            const loc = try wasm.createSyntheticSymbolOffset(name_offset, .data);
+            try wasm.discarded.putNoClobber(wasm.base.allocator, kv.value, loc);
+            _ = wasm.resolved_symbols.swapRemove(loc);
+        }
     }
 
     if (!wasm.base.options.shared_memory) {
-        if (wasm.undefs.fetchSwapRemove("__tls_base")) |kv| {
-            const loc = try wasm.createSyntheticSymbol("__tls_base", .global);
-            try wasm.discarded.putNoClobber(wasm.base.allocator, kv.value, loc);
+        if (wasm.string_table.getOffset("__tls_base")) |name_offset| {
+            if (wasm.undefs.fetchSwapRemove(name_offset)) |kv| {
+                const loc = try wasm.createSyntheticSymbolOffset(name_offset, .global);
+                try wasm.discarded.putNoClobber(wasm.base.allocator, kv.value, loc);
+            }
         }
     }
-    if (wasm.undefs.fetchSwapRemove("__zig_errors_len")) |kv| {
-        const loc = try wasm.createSyntheticSymbol("__zig_errors_len", .data);
-        try wasm.discarded.putNoClobber(wasm.base.allocator, kv.value, loc);
-        _ = wasm.resolved_symbols.swapRemove(kv.value);
+    if (wasm.string_table.getOffset("__zig_errors_len")) |name_offset| {
+        if (wasm.undefs.fetchSwapRemove(name_offset)) |kv| {
+            const loc = try wasm.createSyntheticSymbolOffset(name_offset, .data);
+            try wasm.discarded.putNoClobber(wasm.base.allocator, kv.value, loc);
+            _ = wasm.resolved_symbols.swapRemove(kv.value);
+        }
     }
 }
 
@@ -1324,17 +1338,18 @@ pub fn allocateSymbol(wasm: *Wasm) !u32 {
     return index;
 }
 
-pub fn updateFunc(wasm: *Wasm, mod: *Module, func: *Module.Fn, air: Air, liveness: Liveness) !void {
+pub fn updateFunc(wasm: *Wasm, mod: *Module, func_index: Module.Fn.Index, air: Air, liveness: Liveness) !void {
     if (build_options.skip_non_native and builtin.object_format != .wasm) {
         @panic("Attempted to compile for object format that was disabled by build configuration");
     }
     if (build_options.have_llvm) {
-        if (wasm.llvm_object) |llvm_object| return llvm_object.updateFunc(mod, func, air, liveness);
+        if (wasm.llvm_object) |llvm_object| return llvm_object.updateFunc(mod, func_index, air, liveness);
     }
 
     const tracy = trace(@src());
     defer tracy.end();
 
+    const func = mod.funcPtr(func_index);
     const decl_index = func.owner_decl;
     const decl = mod.declPtr(decl_index);
     const atom_index = try wasm.getOrCreateAtomForDecl(decl_index);
@@ -1348,7 +1363,7 @@ pub fn updateFunc(wasm: *Wasm, mod: *Module, func: *Module.Fn, air: Air, livenes
     defer code_writer.deinit();
     // const result = try codegen.generateFunction(
     //     &wasm.base,
-    //     decl.srcLoc(),
+    //     decl.srcLoc(mod),
     //     func,
     //     air,
     //     liveness,
@@ -1357,8 +1372,8 @@ pub fn updateFunc(wasm: *Wasm, mod: *Module, func: *Module.Fn, air: Air, livenes
     // );
     const result = try codegen.generateFunction(
         &wasm.base,
-        decl.srcLoc(),
-        func,
+        decl.srcLoc(mod),
+        func_index,
         air,
         liveness,
         &code_writer,
@@ -1403,9 +1418,9 @@ pub fn updateDecl(wasm: *Wasm, mod: *Module, decl_index: Module.Decl.Index) !voi
     defer tracy.end();
 
     const decl = mod.declPtr(decl_index);
-    if (decl.val.castTag(.function)) |_| {
+    if (decl.val.getFunction(mod)) |_| {
         return;
-    } else if (decl.val.castTag(.extern_fn)) |_| {
+    } else if (decl.val.getExternFunc(mod)) |_| {
         return;
     }
 
@@ -1413,19 +1428,20 @@ pub fn updateDecl(wasm: *Wasm, mod: *Module, decl_index: Module.Decl.Index) !voi
     const atom = wasm.getAtomPtr(atom_index);
     atom.clear();
 
-    if (decl.isExtern()) {
-        const variable = decl.getVariable().?;
-        const name = mem.sliceTo(decl.name, 0);
-        return wasm.addOrUpdateImport(name, atom.sym_index, variable.lib_name, null);
+    if (decl.isExtern(mod)) {
+        const variable = decl.getOwnedVariable(mod).?;
+        const name = mod.intern_pool.stringToSlice(decl.name);
+        const lib_name = mod.intern_pool.stringToSliceUnwrap(variable.lib_name);
+        return wasm.addOrUpdateImport(name, atom.sym_index, lib_name, null);
     }
-    const val = if (decl.val.castTag(.variable)) |payload| payload.data.init else decl.val;
+    const val = if (decl.val.getVariable(mod)) |variable| variable.init.toValue() else decl.val;
 
     var code_writer = std.ArrayList(u8).init(wasm.base.allocator);
     defer code_writer.deinit();
 
     const res = try codegen.generateSymbol(
         &wasm.base,
-        decl.srcLoc(),
+        decl.srcLoc(mod),
         .{ .ty = decl.ty, .val = val },
         &code_writer,
         .none,
@@ -1451,8 +1467,7 @@ pub fn updateDeclLineNumber(wasm: *Wasm, mod: *Module, decl_index: Module.Decl.I
         defer tracy.end();
 
         const decl = mod.declPtr(decl_index);
-        const decl_name = try decl.getFullyQualifiedName(mod);
-        defer wasm.base.allocator.free(decl_name);
+        const decl_name = mod.intern_pool.stringToSlice(try decl.getFullyQualifiedName(mod));
 
         log.debug("updateDeclLineNumber {s}{*}", .{ decl_name, decl });
         try dw.updateDeclLineNumber(mod, decl_index);
@@ -1465,15 +1480,14 @@ fn finishUpdateDecl(wasm: *Wasm, decl_index: Module.Decl.Index, code: []const u8
     const atom_index = wasm.decls.get(decl_index).?;
     const atom = wasm.getAtomPtr(atom_index);
     const symbol = &wasm.symbols.items[atom.sym_index];
-    const full_name = try decl.getFullyQualifiedName(mod);
-    defer wasm.base.allocator.free(full_name);
+    const full_name = mod.intern_pool.stringToSlice(try decl.getFullyQualifiedName(mod));
     symbol.name = try wasm.string_table.put(wasm.base.allocator, full_name);
     try atom.code.appendSlice(wasm.base.allocator, code);
     try wasm.resolved_symbols.put(wasm.base.allocator, atom.symbolLoc(), {});
 
     atom.size = @intCast(u32, code.len);
     if (code.len == 0) return;
-    atom.alignment = decl.ty.abiAlignment(wasm.base.options.target);
+    atom.alignment = decl.ty.abiAlignment(mod);
 }
 
 /// From a given symbol location, returns its `wasm.GlobalType`.
@@ -1523,9 +1537,8 @@ fn getFunctionSignature(wasm: *const Wasm, loc: SymbolLoc) std.wasm.Type {
 /// Returns the symbol index of the local
 /// The given `decl` is the parent decl whom owns the constant.
 pub fn lowerUnnamedConst(wasm: *Wasm, tv: TypedValue, decl_index: Module.Decl.Index) !u32 {
-    assert(tv.ty.zigTypeTag() != .Fn); // cannot create local symbols for functions
-
     const mod = wasm.base.options.module.?;
+    assert(tv.ty.zigTypeTag(mod) != .Fn); // cannot create local symbols for functions
     const decl = mod.declPtr(decl_index);
 
     // Create and initialize a new local symbol and atom
@@ -1534,16 +1547,17 @@ pub fn lowerUnnamedConst(wasm: *Wasm, tv: TypedValue, decl_index: Module.Decl.In
     const parent_atom = wasm.getAtomPtr(parent_atom_index);
     const local_index = parent_atom.locals.items.len;
     try parent_atom.locals.append(wasm.base.allocator, atom_index);
-    const fqdn = try decl.getFullyQualifiedName(mod);
-    defer wasm.base.allocator.free(fqdn);
-    const name = try std.fmt.allocPrintZ(wasm.base.allocator, "__unnamed_{s}_{d}", .{ fqdn, local_index });
+    const fqn = mod.intern_pool.stringToSlice(try decl.getFullyQualifiedName(mod));
+    const name = try std.fmt.allocPrintZ(wasm.base.allocator, "__unnamed_{s}_{d}", .{
+        fqn, local_index,
+    });
     defer wasm.base.allocator.free(name);
     var value_bytes = std.ArrayList(u8).init(wasm.base.allocator);
     defer value_bytes.deinit();
 
     const code = code: {
         const atom = wasm.getAtomPtr(atom_index);
-        atom.alignment = tv.ty.abiAlignment(wasm.base.options.target);
+        atom.alignment = tv.ty.abiAlignment(mod);
         wasm.symbols.items[atom.sym_index] = .{
             .name = try wasm.string_table.put(wasm.base.allocator, name),
             .flags = @enumToInt(Symbol.Flag.WASM_SYM_BINDING_LOCAL),
@@ -1555,7 +1569,7 @@ pub fn lowerUnnamedConst(wasm: *Wasm, tv: TypedValue, decl_index: Module.Decl.In
 
         const result = try codegen.generateSymbol(
             &wasm.base,
-            decl.srcLoc(),
+            decl.srcLoc(mod),
             tv,
             &value_bytes,
             .none,
@@ -1611,7 +1625,7 @@ pub fn getGlobalSymbol(wasm: *Wasm, name: []const u8, lib_name: ?[]const u8) !u3
     wasm.symbols.items[sym_index] = symbol;
     gop.value_ptr.* = .{ .index = sym_index, .file = null };
     try wasm.resolved_symbols.put(wasm.base.allocator, gop.value_ptr.*, {});
-    try wasm.undefs.putNoClobber(wasm.base.allocator, name, gop.value_ptr.*);
+    try wasm.undefs.putNoClobber(wasm.base.allocator, name_index, gop.value_ptr.*);
     return sym_index;
 }
 
@@ -1632,7 +1646,7 @@ pub fn getDeclVAddr(
     const atom_index = wasm.symbol_atom.get(.{ .file = null, .index = reloc_info.parent_atom_index }).?;
     const atom = wasm.getAtomPtr(atom_index);
     const is_wasm32 = wasm.base.options.target.cpu.arch == .wasm32;
-    if (decl.ty.zigTypeTag() == .Fn) {
+    if (decl.ty.zigTypeTag(mod) == .Fn) {
         assert(reloc_info.addend == 0); // addend not allowed for function relocations
         // We found a function pointer, so add it to our table,
         // as function pointers are not allowed to be stored inside the data section.
@@ -1689,36 +1703,37 @@ pub fn updateDeclExports(
     const decl = mod.declPtr(decl_index);
     const atom_index = try wasm.getOrCreateAtomForDecl(decl_index);
     const atom = wasm.getAtom(atom_index);
+    const gpa = mod.gpa;
 
     for (exports) |exp| {
-        if (exp.options.section) |section| {
-            try mod.failed_exports.putNoClobber(mod.gpa, exp, try Module.ErrorMsg.create(
-                mod.gpa,
-                decl.srcLoc(),
+        if (mod.intern_pool.stringToSliceUnwrap(exp.opts.section)) |section| {
+            try mod.failed_exports.putNoClobber(gpa, exp, try Module.ErrorMsg.create(
+                gpa,
+                decl.srcLoc(mod),
                 "Unimplemented: ExportOptions.section '{s}'",
                 .{section},
             ));
             continue;
         }
 
-        const export_name = try wasm.string_table.put(wasm.base.allocator, exp.options.name);
+        const export_name = try wasm.string_table.put(wasm.base.allocator, mod.intern_pool.stringToSlice(exp.opts.name));
         if (wasm.globals.getPtr(export_name)) |existing_loc| {
             if (existing_loc.index == atom.sym_index) continue;
             const existing_sym: Symbol = existing_loc.getSymbol(wasm).*;
 
-            const exp_is_weak = exp.options.linkage == .Internal or exp.options.linkage == .Weak;
+            const exp_is_weak = exp.opts.linkage == .Internal or exp.opts.linkage == .Weak;
             // When both the to-be-exported symbol and the already existing symbol
             // are strong symbols, we have a linker error.
             // In the other case we replace one with the other.
             if (!exp_is_weak and !existing_sym.isWeak()) {
-                try mod.failed_exports.put(mod.gpa, exp, try Module.ErrorMsg.create(
-                    mod.gpa,
-                    decl.srcLoc(),
-                    \\LinkError: symbol '{s}' defined multiple times
+                try mod.failed_exports.put(gpa, exp, try Module.ErrorMsg.create(
+                    gpa,
+                    decl.srcLoc(mod),
+                    \\LinkError: symbol '{}' defined multiple times
                     \\  first definition in '{s}'
                     \\  next definition in '{s}'
                 ,
-                    .{ exp.options.name, wasm.name, wasm.name },
+                    .{ exp.opts.name.fmt(&mod.intern_pool), wasm.name, wasm.name },
                 ));
                 continue;
             } else if (exp_is_weak) {
@@ -1735,7 +1750,7 @@ pub fn updateDeclExports(
         const exported_atom = wasm.getAtom(exported_atom_index);
         const sym_loc = exported_atom.symbolLoc();
         const symbol = sym_loc.getSymbol(wasm);
-        switch (exp.options.linkage) {
+        switch (exp.opts.linkage) {
             .Internal => {
                 symbol.setFlag(.WASM_SYM_VISIBILITY_HIDDEN);
             },
@@ -1744,9 +1759,9 @@ pub fn updateDeclExports(
             },
             .Strong => {}, // symbols are strong by default
             .LinkOnce => {
-                try mod.failed_exports.putNoClobber(mod.gpa, exp, try Module.ErrorMsg.create(
-                    mod.gpa,
-                    decl.srcLoc(),
+                try mod.failed_exports.putNoClobber(gpa, exp, try Module.ErrorMsg.create(
+                    gpa,
+                    decl.srcLoc(mod),
                     "Unimplemented: LinkOnce",
                     .{},
                 ));
@@ -1754,7 +1769,7 @@ pub fn updateDeclExports(
             },
         }
         // Ensure the symbol will be exported using the given name
-        if (!mem.eql(u8, exp.options.name, sym_loc.getName(wasm))) {
+        if (!mod.intern_pool.stringEqlSlice(exp.opts.name, sym_loc.getName(wasm))) {
             try wasm.export_names.put(wasm.base.allocator, sym_loc, export_name);
         }
 
@@ -1768,7 +1783,7 @@ pub fn updateDeclExports(
 
         // if the symbol was previously undefined, remove it as an import
         _ = wasm.imports.remove(sym_loc);
-        _ = wasm.undefs.swapRemove(exp.options.name);
+        _ = wasm.undefs.swapRemove(export_name);
     }
 }
 
@@ -1792,7 +1807,7 @@ pub fn freeDecl(wasm: *Wasm, decl_index: Module.Decl.Index) void {
         assert(wasm.symbol_atom.remove(local_atom.symbolLoc()));
     }
 
-    if (decl.isExtern()) {
+    if (decl.isExtern(mod)) {
         _ = wasm.imports.remove(atom.symbolLoc());
     }
     _ = wasm.resolved_symbols.swapRemove(atom.symbolLoc());
@@ -1853,7 +1868,7 @@ pub fn addOrUpdateImport(
     /// Symbol index that is external
     symbol_index: u32,
     /// Optional library name (i.e. `extern "c" fn foo() void`
-    lib_name: ?[*:0]const u8,
+    lib_name: ?[:0]const u8,
     /// The index of the type that represents the function signature
     /// when the extern is a function. When this is null, a data-symbol
     /// is asserted instead.
@@ -1864,7 +1879,7 @@ pub fn addOrUpdateImport(
     // Also mangle the name when the lib name is set and not equal to "C" so imports with the same
     // name but different module can be resolved correctly.
     const mangle_name = lib_name != null and
-        !std.mem.eql(u8, std.mem.sliceTo(lib_name.?, 0), "c");
+        !std.mem.eql(u8, lib_name.?, "c");
     const full_name = if (mangle_name) full_name: {
         break :full_name try std.fmt.allocPrint(wasm.base.allocator, "{s}|{s}", .{ name, lib_name.? });
     } else name;
@@ -1884,13 +1899,13 @@ pub fn addOrUpdateImport(
         const loc: SymbolLoc = .{ .file = null, .index = symbol_index };
         global_gop.value_ptr.* = loc;
         try wasm.resolved_symbols.put(wasm.base.allocator, loc, {});
-        try wasm.undefs.putNoClobber(wasm.base.allocator, full_name, loc);
+        try wasm.undefs.putNoClobber(wasm.base.allocator, decl_name_index, loc);
     }
 
     if (type_index) |ty_index| {
         const gop = try wasm.imports.getOrPut(wasm.base.allocator, .{ .index = symbol_index, .file = null });
         const module_name = if (lib_name) |l_name| blk: {
-            break :blk mem.sliceTo(l_name, 0);
+            break :blk l_name;
         } else wasm.host_name;
         if (!gop.found_existing) {
             gop.value_ptr.* = .{
@@ -2932,8 +2947,9 @@ pub fn getErrorTableSymbol(wasm: *Wasm) !u32 {
 
     const atom_index = try wasm.createAtom();
     const atom = wasm.getAtomPtr(atom_index);
-    const slice_ty = Type.initTag(.const_slice_u8_sentinel_0);
-    atom.alignment = slice_ty.abiAlignment(wasm.base.options.target);
+    const slice_ty = Type.slice_const_u8_sentinel_0;
+    const mod = wasm.base.options.module.?;
+    atom.alignment = slice_ty.abiAlignment(mod);
     const sym_index = atom.sym_index;
 
     const sym_name = try wasm.string_table.put(wasm.base.allocator, "__zig_err_name_table");
@@ -2985,10 +3001,11 @@ fn populateErrorNameTable(wasm: *Wasm) !void {
     // Addend for each relocation to the table
     var addend: u32 = 0;
     const mod = wasm.base.options.module.?;
-    for (mod.error_name_list.items) |error_name| {
+    for (mod.global_error_set.keys()) |error_name_nts| {
+        const error_name = mod.intern_pool.stringToSlice(error_name_nts);
         const len = @intCast(u32, error_name.len + 1); // names are 0-termianted
 
-        const slice_ty = Type.initTag(.const_slice_u8_sentinel_0);
+        const slice_ty = Type.slice_const_u8_sentinel_0;
         const offset = @intCast(u32, atom.code.items.len);
         // first we create the data for the slice of the name
         try atom.code.appendNTimes(wasm.base.allocator, 0, 4); // ptr to name, will be relocated
@@ -3000,7 +3017,7 @@ fn populateErrorNameTable(wasm: *Wasm) !void {
             .offset = offset,
             .addend = @intCast(i32, addend),
         });
-        atom.size += @intCast(u32, slice_ty.abiSize(wasm.base.options.target));
+        atom.size += @intCast(u32, slice_ty.abiSize(mod));
         addend += len;
 
         // as we updated the error name table, we now store the actual name within the names atom
@@ -3366,15 +3383,15 @@ pub fn flushModule(wasm: *Wasm, comp: *Compilation, prog_node: *std.Progress.Nod
         var decl_it = wasm.decls.iterator();
         while (decl_it.next()) |entry| {
             const decl = mod.declPtr(entry.key_ptr.*);
-            if (decl.isExtern()) continue;
+            if (decl.isExtern(mod)) continue;
             const atom_index = entry.value_ptr.*;
             const atom = wasm.getAtomPtr(atom_index);
-            if (decl.ty.zigTypeTag() == .Fn) {
+            if (decl.ty.zigTypeTag(mod) == .Fn) {
                 try wasm.parseAtom(atom_index, .function);
-            } else if (decl.getVariable()) |variable| {
-                if (!variable.is_mutable) {
+            } else if (decl.getOwnedVariable(mod)) |variable| {
+                if (variable.is_const) {
                     try wasm.parseAtom(atom_index, .{ .data = .read_only });
-                } else if (variable.init.isUndefDeep()) {
+                } else if (variable.init.toValue().isUndefDeep(mod)) {
                     // for safe build modes, we store the atom in the data segment,
                     // whereas for unsafe build modes we store it in bss.
                     const is_initialized = wasm.base.options.optimize_mode == .Debug or

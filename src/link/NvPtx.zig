@@ -68,9 +68,9 @@ pub fn deinit(self: *NvPtx) void {
     self.base.allocator.free(self.ptx_file_name);
 }
 
-pub fn updateFunc(self: *NvPtx, module: *Module, func: *Module.Fn, air: Air, liveness: Liveness) !void {
+pub fn updateFunc(self: *NvPtx, module: *Module, func_index: Module.Fn.Index, air: Air, liveness: Liveness) !void {
     if (!build_options.have_llvm) return;
-    try self.llvm_object.updateFunc(module, func, air, liveness);
+    try self.llvm_object.updateFunc(module, func_index, air, liveness);
 }
 
 pub fn updateDecl(self: *NvPtx, module: *Module, decl_index: Module.Decl.Index) !void {
