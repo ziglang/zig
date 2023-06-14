@@ -22,11 +22,7 @@ test "simple generic fn" {
 
     try expect(max(i32, 3, -1) == 3);
     try expect(max(u8, 1, 100) == 100);
-    if (false) {
-        // TODO: zig is incorrectly emitting the following:
-        // error: cast of value 1.23e-01 to type 'f32' loses information
-        try expect(max(f32, 0.123, 0.456) == 0.456);
-    }
+    try expect(max(f32, 0.123, 0.456) == 0.456);
     try expect(add(2, 3) == 5);
 }
 
