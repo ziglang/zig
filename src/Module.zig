@@ -6978,7 +6978,7 @@ pub fn intBitsForValue(mod: *Module, val: Value, sign: bool) u16 {
             assert(sign);
             // Protect against overflow in the following negation.
             if (x == std.math.minInt(i64)) return 64;
-            return Type.smallestUnsignedBits(@intCast(u64, -x - 1)) + 1;
+            return Type.smallestUnsignedBits(@intCast(u64, -(x + 1))) + 1;
         },
         .u64 => |x| {
             return Type.smallestUnsignedBits(x) + @boolToInt(sign);
