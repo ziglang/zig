@@ -56,7 +56,7 @@ test "maybe return" {
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     try maybeReturnImpl();
-    comptime try maybeReturnImpl();
+    try comptime maybeReturnImpl();
 }
 
 fn maybeReturnImpl() !void {
@@ -87,7 +87,7 @@ test "optional void" {
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     try optionalVoidImpl();
-    comptime try optionalVoidImpl();
+    try comptime optionalVoidImpl();
 }
 
 fn optionalVoidImpl() !void {
@@ -111,7 +111,7 @@ test "optional struct{}" {
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     _ = try optionalEmptyStructImpl();
-    _ = comptime try optionalEmptyStructImpl();
+    _ = try comptime optionalEmptyStructImpl();
 }
 
 fn optionalEmptyStructImpl() !void {

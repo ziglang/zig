@@ -91,15 +91,21 @@ pub fn hash(hasher: anytype, key: anytype, comptime strat: HashStrategy) void {
 
         // Help the optimizer see that hashing an int is easy by inlining!
         // TODO Check if the situation is better after #561 is resolved.
-        .Int => {
-            if (comptime meta.trait.hasUniqueRepresentation(Key)) {
-                @call(.always_inline, Hasher.update, .{ hasher, std.mem.asBytes(&key) });
-            } else {
-                // Take only the part containing the key value, the remaining
-                // bytes are undefined and must not be hashed!
-                const byte_size = comptime std.math.divCeil(comptime_int, @bitSizeOf(Key), 8) catch unreachable;
-                @call(.always_inline, Hasher.update, .{ hasher, std.mem.asBytes(&key)[0..byte_size] });
-            }
+        .Int => |int| switch (int.signedness) {
+            .signed => hash(hasher, @bitCast(@Type(.{ .Int = .{
+                .bits = int.bits,
+                .signedness = .unsigned,
+            } }), key), strat),
+            .unsigned => {
+                if (comptime meta.trait.hasUniqueRepresentation(Key)) {
+                    @call(.always_inline, Hasher.update, .{ hasher, std.mem.asBytes(&key) });
+                } else {
+                    // Take only the part containing the key value, the remaining
+                    // bytes are undefined and must not be hashed!
+                    const byte_size = comptime std.math.divCeil(comptime_int, @bitSizeOf(Key), 8) catch unreachable;
+                    @call(.always_inline, Hasher.update, .{ hasher, std.mem.asBytes(&key)[0..byte_size] });
+                }
+            },
         },
 
         .Bool => hash(hasher, @boolToInt(key), strat),
@@ -402,13 +408,13 @@ test "testHash union" {
 }
 
 test "testHash vector" {
-    const a: meta.Vector(4, u32) = [_]u32{ 1, 2, 3, 4 };
-    const b: meta.Vector(4, u32) = [_]u32{ 1, 2, 3, 5 };
+    const a: @Vector(4, u32) = [_]u32{ 1, 2, 3, 4 };
+    const b: @Vector(4, u32) = [_]u32{ 1, 2, 3, 5 };
     try testing.expect(testHash(a) == testHash(a));
     try testing.expect(testHash(a) != testHash(b));
 
-    const c: meta.Vector(4, u31) = [_]u31{ 1, 2, 3, 4 };
-    const d: meta.Vector(4, u31) = [_]u31{ 1, 2, 3, 5 };
+    const c: @Vector(4, u31) = [_]u31{ 1, 2, 3, 4 };
+    const d: @Vector(4, u31) = [_]u31{ 1, 2, 3, 5 };
     try testing.expect(testHash(c) == testHash(c));
     try testing.expect(testHash(c) != testHash(d));
 }

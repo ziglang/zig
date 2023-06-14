@@ -39,7 +39,7 @@ fn peerTypeTAndOptionalT(c: bool, b: bool) ?usize {
 
 test "resolve undefined with integer" {
     try testResolveUndefWithInt(true, 1234);
-    comptime try testResolveUndefWithInt(true, 1234);
+    try comptime testResolveUndefWithInt(true, 1234);
 }
 fn testResolveUndefWithInt(b: bool, x: i32) !void {
     const value = if (b) x else undefined;
@@ -59,7 +59,7 @@ test "implicit cast comptime numbers to any type when the value fits" {
 }
 
 test "implicit cast comptime_int to comptime_float" {
-    comptime try expect(@as(comptime_float, 10) == @as(f32, 10));
+    try comptime expect(@as(comptime_float, 10) == @as(f32, 10));
     try expect(2 == 2.0);
 }
 
@@ -110,7 +110,7 @@ test "@intToFloat" {
         }
     };
     try S.doTheTest();
-    comptime try S.doTheTest();
+    try comptime S.doTheTest();
 }
 
 test "@intToFloat(f80)" {
@@ -140,13 +140,13 @@ test "@intToFloat(f80)" {
     try S.doTheTest(i80);
     try S.doTheTest(i128);
     // try S.doTheTest(i256); // TODO missing compiler_rt symbols
-    comptime try S.doTheTest(i31);
-    comptime try S.doTheTest(i32);
-    comptime try S.doTheTest(i45);
-    comptime try S.doTheTest(i64);
-    comptime try S.doTheTest(i80);
-    comptime try S.doTheTest(i128);
-    comptime try S.doTheTest(i256);
+    try comptime S.doTheTest(i31);
+    try comptime S.doTheTest(i32);
+    try comptime S.doTheTest(i45);
+    try comptime S.doTheTest(i64);
+    try comptime S.doTheTest(i80);
+    try comptime S.doTheTest(i128);
+    try comptime S.doTheTest(i256);
 }
 
 test "@floatToInt" {
@@ -156,7 +156,7 @@ test "@floatToInt" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     try testFloatToInts();
-    comptime try testFloatToInts();
+    try comptime testFloatToInts();
 }
 
 fn testFloatToInts() !void {
@@ -291,7 +291,7 @@ test "@intCast to u0 and use the result" {
         }
     };
     try S.doTheTest(0, 1, 0);
-    comptime try S.doTheTest(0, 1, 0);
+    try comptime S.doTheTest(0, 1, 0);
 }
 
 test "peer result null and comptime_int" {
@@ -312,11 +312,11 @@ test "peer result null and comptime_int" {
     };
 
     try expect(S.blah(0) == null);
-    comptime try expect(S.blah(0) == null);
+    try comptime expect(S.blah(0) == null);
     try expect(S.blah(10).? == 1);
-    comptime try expect(S.blah(10).? == 1);
+    try comptime expect(S.blah(10).? == 1);
     try expect(S.blah(-10).? == -1);
-    comptime try expect(S.blah(-10).? == -1);
+    try comptime expect(S.blah(-10).? == -1);
 }
 
 test "*const ?[*]const T to [*c]const [*c]const T" {
@@ -375,7 +375,7 @@ test "return u8 coercing into ?u32 return type" {
         }
     };
     try S.doTheTest();
-    comptime try S.doTheTest();
+    try comptime S.doTheTest();
 }
 
 test "cast from ?[*]T to ??[*]T" {
@@ -392,7 +392,7 @@ test "peer type unsigned int to signed" {
     var x: u8 = 7;
     var y: i32 = -5;
     var a = w + y + x;
-    comptime try expect(@TypeOf(a) == i32);
+    try comptime expect(@TypeOf(a) == i32);
     try expect(a == 7);
 }
 
@@ -414,7 +414,7 @@ test "explicit cast from integer to error type" {
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     try testCastIntToErr(error.ItBroke);
-    comptime try testCastIntToErr(error.ItBroke);
+    try comptime testCastIntToErr(error.ItBroke);
 }
 fn testCastIntToErr(err: anyerror) !void {
     const x = @errorToInt(err);
@@ -428,7 +428,7 @@ test "peer resolve array and const slice" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     try testPeerResolveArrayConstSlice(true);
-    comptime try testPeerResolveArrayConstSlice(true);
+    try comptime testPeerResolveArrayConstSlice(true);
 }
 fn testPeerResolveArrayConstSlice(b: bool) !void {
     const value1 = if (b) "aoeu" else @as([]const u8, "zz");
@@ -444,7 +444,7 @@ test "implicitly cast from T to anyerror!?T" {
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     try castToOptionalTypeError(1);
-    comptime try castToOptionalTypeError(1);
+    try comptime castToOptionalTypeError(1);
 }
 
 const A = struct {
@@ -470,7 +470,7 @@ test "implicitly cast from [0]T to anyerror![]T" {
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     try testCastZeroArrayToErrSliceMut();
-    comptime try testCastZeroArrayToErrSliceMut();
+    try comptime testCastZeroArrayToErrSliceMut();
 }
 
 fn testCastZeroArrayToErrSliceMut() !void {
@@ -504,7 +504,7 @@ test "peer type resolution: [0]u8, []const u8, and anyerror![]u8" {
         }
     };
     try S.doTheTest();
-    comptime try S.doTheTest();
+    try comptime S.doTheTest();
 }
 fn peerTypeEmptyArrayAndSliceAndError(a: bool, slice: []u8) anyerror![]u8 {
     if (a) {
@@ -520,7 +520,7 @@ test "implicit cast from *const [N]T to []const T" {
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     try testCastConstArrayRefToConstSlice();
-    comptime try testCastConstArrayRefToConstSlice();
+    try comptime testCastConstArrayRefToConstSlice();
 }
 
 fn testCastConstArrayRefToConstSlice() !void {
@@ -546,9 +546,9 @@ test "peer type resolution: error and [N]T" {
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     try expect(mem.eql(u8, try testPeerErrorAndArray(0), "OK"));
-    comptime try expect(mem.eql(u8, try testPeerErrorAndArray(0), "OK"));
+    try comptime expect(mem.eql(u8, try testPeerErrorAndArray(0), "OK"));
     try expect(mem.eql(u8, try testPeerErrorAndArray2(1), "OKK"));
-    comptime try expect(mem.eql(u8, try testPeerErrorAndArray2(1), "OKK"));
+    try comptime expect(mem.eql(u8, try testPeerErrorAndArray2(1), "OKK"));
 }
 
 fn testPeerErrorAndArray(x: u8) anyerror![]const u8 {
@@ -571,7 +571,7 @@ test "single-item pointer of array to slice to unknown length pointer" {
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     try testCastPtrOfArrayToSliceAndPtr();
-    comptime try testCastPtrOfArrayToSliceAndPtr();
+    try comptime testCastPtrOfArrayToSliceAndPtr();
 }
 
 fn testCastPtrOfArrayToSliceAndPtr() !void {
@@ -644,9 +644,9 @@ test "vector casts" {
     };
 
     try S.doTheTest();
-    comptime try S.doTheTest();
+    try comptime S.doTheTest();
     try S.doTheTestFloat();
-    comptime try S.doTheTestFloat();
+    try comptime S.doTheTestFloat();
 }
 
 test "@floatCast cast down" {
@@ -746,8 +746,8 @@ test "peer type resolution: disjoint error sets" {
         try expect(error_set_info == .ErrorSet);
         try expect(error_set_info.ErrorSet.?.len == 3);
         try expect(mem.eql(u8, error_set_info.ErrorSet.?[0].name, "One"));
-        try expect(mem.eql(u8, error_set_info.ErrorSet.?[1].name, "Three"));
-        try expect(mem.eql(u8, error_set_info.ErrorSet.?[2].name, "Two"));
+        try expect(mem.eql(u8, error_set_info.ErrorSet.?[1].name, "Two"));
+        try expect(mem.eql(u8, error_set_info.ErrorSet.?[2].name, "Three"));
     }
 
     {
@@ -756,8 +756,8 @@ test "peer type resolution: disjoint error sets" {
         try expect(error_set_info == .ErrorSet);
         try expect(error_set_info.ErrorSet.?.len == 3);
         try expect(mem.eql(u8, error_set_info.ErrorSet.?[0].name, "One"));
-        try expect(mem.eql(u8, error_set_info.ErrorSet.?[1].name, "Three"));
-        try expect(mem.eql(u8, error_set_info.ErrorSet.?[2].name, "Two"));
+        try expect(mem.eql(u8, error_set_info.ErrorSet.?[1].name, "Two"));
+        try expect(mem.eql(u8, error_set_info.ErrorSet.?[2].name, "Three"));
     }
 }
 
@@ -778,8 +778,8 @@ test "peer type resolution: error union and error set" {
         const error_set_info = @typeInfo(info.ErrorUnion.error_set);
         try expect(error_set_info.ErrorSet.?.len == 3);
         try expect(mem.eql(u8, error_set_info.ErrorSet.?[0].name, "One"));
-        try expect(mem.eql(u8, error_set_info.ErrorSet.?[1].name, "Three"));
-        try expect(mem.eql(u8, error_set_info.ErrorSet.?[2].name, "Two"));
+        try expect(mem.eql(u8, error_set_info.ErrorSet.?[1].name, "Two"));
+        try expect(mem.eql(u8, error_set_info.ErrorSet.?[2].name, "Three"));
     }
 
     {
@@ -790,8 +790,8 @@ test "peer type resolution: error union and error set" {
         const error_set_info = @typeInfo(info.ErrorUnion.error_set);
         try expect(error_set_info.ErrorSet.?.len == 3);
         try expect(mem.eql(u8, error_set_info.ErrorSet.?[0].name, "One"));
-        try expect(mem.eql(u8, error_set_info.ErrorSet.?[1].name, "Three"));
-        try expect(mem.eql(u8, error_set_info.ErrorSet.?[2].name, "Two"));
+        try expect(mem.eql(u8, error_set_info.ErrorSet.?[1].name, "Two"));
+        try expect(mem.eql(u8, error_set_info.ErrorSet.?[2].name, "Three"));
     }
 }
 
@@ -887,7 +887,7 @@ test "peer resolution of string literals" {
         }
     };
     try S.doTheTest(.b);
-    comptime try S.doTheTest(.b);
+    try comptime S.doTheTest(.b);
 }
 
 test "peer cast [:x]T to []T" {
@@ -904,7 +904,7 @@ test "peer cast [:x]T to []T" {
         }
     };
     try S.doTheTest();
-    comptime try S.doTheTest();
+    try comptime S.doTheTest();
 }
 
 test "peer cast [N:x]T to [N]T" {
@@ -920,7 +920,7 @@ test "peer cast [N:x]T to [N]T" {
         }
     };
     try S.doTheTest();
-    comptime try S.doTheTest();
+    try comptime S.doTheTest();
 }
 
 test "peer cast *[N:x]T to *[N]T" {
@@ -936,7 +936,7 @@ test "peer cast *[N:x]T to *[N]T" {
         }
     };
     try S.doTheTest();
-    comptime try S.doTheTest();
+    try comptime S.doTheTest();
 }
 
 test "peer cast [*:x]T to [*]T" {
@@ -956,7 +956,7 @@ test "peer cast [*:x]T to [*]T" {
         }
     };
     try S.doTheTest();
-    comptime try S.doTheTest();
+    try comptime S.doTheTest();
 }
 
 test "peer cast [:x]T to [*:x]T" {
@@ -978,7 +978,7 @@ test "peer cast [:x]T to [*:x]T" {
         }
     };
     try S.doTheTest();
-    comptime try S.doTheTest();
+    try comptime S.doTheTest();
 }
 
 test "peer type resolution implicit cast to return type" {
@@ -999,7 +999,7 @@ test "peer type resolution implicit cast to return type" {
         }
     };
     try S.doTheTest();
-    comptime try S.doTheTest();
+    try comptime S.doTheTest();
 }
 
 test "peer type resolution implicit cast to variable type" {
@@ -1018,7 +1018,7 @@ test "peer type resolution implicit cast to variable type" {
         }
     };
     try S.doTheTest();
-    comptime try S.doTheTest();
+    try comptime S.doTheTest();
 }
 
 test "variable initialization uses result locations properly with regards to the type" {
@@ -1042,7 +1042,7 @@ test "cast between C pointer with different but compatible types" {
         }
     };
     try S.doTheTest();
-    comptime try S.doTheTest();
+    try comptime S.doTheTest();
 }
 
 test "peer type resolve string lit with sentinel-terminated mutable slice" {
@@ -1053,8 +1053,8 @@ test "peer type resolve string lit with sentinel-terminated mutable slice" {
     var array: [4:0]u8 = undefined;
     array[4] = 0; // TODO remove this when #4372 is solved
     var slice: [:0]u8 = array[0..4 :0];
-    comptime try expect(@TypeOf(slice, "hi") == [:0]const u8);
-    comptime try expect(@TypeOf("hi", slice) == [:0]const u8);
+    try comptime expect(@TypeOf(slice, "hi") == [:0]const u8);
+    try comptime expect(@TypeOf("hi", slice) == [:0]const u8);
 }
 
 test "peer type resolve array pointers, one of them const" {
@@ -1062,8 +1062,8 @@ test "peer type resolve array pointers, one of them const" {
 
     var array1: [4]u8 = undefined;
     const array2: [5]u8 = undefined;
-    comptime try expect(@TypeOf(&array1, &array2) == []const u8);
-    comptime try expect(@TypeOf(&array2, &array1) == []const u8);
+    try comptime expect(@TypeOf(&array1, &array2) == []const u8);
+    try comptime expect(@TypeOf(&array2, &array1) == []const u8);
 }
 
 test "peer type resolve array pointer and unknown pointer" {
@@ -1074,17 +1074,17 @@ test "peer type resolve array pointer and unknown pointer" {
     var const_ptr: [*]const u8 = undefined;
     var ptr: [*]u8 = undefined;
 
-    comptime try expect(@TypeOf(&array, ptr) == [*]u8);
-    comptime try expect(@TypeOf(ptr, &array) == [*]u8);
+    try comptime expect(@TypeOf(&array, ptr) == [*]u8);
+    try comptime expect(@TypeOf(ptr, &array) == [*]u8);
 
-    comptime try expect(@TypeOf(&const_array, ptr) == [*]const u8);
-    comptime try expect(@TypeOf(ptr, &const_array) == [*]const u8);
+    try comptime expect(@TypeOf(&const_array, ptr) == [*]const u8);
+    try comptime expect(@TypeOf(ptr, &const_array) == [*]const u8);
 
-    comptime try expect(@TypeOf(&array, const_ptr) == [*]const u8);
-    comptime try expect(@TypeOf(const_ptr, &array) == [*]const u8);
+    try comptime expect(@TypeOf(&array, const_ptr) == [*]const u8);
+    try comptime expect(@TypeOf(const_ptr, &array) == [*]const u8);
 
-    comptime try expect(@TypeOf(&const_array, const_ptr) == [*]const u8);
-    comptime try expect(@TypeOf(const_ptr, &const_array) == [*]const u8);
+    try comptime expect(@TypeOf(&const_array, const_ptr) == [*]const u8);
+    try comptime expect(@TypeOf(const_ptr, &const_array) == [*]const u8);
 }
 
 test "comptime float casts" {
@@ -1209,7 +1209,7 @@ test "implicitly cast from [N]T to ?[]const T" {
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     try expect(mem.eql(u8, castToOptionalSlice().?, "hi"));
-    comptime try expect(mem.eql(u8, castToOptionalSlice().?, "hi"));
+    try comptime expect(mem.eql(u8, castToOptionalSlice().?, "hi"));
 }
 
 fn castToOptionalSlice() ?[]const u8 {
@@ -1223,7 +1223,7 @@ test "cast u128 to f128 and back" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
-    comptime try testCast128();
+    try comptime testCast128();
     try testCast128();
 }
 
@@ -1303,7 +1303,7 @@ test "*const [N]null u8 to ?[]const u8" {
         }
     };
     try S.doTheTest();
-    comptime try S.doTheTest();
+    try comptime S.doTheTest();
 }
 
 test "cast between [*c]T and ?[*:0]T on fn parameter" {
@@ -1352,8 +1352,8 @@ test "peer resolve arrays of different size to const slice" {
 
     try expect(mem.eql(u8, boolToStr(true), "true"));
     try expect(mem.eql(u8, boolToStr(false), "false"));
-    comptime try expect(mem.eql(u8, boolToStr(true), "true"));
-    comptime try expect(mem.eql(u8, boolToStr(false), "false"));
+    try comptime expect(mem.eql(u8, boolToStr(true), "true"));
+    try comptime expect(mem.eql(u8, boolToStr(false), "false"));
 }
 fn boolToStr(b: bool) []const u8 {
     return if (b) "true" else "false";
@@ -1376,7 +1376,7 @@ test "cast f16 to wider types" {
         }
     };
     try S.doTheTest();
-    comptime try S.doTheTest();
+    try comptime S.doTheTest();
 }
 
 test "cast f128 to narrower types" {
@@ -1396,7 +1396,7 @@ test "cast f128 to narrower types" {
         }
     };
     try S.doTheTest();
-    comptime try S.doTheTest();
+    try comptime S.doTheTest();
 }
 
 test "peer type resolution: unreachable, null, slice" {
@@ -1436,7 +1436,7 @@ test "cast i8 fn call peers to i32 result" {
         }
     };
     try S.doTheTest();
-    comptime try S.doTheTest();
+    try comptime S.doTheTest();
 }
 
 test "cast compatible optional types" {
@@ -1509,7 +1509,7 @@ test "floatToInt to zero-bit int" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     const a: f32 = 0.0;
-    comptime try std.testing.expect(@floatToInt(u0, a) == 0);
+    try comptime std.testing.expect(@floatToInt(u0, a) == 0);
 }
 
 test "peer type resolution of function pointer and function body" {

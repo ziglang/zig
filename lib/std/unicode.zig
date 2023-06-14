@@ -354,11 +354,11 @@ fn testUtf16CountCodepoints() !void {
 
 test "utf16 count codepoints" {
     try testUtf16CountCodepoints();
-    comptime try testUtf16CountCodepoints();
+    try comptime testUtf16CountCodepoints();
 }
 
 test "utf8 encode" {
-    comptime try testUtf8Encode();
+    try comptime testUtf8Encode();
     try testUtf8Encode();
 }
 fn testUtf8Encode() !void {
@@ -384,7 +384,7 @@ fn testUtf8Encode() !void {
 }
 
 test "utf8 encode error" {
-    comptime try testUtf8EncodeError();
+    try comptime testUtf8EncodeError();
     try testUtf8EncodeError();
 }
 fn testUtf8EncodeError() !void {
@@ -400,7 +400,7 @@ fn testErrorEncode(codePoint: u21, array: []u8, expectedErr: anyerror) !void {
 }
 
 test "utf8 iterator on ascii" {
-    comptime try testUtf8IteratorOnAscii();
+    try comptime testUtf8IteratorOnAscii();
     try testUtf8IteratorOnAscii();
 }
 fn testUtf8IteratorOnAscii() !void {
@@ -420,7 +420,7 @@ fn testUtf8IteratorOnAscii() !void {
 }
 
 test "utf8 view bad" {
-    comptime try testUtf8ViewBad();
+    try comptime testUtf8ViewBad();
     try testUtf8ViewBad();
 }
 fn testUtf8ViewBad() !void {
@@ -430,7 +430,7 @@ fn testUtf8ViewBad() !void {
 }
 
 test "utf8 view ok" {
-    comptime try testUtf8ViewOk();
+    try comptime testUtf8ViewOk();
     try testUtf8ViewOk();
 }
 fn testUtf8ViewOk() !void {
@@ -450,7 +450,7 @@ fn testUtf8ViewOk() !void {
 }
 
 test "bad utf8 slice" {
-    comptime try testBadUtf8Slice();
+    try comptime testBadUtf8Slice();
     try testBadUtf8Slice();
 }
 fn testBadUtf8Slice() !void {
@@ -461,7 +461,7 @@ fn testBadUtf8Slice() !void {
 }
 
 test "valid utf8" {
-    comptime try testValidUtf8();
+    try comptime testValidUtf8();
     try testValidUtf8();
 }
 fn testValidUtf8() !void {
@@ -480,7 +480,7 @@ fn testValidUtf8() !void {
 }
 
 test "invalid utf8 continuation bytes" {
-    comptime try testInvalidUtf8ContinuationBytes();
+    try comptime testInvalidUtf8ContinuationBytes();
     try testInvalidUtf8ContinuationBytes();
 }
 fn testInvalidUtf8ContinuationBytes() !void {
@@ -512,7 +512,7 @@ fn testInvalidUtf8ContinuationBytes() !void {
 }
 
 test "overlong utf8 codepoint" {
-    comptime try testOverlongUtf8Codepoint();
+    try comptime testOverlongUtf8Codepoint();
     try testOverlongUtf8Codepoint();
 }
 fn testOverlongUtf8Codepoint() !void {
@@ -525,7 +525,7 @@ fn testOverlongUtf8Codepoint() !void {
 }
 
 test "misc invalid utf8" {
-    comptime try testMiscInvalidUtf8();
+    try comptime testMiscInvalidUtf8();
     try testMiscInvalidUtf8();
 }
 fn testMiscInvalidUtf8() !void {
@@ -540,7 +540,7 @@ fn testMiscInvalidUtf8() !void {
 }
 
 test "utf8 iterator peeking" {
-    comptime try testUtf8Peeking();
+    try comptime testUtf8Peeking();
     try testUtf8Peeking();
 }
 
@@ -813,7 +813,7 @@ fn testCalcUtf16LeLen() !void {
 
 test "calculate utf16 string length of given utf8 string in u16" {
     try testCalcUtf16LeLen();
-    comptime try testCalcUtf16LeLen();
+    try comptime testCalcUtf16LeLen();
 }
 
 /// Print the given `utf16le` string
@@ -919,7 +919,7 @@ fn testUtf8CountCodepoints() !void {
 
 test "utf8 count codepoints" {
     try testUtf8CountCodepoints();
-    comptime try testUtf8CountCodepoints();
+    try comptime testUtf8CountCodepoints();
 }
 
 fn testUtf8ValidCodepoint() !void {
@@ -935,5 +935,5 @@ fn testUtf8ValidCodepoint() !void {
 
 test "utf8 valid codepoint" {
     try testUtf8ValidCodepoint();
-    comptime try testUtf8ValidCodepoint();
+    try comptime testUtf8ValidCodepoint();
 }

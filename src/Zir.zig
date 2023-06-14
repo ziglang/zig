@@ -19,6 +19,7 @@ const BigIntConst = std.math.big.int.Const;
 const BigIntMutable = std.math.big.int.Mutable;
 const Ast = std.zig.Ast;
 
+const InternPool = @import("InternPool.zig");
 const Zir = @This();
 const Type = @import("type.zig").Type;
 const Value = @import("value.zig").Value;
@@ -666,38 +667,9 @@ pub const Inst = struct {
         /// A switch expression. Uses the `pl_node` union field.
         /// AST node is the switch, payload is `SwitchBlock`.
         switch_block,
-        /// Produces the value that will be switched on. For example, for
-        /// integers, it returns the integer with no modifications. For tagged unions, it
-        /// returns the active enum tag.
-        /// Uses the `un_node` union field.
-        switch_cond,
-        /// Same as `switch_cond`, except the input operand is a pointer to
-        /// what will be switched on.
-        /// Uses the `un_node` union field.
-        switch_cond_ref,
-        /// Produces the capture value for a switch prong.
-        /// Uses the `switch_capture` field.
-        /// If the `prong_index` field is max int, it means this is the capture
-        /// for the else/`_` prong.
-        switch_capture,
-        /// Produces the capture value for a switch prong.
-        /// Result is a pointer to the value.
-        /// Uses the `switch_capture` field.
-        /// If the `prong_index` field is max int, it means this is the capture
-        /// for the else/`_` prong.
-        switch_capture_ref,
-        /// Produces the capture value for a switch prong.
-        /// The prong is one of the multi cases.
-        /// Uses the `switch_capture` field.
-        switch_capture_multi,
-        /// Produces the capture value for a switch prong.
-        /// The prong is one of the multi cases.
-        /// Result is a pointer to the value.
-        /// Uses the `switch_capture` field.
-        switch_capture_multi_ref,
-        /// Produces the capture value for an inline switch prong tag capture.
-        /// Uses the `un_tok` field.
-        switch_capture_tag,
+        /// A switch expression. Uses the `pl_node` union field.
+        /// AST node is the switch, payload is `SwitchBlock`. Operand is a pointer.
+        switch_block_ref,
         /// Given a
         ///   *A returns *A
         ///   *E!A returns *A
@@ -1143,14 +1115,8 @@ pub const Inst = struct {
                 .typeof_log2_int_type,
                 .resolve_inferred_alloc,
                 .set_eval_branch_quota,
-                .switch_capture,
-                .switch_capture_ref,
-                .switch_capture_multi,
-                .switch_capture_multi_ref,
-                .switch_capture_tag,
                 .switch_block,
-                .switch_cond,
-                .switch_cond_ref,
+                .switch_block_ref,
                 .array_base_ptr,
                 .field_base_ptr,
                 .validate_array_init_ty,
@@ -1437,14 +1403,8 @@ pub const Inst = struct {
                 .slice_length,
                 .import,
                 .typeof_log2_int_type,
-                .switch_capture,
-                .switch_capture_ref,
-                .switch_capture_multi,
-                .switch_capture_multi_ref,
-                .switch_capture_tag,
                 .switch_block,
-                .switch_cond,
-                .switch_cond_ref,
+                .switch_block_ref,
                 .array_base_ptr,
                 .field_base_ptr,
                 .struct_init_empty,
@@ -1695,13 +1655,7 @@ pub const Inst = struct {
                 .err_union_code_ptr = .un_node,
                 .enum_literal = .str_tok,
                 .switch_block = .pl_node,
-                .switch_cond = .un_node,
-                .switch_cond_ref = .un_node,
-                .switch_capture = .switch_capture,
-                .switch_capture_ref = .switch_capture,
-                .switch_capture_multi = .switch_capture,
-                .switch_capture_multi_ref = .switch_capture,
-                .switch_capture_tag = .un_tok,
+                .switch_block_ref = .pl_node,
                 .array_base_ptr = .un_node,
                 .field_base_ptr = .un_node,
                 .validate_array_init_ty = .pl_node,
@@ -2027,9 +1981,10 @@ pub const Inst = struct {
         /// Implements the `@inComptime` builtin.
         /// `operand` is `src_node: i32`.
         in_comptime,
-        /// Used as a placeholder for the capture of an `errdefer`.
-        /// This is replaced by Sema with the captured value.
-        errdefer_err_code,
+        /// Used as a placeholder instruction which is just a dummy index for Sema to replace
+        /// with a specific value. For instance, this is used for the capture of an `errdefer`.
+        /// This should never appear in a body.
+        value_placeholder,
 
         pub const InstData = struct {
             opcode: Extended,
@@ -2041,448 +1996,103 @@ pub const Inst = struct {
     /// The position of a ZIR instruction within the `Zir` instructions array.
     pub const Index = u32;
 
-    /// A reference to a TypedValue or ZIR instruction.
+    /// A reference to ZIR instruction, or to an InternPool index, or neither.
     ///
-    /// If the Ref has a tag in this enum, it refers to a TypedValue.
-    ///
-    /// If the value of a Ref does not have a tag, it refers to a ZIR instruction.
-    ///
-    /// The first values after the the last tag refer to ZIR instructions which may
-    /// be derived by subtracting `typed_value_map.len`.
-    ///
-    /// When adding a tag to this enum, consider adding a corresponding entry to
-    /// `primitives` in astgen.
+    /// If the integer tag value is < InternPool.static_len, then it
+    /// corresponds to an InternPool index. Otherwise, this refers to a ZIR
+    /// instruction.
     ///
     /// The tag type is specified so that it is safe to bitcast between `[]u32`
     /// and `[]Ref`.
     pub const Ref = enum(u32) {
+        u1_type = @enumToInt(InternPool.Index.u1_type),
+        u8_type = @enumToInt(InternPool.Index.u8_type),
+        i8_type = @enumToInt(InternPool.Index.i8_type),
+        u16_type = @enumToInt(InternPool.Index.u16_type),
+        i16_type = @enumToInt(InternPool.Index.i16_type),
+        u29_type = @enumToInt(InternPool.Index.u29_type),
+        u32_type = @enumToInt(InternPool.Index.u32_type),
+        i32_type = @enumToInt(InternPool.Index.i32_type),
+        u64_type = @enumToInt(InternPool.Index.u64_type),
+        i64_type = @enumToInt(InternPool.Index.i64_type),
+        u80_type = @enumToInt(InternPool.Index.u80_type),
+        u128_type = @enumToInt(InternPool.Index.u128_type),
+        i128_type = @enumToInt(InternPool.Index.i128_type),
+        usize_type = @enumToInt(InternPool.Index.usize_type),
+        isize_type = @enumToInt(InternPool.Index.isize_type),
+        c_char_type = @enumToInt(InternPool.Index.c_char_type),
+        c_short_type = @enumToInt(InternPool.Index.c_short_type),
+        c_ushort_type = @enumToInt(InternPool.Index.c_ushort_type),
+        c_int_type = @enumToInt(InternPool.Index.c_int_type),
+        c_uint_type = @enumToInt(InternPool.Index.c_uint_type),
+        c_long_type = @enumToInt(InternPool.Index.c_long_type),
+        c_ulong_type = @enumToInt(InternPool.Index.c_ulong_type),
+        c_longlong_type = @enumToInt(InternPool.Index.c_longlong_type),
+        c_ulonglong_type = @enumToInt(InternPool.Index.c_ulonglong_type),
+        c_longdouble_type = @enumToInt(InternPool.Index.c_longdouble_type),
+        f16_type = @enumToInt(InternPool.Index.f16_type),
+        f32_type = @enumToInt(InternPool.Index.f32_type),
+        f64_type = @enumToInt(InternPool.Index.f64_type),
+        f80_type = @enumToInt(InternPool.Index.f80_type),
+        f128_type = @enumToInt(InternPool.Index.f128_type),
+        anyopaque_type = @enumToInt(InternPool.Index.anyopaque_type),
+        bool_type = @enumToInt(InternPool.Index.bool_type),
+        void_type = @enumToInt(InternPool.Index.void_type),
+        type_type = @enumToInt(InternPool.Index.type_type),
+        anyerror_type = @enumToInt(InternPool.Index.anyerror_type),
+        comptime_int_type = @enumToInt(InternPool.Index.comptime_int_type),
+        comptime_float_type = @enumToInt(InternPool.Index.comptime_float_type),
+        noreturn_type = @enumToInt(InternPool.Index.noreturn_type),
+        anyframe_type = @enumToInt(InternPool.Index.anyframe_type),
+        null_type = @enumToInt(InternPool.Index.null_type),
+        undefined_type = @enumToInt(InternPool.Index.undefined_type),
+        enum_literal_type = @enumToInt(InternPool.Index.enum_literal_type),
+        atomic_order_type = @enumToInt(InternPool.Index.atomic_order_type),
+        atomic_rmw_op_type = @enumToInt(InternPool.Index.atomic_rmw_op_type),
+        calling_convention_type = @enumToInt(InternPool.Index.calling_convention_type),
+        address_space_type = @enumToInt(InternPool.Index.address_space_type),
+        float_mode_type = @enumToInt(InternPool.Index.float_mode_type),
+        reduce_op_type = @enumToInt(InternPool.Index.reduce_op_type),
+        call_modifier_type = @enumToInt(InternPool.Index.call_modifier_type),
+        prefetch_options_type = @enumToInt(InternPool.Index.prefetch_options_type),
+        export_options_type = @enumToInt(InternPool.Index.export_options_type),
+        extern_options_type = @enumToInt(InternPool.Index.extern_options_type),
+        type_info_type = @enumToInt(InternPool.Index.type_info_type),
+        manyptr_u8_type = @enumToInt(InternPool.Index.manyptr_u8_type),
+        manyptr_const_u8_type = @enumToInt(InternPool.Index.manyptr_const_u8_type),
+        manyptr_const_u8_sentinel_0_type = @enumToInt(InternPool.Index.manyptr_const_u8_sentinel_0_type),
+        single_const_pointer_to_comptime_int_type = @enumToInt(InternPool.Index.single_const_pointer_to_comptime_int_type),
+        slice_const_u8_type = @enumToInt(InternPool.Index.slice_const_u8_type),
+        slice_const_u8_sentinel_0_type = @enumToInt(InternPool.Index.slice_const_u8_sentinel_0_type),
+        anyerror_void_error_union_type = @enumToInt(InternPool.Index.anyerror_void_error_union_type),
+        generic_poison_type = @enumToInt(InternPool.Index.generic_poison_type),
+        empty_struct_type = @enumToInt(InternPool.Index.empty_struct_type),
+        undef = @enumToInt(InternPool.Index.undef),
+        zero = @enumToInt(InternPool.Index.zero),
+        zero_usize = @enumToInt(InternPool.Index.zero_usize),
+        zero_u8 = @enumToInt(InternPool.Index.zero_u8),
+        one = @enumToInt(InternPool.Index.one),
+        one_usize = @enumToInt(InternPool.Index.one_usize),
+        one_u8 = @enumToInt(InternPool.Index.one_u8),
+        four_u8 = @enumToInt(InternPool.Index.four_u8),
+        negative_one = @enumToInt(InternPool.Index.negative_one),
+        calling_convention_c = @enumToInt(InternPool.Index.calling_convention_c),
+        calling_convention_inline = @enumToInt(InternPool.Index.calling_convention_inline),
+        void_value = @enumToInt(InternPool.Index.void_value),
+        unreachable_value = @enumToInt(InternPool.Index.unreachable_value),
+        null_value = @enumToInt(InternPool.Index.null_value),
+        bool_true = @enumToInt(InternPool.Index.bool_true),
+        bool_false = @enumToInt(InternPool.Index.bool_false),
+        empty_struct = @enumToInt(InternPool.Index.empty_struct),
+        generic_poison = @enumToInt(InternPool.Index.generic_poison),
+
+        /// This tag is here to match Air and InternPool, however it is unused
+        /// for ZIR purposes.
+        var_args_param_type = @enumToInt(InternPool.Index.var_args_param_type),
         /// This Ref does not correspond to any ZIR instruction or constant
         /// value and may instead be used as a sentinel to indicate null.
-        none,
-
-        u1_type,
-        u8_type,
-        i8_type,
-        u16_type,
-        i16_type,
-        u29_type,
-        u32_type,
-        i32_type,
-        u64_type,
-        i64_type,
-        u128_type,
-        i128_type,
-        usize_type,
-        isize_type,
-        c_char_type,
-        c_short_type,
-        c_ushort_type,
-        c_int_type,
-        c_uint_type,
-        c_long_type,
-        c_ulong_type,
-        c_longlong_type,
-        c_ulonglong_type,
-        c_longdouble_type,
-        f16_type,
-        f32_type,
-        f64_type,
-        f80_type,
-        f128_type,
-        anyopaque_type,
-        bool_type,
-        void_type,
-        type_type,
-        anyerror_type,
-        comptime_int_type,
-        comptime_float_type,
-        noreturn_type,
-        anyframe_type,
-        null_type,
-        undefined_type,
-        enum_literal_type,
-        atomic_order_type,
-        atomic_rmw_op_type,
-        calling_convention_type,
-        address_space_type,
-        float_mode_type,
-        reduce_op_type,
-        modifier_type,
-        prefetch_options_type,
-        export_options_type,
-        extern_options_type,
-        type_info_type,
-        manyptr_u8_type,
-        manyptr_const_u8_type,
-        fn_noreturn_no_args_type,
-        fn_void_no_args_type,
-        fn_naked_noreturn_no_args_type,
-        fn_ccc_void_no_args_type,
-        single_const_pointer_to_comptime_int_type,
-        const_slice_u8_type,
-        anyerror_void_error_union_type,
-        generic_poison_type,
-
-        /// `undefined` (untyped)
-        undef,
-        /// `0` (comptime_int)
-        zero,
-        /// `1` (comptime_int)
-        one,
-        /// `{}`
-        void_value,
-        /// `unreachable` (noreturn type)
-        unreachable_value,
-        /// `null` (untyped)
-        null_value,
-        /// `true`
-        bool_true,
-        /// `false`
-        bool_false,
-        /// `.{}` (untyped)
-        empty_struct,
-        /// `0` (usize)
-        zero_usize,
-        /// `1` (usize)
-        one_usize,
-        /// `std.builtin.CallingConvention.C`
-        calling_convention_c,
-        /// `std.builtin.CallingConvention.Inline`
-        calling_convention_inline,
-        /// Used for generic parameters where the type and value
-        /// is not known until generic function instantiation.
-        generic_poison,
-        /// This is a special type for variadic parameters of a function call.
-        /// Casts to it will validate that the type can be passed to a c
-        /// calling convention function.
-        var_args_param,
-
+        none = @enumToInt(InternPool.Index.none),
         _,
-
-        pub const typed_value_map = std.enums.directEnumArray(Ref, TypedValue, 0, .{
-            .none = undefined,
-
-            .u1_type = .{
-                .ty = Type.initTag(.type),
-                .val = Value.initTag(.u1_type),
-            },
-            .u8_type = .{
-                .ty = Type.initTag(.type),
-                .val = Value.initTag(.u8_type),
-            },
-            .i8_type = .{
-                .ty = Type.initTag(.type),
-                .val = Value.initTag(.i8_type),
-            },
-            .u16_type = .{
-                .ty = Type.initTag(.type),
-                .val = Value.initTag(.u16_type),
-            },
-            .i16_type = .{
-                .ty = Type.initTag(.type),
-                .val = Value.initTag(.i16_type),
-            },
-            .u29_type = .{
-                .ty = Type.initTag(.type),
-                .val = Value.initTag(.u29_type),
-            },
-            .u32_type = .{
-                .ty = Type.initTag(.type),
-                .val = Value.initTag(.u32_type),
-            },
-            .i32_type = .{
-                .ty = Type.initTag(.type),
-                .val = Value.initTag(.i32_type),
-            },
-            .u64_type = .{
-                .ty = Type.initTag(.type),
-                .val = Value.initTag(.u64_type),
-            },
-            .i64_type = .{
-                .ty = Type.initTag(.type),
-                .val = Value.initTag(.i64_type),
-            },
-            .u128_type = .{
-                .ty = Type.initTag(.type),
-                .val = Value.initTag(.u128_type),
-            },
-            .i128_type = .{
-                .ty = Type.initTag(.type),
-                .val = Value.initTag(.i128_type),
-            },
-            .usize_type = .{
-                .ty = Type.initTag(.type),
-                .val = Value.initTag(.usize_type),
-            },
-            .isize_type = .{
-                .ty = Type.initTag(.type),
-                .val = Value.initTag(.isize_type),
-            },
-            .c_char_type = .{
-                .ty = Type.initTag(.type),
-                .val = Value.initTag(.c_char_type),
-            },
-            .c_short_type = .{
-                .ty = Type.initTag(.type),
-                .val = Value.initTag(.c_short_type),
-            },
-            .c_ushort_type = .{
-                .ty = Type.initTag(.type),
-                .val = Value.initTag(.c_ushort_type),
-            },
-            .c_int_type = .{
-                .ty = Type.initTag(.type),
-                .val = Value.initTag(.c_int_type),
-            },
-            .c_uint_type = .{
-                .ty = Type.initTag(.type),
-                .val = Value.initTag(.c_uint_type),
-            },
-            .c_long_type = .{
-                .ty = Type.initTag(.type),
-                .val = Value.initTag(.c_long_type),
-            },
-            .c_ulong_type = .{
-                .ty = Type.initTag(.type),
-                .val = Value.initTag(.c_ulong_type),
-            },
-            .c_longlong_type = .{
-                .ty = Type.initTag(.type),
-                .val = Value.initTag(.c_longlong_type),
-            },
-            .c_ulonglong_type = .{
-                .ty = Type.initTag(.type),
-                .val = Value.initTag(.c_ulonglong_type),
-            },
-            .c_longdouble_type = .{
-                .ty = Type.initTag(.type),
-                .val = Value.initTag(.c_longdouble_type),
-            },
-            .f16_type = .{
-                .ty = Type.initTag(.type),
-                .val = Value.initTag(.f16_type),
-            },
-            .f32_type = .{
-                .ty = Type.initTag(.type),
-                .val = Value.initTag(.f32_type),
-            },
-            .f64_type = .{
-                .ty = Type.initTag(.type),
-                .val = Value.initTag(.f64_type),
-            },
-            .f80_type = .{
-                .ty = Type.initTag(.type),
-                .val = Value.initTag(.f80_type),
-            },
-            .f128_type = .{
-                .ty = Type.initTag(.type),
-                .val = Value.initTag(.f128_type),
-            },
-            .anyopaque_type = .{
-                .ty = Type.initTag(.type),
-                .val = Value.initTag(.anyopaque_type),
-            },
-            .bool_type = .{
-                .ty = Type.initTag(.type),
-                .val = Value.initTag(.bool_type),
-            },
-            .void_type = .{
-                .ty = Type.initTag(.type),
-                .val = Value.initTag(.void_type),
-            },
-            .type_type = .{
-                .ty = Type.initTag(.type),
-                .val = Value.initTag(.type_type),
-            },
-            .anyerror_type = .{
-                .ty = Type.initTag(.type),
-                .val = Value.initTag(.anyerror_type),
-            },
-            .comptime_int_type = .{
-                .ty = Type.initTag(.type),
-                .val = Value.initTag(.comptime_int_type),
-            },
-            .comptime_float_type = .{
-                .ty = Type.initTag(.type),
-                .val = Value.initTag(.comptime_float_type),
-            },
-            .noreturn_type = .{
-                .ty = Type.initTag(.type),
-                .val = Value.initTag(.noreturn_type),
-            },
-            .anyframe_type = .{
-                .ty = Type.initTag(.type),
-                .val = Value.initTag(.anyframe_type),
-            },
-            .null_type = .{
-                .ty = Type.initTag(.type),
-                .val = Value.initTag(.null_type),
-            },
-            .undefined_type = .{
-                .ty = Type.initTag(.type),
-                .val = Value.initTag(.undefined_type),
-            },
-            .fn_noreturn_no_args_type = .{
-                .ty = Type.initTag(.type),
-                .val = Value.initTag(.fn_noreturn_no_args_type),
-            },
-            .fn_void_no_args_type = .{
-                .ty = Type.initTag(.type),
-                .val = Value.initTag(.fn_void_no_args_type),
-            },
-            .fn_naked_noreturn_no_args_type = .{
-                .ty = Type.initTag(.type),
-                .val = Value.initTag(.fn_naked_noreturn_no_args_type),
-            },
-            .fn_ccc_void_no_args_type = .{
-                .ty = Type.initTag(.type),
-                .val = Value.initTag(.fn_ccc_void_no_args_type),
-            },
-            .single_const_pointer_to_comptime_int_type = .{
-                .ty = Type.initTag(.type),
-                .val = Value.initTag(.single_const_pointer_to_comptime_int_type),
-            },
-            .const_slice_u8_type = .{
-                .ty = Type.initTag(.type),
-                .val = Value.initTag(.const_slice_u8_type),
-            },
-            .anyerror_void_error_union_type = .{
-                .ty = Type.initTag(.type),
-                .val = Value.initTag(.anyerror_void_error_union_type),
-            },
-            .generic_poison_type = .{
-                .ty = Type.initTag(.type),
-                .val = Value.initTag(.generic_poison_type),
-            },
-            .enum_literal_type = .{
-                .ty = Type.initTag(.type),
-                .val = Value.initTag(.enum_literal_type),
-            },
-            .manyptr_u8_type = .{
-                .ty = Type.initTag(.type),
-                .val = Value.initTag(.manyptr_u8_type),
-            },
-            .manyptr_const_u8_type = .{
-                .ty = Type.initTag(.type),
-                .val = Value.initTag(.manyptr_const_u8_type),
-            },
-            .atomic_order_type = .{
-                .ty = Type.initTag(.type),
-                .val = Value.initTag(.atomic_order_type),
-            },
-            .atomic_rmw_op_type = .{
-                .ty = Type.initTag(.type),
-                .val = Value.initTag(.atomic_rmw_op_type),
-            },
-            .calling_convention_type = .{
-                .ty = Type.initTag(.type),
-                .val = Value.initTag(.calling_convention_type),
-            },
-            .address_space_type = .{
-                .ty = Type.initTag(.type),
-                .val = Value.initTag(.address_space_type),
-            },
-            .float_mode_type = .{
-                .ty = Type.initTag(.type),
-                .val = Value.initTag(.float_mode_type),
-            },
-            .reduce_op_type = .{
-                .ty = Type.initTag(.type),
-                .val = Value.initTag(.reduce_op_type),
-            },
-            .modifier_type = .{
-                .ty = Type.initTag(.type),
-                .val = Value.initTag(.modifier_type),
-            },
-            .prefetch_options_type = .{
-                .ty = Type.initTag(.type),
-                .val = Value.initTag(.prefetch_options_type),
-            },
-            .export_options_type = .{
-                .ty = Type.initTag(.type),
-                .val = Value.initTag(.export_options_type),
-            },
-            .extern_options_type = .{
-                .ty = Type.initTag(.type),
-                .val = Value.initTag(.extern_options_type),
-            },
-            .type_info_type = .{
-                .ty = Type.initTag(.type),
-                .val = Value.initTag(.type_info_type),
-            },
-
-            .undef = .{
-                .ty = Type.initTag(.undefined),
-                .val = Value.initTag(.undef),
-            },
-            .zero = .{
-                .ty = Type.initTag(.comptime_int),
-                .val = Value.initTag(.zero),
-            },
-            .zero_usize = .{
-                .ty = Type.initTag(.usize),
-                .val = Value.initTag(.zero),
-            },
-            .one = .{
-                .ty = Type.initTag(.comptime_int),
-                .val = Value.initTag(.one),
-            },
-            .one_usize = .{
-                .ty = Type.initTag(.usize),
-                .val = Value.initTag(.one),
-            },
-            .void_value = .{
-                .ty = Type.initTag(.void),
-                .val = Value.initTag(.void_value),
-            },
-            .unreachable_value = .{
-                .ty = Type.initTag(.noreturn),
-                .val = Value.initTag(.unreachable_value),
-            },
-            .null_value = .{
-                .ty = Type.initTag(.null),
-                .val = Value.initTag(.null_value),
-            },
-            .bool_true = .{
-                .ty = Type.initTag(.bool),
-                .val = Value.initTag(.bool_true),
-            },
-            .bool_false = .{
-                .ty = Type.initTag(.bool),
-                .val = Value.initTag(.bool_false),
-            },
-            .empty_struct = .{
-                .ty = Type.initTag(.empty_struct_literal),
-                .val = Value.initTag(.empty_struct_value),
-            },
-            .calling_convention_c = .{
-                .ty = Type.initTag(.calling_convention),
-                .val = .{ .ptr_otherwise = &calling_convention_c_payload.base },
-            },
-            .calling_convention_inline = .{
-                .ty = Type.initTag(.calling_convention),
-                .val = .{ .ptr_otherwise = &calling_convention_inline_payload.base },
-            },
-            .generic_poison = .{
-                .ty = Type.initTag(.generic_poison),
-                .val = Value.initTag(.generic_poison),
-            },
-            .var_args_param = undefined,
-        });
-    };
-
-    /// We would like this to be const but `Value` wants a mutable pointer for
-    /// its payload field. Nothing should mutate this though.
-    var calling_convention_c_payload: Value.Payload.U32 = .{
-        .base = .{ .tag = .enum_field_index },
-        .data = @enumToInt(std.builtin.CallingConvention.C),
-    };
-
-    /// We would like this to be const but `Value` wants a mutable pointer for
-    /// its payload field. Nothing should mutate this though.
-    var calling_convention_inline_payload: Value.Payload.U32 = .{
-        .base = .{ .tag = .enum_field_index },
-        .data = @enumToInt(std.builtin.CallingConvention.Inline),
     };
 
     /// All instructions have an 8-byte payload, which is contained within
@@ -2613,10 +2223,6 @@ pub const Inst = struct {
             operand: Ref,
             payload_index: u32,
         },
-        switch_capture: struct {
-            switch_inst: Index,
-            prong_index: u32,
-        },
         dbg_stmt: LineColumn,
         /// Used for unary operators which reference an inst,
         /// with an AST node source location.
@@ -2686,7 +2292,6 @@ pub const Inst = struct {
             bool_br,
             @"unreachable",
             @"break",
-            switch_capture,
             dbg_stmt,
             inst_node,
             str_op,
@@ -3025,36 +2630,52 @@ pub const Inst = struct {
     };
 
     /// 0. multi_cases_len: u32 // If has_multi_cases is set.
-    /// 1. else_body { // If has_else or has_under is set.
-    ///        body_len: u32,
-    ///        body member Index for every body_len
+    /// 1. tag_capture_inst: u32 // If any_has_tag_capture is set. Index of instruction prongs use to refer to the inline tag capture.
+    /// 2. else_body { // If has_else or has_under is set.
+    ///        info: ProngInfo,
+    ///        body member Index for every info.body_len
     ///     }
-    /// 2. scalar_cases: { // for every scalar_cases_len
+    /// 3. scalar_cases: { // for every scalar_cases_len
     ///        item: Ref,
-    ///        body_len: u32,
-    ///        body member Index for every body_len
+    ///        info: ProngInfo,
+    ///        body member Index for every info.body_len
     ///     }
-    /// 3. multi_cases: { // for every multi_cases_len
+    /// 4. multi_cases: { // for every multi_cases_len
     ///        items_len: u32,
     ///        ranges_len: u32,
-    ///        body_len: u32,
+    ///        info: ProngInfo,
     ///        item: Ref // for every items_len
     ///        ranges: { // for every ranges_len
     ///            item_first: Ref,
     ///            item_last: Ref,
     ///        }
-    ///        body member Index for every body_len
+    ///        body member Index for every info.body_len
     ///    }
+    ///
+    /// When analyzing a case body, the switch instruction itself refers to the
+    /// captured payload. Whether this is captured by reference or by value
+    /// depends on whether the `byref` bit is set for the corresponding body.
     pub const SwitchBlock = struct {
-        /// This is always a `switch_cond` or `switch_cond_ref` instruction.
-        /// If it is a `switch_cond_ref` instruction, bits.is_ref is always true.
-        /// If it is a `switch_cond` instruction, bits.is_ref is always false.
-        /// Both `switch_cond` and `switch_cond_ref` return a value, not a pointer,
-        /// that is useful for the case items, but cannot be used for capture values.
-        /// For the capture values, Sema is expected to find the operand of this operand
-        /// and use that.
+        /// The operand passed to the `switch` expression. If this is a
+        /// `switch_block`, this is the operand value; if `switch_block_ref` it
+        /// is a pointer to the operand. `switch_block_ref` is always used if
+        /// any prong has a byref capture.
         operand: Ref,
         bits: Bits,
+
+        /// These are stored in trailing data in `extra` for each prong.
+        pub const ProngInfo = packed struct(u32) {
+            body_len: u28,
+            capture: Capture,
+            is_inline: bool,
+            has_tag_capture: bool,
+
+            pub const Capture = enum(u2) {
+                none,
+                by_val,
+                by_ref,
+            };
+        };
 
         pub const Bits = packed struct {
             /// If true, one or more prongs have multiple items.
@@ -3063,9 +2684,11 @@ pub const Inst = struct {
             has_else: bool,
             /// If true, there is an underscore prong. This is mutually exclusive with `has_else`.
             has_under: bool,
+            /// If true, at least one prong has an inline tag capture.
+            any_has_tag_capture: bool,
             scalar_cases_len: ScalarCasesLen,
 
-            pub const ScalarCasesLen = u29;
+            pub const ScalarCasesLen = u28;
 
             pub fn specialProng(bits: Bits) SpecialProng {
                 const has_else: u2 = @boolToInt(bits.has_else);
@@ -3079,103 +2702,10 @@ pub const Inst = struct {
             }
         };
 
-        pub const ScalarProng = struct {
-            item: Ref,
-            body: []const Index,
-        };
-
-        /// TODO performance optimization: instead of having this helper method
-        /// change the definition of switch_capture instruction to store extra_index
-        /// instead of prong_index. This way, Sema won't be doing O(N^2) iterations
-        /// over the switch prongs.
-        pub fn getScalarProng(
-            self: SwitchBlock,
-            zir: Zir,
-            extra_end: usize,
-            prong_index: usize,
-        ) ScalarProng {
-            var extra_index: usize = extra_end;
-
-            if (self.bits.has_multi_cases) {
-                extra_index += 1;
-            }
-
-            if (self.bits.specialProng() != .none) {
-                const body_len = @truncate(u31, zir.extra[extra_index]);
-                extra_index += 1;
-                const body = zir.extra[extra_index..][0..body_len];
-                extra_index += body.len;
-            }
-
-            var scalar_i: usize = 0;
-            while (true) : (scalar_i += 1) {
-                const item = @intToEnum(Ref, zir.extra[extra_index]);
-                extra_index += 1;
-                const body_len = @truncate(u31, zir.extra[extra_index]);
-                extra_index += 1;
-                const body = zir.extra[extra_index..][0..body_len];
-                extra_index += body.len;
-
-                if (scalar_i < prong_index) continue;
-
-                return .{
-                    .item = item,
-                    .body = body,
-                };
-            }
-        }
-
         pub const MultiProng = struct {
             items: []const Ref,
             body: []const Index,
         };
-
-        pub fn getMultiProng(
-            self: SwitchBlock,
-            zir: Zir,
-            extra_end: usize,
-            prong_index: usize,
-        ) MultiProng {
-            // +1 for self.bits.has_multi_cases == true
-            var extra_index: usize = extra_end + 1;
-
-            if (self.bits.specialProng() != .none) {
-                const body_len = @truncate(u31, zir.extra[extra_index]);
-                extra_index += 1;
-                const body = zir.extra[extra_index..][0..body_len];
-                extra_index += body.len;
-            }
-
-            var scalar_i: usize = 0;
-            while (scalar_i < self.bits.scalar_cases_len) : (scalar_i += 1) {
-                extra_index += 1;
-                const body_len = @truncate(u31, zir.extra[extra_index]);
-                extra_index += 1;
-                extra_index += body_len;
-            }
-            var multi_i: u32 = 0;
-            while (true) : (multi_i += 1) {
-                const items_len = zir.extra[extra_index];
-                extra_index += 1;
-                const ranges_len = zir.extra[extra_index];
-                extra_index += 1;
-                const body_len = @truncate(u31, zir.extra[extra_index]);
-                extra_index += 1;
-                const items = zir.refSlice(extra_index, items_len);
-                extra_index += items_len;
-                // Each range has a start and an end.
-                extra_index += 2 * ranges_len;
-
-                const body = zir.extra[extra_index..][0..body_len];
-                extra_index += body_len;
-
-                if (multi_i < prong_index) continue;
-                return .{
-                    .items = items,
-                    .body = body,
-                };
-            }
-        }
     };
 
     pub const Field = struct {
@@ -4163,17 +3693,23 @@ pub fn getFnInfo(zir: Zir, fn_inst: Inst.Index) FnInfo {
     };
 }
 
-const ref_start_index: u32 = Inst.Ref.typed_value_map.len;
+pub const ref_start_index: u32 = InternPool.static_len;
 
 pub fn indexToRef(inst: Inst.Index) Inst.Ref {
     return @intToEnum(Inst.Ref, ref_start_index + inst);
 }
 
 pub fn refToIndex(inst: Inst.Ref) ?Inst.Index {
+    assert(inst != .none);
     const ref_int = @enumToInt(inst);
     if (ref_int >= ref_start_index) {
         return ref_int - ref_start_index;
     } else {
         return null;
     }
+}
+
+pub fn refToIndexAllowNone(inst: Inst.Ref) ?Inst.Index {
+    if (inst == .none) return null;
+    return refToIndex(inst);
 }

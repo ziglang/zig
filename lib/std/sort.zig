@@ -74,29 +74,29 @@ pub fn heap(
 /// Sorts in ascending order with respect to the given `lessThan` function.
 pub fn heapContext(a: usize, b: usize, context: anytype) void {
     // build the heap in linear time.
-    var i = b / 2;
-    while (i > a) : (i -= 1) {
-        siftDown(i - 1, b, context);
+    var i = a + (b - a) / 2;
+    while (i > a) {
+        i -= 1;
+        siftDown(a, i, b, context);
     }
 
     // pop maximal elements from the heap.
     i = b;
-    while (i > a) : (i -= 1) {
-        context.swap(a, i - 1);
-        siftDown(a, i - 1, context);
+    while (i > a) {
+        i -= 1;
+        context.swap(a, i);
+        siftDown(a, a, i, context);
     }
 }
 
-fn siftDown(root: usize, n: usize, context: anytype) void {
+fn siftDown(a: usize, root: usize, n: usize, context: anytype) void {
     var node = root;
     while (true) {
-        var child = 2 * node + 1;
+        var child = a + 2 * (node - a) + 1;
         if (child >= n) break;
 
         // choose the greater child.
-        if (child + 1 < n and context.lessThan(child, child + 1)) {
-            child += 1;
-        }
+        child += @boolToInt(child + 1 < n and context.lessThan(child, child + 1));
 
         // stop if the invariant holds at `node`.
         if (!context.lessThan(node, child)) break;
@@ -136,6 +136,13 @@ const sort_funcs = &[_]fn (comptime type, anytype, anytype, comptime anytype) vo
     pdq,
     insertion,
     heap,
+};
+
+const context_sort_funcs = &[_]fn (usize, usize, anytype) void{
+    // blockContext,
+    pdqContext,
+    insertionContext,
+    heapContext,
 };
 
 const IdAndValue = struct {
@@ -248,11 +255,15 @@ test "sort" {
             &[_]i32{ 2, 1, 3 },
             &[_]i32{ 1, 2, 3 },
         },
+        &[_][]const i32{
+            &[_]i32{ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 10, 55, 32, 39, 58, 21, 88, 43, 22, 59 },
+            &[_]i32{ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 10, 21, 22, 32, 39, 43, 55, 58, 59, 88 },
+        },
     };
 
     inline for (sort_funcs) |sortFn| {
         for (u8cases) |case| {
-            var buf: [8]u8 = undefined;
+            var buf: [20]u8 = undefined;
             const slice = buf[0..case[0].len];
             @memcpy(slice, case[0]);
             sortFn(u8, slice, {}, asc_u8);
@@ -260,7 +271,7 @@ test "sort" {
         }
 
         for (i32cases) |case| {
-            var buf: [8]i32 = undefined;
+            var buf: [20]i32 = undefined;
             const slice = buf[0..case[0].len];
             @memcpy(slice, case[0]);
             sortFn(i32, slice, {}, asc_i32);
@@ -304,6 +315,45 @@ test "sort descending" {
             @memcpy(slice, case[0]);
             sortFn(i32, slice, {}, desc_i32);
             try testing.expect(mem.eql(i32, slice, case[1]));
+        }
+    }
+}
+
+test "sort with context in the middle of a slice" {
+    const Context = struct {
+        items: []i32,
+
+        pub fn lessThan(ctx: @This(), a: usize, b: usize) bool {
+            return ctx.items[a] < ctx.items[b];
+        }
+
+        pub fn swap(ctx: @This(), a: usize, b: usize) void {
+            return mem.swap(i32, &ctx.items[a], &ctx.items[b]);
+        }
+    };
+
+    const i32cases = [_][]const []const i32{
+        &[_][]const i32{
+            &[_]i32{ 0, 1, 8, 3, 6, 5, 4, 2, 9, 7, 10, 55, 32, 39, 58, 21, 88, 43, 22, 59 },
+            &[_]i32{ 50, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 21, 22, 32, 39, 43, 55, 58, 59, 88 },
+        },
+    };
+
+    const ranges = [_]struct { start: usize, end: usize }{
+        .{ .start = 10, .end = 20 },
+        .{ .start = 1, .end = 11 },
+        .{ .start = 3, .end = 7 },
+    };
+
+    inline for (context_sort_funcs) |sortFn| {
+        for (i32cases) |case| {
+            for (ranges) |range| {
+                var buf: [20]i32 = undefined;
+                const slice = buf[0..case[0].len];
+                @memcpy(slice, case[0]);
+                sortFn(range.start, range.end, Context{ .items = slice });
+                try testing.expectEqualSlices(i32, slice[range.start..range.end], case[1][range.start..range.end]);
+            }
         }
     }
 }

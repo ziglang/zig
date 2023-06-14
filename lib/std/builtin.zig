@@ -143,7 +143,7 @@ pub const Mode = OptimizeMode;
 
 /// This data structure is used by the Zig language code generation and
 /// therefore must be kept in sync with the compiler implementation.
-pub const CallingConvention = enum {
+pub const CallingConvention = enum(u8) {
     /// This is the default Zig calling convention used when not using `export` on `fn`
     /// and no other calling convention is specified.
     Unspecified,
@@ -190,7 +190,7 @@ pub const CallingConvention = enum {
 
 /// This data structure is used by the Zig language code generation and
 /// therefore must be kept in sync with the compiler implementation.
-pub const AddressSpace = enum {
+pub const AddressSpace = enum(u5) {
     generic,
     gs,
     fs,
@@ -221,7 +221,6 @@ pub const SourceLocation = struct {
 };
 
 pub const TypeId = std.meta.Tag(Type);
-pub const TypeInfo = @compileError("deprecated; use Type");
 
 /// This data structure is used by the Zig language code generation and
 /// therefore must be kept in sync with the compiler implementation.
@@ -283,7 +282,7 @@ pub const Type = union(enum) {
 
         /// This data structure is used by the Zig language code generation and
         /// therefore must be kept in sync with the compiler implementation.
-        pub const Size = enum {
+        pub const Size = enum(u2) {
             One,
             Many,
             Slice,
@@ -387,8 +386,6 @@ pub const Type = union(enum) {
         fields: []const UnionField,
         decls: []const Declaration,
     };
-
-    pub const FnArg = @compileError("deprecated; use Fn.Param");
 
     /// This data structure is used by the Zig language code generation and
     /// therefore must be kept in sync with the compiler implementation.

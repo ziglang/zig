@@ -268,7 +268,7 @@ test "struct field init with catch" {
         };
     };
     try S.doTheTest();
-    comptime try S.doTheTest();
+    try comptime S.doTheTest();
 }
 
 const blah: packed struct {
@@ -603,7 +603,7 @@ test "bit field access" {
     try expect(getA(&data) == 1);
     try expect(getB(&data) == 2);
     try expect(getC(&data) == 3);
-    comptime try expect(@sizeOf(BitField1) == 1);
+    try comptime expect(@sizeOf(BitField1) == 1);
 
     data.b += 1;
     try expect(data.b == 3);
@@ -740,7 +740,7 @@ test "packed struct with u0 field access" {
         f0: u0,
     };
     var s = S{ .f0 = 0 };
-    comptime try expect(s.f0 == 0);
+    try comptime expect(s.f0 == 0);
 }
 
 test "access to global struct fields" {
@@ -817,7 +817,7 @@ test "fn with C calling convention returns struct by value" {
         }
     };
     try S.entry();
-    comptime try S.entry();
+    try comptime S.entry();
 }
 
 test "non-packed struct with u128 entry in union" {
@@ -889,7 +889,7 @@ test "anonymous struct literal syntax" {
         }
     };
     try S.doTheTest();
-    comptime try S.doTheTest();
+    try comptime S.doTheTest();
 }
 
 test "fully anonymous struct" {
@@ -911,7 +911,7 @@ test "fully anonymous struct" {
         }
     };
     try S.doTheTest();
-    comptime try S.doTheTest();
+    try comptime S.doTheTest();
 }
 
 test "fully anonymous list literal" {
@@ -928,7 +928,7 @@ test "fully anonymous list literal" {
         }
     };
     try S.doTheTest();
-    comptime try S.doTheTest();
+    try comptime S.doTheTest();
 }
 
 test "tuple assigned to variable" {
@@ -955,7 +955,7 @@ test "comptime struct field" {
     comptime std.debug.assert(@sizeOf(T) == 4);
 
     var foo: T = undefined;
-    comptime try expect(foo.b == 1234);
+    try comptime expect(foo.b == 1234);
 }
 
 test "tuple element initialized with fn call" {
@@ -974,7 +974,7 @@ test "tuple element initialized with fn call" {
         }
     };
     try S.doTheTest();
-    comptime try S.doTheTest();
+    try comptime S.doTheTest();
 }
 
 test "struct with union field" {
@@ -1033,7 +1033,7 @@ test "type coercion of anon struct literal to struct" {
         }
     };
     try S.doTheTest();
-    comptime try S.doTheTest();
+    try comptime S.doTheTest();
 }
 
 test "type coercion of pointer to anon struct literal to pointer to struct" {
@@ -1071,7 +1071,7 @@ test "type coercion of pointer to anon struct literal to pointer to struct" {
         }
     };
     try S.doTheTest();
-    comptime try S.doTheTest();
+    try comptime S.doTheTest();
 }
 
 test "packed struct with undefined initializers" {
@@ -1104,7 +1104,7 @@ test "packed struct with undefined initializers" {
     };
 
     try S.doTheTest();
-    comptime try S.doTheTest();
+    try comptime S.doTheTest();
 }
 
 test "for loop over pointers to struct, getting field from struct pointer" {
@@ -1169,7 +1169,7 @@ test "anon init through error unions and optionals" {
     };
 
     try S.doTheTest();
-    comptime try S.doTheTest();
+    try comptime S.doTheTest();
 }
 
 test "anon init through optional" {
@@ -1189,7 +1189,7 @@ test "anon init through optional" {
     };
 
     try S.doTheTest();
-    comptime try S.doTheTest();
+    try comptime S.doTheTest();
 }
 
 test "anon init through error union" {
@@ -1209,7 +1209,7 @@ test "anon init through error union" {
     };
 
     try S.doTheTest();
-    comptime try S.doTheTest();
+    try comptime S.doTheTest();
 }
 
 test "typed init through error unions and optionals" {
@@ -1236,7 +1236,7 @@ test "typed init through error unions and optionals" {
     };
 
     try S.doTheTest();
-    comptime try S.doTheTest();
+    try comptime S.doTheTest();
 }
 
 test "initialize struct with empty literal" {
@@ -1311,7 +1311,7 @@ test "packed struct field access via pointer" {
         }
     };
     try S.doTheTest();
-    comptime try S.doTheTest();
+    try comptime S.doTheTest();
 }
 
 test "store to comptime field" {
@@ -1416,7 +1416,7 @@ test "fieldParentPtr of a zero-bit field" {
         }
     };
     try S.doTheTest();
-    comptime try S.doTheTest();
+    try comptime S.doTheTest();
 }
 
 test "struct field has a pointer to an aligned version of itself" {

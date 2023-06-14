@@ -14,4 +14,4 @@ export fn entry() void {
 // :2:5: error: found compile log statement
 //
 // Compile Log Output:
-// @as(*const [3:0]u8, "i32\x00")
+// @as(*const [3:0]u8, "i32")

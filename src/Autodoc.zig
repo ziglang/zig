@@ -8,6 +8,7 @@ const CompilationModule = @import("Module.zig");
 const File = CompilationModule.File;
 const Module = @import("Package.zig");
 const Tokenizer = std.zig.Tokenizer;
+const InternPool = @import("InternPool.zig");
 const Zir = @import("Zir.zig");
 const Ref = Zir.Inst.Ref;
 const log = std.log.scoped(.autodoc);
@@ -95,8 +96,6 @@ pub fn generateZirData(self: *Autodoc) !void {
         }
     }
 
-    log.debug("Ref map size: {}", .{Ref.typed_value_map.len});
-
     const root_src_dir = self.comp_module.main_pkg.root_src_directory;
     const root_src_path = self.comp_module.main_pkg.root_src_path;
     const joined_src_path = try root_src_dir.join(self.arena, &.{root_src_path});
@@ -108,18 +107,20 @@ pub fn generateZirData(self: *Autodoc) !void {
     const file = self.comp_module.import_table.get(abs_root_src_path).?; // file is expected to be present in the import table
     // Append all the types in Zir.Inst.Ref.
     {
-        try self.types.append(self.arena, .{
-            .ComptimeExpr = .{ .name = "ComptimeExpr" },
-        });
-
-        // this skips Ref.none but it's ok becuse we replaced it with ComptimeExpr
-        var i: u32 = 1;
-        while (i <= @enumToInt(Ref.anyerror_void_error_union_type)) : (i += 1) {
+        comptime std.debug.assert(@enumToInt(InternPool.Index.first_type) == 0);
+        var i: u32 = 0;
+        while (i <= @enumToInt(InternPool.Index.last_type)) : (i += 1) {
+            const ip_index = @intToEnum(InternPool.Index, i);
             var tmpbuf = std.ArrayList(u8).init(self.arena);
-            try Ref.typed_value_map[i].val.fmtDebug().format("", .{}, tmpbuf.writer());
+            if (ip_index == .generic_poison_type) {
+                // Not a real type, doesn't have a normal name
+                try tmpbuf.writer().writeAll("(generic poison)");
+            } else {
+                try ip_index.toType().fmt(self.comp_module).format("", .{}, tmpbuf.writer());
+            }
             try self.types.append(
                 self.arena,
-                switch (@intToEnum(Ref, i)) {
+                switch (ip_index) {
                     else => blk: {
                         // TODO: map the remaining refs to a correct type
                         //       instead of just assinging "array" to them.
@@ -1040,7 +1041,7 @@ fn walkInstruction(
         .ret_load => {
             const un_node = data[inst_index].un_node;
             const res_ptr_ref = un_node.operand;
-            const res_ptr_inst = @enumToInt(res_ptr_ref) - Ref.typed_value_map.len;
+            const res_ptr_inst = Zir.refToIndex(res_ptr_ref).?;
             // TODO: this instruction doesn't let us know trivially if there's
             //       branching involved or not. For now here's the strat:
             //       We search backwarts until `ret_ptr` for `store_node`,
@@ -1992,31 +1993,6 @@ fn walkInstruction(
                 .expr = .{ .switchIndex = switch_index },
             };
         },
-        .switch_cond => {
-            const un_node = data[inst_index].un_node;
-            const operand = try self.walkRef(
-                file,
-                parent_scope,
-                parent_src,
-                un_node.operand,
-                need_type,
-            );
-            const operand_index = self.exprs.items.len;
-            try self.exprs.append(self.arena, operand.expr);
-
-            // const ast_index = self.ast_nodes.items.len;
-            // const sep = "=" ** 200;
-            // log.debug("{s}", .{sep});
-            // log.debug("SWITCH COND", .{});
-            // log.debug("ast index = {}", .{ast_index});
-            // log.debug("ast previous = {}", .{self.ast_nodes.items[ast_index - 1]});
-            // log.debug("{s}", .{sep});
-
-            return DocData.WalkResult{
-                .typeRef = operand.typeRef,
-                .expr = .{ .typeOf = operand_index },
-            };
-        },
 
         .typeof => {
             const un_node = data[inst_index].un_node;
@@ -2157,11 +2133,10 @@ fn walkInstruction(
             const lhs_ref = blk: {
                 var lhs_extra = extra;
                 while (true) {
-                    if (@enumToInt(lhs_extra.data.lhs) < Ref.typed_value_map.len) {
+                    const lhs = Zir.refToIndex(lhs_extra.data.lhs) orelse {
                         break :blk lhs_extra.data.lhs;
-                    }
+                    };
 
-                    const lhs = @enumToInt(lhs_extra.data.lhs) - Ref.typed_value_map.len;
                     if (tags[lhs] != .field_val and
                         tags[lhs] != .field_ptr and
                         tags[lhs] != .field_type) break :blk lhs_extra.data.lhs;
@@ -2188,8 +2163,7 @@ fn walkInstruction(
             // TODO: double check that we really don't need type info here
 
             const wr = blk: {
-                if (@enumToInt(lhs_ref) >= Ref.typed_value_map.len) {
-                    const lhs_inst = @enumToInt(lhs_ref) - Ref.typed_value_map.len;
+                if (Zir.refToIndex(lhs_ref)) |lhs_inst| {
                     if (tags[lhs_inst] == .call or tags[lhs_inst] == .field_call) {
                         break :blk DocData.WalkResult{
                             .expr = .{
@@ -4672,16 +4646,19 @@ fn walkRef(
     ref: Ref,
     need_type: bool, // true when the caller needs also a typeRef for the return value
 ) AutodocErrors!DocData.WalkResult {
-    const enum_value = @enumToInt(ref);
-    if (enum_value <= @enumToInt(Ref.anyerror_void_error_union_type)) {
+    if (ref == .none) {
+        return .{ .expr = .{ .comptimeExpr = 0 } };
+    } else if (@enumToInt(ref) <= @enumToInt(InternPool.Index.last_type)) {
         // We can just return a type that indexes into `types` with the
         // enum value because in the beginning we pre-filled `types` with
         // the types that are listed in `Ref`.
         return DocData.WalkResult{
             .typeRef = .{ .type = @enumToInt(std.builtin.TypeId.Type) },
-            .expr = .{ .type = enum_value },
+            .expr = .{ .type = @enumToInt(ref) },
         };
-    } else if (enum_value < Ref.typed_value_map.len) {
+    } else if (Zir.refToIndex(ref)) |zir_index| {
+        return self.walkInstruction(file, parent_scope, parent_src, zir_index, need_type);
+    } else {
         switch (ref) {
             else => {
                 panicWithContext(
@@ -4774,9 +4751,6 @@ fn walkRef(
             //     } };
             // },
         }
-    } else {
-        const zir_index = enum_value - Ref.typed_value_map.len;
-        return self.walkInstruction(file, parent_scope, parent_src, zir_index, need_type);
     }
 }
 

@@ -11,9 +11,9 @@ const Foo = struct {
 };
 
 test "@alignOf(T) before referencing T" {
-    comptime try expect(@alignOf(Foo) != maxInt(usize));
+    try comptime expect(@alignOf(Foo) != maxInt(usize));
     if (native_arch == .x86_64) {
-        comptime try expect(@alignOf(Foo) == 4);
+        try comptime expect(@alignOf(Foo) == 4);
     }
 }
 

@@ -87,6 +87,7 @@ clang_preprocessor_mode: ClangPreprocessorMode,
 /// Whether to print clang argvs to stdout.
 verbose_cc: bool,
 verbose_air: bool,
+verbose_intern_pool: bool,
 verbose_llvm_ir: ?[]const u8,
 verbose_llvm_bc: ?[]const u8,
 verbose_cimport: bool,
@@ -226,7 +227,7 @@ const Job = union(enum) {
     /// Write the constant value for a Decl to the output file.
     codegen_decl: Module.Decl.Index,
     /// Write the machine code for a function to the output file.
-    codegen_func: *Module.Fn,
+    codegen_func: Module.Fn.Index,
     /// Render the .h file snippet for the Decl.
     emit_h_decl: Module.Decl.Index,
     /// The Decl needs to be analyzed and possibly export itself.
@@ -593,6 +594,7 @@ pub const InitOptions = struct {
     verbose_cc: bool = false,
     verbose_link: bool = false,
     verbose_air: bool = false,
+    verbose_intern_pool: bool = false,
     verbose_llvm_ir: ?[]const u8 = null,
     verbose_llvm_bc: ?[]const u8 = null,
     verbose_cimport: bool = false,
@@ -1315,9 +1317,9 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
                 .global_zir_cache = global_zir_cache,
                 .local_zir_cache = local_zir_cache,
                 .emit_h = emit_h,
-                .error_name_list = .{},
+                .tmp_hack_arena = std.heap.ArenaAllocator.init(gpa),
             };
-            try module.error_name_list.append(gpa, "(no error)");
+            try module.init();
 
             break :blk module;
         } else blk: {
@@ -1519,7 +1521,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             .llvm_cpu_features = llvm_cpu_features,
             .skip_linker_dependencies = options.skip_linker_dependencies,
             .parent_compilation_link_libc = options.parent_compilation_link_libc,
-            .each_lib_rpath = options.each_lib_rpath orelse options.is_native_os,
+            .each_lib_rpath = options.each_lib_rpath orelse false,
             .build_id = build_id,
             .cache_mode = cache_mode,
             .disable_lld_caching = options.disable_lld_caching or cache_mode == .whole,
@@ -1574,6 +1576,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             .clang_preprocessor_mode = options.clang_preprocessor_mode,
             .verbose_cc = options.verbose_cc,
             .verbose_air = options.verbose_air,
+            .verbose_intern_pool = options.verbose_intern_pool,
             .verbose_llvm_ir = options.verbose_llvm_ir,
             .verbose_llvm_bc = options.verbose_llvm_bc,
             .verbose_cimport = options.verbose_cimport,
@@ -2026,6 +2029,13 @@ pub fn update(comp: *Compilation, main_progress_node: *std.Progress.Node) !void 
     try comp.performAllTheWork(main_progress_node);
 
     if (comp.bin_file.options.module) |module| {
+        if (builtin.mode == .Debug and comp.verbose_intern_pool) {
+            std.debug.print("intern pool stats for '{s}':\n", .{
+                comp.bin_file.options.root_name,
+            });
+            module.intern_pool.dump();
+        }
+
         if (comp.bin_file.options.is_test and comp.totalErrorCount() == 0) {
             // The `test_functions` decl has been intentionally postponed until now,
             // at which point we must populate it with the list of test functions that
@@ -2042,7 +2052,7 @@ pub fn update(comp: *Compilation, main_progress_node: *std.Progress.Node) !void 
             assert(decl.deletion_flag);
             assert(decl.dependants.count() == 0);
             const is_anon = if (decl.zir_decl_index == 0) blk: {
-                break :blk decl.src_namespace.anon_decls.swapRemove(decl_index);
+                break :blk module.namespacePtr(decl.src_namespace).anon_decls.swapRemove(decl_index);
             } else false;
 
             try module.clearDecl(decl_index, null);
@@ -2523,8 +2533,7 @@ pub fn totalErrorCount(self: *Compilation) u32 {
         // the previous parse success, including compile errors, but we cannot
         // emit them until the file succeeds parsing.
         for (module.failed_decls.keys()) |key| {
-            const decl = module.declPtr(key);
-            if (decl.getFileScope().okToReportErrors()) {
+            if (module.declFileScope(key).okToReportErrors()) {
                 total += 1;
                 if (module.cimport_errors.get(key)) |errors| {
                     total += errors.len;
@@ -2533,8 +2542,7 @@ pub fn totalErrorCount(self: *Compilation) u32 {
         }
         if (module.emit_h) |emit_h| {
             for (emit_h.failed_decls.keys()) |key| {
-                const decl = module.declPtr(key);
-                if (decl.getFileScope().okToReportErrors()) {
+                if (module.declFileScope(key).okToReportErrors()) {
                     total += 1;
                 }
             }
@@ -2618,7 +2626,7 @@ pub fn getAllErrorsAlloc(self: *Compilation) !ErrorBundle {
             var it = module.failed_files.iterator();
             while (it.next()) |entry| {
                 if (entry.value_ptr.*) |msg| {
-                    try addModuleErrorMsg(&bundle, msg.*);
+                    try addModuleErrorMsg(module, &bundle, msg.*);
                 } else {
                     // Must be ZIR errors. Note that this may include AST errors.
                     // addZirErrorMessages asserts that the tree is loaded.
@@ -2631,17 +2639,17 @@ pub fn getAllErrorsAlloc(self: *Compilation) !ErrorBundle {
             var it = module.failed_embed_files.iterator();
             while (it.next()) |entry| {
                 const msg = entry.value_ptr.*;
-                try addModuleErrorMsg(&bundle, msg.*);
+                try addModuleErrorMsg(module, &bundle, msg.*);
             }
         }
         {
             var it = module.failed_decls.iterator();
             while (it.next()) |entry| {
-                const decl = module.declPtr(entry.key_ptr.*);
+                const decl_index = entry.key_ptr.*;
                 // Skip errors for Decls within files that had a parse failure.
                 // We'll try again once parsing succeeds.
-                if (decl.getFileScope().okToReportErrors()) {
-                    try addModuleErrorMsg(&bundle, entry.value_ptr.*.*);
+                if (module.declFileScope(decl_index).okToReportErrors()) {
+                    try addModuleErrorMsg(module, &bundle, entry.value_ptr.*.*);
                     if (module.cimport_errors.get(entry.key_ptr.*)) |cimport_errors| for (cimport_errors) |c_error| {
                         try bundle.addRootErrorMessage(.{
                             .msg = try bundle.addString(std.mem.span(c_error.msg)),
@@ -2662,16 +2670,16 @@ pub fn getAllErrorsAlloc(self: *Compilation) !ErrorBundle {
         if (module.emit_h) |emit_h| {
             var it = emit_h.failed_decls.iterator();
             while (it.next()) |entry| {
-                const decl = module.declPtr(entry.key_ptr.*);
+                const decl_index = entry.key_ptr.*;
                 // Skip errors for Decls within files that had a parse failure.
                 // We'll try again once parsing succeeds.
-                if (decl.getFileScope().okToReportErrors()) {
-                    try addModuleErrorMsg(&bundle, entry.value_ptr.*.*);
+                if (module.declFileScope(decl_index).okToReportErrors()) {
+                    try addModuleErrorMsg(module, &bundle, entry.value_ptr.*.*);
                 }
             }
         }
         for (module.failed_exports.values()) |value| {
-            try addModuleErrorMsg(&bundle, value.*);
+            try addModuleErrorMsg(module, &bundle, value.*);
         }
     }
 
@@ -2703,7 +2711,7 @@ pub fn getAllErrorsAlloc(self: *Compilation) !ErrorBundle {
             const values = module.compile_log_decls.values();
             // First one will be the error; subsequent ones will be notes.
             const err_decl = module.declPtr(keys[0]);
-            const src_loc = err_decl.nodeOffsetSrcLoc(values[0]);
+            const src_loc = err_decl.nodeOffsetSrcLoc(values[0], module);
             const err_msg = Module.ErrorMsg{
                 .src_loc = src_loc,
                 .msg = "found compile log statement",
@@ -2714,12 +2722,12 @@ pub fn getAllErrorsAlloc(self: *Compilation) !ErrorBundle {
             for (keys[1..], 0..) |key, i| {
                 const note_decl = module.declPtr(key);
                 err_msg.notes[i] = .{
-                    .src_loc = note_decl.nodeOffsetSrcLoc(values[i + 1]),
+                    .src_loc = note_decl.nodeOffsetSrcLoc(values[i + 1], module),
                     .msg = "also here",
                 };
             }
 
-            try addModuleErrorMsg(&bundle, err_msg);
+            try addModuleErrorMsg(module, &bundle, err_msg);
         }
     }
 
@@ -2775,8 +2783,9 @@ pub const ErrorNoteHashContext = struct {
     }
 };
 
-pub fn addModuleErrorMsg(eb: *ErrorBundle.Wip, module_err_msg: Module.ErrorMsg) !void {
+pub fn addModuleErrorMsg(mod: *Module, eb: *ErrorBundle.Wip, module_err_msg: Module.ErrorMsg) !void {
     const gpa = eb.gpa;
+    const ip = &mod.intern_pool;
     const err_source = module_err_msg.src_loc.file_scope.getSource(gpa) catch |err| {
         const file_path = try module_err_msg.src_loc.file_scope.fullPath(gpa);
         defer gpa.free(file_path);
@@ -2802,7 +2811,7 @@ pub fn addModuleErrorMsg(eb: *ErrorBundle.Wip, module_err_msg: Module.ErrorMsg) 
                 .src_loc = .none,
             });
             break;
-        } else if (module_reference.decl == null) {
+        } else if (module_reference.decl == .none) {
             try ref_traces.append(gpa, .{
                 .decl_name = 0,
                 .src_loc = .none,
@@ -2815,7 +2824,7 @@ pub fn addModuleErrorMsg(eb: *ErrorBundle.Wip, module_err_msg: Module.ErrorMsg) 
         const rt_file_path = try module_reference.src_loc.file_scope.fullPath(gpa);
         defer gpa.free(rt_file_path);
         try ref_traces.append(gpa, .{
-            .decl_name = try eb.addString(std.mem.sliceTo(module_reference.decl.?, 0)),
+            .decl_name = try eb.addString(ip.stringToSliceUnwrap(module_reference.decl).?),
             .src_loc = try eb.addSourceLocation(.{
                 .src_path = try eb.addString(rt_file_path),
                 .span_start = span.start,
@@ -3204,7 +3213,8 @@ fn processOneJob(comp: *Compilation, job: Job, prog_node: *std.Progress.Node) !v
                 // Tests are always emitted in test binaries. The decl_refs are created by
                 // Module.populateTestFunctions, but this will not queue body analysis, so do
                 // that now.
-                try module.ensureFuncBodyAnalysisQueued(decl.val.castTag(.function).?.data);
+                const func_index = module.intern_pool.indexToFunc(decl.val.ip_index).unwrap().?;
+                try module.ensureFuncBodyAnalysisQueued(func_index);
             }
         },
         .update_embed_file => |embed_file| {
@@ -3228,7 +3238,7 @@ fn processOneJob(comp: *Compilation, job: Job, prog_node: *std.Progress.Node) !v
                 try module.failed_decls.ensureUnusedCapacity(gpa, 1);
                 module.failed_decls.putAssumeCapacityNoClobber(decl_index, try Module.ErrorMsg.create(
                     gpa,
-                    decl.srcLoc(),
+                    decl.srcLoc(module),
                     "unable to update line number: {s}",
                     .{@errorName(err)},
                 ));
@@ -3841,7 +3851,7 @@ fn reportRetryableEmbedFileError(
     const mod = comp.bin_file.options.module.?;
     const gpa = mod.gpa;
 
-    const src_loc: Module.SrcLoc = mod.declPtr(embed_file.owner_decl).srcLoc();
+    const src_loc: Module.SrcLoc = mod.declPtr(embed_file.owner_decl).srcLoc(mod);
 
     const err_msg = if (embed_file.pkg.root_src_directory.path) |dir_path|
         try Module.ErrorMsg.create(
@@ -5417,6 +5427,7 @@ fn buildOutputFromZig(
         .verbose_cc = comp.verbose_cc,
         .verbose_link = comp.bin_file.options.verbose_link,
         .verbose_air = comp.verbose_air,
+        .verbose_intern_pool = comp.verbose_intern_pool,
         .verbose_llvm_ir = comp.verbose_llvm_ir,
         .verbose_llvm_bc = comp.verbose_llvm_bc,
         .verbose_cimport = comp.verbose_cimport,
@@ -5495,6 +5506,7 @@ pub fn build_crt_file(
         .verbose_cc = comp.verbose_cc,
         .verbose_link = comp.bin_file.options.verbose_link,
         .verbose_air = comp.verbose_air,
+        .verbose_intern_pool = comp.verbose_intern_pool,
         .verbose_llvm_ir = comp.verbose_llvm_ir,
         .verbose_llvm_bc = comp.verbose_llvm_bc,
         .verbose_cimport = comp.verbose_cimport,

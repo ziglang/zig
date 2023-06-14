@@ -23,7 +23,7 @@ test "tuple concatenation" {
         }
     };
     try S.doTheTest();
-    comptime try S.doTheTest();
+    try comptime S.doTheTest();
 }
 
 test "tuple multiplication" {
@@ -46,7 +46,7 @@ test "tuple multiplication" {
         }
     };
     try S.doTheTest();
-    comptime try S.doTheTest();
+    try comptime S.doTheTest();
 }
 
 test "more tuple concatenation" {
@@ -91,7 +91,7 @@ test "more tuple concatenation" {
     };
 
     try T.doTheTest();
-    comptime try T.doTheTest();
+    try comptime T.doTheTest();
 }
 
 test "pass tuple to comptime var parameter" {
@@ -105,7 +105,7 @@ test "pass tuple to comptime var parameter" {
         }
     };
     try S.doTheTest();
-    comptime try S.doTheTest();
+    try comptime S.doTheTest();
 }
 
 test "tuple initializer for var" {
@@ -163,7 +163,7 @@ test "array-like initializer for tuple types" {
     };
 
     try S.doTheTest();
-    comptime try S.doTheTest();
+    try comptime S.doTheTest();
 }
 
 test "anon struct as the result from a labeled block" {
@@ -180,7 +180,7 @@ test "anon struct as the result from a labeled block" {
     };
 
     try S.doTheTest();
-    comptime try S.doTheTest();
+    try comptime S.doTheTest();
 }
 
 test "tuple as the result from a labeled block" {
@@ -195,7 +195,7 @@ test "tuple as the result from a labeled block" {
     };
 
     try S.doTheTest();
-    comptime try S.doTheTest();
+    try comptime S.doTheTest();
 }
 
 test "initializing tuple with explicit type" {

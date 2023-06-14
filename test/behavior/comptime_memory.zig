@@ -257,9 +257,9 @@ test "shuffle chunks of linker value" {
     try testing.expectEqual(lazy_address, unshuffled1_rt);
     const shuffled1_ct = comptime shuffle(lazy_address, Bits, ShuffledBits);
     const shuffled1_ct_2 = comptime shuffle(lazy_address, Bits, ShuffledBits);
-    comptime try testing.expectEqual(shuffled1_ct, shuffled1_ct_2);
+    try comptime testing.expectEqual(shuffled1_ct, shuffled1_ct_2);
     const unshuffled1_ct = comptime shuffle(shuffled1_ct, ShuffledBits, Bits);
-    comptime try testing.expectEqual(lazy_address, unshuffled1_ct);
+    try comptime testing.expectEqual(lazy_address, unshuffled1_ct);
     try testing.expectEqual(shuffled1_ct, shuffled1_rt);
 }
 

@@ -936,6 +936,7 @@ pub const DwarfInfo = struct {
             const ranges_val = compile_unit.die.getAttr(AT.ranges) orelse continue;
             const ranges_offset = switch (ranges_val.*) {
                 .SecOffset => |off| off,
+                .Const => |c| try c.asUnsignedLe(),
                 .RangeListOffset => |idx| off: {
                     if (compile_unit.is_64) {
                         const offset_loc = @intCast(usize, compile_unit.rnglists_base + 8 * idx);

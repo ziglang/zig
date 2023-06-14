@@ -611,7 +611,7 @@ test "enum with specified tag values" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     try testEnumWithSpecifiedTagValues(MultipleChoice.C);
-    comptime try testEnumWithSpecifiedTagValues(MultipleChoice.C);
+    try comptime testEnumWithSpecifiedTagValues(MultipleChoice.C);
 }
 
 test "non-exhaustive enum" {
@@ -656,7 +656,7 @@ test "non-exhaustive enum" {
         }
     };
     try S.doTheTest(52);
-    comptime try S.doTheTest(52);
+    try comptime S.doTheTest(52);
 }
 
 test "empty non-exhaustive enum" {
@@ -677,7 +677,7 @@ test "empty non-exhaustive enum" {
         }
     };
     try S.doTheTest(42);
-    comptime try S.doTheTest(42);
+    try comptime S.doTheTest(42);
 }
 
 test "single field non-exhaustive enum" {
@@ -715,7 +715,7 @@ test "single field non-exhaustive enum" {
         }
     };
     try S.doTheTest(23);
-    comptime try S.doTheTest(23);
+    try comptime S.doTheTest(23);
 }
 
 const EnumWithTagValues = enum(u4) {
@@ -750,7 +750,7 @@ test "enum with specified and unspecified tag values" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     try testEnumWithSpecifiedAndUnspecifiedTagValues(MultipleChoice2.D);
-    comptime try testEnumWithSpecifiedAndUnspecifiedTagValues(MultipleChoice2.D);
+    try comptime testEnumWithSpecifiedAndUnspecifiedTagValues(MultipleChoice2.D);
 }
 
 fn testEnumWithSpecifiedAndUnspecifiedTagValues(x: MultipleChoice2) !void {
@@ -775,18 +775,18 @@ test "set enum tag type" {
     {
         var x = Small.One;
         x = Small.Two;
-        comptime try expect(Tag(Small) == u2);
+        try comptime expect(Tag(Small) == u2);
     }
     {
         var x = Small2.One;
         x = Small2.Two;
-        comptime try expect(Tag(Small2) == u2);
+        try comptime expect(Tag(Small2) == u2);
     }
 }
 
 test "casting enum to its tag type" {
     try testCastEnumTag(Small2.Two);
-    comptime try testCastEnumTag(Small2.Two);
+    try comptime testCastEnumTag(Small2.Two);
 }
 
 fn testCastEnumTag(value: Small2) !void {
@@ -797,7 +797,7 @@ test "enum with 1 field but explicit tag type should still have the tag type" {
     const Enum = enum(u8) {
         B = 2,
     };
-    comptime try expect(@sizeOf(Enum) == @sizeOf(u8));
+    try comptime expect(@sizeOf(Enum) == @sizeOf(u8));
 }
 
 test "signed integer as enum tag" {
@@ -836,12 +836,12 @@ test "enum with comptime_int tag type" {
         Two = 2,
         Three = 1,
     };
-    comptime try expect(Tag(Enum) == comptime_int);
+    try comptime expect(Tag(Enum) == comptime_int);
 }
 
 test "enum with one member default to u0 tag type" {
     const E0 = enum { X };
-    comptime try expect(Tag(E0) == u0);
+    try comptime expect(Tag(E0) == u0);
 }
 
 const EnumWithOneMember = enum { Eof };
@@ -891,7 +891,7 @@ test "method call on an enum" {
         }
     };
     try S.doTheTest();
-    comptime try S.doTheTest();
+    try comptime S.doTheTest();
 }
 
 test "enum value allocation" {
@@ -993,7 +993,7 @@ test "@tagName" {
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     try expect(mem.eql(u8, testEnumTagNameBare(BareNumber.Three), "Three"));
-    comptime try expect(mem.eql(u8, testEnumTagNameBare(BareNumber.Three), "Three"));
+    try comptime expect(mem.eql(u8, testEnumTagNameBare(BareNumber.Three), "Three"));
 }
 
 fn testEnumTagNameBare(n: anytype) []const u8 {
@@ -1009,7 +1009,7 @@ test "@tagName non-exhaustive enum" {
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     try expect(mem.eql(u8, testEnumTagNameBare(NonExhaustive.B), "B"));
-    comptime try expect(mem.eql(u8, testEnumTagNameBare(NonExhaustive.B), "B"));
+    try comptime expect(mem.eql(u8, testEnumTagNameBare(NonExhaustive.B), "B"));
 }
 const NonExhaustive = enum(u8) { A, B, _ };
 
@@ -1047,7 +1047,7 @@ test "@tagName on enum literals" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     try expect(mem.eql(u8, @tagName(.FooBar), "FooBar"));
-    comptime try expect(mem.eql(u8, @tagName(.FooBar), "FooBar"));
+    try comptime expect(mem.eql(u8, @tagName(.FooBar), "FooBar"));
 }
 
 test "enum literal casting to optional" {
@@ -1088,7 +1088,7 @@ test "bit field access with enum fields" {
     try expect(getA(&data) == A.Two);
     try expect(getB(&data) == B.Three3);
     try expect(getC(&data) == C.Four4);
-    comptime try expect(@sizeOf(BitFieldOfEnums) == 1);
+    try comptime expect(@sizeOf(BitFieldOfEnums) == 1);
 
     data.b = B.Four3;
     try expect(data.b == B.Four3);

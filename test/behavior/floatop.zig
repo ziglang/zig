@@ -25,7 +25,7 @@ test "floating point comparisons" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     try testFloatComparisons();
-    comptime try testFloatComparisons();
+    try comptime testFloatComparisons();
 }
 
 fn testFloatComparisons() !void {
@@ -61,7 +61,7 @@ test "different sized float comparisons" {
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     try testDifferentSizedFloatComparisons();
-    comptime try testDifferentSizedFloatComparisons();
+    try comptime testDifferentSizedFloatComparisons();
 }
 
 fn testDifferentSizedFloatComparisons() !void {
@@ -104,7 +104,7 @@ test "@sqrt" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
-    comptime try testSqrt();
+    try comptime testSqrt();
     try testSqrt();
 }
 
@@ -142,7 +142,7 @@ test "@sqrt with vectors" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
-    comptime try testSqrtWithVectors();
+    try comptime testSqrtWithVectors();
     try testSqrtWithVectors();
 }
 
@@ -188,18 +188,18 @@ test "another, possibly redundant @sqrt test" {
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     try testSqrtLegacy(f64, 12.0);
-    comptime try testSqrtLegacy(f64, 12.0);
+    try comptime testSqrtLegacy(f64, 12.0);
     try testSqrtLegacy(f32, 13.0);
-    comptime try testSqrtLegacy(f32, 13.0);
+    try comptime testSqrtLegacy(f32, 13.0);
     try testSqrtLegacy(f16, 13.0);
-    comptime try testSqrtLegacy(f16, 13.0);
+    try comptime testSqrtLegacy(f16, 13.0);
 
     // TODO: make this pass
     if (false) {
         const x = 14.0;
         const y = x * x;
         const z = @sqrt(y);
-        comptime try expect(z == x);
+        try comptime expect(z == x);
     }
 }
 
@@ -214,7 +214,7 @@ test "@sin" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
-    comptime try testSin();
+    try comptime testSin();
     try testSin();
 }
 
@@ -235,7 +235,7 @@ test "@sin with vectors" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
-    comptime try testSinWithVectors();
+    try comptime testSinWithVectors();
     try testSinWithVectors();
 }
 
@@ -255,7 +255,7 @@ test "@cos" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
-    comptime try testCos();
+    try comptime testCos();
     try testCos();
 }
 
@@ -276,7 +276,7 @@ test "@cos with vectors" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
-    comptime try testCosWithVectors();
+    try comptime testCosWithVectors();
     try testCosWithVectors();
 }
 
@@ -296,7 +296,7 @@ test "@exp" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
-    comptime try testExp();
+    try comptime testExp();
     try testExp();
 }
 
@@ -316,7 +316,7 @@ test "@exp with vectors" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
-    comptime try testExpWithVectors();
+    try comptime testExpWithVectors();
     try testExpWithVectors();
 }
 
@@ -336,7 +336,7 @@ test "@exp2" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
-    comptime try testExp2();
+    try comptime testExp2();
     try testExp2();
 }
 
@@ -356,7 +356,7 @@ test "@exp2 with @vectors" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
-    comptime try testExp2WithVectors();
+    try comptime testExp2WithVectors();
     try testExp2WithVectors();
 }
 
@@ -376,7 +376,7 @@ test "@log" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
-    comptime try testLog();
+    try comptime testLog();
     try testLog();
 }
 
@@ -425,7 +425,7 @@ test "@log2" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
-    comptime try testLog2();
+    try comptime testLog2();
     try testLog2();
 }
 
@@ -449,7 +449,7 @@ test "@log2 with vectors" {
         builtin.cpu.arch == .aarch64 and
         builtin.os.tag == .windows) return error.SkipZigTest;
 
-    comptime try testLog2WithVectors();
+    try comptime testLog2WithVectors();
     try testLog2WithVectors();
 }
 
@@ -469,7 +469,7 @@ test "@log10" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
-    comptime try testLog10();
+    try comptime testLog10();
     try testLog10();
 }
 
@@ -489,7 +489,7 @@ test "@log10 with vectors" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
-    comptime try testLog10WithVectors();
+    try comptime testLog10WithVectors();
     try testLog10WithVectors();
 }
 
@@ -507,7 +507,7 @@ test "@fabs" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
-    comptime try testFabs();
+    try comptime testFabs();
     try testFabs();
 }
 
@@ -535,7 +535,7 @@ test "@fabs with vectors" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
-    comptime try testFabsWithVectors();
+    try comptime testFabsWithVectors();
     try testFabsWithVectors();
 }
 
@@ -556,18 +556,18 @@ test "another, possibly redundant, @fabs test" {
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     try testFabsLegacy(f128, 12.0);
-    comptime try testFabsLegacy(f128, 12.0);
+    try comptime testFabsLegacy(f128, 12.0);
     try testFabsLegacy(f64, 12.0);
-    comptime try testFabsLegacy(f64, 12.0);
+    try comptime testFabsLegacy(f64, 12.0);
     try testFabsLegacy(f32, 12.0);
-    comptime try testFabsLegacy(f32, 12.0);
+    try comptime testFabsLegacy(f32, 12.0);
     try testFabsLegacy(f16, 12.0);
-    comptime try testFabsLegacy(f16, 12.0);
+    try comptime testFabsLegacy(f16, 12.0);
 
     const x = 14.0;
     const y = -x;
     const z = @fabs(y);
-    comptime try std.testing.expectEqual(x, z);
+    try comptime std.testing.expectEqual(x, z);
 }
 
 test "@fabs f80" {
@@ -578,7 +578,7 @@ test "@fabs f80" {
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     try testFabsLegacy(f80, 12.0);
-    comptime try testFabsLegacy(f80, 12.0);
+    try comptime testFabsLegacy(f80, 12.0);
 }
 
 fn testFabsLegacy(comptime T: type, x: T) !void {
@@ -621,7 +621,7 @@ test "@floor" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
-    comptime try testFloor();
+    try comptime testFloor();
     try testFloor();
 }
 
@@ -646,7 +646,7 @@ test "@floor with vectors" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
-    comptime try testFloorWithVectors();
+    try comptime testFloorWithVectors();
     try testFloorWithVectors();
 }
 
@@ -666,16 +666,16 @@ test "another, possibly redundant, @floor test" {
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     try testFloorLegacy(f64, 12.0);
-    comptime try testFloorLegacy(f64, 12.0);
+    try comptime testFloorLegacy(f64, 12.0);
     try testFloorLegacy(f32, 12.0);
-    comptime try testFloorLegacy(f32, 12.0);
+    try comptime testFloorLegacy(f32, 12.0);
     try testFloorLegacy(f16, 12.0);
-    comptime try testFloorLegacy(f16, 12.0);
+    try comptime testFloorLegacy(f16, 12.0);
 
     const x = 14.0;
     const y = x + 0.7;
     const z = @floor(y);
-    comptime try expect(x == z);
+    try comptime expect(x == z);
 }
 
 test "@floor f80" {
@@ -691,7 +691,7 @@ test "@floor f80" {
     }
 
     try testFloorLegacy(f80, 12.0);
-    comptime try testFloorLegacy(f80, 12.0);
+    try comptime testFloorLegacy(f80, 12.0);
 }
 
 test "@floor f128" {
@@ -702,7 +702,7 @@ test "@floor f128" {
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     try testFloorLegacy(f128, 12.0);
-    comptime try testFloorLegacy(f128, 12.0);
+    try comptime testFloorLegacy(f128, 12.0);
 }
 
 fn testFloorLegacy(comptime T: type, x: T) !void {
@@ -717,7 +717,7 @@ test "@ceil" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
-    comptime try testCeil();
+    try comptime testCeil();
     try testCeil();
 }
 
@@ -742,7 +742,7 @@ test "@ceil with vectors" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
-    comptime try testCeilWithVectors();
+    try comptime testCeilWithVectors();
     try testCeilWithVectors();
 }
 
@@ -762,16 +762,16 @@ test "another, possibly redundant, @ceil test" {
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     try testCeilLegacy(f64, 12.0);
-    comptime try testCeilLegacy(f64, 12.0);
+    try comptime testCeilLegacy(f64, 12.0);
     try testCeilLegacy(f32, 12.0);
-    comptime try testCeilLegacy(f32, 12.0);
+    try comptime testCeilLegacy(f32, 12.0);
     try testCeilLegacy(f16, 12.0);
-    comptime try testCeilLegacy(f16, 12.0);
+    try comptime testCeilLegacy(f16, 12.0);
 
     const x = 14.0;
     const y = x - 0.7;
     const z = @ceil(y);
-    comptime try expect(x == z);
+    try comptime expect(x == z);
 }
 
 test "@ceil f80" {
@@ -787,7 +787,7 @@ test "@ceil f80" {
     }
 
     try testCeilLegacy(f80, 12.0);
-    comptime try testCeilLegacy(f80, 12.0);
+    try comptime testCeilLegacy(f80, 12.0);
 }
 
 test "@ceil f128" {
@@ -798,7 +798,7 @@ test "@ceil f128" {
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     try testCeilLegacy(f128, 12.0);
-    comptime try testCeilLegacy(f128, 12.0);
+    try comptime testCeilLegacy(f128, 12.0);
 }
 
 fn testCeilLegacy(comptime T: type, x: T) !void {
@@ -812,7 +812,7 @@ test "@trunc" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
-    comptime try testTrunc();
+    try comptime testTrunc();
     try testTrunc();
 }
 
@@ -837,7 +837,7 @@ test "@trunc with vectors" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
-    comptime try testTruncWithVectors();
+    try comptime testTruncWithVectors();
     try testTruncWithVectors();
 }
 
@@ -857,16 +857,16 @@ test "another, possibly redundant, @trunc test" {
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     try testTruncLegacy(f64, 12.0);
-    comptime try testTruncLegacy(f64, 12.0);
+    try comptime testTruncLegacy(f64, 12.0);
     try testTruncLegacy(f32, 12.0);
-    comptime try testTruncLegacy(f32, 12.0);
+    try comptime testTruncLegacy(f32, 12.0);
     try testTruncLegacy(f16, 12.0);
-    comptime try testTruncLegacy(f16, 12.0);
+    try comptime testTruncLegacy(f16, 12.0);
 
     const x = 14.0;
     const y = x + 0.7;
     const z = @trunc(y);
-    comptime try expect(x == z);
+    try comptime expect(x == z);
 }
 
 test "@trunc f80" {
@@ -882,7 +882,7 @@ test "@trunc f80" {
     }
 
     try testTruncLegacy(f80, 12.0);
-    comptime try testTruncLegacy(f80, 12.0);
+    try comptime testTruncLegacy(f80, 12.0);
     comptime {
         const x: f80 = 12.0;
         const y = x + 0.8;
@@ -899,7 +899,7 @@ test "@trunc f128" {
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     try testTruncLegacy(f128, 12.0);
-    comptime try testTruncLegacy(f128, 12.0);
+    try comptime testTruncLegacy(f128, 12.0);
 }
 
 fn testTruncLegacy(comptime T: type, x: T) !void {
@@ -939,7 +939,7 @@ test "negation f16" {
     };
 
     try S.doTheTest();
-    comptime try S.doTheTest();
+    try comptime S.doTheTest();
 }
 
 test "negation f32" {
@@ -959,7 +959,7 @@ test "negation f32" {
     };
 
     try S.doTheTest();
-    comptime try S.doTheTest();
+    try comptime S.doTheTest();
 }
 
 test "negation f64" {
@@ -979,7 +979,7 @@ test "negation f64" {
     };
 
     try S.doTheTest();
-    comptime try S.doTheTest();
+    try comptime S.doTheTest();
 }
 
 test "negation f80" {
@@ -1001,7 +1001,7 @@ test "negation f80" {
     };
 
     try S.doTheTest();
-    comptime try S.doTheTest();
+    try comptime S.doTheTest();
 }
 
 test "negation f128" {
@@ -1023,7 +1023,7 @@ test "negation f128" {
     };
 
     try S.doTheTest();
-    comptime try S.doTheTest();
+    try comptime S.doTheTest();
 }
 
 test "eval @setFloatMode at compile-time" {

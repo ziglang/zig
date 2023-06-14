@@ -18,6 +18,7 @@ const LinkBlock = File.LinkBlock;
 const LinkFn = File.LinkFn;
 const LinkerLoad = @import("../codegen.zig").LinkerLoad;
 const Module = @import("../Module.zig");
+const InternPool = @import("../InternPool.zig");
 const StringTable = @import("strtab.zig").StringTable;
 const Type = @import("../type.zig").Type;
 const Value = @import("../value.zig").Value;
@@ -86,12 +87,7 @@ pub const DeclState = struct {
     dbg_info: std.ArrayList(u8),
     abbrev_type_arena: std.heap.ArenaAllocator,
     abbrev_table: std.ArrayListUnmanaged(AbbrevEntry) = .{},
-    abbrev_resolver: std.HashMapUnmanaged(
-        Type,
-        u32,
-        Type.HashContext64,
-        std.hash_map.default_max_load_percentage,
-    ) = .{},
+    abbrev_resolver: std.AutoHashMapUnmanaged(InternPool.Index, u32) = .{},
     abbrev_relocs: std.ArrayListUnmanaged(AbbrevRelocation) = .{},
     exprloc_relocs: std.ArrayListUnmanaged(ExprlocRelocation) = .{},
 
@@ -141,9 +137,7 @@ pub const DeclState = struct {
     /// @symbol signifies a type abbreviation posititioned somewhere in the .debug_abbrev section
     /// which we use as our target of the relocation.
     fn addTypeRelocGlobal(self: *DeclState, atom_index: Atom.Index, ty: Type, offset: u32) !void {
-        const resolv = self.abbrev_resolver.getContext(ty, .{
-            .mod = self.mod,
-        }) orelse blk: {
+        const resolv = self.abbrev_resolver.get(ty.toIntern()) orelse blk: {
             const sym_index = @intCast(u32, self.abbrev_table.items.len);
             try self.abbrev_table.append(self.gpa, .{
                 .atom_index = atom_index,
@@ -151,12 +145,8 @@ pub const DeclState = struct {
                 .offset = undefined,
             });
             log.debug("%{d}: {}", .{ sym_index, ty.fmt(self.mod) });
-            try self.abbrev_resolver.putNoClobberContext(self.gpa, ty, sym_index, .{
-                .mod = self.mod,
-            });
-            break :blk self.abbrev_resolver.getContext(ty, .{
-                .mod = self.mod,
-            }).?;
+            try self.abbrev_resolver.putNoClobber(self.gpa, ty.toIntern(), sym_index);
+            break :blk sym_index;
         };
         log.debug("{x}: %{d} + 0", .{ offset, resolv });
         try self.abbrev_relocs.append(self.gpa, .{
@@ -169,16 +159,16 @@ pub const DeclState = struct {
 
     fn addDbgInfoType(
         self: *DeclState,
-        module: *Module,
+        mod: *Module,
         atom_index: Atom.Index,
         ty: Type,
     ) error{OutOfMemory}!void {
         const arena = self.abbrev_type_arena.allocator();
         const dbg_info_buffer = &self.dbg_info;
-        const target = module.getTarget();
+        const target = mod.getTarget();
         const target_endian = target.cpu.arch.endian();
 
-        switch (ty.zigTypeTag()) {
+        switch (ty.zigTypeTag(mod)) {
             .NoReturn => unreachable,
             .Void => {
                 try dbg_info_buffer.append(@enumToInt(AbbrevKind.pad1));
@@ -189,12 +179,12 @@ pub const DeclState = struct {
                 // DW.AT.encoding, DW.FORM.data1
                 dbg_info_buffer.appendAssumeCapacity(DW.ATE.boolean);
                 // DW.AT.byte_size, DW.FORM.udata
-                try leb128.writeULEB128(dbg_info_buffer.writer(), ty.abiSize(target));
+                try leb128.writeULEB128(dbg_info_buffer.writer(), ty.abiSize(mod));
                 // DW.AT.name, DW.FORM.string
-                try dbg_info_buffer.writer().print("{}\x00", .{ty.fmt(module)});
+                try dbg_info_buffer.writer().print("{}\x00", .{ty.fmt(mod)});
             },
             .Int => {
-                const info = ty.intInfo(target);
+                const info = ty.intInfo(mod);
                 try dbg_info_buffer.ensureUnusedCapacity(12);
                 dbg_info_buffer.appendAssumeCapacity(@enumToInt(AbbrevKind.base_type));
                 // DW.AT.encoding, DW.FORM.data1
@@ -203,31 +193,30 @@ pub const DeclState = struct {
                     .unsigned => DW.ATE.unsigned,
                 });
                 // DW.AT.byte_size, DW.FORM.udata
-                try leb128.writeULEB128(dbg_info_buffer.writer(), ty.abiSize(target));
+                try leb128.writeULEB128(dbg_info_buffer.writer(), ty.abiSize(mod));
                 // DW.AT.name, DW.FORM.string
-                try dbg_info_buffer.writer().print("{}\x00", .{ty.fmt(module)});
+                try dbg_info_buffer.writer().print("{}\x00", .{ty.fmt(mod)});
             },
             .Optional => {
-                if (ty.isPtrLikeOptional()) {
+                if (ty.isPtrLikeOptional(mod)) {
                     try dbg_info_buffer.ensureUnusedCapacity(12);
                     dbg_info_buffer.appendAssumeCapacity(@enumToInt(AbbrevKind.base_type));
                     // DW.AT.encoding, DW.FORM.data1
                     dbg_info_buffer.appendAssumeCapacity(DW.ATE.address);
                     // DW.AT.byte_size, DW.FORM.udata
-                    try leb128.writeULEB128(dbg_info_buffer.writer(), ty.abiSize(target));
+                    try leb128.writeULEB128(dbg_info_buffer.writer(), ty.abiSize(mod));
                     // DW.AT.name, DW.FORM.string
-                    try dbg_info_buffer.writer().print("{}\x00", .{ty.fmt(module)});
+                    try dbg_info_buffer.writer().print("{}\x00", .{ty.fmt(mod)});
                 } else {
                     // Non-pointer optionals are structs: struct { .maybe = *, .val = * }
-                    var buf = try arena.create(Type.Payload.ElemType);
-                    const payload_ty = ty.optionalChild(buf);
+                    const payload_ty = ty.optionalChild(mod);
                     // DW.AT.structure_type
                     try dbg_info_buffer.append(@enumToInt(AbbrevKind.struct_type));
                     // DW.AT.byte_size, DW.FORM.udata
-                    const abi_size = ty.abiSize(target);
+                    const abi_size = ty.abiSize(mod);
                     try leb128.writeULEB128(dbg_info_buffer.writer(), abi_size);
                     // DW.AT.name, DW.FORM.string
-                    try dbg_info_buffer.writer().print("{}\x00", .{ty.fmt(module)});
+                    try dbg_info_buffer.writer().print("{}\x00", .{ty.fmt(mod)});
                     // DW.AT.member
                     try dbg_info_buffer.ensureUnusedCapacity(7);
                     dbg_info_buffer.appendAssumeCapacity(@enumToInt(AbbrevKind.struct_member));
@@ -251,14 +240,14 @@ pub const DeclState = struct {
                     try dbg_info_buffer.resize(index + 4);
                     try self.addTypeRelocGlobal(atom_index, payload_ty, @intCast(u32, index));
                     // DW.AT.data_member_location, DW.FORM.udata
-                    const offset = abi_size - payload_ty.abiSize(target);
+                    const offset = abi_size - payload_ty.abiSize(mod);
                     try leb128.writeULEB128(dbg_info_buffer.writer(), offset);
                     // DW.AT.structure_type delimit children
                     try dbg_info_buffer.append(0);
                 }
             },
             .Pointer => {
-                if (ty.isSlice()) {
+                if (ty.isSlice(mod)) {
                     // Slices are structs: struct { .ptr = *, .len = N }
                     const ptr_bits = target.ptrBitWidth();
                     const ptr_bytes = @intCast(u8, @divExact(ptr_bits, 8));
@@ -266,9 +255,9 @@ pub const DeclState = struct {
                     try dbg_info_buffer.ensureUnusedCapacity(2);
                     dbg_info_buffer.appendAssumeCapacity(@enumToInt(AbbrevKind.struct_type));
                     // DW.AT.byte_size, DW.FORM.udata
-                    try leb128.writeULEB128(dbg_info_buffer.writer(), ty.abiSize(target));
+                    try leb128.writeULEB128(dbg_info_buffer.writer(), ty.abiSize(mod));
                     // DW.AT.name, DW.FORM.string
-                    try dbg_info_buffer.writer().print("{}\x00", .{ty.fmt(module)});
+                    try dbg_info_buffer.writer().print("{}\x00", .{ty.fmt(mod)});
                     // DW.AT.member
                     try dbg_info_buffer.ensureUnusedCapacity(5);
                     dbg_info_buffer.appendAssumeCapacity(@enumToInt(AbbrevKind.struct_member));
@@ -278,8 +267,7 @@ pub const DeclState = struct {
                     // DW.AT.type, DW.FORM.ref4
                     var index = dbg_info_buffer.items.len;
                     try dbg_info_buffer.resize(index + 4);
-                    var buf = try arena.create(Type.SlicePtrFieldTypeBuffer);
-                    const ptr_ty = ty.slicePtrFieldType(buf);
+                    const ptr_ty = ty.slicePtrFieldType(mod);
                     try self.addTypeRelocGlobal(atom_index, ptr_ty, @intCast(u32, index));
                     // DW.AT.data_member_location, DW.FORM.udata
                     try dbg_info_buffer.ensureUnusedCapacity(6);
@@ -304,18 +292,18 @@ pub const DeclState = struct {
                     // DW.AT.type, DW.FORM.ref4
                     const index = dbg_info_buffer.items.len;
                     try dbg_info_buffer.resize(index + 4);
-                    try self.addTypeRelocGlobal(atom_index, ty.childType(), @intCast(u32, index));
+                    try self.addTypeRelocGlobal(atom_index, ty.childType(mod), @intCast(u32, index));
                 }
             },
             .Array => {
                 // DW.AT.array_type
                 try dbg_info_buffer.append(@enumToInt(AbbrevKind.array_type));
                 // DW.AT.name, DW.FORM.string
-                try dbg_info_buffer.writer().print("{}\x00", .{ty.fmt(module)});
+                try dbg_info_buffer.writer().print("{}\x00", .{ty.fmt(mod)});
                 // DW.AT.type, DW.FORM.ref4
                 var index = dbg_info_buffer.items.len;
                 try dbg_info_buffer.resize(index + 4);
-                try self.addTypeRelocGlobal(atom_index, ty.childType(), @intCast(u32, index));
+                try self.addTypeRelocGlobal(atom_index, ty.childType(mod), @intCast(u32, index));
                 // DW.AT.subrange_type
                 try dbg_info_buffer.append(@enumToInt(AbbrevKind.array_dim));
                 // DW.AT.type, DW.FORM.ref4
@@ -323,7 +311,7 @@ pub const DeclState = struct {
                 try dbg_info_buffer.resize(index + 4);
                 try self.addTypeRelocGlobal(atom_index, Type.usize, @intCast(u32, index));
                 // DW.AT.count, DW.FORM.udata
-                const len = ty.arrayLenIncludingSentinel();
+                const len = ty.arrayLenIncludingSentinel(mod);
                 try leb128.writeULEB128(dbg_info_buffer.writer(), len);
                 // DW.AT.array_type delimit children
                 try dbg_info_buffer.append(0);
@@ -332,15 +320,14 @@ pub const DeclState = struct {
                 // DW.AT.structure_type
                 try dbg_info_buffer.append(@enumToInt(AbbrevKind.struct_type));
                 // DW.AT.byte_size, DW.FORM.udata
-                try leb128.writeULEB128(dbg_info_buffer.writer(), ty.abiSize(target));
+                try leb128.writeULEB128(dbg_info_buffer.writer(), ty.abiSize(mod));
 
-                switch (ty.tag()) {
-                    .tuple, .anon_struct => {
+                switch (mod.intern_pool.indexToKey(ty.ip_index)) {
+                    .anon_struct_type => |fields| {
                         // DW.AT.name, DW.FORM.string
-                        try dbg_info_buffer.writer().print("{}\x00", .{ty.fmt(module)});
+                        try dbg_info_buffer.writer().print("{}\x00", .{ty.fmt(mod)});
 
-                        const fields = ty.tupleFields();
-                        for (fields.types, 0..) |field, field_index| {
+                        for (fields.types, 0..) |field_ty, field_index| {
                             // DW.AT.member
                             try dbg_info_buffer.append(@enumToInt(AbbrevKind.struct_member));
                             // DW.AT.name, DW.FORM.string
@@ -348,29 +335,32 @@ pub const DeclState = struct {
                             // DW.AT.type, DW.FORM.ref4
                             var index = dbg_info_buffer.items.len;
                             try dbg_info_buffer.resize(index + 4);
-                            try self.addTypeRelocGlobal(atom_index, field, @intCast(u32, index));
+                            try self.addTypeRelocGlobal(atom_index, field_ty.toType(), @intCast(u32, index));
                             // DW.AT.data_member_location, DW.FORM.udata
-                            const field_off = ty.structFieldOffset(field_index, target);
+                            const field_off = ty.structFieldOffset(field_index, mod);
                             try leb128.writeULEB128(dbg_info_buffer.writer(), field_off);
                         }
                     },
-                    else => {
+                    .struct_type => |struct_type| s: {
+                        const struct_obj = mod.structPtrUnwrap(struct_type.index) orelse break :s;
                         // DW.AT.name, DW.FORM.string
-                        const struct_name = try ty.nameAllocArena(arena, module);
+                        const struct_name = try ty.nameAllocArena(arena, mod);
                         try dbg_info_buffer.ensureUnusedCapacity(struct_name.len + 1);
                         dbg_info_buffer.appendSliceAssumeCapacity(struct_name);
                         dbg_info_buffer.appendAssumeCapacity(0);
 
-                        const struct_obj = ty.castTag(.@"struct").?.data;
                         if (struct_obj.layout == .Packed) {
                             log.debug("TODO implement .debug_info for packed structs", .{});
                             break :blk;
                         }
 
-                        const fields = ty.structFields();
-                        for (fields.keys(), 0..) |field_name, field_index| {
-                            const field = fields.get(field_name).?;
-                            if (!field.ty.hasRuntimeBits()) continue;
+                        for (
+                            struct_obj.fields.keys(),
+                            struct_obj.fields.values(),
+                            0..,
+                        ) |field_name_ip, field, field_index| {
+                            if (!field.ty.hasRuntimeBits(mod)) continue;
+                            const field_name = mod.intern_pool.stringToSlice(field_name_ip);
                             // DW.AT.member
                             try dbg_info_buffer.ensureUnusedCapacity(field_name.len + 2);
                             dbg_info_buffer.appendAssumeCapacity(@enumToInt(AbbrevKind.struct_member));
@@ -382,10 +372,11 @@ pub const DeclState = struct {
                             try dbg_info_buffer.resize(index + 4);
                             try self.addTypeRelocGlobal(atom_index, field.ty, @intCast(u32, index));
                             // DW.AT.data_member_location, DW.FORM.udata
-                            const field_off = ty.structFieldOffset(field_index, target);
+                            const field_off = ty.structFieldOffset(field_index, mod);
                             try leb128.writeULEB128(dbg_info_buffer.writer(), field_off);
                         }
                     },
+                    else => unreachable,
                 }
 
                 // DW.AT.structure_type delimit children
@@ -395,21 +386,16 @@ pub const DeclState = struct {
                 // DW.AT.enumeration_type
                 try dbg_info_buffer.append(@enumToInt(AbbrevKind.enum_type));
                 // DW.AT.byte_size, DW.FORM.udata
-                try leb128.writeULEB128(dbg_info_buffer.writer(), ty.abiSize(target));
+                try leb128.writeULEB128(dbg_info_buffer.writer(), ty.abiSize(mod));
                 // DW.AT.name, DW.FORM.string
-                const enum_name = try ty.nameAllocArena(arena, module);
+                const enum_name = try ty.nameAllocArena(arena, mod);
                 try dbg_info_buffer.ensureUnusedCapacity(enum_name.len + 1);
                 dbg_info_buffer.appendSliceAssumeCapacity(enum_name);
                 dbg_info_buffer.appendAssumeCapacity(0);
 
-                const fields = ty.enumFields();
-                const values: ?Module.EnumFull.ValueMap = switch (ty.tag()) {
-                    .enum_full, .enum_nonexhaustive => ty.cast(Type.Payload.EnumFull).?.data.values,
-                    .enum_simple => null,
-                    .enum_numbered => ty.castTag(.enum_numbered).?.data.values,
-                    else => unreachable,
-                };
-                for (fields.keys(), 0..) |field_name, field_i| {
+                const enum_type = mod.intern_pool.indexToKey(ty.ip_index).enum_type;
+                for (enum_type.names, 0..) |field_name_index, field_i| {
+                    const field_name = mod.intern_pool.stringToSlice(field_name_index);
                     // DW.AT.enumerator
                     try dbg_info_buffer.ensureUnusedCapacity(field_name.len + 2 + @sizeOf(u64));
                     dbg_info_buffer.appendAssumeCapacity(@enumToInt(AbbrevKind.enum_variant));
@@ -417,15 +403,14 @@ pub const DeclState = struct {
                     dbg_info_buffer.appendSliceAssumeCapacity(field_name);
                     dbg_info_buffer.appendAssumeCapacity(0);
                     // DW.AT.const_value, DW.FORM.data8
-                    const value: u64 = if (values) |vals| value: {
-                        if (vals.count() == 0) break :value @intCast(u64, field_i); // auto-numbered
-                        const value = vals.keys()[field_i];
+                    const value: u64 = value: {
+                        if (enum_type.values.len == 0) break :value field_i; // auto-numbered
+                        const value = enum_type.values[field_i];
                         // TODO do not assume a 64bit enum value - could be bigger.
                         // See https://github.com/ziglang/zig/issues/645
-                        var int_buffer: Value.Payload.U64 = undefined;
-                        const field_int_val = value.enumToInt(ty, &int_buffer);
-                        break :value @bitCast(u64, field_int_val.toSignedInt(target));
-                    } else @intCast(u64, field_i);
+                        const field_int_val = try value.toValue().enumToInt(ty, mod);
+                        break :value @bitCast(u64, field_int_val.toSignedInt(mod));
+                    };
                     mem.writeInt(u64, dbg_info_buffer.addManyAsArrayAssumeCapacity(8), value, target_endian);
                 }
 
@@ -433,12 +418,12 @@ pub const DeclState = struct {
                 try dbg_info_buffer.append(0);
             },
             .Union => {
-                const layout = ty.unionGetLayout(target);
-                const union_obj = ty.cast(Type.Payload.Union).?.data;
+                const layout = ty.unionGetLayout(mod);
+                const union_obj = mod.typeToUnion(ty).?;
                 const payload_offset = if (layout.tag_align >= layout.payload_align) layout.tag_size else 0;
                 const tag_offset = if (layout.tag_align >= layout.payload_align) 0 else layout.payload_size;
                 const is_tagged = layout.tag_size > 0;
-                const union_name = try ty.nameAllocArena(arena, module);
+                const union_name = try ty.nameAllocArena(arena, mod);
 
                 // TODO this is temporary to match current state of unions in Zig - we don't yet have
                 // safety checks implemented meaning the implicit tag is not yet stored and generated
@@ -478,14 +463,15 @@ pub const DeclState = struct {
                     try dbg_info_buffer.writer().print("{s}\x00", .{union_name});
                 }
 
-                const fields = ty.unionFields();
+                const fields = ty.unionFields(mod);
                 for (fields.keys()) |field_name| {
                     const field = fields.get(field_name).?;
-                    if (!field.ty.hasRuntimeBits()) continue;
+                    if (!field.ty.hasRuntimeBits(mod)) continue;
                     // DW.AT.member
                     try dbg_info_buffer.append(@enumToInt(AbbrevKind.struct_member));
                     // DW.AT.name, DW.FORM.string
-                    try dbg_info_buffer.writer().print("{s}\x00", .{field_name});
+                    try dbg_info_buffer.appendSlice(mod.intern_pool.stringToSlice(field_name));
+                    try dbg_info_buffer.append(0);
                     // DW.AT.type, DW.FORM.ref4
                     const index = dbg_info_buffer.items.len;
                     try dbg_info_buffer.resize(index + 4);
@@ -517,30 +503,30 @@ pub const DeclState = struct {
             .ErrorSet => {
                 try addDbgInfoErrorSet(
                     self.abbrev_type_arena.allocator(),
-                    module,
+                    mod,
                     ty,
                     target,
                     &self.dbg_info,
                 );
             },
             .ErrorUnion => {
-                const error_ty = ty.errorUnionSet();
-                const payload_ty = ty.errorUnionPayload();
-                const payload_align = if (payload_ty.isNoReturn()) 0 else payload_ty.abiAlignment(target);
-                const error_align = Type.anyerror.abiAlignment(target);
-                const abi_size = ty.abiSize(target);
-                const payload_off = if (error_align >= payload_align) Type.anyerror.abiSize(target) else 0;
-                const error_off = if (error_align >= payload_align) 0 else payload_ty.abiSize(target);
+                const error_ty = ty.errorUnionSet(mod);
+                const payload_ty = ty.errorUnionPayload(mod);
+                const payload_align = if (payload_ty.isNoReturn(mod)) 0 else payload_ty.abiAlignment(mod);
+                const error_align = Type.anyerror.abiAlignment(mod);
+                const abi_size = ty.abiSize(mod);
+                const payload_off = if (error_align >= payload_align) Type.anyerror.abiSize(mod) else 0;
+                const error_off = if (error_align >= payload_align) 0 else payload_ty.abiSize(mod);
 
                 // DW.AT.structure_type
                 try dbg_info_buffer.append(@enumToInt(AbbrevKind.struct_type));
                 // DW.AT.byte_size, DW.FORM.udata
                 try leb128.writeULEB128(dbg_info_buffer.writer(), abi_size);
                 // DW.AT.name, DW.FORM.string
-                const name = try ty.nameAllocArena(arena, module);
+                const name = try ty.nameAllocArena(arena, mod);
                 try dbg_info_buffer.writer().print("{s}\x00", .{name});
 
-                if (!payload_ty.isNoReturn()) {
+                if (!payload_ty.isNoReturn(mod)) {
                     // DW.AT.member
                     try dbg_info_buffer.ensureUnusedCapacity(7);
                     dbg_info_buffer.appendAssumeCapacity(@enumToInt(AbbrevKind.struct_member));
@@ -685,9 +671,10 @@ pub const DeclState = struct {
         const atom_index = self.di_atom_decls.get(owner_decl).?;
         const name_with_null = name.ptr[0 .. name.len + 1];
         try dbg_info.append(@enumToInt(AbbrevKind.variable));
-        const target = self.mod.getTarget();
+        const mod = self.mod;
+        const target = mod.getTarget();
         const endian = target.cpu.arch.endian();
-        const child_ty = if (is_ptr) ty.childType() else ty;
+        const child_ty = if (is_ptr) ty.childType(mod) else ty;
 
         switch (loc) {
             .register => |reg| {
@@ -790,9 +777,9 @@ pub const DeclState = struct {
                 const fixup = dbg_info.items.len;
                 dbg_info.appendSliceAssumeCapacity(&[2]u8{ // DW.AT.location, DW.FORM.exprloc
                     1,
-                    if (child_ty.isSignedInt()) DW.OP.consts else DW.OP.constu,
+                    if (child_ty.isSignedInt(mod)) DW.OP.consts else DW.OP.constu,
                 });
-                if (child_ty.isSignedInt()) {
+                if (child_ty.isSignedInt(mod)) {
                     try leb128.writeILEB128(dbg_info.writer(), @bitCast(i64, x));
                 } else {
                     try leb128.writeULEB128(dbg_info.writer(), x);
@@ -805,7 +792,7 @@ pub const DeclState = struct {
                 // DW.AT.location, DW.FORM.exprloc
                 // uleb128(exprloc_len)
                 // DW.OP.implicit_value uleb128(len_of_bytes) bytes
-                const abi_size = @intCast(u32, child_ty.abiSize(target));
+                const abi_size = @intCast(u32, child_ty.abiSize(mod));
                 var implicit_value_len = std.ArrayList(u8).init(self.gpa);
                 defer implicit_value_len.deinit();
                 try leb128.writeULEB128(implicit_value_len.writer(), abi_size);
@@ -964,8 +951,7 @@ pub fn initDeclState(self: *Dwarf, mod: *Module, decl_index: Module.Decl.Index) 
     defer tracy.end();
 
     const decl = mod.declPtr(decl_index);
-    const decl_name = try decl.getFullyQualifiedName(mod);
-    defer self.allocator.free(decl_name);
+    const decl_name = mod.intern_pool.stringToSlice(try decl.getFullyQualifiedName(mod));
 
     log.debug("initDeclState {s}{*}", .{ decl_name, decl });
 
@@ -979,14 +965,14 @@ pub fn initDeclState(self: *Dwarf, mod: *Module, decl_index: Module.Decl.Index) 
 
     assert(decl.has_tv);
 
-    switch (decl.ty.zigTypeTag()) {
+    switch (decl.ty.zigTypeTag(mod)) {
         .Fn => {
             _ = try self.getOrCreateAtomForDecl(.src_fn, decl_index);
 
             // For functions we need to add a prologue to the debug line program.
             try dbg_line_buffer.ensureTotalCapacity(26);
 
-            const func = decl.val.castTag(.function).?.data;
+            const func = decl.val.getFunction(mod).?;
             log.debug("decl.src_line={d}, func.lbrace_line={d}, func.rbrace_line={d}", .{
                 decl.src_line,
                 func.lbrace_line,
@@ -1026,8 +1012,8 @@ pub fn initDeclState(self: *Dwarf, mod: *Module, decl_index: Module.Decl.Index) 
             const decl_name_with_null = decl_name[0 .. decl_name.len + 1];
             try dbg_info_buffer.ensureUnusedCapacity(25 + decl_name_with_null.len);
 
-            const fn_ret_type = decl.ty.fnReturnType();
-            const fn_ret_has_bits = fn_ret_type.hasRuntimeBits();
+            const fn_ret_type = decl.ty.fnReturnType(mod);
+            const fn_ret_has_bits = fn_ret_type.hasRuntimeBits(mod);
             if (fn_ret_has_bits) {
                 dbg_info_buffer.appendAssumeCapacity(@enumToInt(AbbrevKind.subprogram));
             } else {
@@ -1059,7 +1045,7 @@ pub fn initDeclState(self: *Dwarf, mod: *Module, decl_index: Module.Decl.Index) 
 
 pub fn commitDeclState(
     self: *Dwarf,
-    module: *Module,
+    mod: *Module,
     decl_index: Module.Decl.Index,
     sym_addr: u64,
     sym_size: u64,
@@ -1071,12 +1057,12 @@ pub fn commitDeclState(
     const gpa = self.allocator;
     var dbg_line_buffer = &decl_state.dbg_line;
     var dbg_info_buffer = &decl_state.dbg_info;
-    const decl = module.declPtr(decl_index);
+    const decl = mod.declPtr(decl_index);
 
     const target_endian = self.target.cpu.arch.endian();
 
     assert(decl.has_tv);
-    switch (decl.ty.zigTypeTag()) {
+    switch (decl.ty.zigTypeTag(mod)) {
         .Fn => {
             // Since the Decl is a function, we need to update the .debug_line program.
             // Perform the relocations based on vaddr.
@@ -1271,10 +1257,11 @@ pub fn commitDeclState(
             const symbol = &decl_state.abbrev_table.items[sym_index];
             const ty = symbol.type;
             const deferred: bool = blk: {
-                if (ty.isAnyError()) break :blk true;
-                switch (ty.tag()) {
-                    .error_set_inferred => {
-                        if (!ty.castTag(.error_set_inferred).?.data.is_resolved) break :blk true;
+                if (ty.isAnyError(mod)) break :blk true;
+                switch (mod.intern_pool.indexToKey(ty.ip_index)) {
+                    .inferred_error_set_type => |ies_index| {
+                        const ies = mod.inferredErrorSetPtr(ies_index);
+                        if (!ies.is_resolved) break :blk true;
                     },
                     else => {},
                 }
@@ -1283,11 +1270,10 @@ pub fn commitDeclState(
             if (deferred) continue;
 
             symbol.offset = @intCast(u32, dbg_info_buffer.items.len);
-            try decl_state.addDbgInfoType(module, di_atom_index, ty);
+            try decl_state.addDbgInfoType(mod, di_atom_index, ty);
         }
     }
 
-    log.debug("updateDeclDebugInfoAllocation for '{s}'", .{decl.name});
     try self.updateDeclDebugInfoAllocation(di_atom_index, @intCast(u32, dbg_info_buffer.items.len));
 
     while (decl_state.abbrev_relocs.popOrNull()) |reloc| {
@@ -1295,10 +1281,11 @@ pub fn commitDeclState(
             const symbol = decl_state.abbrev_table.items[target];
             const ty = symbol.type;
             const deferred: bool = blk: {
-                if (ty.isAnyError()) break :blk true;
-                switch (ty.tag()) {
-                    .error_set_inferred => {
-                        if (!ty.castTag(.error_set_inferred).?.data.is_resolved) break :blk true;
+                if (ty.isAnyError(mod)) break :blk true;
+                switch (mod.intern_pool.indexToKey(ty.ip_index)) {
+                    .inferred_error_set_type => |ies_index| {
+                        const ies = mod.inferredErrorSetPtr(ies_index);
+                        if (!ies.is_resolved) break :blk true;
                     },
                     else => {},
                 }
@@ -1319,7 +1306,7 @@ pub fn commitDeclState(
                     reloc.offset,
                     value,
                     target,
-                    ty.fmt(module),
+                    ty.fmt(mod),
                 });
                 mem.writeInt(
                     u32,
@@ -1358,7 +1345,6 @@ pub fn commitDeclState(
         }
     }
 
-    log.debug("writeDeclDebugInfo for '{s}", .{decl.name});
     try self.writeDeclDebugInfo(di_atom_index, dbg_info_buffer.items);
 }
 
@@ -1527,7 +1513,7 @@ fn writeDeclDebugInfo(self: *Dwarf, atom_index: Atom.Index, dbg_info_buf: []cons
     }
 }
 
-pub fn updateDeclLineNumber(self: *Dwarf, module: *Module, decl_index: Module.Decl.Index) !void {
+pub fn updateDeclLineNumber(self: *Dwarf, mod: *Module, decl_index: Module.Decl.Index) !void {
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -1535,8 +1521,8 @@ pub fn updateDeclLineNumber(self: *Dwarf, module: *Module, decl_index: Module.De
     const atom = self.getAtom(.src_fn, atom_index);
     if (atom.len == 0) return;
 
-    const decl = module.declPtr(decl_index);
-    const func = decl.val.castTag(.function).?.data;
+    const decl = mod.declPtr(decl_index);
+    const func = decl.val.getFunction(mod).?;
     log.debug("decl.src_line={d}, func.lbrace_line={d}, func.rbrace_line={d}", .{
         decl.src_line,
         func.lbrace_line,
@@ -2534,18 +2520,14 @@ pub fn flushModule(self: *Dwarf, module: *Module) !void {
         defer arena_alloc.deinit();
         const arena = arena_alloc.allocator();
 
-        const error_set = try arena.create(Module.ErrorSet);
-        const error_ty = try Type.Tag.error_set.create(arena, error_set);
-        var names = Module.ErrorSet.NameMap{};
-        try names.ensureUnusedCapacity(arena, module.global_error_set.count());
-        var it = module.global_error_set.keyIterator();
-        while (it.next()) |key| {
-            names.putAssumeCapacityNoClobber(key.*, {});
-        }
-        error_set.names = names;
+        // TODO: don't create a zig type for this, just make the dwarf info
+        // without touching the zig type system.
+        const names = try arena.dupe(InternPool.NullTerminatedString, module.global_error_set.keys());
+        std.mem.sort(InternPool.NullTerminatedString, names, {}, InternPool.NullTerminatedString.indexLessThan);
 
+        const error_ty = try module.intern(.{ .error_set_type = .{ .names = names } });
         var dbg_info_buffer = std.ArrayList(u8).init(arena);
-        try addDbgInfoErrorSet(arena, module, error_ty, self.target, &dbg_info_buffer);
+        try addDbgInfoErrorSet(arena, module, error_ty.toType(), self.target, &dbg_info_buffer);
 
         const di_atom_index = try self.createAtom(.di_atom);
         log.debug("updateDeclDebugInfoAllocation in flushModule", .{});
@@ -2598,7 +2580,7 @@ pub fn flushModule(self: *Dwarf, module: *Module) !void {
 
 fn addDIFile(self: *Dwarf, mod: *Module, decl_index: Module.Decl.Index) !u28 {
     const decl = mod.declPtr(decl_index);
-    const file_scope = decl.getFileScope();
+    const file_scope = decl.getFileScope(mod);
     const gop = try self.di_files.getOrPut(self.allocator, file_scope);
     if (!gop.found_existing) {
         switch (self.bin_file.tag) {
@@ -2663,7 +2645,7 @@ fn genIncludeDirsAndFileNames(self: *Dwarf, arena: Allocator) !struct {
 
 fn addDbgInfoErrorSet(
     arena: Allocator,
-    module: *Module,
+    mod: *Module,
     ty: Type,
     target: std.Target,
     dbg_info_buffer: *std.ArrayList(u8),
@@ -2673,10 +2655,10 @@ fn addDbgInfoErrorSet(
     // DW.AT.enumeration_type
     try dbg_info_buffer.append(@enumToInt(AbbrevKind.enum_type));
     // DW.AT.byte_size, DW.FORM.udata
-    const abi_size = Type.anyerror.abiSize(target);
+    const abi_size = Type.anyerror.abiSize(mod);
     try leb128.writeULEB128(dbg_info_buffer.writer(), abi_size);
     // DW.AT.name, DW.FORM.string
-    const name = try ty.nameAllocArena(arena, module);
+    const name = try ty.nameAllocArena(arena, mod);
     try dbg_info_buffer.writer().print("{s}\x00", .{name});
 
     // DW.AT.enumerator
@@ -2689,9 +2671,10 @@ fn addDbgInfoErrorSet(
     // DW.AT.const_value, DW.FORM.data8
     mem.writeInt(u64, dbg_info_buffer.addManyAsArrayAssumeCapacity(8), 0, target_endian);
 
-    const error_names = ty.errorSetNames();
-    for (error_names) |error_name| {
-        const kv = module.getErrorValue(error_name) catch unreachable;
+    const error_names = ty.errorSetNames(mod);
+    for (error_names) |error_name_ip| {
+        const int = try mod.getErrorValue(error_name_ip);
+        const error_name = mod.intern_pool.stringToSlice(error_name_ip);
         // DW.AT.enumerator
         try dbg_info_buffer.ensureUnusedCapacity(error_name.len + 2 + @sizeOf(u64));
         dbg_info_buffer.appendAssumeCapacity(@enumToInt(AbbrevKind.enum_variant));
@@ -2699,7 +2682,7 @@ fn addDbgInfoErrorSet(
         dbg_info_buffer.appendSliceAssumeCapacity(error_name);
         dbg_info_buffer.appendAssumeCapacity(0);
         // DW.AT.const_value, DW.FORM.data8
-        mem.writeInt(u64, dbg_info_buffer.addManyAsArrayAssumeCapacity(8), kv.value, target_endian);
+        mem.writeInt(u64, dbg_info_buffer.addManyAsArrayAssumeCapacity(8), int, target_endian);
     }
 
     // DW.AT.enumeration_type delimit children

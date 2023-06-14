@@ -1032,11 +1032,6 @@ pub fn addObject(self: *Compile, obj: *Compile) void {
     self.linkLibraryOrObject(obj);
 }
 
-pub const addSystemIncludeDir = @compileError("deprecated; use addSystemIncludePath");
-pub const addIncludeDir = @compileError("deprecated; use addIncludePath");
-pub const addLibPath = @compileError("deprecated, use addLibraryPath");
-pub const addFrameworkDir = @compileError("deprecated, use addFrameworkPath");
-
 pub fn addSystemIncludePath(self: *Compile, path: []const u8) void {
     const b = self.step.owner;
     self.include_dirs.append(IncludeDir{ .raw_path_system = b.dupe(path) }) catch @panic("OOM");

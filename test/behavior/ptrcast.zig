@@ -7,7 +7,7 @@ test "reinterpret bytes as integer with nonzero offset" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     try testReinterpretBytesAsInteger();
-    comptime try testReinterpretBytesAsInteger();
+    try comptime testReinterpretBytesAsInteger();
 }
 
 fn testReinterpretBytesAsInteger() !void {
@@ -26,7 +26,7 @@ test "reinterpret an array over multiple elements, with no well-defined layout" 
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     try testReinterpretWithOffsetAndNoWellDefinedLayout();
-    comptime try testReinterpretWithOffsetAndNoWellDefinedLayout();
+    try comptime testReinterpretWithOffsetAndNoWellDefinedLayout();
 }
 
 fn testReinterpretWithOffsetAndNoWellDefinedLayout() !void {
@@ -41,7 +41,7 @@ test "reinterpret bytes inside auto-layout struct as integer with nonzero offset
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     try testReinterpretStructWrappedBytesAsInteger();
-    comptime try testReinterpretStructWrappedBytesAsInteger();
+    try comptime testReinterpretStructWrappedBytesAsInteger();
 }
 
 fn testReinterpretStructWrappedBytesAsInteger() !void {
@@ -59,7 +59,7 @@ test "reinterpret bytes of an array into an extern struct" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     try testReinterpretBytesAsExternStruct();
-    comptime try testReinterpretBytesAsExternStruct();
+    try comptime testReinterpretBytesAsExternStruct();
 }
 
 fn testReinterpretBytesAsExternStruct() !void {
@@ -80,7 +80,7 @@ test "reinterpret bytes of an extern struct (with under-aligned fields) into ano
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     try testReinterpretExternStructAsExternStruct();
-    comptime try testReinterpretExternStructAsExternStruct();
+    try comptime testReinterpretExternStructAsExternStruct();
 }
 
 fn testReinterpretExternStructAsExternStruct() !void {
@@ -104,7 +104,7 @@ test "reinterpret bytes of an extern struct into another" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     try testReinterpretOverAlignedExternStructAsExternStruct();
-    comptime try testReinterpretOverAlignedExternStructAsExternStruct();
+    try comptime testReinterpretOverAlignedExternStructAsExternStruct();
 }
 
 fn testReinterpretOverAlignedExternStructAsExternStruct() !void {
