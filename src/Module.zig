@@ -6817,17 +6817,12 @@ pub fn errorSetFromUnsortedNames(
     return new_ty.toType();
 }
 
-/// Supports optionals in addition to pointers.
+/// Supports only pointers, not pointer-like optionals.
 pub fn ptrIntValue(mod: *Module, ty: Type, x: u64) Allocator.Error!Value {
-    return mod.getCoerced(try mod.intValue_u64(Type.usize, x), ty);
-}
-
-/// Supports only pointers. See `ptrIntValue` for pointer-like optional support.
-pub fn ptrIntValue_ptronly(mod: *Module, ty: Type, x: u64) Allocator.Error!Value {
     assert(ty.zigTypeTag(mod) == .Pointer);
     const i = try intern(mod, .{ .ptr = .{
         .ty = ty.toIntern(),
-        .addr = .{ .int = try mod.intValue_u64(Type.usize, x) },
+        .addr = .{ .int = (try mod.intValue_u64(Type.usize, x)).toIntern() },
     } });
     return i.toValue();
 }

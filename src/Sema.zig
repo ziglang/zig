@@ -20846,7 +20846,15 @@ fn zirIntToPtr(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
         if (addr != 0 and ptr_align != 0 and addr % ptr_align != 0)
             return sema.fail(block, operand_src, "pointer type '{}' requires aligned address", .{ptr_ty.fmt(sema.mod)});
 
-        return sema.addConstant(ptr_ty, try mod.ptrIntValue(ptr_ty, addr));
+        const ptr_val = switch (ptr_ty.zigTypeTag(mod)) {
+            .Optional => (try mod.intern(.{ .opt = .{
+                .ty = ptr_ty.toIntern(),
+                .val = if (addr == 0) .none else (try mod.ptrIntValue(ptr_ty.childType(mod), addr)).toIntern(),
+            } })).toValue(),
+            .Pointer => try mod.ptrIntValue(ptr_ty, addr),
+            else => unreachable,
+        };
+        return sema.addConstant(ptr_ty, ptr_val);
     }
 
     try sema.requireRuntimeBlock(block, src, operand_src);
