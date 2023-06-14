@@ -130,6 +130,8 @@ const Owner = union(enum) {
                 } else if (ctx.bin_file.cast(link.File.Coff)) |coff_file| {
                     const atom = try coff_file.getOrCreateAtomForDecl(decl_index);
                     return coff_file.getAtom(atom).getSymbolIndex().?;
+                } else if (ctx.bin_file.cast(link.File.Plan9)) |p9_file| {
+                    return p9_file.seeDecl(decl_index);
                 } else unreachable;
             },
             .lazy_sym => |lazy_sym| {
@@ -141,6 +143,9 @@ const Owner = union(enum) {
                     const atom = coff_file.getOrCreateAtomForLazySymbol(lazy_sym) catch |err|
                         return ctx.fail("{s} creating lazy symbol", .{@errorName(err)});
                     return coff_file.getAtom(atom).getSymbolIndex().?;
+                } else if (ctx.bin_file.cast(link.File.Plan9)) |p9_file| {
+                    return p9_file.getOrCreateAtomForLazySymbol(lazy_sym) catch |err|
+                        return ctx.fail("{s} creating lazy symbol", .{@errorName(err)});
                 } else unreachable;
             },
         }
