@@ -1473,7 +1473,7 @@ fn walkInstruction(
 
         // builtin functions
         .align_of,
-        .bool_to_int,
+        .int_from_bool,
         .embed_file,
         .error_name,
         .panic,
@@ -1496,7 +1496,7 @@ fn walkInstruction(
         .type_name,
         .frame_type,
         .frame_size,
-        .ptr_to_int,
+        .int_from_ptr,
         .bit_not,
         // @check
         .clz,
@@ -1521,10 +1521,10 @@ fn walkInstruction(
             };
         },
 
-        .float_to_int,
-        .int_to_float,
-        .int_to_ptr,
-        .int_to_enum,
+        .int_from_float,
+        .float_from_int,
+        .ptr_from_int,
+        .enum_from_int,
         .float_cast,
         .int_cast,
         .ptr_cast,
@@ -1936,7 +1936,7 @@ fn walkInstruction(
                 .expr = .{ .bitSizeOf = operand_index },
             };
         },
-        .enum_to_int => {
+        .int_from_enum => {
             // not working correctly with `align()`
             const un_node = data[inst_index].un_node;
             const operand = try self.walkRef(
@@ -3021,8 +3021,8 @@ fn walkInstruction(
                         },
                     };
                 },
-                .error_to_int,
-                .int_to_error,
+                .int_from_error,
+                .error_from_int,
                 .reify,
                 .const_cast,
                 .volatile_cast,

@@ -749,9 +749,9 @@ pub const Inst = struct {
         /// Implements the `@bitSizeOf` builtin. Uses `un_node`.
         bit_size_of,
 
-        /// Implement builtin `@ptrToInt`. Uses `un_node`.
+        /// Implement builtin `@intFromPtr`. Uses `un_node`.
         /// Convert a pointer to a `usize` integer.
-        ptr_to_int,
+        int_from_ptr,
         /// Emit an error message and fail compilation.
         /// Uses the `un_node` field.
         compile_error,
@@ -761,11 +761,11 @@ pub const Inst = struct {
         set_eval_branch_quota,
         /// Converts an enum value into an integer. Resulting type will be the tag type
         /// of the enum. Uses `un_node`.
-        enum_to_int,
+        int_from_enum,
         /// Implement builtin `@alignOf`. Uses `un_node`.
         align_of,
-        /// Implement builtin `@boolToInt`. Uses `un_node`.
-        bool_to_int,
+        /// Implement builtin `@intFromBool`. Uses `un_node`.
+        int_from_bool,
         /// Implement builtin `@embedFile`. Uses `un_node`.
         embed_file,
         /// Implement builtin `@errorName`. Uses `un_node`.
@@ -814,18 +814,18 @@ pub const Inst = struct {
         /// Implement builtin `@frameSize`. Uses `un_node`.
         frame_size,
 
-        /// Implements the `@floatToInt` builtin.
+        /// Implements the `@intFromFloat` builtin.
         /// Uses `pl_node` with payload `Bin`. `lhs` is dest type, `rhs` is operand.
-        float_to_int,
-        /// Implements the `@intToFloat` builtin.
+        int_from_float,
+        /// Implements the `@floatFromInt` builtin.
         /// Uses `pl_node` with payload `Bin`. `lhs` is dest type, `rhs` is operand.
-        int_to_float,
-        /// Implements the `@intToPtr` builtin.
+        float_from_int,
+        /// Implements the `@ptrFromInt` builtin.
         /// Uses `pl_node` with payload `Bin`. `lhs` is dest type, `rhs` is operand.
-        int_to_ptr,
+        ptr_from_int,
         /// Converts an integer into an enum value.
         /// Uses `pl_node` with payload `Bin`. `lhs` is dest type, `rhs` is operand.
-        int_to_enum,
+        enum_from_int,
         /// Convert a larger float type to any other float type, possibly causing
         /// a loss of precision.
         /// Uses the `pl_node` field. AST is the `@floatCast` syntax.
@@ -1136,14 +1136,14 @@ pub const Inst = struct {
                 .union_init,
                 .field_type,
                 .field_type_ref,
-                .int_to_enum,
-                .enum_to_int,
+                .enum_from_int,
+                .int_from_enum,
                 .type_info,
                 .size_of,
                 .bit_size_of,
-                .ptr_to_int,
+                .int_from_ptr,
                 .align_of,
-                .bool_to_int,
+                .int_from_bool,
                 .embed_file,
                 .error_name,
                 .set_runtime_safety,
@@ -1165,9 +1165,9 @@ pub const Inst = struct {
                 .type_name,
                 .frame_type,
                 .frame_size,
-                .float_to_int,
-                .int_to_float,
-                .int_to_ptr,
+                .int_from_float,
+                .float_from_int,
+                .ptr_from_int,
                 .float_cast,
                 .int_cast,
                 .ptr_cast,
@@ -1419,14 +1419,14 @@ pub const Inst = struct {
                 .union_init,
                 .field_type,
                 .field_type_ref,
-                .int_to_enum,
-                .enum_to_int,
+                .enum_from_int,
+                .int_from_enum,
                 .type_info,
                 .size_of,
                 .bit_size_of,
-                .ptr_to_int,
+                .int_from_ptr,
                 .align_of,
-                .bool_to_int,
+                .int_from_bool,
                 .embed_file,
                 .error_name,
                 .sqrt,
@@ -1447,9 +1447,9 @@ pub const Inst = struct {
                 .type_name,
                 .frame_type,
                 .frame_size,
-                .float_to_int,
-                .int_to_float,
-                .int_to_ptr,
+                .int_from_float,
+                .float_from_int,
+                .ptr_from_int,
                 .float_cast,
                 .int_cast,
                 .ptr_cast,
@@ -1679,12 +1679,12 @@ pub const Inst = struct {
                 .size_of = .un_node,
                 .bit_size_of = .un_node,
 
-                .ptr_to_int = .un_node,
+                .int_from_ptr = .un_node,
                 .compile_error = .un_node,
                 .set_eval_branch_quota = .un_node,
-                .enum_to_int = .un_node,
+                .int_from_enum = .un_node,
                 .align_of = .un_node,
-                .bool_to_int = .un_node,
+                .int_from_bool = .un_node,
                 .embed_file = .un_node,
                 .error_name = .un_node,
                 .panic = .un_node,
@@ -1709,10 +1709,10 @@ pub const Inst = struct {
                 .frame_type = .un_node,
                 .frame_size = .un_node,
 
-                .float_to_int = .pl_node,
-                .int_to_float = .pl_node,
-                .int_to_ptr = .pl_node,
-                .int_to_enum = .pl_node,
+                .int_from_float = .pl_node,
+                .float_from_int = .pl_node,
+                .ptr_from_int = .pl_node,
+                .enum_from_int = .pl_node,
                 .float_cast = .pl_node,
                 .int_cast = .pl_node,
                 .ptr_cast = .pl_node,
@@ -1933,10 +1933,10 @@ pub const Inst = struct {
         select,
         /// Implement builtin `@errToInt`.
         /// `operand` is payload index to `UnNode`.
-        error_to_int,
+        int_from_error,
         /// Implement builtin `@intToError`.
         /// `operand` is payload index to `UnNode`.
-        int_to_error,
+        error_from_int,
         /// Implement builtin `@Type`.
         /// `operand` is payload index to `UnNode`.
         /// `small` contains `NameStrategy`.

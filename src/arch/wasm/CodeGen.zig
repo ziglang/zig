@@ -1902,13 +1902,13 @@ fn genInst(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         .trap => func.airTrap(inst),
         .breakpoint => func.airBreakpoint(inst),
         .br => func.airBr(inst),
-        .bool_to_int => func.airBoolToInt(inst),
+        .int_from_bool => func.airIntFromBool(inst),
         .cond_br => func.airCondBr(inst),
         .intcast => func.airIntcast(inst),
         .fptrunc => func.airFptrunc(inst),
         .fpext => func.airFpext(inst),
-        .float_to_int => func.airFloatToInt(inst),
-        .int_to_float => func.airIntToFloat(inst),
+        .int_from_float => func.airIntFromFloat(inst),
+        .float_from_int => func.airFloatFromInt(inst),
         .get_union_tag => func.airGetUnionTag(inst),
 
         .@"try" => func.airTry(inst),
@@ -1951,7 +1951,7 @@ fn genInst(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         .ptr_sub => func.airPtrBinOp(inst, .sub),
         .ptr_elem_ptr => func.airPtrElemPtr(inst),
         .ptr_elem_val => func.airPtrElemVal(inst),
-        .ptrtoint => func.airPtrToInt(inst),
+        .int_from_ptr => func.airIntFromPtr(inst),
         .ret => func.airRet(inst),
         .ret_ptr => func.airRetPtr(inst),
         .ret_load => func.airRetLoad(inst),
@@ -2061,7 +2061,7 @@ fn genInst(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         .cmp_neq_optimized,
         .cmp_vector_optimized,
         .reduce_optimized,
-        .float_to_int_optimized,
+        .int_from_float_optimized,
         => return func.fail("TODO implement optimized float mode", .{}),
 
         .work_item_id,
@@ -4480,7 +4480,7 @@ fn trunc(func: *CodeGen, operand: WValue, wanted_ty: Type, given_ty: Type) Inner
     return result;
 }
 
-fn airBoolToInt(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
+fn airIntFromBool(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     const un_op = func.air.instructions.items(.data)[inst].un_op;
     const operand = try func.resolveInst(un_op);
     const result = func.reuseOperand(un_op, operand);
@@ -4511,7 +4511,7 @@ fn airArrayToSlice(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     func.finishAir(inst, slice_local, &.{ty_op.operand});
 }
 
-fn airPtrToInt(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
+fn airIntFromPtr(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     const mod = func.bin_file.base.options.module.?;
     const un_op = func.air.instructions.items(.data)[inst].un_op;
     const operand = try func.resolveInst(un_op);
@@ -4812,7 +4812,7 @@ fn airArrayElemVal(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     func.finishAir(inst, elem_result, &.{ bin_op.lhs, bin_op.rhs });
 }
 
-fn airFloatToInt(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
+fn airIntFromFloat(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     const mod = func.bin_file.base.options.module.?;
     const ty_op = func.air.instructions.items(.data)[inst].ty_op;
 
@@ -4837,7 +4837,7 @@ fn airFloatToInt(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     func.finishAir(inst, result, &.{ty_op.operand});
 }
 
-fn airIntToFloat(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
+fn airFloatFromInt(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     const mod = func.bin_file.base.options.module.?;
     const ty_op = func.air.instructions.items(.data)[inst].ty_op;
 

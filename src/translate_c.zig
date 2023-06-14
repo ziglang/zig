@@ -845,7 +845,7 @@ fn visitVarDecl(c: *Context, var_decl: *const clang.VarDecl, mangled_name: ?[]co
                 error.OutOfMemory => |e| return e,
             };
             if (!qualTypeIsBoolean(qual_type) and isBoolRes(init_node.?)) {
-                init_node = try Tag.bool_to_int.create(c.arena, init_node.?);
+                init_node = try Tag.int_from_bool.create(c.arena, init_node.?);
             } else if (init_node.?.tag() == .string_literal and qualTypeIsCharStar(qual_type)) {
                 init_node = try stringLiteralToCharStar(c, init_node.?);
             }
@@ -1753,16 +1753,16 @@ fn transBinaryOperator(
     const rhs_uncasted = try transExpr(c, scope, stmt.getRHS(), .used);
 
     const lhs = if (isBoolRes(lhs_uncasted))
-        try Tag.bool_to_int.create(c.arena, lhs_uncasted)
+        try Tag.int_from_bool.create(c.arena, lhs_uncasted)
     else if (isPointerDiffExpr)
-        try Tag.ptr_to_int.create(c.arena, lhs_uncasted)
+        try Tag.int_from_ptr.create(c.arena, lhs_uncasted)
     else
         lhs_uncasted;
 
     const rhs = if (isBoolRes(rhs_uncasted))
-        try Tag.bool_to_int.create(c.arena, rhs_uncasted)
+        try Tag.int_from_bool.create(c.arena, rhs_uncasted)
     else if (isPointerDiffExpr)
-        try Tag.ptr_to_int.create(c.arena, rhs_uncasted)
+        try Tag.int_from_ptr.create(c.arena, rhs_uncasted)
     else
         rhs_uncasted;
 
@@ -1944,7 +1944,7 @@ fn transDeclStmtOne(
             else
                 Tag.undefined_literal.init();
             if (!qualTypeIsBoolean(qual_type) and isBoolRes(init_node)) {
-                init_node = try Tag.bool_to_int.create(c.arena, init_node);
+                init_node = try Tag.int_from_bool.create(c.arena, init_node);
             } else if (init_node.tag() == .string_literal and qualTypeIsCharStar(qual_type)) {
                 const dst_type_node = try transQualType(c, scope, qual_type, loc);
                 init_node = try removeCVQualifiers(c, dst_type_node, init_node);
@@ -2074,11 +2074,11 @@ fn transImplicitCastExpr(
             return Tag.null_literal.init();
         },
         .PointerToBoolean => {
-            // @ptrToInt(val) != 0
+            // @intFromPtr(val) != 0
             const ptr_node = try transExpr(c, scope, sub_expr, .used);
-            const ptr_to_int = try Tag.ptr_to_int.create(c.arena, ptr_node);
+            const int_from_ptr = try Tag.int_from_ptr.create(c.arena, ptr_node);
 
-            const ne = try Tag.not_equal.create(c.arena, .{ .lhs = ptr_to_int, .rhs = Tag.zero_literal.init() });
+            const ne = try Tag.not_equal.create(c.arena, .{ .lhs = int_from_ptr, .rhs = Tag.zero_literal.init() });
             return maybeSuppressResult(c, result_used, ne);
         },
         .IntegralToBoolean, .FloatingToBoolean => {
@@ -2334,7 +2334,7 @@ fn transReturnStmt(
     var rhs = try transExprCoercing(c, scope, val_expr, .used);
     const return_qt = scope.findBlockReturnType();
     if (isBoolRes(rhs) and !qualTypeIsBoolean(return_qt)) {
-        rhs = try Tag.bool_to_int.create(c.arena, rhs);
+        rhs = try Tag.int_from_bool.create(c.arena, rhs);
     }
     return Tag.@"return".create(c.arena, rhs);
 }
@@ -2493,7 +2493,7 @@ fn transCCast(
         var src_int_expr = expr;
 
         if (isBoolRes(src_int_expr)) {
-            src_int_expr = try Tag.bool_to_int.create(c.arena, src_int_expr);
+            src_int_expr = try Tag.int_from_bool.create(c.arena, src_int_expr);
             return Tag.as.create(c.arena, .{ .lhs = dst_node, .rhs = src_int_expr });
         }
 
@@ -2521,34 +2521,34 @@ fn transCCast(
         return Tag.bit_cast.create(c.arena, .{ .lhs = dst_node, .rhs = expr });
     }
     if (cIsInteger(dst_type) and qualTypeIsPtr(src_type)) {
-        // @intCast(dest_type, @ptrToInt(val))
-        const ptr_to_int = try Tag.ptr_to_int.create(c.arena, expr);
-        return Tag.int_cast.create(c.arena, .{ .lhs = dst_node, .rhs = ptr_to_int });
+        // @intCast(dest_type, @intFromPtr(val))
+        const int_from_ptr = try Tag.int_from_ptr.create(c.arena, expr);
+        return Tag.int_cast.create(c.arena, .{ .lhs = dst_node, .rhs = int_from_ptr });
     }
     if (cIsInteger(src_type) and qualTypeIsPtr(dst_type)) {
-        // @intToPtr(dest_type, val)
-        return Tag.int_to_ptr.create(c.arena, .{ .lhs = dst_node, .rhs = expr });
+        // @ptrFromInt(dest_type, val)
+        return Tag.ptr_from_int.create(c.arena, .{ .lhs = dst_node, .rhs = expr });
     }
     if (cIsFloating(src_type) and cIsFloating(dst_type)) {
         // @floatCast(dest_type, val)
         return Tag.float_cast.create(c.arena, .{ .lhs = dst_node, .rhs = expr });
     }
     if (cIsFloating(src_type) and !cIsFloating(dst_type)) {
-        // @floatToInt(dest_type, val)
-        return Tag.float_to_int.create(c.arena, .{ .lhs = dst_node, .rhs = expr });
+        // @intFromFloat(dest_type, val)
+        return Tag.int_from_float.create(c.arena, .{ .lhs = dst_node, .rhs = expr });
     }
     if (!cIsFloating(src_type) and cIsFloating(dst_type)) {
         var rhs = expr;
-        if (qualTypeIsBoolean(src_type)) rhs = try Tag.bool_to_int.create(c.arena, expr);
-        // @intToFloat(dest_type, val)
-        return Tag.int_to_float.create(c.arena, .{ .lhs = dst_node, .rhs = rhs });
+        if (qualTypeIsBoolean(src_type)) rhs = try Tag.int_from_bool.create(c.arena, expr);
+        // @floatFromInt(dest_type, val)
+        return Tag.float_from_int.create(c.arena, .{ .lhs = dst_node, .rhs = rhs });
     }
     if (qualTypeIsBoolean(src_type) and !qualTypeIsBoolean(dst_type)) {
-        // @boolToInt returns either a comptime_int or a u1
+        // @intFromBool returns a u1
         // TODO: if dst_type is 1 bit & signed (bitfield) we need @bitCast
         // instead of @as
-        const bool_to_int = try Tag.bool_to_int.create(c.arena, expr);
-        return Tag.as.create(c.arena, .{ .lhs = dst_node, .rhs = bool_to_int });
+        const int_from_bool = try Tag.int_from_bool.create(c.arena, expr);
+        return Tag.as.create(c.arena, .{ .lhs = dst_node, .rhs = int_from_bool });
     }
     // @as(dest_type, val)
     return Tag.as.create(c.arena, .{ .lhs = dst_node, .rhs = expr });
@@ -3642,7 +3642,7 @@ fn transCallExpr(c: *Context, scope: *Scope, stmt: *const clang.CallExpr, result
                     if (i < param_count) {
                         const param_qt = fn_proto.getParamType(@intCast(c_uint, i));
                         if (isBoolRes(arg) and cIsNativeInt(param_qt)) {
-                            arg = try Tag.bool_to_int.create(c.arena, arg);
+                            arg = try Tag.int_from_bool.create(c.arena, arg);
                         } else if (arg.tag() == .string_literal and qualTypeIsCharStar(param_qt)) {
                             const loc = @ptrCast(*const clang.Stmt, stmt).getBeginLoc();
                             const dst_type_node = try transQualType(c, scope, param_qt, loc);
@@ -3774,7 +3774,7 @@ fn transUnaryOperator(c: *Context, scope: *Scope, stmt: *const clang.UnaryOperat
                 const sub_expr_node = try transExpr(c, scope, op_expr, .used);
                 const to_negate = if (isBoolRes(sub_expr_node)) blk: {
                     const ty_node = try Tag.type.create(c.arena, "c_int");
-                    const int_node = try Tag.bool_to_int.create(c.arena, sub_expr_node);
+                    const int_node = try Tag.int_from_bool.create(c.arena, sub_expr_node);
                     break :blk try Tag.as.create(c.arena, .{ .lhs = ty_node, .rhs = int_node });
                 } else sub_expr_node;
                 return Tag.negate.create(c.arena, to_negate);
@@ -4028,8 +4028,8 @@ fn transCreateCompoundAssign(
 
 // Casting away const or volatile requires us to use @intToPtr
 fn removeCVQualifiers(c: *Context, dst_type_node: Node, expr: Node) Error!Node {
-    const ptr_to_int = try Tag.ptr_to_int.create(c.arena, expr);
-    return Tag.int_to_ptr.create(c.arena, .{ .lhs = dst_type_node, .rhs = ptr_to_int });
+    const int_from_ptr = try Tag.int_from_ptr.create(c.arena, expr);
+    return Tag.ptr_from_int.create(c.arena, .{ .lhs = dst_type_node, .rhs = int_from_ptr });
 }
 
 fn transCPtrCast(
@@ -4132,12 +4132,12 @@ fn transBinaryConditionalOperator(c: *Context, scope: *Scope, stmt: *const clang
     const cond_node = try finishBoolExpr(c, &cond_scope.base, cond_expr.getBeginLoc(), ty, cond_ident, .used);
     var then_body = cond_ident;
     if (!res_is_bool and isBoolRes(init_node)) {
-        then_body = try Tag.bool_to_int.create(c.arena, then_body);
+        then_body = try Tag.int_from_bool.create(c.arena, then_body);
     }
 
     var else_body = try transExpr(c, &block_scope.base, false_expr, .used);
     if (!res_is_bool and isBoolRes(else_body)) {
-        else_body = try Tag.bool_to_int.create(c.arena, else_body);
+        else_body = try Tag.int_from_bool.create(c.arena, else_body);
     }
     const if_node = try Tag.@"if".create(c.arena, .{
         .cond = cond_node,
@@ -4173,12 +4173,12 @@ fn transConditionalOperator(c: *Context, scope: *Scope, stmt: *const clang.Condi
 
     var then_body = try transExpr(c, scope, true_expr, used);
     if (!res_is_bool and isBoolRes(then_body)) {
-        then_body = try Tag.bool_to_int.create(c.arena, then_body);
+        then_body = try Tag.int_from_bool.create(c.arena, then_body);
     }
 
     var else_body = try transExpr(c, scope, false_expr, used);
     if (!res_is_bool and isBoolRes(else_body)) {
-        else_body = try Tag.bool_to_int.create(c.arena, else_body);
+        else_body = try Tag.int_from_bool.create(c.arena, else_body);
     }
 
     const if_node = try Tag.@"if".create(c.arena, .{
@@ -4556,7 +4556,7 @@ fn transCreateNodeAssign(
         const lhs_node = try transExpr(c, scope, lhs, .used);
         var rhs_node = try transExprCoercing(c, scope, rhs, .used);
         if (!exprIsBooleanType(lhs) and isBoolRes(rhs_node)) {
-            rhs_node = try Tag.bool_to_int.create(c.arena, rhs_node);
+            rhs_node = try Tag.int_from_bool.create(c.arena, rhs_node);
         }
         return transCreateNodeInfixOp(c, .assign, lhs_node, rhs_node, .used);
     }
@@ -4574,7 +4574,7 @@ fn transCreateNodeAssign(
     const tmp = try block_scope.reserveMangledName(c, "tmp");
     var rhs_node = try transExpr(c, &block_scope.base, rhs, .used);
     if (!exprIsBooleanType(lhs) and isBoolRes(rhs_node)) {
-        rhs_node = try Tag.bool_to_int.create(c.arena, rhs_node);
+        rhs_node = try Tag.int_from_bool.create(c.arena, rhs_node);
     }
 
     const tmp_decl = try Tag.var_simple.create(c.arena, .{ .name = tmp, .init = rhs_node });
@@ -6092,7 +6092,7 @@ fn macroBoolToInt(c: *Context, node: Node) !Node {
         return node;
     }
 
-    return Tag.bool_to_int.create(c.arena, node);
+    return Tag.int_from_bool.create(c.arena, node);
 }
 
 fn macroIntToBool(c: *Context, node: Node) !Node {

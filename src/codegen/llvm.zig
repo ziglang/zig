@@ -4417,7 +4417,7 @@ pub const FuncGen = struct {
                 .ret_ptr        => try self.airRetPtr(inst),
                 .arg            => try self.airArg(inst),
                 .bitcast        => try self.airBitCast(inst),
-                .bool_to_int    => try self.airBoolToInt(inst),
+                .int_from_bool    => try self.airIntFromBool(inst),
                 .block          => try self.airBlock(inst),
                 .br             => try self.airBr(inst),
                 .switch_br      => try self.airSwitchBr(inst),
@@ -4432,7 +4432,7 @@ pub const FuncGen = struct {
                 .trunc          => try self.airTrunc(inst),
                 .fptrunc        => try self.airFptrunc(inst),
                 .fpext          => try self.airFpext(inst),
-                .ptrtoint       => try self.airPtrToInt(inst),
+                .int_from_ptr       => try self.airIntFromPtr(inst),
                 .load           => try self.airLoad(body[i..]),
                 .loop           => try self.airLoop(inst),
                 .not            => try self.airNot(inst),
@@ -4452,11 +4452,11 @@ pub const FuncGen = struct {
                 .ptr_slice_ptr_ptr => try self.airPtrSliceFieldPtr(inst, 0),
                 .ptr_slice_len_ptr => try self.airPtrSliceFieldPtr(inst, 1),
 
-                .float_to_int           => try self.airFloatToInt(inst, false),
-                .float_to_int_optimized => try self.airFloatToInt(inst, true),
+                .int_from_float           => try self.airIntFromFloat(inst, false),
+                .int_from_float_optimized => try self.airIntFromFloat(inst, true),
 
                 .array_to_slice => try self.airArrayToSlice(inst),
-                .int_to_float   => try self.airIntToFloat(inst),
+                .float_from_int   => try self.airFloatFromInt(inst),
                 .cmpxchg_weak   => try self.airCmpxchg(inst, true),
                 .cmpxchg_strong => try self.airCmpxchg(inst, false),
                 .fence          => try self.airFence(inst),
@@ -5456,7 +5456,7 @@ pub const FuncGen = struct {
         return self.builder.buildInsertValue(partial, len, 1, "");
     }
 
-    fn airIntToFloat(self: *FuncGen, inst: Air.Inst.Index) !?*llvm.Value {
+    fn airFloatFromInt(self: *FuncGen, inst: Air.Inst.Index) !?*llvm.Value {
         const mod = self.dg.module;
         const ty_op = self.air.instructions.items(.data)[inst].ty_op;
 
@@ -5513,7 +5513,7 @@ pub const FuncGen = struct {
         return self.builder.buildCall(libc_fn.globalGetValueType(), libc_fn, &params, params.len, .C, .Auto, "");
     }
 
-    fn airFloatToInt(self: *FuncGen, inst: Air.Inst.Index, want_fast_math: bool) !?*llvm.Value {
+    fn airIntFromFloat(self: *FuncGen, inst: Air.Inst.Index, want_fast_math: bool) !?*llvm.Value {
         self.builder.setFastMath(want_fast_math);
 
         const mod = self.dg.module;
@@ -7788,7 +7788,7 @@ pub const FuncGen = struct {
         }
     }
 
-    fn airPtrToInt(self: *FuncGen, inst: Air.Inst.Index) !?*llvm.Value {
+    fn airIntFromPtr(self: *FuncGen, inst: Air.Inst.Index) !?*llvm.Value {
         const un_op = self.air.instructions.items(.data)[inst].un_op;
         const operand = try self.resolveInst(un_op);
         const ptr_ty = self.typeOf(un_op);
@@ -7922,7 +7922,7 @@ pub const FuncGen = struct {
         return self.builder.buildBitCast(operand, llvm_dest_ty, "");
     }
 
-    fn airBoolToInt(self: *FuncGen, inst: Air.Inst.Index) !?*llvm.Value {
+    fn airIntFromBool(self: *FuncGen, inst: Air.Inst.Index) !?*llvm.Value {
         const un_op = self.air.instructions.items(.data)[inst].un_op;
         const operand = try self.resolveInst(un_op);
         return operand;

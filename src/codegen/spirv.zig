@@ -1721,9 +1721,9 @@ pub const DeclGen = struct {
 
             .bitcast         => try self.airBitCast(inst),
             .intcast, .trunc => try self.airIntCast(inst),
-            .ptrtoint        => try self.airPtrToInt(inst),
-            .int_to_float    => try self.airIntToFloat(inst),
-            .float_to_int    => try self.airFloatToInt(inst),
+            .int_from_ptr        => try self.airIntFromPtr(inst),
+            .float_from_int    => try self.airFloatFromInt(inst),
+            .int_from_float    => try self.airIntFromFloat(inst),
             .not             => try self.airNot(inst),
 
             .slice_ptr      => try self.airSliceField(inst, 0),
@@ -2329,7 +2329,7 @@ pub const DeclGen = struct {
         return result_id;
     }
 
-    fn airPtrToInt(self: *DeclGen, inst: Air.Inst.Index) !?IdRef {
+    fn airIntFromPtr(self: *DeclGen, inst: Air.Inst.Index) !?IdRef {
         if (self.liveness.isUnused(inst)) return null;
 
         const un_op = self.air.instructions.items(.data)[inst].un_op;
@@ -2345,7 +2345,7 @@ pub const DeclGen = struct {
         return result_id;
     }
 
-    fn airIntToFloat(self: *DeclGen, inst: Air.Inst.Index) !?IdRef {
+    fn airFloatFromInt(self: *DeclGen, inst: Air.Inst.Index) !?IdRef {
         if (self.liveness.isUnused(inst)) return null;
 
         const ty_op = self.air.instructions.items(.data)[inst].ty_op;
@@ -2371,7 +2371,7 @@ pub const DeclGen = struct {
         return result_id;
     }
 
-    fn airFloatToInt(self: *DeclGen, inst: Air.Inst.Index) !?IdRef {
+    fn airIntFromFloat(self: *DeclGen, inst: Air.Inst.Index) !?IdRef {
         if (self.liveness.isUnused(inst)) return null;
 
         const ty_op = self.air.instructions.items(.data)[inst].ty_op;

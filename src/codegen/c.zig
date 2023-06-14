@@ -2943,7 +2943,7 @@ fn genBodyInner(f: *Function, body: []const Air.Inst.Index) error{ AnalysisFail,
             .dbg_stmt         => try airDbgStmt(f, inst),
             .intcast          => try airIntCast(f, inst),
             .trunc            => try airTrunc(f, inst),
-            .bool_to_int      => try airBoolToInt(f, inst),
+            .int_from_bool      => try airIntFromBool(f, inst),
             .load             => try airLoad(f, inst),
             .ret              => try airRet(f, inst, false),
             .ret_load         => try airRet(f, inst, true),
@@ -3000,13 +3000,13 @@ fn genBodyInner(f: *Function, body: []const Air.Inst.Index) error{ AnalysisFail,
             .call_never_tail   => try airCall(f, inst, .never_tail),
             .call_never_inline => try airCall(f, inst, .never_inline),
 
-            .int_to_float,
-            .float_to_int,
+            .float_from_int,
+            .int_from_float,
             .fptrunc,
             .fpext,
             => try airFloatCast(f, inst),
 
-            .ptrtoint => try airPtrToInt(f, inst),
+            .int_from_ptr => try airIntFromPtr(f, inst),
 
             .atomic_store_unordered => try airAtomicStore(f, inst, toMemoryOrder(.Unordered)),
             .atomic_store_monotonic => try airAtomicStore(f, inst, toMemoryOrder(.Monotonic)),
@@ -3068,7 +3068,7 @@ fn genBodyInner(f: *Function, body: []const Air.Inst.Index) error{ AnalysisFail,
             .cmp_neq_optimized,
             .cmp_vector_optimized,
             .reduce_optimized,
-            .float_to_int_optimized,
+            .int_from_float_optimized,
             => return f.fail("TODO implement optimized float mode", .{}),
 
             .is_named_enum_value => return f.fail("TODO: C backend: implement is_named_enum_value", .{}),
@@ -3562,7 +3562,7 @@ fn airTrunc(f: *Function, inst: Air.Inst.Index) !CValue {
     return local;
 }
 
-fn airBoolToInt(f: *Function, inst: Air.Inst.Index) !CValue {
+fn airIntFromBool(f: *Function, inst: Air.Inst.Index) !CValue {
     const un_op = f.air.instructions.items(.data)[inst].un_op;
     const operand = try f.resolveInst(un_op);
     try reap(f, inst, &.{un_op});
@@ -5834,7 +5834,7 @@ fn airFloatCast(f: *Function, inst: Air.Inst.Index) !CValue {
     return local;
 }
 
-fn airPtrToInt(f: *Function, inst: Air.Inst.Index) !CValue {
+fn airIntFromPtr(f: *Function, inst: Air.Inst.Index) !CValue {
     const mod = f.object.dg.module;
     const un_op = f.air.instructions.items(.data)[inst].un_op;
 

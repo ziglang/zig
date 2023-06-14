@@ -1396,6 +1396,26 @@ fn renderBuiltinCall(
         try ais.writer().writeAll("@max");
     } else if (mem.eql(u8, slice, "@minimum")) {
         try ais.writer().writeAll("@min");
+    }
+    //
+    else if (mem.eql(u8, slice, "@boolToInt")) {
+        try ais.writer().writeAll("@intFromBool");
+    } else if (mem.eql(u8, slice, "@enumToInt")) {
+        try ais.writer().writeAll("@intFromEnum");
+    } else if (mem.eql(u8, slice, "@errorToInt")) {
+        try ais.writer().writeAll("@intFromError");
+    } else if (mem.eql(u8, slice, "@floatToInt")) {
+        try ais.writer().writeAll("@intFromFloat");
+    } else if (mem.eql(u8, slice, "@intToEnum")) {
+        try ais.writer().writeAll("@enumFromInt");
+    } else if (mem.eql(u8, slice, "@intToError")) {
+        try ais.writer().writeAll("@errorFromInt");
+    } else if (mem.eql(u8, slice, "@intToFloat")) {
+        try ais.writer().writeAll("@floatFromInt");
+    } else if (mem.eql(u8, slice, "@intToPtr")) {
+        try ais.writer().writeAll("@ptrFromInt");
+    } else if (mem.eql(u8, slice, "@ptrToInt")) {
+        try ais.writer().writeAll("@intFromPtr");
     } else {
         try renderToken(ais, tree, builtin_token, .none); // @name
     }

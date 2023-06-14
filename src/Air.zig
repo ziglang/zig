@@ -478,11 +478,11 @@ pub const Inst = struct {
         /// Converts a pointer to its address. Result type is always `usize`.
         /// Pointer type size may be any, including slice.
         /// Uses the `un_op` field.
-        ptrtoint,
+        int_from_ptr,
         /// Given a boolean, returns 0 or 1.
         /// Result type is always `u1`.
         /// Uses the `un_op` field.
-        bool_to_int,
+        int_from_bool,
         /// Return a value from a function.
         /// Result type is always noreturn; no instructions in a block follow this one.
         /// Uses the `un_op` field.
@@ -629,12 +629,12 @@ pub const Inst = struct {
         array_to_slice,
         /// Given a float operand, return the integer with the closest mathematical meaning.
         /// Uses the `ty_op` field.
-        float_to_int,
-        /// Same as `float_to_int` with optimized float mode.
-        float_to_int_optimized,
+        int_from_float,
+        /// Same as `int_from_float` with optimized float mode.
+        int_from_float_optimized,
         /// Given an integer operand, return the float with the closest mathematical meaning.
         /// Uses the `ty_op` field.
-        int_to_float,
+        float_from_int,
 
         /// Transforms a vector into a scalar value by performing a sequential
         /// horizontal reduction of its elements using the specified operator.
@@ -1337,9 +1337,9 @@ pub fn typeOfIndex(air: Air, inst: Air.Inst.Index, ip: *const InternPool) Type {
         .struct_field_ptr_index_2,
         .struct_field_ptr_index_3,
         .array_to_slice,
-        .float_to_int,
-        .float_to_int_optimized,
-        .int_to_float,
+        .int_from_float,
+        .int_from_float_optimized,
+        .float_from_int,
         .splat,
         .get_union_tag,
         .clz,
@@ -1387,7 +1387,7 @@ pub fn typeOfIndex(air: Air, inst: Air.Inst.Index, ip: *const InternPool) Type {
         .c_va_end,
         => return Type.void,
 
-        .ptrtoint,
+        .int_from_ptr,
         .slice_len,
         .ret_addr,
         .frame_addr,
@@ -1397,7 +1397,7 @@ pub fn typeOfIndex(air: Air, inst: Air.Inst.Index, ip: *const InternPool) Type {
         .wasm_memory_grow => return Type.i32,
         .wasm_memory_size => return Type.u32,
 
-        .bool_to_int => return Type.u1,
+        .int_from_bool => return Type.u1,
 
         .tag_name, .error_name => return Type.slice_const_u8_sentinel_0,
 
@@ -1687,8 +1687,8 @@ pub fn mustLower(air: Air, inst: Air.Inst.Index, ip: *const InternPool) bool {
         .is_non_err_ptr,
         .bool_and,
         .bool_or,
-        .ptrtoint,
-        .bool_to_int,
+        .int_from_ptr,
+        .int_from_bool,
         .fptrunc,
         .fpext,
         .intcast,
@@ -1718,9 +1718,9 @@ pub fn mustLower(air: Air, inst: Air.Inst.Index, ip: *const InternPool) bool {
         .slice_elem_ptr,
         .ptr_elem_ptr,
         .array_to_slice,
-        .float_to_int,
-        .float_to_int_optimized,
-        .int_to_float,
+        .int_from_float,
+        .int_from_float_optimized,
+        .float_from_int,
         .reduce,
         .reduce_optimized,
         .splat,

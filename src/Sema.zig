@@ -961,8 +961,8 @@ fn analyzeBodyInner(
             .elem_val_node                => try sema.zirElemValNode(block, inst),
             .elem_type_index              => try sema.zirElemTypeIndex(block, inst),
             .enum_literal                 => try sema.zirEnumLiteral(block, inst),
-            .enum_to_int                  => try sema.zirEnumToInt(block, inst),
-            .int_to_enum                  => try sema.zirIntToEnum(block, inst),
+            .int_from_enum                  => try sema.zirIntFromEnum(block, inst),
+            .enum_from_int                  => try sema.zirEnumFromInt(block, inst),
             .err_union_code               => try sema.zirErrUnionCode(block, inst),
             .err_union_code_ptr           => try sema.zirErrUnionCodePtr(block, inst),
             .err_union_payload_unsafe     => try sema.zirErrUnionPayload(block, inst),
@@ -1028,18 +1028,18 @@ fn analyzeBodyInner(
             .union_init                   => try sema.zirUnionInit(block, inst),
             .field_type                   => try sema.zirFieldType(block, inst),
             .field_type_ref               => try sema.zirFieldTypeRef(block, inst),
-            .ptr_to_int                   => try sema.zirPtrToInt(block, inst),
+            .int_from_ptr                   => try sema.zirIntFromPtr(block, inst),
             .align_of                     => try sema.zirAlignOf(block, inst),
-            .bool_to_int                  => try sema.zirBoolToInt(block, inst),
+            .int_from_bool                  => try sema.zirIntFromBool(block, inst),
             .embed_file                   => try sema.zirEmbedFile(block, inst),
             .error_name                   => try sema.zirErrorName(block, inst),
             .tag_name                     => try sema.zirTagName(block, inst),
             .type_name                    => try sema.zirTypeName(block, inst),
             .frame_type                   => try sema.zirFrameType(block, inst),
             .frame_size                   => try sema.zirFrameSize(block, inst),
-            .float_to_int                 => try sema.zirFloatToInt(block, inst),
-            .int_to_float                 => try sema.zirIntToFloat(block, inst),
-            .int_to_ptr                   => try sema.zirIntToPtr(block, inst),
+            .int_from_float                 => try sema.zirIntFromFloat(block, inst),
+            .float_from_int                 => try sema.zirFloatFromInt(block, inst),
+            .ptr_from_int                   => try sema.zirPtrFromInt(block, inst),
             .float_cast                   => try sema.zirFloatCast(block, inst),
             .int_cast                     => try sema.zirIntCast(block, inst),
             .ptr_cast                     => try sema.zirPtrCast(block, inst),
@@ -1167,8 +1167,8 @@ fn analyzeBodyInner(
                     .err_set_cast          => try sema.zirErrSetCast(        block, extended),
                     .await_nosuspend       => try sema.zirAwaitNosuspend(    block, extended),
                     .select                => try sema.zirSelect(            block, extended),
-                    .error_to_int          => try sema.zirErrorToInt(        block, extended),
-                    .int_to_error          => try sema.zirIntToError(        block, extended),
+                    .int_from_error          => try sema.zirIntFromError(        block, extended),
+                    .error_from_int          => try sema.zirErrorFromInt(        block, extended),
                     .reify                 => try sema.zirReify(             block, extended, inst),
                     .builtin_async_call    => try sema.zirBuiltinAsyncCall(  block, extended),
                     .cmpxchg               => try sema.zirCmpxchg(           block, extended),
@@ -8116,7 +8116,7 @@ fn zirErrorValue(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!
     } })).toValue());
 }
 
-fn zirErrorToInt(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstData) CompileError!Air.Inst.Ref {
+fn zirIntFromError(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstData) CompileError!Air.Inst.Ref {
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -8156,7 +8156,7 @@ fn zirErrorToInt(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstDat
     return block.addBitCast(Type.err_int, operand);
 }
 
-fn zirIntToError(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstData) CompileError!Air.Inst.Ref {
+fn zirErrorFromInt(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstData) CompileError!Air.Inst.Ref {
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -8258,7 +8258,7 @@ fn zirEnumLiteral(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
     })).toValue());
 }
 
-fn zirEnumToInt(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
+fn zirIntFromEnum(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
     const mod = sema.mod;
     const inst_data = sema.code.instructions.items(.data)[inst].un_node;
     const src = inst_data.src();
@@ -8303,7 +8303,7 @@ fn zirEnumToInt(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!A
     return block.addBitCast(int_tag_ty, enum_tag);
 }
 
-fn zirIntToEnum(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
+fn zirEnumFromInt(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
     const mod = sema.mod;
     const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
     const extra = sema.code.extraData(Zir.Inst.Bin, inst_data.payload_index).data;
@@ -9518,7 +9518,7 @@ fn analyzeAs(
     };
 }
 
-fn zirPtrToInt(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
+fn zirIntFromPtr(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -9537,7 +9537,7 @@ fn zirPtrToInt(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
         );
     }
     try sema.requireRuntimeBlock(block, inst_data.src(), ptr_src);
-    return block.addUnOp(.ptrtoint, ptr);
+    return block.addUnOp(.int_from_ptr, ptr);
 }
 
 fn zirFieldVal(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
@@ -19426,7 +19426,7 @@ fn zirAlignOf(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
     return sema.addConstant(Type.comptime_int, val);
 }
 
-fn zirBoolToInt(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
+fn zirIntFromBool(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
     const mod = sema.mod;
     const inst_data = sema.code.instructions.items(.data)[inst].un_node;
     const operand = try sema.resolveInst(inst_data.operand);
@@ -19435,7 +19435,7 @@ fn zirBoolToInt(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!A
         if (val.toBool()) return sema.addConstant(Type.u1, try mod.intValue(Type.u1, 1));
         return sema.addConstant(Type.u1, try mod.intValue(Type.u1, 0));
     }
-    return block.addUnOp(.bool_to_int, operand);
+    return block.addUnOp(.int_from_bool, operand);
 }
 
 fn zirErrorName(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
@@ -20748,7 +20748,7 @@ fn zirFrameSize(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!A
     return sema.failWithUseOfAsync(block, src);
 }
 
-fn zirFloatToInt(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
+fn zirIntFromFloat(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
     const mod = sema.mod;
     const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
     const extra = sema.code.extraData(Zir.Inst.Bin, inst_data.payload_index).data;
@@ -20776,9 +20776,9 @@ fn zirFloatToInt(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!
         }
         return sema.addConstant(dest_ty, try mod.intValue(dest_ty, 0));
     }
-    const result = try block.addTyOp(if (block.float_mode == .Optimized) .float_to_int_optimized else .float_to_int, dest_ty, operand);
+    const result = try block.addTyOp(if (block.float_mode == .Optimized) .int_from_float_optimized else .int_from_float, dest_ty, operand);
     if (block.wantSafety()) {
-        const back = try block.addTyOp(.int_to_float, operand_ty, result);
+        const back = try block.addTyOp(.float_from_int, operand_ty, result);
         const diff = try block.addBinOp(.sub, operand, back);
         const ok_pos = try block.addBinOp(if (block.float_mode == .Optimized) .cmp_lt_optimized else .cmp_lt, diff, try sema.addConstant(operand_ty, try mod.floatValue(operand_ty, 1.0)));
         const ok_neg = try block.addBinOp(if (block.float_mode == .Optimized) .cmp_gt_optimized else .cmp_gt, diff, try sema.addConstant(operand_ty, try mod.floatValue(operand_ty, -1.0)));
@@ -20788,7 +20788,7 @@ fn zirFloatToInt(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!
     return result;
 }
 
-fn zirIntToFloat(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
+fn zirFloatFromInt(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
     const mod = sema.mod;
     const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
     const extra = sema.code.extraData(Zir.Inst.Bin, inst_data.payload_index).data;
@@ -20809,10 +20809,10 @@ fn zirIntToFloat(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!
     }
 
     try sema.requireRuntimeBlock(block, inst_data.src(), operand_src);
-    return block.addTyOp(.int_to_float, dest_ty, operand);
+    return block.addTyOp(.float_from_int, dest_ty, operand);
 }
 
-fn zirIntToPtr(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
+fn zirPtrFromInt(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
     const mod = sema.mod;
     const inst_data = sema.code.instructions.items(.data)[inst].pl_node;
     const src = inst_data.src();
@@ -21084,7 +21084,7 @@ fn zirPtrCast(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
     if (block.wantSafety() and operand_ty.ptrAllowsZero(mod) and !dest_ty.ptrAllowsZero(mod) and
         (try sema.typeHasRuntimeBits(dest_ty.elemType2(mod)) or dest_ty.elemType2(mod).zigTypeTag(mod) == .Fn))
     {
-        const ptr_int = try block.addUnOp(.ptrtoint, ptr);
+        const ptr_int = try block.addUnOp(.int_from_ptr, ptr);
         const is_non_zero = try block.addBinOp(.cmp_neq, ptr_int, .zero_usize);
         const ok = if (operand_is_slice) ok: {
             const len = try sema.analyzeSliceLen(block, operand_src, operand);
@@ -21265,7 +21265,7 @@ fn zirAlignCast(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!A
             try sema.analyzeSlicePtr(block, ptr_src, ptr, ptr_ty)
         else
             ptr;
-        const ptr_int = try block.addUnOp(.ptrtoint, actual_ptr);
+        const ptr_int = try block.addUnOp(.int_from_ptr, actual_ptr);
         const remainder = try block.addBinOp(.bit_and, ptr_int, align_minus_1);
         const is_aligned = try block.addBinOp(.cmp_eq, remainder, .zero_usize);
         const ok = if (ptr_ty.isSlice(mod)) ok: {
@@ -29504,7 +29504,7 @@ fn coerceCompatiblePtrs(
             try sema.analyzeSlicePtr(block, inst_src, inst, inst_ty)
         else
             inst;
-        const ptr_int = try block.addUnOp(.ptrtoint, actual_ptr);
+        const ptr_int = try block.addUnOp(.int_from_ptr, actual_ptr);
         const is_non_zero = try block.addBinOp(.cmp_neq, ptr_int, .zero_usize);
         const ok = if (inst_ty.isSlice(mod)) ok: {
             const len = try sema.analyzeSliceLen(block, inst_src, inst);

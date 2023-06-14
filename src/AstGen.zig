@@ -2626,15 +2626,15 @@ fn addEnsureResult(gz: *GenZir, maybe_unused_result: Zir.Inst.Ref, statement: As
             .error_set_decl,
             .error_set_decl_anon,
             .error_set_decl_func,
-            .int_to_enum,
-            .enum_to_int,
+            .enum_from_int,
+            .int_from_enum,
             .type_info,
             .size_of,
             .bit_size_of,
             .typeof_log2_int_type,
-            .ptr_to_int,
+            .int_from_ptr,
             .align_of,
-            .bool_to_int,
+            .int_from_bool,
             .embed_file,
             .error_name,
             .sqrt,
@@ -2655,9 +2655,9 @@ fn addEnsureResult(gz: *GenZir, maybe_unused_result: Zir.Inst.Ref, statement: As
             .type_name,
             .frame_type,
             .frame_size,
-            .float_to_int,
-            .int_to_float,
-            .int_to_ptr,
+            .int_from_float,
+            .float_from_int,
+            .ptr_from_int,
             .float_cast,
             .int_cast,
             .ptr_cast,
@@ -8281,11 +8281,11 @@ fn builtinCall(
         .bit_size_of => return simpleUnOpType(gz, scope, ri, node, params[0], .bit_size_of),
         .align_of    => return simpleUnOpType(gz, scope, ri, node, params[0], .align_of),
 
-        .ptr_to_int            => return simpleUnOp(gz, scope, ri, node, .{ .rl = .none },                           params[0], .ptr_to_int),
+        .int_from_ptr            => return simpleUnOp(gz, scope, ri, node, .{ .rl = .none },                           params[0], .int_from_ptr),
         .compile_error         => return simpleUnOp(gz, scope, ri, node, .{ .rl = .{ .ty = .slice_const_u8_type } }, params[0], .compile_error),
         .set_eval_branch_quota => return simpleUnOp(gz, scope, ri, node, .{ .rl = .{ .coerced_ty = .u32_type } },    params[0], .set_eval_branch_quota),
-        .enum_to_int           => return simpleUnOp(gz, scope, ri, node, .{ .rl = .none },                           params[0], .enum_to_int),
-        .bool_to_int           => return simpleUnOp(gz, scope, ri, node, bool_ri,                                    params[0], .bool_to_int),
+        .int_from_enum           => return simpleUnOp(gz, scope, ri, node, .{ .rl = .none },                           params[0], .int_from_enum),
+        .int_from_bool           => return simpleUnOp(gz, scope, ri, node, bool_ri,                                    params[0], .int_from_bool),
         .embed_file            => return simpleUnOp(gz, scope, ri, node, .{ .rl = .{ .ty = .slice_const_u8_type } }, params[0], .embed_file),
         .error_name            => return simpleUnOp(gz, scope, ri, node, .{ .rl = .{ .ty = .anyerror_type } },       params[0], .error_name),
         .set_runtime_safety    => return simpleUnOp(gz, scope, ri, node, bool_ri,                                    params[0], .set_runtime_safety),
@@ -8308,10 +8308,10 @@ fn builtinCall(
         .Frame                 => return simpleUnOp(gz, scope, ri, node, .{ .rl = .none },                           params[0], .frame_type),
         .frame_size            => return simpleUnOp(gz, scope, ri, node, .{ .rl = .none },                           params[0], .frame_size),
 
-        .float_to_int => return typeCast(gz, scope, ri, node, params[0], params[1], .float_to_int),
-        .int_to_float => return typeCast(gz, scope, ri, node, params[0], params[1], .int_to_float),
-        .int_to_ptr   => return typeCast(gz, scope, ri, node, params[0], params[1], .int_to_ptr),
-        .int_to_enum  => return typeCast(gz, scope, ri, node, params[0], params[1], .int_to_enum),
+        .int_from_float => return typeCast(gz, scope, ri, node, params[0], params[1], .int_from_float),
+        .float_from_int => return typeCast(gz, scope, ri, node, params[0], params[1], .float_from_int),
+        .ptr_from_int   => return typeCast(gz, scope, ri, node, params[0], params[1], .ptr_from_int),
+        .enum_from_int  => return typeCast(gz, scope, ri, node, params[0], params[1], .enum_from_int),
         .float_cast   => return typeCast(gz, scope, ri, node, params[0], params[1], .float_cast),
         .int_cast     => return typeCast(gz, scope, ri, node, params[0], params[1], .int_cast),
         .ptr_cast     => return typeCast(gz, scope, ri, node, params[0], params[1], .ptr_cast),
@@ -8352,17 +8352,17 @@ fn builtinCall(
             _ = try gz.addNode(.trap, node);
             return rvalue(gz, ri, .unreachable_value, node);
         },
-        .error_to_int => {
+        .int_from_error => {
             const operand = try expr(gz, scope, .{ .rl = .none }, params[0]);
-            const result = try gz.addExtendedPayload(.error_to_int, Zir.Inst.UnNode{
+            const result = try gz.addExtendedPayload(.int_from_error, Zir.Inst.UnNode{
                 .node = gz.nodeIndexToRelative(node),
                 .operand = operand,
             });
             return rvalue(gz, ri, result, node);
         },
-        .int_to_error => {
+        .error_from_int => {
             const operand = try expr(gz, scope, .{ .rl = .{ .coerced_ty = .u16_type } }, params[0]);
-            const result = try gz.addExtendedPayload(.int_to_error, Zir.Inst.UnNode{
+            const result = try gz.addExtendedPayload(.error_from_int, Zir.Inst.UnNode{
                 .node = gz.nodeIndexToRelative(node),
                 .operand = operand,
             });
@@ -8769,7 +8769,7 @@ fn simpleUnOp(
     else
         try expr(gz, scope, operand_ri, operand_node);
     switch (tag) {
-        .tag_name, .error_name, .ptr_to_int => try emitDbgStmt(gz, cursor),
+        .tag_name, .error_name, .int_from_ptr => try emitDbgStmt(gz, cursor),
         else => {},
     }
     const result = try gz.addUnNode(tag, operand, node);

@@ -128,8 +128,8 @@ pub const Node = extern union {
         signed_remainder,
         /// @divTrunc(lhs, rhs)
         div_trunc,
-        /// @boolToInt(operand)
-        bool_to_int,
+        /// @intFromBool(operand)
+        int_from_bool,
         /// @as(lhs, rhs)
         as,
         /// @truncate(lhs, rhs)
@@ -138,14 +138,14 @@ pub const Node = extern union {
         bit_cast,
         /// @floatCast(lhs, rhs)
         float_cast,
-        /// @floatToInt(lhs, rhs)
-        float_to_int,
-        /// @intToFloat(lhs, rhs)
-        int_to_float,
-        /// @intToPtr(lhs, rhs)
-        int_to_ptr,
-        /// @ptrToInt(operand)
-        ptr_to_int,
+        /// @intFromFloat(lhs, rhs)
+        int_from_float,
+        /// @floatFromInt(lhs, rhs)
+        float_from_int,
+        /// @ptrFromInt(lhs, rhs)
+        ptr_from_int,
+        /// @intFromPtr(operand)
+        int_from_ptr,
         /// @alignCast(lhs, rhs)
         align_cast,
         /// @ptrCast(lhs, rhs)
@@ -263,7 +263,7 @@ pub const Node = extern union {
                 .address_of,
                 .unwrap,
                 .deref,
-                .ptr_to_int,
+                .int_from_ptr,
                 .empty_array,
                 .while_true,
                 .if_not_break,
@@ -271,7 +271,7 @@ pub const Node = extern union {
                 .block_single,
                 .helpers_sizeof,
                 .std_meta_alignment,
-                .bool_to_int,
+                .int_from_bool,
                 .sizeof,
                 .alignof,
                 .typeof,
@@ -319,9 +319,9 @@ pub const Node = extern union {
                 .truncate,
                 .bit_cast,
                 .float_cast,
-                .float_to_int,
-                .int_to_float,
-                .int_to_ptr,
+                .int_from_float,
+                .float_from_int,
+                .ptr_from_int,
                 .array_cat,
                 .ellipsis3,
                 .assign,
@@ -1355,9 +1355,9 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
             const payload = node.castTag(.div_trunc).?.data;
             return renderBuiltinCall(c, "@divTrunc", &.{ payload.lhs, payload.rhs });
         },
-        .bool_to_int => {
-            const payload = node.castTag(.bool_to_int).?.data;
-            return renderBuiltinCall(c, "@boolToInt", &.{payload});
+        .int_from_bool => {
+            const payload = node.castTag(.int_from_bool).?.data;
+            return renderBuiltinCall(c, "@intFromBool", &.{payload});
         },
         .as => {
             const payload = node.castTag(.as).?.data;
@@ -1375,21 +1375,21 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
             const payload = node.castTag(.float_cast).?.data;
             return renderBuiltinCall(c, "@floatCast", &.{ payload.lhs, payload.rhs });
         },
-        .float_to_int => {
-            const payload = node.castTag(.float_to_int).?.data;
-            return renderBuiltinCall(c, "@floatToInt", &.{ payload.lhs, payload.rhs });
+        .int_from_float => {
+            const payload = node.castTag(.int_from_float).?.data;
+            return renderBuiltinCall(c, "@intFromFloat", &.{ payload.lhs, payload.rhs });
         },
-        .int_to_float => {
-            const payload = node.castTag(.int_to_float).?.data;
-            return renderBuiltinCall(c, "@intToFloat", &.{ payload.lhs, payload.rhs });
+        .float_from_int => {
+            const payload = node.castTag(.float_from_int).?.data;
+            return renderBuiltinCall(c, "@floatFromInt", &.{ payload.lhs, payload.rhs });
         },
-        .int_to_ptr => {
-            const payload = node.castTag(.int_to_ptr).?.data;
-            return renderBuiltinCall(c, "@intToPtr", &.{ payload.lhs, payload.rhs });
+        .ptr_from_int => {
+            const payload = node.castTag(.ptr_from_int).?.data;
+            return renderBuiltinCall(c, "@ptrFromInt", &.{ payload.lhs, payload.rhs });
         },
-        .ptr_to_int => {
-            const payload = node.castTag(.ptr_to_int).?.data;
-            return renderBuiltinCall(c, "@ptrToInt", &.{payload});
+        .int_from_ptr => {
+            const payload = node.castTag(.int_from_ptr).?.data;
+            return renderBuiltinCall(c, "@intFromPtr", &.{payload});
         },
         .align_cast => {
             const payload = node.castTag(.align_cast).?.data;
@@ -2326,13 +2326,13 @@ fn renderNodeGrouped(c: *Context, node: Node) !NodeIndex {
         .truncate,
         .bit_cast,
         .float_cast,
-        .float_to_int,
-        .int_to_float,
-        .int_to_ptr,
+        .int_from_float,
+        .float_from_int,
+        .ptr_from_int,
         .std_mem_zeroes,
         .std_math_Log2Int,
         .log2_int_type,
-        .ptr_to_int,
+        .int_from_ptr,
         .sizeof,
         .alignof,
         .typeof,
@@ -2371,7 +2371,7 @@ fn renderNodeGrouped(c: *Context, node: Node) !NodeIndex {
         .call,
         .array_type,
         .null_sentinel_array_type,
-        .bool_to_int,
+        .int_from_bool,
         .div_exact,
         .offset_of,
         .shuffle,

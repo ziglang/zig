@@ -1835,7 +1835,7 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .fpext           => try self.airFpext(inst),
             .intcast         => try self.airIntCast(inst),
             .trunc           => try self.airTrunc(inst),
-            .bool_to_int     => try self.airBoolToInt(inst),
+            .int_from_bool     => try self.airIntFromBool(inst),
             .is_non_null     => try self.airIsNonNull(inst),
             .is_non_null_ptr => try self.airIsNonNullPtr(inst),
             .is_null         => try self.airIsNull(inst),
@@ -1846,7 +1846,7 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .is_err_ptr      => try self.airIsErrPtr(inst),
             .load            => try self.airLoad(inst),
             .loop            => try self.airLoop(inst),
-            .ptrtoint        => try self.airPtrToInt(inst),
+            .int_from_ptr        => try self.airIntFromPtr(inst),
             .ret             => try self.airRet(inst),
             .ret_load        => try self.airRetLoad(inst),
             .store           => try self.airStore(inst, false),
@@ -1854,8 +1854,8 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .struct_field_ptr=> try self.airStructFieldPtr(inst),
             .struct_field_val=> try self.airStructFieldVal(inst),
             .array_to_slice  => try self.airArrayToSlice(inst),
-            .int_to_float    => try self.airIntToFloat(inst),
-            .float_to_int    => try self.airFloatToInt(inst),
+            .float_from_int    => try self.airFloatFromInt(inst),
+            .int_from_float    => try self.airIntFromFloat(inst),
             .cmpxchg_strong  => try self.airCmpxchg(inst),
             .cmpxchg_weak    => try self.airCmpxchg(inst),
             .atomic_rmw      => try self.airAtomicRmw(inst),
@@ -1967,7 +1967,7 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .cmp_neq_optimized,
             .cmp_vector_optimized,
             .reduce_optimized,
-            .float_to_int_optimized,
+            .int_from_float_optimized,
             => return self.fail("TODO implement optimized float mode", .{}),
 
             .is_named_enum_value => return self.fail("TODO implement is_named_enum_value", .{}),
@@ -2806,7 +2806,7 @@ fn airTrunc(self: *Self, inst: Air.Inst.Index) !void {
     return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
 }
 
-fn airBoolToInt(self: *Self, inst: Air.Inst.Index) !void {
+fn airIntFromBool(self: *Self, inst: Air.Inst.Index) !void {
     const un_op = self.air.instructions.items(.data)[inst].un_op;
     const ty = self.typeOfIndex(inst);
 
@@ -10147,7 +10147,7 @@ fn genLazySymbolRef(
     }
 }
 
-fn airPtrToInt(self: *Self, inst: Air.Inst.Index) !void {
+fn airIntFromPtr(self: *Self, inst: Air.Inst.Index) !void {
     const un_op = self.air.instructions.items(.data)[inst].un_op;
     const result = result: {
         // TODO: handle case where the operand is a slice not a raw pointer
@@ -10246,7 +10246,7 @@ fn airArrayToSlice(self: *Self, inst: Air.Inst.Index) !void {
     return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
 }
 
-fn airIntToFloat(self: *Self, inst: Air.Inst.Index) !void {
+fn airFloatFromInt(self: *Self, inst: Air.Inst.Index) !void {
     const mod = self.bin_file.options.module.?;
     const ty_op = self.air.instructions.items(.data)[inst].ty_op;
 
@@ -10260,7 +10260,7 @@ fn airIntToFloat(self: *Self, inst: Air.Inst.Index) !void {
         .signed => src_bits,
         .unsigned => src_bits + 1,
     }, 32), 8) catch unreachable;
-    if (src_size > 8) return self.fail("TODO implement airIntToFloat from {} to {}", .{
+    if (src_size > 8) return self.fail("TODO implement airFloatFromInt from {} to {}", .{
         src_ty.fmt(mod), dst_ty.fmt(mod),
     });
 
@@ -10287,7 +10287,7 @@ fn airIntToFloat(self: *Self, inst: Air.Inst.Index) !void {
             else => unreachable,
         },
         else => null,
-    })) |tag| tag else return self.fail("TODO implement airIntToFloat from {} to {}", .{
+    })) |tag| tag else return self.fail("TODO implement airFloatFromInt from {} to {}", .{
         src_ty.fmt(mod), dst_ty.fmt(mod),
     });
     const dst_alias = dst_reg.to128();
@@ -10300,7 +10300,7 @@ fn airIntToFloat(self: *Self, inst: Air.Inst.Index) !void {
     return self.finishAir(inst, dst_mcv, .{ ty_op.operand, .none, .none });
 }
 
-fn airFloatToInt(self: *Self, inst: Air.Inst.Index) !void {
+fn airIntFromFloat(self: *Self, inst: Air.Inst.Index) !void {
     const mod = self.bin_file.options.module.?;
     const ty_op = self.air.instructions.items(.data)[inst].ty_op;
 
@@ -10314,7 +10314,7 @@ fn airFloatToInt(self: *Self, inst: Air.Inst.Index) !void {
         .signed => dst_bits,
         .unsigned => dst_bits + 1,
     }, 32), 8) catch unreachable;
-    if (dst_size > 8) return self.fail("TODO implement airFloatToInt from {} to {}", .{
+    if (dst_size > 8) return self.fail("TODO implement airIntFromFloat from {} to {}", .{
         src_ty.fmt(self.bin_file.options.module.?), dst_ty.fmt(self.bin_file.options.module.?),
     });
 
@@ -10340,7 +10340,7 @@ fn airFloatToInt(self: *Self, inst: Air.Inst.Index) !void {
                 else => unreachable,
             },
             else => null,
-        })) |tag| tag else return self.fail("TODO implement airFloatToInt from {} to {}", .{
+        })) |tag| tag else return self.fail("TODO implement airIntFromFloat from {} to {}", .{
             src_ty.fmt(self.bin_file.options.module.?), dst_ty.fmt(self.bin_file.options.module.?),
         }),
         registerAlias(dst_reg, dst_size),
