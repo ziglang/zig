@@ -67,6 +67,7 @@ else if (builtin.link_libc or is_windows)
     std.c
 else switch (builtin.os.tag) {
     .linux => linux,
+    .plan9 => plan9,
     .wasi => wasi,
     .uefi => uefi,
     else => struct {},
