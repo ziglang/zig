@@ -1494,8 +1494,6 @@ fn walkInstruction(
         .frame_type,
         .frame_size,
         .ptr_to_int,
-        .min,
-        .max,
         .bit_not,
         // @check
         .clz,
@@ -1546,6 +1544,8 @@ fn walkInstruction(
         .offset_of,
         .splat,
         .reduce,
+        .min,
+        .max,
         => {
             const pl_node = data[inst_index].pl_node;
             const extra = file.zir.extraData(Zir.Inst.Bin, pl_node.payload_index);
