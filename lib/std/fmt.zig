@@ -1733,7 +1733,10 @@ pub fn Formatter(comptime format_fn: anytype) type {
 /// Ignores '_' character in `buf`.
 /// See also `parseUnsigned`.
 pub fn parseInt(comptime T: type, buf: []const u8, base: u8) ParseIntError!T {
-    if (buf.len == 0) return error.InvalidCharacter;
+    if (buf.len == 0) {
+        if (@typeInfo(T) == .Optional) return null;
+        return error.InvalidCharacter;
+    }
     if (buf[0] == '+') return parseWithSign(T, buf[1..], base, .pos);
     if (buf[0] == '-') return parseWithSign(T, buf[1..], base, .neg);
     return parseWithSign(T, buf, base, .pos);
@@ -1769,6 +1772,10 @@ test "parseInt" {
     try std.testing.expectError(error.InvalidCharacter, parseInt(i32, "+", 10));
     try std.testing.expectError(error.InvalidCharacter, parseInt(u32, "-", 10));
     try std.testing.expectError(error.InvalidCharacter, parseInt(i32, "-", 10));
+
+    // empty string for optional types is ok
+    try std.testing.expect((try parseInt(?u32, "", 10)) == null);
+    try std.testing.expect((try parseInt(?i32, "", 10)) == null);
 
     // autodectect the base
     try std.testing.expect((try parseInt(i32, "111", 0)) == 111);
