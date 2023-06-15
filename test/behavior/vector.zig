@@ -1370,3 +1370,21 @@ test "vector pointer is indexable" {
     try expectEqual(@as(u32, 100), (&y)[0]);
     try expectEqual(@as(u32, 200), (&y)[1]);
 }
+
+test "boolean vector with 2 or more booleans" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest; // TODO
+
+    // TODO: try removing this after <https://github.com/ziglang/zig/issues/13782>:
+    if (!(builtin.os.tag == .linux and builtin.cpu.arch == .x86_64)) return;
+
+    const vec1 = @Vector(2, bool){ true, true };
+    _ = vec1;
+
+    const vec2 = @Vector(3, bool){ true, true, true };
+    _ = vec2;
+}
