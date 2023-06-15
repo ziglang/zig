@@ -443,7 +443,7 @@ fn isPathChar(c: u8) bool {
 }
 
 fn isQueryChar(c: u8) bool {
-    return isPathChar(c) or c == '?';
+    return isPathChar(c) or c == '?' or c == '%';
 }
 
 fn isQuerySeparator(c: u8) bool {
