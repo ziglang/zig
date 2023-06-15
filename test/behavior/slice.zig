@@ -869,3 +869,20 @@ test "write through pointer to optional slice arg" {
     try S.bar(&foo);
     try expectEqualStrings(foo.?, "ok");
 }
+
+test "modify slice length at comptime" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
+    const arr: [2]u8 = .{ 10, 20 };
+    comptime var s: []const u8 = arr[0..0];
+    s.len += 1;
+    const a = s;
+    s.len += 1;
+    const b = s;
+
+    try expectEqualSlices(u8, &.{10}, a);
+    try expectEqualSlices(u8, &.{ 10, 20 }, b);
+}
