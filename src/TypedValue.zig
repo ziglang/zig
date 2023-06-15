@@ -345,12 +345,13 @@ pub fn print(
                         try writer.print("[{}]", .{elem.index});
                     },
                     .field => |field| {
-                        const container_ty = ip.typeOf(field.base).toType();
+                        const ptr_container_ty = ip.typeOf(field.base).toType();
                         try print(.{
-                            .ty = container_ty,
+                            .ty = ptr_container_ty,
                             .val = field.base.toValue(),
                         }, writer, level - 1, mod);
 
+                        const container_ty = ptr_container_ty.childType(mod);
                         switch (container_ty.zigTypeTag(mod)) {
                             .Struct => {
                                 if (container_ty.isTuple(mod)) {
@@ -375,6 +376,7 @@ pub fn print(
                         }
                     },
                 }
+                return;
             },
             .opt => |opt| switch (opt.val) {
                 .none => return writer.writeAll("null"),

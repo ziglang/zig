@@ -596,9 +596,11 @@ pub const DeclGen = struct {
                 },
                 location,
             ),
-            .int => |int| try writer.print("{x}", .{
-                try dg.fmtIntLiteral(Type.usize, int.toValue(), .Other),
-            }),
+            .int => |int| {
+                try writer.writeByte('(');
+                try dg.renderCType(writer, ptr_cty);
+                try writer.print("){x}", .{try dg.fmtIntLiteral(Type.usize, int.toValue(), .Other)});
+            },
             .eu_payload, .opt_payload => |base| {
                 const ptr_base_ty = mod.intern_pool.typeOf(base).toType();
                 const base_ty = ptr_base_ty.childType(mod);
