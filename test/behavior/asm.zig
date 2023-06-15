@@ -146,11 +146,19 @@ test "struct/array/union types as input values" {
     ); // fails
     asm volatile (""
         :
-        : [_] "m" (@as(struct { x: u32, y: u8 }, undefined)),
+        : [_] "m" (@as(packed struct { x: u32, y: u8 }, undefined)),
     ); // fails
     asm volatile (""
         :
-        : [_] "m" (@as(union { x: u32, y: u8 }, undefined)),
+        : [_] "m" (@as(packed union { x: u32, y: u8 }, undefined)),
+    ); // fails
+    asm volatile (""
+        :
+        : [_] "m" (@as(extern struct { x: u32, y: u8 }, undefined)),
+    ); // fails
+    asm volatile (""
+        :
+        : [_] "m" (@as(extern union { x: u32, y: u8 }, undefined)),
     ); // fails
 }
 
