@@ -453,8 +453,8 @@ pub const Header = struct {
         };
 
         const machine = if (need_bswap) blk: {
-            const value = @enumToInt(hdr32.e_machine);
-            break :blk @intToEnum(EM, @byteSwap(value));
+            const value = @intFromEnum(hdr32.e_machine);
+            break :blk @enumFromInt(EM, @byteSwap(value));
         } else hdr32.e_machine;
 
         return @as(Header, .{

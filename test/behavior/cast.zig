@@ -10,14 +10,14 @@ const native_endian = builtin.target.cpu.arch.endian();
 
 test "int to ptr cast" {
     const x = @as(usize, 13);
-    const y = @intToPtr(*u8, x);
-    const z = @ptrToInt(y);
+    const y = @ptrFromInt(*u8, x);
+    const z = @intFromPtr(y);
     try expect(z == 13);
 }
 
 test "integer literal to pointer cast" {
-    const vga_mem = @intToPtr(*u16, 0xB8000);
-    try expect(@ptrToInt(vga_mem) == 0xB8000);
+    const vga_mem = @ptrFromInt(*u16, 0xB8000);
+    try expect(@intFromPtr(vga_mem) == 0xB8000);
 }
 
 test "peer type resolution: ?T and T" {
@@ -66,37 +66,37 @@ test "implicit cast comptime_int to comptime_float" {
     try expect(2 == 2.0);
 }
 
-test "comptime_int @intToFloat" {
+test "comptime_int @floatFromInt" {
     {
-        const result = @intToFloat(f16, 1234);
+        const result = @floatFromInt(f16, 1234);
         try expect(@TypeOf(result) == f16);
         try expect(result == 1234.0);
     }
     {
-        const result = @intToFloat(f32, 1234);
+        const result = @floatFromInt(f32, 1234);
         try expect(@TypeOf(result) == f32);
         try expect(result == 1234.0);
     }
     {
-        const result = @intToFloat(f64, 1234);
+        const result = @floatFromInt(f64, 1234);
         try expect(@TypeOf(result) == f64);
         try expect(result == 1234.0);
     }
 
     {
-        const result = @intToFloat(f128, 1234);
+        const result = @floatFromInt(f128, 1234);
         try expect(@TypeOf(result) == f128);
         try expect(result == 1234.0);
     }
     // big comptime_int (> 64 bits) to f128 conversion
     {
-        const result = @intToFloat(f128, 0x1_0000_0000_0000_0000);
+        const result = @floatFromInt(f128, 0x1_0000_0000_0000_0000);
         try expect(@TypeOf(result) == f128);
         try expect(result == 0x1_0000_0000_0000_0000.0);
     }
 }
 
-test "@intToFloat" {
+test "@floatFromInt" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
@@ -107,8 +107,8 @@ test "@intToFloat" {
         }
 
         fn testIntToFloat(k: i32) !void {
-            const f = @intToFloat(f32, k);
-            const i = @floatToInt(i32, f);
+            const f = @floatFromInt(f32, k);
+            const i = @intFromFloat(i32, f);
             try expect(i == k);
         }
     };
@@ -116,7 +116,7 @@ test "@intToFloat" {
     try comptime S.doTheTest();
 }
 
-test "@intToFloat(f80)" {
+test "@floatFromInt(f80)" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
@@ -131,8 +131,8 @@ test "@intToFloat(f80)" {
 
         fn testIntToFloat(comptime Int: type, k: Int) !void {
             @setRuntimeSafety(false); // TODO
-            const f = @intToFloat(f80, k);
-            const i = @floatToInt(Int, f);
+            const f = @floatFromInt(f80, k);
+            const i = @intFromFloat(Int, f);
             try expect(i == k);
         }
     };
@@ -152,28 +152,28 @@ test "@intToFloat(f80)" {
     try comptime S.doTheTest(i256);
 }
 
-test "@floatToInt" {
+test "@intFromFloat" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
-    try testFloatToInts();
-    try comptime testFloatToInts();
+    try testIntFromFloats();
+    try comptime testIntFromFloats();
 }
 
-fn testFloatToInts() !void {
+fn testIntFromFloats() !void {
     const x = @as(i32, 1e4);
     try expect(x == 10000);
-    const y = @floatToInt(i32, @as(f32, 1e4));
+    const y = @intFromFloat(i32, @as(f32, 1e4));
     try expect(y == 10000);
-    try expectFloatToInt(f32, 255.1, u8, 255);
-    try expectFloatToInt(f32, 127.2, i8, 127);
-    try expectFloatToInt(f32, -128.2, i8, -128);
+    try expectIntFromFloat(f32, 255.1, u8, 255);
+    try expectIntFromFloat(f32, 127.2, i8, 127);
+    try expectIntFromFloat(f32, -128.2, i8, -128);
 }
 
-fn expectFloatToInt(comptime F: type, f: F, comptime I: type, i: I) !void {
-    try expect(@floatToInt(I, f) == i);
+fn expectIntFromFloat(comptime F: type, f: F, comptime I: type, i: I) !void {
+    try expect(@intFromFloat(I, f) == i);
 }
 
 test "implicitly cast indirect pointer to maybe-indirect pointer" {
@@ -280,9 +280,9 @@ test "*usize to *void" {
     v.* = {};
 }
 
-test "@intToEnum passed a comptime_int to an enum with one item" {
+test "@enumFromInt passed a comptime_int to an enum with one item" {
     const E = enum { A };
-    const x = @intToEnum(E, 0);
+    const x = @enumFromInt(E, 0);
     try expect(x == E.A);
 }
 
@@ -420,8 +420,8 @@ test "explicit cast from integer to error type" {
     try comptime testCastIntToErr(error.ItBroke);
 }
 fn testCastIntToErr(err: anyerror) !void {
-    const x = @errorToInt(err);
-    const y = @intToError(x);
+    const x = @intFromError(err);
+    const y = @errorFromInt(x);
     try expect(error.ItBroke == y);
 }
 
@@ -1093,15 +1093,15 @@ test "peer type resolve array pointer and unknown pointer" {
 test "comptime float casts" {
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
-    const a = @intToFloat(comptime_float, 1);
+    const a = @floatFromInt(comptime_float, 1);
     try expect(a == 1);
     try expect(@TypeOf(a) == comptime_float);
-    const b = @floatToInt(comptime_int, 2);
+    const b = @intFromFloat(comptime_int, 2);
     try expect(b == 2);
     try expect(@TypeOf(b) == comptime_int);
 
-    try expectFloatToInt(comptime_int, 1234, i16, 1234);
-    try expectFloatToInt(comptime_float, 12.3, comptime_int, 12);
+    try expectIntFromFloat(comptime_int, 1234, i16, 1234);
+    try expectIntFromFloat(comptime_float, 12.3, comptime_int, 12);
 }
 
 test "pointer reinterpret const float to int" {
@@ -1146,11 +1146,11 @@ test "compile time int to ptr of function" {
 
 // On some architectures function pointers must be aligned.
 const hardcoded_fn_addr = maxInt(usize) & ~@as(usize, 0xf);
-pub const FUNCTION_CONSTANT = @intToPtr(PFN_void, hardcoded_fn_addr);
+pub const FUNCTION_CONSTANT = @ptrFromInt(PFN_void, hardcoded_fn_addr);
 pub const PFN_void = *const fn (*anyopaque) callconv(.C) void;
 
 fn foobar(func: PFN_void) !void {
-    try std.testing.expect(@ptrToInt(func) == hardcoded_fn_addr);
+    try std.testing.expect(@intFromPtr(func) == hardcoded_fn_addr);
 }
 
 test "implicit ptr to *anyopaque" {
@@ -1285,11 +1285,11 @@ test "implicit cast *[0]T to E![]const u8" {
 var global_array: [4]u8 = undefined;
 test "cast from array reference to fn: comptime fn ptr" {
     const f = @ptrCast(*align(1) const fn () callconv(.C) void, &global_array);
-    try expect(@ptrToInt(f) == @ptrToInt(&global_array));
+    try expect(@intFromPtr(f) == @intFromPtr(&global_array));
 }
 test "cast from array reference to fn: runtime fn ptr" {
     var f = @ptrCast(*align(1) const fn () callconv(.C) void, &global_array);
-    try expect(@ptrToInt(f) == @ptrToInt(&global_array));
+    try expect(@intFromPtr(f) == @intFromPtr(&global_array));
 }
 
 test "*const [N]null u8 to ?[]const u8" {
@@ -1500,19 +1500,19 @@ test "coerce between pointers of compatible differently-named floats" {
 }
 
 test "peer type resolution of const and non-const pointer to array" {
-    const a = @intToPtr(*[1024]u8, 42);
-    const b = @intToPtr(*const [1024]u8, 42);
+    const a = @ptrFromInt(*[1024]u8, 42);
+    const b = @ptrFromInt(*const [1024]u8, 42);
     try std.testing.expect(@TypeOf(a, b) == *const [1024]u8);
     try std.testing.expect(a == b);
 }
 
-test "floatToInt to zero-bit int" {
+test "intFromFloat to zero-bit int" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     const a: f32 = 0.0;
-    try comptime std.testing.expect(@floatToInt(u0, a) == 0);
+    try comptime std.testing.expect(@intFromFloat(u0, a) == 0);
 }
 
 test "peer type resolution of function pointer and function body" {
@@ -1560,9 +1560,9 @@ test "optional pointer coerced to optional allowzero pointer" {
 
     var p: ?*u32 = undefined;
     var q: ?*allowzero u32 = undefined;
-    p = @intToPtr(*u32, 4);
+    p = @ptrFromInt(*u32, 4);
     q = p;
-    try expect(@ptrToInt(q.?) == 4);
+    try expect(@intFromPtr(q.?) == 4);
 }
 
 test "single item pointer to pointer to array to slice" {
@@ -1623,8 +1623,8 @@ test "peer type resolution: const sentinel slice and mutable non-sentinel slice"
 
     const S = struct {
         fn doTheTest(comptime T: type, comptime s: T) !void {
-            var a: [:s]const T = @intToPtr(*const [2:s]T, 0x1000);
-            var b: []T = @intToPtr(*[3]T, 0x2000);
+            var a: [:s]const T = @ptrFromInt(*const [2:s]T, 0x1000);
+            var b: []T = @ptrFromInt(*[3]T, 0x2000);
             comptime assert(@TypeOf(a, b) == []const T);
             comptime assert(@TypeOf(b, a) == []const T);
 
@@ -1634,8 +1634,8 @@ test "peer type resolution: const sentinel slice and mutable non-sentinel slice"
 
             const R = @TypeOf(r1);
 
-            try expectEqual(@as(R, @intToPtr(*const [2:s]T, 0x1000)), r1);
-            try expectEqual(@as(R, @intToPtr(*const [3]T, 0x2000)), r2);
+            try expectEqual(@as(R, @ptrFromInt(*const [2:s]T, 0x1000)), r1);
+            try expectEqual(@as(R, @ptrFromInt(*const [3]T, 0x2000)), r2);
         }
     };
 
@@ -1815,7 +1815,7 @@ test "peer type resolution: three-way resolution combines error set and optional
 
     const E = error{Foo};
     var a: E = error.Foo;
-    var b: *const [5:0]u8 = @intToPtr(*const [5:0]u8, 0x1000);
+    var b: *const [5:0]u8 = @ptrFromInt(*const [5:0]u8, 0x1000);
     var c: ?[*:0]u8 = null;
     comptime assert(@TypeOf(a, b, c) == E!?[*:0]const u8);
     comptime assert(@TypeOf(a, c, b) == E!?[*:0]const u8);
@@ -1844,7 +1844,7 @@ test "peer type resolution: three-way resolution combines error set and optional
     const T = @TypeOf(r1);
 
     try expectEqual(@as(T, error.Foo), r1);
-    try expectEqual(@as(T, @intToPtr([*:0]u8, 0x1000)), r2);
+    try expectEqual(@as(T, @ptrFromInt([*:0]u8, 0x1000)), r2);
     try expectEqual(@as(T, null), r3);
 }
 

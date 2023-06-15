@@ -381,7 +381,7 @@ pub fn generateSymbol(
                         .fail => |em| return Result{ .fail = em },
                     }
                 }
-                try code.writer().writeByte(@boolToInt(payload_val != null));
+                try code.writer().writeByte(@intFromBool(payload_val != null));
                 try code.writer().writeByteNTimes(0, padding);
             }
         },
@@ -391,7 +391,7 @@ pub fn generateSymbol(
                 .elems, .repeated_elem => {
                     var index: u64 = 0;
                     var len_including_sentinel =
-                        array_type.len + @boolToInt(array_type.sentinel != .none);
+                        array_type.len + @intFromBool(array_type.sentinel != .none);
                     while (index < len_including_sentinel) : (index += 1) {
                         switch (try generateSymbol(bin_file, src_loc, .{
                             .ty = array_type.child.toType(),
@@ -952,7 +952,7 @@ pub fn genTypedValue(
             }
         },
         .Bool => {
-            return GenResult.mcv(.{ .immediate = @boolToInt(typed_value.val.toBool()) });
+            return GenResult.mcv(.{ .immediate = @intFromBool(typed_value.val.toBool()) });
         },
         .Optional => {
             if (typed_value.ty.isPtrLikeOptional(mod)) {
@@ -961,7 +961,7 @@ pub fn genTypedValue(
                     .val = typed_value.val.optionalValue(mod) orelse return GenResult.mcv(.{ .immediate = 0 }),
                 }, owner_decl_index);
             } else if (typed_value.ty.abiSize(mod) == 1) {
-                return GenResult.mcv(.{ .immediate = @boolToInt(!typed_value.val.isNull(mod)) });
+                return GenResult.mcv(.{ .immediate = @intFromBool(!typed_value.val.isNull(mod)) });
             }
         },
         .Enum => {

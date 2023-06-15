@@ -9,7 +9,7 @@ pub fn panic(message: []const u8, stack_trace: ?*std.builtin.StackTrace, _: ?usi
 }
 pub fn main() !void {
     var zero: usize = 0;
-    var b = @intToPtr(*u8, zero);
+    var b = @ptrFromInt(*u8, zero);
     _ = b;
     return error.TestFailed;
 }

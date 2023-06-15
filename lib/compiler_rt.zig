@@ -55,7 +55,7 @@ comptime {
     _ = @import("compiler_rt/trunctfdf2.zig");
     _ = @import("compiler_rt/trunctfxf2.zig");
 
-    _ = @import("compiler_rt/float_to_int.zig");
+    _ = @import("compiler_rt/int_from_float.zig");
     _ = @import("compiler_rt/fixhfsi.zig");
     _ = @import("compiler_rt/fixhfdi.zig");
     _ = @import("compiler_rt/fixhfti.zig");
@@ -87,7 +87,7 @@ comptime {
     _ = @import("compiler_rt/fixunsxfdi.zig");
     _ = @import("compiler_rt/fixunsxfti.zig");
 
-    _ = @import("compiler_rt/int_to_float.zig");
+    _ = @import("compiler_rt/float_from_int.zig");
     _ = @import("compiler_rt/floatsihf.zig");
     _ = @import("compiler_rt/floatsisf.zig");
     _ = @import("compiler_rt/floatsidf.zig");

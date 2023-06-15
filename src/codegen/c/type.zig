@@ -129,15 +129,15 @@ pub const CType = extern union {
         varargs_function,
 
         pub const last_no_payload_tag = Tag.zig_c_longdouble;
-        pub const no_payload_count = @enumToInt(last_no_payload_tag) + 1;
+        pub const no_payload_count = @intFromEnum(last_no_payload_tag) + 1;
 
         pub fn hasPayload(self: Tag) bool {
-            return @enumToInt(self) >= no_payload_count;
+            return @intFromEnum(self) >= no_payload_count;
         }
 
         pub fn toIndex(self: Tag) Index {
             assert(!self.hasPayload());
-            return @intCast(Index, @enumToInt(self));
+            return @intCast(Index, @intFromEnum(self));
         }
 
         pub fn Type(comptime self: Tag) type {
@@ -334,7 +334,7 @@ pub const CType = extern union {
             map: Map = .{},
 
             pub fn indexToCType(self: Set, index: Index) CType {
-                if (index < Tag.no_payload_count) return initTag(@intToEnum(Tag, index));
+                if (index < Tag.no_payload_count) return initTag(@enumFromInt(Tag, index));
                 return self.map.keys()[index - Tag.no_payload_count];
             }
 
@@ -370,7 +370,7 @@ pub const CType = extern union {
 
             pub fn cTypeToIndex(self: *Promoted, cty: CType) Allocator.Error!Index {
                 const t = cty.tag();
-                if (@enumToInt(t) < Tag.no_payload_count) return @intCast(Index, @enumToInt(t));
+                if (@intFromEnum(t) < Tag.no_payload_count) return @intCast(Index, @intFromEnum(t));
 
                 const gop = try self.set.map.getOrPutContext(self.gpa(), cty, .{ .store = &self.set });
                 if (!gop.found_existing) gop.key_ptr.* = cty;

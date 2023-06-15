@@ -516,7 +516,7 @@ pub const File = struct {
         /// Returns `true` if the chosen class has the selected permission.
         /// This method is only available on Unix platforms.
         pub fn unixHas(self: Self, class: Class, permission: Permission) bool {
-            const mask = @as(Mode, @enumToInt(permission)) << @as(u3, @enumToInt(class)) * 3;
+            const mask = @as(Mode, @intFromEnum(permission)) << @as(u3, @intFromEnum(class)) * 3;
             return self.mode & mask != 0;
         }
 
@@ -527,7 +527,7 @@ pub const File = struct {
             write: ?bool = null,
             execute: ?bool = null,
         }) void {
-            const shift = @as(u3, @enumToInt(class)) * 3;
+            const shift = @as(u3, @intFromEnum(class)) * 3;
             if (permissions.read) |r| {
                 if (r) {
                     self.mode |= @as(Mode, 0o4) << shift;
@@ -973,7 +973,7 @@ pub const File = struct {
         // The file size returned by stat is used as hint to set the buffer
         // size. If the reported size is zero, as it happens on Linux for files
         // in /proc, a small buffer is allocated instead.
-        const initial_cap = (if (size > 0) size else 1024) + @boolToInt(optional_sentinel != null);
+        const initial_cap = (if (size > 0) size else 1024) + @intFromBool(optional_sentinel != null);
         var array_list = try std.ArrayListAligned(u8, alignment).initCapacity(allocator, initial_cap);
         defer array_list.deinit();
 
@@ -1488,7 +1488,7 @@ pub const File = struct {
                 &range_len,
                 null,
                 windows.FALSE, // non-blocking=false
-                @boolToInt(exclusive),
+                @intFromBool(exclusive),
             ) catch |err| switch (err) {
                 error.WouldBlock => unreachable, // non-blocking=false
                 else => |e| return e,
@@ -1555,7 +1555,7 @@ pub const File = struct {
                 &range_len,
                 null,
                 windows.TRUE, // non-blocking=true
-                @boolToInt(exclusive),
+                @intFromBool(exclusive),
             ) catch |err| switch (err) {
                 error.WouldBlock => return false,
                 else => |e| return e,

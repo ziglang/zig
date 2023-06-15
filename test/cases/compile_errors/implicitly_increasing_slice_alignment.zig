@@ -4,7 +4,7 @@ const Foo = packed struct {
 };
 
 export fn entry() void {
-    var foo = Foo { .a = 1, .b = 10 };
+    var foo = Foo{ .a = 1, .b = 10 };
     foo.b += 1;
     bar(@as(*[1]u32, &foo.b)[0..]);
 }

@@ -174,7 +174,7 @@ test {
     _ = @import("behavior/inline_switch.zig");
     _ = @import("behavior/int128.zig");
     _ = @import("behavior/int_comparison_elision.zig");
-    _ = @import("behavior/inttoptr.zig");
+    _ = @import("behavior/ptrfromint.zig");
     _ = @import("behavior/ir_block_deps.zig");
     _ = @import("behavior/lower_strlit_to_vector.zig");
     _ = @import("behavior/math.zig");

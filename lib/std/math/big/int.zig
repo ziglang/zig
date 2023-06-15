@@ -1127,7 +1127,7 @@ pub const Mutable = struct {
             return;
         }
 
-        const checkbit = bit_count - shift - @boolToInt(signedness == .signed);
+        const checkbit = bit_count - shift - @intFromBool(signedness == .signed);
         // If `checkbit` and more significant bits are zero, no overflow will take place.
 
         if (checkbit >= a.limbs.len * limb_bits) {
@@ -1274,10 +1274,10 @@ pub const Mutable = struct {
 
         if (a.limbs.len > b.limbs.len) {
             r.positive = llsignedxor(r.limbs, a.limbs, a.positive, b.limbs, b.positive);
-            r.normalize(a.limbs.len + @boolToInt(a.positive != b.positive));
+            r.normalize(a.limbs.len + @intFromBool(a.positive != b.positive));
         } else {
             r.positive = llsignedxor(r.limbs, b.limbs, b.positive, a.limbs, a.positive);
-            r.normalize(b.limbs.len + @boolToInt(a.positive != b.positive));
+            r.normalize(b.limbs.len + @intFromBool(a.positive != b.positive));
         }
     }
 
@@ -2128,7 +2128,7 @@ pub const Const = struct {
             return false;
         }
 
-        const req_bits = self.bitCountTwosComp() + @boolToInt(self.positive and signedness == .signed);
+        const req_bits = self.bitCountTwosComp() + @intFromBool(self.positive and signedness == .signed);
         return bit_count >= req_bits;
     }
 
@@ -2143,7 +2143,7 @@ pub const Const = struct {
     /// value. It is inexact and may exceed the given value by ~1-2 bytes.
     /// TODO See if we can make this exact.
     pub fn sizeInBaseUpperBound(self: Const, base: usize) usize {
-        const bit_count = @as(usize, @boolToInt(!self.positive)) + self.bitCountAbs();
+        const bit_count = @as(usize, @intFromBool(!self.positive)) + self.bitCountAbs();
         return (bit_count / math.log2(base)) + 2;
     }
 
@@ -3143,7 +3143,7 @@ pub const Managed = struct {
 
     /// r = a ^ b
     pub fn bitXor(r: *Managed, a: *const Managed, b: *const Managed) !void {
-        var cap = @max(a.len(), b.len()) + @boolToInt(a.isPositive() != b.isPositive());
+        var cap = @max(a.len(), b.len()) + @intFromBool(a.isPositive() != b.isPositive());
         try r.ensureCapacity(cap);
 
         var m = r.toMutable();
@@ -4048,9 +4048,9 @@ fn llsignedxor(r: []Limb, a: []const Limb, a_positive: bool, b: []const Limb, b_
     // - if the result is supposed to be negative, add 1.
 
     var i: usize = 0;
-    var a_borrow = @boolToInt(!a_positive);
-    var b_borrow = @boolToInt(!b_positive);
-    var r_carry = @boolToInt(a_positive != b_positive);
+    var a_borrow = @intFromBool(!a_positive);
+    var b_borrow = @intFromBool(!b_positive);
+    var r_carry = @intFromBool(a_positive != b_positive);
 
     while (i < b.len) : (i += 1) {
         const ov1 = @subWithOverflow(a[i], a_borrow);

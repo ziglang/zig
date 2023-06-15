@@ -41,8 +41,8 @@ pub fn hash(tv: TypedValue, hasher: *std.hash.Wyhash, mod: *Module) void {
     return tv.val.hash(tv.ty, hasher, mod);
 }
 
-pub fn enumToInt(tv: TypedValue, mod: *Module) Allocator.Error!Value {
-    return tv.val.enumToInt(tv.ty, mod);
+pub fn intFromEnum(tv: TypedValue, mod: *Module) Allocator.Error!Value {
+    return tv.val.intFromEnum(tv.ty, mod);
 }
 
 const max_aggregate_items = 100;
@@ -240,7 +240,7 @@ pub fn print(
                     try writer.print(".{i}", .{enum_type.names[tag_index].fmt(ip)});
                     return;
                 }
-                try writer.writeAll("@intToEnum(");
+                try writer.writeAll("@enumFromInt(");
                 try print(.{
                     .ty = Type.type,
                     .val = enum_tag.ty.toValue(),

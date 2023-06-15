@@ -755,7 +755,7 @@ fn finishAir(self: *Self, inst: Air.Inst.Index, result: MCValue, operands: [Live
         const dies = @truncate(u1, tomb_bits) != 0;
         tomb_bits >>= 1;
         if (!dies) continue;
-        const op_int = @enumToInt(op);
+        const op_int = @intFromEnum(op);
         if (op_int < Air.ref_start_index) continue;
         const op_index = @intCast(Air.Inst.Index, op_int - Air.ref_start_index);
         self.processDeath(op_index);

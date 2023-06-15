@@ -96,7 +96,7 @@ fn siftDown(a: usize, root: usize, n: usize, context: anytype) void {
         if (child >= n) break;
 
         // choose the greater child.
-        child += @boolToInt(child + 1 < n and context.lessThan(child, child + 1));
+        child += @intFromBool(child + 1 < n and context.lessThan(child, child + 1));
 
         // stop if the invariant holds at `node`.
         if (!context.lessThan(node, child)) break;

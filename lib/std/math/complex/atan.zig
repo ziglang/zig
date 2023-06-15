@@ -32,7 +32,7 @@ fn redupif32(x: f32) f32 {
         t -= 0.5;
     }
 
-    const u = @intToFloat(f32, @floatToInt(i32, t));
+    const u = @floatFromInt(f32, @intFromFloat(i32, t));
     return ((x - u * DP1) - u * DP2) - t * DP3;
 }
 
@@ -81,7 +81,7 @@ fn redupif64(x: f64) f64 {
         t -= 0.5;
     }
 
-    const u = @intToFloat(f64, @floatToInt(i64, t));
+    const u = @floatFromInt(f64, @intFromFloat(i64, t));
     return ((x - u * DP1) - u * DP2) - t * DP3;
 }
 

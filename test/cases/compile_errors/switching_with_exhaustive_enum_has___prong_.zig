@@ -1,4 +1,4 @@
-const E = enum{
+const E = enum {
     a,
     b,
 };

@@ -228,7 +228,7 @@ pub const Node = extern union {
         array_filler,
 
         pub const last_no_payload_tag = Tag.@"break";
-        pub const no_payload_count = @enumToInt(last_no_payload_tag) + 1;
+        pub const no_payload_count = @intFromEnum(last_no_payload_tag) + 1;
 
         pub fn Type(comptime t: Tag) type {
             return switch (t) {
@@ -381,8 +381,8 @@ pub const Node = extern union {
         }
 
         pub fn init(comptime t: Tag) Node {
-            comptime std.debug.assert(@enumToInt(t) < Tag.no_payload_count);
-            return .{ .tag_if_small_enough = @enumToInt(t) };
+            comptime std.debug.assert(@intFromEnum(t) < Tag.no_payload_count);
+            return .{ .tag_if_small_enough = @intFromEnum(t) };
         }
 
         pub fn create(comptime t: Tag, ally: Allocator, data: Data(t)) error{OutOfMemory}!Node {
@@ -401,7 +401,7 @@ pub const Node = extern union {
 
     pub fn tag(self: Node) Tag {
         if (self.tag_if_small_enough < Tag.no_payload_count) {
-            return @intToEnum(Tag, @intCast(std.meta.Tag(Tag), self.tag_if_small_enough));
+            return @enumFromInt(Tag, @intCast(std.meta.Tag(Tag), self.tag_if_small_enough));
         } else {
             return self.ptr_otherwise.tag;
         }
@@ -418,7 +418,7 @@ pub const Node = extern union {
     }
 
     pub fn initPayload(payload: *Payload) Node {
-        std.debug.assert(@enumToInt(payload.tag) >= Tag.no_payload_count);
+        std.debug.assert(@intFromEnum(payload.tag) >= Tag.no_payload_count);
         return .{ .ptr_otherwise = payload };
     }
 

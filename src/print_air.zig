@@ -956,7 +956,7 @@ const Writer = struct {
         operand: Air.Inst.Ref,
         dies: bool,
     ) @TypeOf(s).Error!void {
-        const i = @enumToInt(operand);
+        const i = @intFromEnum(operand);
 
         if (i < InternPool.static_len) {
             return s.print("@{}", .{operand});

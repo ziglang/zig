@@ -91,8 +91,8 @@ pub fn benchmark(comptime H: anytype, bytes: usize, comptime block_size: usize) 
     }
     const end = timer.read();
 
-    const elapsed_s = @intToFloat(f64, end - start) / time.ns_per_s;
-    const throughput = @floatToInt(u64, @intToFloat(f64, bytes) / elapsed_s);
+    const elapsed_s = @floatFromInt(f64, end - start) / time.ns_per_s;
+    const throughput = @intFromFloat(u64, @floatFromInt(f64, bytes) / elapsed_s);
 
     std.debug.assert(rng.random().int(u64) != 0);
 

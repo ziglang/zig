@@ -1,5 +1,5 @@
 export fn entry() void {
-    const x = []u8{1, 2};
+    const x = []u8{ 1, 2 };
     _ = x;
 }
 

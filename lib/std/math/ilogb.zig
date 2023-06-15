@@ -48,7 +48,7 @@ fn ilogbX(comptime T: type, x: T) i32 {
         }
 
         // offset sign bit, exponent bits, and integer bit (if present) + bias
-        const offset = 1 + exponentBits + @as(comptime_int, @boolToInt(T == f80)) - exponentBias;
+        const offset = 1 + exponentBits + @as(comptime_int, @intFromBool(T == f80)) - exponentBias;
         return offset - @intCast(i32, @clz(u));
     }
 

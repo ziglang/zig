@@ -20,7 +20,7 @@ comptime {
 /// Note that this matches the definition of `__lexf2`, `__eqxf2`, `__nexf2`, `__cmpxf2`,
 /// and `__ltxf2`.
 fn __cmpxf2(a: f80, b: f80) callconv(.C) i32 {
-    return @enumToInt(comparef.cmp_f80(comparef.LE, a, b));
+    return @intFromEnum(comparef.cmp_f80(comparef.LE, a, b));
 }
 
 /// "These functions return a value less than or equal to zero if neither argument is NaN,

@@ -1,6 +1,6 @@
 const builtin = @import("builtin");
 const common = @import("./common.zig");
-const intToFloat = @import("./int_to_float.zig").intToFloat;
+const floatFromInt = @import("./float_from_int.zig").floatFromInt;
 
 pub const panic = common.panic;
 
@@ -13,9 +13,9 @@ comptime {
 }
 
 pub fn __floattixf(a: i128) callconv(.C) f80 {
-    return intToFloat(f80, a);
+    return floatFromInt(f80, a);
 }
 
 fn __floattixf_windows_x86_64(a: @Vector(2, u64)) callconv(.C) f80 {
-    return intToFloat(f80, @bitCast(i128, a));
+    return floatFromInt(f80, @bitCast(i128, a));
 }

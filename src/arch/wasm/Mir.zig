@@ -544,12 +544,12 @@ pub const Inst = struct {
 
         /// From a given wasm opcode, returns a MIR tag.
         pub fn fromOpcode(opcode: std.wasm.Opcode) Tag {
-            return @intToEnum(Tag, @enumToInt(opcode)); // Given `Opcode` is not present as a tag for MIR yet
+            return @enumFromInt(Tag, @intFromEnum(opcode)); // Given `Opcode` is not present as a tag for MIR yet
         }
 
         /// Returns a wasm opcode from a given MIR tag.
         pub fn toOpcode(self: Tag) std.wasm.Opcode {
-            return @intToEnum(std.wasm.Opcode, @enumToInt(self));
+            return @enumFromInt(std.wasm.Opcode, @intFromEnum(self));
         }
     };
 

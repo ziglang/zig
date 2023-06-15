@@ -176,7 +176,7 @@ fn parseInternal(
             const float = try std.fmt.parseFloat(f128, slice);
             if (@round(float) != float) return error.InvalidNumber;
             if (float > std.math.maxInt(T) or float < std.math.minInt(T)) return error.Overflow;
-            return @floatToInt(T, float);
+            return @intFromFloat(T, float);
         },
         .Optional => |optionalInfo| {
             switch (try source.peekNextTokenType()) {

@@ -590,9 +590,9 @@ test "switch on pointer type" {
             field: u32,
         };
 
-        const P1 = @intToPtr(*X, 0x400);
-        const P2 = @intToPtr(*X, 0x800);
-        const P3 = @intToPtr(*X, 0xC00);
+        const P1 = @ptrFromInt(*X, 0x400);
+        const P2 = @ptrFromInt(*X, 0x800);
+        const P3 = @ptrFromInt(*X, 0xC00);
 
         fn doTheTest(arg: *X) i32 {
             switch (arg) {
@@ -682,9 +682,9 @@ test "enum value without tag name used as switch item" {
         b = 2,
         _,
     };
-    var e: E = @intToEnum(E, 0);
+    var e: E = @enumFromInt(E, 0);
     switch (e) {
-        @intToEnum(E, 0) => {},
+        @enumFromInt(E, 0) => {},
         .a => return error.TestFailed,
         .b => return error.TestFailed,
         _ => return error.TestFailed,

@@ -949,7 +949,7 @@ pub const Object = struct {
             mod.comp.bin_file.options.error_return_tracing;
 
         const err_ret_trace = if (err_return_tracing)
-            llvm_func.getParam(@boolToInt(ret_ptr != null))
+            llvm_func.getParam(@intFromBool(ret_ptr != null))
         else
             null;
 
@@ -960,7 +960,7 @@ pub const Object = struct {
         defer args.deinit();
 
         {
-            var llvm_arg_i = @as(c_uint, @boolToInt(ret_ptr != null)) + @boolToInt(err_return_tracing);
+            var llvm_arg_i = @as(c_uint, @intFromBool(ret_ptr != null)) + @intFromBool(err_return_tracing);
             var it = iterateParamTypes(&dg, fn_info);
             while (it.next()) |lowering| switch (lowering) {
                 .no_bits => continue,
@@ -2570,7 +2570,7 @@ pub const DeclGen = struct {
             mod.comp.bin_file.options.error_return_tracing;
 
         if (err_return_tracing) {
-            dg.addArgAttr(llvm_fn, @boolToInt(sret), "nonnull");
+            dg.addArgAttr(llvm_fn, @intFromBool(sret), "nonnull");
         }
 
         switch (fn_info.cc) {
@@ -2604,8 +2604,8 @@ pub const DeclGen = struct {
         // because functions with bodies are handled in `updateFunc`.
         if (is_extern) {
             var it = iterateParamTypes(dg, fn_info);
-            it.llvm_index += @boolToInt(sret);
-            it.llvm_index += @boolToInt(err_return_tracing);
+            it.llvm_index += @intFromBool(sret);
+            it.llvm_index += @intFromBool(err_return_tracing);
             while (it.next()) |lowering| switch (lowering) {
                 .byval => {
                     const param_index = it.zig_index - 1;
@@ -2812,7 +2812,7 @@ pub const DeclGen = struct {
                 const elem_ty = t.childType(mod);
                 if (std.debug.runtime_safety) assert((try elem_ty.onePossibleValue(mod)) == null);
                 const elem_llvm_ty = try dg.lowerType(elem_ty);
-                const total_len = t.arrayLen(mod) + @boolToInt(t.sentinel(mod) != null);
+                const total_len = t.arrayLen(mod) + @intFromBool(t.sentinel(mod) != null);
                 return elem_llvm_ty.arrayType(@intCast(c_uint, total_len));
             },
             .Vector => {
@@ -3307,7 +3307,7 @@ pub const DeclGen = struct {
                 }
             },
             .enum_tag => {
-                const int_val = try tv.enumToInt(mod);
+                const int_val = try tv.intFromEnum(mod);
 
                 var bigint_space: Value.BigIntSpace = undefined;
                 const bigint = int_val.toBigInt(&bigint_space, mod);
@@ -3476,7 +3476,7 @@ pub const DeclGen = struct {
                         const elem_ty = tv.ty.childType(mod);
                         const sentinel = tv.ty.sentinel(mod);
                         const len = @intCast(usize, tv.ty.arrayLen(mod));
-                        const len_including_sent = len + @boolToInt(sentinel != null);
+                        const len_including_sent = len + @intFromBool(sentinel != null);
                         const gpa = dg.gpa;
                         const llvm_elems = try gpa.alloc(*llvm.Value, len_including_sent);
                         defer gpa.free(llvm_elems);
@@ -3923,7 +3923,7 @@ pub const DeclGen = struct {
                         const llvm_pl_index = if (layout.tag_size == 0)
                             0
                         else
-                            @boolToInt(layout.tag_align >= layout.payload_align);
+                            @intFromBool(layout.tag_align >= layout.payload_align);
                         const indices: [2]*llvm.Value = .{
                             llvm_u32.constInt(0, .False),
                             llvm_u32.constInt(llvm_pl_index, .False),
@@ -3959,7 +3959,7 @@ pub const DeclGen = struct {
                             };
                             return parent_llvm_ty.constInBoundsGEP(parent_llvm_ptr, &indices, indices.len);
                         } else {
-                            const llvm_index = llvm_u32.constInt(@boolToInt(parent_ty.hasRuntimeBitsIgnoreComptime(mod)), .False);
+                            const llvm_index = llvm_u32.constInt(@intFromBool(parent_ty.hasRuntimeBitsIgnoreComptime(mod)), .False);
                             const indices: [1]*llvm.Value = .{llvm_index};
                             return parent_llvm_ty.constInBoundsGEP(parent_llvm_ptr, &indices, indices.len);
                         }
@@ -4762,8 +4762,8 @@ pub const FuncGen = struct {
         if (callee_ty.zigTypeTag(mod) == .Pointer) {
             // Add argument attributes for function pointer calls.
             it = iterateParamTypes(self.dg, fn_info);
-            it.llvm_index += @boolToInt(sret);
-            it.llvm_index += @boolToInt(err_return_tracing);
+            it.llvm_index += @intFromBool(sret);
+            it.llvm_index += @intFromBool(err_return_tracing);
             while (it.next()) |lowering| switch (lowering) {
                 .byval => {
                     const param_index = it.zig_index - 1;
@@ -5857,7 +5857,7 @@ pub const FuncGen = struct {
             .Union => {
                 const union_llvm_ty = try self.dg.lowerType(struct_ty);
                 const layout = struct_ty.unionGetLayout(mod);
-                const payload_index = @boolToInt(layout.tag_align >= layout.payload_align);
+                const payload_index = @intFromBool(layout.tag_align >= layout.payload_align);
                 const field_ptr = self.builder.buildStructGEP(union_llvm_ty, struct_llvm_val, payload_index, "");
                 const llvm_field_ty = try self.dg.lowerType(field_ty);
                 if (isByRef(field_ty, mod)) {
@@ -8444,7 +8444,7 @@ pub const FuncGen = struct {
             return null;
         }
         const un_llvm_ty = try self.dg.lowerType(un_ty);
-        const tag_index = @boolToInt(layout.tag_align < layout.payload_align);
+        const tag_index = @intFromBool(layout.tag_align < layout.payload_align);
         const tag_field_ptr = self.builder.buildStructGEP(un_llvm_ty, union_ptr, tag_index, "");
         // TODO alignment on this store
         _ = self.builder.buildStore(new_tag, tag_field_ptr);
@@ -8463,14 +8463,14 @@ pub const FuncGen = struct {
             if (layout.payload_size == 0) {
                 return self.builder.buildLoad(llvm_un_ty, union_handle, "");
             }
-            const tag_index = @boolToInt(layout.tag_align < layout.payload_align);
+            const tag_index = @intFromBool(layout.tag_align < layout.payload_align);
             const tag_field_ptr = self.builder.buildStructGEP(llvm_un_ty, union_handle, tag_index, "");
             return self.builder.buildLoad(llvm_un_ty.structGetTypeAtIndex(tag_index), tag_field_ptr, "");
         } else {
             if (layout.payload_size == 0) {
                 return union_handle;
             }
-            const tag_index = @boolToInt(layout.tag_align < layout.payload_align);
+            const tag_index = @intFromBool(layout.tag_align < layout.payload_align);
             return self.builder.buildExtractValue(union_handle, tag_index, "");
         }
     }
@@ -9206,7 +9206,7 @@ pub const FuncGen = struct {
             const union_field_name = union_obj.fields.keys()[extra.field_index];
             const enum_field_index = tag_ty.enumFieldIndex(union_field_name, mod).?;
             const tag_val = try mod.enumValueFieldIndex(tag_ty, enum_field_index);
-            const tag_int_val = try tag_val.enumToInt(tag_ty, mod);
+            const tag_int_val = try tag_val.intFromEnum(tag_ty, mod);
             break :blk tag_int_val.toUnsignedInt(mod);
         };
         if (layout.payload_size == 0) {
@@ -9288,7 +9288,7 @@ pub const FuncGen = struct {
         {
             const indices: [3]*llvm.Value = .{
                 index_type.constNull(),
-                index_type.constInt(@boolToInt(layout.tag_align >= layout.payload_align), .False),
+                index_type.constInt(@intFromBool(layout.tag_align >= layout.payload_align), .False),
                 index_type.constNull(),
             };
             const len: c_uint = if (field_size == layout.payload_size) 2 else 3;
@@ -9298,7 +9298,7 @@ pub const FuncGen = struct {
         {
             const indices: [2]*llvm.Value = .{
                 index_type.constNull(),
-                index_type.constInt(@boolToInt(layout.tag_align < layout.payload_align), .False),
+                index_type.constInt(@intFromBool(layout.tag_align < layout.payload_align), .False),
             };
             const field_ptr = self.builder.buildInBoundsGEP(llvm_union_ty, result_ptr, &indices, indices.len, "");
             const tag_llvm_ty = try self.dg.lowerType(union_obj.tag_ty);
@@ -9313,15 +9313,15 @@ pub const FuncGen = struct {
     fn airPrefetch(self: *FuncGen, inst: Air.Inst.Index) !?*llvm.Value {
         const prefetch = self.air.instructions.items(.data)[inst].prefetch;
 
-        comptime assert(@enumToInt(std.builtin.PrefetchOptions.Rw.read) == 0);
-        comptime assert(@enumToInt(std.builtin.PrefetchOptions.Rw.write) == 1);
+        comptime assert(@intFromEnum(std.builtin.PrefetchOptions.Rw.read) == 0);
+        comptime assert(@intFromEnum(std.builtin.PrefetchOptions.Rw.write) == 1);
 
         // TODO these two asserts should be able to be comptime because the type is a u2
         assert(prefetch.locality >= 0);
         assert(prefetch.locality <= 3);
 
-        comptime assert(@enumToInt(std.builtin.PrefetchOptions.Cache.instruction) == 0);
-        comptime assert(@enumToInt(std.builtin.PrefetchOptions.Cache.data) == 1);
+        comptime assert(@intFromEnum(std.builtin.PrefetchOptions.Cache.instruction) == 0);
+        comptime assert(@intFromEnum(std.builtin.PrefetchOptions.Cache.data) == 1);
 
         // LLVM fails during codegen of instruction cache prefetchs for these architectures.
         // This is an LLVM bug as the prefetch intrinsic should be a noop if not supported
@@ -9368,9 +9368,9 @@ pub const FuncGen = struct {
 
         const params = [_]*llvm.Value{
             ptr,
-            llvm_u32.constInt(@enumToInt(prefetch.rw), .False),
+            llvm_u32.constInt(@intFromEnum(prefetch.rw), .False),
             llvm_u32.constInt(prefetch.locality, .False),
-            llvm_u32.constInt(@enumToInt(prefetch.cache), .False),
+            llvm_u32.constInt(@intFromEnum(prefetch.cache), .False),
         };
         _ = self.builder.buildCall(fn_val.globalGetValueType(), fn_val, &params, params.len, .C, .Auto, "");
         return null;
@@ -9596,7 +9596,7 @@ pub const FuncGen = struct {
                         // the index to the element at index `1` to get a pointer to the end of
                         // the struct.
                         const llvm_u32 = self.context.intType(32);
-                        const llvm_index = llvm_u32.constInt(@boolToInt(struct_ty.hasRuntimeBitsIgnoreComptime(mod)), .False);
+                        const llvm_index = llvm_u32.constInt(@intFromBool(struct_ty.hasRuntimeBitsIgnoreComptime(mod)), .False);
                         const indices: [1]*llvm.Value = .{llvm_index};
                         return self.builder.buildInBoundsGEP(struct_llvm_ty, struct_ptr, &indices, indices.len, "");
                     }
@@ -9605,7 +9605,7 @@ pub const FuncGen = struct {
             .Union => {
                 const layout = struct_ty.unionGetLayout(mod);
                 if (layout.payload_size == 0 or struct_ty.containerLayout(mod) == .Packed) return struct_ptr;
-                const payload_index = @boolToInt(layout.tag_align >= layout.payload_align);
+                const payload_index = @intFromBool(layout.tag_align >= layout.payload_align);
                 const union_llvm_ty = try self.dg.lowerType(struct_ty);
                 const union_field_ptr = self.builder.buildStructGEP(union_llvm_ty, struct_ptr, payload_index, "");
                 return union_field_ptr;
@@ -9658,7 +9658,7 @@ pub const FuncGen = struct {
 
         assert(info.vector_index != .runtime);
         if (info.vector_index != .none) {
-            const index_u32 = self.context.intType(32).constInt(@enumToInt(info.vector_index), .False);
+            const index_u32 = self.context.intType(32).constInt(@intFromEnum(info.vector_index), .False);
             const vec_elem_ty = try self.dg.lowerType(info.pointee_type);
             const vec_ty = vec_elem_ty.vectorType(info.host_size);
 
@@ -9734,7 +9734,7 @@ pub const FuncGen = struct {
 
         assert(info.vector_index != .runtime);
         if (info.vector_index != .none) {
-            const index_u32 = self.context.intType(32).constInt(@enumToInt(info.vector_index), .False);
+            const index_u32 = self.context.intType(32).constInt(@intFromEnum(info.vector_index), .False);
             const vec_elem_ty = try self.dg.lowerType(elem_ty);
             const vec_ty = vec_elem_ty.vectorType(info.host_size);
 
@@ -11025,29 +11025,29 @@ const AnnotatedDITypePtr = enum(usize) {
     _,
 
     fn initFwd(di_type: *llvm.DIType) AnnotatedDITypePtr {
-        const addr = @ptrToInt(di_type);
+        const addr = @intFromPtr(di_type);
         assert(@truncate(u1, addr) == 0);
-        return @intToEnum(AnnotatedDITypePtr, addr | 1);
+        return @enumFromInt(AnnotatedDITypePtr, addr | 1);
     }
 
     fn initFull(di_type: *llvm.DIType) AnnotatedDITypePtr {
-        const addr = @ptrToInt(di_type);
-        return @intToEnum(AnnotatedDITypePtr, addr);
+        const addr = @intFromPtr(di_type);
+        return @enumFromInt(AnnotatedDITypePtr, addr);
     }
 
     fn init(di_type: *llvm.DIType, resolve: Object.DebugResolveStatus) AnnotatedDITypePtr {
-        const addr = @ptrToInt(di_type);
-        const bit = @boolToInt(resolve == .fwd);
-        return @intToEnum(AnnotatedDITypePtr, addr | bit);
+        const addr = @intFromPtr(di_type);
+        const bit = @intFromBool(resolve == .fwd);
+        return @enumFromInt(AnnotatedDITypePtr, addr | bit);
     }
 
     fn toDIType(self: AnnotatedDITypePtr) *llvm.DIType {
-        const fixed_addr = @enumToInt(self) & ~@as(usize, 1);
-        return @intToPtr(*llvm.DIType, fixed_addr);
+        const fixed_addr = @intFromEnum(self) & ~@as(usize, 1);
+        return @ptrFromInt(*llvm.DIType, fixed_addr);
     }
 
     fn isFwdOnly(self: AnnotatedDITypePtr) bool {
-        return @truncate(u1, @enumToInt(self)) != 0;
+        return @truncate(u1, @intFromEnum(self)) != 0;
     }
 };
 
@@ -11118,11 +11118,11 @@ fn buildAllocaInner(
 }
 
 fn errUnionPayloadOffset(payload_ty: Type, mod: *Module) u1 {
-    return @boolToInt(Type.anyerror.abiAlignment(mod) > payload_ty.abiAlignment(mod));
+    return @intFromBool(Type.anyerror.abiAlignment(mod) > payload_ty.abiAlignment(mod));
 }
 
 fn errUnionErrorOffset(payload_ty: Type, mod: *Module) u1 {
-    return @boolToInt(Type.anyerror.abiAlignment(mod) <= payload_ty.abiAlignment(mod));
+    return @intFromBool(Type.anyerror.abiAlignment(mod) <= payload_ty.abiAlignment(mod));
 }
 
 /// Returns true for asm constraint (e.g. "=*m", "=r") if it accepts a memory location

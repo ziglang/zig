@@ -32,7 +32,7 @@ pub fn __exp2h(x: f16) callconv(.C) f16 {
 
 pub fn exp2f(x: f32) callconv(.C) f32 {
     const tblsiz = @intCast(u32, exp2ft.len);
-    const redux: f32 = 0x1.8p23 / @intToFloat(f32, tblsiz);
+    const redux: f32 = 0x1.8p23 / @floatFromInt(f32, tblsiz);
     const P1: f32 = 0x1.62e430p-1;
     const P2: f32 = 0x1.ebfbe0p-3;
     const P3: f32 = 0x1.c6b348p-5;
@@ -89,7 +89,7 @@ pub fn exp2f(x: f32) callconv(.C) f32 {
 
 pub fn exp2(x: f64) callconv(.C) f64 {
     const tblsiz: u32 = @intCast(u32, exp2dt.len / 2);
-    const redux: f64 = 0x1.8p52 / @intToFloat(f64, tblsiz);
+    const redux: f64 = 0x1.8p52 / @floatFromInt(f64, tblsiz);
     const P1: f64 = 0x1.62e42fefa39efp-1;
     const P2: f64 = 0x1.ebfbdff82c575p-3;
     const P3: f64 = 0x1.c6b08d704a0a6p-5;

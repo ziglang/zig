@@ -462,7 +462,7 @@ pub const Function = struct {
                     => |owner_decl| try std.fmt.allocPrint(arena, "zig_{s}_{}__{d}", .{
                         @tagName(key),
                         fmtIdent(mod.intern_pool.stringToSlice(mod.declPtr(owner_decl).name)),
-                        @enumToInt(owner_decl),
+                        @intFromEnum(owner_decl),
                     }),
                 },
                 .data = switch (key) {
@@ -1865,7 +1865,7 @@ pub const DeclGen = struct {
             };
             try writer.print("{}__{d}", .{
                 fmtIdent(name_stream.getWritten()),
-                @enumToInt(decl_index),
+                @intFromEnum(decl_index),
             });
         }
     }
@@ -1991,7 +1991,7 @@ fn renderTypeName(
                 @tagName(tag)["fwd_".len..],
                 attributes,
                 fmtIdent(mod.intern_pool.stringToSlice(mod.declPtr(owner_decl).name)),
-                @enumToInt(owner_decl),
+                @intFromEnum(owner_decl),
             });
         },
     }
@@ -2100,7 +2100,7 @@ fn renderTypePrefix(
         .fwd_anon_struct,
         .fwd_anon_union,
         => if (decl.unwrap()) |decl_index|
-            try w.print("anon__{d}_{d}", .{ @enumToInt(decl_index), idx })
+            try w.print("anon__{d}_{d}", .{ @intFromEnum(decl_index), idx })
         else
             try renderTypeName(mod, w, idx, cty, ""),
 
@@ -2514,7 +2514,7 @@ pub fn genLazyFn(o: *Object, lazy_fn: LazyFnMap.Entry) !void {
                 const name = mod.intern_pool.stringToSlice(name_ip);
                 const tag_val = try mod.enumValueFieldIndex(enum_ty, index);
 
-                const int_val = try tag_val.enumToInt(enum_ty, mod);
+                const int_val = try tag_val.intFromEnum(enum_ty, mod);
 
                 const name_ty = try mod.arrayType(.{
                     .len = name.len,
@@ -4701,7 +4701,7 @@ fn airSwitchBr(f: *Function, inst: Air.Inst.Index) !CValue {
 
     // On the final iteration we do not need to fix any state. This is because, like in the `else`
     // branch of a `cond_br`, our parent has to do it for this entire body anyway.
-    const last_case_i = switch_br.data.cases_len - @boolToInt(switch_br.data.else_body_len == 0);
+    const last_case_i = switch_br.data.cases_len - @intFromBool(switch_br.data.else_body_len == 0);
 
     var extra_index: usize = switch_br.end;
     for (0..switch_br.data.cases_len) |case_i| {
@@ -6894,7 +6894,7 @@ fn airUnionInit(f: *Function, inst: Air.Inst.Index) !CValue {
 
             const tag_val = try mod.enumValueFieldIndex(tag_ty, field_index);
 
-            const int_val = try tag_val.enumToInt(tag_ty, mod);
+            const int_val = try tag_val.intFromEnum(tag_ty, mod);
 
             const a = try Assignment.start(f, writer, tag_ty);
             try f.writeCValueMember(writer, local, .{ .identifier = "tag" });
@@ -6924,7 +6924,7 @@ fn airPrefetch(f: *Function, inst: Air.Inst.Index) !CValue {
         .data => {
             try writer.writeAll("zig_prefetch(");
             try f.writeCValue(writer, ptr, .FunctionArgument);
-            try writer.print(", {d}, {d});\n", .{ @enumToInt(prefetch.rw), prefetch.locality });
+            try writer.print(", {d}, {d});\n", .{ @intFromEnum(prefetch.rw), prefetch.locality });
         },
         // The available prefetch intrinsics do not accept a cache argument; only
         // address, rw, and locality.

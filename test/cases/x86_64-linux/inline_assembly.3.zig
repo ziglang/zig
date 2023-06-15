@@ -2,7 +2,7 @@ pub fn main() void {}
 comptime {
     asm (""
         :
-        : [bruh] "{rax}" (4)
+        : [bruh] "{rax}" (4),
         : "memory"
     );
 }

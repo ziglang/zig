@@ -1372,7 +1372,7 @@ test "lazy value is resolved as slice operand" {
 
     const ptr1 = a[0..@sizeOf(A)];
     const ptr2 = @ptrCast([*]u8, &a)[0..@sizeOf(A)];
-    try expect(@ptrToInt(ptr1) == @ptrToInt(ptr2));
+    try expect(@intFromPtr(ptr1) == @intFromPtr(ptr2));
     try expect(ptr1.len == ptr2.len);
 }
 

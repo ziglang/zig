@@ -8,7 +8,7 @@ pub const Bool = enum(c_int) {
     _,
 
     pub fn fromBool(b: bool) Bool {
-        return @intToEnum(Bool, @boolToInt(b));
+        return @enumFromInt(Bool, @intFromBool(b));
     }
 
     pub fn toBool(b: Bool) bool {

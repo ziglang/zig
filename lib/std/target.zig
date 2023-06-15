@@ -139,7 +139,7 @@ pub const Target = struct {
 
             /// Returns whether the first version `self` is newer (greater) than or equal to the second version `ver`.
             pub fn isAtLeast(self: WindowsVersion, ver: WindowsVersion) bool {
-                return @enumToInt(self) >= @enumToInt(ver);
+                return @intFromEnum(self) >= @intFromEnum(ver);
             }
 
             pub const Range = struct {
@@ -147,14 +147,14 @@ pub const Target = struct {
                 max: WindowsVersion,
 
                 pub fn includesVersion(self: Range, ver: WindowsVersion) bool {
-                    return @enumToInt(ver) >= @enumToInt(self.min) and @enumToInt(ver) <= @enumToInt(self.max);
+                    return @intFromEnum(ver) >= @intFromEnum(self.min) and @intFromEnum(ver) <= @intFromEnum(self.max);
                 }
 
                 /// Checks if system is guaranteed to be at least `version` or older than `version`.
                 /// Returns `null` if a runtime check is required.
                 pub fn isAtLeast(self: Range, ver: WindowsVersion) ?bool {
-                    if (@enumToInt(self.min) >= @enumToInt(ver)) return true;
-                    if (@enumToInt(self.max) < @enumToInt(ver)) return false;
+                    if (@intFromEnum(self.min) >= @intFromEnum(ver)) return true;
+                    if (@intFromEnum(self.max) < @intFromEnum(ver)) return false;
                     return null;
                 }
             };
@@ -168,17 +168,17 @@ pub const Target = struct {
                 out_stream: anytype,
             ) !void {
                 if (comptime std.mem.eql(u8, fmt, "s")) {
-                    if (@enumToInt(self) >= @enumToInt(WindowsVersion.nt4) and @enumToInt(self) <= @enumToInt(WindowsVersion.latest)) {
+                    if (@intFromEnum(self) >= @intFromEnum(WindowsVersion.nt4) and @intFromEnum(self) <= @intFromEnum(WindowsVersion.latest)) {
                         try std.fmt.format(out_stream, ".{s}", .{@tagName(self)});
                     } else {
                         // TODO this code path breaks zig triples, but it is used in `builtin`
-                        try std.fmt.format(out_stream, "@intToEnum(Target.Os.WindowsVersion, 0x{X:0>8})", .{@enumToInt(self)});
+                        try std.fmt.format(out_stream, "@enumFromInt(Target.Os.WindowsVersion, 0x{X:0>8})", .{@intFromEnum(self)});
                     }
                 } else if (fmt.len == 0) {
-                    if (@enumToInt(self) >= @enumToInt(WindowsVersion.nt4) and @enumToInt(self) <= @enumToInt(WindowsVersion.latest)) {
+                    if (@intFromEnum(self) >= @intFromEnum(WindowsVersion.nt4) and @intFromEnum(self) <= @intFromEnum(WindowsVersion.latest)) {
                         try std.fmt.format(out_stream, "WindowsVersion.{s}", .{@tagName(self)});
                     } else {
-                        try std.fmt.format(out_stream, "WindowsVersion(0x{X:0>8})", .{@enumToInt(self)});
+                        try std.fmt.format(out_stream, "WindowsVersion(0x{X:0>8})", .{@intFromEnum(self)});
                     }
                 } else {
                     std.fmt.invalidFmtError(fmt, self);
@@ -778,21 +778,21 @@ pub const Target = struct {
                     pub fn featureSet(features: []const F) Set {
                         var x = Set.empty;
                         for (features) |feature| {
-                            x.addFeature(@enumToInt(feature));
+                            x.addFeature(@intFromEnum(feature));
                         }
                         return x;
                     }
 
                     /// Returns true if the specified feature is enabled.
                     pub fn featureSetHas(set: Set, feature: F) bool {
-                        return set.isEnabled(@enumToInt(feature));
+                        return set.isEnabled(@intFromEnum(feature));
                     }
 
                     /// Returns true if any specified feature is enabled.
                     pub fn featureSetHasAny(set: Set, features: anytype) bool {
                         comptime std.debug.assert(std.meta.trait.isIndexable(@TypeOf(features)));
                         inline for (features) |feature| {
-                            if (set.isEnabled(@enumToInt(@as(F, feature)))) return true;
+                            if (set.isEnabled(@intFromEnum(@as(F, feature)))) return true;
                         }
                         return false;
                     }
@@ -801,7 +801,7 @@ pub const Target = struct {
                     pub fn featureSetHasAll(set: Set, features: anytype) bool {
                         comptime std.debug.assert(std.meta.trait.isIndexable(@TypeOf(features)));
                         inline for (features) |feature| {
-                            if (!set.isEnabled(@enumToInt(@as(F, feature)))) return false;
+                            if (!set.isEnabled(@intFromEnum(@as(F, feature)))) return false;
                         }
                         return true;
                     }

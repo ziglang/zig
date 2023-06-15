@@ -2,19 +2,17 @@ const std = @import("std");
 
 pub fn panic(message: []const u8, stack_trace: ?*std.builtin.StackTrace, _: ?usize) noreturn {
     _ = stack_trace;
-    if (std.mem.eql(u8, message, "integer part of floating point value out of bounds")) {
+    if (std.mem.eql(u8, message, "cast causes pointer to be null")) {
         std.process.exit(0);
     }
     std.process.exit(1);
 }
 pub fn main() !void {
-    baz(bar(256.2));
+    var zero: usize = 0;
+    var b = @ptrFromInt(*i32, zero);
+    _ = b;
     return error.TestFailed;
 }
-fn bar(a: f32) u8 {
-    return @floatToInt(u8, a);
-}
-fn baz(_: u8) void { }
 // run
 // backend=llvm
 // target=native

@@ -444,7 +444,7 @@ fn parseElf(parse: Parse, comptime is_64: bool, comptime endian: builtin.Endian)
         const name = try arena.dupe(u8, mem.sliceTo(dynstr[s(sym.st_name)..], 0));
         const ty = @truncate(u4, sym.st_info);
         const binding = @truncate(u4, sym.st_info >> 4);
-        const visib = @intToEnum(elf.STV, @truncate(u2, sym.st_other));
+        const visib = @enumFromInt(elf.STV, @truncate(u2, sym.st_other));
         const size = s(sym.st_size);
 
         if (parse.blacklist.contains(name)) continue;

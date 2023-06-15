@@ -1826,7 +1826,7 @@ fn linkWithLLD(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !v
 
             for (system_libs, 0..) |link_lib, i| {
                 const lib_as_needed = !system_libs_values[i].needed;
-                switch ((@as(u2, @boolToInt(lib_as_needed)) << 1) | @boolToInt(as_needed)) {
+                switch ((@as(u2, @intFromBool(lib_as_needed)) << 1) | @intFromBool(as_needed)) {
                     0b00, 0b11 => {},
                     0b01 => {
                         argv.appendAssumeCapacity("--no-as-needed");
@@ -2048,11 +2048,11 @@ fn writeElfHeader(self: *Elf) !void {
             .Dynamic => elf.ET.DYN,
         },
     };
-    mem.writeInt(u16, hdr_buf[index..][0..2], @enumToInt(elf_type), endian);
+    mem.writeInt(u16, hdr_buf[index..][0..2], @intFromEnum(elf_type), endian);
     index += 2;
 
     const machine = self.base.options.target.cpu.arch.toElfMachine();
-    mem.writeInt(u16, hdr_buf[index..][0..2], @enumToInt(machine), endian);
+    mem.writeInt(u16, hdr_buf[index..][0..2], @intFromEnum(machine), endian);
     index += 2;
 
     // ELF Version, again
@@ -2557,7 +2557,7 @@ fn updateDeclCode(self: *Elf, decl_index: Module.Decl.Index, code: []const u8, s
                     .iov_len = code.len,
                 }};
                 var remote_vec: [1]std.os.iovec_const = .{.{
-                    .iov_base = @intToPtr([*]u8, @intCast(usize, local_sym.st_value)),
+                    .iov_base = @ptrFromInt([*]u8, @intCast(usize, local_sym.st_value)),
                     .iov_len = code.len,
                 }};
                 const rc = std.os.linux.process_vm_writev(pid, &code_vec, &remote_vec, 0);
@@ -3051,7 +3051,7 @@ fn writeOffsetTableEntry(self: *Elf, index: @TypeOf(self.got_table).Index) !void
                             .iov_len = buf.len,
                         }};
                         var remote_vec: [1]std.os.iovec_const = .{.{
-                            .iov_base = @intToPtr([*]u8, @intCast(usize, vaddr)),
+                            .iov_base = @ptrFromInt([*]u8, @intCast(usize, vaddr)),
                             .iov_len = buf.len,
                         }};
                         const rc = std.os.linux.process_vm_writev(pid, &local_vec, &remote_vec, 0);

@@ -257,7 +257,7 @@ pub fn Poller(comptime StreamEnum: type) type {
         }
 
         pub inline fn fifo(self: *Self, comptime which: StreamEnum) *PollFifo {
-            return &self.fifos[@enumToInt(which)];
+            return &self.fifos[@intFromEnum(which)];
         }
 
         fn pollWindows(self: *Self) !bool {
@@ -275,7 +275,7 @@ pub fn Poller(comptime StreamEnum: type) type {
                     )) {
                         .pending => {
                             self.windows.active.handles_buf[self.windows.active.count] = handle;
-                            self.windows.active.stream_map[self.windows.active.count] = @intToEnum(StreamEnum, i);
+                            self.windows.active.stream_map[self.windows.active.count] = @enumFromInt(StreamEnum, i);
                             self.windows.active.count += 1;
                         },
                         .closed => {}, // don't add to the wait_objects list
@@ -302,7 +302,7 @@ pub fn Poller(comptime StreamEnum: type) type {
                 const active_idx = status - os.windows.WAIT_OBJECT_0;
 
                 const handle = self.windows.active.handles_buf[active_idx];
-                const stream_idx = @enumToInt(self.windows.active.stream_map[active_idx]);
+                const stream_idx = @intFromEnum(self.windows.active.stream_map[active_idx]);
                 var read_bytes: u32 = undefined;
                 if (0 == os.windows.kernel32.GetOverlappedResult(
                     handle,

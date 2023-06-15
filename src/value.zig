@@ -112,7 +112,7 @@ pub const Value = struct {
             return self.castTag(T.base_tag);
         }
         inline for (@typeInfo(Tag).Enum.fields) |field| {
-            const t = @intToEnum(Tag, field.value);
+            const t = @enumFromInt(Tag, field.value);
             if (self.legacy.ptr_otherwise.tag == t) {
                 if (T == t.Type()) {
                     return @fieldParentPtr(T, "base", self.legacy.ptr_otherwise);
@@ -503,7 +503,7 @@ pub const Value = struct {
         return self.toIntern().toType();
     }
 
-    pub fn enumToInt(val: Value, ty: Type, mod: *Module) Allocator.Error!Value {
+    pub fn intFromEnum(val: Value, ty: Type, mod: *Module) Allocator.Error!Value {
         const ip = &mod.intern_pool;
         return switch (ip.indexToKey(ip.typeOf(val.toIntern()))) {
             // Assume it is already an integer and return it directly.
@@ -703,7 +703,7 @@ pub const Value = struct {
         switch (ty.zigTypeTag(mod)) {
             .Void => {},
             .Bool => {
-                buffer[0] = @boolToInt(val.toBool());
+                buffer[0] = @intFromBool(val.toBool());
             },
             .Int, .Enum => {
                 const int_info = ty.intInfo(mod);
@@ -836,7 +836,7 @@ pub const Value = struct {
                 const bits = ty.intInfo(mod).bits;
                 if (bits == 0) return;
 
-                switch (mod.intern_pool.indexToKey((try val.enumToInt(ty, mod)).toIntern()).int.storage) {
+                switch (mod.intern_pool.indexToKey((try val.intFromEnum(ty, mod)).toIntern()).int.storage) {
                     inline .u64, .i64 => |int| std.mem.writeVarPackedInt(buffer, bit_offset, bits, int, endian),
                     .big_int => |bigint| bigint.writePackedTwosComplement(buffer, bit_offset, bits, endian),
                     else => unreachable,
@@ -1170,10 +1170,10 @@ pub const Value = struct {
                     if (T == f80) {
                         @panic("TODO we can't lower this properly on non-x86 llvm backend yet");
                     }
-                    return @intToFloat(T, x);
+                    return @floatFromInt(T, x);
                 },
-                .lazy_align => |ty| @intToFloat(T, ty.toType().abiAlignment(mod)),
-                .lazy_size => |ty| @intToFloat(T, ty.toType().abiSize(mod)),
+                .lazy_align => |ty| @floatFromInt(T, ty.toType().abiAlignment(mod)),
+                .lazy_size => |ty| @floatFromInt(T, ty.toType().abiSize(mod)),
             },
             .float => |float| switch (float.storage) {
                 inline else => |x| @floatCast(T, x),
@@ -1191,7 +1191,7 @@ pub const Value = struct {
         var i: usize = limbs.len;
         while (i != 0) {
             i -= 1;
-            const limb: f128 = @intToFloat(f128, limbs[i]);
+            const limb: f128 = @floatFromInt(f128, limbs[i]);
             result = @mulAdd(f128, base, result, limb);
         }
         if (positive) {
@@ -1593,8 +1593,8 @@ pub const Value = struct {
                 return a_type.eql(b_type, mod);
             },
             .Enum => {
-                const a_val = try a.enumToInt(ty, mod);
-                const b_val = try b.enumToInt(ty, mod);
+                const a_val = try a.intFromEnum(ty, mod);
+                const b_val = try b.intFromEnum(ty, mod);
                 const int_ty = ty.intTagType(mod);
                 return eqlAdvanced(a_val, int_ty, b_val, int_ty, mod, opt_sema);
             },
@@ -2124,30 +2124,30 @@ pub const Value = struct {
         };
     }
 
-    pub fn intToFloat(val: Value, arena: Allocator, int_ty: Type, float_ty: Type, mod: *Module) !Value {
-        return intToFloatAdvanced(val, arena, int_ty, float_ty, mod, null) catch |err| switch (err) {
+    pub fn floatFromInt(val: Value, arena: Allocator, int_ty: Type, float_ty: Type, mod: *Module) !Value {
+        return floatFromIntAdvanced(val, arena, int_ty, float_ty, mod, null) catch |err| switch (err) {
             error.OutOfMemory => return error.OutOfMemory,
             else => unreachable,
         };
     }
 
-    pub fn intToFloatAdvanced(val: Value, arena: Allocator, int_ty: Type, float_ty: Type, mod: *Module, opt_sema: ?*Sema) !Value {
+    pub fn floatFromIntAdvanced(val: Value, arena: Allocator, int_ty: Type, float_ty: Type, mod: *Module, opt_sema: ?*Sema) !Value {
         if (int_ty.zigTypeTag(mod) == .Vector) {
             const result_data = try arena.alloc(InternPool.Index, int_ty.vectorLen(mod));
             const scalar_ty = float_ty.scalarType(mod);
             for (result_data, 0..) |*scalar, i| {
                 const elem_val = try val.elemValue(mod, i);
-                scalar.* = try (try intToFloatScalar(elem_val, scalar_ty, mod, opt_sema)).intern(scalar_ty, mod);
+                scalar.* = try (try floatFromIntScalar(elem_val, scalar_ty, mod, opt_sema)).intern(scalar_ty, mod);
             }
             return (try mod.intern(.{ .aggregate = .{
                 .ty = float_ty.toIntern(),
                 .storage = .{ .elems = result_data },
             } })).toValue();
         }
-        return intToFloatScalar(val, float_ty, mod, opt_sema);
+        return floatFromIntScalar(val, float_ty, mod, opt_sema);
     }
 
-    pub fn intToFloatScalar(val: Value, float_ty: Type, mod: *Module, opt_sema: ?*Sema) !Value {
+    pub fn floatFromIntScalar(val: Value, float_ty: Type, mod: *Module, opt_sema: ?*Sema) !Value {
         return switch (mod.intern_pool.indexToKey(val.toIntern())) {
             .undef => (try mod.intern(.{ .undef = float_ty.toIntern() })).toValue(),
             .int => |int| switch (int.storage) {
@@ -2155,30 +2155,30 @@ pub const Value = struct {
                     const float = bigIntToFloat(big_int.limbs, big_int.positive);
                     return mod.floatValue(float_ty, float);
                 },
-                inline .u64, .i64 => |x| intToFloatInner(x, float_ty, mod),
+                inline .u64, .i64 => |x| floatFromIntInner(x, float_ty, mod),
                 .lazy_align => |ty| if (opt_sema) |sema| {
-                    return intToFloatInner((try ty.toType().abiAlignmentAdvanced(mod, .{ .sema = sema })).scalar, float_ty, mod);
+                    return floatFromIntInner((try ty.toType().abiAlignmentAdvanced(mod, .{ .sema = sema })).scalar, float_ty, mod);
                 } else {
-                    return intToFloatInner(ty.toType().abiAlignment(mod), float_ty, mod);
+                    return floatFromIntInner(ty.toType().abiAlignment(mod), float_ty, mod);
                 },
                 .lazy_size => |ty| if (opt_sema) |sema| {
-                    return intToFloatInner((try ty.toType().abiSizeAdvanced(mod, .{ .sema = sema })).scalar, float_ty, mod);
+                    return floatFromIntInner((try ty.toType().abiSizeAdvanced(mod, .{ .sema = sema })).scalar, float_ty, mod);
                 } else {
-                    return intToFloatInner(ty.toType().abiSize(mod), float_ty, mod);
+                    return floatFromIntInner(ty.toType().abiSize(mod), float_ty, mod);
                 },
             },
             else => unreachable,
         };
     }
 
-    fn intToFloatInner(x: anytype, dest_ty: Type, mod: *Module) !Value {
+    fn floatFromIntInner(x: anytype, dest_ty: Type, mod: *Module) !Value {
         const target = mod.getTarget();
         const storage: InternPool.Key.Float.Storage = switch (dest_ty.floatBits(target)) {
-            16 => .{ .f16 = @intToFloat(f16, x) },
-            32 => .{ .f32 = @intToFloat(f32, x) },
-            64 => .{ .f64 = @intToFloat(f64, x) },
-            80 => .{ .f80 = @intToFloat(f80, x) },
-            128 => .{ .f128 = @intToFloat(f128, x) },
+            16 => .{ .f16 = @floatFromInt(f16, x) },
+            32 => .{ .f32 = @floatFromInt(f32, x) },
+            64 => .{ .f64 = @floatFromInt(f64, x) },
+            80 => .{ .f80 = @floatFromInt(f80, x) },
+            128 => .{ .f128 = @floatFromInt(f128, x) },
             else => unreachable,
         };
         return (try mod.intern(.{ .float = .{
@@ -2193,7 +2193,7 @@ pub const Value = struct {
         }
 
         const w_value = @fabs(scalar);
-        return @divFloor(@floatToInt(std.math.big.Limb, std.math.log2(w_value)), @typeInfo(std.math.big.Limb).Int.bits) + 1;
+        return @divFloor(@intFromFloat(std.math.big.Limb, std.math.log2(w_value)), @typeInfo(std.math.big.Limb).Int.bits) + 1;
     }
 
     pub const OverflowArithmeticResult = struct {
@@ -2364,7 +2364,7 @@ pub const Value = struct {
         }
 
         return OverflowArithmeticResult{
-            .overflow_bit = try mod.intValue(Type.u1, @boolToInt(overflowed)),
+            .overflow_bit = try mod.intValue(Type.u1, @intFromBool(overflowed)),
             .wrapped_result = try mod.intValue_big(ty, result_bigint.toConst()),
         };
     }
@@ -3177,7 +3177,7 @@ pub const Value = struct {
             result_bigint.truncate(result_bigint.toConst(), info.signedness, info.bits);
         }
         return OverflowArithmeticResult{
-            .overflow_bit = try mod.intValue(Type.u1, @boolToInt(overflowed)),
+            .overflow_bit = try mod.intValue(Type.u1, @intFromBool(overflowed)),
             .wrapped_result = try mod.intValue_big(ty, result_bigint.toConst()),
         };
     }

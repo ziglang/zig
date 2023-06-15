@@ -7,7 +7,6 @@ pub export fn entry() void {
     _ = s;
 }
 
-
 // error
 // backend=stage2
 // target=native

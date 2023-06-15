@@ -12,7 +12,7 @@ pub fn main() !void {
     return error.TestFailed;
 }
 fn bar(x: u16) anyerror {
-    return @intToError(x);
+    return @errorFromInt(x);
 }
 // run
 // backend=llvm

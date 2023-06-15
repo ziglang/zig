@@ -86,7 +86,7 @@ pub fn log10f(x_: f32) callconv(.C) f32 {
     u &= 0xFFFFF000;
     hi = @bitCast(f32, u);
     const lo = f - hi - hfsq + s * (hfsq + R);
-    const dk = @intToFloat(f32, k);
+    const dk = @floatFromInt(f32, k);
 
     return dk * log10_2lo + (lo + hi) * ivln10lo + lo * ivln10hi + hi * ivln10hi + dk * log10_2hi;
 }
@@ -154,7 +154,7 @@ pub fn log10(x_: f64) callconv(.C) f64 {
 
     // val_hi + val_lo ~ log10(1 + f) + k * log10(2)
     var val_hi = hi * ivln10hi;
-    const dk = @intToFloat(f64, k);
+    const dk = @floatFromInt(f64, k);
     const y = dk * log10_2hi;
     var val_lo = dk * log10_2lo + (lo + hi) * ivln10lo + lo * ivln10hi;
 

@@ -289,7 +289,7 @@ fn scanRelocs(
 }
 
 inline fn relocNeedsThunk(rel: macho.relocation_info) bool {
-    const rel_type = @intToEnum(macho.reloc_type_arm64, rel.r_type);
+    const rel_type = @enumFromInt(macho.reloc_type_arm64, rel.r_type);
     return rel_type == .ARM64_RELOC_BRANCH26;
 }
 

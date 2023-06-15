@@ -951,7 +951,7 @@ fn finishAir(self: *Self, inst: Air.Inst.Index, result: MCValue, operands: [Live
         const dies = @truncate(u1, tomb_bits) != 0;
         tomb_bits >>= 1;
         if (!dies) continue;
-        const op_int = @enumToInt(op);
+        const op_int = @intFromEnum(op);
         if (op_int < Air.ref_start_index) continue;
         const op_index = @intCast(Air.Inst.Index, op_int - Air.ref_start_index);
         self.processDeath(op_index);
@@ -4026,7 +4026,7 @@ fn store(self: *Self, ptr: MCValue, value: MCValue, ptr_ty: Type, value_ty: Type
                                     .tag = tag,
                                     .data = .{
                                         .payload = try self.addExtra(Mir.LoadMemoryPie{
-                                            .register = @enumToInt(src_reg),
+                                            .register = @intFromEnum(src_reg),
                                             .atom_index = atom_index,
                                             .sym_index = load_struct.sym_index,
                                         }),
@@ -4694,7 +4694,7 @@ fn airCondBr(self: *Self, inst: Air.Inst.Index) !void {
     // that death now instead of later as this has an effect on
     // whether it needs to be spilled in the branches
     if (self.liveness.operandDies(inst, 0)) {
-        const op_int = @enumToInt(pl_op.operand);
+        const op_int = @intFromEnum(pl_op.operand);
         if (op_int >= Air.ref_start_index) {
             const op_index = @intCast(Air.Inst.Index, op_int - Air.ref_start_index);
             self.processDeath(op_index);
@@ -5546,7 +5546,7 @@ fn genSetStack(self: *Self, ty: Type, stack_offset: u32, mcv: MCValue) InnerErro
                             .tag = tag,
                             .data = .{
                                 .payload = try self.addExtra(Mir.LoadMemoryPie{
-                                    .register = @enumToInt(src_reg),
+                                    .register = @intFromEnum(src_reg),
                                     .atom_index = atom_index,
                                     .sym_index = load_struct.sym_index,
                                 }),
@@ -5667,7 +5667,7 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
                 .tag = tag,
                 .data = .{
                     .payload = try self.addExtra(Mir.LoadMemoryPie{
-                        .register = @enumToInt(reg),
+                        .register = @intFromEnum(reg),
                         .atom_index = atom_index,
                         .sym_index = load_struct.sym_index,
                     }),
@@ -5864,7 +5864,7 @@ fn genSetStackArgument(self: *Self, ty: Type, stack_offset: u32, mcv: MCValue) I
                             .tag = tag,
                             .data = .{
                                 .payload = try self.addExtra(Mir.LoadMemoryPie{
-                                    .register = @enumToInt(src_reg),
+                                    .register = @intFromEnum(src_reg),
                                     .atom_index = atom_index,
                                     .sym_index = load_struct.sym_index,
                                 }),

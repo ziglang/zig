@@ -103,7 +103,7 @@ test "inline else enum" {
     var a: E2 = .a;
     switch (a) {
         .a, .b => {},
-        inline else => |val| comptime if (@enumToInt(val) < 4) @compileError("bad"),
+        inline else => |val| comptime if (@intFromEnum(val) < 4) @compileError("bad"),
     }
 }
 

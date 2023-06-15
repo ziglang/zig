@@ -77,7 +77,7 @@ pub fn logf(x_: f32) callconv(.C) f32 {
     const t2 = z * (Lg1 + w * Lg3);
     const R = t2 + t1;
     const hfsq = 0.5 * f * f;
-    const dk = @intToFloat(f32, k);
+    const dk = @floatFromInt(f32, k);
 
     return s * (hfsq + R) + dk * ln2_lo - hfsq + f + dk * ln2_hi;
 }
@@ -133,7 +133,7 @@ pub fn log(x_: f64) callconv(.C) f64 {
     const t1 = w * (Lg2 + w * (Lg4 + w * Lg6));
     const t2 = z * (Lg1 + w * (Lg3 + w * (Lg5 + w * Lg7)));
     const R = t2 + t1;
-    const dk = @intToFloat(f64, k);
+    const dk = @floatFromInt(f64, k);
 
     return s * (hfsq + R) + dk * ln2_lo - hfsq + f + dk * ln2_hi;
 }

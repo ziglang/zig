@@ -207,10 +207,10 @@ pub fn detect(cross_target: CrossTarget) DetectError!NativeTargetInfo {
             })) {
                 switch (result.target.abi) {
                     .code16 => result.target.cpu.features.addFeature(
-                        @enumToInt(std.Target.x86.Feature.@"16bit_mode"),
+                        @intFromEnum(std.Target.x86.Feature.@"16bit_mode"),
                     ),
                     else => result.target.cpu.features.addFeature(
-                        @enumToInt(std.Target.x86.Feature.@"32bit_mode"),
+                        @intFromEnum(std.Target.x86.Feature.@"32bit_mode"),
                     ),
                 }
             }
@@ -221,7 +221,7 @@ pub fn detect(cross_target: CrossTarget) DetectError!NativeTargetInfo {
         },
         .thumb, .thumbeb => {
             result.target.cpu.features.addFeature(
-                @enumToInt(std.Target.arm.Feature.thumb_mode),
+                @intFromEnum(std.Target.arm.Feature.thumb_mode),
             );
         },
         else => {},
@@ -268,7 +268,7 @@ fn detectAbiAndDynamicLinker(
     // and supported by Zig. But that means that we must detect the system ABI here rather than
     // relying on `builtin.target`.
     const all_abis = comptime blk: {
-        assert(@enumToInt(Target.Abi.none) == 0);
+        assert(@intFromEnum(Target.Abi.none) == 0);
         const fields = std.meta.fields(Target.Abi)[1..];
         var array: [fields.len]Target.Abi = undefined;
         inline for (fields, 0..) |field, i| {

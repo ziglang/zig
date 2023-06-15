@@ -137,7 +137,7 @@ pub fn main() !void {
 
     for (versions, 0..) |ver, i| {
         try w.print(
-            \\    result[@enumToInt(Feature.v{0}_{1})] = .{{
+            \\    result[@intFromEnum(Feature.v{0}_{1})] = .{{
             \\        .llvm_name = null,
             \\        .description = "SPIR-V version {0}.{1}",
             \\
@@ -163,7 +163,7 @@ pub fn main() !void {
     // TODO: Extension dependencies.
     for (extensions) |ext| {
         try w.print(
-            \\    result[@enumToInt(Feature.{s})] = .{{
+            \\    result[@intFromEnum(Feature.{s})] = .{{
             \\        .llvm_name = null,
             \\        .description = "SPIR-V extension {s}",
             \\        .dependencies = featureSet(&[_]Feature{{}}),
@@ -178,7 +178,7 @@ pub fn main() !void {
     // TODO: Capability extension dependencies.
     for (capabilities) |cap| {
         try w.print(
-            \\    result[@enumToInt(Feature.{s})] = .{{
+            \\    result[@intFromEnum(Feature.{s})] = .{{
             \\        .llvm_name = null,
             \\        .description = "Enable SPIR-V capability {s}",
             \\        .dependencies = featureSet(&[_]Feature{{

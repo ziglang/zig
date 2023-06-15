@@ -1,5 +1,5 @@
 export fn f() void {
-    const a : i32 = 0;
+    const a: i32 = 0;
     var a = 0;
 }
 

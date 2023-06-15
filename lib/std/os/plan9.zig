@@ -10,7 +10,7 @@ pub const E = @import("plan9/errno.zig").E;
 pub fn getErrno(r: usize) E {
     const signed_r = @bitCast(isize, r);
     const int = if (signed_r > -4096 and signed_r < 0) -signed_r else 0;
-    return @intToEnum(E, int);
+    return @enumFromInt(E, int);
 }
 pub const SIG = struct {
     /// hangup
@@ -133,19 +133,19 @@ pub const SYS = enum(usize) {
 };
 
 pub fn pwrite(fd: usize, buf: [*]const u8, count: usize, offset: usize) usize {
-    return syscall_bits.syscall4(.PWRITE, fd, @ptrToInt(buf), count, offset);
+    return syscall_bits.syscall4(.PWRITE, fd, @intFromPtr(buf), count, offset);
 }
 
 pub fn pread(fd: usize, buf: [*]const u8, count: usize, offset: usize) usize {
-    return syscall_bits.syscall4(.PREAD, fd, @ptrToInt(buf), count, offset);
+    return syscall_bits.syscall4(.PREAD, fd, @intFromPtr(buf), count, offset);
 }
 
 pub fn open(path: [*:0]const u8, omode: OpenMode) usize {
-    return syscall_bits.syscall2(.OPEN, @ptrToInt(path), @enumToInt(omode));
+    return syscall_bits.syscall2(.OPEN, @intFromPtr(path), @intFromEnum(omode));
 }
 
 pub fn create(path: [*:0]const u8, omode: OpenMode, perms: usize) usize {
-    return syscall_bits.syscall3(.CREATE, @ptrToInt(path), @enumToInt(omode), perms);
+    return syscall_bits.syscall3(.CREATE, @intFromPtr(path), @intFromEnum(omode), perms);
 }
 
 pub fn exit(status: u8) noreturn {
@@ -159,7 +159,7 @@ pub fn exit(status: u8) noreturn {
 }
 
 pub fn exits(status: ?[*:0]const u8) noreturn {
-    _ = syscall_bits.syscall1(.EXITS, if (status) |s| @ptrToInt(s) else 0);
+    _ = syscall_bits.syscall1(.EXITS, if (status) |s| @intFromPtr(s) else 0);
     unreachable;
 }
 

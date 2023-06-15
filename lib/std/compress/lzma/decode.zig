@@ -326,7 +326,7 @@ pub const DecoderState = struct {
             while (result < 0x100) {
                 const match_bit = (match_byte >> 7) & 1;
                 match_byte <<= 1;
-                const bit = @boolToInt(try decoder.decodeBit(
+                const bit = @intFromBool(try decoder.decodeBit(
                     reader,
                     &probs[((@as(usize, 1) + match_bit) << 8) + result],
                     update,
@@ -339,7 +339,7 @@ pub const DecoderState = struct {
         }
 
         while (result < 0x100) {
-            result = (result << 1) ^ @boolToInt(try decoder.decodeBit(reader, &probs[result], update));
+            result = (result << 1) ^ @intFromBool(try decoder.decodeBit(reader, &probs[result], update));
         }
 
         return @truncate(u8, result - 0x100);

@@ -514,9 +514,9 @@ pub const ArgIteratorWasi = struct {
     /// Call to free the internal buffer of the iterator.
     pub fn deinit(self: *ArgIteratorWasi) void {
         const last_item = self.args[self.args.len - 1];
-        const last_byte_addr = @ptrToInt(last_item.ptr) + last_item.len + 1; // null terminated
+        const last_byte_addr = @intFromPtr(last_item.ptr) + last_item.len + 1; // null terminated
         const first_item_ptr = self.args[0].ptr;
-        const len = last_byte_addr - @ptrToInt(first_item_ptr);
+        const len = last_byte_addr - @intFromPtr(first_item_ptr);
         self.allocator.free(first_item_ptr[0..len]);
         self.allocator.free(self.args);
     }
@@ -1079,9 +1079,9 @@ pub fn getBaseAddress() usize {
             return phdr - @sizeOf(std.elf.Ehdr);
         },
         .macos, .freebsd, .netbsd => {
-            return @ptrToInt(&std.c._mh_execute_header);
+            return @intFromPtr(&std.c._mh_execute_header);
         },
-        .windows => return @ptrToInt(os.windows.kernel32.GetModuleHandleW(null)),
+        .windows => return @intFromPtr(os.windows.kernel32.GetModuleHandleW(null)),
         else => @compileError("Unsupported OS"),
     }
 }

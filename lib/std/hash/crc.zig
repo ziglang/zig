@@ -129,7 +129,7 @@ pub fn Crc32WithPoly(comptime poly: Polynomial) type {
                 var j: usize = 0;
                 while (j < 8) : (j += 1) {
                     if (crc & 1 == 1) {
-                        crc = (crc >> 1) ^ @enumToInt(poly);
+                        crc = (crc >> 1) ^ @intFromEnum(poly);
                     } else {
                         crc = (crc >> 1);
                     }
@@ -222,7 +222,7 @@ pub fn Crc32SmallWithPoly(comptime poly: Polynomial) type {
                 var j: usize = 0;
                 while (j < 8) : (j += 1) {
                     if (crc & 1 == 1) {
-                        crc = (crc >> 1) ^ @enumToInt(poly);
+                        crc = (crc >> 1) ^ @intFromEnum(poly);
                     } else {
                         crc = (crc >> 1);
                     }

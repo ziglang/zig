@@ -1448,7 +1448,7 @@ pub const CK = enum(c_int) {
     IntegralToBoolean,
     IntegralToFloating,
     FloatingToFixedPoint,
-    FixedPointToFloating,
+    FixedPofloatFromInting,
     FixedPointCast,
     FixedPointToIntegral,
     IntegralToFixedPoint,
