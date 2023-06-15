@@ -28,6 +28,7 @@ const LibCTarget = struct {
 const MultiArch = union(enum) {
     arm,
     arm64,
+    loongarch,
     mips,
     powerpc,
     riscv,
@@ -70,6 +71,10 @@ const linux_targets = [_]LibCTarget{
         .arch = .{ .specific = .m68k },
     },
     LibCTarget{
+        .name = "loongarch",
+        .arch = .loongarch,
+    },
+    LibCTarget{
         .name = "mips",
         .arch = .mips,
     },
@@ -92,6 +97,10 @@ const linux_targets = [_]LibCTarget{
     LibCTarget{
         .name = "x86",
         .arch = .x86,
+    },
+    LibCTarget{
+        .name = "xtensa",
+        .arch = .{ .specific = .xtensa },
     },
 };
 
