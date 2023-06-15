@@ -478,6 +478,9 @@ pub const IterableDir = struct {
                             .FAULT => unreachable,
                             .NOTDIR => unreachable,
                             .INVAL => unreachable,
+                            // Introduced in freebsd 13.2: directory unlinked but still open.
+                            // To be consistent, iteration ends if the directory being iterated is deleted during iteration.
+                            .NOENT => return null,
                             else => |err| return os.unexpectedErrno(err),
                         }
                         if (rc == 0) return null;
