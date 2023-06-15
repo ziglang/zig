@@ -1909,6 +1909,17 @@ pub fn addOrUpdateImport(
         global_gop.value_ptr.* = loc;
         try wasm.resolved_symbols.put(wasm.base.allocator, loc, {});
         try wasm.undefs.putNoClobber(wasm.base.allocator, decl_name_index, loc);
+    } else if (global_gop.value_ptr.*.index != symbol_index) {
+        // We are not updating a symbol, but found an existing global
+        // symbol with the same name. This means we always favor the
+        // existing symbol, regardless whether it's defined or not.
+        // We can also skip storing the import as we will not output
+        // this symbol.
+        return wasm.discarded.put(
+            wasm.base.allocator,
+            .{ .file = null, .index = symbol_index },
+            global_gop.value_ptr.*,
+        );
     }
 
     if (type_index) |ty_index| {
@@ -1924,8 +1935,8 @@ pub fn addOrUpdateImport(
             };
         }
     } else {
+        // non-functions will not be imported from the runtime, but only resolved during link-time
         symbol.tag = .data;
-        return; // non-functions will not be imported from the runtime, but only resolved during link-time
     }
 }
 
