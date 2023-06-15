@@ -431,6 +431,10 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
         }
     }
 
+    if (self.stdin) |bytes| {
+        man.hash.addBytes(bytes);
+    }
+
     if (self.captured_stdout) |output| {
         man.hash.addBytes(output.basename);
     }
