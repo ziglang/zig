@@ -17629,6 +17629,42 @@ fn zirAsm(
             .comptime_int => arg.* = try sema.coerce(block, Type.usize, uncasted_arg, src),
             .comptime_float => arg.* = try sema.coerce(block, Type.f64, uncasted_arg, src),
             else => {
+                const input_op_src = block.src(.{
+                    .asm_input_op = .{
+                        .asm_node_offset = extra.data.src_node,
+                        .input_index = @intCast(arg_i),
+                    },
+                });
+                if (try uncasted_arg_ty.comptimeOnlySema(pt)) {
+                    const target = pt.zcu.getTarget();
+                    const arch = target.cpu.arch;
+                    const is_spirv = arch.isSpirV();
+                    // SPIR-V is a typed language so we want to be able to pass types through.
+                    if (uncasted_arg_ty.zigTypeTag(zcu) != .type or !is_spirv) {
+                        return sema.fail(
+                            block,
+                            input_op_src,
+                            "type '{}' is comptime-only and cannot be used for an assembly input operand",
+                            .{uncasted_arg_ty.fmt(pt)},
+                        );
+                    }
+                }
+                if (!try uncasted_arg_ty.hasRuntimeBitsSema(pt)) {
+                    return sema.fail(
+                        block,
+                        input_op_src,
+                        "type '{}' does not have runtime bits and cannot be used for an assembly input operand",
+                        .{uncasted_arg_ty.fmt(pt)},
+                    );
+                }
+                if (!uncasted_arg_ty.hasWellDefinedLayout(zcu)) {
+                    return sema.fail(
+                        block,
+                        input_op_src,
+                        "type '{}' does not have a well-defined memory layout and cannot be used for an assembly input operand",
+                        .{uncasted_arg_ty.fmt(pt)},
+                    );
+                }
                 arg.* = uncasted_arg;
             },
         }

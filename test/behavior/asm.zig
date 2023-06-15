@@ -150,12 +150,24 @@ test "struct/array/union types as input values" {
     ); // fails
     asm volatile (""
         :
-        : [_] "m" (@as(struct { x: u32, y: u8 }, undefined)),
+        : [_] "m" (@as(packed struct { x: u32, y: u8 }, undefined)),
     ); // fails
+    // TODO: CBE struggles with unions here
+    if (builtin.zig_backend != .stage2_c)
+        asm volatile (""
+            :
+            : [_] "m" (@as(packed union { x: u32, y: u8 }, undefined)),
+        ); // fails
     asm volatile (""
         :
-        : [_] "m" (@as(union { x: u32, y: u8 }, undefined)),
+        : [_] "m" (@as(extern struct { x: u32, y: u8 }, undefined)),
     ); // fails
+    // TODO: CBE struggles with unions here
+    if (builtin.zig_backend != .stage2_c)
+        asm volatile (""
+            :
+            : [_] "m" (@as(extern union { x: u32, y: u8 }, undefined)),
+        ); // fails
 }
 
 extern fn this_is_my_alias() i32;

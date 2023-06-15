@@ -989,6 +989,14 @@ pub const SrcLoc = struct {
                 const node_datas = tree.nodes.items(.data);
                 return tree.nodeToSpan(node_datas[asm_output].lhs);
             },
+            .asm_input_op => |asm_input_op| {
+                const tree = try src_loc.file_scope.getTree(gpa);
+                const node = src_loc.relativeToNodeIndex(asm_input_op.asm_node_offset);
+                const full = tree.fullAsm(node).?;
+                const asm_input = full.inputs[asm_input_op.input_index];
+                const node_datas = tree.nodes.items(.data);
+                return tree.nodeToSpan(node_datas[asm_input].lhs);
+            },
 
             .node_offset_if_cond => |node_off| {
                 const tree = try src_loc.file_scope.getTree(gpa);
@@ -1795,6 +1803,16 @@ pub const LazySrcLoc = struct {
         /// base node, which points to inline assembly AST node. Next, navigate
         /// to the return type expression.
         node_offset_asm_ret_ty: i32,
+        /// The source location points to an input operand of an inline assembly
+        /// expression, found by taking this AST node index offset from the containing
+        /// Decl AST node, which points to inline assembly AST node. Next, navigate
+        /// to the input operand expression.
+        asm_input_op: struct {
+            /// Points to the asm AST node.
+            asm_node_offset: i32,
+            /// Picks one of the inputs from the asm.
+            input_index: u32,
+        },
         /// The source location points to the condition expression of an if
         /// expression, found by taking this AST node index offset from the containing
         /// base node, which points to an if expression AST node. Next, navigate
