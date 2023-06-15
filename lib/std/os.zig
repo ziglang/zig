@@ -87,6 +87,10 @@ pub const F = system.F;
 pub const FD_CLOEXEC = system.FD_CLOEXEC;
 pub const Flock = system.Flock;
 pub const HOST_NAME_MAX = system.HOST_NAME_MAX;
+pub const HW = switch (builtin.os.tag) {
+    .openbsd => system.HW,
+    else => .{},
+};
 pub const IFNAMESIZE = system.IFNAMESIZE;
 pub const IOV_MAX = system.IOV_MAX;
 pub const IPPROTO = system.IPPROTO;
