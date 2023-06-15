@@ -378,12 +378,16 @@ test "slice syntax resulting in pointer-to-array" {
             try testPointer0();
             try testPointerAlign();
             try testSlice();
+            try testSliceZ();
             try testSliceOpt();
             try testSliceAlign();
+            try testConcatStrLiterals();
             try testSliceLength();
             try testSliceLengthZ();
             try testArrayLength();
             try testArrayLengthZ();
+            try testMultiPointer();
+            try testMultiPointerLengthZ();
         }
 
         fn testArray() !void {
@@ -469,8 +473,12 @@ test "slice syntax resulting in pointer-to-array" {
             var array = [5:0]u8{ 1, 2, 3, 4, 5 };
             var slice: [:0]u8 = &array;
             try comptime expect(@TypeOf(slice[1..3]) == *[2]u8);
-            try comptime expect(@TypeOf(slice[1..]) == [:0]u8);
             try comptime expect(@TypeOf(slice[1..3 :4]) == *[2:4]u8);
+            if (@inComptime()) {
+                try comptime expect(@TypeOf(slice[1..]) == *[4:0]u8);
+            } else {
+                try comptime expect(@TypeOf(slice[1..]) == [:0]u8);
+            }
         }
 
         fn testSliceOpt() !void {
@@ -491,8 +499,8 @@ test "slice syntax resulting in pointer-to-array" {
         }
 
         fn testConcatStrLiterals() !void {
-            try expectEqualSlices("a"[0..] ++ "b"[0..], "ab");
-            try expectEqualSlices("a"[0.. :0] ++ "b"[0.. :0], "ab");
+            try expectEqualSlices(u8, "ab", "a"[0..] ++ "b"[0..]);
+            try expectEqualSlices(u8, "ab", "a"[0.. :0] ++ "b"[0.. :0]);
         }
 
         fn testSliceLength() !void {
@@ -541,18 +549,18 @@ test "slice syntax resulting in pointer-to-array" {
             var array = [5:0]u8{ 1, 2, 3, 4, 5 };
             var ptr: [*]u8 = &array;
             try comptime expect(@TypeOf(ptr[1..][0..2]) == *[2]u8);
-            try comptime expect(@TypeOf(ptr[1..][0..4]) == *[4:0]u8);
+            try comptime expect(@TypeOf(ptr[1..][0..4]) == *[4]u8);
             try comptime expect(@TypeOf(ptr[1..][0..2 :4]) == *[2:4]u8);
             try comptime expect(@TypeOf(ptr[1.. :0][0..2]) == *[2]u8);
-            try comptime expect(@TypeOf(ptr[1.. :0][0..4]) == *[4:0]u8);
+            try comptime expect(@TypeOf(ptr[1.. :0][0..4]) == *[4]u8);
             try comptime expect(@TypeOf(ptr[1.. :0][0..2 :4]) == *[2:4]u8);
 
             var ptr_z: [*:0]u8 = &array;
             try comptime expect(@TypeOf(ptr_z[1..][0..2]) == *[2]u8);
-            try comptime expect(@TypeOf(ptr_z[1..][0..4]) == *[4:0]u8);
+            try comptime expect(@TypeOf(ptr_z[1..][0..4]) == *[4]u8);
             try comptime expect(@TypeOf(ptr_z[1..][0..2 :4]) == *[2:4]u8);
             try comptime expect(@TypeOf(ptr_z[1.. :0][0..2]) == *[2]u8);
-            try comptime expect(@TypeOf(ptr_z[1.. :0][0..4]) == *[4:0]u8);
+            try comptime expect(@TypeOf(ptr_z[1.. :0][0..4]) == *[4]u8);
             try comptime expect(@TypeOf(ptr_z[1.. :0][0..2 :4]) == *[2:4]u8);
         }
     };

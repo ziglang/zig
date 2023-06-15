@@ -10069,7 +10069,7 @@ fn zirSliceSentinel(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileErr
     const extra = sema.code.extraData(Zir.Inst.SliceSentinel, inst_data.payload_index).data;
     const array_ptr = try sema.resolveInst(extra.lhs);
     const start = try sema.resolveInst(extra.start);
-    const end = try sema.resolveInst(extra.end);
+    const end: Air.Inst.Ref = if (extra.end == .none) .none else try sema.resolveInst(extra.end);
     const sentinel = try sema.resolveInst(extra.sentinel);
     const ptr_src: LazySrcLoc = .{ .node_offset_slice_ptr = inst_data.src_node };
     const start_src: LazySrcLoc = .{ .node_offset_slice_start = inst_data.src_node };
