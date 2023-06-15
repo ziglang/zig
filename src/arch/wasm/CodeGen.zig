@@ -3008,6 +3008,17 @@ fn lowerDeclRefValue(func: *CodeGen, tv: TypedValue, decl_index: Module.Decl.Ind
     }
 
     const decl = mod.declPtr(decl_index);
+    // check if decl is an alias to a function, in which case we
+    // want to lower the actual decl, rather than the alias itself.
+    if (decl.val.getFunction(mod)) |func_val| {
+        if (func_val.owner_decl != decl_index) {
+            return func.lowerDeclRefValue(tv, func_val.owner_decl, offset);
+        }
+    } else if (decl.val.getExternFunc(mod)) |func_val| {
+        if (func_val.decl != decl_index) {
+            return func.lowerDeclRefValue(tv, func_val.decl, offset);
+        }
+    }
     if (decl.ty.zigTypeTag(mod) != .Fn and !decl.ty.hasRuntimeBitsIgnoreComptime(mod)) {
         return WValue{ .imm32 = 0xaaaaaaaa };
     }
