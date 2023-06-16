@@ -1066,7 +1066,7 @@ fn addOne(number: i32) i32 {
 }
       {#code_end#}
       <p>
-        The <code class="file">introducing_zig_test.zig</code> code sample tests the {#link|function|Functions#}
+        The <code class="file">testing_introduction.zig</code> code sample tests the {#link|function|Functions#}
         {#syntax#}addOne{#endsyntax#} to ensure that it returns {#syntax#}42{#endsyntax#} given the input
         {#syntax#}41{#endsyntax#}. From this test's perspective, the {#syntax#}addOne{#endsyntax#} function is
         said to be <em>code under test</em>.
@@ -1138,7 +1138,7 @@ const std = @import("std");
 const expect = std.testing.expect;
 
 // Imported source file tests will run when referenced from a top-level test declaration.
-// The next line alone does not cause "introducing_zig_test.zig" tests to run.
+// The next line alone does not cause "testing_introduction.zig" tests to run.
 const imported_file = @import("testing_introduction.zig");
 
 test {
