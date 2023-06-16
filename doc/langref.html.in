@@ -9273,7 +9273,7 @@ fn doTheTest() !void {
       {#header_open|@sin#}
       <pre>{#syntax#}@sin(value: anytype) @TypeOf(value){#endsyntax#}</pre>
       <p>
-      Sine trigonometric function on a floating point number. Uses a dedicated hardware instruction
+      Sine trigonometric function on a floating point number in radians. Uses a dedicated hardware instruction
       when available.
       </p>
       <p>
@@ -9284,7 +9284,7 @@ fn doTheTest() !void {
       {#header_open|@cos#}
       <pre>{#syntax#}@cos(value: anytype) @TypeOf(value){#endsyntax#}</pre>
       <p>
-      Cosine trigonometric function on a floating point number. Uses a dedicated hardware instruction
+      Cosine trigonometric function on a floating point number in radians. Uses a dedicated hardware instruction
       when available.
       </p>
       <p>
@@ -9295,7 +9295,7 @@ fn doTheTest() !void {
       {#header_open|@tan#}
       <pre>{#syntax#}@tan(value: anytype) @TypeOf(value){#endsyntax#}</pre>
       <p>
-      Tangent trigonometric function on a floating point number.
+      Tangent trigonometric function on a floating point number in radians.
       Uses a dedicated hardware instruction when available.
       </p>
       <p>

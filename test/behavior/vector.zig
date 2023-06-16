@@ -2,6 +2,7 @@ const std = @import("std");
 const builtin = @import("builtin");
 const mem = std.mem;
 const math = std.math;
+const assert = std.debug.assert;
 const expect = std.testing.expect;
 const expectEqual = std.testing.expectEqual;
 
@@ -1342,4 +1343,30 @@ test "compare vectors with different element types" {
     var a: @Vector(2, u8) = .{ 1, 2 };
     var b: @Vector(2, u9) = .{ 3, 0 };
     try expectEqual(@Vector(2, bool){ true, false }, a < b);
+}
+
+test "vector pointer is indexable" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest; // TODO
+
+    const V = @Vector(2, u32);
+
+    const x: V = .{ 123, 456 };
+    comptime assert(@TypeOf(&(&x)[0]) == *const u32); // validate constness
+    try expectEqual(@as(u32, 123), (&x)[0]);
+    try expectEqual(@as(u32, 456), (&x)[1]);
+
+    var y: V = .{ 123, 456 };
+    comptime assert(@TypeOf(&(&y)[0]) == *u32); // validate constness
+    try expectEqual(@as(u32, 123), (&y)[0]);
+    try expectEqual(@as(u32, 456), (&y)[1]);
+
+    (&y)[0] = 100;
+    (&y)[1] = 200;
+    try expectEqual(@as(u32, 100), (&y)[0]);
+    try expectEqual(@as(u32, 200), (&y)[1]);
 }

@@ -1,6 +1,7 @@
 const builtin = @import("builtin");
 const std = @import("std");
 const testing = std.testing;
+const assert = std.debug.assert;
 const expect = testing.expect;
 const expectEqualStrings = std.testing.expectEqualStrings;
 const expectEqual = std.testing.expectEqual;
@@ -427,4 +428,28 @@ test "sentinel slice in tuple" {
     const S = struct { [:0]const u8 };
 
     _ = S;
+}
+
+test "tuple pointer is indexable" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest; // TODO
+
+    const S = struct { u32, bool };
+
+    const x: S = .{ 123, true };
+    comptime assert(@TypeOf(&(&x)[0]) == *const u32); // validate constness
+    try expectEqual(@as(u32, 123), (&x)[0]);
+    try expectEqual(true, (&x)[1]);
+
+    var y: S = .{ 123, true };
+    comptime assert(@TypeOf(&(&y)[0]) == *u32); // validate constness
+    try expectEqual(@as(u32, 123), (&y)[0]);
+    try expectEqual(true, (&y)[1]);
+
+    (&y)[0] = 100;
+    (&y)[1] = false;
+    try expectEqual(@as(u32, 100), (&y)[0]);
+    try expectEqual(false, (&y)[1]);
 }

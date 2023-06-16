@@ -6817,17 +6817,12 @@ pub fn errorSetFromUnsortedNames(
     return new_ty.toType();
 }
 
-/// Supports optionals in addition to pointers.
+/// Supports only pointers, not pointer-like optionals.
 pub fn ptrIntValue(mod: *Module, ty: Type, x: u64) Allocator.Error!Value {
-    return mod.getCoerced(try mod.intValue_u64(Type.usize, x), ty);
-}
-
-/// Supports only pointers. See `ptrIntValue` for pointer-like optional support.
-pub fn ptrIntValue_ptronly(mod: *Module, ty: Type, x: u64) Allocator.Error!Value {
     assert(ty.zigTypeTag(mod) == .Pointer);
     const i = try intern(mod, .{ .ptr = .{
         .ty = ty.toIntern(),
-        .addr = .{ .int = try mod.intValue_u64(Type.usize, x) },
+        .addr = .{ .int = (try mod.intValue_u64(Type.usize, x)).toIntern() },
     } });
     return i.toValue();
 }
@@ -6978,7 +6973,7 @@ pub fn intBitsForValue(mod: *Module, val: Value, sign: bool) u16 {
             assert(sign);
             // Protect against overflow in the following negation.
             if (x == std.math.minInt(i64)) return 64;
-            return Type.smallestUnsignedBits(@intCast(u64, -x - 1)) + 1;
+            return Type.smallestUnsignedBits(@intCast(u64, -(x + 1))) + 1;
         },
         .u64 => |x| {
             return Type.smallestUnsignedBits(x) + @boolToInt(sign);
