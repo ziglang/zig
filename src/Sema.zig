@@ -13815,12 +13815,12 @@ fn zirArrayCat(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
             else => unreachable,
         }) |rhs_val| {
             const lhs_sub_val = if (lhs_ty.isSinglePointer(mod))
-                (try sema.pointerDeref(block, lhs_src, lhs_val, lhs_ty)).?
+                (try sema.pointerDeref(block, lhs_src, lhs_val, lhs_ty)) orelse lhs_val
             else
                 lhs_val;
 
             const rhs_sub_val = if (rhs_ty.isSinglePointer(mod))
-                (try sema.pointerDeref(block, rhs_src, rhs_val, rhs_ty)).?
+                (try sema.pointerDeref(block, rhs_src, rhs_val, rhs_ty)) orelse rhs_val
             else
                 rhs_val;
 
