@@ -880,6 +880,9 @@ fn buildOutputType(
     var lib_dirs = std.ArrayList([]const u8).init(gpa);
     defer lib_dirs.deinit();
 
+    var system_lib_dirs = std.ArrayList([]const u8).init(gpa);
+    defer system_lib_dirs.deinit();
+
     var rpath_list = std.ArrayList([]const u8).init(gpa);
     defer rpath_list.deinit();
 
@@ -2590,6 +2593,9 @@ fn buildOutputType(
         for (paths.lib_dirs.items) |lib_dir| {
             try lib_dirs.append(lib_dir);
         }
+        for (paths.system_lib_dirs.items) |system_lib_dir| {
+            try system_lib_dirs.append(system_lib_dir);
+        }
         for (paths.rpaths.items) |rpath| {
             try rpath_list.append(rpath);
         }
@@ -3073,6 +3079,7 @@ fn buildOutputType(
         .keep_source_files_loaded = false,
         .clang_argv = clang_argv.items,
         .lib_dirs = lib_dirs.items,
+        .system_lib_dirs = system_lib_dirs.items,
         .rpath_list = rpath_list.items,
         .symbol_wrap_set = symbol_wrap_set,
         .c_source_files = c_source_files.items,

@@ -183,6 +183,7 @@ pub const Options = struct {
     system_libs: std.StringArrayHashMapUnmanaged(SystemLib),
     wasi_emulated_libs: []const wasi_libc.CRTFile,
     lib_dirs: []const []const u8,
+    system_lib_dirs: []const []const u8,
     rpath_list: []const []const u8,
 
     /// List of symbols forced as undefined in the symbol table

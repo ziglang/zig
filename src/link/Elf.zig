@@ -1397,6 +1397,7 @@ fn linkWithLLD(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !v
         man.hash.add(self.base.options.emit_relocs);
         man.hash.add(self.base.options.rdynamic);
         man.hash.addListOfBytes(self.base.options.lib_dirs);
+        man.hash.addListOfBytes(self.base.options.system_lib_dirs);
         man.hash.addListOfBytes(self.base.options.rpath_list);
         man.hash.add(self.base.options.each_lib_rpath);
         if (self.base.options.output_mode == .Exe) {
@@ -1734,6 +1735,10 @@ fn linkWithLLD(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !v
         for (self.base.options.lib_dirs) |lib_dir| {
             try argv.append("-L");
             try argv.append(lib_dir);
+        }
+        for (self.base.options.system_lib_dirs) |system_lib_dir| {
+            try argv.append("-L");
+            try argv.append(system_lib_dir);
         }
 
         if (self.base.options.link_libc) {

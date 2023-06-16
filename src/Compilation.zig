@@ -500,6 +500,7 @@ pub const InitOptions = struct {
     keep_source_files_loaded: bool = false,
     clang_argv: []const []const u8 = &[0][]const u8{},
     lib_dirs: []const []const u8 = &[0][]const u8{},
+    system_lib_dirs: []const []const u8 = &[0][]const u8{},
     rpath_list: []const []const u8 = &[0][]const u8{},
     symbol_wrap_set: std.StringArrayHashMapUnmanaged(void) = .{},
     c_source_files: []const CSourceFile = &[0]CSourceFile{},
@@ -1450,6 +1451,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             .system_libs = system_libs,
             .wasi_emulated_libs = options.wasi_emulated_libs,
             .lib_dirs = options.lib_dirs,
+            .system_lib_dirs = options.system_lib_dirs,
             .rpath_list = options.rpath_list,
             .symbol_wrap_set = options.symbol_wrap_set,
             .strip = strip,
@@ -2283,6 +2285,7 @@ fn addNonIncrementalStuffToCacheManifest(comp: *Compilation, man: *Cache.Manifes
     man.hash.add(comp.bin_file.options.emit_relocs);
     man.hash.add(comp.bin_file.options.rdynamic);
     man.hash.addListOfBytes(comp.bin_file.options.lib_dirs);
+    man.hash.addListOfBytes(comp.bin_file.options.system_lib_dirs);
     man.hash.addListOfBytes(comp.bin_file.options.rpath_list);
     man.hash.addListOfBytes(comp.bin_file.options.symbol_wrap_set.keys());
     man.hash.add(comp.bin_file.options.each_lib_rpath);
