@@ -88,7 +88,7 @@ pub fn linkWithLLD(self: *Coff, comp: *Compilation, prog_node: *std.Progress.Nod
                 }
             }
         }
-        link.hashAddSystemLibs(&man.hash, self.base.options.system_libs);
+        try link.hashAddSystemLibs(&man, self.base.options.system_libs);
         man.hash.addListOfBytes(self.base.options.force_undefined_symbols.keys());
         man.hash.addOptional(self.base.options.subsystem);
         man.hash.add(self.base.options.is_test);

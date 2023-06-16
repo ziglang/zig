@@ -448,6 +448,7 @@ pub const ClangPreprocessorMode = enum {
     stdout,
 };
 
+pub const Framework = link.Framework;
 pub const SystemLib = link.SystemLib;
 pub const CacheMode = link.CacheMode;
 
@@ -505,7 +506,7 @@ pub const InitOptions = struct {
     c_source_files: []const CSourceFile = &[0]CSourceFile{},
     link_objects: []LinkObject = &[0]LinkObject{},
     framework_dirs: []const []const u8 = &[0][]const u8{},
-    frameworks: std.StringArrayHashMapUnmanaged(SystemLib) = .{},
+    frameworks: std.StringArrayHashMapUnmanaged(Framework) = .{},
     system_lib_names: []const []const u8 = &.{},
     system_lib_infos: []const SystemLib = &.{},
     /// These correspond to the WASI libc emulated subcomponents including:
@@ -644,8 +645,6 @@ pub const InitOptions = struct {
     entitlements: ?[]const u8 = null,
     /// (Darwin) size of the __PAGEZERO segment
     pagezero_size: ?u64 = null,
-    /// (Darwin) search strategy for system libraries
-    search_strategy: ?link.File.MachO.SearchStrategy = null,
     /// (Darwin) set minimum space for future expansion of the load commands
     headerpad_size: ?u32 = null,
     /// (Darwin) set enough space as if all paths were MATPATHLEN
@@ -1567,7 +1566,6 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             .install_name = options.install_name,
             .entitlements = options.entitlements,
             .pagezero_size = options.pagezero_size,
-            .search_strategy = options.search_strategy,
             .headerpad_size = options.headerpad_size,
             .headerpad_max_install_names = options.headerpad_max_install_names,
             .dead_strip_dylibs = options.dead_strip_dylibs,
@@ -1727,15 +1725,18 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
 
             // When linking mingw-w64 there are some import libs we always need.
             for (mingw.always_link_libs) |name| {
-                try comp.bin_file.options.system_libs.put(comp.gpa, name, .{});
+                try comp.bin_file.options.system_libs.put(comp.gpa, name, .{
+                    .needed = false,
+                    .weak = false,
+                    .path = name,
+                });
             }
         }
         // Generate Windows import libs.
         if (target.os.tag == .windows) {
             const count = comp.bin_file.options.system_libs.count();
             try comp.work_queue.ensureUnusedCapacity(count);
-            var i: usize = 0;
-            while (i < count) : (i += 1) {
+            for (0..count) |i| {
                 comp.work_queue.writeItemAssumeCapacity(.{ .windows_import_lib = i });
             }
         }
@@ -2377,7 +2378,7 @@ fn addNonIncrementalStuffToCacheManifest(comp: *Compilation, man: *Cache.Manifes
     }
     man.hash.addOptionalBytes(comp.bin_file.options.soname);
     man.hash.addOptional(comp.bin_file.options.version);
-    link.hashAddSystemLibs(&man.hash, comp.bin_file.options.system_libs);
+    try link.hashAddSystemLibs(man, comp.bin_file.options.system_libs);
     man.hash.addListOfBytes(comp.bin_file.options.force_undefined_symbols.keys());
     man.hash.addOptional(comp.bin_file.options.allow_shlib_undefined);
     man.hash.add(comp.bin_file.options.bind_global_refs_locally);
@@ -2395,10 +2396,9 @@ fn addNonIncrementalStuffToCacheManifest(comp: *Compilation, man: *Cache.Manifes
 
     // Mach-O specific stuff
     man.hash.addListOfBytes(comp.bin_file.options.framework_dirs);
-    link.hashAddSystemLibs(&man.hash, comp.bin_file.options.frameworks);
+    link.hashAddFrameworks(&man.hash, comp.bin_file.options.frameworks);
     try man.addOptionalFile(comp.bin_file.options.entitlements);
     man.hash.addOptional(comp.bin_file.options.pagezero_size);
-    man.hash.addOptional(comp.bin_file.options.search_strategy);
     man.hash.addOptional(comp.bin_file.options.headerpad_size);
     man.hash.add(comp.bin_file.options.headerpad_max_install_names);
     man.hash.add(comp.bin_file.options.dead_strip_dylibs);

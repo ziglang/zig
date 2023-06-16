@@ -1428,7 +1428,7 @@ fn linkWithLLD(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !v
         }
         man.hash.addOptionalBytes(self.base.options.soname);
         man.hash.addOptional(self.base.options.version);
-        link.hashAddSystemLibs(&man.hash, self.base.options.system_libs);
+        try link.hashAddSystemLibs(&man, self.base.options.system_libs);
         man.hash.addListOfBytes(self.base.options.force_undefined_symbols.keys());
         man.hash.add(allow_shlib_undefined);
         man.hash.add(self.base.options.bind_global_refs_locally);
@@ -1824,8 +1824,8 @@ fn linkWithLLD(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !v
             argv.appendAssumeCapacity("--as-needed");
             var as_needed = true;
 
-            for (system_libs, 0..) |link_lib, i| {
-                const lib_as_needed = !system_libs_values[i].needed;
+            for (system_libs_values) |lib_info| {
+                const lib_as_needed = !lib_info.needed;
                 switch ((@as(u2, @intFromBool(lib_as_needed)) << 1) | @intFromBool(as_needed)) {
                     0b00, 0b11 => {},
                     0b01 => {
@@ -1842,9 +1842,7 @@ fn linkWithLLD(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !v
                 // libraries and not static libraries (the check for that needs to be earlier),
                 // but they could be full paths to .so files, in which case we
                 // want to avoid prepending "-l".
-                const ext = Compilation.classifyFileExt(link_lib);
-                const arg = if (ext == .shared_library) link_lib else try std.fmt.allocPrint(arena, "-l{s}", .{link_lib});
-                argv.appendAssumeCapacity(arg);
+                argv.appendAssumeCapacity(lib_info.path);
             }
 
             if (!as_needed) {

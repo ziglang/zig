@@ -21,7 +21,16 @@ const Type = @import("type.zig").Type;
 const TypedValue = @import("TypedValue.zig");
 
 /// When adding a new field, remember to update `hashAddSystemLibs`.
+/// These are *always* dynamically linked. Static libraries will be
+/// provided as positional arguments.
 pub const SystemLib = struct {
+    needed: bool,
+    weak: bool,
+    path: []const u8,
+};
+
+/// When adding a new field, remember to update `hashAddFrameworks`.
+pub const Framework = struct {
     needed: bool = false,
     weak: bool = false,
 };
@@ -31,11 +40,23 @@ pub const SortSection = enum { name, alignment };
 pub const CacheMode = enum { incremental, whole };
 
 pub fn hashAddSystemLibs(
-    hh: *Cache.HashHelper,
+    man: *Cache.Manifest,
     hm: std.StringArrayHashMapUnmanaged(SystemLib),
+) !void {
+    const keys = hm.keys();
+    man.hash.addListOfBytes(keys);
+    for (hm.values()) |value| {
+        man.hash.add(value.needed);
+        man.hash.add(value.weak);
+        _ = try man.addFile(value.path, null);
+    }
+}
+
+pub fn hashAddFrameworks(
+    hh: *Cache.HashHelper,
+    hm: std.StringArrayHashMapUnmanaged(Framework),
 ) void {
     const keys = hm.keys();
-    hh.add(keys.len);
     hh.addListOfBytes(keys);
     for (hm.values()) |value| {
         hh.add(value.needed);
@@ -183,9 +204,12 @@ pub const Options = struct {
 
     objects: []Compilation.LinkObject,
     framework_dirs: []const []const u8,
-    frameworks: std.StringArrayHashMapUnmanaged(SystemLib),
+    frameworks: std.StringArrayHashMapUnmanaged(Framework),
+    /// These are *always* dynamically linked. Static libraries will be
+    /// provided as positional arguments.
     system_libs: std.StringArrayHashMapUnmanaged(SystemLib),
     wasi_emulated_libs: []const wasi_libc.CRTFile,
+    // TODO: remove this. libraries are resolved by the frontend.
     lib_dirs: []const []const u8,
     rpath_list: []const []const u8,
 
@@ -224,9 +248,6 @@ pub const Options = struct {
 
     /// (Darwin) size of the __PAGEZERO segment
     pagezero_size: ?u64 = null,
-
-    /// (Darwin) search strategy for system libraries
-    search_strategy: ?File.MachO.SearchStrategy = null,
 
     /// (Darwin) set minimum space for future expansion of the load commands
     headerpad_size: ?u32 = null,

@@ -58,11 +58,6 @@ const Rebase = @import("MachO/dyld_info/Rebase.zig");
 
 pub const base_tag: File.Tag = File.Tag.macho;
 
-pub const SearchStrategy = enum {
-    paths_first,
-    dylibs_first,
-};
-
 /// Mode of operation of the linker.
 pub const Mode = enum {
     /// Incremental mode will preallocate segments/sections and is compatible with
@@ -840,7 +835,11 @@ pub fn resolveLibSystem(
         // re-exports every single symbol definition.
         for (search_dirs) |dir| {
             if (try resolveLib(arena, dir, "System", ".tbd")) |full_path| {
-                try out_libs.put(full_path, .{ .needed = true });
+                try out_libs.put(full_path, .{
+                    .needed = true,
+                    .weak = false,
+                    .path = full_path,
+                });
                 libsystem_available = true;
                 break :blk;
             }
@@ -850,8 +849,16 @@ pub fn resolveLibSystem(
         for (search_dirs) |dir| {
             if (try resolveLib(arena, dir, "System", ".dylib")) |libsystem_path| {
                 if (try resolveLib(arena, dir, "c", ".dylib")) |libc_path| {
-                    try out_libs.put(libsystem_path, .{ .needed = true });
-                    try out_libs.put(libc_path, .{ .needed = true });
+                    try out_libs.put(libsystem_path, .{
+                        .needed = true,
+                        .weak = false,
+                        .path = libsystem_path,
+                    });
+                    try out_libs.put(libc_path, .{
+                        .needed = true,
+                        .weak = false,
+                        .path = libc_path,
+                    });
                     libsystem_available = true;
                     break :blk;
                 }
@@ -865,7 +872,11 @@ pub fn resolveLibSystem(
         const full_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{
             "libc", "darwin", libsystem_name,
         });
-        try out_libs.put(full_path, .{ .needed = true });
+        try out_libs.put(full_path, .{
+            .needed = true,
+            .weak = false,
+            .path = full_path,
+        });
     }
 }
 
