@@ -325,7 +325,7 @@ pub fn Reader(
             var remaining = num_bytes;
 
             while (remaining > 0) {
-                const amt = std.math.min(remaining, options.buf_size);
+                const amt = @min(remaining, options.buf_size);
                 try self.readNoEof(buf[0..amt]);
                 remaining -= amt;
             }

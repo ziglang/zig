@@ -112,7 +112,7 @@ pub const Poly1305 = struct {
 
         // handle leftover
         if (st.leftover > 0) {
-            const want = std.math.min(block_length - st.leftover, mb.len);
+            const want = @min(block_length - st.leftover, mb.len);
             const mc = mb[0..want];
             for (mc, 0..) |x, i| {
                 st.buf[st.leftover + i] = x;

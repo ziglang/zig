@@ -276,7 +276,7 @@ fn parseError(tokenizer: *Tokenizer, token: Token, comptime fmt: []const u8, arg
             }
         }
         {
-            const caret_count = std.math.min(token.end, loc.line_end) - token.start;
+            const caret_count = @min(token.end, loc.line_end) - token.start;
             var i: usize = 0;
             while (i < caret_count) : (i += 1) {
                 print("~", .{});

@@ -165,7 +165,7 @@ pub fn approxEqRel(comptime T: type, x: T, y: T, tolerance: T) bool {
     if (isNan(x) or isNan(y))
         return false;
 
-    return @fabs(x - y) <= max(@fabs(x), @fabs(y)) * tolerance;
+    return @fabs(x - y) <= @max(@fabs(x), @fabs(y)) * tolerance;
 }
 
 test "approxEqAbs and approxEqRel" {
@@ -434,104 +434,15 @@ pub fn Min(comptime A: type, comptime B: type) type {
     return @TypeOf(@as(A, 0) + @as(B, 0));
 }
 
-/// Returns the smaller number. When one parameter's type's full range
-/// fits in the other, the return type is the smaller type.
-pub fn min(x: anytype, y: anytype) Min(@TypeOf(x), @TypeOf(y)) {
-    const Result = Min(@TypeOf(x), @TypeOf(y));
-    if (x < y) {
-        // TODO Zig should allow this as an implicit cast because x is
-        // immutable and in this scope it is known to fit in the
-        // return type.
-        switch (@typeInfo(Result)) {
-            .Int => return @intCast(Result, x),
-            else => return x,
-        }
-    } else {
-        // TODO Zig should allow this as an implicit cast because y is
-        // immutable and in this scope it is known to fit in the
-        // return type.
-        switch (@typeInfo(Result)) {
-            .Int => return @intCast(Result, y),
-            else => return y,
-        }
-    }
-}
-
-test "min" {
-    try testing.expect(min(@as(i32, -1), @as(i32, 2)) == -1);
-    {
-        var a: u16 = 999;
-        var b: u32 = 10;
-        var result = min(a, b);
-        try testing.expect(@TypeOf(result) == u16);
-        try testing.expect(result == 10);
-    }
-    {
-        var a: f64 = 10.34;
-        var b: f32 = 999.12;
-        var result = min(a, b);
-        try testing.expect(@TypeOf(result) == f64);
-        try testing.expect(result == 10.34);
-    }
-    {
-        var a: i8 = -127;
-        var b: i16 = -200;
-        var result = min(a, b);
-        try testing.expect(@TypeOf(result) == i16);
-        try testing.expect(result == -200);
-    }
-    {
-        const a = 10.34;
-        var b: f32 = 999.12;
-        var result = min(a, b);
-        try testing.expect(@TypeOf(result) == f32);
-        try testing.expect(result == 10.34);
-    }
-}
-
-/// Finds the minimum of three numbers.
-pub fn min3(x: anytype, y: anytype, z: anytype) @TypeOf(x, y, z) {
-    return min(x, min(y, z));
-}
-
-test "min3" {
-    try testing.expect(min3(@as(i32, 0), @as(i32, 1), @as(i32, 2)) == 0);
-    try testing.expect(min3(@as(i32, 0), @as(i32, 2), @as(i32, 1)) == 0);
-    try testing.expect(min3(@as(i32, 1), @as(i32, 0), @as(i32, 2)) == 0);
-    try testing.expect(min3(@as(i32, 1), @as(i32, 2), @as(i32, 0)) == 0);
-    try testing.expect(min3(@as(i32, 2), @as(i32, 0), @as(i32, 1)) == 0);
-    try testing.expect(min3(@as(i32, 2), @as(i32, 1), @as(i32, 0)) == 0);
-}
-
-/// Returns the maximum of two numbers. Return type is the one with the
-/// larger range.
-pub fn max(x: anytype, y: anytype) @TypeOf(x, y) {
-    return if (x > y) x else y;
-}
-
-test "max" {
-    try testing.expect(max(@as(i32, -1), @as(i32, 2)) == 2);
-    try testing.expect(max(@as(i32, 2), @as(i32, -1)) == 2);
-}
-
-/// Finds the maximum of three numbers.
-pub fn max3(x: anytype, y: anytype, z: anytype) @TypeOf(x, y, z) {
-    return max(x, max(y, z));
-}
-
-test "max3" {
-    try testing.expect(max3(@as(i32, 0), @as(i32, 1), @as(i32, 2)) == 2);
-    try testing.expect(max3(@as(i32, 0), @as(i32, 2), @as(i32, 1)) == 2);
-    try testing.expect(max3(@as(i32, 1), @as(i32, 0), @as(i32, 2)) == 2);
-    try testing.expect(max3(@as(i32, 1), @as(i32, 2), @as(i32, 0)) == 2);
-    try testing.expect(max3(@as(i32, 2), @as(i32, 0), @as(i32, 1)) == 2);
-    try testing.expect(max3(@as(i32, 2), @as(i32, 1), @as(i32, 0)) == 2);
-}
+pub const min = @compileError("deprecated; use @min instead");
+pub const max = @compileError("deprecated; use @max instead");
+pub const min3 = @compileError("deprecated; use @min instead");
+pub const max3 = @compileError("deprecated; use @max instead");
 
 /// Limit val to the inclusive range [lower, upper].
 pub fn clamp(val: anytype, lower: anytype, upper: anytype) @TypeOf(val, lower, upper) {
     assert(lower <= upper);
-    return max(lower, min(val, upper));
+    return @max(lower, @min(val, upper));
 }
 test "clamp" {
     // Within range
@@ -795,7 +706,7 @@ pub fn IntFittingRange(comptime from: comptime_int, comptime to: comptime_int) t
         return u0;
     }
     const signedness: std.builtin.Signedness = if (from < 0) .signed else .unsigned;
-    const largest_positive_integer = max(if (from < 0) (-from) - 1 else from, to); // two's complement
+    const largest_positive_integer = @max(if (from < 0) (-from) - 1 else from, to); // two's complement
     const base = log2(largest_positive_integer);
     const upper = (1 << base) - 1;
     var magnitude_bits = if (upper >= largest_positive_integer) base else base + 1;

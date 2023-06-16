@@ -317,7 +317,7 @@ pub fn getdents(fd: i32, dirp: [*]u8, len: usize) usize {
         .getdents,
         @bitCast(usize, @as(isize, fd)),
         @ptrToInt(dirp),
-        std.math.min(len, maxInt(c_int)),
+        @min(len, maxInt(c_int)),
     );
 }
 
@@ -326,7 +326,7 @@ pub fn getdents64(fd: i32, dirp: [*]u8, len: usize) usize {
         .getdents64,
         @bitCast(usize, @as(isize, fd)),
         @ptrToInt(dirp),
-        std.math.min(len, maxInt(c_int)),
+        @min(len, maxInt(c_int)),
     );
 }
 

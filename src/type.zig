@@ -1633,7 +1633,7 @@ pub const Type = struct {
                 const len = array_type.len + @boolToInt(array_type.sentinel != .none);
                 if (len == 0) return 0;
                 const elem_ty = array_type.child.toType();
-                const elem_size = std.math.max(elem_ty.abiAlignment(mod), elem_ty.abiSize(mod));
+                const elem_size = @max(elem_ty.abiAlignment(mod), elem_ty.abiSize(mod));
                 if (elem_size == 0) return 0;
                 const elem_bit_size = try bitSizeAdvanced(elem_ty, mod, opt_sema);
                 return (len - 1) * 8 * elem_size + elem_bit_size;

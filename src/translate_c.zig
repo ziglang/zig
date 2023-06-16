@@ -2400,7 +2400,7 @@ fn transStringLiteralInitializer(
 
     if (array_size == 0) return Tag.empty_array.create(c.arena, elem_type);
 
-    const num_inits = math.min(str_length, array_size);
+    const num_inits = @min(str_length, array_size);
     const init_node = if (num_inits > 0) blk: {
         if (is_narrow) {
             // "string literal".* or string literal"[0..num_inits].*

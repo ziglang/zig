@@ -503,7 +503,7 @@ fn glibcVerFromSoFile(file: fs.File) !std.builtin.Version {
     const shstrtab_off = elfInt(is_64, need_bswap, shstr32.sh_offset, shstr64.sh_offset);
     const shstrtab_size = elfInt(is_64, need_bswap, shstr32.sh_size, shstr64.sh_size);
     var strtab_buf: [4096:0]u8 = undefined;
-    const shstrtab_len = std.math.min(shstrtab_size, strtab_buf.len);
+    const shstrtab_len = @min(shstrtab_size, strtab_buf.len);
     const shstrtab_read_len = try preadMin(file, &strtab_buf, shstrtab_off, shstrtab_len);
     const shstrtab = strtab_buf[0..shstrtab_read_len];
     const shnum = elfInt(is_64, need_bswap, hdr32.e_shnum, hdr64.e_shnum);
@@ -757,7 +757,7 @@ pub fn abiAndDynamicLinkerFromFile(
         const shstrtab_off = elfInt(is_64, need_bswap, shstr32.sh_offset, shstr64.sh_offset);
         const shstrtab_size = elfInt(is_64, need_bswap, shstr32.sh_size, shstr64.sh_size);
         var strtab_buf: [4096:0]u8 = undefined;
-        const shstrtab_len = std.math.min(shstrtab_size, strtab_buf.len);
+        const shstrtab_len = @min(shstrtab_size, strtab_buf.len);
         const shstrtab_read_len = try preadMin(file, &strtab_buf, shstrtab_off, shstrtab_len);
         const shstrtab = strtab_buf[0..shstrtab_read_len];
 
@@ -806,7 +806,7 @@ pub fn abiAndDynamicLinkerFromFile(
                 const rpoff_file = ds.offset + rpoff_usize;
                 const rp_max_size = ds.size - rpoff_usize;
 
-                const strtab_len = std.math.min(rp_max_size, strtab_buf.len);
+                const strtab_len = @min(rp_max_size, strtab_buf.len);
                 const strtab_read_len = try preadMin(file, &strtab_buf, rpoff_file, strtab_len);
                 const strtab = strtab_buf[0..strtab_read_len];
 

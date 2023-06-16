@@ -1482,11 +1482,11 @@ fn getResolvConf(allocator: mem.Allocator, rc: *ResolvConf) !void {
                     error.InvalidCharacter => continue,
                 };
                 if (mem.eql(u8, name, "ndots")) {
-                    rc.ndots = std.math.min(value, 15);
+                    rc.ndots = @min(value, 15);
                 } else if (mem.eql(u8, name, "attempts")) {
-                    rc.attempts = std.math.min(value, 10);
+                    rc.attempts = @min(value, 10);
                 } else if (mem.eql(u8, name, "timeout")) {
-                    rc.timeout = std.math.min(value, 60);
+                    rc.timeout = @min(value, 60);
                 }
             }
         } else if (mem.eql(u8, token, "nameserver")) {
@@ -1615,7 +1615,7 @@ fn resMSendRc(
         }
 
         // Wait for a response, or until time to retry
-        const clamped_timeout = std.math.min(@as(u31, std.math.maxInt(u31)), t1 + retry_interval - t2);
+        const clamped_timeout = @min(@as(u31, std.math.maxInt(u31)), t1 + retry_interval - t2);
         const nevents = os.poll(&pfd, clamped_timeout) catch 0;
         if (nevents == 0) continue;
 

@@ -2458,7 +2458,7 @@ pub const Value = struct {
         const rhs_bigint = rhs.toBigInt(&rhs_space, mod);
         const limbs = try arena.alloc(
             std.math.big.Limb,
-            std.math.max(
+            @max(
                 // For the saturate
                 std.math.big.int.calcTwosCompLimbCount(info.bits),
                 lhs_bigint.limbs.len + rhs_bigint.limbs.len,
@@ -2572,7 +2572,7 @@ pub const Value = struct {
         const limbs = try arena.alloc(
             std.math.big.Limb,
             // + 1 for negatives
-            std.math.max(lhs_bigint.limbs.len, rhs_bigint.limbs.len) + 1,
+            @max(lhs_bigint.limbs.len, rhs_bigint.limbs.len) + 1,
         );
         var result_bigint = BigIntMutable{ .limbs = limbs, .positive = undefined, .len = undefined };
         result_bigint.bitAnd(lhs_bigint, rhs_bigint);
@@ -2638,7 +2638,7 @@ pub const Value = struct {
         const rhs_bigint = rhs.toBigInt(&rhs_space, mod);
         const limbs = try arena.alloc(
             std.math.big.Limb,
-            std.math.max(lhs_bigint.limbs.len, rhs_bigint.limbs.len),
+            @max(lhs_bigint.limbs.len, rhs_bigint.limbs.len),
         );
         var result_bigint = BigIntMutable{ .limbs = limbs, .positive = undefined, .len = undefined };
         result_bigint.bitOr(lhs_bigint, rhs_bigint);
@@ -2677,7 +2677,7 @@ pub const Value = struct {
         const limbs = try arena.alloc(
             std.math.big.Limb,
             // + 1 for negatives
-            std.math.max(lhs_bigint.limbs.len, rhs_bigint.limbs.len) + 1,
+            @max(lhs_bigint.limbs.len, rhs_bigint.limbs.len) + 1,
         );
         var result_bigint = BigIntMutable{ .limbs = limbs, .positive = undefined, .len = undefined };
         result_bigint.bitXor(lhs_bigint, rhs_bigint);
@@ -4144,6 +4144,20 @@ pub const Value = struct {
 
     pub fn isGenericPoison(val: Value) bool {
         return val.toIntern() == .generic_poison;
+    }
+
+    /// For an integer (comptime or fixed-width) `val`, returns the comptime-known bounds of the value.
+    /// If `val` is not undef, the bounds are both `val`.
+    /// If `val` is undef and has a fixed-width type, the bounds are the bounds of the type.
+    /// If `val` is undef and is a `comptime_int`, returns null.
+    pub fn intValueBounds(val: Value, mod: *Module) !?[2]Value {
+        if (!val.isUndef(mod)) return .{ val, val };
+        const ty = mod.intern_pool.typeOf(val.toIntern());
+        if (ty == .comptime_int_type) return null;
+        return .{
+            try ty.toType().minInt(mod, ty.toType()),
+            try ty.toType().maxInt(mod, ty.toType()),
+        };
     }
 
     /// This type is not copyable since it may contain pointers to its inner data.
