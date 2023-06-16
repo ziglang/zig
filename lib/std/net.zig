@@ -251,6 +251,7 @@ pub const Ip4Address = extern struct {
             error.InvalidEnd,
             error.InvalidCharacter,
             error.Incomplete,
+            error.NonCanonical,
             => {},
         }
         return error.InvalidIPAddressFormat;
