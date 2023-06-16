@@ -25842,6 +25842,9 @@ fn structFieldPtrByIndex(
 
     const target = mod.getTarget();
 
+    const parent_align = struct_ptr_ty_info.flags.alignment.toByteUnitsOptional() orelse
+        try sema.typeAbiAlignment(struct_ptr_ty_info.child.toType());
+
     if (struct_obj.layout == .Packed) {
         comptime assert(Type.packed_struct_layout_version == 2);
 
@@ -25863,8 +25866,6 @@ fn structFieldPtrByIndex(
             ptr_ty_data.packed_offset.bit_offset += struct_ptr_ty_info.packed_offset.bit_offset;
         }
 
-        const parent_align = struct_ptr_ty_info.flags.alignment.toByteUnitsOptional() orelse
-            struct_ptr_ty_info.child.toType().abiAlignment(mod);
         ptr_ty_data.flags.alignment = Alignment.fromByteUnits(parent_align);
 
         // If the field happens to be byte-aligned, simplify the pointer type.
@@ -25888,8 +25889,13 @@ fn structFieldPtrByIndex(
                 ptr_ty_data.packed_offset = .{ .host_size = 0, .bit_offset = 0 };
             }
         }
+    } else if (struct_obj.layout == .Extern and field_index == 0) {
+        // This is the first field in memory, so can inherit the struct alignment
+        ptr_ty_data.flags.alignment = Alignment.fromByteUnits(parent_align);
     } else {
-        ptr_ty_data.flags.alignment = field.abi_align;
+        // Our alignment is capped at the field alignment
+        const field_align = try sema.structFieldAlignment(field, struct_obj.layout);
+        ptr_ty_data.flags.alignment = Alignment.fromByteUnits(@min(field_align, parent_align));
     }
 
     const ptr_field_ty = try mod.ptrType(ptr_ty_data);
@@ -35950,6 +35956,28 @@ fn unionFieldAlignment(sema: *Sema, field: Module.Union.Field) !u32 {
         0
     else
         field.abi_align.toByteUnitsOptional() orelse try sema.typeAbiAlignment(field.ty)));
+}
+
+/// Keep implementation in sync with `Module.Struct.Field.alignment`.
+fn structFieldAlignment(sema: *Sema, field: Module.Struct.Field, layout: std.builtin.Type.ContainerLayout) !u32 {
+    const mod = sema.mod;
+    if (field.abi_align.toByteUnitsOptional()) |a| {
+        assert(layout != .Packed);
+        return @as(u32, @intCast(a));
+    }
+    switch (layout) {
+        .Packed => return 0,
+        .Auto => if (mod.getTarget().ofmt != .c) {
+            return sema.typeAbiAlignment(field.ty);
+        },
+        .Extern => {},
+    }
+    // extern
+    const ty_abi_align = try sema.typeAbiAlignment(field.ty);
+    if (field.ty.isAbiInt(mod) and field.ty.intInfo(mod).bits >= 128) {
+        return @max(ty_abi_align, 16);
+    }
+    return ty_abi_align;
 }
 
 /// Synchronize logic with `Type.isFnOrHasRuntimeBits`.
