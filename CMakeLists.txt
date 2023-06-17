@@ -120,6 +120,8 @@ if(ZIG_AR_WORKAROUND)
   string(REPLACE "<CMAKE_AR>" "<CMAKE_AR> ar" CMAKE_CXX_ARCHIVE_CREATE ${CMAKE_CXX_ARCHIVE_CREATE})
 endif()
 
+set(ZIG_PIE off CACHE BOOL "produce a position independent zig executable")
+
 find_package(llvm 16)
 find_package(clang 16)
 find_package(lld 16)
@@ -671,7 +673,12 @@ if(ZIG_STATIC)
 endif()
 
 add_library(zigcpp STATIC ${ZIG_CPP_SOURCES})
-set_target_properties(zigcpp PROPERTIES COMPILE_FLAGS ${EXE_CXX_FLAGS})
+if(ZIG_PIE)
+    set(ZIGCPP_CXX_FLAGS "${EXE_CXX_FLAGS} -fPIC")
+else()
+    set(ZIGCPP_CXX_FLAGS "${EXE_CXX_FLAGS}")
+endif()
+set_target_properties(zigcpp PROPERTIES COMPILE_FLAGS ${ZIGCPP_CXX_FLAGS})
 
 target_link_libraries(zigcpp LINK_PUBLIC
     ${CLANG_LIBRARIES}
@@ -823,10 +830,10 @@ else()
   set(ZIG_STATIC_ARG "")
 endif()
 
-if(CMAKE_POSITION_INDEPENDENT_CODE)
-  set(ZIG_PIE_ARG="-Dpie")
+if(CMAKE_POSITION_INDEPENDENT_CODE OR ZIG_PIE)
+  set(ZIG_PIE_ARG "-Dpie")
 else()
-  set(ZIG_PIE_ARG="")
+  set(ZIG_PIE_ARG "")
 endif()
 
 set(ZIG_BUILD_ARGS
