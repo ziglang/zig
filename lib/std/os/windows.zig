@@ -937,19 +937,40 @@ pub fn DeleteFile(sub_path_w: []const u16, options: DeleteFileOptions) DeleteFil
         .DELETE_PENDING => return,
         else => return unexpectedStatus(rc),
     }
-    var file_dispo = FILE_DISPOSITION_INFORMATION{
-        .DeleteFile = TRUE,
-    };
-    rc = ntdll.NtSetInformationFile(
-        tmp_handle,
-        &io,
-        &file_dispo,
-        @sizeOf(FILE_DISPOSITION_INFORMATION),
-        .FileDispositionInformation,
-    );
-    CloseHandle(tmp_handle);
+    defer CloseHandle(tmp_handle);
+
+    if (comptime builtin.target.os.version_range.windows.min.isAtLeast(.win10_rs1)) {
+        // Deletion with posix semantics.
+        var info = FILE_DISPOSITION_INFORMATION_EX{
+            .Flags = FILE_DISPOSITION_DELETE |
+                FILE_DISPOSITION_POSIX_SEMANTICS |
+                FILE_DISPOSITION_IGNORE_READONLY_ATTRIBUTE,
+        };
+
+        rc = ntdll.NtSetInformationFile(
+            tmp_handle,
+            &io,
+            &info,
+            @sizeOf(FILE_DISPOSITION_INFORMATION_EX),
+            .FileDispositionInformationEx,
+        );
+    } else {
+        // Deletion with file pending semantics, which requires waiting or moving
+        // files to get them removed (from here).
+        var file_dispo = FILE_DISPOSITION_INFORMATION{
+            .DeleteFile = TRUE,
+        };
+
+        rc = ntdll.NtSetInformationFile(
+            tmp_handle,
+            &io,
+            &file_dispo,
+            @sizeOf(FILE_DISPOSITION_INFORMATION),
+            .FileDispositionInformation,
+        );
+    }
     switch (rc) {
-        .SUCCESS => return,
+        .SUCCESS => {},
         .DIRECTORY_NOT_EMPTY => return error.DirNotEmpty,
         .INVALID_PARAMETER => unreachable,
         .CANNOT_DELETE => return error.AccessDenied,
@@ -2573,6 +2594,18 @@ pub const FILE_NAME_INFORMATION = extern struct {
     FileNameLength: ULONG,
     FileName: [1]WCHAR,
 };
+
+pub const FILE_DISPOSITION_INFORMATION_EX = extern struct {
+    /// combination of FILE_DISPOSITION_* flags
+    Flags: ULONG,
+};
+
+const FILE_DISPOSITION_DO_NOT_DELETE: ULONG = 0x00000000;
+const FILE_DISPOSITION_DELETE: ULONG = 0x00000001;
+const FILE_DISPOSITION_POSIX_SEMANTICS: ULONG = 0x00000002;
+const FILE_DISPOSITION_FORCE_IMAGE_SECTION_CHECK: ULONG = 0x00000004;
+const FILE_DISPOSITION_ON_CLOSE: ULONG = 0x00000008;
+const FILE_DISPOSITION_IGNORE_READONLY_ATTRIBUTE: ULONG = 0x00000010;
 
 pub const FILE_RENAME_INFORMATION = extern struct {
     ReplaceIfExists: BOOLEAN,
