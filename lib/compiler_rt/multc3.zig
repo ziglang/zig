@@ -5,11 +5,9 @@ pub const panic = common.panic;
 
 comptime {
     if (@import("builtin").zig_backend != .stage2_c) {
-        if (common.want_ppc_abi) {
+        if (common.want_ppc_abi)
             @export(__multc3, .{ .name = "__mulkc3", .linkage = common.linkage, .visibility = common.visibility });
-        } else {
-            @export(__multc3, .{ .name = "__multc3", .linkage = common.linkage, .visibility = common.visibility });
-        }
+        @export(__multc3, .{ .name = "__multc3", .linkage = common.linkage, .visibility = common.visibility });
     }
 }
 
