@@ -9,7 +9,6 @@ pub const panic = common.panic;
 
 comptime {
     if (common.want_ppc_abi) {
-        // TODO: why did this not error?
         @export(__divtf3, .{ .name = "__divkf3", .linkage = common.linkage, .visibility = common.visibility });
     } else if (common.want_sparc_abi) {
         @export(_Qp_div, .{ .name = "_Qp_div", .linkage = common.linkage, .visibility = common.visibility });
