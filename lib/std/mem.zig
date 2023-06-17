@@ -1638,7 +1638,7 @@ pub fn writeInt(comptime T: type, buffer: *[@divExact(@typeInfo(T).Int.bits, 8)]
     }
 }
 
-pub fn writePackedIntLittle(comptime T: type, bytes: []u8, bit_offset: usize, value: T) void {
+fn writePackedIntLittle(comptime T: type, bytes: []u8, bit_offset: usize, value: T) void {
     const uN = std.meta.Int(.unsigned, @bitSizeOf(T));
     const Log2N = std.math.Log2Int(T);
 
@@ -1671,7 +1671,7 @@ pub fn writePackedIntLittle(comptime T: type, bytes: []u8, bit_offset: usize, va
     writeIntLittle(StoreInt, write_bytes[0..store_size], write_value);
 }
 
-pub fn writePackedIntBig(comptime T: type, bytes: []u8, bit_offset: usize, value: T) void {
+fn writePackedIntBig(comptime T: type, bytes: []u8, bit_offset: usize, value: T) void {
     const uN = std.meta.Int(.unsigned, @bitSizeOf(T));
     const Log2N = std.math.Log2Int(T);
 
