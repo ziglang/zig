@@ -66,7 +66,7 @@ pub fn syscall4(sys: plan9.SYS, arg0: usize, arg1: usize, arg2: usize, arg3: usi
         : [arg0] "{r8}" (arg0),
           [arg1] "{r9}" (arg1),
           [arg2] "{r10}" (arg2),
-          [arg2] "{r11}" (arg3),
+          [arg3] "{r11}" (arg3),
           [syscall_number] "{rbp}" (@enumToInt(sys)),
         : "rcx", "rax", "rbp", "r11", "memory"
     );

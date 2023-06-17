@@ -118,6 +118,14 @@ pub fn emitMir(emit: *Emit) Error!void {
                         .pcrel = true,
                         .length = 2,
                     });
+                } else if (emit.bin_file.cast(link.File.Plan9)) |p9_file| {
+                    const atom_index = symbol.atom_index;
+                    try p9_file.addReloc(atom_index, .{ // TODO we may need to add a .type field to the relocs if they are .linker_got instead of just .linker_direct
+                        .target = symbol.sym_index, // we set sym_index to just be the atom index
+                        .offset = @intCast(u32, end_offset - 4),
+                        .addend = 0,
+                        .pcrel = true,
+                    });
                 } else return emit.fail("TODO implement linker reloc for {s}", .{
                     @tagName(emit.bin_file.tag),
                 }),

@@ -341,6 +341,7 @@ pub fn deinit(self: *Elf) void {
 
     self.atoms.deinit(gpa);
     self.atom_by_index_table.deinit(gpa);
+    self.lazy_syms.deinit(gpa);
 
     {
         var it = self.unnamed_const_atoms.valueIterator();

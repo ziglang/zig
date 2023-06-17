@@ -852,10 +852,9 @@ fn genDeclRef(
         const sym_index = coff_file.getAtom(atom_index).getSymbolIndex().?;
         return GenResult.mcv(.{ .load_got = sym_index });
     } else if (bin_file.cast(link.File.Plan9)) |p9| {
-        const decl_block_index = try p9.seeDecl(decl_index);
-        const decl_block = p9.getDeclBlock(decl_block_index);
-        const got_addr = p9.bases.data + decl_block.got_index.? * ptr_bytes;
-        return GenResult.mcv(.{ .memory = got_addr });
+        const atom_index = try p9.seeDecl(decl_index);
+        const atom = p9.getAtom(atom_index);
+        return GenResult.mcv(.{ .memory = atom.getOffsetTableAddress(p9) });
     } else {
         return GenResult.fail(bin_file.allocator, src_loc, "TODO genDeclRef for target {}", .{target});
     }
@@ -880,12 +879,9 @@ fn genUnnamedConst(
         return GenResult.mcv(.{ .load_direct = local_sym_index });
     } else if (bin_file.cast(link.File.Coff)) |_| {
         return GenResult.mcv(.{ .load_direct = local_sym_index });
-    } else if (bin_file.cast(link.File.Plan9)) |p9| {
-        const ptr_bits = target.ptrBitWidth();
-        const ptr_bytes: u64 = @divExact(ptr_bits, 8);
-        const got_index = local_sym_index; // the plan9 backend returns the got_index
-        const got_addr = p9.bases.data + got_index * ptr_bytes;
-        return GenResult.mcv(.{ .memory = got_addr });
+    } else if (bin_file.cast(link.File.Plan9)) |_| {
+        const atom_index = local_sym_index; // plan9 returns the atom_index
+        return GenResult.mcv(.{ .load_direct = atom_index });
     } else {
         return GenResult.fail(bin_file.allocator, src_loc, "TODO genUnnamedConst for target {}", .{target});
     }
