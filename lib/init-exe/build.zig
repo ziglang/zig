@@ -46,6 +46,10 @@ pub fn build(b: *std.Build) void {
         run_cmd.addArgs(args);
     }
 
+    // This removes error reporting when the command exits with abnormal exit code (!= 0).
+    // The error is only useful when executing external tools.
+    run_cmd.expected_exit_code = null;
+
     // This creates a build step. It will be visible in the `zig build --help` menu,
     // and can be selected like this: `zig build run`
     // This will evaluate the `run` step rather than the default, which is "install".
