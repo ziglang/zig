@@ -12,7 +12,7 @@ jobs:
 
       - uses: actions/checkout@v3
       - run: mkdir build-head
-      - run: cd build-head && cmake .. -GNinja -D
+      - run: cd build-head && cmake .. -GNinja
       - run: cd build-head && ninja install
 
       - uses: actions/checkout@v3
