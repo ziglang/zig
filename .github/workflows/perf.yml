@@ -1,0 +1,41 @@
+name: perf
+
+on:
+  pull_request:
+
+jobs:
+  poop:
+    runs-on: [self-hosted, Linux, x86_64]
+
+    steps:
+      - run: git config core.abbrev 9
+
+      - uses: actions/checkout@v3
+      - run: mkdir build-head
+      - run: cd build-head && cmake .. -GNinja -D
+      - run: cd build-head && ninja install
+      
+      - uses: actions/checkout@v3
+        with:
+          ref: 'master'
+      - run: mkdir build-base
+      - run: cd build-base && cmake .. -GNinja
+      - run: cd build-base && ninja install
+      
+      - run: wget -L https://github.com/andrewrk/poop/releases/download/0.3.0/x86_64-linux-poop
+      - run: chmod +x ./x86_64-linux-poop
+      
+      - run: ./x86_64-linux-poop './build-base/stage3/bin/zig run build-exe hello.zig' './build-head/stage3/bin/zig run build-exe hello.zig' > ./poop-perf.txt
+      
+      - uses: actions/github-script@v6
+        with:
+          script: |
+            const fs = require('fs');
+            const body = fs.readFileSync('poop-perf.txt', 'utf8');
+
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: body,
+            });
