@@ -2938,49 +2938,31 @@ fn wrapOperand(func: *CodeGen, operand: WValue, ty: Type) InnerError!WValue {
     return WValue{ .stack = {} };
 }
 
-fn lowerParentPtr(func: *CodeGen, ptr_val: Value) InnerError!WValue {
+fn lowerParentPtr(func: *CodeGen, ptr_val: Value, offset: u32) InnerError!WValue {
     const mod = func.bin_file.base.options.module.?;
     const ptr = mod.intern_pool.indexToKey(ptr_val.ip_index).ptr;
     switch (ptr.addr) {
         .decl => |decl_index| {
-            return func.lowerParentPtrDecl(ptr_val, decl_index, 0);
+            return func.lowerParentPtrDecl(ptr_val, decl_index, offset);
         },
         .mut_decl => |mut_decl| {
             const decl_index = mut_decl.decl;
-            return func.lowerParentPtrDecl(ptr_val, decl_index, 0);
+            return func.lowerParentPtrDecl(ptr_val, decl_index, offset);
         },
-        .int, .eu_payload => |tag| return func.fail("TODO: Implement lowerParentPtr for {}", .{tag}),
-        .opt_payload => |base_ptr| {
-            return func.lowerParentPtr(base_ptr.toValue());
-        },
+        .eu_payload => |tag| return func.fail("TODO: Implement lowerParentPtr for {}", .{tag}),
+        .int => |base| return func.lowerConstant(base.toValue(), Type.usize),
+        .opt_payload => |base_ptr| return func.lowerParentPtr(base_ptr.toValue(), offset),
         .comptime_field => unreachable,
         .elem => |elem| {
             const index = elem.index;
             const elem_type = mod.intern_pool.typeOf(elem.base).toType().elemType2(mod);
-            const offset = index * elem_type.abiSize(mod);
-            const array_ptr = try func.lowerParentPtr(elem.base.toValue());
-
-            return switch (array_ptr) {
-                .memory => |ptr_| WValue{
-                    .memory_offset = .{
-                        .pointer = ptr_,
-                        .offset = @intCast(u32, offset),
-                    },
-                },
-                .memory_offset => |mem_off| WValue{
-                    .memory_offset = .{
-                        .pointer = mem_off.pointer,
-                        .offset = @intCast(u32, offset) + mem_off.offset,
-                    },
-                },
-                else => unreachable,
-            };
+            const elem_offset = index * elem_type.abiSize(mod);
+            return func.lowerParentPtr(elem.base.toValue(), @intCast(u32, elem_offset + offset));
         },
         .field => |field| {
             const parent_ty = mod.intern_pool.typeOf(field.base).toType().childType(mod);
-            const parent_ptr = try func.lowerParentPtr(field.base.toValue());
 
-            const offset = switch (parent_ty.zigTypeTag(mod)) {
+            const field_offset = switch (parent_ty.zigTypeTag(mod)) {
                 .Struct => switch (parent_ty.containerLayout(mod)) {
                     .Packed => parent_ty.packedStructFieldByteOffset(@intCast(usize, field.index), mod),
                     else => parent_ty.structFieldOffset(@intCast(usize, field.index), mod),
@@ -2993,8 +2975,7 @@ fn lowerParentPtr(func: *CodeGen, ptr_val: Value) InnerError!WValue {
                         if (layout.payload_align > layout.tag_align) break :blk 0;
 
                         // tag is stored first so calculate offset from where payload starts
-                        const offset = @intCast(u32, std.mem.alignForwardGeneric(u64, layout.tag_size, layout.tag_align));
-                        break :blk offset;
+                        break :blk @intCast(u32, std.mem.alignForwardGeneric(u64, layout.tag_size, layout.tag_align));
                     },
                 },
                 .Pointer => switch (parent_ty.ptrSize(mod)) {
@@ -3007,22 +2988,7 @@ fn lowerParentPtr(func: *CodeGen, ptr_val: Value) InnerError!WValue {
                 },
                 else => unreachable,
             };
-
-            return switch (parent_ptr) {
-                .memory => |ptr_| WValue{
-                    .memory_offset = .{
-                        .pointer = ptr_,
-                        .offset = @intCast(u32, offset),
-                    },
-                },
-                .memory_offset => |mem_off| WValue{
-                    .memory_offset = .{
-                        .pointer = mem_off.pointer,
-                        .offset = @intCast(u32, offset) + mem_off.offset,
-                    },
-                },
-                else => unreachable,
-            };
+            return func.lowerParentPtr(field.base.toValue(), @intCast(u32, offset + field_offset));
         },
     }
 }
@@ -3042,6 +3008,17 @@ fn lowerDeclRefValue(func: *CodeGen, tv: TypedValue, decl_index: Module.Decl.Ind
     }
 
     const decl = mod.declPtr(decl_index);
+    // check if decl is an alias to a function, in which case we
+    // want to lower the actual decl, rather than the alias itself.
+    if (decl.val.getFunction(mod)) |func_val| {
+        if (func_val.owner_decl != decl_index) {
+            return func.lowerDeclRefValue(tv, func_val.owner_decl, offset);
+        }
+    } else if (decl.val.getExternFunc(mod)) |func_val| {
+        if (func_val.decl != decl_index) {
+            return func.lowerDeclRefValue(tv, func_val.decl, offset);
+        }
+    }
     if (decl.ty.zigTypeTag(mod) != .Fn and !decl.ty.hasRuntimeBitsIgnoreComptime(mod)) {
         return WValue{ .imm32 = 0xaaaaaaaa };
     }
@@ -3230,7 +3207,7 @@ fn lowerConstant(func: *CodeGen, arg_val: Value, ty: Type) InnerError!WValue {
             .decl => |decl| return func.lowerDeclRefValue(.{ .ty = ty, .val = val }, decl, 0),
             .mut_decl => |mut_decl| return func.lowerDeclRefValue(.{ .ty = ty, .val = val }, mut_decl.decl, 0),
             .int => |int| return func.lowerConstant(int.toValue(), mod.intern_pool.typeOf(int).toType()),
-            .opt_payload, .elem, .field => return func.lowerParentPtr(val),
+            .opt_payload, .elem, .field => return func.lowerParentPtr(val, 0),
             else => return func.fail("Wasm TODO: lowerConstant for other const addr tag {}", .{ptr.addr}),
         },
         .opt => if (ty.optionalReprIsPayload(mod)) {

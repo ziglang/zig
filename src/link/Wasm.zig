@@ -1703,6 +1703,7 @@ pub fn updateDeclExports(
     const decl = mod.declPtr(decl_index);
     const atom_index = try wasm.getOrCreateAtomForDecl(decl_index);
     const atom = wasm.getAtom(atom_index);
+    const atom_sym = atom.symbolLoc().getSymbol(wasm).*;
     const gpa = mod.gpa;
 
     for (exports) |exp| {
@@ -1716,43 +1717,21 @@ pub fn updateDeclExports(
             continue;
         }
 
-        const export_name = try wasm.string_table.put(wasm.base.allocator, mod.intern_pool.stringToSlice(exp.opts.name));
-        if (wasm.globals.getPtr(export_name)) |existing_loc| {
-            if (existing_loc.index == atom.sym_index) continue;
-            const existing_sym: Symbol = existing_loc.getSymbol(wasm).*;
-
-            const exp_is_weak = exp.opts.linkage == .Internal or exp.opts.linkage == .Weak;
-            // When both the to-be-exported symbol and the already existing symbol
-            // are strong symbols, we have a linker error.
-            // In the other case we replace one with the other.
-            if (!exp_is_weak and !existing_sym.isWeak()) {
-                try mod.failed_exports.put(gpa, exp, try Module.ErrorMsg.create(
-                    gpa,
-                    decl.srcLoc(mod),
-                    \\LinkError: symbol '{}' defined multiple times
-                    \\  first definition in '{s}'
-                    \\  next definition in '{s}'
-                ,
-                    .{ exp.opts.name.fmt(&mod.intern_pool), wasm.name, wasm.name },
-                ));
-                continue;
-            } else if (exp_is_weak) {
-                continue; // to-be-exported symbol is weak, so we keep the existing symbol
-            } else {
-                // TODO: Revisit this, why was this needed?
-                existing_loc.index = atom.sym_index;
-                existing_loc.file = null;
-                // exp.link.wasm.sym_index = existing_loc.index;
-            }
-        }
-
         const exported_atom_index = try wasm.getOrCreateAtomForDecl(exp.exported_decl);
         const exported_atom = wasm.getAtom(exported_atom_index);
+        const export_name = try wasm.string_table.put(wasm.base.allocator, mod.intern_pool.stringToSlice(exp.opts.name));
         const sym_loc = exported_atom.symbolLoc();
         const symbol = sym_loc.getSymbol(wasm);
+        symbol.setGlobal(true);
+        symbol.setUndefined(false);
+        symbol.index = atom_sym.index;
+        symbol.tag = atom_sym.tag;
+        symbol.name = atom_sym.name;
+
         switch (exp.opts.linkage) {
             .Internal => {
                 symbol.setFlag(.WASM_SYM_VISIBILITY_HIDDEN);
+                symbol.setFlag(.WASM_SYM_BINDING_WEAK);
             },
             .Weak => {
                 symbol.setFlag(.WASM_SYM_BINDING_WEAK);
@@ -1768,22 +1747,52 @@ pub fn updateDeclExports(
                 continue;
             },
         }
+
+        if (wasm.globals.get(export_name)) |existing_loc| {
+            if (existing_loc.index == atom.sym_index) continue;
+            const existing_sym: Symbol = existing_loc.getSymbol(wasm).*;
+
+            if (!existing_sym.isUndefined()) blk: {
+                if (symbol.isWeak()) {
+                    try wasm.discarded.put(wasm.base.allocator, existing_loc, sym_loc);
+                    continue; // to-be-exported symbol is weak, so we keep the existing symbol
+                }
+
+                // new symbol is not weak while existing is, replace existing symbol
+                if (existing_sym.isWeak()) {
+                    break :blk;
+                }
+                // When both the to-be-exported symbol and the already existing symbol
+                // are strong symbols, we have a linker error.
+                // In the other case we replace one with the other.
+                try mod.failed_exports.put(gpa, exp, try Module.ErrorMsg.create(
+                    gpa,
+                    decl.srcLoc(mod),
+                    \\LinkError: symbol '{}' defined multiple times
+                    \\  first definition in '{s}'
+                    \\  next definition in '{s}'
+                ,
+                    .{ exp.opts.name.fmt(&mod.intern_pool), wasm.name, wasm.name },
+                ));
+                continue;
+            }
+
+            // in this case the existing symbol must be replaced either because it's weak or undefined.
+            try wasm.discarded.put(wasm.base.allocator, existing_loc, sym_loc);
+            _ = wasm.imports.remove(existing_loc);
+            _ = wasm.undefs.swapRemove(existing_sym.name);
+        }
+
         // Ensure the symbol will be exported using the given name
         if (!mod.intern_pool.stringEqlSlice(exp.opts.name, sym_loc.getName(wasm))) {
             try wasm.export_names.put(wasm.base.allocator, sym_loc, export_name);
         }
 
-        symbol.setGlobal(true);
-        symbol.setUndefined(false);
         try wasm.globals.put(
             wasm.base.allocator,
             export_name,
             sym_loc,
         );
-
-        // if the symbol was previously undefined, remove it as an import
-        _ = wasm.imports.remove(sym_loc);
-        _ = wasm.undefs.swapRemove(export_name);
     }
 }
 
@@ -1900,6 +1909,17 @@ pub fn addOrUpdateImport(
         global_gop.value_ptr.* = loc;
         try wasm.resolved_symbols.put(wasm.base.allocator, loc, {});
         try wasm.undefs.putNoClobber(wasm.base.allocator, decl_name_index, loc);
+    } else if (global_gop.value_ptr.*.index != symbol_index) {
+        // We are not updating a symbol, but found an existing global
+        // symbol with the same name. This means we always favor the
+        // existing symbol, regardless whether it's defined or not.
+        // We can also skip storing the import as we will not output
+        // this symbol.
+        return wasm.discarded.put(
+            wasm.base.allocator,
+            .{ .file = null, .index = symbol_index },
+            global_gop.value_ptr.*,
+        );
     }
 
     if (type_index) |ty_index| {
@@ -1915,8 +1935,8 @@ pub fn addOrUpdateImport(
             };
         }
     } else {
+        // non-functions will not be imported from the runtime, but only resolved during link-time
         symbol.tag = .data;
-        return; // non-functions will not be imported from the runtime, but only resolved during link-time
     }
 }
 

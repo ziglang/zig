@@ -598,6 +598,10 @@ pub fn generateSymbol(
                     .fail => |em| return Result{ .fail = em },
                 }
             }
+
+            if (layout.padding > 0) {
+                try code.writer().writeByteNTimes(0, layout.padding);
+            }
         },
         .memoized_call => unreachable,
     }
