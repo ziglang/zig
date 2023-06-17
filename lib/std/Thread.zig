@@ -624,7 +624,7 @@ const PosixThreadImpl = struct {
             .openbsd => {
                 var count: c_int = undefined;
                 var count_size: usize = @sizeOf(c_int);
-                const mib = [_]c_int{ os.CTL.HW, os.system.HW_NCPUONLINE };
+                const mib = [_]c_int{ os.CTL.HW, os.system.HW.NCPUONLINE };
                 os.sysctl(&mib, &count, &count_size, null, 0) catch |err| switch (err) {
                     error.NameTooLong, error.UnknownName => unreachable,
                     else => |e| return e,
