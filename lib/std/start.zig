@@ -544,7 +544,7 @@ fn callMainAsync(loop: *std.event.Loop) callconv(.Async) CallMainReturnType {
 
 // This is not marked inline because it is called with @asyncCall when
 // there is an event loop.
-pub fn callMain() CallMainReturnType {
+fn callMain() CallMainReturnType {
     if (use_wWinMain) return call_wWinMain();
 
     switch (@typeInfo(@typeInfo(@TypeOf(root.main)).Fn.return_type.?)) {
@@ -584,7 +584,7 @@ pub fn callMain() CallMainReturnType {
     }
 }
 
-pub fn call_wWinMain() std.os.windows.UINT {
+fn call_wWinMain() std.os.windows.UINT {
     const MAIN_HINSTANCE = @typeInfo(@TypeOf(root.wWinMain)).Fn.params[0].type.?;
     const hInstance = @ptrCast(MAIN_HINSTANCE, std.os.windows.kernel32.GetModuleHandleW(null).?);
     const lpCmdLine = std.os.windows.kernel32.GetCommandLineW();

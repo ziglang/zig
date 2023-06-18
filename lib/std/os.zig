@@ -1959,7 +1959,7 @@ pub fn getenv(key: []const u8) ?[]const u8 {
         @compileError("std.os.getenv is unavailable for Windows because environment string is in WTF-16 format. See std.process.getEnvVarOwned for cross-platform API or std.os.getenvW for Windows-specific API.");
     }
     // The simplified start logic doesn't populate environ.
-    if (std.start.simplified_logic) return null;
+    if (@import("start.zig").simplified_logic) return null;
     // TODO see https://github.com/ziglang/zig/issues/4524
     for (environ) |ptr| {
         var line_i: usize = 0;
