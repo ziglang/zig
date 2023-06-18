@@ -251,7 +251,29 @@ fn EfiMain(handle: uefi.Handle, system_table: *uefi.tables.SystemTable) callconv
         uefi.Status => {
             return @enumToInt(root.main());
         },
-        else => @compileError("expected return type of main to be 'void', 'noreturn', or 'std.os.uefi.Status'"),
+        else => |ret_ty| switch (@typeInfo(ret_ty)) {
+            .ErrorUnion => {
+                const result = root.main() catch |err| {
+                    if (uefi.system_table.con_out) |out| print: {
+                        var fmt: [256]u8 = undefined;
+                        var slice = std.fmt.bufPrint(&fmt, "\r\nerror: {s}\r\n", .{@errorName(err)}) catch break :print;
+                        var utf16: [256:0]u16 = undefined;
+                        const len = std.unicode.utf8ToUtf16Le(&utf16, slice) catch break :print;
+                        utf16[len] = 0;
+                        _ = out.setAttribute(uefi.protocols.SimpleTextOutputProtocol.red);
+                        _ = out.outputString(&utf16);
+                        _ = out.setAttribute(uefi.protocols.SimpleTextOutputProtocol.lightgray);
+                    }
+                    return @enumToInt(std.os.exit_status_failure);
+                };
+                switch (@TypeOf(result)) {
+                    void => return @enumToInt(std.os.exit_status_success),
+                    uefi.Status => return @enumToInt(result),
+                    else => @compileError(bad_main_ret),
+                }
+            },
+            else => @compileError(bad_main_ret),
+        },
     }
 }
 
