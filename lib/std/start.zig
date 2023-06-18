@@ -62,9 +62,9 @@ comptime {
         } else if (builtin.output_mode == .Exe or @hasDecl(root, "main")) {
             if (builtin.link_libc and @hasDecl(root, "main")) {
                 if (native_arch.isWasm()) {
-                    @export(mainWithoutEnv, .{ .name = "main" });
+                    @export(cMainWithoutEnv, .{ .name = "main" });
                 } else if (@typeInfo(@TypeOf(root.main)).Fn.calling_convention != .C) {
-                    @export(main, .{ .name = "main" });
+                    @export(cMain, .{ .name = "main" });
                 }
             } else if (native_os == .windows) {
                 if (!@hasDecl(root, "WinMain") and !@hasDecl(root, "WinMainCRTStartup") and
@@ -460,13 +460,13 @@ fn posixCallMainAndExit() callconv(.C) noreturn {
         // program header. However the kernel does not recognize it; it always gives 8 MiB.
         // Here we look for the stack size in our program headers and use setrlimit
         // to ask for more stack space.
-        expandStackSize(phdrs);
+        linuxExpandStackSize(phdrs);
     }
 
-    std.os.exit(@call(.always_inline, callMainWithArgs, .{ argc, argv, envp }));
+    std.os.exit(@call(.always_inline, posixCallMainWithArgs, .{ argc, argv, envp }));
 }
 
-fn expandStackSize(phdrs: []elf.Phdr) void {
+fn linuxExpandStackSize(phdrs: []elf.Phdr) void {
     for (phdrs) |*phdr| {
         switch (phdr.p_type) {
             elf.PT_GNU_STACK => {
@@ -493,7 +493,7 @@ fn expandStackSize(phdrs: []elf.Phdr) void {
     }
 }
 
-fn callMainWithArgs(argc: usize, argv: [*][*:0]u8, envp: [][*:0]u8) CallMainReturnType {
+fn posixCallMainWithArgs(argc: usize, argv: [*][*:0]u8, envp: [][*:0]u8) CallMainReturnType {
     std.os.argv = argv[0..argc];
     std.os.environ = envp;
 
@@ -503,7 +503,7 @@ fn callMainWithArgs(argc: usize, argv: [*][*:0]u8, envp: [][*:0]u8) CallMainRetu
     return initEventLoopAndCallMain();
 }
 
-fn main(c_argc: c_int, c_argv: [*][*:0]c_char, c_envp: [*:null]?[*:0]c_char) callconv(.C) c_int {
+fn cMain(c_argc: c_int, c_argv: [*][*:0]c_char, c_envp: [*:null]?[*:0]c_char) callconv(.C) c_int {
     var env_count: usize = 0;
     while (c_envp[env_count] != null) : (env_count += 1) {}
     const envp = @ptrCast([*][*:0]u8, c_envp)[0..env_count];
@@ -512,13 +512,13 @@ fn main(c_argc: c_int, c_argv: [*][*:0]c_char, c_envp: [*:null]?[*:0]c_char) cal
         const at_phdr = std.c.getauxval(elf.AT_PHDR);
         const at_phnum = std.c.getauxval(elf.AT_PHNUM);
         const phdrs = (@intToPtr([*]elf.Phdr, at_phdr))[0..at_phnum];
-        expandStackSize(phdrs);
+        linuxExpandStackSize(phdrs);
     }
 
-    return @call(.always_inline, callMainWithArgs, .{ @intCast(usize, c_argc), @ptrCast([*][*:0]u8, c_argv), envp });
+    return @call(.always_inline, posixCallMainWithArgs, .{ @intCast(usize, c_argc), @ptrCast([*][*:0]u8, c_argv), envp });
 }
 
-fn mainWithoutEnv(c_argc: c_int, c_argv: [*][*:0]c_char) callconv(.C) c_int {
+fn cMainWithoutEnv(c_argc: c_int, c_argv: [*][*:0]c_char) callconv(.C) c_int {
     std.os.argv = @ptrCast([*][*:0]u8, c_argv)[0..@intCast(usize, c_argc)];
     return @call(.always_inline, callMain, .{});
 }
