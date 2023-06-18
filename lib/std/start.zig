@@ -37,11 +37,11 @@ comptime {
                 if (@typeInfo(@TypeOf(root.main)).Fn.calling_convention != .C) {
                     @export(main2, .{ .name = "main" });
                 }
-            } else if (builtin.os.tag == .windows) {
+            } else if (native_os == .windows) {
                 if (!@hasDecl(root, "wWinMainCRTStartup") and !@hasDecl(root, "mainCRTStartup")) {
                     @export(wWinMainCRTStartup2, .{ .name = "wWinMainCRTStartup" });
                 }
-            } else if (builtin.os.tag == .opencl) {
+            } else if (native_os == .opencl) {
                 if (@hasDecl(root, "main"))
                     @export(spirvMain2, .{ .name = "main" });
             } else {
@@ -497,7 +497,7 @@ fn main(c_argc: c_int, c_argv: [*][*:0]c_char, c_envp: [*:null]?[*:0]c_char) cal
     while (c_envp[env_count] != null) : (env_count += 1) {}
     const envp = @ptrCast([*][*:0]u8, c_envp)[0..env_count];
 
-    if (builtin.os.tag == .linux) {
+    if (native_os == .linux) {
         const at_phdr = std.c.getauxval(elf.AT_PHDR);
         const at_phnum = std.c.getauxval(elf.AT_PHNUM);
         const phdrs = (@intToPtr([*]elf.Phdr, at_phdr))[0..at_phnum];
