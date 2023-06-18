@@ -309,6 +309,7 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
 
         fn bucketStackFramesStart(size_class: usize) usize {
             return mem.alignForward(
+                usize,
                 @sizeOf(BucketHeader) + usedBitsCount(size_class),
                 @alignOf(usize),
             );

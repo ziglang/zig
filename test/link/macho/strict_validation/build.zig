@@ -122,7 +122,8 @@ fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.Optimize
         else => unreachable,
     }
 
-    const run = check_exe.runAndCompare();
+    const run = b.addRunArtifact(exe);
+    run.skip_foreign_checks = true;
     run.expectStdOutEqual("Hello!\n");
     test_step.dependOn(&run.step);
 }

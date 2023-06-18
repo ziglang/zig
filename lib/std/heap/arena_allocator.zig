@@ -108,21 +108,18 @@ pub const ArenaAllocator = struct {
         // Thus, only the first hand full of calls to reset() will actually need to iterate the linked
         // list, all future calls are just taking the first node, and only resetting the `end_index`
         // value.
-        const current_capacity = if (mode != .free_all)
-            @sizeOf(BufNode) + self.queryCapacity() // we need at least space for exactly one node + the current capacity
-        else
-            0;
-        if (mode == .free_all or current_capacity == 0) {
+        const requested_capacity = switch (mode) {
+            .retain_capacity => self.queryCapacity(),
+            .retain_with_limit => |limit| @min(limit, self.queryCapacity()),
+            .free_all => 0,
+        };
+        if (requested_capacity == 0) {
             // just reset when we don't have anything to reallocate
             self.deinit();
             self.state = State{};
             return true;
         }
-        const total_size = switch (mode) {
-            .retain_capacity => current_capacity,
-            .retain_with_limit => |limit| std.math.min(limit, current_capacity),
-            .free_all => unreachable,
-        };
+        const total_size = requested_capacity + @sizeOf(BufNode);
         const align_bits = std.math.log2_int(usize, @alignOf(BufNode));
         // Free all nodes except for the last one
         var it = self.state.buffer_list.first;
@@ -139,6 +136,7 @@ pub const ArenaAllocator = struct {
         // reset the state before we try resizing the buffers, so we definitely have reset the arena to 0.
         self.state.end_index = 0;
         if (maybe_first_node) |first_node| {
+            self.state.buffer_list.first = first_node;
             // perfect, no need to invoke the child_allocator
             if (first_node.data == total_size)
                 return true;
@@ -188,7 +186,7 @@ pub const ArenaAllocator = struct {
             const cur_alloc_buf = @ptrCast([*]u8, cur_node)[0..cur_node.data];
             const cur_buf = cur_alloc_buf[@sizeOf(BufNode)..];
             const addr = @ptrToInt(cur_buf.ptr) + self.state.end_index;
-            const adjusted_addr = mem.alignForward(addr, ptr_align);
+            const adjusted_addr = mem.alignForward(usize, addr, ptr_align);
             const adjusted_index = self.state.end_index + (adjusted_addr - addr);
             const new_end_index = adjusted_index + n;
 
@@ -269,4 +267,20 @@ test "ArenaAllocator (reset with preheating)" {
             alloced_bytes += slice.len;
         }
     }
+}
+
+test "ArenaAllocator (reset while retaining a buffer)" {
+    var arena_allocator = ArenaAllocator.init(std.testing.allocator);
+    defer arena_allocator.deinit();
+    const a = arena_allocator.allocator();
+
+    // Create two internal buffers
+    _ = try a.alloc(u8, 1);
+    _ = try a.alloc(u8, 1000);
+
+    // Check that we have at least two buffers
+    try std.testing.expect(arena_allocator.state.buffer_list.first.?.next != null);
+
+    // This retains the first allocated buffer
+    try std.testing.expect(arena_allocator.reset(.{ .retain_with_limit = 1 }));
 }

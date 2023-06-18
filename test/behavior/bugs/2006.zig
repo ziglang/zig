@@ -7,6 +7,7 @@ const S = struct {
 };
 test "bug 2006" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     var a: S = undefined;
     a = S{ .p = undefined };

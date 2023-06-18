@@ -28,6 +28,7 @@ const File = link.File;
 const Liveness = @import("../Liveness.zig");
 const LlvmObject = @import("../codegen/llvm.zig").Object;
 const Module = @import("../Module.zig");
+const InternPool = @import("../InternPool.zig");
 const Package = @import("../Package.zig");
 const StringTable = @import("strtab.zig").StringTable;
 const TableSection = @import("table_section.zig").TableSection;
@@ -273,7 +274,7 @@ pub fn openPath(allocator: Allocator, sub_path: []const u8, options: link.Option
 }
 
 pub fn createEmpty(gpa: Allocator, options: link.Options) !*Elf {
-    const ptr_width: PtrWidth = switch (options.target.cpu.arch.ptrBitWidth()) {
+    const ptr_width: PtrWidth = switch (options.target.ptrBitWidth()) {
         0...32 => .p32,
         33...64 => .p64,
         else => return error.UnsupportedELFArchitecture,
@@ -340,6 +341,7 @@ pub fn deinit(self: *Elf) void {
 
     self.atoms.deinit(gpa);
     self.atom_by_index_table.deinit(gpa);
+    self.lazy_syms.deinit(gpa);
 
     {
         var it = self.unnamed_const_atoms.valueIterator();
@@ -437,7 +439,7 @@ pub fn allocatedSize(self: *Elf, start: u64) u64 {
 pub fn findFreeSpace(self: *Elf, object_size: u64, min_alignment: u32) u64 {
     var start: u64 = 0;
     while (self.detectAllocCollision(start, object_size)) |item_end| {
-        start = mem.alignForwardGeneric(u64, item_end, min_alignment);
+        start = mem.alignForward(u64, item_end, min_alignment);
     }
     return start;
 }
@@ -474,7 +476,7 @@ pub fn populateMissingMetadata(self: *Elf) !void {
     if (self.phdr_table_load_index == null) {
         self.phdr_table_load_index = @intCast(u16, self.program_headers.items.len);
         // TODO Same as for GOT
-        const phdr_addr: u64 = if (self.base.options.target.cpu.arch.ptrBitWidth() >= 32) 0x1000000 else 0x1000;
+        const phdr_addr: u64 = if (self.base.options.target.ptrBitWidth() >= 32) 0x1000000 else 0x1000;
         const p_align = self.page_size;
         try self.program_headers.append(gpa, .{
             .p_type = elf.PT_LOAD,
@@ -521,7 +523,7 @@ pub fn populateMissingMetadata(self: *Elf) !void {
         // TODO instead of hard coding the vaddr, make a function to find a vaddr to put things at.
         // we'll need to re-use that function anyway, in case the GOT grows and overlaps something
         // else in virtual memory.
-        const got_addr: u32 = if (self.base.options.target.cpu.arch.ptrBitWidth() >= 32) 0x4000000 else 0x8000;
+        const got_addr: u32 = if (self.base.options.target.ptrBitWidth() >= 32) 0x4000000 else 0x8000;
         try self.program_headers.append(gpa, .{
             .p_type = elf.PT_LOAD,
             .p_offset = off,
@@ -544,7 +546,7 @@ pub fn populateMissingMetadata(self: *Elf) !void {
         const off = self.findFreeSpace(file_size, p_align);
         log.debug("found PT_LOAD RO free space 0x{x} to 0x{x}", .{ off, off + file_size });
         // TODO Same as for GOT
-        const rodata_addr: u32 = if (self.base.options.target.cpu.arch.ptrBitWidth() >= 32) 0xc000000 else 0xa000;
+        const rodata_addr: u32 = if (self.base.options.target.ptrBitWidth() >= 32) 0xc000000 else 0xa000;
         try self.program_headers.append(gpa, .{
             .p_type = elf.PT_LOAD,
             .p_offset = off,
@@ -567,7 +569,7 @@ pub fn populateMissingMetadata(self: *Elf) !void {
         const off = self.findFreeSpace(file_size, p_align);
         log.debug("found PT_LOAD RW free space 0x{x} to 0x{x}", .{ off, off + file_size });
         // TODO Same as for GOT
-        const rwdata_addr: u32 = if (self.base.options.target.cpu.arch.ptrBitWidth() >= 32) 0x10000000 else 0xc000;
+        const rwdata_addr: u32 = if (self.base.options.target.ptrBitWidth() >= 32) 0x10000000 else 0xc000;
         try self.program_headers.append(gpa, .{
             .p_type = elf.PT_LOAD,
             .p_offset = off,
@@ -1171,7 +1173,7 @@ pub fn flushModule(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node
             phdr_table.p_offset = self.findFreeSpace(needed_size, @intCast(u32, phdr_table.p_align));
         }
 
-        phdr_table_load.p_offset = mem.alignBackwardGeneric(u64, phdr_table.p_offset, phdr_table_load.p_align);
+        phdr_table_load.p_offset = mem.alignBackward(u64, phdr_table.p_offset, phdr_table_load.p_align);
         const load_align_offset = phdr_table.p_offset - phdr_table_load.p_offset;
         phdr_table_load.p_filesz = load_align_offset + needed_size;
         phdr_table_load.p_memsz = load_align_offset + needed_size;
@@ -1371,13 +1373,14 @@ fn linkWithLLD(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !v
         // We are about to obtain this lock, so here we give other processes a chance first.
         self.base.releaseLock();
 
-        comptime assert(Compilation.link_hash_implementation_version == 8);
+        comptime assert(Compilation.link_hash_implementation_version == 9);
 
         try man.addOptionalFile(self.base.options.linker_script);
         try man.addOptionalFile(self.base.options.version_script);
         for (self.base.options.objects) |obj| {
             _ = try man.addFile(obj.path, null);
             man.hash.add(obj.must_link);
+            man.hash.add(obj.loption);
         }
         for (comp.c_object_table.keys()) |key| {
             _ = try man.addFile(key.status.success.object_path, null);
@@ -1542,8 +1545,18 @@ fn linkWithLLD(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !v
             try argv.append("-z");
             try argv.append(try std.fmt.allocPrint(arena, "stack-size={d}", .{stack_size}));
 
-            if (self.base.options.build_id) {
-                try argv.append("--build-id");
+            switch (self.base.options.build_id) {
+                .none => {},
+                .fast, .uuid, .sha1, .md5 => {
+                    try argv.append(try std.fmt.allocPrint(arena, "--build-id={s}", .{
+                        @tagName(self.base.options.build_id),
+                    }));
+                },
+                .hexstring => |hs| {
+                    try argv.append(try std.fmt.allocPrint(arena, "--build-id=0x{s}", .{
+                        std.fmt.fmtSliceHexLower(hs.toSlice()),
+                    }));
+                },
             }
         }
 
@@ -1654,10 +1667,10 @@ fn linkWithLLD(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !v
             try argv.append("-pie");
         }
 
-        if (self.base.options.link_mode == .Dynamic and target.os.tag == .netbsd) {
+        if (is_dyn_lib and target.os.tag == .netbsd) {
             // Add options to produce shared objects with only 2 PT_LOAD segments.
             // NetBSD expects 2 PT_LOAD segments in a shared object, otherwise
-            // ld.elf_so fails to load, emitting a general "not found" error.
+            // ld.elf_so fails loading dynamic libraries with "not found" error.
             // See https://github.com/ziglang/zig/issues/9109 .
             try argv.append("--no-rosegment");
             try argv.append("-znorelro");
@@ -1709,6 +1722,8 @@ fn linkWithLLD(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !v
             for (self.base.options.objects) |obj| {
                 if (Compilation.classifyFileExt(obj.path) == .shared_library) {
                     const lib_dir_path = std.fs.path.dirname(obj.path) orelse continue;
+                    if (obj.loption) continue;
+
                     if ((try rpath_table.fetchPut(lib_dir_path, {})) == null) {
                         try argv.append("-rpath");
                         try argv.append(lib_dir_path);
@@ -1756,6 +1771,11 @@ fn linkWithLLD(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !v
             } else if (!obj.must_link and whole_archive) {
                 try argv.append("-no-whole-archive");
                 whole_archive = false;
+            }
+
+            if (obj.loption) {
+                assert(obj.path[0] == ':');
+                try argv.append("-l");
             }
             try argv.append(obj.path);
         }
@@ -2195,7 +2215,7 @@ fn shrinkAtom(self: *Elf, atom_index: Atom.Index, new_block_size: u64) void {
 fn growAtom(self: *Elf, atom_index: Atom.Index, new_block_size: u64, alignment: u64) !u64 {
     const atom = self.getAtom(atom_index);
     const sym = atom.getSymbol(self);
-    const align_ok = mem.alignBackwardGeneric(u64, sym.st_value, alignment) == sym.st_value;
+    const align_ok = mem.alignBackward(u64, sym.st_value, alignment) == sym.st_value;
     const need_realloc = !align_ok or new_block_size > atom.capacity(self);
     if (!need_realloc) return sym.st_value;
     return self.allocateAtom(atom_index, new_block_size, alignment);
@@ -2249,7 +2269,7 @@ fn allocateAtom(self: *Elf, atom_index: Atom.Index, new_block_size: u64, alignme
             const ideal_capacity_end_vaddr = std.math.add(u64, big_atom_sym.st_value, ideal_capacity) catch ideal_capacity;
             const capacity_end_vaddr = big_atom_sym.st_value + capacity;
             const new_start_vaddr_unaligned = capacity_end_vaddr - new_atom_ideal_capacity;
-            const new_start_vaddr = mem.alignBackwardGeneric(u64, new_start_vaddr_unaligned, alignment);
+            const new_start_vaddr = mem.alignBackward(u64, new_start_vaddr_unaligned, alignment);
             if (new_start_vaddr < ideal_capacity_end_vaddr) {
                 // Additional bookkeeping here to notice if this free list node
                 // should be deleted because the block that it points to has grown to take up
@@ -2278,7 +2298,7 @@ fn allocateAtom(self: *Elf, atom_index: Atom.Index, new_block_size: u64, alignme
             const last_sym = last.getSymbol(self);
             const ideal_capacity = padToIdeal(last_sym.st_size);
             const ideal_capacity_end_vaddr = last_sym.st_value + ideal_capacity;
-            const new_start_vaddr = mem.alignForwardGeneric(u64, ideal_capacity_end_vaddr, alignment);
+            const new_start_vaddr = mem.alignForward(u64, ideal_capacity_end_vaddr, alignment);
             // Set up the metadata to be updated, after errors are no longer possible.
             atom_placement = last_index;
             break :blk new_start_vaddr;
@@ -2307,7 +2327,7 @@ fn allocateAtom(self: *Elf, atom_index: Atom.Index, new_block_size: u64, alignme
             self.debug_aranges_section_dirty = true;
         }
     }
-    shdr.sh_addralign = math.max(shdr.sh_addralign, alignment);
+    shdr.sh_addralign = @max(shdr.sh_addralign, alignment);
 
     // This function can also reallocate an atom.
     // In this case we need to "unplug" it from its previous location before
@@ -2396,7 +2416,8 @@ pub fn freeDecl(self: *Elf, decl_index: Module.Decl.Index) void {
 }
 
 pub fn getOrCreateAtomForLazySymbol(self: *Elf, sym: File.LazySymbol) !Atom.Index {
-    const gop = try self.lazy_syms.getOrPut(self.base.allocator, sym.getDecl());
+    const mod = self.base.options.module.?;
+    const gop = try self.lazy_syms.getOrPut(self.base.allocator, sym.getDecl(mod));
     errdefer _ = if (!gop.found_existing) self.lazy_syms.pop();
     if (!gop.found_existing) gop.value_ptr.* = .{};
     const metadata: struct { atom: *Atom.Index, state: *LazySymbolMetadata.State } = switch (sym.kind) {
@@ -2411,7 +2432,7 @@ pub fn getOrCreateAtomForLazySymbol(self: *Elf, sym: File.LazySymbol) !Atom.Inde
     metadata.state.* = .pending_flush;
     const atom = metadata.atom.*;
     // anyerror needs to be deferred until flushModule
-    if (sym.getDecl() != .none) try self.updateLazySymbolAtom(sym, atom, switch (sym.kind) {
+    if (sym.getDecl(mod) != .none) try self.updateLazySymbolAtom(sym, atom, switch (sym.kind) {
         .code => self.text_section_index.?,
         .const_data => self.rodata_section_index.?,
     });
@@ -2431,12 +2452,13 @@ pub fn getOrCreateAtomForDecl(self: *Elf, decl_index: Module.Decl.Index) !Atom.I
 }
 
 fn getDeclShdrIndex(self: *Elf, decl_index: Module.Decl.Index) u16 {
-    const decl = self.base.options.module.?.declPtr(decl_index);
+    const mod = self.base.options.module.?;
+    const decl = mod.declPtr(decl_index);
     const ty = decl.ty;
-    const zig_ty = ty.zigTypeTag();
+    const zig_ty = ty.zigTypeTag(mod);
     const val = decl.val;
     const shdr_index: u16 = blk: {
-        if (val.isUndefDeep()) {
+        if (val.isUndefDeep(mod)) {
             // TODO in release-fast and release-small, we should put undef in .bss
             break :blk self.data_section_index.?;
         }
@@ -2445,7 +2467,7 @@ fn getDeclShdrIndex(self: *Elf, decl_index: Module.Decl.Index) u16 {
             // TODO: what if this is a function pointer?
             .Fn => break :blk self.text_section_index.?,
             else => {
-                if (val.castTag(.variable)) |_| {
+                if (val.getVariable(mod)) |_| {
                     break :blk self.data_section_index.?;
                 }
                 break :blk self.rodata_section_index.?;
@@ -2460,11 +2482,10 @@ fn updateDeclCode(self: *Elf, decl_index: Module.Decl.Index, code: []const u8, s
     const mod = self.base.options.module.?;
     const decl = mod.declPtr(decl_index);
 
-    const decl_name = try decl.getFullyQualifiedName(mod);
-    defer self.base.allocator.free(decl_name);
+    const decl_name = mod.intern_pool.stringToSlice(try decl.getFullyQualifiedName(mod));
 
     log.debug("updateDeclCode {s}{*}", .{ decl_name, decl });
-    const required_alignment = decl.getAlignment(self.base.options.target);
+    const required_alignment = decl.getAlignment(mod);
 
     const decl_metadata = self.decls.get(decl_index).?;
     const atom_index = decl_metadata.atom;
@@ -2554,19 +2575,20 @@ fn updateDeclCode(self: *Elf, decl_index: Module.Decl.Index, code: []const u8, s
     return local_sym;
 }
 
-pub fn updateFunc(self: *Elf, module: *Module, func: *Module.Fn, air: Air, liveness: Liveness) !void {
+pub fn updateFunc(self: *Elf, mod: *Module, func_index: Module.Fn.Index, air: Air, liveness: Liveness) !void {
     if (build_options.skip_non_native and builtin.object_format != .elf) {
         @panic("Attempted to compile for object format that was disabled by build configuration");
     }
     if (build_options.have_llvm) {
-        if (self.llvm_object) |llvm_object| return llvm_object.updateFunc(module, func, air, liveness);
+        if (self.llvm_object) |llvm_object| return llvm_object.updateFunc(mod, func_index, air, liveness);
     }
 
     const tracy = trace(@src());
     defer tracy.end();
 
+    const func = mod.funcPtr(func_index);
     const decl_index = func.owner_decl;
-    const decl = module.declPtr(decl_index);
+    const decl = mod.declPtr(decl_index);
 
     const atom_index = try self.getOrCreateAtomForDecl(decl_index);
     self.freeUnnamedConsts(decl_index);
@@ -2575,28 +2597,28 @@ pub fn updateFunc(self: *Elf, module: *Module, func: *Module.Fn, air: Air, liven
     var code_buffer = std.ArrayList(u8).init(self.base.allocator);
     defer code_buffer.deinit();
 
-    var decl_state: ?Dwarf.DeclState = if (self.dwarf) |*dw| try dw.initDeclState(module, decl_index) else null;
+    var decl_state: ?Dwarf.DeclState = if (self.dwarf) |*dw| try dw.initDeclState(mod, decl_index) else null;
     defer if (decl_state) |*ds| ds.deinit();
 
     const res = if (decl_state) |*ds|
-        try codegen.generateFunction(&self.base, decl.srcLoc(), func, air, liveness, &code_buffer, .{
+        try codegen.generateFunction(&self.base, decl.srcLoc(mod), func_index, air, liveness, &code_buffer, .{
             .dwarf = ds,
         })
     else
-        try codegen.generateFunction(&self.base, decl.srcLoc(), func, air, liveness, &code_buffer, .none);
+        try codegen.generateFunction(&self.base, decl.srcLoc(mod), func_index, air, liveness, &code_buffer, .none);
 
     const code = switch (res) {
         .ok => code_buffer.items,
         .fail => |em| {
             decl.analysis = .codegen_failure;
-            try module.failed_decls.put(module.gpa, decl_index, em);
+            try mod.failed_decls.put(mod.gpa, decl_index, em);
             return;
         },
     };
     const local_sym = try self.updateDeclCode(decl_index, code, elf.STT_FUNC);
     if (decl_state) |*ds| {
         try self.dwarf.?.commitDeclState(
-            module,
+            mod,
             decl_index,
             local_sym.st_value,
             local_sym.st_size,
@@ -2606,31 +2628,30 @@ pub fn updateFunc(self: *Elf, module: *Module, func: *Module.Fn, air: Air, liven
 
     // Since we updated the vaddr and the size, each corresponding export
     // symbol also needs to be updated.
-    return self.updateDeclExports(module, decl_index, module.getDeclExports(decl_index));
+    return self.updateDeclExports(mod, decl_index, mod.getDeclExports(decl_index));
 }
 
 pub fn updateDecl(
     self: *Elf,
-    module: *Module,
+    mod: *Module,
     decl_index: Module.Decl.Index,
 ) File.UpdateDeclError!void {
     if (build_options.skip_non_native and builtin.object_format != .elf) {
         @panic("Attempted to compile for object format that was disabled by build configuration");
     }
     if (build_options.have_llvm) {
-        if (self.llvm_object) |llvm_object| return llvm_object.updateDecl(module, decl_index);
+        if (self.llvm_object) |llvm_object| return llvm_object.updateDecl(mod, decl_index);
     }
 
     const tracy = trace(@src());
     defer tracy.end();
 
-    const decl = module.declPtr(decl_index);
+    const decl = mod.declPtr(decl_index);
 
-    if (decl.val.tag() == .extern_fn) {
+    if (decl.val.getExternFunc(mod)) |_| {
         return; // TODO Should we do more when front-end analyzed extern decl?
     }
-    if (decl.val.castTag(.variable)) |payload| {
-        const variable = payload.data;
+    if (decl.val.getVariable(mod)) |variable| {
         if (variable.is_extern) {
             return; // TODO Should we do more when front-end analyzed extern decl?
         }
@@ -2643,13 +2664,13 @@ pub fn updateDecl(
     var code_buffer = std.ArrayList(u8).init(self.base.allocator);
     defer code_buffer.deinit();
 
-    var decl_state: ?Dwarf.DeclState = if (self.dwarf) |*dw| try dw.initDeclState(module, decl_index) else null;
+    var decl_state: ?Dwarf.DeclState = if (self.dwarf) |*dw| try dw.initDeclState(mod, decl_index) else null;
     defer if (decl_state) |*ds| ds.deinit();
 
     // TODO implement .debug_info for global variables
-    const decl_val = if (decl.val.castTag(.variable)) |payload| payload.data.init else decl.val;
+    const decl_val = if (decl.val.getVariable(mod)) |variable| variable.init.toValue() else decl.val;
     const res = if (decl_state) |*ds|
-        try codegen.generateSymbol(&self.base, decl.srcLoc(), .{
+        try codegen.generateSymbol(&self.base, decl.srcLoc(mod), .{
             .ty = decl.ty,
             .val = decl_val,
         }, &code_buffer, .{
@@ -2658,7 +2679,7 @@ pub fn updateDecl(
             .parent_atom_index = atom.getSymbolIndex().?,
         })
     else
-        try codegen.generateSymbol(&self.base, decl.srcLoc(), .{
+        try codegen.generateSymbol(&self.base, decl.srcLoc(mod), .{
             .ty = decl.ty,
             .val = decl_val,
         }, &code_buffer, .none, .{
@@ -2669,7 +2690,7 @@ pub fn updateDecl(
         .ok => code_buffer.items,
         .fail => |em| {
             decl.analysis = .codegen_failure;
-            try module.failed_decls.put(module.gpa, decl_index, em);
+            try mod.failed_decls.put(mod.gpa, decl_index, em);
             return;
         },
     };
@@ -2677,7 +2698,7 @@ pub fn updateDecl(
     const local_sym = try self.updateDeclCode(decl_index, code, elf.STT_OBJECT);
     if (decl_state) |*ds| {
         try self.dwarf.?.commitDeclState(
-            module,
+            mod,
             decl_index,
             local_sym.st_value,
             local_sym.st_size,
@@ -2687,7 +2708,7 @@ pub fn updateDecl(
 
     // Since we updated the vaddr and the size, each corresponding export
     // symbol also needs to be updated.
-    return self.updateDeclExports(module, decl_index, module.getDeclExports(decl_index));
+    return self.updateDeclExports(mod, decl_index, mod.getDeclExports(decl_index));
 }
 
 fn updateLazySymbolAtom(
@@ -2716,8 +2737,8 @@ fn updateLazySymbolAtom(
     const atom = self.getAtom(atom_index);
     const local_sym_index = atom.getSymbolIndex().?;
 
-    const src = if (sym.ty.getOwnerDeclOrNull()) |owner_decl|
-        mod.declPtr(owner_decl).srcLoc()
+    const src = if (sym.ty.getOwnerDeclOrNull(mod)) |owner_decl|
+        mod.declPtr(owner_decl).srcLoc(mod)
     else
         Module.SrcLoc{
             .file_scope = undefined,
@@ -2782,8 +2803,7 @@ pub fn lowerUnnamedConst(self: *Elf, typed_value: TypedValue, decl_index: Module
 
     const decl = mod.declPtr(decl_index);
     const name_str_index = blk: {
-        const decl_name = try decl.getFullyQualifiedName(mod);
-        defer gpa.free(decl_name);
+        const decl_name = mod.intern_pool.stringToSlice(try decl.getFullyQualifiedName(mod));
         const index = unnamed_consts.items.len;
         const name = try std.fmt.allocPrint(gpa, "__unnamed_{s}_{d}", .{ decl_name, index });
         defer gpa.free(name);
@@ -2793,7 +2813,7 @@ pub fn lowerUnnamedConst(self: *Elf, typed_value: TypedValue, decl_index: Module
 
     const atom_index = try self.createAtom();
 
-    const res = try codegen.generateSymbol(&self.base, decl.srcLoc(), typed_value, &code_buffer, .{
+    const res = try codegen.generateSymbol(&self.base, decl.srcLoc(mod), typed_value, &code_buffer, .{
         .none = {},
     }, .{
         .parent_atom_index = self.getAtom(atom_index).getSymbolIndex().?,
@@ -2808,7 +2828,7 @@ pub fn lowerUnnamedConst(self: *Elf, typed_value: TypedValue, decl_index: Module
         },
     };
 
-    const required_alignment = typed_value.ty.abiAlignment(self.base.options.target);
+    const required_alignment = typed_value.ty.abiAlignment(mod);
     const shdr_index = self.rodata_section_index.?;
     const phdr_index = self.sections.items(.phdr_index)[shdr_index];
     const local_sym = self.getAtom(atom_index).getSymbolPtr(self);
@@ -2834,7 +2854,7 @@ pub fn lowerUnnamedConst(self: *Elf, typed_value: TypedValue, decl_index: Module
 
 pub fn updateDeclExports(
     self: *Elf,
-    module: *Module,
+    mod: *Module,
     decl_index: Module.Decl.Index,
     exports: []const *Module.Export,
 ) File.UpdateDeclExportsError!void {
@@ -2842,7 +2862,7 @@ pub fn updateDeclExports(
         @panic("Attempted to compile for object format that was disabled by build configuration");
     }
     if (build_options.have_llvm) {
-        if (self.llvm_object) |llvm_object| return llvm_object.updateDeclExports(module, decl_index, exports);
+        if (self.llvm_object) |llvm_object| return llvm_object.updateDeclExports(mod, decl_index, exports);
     }
 
     const tracy = trace(@src());
@@ -2850,7 +2870,7 @@ pub fn updateDeclExports(
 
     const gpa = self.base.allocator;
 
-    const decl = module.declPtr(decl_index);
+    const decl = mod.declPtr(decl_index);
     const atom_index = try self.getOrCreateAtomForDecl(decl_index);
     const atom = self.getAtom(atom_index);
     const decl_sym = atom.getSymbol(self);
@@ -2860,40 +2880,41 @@ pub fn updateDeclExports(
     try self.global_symbols.ensureUnusedCapacity(gpa, exports.len);
 
     for (exports) |exp| {
-        if (exp.options.section) |section_name| {
-            if (!mem.eql(u8, section_name, ".text")) {
-                try module.failed_exports.ensureUnusedCapacity(module.gpa, 1);
-                module.failed_exports.putAssumeCapacityNoClobber(
+        const exp_name = mod.intern_pool.stringToSlice(exp.opts.name);
+        if (exp.opts.section.unwrap()) |section_name| {
+            if (!mod.intern_pool.stringEqlSlice(section_name, ".text")) {
+                try mod.failed_exports.ensureUnusedCapacity(mod.gpa, 1);
+                mod.failed_exports.putAssumeCapacityNoClobber(
                     exp,
-                    try Module.ErrorMsg.create(self.base.allocator, decl.srcLoc(), "Unimplemented: ExportOptions.section", .{}),
+                    try Module.ErrorMsg.create(self.base.allocator, decl.srcLoc(mod), "Unimplemented: ExportOptions.section", .{}),
                 );
                 continue;
             }
         }
-        const stb_bits: u8 = switch (exp.options.linkage) {
+        const stb_bits: u8 = switch (exp.opts.linkage) {
             .Internal => elf.STB_LOCAL,
             .Strong => blk: {
                 const entry_name = self.base.options.entry orelse "_start";
-                if (mem.eql(u8, exp.options.name, entry_name)) {
+                if (mem.eql(u8, exp_name, entry_name)) {
                     self.entry_addr = decl_sym.st_value;
                 }
                 break :blk elf.STB_GLOBAL;
             },
             .Weak => elf.STB_WEAK,
             .LinkOnce => {
-                try module.failed_exports.ensureUnusedCapacity(module.gpa, 1);
-                module.failed_exports.putAssumeCapacityNoClobber(
+                try mod.failed_exports.ensureUnusedCapacity(mod.gpa, 1);
+                mod.failed_exports.putAssumeCapacityNoClobber(
                     exp,
-                    try Module.ErrorMsg.create(self.base.allocator, decl.srcLoc(), "Unimplemented: GlobalLinkage.LinkOnce", .{}),
+                    try Module.ErrorMsg.create(self.base.allocator, decl.srcLoc(mod), "Unimplemented: GlobalLinkage.LinkOnce", .{}),
                 );
                 continue;
             },
         };
         const stt_bits: u8 = @truncate(u4, decl_sym.st_info);
-        if (decl_metadata.getExport(self, exp.options.name)) |i| {
+        if (decl_metadata.getExport(self, exp_name)) |i| {
             const sym = &self.global_symbols.items[i];
             sym.* = .{
-                .st_name = try self.shstrtab.insert(gpa, exp.options.name),
+                .st_name = try self.shstrtab.insert(gpa, exp_name),
                 .st_info = (stb_bits << 4) | stt_bits,
                 .st_other = 0,
                 .st_shndx = shdr_index,
@@ -2907,7 +2928,7 @@ pub fn updateDeclExports(
             };
             try decl_metadata.exports.append(gpa, @intCast(u32, i));
             self.global_symbols.items[i] = .{
-                .st_name = try self.shstrtab.insert(gpa, exp.options.name),
+                .st_name = try self.shstrtab.insert(gpa, exp_name),
                 .st_info = (stb_bits << 4) | stt_bits,
                 .st_other = 0,
                 .st_shndx = shdr_index,
@@ -2924,8 +2945,7 @@ pub fn updateDeclLineNumber(self: *Elf, mod: *Module, decl_index: Module.Decl.In
     defer tracy.end();
 
     const decl = mod.declPtr(decl_index);
-    const decl_name = try decl.getFullyQualifiedName(mod);
-    defer self.base.allocator.free(decl_name);
+    const decl_name = mod.intern_pool.stringToSlice(try decl.getFullyQualifiedName(mod));
 
     log.debug("updateDeclLineNumber {s}{*}", .{ decl_name, decl });
 
@@ -2935,11 +2955,15 @@ pub fn updateDeclLineNumber(self: *Elf, mod: *Module, decl_index: Module.Decl.In
     }
 }
 
-pub fn deleteDeclExport(self: *Elf, decl_index: Module.Decl.Index, name: []const u8) void {
+pub fn deleteDeclExport(
+    self: *Elf,
+    decl_index: Module.Decl.Index,
+    name: InternPool.NullTerminatedString,
+) void {
     if (self.llvm_object) |_| return;
     const metadata = self.decls.getPtr(decl_index) orelse return;
-    const sym_index = metadata.getExportPtr(self, name) orelse return;
-    log.debug("deleting export '{s}'", .{name});
+    const mod = self.base.options.module.?;
+    const sym_index = metadata.getExportPtr(self, mod.intern_pool.stringToSlice(name)) orelse return;
     self.global_symbol_free_list.append(self.base.allocator, sym_index.*) catch {};
     self.global_symbols.items[sym_index.*].st_info = 0;
     sym_index.* = 0;
@@ -3170,7 +3194,7 @@ fn ptrWidthBytes(self: Elf) u8 {
 /// Does not necessarily match `ptrWidthBytes` for example can be 2 bytes
 /// in a 32-bit ELF file.
 fn archPtrWidthBytes(self: Elf) u8 {
-    return @intCast(u8, self.base.options.target.cpu.arch.ptrBitWidth() / 8);
+    return @intCast(u8, self.base.options.target.ptrBitWidth() / 8);
 }
 
 fn progHeaderTo32(phdr: elf.Elf64_Phdr) elf.Elf32_Phdr {
@@ -3390,7 +3414,7 @@ const CsuObjects = struct {
                     if (result.crtn) |*obj| obj.* = try fs.path.join(arena, &[_][]const u8{ crt_dir_path, obj.* });
 
                     var gccv: []const u8 = undefined;
-                    if (link_options.target.os.version_range.semver.isAtLeast(.{ .major = 5, .minor = 4 }) orelse true) {
+                    if (link_options.target.os.version_range.semver.isAtLeast(.{ .major = 5, .minor = 4, .patch = 0 }) orelse true) {
                         gccv = "gcc80";
                     } else {
                         gccv = "gcc54";

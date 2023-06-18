@@ -167,6 +167,13 @@ pub const F_ANY_ALIGNMENT = 0x2;
 /// will regress tests to expose bugs.
 pub const F_TEST_RND_HI32 = 0x4;
 
+/// If BPF_F_SLEEPABLE is used in BPF_PROG_LOAD command, the verifier will
+/// restrict map and helper usage for such programs. Sleepable BPF programs can
+/// only be attached to hooks where kernel execution context allows sleeping.
+/// Such programs are allowed to use helpers that may sleep like
+/// bpf_copy_from_user().
+pub const F_SLEEPABLE = 0x10;
+
 /// When BPF ldimm64's insn[0].src_reg != 0 then this can have two extensions:
 /// insn[0].src_reg:  BPF_PSEUDO_MAP_FD   BPF_PSEUDO_MAP_VALUE
 /// insn[0].imm:      map fd              map fd
@@ -1134,6 +1141,10 @@ pub const ProgType = enum(u32) {
 
     /// context type: bpf_sk_lookup
     sk_lookup,
+
+    /// context type: void *
+    syscall,
+
     _,
 };
 
@@ -1649,6 +1660,7 @@ pub fn prog_load(
     log: ?*Log,
     license: []const u8,
     kern_version: u32,
+    flags: u32,
 ) !fd_t {
     var attr = Attr{
         .prog_load = std.mem.zeroes(ProgLoadAttr),
@@ -1659,6 +1671,7 @@ pub fn prog_load(
     attr.prog_load.insn_cnt = @intCast(u32, insns.len);
     attr.prog_load.license = @ptrToInt(license.ptr);
     attr.prog_load.kern_version = kern_version;
+    attr.prog_load.prog_flags = flags;
 
     if (log) |l| {
         attr.prog_load.log_buf = @ptrToInt(l.buf.ptr);
@@ -1688,8 +1701,8 @@ test "prog_load" {
         Insn.exit(),
     };
 
-    const prog = try prog_load(.socket_filter, &good_prog, null, "MIT", 0);
+    const prog = try prog_load(.socket_filter, &good_prog, null, "MIT", 0, 0);
     defer std.os.close(prog);
 
-    try expectError(error.UnsafeProgram, prog_load(.socket_filter, &bad_prog, null, "MIT", 0));
+    try expectError(error.UnsafeProgram, prog_load(.socket_filter, &bad_prog, null, "MIT", 0, 0));
 }

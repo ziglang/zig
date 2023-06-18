@@ -124,7 +124,7 @@ fn assignSymbols(weight_sorted_prefixed_symbols: []LiteralsSection.HuffmanTree.P
         };
     }
 
-    std.sort.sort(
+    std.mem.sort(
         LiteralsSection.HuffmanTree.PrefixedSymbol,
         weight_sorted_prefixed_symbols,
         weights,

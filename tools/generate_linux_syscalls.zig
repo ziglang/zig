@@ -51,11 +51,11 @@ pub fn main() !void {
         try writer.writeAll("pub const X86 = enum(usize) {\n");
 
         const table = try linux_dir.readFile("arch/x86/entry/syscalls/syscall_32.tbl", buf);
-        var lines = mem.tokenize(u8, table, "\n");
+        var lines = mem.tokenizeScalar(u8, table, '\n');
         while (lines.next()) |line| {
             if (line[0] == '#') continue;
 
-            var fields = mem.tokenize(u8, line, " \t");
+            var fields = mem.tokenizeAny(u8, line, " \t");
             const number = fields.next() orelse return error.Incomplete;
             // abi is always i386
             _ = fields.next() orelse return error.Incomplete;
@@ -70,11 +70,11 @@ pub fn main() !void {
         try writer.writeAll("pub const X64 = enum(usize) {\n");
 
         const table = try linux_dir.readFile("arch/x86/entry/syscalls/syscall_64.tbl", buf);
-        var lines = mem.tokenize(u8, table, "\n");
+        var lines = mem.tokenizeScalar(u8, table, '\n');
         while (lines.next()) |line| {
             if (line[0] == '#') continue;
 
-            var fields = mem.tokenize(u8, line, " \t");
+            var fields = mem.tokenizeAny(u8, line, " \t");
             const number = fields.next() orelse return error.Incomplete;
             const abi = fields.next() orelse return error.Incomplete;
             // The x32 abi syscalls are always at the end.
@@ -96,11 +96,11 @@ pub fn main() !void {
         );
 
         const table = try linux_dir.readFile("arch/arm/tools/syscall.tbl", buf);
-        var lines = mem.tokenize(u8, table, "\n");
+        var lines = mem.tokenizeScalar(u8, table, '\n');
         while (lines.next()) |line| {
             if (line[0] == '#') continue;
 
-            var fields = mem.tokenize(u8, line, " \t");
+            var fields = mem.tokenizeAny(u8, line, " \t");
             const number = fields.next() orelse return error.Incomplete;
             const abi = fields.next() orelse return error.Incomplete;
             if (mem.eql(u8, abi, "oabi")) continue;
@@ -127,11 +127,11 @@ pub fn main() !void {
     {
         try writer.writeAll("pub const Sparc64 = enum(usize) {\n");
         const table = try linux_dir.readFile("arch/sparc/kernel/syscalls/syscall.tbl", buf);
-        var lines = mem.tokenize(u8, table, "\n");
+        var lines = mem.tokenizeScalar(u8, table, '\n');
         while (lines.next()) |line| {
             if (line[0] == '#') continue;
 
-            var fields = mem.tokenize(u8, line, " \t");
+            var fields = mem.tokenizeAny(u8, line, " \t");
             const number = fields.next() orelse return error.Incomplete;
             const abi = fields.next() orelse return error.Incomplete;
             if (mem.eql(u8, abi, "32")) continue;
@@ -151,11 +151,11 @@ pub fn main() !void {
         );
 
         const table = try linux_dir.readFile("arch/mips/kernel/syscalls/syscall_o32.tbl", buf);
-        var lines = mem.tokenize(u8, table, "\n");
+        var lines = mem.tokenizeScalar(u8, table, '\n');
         while (lines.next()) |line| {
             if (line[0] == '#') continue;
 
-            var fields = mem.tokenize(u8, line, " \t");
+            var fields = mem.tokenizeAny(u8, line, " \t");
             const number = fields.next() orelse return error.Incomplete;
             // abi is always o32
             _ = fields.next() orelse return error.Incomplete;
@@ -176,11 +176,11 @@ pub fn main() !void {
         );
 
         const table = try linux_dir.readFile("arch/mips/kernel/syscalls/syscall_n64.tbl", buf);
-        var lines = mem.tokenize(u8, table, "\n");
+        var lines = mem.tokenizeScalar(u8, table, '\n');
         while (lines.next()) |line| {
             if (line[0] == '#') continue;
 
-            var fields = mem.tokenize(u8, line, " \t");
+            var fields = mem.tokenizeAny(u8, line, " \t");
             const number = fields.next() orelse return error.Incomplete;
             // abi is always n64
             _ = fields.next() orelse return error.Incomplete;
@@ -197,11 +197,11 @@ pub fn main() !void {
 
         const table = try linux_dir.readFile("arch/powerpc/kernel/syscalls/syscall.tbl", buf);
         var list_64 = std.ArrayList(u8).init(allocator);
-        var lines = mem.tokenize(u8, table, "\n");
+        var lines = mem.tokenizeScalar(u8, table, '\n');
         while (lines.next()) |line| {
             if (line[0] == '#') continue;
 
-            var fields = mem.tokenize(u8, line, " \t");
+            var fields = mem.tokenizeAny(u8, line, " \t");
             const number = fields.next() orelse return error.Incomplete;
             const abi = fields.next() orelse return error.Incomplete;
             const name = fields.next() orelse return error.Incomplete;
@@ -277,9 +277,9 @@ pub fn main() !void {
             },
         };
 
-        var lines = mem.tokenize(u8, defines, "\n");
+        var lines = mem.tokenizeScalar(u8, defines, '\n');
         loop: while (lines.next()) |line| {
-            var fields = mem.tokenize(u8, line, " \t");
+            var fields = mem.tokenizeAny(u8, line, " \t");
             const cmd = fields.next() orelse return error.Incomplete;
             if (!mem.eql(u8, cmd, "#define")) continue;
             const define = fields.next() orelse return error.Incomplete;
@@ -339,9 +339,9 @@ pub fn main() !void {
             },
         };
 
-        var lines = mem.tokenize(u8, defines, "\n");
+        var lines = mem.tokenizeScalar(u8, defines, '\n');
         loop: while (lines.next()) |line| {
-            var fields = mem.tokenize(u8, line, " \t");
+            var fields = mem.tokenizeAny(u8, line, " \t");
             const cmd = fields.next() orelse return error.Incomplete;
             if (!mem.eql(u8, cmd, "#define")) continue;
             const define = fields.next() orelse return error.Incomplete;

@@ -8,6 +8,7 @@ const CompilationModule = @import("Module.zig");
 const File = CompilationModule.File;
 const Module = @import("Package.zig");
 const Tokenizer = std.zig.Tokenizer;
+const InternPool = @import("InternPool.zig");
 const Zir = @import("Zir.zig");
 const Ref = Zir.Inst.Ref;
 const log = std.log.scoped(.autodoc);
@@ -95,8 +96,6 @@ pub fn generateZirData(self: *Autodoc) !void {
         }
     }
 
-    log.debug("Ref map size: {}", .{Ref.typed_value_map.len});
-
     const root_src_dir = self.comp_module.main_pkg.root_src_directory;
     const root_src_path = self.comp_module.main_pkg.root_src_path;
     const joined_src_path = try root_src_dir.join(self.arena, &.{root_src_path});
@@ -108,18 +107,20 @@ pub fn generateZirData(self: *Autodoc) !void {
     const file = self.comp_module.import_table.get(abs_root_src_path).?; // file is expected to be present in the import table
     // Append all the types in Zir.Inst.Ref.
     {
-        try self.types.append(self.arena, .{
-            .ComptimeExpr = .{ .name = "ComptimeExpr" },
-        });
-
-        // this skips Ref.none but it's ok becuse we replaced it with ComptimeExpr
-        var i: u32 = 1;
-        while (i <= @enumToInt(Ref.anyerror_void_error_union_type)) : (i += 1) {
+        comptime std.debug.assert(@enumToInt(InternPool.Index.first_type) == 0);
+        var i: u32 = 0;
+        while (i <= @enumToInt(InternPool.Index.last_type)) : (i += 1) {
+            const ip_index = @intToEnum(InternPool.Index, i);
             var tmpbuf = std.ArrayList(u8).init(self.arena);
-            try Ref.typed_value_map[i].val.fmtDebug().format("", .{}, tmpbuf.writer());
+            if (ip_index == .generic_poison_type) {
+                // Not a real type, doesn't have a normal name
+                try tmpbuf.writer().writeAll("(generic poison)");
+            } else {
+                try ip_index.toType().fmt(self.comp_module).format("", .{}, tmpbuf.writer());
+            }
             try self.types.append(
                 self.arena,
-                switch (@intToEnum(Ref, i)) {
+                switch (ip_index) {
                     else => blk: {
                         // TODO: map the remaining refs to a correct type
                         //       instead of just assinging "array" to them.
@@ -140,10 +141,12 @@ pub fn generateZirData(self: *Autodoc) !void {
                     .i8_type,
                     .u16_type,
                     .i16_type,
+                    .u29_type,
                     .u32_type,
                     .i32_type,
                     .u64_type,
                     .i64_type,
+                    .u80_type,
                     .u128_type,
                     .i128_type,
                     .usize_type,
@@ -156,14 +159,15 @@ pub fn generateZirData(self: *Autodoc) !void {
                     .c_ulong_type,
                     .c_longlong_type,
                     .c_ulonglong_type,
-                    .c_longdouble_type,
                     => .{
                         .Int = .{ .name = try tmpbuf.toOwnedSlice() },
                     },
                     .f16_type,
                     .f32_type,
                     .f64_type,
+                    .f80_type,
                     .f128_type,
+                    .c_longdouble_type,
                     => .{
                         .Float = .{ .name = try tmpbuf.toOwnedSlice() },
                     },
@@ -295,7 +299,7 @@ pub fn generateZirData(self: *Autodoc) !void {
         try std.json.stringify(
             data,
             .{
-                .whitespace = .{ .indent = .None, .separator = false },
+                .whitespace = .{ .indent = .none, .separator = false },
                 .emit_null_optional_fields = true,
             },
             out,
@@ -444,7 +448,7 @@ const DocData = struct {
         w: anytype,
     ) !void {
         var jsw = std.json.writeStream(w, 15);
-        if (opts.whitespace) |ws| jsw.whitespace = ws;
+        jsw.whitespace = opts.whitespace;
         try jsw.beginObject();
         inline for (comptime std.meta.tags(std.meta.FieldEnum(DocData))) |f| {
             const f_name = @tagName(f);
@@ -495,7 +499,7 @@ const DocData = struct {
             w: anytype,
         ) !void {
             var jsw = std.json.writeStream(w, 15);
-            if (opts.whitespace) |ws| jsw.whitespace = ws;
+            jsw.whitespace = opts.whitespace;
 
             try jsw.beginObject();
             inline for (comptime std.meta.tags(std.meta.FieldEnum(DocModule))) |f| {
@@ -529,7 +533,7 @@ const DocData = struct {
             w: anytype,
         ) !void {
             var jsw = std.json.writeStream(w, 15);
-            if (opts.whitespace) |ws| jsw.whitespace = ws;
+            jsw.whitespace = opts.whitespace;
             try jsw.beginArray();
             inline for (comptime std.meta.fields(Decl)) |f| {
                 try jsw.arrayElem();
@@ -556,7 +560,7 @@ const DocData = struct {
             w: anytype,
         ) !void {
             var jsw = std.json.writeStream(w, 15);
-            if (opts.whitespace) |ws| jsw.whitespace = ws;
+            jsw.whitespace = opts.whitespace;
             try jsw.beginArray();
             inline for (comptime std.meta.fields(AstNode)) |f| {
                 try jsw.arrayElem();
@@ -604,9 +608,11 @@ const DocData = struct {
             pubDecls: []usize = &.{}, // index into decls
             field_types: []Expr = &.{}, // (use src->fields to find names)
             field_defaults: []?Expr = &.{}, // default values is specified
+            backing_int: ?Expr = null, // backing integer if specified
             is_tuple: bool,
             line_number: usize,
             parent_container: ?usize, // index into `types`
+            layout: ?Expr, // if different than Auto
         },
         ComptimeExpr: struct { name: []const u8 },
         ComptimeFloat: struct { name: []const u8 },
@@ -644,6 +650,7 @@ const DocData = struct {
             tag: ?Expr, // tag type if specified
             auto_enum: bool, // tag is an auto enum
             parent_container: ?usize, // index into `types`
+            layout: ?Expr, // if different than Auto
         },
         Fn: struct {
             name: []const u8,
@@ -686,7 +693,7 @@ const DocData = struct {
         ) !void {
             const active_tag = std.meta.activeTag(self);
             var jsw = std.json.writeStream(w, 15);
-            if (opts.whitespace) |ws| jsw.whitespace = ws;
+            jsw.whitespace = opts.whitespace;
             try jsw.beginArray();
             try jsw.arrayElem();
             try jsw.emitNumber(@enumToInt(active_tag));
@@ -755,6 +762,7 @@ const DocData = struct {
         string: []const u8, // direct value
         sliceIndex: usize,
         slice: Slice,
+        sliceLength: SliceLength,
         cmpxchgIndex: usize,
         cmpxchg: Cmpxchg,
         builtin: Builtin,
@@ -791,6 +799,12 @@ const DocData = struct {
             end: ?usize = null,
             sentinel: ?usize = null, // index in `exprs`
         };
+        const SliceLength = struct {
+            lhs: usize,
+            start: usize,
+            len: usize,
+            sentinel: ?usize = null,
+        };
         const Cmpxchg = struct {
             name: []const u8,
             type: usize,
@@ -821,7 +835,7 @@ const DocData = struct {
         ) @TypeOf(w).Error!void {
             const active_tag = std.meta.activeTag(self);
             var jsw = std.json.writeStream(w, 15);
-            if (opts.whitespace) |ws| jsw.whitespace = ws;
+            jsw.whitespace = opts.whitespace;
             try jsw.beginObject();
             if (active_tag == .declIndex) {
                 try jsw.objectField("declRef");
@@ -1030,7 +1044,7 @@ fn walkInstruction(
         .ret_load => {
             const un_node = data[inst_index].un_node;
             const res_ptr_ref = un_node.operand;
-            const res_ptr_inst = @enumToInt(res_ptr_ref) - Ref.typed_value_map.len;
+            const res_ptr_inst = Zir.refToIndex(res_ptr_ref).?;
             // TODO: this instruction doesn't let us know trivially if there's
             //       branching involved or not. For now here's the strat:
             //       We search backwarts until `ret_ptr` for `store_node`,
@@ -1293,6 +1307,68 @@ fn walkInstruction(
                 .expr = .{ .sliceIndex = slice_index },
             };
         },
+        .slice_length => {
+            const pl_node = data[inst_index].pl_node;
+            const extra = file.zir.extraData(Zir.Inst.SliceLength, pl_node.payload_index);
+
+            const slice_index = self.exprs.items.len;
+            try self.exprs.append(self.arena, .{ .slice = .{ .lhs = 0, .start = 0 } });
+
+            var lhs: DocData.WalkResult = try self.walkRef(
+                file,
+                parent_scope,
+                parent_src,
+                extra.data.lhs,
+                false,
+            );
+            var start: DocData.WalkResult = try self.walkRef(
+                file,
+                parent_scope,
+                parent_src,
+                extra.data.start,
+                false,
+            );
+            var len: DocData.WalkResult = try self.walkRef(
+                file,
+                parent_scope,
+                parent_src,
+                extra.data.len,
+                false,
+            );
+            var sentinel_opt: ?DocData.WalkResult = if (extra.data.sentinel != .none)
+                try self.walkRef(
+                    file,
+                    parent_scope,
+                    parent_src,
+                    extra.data.sentinel,
+                    false,
+                )
+            else
+                null;
+
+            const lhs_index = self.exprs.items.len;
+            try self.exprs.append(self.arena, lhs.expr);
+            const start_index = self.exprs.items.len;
+            try self.exprs.append(self.arena, start.expr);
+            const len_index = self.exprs.items.len;
+            try self.exprs.append(self.arena, len.expr);
+            const sentinel_index = if (sentinel_opt) |sentinel| sentinel_index: {
+                const index = self.exprs.items.len;
+                try self.exprs.append(self.arena, sentinel.expr);
+                break :sentinel_index index;
+            } else null;
+            self.exprs.items[slice_index] = .{ .sliceLength = .{
+                .lhs = lhs_index,
+                .start = start_index,
+                .len = len_index,
+                .sentinel = sentinel_index,
+            } };
+
+            return DocData.WalkResult{
+                .typeRef = self.decls.items[lhs.expr.declRef.Analyzed].value.typeRef,
+                .expr = .{ .sliceIndex = slice_index },
+            };
+        },
 
         // @check array_cat and array_mul
         .add,
@@ -1421,8 +1497,6 @@ fn walkInstruction(
         .frame_type,
         .frame_size,
         .ptr_to_int,
-        .min,
-        .max,
         .bit_not,
         // @check
         .clz,
@@ -1473,6 +1547,8 @@ fn walkInstruction(
         .offset_of,
         .splat,
         .reduce,
+        .min,
+        .max,
         => {
             const pl_node = data[inst_index].pl_node;
             const extra = file.zir.extraData(Zir.Inst.Bin, pl_node.payload_index);
@@ -1920,31 +1996,6 @@ fn walkInstruction(
                 .expr = .{ .switchIndex = switch_index },
             };
         },
-        .switch_cond => {
-            const un_node = data[inst_index].un_node;
-            const operand = try self.walkRef(
-                file,
-                parent_scope,
-                parent_src,
-                un_node.operand,
-                need_type,
-            );
-            const operand_index = self.exprs.items.len;
-            try self.exprs.append(self.arena, operand.expr);
-
-            // const ast_index = self.ast_nodes.items.len;
-            // const sep = "=" ** 200;
-            // log.debug("{s}", .{sep});
-            // log.debug("SWITCH COND", .{});
-            // log.debug("ast index = {}", .{ast_index});
-            // log.debug("ast previous = {}", .{self.ast_nodes.items[ast_index - 1]});
-            // log.debug("{s}", .{sep});
-
-            return DocData.WalkResult{
-                .typeRef = operand.typeRef,
-                .expr = .{ .typeOf = operand_index },
-            };
-        },
 
         .typeof => {
             const un_node = data[inst_index].un_node;
@@ -2069,7 +2120,7 @@ fn walkInstruction(
                 .expr = .{ .declRef = decl_status },
             };
         },
-        .field_val, .field_call_bind, .field_ptr, .field_type => {
+        .field_val, .field_ptr, .field_type => {
             // TODO: field type uses Zir.Inst.FieldType, it just happens to have the
             // same layout as Zir.Inst.Field :^)
             const pl_node = data[inst_index].pl_node;
@@ -2085,13 +2136,11 @@ fn walkInstruction(
             const lhs_ref = blk: {
                 var lhs_extra = extra;
                 while (true) {
-                    if (@enumToInt(lhs_extra.data.lhs) < Ref.typed_value_map.len) {
+                    const lhs = Zir.refToIndex(lhs_extra.data.lhs) orelse {
                         break :blk lhs_extra.data.lhs;
-                    }
+                    };
 
-                    const lhs = @enumToInt(lhs_extra.data.lhs) - Ref.typed_value_map.len;
                     if (tags[lhs] != .field_val and
-                        tags[lhs] != .field_call_bind and
                         tags[lhs] != .field_ptr and
                         tags[lhs] != .field_type) break :blk lhs_extra.data.lhs;
 
@@ -2117,9 +2166,8 @@ fn walkInstruction(
             // TODO: double check that we really don't need type info here
 
             const wr = blk: {
-                if (@enumToInt(lhs_ref) >= Ref.typed_value_map.len) {
-                    const lhs_inst = @enumToInt(lhs_ref) - Ref.typed_value_map.len;
-                    if (tags[lhs_inst] == .call) {
+                if (Zir.refToIndex(lhs_ref)) |lhs_inst| {
+                    if (tags[lhs_inst] == .call or tags[lhs_inst] == .field_call) {
                         break :blk DocData.WalkResult{
                             .expr = .{
                                 .comptimeExpr = 0,
@@ -2395,7 +2443,19 @@ fn walkInstruction(
 
             return DocData.WalkResult{
                 .typeRef = if (callee.typeRef) |tr| switch (tr) {
-                    .type => |func_type_idx| self.types.items[func_type_idx].Fn.ret,
+                    .type => |func_type_idx| switch (self.types.items[func_type_idx]) {
+                        .Fn => |func| func.ret,
+                        else => blk: {
+                            printWithContext(
+                                file,
+                                inst_index,
+                                "unexpected callee type in walkInstruction.call: `{s}`\n",
+                                .{@tagName(self.types.items[func_type_idx])},
+                            );
+
+                            break :blk null;
+                        },
+                    },
                     else => null,
                 } else null,
                 .expr = .{ .call = call_slot_index },
@@ -2593,12 +2653,12 @@ fn walkInstruction(
 
                     // We delay analysis because union tags can refer to
                     // decls defined inside the union itself.
-                    const tag_type_ref: Ref = if (small.has_tag_type) blk: {
+                    const tag_type_ref: ?Ref = if (small.has_tag_type) blk: {
                         const tag_type = file.zir.extra[extra_index];
                         extra_index += 1;
                         const tag_ref = @intToEnum(Ref, tag_type);
                         break :blk tag_ref;
-                    } else .none;
+                    } else null;
 
                     const body_len = if (small.has_body_len) blk: {
                         const body_len = file.zir.extra[extra_index];
@@ -2611,6 +2671,11 @@ fn walkInstruction(
                         extra_index += 1;
                         break :blk fields_len;
                     } else 0;
+
+                    const layout_expr: ?DocData.Expr = switch (small.layout) {
+                        .Auto => null,
+                        else => .{ .enumLiteral = @tagName(small.layout) },
+                    };
 
                     var decl_indexes: std.ArrayListUnmanaged(usize) = .{};
                     var priv_decl_indexes: std.ArrayListUnmanaged(usize) = .{};
@@ -2625,13 +2690,13 @@ fn walkInstruction(
                     );
 
                     // Analyze the tag once all decls have been analyzed
-                    const tag_type = try self.walkRef(
+                    const tag_type = if (tag_type_ref) |tt_ref| (try self.walkRef(
                         file,
                         &scope,
                         parent_src,
-                        tag_type_ref,
+                        tt_ref,
                         false,
-                    );
+                    )).expr else null;
 
                     // Fields
                     extra_index += body_len;
@@ -2663,9 +2728,10 @@ fn walkInstruction(
                             .privDecls = priv_decl_indexes.items,
                             .pubDecls = decl_indexes.items,
                             .fields = field_type_refs.items,
-                            .tag = tag_type.expr,
+                            .tag = tag_type,
                             .auto_enum = small.auto_enum_tag,
                             .parent_container = parent_scope.enclosing_type,
+                            .layout = layout_expr,
                         },
                     };
 
@@ -2854,16 +2920,32 @@ fn walkInstruction(
                         break :blk fields_len;
                     } else 0;
 
-                    // TODO: Expose explicit backing integer types in some way.
+                    // We don't care about decls yet
+                    if (small.has_decls_len) extra_index += 1;
+
+                    var backing_int: ?DocData.Expr = null;
                     if (small.has_backing_int) {
                         const backing_int_body_len = file.zir.extra[extra_index];
                         extra_index += 1; // backing_int_body_len
                         if (backing_int_body_len == 0) {
+                            const backing_int_ref = @intToEnum(Ref, file.zir.extra[extra_index]);
+                            const backing_int_res = try self.walkRef(file, &scope, src_info, backing_int_ref, true);
+                            backing_int = backing_int_res.expr;
                             extra_index += 1; // backing_int_ref
                         } else {
+                            const backing_int_body = file.zir.extra[extra_index..][0..backing_int_body_len];
+                            const break_inst = backing_int_body[backing_int_body.len - 1];
+                            const operand = data[break_inst].@"break".operand;
+                            const backing_int_res = try self.walkRef(file, &scope, src_info, operand, true);
+                            backing_int = backing_int_res.expr;
                             extra_index += backing_int_body_len; // backing_int_body_inst
                         }
                     }
+
+                    const layout_expr: ?DocData.Expr = switch (small.layout) {
+                        .Auto => null,
+                        else => .{ .enumLiteral = @tagName(small.layout) },
+                    };
 
                     var decl_indexes: std.ArrayListUnmanaged(usize) = .{};
                     var priv_decl_indexes: std.ArrayListUnmanaged(usize) = .{};
@@ -2903,8 +2985,10 @@ fn walkInstruction(
                             .field_types = field_type_refs.items,
                             .field_defaults = field_default_refs.items,
                             .is_tuple = small.is_tuple,
+                            .backing_int = backing_int,
                             .line_number = self.ast_nodes.items[self_ast_node_index].line,
                             .parent_container = parent_scope.enclosing_type,
+                            .layout = layout_expr,
                         },
                     };
                     if (self.ref_paths_pending_on_types.get(type_slot_index)) |paths| {
@@ -4565,16 +4649,19 @@ fn walkRef(
     ref: Ref,
     need_type: bool, // true when the caller needs also a typeRef for the return value
 ) AutodocErrors!DocData.WalkResult {
-    const enum_value = @enumToInt(ref);
-    if (enum_value <= @enumToInt(Ref.anyerror_void_error_union_type)) {
+    if (ref == .none) {
+        return .{ .expr = .{ .comptimeExpr = 0 } };
+    } else if (@enumToInt(ref) <= @enumToInt(InternPool.Index.last_type)) {
         // We can just return a type that indexes into `types` with the
         // enum value because in the beginning we pre-filled `types` with
         // the types that are listed in `Ref`.
         return DocData.WalkResult{
             .typeRef = .{ .type = @enumToInt(std.builtin.TypeId.Type) },
-            .expr = .{ .type = enum_value },
+            .expr = .{ .type = @enumToInt(ref) },
         };
-    } else if (enum_value < Ref.typed_value_map.len) {
+    } else if (Zir.refToIndex(ref)) |zir_index| {
+        return self.walkInstruction(file, parent_scope, parent_src, zir_index, need_type);
+    } else {
         switch (ref) {
             else => {
                 panicWithContext(
@@ -4667,9 +4754,6 @@ fn walkRef(
             //     } };
             // },
         }
-    } else {
-        const zir_index = enum_value - Ref.typed_value_map.len;
-        return self.walkInstruction(file, parent_scope, parent_src, zir_index, need_type);
     }
 }
 
@@ -4843,7 +4927,7 @@ fn findGuidePaths(self: *Autodoc, file: *File, str: []const u8) ![]const u8 {
 
     // TODO: this algo is kinda inefficient
 
-    var it = std.mem.split(u8, str, "\n");
+    var it = std.mem.splitScalar(u8, str, '\n');
     while (it.next()) |line| {
         const trimmed_line = std.mem.trim(u8, line, " ");
         if (std.mem.startsWith(u8, trimmed_line, guide_prefix)) {

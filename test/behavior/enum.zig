@@ -611,12 +611,13 @@ test "enum with specified tag values" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     try testEnumWithSpecifiedTagValues(MultipleChoice.C);
-    comptime try testEnumWithSpecifiedTagValues(MultipleChoice.C);
+    try comptime testEnumWithSpecifiedTagValues(MultipleChoice.C);
 }
 
 test "non-exhaustive enum" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const S = struct {
         const E = enum(u8) { a, b, _ };
@@ -655,10 +656,12 @@ test "non-exhaustive enum" {
         }
     };
     try S.doTheTest(52);
-    comptime try S.doTheTest(52);
+    try comptime S.doTheTest(52);
 }
 
 test "empty non-exhaustive enum" {
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
     const S = struct {
         const E = enum(u8) { _ };
 
@@ -674,12 +677,13 @@ test "empty non-exhaustive enum" {
         }
     };
     try S.doTheTest(42);
-    comptime try S.doTheTest(42);
+    try comptime S.doTheTest(42);
 }
 
 test "single field non-exhaustive enum" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const S = struct {
         const E = enum(u8) { a, _ };
@@ -711,7 +715,7 @@ test "single field non-exhaustive enum" {
         }
     };
     try S.doTheTest(23);
-    comptime try S.doTheTest(23);
+    try comptime S.doTheTest(23);
 }
 
 const EnumWithTagValues = enum(u4) {
@@ -746,7 +750,7 @@ test "enum with specified and unspecified tag values" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     try testEnumWithSpecifiedAndUnspecifiedTagValues(MultipleChoice2.D);
-    comptime try testEnumWithSpecifiedAndUnspecifiedTagValues(MultipleChoice2.D);
+    try comptime testEnumWithSpecifiedAndUnspecifiedTagValues(MultipleChoice2.D);
 }
 
 fn testEnumWithSpecifiedAndUnspecifiedTagValues(x: MultipleChoice2) !void {
@@ -771,18 +775,18 @@ test "set enum tag type" {
     {
         var x = Small.One;
         x = Small.Two;
-        comptime try expect(Tag(Small) == u2);
+        try comptime expect(Tag(Small) == u2);
     }
     {
         var x = Small2.One;
         x = Small2.Two;
-        comptime try expect(Tag(Small2) == u2);
+        try comptime expect(Tag(Small2) == u2);
     }
 }
 
 test "casting enum to its tag type" {
     try testCastEnumTag(Small2.Two);
-    comptime try testCastEnumTag(Small2.Two);
+    try comptime testCastEnumTag(Small2.Two);
 }
 
 fn testCastEnumTag(value: Small2) !void {
@@ -793,7 +797,7 @@ test "enum with 1 field but explicit tag type should still have the tag type" {
     const Enum = enum(u8) {
         B = 2,
     };
-    comptime try expect(@sizeOf(Enum) == @sizeOf(u8));
+    try comptime expect(@sizeOf(Enum) == @sizeOf(u8));
 }
 
 test "signed integer as enum tag" {
@@ -832,12 +836,12 @@ test "enum with comptime_int tag type" {
         Two = 2,
         Three = 1,
     };
-    comptime try expect(Tag(Enum) == comptime_int);
+    try comptime expect(Tag(Enum) == comptime_int);
 }
 
 test "enum with one member default to u0 tag type" {
     const E0 = enum { X };
-    comptime try expect(Tag(E0) == u0);
+    try comptime expect(Tag(E0) == u0);
 }
 
 const EnumWithOneMember = enum { Eof };
@@ -852,6 +856,8 @@ fn doALoopThing(id: EnumWithOneMember) void {
 }
 
 test "comparison operator on enum with one member is comptime-known" {
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
     doALoopThing(EnumWithOneMember.Eof);
 }
 
@@ -885,7 +891,7 @@ test "method call on an enum" {
         }
     };
     try S.doTheTest();
-    comptime try S.doTheTest();
+    try comptime S.doTheTest();
 }
 
 test "enum value allocation" {
@@ -929,6 +935,7 @@ const Bar = enum { A, B, C, D };
 test "enum literal casting to error union with payload enum" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     var bar: error{B}!Bar = undefined;
     bar = .B; // should never cast to the error set
@@ -940,6 +947,7 @@ test "constant enum initialization with differing sizes" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     try test3_1(test3_foo);
     try test3_2(test3_bar);
@@ -982,9 +990,10 @@ test "@tagName" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     try expect(mem.eql(u8, testEnumTagNameBare(BareNumber.Three), "Three"));
-    comptime try expect(mem.eql(u8, testEnumTagNameBare(BareNumber.Three), "Three"));
+    try comptime expect(mem.eql(u8, testEnumTagNameBare(BareNumber.Three), "Three"));
 }
 
 fn testEnumTagNameBare(n: anytype) []const u8 {
@@ -997,9 +1006,10 @@ test "@tagName non-exhaustive enum" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     try expect(mem.eql(u8, testEnumTagNameBare(NonExhaustive.B), "B"));
-    comptime try expect(mem.eql(u8, testEnumTagNameBare(NonExhaustive.B), "B"));
+    try comptime expect(mem.eql(u8, testEnumTagNameBare(NonExhaustive.B), "B"));
 }
 const NonExhaustive = enum(u8) { A, B, _ };
 
@@ -1007,6 +1017,7 @@ test "@tagName is null-terminated" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const S = struct {
         fn doTheTest(n: BareNumber) !void {
@@ -1021,6 +1032,7 @@ test "tag name with assigned enum values" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const LocalFoo = enum(u8) {
         A = 1,
@@ -1035,13 +1047,14 @@ test "@tagName on enum literals" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     try expect(mem.eql(u8, @tagName(.FooBar), "FooBar"));
-    comptime try expect(mem.eql(u8, @tagName(.FooBar), "FooBar"));
+    try comptime expect(mem.eql(u8, @tagName(.FooBar), "FooBar"));
 }
 
 test "enum literal casting to optional" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     var bar: ?Bar = undefined;
     bar = .B;
@@ -1066,16 +1079,16 @@ const bit_field_1 = BitFieldOfEnums{
 };
 
 test "bit field access with enum fields" {
-    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     var data = bit_field_1;
     try expect(getA(&data) == A.Two);
     try expect(getB(&data) == B.Three3);
     try expect(getC(&data) == C.Four4);
-    comptime try expect(@sizeOf(BitFieldOfEnums) == 1);
+    try comptime expect(@sizeOf(BitFieldOfEnums) == 1);
 
     data.b = B.Four3;
     try expect(data.b == B.Four3);
@@ -1106,10 +1119,10 @@ test "enum literal in array literal" {
 }
 
 test "tag name functions are unique" {
-    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     {
         const E = enum { a, b };
@@ -1128,6 +1141,7 @@ test "tag name functions are unique" {
 test "size of enum with only one tag which has explicit integer tag type" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const E = enum(u8) { nope = 10 };
     const S0 = struct { e: E };

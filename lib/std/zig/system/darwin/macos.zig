@@ -74,20 +74,39 @@ pub fn detect(target_os: *Target.Os) !void {
     return error.OSVersionDetectionFail;
 }
 
-fn parseSystemVersion(buf: []const u8) !std.builtin.Version {
+fn parseSystemVersion(buf: []const u8) !std.SemanticVersion {
     var svt = SystemVersionTokenizer{ .bytes = buf };
     try svt.skipUntilTag(.start, "dict");
     while (true) {
         try svt.skipUntilTag(.start, "key");
         const content = try svt.expectContent();
         try svt.skipUntilTag(.end, "key");
-        if (std.mem.eql(u8, content, "ProductVersion")) break;
+        if (mem.eql(u8, content, "ProductVersion")) break;
     }
     try svt.skipUntilTag(.start, "string");
     const ver = try svt.expectContent();
     try svt.skipUntilTag(.end, "string");
 
-    return std.builtin.Version.parse(ver);
+    const parseVersionComponent = struct {
+        fn parseVersionComponent(component: []const u8) !usize {
+            return std.fmt.parseUnsigned(usize, component, 10) catch |err| {
+                switch (err) {
+                    error.InvalidCharacter => return error.InvalidVersion,
+                    error.Overflow => return error.Overflow,
+                }
+            };
+        }
+    }.parseVersionComponent;
+    var version_components = mem.split(u8, ver, ".");
+    const major = version_components.first();
+    const minor = version_components.next() orelse return error.InvalidVersion;
+    const patch = version_components.next() orelse "0";
+    if (version_components.next() != null) return error.InvalidVersion;
+    return .{
+        .major = try parseVersionComponent(major),
+        .minor = try parseVersionComponent(minor),
+        .patch = try parseVersionComponent(patch),
+    };
 }
 
 const SystemVersionTokenizer = struct {
@@ -246,7 +265,7 @@ const SystemVersionTokenizer = struct {
         while (try self.next()) |tok| {
             switch (tok) {
                 .tag => |tag| {
-                    if (tag.kind == kind and std.mem.eql(u8, tag.name, name)) return;
+                    if (tag.kind == kind and mem.eql(u8, tag.name, name)) return;
                 },
                 else => {},
             }
@@ -297,7 +316,7 @@ test "detect" {
             \\</dict>
             \\</plist>
             ,
-            .{ .major = 10, .minor = 3 },
+            .{ .major = 10, .minor = 3, .patch = 0 },
         },
         .{
             \\<?xml version="1.0" encoding="UTF-8"?>
@@ -361,7 +380,7 @@ test "detect" {
             \\</dict>
             \\</plist>
             ,
-            .{ .major = 11, .minor = 0 },
+            .{ .major = 11, .minor = 0, .patch = 0 },
         },
         .{
             \\<?xml version="1.0" encoding="UTF-8"?>
@@ -383,25 +402,15 @@ test "detect" {
             \\</dict>
             \\</plist>
             ,
-            .{ .major = 11, .minor = 1 },
+            .{ .major = 11, .minor = 1, .patch = 0 },
         },
     };
 
     inline for (cases) |case| {
         const ver0 = try parseSystemVersion(case[0]);
-        const ver1: std.builtin.Version = case[1];
-        try testVersionEquality(ver1, ver0);
+        const ver1: std.SemanticVersion = case[1];
+        try testing.expectEqual(@as(std.math.Order, .eq), ver0.order(ver1));
     }
-}
-
-fn testVersionEquality(expected: std.builtin.Version, got: std.builtin.Version) !void {
-    var b_expected: [64]u8 = undefined;
-    const s_expected: []const u8 = try std.fmt.bufPrint(b_expected[0..], "{}", .{expected});
-
-    var b_got: [64]u8 = undefined;
-    const s_got: []const u8 = try std.fmt.bufPrint(b_got[0..], "{}", .{got});
-
-    try testing.expectEqualStrings(s_expected, s_got);
 }
 
 pub fn detectNativeCpuAndFeatures() ?Target.Cpu {

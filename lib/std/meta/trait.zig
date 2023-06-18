@@ -222,8 +222,8 @@ pub fn isSingleItemPtr(comptime T: type) bool {
 
 test "isSingleItemPtr" {
     const array = [_]u8{0} ** 10;
-    comptime try testing.expect(isSingleItemPtr(@TypeOf(&array[0])));
-    comptime try testing.expect(!isSingleItemPtr(@TypeOf(array)));
+    try comptime testing.expect(isSingleItemPtr(@TypeOf(&array[0])));
+    try comptime testing.expect(!isSingleItemPtr(@TypeOf(array)));
     var runtime_zero: usize = 0;
     try testing.expect(!isSingleItemPtr(@TypeOf(array[runtime_zero..1])));
 }
@@ -271,7 +271,7 @@ pub fn isIndexable(comptime T: type) bool {
 test "isIndexable" {
     const array = [_]u8{0} ** 10;
     const slice = @as([]const u8, &array);
-    const vector: meta.Vector(2, u32) = [_]u32{0} ** 2;
+    const vector: @Vector(2, u32) = [_]u32{0} ** 2;
     const tuple = .{ 1, 2, 3 };
 
     try testing.expect(isIndexable(@TypeOf(array)));

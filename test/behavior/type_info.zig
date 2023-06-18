@@ -10,7 +10,7 @@ const expectEqualStrings = std.testing.expectEqualStrings;
 
 test "type info: integer, floating point type info" {
     try testIntFloat();
-    comptime try testIntFloat();
+    try comptime testIntFloat();
 }
 
 fn testIntFloat() !void {
@@ -26,7 +26,7 @@ fn testIntFloat() !void {
 
 test "type info: optional type info" {
     try testOptional();
-    comptime try testOptional();
+    try comptime testOptional();
 }
 
 fn testOptional() !void {
@@ -37,7 +37,7 @@ fn testOptional() !void {
 
 test "type info: C pointer type info" {
     try testCPtr();
-    comptime try testCPtr();
+    try comptime testCPtr();
 }
 
 fn testCPtr() !void {
@@ -60,7 +60,7 @@ test "type info: value is correctly copied" {
 
 test "type info: tag type, void info" {
     try testBasic();
-    comptime try testBasic();
+    try comptime testBasic();
 }
 
 fn testBasic() !void {
@@ -72,7 +72,7 @@ fn testBasic() !void {
 
 test "type info: pointer type info" {
     try testPointer();
-    comptime try testPointer();
+    try comptime testPointer();
 }
 
 fn testPointer() !void {
@@ -88,7 +88,7 @@ fn testPointer() !void {
 
 test "type info: unknown length pointer type info" {
     try testUnknownLenPtr();
-    comptime try testUnknownLenPtr();
+    try comptime testUnknownLenPtr();
 }
 
 fn testUnknownLenPtr() !void {
@@ -104,7 +104,7 @@ fn testUnknownLenPtr() !void {
 
 test "type info: null terminated pointer type info" {
     try testNullTerminatedPtr();
-    comptime try testNullTerminatedPtr();
+    try comptime testNullTerminatedPtr();
 }
 
 fn testNullTerminatedPtr() !void {
@@ -120,7 +120,7 @@ fn testNullTerminatedPtr() !void {
 
 test "type info: slice type info" {
     try testSlice();
-    comptime try testSlice();
+    try comptime testSlice();
 }
 
 fn testSlice() !void {
@@ -135,7 +135,7 @@ fn testSlice() !void {
 
 test "type info: array type info" {
     try testArray();
-    comptime try testArray();
+    try comptime testArray();
 }
 
 fn testArray() !void {
@@ -160,9 +160,10 @@ test "type info: error set, error union info, anyerror" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     try testErrorSet();
-    comptime try testErrorSet();
+    try comptime testErrorSet();
 }
 
 fn testErrorSet() !void {
@@ -191,6 +192,7 @@ test "type info: error set single value" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const TestSet = error.One;
 
@@ -204,6 +206,7 @@ test "type info: error set merged" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const TestSet = error{ One, Two } || error{Three};
 
@@ -211,17 +214,18 @@ test "type info: error set merged" {
     try expect(error_set_info == .ErrorSet);
     try expect(error_set_info.ErrorSet.?.len == 3);
     try expect(mem.eql(u8, error_set_info.ErrorSet.?[0].name, "One"));
-    try expect(mem.eql(u8, error_set_info.ErrorSet.?[1].name, "Three"));
-    try expect(mem.eql(u8, error_set_info.ErrorSet.?[2].name, "Two"));
+    try expect(mem.eql(u8, error_set_info.ErrorSet.?[1].name, "Two"));
+    try expect(mem.eql(u8, error_set_info.ErrorSet.?[2].name, "Three"));
 }
 
 test "type info: enum info" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     try testEnum();
-    comptime try testEnum();
+    try comptime testEnum();
 }
 
 fn testEnum() !void {
@@ -243,7 +247,7 @@ fn testEnum() !void {
 
 test "type info: union info" {
     try testUnion();
-    comptime try testUnion();
+    try comptime testUnion();
 }
 
 fn testUnion() !void {
@@ -253,7 +257,7 @@ fn testUnion() !void {
     try expect(typeinfo_info.Union.tag_type.? == TypeId);
     try expect(typeinfo_info.Union.fields.len == 24);
     try expect(typeinfo_info.Union.fields[4].type == @TypeOf(@typeInfo(u8).Int));
-    try expect(typeinfo_info.Union.decls.len == 22);
+    try expect(typeinfo_info.Union.decls.len == 21);
 
     const TestNoTagUnion = union {
         Foo: void,
@@ -283,7 +287,7 @@ test "type info: struct info" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     try testStruct();
-    comptime try testStruct();
+    try comptime testStruct();
 }
 
 fn testStruct() !void {
@@ -302,7 +306,7 @@ const TestStruct = struct {
 
 test "type info: packed struct info" {
     try testPackedStruct();
-    comptime try testPackedStruct();
+    try comptime testPackedStruct();
 }
 
 fn testPackedStruct() !void {
@@ -335,7 +339,7 @@ const TestPackedStruct = packed struct {
 
 test "type info: opaque info" {
     try testOpaque();
-    comptime try testOpaque();
+    try comptime testOpaque();
 }
 
 fn testOpaque() !void {
@@ -349,8 +353,10 @@ fn testOpaque() !void {
 }
 
 test "type info: function type info" {
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
     try testFunction();
-    comptime try testFunction();
+    try comptime testFunction();
 }
 
 fn testFunction() !void {
@@ -421,7 +427,7 @@ test "typeInfo with comptime parameter in struct fn def" {
 
 test "type info: vectors" {
     try testVector();
-    comptime try testVector();
+    try comptime testVector();
 }
 
 fn testVector() !void {
@@ -438,7 +444,7 @@ test "type info: anyframe and anyframe->T" {
     }
 
     try testAnyFrame();
-    comptime try testAnyFrame();
+    try comptime testAnyFrame();
 }
 
 fn testAnyFrame() !void {
@@ -483,7 +489,7 @@ test "@typeInfo does not force declarations into existence" {
             @compileError("test failed");
         }
     };
-    comptime try expect(@typeInfo(S).Struct.fields.len == 1);
+    try comptime expect(@typeInfo(S).Struct.fields.len == 1);
 }
 
 fn add(a: i32, b: i32) i32 {
@@ -528,6 +534,7 @@ test "Struct.is_tuple for anon list literal" {
 
 test "Struct.is_tuple for anon struct literal" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const info = @typeInfo(@TypeOf(.{ .a = 0 }));
     try expect(!info.Struct.is_tuple);
@@ -564,6 +571,7 @@ test "value from struct @typeInfo default_value can be loaded at comptime" {
 test "@typeInfo decls and usingnamespace" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const A = struct {
         const x = 5;

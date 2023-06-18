@@ -1,7 +1,7 @@
 const std = @import("std.zig");
 const builtin = @import("builtin");
 const mem = std.mem;
-const Version = std.builtin.Version;
+const Version = std.SemanticVersion;
 
 /// TODO Nearly all the functions in this namespace would be
 /// better off if https://github.com/ziglang/zig/issues/425
@@ -272,75 +272,75 @@ pub const Target = struct {
 
                     .freebsd => return .{
                         .semver = Version.Range{
-                            .min = .{ .major = 12, .minor = 0 },
-                            .max = .{ .major = 13, .minor = 1 },
+                            .min = .{ .major = 12, .minor = 0, .patch = 0 },
+                            .max = .{ .major = 13, .minor = 1, .patch = 0 },
                         },
                     },
                     .macos => return switch (arch) {
                         .aarch64 => VersionRange{
                             .semver = .{
                                 .min = .{ .major = 11, .minor = 7, .patch = 1 },
-                                .max = .{ .major = 13, .minor = 3 },
+                                .max = .{ .major = 13, .minor = 3, .patch = 0 },
                             },
                         },
                         .x86_64 => VersionRange{
                             .semver = .{
                                 .min = .{ .major = 11, .minor = 7, .patch = 1 },
-                                .max = .{ .major = 13, .minor = 3 },
+                                .max = .{ .major = 13, .minor = 3, .patch = 0 },
                             },
                         },
                         else => unreachable,
                     },
                     .ios => return .{
                         .semver = .{
-                            .min = .{ .major = 12, .minor = 0 },
+                            .min = .{ .major = 12, .minor = 0, .patch = 0 },
                             .max = .{ .major = 13, .minor = 4, .patch = 0 },
                         },
                     },
                     .watchos => return .{
                         .semver = .{
-                            .min = .{ .major = 6, .minor = 0 },
+                            .min = .{ .major = 6, .minor = 0, .patch = 0 },
                             .max = .{ .major = 6, .minor = 2, .patch = 0 },
                         },
                     },
                     .tvos => return .{
                         .semver = .{
-                            .min = .{ .major = 13, .minor = 0 },
+                            .min = .{ .major = 13, .minor = 0, .patch = 0 },
                             .max = .{ .major = 13, .minor = 4, .patch = 0 },
                         },
                     },
                     .netbsd => return .{
                         .semver = .{
-                            .min = .{ .major = 8, .minor = 0 },
-                            .max = .{ .major = 10, .minor = 0 },
+                            .min = .{ .major = 8, .minor = 0, .patch = 0 },
+                            .max = .{ .major = 10, .minor = 0, .patch = 0 },
                         },
                     },
                     .openbsd => return .{
                         .semver = .{
-                            .min = .{ .major = 6, .minor = 8 },
-                            .max = .{ .major = 7, .minor = 2 },
+                            .min = .{ .major = 6, .minor = 8, .patch = 0 },
+                            .max = .{ .major = 7, .minor = 2, .patch = 0 },
                         },
                     },
                     .dragonfly => return .{
                         .semver = .{
-                            .min = .{ .major = 5, .minor = 8 },
-                            .max = .{ .major = 6, .minor = 4 },
+                            .min = .{ .major = 5, .minor = 8, .patch = 0 },
+                            .max = .{ .major = 6, .minor = 4, .patch = 0 },
                         },
                     },
                     .solaris => return .{
                         .semver = .{
-                            .min = .{ .major = 5, .minor = 11 },
-                            .max = .{ .major = 5, .minor = 11 },
+                            .min = .{ .major = 5, .minor = 11, .patch = 0 },
+                            .max = .{ .major = 5, .minor = 11, .patch = 0 },
                         },
                     },
 
                     .linux => return .{
                         .linux = .{
                             .range = .{
-                                .min = .{ .major = 3, .minor = 16 },
+                                .min = .{ .major = 3, .minor = 16, .patch = 0 },
                                 .max = .{ .major = 5, .minor = 10, .patch = 81 },
                             },
-                            .glibc = .{ .major = 2, .minor = 19 },
+                            .glibc = .{ .major = 2, .minor = 19, .patch = 0 },
                         },
                     },
 
@@ -1189,77 +1189,6 @@ pub const Target = struct {
                 };
             }
 
-            pub fn ptrBitWidth(arch: Arch) u16 {
-                switch (arch) {
-                    .avr,
-                    .msp430,
-                    .spu_2,
-                    => return 16,
-
-                    .arc,
-                    .arm,
-                    .armeb,
-                    .csky,
-                    .hexagon,
-                    .m68k,
-                    .le32,
-                    .mips,
-                    .mipsel,
-                    .powerpc,
-                    .powerpcle,
-                    .r600,
-                    .riscv32,
-                    .sparc,
-                    .sparcel,
-                    .tce,
-                    .tcele,
-                    .thumb,
-                    .thumbeb,
-                    .x86,
-                    .xcore,
-                    .nvptx,
-                    .amdil,
-                    .hsail,
-                    .spir,
-                    .kalimba,
-                    .shave,
-                    .lanai,
-                    .wasm32,
-                    .renderscript32,
-                    .aarch64_32,
-                    .spirv32,
-                    .loongarch32,
-                    .dxil,
-                    .xtensa,
-                    => return 32,
-
-                    .aarch64,
-                    .aarch64_be,
-                    .mips64,
-                    .mips64el,
-                    .powerpc64,
-                    .powerpc64le,
-                    .riscv64,
-                    .x86_64,
-                    .nvptx64,
-                    .le64,
-                    .amdil64,
-                    .hsail64,
-                    .spir64,
-                    .wasm64,
-                    .renderscript64,
-                    .amdgcn,
-                    .bpfel,
-                    .bpfeb,
-                    .sparc64,
-                    .s390x,
-                    .ve,
-                    .spirv64,
-                    .loongarch64,
-                    => return 64,
-                }
-            }
-
             /// Returns a name that matches the lib/std/target/* source file name.
             pub fn genericName(arch: Arch) []const u8 {
                 return switch (arch) {
@@ -1621,7 +1550,7 @@ pub const Target = struct {
         const copy = S.copy;
 
         if (self.abi == .android) {
-            const suffix = if (self.cpu.arch.ptrBitWidth() == 64) "64" else "";
+            const suffix = if (self.ptrBitWidth() == 64) "64" else "";
             return print(&result, "/system/bin/linker{s}", .{suffix});
         }
 
@@ -1904,6 +1833,83 @@ pub const Target = struct {
         };
     }
 
+    pub fn ptrBitWidth(target: std.Target) u16 {
+        switch (target.abi) {
+            .gnux32, .muslx32, .gnuabin32, .gnuilp32 => return 32,
+            .gnuabi64 => return 64,
+            else => {},
+        }
+        switch (target.cpu.arch) {
+            .avr,
+            .msp430,
+            .spu_2,
+            => return 16,
+
+            .arc,
+            .arm,
+            .armeb,
+            .csky,
+            .hexagon,
+            .m68k,
+            .le32,
+            .mips,
+            .mipsel,
+            .powerpc,
+            .powerpcle,
+            .r600,
+            .riscv32,
+            .sparcel,
+            .tce,
+            .tcele,
+            .thumb,
+            .thumbeb,
+            .x86,
+            .xcore,
+            .nvptx,
+            .amdil,
+            .hsail,
+            .spir,
+            .kalimba,
+            .shave,
+            .lanai,
+            .wasm32,
+            .renderscript32,
+            .aarch64_32,
+            .spirv32,
+            .loongarch32,
+            .dxil,
+            .xtensa,
+            => return 32,
+
+            .aarch64,
+            .aarch64_be,
+            .mips64,
+            .mips64el,
+            .powerpc64,
+            .powerpc64le,
+            .riscv64,
+            .x86_64,
+            .nvptx64,
+            .le64,
+            .amdil64,
+            .hsail64,
+            .spir64,
+            .wasm64,
+            .renderscript64,
+            .amdgcn,
+            .bpfel,
+            .bpfeb,
+            .sparc64,
+            .s390x,
+            .ve,
+            .spirv64,
+            .loongarch64,
+            => return 64,
+
+            .sparc => return if (std.Target.sparc.featureSetHas(target.cpu.features, .v9)) 64 else 32,
+        }
+    }
+
     pub const CType = enum {
         char,
         short,
@@ -1930,16 +1936,15 @@ pub const Target = struct {
             .ulong,
             .longlong,
             .ulonglong,
+            .float,
+            .double,
             => @divExact(c_type_bit_size(t, c_type), 8),
-
-            .float => 4,
-            .double => 8,
 
             .longdouble => switch (c_type_bit_size(t, c_type)) {
                 16 => 2,
                 32 => 4,
                 64 => 8,
-                80 => @intCast(u16, mem.alignForward(10, c_type_alignment(t, .longdouble))),
+                80 => @intCast(u16, mem.alignForward(usize, 10, c_type_alignment(t, .longdouble))),
                 128 => 16,
                 else => unreachable,
             },
@@ -1990,7 +1995,7 @@ pub const Target = struct {
                     .char => return 8,
                     .short, .ushort => return 16,
                     .int, .uint, .float => return 32,
-                    .long, .ulong => return target.cpu.arch.ptrBitWidth(),
+                    .long, .ulong => return target.ptrBitWidth(),
                     .longlong, .ulonglong, .double => return 64,
                     .longdouble => switch (target.cpu.arch) {
                         .x86 => switch (target.abi) {
@@ -2084,7 +2089,7 @@ pub const Target = struct {
                     .char => return 8,
                     .short, .ushort => return 16,
                     .int, .uint, .float => return 32,
-                    .long, .ulong => return target.cpu.arch.ptrBitWidth(),
+                    .long, .ulong => return target.ptrBitWidth(),
                     .longlong, .ulonglong, .double => return 64,
                     .longdouble => switch (target.cpu.arch) {
                         .x86 => switch (target.abi) {
@@ -2220,6 +2225,26 @@ pub const Target = struct {
                 .longdouble => return 128,
             },
 
+            .opencl => switch (c_type) {
+                .char => return 8,
+                .short, .ushort => return 16,
+                .int, .uint, .float => return 32,
+                .long, .ulong, .double => return 64,
+                .longlong, .ulonglong => return 128,
+                // Note: The OpenCL specification does not guarantee a particular size for long double,
+                // but clang uses 128 bits.
+                .longdouble => return 128,
+            },
+
+            .ps4, .ps5 => switch (c_type) {
+                .char => return 8,
+                .short, .ushort => return 16,
+                .int, .uint, .float => return 32,
+                .long, .ulong => return 64,
+                .longlong, .ulonglong, .double => return 64,
+                .longdouble => return 80,
+            },
+
             .cloudabi,
             .kfreebsd,
             .lv2,
@@ -2227,14 +2252,11 @@ pub const Target = struct {
             .rtems,
             .nacl,
             .aix,
-            .ps4,
-            .ps5,
             .elfiamcu,
             .mesa3d,
             .contiki,
             .hermit,
             .hurd,
-            .opencl,
             .glsl450,
             .vulkan,
             .driverkit,
@@ -2246,10 +2268,7 @@ pub const Target = struct {
     pub fn c_type_alignment(target: Target, c_type: CType) u16 {
         // Overrides for unusual alignments
         switch (target.cpu.arch) {
-            .avr => switch (c_type) {
-                .short, .ushort => return 2,
-                else => return 1,
-            },
+            .avr => return 1,
             .x86 => switch (target.os.tag) {
                 .windows, .uefi => switch (c_type) {
                     .longlong, .ulonglong, .double => return 8,

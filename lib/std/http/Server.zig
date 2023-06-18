@@ -16,39 +16,92 @@ socket: net.StreamServer,
 
 /// An interface to either a plain or TLS connection.
 pub const Connection = struct {
+    pub const buffer_size = std.crypto.tls.max_ciphertext_record_len;
+    pub const Protocol = enum { plain };
+
     stream: net.Stream,
     protocol: Protocol,
 
     closing: bool = true,
 
-    pub const Protocol = enum { plain };
+    read_buf: [buffer_size]u8 = undefined,
+    read_start: u16 = 0,
+    read_end: u16 = 0,
 
-    pub fn read(conn: *Connection, buffer: []u8) ReadError!usize {
+    pub fn rawReadAtLeast(conn: *Connection, buffer: []u8, len: usize) ReadError!usize {
         return switch (conn.protocol) {
-            .plain => conn.stream.read(buffer),
-            // .tls => return conn.tls_client.read(conn.stream, buffer),
-        } catch |err| switch (err) {
-            error.ConnectionTimedOut => return error.ConnectionTimedOut,
-            error.ConnectionResetByPeer, error.BrokenPipe => return error.ConnectionResetByPeer,
-            else => return error.UnexpectedReadFailure,
+            .plain => conn.stream.readAtLeast(buffer, len),
+            // .tls => conn.tls_client.readAtLeast(conn.stream, buffer, len),
+        } catch |err| {
+            switch (err) {
+                error.ConnectionResetByPeer, error.BrokenPipe => return error.ConnectionResetByPeer,
+                else => return error.UnexpectedReadFailure,
+            }
         };
     }
 
+    pub fn fill(conn: *Connection) ReadError!void {
+        if (conn.read_end != conn.read_start) return;
+
+        const nread = try conn.rawReadAtLeast(conn.read_buf[0..], 1);
+        if (nread == 0) return error.EndOfStream;
+        conn.read_start = 0;
+        conn.read_end = @intCast(u16, nread);
+    }
+
+    pub fn peek(conn: *Connection) []const u8 {
+        return conn.read_buf[conn.read_start..conn.read_end];
+    }
+
+    pub fn drop(conn: *Connection, num: u16) void {
+        conn.read_start += num;
+    }
+
     pub fn readAtLeast(conn: *Connection, buffer: []u8, len: usize) ReadError!usize {
-        return switch (conn.protocol) {
-            .plain => conn.stream.readAtLeast(buffer, len),
-            // .tls => return conn.tls_client.readAtLeast(conn.stream, buffer, len),
-        } catch |err| switch (err) {
-            error.ConnectionTimedOut => return error.ConnectionTimedOut,
-            error.ConnectionResetByPeer, error.BrokenPipe => return error.ConnectionResetByPeer,
-            else => return error.UnexpectedReadFailure,
-        };
+        assert(len <= buffer.len);
+
+        var out_index: u16 = 0;
+        while (out_index < len) {
+            const available_read = conn.read_end - conn.read_start;
+            const available_buffer = buffer.len - out_index;
+
+            if (available_read > available_buffer) { // partially read buffered data
+                @memcpy(buffer[out_index..], conn.read_buf[conn.read_start..conn.read_end][0..available_buffer]);
+                out_index += @intCast(u16, available_buffer);
+                conn.read_start += @intCast(u16, available_buffer);
+
+                break;
+            } else if (available_read > 0) { // fully read buffered data
+                @memcpy(buffer[out_index..][0..available_read], conn.read_buf[conn.read_start..conn.read_end]);
+                out_index += available_read;
+                conn.read_start += available_read;
+
+                if (out_index >= len) break;
+            }
+
+            const leftover_buffer = available_buffer - available_read;
+            const leftover_len = len - out_index;
+
+            if (leftover_buffer > conn.read_buf.len) {
+                // skip the buffer if the output is large enough
+                return conn.rawReadAtLeast(buffer[out_index..], leftover_len);
+            }
+
+            try conn.fill();
+        }
+
+        return out_index;
+    }
+
+    pub fn read(conn: *Connection, buffer: []u8) ReadError!usize {
+        return conn.readAtLeast(buffer, 1);
     }
 
     pub const ReadError = error{
         ConnectionTimedOut,
         ConnectionResetByPeer,
         UnexpectedReadFailure,
+        EndOfStream,
     };
 
     pub const Reader = std.io.Reader(*Connection, ReadError, read);
@@ -93,90 +146,6 @@ pub const Connection = struct {
     }
 };
 
-/// A buffered (and peekable) Connection.
-pub const BufferedConnection = struct {
-    pub const buffer_size = 0x2000;
-
-    conn: Connection,
-    buf: [buffer_size]u8 = undefined,
-    start: u16 = 0,
-    end: u16 = 0,
-
-    pub fn fill(bconn: *BufferedConnection) ReadError!void {
-        if (bconn.end != bconn.start) return;
-
-        const nread = try bconn.conn.read(bconn.buf[0..]);
-        if (nread == 0) return error.EndOfStream;
-        bconn.start = 0;
-        bconn.end = @truncate(u16, nread);
-    }
-
-    pub fn peek(bconn: *BufferedConnection) []const u8 {
-        return bconn.buf[bconn.start..bconn.end];
-    }
-
-    pub fn clear(bconn: *BufferedConnection, num: u16) void {
-        bconn.start += num;
-    }
-
-    pub fn readAtLeast(bconn: *BufferedConnection, buffer: []u8, len: usize) ReadError!usize {
-        var out_index: u16 = 0;
-        while (out_index < len) {
-            const available = bconn.end - bconn.start;
-            const left = buffer.len - out_index;
-
-            if (available > 0) {
-                const can_read = @truncate(u16, @min(available, left));
-
-                @memcpy(buffer[out_index..][0..can_read], bconn.buf[bconn.start..][0..can_read]);
-                out_index += can_read;
-                bconn.start += can_read;
-
-                continue;
-            }
-
-            if (left > bconn.buf.len) {
-                // skip the buffer if the output is large enough
-                return bconn.conn.read(buffer[out_index..]);
-            }
-
-            try bconn.fill();
-        }
-
-        return out_index;
-    }
-
-    pub fn read(bconn: *BufferedConnection, buffer: []u8) ReadError!usize {
-        return bconn.readAtLeast(buffer, 1);
-    }
-
-    pub const ReadError = Connection.ReadError || error{EndOfStream};
-    pub const Reader = std.io.Reader(*BufferedConnection, ReadError, read);
-
-    pub fn reader(bconn: *BufferedConnection) Reader {
-        return Reader{ .context = bconn };
-    }
-
-    pub fn writeAll(bconn: *BufferedConnection, buffer: []const u8) WriteError!void {
-        return bconn.conn.writeAll(buffer);
-    }
-
-    pub fn write(bconn: *BufferedConnection, buffer: []const u8) WriteError!usize {
-        return bconn.conn.write(buffer);
-    }
-
-    pub const WriteError = Connection.WriteError;
-    pub const Writer = std.io.Writer(*BufferedConnection, WriteError, write);
-
-    pub fn writer(bconn: *BufferedConnection) Writer {
-        return Writer{ .context = bconn };
-    }
-
-    pub fn close(bconn: *BufferedConnection) void {
-        bconn.conn.close();
-    }
-};
-
 /// The mode of transport for responses.
 pub const ResponseTransfer = union(enum) {
     content_length: u64,
@@ -186,7 +155,7 @@ pub const ResponseTransfer = union(enum) {
 
 /// The decompressor for request messages.
 pub const Compression = union(enum) {
-    pub const DeflateDecompressor = std.compress.zlib.ZlibStream(Response.TransferReader);
+    pub const DeflateDecompressor = std.compress.zlib.DecompressStream(Response.TransferReader);
     pub const GzipDecompressor = std.compress.gzip.Decompress(Response.TransferReader);
     pub const ZstdDecompressor = std.compress.zstd.DecompressStream(Response.TransferReader, .{});
 
@@ -199,8 +168,6 @@ pub const Compression = union(enum) {
 /// A HTTP request originating from a client.
 pub const Request = struct {
     pub const ParseError = Allocator.Error || error{
-        ShortHttpStatusLine,
-        BadHttpVersion,
         UnknownHttpMethod,
         HttpHeadersInvalid,
         HttpHeaderContinuationsUnsupported,
@@ -211,11 +178,11 @@ pub const Request = struct {
     };
 
     pub fn parse(req: *Request, bytes: []const u8) ParseError!void {
-        var it = mem.tokenize(u8, bytes[0 .. bytes.len - 4], "\r\n");
+        var it = mem.tokenizeAny(u8, bytes[0 .. bytes.len - 4], "\r\n");
 
         const first_line = it.next() orelse return error.HttpHeadersInvalid;
         if (first_line.len < 10)
-            return error.ShortHttpStatusLine;
+            return error.HttpHeadersInvalid;
 
         const method_end = mem.indexOfScalar(u8, first_line, ' ') orelse return error.HttpHeadersInvalid;
         const method_str = first_line[0..method_end];
@@ -229,7 +196,7 @@ pub const Request = struct {
         const version: http.Version = switch (int64(version_str[0..8])) {
             int64("HTTP/1.0") => .@"HTTP/1.0",
             int64("HTTP/1.1") => .@"HTTP/1.1",
-            else => return error.BadHttpVersion,
+            else => return error.HttpHeadersInvalid,
         };
 
         const target = first_line[method_end + 1 .. version_start];
@@ -245,7 +212,7 @@ pub const Request = struct {
                 else => {},
             }
 
-            var line_it = mem.tokenize(u8, line, ": ");
+            var line_it = mem.tokenizeAny(u8, line, ": ");
             const header_name = line_it.next() orelse return error.HttpHeadersInvalid;
             const header_value = line_it.rest();
 
@@ -257,7 +224,7 @@ pub const Request = struct {
             } else if (std.ascii.eqlIgnoreCase(header_name, "transfer-encoding")) {
                 // Transfer-Encoding: second, first
                 // Transfer-Encoding: deflate, chunked
-                var iter = mem.splitBackwards(u8, header_value, ",");
+                var iter = mem.splitBackwardsScalar(u8, header_value, ',');
 
                 if (iter.next()) |first| {
                     const trimmed = mem.trim(u8, first, " ");
@@ -312,7 +279,7 @@ pub const Request = struct {
     transfer_encoding: ?http.TransferEncoding = null,
     transfer_compression: ?http.ContentEncoding = null,
 
-    headers: http.Headers = undefined,
+    headers: http.Headers,
     parser: proto.HeadersParser,
     compression: Compression = .none,
 };
@@ -329,21 +296,63 @@ pub const Response = struct {
 
     transfer_encoding: ResponseTransfer = .none,
 
-    server: *Server,
+    allocator: Allocator,
     address: net.Address,
-    connection: BufferedConnection,
+    connection: Connection,
 
     headers: http.Headers,
     request: Request,
 
+    state: State = .first,
+
+    const State = enum {
+        first,
+        start,
+        waited,
+        responded,
+        finished,
+    };
+
     pub fn deinit(res: *Response) void {
-        res.server.allocator.destroy(res);
+        res.connection.close();
+
+        res.headers.deinit();
+        res.request.headers.deinit();
+
+        if (res.request.parser.header_bytes_owned) {
+            res.request.parser.header_bytes.deinit(res.allocator);
+        }
     }
 
+    pub const ResetState = enum { reset, closing };
+
     /// Reset this response to its initial state. This must be called before handling a second request on the same connection.
-    pub fn reset(res: *Response) void {
-        res.request.headers.deinit();
-        res.headers.deinit();
+    pub fn reset(res: *Response) ResetState {
+        if (res.state == .first) {
+            res.state = .start;
+            return .reset;
+        }
+
+        if (!res.request.parser.done) {
+            // If the response wasn't fully read, then we need to close the connection.
+            res.connection.closing = true;
+            return .closing;
+        }
+
+        // A connection is only keep-alive if the Connection header is present and it's value is not "close".
+        // The server and client must both agree
+        //
+        // do() defaults to using keep-alive if the client requests it.
+        const res_connection = res.headers.getFirstValue("connection");
+        const res_keepalive = res_connection != null and !std.ascii.eqlIgnoreCase("close", res_connection.?);
+
+        const req_connection = res.request.headers.getFirstValue("connection");
+        const req_keepalive = req_connection != null and !std.ascii.eqlIgnoreCase("close", req_connection.?);
+        if (req_keepalive and (res_keepalive or res_connection == null)) {
+            res.connection.closing = false;
+        } else {
+            res.connection.closing = true;
+        }
 
         switch (res.request.compression) {
             .none => {},
@@ -352,26 +361,42 @@ pub const Response = struct {
             .zstd => |*zstd| zstd.deinit(),
         }
 
-        if (!res.request.parser.done) {
-            // If the response wasn't fully read, then we need to close the connection.
-            res.connection.conn.closing = true;
-        }
+        res.state = .start;
+        res.version = .@"HTTP/1.1";
+        res.status = .ok;
+        res.reason = null;
 
-        if (res.connection.conn.closing) {
-            res.connection.close();
+        res.transfer_encoding = .none;
 
-            if (res.request.parser.header_bytes_owned) {
-                res.request.parser.header_bytes.deinit(res.server.allocator);
-            }
+        res.headers.clearRetainingCapacity();
+
+        res.request.headers.clearAndFree(); // FIXME: figure out why `clearRetainingCapacity` causes a leak in hash_map here
+        res.request.parser.reset();
+
+        res.request = Request{
+            .version = undefined,
+            .method = undefined,
+            .target = undefined,
+            .headers = res.request.headers,
+            .parser = res.request.parser,
+        };
+
+        if (res.connection.closing) {
+            return .closing;
         } else {
-            res.request.parser.reset();
+            return .reset;
         }
     }
 
-    pub const DoError = BufferedConnection.WriteError || error{ UnsupportedTransferEncoding, InvalidContentLength };
+    pub const DoError = Connection.WriteError || error{ UnsupportedTransferEncoding, InvalidContentLength };
 
     /// Send the response headers.
     pub fn do(res: *Response) !void {
+        switch (res.state) {
+            .waited => res.state = .responded,
+            .first, .start, .responded, .finished => unreachable,
+        }
+
         var buffered = std.io.bufferedWriter(res.connection.writer());
         const w = buffered.writer();
 
@@ -391,7 +416,14 @@ pub const Response = struct {
         }
 
         if (!res.headers.contains("connection")) {
-            try w.writeAll("Connection: keep-alive\r\n");
+            const req_connection = res.request.headers.getFirstValue("connection");
+            const req_keepalive = req_connection != null and !std.ascii.eqlIgnoreCase("close", req_connection.?);
+
+            if (req_keepalive) {
+                try w.writeAll("Connection: keep-alive\r\n");
+            } else {
+                try w.writeAll("Connection: close\r\n");
+            }
         }
 
         const has_transfer_encoding = res.headers.contains("transfer-encoding");
@@ -427,7 +459,7 @@ pub const Response = struct {
         try buffered.flush();
     }
 
-    pub const TransferReadError = BufferedConnection.ReadError || proto.HeadersParser.ReadError;
+    pub const TransferReadError = Connection.ReadError || proto.HeadersParser.ReadError;
 
     pub const TransferReader = std.io.Reader(*Response, TransferReadError, transferRead);
 
@@ -448,32 +480,26 @@ pub const Response = struct {
         return index;
     }
 
-    pub const WaitError = BufferedConnection.ReadError || proto.HeadersParser.CheckCompleteHeadError || Request.ParseError || error{ CompressionInitializationFailed, CompressionNotSupported };
+    pub const WaitError = Connection.ReadError || proto.HeadersParser.CheckCompleteHeadError || Request.ParseError || error{ CompressionInitializationFailed, CompressionNotSupported };
 
     /// Wait for the client to send a complete request head.
     pub fn wait(res: *Response) WaitError!void {
+        switch (res.state) {
+            .first, .start => res.state = .waited,
+            .waited, .responded, .finished => unreachable,
+        }
+
         while (true) {
             try res.connection.fill();
 
-            const nchecked = try res.request.parser.checkCompleteHead(res.server.allocator, res.connection.peek());
-            res.connection.clear(@intCast(u16, nchecked));
+            const nchecked = try res.request.parser.checkCompleteHead(res.allocator, res.connection.peek());
+            res.connection.drop(@intCast(u16, nchecked));
 
             if (res.request.parser.state.isContent()) break;
         }
 
-        res.request.headers = .{ .allocator = res.server.allocator, .owned = true };
+        res.request.headers = .{ .allocator = res.allocator, .owned = true };
         try res.request.parse(res.request.parser.header_bytes.items);
-
-        const res_connection = res.headers.getFirstValue("connection");
-        const res_keepalive = res_connection != null and !std.ascii.eqlIgnoreCase("close", res_connection.?);
-
-        const req_connection = res.request.headers.getFirstValue("connection");
-        const req_keepalive = req_connection != null and !std.ascii.eqlIgnoreCase("close", req_connection.?);
-        if (res_keepalive and req_keepalive) {
-            res.connection.conn.closing = false;
-        } else {
-            res.connection.conn.closing = true;
-        }
 
         if (res.request.transfer_encoding) |te| {
             switch (te) {
@@ -494,13 +520,13 @@ pub const Response = struct {
             if (res.request.transfer_compression) |tc| switch (tc) {
                 .compress => return error.CompressionNotSupported,
                 .deflate => res.request.compression = .{
-                    .deflate = std.compress.zlib.zlibStream(res.server.allocator, res.transferReader()) catch return error.CompressionInitializationFailed,
+                    .deflate = std.compress.zlib.decompressStream(res.allocator, res.transferReader()) catch return error.CompressionInitializationFailed,
                 },
                 .gzip => res.request.compression = .{
-                    .gzip = std.compress.gzip.decompress(res.server.allocator, res.transferReader()) catch return error.CompressionInitializationFailed,
+                    .gzip = std.compress.gzip.decompress(res.allocator, res.transferReader()) catch return error.CompressionInitializationFailed,
                 },
                 .zstd => res.request.compression = .{
-                    .zstd = std.compress.zstd.decompressStream(res.server.allocator, res.transferReader()),
+                    .zstd = std.compress.zstd.decompressStream(res.allocator, res.transferReader()),
                 },
             };
         }
@@ -515,6 +541,11 @@ pub const Response = struct {
     }
 
     pub fn read(res: *Response, buffer: []u8) ReadError!usize {
+        switch (res.state) {
+            .waited, .responded, .finished => {},
+            .first, .start => unreachable,
+        }
+
         const out_index = switch (res.request.compression) {
             .deflate => |*deflate| deflate.read(buffer) catch return error.DecompressionFailure,
             .gzip => |*gzip| gzip.read(buffer) catch return error.DecompressionFailure,
@@ -528,12 +559,12 @@ pub const Response = struct {
             while (!res.request.parser.state.isContent()) { // read trailing headers
                 try res.connection.fill();
 
-                const nchecked = try res.request.parser.checkCompleteHead(res.server.allocator, res.connection.peek());
-                res.connection.clear(@intCast(u16, nchecked));
+                const nchecked = try res.request.parser.checkCompleteHead(res.allocator, res.connection.peek());
+                res.connection.drop(@intCast(u16, nchecked));
             }
 
             if (has_trail) {
-                res.request.headers = http.Headers{ .allocator = res.server.allocator, .owned = false };
+                res.request.headers = http.Headers{ .allocator = res.allocator, .owned = false };
 
                 // The response headers before the trailers are already guaranteed to be valid, so they will always be parsed again and cannot return an error.
                 // This will *only* fail for a malformed trailer.
@@ -554,7 +585,7 @@ pub const Response = struct {
         return index;
     }
 
-    pub const WriteError = BufferedConnection.WriteError || error{ NotWriteable, MessageTooLong };
+    pub const WriteError = Connection.WriteError || error{ NotWriteable, MessageTooLong };
 
     pub const Writer = std.io.Writer(*Response, WriteError, write);
 
@@ -564,6 +595,11 @@ pub const Response = struct {
 
     /// Write `bytes` to the server. The `transfer_encoding` request header determines how data will be sent.
     pub fn write(res: *Response, bytes: []const u8) WriteError!usize {
+        switch (res.state) {
+            .responded => {},
+            .first, .waited, .start, .finished => unreachable,
+        }
+
         switch (res.transfer_encoding) {
             .chunked => {
                 try res.connection.writer().print("{x}\r\n", .{bytes.len});
@@ -583,7 +619,7 @@ pub const Response = struct {
         }
     }
 
-    pub fn writeAll(req: *Request, bytes: []const u8) WriteError!void {
+    pub fn writeAll(req: *Response, bytes: []const u8) WriteError!void {
         var index: usize = 0;
         while (index < bytes.len) {
             index += try write(req, bytes[index..]);
@@ -594,6 +630,11 @@ pub const Response = struct {
 
     /// Finish the body of a request. This notifies the server that you have no more data to send.
     pub fn finish(res: *Response) FinishError!void {
+        switch (res.state) {
+            .responded => res.state = .finished,
+            .first, .waited, .start, .finished => unreachable,
+        }
+
         switch (res.transfer_encoding) {
             .chunked => try res.connection.writeAll("0\r\n\r\n"),
             .content_length => |len| if (len != 0) return error.MessageNotCompleted,
@@ -635,31 +676,34 @@ pub const HeaderStrategy = union(enum) {
     static: []u8,
 };
 
-/// Accept a new connection and allocate a Response for it.
-pub fn accept(server: *Server, options: HeaderStrategy) AcceptError!*Response {
+pub const AcceptOptions = struct {
+    allocator: Allocator,
+    header_strategy: HeaderStrategy = .{ .dynamic = 8192 },
+};
+
+/// Accept a new connection.
+pub fn accept(server: *Server, options: AcceptOptions) AcceptError!Response {
     const in = try server.socket.accept();
 
-    const res = try server.allocator.create(Response);
-    res.* = .{
-        .server = server,
+    return Response{
+        .allocator = options.allocator,
         .address = in.address,
-        .connection = .{ .conn = .{
+        .connection = .{
             .stream = in.stream,
             .protocol = .plain,
-        } },
-        .headers = .{ .allocator = server.allocator },
+        },
+        .headers = .{ .allocator = options.allocator },
         .request = .{
             .version = undefined,
             .method = undefined,
             .target = undefined,
-            .parser = switch (options) {
+            .headers = .{ .allocator = options.allocator, .owned = false },
+            .parser = switch (options.header_strategy) {
                 .dynamic => |max| proto.HeadersParser.initDynamic(max),
                 .static => |buf| proto.HeadersParser.initStatic(buf),
             },
         },
     };
-
-    return res;
 }
 
 test "HTTP server handles a chunked transfer coding request" {

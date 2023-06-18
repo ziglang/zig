@@ -331,7 +331,7 @@ test "async fn pointer in a struct field" {
     var foo = Foo{ .bar = simpleAsyncFn2 };
     var bytes: [64]u8 align(16) = undefined;
     const f = @asyncCall(&bytes, {}, foo.bar, .{&data});
-    comptime try expect(@TypeOf(f) == anyframe->void);
+    try comptime expect(@TypeOf(f) == anyframe->void);
     try expect(data == 2);
     resume f;
     try expect(data == 4);
@@ -1143,7 +1143,7 @@ test "@asyncCall using the result location inside the frame" {
     var foo = Foo{ .bar = S.simple2 };
     var bytes: [64]u8 align(16) = undefined;
     const f = @asyncCall(&bytes, {}, foo.bar, .{&data});
-    comptime try expect(@TypeOf(f) == anyframe->i32);
+    try comptime expect(@TypeOf(f) == anyframe->i32);
     try expect(data == 2);
     resume f;
     try expect(data == 4);
@@ -1158,7 +1158,7 @@ test "@TypeOf an async function call of generic fn with error union type" {
     const S = struct {
         fn func(comptime x: anytype) anyerror!i32 {
             const T = @TypeOf(async func(x));
-            comptime try expect(T == @typeInfo(@TypeOf(@frame())).Pointer.child);
+            try comptime expect(T == @typeInfo(@TypeOf(@frame())).Pointer.child);
             return undefined;
         }
     };

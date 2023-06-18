@@ -411,7 +411,7 @@ pub fn collect(info: *UnwindInfo, zld: *Zld) !void {
         }
 
         var slice = common_encodings_counts.values();
-        std.sort.sort(CommonEncWithCount, slice, {}, CommonEncWithCount.greaterThan);
+        mem.sort(CommonEncWithCount, slice, {}, CommonEncWithCount.greaterThan);
 
         var i: u7 = 0;
         while (i < slice.len) : (i += 1) {

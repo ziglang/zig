@@ -89,12 +89,11 @@ pub const StreamInterface = struct {
 };
 
 pub fn InitError(comptime Stream: type) type {
-    return std.mem.Allocator.Error || Stream.WriteError || Stream.ReadError || error{
+    return std.mem.Allocator.Error || Stream.WriteError || Stream.ReadError || tls.AlertDescription.Error || error{
         InsufficientEntropy,
         DiskQuota,
         LockViolation,
         NotOpenForWriting,
-        TlsAlert,
         TlsUnexpectedMessage,
         TlsIllegalParameter,
         TlsDecryptFailure,
@@ -251,8 +250,11 @@ pub fn init(stream: anytype, ca_bundle: Certificate.Bundle, host: []const u8) In
                 const level = ptd.decode(tls.AlertLevel);
                 const desc = ptd.decode(tls.AlertDescription);
                 _ = level;
-                _ = desc;
-                return error.TlsAlert;
+
+                // if this isn't a error alert, then it's a closure alert, which makes no sense in a handshake
+                try desc.toError();
+                // TODO: handle server-side closures
+                return error.TlsUnexpectedMessage;
             },
             .handshake => {
                 try ptd.ensure(4);
@@ -424,7 +426,7 @@ pub fn init(stream: anytype, ca_bundle: Certificate.Bundle, host: []const u8) In
     var handshake_state: HandshakeState = .encrypted_extensions;
     var cleartext_bufs: [2][8000]u8 = undefined;
     var main_cert_pub_key_algo: Certificate.AlgorithmCategory = undefined;
-    var main_cert_pub_key_buf: [300]u8 = undefined;
+    var main_cert_pub_key_buf: [600]u8 = undefined;
     var main_cert_pub_key_len: u16 = undefined;
     const now_sec = std.time.timestamp();
 
@@ -602,14 +604,11 @@ pub fn init(stream: anytype, ca_bundle: Certificate.Bundle, host: []const u8) In
                                     const components = try rsa.PublicKey.parseDer(main_cert_pub_key);
                                     const exponent = components.exponent;
                                     const modulus = components.modulus;
-                                    var rsa_mem_buf: [512 * 32]u8 = undefined;
-                                    var fba = std.heap.FixedBufferAllocator.init(&rsa_mem_buf);
-                                    const ally = fba.allocator();
                                     switch (modulus.len) {
                                         inline 128, 256, 512 => |modulus_len| {
-                                            const key = try rsa.PublicKey.fromBytes(exponent, modulus, ally);
+                                            const key = try rsa.PublicKey.fromBytes(exponent, modulus);
                                             const sig = rsa.PSSSignature.fromBytes(modulus_len, encoded_sig);
-                                            try rsa.PSSSignature.verify(modulus_len, sig, verify_bytes, key, Hash, ally);
+                                            try rsa.PSSSignature.verify(modulus_len, sig, verify_bytes, key, Hash);
                                         },
                                         else => {
                                             return error.TlsBadRsaSignatureBitCount;
@@ -924,7 +923,9 @@ pub fn readvAdvanced(c: *Client, stream: anytype, iovecs: []const std.os.iovec) 
         const amt = @intCast(u15, vp.put(partial_cleartext));
         c.partial_cleartext_idx += amt;
 
-        if (c.partial_ciphertext_end == c.partial_ciphertext_idx) {
+        if (c.partial_cleartext_idx == c.partial_ciphertext_idx and
+            c.partial_ciphertext_end == c.partial_ciphertext_idx)
+        {
             // The buffer is now empty.
             c.partial_cleartext_idx = 0;
             c.partial_ciphertext_idx = 0;
@@ -935,7 +936,7 @@ pub fn readvAdvanced(c: *Client, stream: anytype, iovecs: []const std.os.iovec) 
             c.partial_ciphertext_end = 0;
             assert(vp.total == amt);
             return amt;
-        } else if (amt <= partial_cleartext.len) {
+        } else if (amt > 0) {
             // We don't need more data, so don't call read.
             assert(vp.total == amt);
             return amt;
@@ -970,8 +971,8 @@ pub fn readvAdvanced(c: *Client, stream: anytype, iovecs: []const std.os.iovec) 
         },
     };
 
-    // Cleartext capacity of output buffer, in records, rounded up.
-    const buf_cap = (cleartext_buf_len +| (max_ciphertext_len - 1)) / max_ciphertext_len;
+    // Cleartext capacity of output buffer, in records. Minimum one full record.
+    const buf_cap = @max(cleartext_buf_len / max_ciphertext_len, 1);
     const wanted_read_len = buf_cap * (max_ciphertext_len + tls.record_header_len);
     const ask_len = @max(wanted_read_len, cleartext_stack_buffer.len);
     const ask_iovecs = limitVecs(&ask_iovecs_buf, ask_len);
@@ -1029,7 +1030,7 @@ pub fn readvAdvanced(c: *Client, stream: anytype, iovecs: []const std.os.iovec) 
             if (frag1.len < second_len)
                 return finishRead2(c, first, frag1, vp.total);
 
-            @memcpy(frag[0..in], first);
+            limitedOverlapCopy(frag, in);
             @memcpy(frag[first.len..][0..second_len], frag1[0..second_len]);
             frag = frag[0..full_record_len];
             frag1 = frag1[second_len..];
@@ -1059,7 +1060,7 @@ pub fn readvAdvanced(c: *Client, stream: anytype, iovecs: []const std.os.iovec) 
             if (frag1.len < second_len)
                 return finishRead2(c, first, frag1, vp.total);
 
-            @memcpy(frag[0..in], first);
+            limitedOverlapCopy(frag, in);
             @memcpy(frag[first.len..][0..second_len], frag1[0..second_len]);
             frag = frag[0..full_record_len];
             frag1 = frag1[second_len..];
@@ -1072,8 +1073,10 @@ pub fn readvAdvanced(c: *Client, stream: anytype, iovecs: []const std.os.iovec) 
                 const level = @intToEnum(tls.AlertLevel, frag[in]);
                 const desc = @intToEnum(tls.AlertDescription, frag[in + 1]);
                 _ = level;
-                _ = desc;
-                return error.TlsAlert;
+
+                try desc.toError();
+                // TODO: handle server-side closures
+                return error.TlsUnexpectedMessage;
             },
             .application_data => {
                 const cleartext = switch (c.application_cipher) {
@@ -1113,7 +1116,10 @@ pub fn readvAdvanced(c: *Client, stream: anytype, iovecs: []const std.os.iovec) 
                             return vp.total;
                         }
                         _ = level;
-                        return error.TlsAlert;
+
+                        try desc.toError();
+                        // TODO: handle server-side closures
+                        return error.TlsUnexpectedMessage;
                     },
                     .handshake => {
                         var ct_i: usize = 0;
@@ -1176,8 +1182,10 @@ pub fn readvAdvanced(c: *Client, stream: anytype, iovecs: []const std.os.iovec) 
                             if (c.partial_ciphertext_idx > c.partial_cleartext_idx) {
                                 // We have already run out of room in iovecs. Continue
                                 // appending to `partially_read_buffer`.
-                                const dest = c.partially_read_buffer[c.partial_ciphertext_idx..];
-                                @memcpy(dest[0..msg.len], msg);
+                                @memcpy(
+                                    c.partially_read_buffer[c.partial_ciphertext_idx..][0..msg.len],
+                                    msg,
+                                );
                                 c.partial_ciphertext_idx = @intCast(@TypeOf(c.partial_ciphertext_idx), c.partial_ciphertext_idx + msg.len);
                             } else {
                                 const amt = vp.put(msg);
@@ -1223,20 +1231,34 @@ fn finishRead(c: *Client, frag: []const u8, in: usize, out: usize) usize {
     return out;
 }
 
+/// Note that `first` usually overlaps with `c.partially_read_buffer`.
 fn finishRead2(c: *Client, first: []const u8, frag1: []const u8, out: usize) usize {
     if (c.partial_ciphertext_idx > c.partial_cleartext_idx) {
         // There is cleartext at the beginning already which we need to preserve.
         c.partial_ciphertext_end = @intCast(@TypeOf(c.partial_ciphertext_end), c.partial_ciphertext_idx + first.len + frag1.len);
-        @memcpy(c.partially_read_buffer[c.partial_ciphertext_idx..][0..first.len], first);
+        // TODO: eliminate this call to copyForwards
+        std.mem.copyForwards(u8, c.partially_read_buffer[c.partial_ciphertext_idx..][0..first.len], first);
         @memcpy(c.partially_read_buffer[c.partial_ciphertext_idx + first.len ..][0..frag1.len], frag1);
     } else {
         c.partial_cleartext_idx = 0;
         c.partial_ciphertext_idx = 0;
         c.partial_ciphertext_end = @intCast(@TypeOf(c.partial_ciphertext_end), first.len + frag1.len);
-        @memcpy(c.partially_read_buffer[0..first.len], first);
+        // TODO: eliminate this call to copyForwards
+        std.mem.copyForwards(u8, c.partially_read_buffer[0..first.len], first);
         @memcpy(c.partially_read_buffer[first.len..][0..frag1.len], frag1);
     }
     return out;
+}
+
+fn limitedOverlapCopy(frag: []u8, in: usize) void {
+    const first = frag[in..];
+    if (first.len <= in) {
+        // A single, non-overlapping memcpy suffices.
+        @memcpy(frag[0..first.len], first);
+    } else {
+        // One memcpy call would overlap, so just do this instead.
+        std.mem.copyForwards(u8, frag, first);
+    }
 }
 
 fn straddleByte(s1: []const u8, s2: []const u8, index: usize) u8 {

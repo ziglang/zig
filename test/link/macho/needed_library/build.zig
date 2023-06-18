@@ -17,7 +17,7 @@ fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.Optimize
 
     const dylib = b.addSharedLibrary(.{
         .name = "a",
-        .version = .{ .major = 1, .minor = 0 },
+        .version = .{ .major = 1, .minor = 0, .patch = 0 },
         .optimize = optimize,
         .target = target,
     });
@@ -42,7 +42,8 @@ fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.Optimize
     check.checkStart("cmd LOAD_DYLIB");
     check.checkNext("name @rpath/liba.dylib");
 
-    const run_cmd = check.runAndCompare();
-    run_cmd.expectStdOutEqual("");
-    test_step.dependOn(&run_cmd.step);
+    const run = b.addRunArtifact(exe);
+    run.skip_foreign_checks = true;
+    run.expectStdOutEqual("");
+    test_step.dependOn(&run.step);
 }

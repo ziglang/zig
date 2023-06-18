@@ -11,7 +11,6 @@ const builtin = @import("builtin");
 const assert = std.debug.assert;
 const mem = std.mem;
 const math = std.math;
-const ziggurat = @import("rand/ziggurat.zig");
 const maxInt = std.math.maxInt;
 
 /// Fast unbiased random numbers.
@@ -29,6 +28,7 @@ pub const Xoroshiro128 = @import("rand/Xoroshiro128.zig");
 pub const Xoshiro256 = @import("rand/Xoshiro256.zig");
 pub const Sfc64 = @import("rand/Sfc64.zig");
 pub const RomuTrio = @import("rand/RomuTrio.zig");
+pub const ziggurat = @import("rand/ziggurat.zig");
 
 pub const Random = struct {
     ptr: *anyopaque,
@@ -410,7 +410,7 @@ pub const Random = struct {
             r.uintLessThan(T, sum)
         else if (comptime std.meta.trait.isFloat(T))
             // take care that imprecision doesn't lead to a value slightly greater than sum
-            std.math.min(r.float(T) * sum, sum - std.math.epsilon(T))
+            @min(r.float(T) * sum, sum - std.math.floatEps(T))
         else
             @compileError("weightedIndex does not support proportions of type " ++ @typeName(T));
 

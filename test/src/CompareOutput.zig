@@ -82,7 +82,7 @@ pub fn addCase(self: *CompareOutput, case: TestCase) void {
 
     const write_src = b.addWriteFiles();
     for (case.sources.items) |src_file| {
-        write_src.add(src_file.filename, src_file.source);
+        _ = write_src.add(src_file.filename, src_file.source);
     }
 
     switch (case.special) {
@@ -99,7 +99,7 @@ pub fn addCase(self: *CompareOutput, case: TestCase) void {
                 .target = .{},
                 .optimize = .Debug,
             });
-            exe.addAssemblyFileSource(write_src.getFileSource(case.sources.items[0].filename).?);
+            exe.addAssemblyFileSource(write_src.files.items[0].getFileSource());
 
             const run = b.addRunArtifact(exe);
             run.setName(annotated_case_name);
@@ -117,10 +117,9 @@ pub fn addCase(self: *CompareOutput, case: TestCase) void {
                     if (mem.indexOf(u8, annotated_case_name, filter) == null) continue;
                 }
 
-                const basename = case.sources.items[0].filename;
                 const exe = b.addExecutable(.{
                     .name = "test",
-                    .root_source_file = write_src.getFileSource(basename).?,
+                    .root_source_file = write_src.files.items[0].getFileSource(),
                     .optimize = optimize,
                     .target = .{},
                 });
@@ -144,10 +143,9 @@ pub fn addCase(self: *CompareOutput, case: TestCase) void {
                 if (mem.indexOf(u8, annotated_case_name, filter) == null) return;
             }
 
-            const basename = case.sources.items[0].filename;
             const exe = b.addExecutable(.{
                 .name = "test",
-                .root_source_file = write_src.getFileSource(basename).?,
+                .root_source_file = write_src.files.items[0].getFileSource(),
                 .target = .{},
                 .optimize = .Debug,
             });

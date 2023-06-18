@@ -13,17 +13,18 @@ const text =
 test "issue 6456" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     comptime {
         var fields: []const StructField = &[0]StructField{};
 
-        var it = std.mem.tokenize(u8, text, "\n");
+        var it = std.mem.tokenizeScalar(u8, text, '\n');
         while (it.next()) |name| {
             fields = fields ++ &[_]StructField{StructField{
                 .alignment = 0,
                 .name = name,
                 .type = usize,
-                .default_value = &@as(?usize, null),
+                .default_value = null,
                 .is_comptime = false,
             }};
         }

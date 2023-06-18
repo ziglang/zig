@@ -541,7 +541,7 @@ const WindowsThreadImpl = struct {
         // Going lower makes it default to that specified in the executable (~1mb).
         // Its also fine if the limit here is incorrect as stack size is only a hint.
         var stack_size = std.math.cast(u32, config.stack_size) orelse std.math.maxInt(u32);
-        stack_size = std.math.max(64 * 1024, stack_size);
+        stack_size = @max(64 * 1024, stack_size);
 
         instance.thread.thread_handle = windows.kernel32.CreateThread(
             null,
@@ -624,7 +624,7 @@ const PosixThreadImpl = struct {
             .openbsd => {
                 var count: c_int = undefined;
                 var count_size: usize = @sizeOf(c_int);
-                const mib = [_]c_int{ os.CTL.HW, os.system.HW_NCPUONLINE };
+                const mib = [_]c_int{ os.CTL.HW, os.system.HW.NCPUONLINE };
                 os.sysctl(&mib, &count, &count_size, null, 0) catch |err| switch (err) {
                     error.NameTooLong, error.UnknownName => unreachable,
                     else => |e| return e,
@@ -690,7 +690,7 @@ const PosixThreadImpl = struct {
         defer assert(c.pthread_attr_destroy(&attr) == .SUCCESS);
 
         // Use the same set of parameters used by the libc-less impl.
-        const stack_size = std.math.max(config.stack_size, 16 * 1024);
+        const stack_size = @max(config.stack_size, c.PTHREAD_STACK_MIN);
         assert(c.pthread_attr_setstacksize(&attr, stack_size) == .SUCCESS);
         assert(c.pthread_attr_setguardsize(&attr, std.mem.page_size) == .SUCCESS);
 
@@ -930,19 +930,19 @@ const LinuxThreadImpl = struct {
             var bytes: usize = page_size;
             guard_offset = bytes;
 
-            bytes += std.math.max(page_size, config.stack_size);
-            bytes = std.mem.alignForward(bytes, page_size);
+            bytes += @max(page_size, config.stack_size);
+            bytes = std.mem.alignForward(usize, bytes, page_size);
             stack_offset = bytes;
 
-            bytes = std.mem.alignForward(bytes, linux.tls.tls_image.alloc_align);
+            bytes = std.mem.alignForward(usize, bytes, linux.tls.tls_image.alloc_align);
             tls_offset = bytes;
             bytes += linux.tls.tls_image.alloc_size;
 
-            bytes = std.mem.alignForward(bytes, @alignOf(Instance));
+            bytes = std.mem.alignForward(usize, bytes, @alignOf(Instance));
             instance_offset = bytes;
             bytes += @sizeOf(Instance);
 
-            bytes = std.mem.alignForward(bytes, page_size);
+            bytes = std.mem.alignForward(usize, bytes, page_size);
             break :blk bytes;
         };
 

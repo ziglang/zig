@@ -148,7 +148,7 @@ fn ShakeLike(comptime security_level: u11, comptime delim: u8, comptime rounds: 
             if (self.offset > 0) {
                 const left = self.buf.len - self.offset;
                 if (left > 0) {
-                    const n = math.min(left, out.len);
+                    const n = @min(left, out.len);
                     @memcpy(out[0..n], self.buf[self.offset..][0..n]);
                     out = out[n..];
                     self.offset += n;

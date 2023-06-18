@@ -1,4 +1,7 @@
 /* SPDX-License-Identifier: GPL-2.0 WITH Linux-syscall-note */
+#ifndef _LINUX_STDDEF_H
+#define _LINUX_STDDEF_H
+
 
 
 #ifndef __always_inline
@@ -41,3 +44,4 @@
 		struct { } __empty_ ## NAME; \
 		TYPE NAME[]; \
 	}
+#endif

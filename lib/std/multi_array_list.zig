@@ -160,7 +160,7 @@ pub fn MultiArrayList(comptime T: type) type {
                     return lhs.alignment > rhs.alignment;
                 }
             };
-            std.sort.sort(Data, &data, {}, Sort.lessThan);
+            mem.sort(Data, &data, {}, Sort.lessThan);
             var sizes_bytes: [fields.len]usize = undefined;
             var field_indexes: [fields.len]usize = undefined;
             for (data, 0..) |elem, i| {
@@ -488,10 +488,7 @@ pub fn MultiArrayList(comptime T: type) type {
                 }
             };
 
-            std.sort.sortContext(self.len, SortContext{
-                .sub_ctx = ctx,
-                .slice = self.slice(),
-            });
+            mem.sortContext(0, self.len, SortContext{ .sub_ctx = ctx, .slice = self.slice() });
         }
 
         fn capacityInBytes(capacity: usize) usize {
@@ -535,8 +532,8 @@ pub fn MultiArrayList(comptime T: type) type {
 
         comptime {
             if (builtin.mode == .Debug) {
-                _ = dbHelper;
-                _ = Slice.dbHelper;
+                _ = &dbHelper;
+                _ = &Slice.dbHelper;
             }
         }
     };

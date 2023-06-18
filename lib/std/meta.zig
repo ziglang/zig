@@ -14,48 +14,7 @@ test {
     _ = TrailerFlags;
 }
 
-pub fn tagName(v: anytype) []const u8 {
-    const T = @TypeOf(v);
-    switch (@typeInfo(T)) {
-        .ErrorSet => return @errorName(v),
-        else => return @tagName(v),
-    }
-}
-
-test "std.meta.tagName" {
-    const E1 = enum {
-        A,
-        B,
-    };
-    const E2 = enum(u8) {
-        C = 33,
-        D,
-    };
-    const U1 = union(enum) {
-        G: u8,
-        H: u16,
-    };
-    const U2 = union(E2) {
-        C: u8,
-        D: u16,
-    };
-
-    var u1g = U1{ .G = 0 };
-    var u1h = U1{ .H = 0 };
-    var u2a = U2{ .C = 0 };
-    var u2b = U2{ .D = 0 };
-
-    try testing.expect(mem.eql(u8, tagName(E1.A), "A"));
-    try testing.expect(mem.eql(u8, tagName(E1.B), "B"));
-    try testing.expect(mem.eql(u8, tagName(E2.C), "C"));
-    try testing.expect(mem.eql(u8, tagName(E2.D), "D"));
-    try testing.expect(mem.eql(u8, tagName(error.E), "E"));
-    try testing.expect(mem.eql(u8, tagName(error.F), "F"));
-    try testing.expect(mem.eql(u8, tagName(u1g), "G"));
-    try testing.expect(mem.eql(u8, tagName(u1h), "H"));
-    try testing.expect(mem.eql(u8, tagName(u2a), "C"));
-    try testing.expect(mem.eql(u8, tagName(u2b), "D"));
-}
+pub const tagName = @compileError("deprecated; use @tagName or @errorName directly");
 
 /// Given an enum or tagged union, returns true if the comptime-supplied
 /// string matches the name of the tag value.  This match process should
@@ -187,7 +146,7 @@ test "std.meta.Child" {
     try testing.expect(Child(*u8) == u8);
     try testing.expect(Child([]u8) == u8);
     try testing.expect(Child(?u8) == u8);
-    try testing.expect(Child(Vector(2, u8)) == u8);
+    try testing.expect(Child(@Vector(2, u8)) == u8);
 }
 
 /// Given a "memory span" type (array, slice, vector, or pointer to such), returns the "element type".
@@ -214,8 +173,8 @@ test "std.meta.Elem" {
     try testing.expect(Elem([*]u8) == u8);
     try testing.expect(Elem([]u8) == u8);
     try testing.expect(Elem(*[10]u8) == u8);
-    try testing.expect(Elem(Vector(2, u8)) == u8);
-    try testing.expect(Elem(*Vector(2, u8)) == u8);
+    try testing.expect(Elem(@Vector(2, u8)) == u8);
+    try testing.expect(Elem(*@Vector(2, u8)) == u8);
     try testing.expect(Elem(?[*]u8) == u8);
 }
 
@@ -251,7 +210,7 @@ pub fn sentinel(comptime T: type) ?Elem(T) {
 
 test "std.meta.sentinel" {
     try testSentinel();
-    comptime try testSentinel();
+    try comptime testSentinel();
 }
 
 fn testSentinel() !void {
@@ -752,8 +711,6 @@ test "std.meta.DeclEnum" {
     try expectEqualEnum(enum { a, b, c }, DeclEnum(C));
 }
 
-pub const TagType = @compileError("deprecated; use Tag");
-
 pub fn Tag(comptime T: type) type {
     return switch (@typeInfo(T)) {
         .Enum => |info| info.tag_type,
@@ -1026,7 +983,7 @@ pub fn declList(comptime Namespace: type, comptime Decl: type) []const *const De
         for (decls, 0..) |decl, i| {
             array[i] = &@field(Namespace, decl.name);
         }
-        std.sort.sort(*const Decl, &array, {}, S.declNameLessThan);
+        mem.sort(*const Decl, &array, {}, S.declNameLessThan);
         return &array;
     }
 }
@@ -1055,16 +1012,6 @@ test "std.meta.Float" {
     try testing.expectEqual(f128, Float(128));
 }
 
-/// Deprecated. Use `@Vector`.
-pub fn Vector(comptime len: u32, comptime child: type) type {
-    return @Type(.{
-        .Vector = .{
-            .len = len,
-            .child = child,
-        },
-    });
-}
-
 /// For a given function type, returns a tuple type which fields will
 /// correspond to the argument types.
 ///
@@ -1078,14 +1025,12 @@ pub fn ArgsTuple(comptime Function: type) type {
         @compileError("ArgsTuple expects a function type");
 
     const function_info = info.Fn;
-    if (function_info.is_generic)
-        @compileError("Cannot create ArgsTuple for generic function");
     if (function_info.is_var_args)
         @compileError("Cannot create ArgsTuple for variadic function");
 
     var argument_field_list: [function_info.params.len]type = undefined;
     inline for (function_info.params, 0..) |arg, i| {
-        const T = arg.type.?;
+        const T = arg.type orelse @compileError("cannot create ArgsTuple for function with an 'anytype' parameter");
         argument_field_list[i] = T;
     }
 
@@ -1157,6 +1102,7 @@ test "ArgsTuple" {
     TupleTester.assertTuple(.{u32}, ArgsTuple(fn (a: u32) []const u8));
     TupleTester.assertTuple(.{ u32, f16 }, ArgsTuple(fn (a: u32, b: f16) noreturn));
     TupleTester.assertTuple(.{ u32, f16, []const u8, void }, ArgsTuple(fn (a: u32, b: f16, c: []const u8, void) noreturn));
+    TupleTester.assertTuple(.{u32}, ArgsTuple(fn (comptime a: u32) []const u8));
 }
 
 test "Tuple" {
