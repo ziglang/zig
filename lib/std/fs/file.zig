@@ -230,8 +230,6 @@ pub const File = struct {
     /// Test whether ANSI escape codes will be treated as such.
     pub fn supportsAnsiEscapeCodes(self: File) bool {
         if (builtin.os.tag == .windows) {
-            if (!os.isatty(self.handle)) return false;
-
             var console_mode: os.windows.DWORD = 0;
             if (os.windows.kernel32.GetConsoleMode(self.handle, &console_mode) != 0) {
                 if (console_mode & os.windows.ENABLE_VIRTUAL_TERMINAL_PROCESSING != 0) return true;
