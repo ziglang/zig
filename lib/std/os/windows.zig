@@ -3387,6 +3387,8 @@ pub const CONSOLE_SCREEN_BUFFER_INFO = extern struct {
     dwMaximumWindowSize: COORD,
 };
 
+pub const ENABLE_VIRTUAL_TERMINAL_PROCESSING = 0x4;
+
 pub const FOREGROUND_BLUE = 1;
 pub const FOREGROUND_GREEN = 2;
 pub const FOREGROUND_RED = 4;
