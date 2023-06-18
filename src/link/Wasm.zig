@@ -4251,6 +4251,7 @@ fn linkWithLLD(wasm: *Wasm, comp: *Compilation, prog_node: *std.Progress.Node) !
         man.hash.addOptional(wasm.base.options.stack_size_override);
         man.hash.add(wasm.base.options.build_id);
         man.hash.add(wasm.base.options.import_memory);
+        man.hash.add(wasm.base.options.export_memory);
         man.hash.add(wasm.base.options.import_table);
         man.hash.add(wasm.base.options.export_table);
         man.hash.addOptional(wasm.base.options.initial_memory);
@@ -4336,6 +4337,10 @@ fn linkWithLLD(wasm: *Wasm, comp: *Compilation, prog_node: *std.Progress.Node) !
 
         if (wasm.base.options.import_memory) {
             try argv.append("--import-memory");
+        }
+
+        if (wasm.base.options.export_memory) {
+            try argv.append("--export-memory");
         }
 
         if (wasm.base.options.import_table) {
