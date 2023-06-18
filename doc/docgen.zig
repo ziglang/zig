@@ -111,13 +111,13 @@ const Token = struct {
     end: usize,
 
     const Id = enum {
-        Invalid,
-        Content,
-        BracketOpen,
-        TagContent,
-        Separator,
-        BracketClose,
-        Eof,
+        invalid,
+        content,
+        bracket_open,
+        tag_content,
+        separator,
+        bracket_close,
+        eof,
     };
 };
 
@@ -129,18 +129,18 @@ const Tokenizer = struct {
     code_node_count: usize,
 
     const State = enum {
-        Start,
-        LBracket,
-        Hash,
-        TagName,
-        Eof,
+        start,
+        l_bracket,
+        hash,
+        tag_name,
+        eof,
     };
 
     fn init(source_file_name: []const u8, buffer: []const u8) Tokenizer {
         return Tokenizer{
             .buffer = buffer,
             .index = 0,
-            .state = State.Start,
+            .state = .start,
             .source_file_name = source_file_name,
             .code_node_count = 0,
         };
@@ -148,84 +148,84 @@ const Tokenizer = struct {
 
     fn next(self: *Tokenizer) Token {
         var result = Token{
-            .id = Token.Id.Eof,
+            .id = .eof,
             .start = self.index,
             .end = undefined,
         };
         while (self.index < self.buffer.len) : (self.index += 1) {
             const c = self.buffer[self.index];
             switch (self.state) {
-                State.Start => switch (c) {
+                .start => switch (c) {
                     '{' => {
-                        self.state = State.LBracket;
+                        self.state = .l_bracket;
                     },
                     else => {
-                        result.id = Token.Id.Content;
+                        result.id = .content;
                     },
                 },
-                State.LBracket => switch (c) {
+                .l_bracket => switch (c) {
                     '#' => {
-                        if (result.id != Token.Id.Eof) {
+                        if (result.id != .eof) {
                             self.index -= 1;
-                            self.state = State.Start;
+                            self.state = .start;
                             break;
                         } else {
-                            result.id = Token.Id.BracketOpen;
+                            result.id = .bracket_open;
                             self.index += 1;
-                            self.state = State.TagName;
+                            self.state = .tag_name;
                             break;
                         }
                     },
                     else => {
-                        result.id = Token.Id.Content;
-                        self.state = State.Start;
+                        result.id = .content;
+                        self.state = .start;
                     },
                 },
-                State.TagName => switch (c) {
+                .tag_name => switch (c) {
                     '|' => {
-                        if (result.id != Token.Id.Eof) {
+                        if (result.id != .eof) {
                             break;
                         } else {
-                            result.id = Token.Id.Separator;
+                            result.id = .separator;
                             self.index += 1;
                             break;
                         }
                     },
                     '#' => {
-                        self.state = State.Hash;
+                        self.state = .hash;
                     },
                     else => {
-                        result.id = Token.Id.TagContent;
+                        result.id = .tag_content;
                     },
                 },
-                State.Hash => switch (c) {
+                .hash => switch (c) {
                     '}' => {
-                        if (result.id != Token.Id.Eof) {
+                        if (result.id != .eof) {
                             self.index -= 1;
-                            self.state = State.TagName;
+                            self.state = .tag_name;
                             break;
                         } else {
-                            result.id = Token.Id.BracketClose;
+                            result.id = .bracket_close;
                             self.index += 1;
-                            self.state = State.Start;
+                            self.state = .start;
                             break;
                         }
                     },
                     else => {
-                        result.id = Token.Id.TagContent;
-                        self.state = State.TagName;
+                        result.id = .tag_content;
+                        self.state = .tag_name;
                     },
                 },
-                State.Eof => unreachable,
+                .eof => unreachable,
             }
         } else {
             switch (self.state) {
-                State.Start, State.LBracket, State.Eof => {},
+                .start, .l_bracket, .eof => {},
                 else => {
-                    result.id = Token.Id.Invalid;
+                    result.id = .invalid;
                 },
             }
-            self.state = State.Eof;
+            self.state = .eof;
         }
         result.end = self.index;
         return result;
@@ -276,7 +276,7 @@ fn parseError(tokenizer: *Tokenizer, token: Token, comptime fmt: []const u8, arg
             }
         }
         {
-            const caret_count = std.math.min(token.end, loc.line_end) - token.start;
+            const caret_count = @min(token.end, loc.line_end) - token.start;
             var i: usize = 0;
             while (i < caret_count) : (i += 1) {
                 print("~", .{});
@@ -311,9 +311,9 @@ const SeeAlsoItem = struct {
 };
 
 const ExpectedOutcome = enum {
-    Succeed,
-    Fail,
-    BuildFail,
+    succeed,
+    fail,
+    build_fail,
 };
 
 const Code = struct {
@@ -331,12 +331,12 @@ const Code = struct {
     additional_options: []const []const u8,
 
     const Id = union(enum) {
-        Test,
-        TestError: []const u8,
-        TestSafety: []const u8,
-        Exe: ExpectedOutcome,
-        Obj: ?[]const u8,
-        Lib,
+        @"test",
+        test_error: []const u8,
+        test_safety: []const u8,
+        exe: ExpectedOutcome,
+        obj: ?[]const u8,
+        lib,
     };
 };
 
@@ -379,8 +379,8 @@ const Toc = struct {
 };
 
 const Action = enum {
-    Open,
-    Close,
+    open,
+    close,
 };
 
 fn genToc(allocator: Allocator, tokenizer: *Tokenizer) !Toc {
@@ -388,7 +388,7 @@ fn genToc(allocator: Allocator, tokenizer: *Tokenizer) !Toc {
     errdefer urls.deinit();
 
     var header_stack_size: usize = 0;
-    var last_action = Action.Open;
+    var last_action: Action = .open;
     var last_columns: ?u8 = null;
 
     var toc_buf = std.ArrayList(u8).init(allocator);
@@ -404,38 +404,38 @@ fn genToc(allocator: Allocator, tokenizer: *Tokenizer) !Toc {
     while (true) {
         const token = tokenizer.next();
         switch (token.id) {
-            Token.Id.Eof => {
+            .eof => {
                 if (header_stack_size != 0) {
                     return parseError(tokenizer, token, "unbalanced headers", .{});
                 }
                 try toc.writeAll("    </ul>\n");
                 break;
             },
-            Token.Id.Content => {
+            .content => {
                 try nodes.append(Node{ .Content = tokenizer.buffer[token.start..token.end] });
             },
-            Token.Id.BracketOpen => {
-                const tag_token = try eatToken(tokenizer, Token.Id.TagContent);
+            .bracket_open => {
+                const tag_token = try eatToken(tokenizer, .tag_content);
                 const tag_name = tokenizer.buffer[tag_token.start..tag_token.end];
 
                 if (mem.eql(u8, tag_name, "nav")) {
-                    _ = try eatToken(tokenizer, Token.Id.BracketClose);
+                    _ = try eatToken(tokenizer, .bracket_close);
 
                     try nodes.append(Node.Nav);
                 } else if (mem.eql(u8, tag_name, "builtin")) {
-                    _ = try eatToken(tokenizer, Token.Id.BracketClose);
+                    _ = try eatToken(tokenizer, .bracket_close);
                     try nodes.append(Node{ .Builtin = tag_token });
                 } else if (mem.eql(u8, tag_name, "header_open")) {
-                    _ = try eatToken(tokenizer, Token.Id.Separator);
-                    const content_token = try eatToken(tokenizer, Token.Id.TagContent);
+                    _ = try eatToken(tokenizer, .separator);
+                    const content_token = try eatToken(tokenizer, .tag_content);
                     const content = tokenizer.buffer[content_token.start..content_token.end];
                     var columns: ?u8 = null;
                     while (true) {
                         const bracket_tok = tokenizer.next();
                         switch (bracket_tok.id) {
-                            .BracketClose => break,
-                            .Separator => continue,
-                            .TagContent => {
+                            .bracket_close => break,
+                            .separator => continue,
+                            .tag_content => {
                                 const param = tokenizer.buffer[bracket_tok.start..bracket_tok.end];
                                 if (mem.eql(u8, param, "2col")) {
                                     columns = 2;
@@ -467,7 +467,7 @@ fn genToc(allocator: Allocator, tokenizer: *Tokenizer) !Toc {
                         parseError(tokenizer, kv.value, "other tag here", .{}) catch {};
                         return error.ParseError;
                     }
-                    if (last_action == Action.Open) {
+                    if (last_action == .open) {
                         try toc.writeByte('\n');
                         try toc.writeByteNTimes(' ', header_stack_size * 4);
                         if (last_columns) |n| {
@@ -476,7 +476,7 @@ fn genToc(allocator: Allocator, tokenizer: *Tokenizer) !Toc {
                             try toc.writeAll("<ul>\n");
                         }
                     } else {
-                        last_action = Action.Open;
+                        last_action = .open;
                     }
                     last_columns = columns;
                     try toc.writeByteNTimes(' ', 4 + header_stack_size * 4);
@@ -486,14 +486,14 @@ fn genToc(allocator: Allocator, tokenizer: *Tokenizer) !Toc {
                         return parseError(tokenizer, tag_token, "unbalanced close header", .{});
                     }
                     header_stack_size -= 1;
-                    _ = try eatToken(tokenizer, Token.Id.BracketClose);
+                    _ = try eatToken(tokenizer, .bracket_close);
 
-                    if (last_action == Action.Close) {
+                    if (last_action == .close) {
                         try toc.writeByteNTimes(' ', 8 + header_stack_size * 4);
                         try toc.writeAll("</ul></li>\n");
                     } else {
                         try toc.writeAll("</li>\n");
-                        last_action = Action.Close;
+                        last_action = .close;
                     }
                 } else if (mem.eql(u8, tag_name, "see_also")) {
                     var list = std.ArrayList(SeeAlsoItem).init(allocator);
@@ -502,15 +502,15 @@ fn genToc(allocator: Allocator, tokenizer: *Tokenizer) !Toc {
                     while (true) {
                         const see_also_tok = tokenizer.next();
                         switch (see_also_tok.id) {
-                            Token.Id.TagContent => {
+                            .tag_content => {
                                 const content = tokenizer.buffer[see_also_tok.start..see_also_tok.end];
                                 try list.append(SeeAlsoItem{
                                     .name = content,
                                     .token = see_also_tok,
                                 });
                             },
-                            Token.Id.Separator => {},
-                            Token.Id.BracketClose => {
+                            .separator => {},
+                            .bracket_close => {
                                 try nodes.append(Node{ .SeeAlso = try list.toOwnedSlice() });
                                 break;
                             },
@@ -518,17 +518,17 @@ fn genToc(allocator: Allocator, tokenizer: *Tokenizer) !Toc {
                         }
                     }
                 } else if (mem.eql(u8, tag_name, "link")) {
-                    _ = try eatToken(tokenizer, Token.Id.Separator);
-                    const name_tok = try eatToken(tokenizer, Token.Id.TagContent);
+                    _ = try eatToken(tokenizer, .separator);
+                    const name_tok = try eatToken(tokenizer, .tag_content);
                     const name = tokenizer.buffer[name_tok.start..name_tok.end];
 
                     const url_name = blk: {
                         const tok = tokenizer.next();
                         switch (tok.id) {
-                            Token.Id.BracketClose => break :blk name,
-                            Token.Id.Separator => {
-                                const explicit_text = try eatToken(tokenizer, Token.Id.TagContent);
-                                _ = try eatToken(tokenizer, Token.Id.BracketClose);
+                            .bracket_close => break :blk name,
+                            .separator => {
+                                const explicit_text = try eatToken(tokenizer, .tag_content);
+                                _ = try eatToken(tokenizer, .bracket_close);
                                 break :blk tokenizer.buffer[explicit_text.start..explicit_text.end];
                             },
                             else => return parseError(tokenizer, tok, "invalid link token", .{}),
@@ -543,45 +543,45 @@ fn genToc(allocator: Allocator, tokenizer: *Tokenizer) !Toc {
                         },
                     });
                 } else if (mem.eql(u8, tag_name, "code_begin")) {
-                    _ = try eatToken(tokenizer, Token.Id.Separator);
-                    const code_kind_tok = try eatToken(tokenizer, Token.Id.TagContent);
-                    _ = try eatToken(tokenizer, Token.Id.Separator);
-                    const name_tok = try eatToken(tokenizer, Token.Id.TagContent);
+                    _ = try eatToken(tokenizer, .separator);
+                    const code_kind_tok = try eatToken(tokenizer, .tag_content);
+                    _ = try eatToken(tokenizer, .separator);
+                    const name_tok = try eatToken(tokenizer, .tag_content);
                     const name = tokenizer.buffer[name_tok.start..name_tok.end];
                     var error_str: []const u8 = "";
                     const maybe_sep = tokenizer.next();
                     switch (maybe_sep.id) {
-                        Token.Id.Separator => {
-                            const error_tok = try eatToken(tokenizer, Token.Id.TagContent);
+                        .separator => {
+                            const error_tok = try eatToken(tokenizer, .tag_content);
                             error_str = tokenizer.buffer[error_tok.start..error_tok.end];
-                            _ = try eatToken(tokenizer, Token.Id.BracketClose);
+                            _ = try eatToken(tokenizer, .bracket_close);
                         },
-                        Token.Id.BracketClose => {},
+                        .bracket_close => {},
                         else => return parseError(tokenizer, token, "invalid token", .{}),
                     }
                     const code_kind_str = tokenizer.buffer[code_kind_tok.start..code_kind_tok.end];
                     var code_kind_id: Code.Id = undefined;
                     var just_check_syntax = false;
                     if (mem.eql(u8, code_kind_str, "exe")) {
-                        code_kind_id = Code.Id{ .Exe = ExpectedOutcome.Succeed };
+                        code_kind_id = Code.Id{ .exe = .succeed };
                     } else if (mem.eql(u8, code_kind_str, "exe_err")) {
-                        code_kind_id = Code.Id{ .Exe = ExpectedOutcome.Fail };
+                        code_kind_id = Code.Id{ .exe = .fail };
                     } else if (mem.eql(u8, code_kind_str, "exe_build_err")) {
-                        code_kind_id = Code.Id{ .Exe = ExpectedOutcome.BuildFail };
+                        code_kind_id = Code.Id{ .exe = .build_fail };
                     } else if (mem.eql(u8, code_kind_str, "test")) {
-                        code_kind_id = Code.Id.Test;
+                        code_kind_id = .@"test";
                     } else if (mem.eql(u8, code_kind_str, "test_err")) {
-                        code_kind_id = Code.Id{ .TestError = error_str };
+                        code_kind_id = Code.Id{ .test_error = error_str };
                     } else if (mem.eql(u8, code_kind_str, "test_safety")) {
-                        code_kind_id = Code.Id{ .TestSafety = error_str };
+                        code_kind_id = Code.Id{ .test_safety = error_str };
                     } else if (mem.eql(u8, code_kind_str, "obj")) {
-                        code_kind_id = Code.Id{ .Obj = null };
+                        code_kind_id = Code.Id{ .obj = null };
                     } else if (mem.eql(u8, code_kind_str, "obj_err")) {
-                        code_kind_id = Code.Id{ .Obj = error_str };
+                        code_kind_id = Code.Id{ .obj = error_str };
                     } else if (mem.eql(u8, code_kind_str, "lib")) {
-                        code_kind_id = Code.Id.Lib;
+                        code_kind_id = Code.Id.lib;
                     } else if (mem.eql(u8, code_kind_str, "syntax")) {
-                        code_kind_id = Code.Id{ .Obj = null };
+                        code_kind_id = Code.Id{ .obj = null };
                         just_check_syntax = true;
                     } else {
                         return parseError(tokenizer, code_kind_tok, "unrecognized code kind: {s}", .{code_kind_str});
@@ -599,9 +599,9 @@ fn genToc(allocator: Allocator, tokenizer: *Tokenizer) !Toc {
                     defer additional_options.deinit();
 
                     const source_token = while (true) {
-                        const content_tok = try eatToken(tokenizer, Token.Id.Content);
-                        _ = try eatToken(tokenizer, Token.Id.BracketOpen);
-                        const end_code_tag = try eatToken(tokenizer, Token.Id.TagContent);
+                        const content_tok = try eatToken(tokenizer, .content);
+                        _ = try eatToken(tokenizer, .bracket_open);
+                        const end_code_tag = try eatToken(tokenizer, .tag_content);
                         const end_tag_name = tokenizer.buffer[end_code_tag.start..end_code_tag.end];
                         if (mem.eql(u8, end_tag_name, "code_release_fast")) {
                             mode = .ReleaseFast;
@@ -612,8 +612,8 @@ fn genToc(allocator: Allocator, tokenizer: *Tokenizer) !Toc {
                         } else if (mem.eql(u8, end_tag_name, "code_verbose_cimport")) {
                             verbose_cimport = true;
                         } else if (mem.eql(u8, end_tag_name, "code_link_object")) {
-                            _ = try eatToken(tokenizer, Token.Id.Separator);
-                            const obj_tok = try eatToken(tokenizer, Token.Id.TagContent);
+                            _ = try eatToken(tokenizer, .separator);
+                            const obj_tok = try eatToken(tokenizer, .tag_content);
                             try link_objects.append(tokenizer.buffer[obj_tok.start..obj_tok.end]);
                         } else if (mem.eql(u8, end_tag_name, "target_windows")) {
                             target_str = "x86_64-windows";
@@ -630,11 +630,11 @@ fn genToc(allocator: Allocator, tokenizer: *Tokenizer) !Toc {
                         } else if (mem.eql(u8, end_tag_name, "link_mode_dynamic")) {
                             link_mode = .Dynamic;
                         } else if (mem.eql(u8, end_tag_name, "additonal_option")) {
-                            _ = try eatToken(tokenizer, Token.Id.Separator);
-                            const option = try eatToken(tokenizer, Token.Id.TagContent);
+                            _ = try eatToken(tokenizer, .separator);
+                            const option = try eatToken(tokenizer, .tag_content);
                             try additional_options.append(tokenizer.buffer[option.start..option.end]);
                         } else if (mem.eql(u8, end_tag_name, "code_end")) {
-                            _ = try eatToken(tokenizer, Token.Id.BracketClose);
+                            _ = try eatToken(tokenizer, .bracket_close);
                             break content_tok;
                         } else {
                             return parseError(
@@ -644,7 +644,7 @@ fn genToc(allocator: Allocator, tokenizer: *Tokenizer) !Toc {
                                 .{end_tag_name},
                             );
                         }
-                        _ = try eatToken(tokenizer, Token.Id.BracketClose);
+                        _ = try eatToken(tokenizer, .bracket_close);
                     } else unreachable; // TODO issue #707
                     try nodes.append(Node{
                         .Code = Code{
@@ -664,10 +664,10 @@ fn genToc(allocator: Allocator, tokenizer: *Tokenizer) !Toc {
                     });
                     tokenizer.code_node_count += 1;
                 } else if (mem.eql(u8, tag_name, "syntax")) {
-                    _ = try eatToken(tokenizer, Token.Id.BracketClose);
-                    const content_tok = try eatToken(tokenizer, Token.Id.Content);
-                    _ = try eatToken(tokenizer, Token.Id.BracketOpen);
-                    const end_syntax_tag = try eatToken(tokenizer, Token.Id.TagContent);
+                    _ = try eatToken(tokenizer, .bracket_close);
+                    const content_tok = try eatToken(tokenizer, .content);
+                    _ = try eatToken(tokenizer, .bracket_open);
+                    const end_syntax_tag = try eatToken(tokenizer, .tag_content);
                     const end_tag_name = tokenizer.buffer[end_syntax_tag.start..end_syntax_tag.end];
                     if (!mem.eql(u8, end_tag_name, "endsyntax")) {
                         return parseError(
@@ -677,13 +677,13 @@ fn genToc(allocator: Allocator, tokenizer: *Tokenizer) !Toc {
                             .{end_tag_name},
                         );
                     }
-                    _ = try eatToken(tokenizer, Token.Id.BracketClose);
+                    _ = try eatToken(tokenizer, .bracket_close);
                     try nodes.append(Node{ .InlineSyntax = content_tok });
                 } else if (mem.eql(u8, tag_name, "shell_samp")) {
-                    _ = try eatToken(tokenizer, Token.Id.BracketClose);
-                    const content_tok = try eatToken(tokenizer, Token.Id.Content);
-                    _ = try eatToken(tokenizer, Token.Id.BracketOpen);
-                    const end_syntax_tag = try eatToken(tokenizer, Token.Id.TagContent);
+                    _ = try eatToken(tokenizer, .bracket_close);
+                    const content_tok = try eatToken(tokenizer, .content);
+                    _ = try eatToken(tokenizer, .bracket_open);
+                    const end_syntax_tag = try eatToken(tokenizer, .tag_content);
                     const end_tag_name = tokenizer.buffer[end_syntax_tag.start..end_syntax_tag.end];
                     if (!mem.eql(u8, end_tag_name, "end_shell_samp")) {
                         return parseError(
@@ -693,20 +693,20 @@ fn genToc(allocator: Allocator, tokenizer: *Tokenizer) !Toc {
                             .{end_tag_name},
                         );
                     }
-                    _ = try eatToken(tokenizer, Token.Id.BracketClose);
+                    _ = try eatToken(tokenizer, .bracket_close);
                     try nodes.append(Node{ .Shell = content_tok });
                 } else if (mem.eql(u8, tag_name, "syntax_block")) {
-                    _ = try eatToken(tokenizer, Token.Id.Separator);
-                    const source_type_tok = try eatToken(tokenizer, Token.Id.TagContent);
+                    _ = try eatToken(tokenizer, .separator);
+                    const source_type_tok = try eatToken(tokenizer, .tag_content);
                     var name: []const u8 = "sample_code";
                     const maybe_sep = tokenizer.next();
                     switch (maybe_sep.id) {
-                        Token.Id.Separator => {
-                            const name_tok = try eatToken(tokenizer, Token.Id.TagContent);
+                        .separator => {
+                            const name_tok = try eatToken(tokenizer, .tag_content);
                             name = tokenizer.buffer[name_tok.start..name_tok.end];
-                            _ = try eatToken(tokenizer, Token.Id.BracketClose);
+                            _ = try eatToken(tokenizer, .bracket_close);
                         },
-                        Token.Id.BracketClose => {},
+                        .bracket_close => {},
                         else => return parseError(tokenizer, token, "invalid token", .{}),
                     }
                     const source_type_str = tokenizer.buffer[source_type_tok.start..source_type_tok.end];
@@ -723,12 +723,12 @@ fn genToc(allocator: Allocator, tokenizer: *Tokenizer) !Toc {
                         return parseError(tokenizer, source_type_tok, "unrecognized code kind: {s}", .{source_type_str});
                     }
                     const source_token = while (true) {
-                        const content_tok = try eatToken(tokenizer, Token.Id.Content);
-                        _ = try eatToken(tokenizer, Token.Id.BracketOpen);
-                        const end_code_tag = try eatToken(tokenizer, Token.Id.TagContent);
+                        const content_tok = try eatToken(tokenizer, .content);
+                        _ = try eatToken(tokenizer, .bracket_open);
+                        const end_code_tag = try eatToken(tokenizer, .tag_content);
                         const end_tag_name = tokenizer.buffer[end_code_tag.start..end_code_tag.end];
                         if (mem.eql(u8, end_tag_name, "end_syntax_block")) {
-                            _ = try eatToken(tokenizer, Token.Id.BracketClose);
+                            _ = try eatToken(tokenizer, .bracket_close);
                             break content_tok;
                         } else {
                             return parseError(
@@ -738,7 +738,7 @@ fn genToc(allocator: Allocator, tokenizer: *Tokenizer) !Toc {
                                 .{end_tag_name},
                             );
                         }
-                        _ = try eatToken(tokenizer, Token.Id.BracketClose);
+                        _ = try eatToken(tokenizer, .bracket_close);
                     };
                     try nodes.append(Node{ .SyntaxBlock = SyntaxBlock{ .source_type = source_type, .name = name, .source_token = source_token } });
                 } else {
@@ -796,28 +796,37 @@ fn writeEscaped(out: anytype, input: []const u8) !void {
     }
 }
 
-//#define VT_RED "\x1b[31;1m"
-//#define VT_GREEN "\x1b[32;1m"
-//#define VT_CYAN "\x1b[36;1m"
-//#define VT_WHITE "\x1b[37;1m"
-//#define VT_BOLD "\x1b[0;1m"
-//#define VT_RESET "\x1b[0m"
-
-test "term color" {
-    const input_bytes = "A\x1b[32;1mgreen\x1b[0mB";
-    const result = try termColor(std.testing.allocator, input_bytes);
-    defer std.testing.allocator.free(result);
-    try testing.expectEqualSlices(u8, "A<span class=\"t32_1\">green</span>B", result);
+// Returns true if number is in slice.
+fn in(slice: []const u8, number: u8) bool {
+    for (slice) |n| {
+        if (number == n) return true;
+    }
+    return false;
 }
 
 fn termColor(allocator: Allocator, input: []const u8) ![]u8 {
+    // The SRG sequences generates by the Zig compiler are in the format:
+    //   ESC [ <foreground-color> ; <n> m
+    // or
+    //   ESC [ <n> m
+    //
+    // where
+    //   foreground-color is 31 (red), 32 (green), 36 (cyan)
+    //   n is 0 (reset), 1 (bold), 2 (dim)
+    //
+    //   Note that 37 (white) is currently not used by the compiler.
+    //
+    // See std.debug.TTY.Color.
+    const supported_sgr_colors = [_]u8{ 31, 32, 36 };
+    const supported_sgr_numbers = [_]u8{ 0, 1, 2 };
+
     var buf = std.ArrayList(u8).init(allocator);
     defer buf.deinit();
 
     var out = buf.writer();
-    var number_start_index: usize = undefined;
-    var first_number: usize = undefined;
-    var second_number: usize = undefined;
+    var sgr_param_start_index: usize = undefined;
+    var sgr_num: u8 = undefined;
+    var sgr_color: u8 = undefined;
     var i: usize = 0;
     var state: enum {
         start,
@@ -848,7 +857,7 @@ fn termColor(allocator: Allocator, input: []const u8) ![]u8 {
             },
             .lbracket => switch (c) {
                 '0'...'9' => {
-                    number_start_index = i;
+                    sgr_param_start_index = i;
                     state = .number;
                 },
                 else => return error.UnsupportedEscape,
@@ -856,13 +865,12 @@ fn termColor(allocator: Allocator, input: []const u8) ![]u8 {
             .number => switch (c) {
                 '0'...'9' => {},
                 else => {
-                    first_number = std.fmt.parseInt(usize, input[number_start_index..i], 10) catch unreachable;
-                    second_number = 0;
+                    sgr_num = try std.fmt.parseInt(u8, input[sgr_param_start_index..i], 10);
+                    sgr_color = 0;
                     state = .after_number;
                     i -= 1;
                 },
             },
-
             .after_number => switch (c) {
                 ';' => state = .arg,
                 'D' => state = .start,
@@ -877,7 +885,7 @@ fn termColor(allocator: Allocator, input: []const u8) ![]u8 {
             },
             .arg => switch (c) {
                 '0'...'9' => {
-                    number_start_index = i;
+                    sgr_param_start_index = i;
                     state = .arg_number;
                 },
                 else => return error.UnsupportedEscape,
@@ -885,7 +893,15 @@ fn termColor(allocator: Allocator, input: []const u8) ![]u8 {
             .arg_number => switch (c) {
                 '0'...'9' => {},
                 else => {
-                    second_number = std.fmt.parseInt(usize, input[number_start_index..i], 10) catch unreachable;
+                    // Keep the sequence consistent, foreground color first.
+                    // 32;1m is equivalent to 1;32m, but the latter will
+                    // generate an incorrect HTML class without notice.
+                    sgr_color = sgr_num;
+                    if (!in(&supported_sgr_colors, sgr_color)) return error.UnsupportedForegroundColor;
+
+                    sgr_num = try std.fmt.parseInt(u8, input[sgr_param_start_index..i], 10);
+                    if (!in(&supported_sgr_numbers, sgr_num)) return error.UnsupportedNumber;
+
                     state = .expect_end;
                     i -= 1;
                 },
@@ -896,10 +912,16 @@ fn termColor(allocator: Allocator, input: []const u8) ![]u8 {
                     while (open_span_count != 0) : (open_span_count -= 1) {
                         try out.writeAll("</span>");
                     }
-                    if (first_number != 0 or second_number != 0) {
-                        try out.print("<span class=\"t{d}_{d}\">", .{ first_number, second_number });
-                        open_span_count += 1;
+                    if (sgr_num == 0) {
+                        if (sgr_color != 0) return error.UnsupportedColor;
+                        continue;
                     }
+                    if (sgr_color != 0) {
+                        try out.print("<span class=\"sgr-{d}_{d}m\">", .{ sgr_color, sgr_num });
+                    } else {
+                        try out.print("<span class=\"sgr-{d}m\">", .{sgr_num});
+                    }
+                    open_span_count += 1;
                 },
                 else => return error.UnsupportedEscape,
             },
@@ -1223,45 +1245,43 @@ fn printShell(out: anytype, shell_content: []const u8, escape: bool) !void {
     const trimmed_shell_content = mem.trim(u8, shell_content, " \n");
     try out.writeAll("<figure><figcaption class=\"shell-cap\">Shell</figcaption><pre><samp>");
     var cmd_cont: bool = false;
-    var iter = std.mem.split(u8, trimmed_shell_content, "\n");
+    var iter = std.mem.splitScalar(u8, trimmed_shell_content, '\n');
     while (iter.next()) |orig_line| {
         const line = mem.trimRight(u8, orig_line, " ");
         if (!cmd_cont and line.len > 1 and mem.eql(u8, line[0..2], "$ ") and line[line.len - 1] != '\\') {
-            try out.writeAll(start_line ++ "$ <kbd>");
+            try out.writeAll("$ <kbd>");
             const s = std.mem.trimLeft(u8, line[1..], " ");
             if (escape) {
                 try writeEscaped(out, s);
             } else {
                 try out.writeAll(s);
             }
-            try out.writeAll("</kbd>" ++ end_line ++ "\n");
+            try out.writeAll("</kbd>" ++ "\n");
         } else if (!cmd_cont and line.len > 1 and mem.eql(u8, line[0..2], "$ ") and line[line.len - 1] == '\\') {
-            try out.writeAll(start_line ++ "$ <kbd>");
+            try out.writeAll("$ <kbd>");
             const s = std.mem.trimLeft(u8, line[1..], " ");
             if (escape) {
                 try writeEscaped(out, s);
             } else {
                 try out.writeAll(s);
             }
-            try out.writeAll(end_line ++ "\n");
+            try out.writeAll("\n");
             cmd_cont = true;
         } else if (line.len > 0 and line[line.len - 1] != '\\' and cmd_cont) {
-            try out.writeAll(start_line);
             if (escape) {
                 try writeEscaped(out, line);
             } else {
                 try out.writeAll(line);
             }
-            try out.writeAll("</kbd>" ++ end_line ++ "\n");
+            try out.writeAll("</kbd>" ++ "\n");
             cmd_cont = false;
         } else {
-            try out.writeAll(start_line);
             if (escape) {
                 try writeEscaped(out, line);
             } else {
                 try out.writeAll(line);
             }
-            try out.writeAll(end_line ++ "\n");
+            try out.writeAll("\n");
         }
     }
 
@@ -1371,7 +1391,7 @@ fn genHtml(
                 var shell_out = shell_buffer.writer();
 
                 switch (code.id) {
-                    Code.Id.Exe => |expected_outcome| code_block: {
+                    .exe => |expected_outcome| code_block: {
                         var build_args = std.ArrayList([]const u8).init(allocator);
                         defer build_args.deinit();
                         try build_args.appendSlice(&[_][]const u8{
@@ -1420,7 +1440,7 @@ fn genHtml(
 
                         try shell_out.print("\n", .{});
 
-                        if (expected_outcome == .BuildFail) {
+                        if (expected_outcome == .build_fail) {
                             const result = try ChildProcess.exec(.{
                                 .allocator = allocator,
                                 .argv = build_args.items,
@@ -1476,7 +1496,7 @@ fn genHtml(
 
                         var exited_with_signal = false;
 
-                        const result = if (expected_outcome == ExpectedOutcome.Fail) blk: {
+                        const result = if (expected_outcome == .fail) blk: {
                             const result = try ChildProcess.exec(.{
                                 .allocator = allocator,
                                 .argv = run_args,
@@ -1507,13 +1527,13 @@ fn genHtml(
                         const colored_stderr = try termColor(allocator, escaped_stderr);
                         const colored_stdout = try termColor(allocator, escaped_stdout);
 
-                        try shell_out.print("\n$ ./{s}\n{s}{s}", .{ code.name, colored_stdout, colored_stderr });
+                        try shell_out.print("$ ./{s}\n{s}{s}", .{ code.name, colored_stdout, colored_stderr });
                         if (exited_with_signal) {
                             try shell_out.print("(process terminated by signal)", .{});
                         }
                         try shell_out.writeAll("\n");
                     },
-                    Code.Id.Test => {
+                    .@"test" => {
                         var test_args = std.ArrayList([]const u8).init(allocator);
                         defer test_args.deinit();
 
@@ -1565,7 +1585,7 @@ fn genHtml(
                         const escaped_stdout = try escapeHtml(allocator, result.stdout);
                         try shell_out.print("\n{s}{s}\n", .{ escaped_stderr, escaped_stdout });
                     },
-                    Code.Id.TestError => |error_match| {
+                    .test_error => |error_match| {
                         var test_args = std.ArrayList([]const u8).init(allocator);
                         defer test_args.deinit();
 
@@ -1621,8 +1641,7 @@ fn genHtml(
                         const colored_stderr = try termColor(allocator, escaped_stderr);
                         try shell_out.print("\n{s}\n", .{colored_stderr});
                     },
-
-                    Code.Id.TestSafety => |error_match| {
+                    .test_safety => |error_match| {
                         var test_args = std.ArrayList([]const u8).init(allocator);
                         defer test_args.deinit();
 
@@ -1685,7 +1704,7 @@ fn genHtml(
                             colored_stderr,
                         });
                     },
-                    Code.Id.Obj => |maybe_error_match| {
+                    .obj => |maybe_error_match| {
                         const name_plus_obj_ext = try std.fmt.allocPrint(allocator, "{s}{s}", .{ code.name, obj_ext });
                         var build_args = std.ArrayList([]const u8).init(allocator);
                         defer build_args.deinit();
@@ -1758,7 +1777,7 @@ fn genHtml(
                         }
                         try shell_out.writeAll("\n");
                     },
-                    Code.Id.Lib => {
+                    .lib => {
                         const bin_basename = try std.zig.binNameAlloc(allocator, .{
                             .root_name = code.name,
                             .target = builtin.target,
@@ -1878,7 +1897,193 @@ fn dumpArgs(args: []const []const u8) void {
         print("\n", .{});
 }
 
-test "shell parsed" {
+test "term supported colors" {
+    const test_allocator = testing.allocator;
+
+    {
+        const input = "A\x1b[31;1mred\x1b[0mB";
+        const expect = "A<span class=\"sgr-31_1m\">red</span>B";
+
+        const result = try termColor(test_allocator, input);
+        defer test_allocator.free(result);
+        try testing.expectEqualSlices(u8, expect, result);
+    }
+
+    {
+        const input = "A\x1b[32;1mgreen\x1b[0mB";
+        const expect = "A<span class=\"sgr-32_1m\">green</span>B";
+
+        const result = try termColor(test_allocator, input);
+        defer test_allocator.free(result);
+        try testing.expectEqualSlices(u8, expect, result);
+    }
+
+    {
+        const input = "A\x1b[36;1mcyan\x1b[0mB";
+        const expect = "A<span class=\"sgr-36_1m\">cyan</span>B";
+
+        const result = try termColor(test_allocator, input);
+        defer test_allocator.free(result);
+        try testing.expectEqualSlices(u8, expect, result);
+    }
+
+    {
+        const input = "A\x1b[1mbold\x1b[0mB";
+        const expect = "A<span class=\"sgr-1m\">bold</span>B";
+
+        const result = try termColor(test_allocator, input);
+        defer test_allocator.free(result);
+        try testing.expectEqualSlices(u8, expect, result);
+    }
+
+    {
+        const input = "A\x1b[2mdim\x1b[0mB";
+        const expect = "A<span class=\"sgr-2m\">dim</span>B";
+
+        const result = try termColor(test_allocator, input);
+        defer test_allocator.free(result);
+        try testing.expectEqualSlices(u8, expect, result);
+    }
+}
+
+test "term output from zig" {
+    // Use data generated by https://github.com/perillo/zig-tty-test-data,
+    // with zig version 0.11.0-dev.1898+36d47dd19.
+    const test_allocator = testing.allocator;
+
+    {
+        // 1.1-with-build-progress.out
+        const input = "Semantic Analysis [1324] \x1b[25D\x1b[0KLLVM Emit Object... \x1b[20D\x1b[0KLLVM Emit Object... \x1b[20D\x1b[0KLLD Link... \x1b[12D\x1b[0K";
+        const expect = "";
+
+        const result = try termColor(test_allocator, input);
+        defer test_allocator.free(result);
+        try testing.expectEqualSlices(u8, expect, result);
+    }
+
+    {
+        // 2.1-with-reference-traces.out
+        const input = "\x1b[1msrc/2.1-with-reference-traces.zig:3:7: \x1b[31;1merror: \x1b[0m\x1b[1mcannot assign to constant\n\x1b[0m    x += 1;\n    \x1b[32;1m~~^~~~\n\x1b[0m\x1b[0m\x1b[2mreferenced by:\n    main: src/2.1-with-reference-traces.zig:7:5\n    callMain: /usr/local/lib/zig/lib/std/start.zig:607:17\n    remaining reference traces hidden; use '-freference-trace' to see all reference traces\n\n\x1b[0m";
+        const expect =
+            \\<span class="sgr-1m">src/2.1-with-reference-traces.zig:3:7: </span><span class="sgr-31_1m">error: </span><span class="sgr-1m">cannot assign to constant
+            \\</span>    x += 1;
+            \\    <span class="sgr-32_1m">~~^~~~
+            \\</span><span class="sgr-2m">referenced by:
+            \\    main: src/2.1-with-reference-traces.zig:7:5
+            \\    callMain: /usr/local/lib/zig/lib/std/start.zig:607:17
+            \\    remaining reference traces hidden; use '-freference-trace' to see all reference traces
+            \\
+            \\</span>
+        ;
+
+        const result = try termColor(test_allocator, input);
+        defer test_allocator.free(result);
+        try testing.expectEqualSlices(u8, expect, result);
+    }
+
+    {
+        // 2.2-without-reference-traces.out
+        const input = "\x1b[1m/usr/local/lib/zig/lib/std/io/fixed_buffer_stream.zig:128:29: \x1b[31;1merror: \x1b[0m\x1b[1minvalid type given to fixedBufferStream\n\x1b[0m                    else => @compileError(\"invalid type given to fixedBufferStream\"),\n                            \x1b[32;1m^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n\x1b[0m\x1b[1m/usr/local/lib/zig/lib/std/io/fixed_buffer_stream.zig:116:66: \x1b[36;1mnote: \x1b[0m\x1b[1mcalled from here\n\x1b[0mpub fn fixedBufferStream(buffer: anytype) FixedBufferStream(Slice(@TypeOf(buffer))) {\n;                                                            \x1b[32;1m~~~~~^~~~~~~~~~~~~~~~~\n\x1b[0m";
+        const expect =
+            \\<span class="sgr-1m">/usr/local/lib/zig/lib/std/io/fixed_buffer_stream.zig:128:29: </span><span class="sgr-31_1m">error: </span><span class="sgr-1m">invalid type given to fixedBufferStream
+            \\</span>                    else => @compileError("invalid type given to fixedBufferStream"),
+            \\                            <span class="sgr-32_1m">^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            \\</span><span class="sgr-1m">/usr/local/lib/zig/lib/std/io/fixed_buffer_stream.zig:116:66: </span><span class="sgr-36_1m">note: </span><span class="sgr-1m">called from here
+            \\</span>pub fn fixedBufferStream(buffer: anytype) FixedBufferStream(Slice(@TypeOf(buffer))) {
+            \\;                                                            <span class="sgr-32_1m">~~~~~^~~~~~~~~~~~~~~~~
+            \\</span>
+        ;
+
+        const result = try termColor(test_allocator, input);
+        defer test_allocator.free(result);
+        try testing.expectEqualSlices(u8, expect, result);
+    }
+
+    {
+        // 2.3-with-notes.out
+        const input = "\x1b[1msrc/2.3-with-notes.zig:6:9: \x1b[31;1merror: \x1b[0m\x1b[1mexpected type '*2.3-with-notes.Derp', found '*2.3-with-notes.Wat'\n\x1b[0m    bar(w);\n        \x1b[32;1m^\n\x1b[0m\x1b[1msrc/2.3-with-notes.zig:6:9: \x1b[36;1mnote: \x1b[0m\x1b[1mpointer type child '2.3-with-notes.Wat' cannot cast into pointer type child '2.3-with-notes.Derp'\n\x1b[0m\x1b[1msrc/2.3-with-notes.zig:2:13: \x1b[36;1mnote: \x1b[0m\x1b[1mopaque declared here\n\x1b[0mconst Wat = opaque {};\n            \x1b[32;1m^~~~~~~~~\n\x1b[0m\x1b[1msrc/2.3-with-notes.zig:1:14: \x1b[36;1mnote: \x1b[0m\x1b[1mopaque declared here\n\x1b[0mconst Derp = opaque {};\n             \x1b[32;1m^~~~~~~~~\n\x1b[0m\x1b[1msrc/2.3-with-notes.zig:4:18: \x1b[36;1mnote: \x1b[0m\x1b[1mparameter type declared here\n\x1b[0mextern fn bar(d: *Derp) void;\n                 \x1b[32;1m^~~~~\n\x1b[0m\x1b[0m\x1b[2mreferenced by:\n    main: src/2.3-with-notes.zig:10:5\n    callMain: /usr/local/lib/zig/lib/std/start.zig:607:17\n    remaining reference traces hidden; use '-freference-trace' to see all reference traces\n\n\x1b[0m";
+        const expect =
+            \\<span class="sgr-1m">src/2.3-with-notes.zig:6:9: </span><span class="sgr-31_1m">error: </span><span class="sgr-1m">expected type '*2.3-with-notes.Derp', found '*2.3-with-notes.Wat'
+            \\</span>    bar(w);
+            \\        <span class="sgr-32_1m">^
+            \\</span><span class="sgr-1m">src/2.3-with-notes.zig:6:9: </span><span class="sgr-36_1m">note: </span><span class="sgr-1m">pointer type child '2.3-with-notes.Wat' cannot cast into pointer type child '2.3-with-notes.Derp'
+            \\</span><span class="sgr-1m">src/2.3-with-notes.zig:2:13: </span><span class="sgr-36_1m">note: </span><span class="sgr-1m">opaque declared here
+            \\</span>const Wat = opaque {};
+            \\            <span class="sgr-32_1m">^~~~~~~~~
+            \\</span><span class="sgr-1m">src/2.3-with-notes.zig:1:14: </span><span class="sgr-36_1m">note: </span><span class="sgr-1m">opaque declared here
+            \\</span>const Derp = opaque {};
+            \\             <span class="sgr-32_1m">^~~~~~~~~
+            \\</span><span class="sgr-1m">src/2.3-with-notes.zig:4:18: </span><span class="sgr-36_1m">note: </span><span class="sgr-1m">parameter type declared here
+            \\</span>extern fn bar(d: *Derp) void;
+            \\                 <span class="sgr-32_1m">^~~~~
+            \\</span><span class="sgr-2m">referenced by:
+            \\    main: src/2.3-with-notes.zig:10:5
+            \\    callMain: /usr/local/lib/zig/lib/std/start.zig:607:17
+            \\    remaining reference traces hidden; use '-freference-trace' to see all reference traces
+            \\
+            \\</span>
+        ;
+
+        const result = try termColor(test_allocator, input);
+        defer test_allocator.free(result);
+        try testing.expectEqualSlices(u8, expect, result);
+    }
+
+    {
+        // 3.1-with-error-return-traces.out
+
+        const input = "error: Error\n\x1b[1m/home/zig/src/3.1-with-error-return-traces.zig:5:5\x1b[0m: \x1b[2m0x20b008 in callee (3.1-with-error-return-traces)\x1b[0m\n    return error.Error;\n    \x1b[32;1m^\x1b[0m\n\x1b[1m/home/zig/src/3.1-with-error-return-traces.zig:9:5\x1b[0m: \x1b[2m0x20b113 in caller (3.1-with-error-return-traces)\x1b[0m\n    try callee();\n    \x1b[32;1m^\x1b[0m\n\x1b[1m/home/zig/src/3.1-with-error-return-traces.zig:13:5\x1b[0m: \x1b[2m0x20b153 in main (3.1-with-error-return-traces)\x1b[0m\n    try caller();\n    \x1b[32;1m^\x1b[0m\n";
+        const expect =
+            \\error: Error
+            \\<span class="sgr-1m">/home/zig/src/3.1-with-error-return-traces.zig:5:5</span>: <span class="sgr-2m">0x20b008 in callee (3.1-with-error-return-traces)</span>
+            \\    return error.Error;
+            \\    <span class="sgr-32_1m">^</span>
+            \\<span class="sgr-1m">/home/zig/src/3.1-with-error-return-traces.zig:9:5</span>: <span class="sgr-2m">0x20b113 in caller (3.1-with-error-return-traces)</span>
+            \\    try callee();
+            \\    <span class="sgr-32_1m">^</span>
+            \\<span class="sgr-1m">/home/zig/src/3.1-with-error-return-traces.zig:13:5</span>: <span class="sgr-2m">0x20b153 in main (3.1-with-error-return-traces)</span>
+            \\    try caller();
+            \\    <span class="sgr-32_1m">^</span>
+            \\
+        ;
+
+        const result = try termColor(test_allocator, input);
+        defer test_allocator.free(result);
+        try testing.expectEqualSlices(u8, expect, result);
+    }
+
+    {
+        // 3.2-with-stack-trace.out
+        const input = "\x1b[1m/usr/local/lib/zig/lib/std/debug.zig:561:19\x1b[0m: \x1b[2m0x22a107 in writeCurrentStackTrace__anon_5898 (3.2-with-stack-trace)\x1b[0m\n    while (it.next()) |return_address| {\n                  \x1b[32;1m^\x1b[0m\n\x1b[1m/usr/local/lib/zig/lib/std/debug.zig:157:80\x1b[0m: \x1b[2m0x20bb23 in dumpCurrentStackTrace (3.2-with-stack-trace)\x1b[0m\n        writeCurrentStackTrace(stderr, debug_info, detectTTYConfig(io.getStdErr()), start_addr) catch |err| {\n                                                                               \x1b[32;1m^\x1b[0m\n\x1b[1m/home/zig/src/3.2-with-stack-trace.zig:5:36\x1b[0m: \x1b[2m0x20d3b2 in foo (3.2-with-stack-trace)\x1b[0m\n    std.debug.dumpCurrentStackTrace(null);\n                                   \x1b[32;1m^\x1b[0m\n\x1b[1m/home/zig/src/3.2-with-stack-trace.zig:9:8\x1b[0m: \x1b[2m0x20b458 in main (3.2-with-stack-trace)\x1b[0m\n    foo();\n       \x1b[32;1m^\x1b[0m\n\x1b[1m/usr/local/lib/zig/lib/std/start.zig:607:22\x1b[0m: \x1b[2m0x20a965 in posixCallMainAndExit (3.2-with-stack-trace)\x1b[0m\n            root.main();\n                     \x1b[32;1m^\x1b[0m\n\x1b[1m/usr/local/lib/zig/lib/std/start.zig:376:5\x1b[0m: \x1b[2m0x20a411 in _start (3.2-with-stack-trace)\x1b[0m\n    @call(.never_inline, posixCallMainAndExit, .{});\n    \x1b[32;1m^\x1b[0m\n";
+        const expect =
+            \\<span class="sgr-1m">/usr/local/lib/zig/lib/std/debug.zig:561:19</span>: <span class="sgr-2m">0x22a107 in writeCurrentStackTrace__anon_5898 (3.2-with-stack-trace)</span>
+            \\    while (it.next()) |return_address| {
+            \\                  <span class="sgr-32_1m">^</span>
+            \\<span class="sgr-1m">/usr/local/lib/zig/lib/std/debug.zig:157:80</span>: <span class="sgr-2m">0x20bb23 in dumpCurrentStackTrace (3.2-with-stack-trace)</span>
+            \\        writeCurrentStackTrace(stderr, debug_info, detectTTYConfig(io.getStdErr()), start_addr) catch |err| {
+            \\                                                                               <span class="sgr-32_1m">^</span>
+            \\<span class="sgr-1m">/home/zig/src/3.2-with-stack-trace.zig:5:36</span>: <span class="sgr-2m">0x20d3b2 in foo (3.2-with-stack-trace)</span>
+            \\    std.debug.dumpCurrentStackTrace(null);
+            \\                                   <span class="sgr-32_1m">^</span>
+            \\<span class="sgr-1m">/home/zig/src/3.2-with-stack-trace.zig:9:8</span>: <span class="sgr-2m">0x20b458 in main (3.2-with-stack-trace)</span>
+            \\    foo();
+            \\       <span class="sgr-32_1m">^</span>
+            \\<span class="sgr-1m">/usr/local/lib/zig/lib/std/start.zig:607:22</span>: <span class="sgr-2m">0x20a965 in posixCallMainAndExit (3.2-with-stack-trace)</span>
+            \\            root.main();
+            \\                     <span class="sgr-32_1m">^</span>
+            \\<span class="sgr-1m">/usr/local/lib/zig/lib/std/start.zig:376:5</span>: <span class="sgr-2m">0x20a411 in _start (3.2-with-stack-trace)</span>
+            \\    @call(.never_inline, posixCallMainAndExit, .{});
+            \\    <span class="sgr-32_1m">^</span>
+            \\
+        ;
+
+        const result = try termColor(test_allocator, input);
+        defer test_allocator.free(result);
+        try testing.expectEqualSlices(u8, expect, result);
+    }
+}
+
+test "printShell" {
     const test_allocator = std.testing.allocator;
 
     {
@@ -1886,7 +2091,7 @@ test "shell parsed" {
             \\$ zig build test.zig
         ;
         const expected =
-            \\<figure><figcaption class="shell-cap">Shell</figcaption><pre><samp><span class="line">$ <kbd>zig build test.zig</kbd></span>
+            \\<figure><figcaption class="shell-cap">Shell</figcaption><pre><samp>$ <kbd>zig build test.zig</kbd>
             \\</samp></pre></figure>
         ;
 
@@ -1894,7 +2099,6 @@ test "shell parsed" {
         defer buffer.deinit();
 
         try printShell(buffer.writer(), shell_out, false);
-        std.log.emerg("{s}", .{buffer.items});
         try testing.expectEqualSlices(u8, expected, buffer.items);
     }
     {
@@ -1903,8 +2107,8 @@ test "shell parsed" {
             \\build output
         ;
         const expected =
-            \\<figure><figcaption class="shell-cap">Shell</figcaption><pre><samp><span class="line">$ <kbd>zig build test.zig</kbd></span>
-            \\<span class="line">build output</span>
+            \\<figure><figcaption class="shell-cap">Shell</figcaption><pre><samp>$ <kbd>zig build test.zig</kbd>
+            \\build output
             \\</samp></pre></figure>
         ;
 
@@ -1921,9 +2125,9 @@ test "shell parsed" {
             \\$ ./test
         ;
         const expected =
-            \\<figure><figcaption class="shell-cap">Shell</figcaption><pre><samp><span class="line">$ <kbd>zig build test.zig</kbd></span>
-            \\<span class="line">build output</span>
-            \\<span class="line">$ <kbd>./test</kbd></span>
+            \\<figure><figcaption class="shell-cap">Shell</figcaption><pre><samp>$ <kbd>zig build test.zig</kbd>
+            \\build output
+            \\$ <kbd>./test</kbd>
             \\</samp></pre></figure>
         ;
 
@@ -1941,10 +2145,10 @@ test "shell parsed" {
             \\output
         ;
         const expected =
-            \\<figure><figcaption class="shell-cap">Shell</figcaption><pre><samp><span class="line">$ <kbd>zig build test.zig</kbd></span>
-            \\<span class="line"></span>
-            \\<span class="line">$ <kbd>./test</kbd></span>
-            \\<span class="line">output</span>
+            \\<figure><figcaption class="shell-cap">Shell</figcaption><pre><samp>$ <kbd>zig build test.zig</kbd>
+            \\
+            \\$ <kbd>./test</kbd>
+            \\output
             \\</samp></pre></figure>
         ;
 
@@ -1961,9 +2165,9 @@ test "shell parsed" {
             \\output
         ;
         const expected =
-            \\<figure><figcaption class="shell-cap">Shell</figcaption><pre><samp><span class="line">$ <kbd>zig build test.zig</kbd></span>
-            \\<span class="line">$ <kbd>./test</kbd></span>
-            \\<span class="line">output</span>
+            \\<figure><figcaption class="shell-cap">Shell</figcaption><pre><samp>$ <kbd>zig build test.zig</kbd>
+            \\$ <kbd>./test</kbd>
+            \\output
             \\</samp></pre></figure>
         ;
 
@@ -1982,11 +2186,11 @@ test "shell parsed" {
             \\output
         ;
         const expected =
-            \\<figure><figcaption class="shell-cap">Shell</figcaption><pre><samp><span class="line">$ <kbd>zig build test.zig \</span>
-            \\<span class="line"> --build-option</kbd></span>
-            \\<span class="line">build output</span>
-            \\<span class="line">$ <kbd>./test</kbd></span>
-            \\<span class="line">output</span>
+            \\<figure><figcaption class="shell-cap">Shell</figcaption><pre><samp>$ <kbd>zig build test.zig \
+            \\ --build-option</kbd>
+            \\build output
+            \\$ <kbd>./test</kbd>
+            \\output
             \\</samp></pre></figure>
         ;
 
@@ -2000,15 +2204,15 @@ test "shell parsed" {
         // intentional space after "--build-option1 \"
         const shell_out =
             \\$ zig build test.zig \
-            \\ --build-option1 \
+            \\ --build-option1 \ 
             \\ --build-option2
             \\$ ./test
         ;
         const expected =
-            \\<figure><figcaption class="shell-cap">Shell</figcaption><pre><samp><span class="line">$ <kbd>zig build test.zig \</span>
-            \\<span class="line"> --build-option1 \</span>
-            \\<span class="line"> --build-option2</kbd></span>
-            \\<span class="line">$ <kbd>./test</kbd></span>
+            \\<figure><figcaption class="shell-cap">Shell</figcaption><pre><samp>$ <kbd>zig build test.zig \
+            \\ --build-option1 \
+            \\ --build-option2</kbd>
+            \\$ <kbd>./test</kbd>
             \\</samp></pre></figure>
         ;
 
@@ -2024,8 +2228,8 @@ test "shell parsed" {
             \\$ ./test
         ;
         const expected =
-            \\<figure><figcaption class="shell-cap">Shell</figcaption><pre><samp><span class="line">$ <kbd>zig build test.zig \</span>
-            \\<span class="line">$ ./test</kbd></span>
+            \\<figure><figcaption class="shell-cap">Shell</figcaption><pre><samp>$ <kbd>zig build test.zig \
+            \\$ ./test</kbd>
             \\</samp></pre></figure>
         ;
 
@@ -2042,9 +2246,9 @@ test "shell parsed" {
             \\$1
         ;
         const expected =
-            \\<figure><figcaption class="shell-cap">Shell</figcaption><pre><samp><span class="line">$ <kbd>zig build test.zig</kbd></span>
-            \\<span class="line">$ <kbd>./test</kbd></span>
-            \\<span class="line">$1</span>
+            \\<figure><figcaption class="shell-cap">Shell</figcaption><pre><samp>$ <kbd>zig build test.zig</kbd>
+            \\$ <kbd>./test</kbd>
+            \\$1
             \\</samp></pre></figure>
         ;
 
@@ -2059,7 +2263,7 @@ test "shell parsed" {
             \\$zig build test.zig
         ;
         const expected =
-            \\<figure><figcaption class="shell-cap">Shell</figcaption><pre><samp><span class="line">$zig build test.zig</span>
+            \\<figure><figcaption class="shell-cap">Shell</figcaption><pre><samp>$zig build test.zig
             \\</samp></pre></figure>
         ;
 

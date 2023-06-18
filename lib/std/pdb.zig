@@ -912,7 +912,7 @@ const Msf = struct {
         const stream_sizes = try allocator.alloc(u32, stream_count);
         defer allocator.free(stream_sizes);
 
-        // Microsoft's implementation uses @as(u32, -1) for inexistant streams.
+        // Microsoft's implementation uses @as(u32, -1) for inexistent streams.
         // These streams are not used, but still participate in the file
         // and must be taken into account when resolving stream indices.
         const Nil = 0xFFFFFFFF;
@@ -1049,7 +1049,7 @@ const MsfStream = struct {
         var size: usize = 0;
         var rem_buffer = buffer;
         while (size < buffer.len) {
-            const size_to_read = math.min(self.block_size - offset, rem_buffer.len);
+            const size_to_read = @min(self.block_size - offset, rem_buffer.len);
             size += try in.read(rem_buffer[0..size_to_read]);
             rem_buffer = buffer[size..];
             offset += size_to_read;

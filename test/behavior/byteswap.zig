@@ -8,6 +8,7 @@ test "@byteSwap integers" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const ByteSwapIntTest = struct {
         fn run() !void {
@@ -49,7 +50,7 @@ test "@byteSwap integers" {
             try std.testing.expect(expected_output == @byteSwap(input));
         }
     };
-    comptime try ByteSwapIntTest.run();
+    try comptime ByteSwapIntTest.run();
     try ByteSwapIntTest.run();
 }
 
@@ -66,8 +67,9 @@ test "@byteSwap vectors u8" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
-    comptime try vector8();
+    try comptime vector8();
     try vector8();
 }
 
@@ -84,8 +86,9 @@ test "@byteSwap vectors u16" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
-    comptime try vector16();
+    try comptime vector16();
     try vector16();
 }
 
@@ -102,8 +105,9 @@ test "@byteSwap vectors u24" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
-    comptime try vector24();
+    try comptime vector24();
     try vector24();
 }
 
@@ -117,6 +121,6 @@ fn vector0() !void {
 test "@byteSwap vectors u0" {
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest;
 
-    comptime try vector0();
+    try comptime vector0();
     try vector0();
 }

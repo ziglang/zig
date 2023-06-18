@@ -107,7 +107,7 @@ fn buildFseTable(values: []const u16, entries: []Table.Fse) !void {
                 position &= entries.len - 1;
             }
         }
-        std.sort.sort(u16, temp_states[0..probability], {}, std.sort.asc(u16));
+        std.mem.sort(u16, temp_states[0..probability], {}, std.sort.asc(u16));
         for (0..probability) |i| {
             entries[temp_states[i]] = if (i < double_state_count) Table.Fse{
                 .symbol = @intCast(u8, symbol),

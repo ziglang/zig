@@ -1,5 +1,4 @@
 const std = @import("std");
-const CompileStep = std.Build.CompileStep;
 const FileSource = std.Build.FileSource;
 const Step = std.Build.Step;
 
@@ -60,10 +59,10 @@ fn simpleDylib(
     b: *std.Build,
     optimize: std.builtin.OptimizeMode,
     target: std.zig.CrossTarget,
-) *std.Build.CompileStep {
+) *std.Build.Step.Compile {
     const dylib = b.addSharedLibrary(.{
         .name = "test",
-        .version = .{ .major = 1, .minor = 0 },
+        .version = .{ .major = 1, .minor = 0, .patch = 0 },
         .optimize = optimize,
         .target = target,
     });

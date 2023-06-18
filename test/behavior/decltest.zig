@@ -1,3 +1,5 @@
+const builtin = @import("builtin");
+
 pub fn the_add_function(a: u32, b: u32) u32 {
     return a + b;
 }

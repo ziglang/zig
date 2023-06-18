@@ -155,8 +155,18 @@ fn Hash(comptime endian: std.builtin.Endian, comptime shift_key: bool) type {
             }
         }
 
-        // Software carryless multiplication of two 64-bit integers.
-        fn clmulSoft(x_: u128, y_: u128, comptime half: Selector) u128 {
+        /// clmulSoft128_64 is faster on platforms with no native 128-bit registers.
+        const clmulSoft = switch (builtin.cpu.arch) {
+            .wasm32, .wasm64 => clmulSoft128_64,
+            else => impl: {
+                const vector_size = std.simd.suggestVectorSize(u128) orelse 0;
+                if (vector_size < 128) break :impl clmulSoft128_64;
+                break :impl clmulSoft128;
+            },
+        };
+
+        // Software carryless multiplication of two 64-bit integers using native 128-bit registers.
+        fn clmulSoft128(x_: u128, y_: u128, comptime half: Selector) u128 {
             const x = @truncate(u64, if (half == .hi or half == .hi_lo) x_ >> 64 else x_);
             const y = @truncate(u64, if (half == .hi) y_ >> 64 else y_);
 
@@ -184,6 +194,40 @@ fn Hash(comptime endian: std.builtin.Endian, comptime shift_key: bool) type {
                 (z1 & 0x22222222222222222222222222222222) ^
                 (z2 & 0x44444444444444444444444444444444) ^
                 (z3 & 0x88888888888888888888888888888888) ^ extra;
+        }
+
+        // Software carryless multiplication of two 32-bit integers.
+        fn clmulSoft32(x: u32, y: u32) u64 {
+            const mulWide = math.mulWide;
+            const a0 = x & 0x11111111;
+            const a1 = x & 0x22222222;
+            const a2 = x & 0x44444444;
+            const a3 = x & 0x88888888;
+            const b0 = y & 0x11111111;
+            const b1 = y & 0x22222222;
+            const b2 = y & 0x44444444;
+            const b3 = y & 0x88888888;
+            const c0 = mulWide(u32, a0, b0) ^ mulWide(u32, a1, b3) ^ mulWide(u32, a2, b2) ^ mulWide(u32, a3, b1);
+            const c1 = mulWide(u32, a0, b1) ^ mulWide(u32, a1, b0) ^ mulWide(u32, a2, b3) ^ mulWide(u32, a3, b2);
+            const c2 = mulWide(u32, a0, b2) ^ mulWide(u32, a1, b1) ^ mulWide(u32, a2, b0) ^ mulWide(u32, a3, b3);
+            const c3 = mulWide(u32, a0, b3) ^ mulWide(u32, a1, b2) ^ mulWide(u32, a2, b1) ^ mulWide(u32, a3, b0);
+            return (c0 & 0x1111111111111111) | (c1 & 0x2222222222222222) | (c2 & 0x4444444444444444) | (c3 & 0x8888888888888888);
+        }
+
+        // Software carryless multiplication of two 128-bit integers using 64-bit registers.
+        fn clmulSoft128_64(x_: u128, y_: u128, comptime half: Selector) u128 {
+            const a = @truncate(u64, if (half == .hi or half == .hi_lo) x_ >> 64 else x_);
+            const b = @truncate(u64, if (half == .hi) y_ >> 64 else y_);
+            const a0 = @truncate(u32, a);
+            const a1 = @truncate(u32, a >> 32);
+            const b0 = @truncate(u32, b);
+            const b1 = @truncate(u32, b >> 32);
+            const lo = clmulSoft32(a0, b0);
+            const hi = clmulSoft32(a1, b1);
+            const mid = clmulSoft32(a0 ^ a1, b0 ^ b1) ^ lo ^ hi;
+            const res_lo = lo ^ (mid << 32);
+            const res_hi = hi ^ (mid >> 32);
+            return @as(u128, res_lo) | (@as(u128, res_hi) << 64);
         }
 
         const I256 = struct {
@@ -319,7 +363,7 @@ fn Hash(comptime endian: std.builtin.Endian, comptime shift_key: bool) type {
             var mb = m;
 
             if (st.leftover > 0) {
-                const want = math.min(block_length - st.leftover, mb.len);
+                const want = @min(block_length - st.leftover, mb.len);
                 const mc = mb[0..want];
                 for (mc, 0..) |x, i| {
                     st.buf[st.leftover + i] = x;

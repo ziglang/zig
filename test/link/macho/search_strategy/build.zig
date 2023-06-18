@@ -24,7 +24,8 @@ fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.Optimize
         check.checkStart("cmd LOAD_DYLIB");
         check.checkNext("name @rpath/libsearch_dylibs_first.dylib");
 
-        const run = check.runAndCompare();
+        const run = b.addRunArtifact(exe);
+        run.skip_foreign_checks = true;
         run.expectStdOutEqual("Hello world");
         test_step.dependOn(&run.step);
     }
@@ -46,7 +47,7 @@ fn createScenario(
     optimize: std.builtin.OptimizeMode,
     target: std.zig.CrossTarget,
     name: []const u8,
-) *std.Build.CompileStep {
+) *std.Build.Step.Compile {
     const static = b.addStaticLibrary(.{
         .name = name,
         .optimize = optimize,
@@ -60,7 +61,7 @@ fn createScenario(
 
     const dylib = b.addSharedLibrary(.{
         .name = name,
-        .version = .{ .major = 1, .minor = 0 },
+        .version = .{ .major = 1, .minor = 0, .patch = 0 },
         .optimize = optimize,
         .target = target,
     });

@@ -143,9 +143,11 @@ const Section = struct {
 const LazySymbolTable = std.AutoArrayHashMapUnmanaged(Module.Decl.OptionalIndex, LazySymbolMetadata);
 
 const LazySymbolMetadata = struct {
-    text_atom: ?Atom.Index = null,
-    rdata_atom: ?Atom.Index = null,
-    alignment: u32,
+    const State = enum { unused, pending_flush, flushed };
+    text_atom: Atom.Index = undefined,
+    rdata_atom: Atom.Index = undefined,
+    text_state: State = .unused,
+    rdata_state: State = .unused,
 };
 
 const DeclMetadata = struct {
@@ -243,7 +245,7 @@ pub fn openPath(allocator: Allocator, sub_path: []const u8, options: link.Option
 }
 
 pub fn createEmpty(gpa: Allocator, options: link.Options) !*Coff {
-    const ptr_width: PtrWidth = switch (options.target.cpu.arch.ptrBitWidth()) {
+    const ptr_width: PtrWidth = switch (options.target.ptrBitWidth()) {
         0...32 => .p32,
         33...64 => .p64,
         else => return error.UnsupportedCOFFArchitecture,
@@ -435,10 +437,10 @@ fn allocateSection(self: *Coff, name: []const u8, size: u32, flags: coff.Section
     const vaddr = blk: {
         if (index == 0) break :blk self.page_size;
         const prev_header = self.sections.items(.header)[index - 1];
-        break :blk mem.alignForwardGeneric(u32, prev_header.virtual_address + prev_header.virtual_size, self.page_size);
+        break :blk mem.alignForward(u32, prev_header.virtual_address + prev_header.virtual_size, self.page_size);
     };
     // We commit more memory than needed upfront so that we don't have to reallocate too soon.
-    const memsz = mem.alignForwardGeneric(u32, size, self.page_size) * 100;
+    const memsz = mem.alignForward(u32, size, self.page_size) * 100;
     log.debug("found {s} free space 0x{x} to 0x{x} (0x{x} - 0x{x})", .{
         name,
         off,
@@ -503,8 +505,8 @@ fn growSection(self: *Coff, sect_id: u32, needed_size: u32) !void {
 fn growSectionVirtualMemory(self: *Coff, sect_id: u32, needed_size: u32) !void {
     const header = &self.sections.items(.header)[sect_id];
     const increased_size = padToIdeal(needed_size);
-    const old_aligned_end = header.virtual_address + mem.alignForwardGeneric(u32, header.virtual_size, self.page_size);
-    const new_aligned_end = header.virtual_address + mem.alignForwardGeneric(u32, increased_size, self.page_size);
+    const old_aligned_end = header.virtual_address + mem.alignForward(u32, header.virtual_size, self.page_size);
+    const new_aligned_end = header.virtual_address + mem.alignForward(u32, increased_size, self.page_size);
     const diff = new_aligned_end - old_aligned_end;
     log.debug("growing {s} in virtual memory by {x}", .{ self.getSectionName(header), diff });
 
@@ -565,7 +567,7 @@ fn allocateAtom(self: *Coff, atom_index: Atom.Index, new_atom_size: u32, alignme
             const ideal_capacity_end_vaddr = math.add(u32, sym.value, ideal_capacity) catch ideal_capacity;
             const capacity_end_vaddr = sym.value + capacity;
             const new_start_vaddr_unaligned = capacity_end_vaddr - new_atom_ideal_capacity;
-            const new_start_vaddr = mem.alignBackwardGeneric(u32, new_start_vaddr_unaligned, alignment);
+            const new_start_vaddr = mem.alignBackward(u32, new_start_vaddr_unaligned, alignment);
             if (new_start_vaddr < ideal_capacity_end_vaddr) {
                 // Additional bookkeeping here to notice if this free list node
                 // should be deleted because the atom that it points to has grown to take up
@@ -594,11 +596,11 @@ fn allocateAtom(self: *Coff, atom_index: Atom.Index, new_atom_size: u32, alignme
             const last_symbol = last.getSymbol(self);
             const ideal_capacity = if (header.isCode()) padToIdeal(last.size) else last.size;
             const ideal_capacity_end_vaddr = last_symbol.value + ideal_capacity;
-            const new_start_vaddr = mem.alignForwardGeneric(u32, ideal_capacity_end_vaddr, alignment);
+            const new_start_vaddr = mem.alignForward(u32, ideal_capacity_end_vaddr, alignment);
             atom_placement = last_index;
             break :blk new_start_vaddr;
         } else {
-            break :blk mem.alignForwardGeneric(u32, header.virtual_address, alignment);
+            break :blk mem.alignForward(u32, header.virtual_address, alignment);
         }
     };
 
@@ -720,7 +722,7 @@ pub fn createAtom(self: *Coff) !Atom.Index {
 fn growAtom(self: *Coff, atom_index: Atom.Index, new_atom_size: u32, alignment: u32) !u32 {
     const atom = self.getAtom(atom_index);
     const sym = atom.getSymbol(self);
-    const align_ok = mem.alignBackwardGeneric(u32, sym.value, alignment) == sym.value;
+    const align_ok = mem.alignBackward(u32, sym.value, alignment) == sym.value;
     const need_realloc = !align_ok or new_atom_size > atom.capacity(self);
     if (!need_realloc) return sym.value;
     return self.allocateAtom(atom_index, new_atom_size, alignment);
@@ -1030,20 +1032,21 @@ fn freeAtom(self: *Coff, atom_index: Atom.Index) void {
     self.getAtomPtr(atom_index).sym_index = 0;
 }
 
-pub fn updateFunc(self: *Coff, module: *Module, func: *Module.Fn, air: Air, liveness: Liveness) !void {
+pub fn updateFunc(self: *Coff, mod: *Module, func_index: Module.Fn.Index, air: Air, liveness: Liveness) !void {
     if (build_options.skip_non_native and builtin.object_format != .coff) {
         @panic("Attempted to compile for object format that was disabled by build configuration");
     }
     if (build_options.have_llvm) {
         if (self.llvm_object) |llvm_object| {
-            return llvm_object.updateFunc(module, func, air, liveness);
+            return llvm_object.updateFunc(mod, func_index, air, liveness);
         }
     }
     const tracy = trace(@src());
     defer tracy.end();
 
+    const func = mod.funcPtr(func_index);
     const decl_index = func.owner_decl;
-    const decl = module.declPtr(decl_index);
+    const decl = mod.declPtr(decl_index);
 
     const atom_index = try self.getOrCreateAtomForDecl(decl_index);
     self.freeUnnamedConsts(decl_index);
@@ -1054,8 +1057,8 @@ pub fn updateFunc(self: *Coff, module: *Module, func: *Module.Fn, air: Air, live
 
     const res = try codegen.generateFunction(
         &self.base,
-        decl.srcLoc(),
-        func,
+        decl.srcLoc(mod),
+        func_index,
         air,
         liveness,
         &code_buffer,
@@ -1065,7 +1068,7 @@ pub fn updateFunc(self: *Coff, module: *Module, func: *Module.Fn, air: Air, live
         .ok => code_buffer.items,
         .fail => |em| {
             decl.analysis = .codegen_failure;
-            try module.failed_decls.put(module.gpa, decl_index, em);
+            try mod.failed_decls.put(mod.gpa, decl_index, em);
             return;
         },
     };
@@ -1074,7 +1077,7 @@ pub fn updateFunc(self: *Coff, module: *Module, func: *Module.Fn, air: Air, live
 
     // Since we updated the vaddr and the size, each corresponding export
     // symbol also needs to be updated.
-    return self.updateDeclExports(module, decl_index, module.getDeclExports(decl_index));
+    return self.updateDeclExports(mod, decl_index, mod.getDeclExports(decl_index));
 }
 
 pub fn lowerUnnamedConst(self: *Coff, tv: TypedValue, decl_index: Module.Decl.Index) !u32 {
@@ -1094,8 +1097,7 @@ pub fn lowerUnnamedConst(self: *Coff, tv: TypedValue, decl_index: Module.Decl.In
     const atom_index = try self.createAtom();
 
     const sym_name = blk: {
-        const decl_name = try decl.getFullyQualifiedName(mod);
-        defer gpa.free(decl_name);
+        const decl_name = mod.intern_pool.stringToSlice(try decl.getFullyQualifiedName(mod));
 
         const index = unnamed_consts.items.len;
         break :blk try std.fmt.allocPrint(gpa, "__unnamed_{s}_{d}", .{ decl_name, index });
@@ -1108,7 +1110,7 @@ pub fn lowerUnnamedConst(self: *Coff, tv: TypedValue, decl_index: Module.Decl.In
         sym.section_number = @intToEnum(coff.SectionNumber, self.rdata_section_index.? + 1);
     }
 
-    const res = try codegen.generateSymbol(&self.base, decl.srcLoc(), tv, &code_buffer, .none, .{
+    const res = try codegen.generateSymbol(&self.base, decl.srcLoc(mod), tv, &code_buffer, .none, .{
         .parent_atom_index = self.getAtom(atom_index).getSymbolIndex().?,
     });
     var code = switch (res) {
@@ -1121,7 +1123,7 @@ pub fn lowerUnnamedConst(self: *Coff, tv: TypedValue, decl_index: Module.Decl.In
         },
     };
 
-    const required_alignment = tv.ty.abiAlignment(self.base.options.target);
+    const required_alignment = tv.ty.abiAlignment(mod);
     const atom = self.getAtomPtr(atom_index);
     atom.size = @intCast(u32, code.len);
     atom.getSymbolPtr(self).value = try self.allocateAtom(atom_index, atom.size, required_alignment);
@@ -1137,23 +1139,26 @@ pub fn lowerUnnamedConst(self: *Coff, tv: TypedValue, decl_index: Module.Decl.In
     return atom.getSymbolIndex().?;
 }
 
-pub fn updateDecl(self: *Coff, module: *Module, decl_index: Module.Decl.Index) !void {
+pub fn updateDecl(
+    self: *Coff,
+    mod: *Module,
+    decl_index: Module.Decl.Index,
+) link.File.UpdateDeclError!void {
     if (build_options.skip_non_native and builtin.object_format != .coff) {
         @panic("Attempted to compile for object format that was disabled by build configuration");
     }
     if (build_options.have_llvm) {
-        if (self.llvm_object) |llvm_object| return llvm_object.updateDecl(module, decl_index);
+        if (self.llvm_object) |llvm_object| return llvm_object.updateDecl(mod, decl_index);
     }
     const tracy = trace(@src());
     defer tracy.end();
 
-    const decl = module.declPtr(decl_index);
+    const decl = mod.declPtr(decl_index);
 
-    if (decl.val.tag() == .extern_fn) {
+    if (decl.val.getExternFunc(mod)) |_| {
         return; // TODO Should we do more when front-end analyzed extern decl?
     }
-    if (decl.val.castTag(.variable)) |payload| {
-        const variable = payload.data;
+    if (decl.val.getVariable(mod)) |variable| {
         if (variable.is_extern) {
             return; // TODO Should we do more when front-end analyzed extern decl?
         }
@@ -1166,8 +1171,8 @@ pub fn updateDecl(self: *Coff, module: *Module, decl_index: Module.Decl.Index) !
     var code_buffer = std.ArrayList(u8).init(self.base.allocator);
     defer code_buffer.deinit();
 
-    const decl_val = if (decl.val.castTag(.variable)) |payload| payload.data.init else decl.val;
-    const res = try codegen.generateSymbol(&self.base, decl.srcLoc(), .{
+    const decl_val = if (decl.val.getVariable(mod)) |variable| variable.init.toValue() else decl.val;
+    const res = try codegen.generateSymbol(&self.base, decl.srcLoc(mod), .{
         .ty = decl.ty,
         .val = decl_val,
     }, &code_buffer, .none, .{
@@ -1177,7 +1182,7 @@ pub fn updateDecl(self: *Coff, module: *Module, decl_index: Module.Decl.Index) !
         .ok => code_buffer.items,
         .fail => |em| {
             decl.analysis = .codegen_failure;
-            try module.failed_decls.put(module.gpa, decl_index, em);
+            try mod.failed_decls.put(mod.gpa, decl_index, em);
             return;
         },
     };
@@ -1186,23 +1191,7 @@ pub fn updateDecl(self: *Coff, module: *Module, decl_index: Module.Decl.Index) !
 
     // Since we updated the vaddr and the size, each corresponding export
     // symbol also needs to be updated.
-    return self.updateDeclExports(module, decl_index, module.getDeclExports(decl_index));
-}
-
-fn updateLazySymbol(self: *Coff, decl: Module.Decl.OptionalIndex, metadata: LazySymbolMetadata) !void {
-    const mod = self.base.options.module.?;
-    if (metadata.text_atom) |atom| try self.updateLazySymbolAtom(
-        link.File.LazySymbol.initDecl(.code, decl, mod),
-        atom,
-        self.text_section_index.?,
-        metadata.alignment,
-    );
-    if (metadata.rdata_atom) |atom| try self.updateLazySymbolAtom(
-        link.File.LazySymbol.initDecl(.const_data, decl, mod),
-        atom,
-        self.rdata_section_index.?,
-        metadata.alignment,
-    );
+    return self.updateDeclExports(mod, decl_index, mod.getDeclExports(decl_index));
 }
 
 fn updateLazySymbolAtom(
@@ -1210,11 +1199,11 @@ fn updateLazySymbolAtom(
     sym: link.File.LazySymbol,
     atom_index: Atom.Index,
     section_index: u16,
-    required_alignment: u32,
 ) !void {
     const gpa = self.base.allocator;
     const mod = self.base.options.module.?;
 
+    var required_alignment: u32 = undefined;
     var code_buffer = std.ArrayList(u8).init(gpa);
     defer code_buffer.deinit();
 
@@ -1227,17 +1216,23 @@ fn updateLazySymbolAtom(
     const atom = self.getAtomPtr(atom_index);
     const local_sym_index = atom.getSymbolIndex().?;
 
-    const src = if (sym.ty.getOwnerDeclOrNull()) |owner_decl|
-        mod.declPtr(owner_decl).srcLoc()
+    const src = if (sym.ty.getOwnerDeclOrNull(mod)) |owner_decl|
+        mod.declPtr(owner_decl).srcLoc(mod)
     else
         Module.SrcLoc{
             .file_scope = undefined,
             .parent_decl_node = undefined,
             .lazy = .unneeded,
         };
-    const res = try codegen.generateLazySymbol(&self.base, src, sym, &code_buffer, .none, .{
-        .parent_atom_index = local_sym_index,
-    });
+    const res = try codegen.generateLazySymbol(
+        &self.base,
+        src,
+        sym,
+        &required_alignment,
+        &code_buffer,
+        .none,
+        .{ .parent_atom_index = local_sym_index },
+    );
     const code = switch (res) {
         .ok => code_buffer.items,
         .fail => |em| {
@@ -1265,20 +1260,28 @@ fn updateLazySymbolAtom(
     try self.writeAtom(atom_index, code);
 }
 
-pub fn getOrCreateAtomForLazySymbol(
-    self: *Coff,
-    sym: link.File.LazySymbol,
-    alignment: u32,
-) !Atom.Index {
-    const gop = try self.lazy_syms.getOrPut(self.base.allocator, sym.getDecl());
-    errdefer _ = self.lazy_syms.pop();
-    if (!gop.found_existing) gop.value_ptr.* = .{ .alignment = alignment };
-    const atom = switch (sym.kind) {
-        .code => &gop.value_ptr.text_atom,
-        .const_data => &gop.value_ptr.rdata_atom,
+pub fn getOrCreateAtomForLazySymbol(self: *Coff, sym: link.File.LazySymbol) !Atom.Index {
+    const mod = self.base.options.module.?;
+    const gop = try self.lazy_syms.getOrPut(self.base.allocator, sym.getDecl(mod));
+    errdefer _ = if (!gop.found_existing) self.lazy_syms.pop();
+    if (!gop.found_existing) gop.value_ptr.* = .{};
+    const metadata: struct { atom: *Atom.Index, state: *LazySymbolMetadata.State } = switch (sym.kind) {
+        .code => .{ .atom = &gop.value_ptr.text_atom, .state = &gop.value_ptr.text_state },
+        .const_data => .{ .atom = &gop.value_ptr.rdata_atom, .state = &gop.value_ptr.rdata_state },
     };
-    if (atom.* == null) atom.* = try self.createAtom();
-    return atom.*.?;
+    switch (metadata.state.*) {
+        .unused => metadata.atom.* = try self.createAtom(),
+        .pending_flush => return metadata.atom.*,
+        .flushed => {},
+    }
+    metadata.state.* = .pending_flush;
+    const atom = metadata.atom.*;
+    // anyerror needs to be deferred until flushModule
+    if (sym.getDecl(mod) != .none) try self.updateLazySymbolAtom(sym, atom, switch (sym.kind) {
+        .code => self.text_section_index.?,
+        .const_data => self.rdata_section_index.?,
+    });
+    return atom;
 }
 
 pub fn getOrCreateAtomForDecl(self: *Coff, decl_index: Module.Decl.Index) !Atom.Index {
@@ -1296,10 +1299,11 @@ pub fn getOrCreateAtomForDecl(self: *Coff, decl_index: Module.Decl.Index) !Atom.
 fn getDeclOutputSection(self: *Coff, decl_index: Module.Decl.Index) u16 {
     const decl = self.base.options.module.?.declPtr(decl_index);
     const ty = decl.ty;
-    const zig_ty = ty.zigTypeTag();
+    const mod = self.base.options.module.?;
+    const zig_ty = ty.zigTypeTag(mod);
     const val = decl.val;
     const index: u16 = blk: {
-        if (val.isUndefDeep()) {
+        if (val.isUndefDeep(mod)) {
             // TODO in release-fast and release-small, we should put undef in .bss
             break :blk self.data_section_index.?;
         }
@@ -1308,7 +1312,7 @@ fn getDeclOutputSection(self: *Coff, decl_index: Module.Decl.Index) u16 {
             // TODO: what if this is a function pointer?
             .Fn => break :blk self.text_section_index.?,
             else => {
-                if (val.castTag(.variable)) |_| {
+                if (val.getVariable(mod)) |_| {
                     break :blk self.data_section_index.?;
                 }
                 break :blk self.rdata_section_index.?;
@@ -1319,15 +1323,13 @@ fn getDeclOutputSection(self: *Coff, decl_index: Module.Decl.Index) u16 {
 }
 
 fn updateDeclCode(self: *Coff, decl_index: Module.Decl.Index, code: []u8, complex_type: coff.ComplexType) !void {
-    const gpa = self.base.allocator;
     const mod = self.base.options.module.?;
     const decl = mod.declPtr(decl_index);
 
-    const decl_name = try decl.getFullyQualifiedName(mod);
-    defer gpa.free(decl_name);
+    const decl_name = mod.intern_pool.stringToSlice(try decl.getFullyQualifiedName(mod));
 
     log.debug("updateDeclCode {s}{*}", .{ decl_name, decl });
-    const required_alignment = decl.getAlignment(self.base.options.target);
+    const required_alignment = decl.getAlignment(mod);
 
     const decl_metadata = self.decls.get(decl_index).?;
     const atom_index = decl_metadata.atom;
@@ -1407,69 +1409,68 @@ pub fn freeDecl(self: *Coff, decl_index: Module.Decl.Index) void {
 
 pub fn updateDeclExports(
     self: *Coff,
-    module: *Module,
+    mod: *Module,
     decl_index: Module.Decl.Index,
     exports: []const *Module.Export,
-) !void {
+) link.File.UpdateDeclExportsError!void {
     if (build_options.skip_non_native and builtin.object_format != .coff) {
         @panic("Attempted to compile for object format that was disabled by build configuration");
     }
+
+    const ip = &mod.intern_pool;
 
     if (build_options.have_llvm) {
         // Even in the case of LLVM, we need to notice certain exported symbols in order to
         // detect the default subsystem.
         for (exports) |exp| {
-            const exported_decl = module.declPtr(exp.exported_decl);
-            if (exported_decl.getFunction() == null) continue;
+            const exported_decl = mod.declPtr(exp.exported_decl);
+            if (exported_decl.getOwnedFunctionIndex(mod) == .none) continue;
             const winapi_cc = switch (self.base.options.target.cpu.arch) {
                 .x86 => std.builtin.CallingConvention.Stdcall,
                 else => std.builtin.CallingConvention.C,
             };
-            const decl_cc = exported_decl.ty.fnCallingConvention();
-            if (decl_cc == .C and mem.eql(u8, exp.options.name, "main") and
+            const decl_cc = exported_decl.ty.fnCallingConvention(mod);
+            if (decl_cc == .C and ip.stringEqlSlice(exp.opts.name, "main") and
                 self.base.options.link_libc)
             {
-                module.stage1_flags.have_c_main = true;
+                mod.stage1_flags.have_c_main = true;
             } else if (decl_cc == winapi_cc and self.base.options.target.os.tag == .windows) {
-                if (mem.eql(u8, exp.options.name, "WinMain")) {
-                    module.stage1_flags.have_winmain = true;
-                } else if (mem.eql(u8, exp.options.name, "wWinMain")) {
-                    module.stage1_flags.have_wwinmain = true;
-                } else if (mem.eql(u8, exp.options.name, "WinMainCRTStartup")) {
-                    module.stage1_flags.have_winmain_crt_startup = true;
-                } else if (mem.eql(u8, exp.options.name, "wWinMainCRTStartup")) {
-                    module.stage1_flags.have_wwinmain_crt_startup = true;
-                } else if (mem.eql(u8, exp.options.name, "DllMainCRTStartup")) {
-                    module.stage1_flags.have_dllmain_crt_startup = true;
+                if (ip.stringEqlSlice(exp.opts.name, "WinMain")) {
+                    mod.stage1_flags.have_winmain = true;
+                } else if (ip.stringEqlSlice(exp.opts.name, "wWinMain")) {
+                    mod.stage1_flags.have_wwinmain = true;
+                } else if (ip.stringEqlSlice(exp.opts.name, "WinMainCRTStartup")) {
+                    mod.stage1_flags.have_winmain_crt_startup = true;
+                } else if (ip.stringEqlSlice(exp.opts.name, "wWinMainCRTStartup")) {
+                    mod.stage1_flags.have_wwinmain_crt_startup = true;
+                } else if (ip.stringEqlSlice(exp.opts.name, "DllMainCRTStartup")) {
+                    mod.stage1_flags.have_dllmain_crt_startup = true;
                 }
             }
         }
 
-        if (self.llvm_object) |llvm_object| return llvm_object.updateDeclExports(module, decl_index, exports);
+        if (self.llvm_object) |llvm_object| return llvm_object.updateDeclExports(mod, decl_index, exports);
     }
-
-    const tracy = trace(@src());
-    defer tracy.end();
 
     const gpa = self.base.allocator;
 
-    const decl = module.declPtr(decl_index);
+    const decl = mod.declPtr(decl_index);
     const atom_index = try self.getOrCreateAtomForDecl(decl_index);
     const atom = self.getAtom(atom_index);
     const decl_sym = atom.getSymbol(self);
     const decl_metadata = self.decls.getPtr(decl_index).?;
 
     for (exports) |exp| {
-        log.debug("adding new export '{s}'", .{exp.options.name});
+        log.debug("adding new export '{}'", .{exp.opts.name.fmt(&mod.intern_pool)});
 
-        if (exp.options.section) |section_name| {
+        if (mod.intern_pool.stringToSliceUnwrap(exp.opts.section)) |section_name| {
             if (!mem.eql(u8, section_name, ".text")) {
-                try module.failed_exports.putNoClobber(
-                    module.gpa,
+                try mod.failed_exports.putNoClobber(
+                    gpa,
                     exp,
                     try Module.ErrorMsg.create(
                         gpa,
-                        decl.srcLoc(),
+                        decl.srcLoc(mod),
                         "Unimplemented: ExportOptions.section",
                         .{},
                     ),
@@ -1478,13 +1479,13 @@ pub fn updateDeclExports(
             }
         }
 
-        if (exp.options.linkage == .LinkOnce) {
-            try module.failed_exports.putNoClobber(
-                module.gpa,
+        if (exp.opts.linkage == .LinkOnce) {
+            try mod.failed_exports.putNoClobber(
+                gpa,
                 exp,
                 try Module.ErrorMsg.create(
                     gpa,
-                    decl.srcLoc(),
+                    decl.srcLoc(mod),
                     "Unimplemented: GlobalLinkage.LinkOnce",
                     .{},
                 ),
@@ -1492,19 +1493,19 @@ pub fn updateDeclExports(
             continue;
         }
 
-        const sym_index = decl_metadata.getExport(self, exp.options.name) orelse blk: {
+        const sym_index = decl_metadata.getExport(self, mod.intern_pool.stringToSlice(exp.opts.name)) orelse blk: {
             const sym_index = try self.allocateSymbol();
             try decl_metadata.exports.append(gpa, sym_index);
             break :blk sym_index;
         };
         const sym_loc = SymbolWithLoc{ .sym_index = sym_index, .file = null };
         const sym = self.getSymbolPtr(sym_loc);
-        try self.setSymbolName(sym, exp.options.name);
+        try self.setSymbolName(sym, mod.intern_pool.stringToSlice(exp.opts.name));
         sym.value = decl_sym.value;
         sym.section_number = @intToEnum(coff.SectionNumber, self.text_section_index.? + 1);
         sym.type = .{ .complex_type = .FUNCTION, .base_type = .NULL };
 
-        switch (exp.options.linkage) {
+        switch (exp.opts.linkage) {
             .Strong => {
                 sym.storage_class = .EXTERNAL;
             },
@@ -1517,9 +1518,15 @@ pub fn updateDeclExports(
     }
 }
 
-pub fn deleteDeclExport(self: *Coff, decl_index: Module.Decl.Index, name: []const u8) void {
+pub fn deleteDeclExport(
+    self: *Coff,
+    decl_index: Module.Decl.Index,
+    name_ip: InternPool.NullTerminatedString,
+) void {
     if (self.llvm_object) |_| return;
     const metadata = self.decls.getPtr(decl_index) orelse return;
+    const mod = self.base.options.module.?;
+    const name = mod.intern_pool.stringToSlice(name_ip);
     const sym_index = metadata.getExportPtr(self, name) orelse return;
 
     const gpa = self.base.allocator;
@@ -1605,16 +1612,34 @@ pub fn flushModule(self: *Coff, comp: *Compilation, prog_node: *std.Progress.Nod
     sub_prog_node.activate();
     defer sub_prog_node.end();
 
-    // Most lazy symbols can be updated when the corresponding decl is,
-    // so we only have to worry about the one without an associated decl.
-    if (self.lazy_syms.get(.none)) |metadata| {
-        self.updateLazySymbol(.none, metadata) catch |err| switch (err) {
-            error.CodegenFail => return error.FlushFailure,
-            else => |e| return e,
+    const gpa = self.base.allocator;
+
+    const module = self.base.options.module orelse return error.LinkingWithoutZigSourceUnimplemented;
+
+    if (self.lazy_syms.getPtr(.none)) |metadata| {
+        // Most lazy symbols can be updated on first use, but
+        // anyerror needs to wait for everything to be flushed.
+        if (metadata.text_state != .unused) self.updateLazySymbolAtom(
+            link.File.LazySymbol.initDecl(.code, null, module),
+            metadata.text_atom,
+            self.text_section_index.?,
+        ) catch |err| return switch (err) {
+            error.CodegenFail => error.FlushFailure,
+            else => |e| e,
+        };
+        if (metadata.rdata_state != .unused) self.updateLazySymbolAtom(
+            link.File.LazySymbol.initDecl(.const_data, null, module),
+            metadata.rdata_atom,
+            self.rdata_section_index.?,
+        ) catch |err| return switch (err) {
+            error.CodegenFail => error.FlushFailure,
+            else => |e| e,
         };
     }
-
-    const gpa = self.base.allocator;
+    for (self.lazy_syms.values()) |*metadata| {
+        if (metadata.text_state != .unused) metadata.text_state = .flushed;
+        if (metadata.rdata_state != .unused) metadata.rdata_state = .flushed;
+    }
 
     while (self.unresolved.popOrNull()) |entry| {
         assert(entry.value); // We only expect imports generated by the incremental linker for now.
@@ -1773,7 +1798,7 @@ fn writeBaseRelocations(self: *Coff) !void {
 
             for (offsets.items) |offset| {
                 const rva = sym.value + offset;
-                const page = mem.alignBackwardGeneric(u32, rva, self.page_size);
+                const page = mem.alignBackward(u32, rva, self.page_size);
                 const gop = try page_table.getOrPut(page);
                 if (!gop.found_existing) {
                     gop.value_ptr.* = std.ArrayList(coff.BaseRelocation).init(gpa);
@@ -1794,7 +1819,7 @@ fn writeBaseRelocations(self: *Coff) !void {
                 if (sym.section_number == .UNDEFINED) continue;
 
                 const rva = @intCast(u32, header.virtual_address + index * self.ptr_width.size());
-                const page = mem.alignBackwardGeneric(u32, rva, self.page_size);
+                const page = mem.alignBackward(u32, rva, self.page_size);
                 const gop = try page_table.getOrPut(page);
                 if (!gop.found_existing) {
                     gop.value_ptr.* = std.ArrayList(coff.BaseRelocation).init(gpa);
@@ -1816,7 +1841,7 @@ fn writeBaseRelocations(self: *Coff) !void {
             pages.appendAssumeCapacity(page.*);
         }
     }
-    std.sort.sort(u32, pages.items, {}, std.sort.asc(u32));
+    mem.sort(u32, pages.items, {}, std.sort.asc(u32));
 
     var buffer = std.ArrayList(u8).init(gpa);
     defer buffer.deinit();
@@ -1882,7 +1907,7 @@ fn writeImportTables(self: *Coff) !void {
         lookup_table_size += @intCast(u32, itable.entries.items.len + 1) * @sizeOf(coff.ImportLookupEntry64.ByName);
         for (itable.entries.items) |entry| {
             const sym_name = self.getSymbolName(entry);
-            names_table_size += 2 + mem.alignForwardGeneric(u32, @intCast(u32, sym_name.len + 1), 2);
+            names_table_size += 2 + mem.alignForward(u32, @intCast(u32, sym_name.len + 1), 2);
         }
         dll_names_size += @intCast(u32, lib_name.len + ext.len + 1);
     }
@@ -2077,7 +2102,7 @@ fn writeHeader(self: *Coff) !void {
     };
     const subsystem: coff.Subsystem = .WINDOWS_CUI;
     const size_of_image: u32 = self.getSizeOfImage();
-    const size_of_headers: u32 = mem.alignForwardGeneric(u32, self.getSizeOfHeaders(), default_file_alignment);
+    const size_of_headers: u32 = mem.alignForward(u32, self.getSizeOfHeaders(), default_file_alignment);
     const image_base = self.getImageBase();
 
     const base_of_code = self.sections.get(self.text_section_index.?).header.virtual_address;
@@ -2222,7 +2247,7 @@ fn allocatedSize(self: *Coff, start: u32) u32 {
 fn findFreeSpace(self: *Coff, object_size: u32, min_alignment: u32) u32 {
     var start: u32 = 0;
     while (self.detectAllocCollision(start, object_size)) |item_end| {
-        start = mem.alignForwardGeneric(u32, item_end, min_alignment);
+        start = mem.alignForward(u32, item_end, min_alignment);
     }
     return start;
 }
@@ -2269,9 +2294,9 @@ inline fn getSectionHeadersOffset(self: Coff) u32 {
 }
 
 inline fn getSizeOfImage(self: Coff) u32 {
-    var image_size: u32 = mem.alignForwardGeneric(u32, self.getSizeOfHeaders(), self.page_size);
+    var image_size: u32 = mem.alignForward(u32, self.getSizeOfHeaders(), self.page_size);
     for (self.sections.items(.header)) |header| {
-        image_size += mem.alignForwardGeneric(u32, header.virtual_size, self.page_size);
+        image_size += mem.alignForward(u32, header.virtual_size, self.page_size);
     }
     return image_size;
 }
@@ -2517,6 +2542,7 @@ const ImportTable = @import("Coff/ImportTable.zig");
 const Liveness = @import("../Liveness.zig");
 const LlvmObject = @import("../codegen/llvm.zig").Object;
 const Module = @import("../Module.zig");
+const InternPool = @import("../InternPool.zig");
 const Object = @import("Coff/Object.zig");
 const Relocation = @import("Coff/Relocation.zig");
 const TableSection = @import("table_section.zig").TableSection;

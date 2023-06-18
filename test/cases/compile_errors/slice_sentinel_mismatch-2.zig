@@ -2,7 +2,7 @@ fn foo() [:0]u8 {
     var x: []u8 = undefined;
     return x;
 }
-comptime { _ = foo; }
+comptime { _ = &foo; }
 
 // error
 // backend=stage2

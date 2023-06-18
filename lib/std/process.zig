@@ -310,7 +310,7 @@ pub fn getEnvMap(allocator: Allocator) !EnvMap {
 
         for (environ) |env| {
             const pair = mem.sliceTo(env, 0);
-            var parts = mem.split(u8, pair, "=");
+            var parts = mem.splitScalar(u8, pair, '=');
             const key = parts.first();
             const value = parts.rest();
             try result.put(key, value);
@@ -1131,7 +1131,7 @@ pub fn execve(
     defer arena_allocator.deinit();
     const arena = arena_allocator.allocator();
 
-    const argv_buf = try arena.allocSentinel(?[*:0]u8, argv.len, null);
+    const argv_buf = try arena.allocSentinel(?[*:0]const u8, argv.len, null);
     for (argv, 0..) |arg, i| argv_buf[i] = (try arena.dupeZ(u8, arg)).ptr;
 
     const envp = m: {
@@ -1143,7 +1143,7 @@ pub fn execve(
         } else if (builtin.output_mode == .Exe) {
             // Then we have Zig start code and this works.
             // TODO type-safety for null-termination of `os.environ`.
-            break :m @ptrCast([*:null]?[*:0]u8, os.environ.ptr);
+            break :m @ptrCast([*:null]const ?[*:0]const u8, os.environ.ptr);
         } else {
             // TODO come up with a solution for this.
             @compileError("missing std lib enhancement: std.process.execv implementation has no way to collect the environment variables to forward to the child process");
@@ -1163,7 +1163,7 @@ pub fn totalSystemMemory() TotalSystemMemoryError!usize {
         .linux => {
             return totalSystemMemoryLinux() catch return error.UnknownTotalSystemMemory;
         },
-        .freebsd, .netbsd, .openbsd, .dragonfly, .macos => {
+        .freebsd, .netbsd, .dragonfly, .macos => {
             var physmem: c_ulong = undefined;
             var len: usize = @sizeOf(c_ulong);
             const name = switch (builtin.os.tag) {
@@ -1176,6 +1176,23 @@ pub fn totalSystemMemory() TotalSystemMemoryError!usize {
                 else => return error.UnknownTotalSystemMemory,
             };
             return @intCast(usize, physmem);
+        },
+        .openbsd => {
+            const mib: [2]c_int = [_]c_int{
+                std.os.CTL.HW,
+                std.os.HW.PHYSMEM64,
+            };
+            var physmem: i64 = undefined;
+            var len: usize = @sizeOf(@TypeOf(physmem));
+            std.os.sysctl(&mib, &physmem, &len, null, 0) catch |err| switch (err) {
+                error.NameTooLong => unreachable, // constant, known good value
+                error.PermissionDenied => unreachable, // only when setting values,
+                error.SystemResources => unreachable, // memory already on the stack
+                error.UnknownName => unreachable, // constant, known good value
+                else => return error.UnknownTotalSystemMemory,
+            };
+            assert(physmem >= 0);
+            return @bitCast(usize, physmem);
         },
         .windows => {
             var sbi: std.os.windows.SYSTEM_BASIC_INFORMATION = undefined;
@@ -1200,7 +1217,7 @@ fn totalSystemMemoryLinux() !usize {
     var buf: [50]u8 = undefined;
     const amt = try file.read(&buf);
     if (amt != 50) return error.Unexpected;
-    var it = std.mem.tokenize(u8, buf[0..amt], " \n");
+    var it = std.mem.tokenizeAny(u8, buf[0..amt], " \n");
     const label = it.next().?;
     if (!std.mem.eql(u8, label, "MemTotal:")) return error.Unexpected;
     const int_text = it.next() orelse return error.Unexpected;

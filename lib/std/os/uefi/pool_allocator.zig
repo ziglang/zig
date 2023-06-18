@@ -24,7 +24,7 @@ const UefiPoolAllocator = struct {
 
         const ptr_align = @as(usize, 1) << @intCast(Allocator.Log2Align, log2_ptr_align);
 
-        const metadata_len = mem.alignForward(@sizeOf(usize), ptr_align);
+        const metadata_len = mem.alignForward(usize, @sizeOf(usize), ptr_align);
 
         const full_len = metadata_len + len;
 
@@ -32,7 +32,7 @@ const UefiPoolAllocator = struct {
         if (uefi.system_table.boot_services.?.allocatePool(uefi.efi_pool_memory_type, full_len, &unaligned_ptr) != .Success) return null;
 
         const unaligned_addr = @ptrToInt(unaligned_ptr);
-        const aligned_addr = mem.alignForward(unaligned_addr + @sizeOf(usize), ptr_align);
+        const aligned_addr = mem.alignForward(usize, unaligned_addr + @sizeOf(usize), ptr_align);
 
         var aligned_ptr = unaligned_ptr + (aligned_addr - unaligned_addr);
         getHeader(aligned_ptr).* = unaligned_ptr;

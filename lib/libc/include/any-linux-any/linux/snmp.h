@@ -95,6 +95,8 @@ enum
 	ICMP_MIB_OUTADDRMASKS,			/* OutAddrMasks */
 	ICMP_MIB_OUTADDRMASKREPS,		/* OutAddrMaskReps */
 	ICMP_MIB_CSUMERRORS,			/* InCsumErrors */
+	ICMP_MIB_RATELIMITGLOBAL,		/* OutRateLimitGlobal */
+	ICMP_MIB_RATELIMITHOST,			/* OutRateLimitHost */
 	__ICMP_MIB_MAX
 };
 
@@ -112,6 +114,7 @@ enum
 	ICMP6_MIB_OUTMSGS,			/* OutMsgs */
 	ICMP6_MIB_OUTERRORS,			/* OutErrors */
 	ICMP6_MIB_CSUMERRORS,			/* InCsumErrors */
+	ICMP6_MIB_RATELIMITHOST,		/* OutRateLimitHost */
 	__ICMP6_MIB_MAX
 };
 
@@ -292,6 +295,7 @@ enum
 	LINUX_MIB_TCPDSACKIGNOREDDUBIOUS,	/* TCPDSACKIgnoredDubious */
 	LINUX_MIB_TCPMIGRATEREQSUCCESS,		/* TCPMigrateReqSuccess */
 	LINUX_MIB_TCPMIGRATEREQFAILURE,		/* TCPMigrateReqFailure */
+	LINUX_MIB_TCPPLBREHASH,			/* TCPPLBRehash */
 	__LINUX_MIB_MAX
 };
 
@@ -344,6 +348,8 @@ enum
 	LINUX_MIB_TLSRXDEVICE,			/* TlsRxDevice */
 	LINUX_MIB_TLSDECRYPTERROR,		/* TlsDecryptError */
 	LINUX_MIB_TLSRXDEVICERESYNC,		/* TlsRxDeviceResync */
+	LINUX_MIB_TLSDECRYPTRETRY,		/* TlsDecryptRetry */
+	LINUX_MIB_TLSRXNOPADVIOL,		/* TlsRxNoPadViolation */
 	__LINUX_MIB_TLSMAX
 };
 

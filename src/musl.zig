@@ -194,7 +194,7 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile, prog_node: *std.Progr
             const arch_define = try std.fmt.allocPrint(arena, "-DARCH_{s}", .{
                 @tagName(target.cpu.arch),
             });
-            const clang_argv: []const []const u8 = if (target.cpu.arch.ptrBitWidth() == 64)
+            const clang_argv: []const []const u8 = if (target.ptrBitWidth() == 64)
                 &[_][]const u8{ "-DPTR64", arch_define }
             else
                 &[_][]const u8{arch_define};

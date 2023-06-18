@@ -168,7 +168,7 @@ pub fn BoundedArrayAligned(
             @memcpy(self.slice()[i..][0..items.len], items);
         }
 
-        /// Replace range of elements `slice[start..start+len]` with `new_items`.
+        /// Replace range of elements `slice[start..][0..len]` with `new_items`.
         /// Grows slice if `len < new_items.len`.
         /// Shrinks slice if `len > new_items.len`.
         pub fn replaceRange(

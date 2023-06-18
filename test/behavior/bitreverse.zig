@@ -15,8 +15,9 @@ test "@bitReverse" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
-    comptime try testBitReverse();
+    try comptime testBitReverse();
     try testBitReverse();
 }
 
@@ -100,8 +101,9 @@ test "bitReverse vectors u8" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
-    comptime try vector8();
+    try comptime vector8();
     try vector8();
 }
 
@@ -118,8 +120,9 @@ test "bitReverse vectors u16" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
-    comptime try vector16();
+    try comptime vector16();
     try vector16();
 }
 
@@ -136,8 +139,9 @@ test "bitReverse vectors u24" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
-    comptime try vector24();
+    try comptime vector24();
     try vector24();
 }
 
@@ -151,6 +155,6 @@ fn vector0() !void {
 test "bitReverse vectors u0" {
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest;
 
-    comptime try vector0();
+    try comptime vector0();
     try vector0();
 }

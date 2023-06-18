@@ -77,10 +77,24 @@ enum hns_roce_qp_cap_flags {
 	HNS_ROCE_QP_CAP_RQ_RECORD_DB = 1 << 0,
 	HNS_ROCE_QP_CAP_SQ_RECORD_DB = 1 << 1,
 	HNS_ROCE_QP_CAP_OWNER_DB = 1 << 2,
+	HNS_ROCE_QP_CAP_DIRECT_WQE = 1 << 5,
 };
 
 struct hns_roce_ib_create_qp_resp {
 	__aligned_u64 cap_flags;
+	__aligned_u64 dwqe_mmap_key;
+};
+
+enum {
+	HNS_ROCE_EXSGE_FLAGS = 1 << 0,
+	HNS_ROCE_RQ_INLINE_FLAGS = 1 << 1,
+	HNS_ROCE_CQE_INLINE_FLAGS = 1 << 2,
+};
+
+enum {
+	HNS_ROCE_RSP_EXSGE_FLAGS = 1 << 0,
+	HNS_ROCE_RSP_RQ_INLINE_FLAGS = 1 << 1,
+	HNS_ROCE_RSP_CQE_INLINE_FLAGS = 1 << 2,
 };
 
 struct hns_roce_ib_alloc_ucontext_resp {
@@ -88,6 +102,13 @@ struct hns_roce_ib_alloc_ucontext_resp {
 	__u32	cqe_size;
 	__u32	srq_tab_size;
 	__u32	reserved;
+	__u32	config;
+	__u32	max_inline_data;
+};
+
+struct hns_roce_ib_alloc_ucontext {
+	__u32 config;
+	__u32 reserved;
 };
 
 struct hns_roce_ib_alloc_pd_resp {

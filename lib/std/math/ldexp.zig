@@ -48,7 +48,7 @@ pub fn ldexp(x: anytype, n: i32) @TypeOf(x) {
                 return @bitCast(T, sign_bit); // Severe underflow. Return +/- 0
 
             // Result underflowed, we need to shift and round
-            const shift = @intCast(Log2Int(TBits), math.min(-n, -(exponent + n) + 1));
+            const shift = @intCast(Log2Int(TBits), @min(-n, -(exponent + n) + 1));
             const exact_tie: bool = @ctz(repr) == shift - 1;
             var result = repr & mantissa_mask;
 

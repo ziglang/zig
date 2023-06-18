@@ -99,7 +99,7 @@ fn dumpStatusReport() !void {
         allocator,
         anal.body,
         anal.body_index,
-        block.namespace.file_scope,
+        mod.namespacePtr(block.namespace).file_scope,
         block_src_decl.src_node,
         6, // indent
         stderr,
@@ -108,7 +108,7 @@ fn dumpStatusReport() !void {
         else => |e| return e,
     };
     try stderr.writeAll("    For full context, use the command\n      zig ast-check -t ");
-    try writeFilePath(block.namespace.file_scope, stderr);
+    try writeFilePath(mod.namespacePtr(block.namespace).file_scope, stderr);
     try stderr.writeAll("\n\n");
 
     var parent = anal.parent;
@@ -121,7 +121,7 @@ fn dumpStatusReport() !void {
         print_zir.renderSingleInstruction(
             allocator,
             curr.body[curr.body_index],
-            curr.block.namespace.file_scope,
+            mod.namespacePtr(curr.block.namespace).file_scope,
             curr_block_src_decl.src_node,
             6, // indent
             stderr,
@@ -148,7 +148,7 @@ fn writeFilePath(file: *Module.File, stream: anytype) !void {
 }
 
 fn writeFullyQualifiedDeclWithFile(mod: *Module, decl: *Decl, stream: anytype) !void {
-    try writeFilePath(decl.getFileScope(), stream);
+    try writeFilePath(decl.getFileScope(mod), stream);
     try stream.writeAll(": ");
     try decl.renderFullyQualifiedDebugName(mod, stream);
 }

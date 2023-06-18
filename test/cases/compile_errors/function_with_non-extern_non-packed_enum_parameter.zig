@@ -7,5 +7,5 @@ export fn entry(foo: Foo) void { _ = foo; }
 //
 // :2:17: error: parameter of type 'tmp.Foo' not allowed in function with calling convention 'C'
 // :2:17: note: enum tag type 'u2' is not extern compatible
-// :2:17: note: only integers with power of two bits are extern compatible
+// :2:17: note: only integers with 8, 16, 32, 64 and 128 bits are extern compatible
 // :1:13: note: enum declared here

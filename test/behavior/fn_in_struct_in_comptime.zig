@@ -1,3 +1,4 @@
+const builtin = @import("builtin");
 const expect = @import("std").testing.expect;
 
 fn get_foo() fn (*u8) usize {

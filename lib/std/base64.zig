@@ -302,7 +302,7 @@ pub const Base64DecoderWithIgnore = struct {
 test "base64" {
     @setEvalBranchQuota(8000);
     try testBase64();
-    comptime try testAllApis(standard, "comptime", "Y29tcHRpbWU=");
+    try comptime testAllApis(standard, "comptime", "Y29tcHRpbWU=");
 }
 
 test "base64 padding dest overflow" {
@@ -322,7 +322,7 @@ test "base64 padding dest overflow" {
 test "base64 url_safe_no_pad" {
     @setEvalBranchQuota(8000);
     try testBase64UrlSafeNoPad();
-    comptime try testAllApis(url_safe_no_pad, "comptime", "Y29tcHRpbWU");
+    try comptime testAllApis(url_safe_no_pad, "comptime", "Y29tcHRpbWU");
 }
 
 fn testBase64() !void {

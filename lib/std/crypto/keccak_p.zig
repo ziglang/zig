@@ -214,7 +214,7 @@ pub fn State(comptime f: u11, comptime capacity: u11, comptime delim: u8, compti
         pub fn absorb(self: *Self, bytes_: []const u8) void {
             var bytes = bytes_;
             if (self.offset > 0) {
-                const left = math.min(rate - self.offset, bytes.len);
+                const left = @min(rate - self.offset, bytes.len);
                 @memcpy(self.buf[self.offset..][0..left], bytes[0..left]);
                 self.offset += left;
                 if (self.offset == rate) {
@@ -249,7 +249,7 @@ pub fn State(comptime f: u11, comptime capacity: u11, comptime delim: u8, compti
         pub fn squeeze(self: *Self, out: []u8) void {
             var i: usize = 0;
             while (i < out.len) : (i += rate) {
-                const left = math.min(rate, out.len - i);
+                const left = @min(rate, out.len - i);
                 self.st.extractBytes(out[i..][0..left]);
                 self.st.permuteR(rounds);
             }

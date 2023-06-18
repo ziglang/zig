@@ -487,14 +487,14 @@ typedef ptrdiff_t intptr_t;
     zig_basic_operator(uint##w##_t, div_floor_u##w, /) \
 \
     static inline int##w##_t zig_div_floor_i##w(int##w##_t lhs, int##w##_t rhs) { \
-        return lhs / rhs - (((lhs ^ rhs) & (lhs % rhs)) < INT##w##_C(0)); \
+        return lhs / rhs + (lhs % rhs != INT##w##_C(0) ? zig_shr_i##w(lhs ^ rhs, UINT8_C(w) - UINT8_C(1)) : INT##w##_C(0)); \
     } \
 \
     zig_basic_operator(uint##w##_t, mod_u##w, %) \
 \
     static inline int##w##_t zig_mod_i##w(int##w##_t lhs, int##w##_t rhs) { \
         int##w##_t rem = lhs % rhs; \
-        return rem + (((lhs ^ rhs) & rem) < INT##w##_C(0) ? rhs : INT##w##_C(0)); \
+        return rem + (rem != INT##w##_C(0) ? rhs & zig_shr_i##w(lhs ^ rhs, UINT8_C(w) - UINT8_C(1)) : INT##w##_C(0)); \
     } \
 \
     static inline uint##w##_t zig_shlw_u##w(uint##w##_t lhs, uint8_t rhs, uint8_t bits) { \
@@ -1078,7 +1078,7 @@ static inline int64_t zig_bit_reverse_i64(int64_t val, uint8_t bits) {
         uint##w##_t temp = val - ((val >> 1) & (UINT##w##_MAX / 3)); \
         temp = (temp & (UINT##w##_MAX / 5)) + ((temp >> 2) & (UINT##w##_MAX / 5)); \
         temp = (temp + (temp >> 4)) & (UINT##w##_MAX / 17); \
-        return temp * (UINT##w##_MAX / 255) >> (w - 8); \
+        return temp * (UINT##w##_MAX / 255) >> (UINT8_C(w) - UINT8_C(8)); \
     } \
 \
     zig_builtin_popcount_common(w)
@@ -1298,15 +1298,6 @@ static inline zig_i128 zig_rem_i128(zig_i128 lhs, zig_i128 rhs) {
     return lhs % rhs;
 }
 
-static inline zig_i128 zig_div_floor_i128(zig_i128 lhs, zig_i128 rhs) {
-    return zig_div_trunc_i128(lhs, rhs) - (((lhs ^ rhs) & zig_rem_i128(lhs, rhs)) < zig_make_i128(0, 0));
-}
-
-static inline zig_i128 zig_mod_i128(zig_i128 lhs, zig_i128 rhs) {
-    zig_i128 rem = zig_rem_i128(lhs, rhs);
-    return rem + (((lhs ^ rhs) & rem) < zig_make_i128(0, 0) ? rhs : zig_make_i128(0, 0));
-}
-
 #else /* zig_has_int128 */
 
 static inline zig_u128 zig_not_u128(zig_u128 val, uint8_t bits) {
@@ -1394,19 +1385,25 @@ static zig_i128 zig_rem_i128(zig_i128 lhs, zig_i128 rhs) {
     return __modti3(lhs, rhs);
 }
 
-static inline zig_i128 zig_mod_i128(zig_i128 lhs, zig_i128 rhs) {
-    zig_i128 rem = zig_rem_i128(lhs, rhs);
-    return zig_add_i128(rem, ((lhs.hi ^ rhs.hi) & rem.hi) < INT64_C(0) ? rhs : zig_make_i128(0, 0));
-}
-
-static inline zig_i128 zig_div_floor_i128(zig_i128 lhs, zig_i128 rhs) {
-    return zig_sub_i128(zig_div_trunc_i128(lhs, rhs), zig_make_i128(0, zig_cmp_i128(zig_and_i128(zig_xor_i128(lhs, rhs), zig_rem_i128(lhs, rhs)), zig_make_i128(0, 0)) < INT32_C(0)));
-}
-
 #endif /* zig_has_int128 */
 
 #define zig_div_floor_u128 zig_div_trunc_u128
+
+static inline zig_i128 zig_div_floor_i128(zig_i128 lhs, zig_i128 rhs) {
+    zig_i128 rem = zig_rem_i128(lhs, rhs);
+    int64_t mask = zig_or_u64((uint64_t)zig_hi_i128(rem), zig_lo_i128(rem)) != UINT64_C(0)
+        ? zig_shr_i64(zig_xor_i64(zig_hi_i128(lhs), zig_hi_i128(rhs)), UINT8_C(63)) : INT64_C(0);
+    return zig_add_i128(zig_div_trunc_i128(lhs, rhs), zig_make_i128(mask, (uint64_t)mask));
+}
+
 #define zig_mod_u128 zig_rem_u128
+
+static inline zig_i128 zig_mod_i128(zig_i128 lhs, zig_i128 rhs) {
+    zig_i128 rem = zig_rem_i128(lhs, rhs);
+    int64_t mask = zig_or_u64((uint64_t)zig_hi_i128(rem), zig_lo_i128(rem)) != UINT64_C(0)
+        ? zig_shr_i64(zig_xor_i64(zig_hi_i128(lhs), zig_hi_i128(rhs)), UINT8_C(63)) : INT64_C(0);
+    return zig_add_i128(rem, zig_and_i128(rhs, zig_make_i128(mask, (uint64_t)mask)));
+}
 
 static inline zig_u128 zig_min_u128(zig_u128 lhs, zig_u128 rhs) {
     return zig_cmp_u128(lhs, rhs) < INT32_C(0) ? lhs : rhs;

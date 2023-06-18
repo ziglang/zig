@@ -177,13 +177,13 @@ pub fn parseWithoutScheme(text: []const u8) ParseError!Uri {
 
             if (std.mem.lastIndexOf(u8, authority, ":")) |index| {
                 if (index >= end_of_host) { // if not part of the V6 address field
-                    end_of_host = std.math.min(end_of_host, index);
+                    end_of_host = @min(end_of_host, index);
                     uri.port = std.fmt.parseInt(u16, authority[index + 1 ..], 10) catch return error.InvalidPort;
                 }
             }
         } else if (std.mem.lastIndexOf(u8, authority, ":")) |index| {
             if (index >= start_of_host) { // if not part of the userinfo field
-                end_of_host = std.math.min(end_of_host, index);
+                end_of_host = @min(end_of_host, index);
                 uri.port = std.fmt.parseInt(u16, authority[index + 1 ..], 10) catch return error.InvalidPort;
             }
         }
@@ -216,6 +216,7 @@ pub fn format(
 
     const needs_absolute = comptime std.mem.indexOf(u8, fmt, "+") != null;
     const needs_path = comptime std.mem.indexOf(u8, fmt, "/") != null or fmt.len == 0;
+    const needs_fragment = comptime std.mem.indexOf(u8, fmt, "#") != null;
 
     if (needs_absolute) {
         try writer.writeAll(uri.scheme);
@@ -253,9 +254,11 @@ pub fn format(
             try Uri.writeEscapedQuery(writer, q);
         }
 
-        if (uri.fragment) |f| {
-            try writer.writeAll("#");
-            try Uri.writeEscapedQuery(writer, f);
+        if (needs_fragment) {
+            if (uri.fragment) |f| {
+                try writer.writeAll("#");
+                try Uri.writeEscapedQuery(writer, f);
+            }
         }
     }
 }
@@ -581,7 +584,7 @@ test "RFC example 1" {
     }, try parse(uri));
 }
 
-test "RFX example 2" {
+test "RFC example 2" {
     const uri = "urn:example:animal:ferret:nose";
     try std.testing.expectEqual(Uri{
         .scheme = uri[0..3],

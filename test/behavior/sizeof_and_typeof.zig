@@ -18,25 +18,27 @@ test "@sizeOf on compile-time types" {
 }
 
 test "@TypeOf() with multiple arguments" {
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
     {
         var var_1: u32 = undefined;
         var var_2: u8 = undefined;
         var var_3: u64 = undefined;
-        comptime try expect(@TypeOf(var_1, var_2, var_3) == u64);
+        try comptime expect(@TypeOf(var_1, var_2, var_3) == u64);
     }
     {
         var var_1: f16 = undefined;
         var var_2: f32 = undefined;
         var var_3: f64 = undefined;
-        comptime try expect(@TypeOf(var_1, var_2, var_3) == f64);
+        try comptime expect(@TypeOf(var_1, var_2, var_3) == f64);
     }
     {
         var var_1: u16 = undefined;
-        comptime try expect(@TypeOf(var_1, 0xffff) == u16);
+        try comptime expect(@TypeOf(var_1, 0xffff) == u16);
     }
     {
         var var_1: f32 = undefined;
-        comptime try expect(@TypeOf(var_1, 3.1415) == f32);
+        try comptime expect(@TypeOf(var_1, 3.1415) == f32);
     }
 }
 
@@ -46,7 +48,7 @@ fn fn1(alpha: bool) void {
 }
 
 test "lazy @sizeOf result is checked for definedness" {
-    _ = fn1;
+    _ = &fn1;
 }
 
 const A = struct {
@@ -75,6 +77,7 @@ const P = packed struct {
 
 test "@offsetOf" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     // Packed structs have fixed memory layout
     try expect(@offsetOf(P, "a") == 0);
@@ -145,12 +148,13 @@ test "@TypeOf() has no runtime side effects" {
     };
     var data: i32 = 0;
     const T = @TypeOf(S.foo(i32, &data));
-    comptime try expect(T == i32);
+    try comptime expect(T == i32);
     try expect(data == 0);
 }
 
 test "branching logic inside @TypeOf" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+
     const S = struct {
         var data: i32 = 0;
         fn foo() anyerror!i32 {
@@ -159,7 +163,7 @@ test "branching logic inside @TypeOf" {
         }
     };
     const T = @TypeOf(S.foo() catch undefined);
-    comptime try expect(T == i32);
+    try comptime expect(T == i32);
     try expect(S.data == 0);
 }
 
@@ -232,7 +236,7 @@ test "hardcoded address in typeof expression" {
         }
     };
     try expect(S.func() == 0);
-    comptime try expect(S.func() == 0);
+    try comptime expect(S.func() == 0);
 }
 
 test "array access of generic param in typeof expression" {
@@ -242,7 +246,7 @@ test "array access of generic param in typeof expression" {
         }
     };
     try expect(S.first("a") == 'a');
-    comptime try expect(S.first("a") == 'a');
+    try comptime expect(S.first("a") == 'a');
 }
 
 test "lazy size cast to float" {
@@ -264,6 +268,7 @@ test "runtime instructions inside typeof in comptime only scope" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     {
         var y: i8 = 2;

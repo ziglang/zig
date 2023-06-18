@@ -100,7 +100,7 @@ fn extendedOffset() usize {
 }
 
 fn nPages(memsize: usize) usize {
-    return mem.alignForward(memsize, mem.page_size) / mem.page_size;
+    return mem.alignForward(usize, memsize, mem.page_size) / mem.page_size;
 }
 
 fn alloc(ctx: *anyopaque, len: usize, log2_align: u8, ra: usize) ?[*]u8 {
@@ -170,7 +170,7 @@ fn resize(
     _ = ctx;
     _ = log2_buf_align;
     _ = return_address;
-    const aligned_len = mem.alignForward(buf.len, mem.page_size);
+    const aligned_len = mem.alignForward(usize, buf.len, mem.page_size);
     if (new_len > aligned_len) return false;
     const current_n = nPages(aligned_len);
     const new_n = nPages(new_len);
@@ -190,7 +190,7 @@ fn free(
     _ = ctx;
     _ = log2_buf_align;
     _ = return_address;
-    const aligned_len = mem.alignForward(buf.len, mem.page_size);
+    const aligned_len = mem.alignForward(usize, buf.len, mem.page_size);
     const current_n = nPages(aligned_len);
     const base = nPages(@ptrToInt(buf.ptr));
     freePages(base, base + current_n);

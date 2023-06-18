@@ -55,6 +55,10 @@ pub const simple_cases = [_]SimpleCase{
         .os_filter = .windows,
         .link_libc = true,
     },
+    .{
+        .src_path = "test/standalone/http.zig",
+        .all_modes = true,
+    },
 
     // Ensure the development tools are buildable. Alphabetically sorted.
     // No need to build `tools/spirv/grammar.zig`.

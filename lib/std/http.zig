@@ -12,7 +12,7 @@ pub const Version = enum {
 };
 
 /// https://developer.mozilla.org/en-US/docs/Web/HTTP/Methods
-/// https://datatracker.ietf.org/doc/html/rfc7231#section-4 Initial definiton
+/// https://datatracker.ietf.org/doc/html/rfc7231#section-4 Initial definition
 /// https://datatracker.ietf.org/doc/html/rfc5789#section-2 PATCH
 pub const Method = enum {
     GET,
@@ -275,5 +275,4 @@ test {
     _ = Client;
     _ = Method;
     _ = Status;
-    _ = @import("http/test.zig");
 }

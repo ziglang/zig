@@ -10,11 +10,11 @@ test "super basic invocations" {
         }
     }.foo;
     try expect(@call(.auto, foo, .{}) == 1234);
-    comptime try expect(@call(.always_inline, foo, .{}) == 1234);
+    try comptime expect(@call(.always_inline, foo, .{}) == 1234);
     {
         // comptime call without comptime keyword
         const result = @call(.compile_time, foo, .{}) == 1234;
-        comptime try expect(result);
+        try comptime expect(result);
     }
 }
 
@@ -24,6 +24,7 @@ test "basic invocations" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const foo = struct {
         fn foo() i32 {
@@ -41,7 +42,7 @@ test "basic invocations" {
     {
         // comptime call without comptime keyword
         const result = @call(.compile_time, foo, .{}) == 1234;
-        comptime try expect(result);
+        try comptime expect(result);
     }
     {
         // call of non comptime-known function
@@ -56,6 +57,7 @@ test "tuple parameters" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const add = struct {
         fn add(a: i32, b: i32) i32 {
@@ -69,7 +71,7 @@ test "tuple parameters" {
     try expect(@call(.auto, add, .{ a, b }) == 46);
     try expect(@call(.auto, add, .{ 12, 34 }) == 46);
     if (false) {
-        comptime try expect(@call(.auto, add, .{ 12, 34 }) == 46); // TODO
+        try comptime expect(@call(.auto, add, .{ 12, 34 }) == 46); // TODO
     }
     try expect(comptime @call(.auto, add, .{ 12, 34 }) == 46);
     {
@@ -88,6 +90,7 @@ test "result location of function call argument through runtime condition and st
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const E = enum { a, b };
     const S = struct {
@@ -265,6 +268,7 @@ test "forced tail call" {
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     if (builtin.zig_backend == .stage2_llvm) {
         // Only attempt this test on targets we know have tail call support in LLVM.
@@ -298,6 +302,7 @@ test "inline call preserves tail call" {
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     if (builtin.zig_backend == .stage2_llvm) {
         // Only attempt this test on targets we know have tail call support in LLVM.
@@ -329,6 +334,7 @@ test "inline call preserves tail call" {
 test "inline call doesn't re-evaluate non generic struct" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const S = struct {
         fn foo(f: struct { a: u8, b: u8 }) !void {
@@ -338,7 +344,7 @@ test "inline call doesn't re-evaluate non generic struct" {
     };
     const ArgTuple = std.meta.ArgsTuple(@TypeOf(S.foo));
     try @call(.always_inline, S.foo, ArgTuple{.{ .a = 123, .b = 45 }});
-    comptime try @call(.always_inline, S.foo, ArgTuple{.{ .a = 123, .b = 45 }});
+    try comptime @call(.always_inline, S.foo, ArgTuple{.{ .a = 123, .b = 45 }});
 }
 
 test "Enum constructed by @Type passed as generic argument" {
@@ -395,6 +401,7 @@ test "recursive inline call with comptime known argument" {
 test "inline while with @call" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const S = struct {
         fn inc(a: *u32) void {
@@ -407,4 +414,17 @@ test "inline while with @call" {
         @call(.auto, S.inc, .{&a});
     }
     try expect(a == 10);
+}
+
+test "method call as parameter type" {
+    const S = struct {
+        fn foo(x: anytype, y: @TypeOf(x).Inner()) @TypeOf(y) {
+            return y;
+        }
+        fn Inner() type {
+            return u64;
+        }
+    };
+    try expectEqual(@as(u64, 123), S.foo(S{}, 123));
+    try expectEqual(@as(u64, 500), S.foo(S{}, 500));
 }

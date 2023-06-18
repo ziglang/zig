@@ -67,6 +67,7 @@ else if (builtin.link_libc or is_windows)
     std.c
 else switch (builtin.os.tag) {
     .linux => linux,
+    .plan9 => plan9,
     .wasi => wasi,
     .uefi => uefi,
     else => struct {},
@@ -87,6 +88,10 @@ pub const F = system.F;
 pub const FD_CLOEXEC = system.FD_CLOEXEC;
 pub const Flock = system.Flock;
 pub const HOST_NAME_MAX = system.HOST_NAME_MAX;
+pub const HW = switch (builtin.os.tag) {
+    .openbsd => system.HW,
+    else => .{},
+};
 pub const IFNAMESIZE = system.IFNAMESIZE;
 pub const IOV_MAX = system.IOV_MAX;
 pub const IPPROTO = system.IPPROTO;
@@ -483,7 +488,7 @@ pub fn getrandom(buffer: []u8) GetRandomError!void {
     if (builtin.os.tag == .linux or builtin.os.tag == .freebsd) {
         var buf = buffer;
         const use_c = builtin.os.tag != .linux or
-            std.c.versionCheck(std.builtin.Version{ .major = 2, .minor = 25, .patch = 0 }).ok;
+            std.c.versionCheck(std.SemanticVersion{ .major = 2, .minor = 25, .patch = 0 }).ok;
 
         while (buf.len != 0) {
             const res = if (use_c) blk: {
@@ -512,7 +517,18 @@ pub fn getrandom(buffer: []u8) GetRandomError!void {
         return;
     }
     switch (builtin.os.tag) {
-        .netbsd, .openbsd, .macos, .ios, .tvos, .watchos => {
+        .macos, .ios => {
+            const rc = darwin.CCRandomGenerateBytes(buffer.ptr, buffer.len);
+            if (rc != darwin.CCRNGStatus.kCCSuccess) {
+                if (rc == darwin.CCRNGStatus.kCCParamError or rc == darwin.CCRNGStatus.kCCBufferTooSmall) {
+                    return error.InvalidHandle;
+                } else {
+                    return error.SystemResources;
+                }
+            }
+            return;
+        },
+        .netbsd, .openbsd, .tvos, .watchos => {
             system.arc4random_buf(buffer.ptr, buffer.len);
             return;
         },
@@ -659,7 +675,7 @@ pub fn exit(status: u8) noreturn {
         linux.exit_group(status);
     }
     if (builtin.os.tag == .uefi) {
-        // exit() is only avaliable if exitBootServices() has not been called yet.
+        // exit() is only available if exitBootServices() has not been called yet.
         // This call to exit should not fail, so we don't care about its return value.
         if (uefi.system_table.boot_services) |bs| {
             _ = bs.exit(uefi.handle, @intToEnum(uefi.Status, status), 0, null);
@@ -991,7 +1007,7 @@ pub fn preadv(fd: fd_t, iov: []const iovec, offset: u64) PReadError!usize {
     if (have_pread_but_not_preadv) {
         // We could loop here; but proper usage of `preadv` must handle partial reads anyway.
         // So we simply read into the first vector only.
-        if (iov.len == 0) return @as(usize, 0);
+        if (iov.len == 0) return @intCast(usize, 0);
         const first = iov[0];
         return pread(fd, first.iov_base[0..first.iov_len], offset);
     }
@@ -1867,7 +1883,7 @@ pub fn execvpeZ_expandArg0(
     // Use of MAX_PATH_BYTES here is valid as the path_buf will be passed
     // directly to the operating system in execveZ.
     var path_buf: [MAX_PATH_BYTES]u8 = undefined;
-    var it = mem.tokenize(u8, PATH, ":");
+    var it = mem.tokenizeScalar(u8, PATH, ':');
     var seen_eacces = false;
     var err: ExecveError = error.FileNotFound;
 
@@ -2978,7 +2994,7 @@ pub fn chdirZ(dir_path: [*:0]const u8) ChangeCurDirError!void {
     }
 }
 
-/// Windows-only. Same as `chdir` except the paramter is WTF16 encoded.
+/// Windows-only. Same as `chdir` except the parameter is WTF16 encoded.
 pub fn chdirW(dir_path: []const u16) ChangeCurDirError!void {
     windows.SetCurrentDirectory(dir_path) catch |err| switch (err) {
         error.NoDevice => return error.FileSystem,
@@ -3988,6 +4004,7 @@ pub fn connect(sock: socket_t, sock_addr: *const sockaddr, len: socklen_t) Conne
             .PROTOTYPE => unreachable, // The socket type does not support the requested communications protocol.
             .TIMEDOUT => return error.ConnectionTimedOut,
             .NOENT => return error.FileNotFound, // Returned when socket is AF.UNIX and the given path does not exist.
+            .CONNABORTED => unreachable, // Tried to reuse socket that previously received error.ConnectionRefused.
             else => |err| return unexpectedErrno(err),
         }
     }
@@ -5255,7 +5272,7 @@ pub fn getFdPath(fd: fd_t, out_buffer: *[MAX_PATH_BYTES]u8) RealPathError![]u8 {
             return target;
         },
         .freebsd => {
-            if (comptime builtin.os.version_range.semver.max.order(.{ .major = 13, .minor = 0 }) == .gt) {
+            if (comptime builtin.os.version_range.semver.max.order(.{ .major = 13, .minor = 0, .patch = 0 }) == .gt) {
                 var kfile: system.kinfo_file = undefined;
                 kfile.structsize = system.KINFO_FILE_SIZE;
                 switch (errno(system.fcntl(fd, system.F.KINFO, @ptrToInt(&kfile)))) {
@@ -5308,7 +5325,7 @@ pub fn getFdPath(fd: fd_t, out_buffer: *[MAX_PATH_BYTES]u8) RealPathError![]u8 {
             }
         },
         .dragonfly => {
-            if (comptime builtin.os.version_range.semver.max.order(.{ .major = 6, .minor = 0 }) == .lt) {
+            if (comptime builtin.os.version_range.semver.max.order(.{ .major = 6, .minor = 0, .patch = 0 }) == .lt) {
                 @compileError("querying for canonical path of a handle is unsupported on this host");
             }
             @memset(out_buffer[0..MAX_PATH_BYTES], 0);
@@ -5322,7 +5339,7 @@ pub fn getFdPath(fd: fd_t, out_buffer: *[MAX_PATH_BYTES]u8) RealPathError![]u8 {
             return out_buffer[0..len];
         },
         .netbsd => {
-            if (comptime builtin.os.version_range.semver.max.order(.{ .major = 10, .minor = 0 }) == .lt) {
+            if (comptime builtin.os.version_range.semver.max.order(.{ .major = 10, .minor = 0, .patch = 0 }) == .lt) {
                 @compileError("querying for canonical path of a handle is unsupported on this host");
             }
             @memset(out_buffer[0..MAX_PATH_BYTES], 0);
@@ -5519,6 +5536,7 @@ pub fn clock_getres(clk_id: i32, res: *timespec) ClockGetTimeError!void {
 }
 
 pub const SchedGetAffinityError = error{PermissionDenied} || UnexpectedError;
+pub const SchedSetAffinityError = error{ InvalidCpu, PermissionDenied } || UnexpectedError;
 
 pub fn sched_getaffinity(pid: pid_t) SchedGetAffinityError!cpu_set_t {
     var set: cpu_set_t = undefined;
@@ -5538,6 +5556,39 @@ pub fn sched_getaffinity(pid: pid_t) SchedGetAffinityError!cpu_set_t {
             .INVAL => unreachable,
             .SRCH => unreachable,
             .EDEADLK => unreachable,
+            .PERM => return error.PermissionDenied,
+            else => |err| return unexpectedErrno(err),
+        }
+    } else {
+        @compileError("unsupported platform");
+    }
+}
+
+pub fn sched_setaffinity(pid: pid_t, cpus: []usize) SchedSetAffinityError!cpu_set_t {
+    var set: cpu_set_t = undefined;
+    if (builtin.os.tag == .linux) {
+        system.CPU_ZERO(&set);
+        for (cpus) |cpu| {
+            system.CPU_SET(cpu, &set);
+        }
+        switch (errno(system.sched_setaffinity(pid, @sizeOf(cpu_set_t), &set))) {
+            .SUCCESS => return set,
+            .FAULT => unreachable,
+            .SRCH => unreachable,
+            .INVAL => return error.InvalidCpu,
+            .PERM => return error.PermissionDenied,
+            else => |err| return unexpectedErrno(err),
+        }
+    } else if (builtin.os.tag == .freebsd) {
+        freebsd.CPU_ZERO(&set);
+        for (cpus) |cpu| {
+            freebsd.CPU_SET(cpu, &set);
+        }
+        switch (errno(freebsd.cpuset_setaffinity(freebsd.CPU_LEVEL_WHICH, freebsd.CPU_WHICH_PID, pid, @sizeOf(cpu_set_t), &set))) {
+            .SUCCESS => return set,
+            .FAULT => unreachable,
+            .SRCH => unreachable,
+            .INVAL => return error.InvalidCpu,
             .PERM => return error.PermissionDenied,
             else => |err| return unexpectedErrno(err),
         }
@@ -5686,7 +5737,7 @@ pub fn gethostname(name_buffer: *[HOST_NAME_MAX]u8) GetHostNameError![]u8 {
             else => |err| return unexpectedErrno(err),
         }
     }
-    if (builtin.os.tag == .linux) {
+    if (builtin.os.tag == .linux or builtin.os.tag == .macos or builtin.os.tag == .freebsd) {
         const uts = uname();
         const hostname = mem.sliceTo(&uts.nodename, 0);
         const result = name_buffer[0..hostname.len];
@@ -5933,7 +5984,7 @@ pub fn sendto(
     addrlen: socklen_t,
 ) SendToError!usize {
     if (builtin.os.tag == .windows) {
-        switch (windows.ws2_32.sendto(sockfd, buf.ptr, buf.len, flags, dest_addr, addrlen)) {
+        switch (windows.sendto(sockfd, buf.ptr, buf.len, flags, dest_addr, addrlen)) {
             windows.ws2_32.SOCKET_ERROR => switch (windows.ws2_32.WSAGetLastError()) {
                 .WSAEACCES => return error.AccessDenied,
                 .WSAEADDRNOTAVAIL => return error.AddressNotAvailable,
@@ -6101,9 +6152,9 @@ pub fn sendfile(
         .linux => sf: {
             // sendfile() first appeared in Linux 2.2, glibc 2.1.
             const call_sf = comptime if (builtin.link_libc)
-                std.c.versionCheck(.{ .major = 2, .minor = 1 }).ok
+                std.c.versionCheck(.{ .major = 2, .minor = 1, .patch = 0 }).ok
             else
-                builtin.os.version_range.linux.range.max.order(.{ .major = 2, .minor = 2 }) != .lt;
+                builtin.os.version_range.linux.range.max.order(.{ .major = 2, .minor = 2, .patch = 0 }) != .lt;
             if (!call_sf) break :sf;
 
             if (headers.len != 0) {
@@ -6402,8 +6453,8 @@ var has_copy_file_range_syscall = std.atomic.Atomic(bool).init(true);
 ///
 /// Maximum offsets on Linux and FreeBSD are `math.maxInt(i64)`.
 pub fn copy_file_range(fd_in: fd_t, off_in: u64, fd_out: fd_t, off_out: u64, len: usize, flags: u32) CopyFileRangeError!usize {
-    if ((comptime builtin.os.isAtLeast(.freebsd, .{ .major = 13, .minor = 0 }) orelse false) or
-        ((comptime builtin.os.isAtLeast(.linux, .{ .major = 4, .minor = 5 }) orelse false and
+    if ((comptime builtin.os.isAtLeast(.freebsd, .{ .major = 13, .minor = 0, .patch = 0 }) orelse false) or
+        ((comptime builtin.os.isAtLeast(.linux, .{ .major = 4, .minor = 5, .patch = 0 }) orelse false and
         std.c.versionCheck(.{ .major = 2, .minor = 27, .patch = 0 }).ok) and
         has_copy_file_range_syscall.load(.Monotonic)))
     {
@@ -6736,7 +6787,7 @@ pub fn memfd_createZ(name: [*:0]const u8, flags: u32) MemFdCreateError!fd_t {
             }
         },
         .freebsd => {
-            if (comptime builtin.os.version_range.semver.max.order(.{ .major = 13, .minor = 0 }) == .lt)
+            if (comptime builtin.os.version_range.semver.max.order(.{ .major = 13, .minor = 0, .patch = 0 }) == .lt)
                 @compileError("memfd_create is unavailable on FreeBSD < 13.0");
             const rc = system.memfd_create(name, flags);
             switch (errno(rc)) {
@@ -6780,7 +6831,9 @@ pub fn getrusage(who: i32) rusage {
     }
 }
 
-pub const TermiosGetError = error{NotATerminal} || UnexpectedError;
+pub const TIOCError = error{NotATerminal};
+
+pub const TermiosGetError = TIOCError || UnexpectedError;
 
 pub fn tcgetattr(handle: fd_t) TermiosGetError!termios {
     while (true) {
@@ -6806,6 +6859,43 @@ pub fn tcsetattr(handle: fd_t, optional_action: TCSA, termios_p: termios) Termio
             .INVAL => unreachable,
             .NOTTY => return error.NotATerminal,
             .IO => return error.ProcessOrphaned,
+            else => |err| return unexpectedErrno(err),
+        }
+    }
+}
+
+pub const TermioGetPgrpError = TIOCError || UnexpectedError;
+
+/// Returns the process group ID for the TTY associated with the given handle.
+pub fn tcgetpgrp(handle: fd_t) TermioGetPgrpError!pid_t {
+    while (true) {
+        var pgrp: pid_t = undefined;
+        switch (errno(system.tcgetpgrp(handle, &pgrp))) {
+            .SUCCESS => return pgrp,
+            .BADF => unreachable,
+            .INVAL => unreachable,
+            .INTR => continue,
+            .NOTTY => return error.NotATerminal,
+            else => |err| return unexpectedErrno(err),
+        }
+    }
+}
+
+pub const TermioSetPgrpError = TermioGetPgrpError || error{NotAPgrpMember};
+
+/// Sets the controlling process group ID for given TTY.
+/// handle must be valid fd_t to a TTY associated with calling process.
+/// pgrp must be a valid process group, and the calling process must be a member
+/// of that group.
+pub fn tcsetpgrp(handle: fd_t, pgrp: pid_t) TermioSetPgrpError!void {
+    while (true) {
+        switch (errno(system.tcsetpgrp(handle, &pgrp))) {
+            .SUCCESS => return,
+            .BADF => unreachable,
+            .INVAL => unreachable,
+            .INTR => continue,
+            .NOTTY => return error.NotATerminal,
+            .PERM => return TermioSetPgrpError.NotAPgrpMember,
             else => |err| return unexpectedErrno(err),
         }
     }
@@ -6925,7 +7015,7 @@ pub const PrctlError = error{
     /// Can only occur with PR_SET_SPECULATION_CTRL, PR_MPX_ENABLE_MANAGEMENT,
     /// or PR_MPX_DISABLE_MANAGEMENT
     UnsupportedFeature,
-    /// Can only occur wih PR_SET_FP_MODE
+    /// Can only occur with PR_SET_FP_MODE
     OperationNotSupported,
     PermissionDenied,
 } || UnexpectedError;

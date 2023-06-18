@@ -21,28 +21,42 @@ const Build = @This();
 
 pub const Cache = @import("Build/Cache.zig");
 
-/// deprecated: use `CompileStep`.
-pub const LibExeObjStep = CompileStep;
+/// deprecated: use `Step.Compile`.
+pub const LibExeObjStep = Step.Compile;
 /// deprecated: use `Build`.
 pub const Builder = Build;
-/// deprecated: use `InstallDirStep.Options`
-pub const InstallDirectoryOptions = InstallDirStep.Options;
+/// deprecated: use `Step.InstallDir.Options`
+pub const InstallDirectoryOptions = Step.InstallDir.Options;
 
 pub const Step = @import("Build/Step.zig");
-pub const CheckFileStep = @import("Build/CheckFileStep.zig");
-pub const CheckObjectStep = @import("Build/CheckObjectStep.zig");
-pub const ConfigHeaderStep = @import("Build/ConfigHeaderStep.zig");
-pub const FmtStep = @import("Build/FmtStep.zig");
-pub const InstallArtifactStep = @import("Build/InstallArtifactStep.zig");
-pub const InstallDirStep = @import("Build/InstallDirStep.zig");
-pub const InstallFileStep = @import("Build/InstallFileStep.zig");
-pub const ObjCopyStep = @import("Build/ObjCopyStep.zig");
-pub const CompileStep = @import("Build/CompileStep.zig");
-pub const OptionsStep = @import("Build/OptionsStep.zig");
-pub const RemoveDirStep = @import("Build/RemoveDirStep.zig");
-pub const RunStep = @import("Build/RunStep.zig");
-pub const TranslateCStep = @import("Build/TranslateCStep.zig");
-pub const WriteFileStep = @import("Build/WriteFileStep.zig");
+/// deprecated: use `Step.CheckFile`.
+pub const CheckFileStep = @import("Build/Step/CheckFile.zig");
+/// deprecated: use `Step.CheckObject`.
+pub const CheckObjectStep = @import("Build/Step/CheckObject.zig");
+/// deprecated: use `Step.ConfigHeader`.
+pub const ConfigHeaderStep = @import("Build/Step/ConfigHeader.zig");
+/// deprecated: use `Step.Fmt`.
+pub const FmtStep = @import("Build/Step/Fmt.zig");
+/// deprecated: use `Step.InstallArtifact`.
+pub const InstallArtifactStep = @import("Build/Step/InstallArtifact.zig");
+/// deprecated: use `Step.InstallDir`.
+pub const InstallDirStep = @import("Build/Step/InstallDir.zig");
+/// deprecated: use `Step.InstallFile`.
+pub const InstallFileStep = @import("Build/Step/InstallFile.zig");
+/// deprecated: use `Step.ObjCopy`.
+pub const ObjCopyStep = @import("Build/Step/ObjCopy.zig");
+/// deprecated: use `Step.Compile`.
+pub const CompileStep = @import("Build/Step/Compile.zig");
+/// deprecated: use `Step.Options`.
+pub const OptionsStep = @import("Build/Step/Options.zig");
+/// deprecated: use `Step.RemoveDir`.
+pub const RemoveDirStep = @import("Build/Step/RemoveDir.zig");
+/// deprecated: use `Step.Run`.
+pub const RunStep = @import("Build/Step/Run.zig");
+/// deprecated: use `Step.TranslateC`.
+pub const TranslateCStep = @import("Build/Step/TranslateC.zig");
+/// deprecated: use `Step.WriteFile`.
+pub const WriteFileStep = @import("Build/Step/WriteFile.zig");
 
 install_tls: TopLevelStep,
 uninstall_tls: TopLevelStep,
@@ -110,6 +124,9 @@ host: NativeTargetInfo,
 dep_prefix: []const u8 = "",
 
 modules: std.StringArrayHashMap(*Module),
+/// A map from build root dirs to the corresponding `*Dependency`. This is shared with all child
+/// `Build`s.
+initialized_deps: *std.StringHashMap(*Dependency),
 
 pub const ExecError = error{
     ReadFailure,
@@ -167,6 +184,7 @@ const TypeId = enum {
     @"enum",
     string,
     list,
+    build_id,
 };
 
 const TopLevelStep = struct {
@@ -193,6 +211,9 @@ pub fn create(
 ) !*Build {
     const env_map = try allocator.create(EnvMap);
     env_map.* = try process.getEnvMap(allocator);
+
+    const initialized_deps = try allocator.create(std.StringHashMap(*Dependency));
+    initialized_deps.* = std.StringHashMap(*Dependency).init(allocator);
 
     const self = try allocator.create(Build);
     self.* = .{
@@ -246,6 +267,7 @@ pub fn create(
         .args = null,
         .host = host,
         .modules = std.StringArrayHashMap(*Module).init(allocator),
+        .initialized_deps = initialized_deps,
     };
     try self.top_level_steps.put(allocator, self.install_tls.step.name, &self.install_tls);
     try self.top_level_steps.put(allocator, self.uninstall_tls.step.name, &self.uninstall_tls);
@@ -330,6 +352,7 @@ fn createChildOnly(parent: *Build, dep_name: []const u8, build_root: Cache.Direc
         .host = parent.host,
         .dep_prefix = parent.fmt("{s}{s}.", .{ parent.dep_prefix, dep_name }),
         .modules = std.StringArrayHashMap(*Module).init(allocator),
+        .initialized_deps = parent.initialized_deps,
     };
     try child.top_level_steps.put(allocator, child.install_tls.step.name, &child.install_tls);
     try child.top_level_steps.put(allocator, child.uninstall_tls.step.name, &child.uninstall_tls);
@@ -442,17 +465,17 @@ pub fn resolveInstallPrefix(self: *Build, install_prefix: ?[]const u8, dir_list:
     self.h_dir = self.pathJoin(&h_list);
 }
 
-pub fn addOptions(self: *Build) *OptionsStep {
-    return OptionsStep.create(self);
+pub fn addOptions(self: *Build) *Step.Options {
+    return Step.Options.create(self);
 }
 
 pub const ExecutableOptions = struct {
     name: []const u8,
     root_source_file: ?FileSource = null,
-    version: ?std.builtin.Version = null,
+    version: ?std.SemanticVersion = null,
     target: CrossTarget = .{},
     optimize: std.builtin.Mode = .Debug,
-    linkage: ?CompileStep.Linkage = null,
+    linkage: ?Step.Compile.Linkage = null,
     max_rss: usize = 0,
     link_libc: ?bool = null,
     single_threaded: ?bool = null,
@@ -460,8 +483,8 @@ pub const ExecutableOptions = struct {
     use_lld: ?bool = null,
 };
 
-pub fn addExecutable(b: *Build, options: ExecutableOptions) *CompileStep {
-    return CompileStep.create(b, .{
+pub fn addExecutable(b: *Build, options: ExecutableOptions) *Step.Compile {
+    return Step.Compile.create(b, .{
         .name = options.name,
         .root_source_file = options.root_source_file,
         .version = options.version,
@@ -489,8 +512,8 @@ pub const ObjectOptions = struct {
     use_lld: ?bool = null,
 };
 
-pub fn addObject(b: *Build, options: ObjectOptions) *CompileStep {
-    return CompileStep.create(b, .{
+pub fn addObject(b: *Build, options: ObjectOptions) *Step.Compile {
+    return Step.Compile.create(b, .{
         .name = options.name,
         .root_source_file = options.root_source_file,
         .target = options.target,
@@ -507,7 +530,7 @@ pub fn addObject(b: *Build, options: ObjectOptions) *CompileStep {
 pub const SharedLibraryOptions = struct {
     name: []const u8,
     root_source_file: ?FileSource = null,
-    version: ?std.builtin.Version = null,
+    version: ?std.SemanticVersion = null,
     target: CrossTarget,
     optimize: std.builtin.Mode,
     max_rss: usize = 0,
@@ -517,8 +540,8 @@ pub const SharedLibraryOptions = struct {
     use_lld: ?bool = null,
 };
 
-pub fn addSharedLibrary(b: *Build, options: SharedLibraryOptions) *CompileStep {
-    return CompileStep.create(b, .{
+pub fn addSharedLibrary(b: *Build, options: SharedLibraryOptions) *Step.Compile {
+    return Step.Compile.create(b, .{
         .name = options.name,
         .root_source_file = options.root_source_file,
         .kind = .lib,
@@ -539,7 +562,7 @@ pub const StaticLibraryOptions = struct {
     root_source_file: ?FileSource = null,
     target: CrossTarget,
     optimize: std.builtin.Mode,
-    version: ?std.builtin.Version = null,
+    version: ?std.SemanticVersion = null,
     max_rss: usize = 0,
     link_libc: ?bool = null,
     single_threaded: ?bool = null,
@@ -547,8 +570,8 @@ pub const StaticLibraryOptions = struct {
     use_lld: ?bool = null,
 };
 
-pub fn addStaticLibrary(b: *Build, options: StaticLibraryOptions) *CompileStep {
-    return CompileStep.create(b, .{
+pub fn addStaticLibrary(b: *Build, options: StaticLibraryOptions) *Step.Compile {
+    return Step.Compile.create(b, .{
         .name = options.name,
         .root_source_file = options.root_source_file,
         .kind = .lib,
@@ -569,7 +592,7 @@ pub const TestOptions = struct {
     root_source_file: FileSource,
     target: CrossTarget = .{},
     optimize: std.builtin.Mode = .Debug,
-    version: ?std.builtin.Version = null,
+    version: ?std.SemanticVersion = null,
     max_rss: usize = 0,
     filter: ?[]const u8 = null,
     test_runner: ?[]const u8 = null,
@@ -579,8 +602,8 @@ pub const TestOptions = struct {
     use_lld: ?bool = null,
 };
 
-pub fn addTest(b: *Build, options: TestOptions) *CompileStep {
-    return CompileStep.create(b, .{
+pub fn addTest(b: *Build, options: TestOptions) *Step.Compile {
+    return Step.Compile.create(b, .{
         .name = options.name,
         .kind = .@"test",
         .root_source_file = options.root_source_file,
@@ -604,8 +627,8 @@ pub const AssemblyOptions = struct {
     max_rss: usize = 0,
 };
 
-pub fn addAssembly(b: *Build, options: AssemblyOptions) *CompileStep {
-    const obj_step = CompileStep.create(b, .{
+pub fn addAssembly(b: *Build, options: AssemblyOptions) *Step.Compile {
+    const obj_step = Step.Compile.create(b, .{
         .name = options.name,
         .kind = .obj,
         .root_source_file = null,
@@ -657,25 +680,25 @@ fn moduleDependenciesToArrayHashMap(arena: Allocator, deps: []const ModuleDepend
     return result;
 }
 
-/// Initializes a RunStep with argv, which must at least have the path to the
+/// Initializes a `Step.Run` with argv, which must at least have the path to the
 /// executable. More command line arguments can be added with `addArg`,
 /// `addArgs`, and `addArtifactArg`.
 /// Be careful using this function, as it introduces a system dependency.
-/// To run an executable built with zig build, see `CompileStep.run`.
-pub fn addSystemCommand(self: *Build, argv: []const []const u8) *RunStep {
+/// To run an executable built with zig build, see `Step.Compile.run`.
+pub fn addSystemCommand(self: *Build, argv: []const []const u8) *Step.Run {
     assert(argv.len >= 1);
-    const run_step = RunStep.create(self, self.fmt("run {s}", .{argv[0]}));
+    const run_step = Step.Run.create(self, self.fmt("run {s}", .{argv[0]}));
     run_step.addArgs(argv);
     return run_step;
 }
 
-/// Creates a `RunStep` with an executable built with `addExecutable`.
-/// Add command line arguments with methods of `RunStep`.
-pub fn addRunArtifact(b: *Build, exe: *CompileStep) *RunStep {
+/// Creates a `Step.Run` with an executable built with `addExecutable`.
+/// Add command line arguments with methods of `Step.Run`.
+pub fn addRunArtifact(b: *Build, exe: *Step.Compile) *Step.Run {
     // It doesn't have to be native. We catch that if you actually try to run it.
     // Consider that this is declarative; the run step may not be run unless a user
     // option is supplied.
-    const run_step = RunStep.create(b, b.fmt("run {s}", .{exe.name}));
+    const run_step = Step.Run.create(b, b.fmt("run {s}", .{exe.name}));
     run_step.addArtifactArg(exe);
 
     if (exe.kind == .@"test") {
@@ -696,14 +719,14 @@ pub fn addRunArtifact(b: *Build, exe: *CompileStep) *RunStep {
 /// when an option found in the input file is missing from `values`.
 pub fn addConfigHeader(
     b: *Build,
-    options: ConfigHeaderStep.Options,
+    options: Step.ConfigHeader.Options,
     values: anytype,
-) *ConfigHeaderStep {
+) *Step.ConfigHeader {
     var options_copy = options;
     if (options_copy.first_ret_addr == null)
         options_copy.first_ret_addr = @returnAddress();
 
-    const config_header_step = ConfigHeaderStep.create(b, options_copy);
+    const config_header_step = Step.ConfigHeader.create(b, options_copy);
     config_header_step.addValues(values);
     return config_header_step;
 }
@@ -734,28 +757,28 @@ pub fn dupePath(self: *Build, bytes: []const u8) []u8 {
     return the_copy;
 }
 
-pub fn addWriteFile(self: *Build, file_path: []const u8, data: []const u8) *WriteFileStep {
+pub fn addWriteFile(self: *Build, file_path: []const u8, data: []const u8) *Step.WriteFile {
     const write_file_step = self.addWriteFiles();
-    write_file_step.add(file_path, data);
+    _ = write_file_step.add(file_path, data);
     return write_file_step;
 }
 
-pub fn addWriteFiles(b: *Build) *WriteFileStep {
-    return WriteFileStep.create(b);
+pub fn addWriteFiles(b: *Build) *Step.WriteFile {
+    return Step.WriteFile.create(b);
 }
 
-pub fn addRemoveDirTree(self: *Build, dir_path: []const u8) *RemoveDirStep {
-    const remove_dir_step = self.allocator.create(RemoveDirStep) catch @panic("OOM");
-    remove_dir_step.* = RemoveDirStep.init(self, dir_path);
+pub fn addRemoveDirTree(self: *Build, dir_path: []const u8) *Step.RemoveDir {
+    const remove_dir_step = self.allocator.create(Step.RemoveDir) catch @panic("OOM");
+    remove_dir_step.* = Step.RemoveDir.init(self, dir_path);
     return remove_dir_step;
 }
 
-pub fn addFmt(b: *Build, options: FmtStep.Options) *FmtStep {
-    return FmtStep.create(b, options);
+pub fn addFmt(b: *Build, options: Step.Fmt.Options) *Step.Fmt {
+    return Step.Fmt.create(b, options);
 }
 
-pub fn addTranslateC(self: *Build, options: TranslateCStep.Options) *TranslateCStep {
-    return TranslateCStep.create(self, options);
+pub fn addTranslateC(self: *Build, options: Step.TranslateC.Options) *Step.TranslateC {
+    return Step.TranslateC.create(self, options);
 }
 
 pub fn getInstallStep(self: *Build) *Step {
@@ -818,13 +841,13 @@ pub fn option(self: *Build, comptime T: type, name_raw: []const u8, description_
                 } else if (mem.eql(u8, s, "false")) {
                     return false;
                 } else {
-                    log.err("Expected -D{s} to be a boolean, but received '{s}'\n", .{ name, s });
+                    log.err("Expected -D{s} to be a boolean, but received '{s}'", .{ name, s });
                     self.markInvalidUserInput();
                     return null;
                 }
             },
             .list, .map => {
-                log.err("Expected -D{s} to be a boolean, but received a {s}.\n", .{
+                log.err("Expected -D{s} to be a boolean, but received a {s}.", .{
                     name, @tagName(option_ptr.value),
                 });
                 self.markInvalidUserInput();
@@ -833,7 +856,7 @@ pub fn option(self: *Build, comptime T: type, name_raw: []const u8, description_
         },
         .int => switch (option_ptr.value) {
             .flag, .list, .map => {
-                log.err("Expected -D{s} to be an integer, but received a {s}.\n", .{
+                log.err("Expected -D{s} to be an integer, but received a {s}.", .{
                     name, @tagName(option_ptr.value),
                 });
                 self.markInvalidUserInput();
@@ -842,12 +865,12 @@ pub fn option(self: *Build, comptime T: type, name_raw: []const u8, description_
             .scalar => |s| {
                 const n = std.fmt.parseInt(T, s, 10) catch |err| switch (err) {
                     error.Overflow => {
-                        log.err("-D{s} value {s} cannot fit into type {s}.\n", .{ name, s, @typeName(T) });
+                        log.err("-D{s} value {s} cannot fit into type {s}.", .{ name, s, @typeName(T) });
                         self.markInvalidUserInput();
                         return null;
                     },
                     else => {
-                        log.err("Expected -D{s} to be an integer of type {s}.\n", .{ name, @typeName(T) });
+                        log.err("Expected -D{s} to be an integer of type {s}.", .{ name, @typeName(T) });
                         self.markInvalidUserInput();
                         return null;
                     },
@@ -857,7 +880,7 @@ pub fn option(self: *Build, comptime T: type, name_raw: []const u8, description_
         },
         .float => switch (option_ptr.value) {
             .flag, .map, .list => {
-                log.err("Expected -D{s} to be a float, but received a {s}.\n", .{
+                log.err("Expected -D{s} to be a float, but received a {s}.", .{
                     name, @tagName(option_ptr.value),
                 });
                 self.markInvalidUserInput();
@@ -865,7 +888,7 @@ pub fn option(self: *Build, comptime T: type, name_raw: []const u8, description_
             },
             .scalar => |s| {
                 const n = std.fmt.parseFloat(T, s) catch {
-                    log.err("Expected -D{s} to be a float of type {s}.\n", .{ name, @typeName(T) });
+                    log.err("Expected -D{s} to be a float of type {s}.", .{ name, @typeName(T) });
                     self.markInvalidUserInput();
                     return null;
                 };
@@ -874,7 +897,7 @@ pub fn option(self: *Build, comptime T: type, name_raw: []const u8, description_
         },
         .@"enum" => switch (option_ptr.value) {
             .flag, .map, .list => {
-                log.err("Expected -D{s} to be an enum, but received a {s}.\n", .{
+                log.err("Expected -D{s} to be an enum, but received a {s}.", .{
                     name, @tagName(option_ptr.value),
                 });
                 self.markInvalidUserInput();
@@ -884,7 +907,7 @@ pub fn option(self: *Build, comptime T: type, name_raw: []const u8, description_
                 if (std.meta.stringToEnum(T, s)) |enum_lit| {
                     return enum_lit;
                 } else {
-                    log.err("Expected -D{s} to be of type {s}.\n", .{ name, @typeName(T) });
+                    log.err("Expected -D{s} to be of type {s}.", .{ name, @typeName(T) });
                     self.markInvalidUserInput();
                     return null;
                 }
@@ -892,7 +915,7 @@ pub fn option(self: *Build, comptime T: type, name_raw: []const u8, description_
         },
         .string => switch (option_ptr.value) {
             .flag, .list, .map => {
-                log.err("Expected -D{s} to be a string, but received a {s}.\n", .{
+                log.err("Expected -D{s} to be a string, but received a {s}.", .{
                     name, @tagName(option_ptr.value),
                 });
                 self.markInvalidUserInput();
@@ -900,9 +923,27 @@ pub fn option(self: *Build, comptime T: type, name_raw: []const u8, description_
             },
             .scalar => |s| return s,
         },
+        .build_id => switch (option_ptr.value) {
+            .flag, .map, .list => {
+                log.err("Expected -D{s} to be an enum, but received a {s}.", .{
+                    name, @tagName(option_ptr.value),
+                });
+                self.markInvalidUserInput();
+                return null;
+            },
+            .scalar => |s| {
+                if (Step.Compile.BuildId.parse(s)) |build_id| {
+                    return build_id;
+                } else |err| {
+                    log.err("unable to parse option '-D{s}': {s}", .{ name, @errorName(err) });
+                    self.markInvalidUserInput();
+                    return null;
+                }
+            },
+        },
         .list => switch (option_ptr.value) {
             .flag, .map => {
-                log.err("Expected -D{s} to be a list, but received a {s}.\n", .{
+                log.err("Expected -D{s} to be a list, but received a {s}.", .{
                     name, @tagName(option_ptr.value),
                 });
                 self.markInvalidUserInput();
@@ -926,7 +967,12 @@ pub fn step(self: *Build, name: []const u8, description: []const u8) *Step {
         }),
         .description = self.dupe(description),
     };
-    self.top_level_steps.put(self.allocator, step_info.step.name, step_info) catch @panic("OOM");
+    const gop = self.top_level_steps.getOrPut(self.allocator, name) catch @panic("OOM");
+    if (gop.found_existing) std.debug.panic("A top-level step with name \"{s}\" already exists", .{name});
+
+    gop.key_ptr.* = step_info.step.name;
+    gop.value_ptr.* = step_info;
+
     return &step_info.step;
 }
 
@@ -1164,15 +1210,18 @@ pub fn addUserInputFlag(self: *Build, name_raw: []const u8) !bool {
 }
 
 fn typeToEnum(comptime T: type) TypeId {
-    return switch (@typeInfo(T)) {
-        .Int => .int,
-        .Float => .float,
-        .Bool => .bool,
-        .Enum => .@"enum",
-        else => switch (T) {
-            []const u8 => .string,
-            []const []const u8 => .list,
-            else => @compileError("Unsupported type: " ++ @typeName(T)),
+    return switch (T) {
+        Step.Compile.BuildId => .build_id,
+        else => return switch (@typeInfo(T)) {
+            .Int => .int,
+            .Float => .float,
+            .Bool => .bool,
+            .Enum => .@"enum",
+            else => switch (T) {
+                []const u8 => .string,
+                []const []const u8 => .list,
+                else => @compileError("Unsupported type: " ++ @typeName(T)),
+            },
         },
     };
 }
@@ -1208,12 +1257,12 @@ fn printCmd(ally: Allocator, cwd: ?[]const u8, argv: []const []const u8) void {
     std.debug.print("{s}\n", .{text});
 }
 
-pub fn installArtifact(self: *Build, artifact: *CompileStep) void {
+pub fn installArtifact(self: *Build, artifact: *Step.Compile) void {
     self.getInstallStep().dependOn(&self.addInstallArtifact(artifact).step);
 }
 
-pub fn addInstallArtifact(self: *Build, artifact: *CompileStep) *InstallArtifactStep {
-    return InstallArtifactStep.create(self, artifact);
+pub fn addInstallArtifact(self: *Build, artifact: *Step.Compile) *Step.InstallArtifact {
+    return Step.InstallArtifact.create(self, artifact);
 }
 
 ///`dest_rel_path` is relative to prefix path
@@ -1235,26 +1284,26 @@ pub fn installLibFile(self: *Build, src_path: []const u8, dest_rel_path: []const
     self.getInstallStep().dependOn(&self.addInstallFileWithDir(.{ .path = src_path }, .lib, dest_rel_path).step);
 }
 
-pub fn addObjCopy(b: *Build, source: FileSource, options: ObjCopyStep.Options) *ObjCopyStep {
-    return ObjCopyStep.create(b, source, options);
+pub fn addObjCopy(b: *Build, source: FileSource, options: Step.ObjCopy.Options) *Step.ObjCopy {
+    return Step.ObjCopy.create(b, source, options);
 }
 
 ///`dest_rel_path` is relative to install prefix path
-pub fn addInstallFile(self: *Build, source: FileSource, dest_rel_path: []const u8) *InstallFileStep {
+pub fn addInstallFile(self: *Build, source: FileSource, dest_rel_path: []const u8) *Step.InstallFile {
     return self.addInstallFileWithDir(source.dupe(self), .prefix, dest_rel_path);
 }
 
 ///`dest_rel_path` is relative to bin path
-pub fn addInstallBinFile(self: *Build, source: FileSource, dest_rel_path: []const u8) *InstallFileStep {
+pub fn addInstallBinFile(self: *Build, source: FileSource, dest_rel_path: []const u8) *Step.InstallFile {
     return self.addInstallFileWithDir(source.dupe(self), .bin, dest_rel_path);
 }
 
 ///`dest_rel_path` is relative to lib path
-pub fn addInstallLibFile(self: *Build, source: FileSource, dest_rel_path: []const u8) *InstallFileStep {
+pub fn addInstallLibFile(self: *Build, source: FileSource, dest_rel_path: []const u8) *Step.InstallFile {
     return self.addInstallFileWithDir(source.dupe(self), .lib, dest_rel_path);
 }
 
-pub fn addInstallHeaderFile(b: *Build, src_path: []const u8, dest_rel_path: []const u8) *InstallFileStep {
+pub fn addInstallHeaderFile(b: *Build, src_path: []const u8, dest_rel_path: []const u8) *Step.InstallFile {
     return b.addInstallFileWithDir(.{ .path = src_path }, .header, dest_rel_path);
 }
 
@@ -1263,22 +1312,22 @@ pub fn addInstallFileWithDir(
     source: FileSource,
     install_dir: InstallDir,
     dest_rel_path: []const u8,
-) *InstallFileStep {
-    return InstallFileStep.create(self, source.dupe(self), install_dir, dest_rel_path);
+) *Step.InstallFile {
+    return Step.InstallFile.create(self, source.dupe(self), install_dir, dest_rel_path);
 }
 
-pub fn addInstallDirectory(self: *Build, options: InstallDirectoryOptions) *InstallDirStep {
-    const install_step = self.allocator.create(InstallDirStep) catch @panic("OOM");
-    install_step.* = InstallDirStep.init(self, options);
+pub fn addInstallDirectory(self: *Build, options: InstallDirectoryOptions) *Step.InstallDir {
+    const install_step = self.allocator.create(Step.InstallDir) catch @panic("OOM");
+    install_step.* = Step.InstallDir.init(self, options);
     return install_step;
 }
 
 pub fn addCheckFile(
     b: *Build,
     file_source: FileSource,
-    options: CheckFileStep.Options,
-) *CheckFileStep {
-    return CheckFileStep.create(b, file_source, options);
+    options: Step.CheckFile.Options,
+) *Step.CheckFile {
+    return Step.CheckFile.create(b, file_source, options);
 }
 
 pub fn pushInstalledFile(self: *Build, dir: InstallDir, dest_rel_path: []const u8) void {
@@ -1339,7 +1388,7 @@ pub fn findProgram(self: *Build, names: []const []const u8, paths: []const []con
             if (fs.path.isAbsolute(name)) {
                 return name;
             }
-            var it = mem.tokenize(u8, PATH, &[_]u8{fs.path.delimiter});
+            var it = mem.tokenizeScalar(u8, PATH, fs.path.delimiter);
             while (it.next()) |path| {
                 const full_path = self.pathJoin(&.{
                     path,
@@ -1448,10 +1497,10 @@ pub fn getInstallPath(self: *Build, dir: InstallDir, dest_rel_path: []const u8) 
 pub const Dependency = struct {
     builder: *Build,
 
-    pub fn artifact(d: *Dependency, name: []const u8) *CompileStep {
-        var found: ?*CompileStep = null;
+    pub fn artifact(d: *Dependency, name: []const u8) *Step.Compile {
+        var found: ?*Step.Compile = null;
         for (d.builder.install_tls.step.dependencies.items) |dep_step| {
-            const inst = dep_step.cast(InstallArtifactStep) orelse continue;
+            const inst = dep_step.cast(Step.InstallArtifact) orelse continue;
             if (mem.eql(u8, inst.artifact.name, name)) {
                 if (found != null) panic("artifact name '{s}' is ambiguous", .{name});
                 found = inst.artifact;
@@ -1459,7 +1508,7 @@ pub const Dependency = struct {
         }
         return found orelse {
             for (d.builder.install_tls.step.dependencies.items) |dep_step| {
-                const inst = dep_step.cast(InstallArtifactStep) orelse continue;
+                const inst = dep_step.cast(Step.InstallArtifact) orelse continue;
                 log.info("available artifact: '{s}'", .{inst.artifact.name});
             }
             panic("unable to find artifact '{s}'", .{name});
@@ -1519,6 +1568,11 @@ pub fn dependencyInner(
     comptime build_zig: type,
     args: anytype,
 ) *Dependency {
+    if (b.initialized_deps.get(build_root_string)) |dep| {
+        // TODO: check args are the same
+        return dep;
+    }
+
     const build_root: std.Build.Cache.Directory = .{
         .path = build_root_string,
         .handle = std.fs.cwd().openDir(build_root_string, .{}) catch |err| {
@@ -1537,6 +1591,9 @@ pub fn dependencyInner(
 
     const dep = b.allocator.create(Dependency) catch @panic("OOM");
     dep.* = .{ .builder = sub_builder };
+
+    b.initialized_deps.put(build_root_string, dep) catch @panic("OOM");
+
     return dep;
 }
 
@@ -1655,10 +1712,10 @@ fn dumpBadGetPathHelp(
         s.name,
     });
 
-    const tty_config = std.debug.detectTTYConfig(stderr);
-    tty_config.setColor(w, .Red) catch {};
+    const tty_config = std.io.tty.detectConfig(stderr);
+    tty_config.setColor(w, .red) catch {};
     try stderr.writeAll("    The step was created by this stack trace:\n");
-    tty_config.setColor(w, .Reset) catch {};
+    tty_config.setColor(w, .reset) catch {};
 
     const debug_info = std.debug.getSelfDebugInfo() catch |err| {
         try w.print("Unable to dump stack trace: Unable to open debug info: {s}\n", .{@errorName(err)});
@@ -1670,9 +1727,9 @@ fn dumpBadGetPathHelp(
         return;
     };
     if (asking_step) |as| {
-        tty_config.setColor(w, .Red) catch {};
+        tty_config.setColor(w, .red) catch {};
         try stderr.writeAll("    The step that is missing a dependency on the above step was created by this stack trace:\n");
-        tty_config.setColor(w, .Reset) catch {};
+        tty_config.setColor(w, .reset) catch {};
 
         std.debug.writeStackTrace(as.getStackTrace(), w, ally, debug_info, tty_config) catch |err| {
             try stderr.writer().print("Unable to dump stack trace: {s}\n", .{@errorName(err)});
@@ -1680,9 +1737,9 @@ fn dumpBadGetPathHelp(
         };
     }
 
-    tty_config.setColor(w, .Red) catch {};
+    tty_config.setColor(w, .red) catch {};
     try stderr.writeAll("    Hope that helps. Proceeding to panic.\n");
-    tty_config.setColor(w, .Reset) catch {};
+    tty_config.setColor(w, .reset) catch {};
 }
 
 /// Allocates a new string for assigning a value to a named macro.
@@ -1803,17 +1860,5 @@ pub fn hex64(x: u64) [16]u8 {
 }
 
 test {
-    _ = CheckFileStep;
-    _ = CheckObjectStep;
-    _ = FmtStep;
-    _ = InstallArtifactStep;
-    _ = InstallDirStep;
-    _ = InstallFileStep;
-    _ = ObjCopyStep;
-    _ = CompileStep;
-    _ = OptionsStep;
-    _ = RemoveDirStep;
-    _ = RunStep;
-    _ = TranslateCStep;
-    _ = WriteFileStep;
+    _ = Step;
 }

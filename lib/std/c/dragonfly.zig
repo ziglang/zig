@@ -9,7 +9,7 @@ pub fn _errno() *c_int {
     return &errno;
 }
 
-pub extern "c" fn getdents(fd: c_int, buf_ptr: [*]u8, nbytes: usize) usize;
+pub extern "c" fn getdents(fd: c_int, buf_ptr: [*]u8, nbytes: usize) c_int;
 pub extern "c" fn sigaltstack(ss: ?*stack_t, old_ss: ?*stack_t) c_int;
 pub extern "c" fn getrandom(buf_ptr: [*]u8, buf_len: usize, flags: c_uint) isize;
 pub extern "c" fn pipe2(fds: *[2]fd_t, flags: u32) c_int;
@@ -1160,3 +1160,5 @@ pub const sigevent = extern struct {
     sigev_value: sigval,
     sigev_notify_function: ?*const fn (sigval) callconv(.C) void,
 };
+
+pub const PTHREAD_STACK_MIN = 16 * 1024;

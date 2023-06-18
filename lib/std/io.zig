@@ -148,12 +148,11 @@ pub const changeDetectionStream = @import("io/change_detection_stream.zig").chan
 pub const FindByteWriter = @import("io/find_byte_writer.zig").FindByteWriter;
 pub const findByteWriter = @import("io/find_byte_writer.zig").findByteWriter;
 
-pub const FindByteOutStream = @compileError("deprecated; use `FindByteWriter`");
-pub const findByteOutStream = @compileError("deprecated; use `findByteWriter`");
-
 pub const BufferedAtomicFile = @import("io/buffered_atomic_file.zig").BufferedAtomicFile;
 
 pub const StreamSource = @import("io/stream_source.zig").StreamSource;
+
+pub const tty = @import("io/tty.zig");
 
 /// A Writer that doesn't write to anything.
 pub const null_writer = @as(NullWriter, .{ .context = {} });

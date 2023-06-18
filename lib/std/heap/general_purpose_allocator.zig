@@ -130,7 +130,7 @@ pub const Config = struct {
     thread_safe: bool = !builtin.single_threaded,
 
     /// What type of mutex you'd like to use, for thread safety.
-    /// when specfied, the mutex type must have the same shape as `std.Thread.Mutex` and
+    /// when specified, the mutex type must have the same shape as `std.Thread.Mutex` and
     /// `DummyMutex`, and have no required fields. Specifying this field causes
     /// the `thread_safe` field to be ignored.
     ///
@@ -309,6 +309,7 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
 
         fn bucketStackFramesStart(size_class: usize) usize {
             return mem.alignForward(
+                usize,
                 @sizeOf(BucketHeader) + usedBitsCount(size_class),
                 @alignOf(usize),
             );
@@ -1241,7 +1242,7 @@ test "realloc large object to small object" {
     try std.testing.expect(slice[16] == 0x34);
 }
 
-test "overrideable mutexes" {
+test "overridable mutexes" {
     var gpa = GeneralPurposeAllocator(.{ .MutexType = std.Thread.Mutex }){
         .backing_allocator = std.testing.allocator,
         .mutex = std.Thread.Mutex{},

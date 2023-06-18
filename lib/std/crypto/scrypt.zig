@@ -143,7 +143,7 @@ pub const Params = struct {
 
     /// Create parameters from ops and mem limits, where mem_limit given in bytes
     pub fn fromLimits(ops_limit: u64, mem_limit: usize) Self {
-        const ops = math.max(32768, ops_limit);
+        const ops = @max(32768, ops_limit);
         const r: u30 = 8;
         if (ops < mem_limit / 32) {
             const max_n = ops / (r * 4);
@@ -151,7 +151,7 @@ pub const Params = struct {
         } else {
             const max_n = mem_limit / (@intCast(usize, r) * 128);
             const ln = @intCast(u6, math.log2(max_n));
-            const max_rp = math.min(0x3fffffff, (ops / 4) / (@as(u64, 1) << ln));
+            const max_rp = @min(0x3fffffff, (ops / 4) / (@as(u64, 1) << ln));
             return Self{ .r = r, .p = @intCast(u30, max_rp / @as(u64, r)), .ln = ln };
         }
     }
@@ -287,7 +287,7 @@ const crypt_format = struct {
         out.r = try Codec.intDecode(u30, str[4..9]);
         out.p = try Codec.intDecode(u30, str[9..14]);
 
-        var it = mem.split(u8, str[14..], "$");
+        var it = mem.splitScalar(u8, str[14..], '$');
 
         const salt = it.first();
         if (@hasField(T, "salt")) out.salt = salt;

@@ -142,6 +142,7 @@ test {
     _ = @import("behavior/bugs/13714.zig");
     _ = @import("behavior/bugs/13785.zig");
     _ = @import("behavior/bugs/14854.zig");
+    _ = @import("behavior/bugs/15778.zig");
     _ = @import("behavior/byteswap.zig");
     _ = @import("behavior/byval_arg_var.zig");
     _ = @import("behavior/call.zig");
@@ -150,12 +151,14 @@ test {
     _ = @import("behavior/comptime_memory.zig");
     _ = @import("behavior/const_slice_child.zig");
     _ = @import("behavior/decltest.zig");
+    _ = @import("behavior/duplicated_test_names.zig");
     _ = @import("behavior/defer.zig");
     _ = @import("behavior/empty_tuple_fields.zig");
     _ = @import("behavior/empty_union.zig");
     _ = @import("behavior/enum.zig");
     _ = @import("behavior/error.zig");
     _ = @import("behavior/eval.zig");
+    _ = @import("behavior/export_self_referential_type_info.zig");
     _ = @import("behavior/field_parent_ptr.zig");
     _ = @import("behavior/floatop.zig");
     _ = @import("behavior/fn.zig");
@@ -239,16 +242,12 @@ test {
     if (builtin.zig_backend != .stage2_arm and
         builtin.zig_backend != .stage2_x86_64 and
         builtin.zig_backend != .stage2_aarch64 and
-        builtin.zig_backend != .stage2_wasm and
-        builtin.zig_backend != .stage2_c)
+        builtin.zig_backend != .stage2_c and
+        builtin.zig_backend != .stage2_spirv64)
     {
         _ = @import("behavior/bugs/13063.zig");
         _ = @import("behavior/bugs/11227.zig");
         _ = @import("behavior/bugs/14198.zig");
         _ = @import("behavior/export.zig");
-    }
-
-    if (builtin.zig_backend != .stage2_wasm) {
-        _ = @import("behavior/export_self_referential_type_info.zig");
     }
 }

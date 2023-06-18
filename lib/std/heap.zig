@@ -79,11 +79,11 @@ const CAllocator = struct {
         }
 
         // Thin wrapper around regular malloc, overallocate to account for
-        // alignment padding and store the orignal malloc()'ed pointer before
+        // alignment padding and store the original malloc()'ed pointer before
         // the aligned address.
         var unaligned_ptr = @ptrCast([*]u8, c.malloc(len + alignment - 1 + @sizeOf(usize)) orelse return null);
         const unaligned_addr = @ptrToInt(unaligned_ptr);
-        const aligned_addr = mem.alignForward(unaligned_addr + @sizeOf(usize), alignment);
+        const aligned_addr = mem.alignForward(usize, unaligned_addr + @sizeOf(usize), alignment);
         var aligned_ptr = unaligned_ptr + (aligned_addr - unaligned_addr);
         getHeader(aligned_ptr).* = unaligned_ptr;
 
@@ -249,7 +249,7 @@ pub const wasm_allocator = Allocator{
 /// Verifies that the adjusted length will still map to the full length
 pub fn alignPageAllocLen(full_len: usize, len: usize) usize {
     const aligned_len = mem.alignAllocLen(full_len, len);
-    assert(mem.alignForward(aligned_len, mem.page_size) == full_len);
+    assert(mem.alignForward(usize, aligned_len, mem.page_size) == full_len);
     return aligned_len;
 }
 
@@ -307,7 +307,7 @@ pub const HeapAllocator = switch (builtin.os.tag) {
             };
             const ptr = os.windows.kernel32.HeapAlloc(heap_handle, 0, amt) orelse return null;
             const root_addr = @ptrToInt(ptr);
-            const aligned_addr = mem.alignForward(root_addr, ptr_align);
+            const aligned_addr = mem.alignForward(usize, root_addr, ptr_align);
             const buf = @intToPtr([*]u8, aligned_addr)[0..n];
             getRecordPtr(buf).* = root_addr;
             return buf.ptr;
@@ -840,7 +840,7 @@ pub fn testAllocatorAlignedShrink(base_allocator: mem.Allocator) !void {
     // which is 16 pages, hence the 32. This test may require to increase
     // the size of the allocations feeding the `allocator` parameter if they
     // fail, because of this high over-alignment we want to have.
-    while (@ptrToInt(slice.ptr) == mem.alignForward(@ptrToInt(slice.ptr), mem.page_size * 32)) {
+    while (@ptrToInt(slice.ptr) == mem.alignForward(usize, @ptrToInt(slice.ptr), mem.page_size * 32)) {
         try stuff_to_free.append(slice);
         slice = try allocator.alignedAlloc(u8, 16, alloc_size);
     }

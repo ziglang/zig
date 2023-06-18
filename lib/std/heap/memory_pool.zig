@@ -40,11 +40,11 @@ pub fn MemoryPoolExtra(comptime Item: type, comptime pool_options: Options) type
 
         /// Size of the memory pool items. This is not necessarily the same
         /// as `@sizeOf(Item)` as the pool also uses the items for internal means.
-        pub const item_size = std.math.max(@sizeOf(Node), @sizeOf(Item));
+        pub const item_size = @max(@sizeOf(Node), @sizeOf(Item));
 
         /// Alignment of the memory pool items. This is not necessarily the same
         /// as `@alignOf(Item)` as the pool also uses the items for internal means.
-        pub const item_alignment = std.math.max(@alignOf(Node), pool_options.alignment orelse 0);
+        pub const item_alignment = @max(@alignOf(Node), pool_options.alignment orelse 0);
 
         const Node = struct {
             next: ?*@This(),
@@ -150,7 +150,7 @@ test "memory pool: basic" {
     pool.destroy(p2);
     const p4 = try pool.create();
 
-    // Assert memory resuse
+    // Assert memory reuse
     try std.testing.expect(p2 == p4);
 }
 
