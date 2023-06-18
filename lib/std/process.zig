@@ -1231,11 +1231,11 @@ fn totalSystemMemoryLinux() !usize {
 /// In debug builds, this is a no-op, so that the calling code's
 /// cleanup mechanisms are tested and so that external tools that
 /// check for resource leaks can be accurate. In release builds, this
-/// calls exit(0), and does not return.
+/// calls `exit(std.os.exit_status_success)`, and does not return.
 pub fn cleanExit() void {
     if (builtin.mode == .Debug) {
         return;
     } else {
-        exit(0);
+        exit(std.os.exit_status_success);
     }
 }

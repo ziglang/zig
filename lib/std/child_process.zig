@@ -1365,7 +1365,7 @@ fn forkChildErrReport(fd: i32, err: ChildProcess.SpawnError) noreturn {
         // The _exit(2) function does nothing but make the exit syscall, unlike exit(3)
         std.c._exit(1);
     }
-    os.exit(1);
+    os.exit(std.os.exit_status_failure);
 }
 
 const ErrInt = std.meta.Int(.unsigned, @sizeOf(anyerror) * 8);

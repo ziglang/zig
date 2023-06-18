@@ -660,8 +660,35 @@ pub fn kill(pid: pid_t, sig: u8) KillError!void {
     }
 }
 
-/// Exits the program cleanly with the specified status code.
-pub fn exit(status: u8) noreturn {
+/// The type of the value that is passed to the operating system when exiting.
+/// See: `exit`.
+pub const ExitStatus = switch (builtin.os.tag) {
+    .plan9 => [:0]const u8,
+    .uefi => std.os.uefi.Status,
+    // TODO: `.wasi => u7,`
+    //       This involves updating all `main`s that use `u8` to use std.os.ExitStatus.
+    //       Also, wasmtime says the actual range is "[0..126)". Use `@Int(0, 125)` when possible.
+    else => u8,
+};
+
+/// A general exit status indicating success.
+/// This can be used as a default or when details beyond the fact that execution succeeded are unavailable.
+pub const exit_status_success: ExitStatus = switch (builtin.os.tag) {
+    .plan9 => "",
+    .uefi => std.os.uefi.Status.Success,
+    else => 0,
+};
+
+/// A general exit status indicating failure.
+/// This can be used as a default or when details beyond the fact that execution failed are unavailable.
+pub const exit_status_failure: ExitStatus = switch (builtin.os.tag) {
+    .plan9 => "failure",
+    .uefi => std.os.uefi.Status.Aborted,
+    else => 1,
+};
+
+/// Returns control to the operating system cleanly, with the specified status.
+pub fn exit(status: ExitStatus) noreturn {
     if (builtin.link_libc) {
         system.exit(status);
     }
@@ -678,10 +705,10 @@ pub fn exit(status: u8) noreturn {
         // exit() is only available if exitBootServices() has not been called yet.
         // This call to exit should not fail, so we don't care about its return value.
         if (uefi.system_table.boot_services) |bs| {
-            _ = bs.exit(uefi.handle, @intToEnum(uefi.Status, status), 0, null);
+            _ = bs.exit(uefi.handle, status, 0, null);
         }
         // If we can't exit, reboot the system instead.
-        uefi.system_table.runtime_services.resetSystem(uefi.tables.ResetType.ResetCold, @intToEnum(uefi.Status, status), 0, null);
+        uefi.system_table.runtime_services.resetSystem(uefi.tables.ResetType.ResetCold, status, 0, null);
     }
     system.exit(status);
 }

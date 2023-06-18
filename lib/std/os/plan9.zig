@@ -148,13 +148,11 @@ pub fn create(path: [*:0]const u8, omode: OpenMode, perms: usize) usize {
     return syscall_bits.syscall3(.CREATE, @ptrToInt(path), @enumToInt(omode), perms);
 }
 
-pub fn exit(status: u8) noreturn {
-    if (status == 0) {
+pub fn exit(status: [:0]const u8) noreturn {
+    if (status.len == 0) {
         exits(null);
     } else {
-        // TODO plan9 does not have exit codes. You either exit with 0 or a string
-        const arr: [1:0]u8 = .{status};
-        exits(&arr);
+        exits(status);
     }
 }
 

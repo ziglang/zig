@@ -28,7 +28,7 @@ pub const simplified_logic =
 
 const use_wWinMain = @hasDecl(root, "wWinMain") and !@hasDecl(root, "wWinMainCRTStartup") and
     !@hasDecl(root, "WinMain") and !@hasDecl(root, "WinMainCRTStartup");
-const CallMainReturnType = if (use_wWinMain) std.os.windows.UINT else u8;
+const CallMainReturnType = if (use_wWinMain) std.os.windows.UINT else std.os.ExitStatus;
 
 comptime {
     // No matter what, we import the root file, so that any export, test, comptime
@@ -246,7 +246,7 @@ fn EfiMain(handle: uefi.Handle, system_table: *uefi.tables.SystemTable) callconv
         },
         void => {
             root.main();
-            return 0;
+            return @enumToInt(std.os.exit_status_success);
         },
         uefi.Status => {
             return @enumToInt(root.main());
@@ -501,8 +501,11 @@ fn mainWithoutEnv(c_argc: c_int, c_argv: [*][*:0]c_char) callconv(.C) c_int {
     return @call(.always_inline, callMain, .{});
 }
 
-// General error message for a malformed return type
-const bad_main_ret = "expected return type of main to be 'void', '!void', 'noreturn', 'u8', or '!u8'";
+/// Error message for a malformed main return type.
+const bad_main_ret = if (std.os.ExitStatus == void)
+    "expected return type of main to be 'void', '!void, or 'noreturn'"
+else
+    std.fmt.comptimePrint("expected return type of main to be 'void', '!void, '{[ty]s}', '!{[ty]s}', or 'noreturn'", .{ .ty = @typeName(std.os.ExitStatus) });
 
 // This is marked inline because for some reason LLVM in release mode fails to inline it,
 // and we want fewer call frames in stack traces.
@@ -514,7 +517,7 @@ inline fn initEventLoopAndCallMain() CallMainReturnType {
                 if (@errorReturnTrace()) |trace| {
                     std.debug.dumpStackTrace(trace.*);
                 }
-                return 1;
+                return std.os.exit_status_failure;
             };
             defer loop.deinit();
 
@@ -544,40 +547,34 @@ fn callMainAsync(loop: *std.event.Loop) callconv(.Async) CallMainReturnType {
 fn callMain() CallMainReturnType {
     if (use_wWinMain) return call_wWinMain();
 
-    switch (@typeInfo(@typeInfo(@TypeOf(root.main)).Fn.return_type.?)) {
-        .NoReturn => {
+    switch (@typeInfo(@TypeOf(root.main)).Fn.return_type.?) {
+        noreturn => {
             root.main();
         },
-        .Void => {
+        void => {
             root.main();
-            return 0;
+            return std.os.exit_status_success;
         },
-        .Int => |info| {
-            if (info.bits != 8 or info.signedness == .signed) {
-                @compileError(bad_main_ret);
-            }
+        std.os.ExitStatus => {
             return root.main();
         },
-        .ErrorUnion => {
-            const result = root.main() catch |err| {
-                std.log.err("{s}", .{@errorName(err)});
-                if (@errorReturnTrace()) |trace| {
-                    std.debug.dumpStackTrace(trace.*);
-                }
-                return 1;
-            };
-            switch (@typeInfo(@TypeOf(result))) {
-                .Void => return 0,
-                .Int => |info| {
-                    if (info.bits != 8 or info.signedness == .signed) {
-                        @compileError(bad_main_ret);
+        else => |ret_ty| switch (@typeInfo(ret_ty)) {
+            .ErrorUnion => {
+                const result = root.main() catch |err| {
+                    std.log.err("{s}", .{@errorName(err)});
+                    if (@errorReturnTrace()) |trace| {
+                        std.debug.dumpStackTrace(trace.*);
                     }
-                    return result;
-                },
-                else => @compileError(bad_main_ret),
-            }
+                    return std.os.exit_status_failure;
+                };
+                switch (@TypeOf(result)) {
+                    void => return std.os.exit_status_success,
+                    std.os.ExitStatus => return result,
+                    else => @compileError(bad_main_ret),
+                }
+            },
+            else => @compileError(bad_main_ret),
         },
-        else => @compileError(bad_main_ret),
     }
 }
 

@@ -952,7 +952,7 @@ test "POSIX file locking with fcntl" {
         struct_flock.type = os.F.WRLCK;
         _ = try os.fcntl(fd, os.F.SETLKW, @ptrToInt(&struct_flock));
         // child exits without continuing:
-        os.exit(0);
+        os.exit(os.exit_status_success);
     } else {
         // parent waits for child to get shared lock:
         std.time.sleep(1 * std.time.ns_per_ms);
