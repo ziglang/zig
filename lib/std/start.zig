@@ -26,6 +26,10 @@ pub const simplified_logic =
     builtin.cpu.arch == .spirv32 or
     builtin.cpu.arch == .spirv64;
 
+const use_wWinMain = @hasDecl(root, "wWinMain") and !@hasDecl(root, "wWinMainCRTStartup") and
+    !@hasDecl(root, "WinMain") and !@hasDecl(root, "WinMainCRTStartup");
+const CallMainReturnType = if (use_wWinMain) std.os.windows.UINT else u8;
+
 comptime {
     // No matter what, we import the root file, so that any export, test, comptime
     // decls there get run.
@@ -74,7 +78,7 @@ comptime {
                 } else if (@hasDecl(root, "wWinMain") and !@hasDecl(root, "wWinMainCRTStartup") and
                     !@hasDecl(root, "WinMain") and !@hasDecl(root, "WinMainCRTStartup"))
                 {
-                    @export(wWinMainCRTStartup, .{ .name = "wWinMainCRTStartup" });
+                    @export(WinStartup, .{ .name = "wWinMainCRTStartup" });
                 }
             } else if (native_os == .uefi) {
                 if (!@hasDecl(root, "EfiMain")) @export(EfiMain, .{ .name = "EfiMain" });
@@ -378,18 +382,6 @@ fn WinStartup() callconv(std.os.windows.WINAPI) noreturn {
     std.os.windows.kernel32.ExitProcess(initEventLoopAndCallMain());
 }
 
-fn wWinMainCRTStartup() callconv(std.os.windows.WINAPI) noreturn {
-    @setAlignStack(16);
-    if (!builtin.single_threaded and !builtin.link_libc) {
-        _ = @import("start_windows_tls.zig");
-    }
-
-    std.debug.maybeEnableSegfaultHandler();
-
-    const result: std.os.windows.INT = initEventLoopAndCallWinMain();
-    std.os.windows.kernel32.ExitProcess(@bitCast(std.os.windows.UINT, result));
-}
-
 fn posixCallMainAndExit() callconv(.C) noreturn {
     @setAlignStack(16);
 
@@ -482,7 +474,7 @@ fn expandStackSize(phdrs: []elf.Phdr) void {
     }
 }
 
-fn callMainWithArgs(argc: usize, argv: [*][*:0]u8, envp: [][*:0]u8) u8 {
+fn callMainWithArgs(argc: usize, argv: [*][*:0]u8, envp: [][*:0]u8) CallMainReturnType {
     std.os.argv = argv[0..argc];
     std.os.environ = envp;
 
@@ -517,7 +509,7 @@ const bad_main_ret = "expected return type of main to be 'void', '!void', 'noret
 
 // This is marked inline because for some reason LLVM in release mode fails to inline it,
 // and we want fewer call frames in stack traces.
-inline fn initEventLoopAndCallMain() u8 {
+inline fn initEventLoopAndCallMain() CallMainReturnType {
     if (std.event.Loop.instance) |loop| {
         if (loop == std.event.Loop.default_instance) {
             loop.init() catch |err| {
@@ -529,7 +521,7 @@ inline fn initEventLoopAndCallMain() u8 {
             };
             defer loop.deinit();
 
-            var result: u8 = undefined;
+            var result: CallMainReturnType = undefined;
             var frame: @Frame(callMainAsync) = undefined;
             _ = @asyncCall(&frame, &result, callMainAsync, .{loop});
             loop.run();
@@ -542,36 +534,7 @@ inline fn initEventLoopAndCallMain() u8 {
     return @call(.always_inline, callMain, .{});
 }
 
-// This is marked inline because for some reason LLVM in release mode fails to inline it,
-// and we want fewer call frames in stack traces.
-// TODO This function is duplicated from initEventLoopAndCallMain instead of using generics
-// because it is working around stage1 compiler bugs.
-inline fn initEventLoopAndCallWinMain() std.os.windows.INT {
-    if (std.event.Loop.instance) |loop| {
-        if (loop == std.event.Loop.default_instance) {
-            loop.init() catch |err| {
-                std.log.err("{s}", .{@errorName(err)});
-                if (@errorReturnTrace()) |trace| {
-                    std.debug.dumpStackTrace(trace.*);
-                }
-                return 1;
-            };
-            defer loop.deinit();
-
-            var result: std.os.windows.INT = undefined;
-            var frame: @Frame(callWinMainAsync) = undefined;
-            _ = @asyncCall(&frame, &result, callWinMainAsync, .{loop});
-            loop.run();
-            return result;
-        }
-    }
-
-    // This is marked inline because for some reason LLVM in release mode fails to inline it,
-    // and we want fewer call frames in stack traces.
-    return @call(.always_inline, call_wWinMain, .{});
-}
-
-fn callMainAsync(loop: *std.event.Loop) callconv(.Async) u8 {
+fn callMainAsync(loop: *std.event.Loop) callconv(.Async) CallMainReturnType {
     // This prevents the event loop from terminating at least until main() has returned.
     // TODO This shouldn't be needed here; it should be in the event loop code.
     loop.beginOneEvent();
@@ -579,17 +542,11 @@ fn callMainAsync(loop: *std.event.Loop) callconv(.Async) u8 {
     return callMain();
 }
 
-fn callWinMainAsync(loop: *std.event.Loop) callconv(.Async) std.os.windows.INT {
-    // This prevents the event loop from terminating at least until main() has returned.
-    // TODO This shouldn't be needed here; it should be in the event loop code.
-    loop.beginOneEvent();
-    defer loop.finishOneEvent();
-    return call_wWinMain();
-}
-
 // This is not marked inline because it is called with @asyncCall when
 // there is an event loop.
-pub fn callMain() u8 {
+pub fn callMain() CallMainReturnType {
+    if (use_wWinMain) return call_wWinMain();
+
     switch (@typeInfo(@typeInfo(@TypeOf(root.main)).Fn.return_type.?)) {
         .NoReturn => {
             root.main();
@@ -627,7 +584,7 @@ pub fn callMain() u8 {
     }
 }
 
-pub fn call_wWinMain() std.os.windows.INT {
+pub fn call_wWinMain() std.os.windows.UINT {
     const MAIN_HINSTANCE = @typeInfo(@TypeOf(root.wWinMain)).Fn.params[0].type.?;
     const hInstance = @ptrCast(MAIN_HINSTANCE, std.os.windows.kernel32.GetModuleHandleW(null).?);
     const lpCmdLine = std.os.windows.kernel32.GetCommandLineW();
@@ -637,5 +594,5 @@ pub fn call_wWinMain() std.os.windows.INT {
     const nCmdShow = std.os.windows.user32.SW_SHOW;
 
     // second parameter hPrevInstance, MSDN: "This parameter is always NULL"
-    return root.wWinMain(hInstance, null, lpCmdLine, nCmdShow);
+    return @bitCast(std.os.windows.UINT, root.wWinMain(hInstance, null, lpCmdLine, nCmdShow));
 }
