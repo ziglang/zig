@@ -1741,7 +1741,7 @@ pub const Mutable = struct {
         assert(mask.positive);
 
         r.positive = true;
-        std.mem.set(Limb, r.limbs, 0);
+        @memset(r.limbs, 0);
 
         var mask_limb: Limb = mask.limbs[0];
         var mask_limb_index: Limb = 0;
@@ -1787,7 +1787,7 @@ pub const Mutable = struct {
         assert(mask.positive);
 
         r.positive = true;
-        std.mem.set(Limb, r.limbs, 0);
+        @memset(r.limbs, 0);
 
         var mask_limb: Limb = mask.limbs[0];
         var mask_limb_index: Limb = 0;

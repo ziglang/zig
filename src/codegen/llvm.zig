@@ -9456,7 +9456,7 @@ pub const FuncGen = struct {
         const bin_op = self.air.instructions.items(.data)[inst].bin_op;
         const lhs = try self.resolveInst(bin_op.lhs);
         const rhs = try self.resolveInst(bin_op.rhs);
-        const inst_ty = self.air.typeOfIndex(inst);
+        const inst_ty = self.typeOfIndex(inst);
 
         const target = self.dg.module.getTarget();
         const params = [2]*llvm.Value{ lhs, rhs };
@@ -9465,7 +9465,7 @@ pub const FuncGen = struct {
                 // Doesn't have pdep
                 if (!std.Target.x86.featureSetHas(target.cpu.features, .bmi2)) break :blk;
 
-                const bits = inst_ty.intInfo(target).bits;
+                const bits = inst_ty.intInfo(self.dg.module).bits;
                 const supports_64 = tag == .x86_64;
                 // Integer size doesn't match the available instruction(s)
                 if (!(bits <= 32 or (bits <= 64 and supports_64))) break :blk;
@@ -9488,7 +9488,7 @@ pub const FuncGen = struct {
         assert(target.cpu.arch.isX86());
         assert(std.Target.x86.featureSetHas(target.cpu.features, .bmi2));
 
-        const bits = ty.intInfo(target).bits;
+        const bits = ty.intInfo(self.dg.module).bits;
         const intrinsic_name = switch (bits) {
             1...32 => "llvm.x86.bmi.pdep.32",
             33...64 => "llvm.x86.bmi.pdep.64",
@@ -9603,7 +9603,7 @@ pub const FuncGen = struct {
         const bin_op = self.air.instructions.items(.data)[inst].bin_op;
         const lhs = try self.resolveInst(bin_op.lhs);
         const rhs = try self.resolveInst(bin_op.rhs);
-        const inst_ty = self.air.typeOfIndex(inst);
+        const inst_ty = self.typeOfIndex(inst);
 
         const target = self.dg.module.getTarget();
         const params = [2]*llvm.Value{ lhs, rhs };
@@ -9612,7 +9612,7 @@ pub const FuncGen = struct {
                 // Doesn't have pext
                 if (!std.Target.x86.featureSetHas(target.cpu.features, .bmi2)) break :blk;
 
-                const bits = inst_ty.intInfo(target).bits;
+                const bits = inst_ty.intInfo(self.dg.module).bits;
                 const supports_64 = tag == .x86_64;
                 // Integer size doesn't match the available instruction(s)
                 if (!(bits <= 32 or (bits <= 64 and supports_64))) break :blk;
@@ -9635,7 +9635,7 @@ pub const FuncGen = struct {
         assert(target.cpu.arch.isX86());
         assert(std.Target.x86.featureSetHas(target.cpu.features, .bmi2));
 
-        const bits = ty.intInfo(target).bits;
+        const bits = ty.intInfo(self.dg.module).bits;
         const intrinsic_name = switch (bits) {
             1...32 => "llvm.x86.bmi.pext.32",
             33...64 => "llvm.x86.bmi.pext.64",

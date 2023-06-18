@@ -1751,6 +1751,8 @@ pub fn mustLower(air: Air, inst: Air.Inst.Index, ip: *const InternPool) bool {
         .work_item_id,
         .work_group_size,
         .work_group_id,
+        .deposit_bits,
+        .extract_bits,
         => false,
 
         .assembly => @truncate(u1, air.extraData(Air.Asm, data.ty_pl.payload).data.flags >> 31) != 0,
