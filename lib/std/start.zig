@@ -248,13 +248,10 @@ fn EfiMain(handle: uefi.Handle, system_table: *uefi.tables.SystemTable) callconv
             root.main();
             return 0;
         },
-        usize => {
-            return root.main();
-        },
         uefi.Status => {
             return @enumToInt(root.main());
         },
-        else => @compileError("expected return type of main to be 'void', 'noreturn', 'usize', or 'std.os.uefi.Status'"),
+        else => @compileError("expected return type of main to be 'void', 'noreturn', or 'std.os.uefi.Status'"),
     }
 }
 
