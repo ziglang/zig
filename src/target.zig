@@ -207,10 +207,6 @@ pub fn supports_fpic(target: std.Target) bool {
     return target.os.tag != .windows and target.os.tag != .uefi;
 }
 
-pub fn isSingleThreaded(target: std.Target) bool {
-    return target.isWasm();
-}
-
 /// Valgrind supports more, but Zig does not support them yet.
 pub fn hasValgrindSupport(target: std.Target) bool {
     switch (target.cpu.arch) {

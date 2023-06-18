@@ -1029,7 +1029,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
 
         const include_compiler_rt = options.want_compiler_rt orelse needs_c_symbols;
 
-        const must_single_thread = target_util.isSingleThreaded(options.target);
+        const must_single_thread = options.target.isWasm() and !options.linker_shared_memory;
         const single_threaded = options.single_threaded orelse must_single_thread;
         if (must_single_thread and !single_threaded) {
             return error.TargetRequiresSingleThreaded;
