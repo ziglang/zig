@@ -5091,11 +5091,10 @@ fn deferErrorExample(is_error: bool) !void {
     }
 }
 
-// The errdefer keyword support also an alternative syntax to capture the
-// error generated in case of one error.
+// The errdefer keyword also supports an alternative syntax to capture the
+// generated error.
 //
-// This is useful when during the clean up after an error additional
-// message want to be printed.
+// This is useful for printing an additional error message during clean up.
 fn deferErrorCaptureExample() !void {
     errdefer |err| {
         std.debug.print("the error is {s}\n", .{@errorName(err)});
