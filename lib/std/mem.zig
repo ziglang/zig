@@ -597,9 +597,8 @@ pub fn sortUnstableContext(a: usize, b: usize, context: anytype) void {
 /// Compares two slices of numbers lexicographically. O(n).
 pub fn order(comptime T: type, lhs: []const T, rhs: []const T) math.Order {
     const n = @min(lhs.len, rhs.len);
-    var i: usize = 0;
-    while (i < n) : (i += 1) {
-        switch (math.order(lhs[i], rhs[i])) {
+    for (lhs[0..n], rhs[0..n]) |lhs_elem, rhs_elem| {
+        switch (math.order(lhs_elem, rhs_elem)) {
             .eq => continue,
             .lt => return .lt,
             .gt => return .gt,
