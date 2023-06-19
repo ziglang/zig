@@ -890,10 +890,7 @@ pub fn pread(fd: fd_t, buf: []u8, offset: u64) PReadError!usize {
     };
     const adjusted_len = @min(max_count, buf.len);
 
-    const pread_sym = if (builtin.os.tag == .linux and builtin.link_libc)
-        system.pread64
-    else
-        system.pread;
+    const pread_sym = if (lfs64_abi) system.pread64 else system.pread;
 
     const ioffset = @bitCast(i64, offset); // the OS treats this as unsigned
     while (true) {
@@ -966,10 +963,7 @@ pub fn ftruncate(fd: fd_t, length: u64) TruncateError!void {
     }
 
     while (true) {
-        const ftruncate_sym = if (builtin.os.tag == .linux and builtin.link_libc)
-            system.ftruncate64
-        else
-            system.ftruncate;
+        const ftruncate_sym = if (lfs64_abi) system.ftruncate64 else system.ftruncate;
 
         const ilen = @bitCast(i64, length); // the OS treats this as unsigned
         switch (errno(ftruncate_sym(fd, ilen))) {
@@ -1034,10 +1028,7 @@ pub fn preadv(fd: fd_t, iov: []const iovec, offset: u64) PReadError!usize {
 
     const iov_count = math.cast(u31, iov.len) orelse math.maxInt(u31);
 
-    const preadv_sym = if (builtin.os.tag == .linux and builtin.link_libc)
-        system.preadv64
-    else
-        system.preadv;
+    const preadv_sym = if (lfs64_abi) system.preadv64 else system.preadv;
 
     const ioffset = @bitCast(i64, offset); // the OS treats this as unsigned
     while (true) {
@@ -1311,10 +1302,7 @@ pub fn pwrite(fd: fd_t, bytes: []const u8, offset: u64) PWriteError!usize {
     };
     const adjusted_len = @min(max_count, bytes.len);
 
-    const pwrite_sym = if (builtin.os.tag == .linux and builtin.link_libc)
-        system.pwrite64
-    else
-        system.pwrite;
+    const pwrite_sym = if (lfs64_abi) system.pwrite64 else system.pwrite;
 
     const ioffset = @bitCast(i64, offset); // the OS treats this as unsigned
     while (true) {
@@ -1400,10 +1388,7 @@ pub fn pwritev(fd: fd_t, iov: []const iovec_const, offset: u64) PWriteError!usiz
         }
     }
 
-    const pwritev_sym = if (builtin.os.tag == .linux and builtin.link_libc)
-        system.pwritev64
-    else
-        system.pwritev;
+    const pwritev_sym = if (lfs64_abi) system.pwritev64 else system.pwritev;
 
     const iov_count = if (iov.len > IOV_MAX) IOV_MAX else @intCast(u31, iov.len);
     const ioffset = @bitCast(i64, offset); // the OS treats this as unsigned
@@ -1514,10 +1499,7 @@ pub fn openZ(file_path: [*:0]const u8, flags: u32, perm: mode_t) OpenError!fd_t 
         return open(mem.sliceTo(file_path, 0), flags, perm);
     }
 
-    const open_sym = if (builtin.os.tag == .linux and builtin.link_libc)
-        system.open64
-    else
-        system.open;
+    const open_sym = if (lfs64_abi) system.open64 else system.open;
 
     while (true) {
         const rc = open_sym(file_path, flags, perm);
@@ -1730,10 +1712,7 @@ pub fn openatZ(dir_fd: fd_t, file_path: [*:0]const u8, flags: u32, mode: mode_t)
         return openat(dir_fd, mem.sliceTo(file_path, 0), flags, mode);
     }
 
-    const openat_sym = if (builtin.os.tag == .linux and builtin.link_libc)
-        system.openat64
-    else
-        system.openat;
+    const openat_sym = if (lfs64_abi) system.openat64 else system.openat;
 
     while (true) {
         const rc = openat_sym(dir_fd, file_path, flags, mode);
@@ -4117,10 +4096,7 @@ pub fn fstat(fd: fd_t) FStatError!Stat {
         @compileError("fstat is not yet implemented on Windows");
     }
 
-    const fstat_sym = if (builtin.os.tag == .linux and builtin.link_libc)
-        system.fstat64
-    else
-        system.fstat;
+    const fstat_sym = if (lfs64_abi) system.fstat64 else system.fstat;
 
     var stat = mem.zeroes(Stat);
     switch (errno(fstat_sym(fd, &stat))) {
@@ -4176,10 +4152,7 @@ pub fn fstatatZ(dirfd: fd_t, pathname: [*:0]const u8, flags: u32) FStatAtError!S
         return fstatatWasi(dirfd, mem.sliceTo(pathname), flags);
     }
 
-    const fstatat_sym = if (builtin.os.tag == .linux and builtin.link_libc)
-        system.fstatat64
-    else
-        system.fstatat;
+    const fstatat_sym = if (lfs64_abi) system.fstatat64 else system.fstatat;
 
     var stat = mem.zeroes(Stat);
     switch (errno(fstatat_sym(dirfd, pathname, &stat, flags))) {
@@ -4416,10 +4389,7 @@ pub fn mmap(
     fd: fd_t,
     offset: u64,
 ) MMapError![]align(mem.page_size) u8 {
-    const mmap_sym = if (builtin.os.tag == .linux and builtin.link_libc)
-        system.mmap64
-    else
-        system.mmap;
+    const mmap_sym = if (lfs64_abi) system.mmap64 else system.mmap;
 
     const ioffset = @bitCast(i64, offset); // the OS treats this as unsigned
     const rc = mmap_sym(ptr, length, prot, flags, fd, ioffset);
@@ -4823,10 +4793,7 @@ pub fn lseek_SET(fd: fd_t, offset: u64) SeekError!void {
         }
     }
 
-    const lseek_sym = if (builtin.os.tag == .linux and builtin.link_libc)
-        system.lseek64
-    else
-        system.lseek;
+    const lseek_sym = if (lfs64_abi) system.lseek64 else system.lseek;
 
     const ioffset = @bitCast(i64, offset); // the OS treats this as unsigned
     switch (errno(lseek_sym(fd, ioffset, SEEK.SET))) {
@@ -4870,10 +4837,7 @@ pub fn lseek_CUR(fd: fd_t, offset: i64) SeekError!void {
             else => |err| return unexpectedErrno(err),
         }
     }
-    const lseek_sym = if (builtin.os.tag == .linux and builtin.link_libc)
-        system.lseek64
-    else
-        system.lseek;
+    const lseek_sym = if (lfs64_abi) system.lseek64 else system.lseek;
 
     const ioffset = @bitCast(i64, offset); // the OS treats this as unsigned
     switch (errno(lseek_sym(fd, ioffset, SEEK.CUR))) {
@@ -4917,10 +4881,7 @@ pub fn lseek_END(fd: fd_t, offset: i64) SeekError!void {
             else => |err| return unexpectedErrno(err),
         }
     }
-    const lseek_sym = if (builtin.os.tag == .linux and builtin.link_libc)
-        system.lseek64
-    else
-        system.lseek;
+    const lseek_sym = if (lfs64_abi) system.lseek64 else system.lseek;
 
     const ioffset = @bitCast(i64, offset); // the OS treats this as unsigned
     switch (errno(lseek_sym(fd, ioffset, SEEK.END))) {
@@ -4964,10 +4925,7 @@ pub fn lseek_CUR_get(fd: fd_t) SeekError!u64 {
             else => |err| return unexpectedErrno(err),
         }
     }
-    const lseek_sym = if (builtin.os.tag == .linux and builtin.link_libc)
-        system.lseek64
-    else
-        system.lseek;
+    const lseek_sym = if (lfs64_abi) system.lseek64 else system.lseek;
 
     const rc = lseek_sym(fd, 0, SEEK.CUR);
     switch (errno(rc)) {
@@ -6169,10 +6127,7 @@ pub fn sendfile(
             // TODO we should not need this cast; improve return type of @min
             const adjusted_count = @intCast(usize, adjusted_count_tmp);
 
-            const sendfile_sym = if (builtin.link_libc)
-                system.sendfile64
-            else
-                system.sendfile;
+            const sendfile_sym = if (lfs64_abi) system.sendfile64 else system.sendfile;
 
             while (true) {
                 var offset: off_t = @bitCast(off_t, in_offset);
@@ -7050,10 +7005,7 @@ pub fn prctl(option: PR, args: anytype) PrctlError!u31 {
 pub const GetrlimitError = UnexpectedError;
 
 pub fn getrlimit(resource: rlimit_resource) GetrlimitError!rlimit {
-    const getrlimit_sym = if (builtin.os.tag == .linux and builtin.link_libc)
-        system.getrlimit64
-    else
-        system.getrlimit;
+    const getrlimit_sym = if (lfs64_abi) system.getrlimit64 else system.getrlimit;
 
     var limits: rlimit = undefined;
     switch (errno(getrlimit_sym(resource, &limits))) {
@@ -7067,10 +7019,7 @@ pub fn getrlimit(resource: rlimit_resource) GetrlimitError!rlimit {
 pub const SetrlimitError = error{ PermissionDenied, LimitTooBig } || UnexpectedError;
 
 pub fn setrlimit(resource: rlimit_resource, limits: rlimit) SetrlimitError!void {
-    const setrlimit_sym = if (builtin.os.tag == .linux and builtin.link_libc)
-        system.setrlimit64
-    else
-        system.setrlimit;
+    const setrlimit_sym = if (lfs64_abi) system.setrlimit64 else system.setrlimit;
 
     switch (errno(setrlimit_sym(resource, &limits))) {
         .SUCCESS => return,
@@ -7339,3 +7288,5 @@ pub fn ptrace(request: u32, pid: pid_t, addr: usize, signal: usize) PtraceError!
         },
     };
 }
+
+const lfs64_abi = builtin.os.tag == .linux and builtin.link_libc and builtin.abi.isGnu();
