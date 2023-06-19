@@ -1488,7 +1488,7 @@ fn formatDuration(data: FormatDurationData, comptime fmt: []const u8, options: s
     var fbs = std.io.fixedBufferStream(&buf);
     var buf_writer = fbs.writer();
     if (data.negative) {
-        try buf_writer.writeByte('-');
+        buf_writer.writeByte('-') catch unreachable;
     }
 
     var ns_remaining = data.ns;
@@ -1501,8 +1501,8 @@ fn formatDuration(data: FormatDurationData, comptime fmt: []const u8, options: s
     }) |unit| {
         if (ns_remaining >= unit.ns) {
             const units = ns_remaining / unit.ns;
-            try formatInt(units, 10, .lower, .{}, buf_writer);
-            try buf_writer.writeByte(unit.sep);
+            formatInt(units, 10, .lower, .{}, buf_writer) catch unreachable;
+            buf_writer.writeByte(unit.sep) catch unreachable;
             ns_remaining -= units * unit.ns;
             if (ns_remaining == 0)
                 return formatBuf(fbs.getWritten(), options, writer);
@@ -1516,7 +1516,7 @@ fn formatDuration(data: FormatDurationData, comptime fmt: []const u8, options: s
     }) |unit| {
         const kunits = ns_remaining * 1000 / unit.ns;
         if (kunits >= 1000) {
-            try formatInt(kunits / 1000, 10, .lower, .{}, buf_writer);
+            formatInt(kunits / 1000, 10, .lower, .{}, buf_writer) catch unreachable;
             const frac = kunits % 1000;
             if (frac > 0) {
                 // Write up to 3 decimal places
@@ -1526,15 +1526,15 @@ fn formatDuration(data: FormatDurationData, comptime fmt: []const u8, options: s
                 while (end > 1) : (end -= 1) {
                     if (decimal_buf[end - 1] != '0') break;
                 }
-                try buf_writer.writeAll(decimal_buf[0..end]);
+                buf_writer.writeAll(decimal_buf[0..end]) catch unreachable;
             }
-            try buf_writer.writeAll(unit.sep);
+            buf_writer.writeAll(unit.sep) catch unreachable;
             return formatBuf(fbs.getWritten(), options, writer);
         }
     }
 
-    try formatInt(ns_remaining, 10, .lower, .{}, buf_writer);
-    try buf_writer.writeAll("ns");
+    formatInt(ns_remaining, 10, .lower, .{}, buf_writer) catch unreachable;
+    buf_writer.writeAll("ns") catch unreachable;
     return formatBuf(fbs.getWritten(), options, writer);
 }
 
