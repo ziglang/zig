@@ -41,9 +41,9 @@ static int resize(size_t nel, struct hsearch_data *htab)
 {
 	size_t newsize;
 	size_t i, j;
+	size_t oldsize = htab->__tab->mask + 1;
 	ENTRY *e, *newe;
 	ENTRY *oldtab = htab->__tab->entries;
-	ENTRY *oldend = htab->__tab->entries + htab->__tab->mask + 1;
 
 	if (nel > MAXSIZE)
 		nel = MAXSIZE;
@@ -56,7 +56,7 @@ static int resize(size_t nel, struct hsearch_data *htab)
 	htab->__tab->mask = newsize - 1;
 	if (!oldtab)
 		return 1;
-	for (e = oldtab; e < oldend; e++)
+	for (e = oldtab; e < oldtab + oldsize; e++)
 		if (e->key) {
 			for (i=keyhash(e->key),j=1; ; i+=j++) {
 				newe = htab->__tab->entries + (i & htab->__tab->mask);
