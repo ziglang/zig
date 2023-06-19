@@ -20771,7 +20771,7 @@ fn zirFloatToInt(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!
     try sema.requireRuntimeBlock(block, inst_data.src(), operand_src);
     if (dest_ty.intInfo(mod).bits == 0) {
         if (block.wantSafety()) {
-            const ok = try block.addBinOp(if (block.float_mode == .Optimized) .cmp_eq_optimized else .cmp_eq, operand, try sema.addConstant(operand_ty, try mod.intValue(operand_ty, 0)));
+            const ok = try block.addBinOp(if (block.float_mode == .Optimized) .cmp_eq_optimized else .cmp_eq, operand, try sema.addConstant(operand_ty, try mod.floatValue(operand_ty, 0.0)));
             try sema.addSafetyCheck(block, ok, .integer_part_out_of_bounds);
         }
         return sema.addConstant(dest_ty, try mod.intValue(dest_ty, 0));
