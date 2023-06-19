@@ -6636,12 +6636,14 @@ fn markDeclIndexAlive(mod: *Module, decl_index: Decl.Index) Allocator.Error!void
 }
 
 pub fn addGlobalAssembly(mod: *Module, decl_index: Decl.Index, source: []const u8) !void {
-    try mod.global_assembly.ensureUnusedCapacity(mod.gpa, 1);
-
-    const duped_source = try mod.gpa.dupe(u8, source);
-    errdefer mod.gpa.free(duped_source);
-
-    mod.global_assembly.putAssumeCapacityNoClobber(decl_index, duped_source);
+    const gop = try mod.global_assembly.getOrPut(mod.gpa, decl_index);
+    if (gop.found_existing) {
+        const new_value = try std.fmt.allocPrint(mod.gpa, "{s}\n{s}", .{ gop.value_ptr.*, source });
+        mod.gpa.free(gop.value_ptr.*);
+        gop.value_ptr.* = new_value;
+    } else {
+        gop.value_ptr.* = try mod.gpa.dupe(u8, source);
+    }
 }
 
 pub fn wantDllExports(mod: Module) bool {
