@@ -12,6 +12,9 @@ comptime {
     {
         asm (
             \\.globl this_is_my_alias;
+        );
+        // test multiple asm per comptime block
+        asm (
             \\.type this_is_my_alias, @function;
             \\.set this_is_my_alias, derp;
         );
