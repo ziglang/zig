@@ -288,8 +288,8 @@ pub fn writeAdhocSignature(
     self.code_directory.inner.nCodeSlots = total_pages;
 
     // Calculate hash for each page (in file) and write it to the buffer
-    var hasher = Hasher(Sha256){};
-    try hasher.hash(gpa, comp.thread_pool, opts.file, self.code_directory.code_slots.items, .{
+    var hasher = Hasher(Sha256){ .allocator = gpa, .thread_pool = comp.thread_pool };
+    try hasher.hash(opts.file, self.code_directory.code_slots.items, .{
         .chunk_size = self.page_size,
         .max_file_size = opts.file_size,
     });

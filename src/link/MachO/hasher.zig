@@ -11,34 +11,39 @@ pub fn ParallelHasher(comptime Hasher: type) type {
     const hash_size = Hasher.digest_length;
 
     return struct {
-        pub fn hash(self: @This(), gpa: Allocator, pool: *ThreadPool, file: fs.File, out: [][hash_size]u8, opts: struct {
-            chunk_size: u16 = 0x4000,
+        allocator: Allocator,
+        thread_pool: *ThreadPool,
+
+        pub fn hash(self: Self, file: fs.File, out: [][hash_size]u8, opts: struct {
+            chunk_size: u64 = 0x4000,
             max_file_size: ?u64 = null,
         }) !void {
-            _ = self;
-
             var wg: WaitGroup = .{};
 
             const file_size = opts.max_file_size orelse try file.getEndPos();
-            const total_num_chunks = mem.alignForward(u64, file_size, opts.chunk_size) / opts.chunk_size;
-            assert(out.len >= total_num_chunks);
 
-            const buffer = try gpa.alloc(u8, opts.chunk_size * total_num_chunks);
-            defer gpa.free(buffer);
+            const buffer = try self.allocator.alloc(u8, opts.chunk_size * out.len);
+            defer self.allocator.free(buffer);
 
-            const results = try gpa.alloc(fs.File.PReadError!usize, total_num_chunks);
-            defer gpa.free(results);
+            const results = try self.allocator.alloc(fs.File.PReadError!usize, out.len);
+            defer self.allocator.free(results);
 
             {
                 wg.reset();
                 defer wg.wait();
 
-                var i: usize = 0;
-                while (i < total_num_chunks) : (i += 1) {
+                for (out, results, 0..) |*out_buf, *result, i| {
                     const fstart = i * opts.chunk_size;
                     const fsize = if (fstart + opts.chunk_size > file_size) file_size - fstart else opts.chunk_size;
                     wg.start();
-                    try pool.spawn(worker, .{ file, fstart, buffer[fstart..][0..fsize], &out[i], &results[i], &wg });
+                    try self.thread_pool.spawn(worker, .{
+                        file,
+                        fstart,
+                        buffer[fstart..][0..fsize],
+                        &(out_buf.*),
+                        &(result.*),
+                        &wg,
+                    });
                 }
             }
             for (results) |result| _ = try result;
@@ -56,5 +61,7 @@ pub fn ParallelHasher(comptime Hasher: type) type {
             err.* = file.preadAll(buffer, fstart);
             Hasher.hash(buffer, out, .{});
         }
+
+        const Self = @This();
     };
 }

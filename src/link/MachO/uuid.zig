@@ -14,20 +14,19 @@ const Hasher = @import("hasher.zig").ParallelHasher;
 /// TODO LLD also hashes the output filename to disambiguate between same builds with different
 /// output files. Should we also do that?
 pub fn calcUuid(comp: *const Compilation, file: fs.File, file_size: u64, out: *[Md5.digest_length]u8) !void {
-    const num_chunks = @intCast(u64, comp.thread_pool.threads.len) * 10;
+    const num_chunks = comp.thread_pool.threads.len * 0x10;
     const chunk_size = @divTrunc(file_size + num_chunks - 1, num_chunks);
-    const total_hashes = mem.alignForward(u64, file_size, chunk_size) / chunk_size;
 
-    const hashes = try comp.gpa.alloc([Md5.digest_length]u8, total_hashes);
+    const hashes = try comp.gpa.alloc([Md5.digest_length]u8, num_chunks);
     defer comp.gpa.free(hashes);
 
-    var hasher = Hasher(Md5){};
-    try hasher.hash(comp.gpa, comp.thread_pool, file, hashes, .{
+    var hasher = Hasher(Md5){ .allocator = comp.gpa, .thread_pool = comp.thread_pool };
+    try hasher.hash(file, hashes, .{
         .chunk_size = chunk_size,
         .max_file_size = file_size,
     });
 
-    const final_buffer = try comp.gpa.alloc(u8, total_hashes * Md5.digest_length);
+    const final_buffer = try comp.gpa.alloc(u8, num_chunks * Md5.digest_length);
     defer comp.gpa.free(final_buffer);
 
     for (hashes, 0..) |hash, i| {
