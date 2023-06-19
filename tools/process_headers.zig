@@ -208,7 +208,7 @@ const musl_targets = [_]LibCTarget{
         .abi = MultiAbi.musl,
     },
     LibCTarget{
-        .name = "x86",
+        .name = "i386",
         .arch = MultiArch{ .specific = .x86 },
         .abi = MultiAbi.musl,
     },
