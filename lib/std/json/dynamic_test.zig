@@ -5,12 +5,14 @@ const testing = std.testing;
 const ObjectMap = @import("dynamic.zig").ObjectMap;
 const Array = @import("dynamic.zig").Array;
 const Value = @import("dynamic.zig").Value;
-const Parser = @import("dynamic.zig").Parser;
+
+const parseFromSlice = @import("static.zig").parseFromSlice;
+const parseFromSliceLeaky = @import("static.zig").parseFromSliceLeaky;
+const parseFromTokenSource = @import("static.zig").parseFromTokenSource;
+
+const jsonReader = @import("scanner.zig").reader;
 
 test "json.parser.dynamic" {
-    var p = Parser.init(testing.allocator, .alloc_if_needed);
-    defer p.deinit();
-
     const s =
         \\{
         \\  "Image": {
@@ -31,10 +33,10 @@ test "json.parser.dynamic" {
         \\}
     ;
 
-    var tree = try p.parse(s);
-    defer tree.deinit();
+    var parsed = try parseFromSlice(Value, testing.allocator, s, .{});
+    defer parsed.deinit();
 
-    var root = tree.root;
+    var root = parsed.value;
 
     var image = root.object.get("Image").?;
 
@@ -98,22 +100,22 @@ test "write json then parse it" {
 
     try jw.endObject();
 
-    var parser = Parser.init(testing.allocator, .alloc_if_needed);
-    defer parser.deinit();
-    var tree = try parser.parse(fixed_buffer_stream.getWritten());
-    defer tree.deinit();
+    fixed_buffer_stream = std.io.fixedBufferStream(fixed_buffer_stream.getWritten());
+    var json_reader = jsonReader(testing.allocator, fixed_buffer_stream.reader());
+    defer json_reader.deinit();
+    var parsed = try parseFromTokenSource(Value, testing.allocator, &json_reader, .{});
+    defer parsed.deinit();
 
-    try testing.expect(tree.root.object.get("f").?.bool == false);
-    try testing.expect(tree.root.object.get("t").?.bool == true);
-    try testing.expect(tree.root.object.get("int").?.integer == 1234);
-    try testing.expect(tree.root.object.get("array").?.array.items[0].null == {});
-    try testing.expect(tree.root.object.get("array").?.array.items[1].float == 12.34);
-    try testing.expect(mem.eql(u8, tree.root.object.get("str").?.string, "hello"));
+    try testing.expect(parsed.value.object.get("f").?.bool == false);
+    try testing.expect(parsed.value.object.get("t").?.bool == true);
+    try testing.expect(parsed.value.object.get("int").?.integer == 1234);
+    try testing.expect(parsed.value.object.get("array").?.array.items[0].null == {});
+    try testing.expect(parsed.value.object.get("array").?.array.items[1].float == 12.34);
+    try testing.expect(mem.eql(u8, parsed.value.object.get("str").?.string, "hello"));
 }
 
-fn testParse(arena_allocator: std.mem.Allocator, json_str: []const u8) !Value {
-    var p = Parser.init(arena_allocator, .alloc_if_needed);
-    return (try p.parse(json_str)).root;
+fn testParse(allocator: std.mem.Allocator, json_str: []const u8) !Value {
+    return parseFromSliceLeaky(Value, allocator, json_str, .{});
 }
 
 test "parsing empty string gives appropriate error" {
@@ -122,22 +124,16 @@ test "parsing empty string gives appropriate error" {
     try testing.expectError(error.UnexpectedEndOfInput, testParse(arena_allocator.allocator(), ""));
 }
 
-test "parse tree should not contain dangling pointers" {
-    var arena_allocator = std.heap.ArenaAllocator.init(std.testing.allocator);
-    defer arena_allocator.deinit();
-
-    var p = Parser.init(arena_allocator.allocator(), .alloc_if_needed);
-    defer p.deinit();
-
-    var tree = try p.parse("[]");
-    defer tree.deinit();
+test "Value.array allocator should still be usable after parsing" {
+    var parsed = try parseFromSlice(Value, std.testing.allocator, "[]", .{});
+    defer parsed.deinit();
 
     // Allocation should succeed
     var i: usize = 0;
     while (i < 100) : (i += 1) {
-        try tree.root.array.append(Value{ .integer = 100 });
+        try parsed.value.array.append(Value{ .integer = 100 });
     }
-    try testing.expectEqual(tree.root.array.items.len, 100);
+    try testing.expectEqual(parsed.value.array.items.len, 100);
 }
 
 test "integer after float has proper type" {
@@ -182,45 +178,6 @@ test "escaped characters" {
     try testing.expectEqualSlices(u8, obj.get("doublequote").?.string, "\"");
     try testing.expectEqualSlices(u8, obj.get("unicode").?.string, "ą");
     try testing.expectEqualSlices(u8, obj.get("surrogatepair").?.string, "😂");
-}
-
-test "string copy option" {
-    const input =
-        \\{
-        \\  "noescape": "aą😂",
-        \\  "simple": "\\\/\n\r\t\f\b\"",
-        \\  "unicode": "\u0105",
-        \\  "surrogatepair": "\ud83d\ude02"
-        \\}
-    ;
-
-    var arena_allocator = std.heap.ArenaAllocator.init(std.testing.allocator);
-    defer arena_allocator.deinit();
-    const allocator = arena_allocator.allocator();
-
-    var parser = Parser.init(allocator, .alloc_if_needed);
-    const tree_nocopy = try parser.parse(input);
-    const obj_nocopy = tree_nocopy.root.object;
-
-    parser = Parser.init(allocator, .alloc_always);
-    const tree_copy = try parser.parse(input);
-    const obj_copy = tree_copy.root.object;
-
-    for ([_][]const u8{ "noescape", "simple", "unicode", "surrogatepair" }) |field_name| {
-        try testing.expectEqualSlices(u8, obj_nocopy.get(field_name).?.string, obj_copy.get(field_name).?.string);
-    }
-
-    const nocopy_addr = &obj_nocopy.get("noescape").?.string[0];
-    const copy_addr = &obj_copy.get("noescape").?.string[0];
-
-    var found_nocopy = false;
-    for (input, 0..) |_, index| {
-        try testing.expect(copy_addr != &input[index]);
-        if (nocopy_addr == &input[index]) {
-            found_nocopy = true;
-        }
-    }
-    try testing.expect(found_nocopy);
 }
 
 test "Value.jsonStringify" {
