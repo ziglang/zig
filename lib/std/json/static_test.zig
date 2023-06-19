@@ -353,21 +353,20 @@ fn testAllParseFunctions(comptime T: type, expected: T, doc: []const u8) !void {
     }
 }
 
-// TODO: getting a strange linker error with this test.
-//test "test all types" {
-//    try testAllParseFunctions(Primitives, primitives_0, primitives_0_doc_0);
-//    try testAllParseFunctions(Primitives, primitives_0, primitives_0_doc_1);
-//    try testAllParseFunctions(Primitives, primitives_1, primitives_1_doc_0);
-//    try testAllParseFunctions(Primitives, primitives_1, primitives_1_doc_1);
-//
-//    try testAllParseFunctions(Aggregates, aggregates_0, aggregates_0_doc);
-//    try testAllParseFunctions(Aggregates, aggregates_1, aggregates_1_doc);
-//
-//    try testAllParseFunctions(Strings, strings_0, strings_0_doc_0);
-//    try testAllParseFunctions(Strings, strings_0, strings_0_doc_1);
-//
-//    try testAllParseFunctions(Subnamespaces, subnamespaces_0, subnamespaces_0_doc);
-//}
+test "test all types" {
+    try testAllParseFunctions(Primitives, primitives_0, primitives_0_doc_0);
+    try testAllParseFunctions(Primitives, primitives_0, primitives_0_doc_1);
+    try testAllParseFunctions(Primitives, primitives_1, primitives_1_doc_0);
+    try testAllParseFunctions(Primitives, primitives_1, primitives_1_doc_1);
+
+    try testAllParseFunctions(Aggregates, aggregates_0, aggregates_0_doc);
+    try testAllParseFunctions(Aggregates, aggregates_1, aggregates_1_doc);
+
+    try testAllParseFunctions(Strings, strings_0, strings_0_doc_0);
+    try testAllParseFunctions(Strings, strings_0, strings_0_doc_1);
+
+    try testAllParseFunctions(Subnamespaces, subnamespaces_0, subnamespaces_0_doc);
+}
 
 test "parse" {
     try testing.expectEqual(false, try parseFromSliceLeaky(bool, testing.allocator, "false", .{}));
