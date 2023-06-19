@@ -448,7 +448,11 @@ pub const Key = union(enum) {
                     if (x >= self.names.len) return null;
                     return @intCast(u32, x);
                 },
-                .i64, .big_int => return null, // out of range
+                .i64 => |x| {
+                    if (x >= self.names.len or x < 0) return null;
+                    return @intCast(u32, x);
+                },
+                .big_int => return null, // out of range
                 .lazy_align, .lazy_size => unreachable,
             }
         }

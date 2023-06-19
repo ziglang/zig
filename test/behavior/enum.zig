@@ -812,6 +812,11 @@ test "signed integer as enum tag" {
     try expect(@intFromEnum(SignedEnum.A2) == 1);
 }
 
+test "int to enum with signed tag type" {
+    const E = enum(i32) { a, b, c };
+    try expect(@intToEnum(E, 0) == .a);
+}
+
 test "enum with one member and custom tag type" {
     const E = enum(u2) {
         One,
