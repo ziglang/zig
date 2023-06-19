@@ -15,9 +15,10 @@ const Hasher = @import("hasher.zig").ParallelHasher;
 /// output files. Should we also do that?
 pub fn calcUuid(comp: *const Compilation, file: fs.File, file_size: u64, out: *[Md5.digest_length]u8) !void {
     const num_chunks = comp.thread_pool.threads.len * 0x10;
-    const chunk_size = @divTrunc(file_size + num_chunks - 1, num_chunks);
+    const chunk_size = @divTrunc(file_size, num_chunks);
+    const actual_num_chunks = if (@rem(file_size, num_chunks) > 0) num_chunks + 1 else num_chunks;
 
-    const hashes = try comp.gpa.alloc([Md5.digest_length]u8, num_chunks);
+    const hashes = try comp.gpa.alloc([Md5.digest_length]u8, actual_num_chunks);
     defer comp.gpa.free(hashes);
 
     var hasher = Hasher(Md5){ .allocator = comp.gpa, .thread_pool = comp.thread_pool };
@@ -26,7 +27,7 @@ pub fn calcUuid(comp: *const Compilation, file: fs.File, file_size: u64, out: *[
         .max_file_size = file_size,
     });
 
-    const final_buffer = try comp.gpa.alloc(u8, num_chunks * Md5.digest_length);
+    const final_buffer = try comp.gpa.alloc(u8, actual_num_chunks * Md5.digest_length);
     defer comp.gpa.free(final_buffer);
 
     for (hashes, 0..) |hash, i| {

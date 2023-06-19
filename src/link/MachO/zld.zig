@@ -2576,9 +2576,11 @@ pub const Zld = struct {
         self.dysymtab_cmd.nindirectsyms = nindirectsyms;
     }
 
-    fn writeUuid(self: *Zld, comp: *const Compilation, uuid_cmd_offset: u32) !void {
-        const seg = self.getLinkeditSegmentPtr();
-        const file_size = seg.fileoff + seg.filesize;
+    fn writeUuid(self: *Zld, comp: *const Compilation, uuid_cmd_offset: u32, has_codesig: bool) !void {
+        const file_size = if (!has_codesig) blk: {
+            const seg = self.getLinkeditSegmentPtr();
+            break :blk seg.fileoff + seg.filesize;
+        } else self.codesig_cmd.dataoff;
         try calcUuid(comp, self.file, file_size, &self.uuid_cmd.uuid);
         const offset = uuid_cmd_offset + @sizeOf(macho.load_command);
         try self.file.pwriteAll(&self.uuid_cmd.uuid, offset);
@@ -3953,7 +3955,7 @@ pub fn linkWithZld(macho_file: *MachO, comp: *Compilation, prog_node: *std.Progr
         const ncmds = load_commands.calcNumOfLCs(lc_buffer.items);
         try zld.file.pwriteAll(lc_buffer.items, @sizeOf(macho.mach_header_64));
         try zld.writeHeader(ncmds, @intCast(u32, lc_buffer.items.len));
-        try zld.writeUuid(comp, uuid_cmd_offset);
+        try zld.writeUuid(comp, uuid_cmd_offset, requires_codesig);
 
         if (codesig) |*csig| {
             try zld.writeCodeSignature(comp, csig); // code signing always comes last
