@@ -245,7 +245,6 @@ test "parseFromValue(std.json.Value,...)" {
 }
 
 test "polymorphic parsing" {
-    if (true) return error.SkipZigTest; // See https://github.com/ziglang/zig/issues/16108
     const doc =
         \\{ "type": "div",
         \\  "color": "blue",
