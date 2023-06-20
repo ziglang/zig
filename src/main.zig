@@ -2542,12 +2542,6 @@ fn buildOutputType(
         }
     }
 
-    if (comptime builtin.target.isDarwin()) {
-        // If we want to link against frameworks, we need system headers.
-        if (framework_dirs.items.len > 0 or frameworks.count() > 0)
-            want_native_include_dirs = true;
-    }
-
     const want_native_paths_detection = blk: {
         if (sysroot != null) break :blk false;
         // If we are building natively on macOS and targeting any Apple platform,
