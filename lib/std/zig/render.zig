@@ -1390,14 +1390,51 @@ fn renderBuiltinCall(
 ) Error!void {
     const token_tags = tree.tokens.items(.tag);
 
-    // TODO remove before release of 0.11.0
+    // TODO remove before release of 0.12.0
     const slice = tree.tokenSlice(builtin_token);
+    const rewrite_two_param_cast = params.len == 2 and for ([_][]const u8{
+        "@bitCast",
+        "@errSetCast",
+        "@floatCast",
+        "@intCast",
+        "@ptrCast",
+        "@intFromFloat",
+        "@floatToInt",
+        "@enumFromInt",
+        "@intToEnum",
+        "@floatFromInt",
+        "@intToFloat",
+        "@ptrFromInt",
+        "@intToPtr",
+        "@truncate",
+    }) |name| {
+        if (mem.eql(u8, slice, name)) break true;
+    } else false;
+
+    if (rewrite_two_param_cast) {
+        const after_last_param_token = tree.lastToken(params[1]) + 1;
+        if (token_tags[after_last_param_token] != .comma) {
+            // Render all on one line, no trailing comma.
+            try ais.writer().writeAll("@as");
+            try renderToken(ais, tree, builtin_token + 1, .none); // (
+            try renderExpression(gpa, ais, tree, params[0], .comma_space);
+        } else {
+            // Render one param per line.
+            try ais.writer().writeAll("@as");
+            ais.pushIndent();
+            try renderToken(ais, tree, builtin_token + 1, .newline); // (
+            try renderExpression(gpa, ais, tree, params[0], .comma);
+        }
+    }
+    // Corresponding logic below builtin name rewrite below
+
+    // TODO remove before release of 0.11.0
     if (mem.eql(u8, slice, "@maximum")) {
         try ais.writer().writeAll("@max");
     } else if (mem.eql(u8, slice, "@minimum")) {
         try ais.writer().writeAll("@min");
     }
-    //
+    // TODO remove before release of 0.12.0
     else if (mem.eql(u8, slice, "@boolToInt")) {
         try ais.writer().writeAll("@intFromBool");
     } else if (mem.eql(u8, slice, "@enumToInt")) {
@@ -1418,6 +1455,23 @@ fn renderBuiltinCall(
         try ais.writer().writeAll("@intFromPtr");
     } else {
         try renderToken(ais, tree, builtin_token, .none); // @name
+    }
+
+    if (rewrite_two_param_cast) {
+        // Matches with corresponding logic above builtin name rewrite
+        const after_last_param_token = tree.lastToken(params[1]) + 1;
+        try ais.writer().writeAll("(");
+        try renderExpression(gpa, ais, tree, params[1], .none);
+        try ais.writer().writeAll(")");
+        if (token_tags[after_last_param_token] != .comma) {
+            // Render all on one line, no trailing comma.
+            return renderToken(ais, tree, after_last_param_token, space); // )
+        } else {
+            // Render one param per line.
+            ais.popIndent();
+            try renderToken(ais, tree, after_last_param_token, .newline); // ,
+            return renderToken(ais, tree, after_last_param_token + 1, space); // )
+        }
     }
 
     if (params.len == 0) {
