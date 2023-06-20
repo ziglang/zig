@@ -1929,6 +1929,8 @@ pub const Target = struct {
             .xcore,
             .arc,
             .msp430,
+            .riscv32,
+            .riscv64,
             => return .unsigned,
             else => return .signed,
         }
