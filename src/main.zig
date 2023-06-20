@@ -4456,6 +4456,20 @@ pub fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !voi
         }
         try main_pkg.add(gpa, "@build", &build_pkg);
 
+        // We always try detecting the native SDK when building build.zig on macOS.
+        var native_darwin_sdk: ?std.zig.system.darwin.DarwinSDK = null;
+        var lib_dirs = std.ArrayList([]const u8).init(gpa);
+        defer lib_dirs.deinit();
+        if ((comptime builtin.target.isDarwin()) and cross_target.isDarwin()) blk: {
+            if (std.zig.system.darwin.isDarwinSDKInstalled(arena)) {
+                const paths = std.zig.system.NativePaths.detect(arena, target_info) catch break :blk;
+                native_darwin_sdk = std.zig.system.darwin.getDarwinSDK(arena, target_info.target);
+                for (paths.lib_dirs.items) |lib_dir| {
+                    try lib_dirs.append(lib_dir);
+                }
+            }
+        }
+
         const comp = Compilation.create(gpa, .{
             .zig_lib_directory = zig_lib_directory,
             .local_cache_directory = local_cache_directory,
@@ -4475,6 +4489,8 @@ pub fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !voi
             .cache_mode = .whole,
             .reference_trace = reference_trace,
             .debug_compile_errors = debug_compile_errors,
+            .native_darwin_sdk = native_darwin_sdk,
+            .lib_dirs = lib_dirs.items,
         }) catch |err| {
             fatal("unable to create compilation: {s}", .{@errorName(err)});
         };
