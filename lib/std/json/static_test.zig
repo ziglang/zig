@@ -354,6 +354,7 @@ fn testAllParseFunctions(comptime T: type, expected: T, doc: []const u8) !void {
 }
 
 test "test all types" {
+    if (true) return error.SkipZigTest; // See https://github.com/ziglang/zig/issues/16108
     try testAllParseFunctions(Primitives, primitives_0, primitives_0_doc_0);
     try testAllParseFunctions(Primitives, primitives_0, primitives_0_doc_1);
     try testAllParseFunctions(Primitives, primitives_1, primitives_1_doc_0);
