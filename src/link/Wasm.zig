@@ -1487,7 +1487,7 @@ fn finishUpdateDecl(wasm: *Wasm, decl_index: Module.Decl.Index, code: []const u8
 
     atom.size = @intCast(u32, code.len);
     if (code.len == 0) return;
-    atom.alignment = decl.ty.abiAlignment(mod);
+    atom.alignment = decl.getAlignment(mod);
 }
 
 /// From a given symbol location, returns its `wasm.GlobalType`.
