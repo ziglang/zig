@@ -622,6 +622,8 @@ pub const Key = union(enum) {
         len: Index = .none,
 
         pub const Addr = union(enum) {
+            const Tag = @typeInfo(Addr).Union.tag_type.?;
+
             decl: Module.Decl.Index,
             mut_decl: MutDecl,
             comptime_field: Index,
@@ -5702,8 +5704,16 @@ pub fn isNoReturn(ip: *const InternPool, ty: Index) bool {
     };
 }
 
+pub fn isUndef(ip: *const InternPool, val: Index) bool {
+    return val == .undef or ip.items.items(.tag)[@intFromEnum(val)] == .undef;
+}
+
 pub fn isRuntimeValue(ip: *const InternPool, val: Index) bool {
     return ip.items.items(.tag)[@intFromEnum(val)] == .runtime_value;
+}
+
+pub fn isVariable(ip: *const InternPool, val: Index) bool {
+    return ip.items.items(.tag)[@intFromEnum(val)] == .variable;
 }
 
 pub fn getBackingDecl(ip: *const InternPool, val: Index) Module.Decl.OptionalIndex {
@@ -5726,6 +5736,29 @@ pub fn getBackingDecl(ip: *const InternPool, val: Index) Module.Decl.OptionalInd
                 ip.items.items(.data)[base] + std.meta.fieldIndex(tag.Payload(), "ptr").?
             ],
             else => return .none,
+        }
+    }
+}
+
+pub fn getBackingAddrTag(ip: *const InternPool, val: Index) ?Key.Ptr.Addr.Tag {
+    var base = @intFromEnum(val);
+    while (true) {
+        switch (ip.items.items(.tag)[base]) {
+            .ptr_decl => return .decl,
+            .ptr_mut_decl => return .mut_decl,
+            .ptr_comptime_field => return .comptime_field,
+            .ptr_int => return .int,
+            inline .ptr_eu_payload,
+            .ptr_opt_payload,
+            .ptr_elem,
+            .ptr_field,
+            => |tag| base = ip.extra.items[
+                ip.items.items(.data)[base] + std.meta.fieldIndex(tag.Payload(), "base").?
+            ],
+            inline .ptr_slice => |tag| base = ip.extra.items[
+                ip.items.items(.data)[base] + std.meta.fieldIndex(tag.Payload(), "ptr").?
+            ],
+            else => return null,
         }
     }
 }

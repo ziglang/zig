@@ -1991,12 +1991,7 @@ pub const Value = struct {
     }
 
     pub fn isUndef(val: Value, mod: *Module) bool {
-        if (val.ip_index == .none) return false;
-        return switch (mod.intern_pool.indexToKey(val.toIntern())) {
-            .undef => true,
-            .simple_value => |v| v == .undefined,
-            else => false,
-        };
+        return val.ip_index != .none and mod.intern_pool.isUndef(val.toIntern());
     }
 
     /// TODO: check for cases such as array that is not marked undef but all the element

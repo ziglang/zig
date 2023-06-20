@@ -1898,13 +1898,10 @@ fn resolveConstMaybeUndefVal(
     reason: []const u8,
 ) CompileError!Value {
     if (try sema.resolveMaybeUndefValAllowVariables(inst)) |val| {
-        switch (val.toIntern()) {
-            .generic_poison => return error.GenericPoison,
-            else => switch (sema.mod.intern_pool.indexToKey(val.toIntern())) {
-                .variable => return sema.failWithNeededComptime(block, src, reason),
-                else => return val,
-            },
-        }
+        if (val.isGenericPoison()) return error.GenericPoison;
+        if (sema.mod.intern_pool.isVariable(val.toIntern()))
+            return sema.failWithNeededComptime(block, src, reason);
+        return val;
     }
     return sema.failWithNeededComptime(block, src, reason);
 }
@@ -1919,15 +1916,11 @@ fn resolveConstValue(
     reason: []const u8,
 ) CompileError!Value {
     if (try sema.resolveMaybeUndefValAllowVariables(air_ref)) |val| {
-        switch (val.toIntern()) {
-            .generic_poison => return error.GenericPoison,
-            .undef => return sema.failWithUseOfUndef(block, src),
-            else => switch (sema.mod.intern_pool.indexToKey(val.toIntern())) {
-                .undef => return sema.failWithUseOfUndef(block, src),
-                .variable => return sema.failWithNeededComptime(block, src, reason),
-                else => return val,
-            },
-        }
+        if (val.isGenericPoison()) return error.GenericPoison;
+        if (val.isUndef(sema.mod)) return sema.failWithUseOfUndef(block, src);
+        if (sema.mod.intern_pool.isVariable(val.toIntern()))
+            return sema.failWithNeededComptime(block, src, reason);
+        return val;
     }
     return sema.failWithNeededComptime(block, src, reason);
 }
@@ -1971,14 +1964,9 @@ fn resolveMaybeUndefVal(
     inst: Air.Inst.Ref,
 ) CompileError!?Value {
     const val = (try sema.resolveMaybeUndefValAllowVariables(inst)) orelse return null;
-    switch (val.ip_index) {
-        .generic_poison => return error.GenericPoison,
-        .none => return val,
-        else => switch (sema.mod.intern_pool.indexToKey(val.toIntern())) {
-            .variable => return null,
-            else => return val,
-        },
-    }
+    if (val.isGenericPoison()) return error.GenericPoison;
+    if (val.ip_index != .none and sema.mod.intern_pool.isVariable(val.toIntern())) return null;
+    return val;
 }
 
 /// Value Tag `variable` causes this function to return `null`.
@@ -2002,20 +1990,13 @@ fn resolveMaybeUndefValIntable(
     inst: Air.Inst.Ref,
 ) CompileError!?Value {
     const val = (try sema.resolveMaybeUndefValAllowVariables(inst)) orelse return null;
-    var check = val;
-    while (true) switch (check.ip_index) {
-        .generic_poison => return error.GenericPoison,
-        .none => break,
-        else => switch (sema.mod.intern_pool.indexToKey(check.toIntern())) {
-            .variable => return null,
-            .ptr => |ptr| switch (ptr.addr) {
-                .decl, .mut_decl, .comptime_field => return null,
-                .int => break,
-                .eu_payload, .opt_payload => |base| check = base.toValue(),
-                .elem, .field => |base_index| check = base_index.base.toValue(),
-            },
-            else => break,
-        },
+    if (val.isGenericPoison()) return error.GenericPoison;
+    if (val.ip_index == .none) return val;
+    if (sema.mod.intern_pool.isVariable(val.toIntern())) return null;
+    if (sema.mod.intern_pool.getBackingAddrTag(val.toIntern())) |addr| switch (addr) {
+        .decl, .mut_decl, .comptime_field => return null,
+        .int => {},
+        .eu_payload, .opt_payload, .elem, .field => unreachable,
     };
     return try sema.resolveLazyValue(val);
 }
