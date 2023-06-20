@@ -1210,13 +1210,13 @@ pub const DeclGen = struct {
             .Pointer => {
                 const ptr_info = ty.ptrInfo(mod);
 
-                const storage_class = spvStorageClass(ptr_info.@"addrspace");
-                const child_ty_ref = try self.resolveType(ptr_info.pointee_type, .indirect);
+                const storage_class = spvStorageClass(ptr_info.flags.address_space);
+                const child_ty_ref = try self.resolveType(ptr_info.child.toType(), .indirect);
                 const ptr_ty_ref = try self.spv.resolve(.{ .ptr_type = .{
                     .storage_class = storage_class,
                     .child_type = child_ty_ref,
                 } });
-                if (ptr_info.size != .Slice) {
+                if (ptr_info.flags.size != .Slice) {
                     return ptr_ty_ref;
                 }
 
@@ -1573,7 +1573,7 @@ pub const DeclGen = struct {
                 init_val,
                 actual_storage_class,
                 final_storage_class == .Generic,
-                decl.@"align",
+                @intCast(u32, decl.alignment.toByteUnits(0)),
             );
         }
     }

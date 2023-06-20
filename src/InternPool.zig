@@ -2301,8 +2301,9 @@ pub const Alignment = enum(u6) {
         return fromByteUnits(n);
     }
 
-    pub fn min(a: Alignment, b: Alignment) Alignment {
-        return @enumFromInt(Alignment, @min(@intFromEnum(a), @intFromEnum(b)));
+    pub fn order(lhs: Alignment, rhs: Alignment) std.math.Order {
+        assert(lhs != .none and rhs != .none);
+        return std.math.order(@intFromEnum(lhs), @intFromEnum(rhs));
     }
 };
 

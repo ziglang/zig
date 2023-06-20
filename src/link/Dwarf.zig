@@ -163,7 +163,6 @@ pub const DeclState = struct {
         atom_index: Atom.Index,
         ty: Type,
     ) error{OutOfMemory}!void {
-        const arena = self.abbrev_type_arena.allocator();
         const dbg_info_buffer = &self.dbg_info;
         const target = mod.getTarget();
         const target_endian = target.cpu.arch.endian();
@@ -344,10 +343,8 @@ pub const DeclState = struct {
                     .struct_type => |struct_type| s: {
                         const struct_obj = mod.structPtrUnwrap(struct_type.index) orelse break :s;
                         // DW.AT.name, DW.FORM.string
-                        const struct_name = try ty.nameAllocArena(arena, mod);
-                        try dbg_info_buffer.ensureUnusedCapacity(struct_name.len + 1);
-                        dbg_info_buffer.appendSliceAssumeCapacity(struct_name);
-                        dbg_info_buffer.appendAssumeCapacity(0);
+                        try ty.print(dbg_info_buffer.writer(), mod);
+                        try dbg_info_buffer.append(0);
 
                         if (struct_obj.layout == .Packed) {
                             log.debug("TODO implement .debug_info for packed structs", .{});
@@ -388,10 +385,8 @@ pub const DeclState = struct {
                 // DW.AT.byte_size, DW.FORM.udata
                 try leb128.writeULEB128(dbg_info_buffer.writer(), ty.abiSize(mod));
                 // DW.AT.name, DW.FORM.string
-                const enum_name = try ty.nameAllocArena(arena, mod);
-                try dbg_info_buffer.ensureUnusedCapacity(enum_name.len + 1);
-                dbg_info_buffer.appendSliceAssumeCapacity(enum_name);
-                dbg_info_buffer.appendAssumeCapacity(0);
+                try ty.print(dbg_info_buffer.writer(), mod);
+                try dbg_info_buffer.append(0);
 
                 const enum_type = mod.intern_pool.indexToKey(ty.ip_index).enum_type;
                 for (enum_type.names, 0..) |field_name_index, field_i| {
@@ -422,21 +417,18 @@ pub const DeclState = struct {
                 const union_obj = mod.typeToUnion(ty).?;
                 const payload_offset = if (layout.tag_align >= layout.payload_align) layout.tag_size else 0;
                 const tag_offset = if (layout.tag_align >= layout.payload_align) 0 else layout.payload_size;
-                const is_tagged = layout.tag_size > 0;
-                const union_name = try ty.nameAllocArena(arena, mod);
-
                 // TODO this is temporary to match current state of unions in Zig - we don't yet have
                 // safety checks implemented meaning the implicit tag is not yet stored and generated
                 // for untagged unions.
+                const is_tagged = layout.tag_size > 0;
                 if (is_tagged) {
                     // DW.AT.structure_type
                     try dbg_info_buffer.append(@intFromEnum(AbbrevKind.struct_type));
                     // DW.AT.byte_size, DW.FORM.udata
                     try leb128.writeULEB128(dbg_info_buffer.writer(), layout.abi_size);
                     // DW.AT.name, DW.FORM.string
-                    try dbg_info_buffer.ensureUnusedCapacity(union_name.len + 1);
-                    dbg_info_buffer.appendSliceAssumeCapacity(union_name);
-                    dbg_info_buffer.appendAssumeCapacity(0);
+                    try ty.print(dbg_info_buffer.writer(), mod);
+                    try dbg_info_buffer.append(0);
 
                     // DW.AT.member
                     try dbg_info_buffer.ensureUnusedCapacity(9);
@@ -460,7 +452,8 @@ pub const DeclState = struct {
                 if (is_tagged) {
                     try dbg_info_buffer.writer().print("AnonUnion\x00", .{});
                 } else {
-                    try dbg_info_buffer.writer().print("{s}\x00", .{union_name});
+                    try ty.print(dbg_info_buffer.writer(), mod);
+                    try dbg_info_buffer.append(0);
                 }
 
                 const fields = ty.unionFields(mod);
@@ -500,15 +493,7 @@ pub const DeclState = struct {
                     try dbg_info_buffer.append(0);
                 }
             },
-            .ErrorSet => {
-                try addDbgInfoErrorSet(
-                    self.abbrev_type_arena.allocator(),
-                    mod,
-                    ty,
-                    target,
-                    &self.dbg_info,
-                );
-            },
+            .ErrorSet => try addDbgInfoErrorSet(mod, ty, target, &self.dbg_info),
             .ErrorUnion => {
                 const error_ty = ty.errorUnionSet(mod);
                 const payload_ty = ty.errorUnionPayload(mod);
@@ -523,8 +508,8 @@ pub const DeclState = struct {
                 // DW.AT.byte_size, DW.FORM.udata
                 try leb128.writeULEB128(dbg_info_buffer.writer(), abi_size);
                 // DW.AT.name, DW.FORM.string
-                const name = try ty.nameAllocArena(arena, mod);
-                try dbg_info_buffer.writer().print("{s}\x00", .{name});
+                try ty.print(dbg_info_buffer.writer(), mod);
+                try dbg_info_buffer.append(0);
 
                 if (!payload_ty.isNoReturn(mod)) {
                     // DW.AT.member
@@ -2527,7 +2512,7 @@ pub fn flushModule(self: *Dwarf, module: *Module) !void {
 
         const error_ty = try module.intern(.{ .error_set_type = .{ .names = names } });
         var dbg_info_buffer = std.ArrayList(u8).init(arena);
-        try addDbgInfoErrorSet(arena, module, error_ty.toType(), self.target, &dbg_info_buffer);
+        try addDbgInfoErrorSet(module, error_ty.toType(), self.target, &dbg_info_buffer);
 
         const di_atom_index = try self.createAtom(.di_atom);
         log.debug("updateDeclDebugInfoAllocation in flushModule", .{});
@@ -2644,7 +2629,6 @@ fn genIncludeDirsAndFileNames(self: *Dwarf, arena: Allocator) !struct {
 }
 
 fn addDbgInfoErrorSet(
-    arena: Allocator,
     mod: *Module,
     ty: Type,
     target: std.Target,
@@ -2658,8 +2642,8 @@ fn addDbgInfoErrorSet(
     const abi_size = Type.anyerror.abiSize(mod);
     try leb128.writeULEB128(dbg_info_buffer.writer(), abi_size);
     // DW.AT.name, DW.FORM.string
-    const name = try ty.nameAllocArena(arena, mod);
-    try dbg_info_buffer.writer().print("{s}\x00", .{name});
+    try ty.print(dbg_info_buffer.writer(), mod);
+    try dbg_info_buffer.append(0);
 
     // DW.AT.enumerator
     const no_error = "(no error)";

@@ -694,7 +694,7 @@ pub fn generate(
         FrameAlloc.init(.{
             .size = 0,
             .alignment = if (mod.align_stack_fns.get(module_fn_index)) |set_align_stack|
-                set_align_stack.alignment
+                @intCast(u32, set_align_stack.alignment.toByteUnitsOptional().?)
             else
                 1,
         }),
@@ -5254,12 +5254,12 @@ fn packedLoad(self: *Self, dst_mcv: MCValue, ptr_ty: Type, ptr_mcv: MCValue) Inn
     const mod = self.bin_file.options.module.?;
     const ptr_info = ptr_ty.ptrInfo(mod);
 
-    const val_ty = ptr_info.pointee_type;
+    const val_ty = ptr_info.child.toType();
     const val_abi_size = @intCast(u32, val_ty.abiSize(mod));
     const limb_abi_size: u32 = @min(val_abi_size, 8);
     const limb_abi_bits = limb_abi_size * 8;
-    const val_byte_off = @intCast(i32, ptr_info.bit_offset / limb_abi_bits * limb_abi_size);
-    const val_bit_off = ptr_info.bit_offset % limb_abi_bits;
+    const val_byte_off = @intCast(i32, ptr_info.packed_offset.bit_offset / limb_abi_bits * limb_abi_size);
+    const val_bit_off = ptr_info.packed_offset.bit_offset % limb_abi_bits;
     const val_extra_bits = self.regExtraBits(val_ty);
 
     if (val_abi_size > 8) return self.fail("TODO implement packed load of {}", .{
@@ -5385,7 +5385,7 @@ fn airLoad(self: *Self, inst: Air.Inst.Index) !void {
         else
             try self.allocRegOrMem(inst, true);
 
-        if (ptr_ty.ptrInfo(mod).host_size > 0) {
+        if (ptr_ty.ptrInfo(mod).packed_offset.host_size > 0) {
             try self.packedLoad(dst_mcv, ptr_ty, ptr_mcv);
         } else {
             try self.load(dst_mcv, ptr_ty, ptr_mcv);
@@ -5400,12 +5400,12 @@ fn packedStore(self: *Self, ptr_ty: Type, ptr_mcv: MCValue, src_mcv: MCValue) In
     const ptr_info = ptr_ty.ptrInfo(mod);
     const src_ty = ptr_ty.childType(mod);
 
-    const limb_abi_size: u16 = @min(ptr_info.host_size, 8);
+    const limb_abi_size: u16 = @min(ptr_info.packed_offset.host_size, 8);
     const limb_abi_bits = limb_abi_size * 8;
 
     const src_bit_size = src_ty.bitSize(mod);
-    const src_byte_off = @intCast(i32, ptr_info.bit_offset / limb_abi_bits * limb_abi_size);
-    const src_bit_off = ptr_info.bit_offset % limb_abi_bits;
+    const src_byte_off = @intCast(i32, ptr_info.packed_offset.bit_offset / limb_abi_bits * limb_abi_size);
+    const src_bit_off = ptr_info.packed_offset.bit_offset % limb_abi_bits;
 
     const ptr_reg = try self.copyToTmpRegister(ptr_ty, ptr_mcv);
     const ptr_lock = self.register_manager.lockRegAssumeUnused(ptr_reg);
@@ -5516,7 +5516,7 @@ fn airStore(self: *Self, inst: Air.Inst.Index, safety: bool) !void {
     const ptr_mcv = try self.resolveInst(bin_op.lhs);
     const ptr_ty = self.typeOf(bin_op.lhs);
     const src_mcv = try self.resolveInst(bin_op.rhs);
-    if (ptr_ty.ptrInfo(mod).host_size > 0) {
+    if (ptr_ty.ptrInfo(mod).packed_offset.host_size > 0) {
         try self.packedStore(ptr_ty, ptr_mcv, src_mcv);
     } else {
         try self.store(ptr_ty, ptr_mcv, src_mcv);
@@ -5545,7 +5545,7 @@ fn fieldPtr(self: *Self, inst: Air.Inst.Index, operand: Air.Inst.Ref, index: u32
     const field_offset = @intCast(i32, switch (container_ty.containerLayout(mod)) {
         .Auto, .Extern => container_ty.structFieldOffset(index, mod),
         .Packed => if (container_ty.zigTypeTag(mod) == .Struct and
-            ptr_field_ty.ptrInfo(mod).host_size == 0)
+            ptr_field_ty.ptrInfo(mod).packed_offset.host_size == 0)
             container_ty.packedStructFieldByteOffset(index, mod)
         else
             0,
