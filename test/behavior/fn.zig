@@ -580,3 +580,17 @@ test "lazy values passed to anytype parameter" {
     const D = struct {};
     try expect(@sizeOf(D) << 1 == 0);
 }
+
+test "pass and return comptime-only types" {
+    const S = struct {
+        fn returnNull(comptime x: @Type(.Null)) @Type(.Null) {
+            return x;
+        }
+        fn returnUndefined(comptime x: @Type(.Undefined)) @Type(.Undefined) {
+            return x;
+        }
+    };
+
+    try expectEqual(null, S.returnNull(null));
+    try expectEqual(@as(u0, 0), S.returnUndefined(undefined));
+}

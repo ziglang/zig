@@ -2403,14 +2403,14 @@ pub const Type = struct {
 
     pub fn isValidParamType(self: Type, mod: *const Module) bool {
         return switch (self.zigTypeTagOrPoison(mod) catch return true) {
-            .Undefined, .Null, .Opaque, .NoReturn => false,
+            .Opaque, .NoReturn => false,
             else => true,
         };
     }
 
     pub fn isValidReturnType(self: Type, mod: *const Module) bool {
         return switch (self.zigTypeTagOrPoison(mod) catch return true) {
-            .Undefined, .Null, .Opaque => false,
+            .Opaque => false,
             else => true,
         };
     }
