@@ -2385,15 +2385,7 @@ pub const Type = struct {
 
     /// Asserts the type is a function or a function pointer.
     pub fn fnReturnType(ty: Type, mod: *Module) Type {
-        return fnReturnTypeIp(ty, &mod.intern_pool);
-    }
-
-    pub fn fnReturnTypeIp(ty: Type, ip: *const InternPool) Type {
-        return switch (ip.indexToKey(ty.toIntern())) {
-            .ptr_type => |ptr_type| ip.indexToKey(ptr_type.child).func_type.return_type,
-            .func_type => |func_type| func_type.return_type,
-            else => unreachable,
-        }.toType();
+        return mod.intern_pool.funcReturnType(ty.toIntern()).toType();
     }
 
     /// Asserts the type is a function.

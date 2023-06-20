@@ -33817,18 +33817,25 @@ pub fn resolveTypeFields(sema: *Sema, ty: Type) CompileError!Type {
         .call_modifier_type => return sema.getBuiltinType("CallModifier"),
         .prefetch_options_type => return sema.getBuiltinType("PrefetchOptions"),
 
-        _ => switch (mod.intern_pool.indexToKey(ty.toIntern())) {
-            .struct_type => |struct_type| {
-                const struct_obj = mod.structPtrUnwrap(struct_type.index) orelse return ty;
-                try sema.resolveTypeFieldsStruct(ty, struct_obj);
-                return ty;
+        _ => switch (mod.intern_pool.items.items(.tag)[@intFromEnum(ty.toIntern())]) {
+            .type_struct,
+            .type_struct_ns,
+            .type_union_tagged,
+            .type_union_untagged,
+            .type_union_safety,
+            => switch (mod.intern_pool.indexToKey(ty.toIntern())) {
+                .struct_type => |struct_type| {
+                    const struct_obj = mod.structPtrUnwrap(struct_type.index) orelse return ty;
+                    try sema.resolveTypeFieldsStruct(ty, struct_obj);
+                    return ty;
+                },
+                .union_type => |union_type| {
+                    const union_obj = mod.unionPtr(union_type.index);
+                    try sema.resolveTypeFieldsUnion(ty, union_obj);
+                    return ty;
+                },
+                else => unreachable,
             },
-            .union_type => |union_type| {
-                const union_obj = mod.unionPtr(union_type.index);
-                try sema.resolveTypeFieldsUnion(ty, union_obj);
-                return ty;
-            },
-
             else => return ty,
         },
     }

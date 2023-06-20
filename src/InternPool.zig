@@ -5694,11 +5694,26 @@ pub fn aggregateTypeLenIncludingSentinel(ip: *const InternPool, ty: Index) u64 {
     };
 }
 
+pub fn funcReturnType(ip: *const InternPool, ty: Index) Index {
+    const item = ip.items.get(@intFromEnum(ty));
+    const child_item = switch (item.tag) {
+        .type_pointer => ip.items.get(ip.extra.items[
+            item.data + std.meta.fieldIndex(Tag.TypePointer, "child").?
+        ]),
+        .type_function => item,
+        else => unreachable,
+    };
+    assert(child_item.tag == .type_function);
+    return @enumFromInt(Index, ip.extra.items[
+        child_item.data + std.meta.fieldIndex(TypeFunction, "return_type").?
+    ]);
+}
+
 pub fn isNoReturn(ip: *const InternPool, ty: Index) bool {
     return switch (ty) {
         .noreturn_type => true,
-        else => switch (ip.indexToKey(ty)) {
-            .error_set_type => |error_set_type| error_set_type.names.len == 0,
+        else => switch (ip.items.items(.tag)[@intFromEnum(ty)]) {
+            .type_error_set => ip.extra.items[ip.items.items(.data)[@intFromEnum(ty)] + std.meta.fieldIndex(ErrorSet, "names_len").?] == 0,
             else => false,
         },
     };
