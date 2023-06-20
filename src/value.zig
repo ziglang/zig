@@ -1823,7 +1823,7 @@ pub const Value = struct {
     }
 
     pub fn isRuntimeValue(val: Value, mod: *Module) bool {
-        return mod.intern_pool.indexToKey(val.toIntern()) == .runtime_value;
+        return mod.intern_pool.isRuntimeValue(val.toIntern());
     }
 
     /// Returns true if a Value is backed by a variable

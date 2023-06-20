@@ -5702,6 +5702,10 @@ pub fn isNoReturn(ip: *const InternPool, ty: Index) bool {
     };
 }
 
+pub fn isRuntimeValue(ip: *const InternPool, val: Index) bool {
+    return ip.items.items(.tag)[@intFromEnum(val)] == .runtime_value;
+}
+
 /// This is a particularly hot function, so we operate directly on encodings
 /// rather than the more straightforward implementation of calling `indexToKey`.
 pub fn zigTypeTagOrPoison(ip: *const InternPool, index: Index) error{GenericPoison}!std.builtin.TypeId {
