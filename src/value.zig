@@ -1851,33 +1851,9 @@ pub const Value = struct {
     }
 
     pub fn isPtrToThreadLocal(val: Value, mod: *Module) bool {
-        return val.ip_index != .none and switch (mod.intern_pool.indexToKey(val.toIntern())) {
-            .variable => false,
-            else => val.isPtrToThreadLocalInner(mod),
-        };
-    }
-
-    pub fn isPtrToThreadLocalInner(val: Value, mod: *Module) bool {
-        return val.ip_index != .none and switch (mod.intern_pool.indexToKey(val.toIntern())) {
-            .variable => |variable| variable.is_threadlocal,
-            .ptr => |ptr| switch (ptr.addr) {
-                .decl => |decl_index| {
-                    const decl = mod.declPtr(decl_index);
-                    assert(decl.has_tv);
-                    return decl.val.isPtrToThreadLocalInner(mod);
-                },
-                .mut_decl => |mut_decl| {
-                    const decl = mod.declPtr(mut_decl.decl);
-                    assert(decl.has_tv);
-                    return decl.val.isPtrToThreadLocalInner(mod);
-                },
-                .int => false,
-                .eu_payload, .opt_payload => |base_ptr| base_ptr.toValue().isPtrToThreadLocalInner(mod),
-                .comptime_field => |comptime_field| comptime_field.toValue().isPtrToThreadLocalInner(mod),
-                .elem, .field => |base_index| base_index.base.toValue().isPtrToThreadLocalInner(mod),
-            },
-            else => false,
-        };
+        const backing_decl = mod.intern_pool.getBackingDecl(val.toIntern()).unwrap() orelse return false;
+        const variable = mod.declPtr(backing_decl).getOwnedVariable(mod) orelse return false;
+        return variable.is_threadlocal;
     }
 
     // Asserts that the provided start/end are in-bounds.

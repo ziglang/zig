@@ -5706,6 +5706,30 @@ pub fn isRuntimeValue(ip: *const InternPool, val: Index) bool {
     return ip.items.items(.tag)[@intFromEnum(val)] == .runtime_value;
 }
 
+pub fn getBackingDecl(ip: *const InternPool, val: Index) Module.Decl.OptionalIndex {
+    var base = @intFromEnum(val);
+    while (true) {
+        switch (ip.items.items(.tag)[base]) {
+            inline .ptr_decl,
+            .ptr_mut_decl,
+            => |tag| return @enumFromInt(Module.Decl.OptionalIndex, ip.extra.items[
+                ip.items.items(.data)[base] + std.meta.fieldIndex(tag.Payload(), "decl").?
+            ]),
+            inline .ptr_eu_payload,
+            .ptr_opt_payload,
+            .ptr_elem,
+            .ptr_field,
+            => |tag| base = ip.extra.items[
+                ip.items.items(.data)[base] + std.meta.fieldIndex(tag.Payload(), "base").?
+            ],
+            inline .ptr_slice => |tag| base = ip.extra.items[
+                ip.items.items(.data)[base] + std.meta.fieldIndex(tag.Payload(), "ptr").?
+            ],
+            else => return .none,
+        }
+    }
+}
+
 /// This is a particularly hot function, so we operate directly on encodings
 /// rather than the more straightforward implementation of calling `indexToKey`.
 pub fn zigTypeTagOrPoison(ip: *const InternPool, index: Index) error{GenericPoison}!std.builtin.TypeId {
