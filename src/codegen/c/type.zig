@@ -537,9 +537,9 @@ pub const CType = extern union {
         };
     }
 
-    pub fn signedness(self: CType) ?std.builtin.Signedness {
+    pub fn signedness(self: CType, target: std.Target) std.builtin.Signedness {
         return switch (self.tag()) {
-            .char => null, // unknown signedness
+            .char => target.charSignedness(),
             .@"signed char",
             .short,
             .int,

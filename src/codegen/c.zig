@@ -1880,7 +1880,7 @@ pub const DeclGen = struct {
                 if (cty.isBool())
                     signAbbrev(.unsigned)
                 else if (cty.isInteger())
-                    signAbbrev(cty.signedness() orelse .unsigned)
+                    signAbbrev(cty.signedness(dg.module.getTarget()))
                 else if (cty.isFloat())
                     @as(u8, 'f')
                 else if (cty.isPointer())
