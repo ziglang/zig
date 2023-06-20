@@ -19,6 +19,29 @@ pub fn BufferedWriter(comptime buffer_size: usize, comptime WriterType: type) ty
             self.end = 0;
         }
 
+        usingnamespace if (@hasDecl(WriterType, "seeker")) struct {
+            pub const Seeker = io.Seeker(*Self, WriterType.SeekError, seek);
+
+            pub fn seeker(self: *Self) Seeker {
+                return .{ .context = self };
+            }
+
+            pub fn seek(self: *Self, whence: io.Whence) WriterType.SeekError!u64 {
+                switch (whence) {
+                    .start => {
+                        try self.flush();
+                    },
+                    .current, .end => |offset| {
+                        if (whence != .current or offset != 0) {
+                            try self.flush();
+                        }
+                    },
+                    .get_end_pos, .set_end_pos => {},
+                }
+                return self.unbuffered_writer.seeker().seek(whence);
+            }
+        } else struct {};
+
         pub fn writer(self: *Self) Writer {
             return .{ .context = self };
         }

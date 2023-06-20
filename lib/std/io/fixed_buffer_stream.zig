@@ -4,7 +4,7 @@ const testing = std.testing;
 const mem = std.mem;
 const assert = std.debug.assert;
 
-/// This turns a byte buffer into an `io.Writer`, `io.Reader`, or `io.SeekableStream`.
+/// This turns a byte buffer into an `io.Writer`, `io.Reader`, or `io.Seeker`.
 /// If the supplied byte buffer is const, then `io.Writer` is not available.
 pub fn FixedBufferStream(comptime Buffer: type) type {
     return struct {
@@ -19,6 +19,7 @@ pub fn FixedBufferStream(comptime Buffer: type) type {
 
         pub const Reader = io.Reader(*Self, ReadError, read);
         pub const Writer = io.Writer(*Self, WriteError, write);
+        pub const Seeker = io.Seeker(*Self, SeekError, seek);
 
         pub const SeekableStream = io.SeekableStream(
             *Self,
@@ -73,6 +74,32 @@ pub fn FixedBufferStream(comptime Buffer: type) type {
             if (n == 0) return error.NoSpaceLeft;
 
             return n;
+        }
+
+        pub fn seek(self: *Self, whence: io.Whence) SeekError!u64 {
+            switch (whence) {
+                .start => |offset| {
+                    self.pos = @intCast(@min(self.buffer.len, offset));
+                },
+                .current, .end => |offset| {
+                    var base: u64 = @intCast(if (whence == .end) self.buffer.len else self.pos);
+                    var newpos: i64 = @as(i64, @intCast(base)) + offset;
+                    if (newpos < 0) {
+                        self.pos = 0;
+                    } else {
+                        self.pos = @intCast(@min(@as(u64, @intCast(newpos)), self.buffer.len));
+                    }
+                },
+                .get_end_pos => {
+                    return @intCast(self.buffer.len);
+                },
+                .set_end_pos => {},
+            }
+            return @intCast(self.pos);
+        }
+
+        pub fn seeker(self: *Self) Seeker {
+            return .{ .context = self };
         }
 
         pub fn seekTo(self: *Self, pos: u64) SeekError!void {
@@ -169,13 +196,14 @@ test "FixedBufferStream output 2" {
     try testing.expectError(error.NoSpaceLeft, fbs.writer().writeAll("!"));
     try testing.expect(mem.eql(u8, fbs.getWritten(), "Helloworld"));
 
-    fbs.reset();
+    try fbs.seeker().rewind();
     try testing.expect(fbs.getWritten().len == 0);
 
     try testing.expectError(error.NoSpaceLeft, fbs.writer().writeAll("Hello world!"));
     try testing.expect(mem.eql(u8, fbs.getWritten(), "Hello worl"));
 
-    try fbs.seekTo((try fbs.getEndPos()) + 1);
+    var seeker = fbs.seeker();
+    try seeker.seekTo((try seeker.getEndPos()) + 1);
     try testing.expectError(error.NoSpaceLeft, fbs.writer().writeAll("H"));
 }
 
@@ -196,7 +224,8 @@ test "FixedBufferStream input" {
     read = try fbs.reader().read(&dest);
     try testing.expect(read == 0);
 
-    try fbs.seekTo((try fbs.getEndPos()) + 1);
+    var seeker = fbs.seeker();
+    try seeker.seekTo((try seeker.getEndPos()) + 1);
     read = try fbs.reader().read(&dest);
     try testing.expect(read == 0);
 }

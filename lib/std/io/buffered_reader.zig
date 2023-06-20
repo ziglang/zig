@@ -42,6 +42,28 @@ pub fn BufferedReader(comptime buffer_size: usize, comptime ReaderType: type) ty
         pub fn reader(self: *Self) Reader {
             return .{ .context = self };
         }
+
+        usingnamespace if (@hasDecl(ReaderType, "seeker")) struct {
+            pub const Seeker = io.Seeker(*Self, ReaderType.SeekError, seek);
+
+            pub fn seeker(self: *Self) Seeker {
+                return .{ .context = self };
+            }
+
+            pub fn seek(self: *Self, whence: io.Whence) ReaderType.SeekError!u64 {
+                switch (whence) {
+                    .start, .current, .end => |offset| {
+                        if (whence != .current or offset != 0) {
+                            self.pushback = 0;
+                            self.end = 0;
+                            self.start = 0;
+                        }
+                    },
+                    .get_end_pos, .set_end_pos => {},
+                }
+                return self.unbuffered_reader.seeker().seek(whence);
+            }
+        } else struct {};
     };
 }
 
