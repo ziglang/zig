@@ -540,7 +540,7 @@ pub fn main() void {
       {#code_end#}
       <p>
       There are no multiline comments in Zig (e.g. like <code class="c">/* */</code>
-      comments in C).  This helps allow Zig to have the property that each line
+      comments in C).  This allows Zig to have the property that each line
       of code can be tokenized out of context.
       </p>
       {#header_open|Doc Comments#}
